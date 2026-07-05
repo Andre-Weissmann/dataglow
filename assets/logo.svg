@@ -1,0 +1,5 @@
+<svg width="220" height="48" viewBox="0 0 220 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="DATAGLOW">
+  <text x="0" y="34" font-family="Poppins, sans-serif" font-weight="600" font-size="28" fill="#2D2D2D">data</text>
+  <text x="63" y="34" font-family="Poppins, sans-serif" font-weight="600" font-size="28" fill="#FF6B6B">glow</text>
+  <path d="M164 6 L166.5 12 L172.5 12 L167.5 15.5 L169.5 21.5 L164 18 L158.5 21.5 L160.5 15.5 L155.5 12 L161.5 12 Z" fill="#FF6B6B"/>
+</svg>

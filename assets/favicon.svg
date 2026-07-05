@@ -1,0 +1,5 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" rx="7" fill="#2D2D2D"/>
+  <text x="16" y="23" font-family="Poppins, sans-serif" font-weight="700" font-size="17" fill="#FF6B6B" text-anchor="middle">d</text>
+  <path d="M24 4 L25 7 L28 7 L25.5 8.8 L26.5 11.5 L24 9.8 L21.5 11.5 L22.5 8.8 L20 7 L23 7 Z" fill="#FF6B6B"/>
+</svg>

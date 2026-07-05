@@ -1,0 +1,703 @@
+// ============================================================
+// DATAGLOW — Main Application Controller
+// ============================================================
+
+import { state, getActiveDataset } from './state.js';
+import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
+import * as engine from './duckdb-engine.js';
+import * as loaders from './loaders.js';
+import * as validation from './validation.js';
+import * as viz from './visualize.js';
+import * as story from './story.js';
+import * as clean from './clean.js';
+import * as pyRuntime from './python-runtime.js';
+import * as rRuntime from './r-runtime.js';
+import * as swiftPreview from './swift-preview.js';
+
+// ============================================================
+// Tab Definitions
+// ============================================================
+const TAB_META = {
+  preflight: { label: 'Preflight', icon: 'check-circle' },
+  sql: { label: 'SQL', icon: 'database' },
+  python: { label: 'Python', icon: 'code' },
+  r: { label: 'R', icon: 'bar-chart-2' },
+  clean: { label: 'Clean', icon: 'sparkles' },
+  validate: { label: 'Validate', icon: 'shield' },
+  visualize: { label: 'Visualize', icon: 'pie-chart' },
+  story: { label: 'Story', icon: 'book-open' },
+  swift: { label: 'Swift', icon: 'smartphone' },
+};
+
+const ICONS = {
+  'check-circle': '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+  code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  'bar-chart-2': '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  sparkles: '<path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  'pie-chart': '<path d="M21.21 15.89A10 10 0 118 2.83"/><path d="M22 12A10 10 0 0012 2v10z"/>',
+  'book-open': '<path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>',
+  smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/>',
+};
+
+function iconSvg(name, size = 15) {
+  return `<svg class="tab-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICONS[name] || ''}</svg>`;
+}
+
+// ============================================================
+// Theme
+// ============================================================
+function applyTheme(theme) {
+  state.theme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = $('#btn-theme-toggle');
+  btn.innerHTML = theme === 'dark'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+  $('#theme-chip-light').classList.toggle('active', theme === 'light');
+  $('#theme-chip-dark').classList.toggle('active', theme === 'dark');
+}
+
+function initTheme() {
+  const preferred = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  applyTheme(preferred);
+  $('#btn-theme-toggle').addEventListener('click', () => applyTheme(state.theme === 'dark' ? 'light' : 'dark'));
+  $('#theme-chip-light').addEventListener('click', () => applyTheme('light'));
+  $('#theme-chip-dark').addEventListener('click', () => applyTheme('dark'));
+}
+
+// ============================================================
+// Tab Bar (draggable + reorderable)
+// ============================================================
+let activeTab = 'preflight';
+
+function renderTabBar() {
+  const bar = $('#tabbar');
+  bar.innerHTML = '';
+  state.tabOrder.forEach((tabId, idx) => {
+    const meta = TAB_META[tabId];
+    const tabEl = el('div', {
+      class: `tab ${tabId === activeTab ? 'active' : ''}`,
+      draggable: 'true',
+      'data-tab': tabId,
+      'data-testid': `tab-${tabId}`,
+      onclick: () => switchTab(tabId),
+    }, [
+      el('span', { html: iconSvg(meta.icon) }),
+      el('span', {}, meta.label),
+    ]);
+    tabEl.addEventListener('dragstart', (e) => { tabEl.classList.add('dragging'); e.dataTransfer.setData('text/plain', idx); });
+    tabEl.addEventListener('dragend', () => tabEl.classList.remove('dragging'));
+    tabEl.addEventListener('dragover', (e) => e.preventDefault());
+    tabEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const toIdx = idx;
+      if (fromIdx === toIdx) return;
+      const arr = [...state.tabOrder];
+      const [moved] = arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, moved);
+      state.tabOrder = arr;
+      renderTabBar();
+    });
+    bar.appendChild(tabEl);
+  });
+}
+
+function switchTab(tabId) {
+  activeTab = tabId;
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+  $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tabId));
+  if (tabId === 'python') ensurePythonRuntime();
+  if (tabId === 'r') ensureRRuntime();
+  if (tabId === 'swift' && !$('#swift-input').value) {
+    $('#swift-input').value = swiftPreview.SWIFT_TEMPLATE;
+    $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
+  }
+}
+
+// ============================================================
+// Dataset Sidebar
+// ============================================================
+function renderSidebar() {
+  const list = $('#dataset-list');
+  const tableList = $('#table-list');
+  if (state.datasets.length === 0) {
+    list.innerHTML = '<div style="font-size:var(--text-xs); color:var(--color-text-faint);">No datasets loaded yet</div>';
+    tableList.innerHTML = 'No tables yet';
+  } else {
+    list.innerHTML = '';
+    state.datasets.forEach(ds => {
+      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); } }, [
+        el('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', html: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' }),
+        el('span', { style: 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, ds.name),
+      ]);
+      list.appendChild(item);
+    });
+    tableList.innerHTML = state.datasets.map(ds => `<div class="mono" style="padding:4px 0;">${escapeHtml(ds.table)} <span style="color:var(--color-text-faint);">(${ds.rowCount.toLocaleString()})</span></div>`).join('');
+  }
+  refreshFreshnessBadge();
+}
+
+function refreshFreshnessBadge() {
+  const ds = getActiveDataset();
+  const badge = $('#freshness-badge');
+  const text = $('#freshness-text');
+  if (!ds) { text.textContent = 'No dataset loaded'; badge.className = 'freshness-badge'; return; }
+  const ageHours = (Date.now() - ds.loadedAt) / 3600000;
+  const threshold = state.settings.freshnessThresholdHours;
+  text.textContent = `${ds.table} — loaded ${timeAgo(ds.loadedAt)}`;
+  badge.className = 'freshness-badge' + (ageHours > threshold * 3 ? ' very-stale' : ageHours > threshold ? ' stale' : '');
+}
+setInterval(refreshFreshnessBadge, 30000);
+
+// ============================================================
+// File Loading
+// ============================================================
+function initFileLoading() {
+  const dropzone = $('#dropzone');
+  const fileInput = $('#file-input');
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', async (e) => {
+    e.preventDefault(); dropzone.classList.remove('dragover');
+    await handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', async (e) => { await handleFiles(e.target.files); fileInput.value = ''; });
+
+  $('#btn-load-golden').addEventListener('click', async () => {
+    await ensureDuckDB();
+    await loaders.loadGoldenDataset();
+    renderSidebar();
+    resetPanelStates();
+  });
+}
+
+async function handleFiles(files) {
+  await ensureDuckDB();
+  for (const file of files) {
+    try {
+      await loaders.loadFile(file);
+    } catch (e) { /* toast already shown */ }
+  }
+  renderSidebar();
+  resetPanelStates();
+}
+
+function resetPanelStates() {
+  const hasData = state.datasets.length > 0;
+  $('#preflight-empty').style.display = hasData ? 'none' : '';
+  $('#clean-empty').style.display = hasData ? 'none' : '';
+  $('#validate-empty').style.display = hasData ? 'none' : '';
+  $('#visualize-empty').style.display = hasData ? 'none' : '';
+  if (hasData) {
+    $('#sql-input').value = $('#sql-input').value || `SELECT * FROM ${getActiveDataset().table} LIMIT 100;`;
+    populateVisualizeBuilder();
+  }
+}
+
+let duckdbReadyPromise = null;
+async function ensureDuckDB() {
+  if (state.duckdb.ready) return;
+  toast('Starting DuckDB-WASM engine…', 'warn');
+  await engine.initDuckDB();
+  toast('DuckDB-WASM engine ready', 'success');
+}
+
+// ============================================================
+// Preflight Tab
+// ============================================================
+async function runPreflight() {
+  const ds = getActiveDataset();
+  if (!ds) { toast('Load a dataset first', 'error'); return; }
+  $('#preflight-empty').style.display = 'none';
+  const resultsEl = $('#preflight-results');
+  resultsEl.style.display = '';
+  resultsEl.innerHTML = '<div class="skeleton" style="height:120px; border-radius:var(--radius-lg);"></div>';
+
+  const checks = [];
+  checks.push({ label: 'Rows loaded', value: ds.rowCount.toLocaleString(), status: ds.rowCount > 0 ? 'pass' : 'fail' });
+  checks.push({ label: 'Columns', value: ds.cols.length, status: ds.cols.length > 0 ? 'pass' : 'fail' });
+
+  let nullCols = 0;
+  for (const c of ds.cols) {
+    const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${ds.table} WHERE "${c.name}" IS NULL`);
+    if (rows[0].n > 0) nullCols++;
+  }
+  checks.push({ label: 'Columns with nulls', value: `${nullCols} / ${ds.cols.length}`, status: nullCols === 0 ? 'pass' : nullCols < ds.cols.length / 2 ? 'warn' : 'fail' });
+
+  const allCols = ds.cols.map(c => `"${c.name}"`).join(',');
+  const { rows: dupRows } = await engine.runQuery(`SELECT SUM(c) - COUNT(*) AS extra FROM (SELECT ${allCols}, COUNT(*) AS c FROM ${ds.table} GROUP BY ${allCols} HAVING COUNT(*) > 1) t`);
+  checks.push({ label: 'Duplicate rows', value: dupRows[0].extra || 0, status: !dupRows[0].extra ? 'pass' : 'warn' });
+
+  const ageHours = (Date.now() - ds.loadedAt) / 3600000;
+  checks.push({ label: 'Freshness', value: timeAgo(ds.loadedAt), status: ageHours < state.settings.freshnessThresholdHours ? 'pass' : 'warn' });
+
+  const failCount = checks.filter(c => c.status === 'fail').length;
+  const warnCount = checks.filter(c => c.status === 'warn').length;
+  const overall = failCount > 0 ? 'fail' : warnCount > 0 ? 'warn' : 'pass';
+
+  resultsEl.innerHTML = '';
+  const summary = el('div', { class: 'card', style: 'padding:var(--space-5); margin-bottom:var(--space-4); display:flex; align-items:center; gap:var(--space-3);' }, [
+    el('span', { class: `status-dot ${overall}`, style: 'width:14px;height:14px;' }),
+    el('div', {}, [
+      el('div', { style: 'font-weight:600; font-size:var(--text-lg);' }, overall === 'pass' ? 'Ready for analysis' : overall === 'warn' ? 'Usable, with caveats' : 'Needs attention before analysis'),
+      el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted);' }, `Dataset: ${ds.table} · ${ds.cols.length} columns · ${ds.rowCount.toLocaleString()} rows`),
+    ]),
+  ]);
+  resultsEl.appendChild(summary);
+
+  const grid = el('div', { class: 'validation-grid' });
+  for (const c of checks) {
+    grid.appendChild(el('div', { class: 'card validation-card' }, [
+      el('div', { class: 'validation-card-head' }, [
+        el('span', { class: 'validation-card-name' }, c.label),
+        el('span', { class: `validation-status ${c.status}` }, [el('span', { class: `status-dot ${c.status}` }), c.status.toUpperCase()]),
+      ]),
+      el('div', { style: 'font-size:var(--text-lg); font-weight:600;' }, String(c.value)),
+    ]));
+  }
+  resultsEl.appendChild(grid);
+
+  const colsCard = el('div', { class: 'card', style: 'padding:var(--space-4); margin-top:var(--space-4);' }, [
+    el('div', { class: 'sidebar-heading' }, 'Column Schema'),
+    el('div', { class: 'result-table-wrap' }, [
+      el('table', { class: 'result-table', html: `<thead><tr><th>Column</th><th>Type</th></tr></thead><tbody>${ds.cols.map(c => `<tr><td>${escapeHtml(c.name)}</td><td class="mono">${escapeHtml(c.type)}</td></tr>`).join('')}</tbody>` }),
+    ]),
+  ]);
+  resultsEl.appendChild(colsCard);
+}
+
+// ============================================================
+// SQL Tab
+// ============================================================
+async function runSqlQuery() {
+  const sql = $('#sql-input').value.trim();
+  if (!sql) return;
+  await ensureDuckDB();
+  const statusEl = $('#sql-status');
+  const resultWrap = $('#sql-result-wrap');
+  statusEl.textContent = 'Running…';
+  resultWrap.innerHTML = '<div class="skeleton" style="height:200px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
+  try {
+    const result = await engine.runQuery(sql);
+    state.lastQuery = sql;
+    state.lastQueryResult = result;
+    statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
+    renderResultTable(resultWrap, result);
+    $('#story-empty').style.display = 'none';
+  } catch (err) {
+    statusEl.textContent = '';
+    resultWrap.innerHTML = `<div class="card" style="padding:var(--space-4); border-color:var(--color-error); color:var(--color-error); font-size:var(--text-sm);" class="mono">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderResultTable(container, result) {
+  if (result.rows.length === 0) {
+    container.innerHTML = '<div style="padding:var(--space-6); text-align:center; color:var(--color-text-muted); font-size:var(--text-sm);">Query returned no rows.</div>';
+    return;
+  }
+  const head = `<thead><tr>${result.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>`;
+  const body = `<tbody>${result.rows.slice(0, 500).map(r => `<tr>${result.columns.map(c => `<td>${escapeHtml(formatNumber(r[c]))}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  container.innerHTML = `<div class="result-table-wrap" style="margin-top:var(--space-3);"><table class="result-table">${head}${body}</table></div>`;
+}
+
+function initSqlTab() {
+  $('#btn-sql-run').addEventListener('click', runSqlQuery);
+  $('#btn-sql-format').addEventListener('click', () => {
+    const el = $('#sql-input');
+    el.value = el.value.replace(/\s+/g, ' ').replace(/\bSELECT\b/gi, '\nSELECT').replace(/\bFROM\b/gi, '\nFROM').replace(/\bWHERE\b/gi, '\nWHERE').replace(/\bGROUP BY\b/gi, '\nGROUP BY').replace(/\bORDER BY\b/gi, '\nORDER BY').trim();
+  });
+  $('#sql-input').addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runSqlQuery(); }
+  });
+}
+
+// ============================================================
+// Python Tab
+// ============================================================
+let pythonInitStarted = false;
+function ensurePythonRuntime() {
+  if (pythonInitStarted) return;
+  pythonInitStarted = true;
+  const statusBadge = $('#py-status');
+  pyRuntime.initPyodideRuntime((status) => {
+    if (status === 'ready') {
+      statusBadge.textContent = 'Ready';
+      statusBadge.className = 'badge badge-a';
+      $('#btn-py-run').disabled = false;
+    } else {
+      statusBadge.textContent = status;
+    }
+  }).catch(err => { statusBadge.textContent = 'Failed to load'; statusBadge.className = 'badge badge-d'; toast('Python runtime failed to load: ' + err.message, 'error'); });
+}
+
+function initPythonTab() {
+  $('#btn-py-run').addEventListener('click', async () => {
+    const code = $('#py-input').value;
+    const outWrap = $('#py-output-wrap');
+    outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
+    try {
+      const { stdout, result, error } = await pyRuntime.runPython(code, getActiveDataset()?.table);
+      let html = '<div class="console-log" style="margin-top:var(--space-3);">';
+      if (stdout) html += escapeHtml(stdout);
+      if (result) html += (stdout ? '\n' : '') + `<span class="ok">${escapeHtml(result)}</span>`;
+      if (error) html += `<span class="err">${escapeHtml(error)}</span>`;
+      if (!stdout && !result && !error) html += '<span style="color:var(--color-text-faint);">(no output)</span>';
+      html += '</div>';
+      outWrap.innerHTML = html;
+    } catch (err) {
+      outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
+    }
+  });
+  $('#py-input').addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !$('#btn-py-run').disabled) { e.preventDefault(); $('#btn-py-run').click(); }
+  });
+}
+
+// ============================================================
+// R Tab
+// ============================================================
+let rInitStarted = false;
+function ensureRRuntime() {
+  if (rInitStarted) return;
+  rInitStarted = true;
+  const statusBadge = $('#r-status');
+  rRuntime.initWebRRuntime((status) => {
+    if (status === 'ready') {
+      statusBadge.textContent = 'Ready';
+      statusBadge.className = 'badge badge-a';
+      $('#btn-r-run').disabled = false;
+    } else {
+      statusBadge.textContent = status;
+    }
+  }).catch(err => { statusBadge.textContent = 'Failed to load'; statusBadge.className = 'badge badge-d'; toast('R runtime failed to load: ' + err.message, 'error'); });
+}
+
+function initRTab() {
+  $('#btn-r-run').addEventListener('click', async () => {
+    const code = $('#r-input').value;
+    const outWrap = $('#r-output-wrap');
+    outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
+    try {
+      const { stdout, error } = await rRuntime.runR(code);
+      let html = '<div class="console-log" style="margin-top:var(--space-3);">';
+      html += stdout ? escapeHtml(stdout) : '<span style="color:var(--color-text-faint);">(no output)</span>';
+      if (error) html += `\n<span class="err">${escapeHtml(error)}</span>`;
+      html += '</div>';
+      outWrap.innerHTML = html;
+    } catch (err) {
+      outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
+    }
+  });
+}
+
+// ============================================================
+// Clean Tab
+// ============================================================
+async function scanClean() {
+  const ds = getActiveDataset();
+  if (!ds) { toast('Load a dataset first', 'error'); return; }
+  $('#clean-empty').style.display = 'none';
+  const resultsEl = $('#clean-results');
+  resultsEl.style.display = '';
+  resultsEl.innerHTML = '<div class="skeleton" style="height:160px; border-radius:var(--radius-lg);"></div>';
+
+  const issues = await clean.scanForIssues(ds.table, ds.cols);
+  const auditLog = [];
+  window.__dataglowAuditLog = auditLog;
+
+  if (issues.length === 0) {
+    resultsEl.innerHTML = '<div class="card" style="padding:var(--space-6); text-align:center;"><div style="font-size:var(--text-lg); font-weight:600; color:var(--color-grade-a); margin-bottom:4px;">No issues found</div><div style="color:var(--color-text-muted); font-size:var(--text-sm);">This dataset looks clean.</div></div>';
+    return;
+  }
+
+  resultsEl.innerHTML = '';
+  const grid = el('div', { class: 'validation-grid' });
+  for (const issue of issues) {
+    const card = el('div', { class: 'card validation-card' });
+    card.appendChild(el('div', { class: 'validation-card-head' }, [
+      el('span', { class: 'validation-card-name' }, issue.label),
+    ]));
+    const fixRow = el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2);' });
+    for (const fixType of issue.fixes) {
+      const btn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px;', 'data-testid': `button-fix-${issue.id}-${fixType}` }, clean.FIX_LABELS[fixType]);
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        await clean.applyFix(ds.table, issue, fixType, auditLog);
+        renderAuditLog(auditLog);
+        toast(`Applied: ${clean.FIX_LABELS[fixType]}`, 'success');
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        ds.rowCount = await engine.getRowCount(ds.table);
+        renderSidebar();
+      });
+      fixRow.appendChild(btn);
+    }
+    card.appendChild(fixRow);
+    grid.appendChild(card);
+  }
+  resultsEl.appendChild(grid);
+  $('#clean-audit-wrap').style.display = '';
+  renderAuditLog(auditLog);
+}
+
+function renderAuditLog(auditLog) {
+  const logEl = $('#clean-audit-log');
+  logEl.innerHTML = auditLog.length ? auditLog.map(l => `<div>${escapeHtml(l)}</div>`).join('') : '<span style="color:var(--color-text-faint);">No fixes applied yet.</span>';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ============================================================
+// Validate Tab (13 layers)
+// ============================================================
+function statusIcon(status) {
+  const icons = { pass: '✓', fail: '✕', warn: '!', idle: '—' };
+  return icons[status] || '—';
+}
+
+async function runValidation() {
+  const ds = getActiveDataset();
+  if (!ds) { toast('Load a dataset first', 'error'); return; }
+  $('#validate-empty').style.display = 'none';
+  const grid = $('#validation-grid');
+  grid.style.display = '';
+  grid.innerHTML = validation.LAYER_DEFS.map(() => '<div class="skeleton" style="height:110px; border-radius:var(--radius-lg);"></div>').join('');
+
+  const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
+  renderValidationResults(results);
+}
+
+function renderValidationResults(results) {
+  const grid = $('#validation-grid');
+  grid.innerHTML = '';
+  for (const layer of validation.LAYER_DEFS) {
+    if (layer.id === 'confidence') {
+      renderConfidenceSummary(results.confidence);
+      continue;
+    }
+    if (layer.id === 'red_team') continue; // rendered via modal
+    const r = results[layer.id] || { status: 'idle', summary: 'Not run' };
+    const card = el('div', { class: 'card validation-card', 'data-testid': `card-validation-${layer.id}` }, [
+      el('div', { class: 'validation-card-head' }, [
+        el('span', { class: 'validation-card-name' }, layer.name),
+        el('span', { class: `validation-status ${r.status}` }, [el('span', { class: `status-dot ${r.status}` }), r.status.toUpperCase()]),
+      ]),
+      el('div', { class: 'validation-card-desc' }, layer.desc),
+      el('div', { style: 'font-size:var(--text-sm); margin-top:var(--space-1);' }, r.summary),
+    ]);
+    if (r.detail && Array.isArray(r.detail)) {
+      const detailList = el('ul', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); padding-left:var(--space-4); margin-top:var(--space-1);' });
+      r.detail.slice(0, 5).forEach(d => detailList.appendChild(el('li', {}, d)));
+      card.appendChild(detailList);
+    }
+    grid.appendChild(card);
+  }
+}
+
+function renderConfidenceSummary(c) {
+  if (!c) return;
+  $('#confidence-summary').style.display = '';
+  $('#confidence-score').textContent = c.score;
+  $('#confidence-grade-label').textContent = `Grade ${c.grade}`;
+  const gradeColors = { A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)' };
+  $('#confidence-ring-arc').setAttribute('stroke', gradeColors[c.grade]);
+  $('#confidence-grade-label').style.color = gradeColors[c.grade];
+  const circumference = 264;
+  $('#confidence-ring-arc').setAttribute('stroke-dashoffset', String(circumference * (1 - c.score / 100)));
+  $('#confidence-verdict').textContent = c.verdict;
+  $('#confidence-verdict').style.color = c.status === 'pass' ? 'var(--color-grade-a)' : c.status === 'warn' ? 'var(--color-grade-c)' : 'var(--color-grade-d)';
+  $('#confidence-detail').textContent = `Score computed from 5 signals: sample coverage, null rate, variance, subsample stability, and sample size.`;
+  const signalsEl = $('#confidence-signals');
+  signalsEl.innerHTML = '';
+  for (const [label, val] of Object.entries(c.signals)) {
+    signalsEl.appendChild(el('div', { style: 'text-align:center;' }, [
+      el('div', { style: 'font-size:var(--text-lg); font-weight:600;' }, `${val}`),
+      el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); max-width:80px;' }, label),
+    ]));
+  }
+}
+
+// ============================================================
+// Red Team Mode
+// ============================================================
+function initRedTeam() {
+  $('#btn-red-team').addEventListener('click', () => $('#redteam-modal').classList.add('open'));
+  $('#btn-redteam-close').addEventListener('click', () => $('#redteam-modal').classList.remove('open'));
+  $('#btn-redteam-run').addEventListener('click', async () => {
+    const resultsEl = $('#redteam-results');
+    resultsEl.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md);"></div>';
+    await ensureDuckDB();
+    const ds = await loaders.loadGoldenDataset();
+    renderSidebar();
+    resetPanelStates();
+    const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
+    const expected = validation.getExpectedGoldenFindings();
+
+    const checks = [
+      { layer: 'unit_tests', label: 'Unit Test Layer', pass: results.unit_tests.status === 'fail' },
+      { layer: 'semantic_drift', label: 'Semantic Drift Detector', pass: results.semantic_drift.status === 'fail' },
+      { layer: 'sanity_anchor', label: 'Sanity Anchor', pass: results.sanity_anchor.status === 'pass' },
+      { layer: 'schema_fingerprint', label: 'Schema Fingerprint', pass: results.schema_fingerprint.status === 'pass' },
+      { layer: 'confidence', label: 'Confidence Layer', pass: results.confidence.score < 80 },
+    ];
+    const allPassed = checks.every(c => c.pass);
+
+    resultsEl.innerHTML = '';
+    resultsEl.appendChild(el('div', { class: 'card', style: `padding:var(--space-4); margin-bottom:var(--space-3); border-color:${allPassed ? 'var(--color-grade-a)' : 'var(--color-grade-d)'};` }, [
+      el('div', { style: `font-weight:600; color:${allPassed ? 'var(--color-grade-a)' : 'var(--color-grade-d)'};` }, allPassed ? 'Self-attack test PASSED — validation layers are catching real issues.' : 'Self-attack test FAILED — one or more layers missed a known issue.'),
+    ]));
+    for (const c of checks) {
+      resultsEl.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider); font-size:var(--text-sm);' }, [
+        el('span', { class: `status-dot ${c.pass ? 'pass' : 'fail'}` }),
+        el('span', {}, c.label),
+        el('span', { style: 'margin-left:auto; color:var(--color-text-faint); font-size:var(--text-xs);' }, c.pass ? 'caught it' : 'missed it'),
+      ]));
+    }
+    switchTab('validate');
+    renderValidationResults(results);
+    $('#redteam-modal').classList.remove('open');
+    toast(allPassed ? 'Red Team self-test passed' : 'Red Team self-test found a gap', allPassed ? 'success' : 'error');
+  });
+}
+
+// ============================================================
+// Visualize Tab
+// ============================================================
+function populateVisualizeBuilder() {
+  const ds = getActiveDataset();
+  if (!ds) return;
+  $('#visualize-builder').style.display = '';
+  const xSel = $('#viz-x'), ySel = $('#viz-y');
+  xSel.innerHTML = ds.cols.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  ySel.innerHTML = ds.cols.filter(c => ['DOUBLE','BIGINT','INTEGER','HUGEINT','FLOAT'].includes(c.type)).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+}
+
+function initVisualizeTab() {
+  $('#viz-chart-type').addEventListener('change', () => {
+    const type = $('#viz-chart-type').value;
+    $('#viz-y-wrap').style.display = ['pie', 'histogram', 'box'].includes(type) ? 'none' : '';
+  });
+  $('#btn-viz-generate').addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    const type = $('#viz-chart-type').value;
+    const x = $('#viz-x').value;
+    const y = $('#viz-y').value;
+    try {
+      await viz.renderChart('viz-chart', ds.table, type, x, y);
+    } catch (err) {
+      toast('Chart error: ' + err.message, 'error');
+    }
+  });
+  $('#btn-viz-export').addEventListener('click', () => viz.exportChartPNG('viz-chart', `dataglow-${getActiveDataset()?.table || 'chart'}`));
+}
+
+// ============================================================
+// Story Tab
+// ============================================================
+function initStoryTab() {
+  $('#btn-story-generate').addEventListener('click', async () => {
+    if (!state.lastQueryResult) { toast('Run a SQL query first', 'error'); return; }
+    const btn = $('#btn-story-generate');
+    btn.disabled = true; btn.textContent = 'Generating…';
+    try {
+      const provider = state.settings.modelProvider;
+      const apiKey = state.settings.apiKeys[provider];
+      const { text, source } = await story.generateStory(state.lastQueryResult, getActiveDataset().table, provider, apiKey);
+      state.lastStory = text.replace(/<[^>]+>/g, ''); // plain text kept for consistency checker
+      $('#story-empty').style.display = 'none';
+      $('#story-content-wrap').style.display = '';
+      $('#story-text').innerHTML = `<p>${text}</p>`;
+      const consistency = await validation.checkNarrativeConsistency(state.lastStory, state.lastQueryResult);
+      const consistEl = $('#story-consistency');
+      if (consistency.status === 'pass') {
+        consistEl.innerHTML = `<div class="validation-status pass"><span class="status-dot pass"></span> All numbers in this story match the underlying query result.</div>`;
+      } else {
+        consistEl.innerHTML = `<div class="validation-status fail"><span class="status-dot fail"></span> ${consistency.mismatches.length} number(s) don't clearly match the query result: ${consistency.mismatches.slice(0,5).map(escapeHtml).join(', ')}</div>`;
+      }
+      const badge = $('#story-model-badge');
+      badge.textContent = source === 'local' ? 'Rule-based (offline)' : source === 'local-fallback' ? 'Rule-based (API fallback)' : story.MODEL_PROVIDERS.find(p => p.id === provider)?.name || provider;
+    } catch (err) {
+      toast('Story generation failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Generate Story';
+    }
+  });
+}
+
+// ============================================================
+// Swift Tab
+// ============================================================
+function initSwiftTab() {
+  $('#btn-swift-run').addEventListener('click', () => {
+    swiftPreview.renderSwiftPreview($('#swift-input').value, 'swift-preview-wrap');
+  });
+}
+
+// ============================================================
+// Settings Modal
+// ============================================================
+function initSettings() {
+  const providerList = $('#model-provider-list');
+  story.MODEL_PROVIDERS.forEach(p => {
+    const chip = el('div', {
+      class: `chip ${state.settings.modelProvider === p.id ? 'active' : ''}`,
+      style: 'width:100%; justify-content:flex-start; padding:var(--space-3);',
+      'data-testid': `chip-provider-${p.id}`,
+      onclick: () => {
+        state.settings.modelProvider = p.id;
+        $$('.chip[data-provider]').forEach(c => c.classList.remove('active'));
+        $$('#model-provider-list .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        $('#api-key-section').style.display = (p.builtIn) ? 'none' : '';
+        $('#model-api-key').value = state.settings.apiKeys[p.id] || '';
+      },
+    }, [
+      el('span', {}, p.name),
+      p.builtIn ? el('span', { class: 'badge badge-a', style: 'margin-left:auto;' }, 'No key needed') : el('span', { class: 'badge badge-b', style: 'margin-left:auto;' }, 'Requires API key'),
+    ]);
+    chip.setAttribute('data-provider', p.id);
+    providerList.appendChild(chip);
+  });
+
+  $('#btn-settings').addEventListener('click', () => $('#settings-modal').classList.add('open'));
+  $('#btn-settings-close').addEventListener('click', () => $('#settings-modal').classList.remove('open'));
+  $('#freshness-threshold').addEventListener('change', (e) => { state.settings.freshnessThresholdHours = parseInt(e.target.value, 10); });
+  $('#btn-settings-save').addEventListener('click', () => {
+    const provider = state.settings.modelProvider;
+    const key = $('#model-api-key').value.trim();
+    if (key) state.settings.apiKeys[provider] = key;
+    $('#settings-modal').classList.remove('open');
+    refreshFreshnessBadge();
+    toast('Settings saved', 'success');
+  });
+}
+
+// ============================================================
+// Init
+// ============================================================
+function init() {
+  renderTabBar();
+  switchTab('preflight');
+  initTheme();
+  initFileLoading();
+  initSqlTab();
+  initPythonTab();
+  initRTab();
+  initVisualizeTab();
+  initStoryTab();
+  initSwiftTab();
+  initSettings();
+  initRedTeam();
+
+  $('#btn-run-preflight').addEventListener('click', runPreflight);
+  $('#btn-clean-scan').addEventListener('click', scanClean);
+  $('#btn-validate-run').addEventListener('click', runValidation);
+
+  renderSidebar();
+}
+
+document.addEventListener('DOMContentLoaded', init);

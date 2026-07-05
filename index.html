@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DATAGLOW — Your data, glowing.</title>
+<meta name="description" content="A universal, browser-based, all-in-one data analytics platform. SQL, Python, R, cleaning, validation, and storytelling — zero server, zero uploads.">
+<meta property="og:title" content="DATAGLOW — Your data, glowing.">
+<meta property="og:description" content="A universal, browser-based data analytics platform with 13 validation layers, built for healthcare and beyond.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand" aria-label="DATAGLOW">
+        <img src="assets/logo.svg" alt="DATAGLOW" style="height:20px">
+      </div>
+      <div class="freshness-badge" id="freshness-badge" title="Data freshness">
+        <span class="freshness-dot"></span>
+        <span id="freshness-text">No dataset loaded</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-secondary" id="btn-red-team" data-testid="button-red-team">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
+        Red Team Mode
+      </button>
+      <button class="icon-btn" id="btn-settings" title="Settings" data-testid="button-settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.19.4.51.73.91.9.4.17.86.2 1.28.1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-theme-toggle" title="Toggle theme" data-theme-toggle data-testid="button-theme-toggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ TAB BAR ============ -->
+  <nav class="tabbar" id="tabbar" aria-label="DATAGLOW tabs"></nav>
+
+  <!-- ============ MAIN AREA ============ -->
+  <div class="main-area">
+
+    <!-- Dataset sidebar -->
+    <aside class="data-sidebar" id="data-sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-heading">Load Data</div>
+        <div class="dropzone" id="dropzone" data-testid="dropzone-upload">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div style="font-size:var(--text-sm); font-weight:500;">Drop a file</div>
+          <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">CSV, JSON, Excel, Parquet, SQLite…</div>
+          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather,.sqlite,.db" multiple>
+        </div>
+        <button class="btn btn-ghost" id="btn-load-golden" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-golden">
+          Load Golden Test Dataset
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-heading">Datasets</div>
+        <div id="dataset-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-heading">Tables (DuckDB)</div>
+        <div id="table-list" style="font-size:var(--text-xs); color:var(--color-text-faint);">No tables yet</div>
+      </div>
+    </aside>
+
+    <!-- ============ PREFLIGHT TAB ============ -->
+    <section class="panel" id="panel-preflight" data-panel="preflight">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Preflight</div>
+          <div class="panel-subtitle">Data quality checklist — runs automatically before any analysis</div>
+        </div>
+        <button class="btn btn-primary" id="btn-run-preflight" data-testid="button-run-preflight">Run Preflight Check</button>
+      </div>
+      <div id="preflight-empty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        <h3>No dataset loaded</h3>
+        <p>Load a file to run the preflight quality checklist.</p>
+      </div>
+      <div id="preflight-results" style="display:none;"></div>
+    </section>
+
+    <!-- ============ SQL TAB ============ -->
+    <section class="panel" id="panel-sql" data-panel="sql">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">SQL</div>
+          <div class="panel-subtitle">DuckDB-WASM query engine — runs entirely in your browser</div>
+        </div>
+        <div style="display:flex; gap:var(--space-2);">
+          <button class="btn btn-secondary" id="btn-sql-format" data-testid="button-sql-format">Format</button>
+          <button class="btn btn-primary" id="btn-sql-run" data-testid="button-sql-run">▶ Run (⌘⏎)</button>
+        </div>
+      </div>
+      <div class="sql-editor-wrap">
+        <textarea class="sql-textarea mono" id="sql-input" spellcheck="false" placeholder="SELECT * FROM dataset LIMIT 100;" data-testid="input-sql"></textarea>
+        <div id="sql-autocomplete-hint" style="font-size:var(--text-xs); color:var(--color-text-faint);">Tip: type a table name, then <span class="mono">.</span> for column suggestions. ⌘/Ctrl+Enter to run.</div>
+        <div id="sql-status" style="font-size:var(--text-xs); color:var(--color-text-muted);"></div>
+        <div id="sql-result-wrap"></div>
+      </div>
+    </section>
+
+    <!-- ============ PYTHON TAB ============ -->
+    <section class="panel" id="panel-python" data-panel="python">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Python</div>
+          <div class="panel-subtitle">Pyodide 3.12 — pandas, numpy &amp; more, running in-browser</div>
+        </div>
+        <div style="display:flex; gap:var(--space-2);">
+          <span id="py-status" class="badge badge-c">Loading runtime…</span>
+          <button class="btn btn-primary" id="btn-py-run" disabled data-testid="button-py-run">▶ Run (⌘⏎)</button>
+        </div>
+      </div>
+      <div class="sql-editor-wrap">
+        <textarea class="sql-textarea mono" id="py-input" spellcheck="false" placeholder="import pandas as pd&#10;df = dataglow.get_df('dataset')&#10;df.describe()" data-testid="input-python"></textarea>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow.get_df('table_name')</span> to load a loaded table as a pandas DataFrame. Libraries: pandas, numpy. Others load on demand (may take a moment).</div>
+        <div id="py-output-wrap"></div>
+      </div>
+    </section>
+
+    <!-- ============ R TAB ============ -->
+    <section class="panel" id="panel-r" data-panel="r">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">R</div>
+          <div class="panel-subtitle">WebR 4.4 — base R and tidyverse-style analysis in-browser</div>
+        </div>
+        <div style="display:flex; gap:var(--space-2);">
+          <span id="r-status" class="badge badge-c">Loading runtime…</span>
+          <button class="btn btn-primary" id="btn-r-run" disabled data-testid="button-r-run">▶ Run (⌘⏎)</button>
+        </div>
+      </div>
+      <div class="sql-editor-wrap">
+        <textarea class="sql-textarea mono" id="r-input" spellcheck="false" placeholder="df <- dataglow_get_df('dataset')&#10;summary(df)" data-testid="input-r"></textarea>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow_get_df('table_name')</span> to pull a loaded table into an R data.frame.</div>
+        <div id="r-output-wrap"></div>
+      </div>
+    </section>
+
+    <!-- ============ CLEAN TAB ============ -->
+    <section class="panel" id="panel-clean" data-panel="clean">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Clean</div>
+          <div class="panel-subtitle">Automated data cleaning with a full audit trail</div>
+        </div>
+        <button class="btn btn-primary" id="btn-clean-scan" data-testid="button-clean-scan">Scan for Issues</button>
+      </div>
+      <div id="clean-empty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+        <h3>No dataset loaded</h3>
+        <p>Load a file, then scan for cleaning opportunities.</p>
+      </div>
+      <div id="clean-results" style="display:none;"></div>
+      <div id="clean-audit-wrap" style="display:none; margin-top:var(--space-6);">
+        <div class="sidebar-heading">Audit Trail</div>
+        <div class="console-log" id="clean-audit-log"></div>
+      </div>
+    </section>
+
+    <!-- ============ VALIDATE TAB ============ -->
+    <section class="panel" id="panel-validate" data-panel="validate">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Validate</div>
+          <div class="panel-subtitle">The 13 validation layers — DATAGLOW's heartbeat</div>
+        </div>
+        <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 13 Layers</button>
+      </div>
+
+      <div id="confidence-summary" style="display:none; margin-bottom:var(--space-6);" class="card" >
+        <div style="padding:var(--space-5); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-4);">
+          <div class="confidence-ring-wrap">
+            <div class="confidence-ring">
+              <svg width="96" height="96" viewBox="0 0 96 96">
+                <circle cx="48" cy="48" r="42" fill="none" stroke="var(--color-surface-offset)" stroke-width="8"/>
+                <circle id="confidence-ring-arc" cx="48" cy="48" r="42" fill="none" stroke="var(--color-grade-a)" stroke-width="8" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"/>
+              </svg>
+              <div class="confidence-ring-label">
+                <div class="confidence-ring-score" id="confidence-score">--</div>
+                <div class="confidence-ring-grade" id="confidence-grade-label">—</div>
+              </div>
+            </div>
+            <div>
+              <div style="font-weight:600; font-size:var(--text-lg);" id="confidence-verdict">Not yet run</div>
+              <div style="font-size:var(--text-sm); color:var(--color-text-muted);" id="confidence-detail">Run all 13 layers to generate a confidence score.</div>
+            </div>
+          </div>
+          <div id="confidence-signals" style="display:flex; gap:var(--space-5); flex-wrap:wrap;"></div>
+        </div>
+      </div>
+
+      <div id="validate-empty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <h3>No dataset loaded</h3>
+        <p>Load a dataset (or the Golden Test Dataset) to run all 13 validation layers.</p>
+      </div>
+      <div class="validation-grid" id="validation-grid" style="display:none;"></div>
+    </section>
+
+    <!-- ============ VISUALIZE TAB ============ -->
+    <section class="panel" id="panel-visualize" data-panel="visualize">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Visualize</div>
+          <div class="panel-subtitle">Drag-and-drop charts, powered by Plotly</div>
+        </div>
+      </div>
+      <div id="visualize-empty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
+        <h3>No dataset loaded</h3>
+        <p>Load a dataset to start building charts.</p>
+      </div>
+      <div id="visualize-builder" style="display:none;">
+        <div class="card" style="padding:var(--space-4); margin-bottom:var(--space-4); display:flex; gap:var(--space-4); flex-wrap:wrap; align-items:flex-end;">
+          <div>
+            <div class="sidebar-heading">Chart type</div>
+            <select id="viz-chart-type" class="btn btn-secondary" style="padding:var(--space-2) var(--space-3);" data-testid="select-chart-type">
+              <option value="bar">Bar</option>
+              <option value="line">Line</option>
+              <option value="scatter">Scatter</option>
+              <option value="pie">Pie</option>
+              <option value="histogram">Histogram</option>
+              <option value="box">Box plot</option>
+            </select>
+          </div>
+          <div>
+            <div class="sidebar-heading">X axis</div>
+            <select id="viz-x" class="btn btn-secondary" style="padding:var(--space-2) var(--space-3);" data-testid="select-viz-x"></select>
+          </div>
+          <div id="viz-y-wrap">
+            <div class="sidebar-heading">Y axis</div>
+            <select id="viz-y" class="btn btn-secondary" style="padding:var(--space-2) var(--space-3);" data-testid="select-viz-y"></select>
+          </div>
+          <button class="btn btn-primary" id="btn-viz-generate" data-testid="button-viz-generate">Generate Chart</button>
+          <button class="btn btn-secondary" id="btn-viz-export" data-testid="button-viz-export">Export PNG</button>
+        </div>
+        <div id="viz-chart" class="card" style="padding:var(--space-4); min-height:420px;"></div>
+      </div>
+    </section>
+
+    <!-- ============ STORY TAB ============ -->
+    <section class="panel" id="panel-story" data-panel="story">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Story</div>
+          <div class="panel-subtitle">AI-generated narrative from your query results</div>
+        </div>
+        <div style="display:flex; gap:var(--space-2); align-items:center;">
+          <span class="badge badge-b" id="story-model-badge">Perplexity</span>
+          <button class="btn btn-primary" id="btn-story-generate" data-testid="button-story-generate">Generate Story</button>
+        </div>
+      </div>
+      <div id="story-empty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        <h3>Run a SQL query first</h3>
+        <p>DATAGLOW writes a story from your most recent SQL result. Run something in the SQL tab, then come back here.</p>
+      </div>
+      <div id="story-content-wrap" style="display:none;">
+        <div class="story-content card" style="padding:var(--space-6);" id="story-text"></div>
+        <div class="card" style="padding:var(--space-4); margin-top:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Narrative Consistency Check</div>
+          <div id="story-consistency"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SWIFT TAB ============ -->
+    <section class="panel" id="panel-swift" data-panel="swift">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Swift</div>
+          <div class="panel-subtitle">SwiftWasm preview — sketch a SwiftUI-style iOS data screen, no Xcode required</div>
+        </div>
+        <button class="btn btn-primary" id="btn-swift-run" data-testid="button-swift-run">▶ Preview</button>
+      </div>
+      <div class="sql-editor-wrap">
+        <textarea class="sql-textarea mono" id="swift-input" spellcheck="false" data-testid="input-swift"></textarea>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint);" id="swift-note"></div>
+        <div id="swift-preview-wrap"></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-5);">
+      <h2 style="font-size:var(--text-xl); font-weight:600;">Settings</h2>
+      <button class="icon-btn" id="btn-settings-close" data-testid="button-settings-close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-heading">Story &amp; Narrative Model</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);">
+      Choose which model powers the Story tab, Narrative Consistency Checker, and Invisible Analyst suggestions.
+    </p>
+    <div id="model-provider-list" style="display:flex; flex-direction:column; gap:var(--space-2); margin-bottom:var(--space-5);"></div>
+
+    <div id="api-key-section" style="display:none; margin-bottom:var(--space-5);">
+      <div class="sidebar-heading">API Key</div>
+      <input type="password" id="model-api-key" class="sql-textarea mono" style="min-height:auto; padding:var(--space-2) var(--space-3);" placeholder="Paste API key (stored only in this session)" data-testid="input-api-key">
+      <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:4px;">Keys are kept in memory for this session only — never sent anywhere except directly to the selected provider.</div>
+    </div>
+
+    <div class="sidebar-heading">Freshness Threshold</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">Flag datasets as stale after:</p>
+    <select id="freshness-threshold" class="btn btn-secondary" style="padding:var(--space-2) var(--space-3); margin-bottom:var(--space-5);">
+      <option value="1">1 hour</option>
+      <option value="24" selected>24 hours</option>
+      <option value="168">7 days</option>
+      <option value="720">30 days</option>
+    </select>
+
+    <div class="sidebar-heading">Appearance</div>
+    <div style="display:flex; gap:var(--space-2); margin-bottom:var(--space-2);">
+      <button class="chip" id="theme-chip-light" data-testid="chip-theme-light">☀ Light</button>
+      <button class="chip" id="theme-chip-dark" data-testid="chip-theme-dark">☾ Dark</button>
+    </div>
+
+    <button class="btn btn-primary" id="btn-settings-save" style="width:100%; justify-content:center; margin-top:var(--space-4);" data-testid="button-settings-save">Save Settings</button>
+  </div>
+</div>
+
+<!-- ============ RED TEAM MODE MODAL ============ -->
+<div class="modal-overlay" id="redteam-modal">
+  <div class="modal" style="max-width:640px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-3);">
+      <h2 style="font-size:var(--text-xl); font-weight:600;">Red Team Mode</h2>
+      <button class="icon-btn" id="btn-redteam-close" data-testid="button-redteam-close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-4);">
+      Loads a built-in, intentionally broken golden dataset and runs all 13 validation layers against it. Every layer must catch its target issue — that's how you know the validation system is real, not decorative.
+    </p>
+    <button class="btn btn-primary" id="btn-redteam-run" style="width:100%; justify-content:center; margin-bottom:var(--space-4);" data-testid="button-redteam-run">Run Self-Attack Test</button>
+    <div id="redteam-results"></div>
+  </div>
+</div>
+
+<!-- ============ SCRIPTS ============ -->
+<script src="https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+<script src="https://webr.r-wasm.org/latest/webr.mjs" type="module"></script>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
