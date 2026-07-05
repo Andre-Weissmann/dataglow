@@ -25,6 +25,7 @@
 .topbar-right { display: flex; align-items: center; gap: var(--space-2); }
 .brand { display: flex; align-items: center; gap: var(--space-2); }
 .brand img, .brand svg { height: 22px; width: auto; }
+.brand-logo-data { fill: var(--color-text); }
 
 .freshness-badge {
   display: flex; align-items: center; gap: 6px;
@@ -271,4 +272,18 @@
   .data-sidebar.open { left: 0; }
   .panel { padding: var(--space-4); }
   .confidence-ring-wrap { flex-direction: column; align-items: flex-start; }
+}
+
+@media (max-width: 480px) {
+  .topbar { padding: 0 var(--space-2); gap: var(--space-2); }
+  .topbar-left { gap: var(--space-2); min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  .brand-logo { width: 84px; flex-shrink: 0; }
+  .freshness-badge { max-width: 38vw; overflow: hidden; }
+  #freshness-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; max-width: 100%; }
+  .topbar-right { flex-shrink: 0; gap: 2px; }
+  .topbar-right .icon-btn, .topbar-right button { flex-shrink: 0; }
+  .btn-label { display: none; }
+  #btn-red-team { padding: var(--space-2); }
+  .tabbar { padding: 0 var(--space-2); }
+  .tab { padding: var(--space-2) var(--space-3); }
 }

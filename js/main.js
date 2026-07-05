@@ -509,7 +509,7 @@ function renderConfidenceSummary(c) {
   $('#confidence-ring-arc').setAttribute('stroke-dashoffset', String(circumference * (1 - c.score / 100)));
   $('#confidence-verdict').textContent = c.verdict;
   $('#confidence-verdict').style.color = c.status === 'pass' ? 'var(--color-grade-a)' : c.status === 'warn' ? 'var(--color-grade-c)' : 'var(--color-grade-d)';
-  $('#confidence-detail').textContent = `Score computed from 5 signals: sample coverage, null rate, variance, subsample stability, and sample size.`;
+  $('#confidence-detail').textContent = `Score computed from 6 signals: sample coverage, null rate, variance, subsample stability, sample size, and anomaly concentration.`;
   const signalsEl = $('#confidence-signals');
   signalsEl.innerHTML = '';
   for (const [label, val] of Object.entries(c.signals)) {
@@ -598,7 +598,25 @@ function initVisualizeTab() {
 // ============================================================
 // Story Tab
 // ============================================================
+function updateStoryBadgePreview() {
+  const badge = $('#story-model-badge');
+  if (!badge) return;
+  const provider = state.settings.modelProvider;
+  const providerDef = story.MODEL_PROVIDERS.find(p => p.id === provider);
+  const hasKey = providerDef && providerDef.requiresKey && !!state.settings.apiKeys[provider];
+  if (!providerDef || providerDef.id === 'local') {
+    badge.textContent = 'Rule-based (offline)';
+  } else if (!providerDef.requiresKey) {
+    badge.textContent = providerDef.name;
+  } else if (hasKey) {
+    badge.textContent = providerDef.name;
+  } else {
+    badge.textContent = 'Rule-based (no API key set)';
+  }
+}
+
 function initStoryTab() {
+  updateStoryBadgePreview();
   $('#btn-story-generate').addEventListener('click', async () => {
     if (!state.lastQueryResult) { toast('Run a SQL query first', 'error'); return; }
     const btn = $('#btn-story-generate');
@@ -652,12 +670,13 @@ function initSettings() {
         $$('.chip[data-provider]').forEach(c => c.classList.remove('active'));
         $$('#model-provider-list .chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
-        $('#api-key-section').style.display = (p.builtIn) ? 'none' : '';
+        $('#api-key-section').style.display = (p.requiresKey) ? '' : 'none';
         $('#model-api-key').value = state.settings.apiKeys[p.id] || '';
+        updateStoryBadgePreview();
       },
     }, [
       el('span', {}, p.name),
-      p.builtIn ? el('span', { class: 'badge badge-a', style: 'margin-left:auto;' }, 'No key needed') : el('span', { class: 'badge badge-b', style: 'margin-left:auto;' }, 'Requires API key'),
+      p.requiresKey ? el('span', { class: 'badge badge-b', style: 'margin-left:auto;' }, 'Requires API key') : el('span', { class: 'badge badge-a', style: 'margin-left:auto;' }, 'No key needed'),
     ]);
     chip.setAttribute('data-provider', p.id);
     providerList.appendChild(chip);
@@ -672,6 +691,7 @@ function initSettings() {
     if (key) state.settings.apiKeys[provider] = key;
     $('#settings-modal').classList.remove('open');
     refreshFreshnessBadge();
+    updateStoryBadgePreview();
     toast('Settings saved', 'success');
   });
 }

@@ -13,7 +13,7 @@ let initPromise = null;
 export function initDuckDB() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const duckdb = window.duckdb;
+    const duckdb = await import('https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm');
     if (!duckdb) throw new Error('DuckDB-WASM failed to load from CDN.');
 
     const bundles = {
@@ -49,6 +49,12 @@ export function initDuckDB() {
   return initPromise;
 }
 
+function isArrowDateField(field) {
+  // Arrow DATE/TIMESTAMP typeIds: 8 = Date, 10 = Timestamp (see apache-arrow TypeId enum)
+  const typeId = field?.type?.typeId;
+  return typeId === 8 || typeId === 10;
+}
+
 export async function runQuery(sql) {
   if (!state.duckdb.ready) await initDuckDB();
   const conn = state.duckdb.conn;
@@ -56,16 +62,20 @@ export async function runQuery(sql) {
   const result = await conn.query(sql);
   const elapsedMs = performance.now() - t0;
   const columns = result.schema.fields.map(f => f.name);
+  const dateCols = new Set(result.schema.fields.filter(isArrowDateField).map(f => f.name));
   const rows = result.toArray().map(row => {
     const obj = {};
     for (const c of columns) {
       let v = row[c];
       if (typeof v === 'bigint') v = Number(v);
+      if (dateCols.has(c) && typeof v === 'number') {
+        v = new Date(v).toISOString().slice(0, 10);
+      }
       obj[c] = v;
     }
     return obj;
   });
-  return { columns, rows, elapsedMs, rowCount: rows.length };
+  return { columns, rows, elapsedMs, rowCount: rows.length, dateColumns: [...dateCols] };
 }
 
 export async function registerFileBuffer(fileName, arrayBuffer) {
@@ -113,10 +123,25 @@ export async function createTableFromRows(tableName, columns, rows) {
     await stmt.query(...columns.map(c => (row[c] == null ? null : String(row[c]))));
   }
   await stmt.close();
-  // Try to coerce numeric-looking columns to proper types for downstream analysis
+  // Try to coerce columns to proper types for downstream analysis.
+  // Only coerce when ALL non-null values in the column successfully cast —
+  // otherwise leave as VARCHAR (prevents silently nulling out text/date columns).
   for (const c of columns) {
+    const safeCol = `"${c}"`;
     try {
-      await runQuery(`ALTER TABLE ${tableName} ALTER COLUMN "${c}" SET DATA TYPE DOUBLE USING TRY_CAST("${c}" AS DOUBLE)`);
+      const { rows: checkRows } = await runQuery(
+        `SELECT COUNT(*) FILTER (WHERE ${safeCol} IS NOT NULL) AS total,
+                COUNT(*) FILTER (WHERE ${safeCol} IS NOT NULL AND TRY_CAST(${safeCol} AS DOUBLE) IS NULL) AS bad_double,
+                COUNT(*) FILTER (WHERE ${safeCol} IS NOT NULL AND TRY_CAST(${safeCol} AS DATE) IS NULL) AS bad_date
+         FROM ${tableName}`
+      );
+      const { total, bad_double, bad_date } = checkRows[0];
+      if (total > 0 && bad_double === 0) {
+        await runQuery(`ALTER TABLE ${tableName} ALTER COLUMN ${safeCol} SET DATA TYPE DOUBLE USING TRY_CAST(${safeCol} AS DOUBLE)`);
+      } else if (total > 0 && bad_date === 0) {
+        await runQuery(`ALTER TABLE ${tableName} ALTER COLUMN ${safeCol} SET DATA TYPE DATE USING TRY_CAST(${safeCol} AS DATE)`);
+      }
+      // else: leave as VARCHAR (text column)
     } catch (e) { /* leave as varchar */ }
   }
 }

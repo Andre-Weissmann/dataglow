@@ -7,9 +7,20 @@ import { state, addDataset } from './state.js';
 import { sanitizeTableName, toast } from './utils.js';
 import * as engine from './duckdb-engine.js';
 
+function uniqueTableName(baseName) {
+  const existingTables = new Set(state.datasets.map(d => d.table));
+  if (!existingTables.has(baseName)) return baseName;
+  let i = 2;
+  while (existingTables.has(`${baseName}_${i}`)) i++;
+  return `${baseName}_${i}`;
+}
+
 export async function loadFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
-  const tableName = sanitizeTableName(file.name);
+  // Two uploads with the same filename stem but different extensions (e.g. sales.csv
+  // and sales.json) would otherwise collide on the same DuckDB table name and silently
+  // overwrite each other's data via CREATE OR REPLACE TABLE. Disambiguate up front.
+  const tableName = uniqueTableName(sanitizeTableName(file.name));
   const arrayBuffer = await file.arrayBuffer();
 
   try {

@@ -7,11 +7,14 @@
 import { state } from './state.js';
 
 export const MODEL_PROVIDERS = [
-  { id: 'perplexity', name: 'Perplexity (Sonar)', endpoint: 'https://api.perplexity.ai/chat/completions', model: 'sonar', builtIn: true },
-  { id: 'anthropic', name: 'Claude (Anthropic)', endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-5', builtIn: false },
-  { id: 'google', name: 'Gemini (Google)', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', model: 'gemini-2.0-flash', builtIn: false },
-  { id: 'openai', name: 'OpenAI (GPT)', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o', builtIn: false },
-  { id: 'local', name: 'Rule-based (offline, no API key)', endpoint: null, model: null, builtIn: true },
+  // "default" marks the provider pre-selected on first load. "requiresKey" controls
+  // whether the Settings UI shows an API-key field and whether the badge/generation
+  // logic falls back to the offline rule-based engine when no key is present.
+  { id: 'perplexity', name: 'Perplexity (Sonar)', endpoint: 'https://api.perplexity.ai/chat/completions', model: 'sonar', default: true, requiresKey: true },
+  { id: 'anthropic', name: 'Claude (Anthropic)', endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-5', default: false, requiresKey: true },
+  { id: 'google', name: 'Gemini (Google)', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', model: 'gemini-2.0-flash', default: false, requiresKey: true },
+  { id: 'openai', name: 'OpenAI (GPT)', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o', default: false, requiresKey: true },
+  { id: 'local', name: 'Rule-based (offline, no API key)', endpoint: null, model: null, default: false, requiresKey: false },
 ];
 
 function buildPrompt(queryResult, tableName) {

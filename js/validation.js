@@ -147,14 +147,35 @@ async function runConfidence(table, cols, rowCount) {
   }
   // Signal 5: sample size adequacy
   const sizeScore = rowCount >= 100 ? 1 : rowCount >= 30 ? 0.7 : 0.35;
+  // Signal 6: anomaly concentration (negatives in non-negative-looking columns,
+  // out-of-range values, and exact-duplicate rows all erode confidence directly —
+  // this is what separates "statistically healthy" from "actually trustworthy")
+  let anomalyHits = 0;
+  for (const c of numericCols) {
+    const name = c.name.toLowerCase();
+    if (/amount|price|cost|charge|salary|revenue|count|qty|quantity/.test(name)) {
+      const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${c.name}" < 0`);
+      anomalyHits += rows[0].n;
+    }
+    if (/age/.test(name)) {
+      const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${c.name}" > 130 OR "${c.name}" < 0`);
+      anomalyHits += rows[0].n;
+    }
+  }
+  const allColsList = cols.map(c => `"${c.name}"`).join(',');
+  const { rows: dupRows } = await engine.runQuery(`SELECT COALESCE(SUM(c) - COUNT(*), 0) AS extra FROM (SELECT ${allColsList}, COUNT(*) AS c FROM ${table} GROUP BY ${allColsList} HAVING COUNT(*) > 1) t`);
+  anomalyHits += dupRows[0].extra || 0;
+  const anomalyRate = rowCount > 0 ? anomalyHits / rowCount : 0;
+  const anomalyScore = 1 - Math.min(1, anomalyRate * 5);
 
-  const weights = { sampleCoverage: 0.2, nullScore: 0.25, varianceScore: 0.2, stabilityScore: 0.2, sizeScore: 0.15 };
+  const weights = { sampleCoverage: 0.15, nullScore: 0.2, varianceScore: 0.15, stabilityScore: 0.15, sizeScore: 0.1, anomalyScore: 0.25 };
   const score = Math.round(100 * (
     sampleCoverage * weights.sampleCoverage +
     nullScore * weights.nullScore +
     varianceScore * weights.varianceScore +
     stabilityScore * weights.stabilityScore +
-    sizeScore * weights.sizeScore
+    sizeScore * weights.sizeScore +
+    anomalyScore * weights.anomalyScore
   ));
 
   const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 50 ? 'C' : 'D';
@@ -165,6 +186,7 @@ async function runConfidence(table, cols, rowCount) {
     'Variance': Math.round(varianceScore * 100),
     'Subsample stability': Math.round(stabilityScore * 100),
     'Sample size': Math.round(sizeScore * 100),
+    'Anomaly concentration': Math.round((1 - anomalyScore) * 100),
   };
   return { score, grade, verdict, signals, status: score >= 70 ? 'pass' : score >= 50 ? 'warn' : 'fail' };
 }
@@ -246,13 +268,21 @@ export async function checkNarrativeConsistency(storyText, queryResult) {
   if (!queryResult) return { status: 'idle', mismatches: [] };
   const numbersInText = [...storyText.matchAll(/-?\d+(?:\.\d+)?%?/g)].map(m => m[0]);
   const actualNumbers = new Set();
+  const addNumber = (v) => {
+    if (typeof v !== 'number' || Number.isNaN(v)) return;
+    actualNumbers.add(v.toFixed(2));
+    actualNumbers.add(String(Math.round(v)));
+    actualNumbers.add(v.toFixed(1));
+  };
+  // Meta-numbers describing the result set (row count, column count) are
+  // legitimate things a narrative can state even though they aren't cell
+  // values themselves — include them so they aren't flagged as mismatches.
+  addNumber(queryResult.rowCount);
+  addNumber(queryResult.rows.length);
+  if (Array.isArray(queryResult.columns)) addNumber(queryResult.columns.length);
   for (const row of queryResult.rows) {
     for (const v of Object.values(row)) {
-      if (typeof v === 'number') {
-        actualNumbers.add(v.toFixed(2));
-        actualNumbers.add(String(Math.round(v)));
-        actualNumbers.add((v).toFixed(1));
-      }
+      addNumber(v);
     }
   }
   const mismatches = [];
@@ -291,9 +321,14 @@ function runBlindSpotScanner(cols) {
 async function runReproducibility(table) {
   const hashes = [];
   for (let i = 0; i < 10; i++) {
-    const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n, SUM(HASH(*)) AS h FROM (SELECT * FROM ${table} LIMIT 1000) t`).catch(async () => {
-      return engine.runQuery(`SELECT COUNT(*) AS n FROM ${table}`);
-    });
+    let rows;
+    try {
+      const res = await engine.runQuery(`SELECT COUNT(*) AS n, SUM(HASH(t)) AS h FROM (SELECT * FROM ${table} LIMIT 1000) t`);
+      rows = res.rows;
+    } catch (e) {
+      const res = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table}`);
+      rows = res.rows;
+    }
     hashes.push(JSON.stringify(rows));
   }
   const allSame = hashes.every(h => h === hashes[0]);
@@ -337,6 +372,6 @@ export function getExpectedGoldenFindings() {
     semantic_drift: 'Should detect: age=999 semantic error.',
     sanity_anchor: 'Should pass — both calculation paths should still agree even on dirty data.',
     schema_fingerprint: 'Should pass on first load (establishes baseline).',
-    confidence: 'Should score low/C-D grade given nulls, negatives, and outliers.',
+    confidence: 'Should score low/C-D grade given nulls, negatives, duplicates, and the age=999 outlier.',
   };
 }
