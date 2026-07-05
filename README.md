@@ -1,4 +1,4 @@
-# ![DATAGLOW Logo](assets/dataglow_logo.png)
+# ![DATAGLOW Logo](assets/bc1a4f10-e472-4576-9916-f58c1963dd30.png)
 
 # DATAGLOW
 
