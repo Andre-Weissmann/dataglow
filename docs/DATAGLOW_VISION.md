@@ -159,14 +159,14 @@ All tabs are **draggable and reorderable** by the user.
 | 3 | **Python** 🔨 | Pyodide Python 3.12 — full notebook experience in browser |
 | 4 | **R** 🔨 | WebR 4.4 — tidyverse, ggplot2, dplyr in browser |
 | 5 | **Clean** ✅ | Automated data cleaning with full audit trail |
-| 6 | **Validate** ✅ | All 13 validation layers (see below) |
+| 6 | **Validate** ✅ | All 18 validation layers (see below) |
 | 7 | **Visualize** ✅ | Plotly charts, drag-and-drop builder |
 | 8 | **Story** ✅ | AI narrative generation from query results |
 | 9 | **Swift** 🔨 | SwiftWasm — write Swift, preview iOS app layouts in browser |
 
 ---
 
-## 🛡️ THE 13 VALIDATION LAYERS — DATAGLOW'S HEARTBEAT
+## 🛡️ THE 18 VALIDATION LAYERS — DATAGLOW'S HEARTBEAT
 
 *"The features nobody else has."*
 
@@ -185,7 +185,17 @@ All tabs are **draggable and reorderable** by the user.
 10. **Freshness Meter** — Timestamps every dataset load. Visible staleness badge if data is older than a configurable threshold. Simple. Obvious. Nobody does this.
 11. **Blind Spot Scanner** — After every analysis, prompts: "What data do you NOT have that would change this conclusion?" Forces the analyst to think about missing populations, excluded ranges, unrepresented groups.
 12. **Reproducibility Badge** — Runs same query 10 times. If results are identical every time on static data — green badge. If they vary — red flag.
-13. **Red Team Mode** — Loads a built-in intentionally broken dataset. All 13 layers must catch their respective issues. If any miss — the feature is broken. NASA-style self-attack testing.
+13. **Outlier Detection (MAD + IQR)** — Flags high AND low outliers via the modified z-score (Iglewicz & Hoaglin 1993) and Tukey's IQR fences (Tukey 1977). Catches large positives, not just negatives.
+14. **Benford's Law Check** — Compares leading-digit distribution to the Newcomb-Benford expectation (Newcomb 1881; Benford 1938). A **Statistical Test Eligibility Gate** runs first: Benford is only applied to naturally-scaled magnitudes that span multiple orders of magnitude (revenue, transaction amounts, population). Bounded columns (Age, ratings 1–5, credit scores) are **skipped with a one-line explanation** — e.g. "Age skipped — bounded range, not a naturally-scaled magnitude Benford's Law applies to" — rather than silently omitted.
+
+### New in this release
+15. **Categorical Consistency Engine** — For each text column, clusters near-identical spellings using published string-similarity algorithms (Levenshtein 1965 edit distance and Jaro-Winkler 1990) plus a small ISO-3166 country/state abbreviation lookup. Recognises that "France" / "FRA" / "French" are one category, proposes the most frequent variant as the canonical form, and offers a one-click merge that reuses the Clean tab's dedup mechanism.
+16. **Cross-Column Logical Consistency Checker** — Detects impossible combinations across column pairs/groups via DuckDB SQL: end-before-start date ranges, discharge-before-admit, inverted numeric min/max ranges, and adult-only status on minors (age < 18 with a retirement/pension flag set true). Column pairing is heuristic keyword matching on names — never hardcoded to one dataset.
+17. **Distributional Fingerprint Drift** — Sibling to the Schema Fingerprint layer. On each load it records a per-column distribution fingerprint (mean/std/skewness for numeric, top-5 value frequencies for categorical) keyed by the schema hash. On a later load of the *same* schema it flags significant drift (mean shift > 2σ, or a change in the categorical top-5 composition) — catching data that moved even though the shape did not.
+18. **Red Team Mode** — Loads a built-in intentionally broken dataset. All 17 preceding layers must catch their respective issues. If any miss — the feature is broken. NASA-style self-attack testing.
+
+### The Assumption Ledger
+Cutting across every layer above (and the Clean tab), the **Assumption Ledger** is a running, exportable, plain-language log of every judgment call DATAGLOW makes: "Proposed merging 'FRA' → 'France'", "Skipped Benford's Law on Age (bounded column)", "Flagged 2 rows where discharge_date precedes admit_date", "Detected drift on same-schema reload". Each of the automated features above emits a ledger entry whenever it takes an action or makes a skip/gating decision. The ledger is a first-class panel in the Validate tab and exports as text, Markdown, or JSON — so nothing is ever assumed silently on the analyst's behalf.
 
 ---
 
@@ -199,8 +209,10 @@ Built-in test CSV with exactly:
 - 3 negative values in a non-negative column
 - 2 future dates in a historical date column
 - 1 schema mismatch (column named "age" with value 999)
+- Near-duplicate category spellings ("United States" / "United State" / "USA" / "US"; "France" / "FRA") for the Categorical Consistency Engine
+- A discharge_date earlier than its admit_date, and a minor (age < 18) flagged has_retirement_account = true, for the Cross-Column Logical Consistency Checker
 
-All 13 validation layers must catch their specific issues on this dataset before any deployment is considered successful.
+All 18 validation layers must catch their specific issues on this dataset before any deployment is considered successful. (The Distributional Fingerprint Drift layer establishes its baseline on first load and flags drift on a later same-schema load.)
 
 ### MIMIC-IV Ground Truth Test
 MIMIC-IV has published summary statistics in peer-reviewed papers. Run DATAGLOW against MIMIC-IV and compare output numbers to published statistics. If they match — the engine is real.
@@ -265,7 +277,7 @@ In the spirit of Steve Jobs: *enrich people's lives through liberal arts and tec
 |---|---|---|
 | 🥇 | Observable | DATAGLOW adds validation + healthcare + storytelling |
 | 🥈 | Hex | DATAGLOW is fully browser-native, no server |
-| 🥉 | Deepnote | DATAGLOW adds 13 validation layers |
+| 🥉 | Deepnote | DATAGLOW adds 18 validation layers |
 | 4 | Marimo | DATAGLOW adds multi-language + healthcare |
 | 5 | Google Colab | DATAGLOW needs no Google account |
 | 6 | Quadratic | DATAGLOW adds SQL + R + Swift + validation |
@@ -325,7 +337,7 @@ DATAGLOW Swift Tab:
 | Gen 4 | ZKP Verifiable Reports, Synthetic Data (PSyGenTAB v2 — 95% fidelity/97% privacy), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
 | Gen 5 | Confidence Layer, UX overhaul, light/dark mode | ✅ Complete |
 | Gen 6 | All 7 validation layers live, Story tab, Preflight tab | ✅ Complete (expired session) |
-| **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 13 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
+| **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 18 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
 
 ---
 
@@ -349,7 +361,7 @@ TABS (draggable, reorderable):
 3. Python — Pyodide Python 3.12 notebook
 4. R — WebR 4.4 notebook
 5. Clean — automated data cleaning with audit trail
-6. Validate — all 13 validation layers
+6. Validate — all 18 validation layers
 7. Visualize — Plotly charts, drag-and-drop
 8. Story — AI narrative generation from query results
 9. Swift — SwiftWasm iOS app preview tab
@@ -371,7 +383,7 @@ TABS (draggable, reorderable):
 
 GOLDEN DATASET (built-in, for self-testing):
 100 rows, 10 duplicates, 5 nulls, 3 negatives, 2 future dates, 1 age=999 semantic error
-All 13 layers must catch their issues on this dataset before deployment is valid.
+All 18 layers must catch their issues on this dataset before deployment is valid.
 
 UI PHILOSOPHY (Steve Jobs):
 - Zero onboarding — open browser, works instantly, no manual
@@ -418,7 +430,7 @@ Deploy publicly. Output the live URL.
 | Python tab | 🔨 Gen 7 |
 | R tab | 🔨 Gen 7 |
 | Swift tab | 🔨 Gen 7 |
-| All 13 validation layers | 🔨 Gen 7 |
+| All 18 validation layers | 🔨 Gen 7 |
 
 ---
 

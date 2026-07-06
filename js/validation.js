@@ -1,17 +1,20 @@
 // ============================================================
-// DATAGLOW — The 13 Validation Layers
+// DATAGLOW — The 18 Validation Layers
 // "The features nobody else has."
 // ============================================================
 
 import { state } from './state.js';
 import * as engine from './duckdb-engine.js';
 import { sha256, formatNumber } from './utils.js';
+import { detectColumnClusters } from './categorical-consistency.js';
+import { logAssumption } from './assumption-ledger.js';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
 const history = {
-  schemaFingerprints: {},   // table -> [hashes over time]
-  queryResults: {},         // querySignature -> [ {ts, resultHash} ]
-  correlationSnapshots: {}, // table -> [{ts, corr}]
+  schemaFingerprints: {},        // table -> [hashes over time]
+  queryResults: {},              // querySignature -> [ {ts, resultHash} ]
+  correlationSnapshots: {},      // table -> [{ts, corr}]
+  distributionFingerprints: {},  // table -> [{ts, hash, stats}] (sibling of schemaFingerprints)
 };
 
 export const LAYER_DEFS = [
@@ -28,8 +31,11 @@ export const LAYER_DEFS = [
   { id: 'blind_spot', name: 'Blind Spot Scanner', desc: 'Prompts about missing data that would change the conclusion.' },
   { id: 'reproducibility', name: 'Reproducibility Badge', desc: 'Runs the same query 10x, confirms identical results.' },
   { id: 'outlier_detection', name: 'Outlier Detection (MAD + IQR)', desc: 'Flags high AND low outliers via modified z-score and IQR fences — catches large positives, not just negatives.' },
-  { id: 'benford', name: "Benford's Law Check", desc: 'Compares leading-digit distribution to the Newcomb-Benford expectation; deviation can signal fabricated or anomalous numbers.' },
-  { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 12 layers against an intentionally broken golden dataset.' },
+  { id: 'benford', name: "Benford's Law Check", desc: 'Compares leading-digit distribution to the Newcomb-Benford expectation; gated to columns where the law actually applies.' },
+  { id: 'categorical_consistency', name: 'Categorical Consistency Engine', desc: 'Clusters near-identical spellings (Levenshtein / Jaro-Winkler + ISO abbreviations) and proposes a canonical merge.' },
+  { id: 'cross_column_logic', name: 'Cross-Column Logical Consistency', desc: 'Detects impossible combinations across columns — end-before-start ranges, discharge-before-admit, adult-only status on minors.' },
+  { id: 'distribution_drift', name: 'Distributional Fingerprint Drift', desc: 'Stores each column\'s distribution shape and flags drift on a later load of the same schema.' },
+  { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 17 layers against an intentionally broken golden dataset.' },
 ];
 
 function result(status, summary, detail = null) {
@@ -394,13 +400,54 @@ async function runOutlierDetection(table, cols) {
 // statistic) can indicate fabricated, capped, or otherwise anomalous data.
 const BENFORD_EXPECTED = [null, 0.301, 0.176, 0.125, 0.097, 0.079, 0.067, 0.058, 0.051, 0.046];
 
+// Column names that denote a bounded, non-magnitude quantity — Benford's Law
+// does not apply to these no matter how they're distributed.
+const BENFORD_BOUNDED_NAME = /\b(age|rating|score|stars?|grade|level|rank|year|quarter|month|week|day|hour|minute|percent|pct|rate|ratio|likert)\b/i;
+// Column names that denote a naturally-scaled magnitude Benford's Law suits.
+const BENFORD_MAGNITUDE_NAME = /amount|revenue|sales|price|cost|charge|population|transaction|balance|income|expense|salary|payment|volume|total|value|spend|budget/i;
+
+// Statistical Test Eligibility Gate. Decides whether Benford's Law is
+// appropriate for a column and, when not, returns a human-readable reason.
+// Benford applies to organically-scaled magnitudes that span multiple orders
+// of magnitude; it does NOT apply to bounded ranges (Age, ratings 1–5, etc.).
+async function benfordEligibility(table, c) {
+  const col = `"${c.name}"`;
+  if (BENFORD_BOUNDED_NAME.test(c.name)) {
+    return { eligible: false, reason: `"${c.name}" skipped — bounded range, not a naturally-scaled magnitude Benford's Law applies to.` };
+  }
+  const { rows } = await engine.runQuery(`
+    SELECT COUNT(*) FILTER (WHERE ${col} IS NOT NULL AND ABS(${col}) >= 1) AS n,
+           COUNT(DISTINCT FLOOR(LOG10(ABS(${col})))) FILTER (WHERE ${col} IS NOT NULL AND ABS(${col}) >= 1) AS orders
+    FROM ${table}`);
+  const n = Number(rows[0].n) || 0;
+  const orders = Number(rows[0].orders) || 0;
+  if (n < 50) {
+    return { eligible: false, reason: `"${c.name}" skipped — only ${n} usable value(s); too few for a meaningful Benford test.` };
+  }
+  // Naturally-scaled magnitudes span ≥2 orders of magnitude. Allow a name-based
+  // override for known magnitude quantities that happen to be narrowly ranged.
+  if (orders < 2 && !BENFORD_MAGNITUDE_NAME.test(c.name)) {
+    return { eligible: false, reason: `"${c.name}" skipped — values span <2 orders of magnitude (bounded), so Benford's Law is not applicable.` };
+  }
+  return { eligible: true };
+}
+
 async function runBenford(table, cols) {
   const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
   if (numericCols.length === 0) return result('idle', 'No numeric columns to test against Benford\'s Law. Skipped.');
   const flags = [];
+  const skips = [];
+  let tested = 0;
   for (const c of numericCols) {
+    const gate = await benfordEligibility(table, c);
+    if (!gate.eligible) {
+      skips.push(gate.reason);
+      logAssumption('Statistical Test Eligibility Gate', `Skipped Benford's Law on "${c.name}" — ${gate.reason.replace(/^"[^"]+" skipped — /, '')}`);
+      continue;
+    }
+    tested++;
     const col = `"${c.name}"`;
-    // Leading digit of the absolute value; needs enough spread of magnitudes.
+    // Leading digit of the absolute value.
     const { rows } = await engine.runQuery(`
       SELECT CAST(SUBSTR(REPLACE(CAST(ABS(${col}) AS VARCHAR), '.', ''), 1, 1) AS INTEGER) AS d, COUNT(*) AS n
       FROM ${table}
@@ -412,10 +459,6 @@ async function runBenford(table, cols) {
       const d = r.d;
       if (d >= 1 && d <= 9) { counts[d] = r.n; total += r.n; }
     }
-    // Benford needs a reasonable sample and magnitude range to be meaningful.
-    if (total < 50) continue;
-    const distinctMagnitudes = rows.length;
-    if (distinctMagnitudes < 3) continue;
     let chiSq = 0;
     for (let d = 1; d <= 9; d++) {
       const expected = BENFORD_EXPECTED[d] * total;
@@ -426,8 +469,209 @@ async function runBenford(table, cols) {
       flags.push(`"${c.name}": leading-digit distribution deviates from Benford (χ² = ${chiSq.toFixed(1)} > 15.51).`);
     }
   }
-  if (flags.length === 0) return result('pass', 'Leading-digit distributions are consistent with Benford\'s Law (or too few values to test).');
-  return result('warn', `${flags.length} column(s) deviate from Benford's Law — worth a closer look.`, flags);
+  const detail = [...flags, ...skips];
+  if (flags.length > 0) {
+    return result('warn', `${flags.length} column(s) deviate from Benford's Law — worth a closer look.`, detail);
+  }
+  if (tested === 0) {
+    return result('idle', `No columns eligible for Benford's Law — ${skips.length} skipped (see why below).`, skips);
+  }
+  return result('pass', `${tested} eligible column(s) consistent with Benford's Law${skips.length ? `; ${skips.length} skipped as ineligible` : ''}.`, detail);
+}
+
+// ---------- 16. Categorical Consistency Engine ----------
+// Clusters near-identical spellings of the same category (Levenshtein 1965 /
+// Jaro-Winkler 1990 similarity plus a small ISO-3166 abbreviation lookup) and
+// proposes the most frequent variant as the canonical merge target.
+async function runCategoricalConsistency(table, cols) {
+  const catCols = cols.filter(c => c.type === 'VARCHAR');
+  if (catCols.length === 0) return result('idle', 'No categorical (text) columns to check for spelling variants. Skipped.');
+  const findings = [];
+  const clusters = []; // machine-readable, for one-click merge in the UI
+  for (const c of catCols) {
+    const cols16 = await detectColumnClusters(table, c.name, engine).catch(() => []);
+    for (const cl of cols16) {
+      const variantList = cl.variants.map(v => `"${v.value}" (${v.count})`).join(', ');
+      findings.push(`"${c.name}": ${variantList} → canonical "${cl.canonical}"`);
+      clusters.push({ column: c.name, ...cl });
+      logAssumption(
+        'Categorical Consistency Engine',
+        `Proposed merging ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${c.name}" (canonical = most frequent variant).`,
+        { column: c.name, canonical: cl.canonical, merges: cl.merges }
+      );
+    }
+  }
+  if (findings.length === 0) return result('pass', 'No near-duplicate category spellings detected.');
+  const r = result('warn', `${findings.length} inconsistent category cluster(s) found — review suggested merges.`, findings);
+  r.clusters = clusters;
+  return r;
+}
+
+// ---------- 17. Cross-Column Logical Consistency ----------
+// Detects impossible combinations across column pairs/groups. Column pairing
+// is heuristic (substring/keyword matching on names), never hardcoded to one
+// dataset's columns.
+const START_KW = ['start', 'begin', 'admit', 'admission', 'open', 'from', 'onset', 'entry', 'hire', 'issue', 'effective'];
+const END_KW = ['end', 'finish', 'discharge', 'close', 'stop', 'exit', 'termination', 'terminate', 'expiry', 'expire', 'resolved', 'completion', 'complete', 'return'];
+const MIN_KW = ['min', 'minimum', 'low', 'lower', 'floor'];
+const MAX_KW = ['max', 'maximum', 'high', 'higher', 'ceiling', 'cap'];
+const NUMERIC_T = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+
+// Heuristic column-name matching: split a name into alphanumeric tokens (so
+// "admit_date" -> ["admit","date"]) and test whether any token begins with a
+// keyword. Token-based matching avoids both the underscore/word-boundary trap
+// and false hits from keywords buried inside unrelated words.
+function nameTokens(name) {
+  return String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+function hasKeyword(name, keywords) {
+  const tokens = nameTokens(name);
+  return keywords.some(kw => tokens.some(t => t.startsWith(kw)));
+}
+
+function isDateLike(c) {
+  return /DATE|TIMESTAMP/i.test(c.type) || /date|admit|discharge|_at$|_on$|time/i.test(c.name);
+}
+
+async function runCrossColumnLogic(table, cols) {
+  const findings = [];
+  const dateCols = cols.filter(isDateLike);
+  const numericCols = cols.filter(c => NUMERIC_T.includes(c.type));
+
+  // (a/b) start/end (and admit/discharge) DATE pairs where end < start.
+  const startDates = dateCols.filter(c => hasKeyword(c.name, START_KW));
+  const endDates = dateCols.filter(c => hasKeyword(c.name, END_KW));
+  for (const s of startDates) {
+    for (const e of endDates) {
+      if (s.name === e.name) continue;
+      try {
+        const { rows } = await engine.runQuery(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE TRY_CAST("${s.name}" AS DATE) IS NOT NULL
+            AND TRY_CAST("${e.name}" AS DATE) IS NOT NULL
+            AND TRY_CAST("${e.name}" AS DATE) < TRY_CAST("${s.name}" AS DATE)`);
+        const n = Number(rows[0].n) || 0;
+        if (n > 0) {
+          findings.push(`${n} row(s) where "${e.name}" is before "${s.name}" — an end date cannot precede its start date.`);
+          logAssumption('Cross-Column Logical Consistency', `Flagged ${n} row(s) where "${e.name}" precedes "${s.name}" (impossible date order).`);
+        }
+      } catch (e) { /* incompatible columns — skip pair */ }
+    }
+  }
+
+  // (a) numeric min/max (low/high) range pairs where max < min.
+  const minCols = numericCols.filter(c => hasKeyword(c.name, MIN_KW));
+  const maxCols = numericCols.filter(c => hasKeyword(c.name, MAX_KW));
+  for (const lo of minCols) {
+    for (const hi of maxCols) {
+      if (lo.name === hi.name) continue;
+      const { rows } = await engine.runQuery(`
+        SELECT COUNT(*) AS n FROM ${table}
+        WHERE "${lo.name}" IS NOT NULL AND "${hi.name}" IS NOT NULL AND "${hi.name}" < "${lo.name}"`);
+      const n = Number(rows[0].n) || 0;
+      if (n > 0) {
+        findings.push(`${n} row(s) where "${hi.name}" < "${lo.name}" — a maximum cannot be below its minimum.`);
+        logAssumption('Cross-Column Logical Consistency', `Flagged ${n} row(s) where "${hi.name}" < "${lo.name}" (inverted numeric range).`);
+      }
+    }
+  }
+
+  // (c) minors flagged with an adult-only status (age < 18 AND an
+  // adult-only boolean-like column is true).
+  const ageCol = cols.find(c => /\bage\b/i.test(c.name) && NUMERIC_T.includes(c.type));
+  const adultFlagCols = cols.filter(c => /retire|retirement|pension|401k|is_?adult|has_?mortgage|has_?license|is_?senior|medicare/i.test(c.name));
+  if (ageCol) {
+    for (const flag of adultFlagCols) {
+      try {
+        const { rows } = await engine.runQuery(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE "${ageCol.name}" < 18
+            AND LOWER(CAST("${flag.name}" AS VARCHAR)) IN ('true','t','yes','y','1')`);
+        const n = Number(rows[0].n) || 0;
+        if (n > 0) {
+          findings.push(`${n} row(s) where "${ageCol.name}" < 18 but "${flag.name}" is true — an adult-only status on a minor.`);
+          logAssumption('Cross-Column Logical Consistency', `Flagged ${n} row(s): minor (age<18) with adult-only status "${flag.name}"=true.`);
+        }
+      } catch (e) { /* skip */ }
+    }
+  }
+
+  if (findings.length === 0) return result('pass', 'No impossible cross-column combinations detected.');
+  return result('fail', `${findings.length} logical inconsistency type(s) found across columns.`, findings);
+}
+
+// ---------- 18. Distributional Fingerprint Drift ----------
+// Sibling of the Schema Fingerprint layer: even when the schema is unchanged,
+// the DATA can silently shift. On each load we record a per-column
+// distribution fingerprint (mean/std/skewness for numeric; top-5 value
+// frequencies for categorical) keyed by the schema hash, then compare a later
+// load of the same schema against the stored baseline.
+async function computeDistributionFingerprint(table, cols) {
+  const stats = {};
+  for (const c of cols) {
+    const col = `"${c.name}"`;
+    if (NUMERIC_T.includes(c.type)) {
+      const { rows } = await engine.runQuery(`
+        SELECT AVG(${col}) AS mean, STDDEV_POP(${col}) AS std, skewness(${col}) AS skew
+        FROM ${table} WHERE ${col} IS NOT NULL`);
+      stats[c.name] = {
+        kind: 'numeric',
+        mean: rows[0].mean != null ? Number(rows[0].mean) : null,
+        std: rows[0].std != null ? Number(rows[0].std) : null,
+        skew: rows[0].skew != null ? Number(rows[0].skew) : null,
+      };
+    } else if (c.type === 'VARCHAR') {
+      const { rows } = await engine.runQuery(`
+        SELECT ${col} AS v, COUNT(*) AS n FROM ${table}
+        WHERE ${col} IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 5`);
+      stats[c.name] = { kind: 'categorical', top: rows.map(r => String(r.v)) };
+    }
+  }
+  return stats;
+}
+
+function compareDistributions(prev, curr) {
+  const drifts = [];
+  for (const [name, cs] of Object.entries(curr)) {
+    const ps = prev[name];
+    if (!ps || ps.kind !== cs.kind) continue;
+    if (cs.kind === 'numeric') {
+      if (ps.mean != null && cs.mean != null && ps.std != null && ps.std > 0) {
+        const shift = Math.abs(cs.mean - ps.mean) / ps.std;
+        if (shift > 2) {
+          drifts.push(`"${name}": mean shifted ${shift.toFixed(1)}σ (was ${ps.mean.toFixed(2)}, now ${cs.mean.toFixed(2)}).`);
+        }
+      }
+    } else if (cs.kind === 'categorical') {
+      const prevSet = new Set(ps.top);
+      const changed = cs.top.filter(v => !prevSet.has(v));
+      if (changed.length > 0 && ps.top.length > 0) {
+        drifts.push(`"${name}": top-5 category composition changed — new entrants: ${changed.map(v => `"${v}"`).join(', ')}.`);
+      }
+    }
+  }
+  return drifts;
+}
+
+async function runDistributionDrift(table, cols) {
+  const schemaStr = JSON.stringify(cols.map(c => [c.name, c.type]).sort());
+  const hash = await sha256(schemaStr);
+  const stats = await computeDistributionFingerprint(table, cols);
+  const prior = history.distributionFingerprints[table] || [];
+  const lastSameSchema = [...prior].reverse().find(p => p.hash === hash);
+  prior.push({ ts: Date.now(), hash, stats });
+  history.distributionFingerprints[table] = prior;
+  if (!lastSameSchema) {
+    return result('pass', `Distribution fingerprint recorded for ${Object.keys(stats).length} column(s) — baseline established.`);
+  }
+  const drifts = compareDistributions(lastSameSchema.stats, stats);
+  if (drifts.length === 0) {
+    return result('pass', 'Column distributions are stable versus the stored fingerprint — no drift.');
+  }
+  for (const d of drifts) {
+    logAssumption('Distributional Fingerprint Drift', `Detected drift on same-schema reload: ${d}`);
+  }
+  return result('fail', `${drifts.length} column(s) drifted despite an unchanged schema — the data moved even though the shape didn't.`, drifts);
 }
 
 // ---------- Orchestrator ----------
@@ -456,6 +700,9 @@ export async function runAllLayers(ds, options = {}) {
   results.reproducibility = await runReproducibility(table).catch(e => result('warn', `Could not run: ${e.message}`));
   results.outlier_detection = await runOutlierDetection(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.benford = await runBenford(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.categorical_consistency = await runCategoricalConsistency(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.cross_column_logic = await runCrossColumnLogic(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.distribution_drift = await runDistributionDrift(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
 
   state.validationResults = results;
   return results;
@@ -468,5 +715,9 @@ export function getExpectedGoldenFindings() {
     sanity_anchor: 'Should pass — both calculation paths should still agree even on dirty data.',
     schema_fingerprint: 'Should pass on first load (establishes baseline).',
     confidence: 'Should score low/C-D grade given nulls, negatives, duplicates, and the age=999 outlier.',
+    benford: "Should skip 'age' (bounded range) with an explanation and test 'claim_amount' (naturally scaled).",
+    categorical_consistency: 'Should cluster near-duplicate country spellings ("France"/"FRA"/"French") and propose a canonical merge.',
+    cross_column_logic: 'Should detect discharge_date < admit_date and a minor (age<18) flagged has_retirement_account = true.',
+    distribution_drift: 'Should record a baseline fingerprint on first load; flags drift on a later same-schema load.',
   };
 }
