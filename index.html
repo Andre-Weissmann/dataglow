@@ -9,6 +9,16 @@
 <meta property="og:description" content="A universal, browser-based data analytics platform with 18 validation layers, built for healthcare and beyond.">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 
+<!-- ============ PWA / installable app ============ -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2D2D2D">
+<!-- iOS home-screen install quality -->
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DATAGLOW">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -354,6 +364,7 @@
               <button class="btn btn-secondary" id="btn-provenance-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-provenance-export">Export .json</button>
               <button class="btn btn-secondary" id="btn-attestation-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-attestation-export" title="Export a self-describing attestation (full hash chain, dataset metadata, SHA-256 digest ready for third-party notarization).">Export Attestation</button>
               <button class="btn btn-secondary" id="btn-attestation-html" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-attestation-html" title="Export a printable, PDF-friendly HTML attestation certificate.">Attestation HTML</button>
+              <button class="btn btn-secondary" id="btn-zk-proof-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-zk-proof-export" title="Generate a Merkle-tree (SHA-256) commitment proof that lets a third party verify specific validation claims (grades, per-layer pass/fail, record count) WITHOUT ever receiving the dataset. Not a formal zero-knowledge proof — see the proof file's disclaimer.">Generate Verifiable Proof</button>
             </div>
           </div>
           <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
@@ -755,5 +766,88 @@
 <script src="https://webr.r-wasm.org/latest/webr.mjs" type="module"></script>
 
 <script type="module" src="js/main.js"></script>
+
+<!-- ============ PWA: service worker + install affordance ============ -->
+<script>
+(function () {
+  // Register the service worker on load so it never competes with the app's
+  // first-load resource fetching. Guarded so environments without SW support
+  // (or file:// contexts) are unaffected.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function (err) {
+        console.warn('DATAGLOW service worker registration failed (offline support disabled):', err);
+      });
+    });
+  }
+
+  // Unobtrusive "Install DATAGLOW" affordance for Android/desktop Chrome, which
+  // fires beforeinstallprompt. iOS uses the native Share → Add to Home Screen
+  // flow (no event), so nothing is shown there. Dismissal is remembered.
+  var deferredPrompt = null;
+  var DISMISS_KEY = 'dataglow-install-dismissed';
+
+  function removeBanner() {
+    var el = document.getElementById('dataglow-install-banner');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function showBanner() {
+    try { if (localStorage.getItem(DISMISS_KEY) === '1') return; } catch (e) {}
+    if (document.getElementById('dataglow-install-banner')) return;
+    var bar = document.createElement('div');
+    bar.id = 'dataglow-install-banner';
+    bar.setAttribute('role', 'dialog');
+    bar.setAttribute('aria-label', 'Install DATAGLOW');
+    bar.style.cssText = 'position:fixed;z-index:9999;right:16px;bottom:16px;display:flex;align-items:center;gap:12px;'
+      + 'background:#2D2D2D;color:#FAFAF9;padding:10px 12px 10px 14px;border-radius:12px;'
+      + 'box-shadow:0 6px 24px rgba(0,0,0,0.28);font-family:Inter,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;max-width:calc(100vw - 32px);';
+
+    var label = document.createElement('span');
+    label.textContent = 'Install DATAGLOW for offline, full-screen use';
+    label.style.cssText = 'line-height:1.3;';
+
+    var install = document.createElement('button');
+    install.type = 'button';
+    install.textContent = 'Install';
+    install.style.cssText = 'background:#FF6B6B;color:#2D2D2D;border:none;border-radius:8px;padding:6px 14px;'
+      + 'font-weight:700;cursor:pointer;font-size:14px;white-space:nowrap;';
+    install.addEventListener('click', function () {
+      removeBanner();
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.finally(function () { deferredPrompt = null; });
+    });
+
+    var dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.setAttribute('aria-label', 'Dismiss');
+    dismiss.textContent = '×';
+    dismiss.style.cssText = 'background:transparent;color:#A6A49F;border:none;font-size:20px;line-height:1;'
+      + 'cursor:pointer;padding:0 4px;';
+    dismiss.addEventListener('click', function () {
+      try { localStorage.setItem(DISMISS_KEY, '1'); } catch (e) {}
+      removeBanner();
+    });
+
+    bar.appendChild(label);
+    bar.appendChild(install);
+    bar.appendChild(dismiss);
+    document.body.appendChild(bar);
+  }
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();           // suppress the default mini-infobar
+    deferredPrompt = e;
+    showBanner();
+  });
+
+  window.addEventListener('appinstalled', function () {
+    try { localStorage.setItem(DISMISS_KEY, '1'); } catch (e) {}
+    removeBanner();
+    deferredPrompt = null;
+  });
+})();
+</script>
 </body>
 </html>

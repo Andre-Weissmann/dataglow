@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataglow.app/protocol/1.0.0/dataset.schema.json",
+  "title": "Dataset",
+  "version": "1.0.0",
+  "description": "Descriptor for a tabular dataset loaded into DATAGLOW. Mirrors the `dataset` block embedded in a ProvenanceAttestation and the descriptor derivable from the app's in-memory dataset. Contains no row-level data — only shape/metadata — so it is safe to share without exposing PHI.",
+  "type": "object",
+  "required": ["table", "rowCount", "colCount"],
+  "properties": {
+    "table": {
+      "type": ["string", "null"],
+      "description": "Logical table/dataset name. Null when unnamed."
+    },
+    "rowCount": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Number of rows. Null when unknown."
+    },
+    "colCount": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Number of columns. Null when unknown."
+    },
+    "columns": {
+      "type": ["array", "null"],
+      "description": "Column descriptors, or null when not captured. Each item is either a bare column-name string or a { name, type } object.",
+      "items": {
+        "anyOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": ["string", "null"] }
+            }
+          }
+        ]
+      }
+    },
+    "loadedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when the dataset was loaded. Null when unknown."
+    }
+  }
+}

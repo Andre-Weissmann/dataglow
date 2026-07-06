@@ -28,6 +28,7 @@ import * as privacyBudget from './privacy-budget.js';
 import * as memoryStore from './memory-store.js';
 import * as ledger from './assumption-ledger.js';
 import * as provenance from './provenance.js';
+import * as zkProvenance from './zk-provenance.js';
 import * as domainPhysics from './domain-physics.js';
 import * as devilsAdvocate from './devils-advocate.js';
 import * as syntheticAdversarial from './synthetic-adversarial.js';
@@ -1011,6 +1012,31 @@ function initProvenance() {
     const att = await chain.attest(attMeta(ds));
     downloadText(`dataglow-attestation-${ds.table}.html`, provenance.renderAttestationHTML(att), 'text/html');
     toast('Attestation HTML exported (printable / PDF-friendly)', 'success');
+  });
+  // ZK-style "prove without revealing" proof — a Merkle commitment over the
+  // validation claims, shareable to a third party who can verify specific claims
+  // without ever receiving the dataset. Honest labelling: NOT a formal ZK proof.
+  const zkBtn = $('#btn-zk-proof-export');
+  if (zkBtn) zkBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    const results = state.validationResults || window.__dataglowLastValidation;
+    if (!results) { toast('Run validation first to produce claims to prove', 'error'); return; }
+    let attestationRef = null;
+    const chain = provenance.getProvenance(ds.table);
+    if (chain && chain.length) {
+      const att = await chain.attest(attMeta(ds));
+      attestationRef = { digest: att.digest && att.digest.value, finalHash: att.chain && att.chain.finalHash };
+    }
+    const artifact = await zkProvenance.generateProof({
+      recordCount: ds.rowCount,
+      grades: results.calibratedGrades,
+      results,
+      dataglow: { version: '1.0.0', build: 'gen10-batch3' },
+      attestationRef,
+    });
+    downloadText(`dataglow-zk-proof-${ds.table}.json`, JSON.stringify(artifact, null, 2), 'application/json');
+    toast('Verifiable proof exported — share the root/claims; the dataset stays private', 'success');
   });
 }
 

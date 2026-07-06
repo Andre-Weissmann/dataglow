@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataglow.app/protocol/1.0.0/provenance-attestation.schema.json",
+  "title": "ProvenanceAttestation",
+  "version": "1.0.0",
+  "description": "A tamper-evident, hash-chained record of a dataset's chain of custody, plus a SHA-256 digest of its canonical core. Mirrors EXACTLY the object produced by buildAttestation() in js/provenance.js. This is a cryptographic integrity record only — NOT a notarization, and NOT a legal, clinical, or regulatory determination. The `version` field here is the attestation document format version (integer 1), distinct from the semver protocol version.",
+  "type": "object",
+  "required": ["kind", "version", "generatedAt", "algorithm", "dataset", "chain", "summary", "digest", "notarization"],
+  "properties": {
+    "kind": {
+      "const": "dataglow-provenance-attestation",
+      "description": "Discriminator identifying this document as a DATAGLOW provenance attestation."
+    },
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Attestation document format version."
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "algorithm": {
+      "type": "string",
+      "description": "Hashing construction used, e.g. \"SHA-256 hash chain (Merkle-style linked hashes)\"."
+    },
+    "dataset": { "$ref": "https://dataglow.app/protocol/1.0.0/dataset.schema.json" },
+    "chain": {
+      "type": "object",
+      "required": ["genesisParent", "length", "finalHash", "steps"],
+      "properties": {
+        "genesisParent": { "$ref": "#/$defs/sha256hex", "description": "All-zero anchor for the genesis step's parentHash." },
+        "length": { "type": "integer", "minimum": 0 },
+        "finalHash": { "$ref": "#/$defs/sha256hex" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/step" }
+        }
+      }
+    },
+    "summary": { "type": "string" },
+    "digest": {
+      "type": "object",
+      "required": ["algorithm", "value", "covers"],
+      "properties": {
+        "algorithm": { "type": "string", "const": "SHA-256" },
+        "value": { "$ref": "#/$defs/sha256hex" },
+        "covers": { "type": "string", "description": "Which fields the digest commits to." }
+      }
+    },
+    "notarization": {
+      "type": "object",
+      "required": ["status", "notarized", "utcTime", "note"],
+      "properties": {
+        "status": { "type": "string", "description": "Honest status label, e.g. \"digest-ready-for-notarization\". Never claims \"notarized\" unless independently notarized." },
+        "notarized": { "type": "boolean" },
+        "utcTime": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" },
+        "howToNotarize": { "type": "array", "items": { "type": "string" } },
+        "verifyIndependently": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 digest (64 chars)."
+    },
+    "step": {
+      "type": "object",
+      "required": ["index", "op", "description", "ts", "parentHash", "hash"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "op": { "type": "string", "description": "Operation kind, e.g. \"load\", \"transform\", \"query\"." },
+        "description": { "type": "string" },
+        "detail": { "description": "Optional structured detail; any JSON value or null." },
+        "contentHash": {
+          "anyOf": [ { "$ref": "#/$defs/sha256hex" }, { "type": "null" } ],
+          "description": "Optional hash of a data snapshot this step commits to (e.g. raw file bytes on load)."
+        },
+        "ts": { "type": "integer", "description": "Unix epoch milliseconds when the step was recorded." },
+        "parentHash": { "$ref": "#/$defs/sha256hex" },
+        "hash": { "$ref": "#/$defs/sha256hex" }
+      }
+    }
+  }
+}

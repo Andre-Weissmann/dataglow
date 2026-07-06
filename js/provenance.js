@@ -13,6 +13,8 @@
 // Web Crypto API (crypto.subtle) — available in both the browser and modern
 // Node, so no external crypto library is pulled in.
 
+import { devAssertConformance } from './protocol-conformance.js';
+
 // Canonical serialization of the fields that a step's hash commits to. Kept
 // stable and explicit so re-verification is reproducible.
 function stepPayload(parentHash, step) {
@@ -26,7 +28,10 @@ function stepPayload(parentHash, step) {
   });
 }
 
-async function sha256Hex(str) {
+// SHA-256 of a UTF-8 string, hex-encoded. Exported so the ZK-style proof module
+// (js/zk-provenance.js) commits its Merkle leaves with the identical hash
+// primitive rather than introducing a second hashing approach.
+export async function sha256Hex(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -212,6 +217,9 @@ export async function buildAttestation(trail, metadata = {}) {
     ],
     verifyIndependently: 'Recompute the SHA-256 digest of this document\'s canonical core (kind, version, generatedAt, algorithm, dataset, chain, summary) and re-run the hash chain with test/verify-attestation.mjs — no DATAGLOW code or network access required.',
   };
+  // Dev-mode, non-fatal: confirm the emitted attestation conforms to the
+  // published protocol/schema/provenance-attestation.schema.json.
+  devAssertConformance('provenance-attestation', att);
   return att;
 }
 
