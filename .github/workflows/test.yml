@@ -46,6 +46,10 @@ jobs:
       - run: npm run test:slm
       # Security regression: Story Engine escapes user-controlled data (stored XSS).
       - run: npm run test:story-xss
+      # Gen 10 Batch 2: Digital Twin perturbation → grading pipeline (native DuckDB)
+      # and Ambient Watch-Folder change-detection + validation-pipeline reuse.
+      - run: npm run test:twin
+      - run: npm run test:watch
 
   e2e-smoke:
     name: e2e smoke (real Chrome)
@@ -74,6 +78,13 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-ambient-slm
+      # Gen 10 Batch 2: Watch-Folder (driven via the mock-directory test hook, as
+      # showDirectoryPicker needs a user gesture) + Digital Twin live simulation,
+      # including a network sniffer asserting watched files never leave the device.
+      - name: Run watch-folder + digital-twin e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-watch-twin
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
