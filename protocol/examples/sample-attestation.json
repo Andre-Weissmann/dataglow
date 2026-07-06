@@ -1,0 +1,90 @@
+{
+  "kind": "dataglow-provenance-attestation",
+  "version": 1,
+  "generatedAt": "2026-07-06T20:39:15.736Z",
+  "algorithm": "SHA-256 hash chain (Merkle-style linked hashes)",
+  "dataset": {
+    "table": "claims_2024",
+    "rowCount": 48213,
+    "colCount": 4,
+    "columns": [
+      {
+        "name": "claim_id",
+        "type": "VARCHAR"
+      },
+      {
+        "name": "payer",
+        "type": "VARCHAR"
+      },
+      {
+        "name": "claim_amount",
+        "type": "DOUBLE"
+      },
+      {
+        "name": "admit_date",
+        "type": "DATE"
+      }
+    ],
+    "loadedAt": "2024-06-01T12:00:00.000Z"
+  },
+  "chain": {
+    "genesisParent": "0000000000000000000000000000000000000000000000000000000000000000",
+    "length": 3,
+    "finalHash": "c97ac2931e413520067273990d785af2c371fcea593546dafcf0fc9c286679d0",
+    "steps": [
+      {
+        "index": 0,
+        "op": "load",
+        "description": "Loaded claims_2024.csv",
+        "detail": {
+          "source": "claims_2024.csv"
+        },
+        "contentHash": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+        "ts": 1783370355732,
+        "parentHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "hash": "919b70a03ec5d137ab5d5ab4d96870e50411867c6244abd5eb72eb955a47ddd2"
+      },
+      {
+        "index": 1,
+        "op": "transform",
+        "description": "Cleaned column names and trimmed whitespace",
+        "detail": {
+          "columnsRenamed": 3
+        },
+        "contentHash": null,
+        "ts": 1783370355735,
+        "parentHash": "919b70a03ec5d137ab5d5ab4d96870e50411867c6244abd5eb72eb955a47ddd2",
+        "hash": "a98e4aaeb0b5ac6587f0f9cdaae1ae688239da3b56e779665005a39e597250e1"
+      },
+      {
+        "index": 2,
+        "op": "query",
+        "description": "SELECT payer, AVG(claim_amount) GROUP BY payer",
+        "detail": {
+          "rowsReturned": 12
+        },
+        "contentHash": null,
+        "ts": 1783370355735,
+        "parentHash": "a98e4aaeb0b5ac6587f0f9cdaae1ae688239da3b56e779665005a39e597250e1",
+        "hash": "c97ac2931e413520067273990d785af2c371fcea593546dafcf0fc9c286679d0"
+      }
+    ]
+  },
+  "summary": "Provenance attestation for dataset \"claims_2024\" (48,213 rows × 4 columns). The chain of custody records 3 step(s) (load → transform → query), anchored by a SHA-256 hash chain whose final hash is c97ac2931e413520…. This is a cryptographic integrity record, not a legal or clinical determination.",
+  "digest": {
+    "algorithm": "SHA-256",
+    "value": "57dd791632a2d98fa52dcccb832629a0b2d5fdf0e047daf224494e91d846f465",
+    "covers": "kind, version, generatedAt, algorithm, dataset, chain, summary"
+  },
+  "notarization": {
+    "status": "digest-ready-for-notarization",
+    "notarized": false,
+    "utcTime": "2026-07-06T20:39:15.750Z",
+    "note": "DATAGLOW does not itself notarize this document. The SHA-256 digest above is ready to be submitted to an independent trusted timestamp authority for a tamper-evident proof of existence.",
+    "howToNotarize": [
+      "OpenTimestamps (free, Bitcoin-anchored): drag this JSON file onto https://opentimestamps.org, or run `ots stamp attestation.json` with the OpenTimestamps client. This produces a .ots proof you can later verify with `ots verify`.",
+      "RFC 3161 Time-Stamp Protocol: create a request with `openssl ts -query -data attestation.json -sha256 -out request.tsq`, submit it to any RFC-3161 TSA, and save the returned token; verify later with `openssl ts -verify`."
+    ],
+    "verifyIndependently": "Recompute the SHA-256 digest of this document's canonical core (kind, version, generatedAt, algorithm, dataset, chain, summary) and re-run the hash chain with test/verify-attestation.mjs — no DATAGLOW code or network access required."
+  }
+}

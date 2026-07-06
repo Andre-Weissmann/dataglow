@@ -10,6 +10,7 @@ import { detectColumnClusters, describeCluster } from './categorical-consistency
 import { logAssumption } from './assumption-ledger.js';
 import { applyDomainPack, summarizeUnitTests } from './domain-physics.js';
 import { computeCalibratedGrades } from './calibrated-grades.js';
+import { devAssertConformance, toValidationRun, toDataset } from './protocol-conformance.js';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
 const history = {
@@ -876,6 +877,10 @@ export async function runAllLayers(ds, options = {}) {
   });
 
   state.validationResults = results;
+  // Dev-mode, non-fatal: confirm the run + its two-axis grade conform to the
+  // published protocol schemas (validation-run + grade-result).
+  devAssertConformance('validation-run', toValidationRun(results, toDataset(ds)));
+  if (results.calibratedGrades) devAssertConformance('grade-result', results.calibratedGrades);
   return results;
 }
 

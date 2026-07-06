@@ -16,6 +16,8 @@
     "test:ambient": "node test/ambient-validation.test.mjs",
     "test:slm": "node test/slm-prompt.test.mjs",
     "test:story-xss": "node test/story-xss.test.mjs",
+    "test:protocol": "node test/protocol-schema.test.mjs",
+    "test:pwa": "node test/pwa-manifest.test.mjs",
     "test:e2e": "node test/e2e-smoke.test.mjs",
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs"
   },

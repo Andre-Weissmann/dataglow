@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataglow.app/protocol/1.0.0/validation-run.schema.json",
+  "title": "ValidationRun",
+  "version": "1.0.0",
+  "description": "A stable, external-client-facing envelope describing one run of DATAGLOW's validation layers over a dataset. This is a derived contract: it is produced deterministically from the app's internal `results` map (see toValidationRun() in js/protocol-conformance.js) rather than exposing that internal map verbatim, so the wire shape stays stable even if internal layer bookkeeping changes.",
+  "type": "object",
+  "required": ["protocolVersion", "generatedAt", "layers"],
+  "properties": {
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver of the DATAGLOW protocol this payload targets."
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "dataset": { "$ref": "https://dataglow.app/protocol/1.0.0/dataset.schema.json" },
+    "layers": {
+      "type": "object",
+      "description": "Map of layer id -> layer result.",
+      "additionalProperties": { "$ref": "#/$defs/layerResult" }
+    },
+    "confidence": {
+      "type": "object",
+      "description": "The Confidence Layer's 0–100 score summary, when present.",
+      "required": ["score", "grade", "status"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "grade": { "type": "string", "enum": ["A", "B", "C", "D", "F"] },
+        "verdict": { "type": "string" },
+        "status": { "$ref": "#/$defs/status" },
+        "signals": { "type": "object" }
+      }
+    },
+    "grades": {
+      "$ref": "https://dataglow.app/protocol/1.0.0/grade-result.schema.json",
+      "description": "The Confidence-Calibrated two-axis grade, when computed."
+    }
+  },
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["pass", "warn", "fail", "idle"],
+      "description": "Layer outcome. \"idle\" means the layer did not run (not applicable / awaiting input)."
+    },
+    "layerResult": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "summary": { "type": ["string", "null"] },
+        "detail": { "description": "Optional structured detail; any JSON value or null." },
+        "ts": { "type": "integer", "description": "Unix epoch milliseconds when the layer ran." }
+      }
+    }
+  }
+}
