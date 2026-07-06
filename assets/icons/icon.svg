@@ -1,0 +1,5 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DATAGLOW">
+  <rect width="512" height="512" rx="112" fill="#2D2D2D"/>
+  <text x="256" y="360" font-family="Poppins, 'Segoe UI', sans-serif" font-weight="700" font-size="300" fill="#FF6B6B" text-anchor="middle">d</text>
+  <path d="M396 96 L412 144 L460 144 L420 173 L436 221 L396 192 L356 221 L372 173 L332 144 L380 144 Z" fill="#FF6B6B"/>
+</svg>

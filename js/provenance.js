@@ -13,6 +13,8 @@
 // Web Crypto API (crypto.subtle) — available in both the browser and modern
 // Node, so no external crypto library is pulled in.
 
+import { devAssertConformance } from './protocol-conformance.js';
+
 // Canonical serialization of the fields that a step's hash commits to. Kept
 // stable and explicit so re-verification is reproducible.
 function stepPayload(parentHash, step) {
@@ -215,6 +217,9 @@ export async function buildAttestation(trail, metadata = {}) {
     ],
     verifyIndependently: 'Recompute the SHA-256 digest of this document\'s canonical core (kind, version, generatedAt, algorithm, dataset, chain, summary) and re-run the hash chain with test/verify-attestation.mjs — no DATAGLOW code or network access required.',
   };
+  // Dev-mode, non-fatal: confirm the emitted attestation conforms to the
+  // published protocol/schema/provenance-attestation.schema.json.
+  devAssertConformance('provenance-attestation', att);
   return att;
 }
 

@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DATAGLOW">
+  <!-- Full-bleed background so any platform mask (circle, squircle, rounded
+       square) keeps a solid fill. Foreground glyph is kept inside the central
+       ~60% "safe zone" so it is never clipped by a maskable crop. -->
+  <rect width="512" height="512" fill="#2D2D2D"/>
+  <text x="256" y="330" font-family="Poppins, 'Segoe UI', sans-serif" font-weight="700" font-size="220" fill="#FF6B6B" text-anchor="middle">d</text>
+  <path d="M352 168 L364 204 L400 204 L370 226 L382 262 L352 240 L322 262 L334 226 L304 204 L340 204 Z" fill="#FF6B6B"/>
+</svg>

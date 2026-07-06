@@ -7,6 +7,7 @@
 import { state } from './state.js';
 import { scoreClaimConfidence } from './validation.js';
 import { escapeHtml } from './utils.js';
+import { devAssertConformance, toStoryOutput } from './protocol-conformance.js';
 
 // Grade → color, matching the Confidence Layer's ring colors so a claim badge
 // reads the same as the table-level grade.
@@ -148,6 +149,15 @@ export function generateLocalStory(queryResult, tableName) {
 }
 
 export async function generateStory(queryResult, tableName, provider, apiKey) {
+  const result = await produceStory(queryResult, tableName, provider, apiKey);
+  // Dev-mode, non-fatal: confirm the Story Engine output conforms to the
+  // published protocol/schema/story-output.schema.json.
+  const claims = (queryResult && queryResult.rows && queryResult.rows.length) ? buildStoryClaims(queryResult) : [];
+  devAssertConformance('story-output', toStoryOutput(result, claims));
+  return result;
+}
+
+async function produceStory(queryResult, tableName, provider, apiKey) {
   if (!queryResult || queryResult.rows.length === 0) {
     throw new Error('Run a SQL query with results first.');
   }

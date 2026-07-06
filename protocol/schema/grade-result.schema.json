@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataglow.app/protocol/1.0.0/grade-result.schema.json",
+  "title": "GradeResult",
+  "version": "1.0.0",
+  "description": "DATAGLOW's Confidence-Calibrated two-axis grade. Both axes are explicitly HEURISTIC, not legal or clinical determinations. Mirrors the object produced by computeCalibratedGrades() in js/calibrated-grades.js.",
+  "type": "object",
+  "required": ["packName", "integrity", "plausibility"],
+  "properties": {
+    "packName": {
+      "type": "string",
+      "description": "Domain pack applied when grading (e.g. \"healthcare\", or \"none\" for raw domain-agnostic output)."
+    },
+    "integrity": {
+      "$ref": "#/$defs/axis",
+      "description": "Data Integrity axis — internal consistency (duplicates, cross-column logic, format/label validity)."
+    },
+    "plausibility": {
+      "$ref": "#/$defs/axis",
+      "description": "Domain Plausibility Confidence axis — how confident DATAGLOW is that its flags are real problems vs. domain quirks it reinterpreted."
+    }
+  },
+  "$defs": {
+    "grade": {
+      "type": "string",
+      "enum": ["A", "B", "C", "D", "F"],
+      "description": "A–F band, matching the CDC-framework banding used across DATAGLOW."
+    },
+    "axis": {
+      "type": "object",
+      "required": ["score", "grade", "explanation"],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Normalized [0,1] heuristic score for this axis."
+        },
+        "grade": { "$ref": "#/$defs/grade" },
+        "explanation": {
+          "type": "string",
+          "description": "Human-readable, explicitly-heuristic explanation of how the score was derived."
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Integrity axis: count of internal-consistency checks that passed."
+        },
+        "considered": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Integrity axis: count of internal-consistency checks that were runnable and counted."
+        },
+        "interpreted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Plausibility axis: count of raised flags the domain pack reinterpreted in context."
+        },
+        "concerns": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Plausibility axis: count of flags raised by the concern layers."
+        }
+      }
+    }
+  }
+}
