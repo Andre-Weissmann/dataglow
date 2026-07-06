@@ -6,6 +6,7 @@
 import { state, addDataset } from './state.js';
 import { sanitizeTableName, toast } from './utils.js';
 import * as engine from './duckdb-engine.js';
+import { startProvenance, hashBytes } from './provenance.js';
 
 function uniqueTableName(baseName) {
   const existingTables = new Set(state.datasets.map(d => d.table));
@@ -57,6 +58,10 @@ export async function loadFile(file) {
       sizeBytes: file.size,
     };
     addDataset(ds);
+    // Anchor the Chain of Custody to the raw bytes the analyst started from.
+    const rawHash = await hashBytes(arrayBuffer);
+    const chain = startProvenance(tableName);
+    await chain.append('load', `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`, { file: file.name, rows: rowCount, sizeBytes: file.size }, rawHash);
     toast(`Loaded ${file.name} — ${rowCount.toLocaleString()} rows`, 'success');
     return ds;
   } catch (err) {
@@ -171,6 +176,9 @@ export async function loadGoldenDataset() {
     isGolden: true,
   };
   addDataset(ds);
+  const rawHash = await hashBytes(new TextEncoder().encode(JSON.stringify(rows)));
+  const chain = startProvenance(tableName);
+  await chain.append('load', `Loaded built-in golden test dataset (${rowCount} rows with seeded issues)`, { rows: rowCount, source: 'golden' }, rawHash);
   toast(`Golden test dataset loaded — ${rowCount} rows with known issues`, 'success');
   return ds;
 }
