@@ -6,7 +6,7 @@
 
 ## What is DATAGLOW?
 
-DATAGLOW is a personal data cleaning, validation, and analysis workbench that runs entirely in your browser. Upload a file and move through preflight checks, SQL querying, automated cleaning, a 13-layer data validation suite, drag-and-drop visualization, AI-assisted narrative summaries, and even live Python / R / structural-Swift notebooks — all client-side.
+DATAGLOW is a personal data cleaning, validation, and analysis workbench that runs entirely in your browser. Upload a file and move through preflight checks, SQL querying, automated cleaning, a 15-layer data validation suite, drag-and-drop visualization, AI-assisted narrative summaries, and even live Python / R / structural-Swift notebooks — all client-side.
 
 Everything runs on WebAssembly and vanilla JS. Your data never leaves your machine.
 
@@ -15,7 +15,7 @@ Everything runs on WebAssembly and vanilla JS. Your data never leaves your machi
 - **Preflight** — instant data quality checklist the moment a file loads
 - **SQL** — query any loaded table with a DuckDB-WASM engine and autocomplete
 - **Clean** — automated cleaning (duplicates, nulls, formatting) with a full audit trail of every change made
-- **Validate** — 13 independent validation layers (schema, nulls, duplicates, outliers, semantic drift, confidence scoring with anomaly-concentration detection, unit tests, and more)
+- **Validate** — 15 independent validation layers (schema, nulls, duplicates, outliers, Benford's Law, semantic drift, confidence scoring with anomaly-concentration detection, unit tests, and more)
 - **Visualize** — drag-and-drop chart builder powered by Plotly
 - **Story** — AI-generated plain-language narrative summaries of your dataset. Uses Perplexity by default; Claude, Gemini, and other providers can be attached in Settings. Falls back to an honest rule-based summary when no API key is configured
 - **Python** — in-browser notebook via Pyodide
@@ -52,7 +52,7 @@ dataglow/
 │   ├── duckdb-engine.js     # DuckDB-WASM setup + query helpers
 │   ├── loaders.js           # file format loaders
 │   ├── clean.js             # automated cleaning + audit trail
-│   ├── validation.js        # 13-layer validation suite + Red Team self-test
+│   ├── validation.js        # 15-layer validation suite + Red Team self-test
 │   ├── visualize.js         # chart builder
 │   ├── story.js             # AI narrative generation (pluggable providers)
 │   ├── python-runtime.js    # Pyodide notebook
@@ -78,6 +78,10 @@ dataglow/
 **Andre Weissmann** — Data Analyst
 
 [![GitHub](https://img.shields.io/badge/GitHub-Andre--Weissmann-181717?style=flat&logo=github)](https://github.com/Andre-Weissmann)
+
+## License
+
+MIT License — see [LICENSE](LICENSE). Provided AS-IS, without warranty of any kind. Third-party library licenses and academic citations for all statistical/ML techniques are listed in the LICENSE file and in the app's Settings → About & Attributions panel.
 
 ## Status
 

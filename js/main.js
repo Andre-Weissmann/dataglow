@@ -685,7 +685,7 @@ function renderAuditLog(auditLog) {
 }
 
 // ============================================================
-// Validate Tab (13 layers)
+// Validate Tab (15 layers)
 // ============================================================
 function statusIcon(status) {
   const icons = { pass: '✓', fail: '✕', warn: '!', idle: '—' };
