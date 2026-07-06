@@ -224,6 +224,24 @@ Given the currently-loaded dataset's schema (column names + inferred types), syn
 ### 6. Explainable Benford Gate (Teaching UI)
 UI polish on the Gen 7 Statistical Test Eligibility Gate: when Benford's Law is skipped for a column, the Validate tab now shows an expandable, plain-language "why" note (the gate teaches, rather than silently passing) — reusing the gate's existing skip reasons and a one-paragraph explanation of when Benford applies.
 
+## 🤝 GEN 8 (BATCH 3) — TRUST & COLLABORATION SUITE (This Release)
+
+Three features that take DATAGLOW's trust story out of the single browser session: an analysis becomes a *shareable artifact*, a *reviewable packet*, and a *comparable-over-time* object. All three are file-based — no backend, no accounts, no real-time multiplayer — and use DATAGLOW's own visual/interaction design, not any competitor's report or review UI.
+
+### 7. Shareable Validation Receipts
+A single "Export Validation Receipt" action in the Validate tab packages the whole analysis into one self-contained HTML file (`js/validation-receipt.js`) that a non-technical stakeholder can open in any browser without running DATAGLOW. The receipt bundles: the overall **Confidence grade** (with the six-signal verdict), a **pass/fail summary of all 18 validation layers**, the **key Assumption Ledger entries**, and the **generated Story narrative**. `buildValidationReceipt()` is a pure model-builder; `renderReceiptHTML()` emits a script-free, inline-styled document (its own "certificate" layout — a confidence-ring badge over a plain-language layer table) so it is safe to email or archive.
+
+### 8. Async Peer Review Mode
+A lightweight, file-based second-reviewer workflow (`js/peer-review.js`). DATAGLOW exports a structured **review packet** (JSON or a human-readable markdown companion) containing the query, the key findings (failing/warning layers surfaced first), the full 18-layer roll-up, and the Assumption Ledger. A second person opens it offline, sets a per-section **approve / flag** decision plus free-text notes, and returns the JSON. DATAGLOW re-imports it (`importReview()` validates it is a genuine DATAGLOW packet), tallies the decisions into an "Approved" / "Changes requested" verdict (`summarizeReview()`), and renders the review beside the analysis. This is DATAGLOW's OWN flat-checklist model — a list of analysis sections each with a three-state decision chip — deliberately not modeled on any pull-request or document-commenting product.
+
+### 9. Time-Travel Diff Mode
+A dedicated **Diff** tab where the analyst loads a second dataset version alongside the active one (`js/time-travel-diff.js`) and DATAGLOW auto-diffs at three levels:
+- **Row-level** — auto-detects a likely primary key (id/key/code-like unique column, or the first fully-unique column) or lets the user pick one, then reports which rows were **added / removed / changed**, and for changed rows the exact fields with before→after values.
+- **Distributional** — reuses Layer 18's **Distributional Fingerprint Drift** logic (the now-exported `computeDistributionFingerprint` / `compareDistributions`) to flag which columns' distributions shifted (numeric mean-shift > 2σ, categorical top-5 composition change).
+- **Validation-layer flips** — runs all 18 layers on both versions and reports which layers flip **PASS↔FAIL** between them, so a regression in data quality is impossible to miss.
+
+Row-level and layer-flip diffing are pure and Node-testable; the distributional diff is engine-backed against the shared DuckDB connection.
+
 ---
 
 ## ✅ HOW TO KNOW FEATURES ARE REALLY WORKING (Not Fake)

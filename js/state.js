@@ -18,7 +18,7 @@ export const state = {
     apiKeys: {},
     freshnessThresholdHours: 24,
   },
-  tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'visualize', 'story', 'swift'],
+  tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift'],
 };
 
 export function setActiveDataset(name) {

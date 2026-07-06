@@ -213,7 +213,10 @@
           <div class="panel-title">Validate</div>
           <div class="panel-subtitle">The 18 validation layers — DATAGLOW's heartbeat</div>
         </div>
-        <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 18 Layers</button>
+        <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="btn-export-receipt" data-testid="button-export-receipt" title="Package the confidence grade, all 18 layer results, key assumptions, and the story into one shareable HTML file.">Export Validation Receipt</button>
+          <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 18 Layers</button>
+        </div>
       </div>
 
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
@@ -329,6 +332,64 @@
           <div id="provenance-list" style="font-family:var(--font-mono, monospace); font-size:var(--text-xs); max-height:320px; overflow-y:auto;"></div>
         </div>
       </div>
+
+      <div id="peer-review-wrap" style="margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <div class="sidebar-heading">Peer Review Mode</div>
+            <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
+              <button class="btn btn-secondary" id="btn-review-export-json" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-review-export-json">Export Packet .json</button>
+              <button class="btn btn-secondary" id="btn-review-export-md" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-review-export-md">Export Packet .md</button>
+              <label class="btn btn-secondary" style="font-size:var(--text-xs); padding:6px 10px; cursor:pointer;" data-testid="label-review-import">
+                Import Completed Review
+                <input type="file" id="review-import-input" accept=".json,application/json" style="display:none;">
+              </label>
+            </div>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Export a structured review packet — the query, key findings, all 18 layer results, and the Assumption Ledger — for a second person
+            to review offline. They set an approve/flag decision and notes per section, then send the JSON back for you to import here. No backend, no accounts.
+          </p>
+          <div id="review-display-wrap" style="display:none;">
+            <div id="review-display" style="font-size:var(--text-sm);"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TIME-TRAVEL DIFF TAB ============ -->
+    <section class="panel" id="panel-diff" data-panel="diff">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Time-Travel Diff</div>
+          <div class="panel-subtitle">Compare a second version of your data against the active dataset</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:var(--space-6);">
+        <div style="padding:var(--space-4);">
+          <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);">
+            Load a second dataset file to compare against the active one. DATAGLOW diffs at three levels: row-level changes (keyed on a
+            detected or chosen primary key), distributional drift (reusing Layer 18's fingerprint logic), and which of the 18 validation
+            layers flip PASS↔FAIL between the two versions.
+          </p>
+          <div style="display:flex; gap:var(--space-3); flex-wrap:wrap; align-items:center;">
+            <label class="btn btn-secondary" style="cursor:pointer;" data-testid="label-diff-file">
+              Load Comparison Dataset
+              <input type="file" id="diff-file-input" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls" style="display:none;">
+            </label>
+            <label style="font-size:var(--text-sm); color:var(--color-text-muted);">Key column:
+              <select id="diff-key-select" data-testid="select-diff-key" style="margin-left:var(--space-2);">
+                <option value="__auto">Auto-detect key</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" id="btn-diff-run" data-testid="button-diff-run" disabled>Run Diff</button>
+          </div>
+          <div id="diff-loaded-note" style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-2);"></div>
+        </div>
+      </div>
+
+      <div id="diff-results"></div>
     </section>
 
     <!-- ============ VISUALIZE TAB ============ -->

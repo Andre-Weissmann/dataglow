@@ -642,7 +642,7 @@ async function runCrossColumnLogic(table, cols) {
 // distribution fingerprint (mean/std/skewness for numeric; top-5 value
 // frequencies for categorical) keyed by the schema hash, then compare a later
 // load of the same schema against the stored baseline.
-async function computeDistributionFingerprint(table, cols) {
+export async function computeDistributionFingerprint(table, cols) {
   const stats = {};
   for (const c of cols) {
     const col = `"${c.name}"`;
@@ -666,7 +666,7 @@ async function computeDistributionFingerprint(table, cols) {
   return stats;
 }
 
-function compareDistributions(prev, curr) {
+export function compareDistributions(prev, curr) {
   const drifts = [];
   for (const [name, cs] of Object.entries(curr)) {
     const ps = prev[name];

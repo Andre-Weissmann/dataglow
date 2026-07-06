@@ -2,7 +2,7 @@
 // DATAGLOW — Main Application Controller
 // ============================================================
 
-import { state, getActiveDataset, addDataset } from './state.js';
+import { state, getActiveDataset, addDataset, setActiveDataset } from './state.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
@@ -33,6 +33,9 @@ import * as syntheticAdversarial from './synthetic-adversarial.js';
 import * as pyRuntime from './python-runtime.js';
 import * as rRuntime from './r-runtime.js';
 import * as swiftPreview from './swift-preview.js';
+import * as receipt from './validation-receipt.js';
+import * as peerReview from './peer-review.js';
+import * as timeTravel from './time-travel-diff.js';
 
 // ============================================================
 // Tab Definitions
@@ -44,6 +47,7 @@ const TAB_META = {
   r: { label: 'R', icon: 'bar-chart-2' },
   clean: { label: 'Clean', icon: 'sparkles' },
   validate: { label: 'Validate', icon: 'shield' },
+  diff: { label: 'Diff', icon: 'git-compare' },
   visualize: { label: 'Visualize', icon: 'pie-chart' },
   story: { label: 'Story', icon: 'book-open' },
   swift: { label: 'Swift', icon: 'smartphone' },
@@ -59,6 +63,7 @@ const ICONS = {
   'pie-chart': '<path d="M21.21 15.89A10 10 0 118 2.83"/><path d="M22 12A10 10 0 0012 2v10z"/>',
   'book-open': '<path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>',
   smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/>',
+  'git-compare': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -839,6 +844,186 @@ function initDevilsAdvocate() {
   });
 }
 
+// Shareable Validation Receipts — package the current analysis (Confidence
+// grade, all 18 layer statuses, key ledger entries, and the Story narrative)
+// into one self-contained HTML file a stakeholder can open without DATAGLOW.
+function initReceipts() {
+  const btn = $('#btn-export-receipt');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const ds = getActiveDataset();
+    const results = window.__dataglowLastValidation;
+    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return; }
+    const model = receipt.buildValidationReceipt({
+      datasetName: ds.name || ds.table,
+      results,
+      ledgerEntries: ledger.getLedgerEntries(),
+      storyText: state.lastStory || null,
+    });
+    downloadText(`dataglow-receipt-${ds.table}.html`, receipt.renderReceiptHTML(model), 'text/html');
+    toast('Validation Receipt exported', 'success');
+  });
+}
+
+// Async Peer Review Mode — export a structured review packet from the current
+// analysis for a second person, and re-import their completed review to display
+// it alongside the analysis. File-based; no backend.
+function initPeerReview() {
+  const exportJson = $('#btn-review-export-json');
+  const exportMd = $('#btn-review-export-md');
+  const importInput = $('#review-import-input');
+  if (!exportJson) return;
+
+  const buildPacket = () => {
+    const ds = getActiveDataset();
+    const results = window.__dataglowLastValidation;
+    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return null; }
+    return peerReview.buildReviewPacket({
+      datasetName: ds.name || ds.table,
+      query: state.lastQuery || null,
+      results,
+      ledgerEntries: ledger.getLedgerEntries(),
+    });
+  };
+
+  exportJson.addEventListener('click', () => {
+    const packet = buildPacket();
+    if (!packet) return;
+    downloadText(`dataglow-review-packet-${getActiveDataset().table}.json`, peerReview.exportPacket(packet, 'json'), 'application/json');
+    toast('Review packet exported (.json)', 'success');
+  });
+  exportMd.addEventListener('click', () => {
+    const packet = buildPacket();
+    if (!packet) return;
+    downloadText(`dataglow-review-packet-${getActiveDataset().table}.md`, peerReview.exportPacket(packet, 'markdown'), 'text/markdown');
+    toast('Review packet exported (.md)', 'success');
+  });
+  importInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const imported = peerReview.importReview(text);
+      const wrap = $('#review-display-wrap');
+      wrap.style.display = '';
+      $('#review-display').innerHTML = peerReview.renderReviewHTML(imported);
+      toast('Peer review imported', 'success');
+    } catch (err) {
+      toast('Import failed: ' + err.message, 'error');
+    } finally {
+      importInput.value = '';
+    }
+  });
+}
+
+// Time-Travel Diff Mode — load a second version of a dataset and compare it to
+// the active one: row-level add/remove/change (keyed on a detected/picked PK),
+// distributional drift (layer-18 logic), and which validation layers flip.
+function initTimeTravelDiff() {
+  const fileInput = $('#diff-file-input');
+  const runBtn = $('#btn-diff-run');
+  if (!fileInput || !runBtn) return;
+  let otherDs = null;
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const base = getActiveDataset();
+    if (!base) { toast('Load a primary dataset first', 'error'); fileInput.value = ''; return; }
+    try {
+      await ensureDuckDB();
+      otherDs = await loaders.loadFile(file);
+      // loadFile makes the new file active; restore the original as the base.
+      setActiveDataset(base.name);
+      renderSidebar();
+      $('#diff-loaded-note').textContent = `Comparison dataset: ${otherDs.name} (${otherDs.rowCount.toLocaleString()} rows). Base: ${base.name}.`;
+
+      // Populate the key-column picker from columns common to both datasets.
+      const shared = base.cols.map(c => c.name).filter(n => otherDs.cols.some(c => c.name === n));
+      const picker = $('#diff-key-select');
+      picker.innerHTML = '<option value="__auto">Auto-detect key</option>' + shared.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+      runBtn.disabled = false;
+    } catch (err) {
+      toast('Could not load comparison dataset: ' + err.message, 'error');
+    } finally {
+      fileInput.value = '';
+    }
+  });
+
+  runBtn.addEventListener('click', async () => {
+    const base = getActiveDataset();
+    if (!base || !otherDs) { toast('Load both datasets first', 'error'); return; }
+    const out = $('#diff-results');
+    out.innerHTML = '<div class="skeleton" style="height:120px; border-radius:var(--radius-md);"></div>';
+    try {
+      const [aRes, bRes] = [
+        await engine.runQuery(`SELECT * FROM ${base.table}`),
+        await engine.runQuery(`SELECT * FROM ${otherDs.table}`),
+      ];
+      const shared = base.cols.map(c => c.name).filter(n => otherDs.cols.some(c => c.name === n));
+      const picked = $('#diff-key-select').value;
+      const keyCol = picked && picked !== '__auto' ? picked : timeTravel.detectKeyColumn(shared, aRes.rows);
+
+      let rowDiff = null;
+      if (keyCol) rowDiff = timeTravel.diffRows(aRes.rows, bRes.rows, keyCol);
+
+      // Aggregate/distributional diff over shared numeric+categorical columns.
+      const sharedCols = base.cols.filter(c => otherDs.cols.some(o => o.name === c.name));
+      const distDiff = await timeTravel.diffDistributions(base.table, otherDs.table, sharedCols);
+
+      // Which of the 18 layers flip between the two versions.
+      const layersA = await validation.runAllLayers(base, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
+      const layersB = await validation.runAllLayers(otherDs, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
+      setActiveDataset(base.name);
+      const flips = timeTravel.diffLayerStatuses(layersA, layersB);
+
+      renderDiffResults(out, { keyCol, rowDiff, distDiff, flips });
+    } catch (err) {
+      out.innerHTML = '';
+      toast('Diff failed: ' + err.message, 'error');
+    }
+  });
+}
+
+function renderDiffResults(out, { keyCol, rowDiff, distDiff, flips }) {
+  out.innerHTML = '';
+  const section = (title) => el('div', { class: 'sidebar-heading', style: 'margin:var(--space-4) 0 var(--space-2);' }, title);
+
+  // Row-level.
+  out.appendChild(section('Row-Level Changes'));
+  if (!rowDiff) {
+    out.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-faint);' }, 'No unique key column found — pick one above to enable row-level diffing.'));
+  } else {
+    out.appendChild(el('div', { style: 'font-size:var(--text-sm); margin-bottom:var(--space-2);' }, `Keyed on "${keyCol}". ${rowDiff.added.length} added · ${rowDiff.removed.length} removed · ${rowDiff.changed.length} changed · ${rowDiff.unchanged} unchanged.`));
+    for (const ch of rowDiff.changed.slice(0, 10)) {
+      out.appendChild(el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); padding:2px 0;' },
+        `#${ch.key}: ` + ch.fields.map(f => `${f.column}: ${f.from} → ${f.to}`).join(', ')));
+    }
+  }
+
+  // Distributional.
+  out.appendChild(section('Distributional Drift (Layer 18 logic)'));
+  if (!distDiff.drifts.length) {
+    out.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-grade-a);' }, '✓ No column distributions shifted meaningfully between the two versions.'));
+  } else {
+    distDiff.drifts.forEach(d => out.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-grade-c); padding:2px 0;' }, d)));
+  }
+
+  // Layer flips.
+  out.appendChild(section('Validation Layer Flips'));
+  const flipped = flips.filter(f => f.passFailFlip);
+  if (!flipped.length) {
+    out.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-faint);' }, 'No layers flipped between PASS and FAIL.'));
+  } else {
+    flipped.forEach(f => {
+      const def = validation.LAYER_DEFS.find(l => l.id === f.layer);
+      const color = f.to === 'fail' ? 'var(--color-grade-d)' : 'var(--color-grade-a)';
+      out.appendChild(el('div', { style: `font-size:var(--text-sm); color:${color}; padding:2px 0;`, 'data-testid': `diff-flip-${f.layer}` },
+        `${def ? def.name : f.layer}: ${f.from.toUpperCase()} → ${f.to.toUpperCase()}`));
+    });
+  }
+}
+
 // Top 5 Problems — a scannable pre-analysis checklist (checklist methodology
 // popularized by Atul Gawande, "The Checklist Manifesto"). Surfaces the
 // highest-severity findings across all layers with jump-links.
@@ -1599,6 +1784,9 @@ function init() {
   initLedger();
   initProvenance();
   initDevilsAdvocate();
+  initReceipts();
+  initPeerReview();
+  initTimeTravelDiff();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
