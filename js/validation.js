@@ -199,6 +199,34 @@ async function runConfidence(table, cols, rowCount) {
   return { score, grade, verdict, signals, status: score >= 70 ? 'pass' : score >= 50 ? 'warn' : 'fail' };
 }
 
+// Shared A/B/C/D banding used by the Confidence Layer — factored out so the
+// per-claim scorer below grades on exactly the same scale as the table-level
+// Confidence Layer rather than inventing a parallel one.
+export function gradeConfidence(score) {
+  return score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 50 ? 'C' : 'D';
+}
+
+// Per-claim confidence. The table-level runConfidence() above blends six
+// signals; a single quantitative claim in a story is backed by a specific
+// slice of the data, so we reuse the same three signals that apply at the
+// claim level — sample coverage, sample-size adequacy, and null rate — with
+// the identical formulas and A/B/C/D thresholds. This lets the Story tab badge
+// every number with the SAME Confidence Layer logic instead of one global
+// score for the whole narrative.
+export function scoreClaimConfidence({ n = 0, missingRate = 0 } = {}) {
+  const sampleCoverage = Math.min(1, n / 200);                 // matches runConfidence signal 1
+  const nullScore = 1 - Math.min(1, missingRate * 4);          // matches runConfidence signal 2
+  const sizeScore = n >= 100 ? 1 : n >= 30 ? 0.7 : 0.35;       // matches runConfidence signal 5
+  const weights = { sampleCoverage: 0.3, nullScore: 0.3, sizeScore: 0.4 };
+  const score = Math.round(100 * (
+    sampleCoverage * weights.sampleCoverage +
+    nullScore * weights.nullScore +
+    sizeScore * weights.sizeScore
+  ));
+  const grade = gradeConfidence(score);
+  return { score, grade, n, missingRate };
+}
+
 // ---------- 5. Denial Radar ----------
 async function runDenialRadar(table, cols) {
   const denialCol = cols.find(c => /denial|denied|claim_status|status/i.test(c.name));
@@ -470,13 +498,21 @@ async function runBenford(table, cols) {
     }
   }
   const detail = [...flags, ...skips];
+  // Plain-language teaching note surfaced in the Validate tab whenever a column
+  // is skipped — turns the eligibility gate from a silent pass/fail into a
+  // short lesson on WHY the test does or doesn't apply.
+  const teaching = "Benford's Law describes naturally-scaled, multiplicative quantities that span several orders of magnitude — revenue, populations, transaction amounts. Bounded, human-assigned ranges like Age, ratings, or credit scores don't follow it, so applying the test there would produce meaningless \"violations.\" Columns below are skipped for that reason, not because anything is wrong with them.";
+  let r;
   if (flags.length > 0) {
-    return result('warn', `${flags.length} column(s) deviate from Benford's Law — worth a closer look.`, detail);
+    r = result('warn', `${flags.length} column(s) deviate from Benford's Law — worth a closer look.`, detail);
+  } else if (tested === 0) {
+    r = result('idle', `No columns eligible for Benford's Law — ${skips.length} skipped (see why below).`, skips);
+  } else {
+    r = result('pass', `${tested} eligible column(s) consistent with Benford's Law${skips.length ? `; ${skips.length} skipped as ineligible` : ''}.`, detail);
   }
-  if (tested === 0) {
-    return result('idle', `No columns eligible for Benford's Law — ${skips.length} skipped (see why below).`, skips);
-  }
-  return result('pass', `${tested} eligible column(s) consistent with Benford's Law${skips.length ? `; ${skips.length} skipped as ineligible` : ''}.`, detail);
+  r.skips = skips;
+  if (skips.length) r.teaching = teaching;
+  return r;
 }
 
 // ---------- 16. Categorical Consistency Engine ----------

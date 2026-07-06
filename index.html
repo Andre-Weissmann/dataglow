@@ -120,6 +120,7 @@
           <div class="panel-subtitle">DuckDB-WASM query engine — runs entirely in your browser</div>
         </div>
         <div style="display:flex; gap:var(--space-2);">
+          <button class="btn btn-secondary" id="btn-attack-analysis" data-testid="button-attack-analysis" title="Run an adversarial robustness pass on the current query result">Attack My Analysis</button>
           <button class="btn btn-secondary" id="btn-sql-format" data-testid="button-sql-format">Format</button>
           <button class="btn btn-primary" id="btn-sql-run" data-testid="button-sql-run">▶ Run (⌘⏎)</button>
         </div>
@@ -128,6 +129,7 @@
         <textarea class="sql-textarea mono" id="sql-input" spellcheck="false" placeholder="SELECT * FROM dataset LIMIT 100;" data-testid="input-sql"></textarea>
         <div id="sql-autocomplete-hint" style="font-size:var(--text-xs); color:var(--color-text-faint);">Tip: type a table name, then <span class="mono">.</span> for column suggestions. ⌘/Ctrl+Enter to run.</div>
         <div id="sql-status" style="font-size:var(--text-xs); color:var(--color-text-muted);"></div>
+        <div id="attack-results"></div>
         <div id="sql-result-wrap"></div>
       </div>
     </section>
@@ -309,6 +311,24 @@
           <div id="assumption-ledger-list" style="font-family:var(--font-mono, monospace); font-size:var(--text-xs); max-height:320px; overflow-y:auto;"></div>
         </div>
       </div>
+
+      <div id="provenance-wrap" style="display:none; margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <div class="sidebar-heading">Data Provenance Trail (Chain of Custody)</div>
+            <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+              <button class="btn btn-secondary" id="btn-provenance-verify" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-provenance-verify">Verify Chain</button>
+              <button class="btn btn-secondary" id="btn-provenance-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-provenance-export">Export .json</button>
+            </div>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            A tamper-evident, SHA-256 hash-chained record of every transformation from raw file load onward.
+            Each step's hash includes its parent's hash, so any later edit or reordering breaks verification — an audit trail for HIPAA provenance.
+          </p>
+          <div id="provenance-verify-status" style="font-size:var(--text-xs); margin-bottom:var(--space-2);"></div>
+          <div id="provenance-list" style="font-family:var(--font-mono, monospace); font-size:var(--text-xs); max-height:320px; overflow-y:auto;"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ VISUALIZE TAB ============ -->
@@ -390,6 +410,7 @@
       </div>
       <div id="story-content-wrap" style="display:none;">
         <div class="story-content card" style="padding:var(--space-6);" id="story-text"></div>
+        <div id="story-claims" class="card" style="display:none; padding:var(--space-4); margin-top:var(--space-4);"></div>
         <div class="card" style="padding:var(--space-4); margin-top:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Narrative Consistency Check</div>
           <div id="story-consistency"></div>
@@ -516,7 +537,11 @@
     <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-4);">
       Loads a built-in, intentionally broken golden dataset and runs all 18 validation layers against it. Every layer must catch its target issue — that's how you know the validation system is real, not decorative.
     </p>
-    <button class="btn btn-primary" id="btn-redteam-run" style="width:100%; justify-content:center; margin-bottom:var(--space-4);" data-testid="button-redteam-run">Run Self-Attack Test</button>
+    <button class="btn btn-primary" id="btn-redteam-run" style="width:100%; justify-content:center; margin-bottom:var(--space-3);" data-testid="button-redteam-run">Run Self-Attack Test</button>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);">
+      <strong>v2:</strong> synthesize a <em>fresh</em> adversarial dataset that matches your currently-loaded dataset's schema — same columns and types, seeded with near-duplicate spellings, cross-column logic violations, duplicates, nulls, outliers, future dates, and schema-mismatched values — then report which seeded categories the layers catch.
+    </p>
+    <button class="btn btn-secondary" id="btn-redteam-v2" style="width:100%; justify-content:center; margin-bottom:var(--space-4);" data-testid="button-redteam-v2">Generate Adversarial Test from My Schema</button>
     <div id="redteam-results"></div>
   </div>
 </div>

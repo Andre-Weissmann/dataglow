@@ -199,6 +199,33 @@ Cutting across every layer above (and the Clean tab), the **Assumption Ledger** 
 
 ---
 
+## 🧪 GEN 8 — TRUST & ADVERSARIAL SUITE (This Release)
+
+Six features that turn DATAGLOW from a validator into an *adversary of its own conclusions* — every headline is stress-tested, every transformation is cryptographically logged, and every claim carries its own confidence.
+
+### 1. Devil's Advocate Mode ("Attack My Analysis")
+A one-click adversarial second pass over the current SQL result (`js/devils-advocate.js`). It runs three published robustness checks against the headline metric and returns a plain-English "robust" / "sensitive to X" verdict, logged to the Assumption Ledger:
+- **Bootstrap resampling** (Efron 1979) — 500 resamples of the metric column; robust if the 95% percentile confidence interval is tight (relative width ≤ 30%).
+- **Trimmed-mean robustness** (Tukey 1962) — recompute after dropping the top/bottom 5%; robust if the mean moves ≤ 10%.
+- **Subgroup leave-one-out** — if a grouping column exists, drop the largest subgroup and check the finding isn't driven by it alone.
+
+### 2. Data Provenance Trail (Chain of Custody)
+A tamper-evident, SHA-256 hash-chained (Merkle-style, Web Crypto `SubtleCrypto`, no external library) log of every transformation from raw file load onward (`js/provenance.js`). The raw bytes are hashed on load; each subsequent clean/filter/merge step hashes `parent hash + step description + timestamp + content` into a new link. Any later edit or reordering breaks `verify()`. Viewable and exportable as JSON in the Validate tab for HIPAA audit — distinct from the Assumption Ledger (human-readable judgment calls) but complementary (cryptographic record).
+
+### 3. Confidence-Aware Auto-Narration with Inline Citations
+The Story tab now scores **each quantitative claim individually** with the existing Confidence Layer logic (`scoreClaimConfidence` reuses the same sample-coverage / null-rate / sample-size signals and A/B/C/D thresholds), rather than one global score. Every claim gets an inline badge — e.g. "the most common country is 'United States' at 32% (Confidence: A · n=2,509 · 0% missing)" — and grade C/D claims trigger a visible caveat.
+
+### 4. On-Device Anomaly Explainer
+When a row is flagged by the multivariate scorers, an "Explain" button produces a plain-language reason on-device (`explainAnomaly` in `js/ondevice-ml.js`). It uses a simplified additive-Shapley attribution (Lundberg & Lee 2017): because the anomaly score is a sum of per-feature standardized squared deviations, each feature's Shapley contribution reduces to its own share of the total. Contributions are measured relative to the row's **peer group** (a low-cardinality categorical column) — "Row flagged because claim_amount is 2.3 std devs above its country='France' peer group mean (contributing 71% of the anomaly)."
+
+### 5. Synthetic Adversarial Test Generator ("Red Team Mode v2")
+Given the currently-loaded dataset's schema (column names + inferred types), synthesizes a *fresh* adversarial dataset matching that schema (`js/synthetic-adversarial.js`, seeded mulberry32 PRNG for reproducibility). It plants the issue categories layers 15–18 and the original checks are meant to catch: near-duplicate categorical spellings, cross-column logic violations, exact duplicates, nulls, magnitude outliers/negatives, future dates, and schema-mismatched semantic values. Runs all layers on the synthetic table and reports which seeded categories were caught.
+
+### 6. Explainable Benford Gate (Teaching UI)
+UI polish on the Gen 7 Statistical Test Eligibility Gate: when Benford's Law is skipped for a column, the Validate tab now shows an expandable, plain-language "why" note (the gate teaches, rather than silently passing) — reusing the gate's existing skip reasons and a one-paragraph explanation of when Benford applies.
+
+---
+
 ## ✅ HOW TO KNOW FEATURES ARE REALLY WORKING (Not Fake)
 
 ### Golden Dataset Test
