@@ -40,6 +40,7 @@ import * as syntheticTwin from './synthetic-twin.js';
 import * as timeMachine from './time-machine.js';
 import * as fingerprint from './federated-fingerprint.js';
 import * as irbMode from './irb-mode.js';
+import * as ondeviceLLM from './ondevice-llm.js';
 
 // ============================================================
 // Tab Definitions
@@ -135,9 +136,13 @@ function renderTabBar() {
 }
 
 function switchTab(tabId) {
+  const previousTab = activeTab;
   activeTab = tabId;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
   $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tabId));
+  // Leaving the SQL tab: terminate the ambient-validation worker so it never
+  // lingers in the background (recreated lazily on the next keystroke).
+  if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'swift' && !$('#swift-input').value) {
@@ -338,9 +343,163 @@ function initSqlTab() {
   $('#btn-sql-format').addEventListener('click', () => {
     const el = $('#sql-input');
     el.value = el.value.replace(/\s+/g, ' ').replace(/\bSELECT\b/gi, '\nSELECT').replace(/\bFROM\b/gi, '\nFROM').replace(/\bWHERE\b/gi, '\nWHERE').replace(/\bGROUP BY\b/gi, '\nGROUP BY').replace(/\bORDER BY\b/gi, '\nORDER BY').trim();
+    scheduleAmbientCheck();
   });
   $('#sql-input').addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runSqlQuery(); }
+  });
+  initAmbientValidation();
+}
+
+// ============================================================
+// Ambient Validation (Feature 5) — live, incremental checks as you type,
+// run in a Web Worker so the SQL editor never blocks.
+// ============================================================
+let ambientWorker = null;
+let ambientReqId = 0;
+// Warnings the user explicitly dismissed this session — keyed so an identical
+// warning doesn't nag again until the query text changes it away and back.
+const dismissedAmbient = new Set();
+
+function ensureAmbientWorker() {
+  if (ambientWorker) return ambientWorker;
+  try {
+    ambientWorker = new Worker(new URL('./ambient-validation.worker.js', import.meta.url), { type: 'module' });
+    ambientWorker.onmessage = (e) => {
+      const { requestId, warnings } = e.data || {};
+      if (requestId !== ambientReqId) return; // stale result from an earlier keystroke
+      renderAmbientWarnings(warnings || []);
+    };
+    ambientWorker.onerror = () => { /* never let a worker error break typing */ };
+  } catch {
+    ambientWorker = null; // Worker unsupported — feature silently unavailable
+  }
+  return ambientWorker;
+}
+
+function teardownAmbientWorker() {
+  if (ambientWorker) { ambientWorker.terminate(); ambientWorker = null; }
+}
+
+const scheduleAmbientCheck = debounce(() => {
+  const input = $('#sql-input');
+  if (!input) return;
+  const sql = input.value || '';
+  const worker = ensureAmbientWorker();
+  if (!worker) return;
+  const ds = getActiveDataset();
+  const columns = ds && Array.isArray(ds.cols) ? ds.cols.map(c => c.name) : [];
+  ambientReqId += 1;
+  worker.postMessage({ requestId: ambientReqId, sql, columns });
+}, 800);
+
+function renderAmbientWarnings(warnings) {
+  const wrap = $('#ambient-warnings');
+  if (!wrap) return;
+  const visible = warnings.filter(w => !dismissedAmbient.has(ambientKey(w)));
+  wrap.innerHTML = '';
+  if (visible.length === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  for (const w of visible) {
+    const tone = w.severity === 'info' ? 'warn' : 'fail';
+    const row = el('div', {
+      class: `validation-status ${tone}`,
+      'data-testid': `ambient-warning-${w.id}`,
+      style: 'display:flex; align-items:flex-start; gap:var(--space-2); padding:var(--space-2) var(--space-3); border-radius:var(--radius-md); font-size:var(--text-xs);',
+    }, [
+      el('span', { class: `status-dot ${tone}`, style: 'margin-top:3px; flex:none;' }),
+      el('span', { style: 'flex:1;' }, w.message),
+    ]);
+    const dismiss = el('button', {
+      class: 'btn btn-secondary',
+      style: 'font-size:var(--text-xs); padding:2px 8px; flex:none;',
+      'data-testid': `ambient-dismiss-${w.id}`,
+      onclick: () => { dismissedAmbient.add(ambientKey(w)); renderAmbientWarnings(warnings); },
+    }, 'Dismiss');
+    row.appendChild(dismiss);
+    wrap.appendChild(row);
+  }
+}
+
+function ambientKey(w) {
+  return `${w.id}|${w.column || ''}|${w.message}`;
+}
+
+function initAmbientValidation() {
+  const input = $('#sql-input');
+  if (!input) return;
+  input.addEventListener('input', scheduleAmbientCheck);
+  // No orphaned workers: tear the worker down when the page goes away.
+  window.addEventListener('pagehide', teardownAmbientWorker);
+  window.addEventListener('beforeunload', teardownAmbientWorker);
+}
+
+// ============================================================
+// On-Device SLM Interpreter (Feature 4) — opt-in, in-browser LLM synthesis
+// of the validation findings. No data ever leaves the browser.
+// ============================================================
+function initAISynthesis() {
+  const downloadBtn = $('#btn-slm-download');
+  const synthBtn = $('#btn-slm-synthesize');
+  const statusEl = $('#slm-status');
+  const progressWrap = $('#slm-progress-wrap');
+  const progressBar = $('#slm-progress-bar');
+  const outputEl = $('#slm-output');
+  if (!downloadBtn) return;
+
+  if (!ondeviceLLM.isWebGPUAvailable()) {
+    downloadBtn.disabled = true;
+    statusEl.innerHTML = 'This feature needs a <strong>WebGPU-capable browser</strong> (recent Chrome, Edge, or Chrome on Android; Safari 18+). On-device AI synthesis is unavailable here — every other DATAGLOW feature works as normal.';
+    statusEl.setAttribute('data-slm-state', 'no-webgpu');
+    return;
+  }
+  statusEl.textContent = `Ready to download ${ondeviceLLM.MODEL_LABEL}. Runs entirely on your device; nothing is uploaded.`;
+
+  downloadBtn.addEventListener('click', async () => {
+    downloadBtn.disabled = true;
+    progressWrap.style.display = '';
+    statusEl.setAttribute('data-slm-state', 'loading');
+    try {
+      await ondeviceLLM.loadModel(({ progress, text }) => {
+        progressBar.style.width = `${Math.round((progress || 0) * 100)}%`;
+        statusEl.textContent = text || `Downloading model… ${Math.round((progress || 0) * 100)}%`;
+      });
+      progressWrap.style.display = 'none';
+      statusEl.textContent = 'Model loaded — running fully offline on your device.';
+      statusEl.setAttribute('data-slm-state', 'ready');
+      downloadBtn.style.display = 'none';
+      synthBtn.style.display = '';
+    } catch (err) {
+      progressWrap.style.display = 'none';
+      downloadBtn.disabled = false;
+      statusEl.setAttribute('data-slm-state', err.code === 'NO_WEBGPU' ? 'no-webgpu' : 'error');
+      statusEl.textContent = err.message || 'Model failed to load.';
+    }
+  });
+
+  synthBtn.addEventListener('click', async () => {
+    const results = window.__dataglowLastValidation;
+    if (!results) { toast('Run the validation suite first', 'error'); return; }
+    synthBtn.disabled = true;
+    const original = synthBtn.textContent;
+    synthBtn.textContent = 'Synthesizing…';
+    outputEl.style.display = '';
+    outputEl.textContent = '';
+    try {
+      const context = {
+        ledgerEntries: ledger.getLedgerEntries(),
+        layerResults: results,
+        physicsOutput: window.__dataglowPhysicsOutput || null,
+      };
+      await ondeviceLLM.synthesizeFindings(context, (partial) => {
+        outputEl.textContent = partial;
+      });
+    } catch (err) {
+      outputEl.textContent = 'Synthesis failed: ' + (err.message || err);
+    } finally {
+      synthBtn.disabled = false;
+      synthBtn.textContent = original;
+    }
   });
 }
 
@@ -2034,12 +2193,19 @@ function init() {
   initTimeMachine();
   initFederatedFingerprint();
   initIRBMode();
+  initAISynthesis();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
   $('#btn-validate-run').addEventListener('click', runValidation);
 
   renderSidebar();
+
+  // Signal that the synchronous app init (DOM wiring, tabs, feature panels) is
+  // done — independent of the async DuckDB-WASM warm-up below. The ambient
+  // validation and SLM-degradation e2e paths key off this since they don't need
+  // the SQL engine to be live.
+  window.__dataglowInit = true;
 
   // Pre-warm the query engine in the background so it's live as soon as a
   // dataset is loaded. Sets window.__dataglowReady once the engine responds
