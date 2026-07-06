@@ -84,16 +84,26 @@ async function loadExcel(arrayBuffer, tableName) {
 export function buildGoldenDataset() {
   const rows = [];
   const today = new Date();
+  // Country column seeded with near-duplicate spellings + abbreviations so the
+  // Categorical Consistency Engine (layer 16) has a real cluster to find:
+  // "United States" (canonical, most frequent) alongside the typo
+  // "United State" and the codes "USA"/"US", plus a France/FRA pair.
+  const countryVariants = ['United States', 'United States', 'United States', 'United State', 'USA', 'US', 'France', 'FRA'];
   for (let i = 1; i <= 88; i++) {
     const daysAgo = Math.floor(Math.random() * 700);
     const d = new Date(today); d.setDate(d.getDate() - daysAgo);
+    const los = 1 + (i % 12);
+    const discharge = new Date(d); discharge.setDate(discharge.getDate() + los);
     rows.push({
       patient_id: i,
       age: 20 + (i % 60),
       gender: i % 2 === 0 ? 'F' : 'M',
-      length_of_stay: 1 + (i % 12),
+      length_of_stay: los,
       readmission_rate: Math.round((5 + (i % 20)) * 10) / 10,
       admit_date: d.toISOString().slice(0, 10),
+      discharge_date: discharge.toISOString().slice(0, 10),
+      country: countryVariants[i % countryVariants.length],
+      has_retirement_account: i % 3 === 0 ? 'true' : 'false',
       claim_amount: Math.round((100 + i * 13.7) * 100) / 100,
     });
   }
@@ -108,6 +118,16 @@ export function buildGoldenDataset() {
   rows[15].admit_date = future2.toISOString().slice(0, 10);
   // 1 semantic error: age = 999
   rows[30].age = 999;
+  // Cross-column logical inconsistency (layer 17): discharge before admit.
+  const backdate = (isoAdmit, daysBefore) => {
+    const dd = new Date(isoAdmit); dd.setDate(dd.getDate() - daysBefore);
+    return dd.toISOString().slice(0, 10);
+  };
+  rows[7].discharge_date = backdate(rows[7].admit_date, 5);
+  rows[17].discharge_date = backdate(rows[17].admit_date, 3);
+  // Cross-column impossible combo (layer 17): a minor with an adult-only status.
+  rows[8].age = 15;
+  rows[8].has_retirement_account = 'true';
   // 5 null values scattered
   rows[2].gender = null;
   rows[12].length_of_stay = null;
