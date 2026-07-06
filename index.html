@@ -127,7 +127,8 @@
       </div>
       <div class="sql-editor-wrap">
         <textarea class="sql-textarea mono" id="sql-input" spellcheck="false" placeholder="SELECT * FROM dataset LIMIT 100;" data-testid="input-sql"></textarea>
-        <div id="sql-autocomplete-hint" style="font-size:var(--text-xs); color:var(--color-text-faint);">Tip: type a table name, then <span class="mono">.</span> for column suggestions. ⌘/Ctrl+Enter to run.</div>
+        <div id="ambient-warnings" data-testid="ambient-warnings" style="display:none; margin-top:var(--space-2); flex-direction:column; gap:var(--space-2);"></div>
+        <div id="sql-autocomplete-hint" style="font-size:var(--text-xs); color:var(--color-text-faint);">Tip: type a table name, then <span class="mono">.</span> for column suggestions. ⌘/Ctrl+Enter to run. Live data-quality checks run as you type.</div>
         <div id="sql-status" style="font-size:var(--text-xs); color:var(--color-text-muted);"></div>
         <div id="attack-results"></div>
         <div id="sql-result-wrap"></div>
@@ -312,6 +313,31 @@
             gating decisions — is logged here, in plain language, so nothing is assumed silently on your behalf.
           </p>
           <div id="assumption-ledger-list" style="font-family:var(--font-mono, monospace); font-size:var(--text-xs); max-height:320px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <div id="ai-synthesis-wrap" style="margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <div class="sidebar-heading">AI Synthesis <span class="badge badge-c" style="font-size:var(--text-xs);">On-device · optional</span></div>
+            <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+              <button class="btn btn-secondary" id="btn-slm-download" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-slm-download">Download local AI model (~1.1&nbsp;GB, one-time)</button>
+              <button class="btn btn-primary" id="btn-slm-synthesize" style="font-size:var(--text-xs); padding:6px 10px; display:none;" data-testid="button-slm-synthesize">Synthesize Findings</button>
+            </div>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Optionally run a small language model <strong>entirely on your device</strong> (WebGPU) to write a plain-English
+            synthesis of the Assumption Ledger and the 18-layer validation results. The one-time model download is generic
+            model weights only — <strong>no dataset, row, or cell ever leaves your browser</strong>, and synthesis works fully offline afterward.
+            This is a <strong>data-quality reasoning assistant, not a medical or diagnostic AI</strong> — it reasons only about data quality, never clinical care.
+          </p>
+          <div id="slm-status" data-testid="slm-status" style="font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
+          <div id="slm-progress-wrap" style="display:none; margin-bottom:var(--space-2);">
+            <div style="height:6px; background:var(--color-divider); border-radius:999px; overflow:hidden;">
+              <div id="slm-progress-bar" style="height:100%; width:0%; background:var(--color-accent, #FF6B6B); transition:width .2s;"></div>
+            </div>
+          </div>
+          <div id="slm-output" data-testid="slm-output" class="story-content" style="display:none; font-size:var(--text-sm); white-space:pre-wrap; margin-top:var(--space-2);"></div>
         </div>
       </div>
 
