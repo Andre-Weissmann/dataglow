@@ -1236,6 +1236,57 @@ function initSettings() {
 }
 
 // ============================================================
+// In-app Diagnostics (?diag=1)
+// ============================================================
+// Visible on-page self-check: boots the engine, times it, and runs a trivial
+// sanity query. Only activates when the URL carries ?diag=1 — the normal app
+// is completely unaffected otherwise. Reuses the existing card / status-dot /
+// mono CSS so it needs no new styles.
+async function runDiagnostics() {
+  const panel = el('div', { id: 'diag-panel', style: 'position:fixed; right:16px; bottom:16px; z-index:9999; max-width:440px; width:calc(100% - 32px);' });
+  const card = el('div', { class: 'card', style: 'padding:var(--space-4);' });
+  const head = el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-2);' }, [
+    el('span', { style: 'font-weight:600; font-size:var(--text-lg); flex:1;' }, 'DATAGLOW Diagnostics'),
+  ]);
+  const closeBtn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:4px 8px;' }, 'Close');
+  closeBtn.addEventListener('click', () => panel.remove());
+  head.appendChild(closeBtn);
+  card.appendChild(head);
+  const rows = el('div', {});
+  card.appendChild(rows);
+  panel.appendChild(card);
+  document.body.appendChild(panel);
+
+  const addRow = (label, status, detail) => {
+    rows.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-top:1px solid var(--color-divider);', 'data-testid': `diag-${status}` }, [
+      el('span', { class: `validation-status ${status}` }, [el('span', { class: `status-dot ${status}` }), status.toUpperCase()]),
+      el('span', { style: 'flex:1; font-size:var(--text-sm);' }, label),
+      el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, detail || ''),
+    ]));
+  };
+
+  addRow('Page & modules loaded', 'pass', 'ok');
+
+  let t0 = performance.now();
+  try {
+    await engine.initDuckDB();
+    addRow('DuckDB-WASM engine init', 'pass', `${(performance.now() - t0).toFixed(0)} ms`);
+  } catch (e) {
+    addRow('DuckDB-WASM engine init', 'fail', e.message);
+    return;
+  }
+
+  t0 = performance.now();
+  try {
+    const res = await engine.runQuery('SELECT 1 AS ok');
+    const ok = res.rows.length === 1 && Number(res.rows[0].ok) === 1;
+    addRow('Sanity query (SELECT 1)', ok ? 'pass' : 'fail', `${res.elapsedMs.toFixed(1)} ms`);
+  } catch (e) {
+    addRow('Sanity query (SELECT 1)', 'fail', e.message);
+  }
+}
+
+// ============================================================
 // Init
 // ============================================================
 function init() {
@@ -1259,6 +1310,19 @@ function init() {
   $('#btn-validate-run').addEventListener('click', runValidation);
 
   renderSidebar();
+
+  // Pre-warm the query engine in the background so it's live as soon as a
+  // dataset is loaded. Sets window.__dataglowReady once the engine responds
+  // (used by the Playwright e2e smoke test as its "app is live" signal). The
+  // page stays fully interactive while this runs; a failure is recorded but
+  // never blocks the UI.
+  engine.initDuckDB()
+    .then(() => { window.__dataglowReady = true; })
+    .catch(err => { window.__dataglowInitError = String(err && err.message || err); });
+
+  if (new URLSearchParams(location.search).get('diag') === '1') {
+    runDiagnostics();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

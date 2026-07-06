@@ -15,6 +15,22 @@
 
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/app.css">
+
+<!-- Import map for self-hosted DuckDB-WASM. The vendored DuckDB-WASM ESM
+     bundle (assets/duckdb/duckdb-browser.mjs) imports "apache-arrow", which in
+     turn imports "tslib" and "flatbuffers" as bare specifiers. This native
+     import map (no bundler/build step) resolves those to vendored, self-hosted
+     copies so the app has zero third-party CDN dependency for its query engine.
+     Must appear before any <script type="module"> so module resolution sees it. -->
+<script type="importmap">
+{
+  "imports": {
+    "apache-arrow": "./assets/duckdb/vendor/apache-arrow/Arrow.dom.mjs",
+    "tslib": "./assets/duckdb/vendor/tslib/tslib.es6.mjs",
+    "flatbuffers": "./assets/duckdb/vendor/flatbuffers/mjs/flatbuffers.js"
+  }
+}
+</script>
 </head>
 <body>
 

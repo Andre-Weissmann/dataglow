@@ -22,10 +22,22 @@ SOFTWARE.
 
 ---
 
-DATAGLOW bundles or loads (via CDN, not redistributed in this repository) the
-following third-party libraries, each under its own license:
+DATAGLOW uses the following third-party libraries, each under its own license.
+
+Redistributed (vendored) in this repository under assets/duckdb/. Each
+library's own license text is included alongside its files:
 
 - DuckDB-WASM — MIT License — https://github.com/duckdb/duckdb-wasm
+  (see assets/duckdb/DUCKDB-WASM-LICENSE)
+- Apache Arrow (apache-arrow) — Apache License 2.0 — https://github.com/apache/arrow
+  (see assets/duckdb/vendor/apache-arrow/LICENSE.txt)
+- tslib — 0BSD License — https://github.com/microsoft/tslib
+  (see assets/duckdb/vendor/tslib/LICENSE.txt)
+- FlatBuffers (flatbuffers) — Apache License 2.0 — https://github.com/google/flatbuffers
+  (see assets/duckdb/vendor/flatbuffers/LICENSE)
+
+Loaded at runtime via CDN (not redistributed in this repository):
+
 - Plotly.js — MIT License — https://github.com/plotly/plotly.js
 - SheetJS (xlsx) — Apache License 2.0 — https://github.com/SheetJS/sheetjs
 - Pyodide — Mozilla Public License 2.0 — https://github.com/pyodide/pyodide

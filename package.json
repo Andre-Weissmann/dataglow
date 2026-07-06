@@ -1,0 +1,18 @@
+{
+  "name": "dataglow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DATAGLOW — browser-based data analytics platform. The app ships with zero build step; it runs vanilla ES modules and self-hosted, vendored assets (see assets/duckdb/). The dependencies below are used only as the source for those vendored assets and for dev/test tooling — nothing here is fetched at runtime by end users.",
+  "scripts": {
+    "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
+    "test:e2e": "node test/e2e-smoke.test.mjs"
+  },
+  "devDependencies": {
+    "@duckdb/node-api": "^1.5.4-r.1",
+    "playwright-chromium": "^1.47.0"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.29.0"
+  }
+}

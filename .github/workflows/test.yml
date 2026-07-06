@@ -1,0 +1,68 @@
+# ============================================================
+# DATAGLOW — Continuous Integration
+# ============================================================
+# Two jobs:
+#
+#   sql-logic  — Runs the Node-side SQL logic suite against a REAL (native)
+#                DuckDB engine. Exercises the exact production SQL-generating
+#                modules (imputation, format-fingerprint, validation) with the
+#                browser engine transparently swapped for @duckdb/node-api via
+#                a loader hook. Fast, deterministic, no browser needed.
+#
+#   e2e-smoke  — Boots the real app in real Chrome and asserts the DuckDB-WASM
+#                engine comes alive and the Validate tab populates.
+#                WHY real Chrome (installed via setup-chrome, not the bundled
+#                Playwright headless-shell): the WASM + Web Worker + Blob-URL
+#                bootstrap that DuckDB-WASM relies on can be blocked in stripped
+#                headless-sandbox environments. GitHub Actions with real Chrome
+#                is the authoritative "does it actually work in a browser"
+#                source of truth — a flaky local headless run is not.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sql-logic:
+    name: SQL logic (native DuckDB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sql
+
+  e2e-smoke:
+    name: e2e smoke (real Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install real Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      # Point Playwright at the system Chrome installed above rather than
+      # downloading its own headless-shell build.
+      - name: Run e2e smoke test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-screenshot
+          path: test/e2e-failure.png
+          if-no-files-found: ignore

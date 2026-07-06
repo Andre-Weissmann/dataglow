@@ -6,24 +6,30 @@
 import { state } from './state.js';
 import { toast } from './utils.js';
 
-const DUCKDB_CDN = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
+// Self-hosted DuckDB-WASM assets (vendored under assets/duckdb/). Resolved
+// relative to this module so it works no matter what path the app is served
+// from. Previously these came from the jsdelivr CDN; self-hosting removes the
+// runtime network dependency (see assets/duckdb/DUCKDB-WASM-LICENSE, MIT).
+// The bundle's bare `apache-arrow` import is satisfied by the import map in
+// index.html, which also points at vendored, self-hosted copies.
+const asset = (f) => new URL('../assets/duckdb/' + f, import.meta.url).href;
 
 let initPromise = null;
 
 export function initDuckDB() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const duckdb = await import('https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm');
-    if (!duckdb) throw new Error('DuckDB-WASM failed to load from CDN.');
+    const duckdb = await import(asset('duckdb-browser.mjs'));
+    if (!duckdb) throw new Error('DuckDB-WASM failed to load from vendored assets.');
 
     const bundles = {
       mvp: {
-        mainModule: DUCKDB_CDN + 'duckdb-mvp.wasm',
-        mainWorker: DUCKDB_CDN + 'duckdb-browser-mvp.worker.js',
+        mainModule: asset('duckdb-mvp.wasm'),
+        mainWorker: asset('duckdb-browser-mvp.worker.js'),
       },
       eh: {
-        mainModule: DUCKDB_CDN + 'duckdb-eh.wasm',
-        mainWorker: DUCKDB_CDN + 'duckdb-browser-eh.worker.js',
+        mainModule: asset('duckdb-eh.wasm'),
+        mainWorker: asset('duckdb-browser-eh.worker.js'),
       },
     };
 
