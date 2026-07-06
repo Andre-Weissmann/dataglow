@@ -28,6 +28,7 @@ export const LAYER_DEFS = [
   { id: 'blind_spot', name: 'Blind Spot Scanner', desc: 'Prompts about missing data that would change the conclusion.' },
   { id: 'reproducibility', name: 'Reproducibility Badge', desc: 'Runs the same query 10x, confirms identical results.' },
   { id: 'outlier_detection', name: 'Outlier Detection (MAD + IQR)', desc: 'Flags high AND low outliers via modified z-score and IQR fences — catches large positives, not just negatives.' },
+  { id: 'benford', name: "Benford's Law Check", desc: 'Compares leading-digit distribution to the Newcomb-Benford expectation; deviation can signal fabricated or anomalous numbers.' },
   { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 12 layers against an intentionally broken golden dataset.' },
 ];
 
@@ -386,6 +387,49 @@ async function runOutlierDetection(table, cols) {
   return result('warn', `${findings.length} column(s) contain outliers (both high and low bounds checked).`, findings);
 }
 
+// ---------- 14. Benford's Law Check ----------
+// Newcomb-Benford Law (Newcomb 1881; Benford 1938, public statistics):
+// in many natural datasets the leading digit d occurs with probability
+// log10(1 + 1/d). Large deviations (measured here by a chi-square-style
+// statistic) can indicate fabricated, capped, or otherwise anomalous data.
+const BENFORD_EXPECTED = [null, 0.301, 0.176, 0.125, 0.097, 0.079, 0.067, 0.058, 0.051, 0.046];
+
+async function runBenford(table, cols) {
+  const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
+  if (numericCols.length === 0) return result('idle', 'No numeric columns to test against Benford\'s Law. Skipped.');
+  const flags = [];
+  for (const c of numericCols) {
+    const col = `"${c.name}"`;
+    // Leading digit of the absolute value; needs enough spread of magnitudes.
+    const { rows } = await engine.runQuery(`
+      SELECT CAST(SUBSTR(REPLACE(CAST(ABS(${col}) AS VARCHAR), '.', ''), 1, 1) AS INTEGER) AS d, COUNT(*) AS n
+      FROM ${table}
+      WHERE ${col} IS NOT NULL AND ABS(${col}) >= 1
+      GROUP BY 1`);
+    const counts = new Array(10).fill(0);
+    let total = 0;
+    for (const r of rows) {
+      const d = r.d;
+      if (d >= 1 && d <= 9) { counts[d] = r.n; total += r.n; }
+    }
+    // Benford needs a reasonable sample and magnitude range to be meaningful.
+    if (total < 50) continue;
+    const distinctMagnitudes = rows.length;
+    if (distinctMagnitudes < 3) continue;
+    let chiSq = 0;
+    for (let d = 1; d <= 9; d++) {
+      const expected = BENFORD_EXPECTED[d] * total;
+      chiSq += ((counts[d] - expected) ** 2) / expected;
+    }
+    // Chi-square critical value for 8 dof at p=0.05 is 15.51; above => deviates.
+    if (chiSq > 15.51) {
+      flags.push(`"${c.name}": leading-digit distribution deviates from Benford (χ² = ${chiSq.toFixed(1)} > 15.51).`);
+    }
+  }
+  if (flags.length === 0) return result('pass', 'Leading-digit distributions are consistent with Benford\'s Law (or too few values to test).');
+  return result('warn', `${flags.length} column(s) deviate from Benford's Law — worth a closer look.`, flags);
+}
+
 // ---------- Orchestrator ----------
 export async function runAllLayers(ds, options = {}) {
   const table = ds.table;
@@ -411,6 +455,7 @@ export async function runAllLayers(ds, options = {}) {
   results.blind_spot = runBlindSpotScanner(cols);
   results.reproducibility = await runReproducibility(table).catch(e => result('warn', `Could not run: ${e.message}`));
   results.outlier_detection = await runOutlierDetection(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.benford = await runBenford(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
 
   state.validationResults = results;
   return results;

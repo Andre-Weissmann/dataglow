@@ -168,10 +168,19 @@
         <h3>No dataset loaded</h3>
         <p>Load a file, then scan for cleaning opportunities.</p>
       </div>
+      <div id="rule-suggestion-banner" style="display:none; margin-bottom:var(--space-4);"></div>
       <div id="clean-results" style="display:none;"></div>
       <div id="format-issues-wrap" style="display:none; margin-top:var(--space-6);">
         <div class="sidebar-heading">Format Issues</div>
         <div id="format-issues-list"></div>
+      </div>
+      <div id="missingness-wrap" style="display:none; margin-top:var(--space-6);">
+        <div class="sidebar-heading">Missingness Detective (MCAR / MAR / MNAR)</div>
+        <div id="missingness-list"></div>
+      </div>
+      <div id="fuzzy-dedup-wrap" style="display:none; margin-top:var(--space-6);">
+        <div class="sidebar-heading">Fuzzy Duplicate Radar</div>
+        <div id="fuzzy-dedup-list"></div>
       </div>
       <div id="clean-audit-wrap" style="display:none; margin-top:var(--space-6);">
         <div class="sidebar-heading">Audit Trail</div>
@@ -187,6 +196,30 @@
           <div class="panel-subtitle">The 14 validation layers — DATAGLOW's heartbeat</div>
         </div>
         <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 14 Layers</button>
+      </div>
+
+      <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Top 5 Problems — Pre-Analysis Checklist</div>
+          <div id="top-problems-list"></div>
+        </div>
+      </div>
+
+      <div id="data-health-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-3);">Data Health Dashboard</div>
+          <div id="cat-scorecard" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
+          <div id="golden-signals" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
+          <div style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;">
+            <label style="font-size:var(--text-sm); color:var(--color-text-muted);">Materiality threshold: <span id="materiality-value" class="mono">1.0</span>% of rows</label>
+            <input type="range" id="materiality-slider" min="0" max="10" step="0.5" value="1" style="flex:1; min-width:160px;" data-testid="slider-materiality">
+          </div>
+          <div id="materiality-note" style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-2);"></div>
+          <div id="entity-baseline-wrap" style="display:none; margin-top:var(--space-4);">
+            <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Per-Entity Deviations (UEBA-style)</div>
+            <div id="entity-baseline-list"></div>
+          </div>
+        </div>
       </div>
 
       <div id="confidence-summary" style="display:none; margin-bottom:var(--space-6);" class="card" >
@@ -217,6 +250,29 @@
         <p>Load a dataset (or the Golden Test Dataset) to run all 14 validation layers.</p>
       </div>
       <div class="validation-grid" id="validation-grid" style="display:none;"></div>
+
+      <div id="multivariate-wrap" style="display:none; margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Multivariate Outliers</div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Approximate on-device methods. Mahalanobis distance (Mahalanobis 1936) and Isolation Forest
+            (Liu, Ting &amp; Zhou 2008) flag rows that are unusual across several numeric columns at once.
+            These are heuristics, not ground truth.
+          </p>
+          <div id="multivariate-list"></div>
+        </div>
+      </div>
+
+      <div id="spc-wrap" style="display:none; margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-2);">SPC Control Charts &amp; Process Capability</div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Shewhart 3&sigma; control limits (Shewhart 1931) and the Cpk capability index (Six Sigma).
+            Points outside the upper/lower control limits (UCL/LCL) signal a process out of statistical control.
+          </p>
+          <div id="spc-list"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ VISUALIZE TAB ============ -->
@@ -255,6 +311,25 @@
           </div>
           <button class="btn btn-primary" id="btn-viz-generate" data-testid="button-viz-generate">Generate Chart</button>
           <button class="btn btn-secondary" id="btn-viz-export" data-testid="button-viz-export">Export PNG</button>
+        </div>
+        <div class="card" style="padding:var(--space-4); margin-bottom:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Anonymized Export (Differential Privacy)</div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Adds calibrated Laplace noise to numeric columns before export (Laplace mechanism / differential
+            privacy — Dwork, McSherry, Nissim &amp; Smith 2006). Lower &epsilon; = more privacy, more noise.
+          </p>
+          <div style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm);">
+              <input type="checkbox" id="anon-noise-toggle" data-testid="toggle-anon-noise"> Inject noise on export
+            </label>
+            <label style="font-size:var(--text-sm); color:var(--color-text-muted);"
+              title="Epsilon is the privacy budget. Smaller epsilon means each row's contribution is better hidden, at the cost of accuracy. Around 1.0 is a common balance; below 0.5 is strongly private but noisy.">
+              Privacy budget &epsilon;: <span id="anon-epsilon-value" class="mono">1.0</span>
+            </label>
+            <input type="range" id="anon-epsilon-slider" min="0.1" max="5" step="0.1" value="1" style="flex:1; min-width:160px;" data-testid="slider-anon-epsilon">
+            <button class="btn btn-secondary" id="btn-anon-export" data-testid="button-anon-export">Export Anonymized CSV</button>
+          </div>
+          <div id="anon-note" style="font-size:var(--text-xs); color:var(--color-text-faint);"></div>
         </div>
         <div id="viz-chart" class="card" style="padding:var(--space-4); min-height:420px;"></div>
       </div>
@@ -342,6 +417,51 @@
     <div style="display:flex; gap:var(--space-2); margin-bottom:var(--space-2);">
       <button class="chip" id="theme-chip-light" data-testid="chip-theme-light">☀ Light</button>
       <button class="chip" id="theme-chip-dark" data-testid="chip-theme-dark">☾ Dark</button>
+    </div>
+
+    <div class="sidebar-heading">Local Memory</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      DATAGLOW remembers column profiles, baselines, and rules you have <strong>explicitly approved</strong>,
+      stored locally in your browser (IndexedDB). Nothing is uploaded.
+    </p>
+    <div id="memory-panel" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      <span id="memory-stats">Not initialized.</span>
+    </div>
+    <button class="btn btn-secondary" id="btn-memory-clear" style="margin-bottom:var(--space-5);" data-testid="button-memory-clear">Clear local memory</button>
+
+    <div class="sidebar-heading">About &amp; Attributions</div>
+    <div style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-5);">
+      <p style="margin-bottom:var(--space-2);">
+        <strong>Provided AS-IS, without warranty of any kind.</strong> DATAGLOW runs entirely in your browser
+        and makes no guarantee of correctness, fitness for a particular purpose, or non-infringement. All
+        statistical and machine-learning output is approximate and should be independently verified before use.
+      </p>
+      <p style="margin-bottom:var(--space-2);">Third-party libraries:</p>
+      <ul style="margin:0 0 var(--space-2) var(--space-4); padding:0;">
+        <li><a href="https://github.com/duckdb/duckdb-wasm" target="_blank" rel="noopener">DuckDB-WASM</a> — MIT License</li>
+        <li><a href="https://github.com/plotly/plotly.js" target="_blank" rel="noopener">Plotly.js</a> — MIT License</li>
+        <li><a href="https://github.com/SheetJS/sheetjs" target="_blank" rel="noopener">SheetJS (xlsx)</a> — Apache License 2.0</li>
+        <li><a href="https://github.com/pyodide/pyodide" target="_blank" rel="noopener">Pyodide</a> — MPL 2.0</li>
+        <li><a href="https://github.com/r-wasm/webr" target="_blank" rel="noopener">WebR</a> — MIT / GPL (R)</li>
+      </ul>
+      <p style="margin-bottom:var(--space-2);">
+        The statistical and ML techniques used here are implementations of publicly published academic
+        methods. No novelty is claimed over this prior art:
+      </p>
+      <ul style="margin:0 0 0 var(--space-4); padding:0; font-size:var(--text-xs);">
+        <li>MAD modified z-score — Iglewicz &amp; Hoaglin (1993)</li>
+        <li>IQR / Tukey fences — Tukey (1977)</li>
+        <li>Benford's Law — Newcomb (1881), Benford (1938)</li>
+        <li>Shewhart control charts — Shewhart (1931)</li>
+        <li>Process capability Cpk — Six Sigma (public statistics)</li>
+        <li>Isolation Forest — Liu, Ting &amp; Zhou (2008)</li>
+        <li>Mahalanobis distance — Mahalanobis (1936)</li>
+        <li>Levenshtein distance — Levenshtein (1965)</li>
+        <li>Jaro-Winkler similarity — Jaro (1989), Winkler (1990)</li>
+        <li>Differential privacy / Laplace mechanism — Dwork, McSherry, Nissim &amp; Smith (2006)</li>
+        <li>Missingness framework (MCAR/MAR/MNAR) — Rubin (1976)</li>
+        <li>Pre-analysis checklist methodology — popularized by Atul Gawande</li>
+      </ul>
     </div>
 
     <button class="btn btn-primary" id="btn-settings-save" style="width:100%; justify-content:center; margin-top:var(--space-4);" data-testid="button-settings-save">Save Settings</button>

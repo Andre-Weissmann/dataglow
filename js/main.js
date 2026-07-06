@@ -11,6 +11,21 @@ import * as viz from './visualize.js';
 import * as story from './story.js';
 import * as clean from './clean.js';
 import * as formatFingerprint from './format-fingerprint.js';
+import * as missingness from './missingness.js';
+import * as imputation from './imputation.js';
+import * as fuzzyDedup from './fuzzy-dedup.js';
+import * as ruleSuggestions from './rule-suggestions.js';
+import * as fixConfidence from './fix-confidence.js';
+import * as activeLearning from './active-learning.js';
+import * as ondeviceML from './ondevice-ml.js';
+import { scoreIsolationForest } from './isolation-forest.js';
+import * as spc from './spc-control.js';
+import * as catScorecard from './cat-scorecard.js';
+import * as materiality from './materiality.js';
+import * as goldenSignals from './golden-signals.js';
+import * as entityBaseline from './entity-baseline.js';
+import * as privacyBudget from './privacy-budget.js';
+import * as memoryStore from './memory-store.js';
 import * as pyRuntime from './python-runtime.js';
 import * as rRuntime from './r-runtime.js';
 import * as swiftPreview from './swift-preview.js';
@@ -422,9 +437,13 @@ async function scanClean() {
     card.appendChild(el('div', { class: 'validation-card-head' }, [
       el('span', { class: 'validation-card-name' }, issue.label),
     ]));
-    const fixRow = el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2);' });
+    const fixRow = el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2); align-items:center;' });
     for (const fixType of issue.fixes) {
+      const conf = fixConfidence.scoreFixConfidence(issue, fixType);
+      const confColor = conf.score >= 75 ? 'var(--color-grade-a)' : conf.score >= 50 ? 'var(--color-grade-c)' : 'var(--color-grade-d)';
+      const wrap = el('div', { style: 'display:flex; flex-direction:column; gap:2px;' });
       const btn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px;', 'data-testid': `button-fix-${issue.id}-${fixType}` }, clean.FIX_LABELS[fixType]);
+      btn.appendChild(el('span', { style: `margin-left:6px; font-size:10px; padding:1px 5px; border-radius:8px; background:${confColor}; color:#fff;`, title: conf.label }, `${conf.score}`));
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         await clean.applyFix(ds.table, issue, fixType, auditLog);
@@ -435,7 +454,9 @@ async function scanClean() {
         ds.rowCount = await engine.getRowCount(ds.table);
         renderSidebar();
       });
-      fixRow.appendChild(btn);
+      wrap.appendChild(btn);
+      wrap.appendChild(el('span', { style: `font-size:10px; color:${confColor};` }, conf.label));
+      fixRow.appendChild(wrap);
     }
     card.appendChild(fixRow);
     grid.appendChild(card);
@@ -444,6 +465,167 @@ async function scanClean() {
   $('#clean-audit-wrap').style.display = '';
   renderAuditLog(auditLog);
   await renderFormatIssues(ds, auditLog);
+  await renderActiveLearning(ds);
+  await renderMissingness(ds, auditLog);
+  await renderFuzzyDedup(ds, auditLog);
+}
+
+// Active-learning: highlight the most uncertain imputation targets first.
+async function renderActiveLearning(ds) {
+  const ranked = await activeLearning.rankUncertainCells(ds.table, ds.cols, engine).catch(() => []);
+  if (!ranked.length) return;
+  const note = el('div', { class: 'card', style: 'padding:var(--space-3); margin-top:var(--space-4);' }, [
+    el('div', { class: 'sidebar-heading', style: 'margin-bottom:var(--space-2);' }, 'Review First — Most Uncertain Fills (active learning)'),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' }, 'Uncertainty sampling (Settles 2009) — columns whose fill value is least reliable are listed first.'),
+  ]);
+  ranked.slice(0, 8).forEach((r, i) => {
+    const pct = Math.round(r.uncertaintyScore * 100);
+    const color = pct >= 66 ? 'var(--color-grade-d)' : pct >= 33 ? 'var(--color-grade-c)' : 'var(--color-grade-a)';
+    note.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:4px 0; font-size:var(--text-sm); border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: `font-size:10px; padding:1px 6px; border-radius:8px; background:${color}; color:#fff;` }, `${pct}%`),
+      el('span', {}, r.reason),
+    ]));
+  });
+  $('#clean-results').appendChild(note);
+}
+
+// Missingness Detective + Grouped Imputation Wizard.
+async function renderMissingness(ds, auditLog) {
+  const wrap = $('#missingness-wrap');
+  const list = $('#missingness-list');
+  const results = await missingness.analyzeMissingness(ds.table, ds.cols).catch(() => []);
+  if (!results.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  const grid = el('div', { class: 'validation-grid' });
+  const catCols = ds.cols.filter(c => c.type === 'VARCHAR').map(c => c.name);
+  for (const m of results) {
+    const card = el('div', { class: 'card validation-card', 'data-testid': `card-missingness-${m.column}` });
+    card.appendChild(el('div', { class: 'validation-card-head' }, [
+      el('span', { class: 'validation-card-name' }, `"${m.column}"`),
+      el('span', { class: `validation-status ${m.likelyMCAR ? 'pass' : 'warn'}` }, [el('span', { class: `status-dot ${m.likelyMCAR ? 'pass' : 'warn'}` }), m.likelyMCAR ? 'MCAR' : 'MAR/MNAR']),
+    ]));
+    card.appendChild(el('div', { class: 'validation-card-desc' }, m.narrative));
+    // Offer the imputation wizard for numeric columns (always available on request).
+    if (m.isNumeric && catCols.length) {
+      const wizWrap = el('div', { style: 'margin-top:var(--space-2);' });
+      const label = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:4px;' }, 'Grouped Imputation Wizard — group by:');
+      const sel = el('select', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:4px 8px;' },
+        catCols.map(c => el('option', { value: c }, c)));
+      const genBtn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px; margin-left:var(--space-2);', 'data-testid': `button-impute-preview-${m.column}` }, 'Preview Imputation');
+      const out = el('div', { style: 'margin-top:var(--space-2);' });
+      genBtn.addEventListener('click', async () => {
+        genBtn.disabled = true;
+        try {
+          const preview = await imputation.previewGroupedImputation(ds.table, m.column, [sel.value]);
+          out.innerHTML = '';
+          out.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:4px;' },
+            `Would fill ${preview.wouldFill} of ${preview.nullCount} null(s); ${preview.remainingNulls} remain unfilled.`));
+          out.appendChild(el('pre', { class: 'mono', style: 'font-size:var(--text-xs); background:var(--color-surface-offset); padding:var(--space-2); border-radius:var(--radius-sm); overflow-x:auto; white-space:pre-wrap;' }, preview.sql));
+          const btnRow = el('div', { style: 'display:flex; gap:var(--space-2); margin-top:var(--space-2);' });
+          const copyBtn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px;' }, 'Copy SQL');
+          copyBtn.addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(preview.sql); toast('SQL copied', 'success'); }
+            catch (e) { toast('Copy failed: ' + e.message, 'error'); }
+          });
+          btnRow.appendChild(copyBtn);
+          out.appendChild(btnRow);
+          out.appendChild(el('div', { style: 'font-size:10px; color:var(--color-text-faint); margin-top:4px;' }, 'Preview only — nothing is written to your data. Copy the SQL to apply it yourself.'));
+        } catch (e) {
+          out.innerHTML = '';
+          out.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-error);' }, 'Preview failed: ' + e.message));
+        } finally {
+          genBtn.disabled = false;
+        }
+      });
+      wizWrap.appendChild(label);
+      const ctrlRow = el('div', { style: 'display:flex; align-items:center; flex-wrap:wrap;' }, [sel, genBtn]);
+      wizWrap.appendChild(ctrlRow);
+      wizWrap.appendChild(out);
+      card.appendChild(wizWrap);
+    }
+    grid.appendChild(card);
+  }
+  list.appendChild(grid);
+}
+
+// Fuzzy Duplicate Radar — Merge / Ignore per candidate pair.
+async function renderFuzzyDedup(ds, auditLog) {
+  const wrap = $('#fuzzy-dedup-wrap');
+  const list = $('#fuzzy-dedup-list');
+  const res = await fuzzyDedup.findFuzzyDuplicates(ds.table, ds.cols).catch(() => null);
+  if (!res || !res.pairs || !res.pairs.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  if (res.warning) {
+    list.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' }, res.warning));
+  }
+  for (const pair of res.pairs.slice(0, 50)) {
+    const row = el('div', { class: 'card', style: 'padding:var(--space-3); margin-bottom:var(--space-2); display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;', 'data-testid': `pair-fuzzy-${pair.rowA}-${pair.rowB}` });
+    row.appendChild(el('span', { style: 'font-size:11px; padding:1px 6px; border-radius:8px; background:var(--color-grade-c); color:#fff;' }, `${(pair.similarity * 100).toFixed(0)}%`));
+    row.appendChild(el('span', { class: 'mono', style: 'font-size:var(--text-sm);' }, `"${pair.valueA}"`));
+    row.appendChild(el('span', { style: 'color:var(--color-text-faint);' }, '≈'));
+    row.appendChild(el('span', { class: 'mono', style: 'font-size:var(--text-sm);' }, `"${pair.valueB}"`));
+    const mergeBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:6px 10px; margin-left:auto;', 'data-testid': `button-merge-${pair.rowA}-${pair.rowB}` }, 'Merge →');
+    const ignoreBtn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px;' }, 'Ignore');
+    mergeBtn.addEventListener('click', async () => {
+      mergeBtn.disabled = true; ignoreBtn.disabled = true;
+      try {
+        const col = `"${pair.column}"`;
+        const from = String(pair.valueB).replace(/'/g, "''");
+        const to = String(pair.valueA).replace(/'/g, "''");
+        await engine.runQuery(`UPDATE ${ds.table} SET ${col} = '${to}' WHERE ${col} = '${from}'`);
+        auditLog.push(`[${new Date().toLocaleTimeString()}] Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
+        renderAuditLog(auditLog);
+        // Record as a manual correction; may trigger a reusable-rule suggestion.
+        ruleSuggestions.recordCorrection(pair.valueB, pair.valueA, pair.column);
+        await maybeShowRuleSuggestion(ds);
+        row.style.opacity = '0.4'; row.style.pointerEvents = 'none';
+        toast('Merged', 'success');
+      } catch (e) {
+        mergeBtn.disabled = false; ignoreBtn.disabled = false;
+        toast('Merge failed: ' + e.message, 'error');
+      }
+    });
+    ignoreBtn.addEventListener('click', () => { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; });
+    row.appendChild(mergeBtn);
+    row.appendChild(ignoreBtn);
+    list.appendChild(row);
+  }
+}
+
+// Rule-suggestion banner: appears only after 2+ identical manual corrections.
+// The Approve button is the ONLY path that persists a rule.
+async function maybeShowRuleSuggestion(ds) {
+  const banner = $('#rule-suggestion-banner');
+  const suggestions = ruleSuggestions.getSuggestedRules(2);
+  if (!suggestions.length) { banner.style.display = 'none'; return; }
+  const s = suggestions[0];
+  banner.style.display = '';
+  banner.innerHTML = '';
+  const card = el('div', { class: 'card', style: 'padding:var(--space-3); border-color:var(--color-grade-b);' }, [
+    el('div', { style: 'font-weight:600; margin-bottom:4px;' }, 'Reusable rule suggestion'),
+    el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);' },
+      `You corrected "${s.originalValue}" → "${s.correctedValue}" in "${s.column}" ${s.occurrences} times. Save this as a reusable rule?`),
+  ]);
+  const approveBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:6px 10px; margin-right:var(--space-2);', 'data-testid': 'button-approve-rule' }, 'Approve & Save Rule');
+  const dismissBtn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px;' }, 'Dismiss');
+  approveBtn.addEventListener('click', async () => {
+    const name = prompt('Name this rule:', `${s.column}: ${s.originalValue}→${s.correctedValue}`);
+    if (!name) return; // no name → no persistence (human approval gate)
+    try {
+      await ruleSuggestions.approveRule(s, name);
+      toast('Rule approved and saved to local memory', 'success');
+      banner.style.display = 'none';
+      await refreshMemoryPanel();
+    } catch (e) {
+      toast('Could not save rule: ' + e.message, 'error');
+    }
+  });
+  dismissBtn.addEventListener('click', () => { banner.style.display = 'none'; });
+  card.appendChild(approveBtn);
+  card.appendChild(dismissBtn);
+  banner.appendChild(card);
 }
 
 async function renderFormatIssues(ds, auditLog) {
@@ -520,6 +702,311 @@ async function runValidation() {
 
   const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
   renderValidationResults(results);
+  window.__dataglowLastValidation = results;
+  await renderTopProblems(ds, results);
+  await renderDataHealth(ds, results);
+  await renderMultivariate(ds);
+  await renderSPC(ds);
+  await persistColumnProfiles(ds, results);
+}
+
+// Top 5 Problems — a scannable pre-analysis checklist (checklist methodology
+// popularized by Atul Gawande, "The Checklist Manifesto"). Surfaces the
+// highest-severity findings across all layers with jump-links.
+async function renderTopProblems(ds, results) {
+  const wrap = $('#top-problems-wrap');
+  const list = $('#top-problems-list');
+  const sevRank = { fail: 3, warn: 2, pass: 0, idle: 0 };
+  const problems = [];
+  for (const layer of validation.LAYER_DEFS) {
+    if (layer.id === 'confidence' || layer.id === 'red_team') continue;
+    const r = results[layer.id];
+    if (!r || !sevRank[r.status]) continue;
+    problems.push({ id: layer.id, name: layer.name, status: r.status, summary: r.summary || layer.desc, sev: sevRank[r.status] });
+  }
+  problems.sort((a, b) => b.sev - a.sev);
+  const top = problems.slice(0, 5);
+  if (!top.length) {
+    wrap.style.display = '';
+    list.innerHTML = '<div style="font-size:var(--text-sm); color:var(--color-grade-a);">✓ No significant problems found across the validation layers.</div>';
+    return;
+  }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  top.forEach((p, i) => {
+    const color = p.status === 'fail' ? 'var(--color-grade-d)' : 'var(--color-grade-c)';
+    const row = el('div', { style: 'display:flex; align-items:flex-start; gap:var(--space-2); padding:6px 0; border-top:1px solid var(--color-divider); cursor:pointer;', 'data-testid': `top-problem-${p.id}` }, [
+      el('span', { style: `margin-top:2px; width:12px; height:12px; border-radius:3px; flex:0 0 auto; background:${color};` }),
+      el('div', {}, [
+        el('div', { style: 'font-weight:600; font-size:var(--text-sm);' }, `${i + 1}. ${p.name}`),
+        el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, p.summary),
+      ]),
+    ]);
+    row.addEventListener('click', () => {
+      const card = document.querySelector(`[data-testid="card-validation-${p.id}"]`);
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    list.appendChild(row);
+  });
+}
+
+// Data Health Dashboard: CAT scorecard + Golden Signals + materiality slider
+// + optional per-entity baselines.
+let __materialityIssues = null;
+async function renderDataHealth(ds, results) {
+  const wrap = $('#data-health-wrap');
+  wrap.style.display = '';
+
+  // CAT scorecard (CDC Data Quality Framework).
+  const cat = await catScorecard.computeCATScore(ds, results).catch(() => null);
+  const catEl = $('#cat-scorecard');
+  catEl.innerHTML = '';
+  if (cat) {
+    const gradeColor = g => ({ A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)', F: 'var(--color-grade-d)' }[g] || 'var(--color-text-muted)');
+    const cell = (name, g) => el('div', { style: 'text-align:center; min-width:80px;' }, [
+      el('div', { style: `font-size:var(--text-2xl,28px); font-weight:700; color:${gradeColor(g.grade)};` }, g.grade),
+      el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, name),
+    ]);
+    catEl.appendChild(cell('Overall', cat.overall));
+    catEl.appendChild(cell('Completeness', cat.completeness));
+    catEl.appendChild(cell('Accuracy', cat.accuracy));
+    catEl.appendChild(cell('Timeliness', cat.timeliness));
+  }
+
+  // Golden Signals (Google SRE-inspired, mapped to data quality).
+  const gs = await goldenSignals.computeGoldenSignals(ds, results).catch(() => null);
+  const gsEl = $('#golden-signals');
+  gsEl.innerHTML = '';
+  if (gs) {
+    const sig = (label, val) => el('div', { style: 'text-align:center; min-width:90px;' }, [
+      el('div', { style: 'font-size:var(--text-lg); font-weight:600;' }, val),
+      el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, label),
+    ]);
+    gsEl.appendChild(sig('Missingness', `${(gs.missingnessRate * 100).toFixed(1)}%`));
+    gsEl.appendChild(sig('Out-of-range', `${(gs.outOfRangeRate * 100).toFixed(1)}%`));
+    gsEl.appendChild(sig('Duplicates', `${(gs.duplicateRate * 100).toFixed(1)}%`));
+    gsEl.appendChild(sig('Freshness', `${gs.freshnessHours.toFixed(1)}h`));
+  }
+
+  // Materiality slider — filters clean-issues by % of rows affected.
+  __materialityIssues = await clean.scanForIssues(ds.table, ds.cols).catch(() => []);
+  const slider = $('#materiality-slider');
+  const updateMateriality = () => {
+    const thr = parseFloat(slider.value);
+    $('#materiality-value').textContent = thr.toFixed(1);
+    const material = materiality.filterByMateriality(__materialityIssues, thr, ds.rowCount);
+    $('#materiality-note').textContent =
+      `${material.length} of ${__materialityIssues.length} detected issue(s) affect at least ${thr.toFixed(1)}% of rows (material). Issues below this threshold are treated as noise (PCAOB AS 2305).`;
+  };
+  slider.oninput = updateMateriality;
+  updateMateriality();
+
+  // Per-entity baselines (UEBA) if an ID-like + numeric column pair exists.
+  await renderEntityBaselines(ds);
+}
+
+async function renderEntityBaselines(ds) {
+  const wrap = $('#entity-baseline-wrap');
+  const list = $('#entity-baseline-list');
+  const entityCol = ds.cols.find(c => c.type === 'VARCHAR' && /vendor|customer|account|entity|user|company|supplier|merchant|id|name/i.test(c.name));
+  const valueCol = ds.cols.find(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type) && /amount|value|price|cost|total|revenue|salary|invoice|balance/i.test(c.name));
+  if (!entityCol || !valueCol) { wrap.style.display = 'none'; return; }
+  const baselines = await entityBaseline.computeEntityBaselines(ds.table, entityCol.name, valueCol.name, engine).catch(() => null);
+  if (!baselines) { wrap.style.display = 'none'; return; }
+  const flags = await entityBaseline.flagEntityDeviations(ds.table, entityCol.name, valueCol.name, baselines, engine).catch(() => []);
+  if (!flags.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  list.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' },
+    `Comparing "${valueCol.name}" against each "${entityCol.name}"'s own baseline.`));
+  flags.slice(0, 15).forEach(f => {
+    list.appendChild(el('div', { style: 'font-size:var(--text-sm); padding:4px 0; border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: 'font-weight:600;' }, `${f.entity}: `),
+      el('span', {}, f.reason),
+    ]));
+  });
+}
+
+// Multivariate Outliers: diagonal-Mahalanobis (ondevice-ml) + Isolation Forest.
+async function renderMultivariate(ds) {
+  const wrap = $('#multivariate-wrap');
+  const list = $('#multivariate-list');
+  const numericCols = ds.cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
+  if (numericCols.length < 2) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+
+  const maha = await ondeviceML.scoreMultivariateAnomalies(ds.table, numericCols, engine).catch(() => null);
+  const iforest = await scoreIsolationForest(ds.table, numericCols, engine).catch(() => null);
+
+  const section = (title, cite, res) => {
+    const block = el('div', { style: 'margin-bottom:var(--space-4);' });
+    block.appendChild(el('div', { style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:2px;' }, title));
+    block.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' }, cite));
+    if (!res || !res.rows || !res.rows.length) {
+      block.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted);' }, 'No rows scored.'));
+      return block;
+    }
+    const anomalies = res.rows.filter(r => r.isAnomaly);
+    block.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);' },
+      `${anomalies.length} row(s) flagged as anomalous (top ${Math.min(5, res.rows.length)} shown by score).`));
+    res.rows.slice(0, 5).forEach(r => {
+      const color = r.isAnomaly ? 'var(--color-grade-d)' : 'var(--color-text-muted)';
+      block.appendChild(el('div', { style: 'font-size:var(--text-xs); padding:3px 0; border-top:1px solid var(--color-divider); display:flex; gap:var(--space-2);' }, [
+        el('span', { style: `font-weight:600; color:${color};` }, `#${r.rowIndex} · ${r.anomalyScore}`),
+        el('span', { class: 'mono', style: 'color:var(--color-text-muted); overflow:hidden; text-overflow:ellipsis;' }, Object.entries(r.values).map(([k, v]) => `${k}=${v}`).join(', ')),
+      ]));
+    });
+    return block;
+  };
+
+  list.appendChild(section('Mahalanobis (diagonal approximation)', 'Mahalanobis (1936) — standardized distance from the centroid.', maha));
+  list.appendChild(section('Isolation Forest', 'Liu, Ting & Zhou (2008) — anomalies isolate in shorter tree paths.', iforest));
+}
+
+// SPC control charts + Cpk badge per numeric column, rendered as inline SVG.
+async function renderSPC(ds) {
+  const wrap = $('#spc-wrap');
+  const list = $('#spc-list');
+  const analyses = await spc.analyzeAllNumericSPC(ds.table, ds.cols, engine).catch(() => []);
+  if (!analyses.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  for (const a of analyses) {
+    const card = el('div', { class: 'card', style: 'padding:var(--space-3); margin-bottom:var(--space-3);', 'data-testid': `spc-${a.column}` });
+    const cpkText = a.cpk.cpk == null ? 'n/a' : a.cpk.cpk.toString();
+    const cpkColor = a.cpk.cpk == null ? 'var(--color-text-muted)' : a.cpk.cpk >= 1.33 ? 'var(--color-grade-a)' : a.cpk.cpk >= 1.0 ? 'var(--color-grade-c)' : 'var(--color-grade-d)';
+    card.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-2);' }, [
+      el('span', { style: 'font-weight:600;' }, `"${a.column}"`),
+      el('span', { style: `font-size:11px; padding:1px 6px; border-radius:8px; background:${cpkColor}; color:#fff;`, title: a.cpk.inferredSpec ? 'Spec limits inferred from data spread' : 'From supplied spec limits' }, `Cpk ${cpkText}`),
+      el('span', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, `${a.outOfControl} point(s) out of control · n=${a.limits.n}`),
+    ]));
+    card.appendChild(el('div', { html: spcSvg(a) }));
+    list.appendChild(card);
+  }
+}
+
+// Minimal inline SVG control chart (no chart dependency).
+function spcSvg(a) {
+  const w = 640, h = 140, pad = 4;
+  const vals = a.values;
+  const { mean, ucl, lcl } = a.limits;
+  const lo = Math.min(lcl, ...vals), hi = Math.max(ucl, ...vals);
+  const span = (hi - lo) || 1;
+  const x = i => pad + (i / Math.max(1, vals.length - 1)) * (w - 2 * pad);
+  const y = v => h - pad - ((v - lo) / span) * (h - 2 * pad);
+  const line = (yv, color, dash) => `<line x1="${pad}" y1="${y(yv).toFixed(1)}" x2="${w - pad}" y2="${y(yv).toFixed(1)}" stroke="${color}" stroke-width="1" ${dash ? 'stroke-dasharray="4 3"' : ''}/>`;
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const dots = vals.map((v, i) => {
+    const out = v > ucl || v < lcl;
+    return `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${out ? 3 : 1.8}" fill="${out ? 'var(--color-grade-d)' : 'var(--color-accent, #FF6B6B)'}"/>`;
+  }).join('');
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="background:var(--color-surface-offset); border-radius:var(--radius-sm);">
+    ${line(ucl, 'var(--color-grade-d)', true)}
+    ${line(mean, 'var(--color-text-muted)', false)}
+    ${line(lcl, 'var(--color-grade-d)', true)}
+    <polyline points="${pts}" fill="none" stroke="var(--color-accent, #FF6B6B)" stroke-width="1.2"/>
+    ${dots}
+  </svg>`;
+}
+
+// Persist a small column profile per validation run (local memory only).
+async function persistColumnProfiles(ds, results) {
+  try {
+    await memoryStore.initMemoryStore();
+    for (const c of ds.cols) {
+      await memoryStore.saveColumnProfile({
+        columnNameHash: `${ds.table}::${c.name}`,
+        table: ds.table,
+        column: c.name,
+        type: c.type,
+        rowCount: ds.rowCount,
+      });
+    }
+    await refreshMemoryPanel();
+  } catch (e) { /* IndexedDB unavailable — non-fatal */ }
+}
+
+// ============================================================
+// Local Memory Panel (Settings)
+// ============================================================
+async function refreshMemoryPanel() {
+  const statsEl = $('#memory-stats');
+  if (!statsEl) return;
+  try {
+    await memoryStore.initMemoryStore();
+    const rules = await memoryStore.getApprovedRules();
+    statsEl.textContent = `${rules.length} approved rule(s) stored locally.`;
+  } catch (e) {
+    statsEl.textContent = 'Local memory unavailable in this browser.';
+  }
+}
+
+function initMemory() {
+  memoryStore.initMemoryStore().then(refreshMemoryPanel).catch(() => {
+    const el0 = $('#memory-stats');
+    if (el0) el0.textContent = 'Local memory unavailable in this browser.';
+  });
+  $('#btn-memory-clear').addEventListener('click', async () => {
+    if (!confirm('Clear all locally stored column profiles, baselines, and approved rules? This cannot be undone.')) return;
+    try {
+      const rules = await memoryStore.getApprovedRules();
+      for (const r of rules) await memoryStore.deleteApprovedRule(r.ruleName);
+      // Column profiles/baselines: drop the whole database for a clean slate.
+      if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('dataglow_memory');
+      toast('Local memory cleared', 'success');
+      $('#memory-stats').textContent = '0 approved rule(s) stored locally.';
+    } catch (e) {
+      toast('Clear failed: ' + e.message, 'error');
+    }
+  });
+}
+
+// ============================================================
+// Anonymized Export (Differential Privacy)
+// ============================================================
+function initAnonExport() {
+  const slider = $('#anon-epsilon-slider');
+  slider.addEventListener('input', () => { $('#anon-epsilon-value').textContent = parseFloat(slider.value).toFixed(1); });
+  $('#btn-anon-export').addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    const epsilon = parseFloat(slider.value);
+    const addNoise = $('#anon-noise-toggle').checked;
+    const noteEl = $('#anon-note');
+    try {
+      const { columns, rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const numericCols = ds.cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type)).map(c => c.name);
+      const esc = v => {
+        const s = v == null ? '' : String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const lines = [columns.join(',')];
+      for (const r of rows) {
+        lines.push(columns.map(c => {
+          let v = r[c];
+          if (addNoise && numericCols.includes(c) && typeof v === 'number' && Number.isFinite(v)) {
+            v = privacyBudget.addPrivacyBudgetNoise(v, 1, epsilon);
+            v = Number(v.toFixed(4));
+          }
+          return esc(v);
+        }).join(','));
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dataglow-${ds.table}-${addNoise ? `anon-eps${epsilon}` : 'export'}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      noteEl.textContent = addNoise
+        ? `Exported ${rows.length} rows with Laplace noise (ε=${epsilon}) added to ${numericCols.length} numeric column(s).`
+        : `Exported ${rows.length} rows (no noise — enable the toggle for differential privacy).`;
+      toast('Export ready', 'success');
+    } catch (e) {
+      toast('Export failed: ' + e.message, 'error');
+    }
+  });
 }
 
 function renderValidationResults(results) {
@@ -764,6 +1251,8 @@ function init() {
   initSwiftTab();
   initSettings();
   initRedTeam();
+  initMemory();
+  initAnonExport();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
