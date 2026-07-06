@@ -2097,7 +2097,12 @@ function initStoryTab() {
       state.lastStory = text.replace(/<[^>]+>/g, ''); // plain text kept for consistency checker
       $('#story-empty').style.display = 'none';
       $('#story-content-wrap').style.display = '';
-      $('#story-text').innerHTML = `<p>${text}</p>`;
+      // Local stories are built from hardcoded-safe markup wrapping escapeHtml()'d
+      // data values, so they render as-is. Any other source is free-form text from
+      // a third-party model (a crafted dataset could prompt-inject it into emitting
+      // raw HTML), so it is escaped before hitting innerHTML.
+      const storyHtml = (source === 'local' || source === 'local-fallback') ? text : escapeHtml(text);
+      $('#story-text').innerHTML = `<p>${storyHtml}</p>`;
       const consistency = await validation.checkNarrativeConsistency(state.lastStory, state.lastQueryResult);
       const consistEl = $('#story-consistency');
       if (consistency.status === 'pass') {

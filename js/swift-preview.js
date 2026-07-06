@@ -7,6 +7,8 @@
 // matching the "sketch a screen, no Xcode" workflow.
 // ============================================================
 
+import { escapeHtml } from './utils.js';
+
 export const SWIFT_TEMPLATE = `// DATAGLOW Swift preview (SwiftUI-style)
 // Supported: Text, VStack, HStack, Chart-style bars, Button, Divider
 struct DataScreen: View {
@@ -55,10 +57,10 @@ export function renderSwiftPreview(code, containerId) {
       const size = e.isLargeTitle ? '28px' : e.isTitle ? '20px' : '15px';
       const weight = e.isLargeTitle || e.isTitle ? '700' : '400';
       const color = e.isCoral ? '#FF6B6B' : '#2D2D2D';
-      return `<div style="font-size:${size}; font-weight:${weight}; color:${color}; margin-bottom:8px; font-family:-apple-system,sans-serif;">${e.text}</div>`;
+      return `<div style="font-size:${size}; font-weight:${weight}; color:${color}; margin-bottom:8px; font-family:-apple-system,sans-serif;">${escapeHtml(e.text)}</div>`;
     }
     if (e.type === 'button') {
-      return `<button style="background:#FF6B6B; color:white; border:none; padding:10px 20px; border-radius:10px; font-size:15px; font-weight:600; margin-top:8px;">${e.text}</button>`;
+      return `<button style="background:#FF6B6B; color:white; border:none; padding:10px 20px; border-radius:10px; font-size:15px; font-weight:600; margin-top:8px;">${escapeHtml(e.text)}</button>`;
     }
     if (e.type === 'divider') {
       return `<hr style="border:none; border-top:1px solid #E2E0DC; margin:10px 0;">`;

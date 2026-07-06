@@ -6,6 +6,7 @@
 
 import { state } from './state.js';
 import { scoreClaimConfidence } from './validation.js';
+import { escapeHtml } from './utils.js';
 
 // Grade → color, matching the Confidence Layer's ring colors so a claim badge
 // reads the same as the table-level grade.
@@ -107,15 +108,15 @@ ${JSON.stringify(sample, null, 0).slice(0, 4000)}`;
 // fully offline). Every quantitative claim carries an inline confidence badge
 // scored per-claim by the Confidence Layer (see buildStoryClaims), and any
 // low-confidence (grade C/D) claim gets a visible caveat.
-function generateLocalStory(queryResult, tableName) {
+export function generateLocalStory(queryResult, tableName) {
   const { columns, rows, rowCount } = queryResult;
-  if (rows.length === 0) return `The query against "${tableName}" returned no rows. There's nothing to summarize until the filters are loosened or the underlying data is checked.`;
+  if (rows.length === 0) return `The query against "${escapeHtml(tableName)}" returned no rows. There's nothing to summarize until the filters are loosened or the underlying data is checked.`;
 
   const claims = buildStoryClaims(queryResult);
   const byKind = Object.fromEntries(claims.map(c => [c.kind, c]));
 
   const rc = byKind.rowcount;
-  let sentence1 = `The query against "${tableName}" returned ${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'} across ${columns.length} column${columns.length === 1 ? '' : 's'}.${rc ? confidenceBadgeHTML(rc.confidence) : ''}`;
+  let sentence1 = `The query against "${escapeHtml(tableName)}" returned ${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'} across ${columns.length} column${columns.length === 1 ? '' : 's'}.${rc ? confidenceBadgeHTML(rc.confidence) : ''}`;
 
   let sentence2 = '';
   const numericCols = columns.filter(c => rows.every(r => r[c] == null || typeof r[c] === 'number'));
@@ -125,7 +126,7 @@ function generateLocalStory(queryResult, tableName) {
     const avg = byKind.numeric_mean.value;
     const max = Math.max(...vals);
     const min = Math.min(...vals);
-    sentence2 = ` Looking at <span class="story-highlight">${nc}</span>, values range from ${min.toLocaleString(undefined, { maximumFractionDigits: 2 })} to ${max.toLocaleString(undefined, { maximumFractionDigits: 2 })}, averaging ${avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}.${confidenceBadgeHTML(byKind.numeric_mean.confidence)}`;
+    sentence2 = ` Looking at <span class="story-highlight">${escapeHtml(nc)}</span>, values range from ${min.toLocaleString(undefined, { maximumFractionDigits: 2 })} to ${max.toLocaleString(undefined, { maximumFractionDigits: 2 })}, averaging ${avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}.${confidenceBadgeHTML(byKind.numeric_mean.confidence)}`;
     if (['C', 'D'].includes(byKind.numeric_mean.confidence.grade)) {
       sentence2 += ` <em>(Treat this average cautiously — it rests on limited or partly-missing data.)</em>`;
     }
@@ -138,7 +139,7 @@ function generateLocalStory(queryResult, tableName) {
     for (const r of rows) { const v = r[cc]; if (v != null) counts[v] = (counts[v] || 0) + 1; }
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
     const pct = byKind.category_share.value.toFixed(1);
-    sentence3 = ` The most common value in <span class="story-highlight">${cc}</span> is "${top[0]}", appearing in ${pct}% of returned rows.${confidenceBadgeHTML(byKind.category_share.confidence)}`;
+    sentence3 = ` The most common value in <span class="story-highlight">${escapeHtml(cc)}</span> is "${escapeHtml(top[0])}", appearing in ${pct}% of returned rows.${confidenceBadgeHTML(byKind.category_share.confidence)}`;
   }
 
   const caveat = ` This reflects only the rows returned by the current query — it does not account for records filtered out, or populations entirely absent from this dataset.`;
