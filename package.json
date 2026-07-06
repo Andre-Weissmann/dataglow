@@ -7,6 +7,7 @@
   "scripts": {
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:layers": "node --import ./test/duckdb-loader-hook.mjs test/validation-layers.test.mjs",
+    "test:gen8": "node --import ./test/duckdb-loader-hook.mjs test/gen8-features.test.mjs",
     "test:e2e": "node test/e2e-smoke.test.mjs"
   },
   "devDependencies": {
