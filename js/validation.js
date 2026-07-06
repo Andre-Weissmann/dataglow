@@ -6,8 +6,10 @@
 import { state } from './state.js';
 import * as engine from './duckdb-engine.js';
 import { sha256, formatNumber } from './utils.js';
-import { detectColumnClusters, isSensitiveCategory } from './categorical-consistency.js';
+import { detectColumnClusters, describeCluster } from './categorical-consistency.js';
 import { logAssumption } from './assumption-ledger.js';
+import { applyDomainPack, summarizeUnitTests } from './domain-physics.js';
+import { computeCalibratedGrades } from './calibrated-grades.js';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
 const history = {
@@ -77,19 +79,22 @@ async function runHistoricalDrift(table) {
 }
 
 // ---------- 3. Unit Test Layer ----------
+// Emits a structured, domain-agnostic `findings` array (every issue a hard
+// fail). Domain reinterpretation — e.g. downgrading systematic de-identification
+// date-shifting from fail → warn — is applied afterwards by the Domain Physics
+// Engine (see js/domain-physics.js), so this layer stays a pure defect detector
+// and the healthcare-specific judgement lives in a swappable pack.
 async function runUnitTests(table, cols) {
-  const tests = [];
-  // Soft warnings: findings that look like a systematic data-preparation
-  // artifact (e.g. de-identification date-shifting) rather than a defect.
-  const softWarnings = [];
+  const findings = [];
   const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
   const dateCols = cols.filter(c => c.type.includes('DATE') || /date|admit|discharge/i.test(c.name));
   // negative values
   for (const c of numericCols) {
     const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${c.name}" < 0`);
-    if (rows[0].n > 0) tests.push(`${rows[0].n} negative value(s) in "${c.name}"`);
+    if (rows[0].n > 0) findings.push({ kind: 'negative', column: c.name, severity: 'fail', text: `${rows[0].n} negative value(s) in "${c.name}"` });
   }
-  // future dates
+  // future dates — the far-future share is recorded on the finding so a domain
+  // pack can decide whether it is a defect or a de-identification artifact.
   for (const c of dateCols) {
     try {
       const { rows } = await engine.runQuery(`
@@ -102,45 +107,31 @@ async function runUnitTests(table, cols) {
       const future = Number(rows[0].future) || 0;
       const farFuture = Number(rows[0].farFuture) || 0;
       if (future === 0) continue;
-      // Publicly released healthcare datasets (MIMIC-IV, PhysioNet, …) shift
-      // dates far into the future for de-identification. When the vast majority
-      // of a column's non-null dates are decades ahead, that is a systematic
-      // shift, not a data error — downgrade fail → warn rather than tanking the
-      // grade. A small minority of future dates is more likely a real typo, so
-      // it stays a hard failure.
       const farFutureShare = nonnull > 0 ? farFuture / nonnull : 0;
-      if (farFutureShare > 0.9) {
-        softWarnings.push(`${(farFutureShare * 100).toFixed(0)}% of dates in "${c.name}" are unusually far in the future — this is consistent with de-identification date-shifting (common in datasets like MIMIC-IV/PhysioNet), not necessarily a data error. Review before treating as a defect.`);
-      } else {
-        tests.push(`${future} future date(s) in "${c.name}"`);
-      }
+      findings.push({ kind: 'future_date', column: c.name, severity: 'fail', text: `${future} future date(s) in "${c.name}"`, meta: { future, farFuture, nonnull, farFutureShare } });
     } catch (e) { /* skip */ }
   }
   // blank/null keys (first column treated as key)
   const keyCol = cols[0];
   const { rows: nullRows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${keyCol.name}" IS NULL`);
-  if (nullRows[0].n > 0) tests.push(`${nullRows[0].n} blank value(s) in key column "${keyCol.name}"`);
+  if (nullRows[0].n > 0) findings.push({ kind: 'blank_key', column: keyCol.name, severity: 'fail', text: `${nullRows[0].n} blank value(s) in key column "${keyCol.name}"` });
   // duplicates (full row)
   const allCols = cols.map(c => `"${c.name}"`).join(',');
   const { rows: dupRows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM (SELECT ${allCols}, COUNT(*) AS c FROM ${table} GROUP BY ${allCols} HAVING COUNT(*) > 1) t`);
   if (dupRows[0].n > 0) {
     const { rows: dupTotal } = await engine.runQuery(`SELECT SUM(c) - COUNT(*) AS extra FROM (SELECT ${allCols}, COUNT(*) AS c FROM ${table} GROUP BY ${allCols} HAVING COUNT(*) > 1) t`);
-    tests.push(`${dupTotal[0].extra} duplicate row(s) found (${dupRows[0].n} distinct groups affected)`);
+    findings.push({ kind: 'duplicate', severity: 'fail', text: `${dupTotal[0].extra} duplicate row(s) found (${dupRows[0].n} distinct groups affected)` });
   }
   // referential integrity: if a *_id column exists that isn't the key, check it's non-null
   const fkCols = cols.filter(c => /_id$/i.test(c.name) && c.name !== keyCol.name);
   for (const c of fkCols) {
     const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${c.name}" IS NULL`);
-    if (rows[0].n > 0) tests.push(`${rows[0].n} null reference(s) in "${c.name}"`);
+    if (rows[0].n > 0) findings.push({ kind: 'null_ref', column: c.name, severity: 'fail', text: `${rows[0].n} null reference(s) in "${c.name}"` });
   }
 
-  if (tests.length === 0 && softWarnings.length === 0) {
-    return result('pass', 'All 5 unit tests passed — no negatives, future dates, blank keys, duplicates, or broken references.');
-  }
-  if (tests.length === 0) {
-    return result('warn', `${softWarnings.length} date column(s) show a pattern consistent with de-identification date-shifting — review, don't assume a defect.`, softWarnings);
-  }
-  return result('fail', `${tests.length} issue(s) found`, [...tests, ...softWarnings]);
+  const r = summarizeUnitTests(findings);
+  r.findings = findings;
+  return r;
 }
 
 // ---------- 4. Confidence Layer ----------
@@ -583,6 +574,7 @@ async function runBenford(table, cols) {
     r = result('pass', `${tested} eligible column(s) consistent with Benford's Law${skips.length ? `; ${skips.length} skipped as ineligible` : ''}.`, detail);
   }
   r.skips = skips;
+  r.flags = flags;
   if (skips.length) r.teaching = teaching;
   return r;
 }
@@ -591,42 +583,52 @@ async function runBenford(table, cols) {
 // Clusters near-identical spellings of the same category (Levenshtein 1965 /
 // Jaro-Winkler 1990 similarity plus a small ISO-3166 abbreviation lookup) and
 // proposes the most frequent variant as the canonical merge target.
+// This layer is domain-agnostic: it clusters near-identical spellings and, by
+// default, proposes the most frequent variant as a canonical merge for EVERY
+// cluster. Whether a given column is a protected/sensitive category (where an
+// auto-merge could corrupt legally/clinically distinct values) is NOT decided
+// here — it is a domain judgement applied afterwards by the Domain Physics
+// Engine's protected-category rule (see js/domain-physics.js), which flips
+// `cl.sensitive` to true. `describeCluster` renders either form identically
+// wherever it is called. Assumption-ledger entries are emitted after the pack
+// has run (see logCategoricalAssumptions) so they reflect the final state.
 async function runCategoricalConsistency(table, cols) {
   const catCols = cols.filter(c => c.type === 'VARCHAR');
   if (catCols.length === 0) return result('idle', 'No categorical (text) columns to check for spelling variants. Skipped.');
-  const findings = [];
   const clusters = []; // machine-readable, for one-click merge in the UI
   for (const c of catCols) {
     const cols16 = await detectColumnClusters(table, c.name, engine).catch(() => []);
-    const sensitive = isSensitiveCategory(c.name);
     for (const cl of cols16) {
-      const variantList = cl.variants.map(v => `"${v.value}" (${v.count})`).join(', ');
-      if (sensitive) {
-        // Show the cluster for human review but never offer an auto-merge —
-        // these values may be legally/clinically distinct even if textually
-        // similar (e.g. Medicaid vs Medicare, distinct ethnicities).
-        findings.push(`"${c.name}" (sensitive category — merges disabled): ${variantList}`);
-        clusters.push({ column: c.name, sensitive: true, ...cl });
-        logAssumption(
-          'Categorical Consistency Engine',
-          `Flagged near-identical values in sensitive column "${c.name}" (${cl.variants.map(v => `"${v.value}"`).join(', ')}) but disabled auto-merge — these may be legally/clinically distinct.`,
-          { column: c.name, sensitive: true, variants: cl.variants }
-        );
-      } else {
-        findings.push(`"${c.name}": ${variantList} → canonical "${cl.canonical}"`);
-        clusters.push({ column: c.name, sensitive: false, ...cl });
-        logAssumption(
-          'Categorical Consistency Engine',
-          `Proposed merging ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${c.name}" (canonical = most frequent variant).`,
-          { column: c.name, canonical: cl.canonical, merges: cl.merges }
-        );
-      }
+      clusters.push({ column: c.name, sensitive: false, ...cl });
     }
   }
-  if (findings.length === 0) return result('pass', 'No near-duplicate category spellings detected.');
-  const r = result('warn', `${findings.length} inconsistent category cluster(s) found — review suggested merges.`, findings);
+  if (clusters.length === 0) return result('pass', 'No near-duplicate category spellings detected.');
+  const r = result('warn', `${clusters.length} inconsistent category cluster(s) found — review suggested merges.`, clusters.map(describeCluster));
   r.clusters = clusters;
   return r;
+}
+
+// Emit assumption-ledger entries for the categorical clusters AFTER the domain
+// pack has (potentially) flipped some to sensitive. Kept separate from the
+// layer run so the ledger reflects the final, pack-reinterpreted state while
+// preserving the historical 'Categorical Consistency Engine' source.
+function logCategoricalAssumptions(catResult) {
+  if (!catResult || !Array.isArray(catResult.clusters)) return;
+  for (const cl of catResult.clusters) {
+    if (cl.sensitive) {
+      logAssumption(
+        'Categorical Consistency Engine',
+        `Flagged near-identical values in sensitive column "${cl.column}" (${cl.variants.map(v => `"${v.value}"`).join(', ')}) but disabled auto-merge — these may be legally/clinically distinct.`,
+        { column: cl.column, sensitive: true, variants: cl.variants }
+      );
+    } else {
+      logAssumption(
+        'Categorical Consistency Engine',
+        `Proposed merging ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${cl.column}" (canonical = most frequent variant).`,
+        { column: cl.column, canonical: cl.canonical, merges: cl.merges }
+      );
+    }
+  }
 }
 
 // ---------- 17. Cross-Column Logical Consistency ----------
@@ -796,6 +798,31 @@ async function runDistributionDrift(table, cols) {
   return result('fail', `${drifts.length} column(s) drifted despite an unchanged schema — the data moved even though the shape didn't.`, drifts);
 }
 
+// Build per-column metadata the Domain Physics Engine's rules match on. Kept
+// domain-agnostic: { name, type, numeric, isBinary01 }. isBinary01 is queried
+// only for numeric columns (a column whose non-null values are all 0 or 1).
+async function computeColumnMeta(table, cols) {
+  const NUM = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+  const meta = [];
+  for (const c of cols) {
+    const numeric = NUM.includes(c.type);
+    let isBinary01 = false;
+    if (numeric) {
+      try {
+        const { rows } = await engine.runQuery(`
+          SELECT COUNT(*) FILTER (WHERE "${c.name}" IS NOT NULL) AS nonnull,
+                 COUNT(*) FILTER (WHERE "${c.name}" NOT IN (0, 1) AND "${c.name}" IS NOT NULL) AS outside
+          FROM ${table}`);
+        const nonnull = Number(rows[0].nonnull) || 0;
+        const outside = Number(rows[0].outside) || 0;
+        isBinary01 = nonnull > 0 && outside === 0;
+      } catch (e) { /* leave isBinary01 false on any query error */ }
+    }
+    meta.push({ name: c.name, type: c.type, numeric, isBinary01 });
+  }
+  return meta;
+}
+
 // ---------- Orchestrator ----------
 export async function runAllLayers(ds, options = {}) {
   const table = ds.table;
@@ -825,6 +852,28 @@ export async function runAllLayers(ds, options = {}) {
   results.categorical_consistency = await runCategoricalConsistency(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.cross_column_logic = await runCrossColumnLogic(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.distribution_drift = await runDistributionDrift(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+
+  // ---- Domain Physics Engine ----
+  // Sits ABOVE the 18 layers: it reinterprets/annotates their raw output using a
+  // swappable domain pack (default "healthcare"). It never re-runs a layer.
+  // Selecting "none" restores the raw, domain-agnostic output.
+  const packName = options.pack || 'healthcare';
+  const columnMeta = await computeColumnMeta(table, cols).catch(() => cols.map(c => ({ name: c.name, type: c.type, numeric: false, isBinary01: false })));
+  const domainPack = applyDomainPack(results, packName, { columns: columnMeta, dataset: ds });
+  results.domainPack = domainPack;
+
+  // Assumption-ledger entries for categorical clusters are emitted here — after
+  // the pack has (potentially) flipped columns to sensitive — so the ledger
+  // reflects the final, pack-reinterpreted state.
+  logCategoricalAssumptions(results.categorical_consistency);
+
+  // ---- Confidence-Calibrated Grades (two-axis, heuristic) ----
+  results.calibratedGrades = computeCalibratedGrades({
+    results,
+    packName: domainPack.packName,
+    packLabel: domainPack.packLabel,
+    annotations: domainPack.annotations,
+  });
 
   state.validationResults = results;
   return results;

@@ -142,6 +142,48 @@ async function main() {
       console.log('✗ FAILED: Validate tab produced no result cards');
     }
 
+    // ---- Gen 9 Batch 1 UI smoke checks ----
+
+    // Feature 1: the Domain Physics pack selector is present and defaults to
+    // "healthcare", with a "none" option to turn reinterpretation off.
+    const packInfo = await page.evaluate(() => {
+      const sel = document.querySelector('[data-testid="select-domain-pack"]');
+      if (!sel) return null;
+      return { value: sel.value, options: Array.from(sel.options).map(o => o.value) };
+    });
+    if (packInfo && packInfo.value === 'healthcare' && packInfo.options.includes('none')) {
+      console.log('✓ Domain pack selector present (default "healthcare", includes "none")');
+    } else {
+      failed = true;
+      console.log('✗ FAILED: Domain pack selector missing or misconfigured: ' + JSON.stringify(packInfo));
+    }
+
+    // Feature 2: the two-axis Confidence-Calibrated Grades render with letter grades.
+    await page.waitForFunction(
+      () => {
+        const i = document.querySelector('[data-testid="grade-integrity-grade"]');
+        const p = document.querySelector('[data-testid="grade-plausibility-grade"]');
+        return i && p && /[A-F]/.test(i.textContent) && /[A-F]/.test(p.textContent);
+      },
+      { timeout: 15000, polling: 500 }
+    );
+    const grades = await page.evaluate(() => ({
+      integrity: document.querySelector('[data-testid="grade-integrity-grade"]').textContent.trim(),
+      plausibility: document.querySelector('[data-testid="grade-plausibility-grade"]').textContent.trim(),
+    }));
+    console.log(`✓ Two-axis grades rendered (Integrity=${grades.integrity}, Plausibility=${grades.plausibility})`);
+
+    // Feature 3: the Export Attestation button is present and clickable (it
+    // triggers a client-side download; we assert it exists and does not throw).
+    const attBtn = await page.$('[data-testid="button-attestation-export"]');
+    if (attBtn) {
+      await attBtn.click();
+      console.log('✓ Export Attestation button present and clickable');
+    } else {
+      failed = true;
+      console.log('✗ FAILED: Export Attestation button missing');
+    }
+
     // ---- Gen 9 Batch 3 feature smoke checks ----
     const expectDownload = async (label, doTrigger) => {
       const [download] = await Promise.all([

@@ -28,6 +28,7 @@ import * as privacyBudget from './privacy-budget.js';
 import * as memoryStore from './memory-store.js';
 import * as ledger from './assumption-ledger.js';
 import * as provenance from './provenance.js';
+import * as domainPhysics from './domain-physics.js';
 import * as devilsAdvocate from './devils-advocate.js';
 import * as syntheticAdversarial from './synthetic-adversarial.js';
 import * as pyRuntime from './python-runtime.js';
@@ -876,7 +877,9 @@ async function runValidation() {
   grid.style.display = '';
   grid.innerHTML = validation.LAYER_DEFS.map(() => '<div class="skeleton" style="height:110px; border-radius:var(--radius-lg);"></div>').join('');
 
-  const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
+  const packSel = $('#domain-pack-select');
+  const pack = packSel && packSel.value ? packSel.value : 'healthcare';
+  const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours, pack });
   renderValidationResults(results);
   window.__dataglowLastValidation = results;
   await renderTopProblems(ds, results);
@@ -973,6 +976,48 @@ function initProvenance() {
     const chain = ds ? provenance.getProvenance(ds.table) : null;
     if (!chain || !chain.length) { toast('No provenance to export', 'error'); return; }
     downloadText(`dataglow-provenance-${ds.table}.json`, chain.exportTrail('json'), 'application/json');
+  });
+  const attMeta = (ds) => ({
+    table: ds.table,
+    rowCount: ds.rowCount,
+    colCount: Array.isArray(ds.cols) ? ds.cols.length : null,
+    columns: Array.isArray(ds.cols) ? ds.cols.map(c => ({ name: c.name, type: c.type })) : null,
+    loadedAt: ds.loadedAt,
+  });
+  const attBtn = $('#btn-attestation-export');
+  if (attBtn) attBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    const chain = ds ? provenance.getProvenance(ds.table) : null;
+    if (!chain || !chain.length) { toast('No provenance to attest', 'error'); return; }
+    const att = await chain.attest(attMeta(ds));
+    downloadText(`dataglow-attestation-${ds.table}.json`, JSON.stringify(att, null, 2), 'application/json');
+    toast('Attestation exported — digest ready for third-party notarization', 'success');
+  });
+  const attHtmlBtn = $('#btn-attestation-html');
+  if (attHtmlBtn) attHtmlBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    const chain = ds ? provenance.getProvenance(ds.table) : null;
+    if (!chain || !chain.length) { toast('No provenance to attest', 'error'); return; }
+    const att = await chain.attest(attMeta(ds));
+    downloadText(`dataglow-attestation-${ds.table}.html`, provenance.renderAttestationHTML(att), 'text/html');
+    toast('Attestation HTML exported (printable / PDF-friendly)', 'success');
+  });
+}
+
+// Populate the Domain Physics pack selector and re-run validation on change so
+// switching packs (or turning reinterpretation off with "None") updates results.
+function initDomainPack() {
+  const sel = $('#domain-pack-select');
+  if (!sel) return;
+  const packs = domainPhysics.listPacks();
+  sel.innerHTML = '';
+  for (const p of packs) {
+    const opt = el('option', { value: p.name, title: p.description }, p.label);
+    if (p.name === 'healthcare') opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    if (getActiveDataset()) runValidation();
   });
 }
 
@@ -1476,6 +1521,10 @@ async function renderDataHealth(ds, results) {
   const wrap = $('#data-health-wrap');
   wrap.style.display = '';
 
+  // Confidence-Calibrated Grades (two honest, heuristic axes). Primary display
+  // above the CAT scorecard; hover/click each card for the plain-English reason.
+  renderCalibratedGrades(results && results.calibratedGrades);
+
   // CAT scorecard (CDC Data Quality Framework).
   const cat = await catScorecard.computeCATScore(ds, results).catch(() => null);
   const catEl = $('#cat-scorecard');
@@ -1522,6 +1571,30 @@ async function renderDataHealth(ds, results) {
 
   // Per-entity baselines (UEBA) if an ID-like + numeric column pair exists.
   await renderEntityBaselines(ds);
+}
+
+// Render the two-axis Confidence-Calibrated Grades. Both are explicitly
+// heuristics (labelled in each card's explanation), not legal/clinical calls.
+function renderCalibratedGrades(cg) {
+  const box = $('#calibrated-grades');
+  if (!box) return;
+  if (!cg) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const gradeColor = g => ({ A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)', F: 'var(--color-grade-d)' }[g] || 'var(--color-text-muted)');
+  const card = (title, axis, testid) => el('div', {
+    style: 'flex:1; min-width:220px; padding:var(--space-4); border:1px solid var(--color-divider); border-radius:var(--radius-lg); cursor:help;',
+    title: axis.explanation,
+    'data-testid': testid,
+  }, [
+    el('div', { style: 'display:flex; align-items:baseline; gap:var(--space-3);' }, [
+      el('div', { style: `font-size:var(--text-2xl,28px); font-weight:700; color:${gradeColor(axis.grade)};`, 'data-testid': `${testid}-grade` }, axis.grade),
+      el('div', { style: 'font-weight:600;' }, title),
+    ]),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-2);' }, axis.explanation),
+  ]);
+  box.innerHTML = '';
+  box.appendChild(card('Data Integrity', cg.integrity, 'grade-integrity'));
+  box.appendChild(card('Domain Plausibility Confidence', cg.plausibility, 'grade-plausibility'));
+  box.style.display = 'flex';
 }
 
 async function renderEntityBaselines(ds) {
@@ -2185,6 +2258,7 @@ function init() {
   initAnonExport();
   initLedger();
   initProvenance();
+  initDomainPack();
   initDevilsAdvocate();
   initReceipts();
   initPeerReview();

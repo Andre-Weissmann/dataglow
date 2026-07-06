@@ -37,6 +37,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:sql
+      # Gen 9 Batch 1: Domain Physics Engine unit suite + provenance attestation verifier.
+      - run: npm run test:physics
+      - run: npm run test:attestation
       # Fast, deterministic, browser-free unit suites (Gen 9 Batch 2):
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient
