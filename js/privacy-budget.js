@@ -8,16 +8,19 @@
 // Lower epsilon (ε) = stronger privacy, less precision.
 
 // Sample from a Laplace(0, scale) distribution via inverse-CDF sampling.
-export function laplaceNoise(scale) {
+// `rng` is an injectable [0,1) uniform source (defaults to Math.random) so
+// callers that need reproducible output (tests, seeded synthesis) can pass a
+// deterministic PRNG without changing the mechanism.
+export function laplaceNoise(scale, rng = Math.random) {
   // u in (-0.5, 0.5]; sign(u) * ln(1 - 2|u|) gives the Laplace inverse CDF.
-  const u = Math.random() - 0.5;
+  const u = rng() - 0.5;
   return -scale * Math.sign(u) * Math.log(1 - 2 * Math.abs(u));
 }
 
-export function addPrivacyBudgetNoise(trueValue, sensitivity, epsilon) {
+export function addPrivacyBudgetNoise(trueValue, sensitivity, epsilon, rng = Math.random) {
   if (epsilon <= 0) throw new Error('epsilon (ε) must be greater than 0.');
   const scale = sensitivity / epsilon;
-  return trueValue + laplaceNoise(scale);
+  return trueValue + laplaceNoise(scale, rng);
 }
 
 // Given aggregate stats {label: numericValue}, return a noised copy plus
