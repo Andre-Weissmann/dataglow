@@ -12,7 +12,11 @@
     "test:mimic": "node --import ./test/duckdb-loader-hook.mjs test/mimic-bugfixes.test.mjs",
     "test:physics": "node --import ./test/duckdb-loader-hook.mjs test/domain-physics.test.mjs",
     "test:attestation": "node test/verify-attestation.mjs",
-    "test:e2e": "node test/e2e-smoke.test.mjs"
+    "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/gen9-batch3.test.mjs",
+    "test:ambient": "node test/ambient-validation.test.mjs",
+    "test:slm": "node test/slm-prompt.test.mjs",
+    "test:e2e": "node test/e2e-smoke.test.mjs",
+    "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

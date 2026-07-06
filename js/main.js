@@ -37,6 +37,11 @@ import * as swiftPreview from './swift-preview.js';
 import * as receipt from './validation-receipt.js';
 import * as peerReview from './peer-review.js';
 import * as timeTravel from './time-travel-diff.js';
+import * as syntheticTwin from './synthetic-twin.js';
+import * as timeMachine from './time-machine.js';
+import * as fingerprint from './federated-fingerprint.js';
+import * as irbMode from './irb-mode.js';
+import * as ondeviceLLM from './ondevice-llm.js';
 
 // ============================================================
 // Tab Definitions
@@ -132,9 +137,13 @@ function renderTabBar() {
 }
 
 function switchTab(tabId) {
+  const previousTab = activeTab;
   activeTab = tabId;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
   $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tabId));
+  // Leaving the SQL tab: terminate the ambient-validation worker so it never
+  // lingers in the background (recreated lazily on the next keystroke).
+  if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'swift' && !$('#swift-input').value) {
@@ -335,9 +344,163 @@ function initSqlTab() {
   $('#btn-sql-format').addEventListener('click', () => {
     const el = $('#sql-input');
     el.value = el.value.replace(/\s+/g, ' ').replace(/\bSELECT\b/gi, '\nSELECT').replace(/\bFROM\b/gi, '\nFROM').replace(/\bWHERE\b/gi, '\nWHERE').replace(/\bGROUP BY\b/gi, '\nGROUP BY').replace(/\bORDER BY\b/gi, '\nORDER BY').trim();
+    scheduleAmbientCheck();
   });
   $('#sql-input').addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runSqlQuery(); }
+  });
+  initAmbientValidation();
+}
+
+// ============================================================
+// Ambient Validation (Feature 5) — live, incremental checks as you type,
+// run in a Web Worker so the SQL editor never blocks.
+// ============================================================
+let ambientWorker = null;
+let ambientReqId = 0;
+// Warnings the user explicitly dismissed this session — keyed so an identical
+// warning doesn't nag again until the query text changes it away and back.
+const dismissedAmbient = new Set();
+
+function ensureAmbientWorker() {
+  if (ambientWorker) return ambientWorker;
+  try {
+    ambientWorker = new Worker(new URL('./ambient-validation.worker.js', import.meta.url), { type: 'module' });
+    ambientWorker.onmessage = (e) => {
+      const { requestId, warnings } = e.data || {};
+      if (requestId !== ambientReqId) return; // stale result from an earlier keystroke
+      renderAmbientWarnings(warnings || []);
+    };
+    ambientWorker.onerror = () => { /* never let a worker error break typing */ };
+  } catch {
+    ambientWorker = null; // Worker unsupported — feature silently unavailable
+  }
+  return ambientWorker;
+}
+
+function teardownAmbientWorker() {
+  if (ambientWorker) { ambientWorker.terminate(); ambientWorker = null; }
+}
+
+const scheduleAmbientCheck = debounce(() => {
+  const input = $('#sql-input');
+  if (!input) return;
+  const sql = input.value || '';
+  const worker = ensureAmbientWorker();
+  if (!worker) return;
+  const ds = getActiveDataset();
+  const columns = ds && Array.isArray(ds.cols) ? ds.cols.map(c => c.name) : [];
+  ambientReqId += 1;
+  worker.postMessage({ requestId: ambientReqId, sql, columns });
+}, 800);
+
+function renderAmbientWarnings(warnings) {
+  const wrap = $('#ambient-warnings');
+  if (!wrap) return;
+  const visible = warnings.filter(w => !dismissedAmbient.has(ambientKey(w)));
+  wrap.innerHTML = '';
+  if (visible.length === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  for (const w of visible) {
+    const tone = w.severity === 'info' ? 'warn' : 'fail';
+    const row = el('div', {
+      class: `validation-status ${tone}`,
+      'data-testid': `ambient-warning-${w.id}`,
+      style: 'display:flex; align-items:flex-start; gap:var(--space-2); padding:var(--space-2) var(--space-3); border-radius:var(--radius-md); font-size:var(--text-xs);',
+    }, [
+      el('span', { class: `status-dot ${tone}`, style: 'margin-top:3px; flex:none;' }),
+      el('span', { style: 'flex:1;' }, w.message),
+    ]);
+    const dismiss = el('button', {
+      class: 'btn btn-secondary',
+      style: 'font-size:var(--text-xs); padding:2px 8px; flex:none;',
+      'data-testid': `ambient-dismiss-${w.id}`,
+      onclick: () => { dismissedAmbient.add(ambientKey(w)); renderAmbientWarnings(warnings); },
+    }, 'Dismiss');
+    row.appendChild(dismiss);
+    wrap.appendChild(row);
+  }
+}
+
+function ambientKey(w) {
+  return `${w.id}|${w.column || ''}|${w.message}`;
+}
+
+function initAmbientValidation() {
+  const input = $('#sql-input');
+  if (!input) return;
+  input.addEventListener('input', scheduleAmbientCheck);
+  // No orphaned workers: tear the worker down when the page goes away.
+  window.addEventListener('pagehide', teardownAmbientWorker);
+  window.addEventListener('beforeunload', teardownAmbientWorker);
+}
+
+// ============================================================
+// On-Device SLM Interpreter (Feature 4) — opt-in, in-browser LLM synthesis
+// of the validation findings. No data ever leaves the browser.
+// ============================================================
+function initAISynthesis() {
+  const downloadBtn = $('#btn-slm-download');
+  const synthBtn = $('#btn-slm-synthesize');
+  const statusEl = $('#slm-status');
+  const progressWrap = $('#slm-progress-wrap');
+  const progressBar = $('#slm-progress-bar');
+  const outputEl = $('#slm-output');
+  if (!downloadBtn) return;
+
+  if (!ondeviceLLM.isWebGPUAvailable()) {
+    downloadBtn.disabled = true;
+    statusEl.innerHTML = 'This feature needs a <strong>WebGPU-capable browser</strong> (recent Chrome, Edge, or Chrome on Android; Safari 18+). On-device AI synthesis is unavailable here — every other DATAGLOW feature works as normal.';
+    statusEl.setAttribute('data-slm-state', 'no-webgpu');
+    return;
+  }
+  statusEl.textContent = `Ready to download ${ondeviceLLM.MODEL_LABEL}. Runs entirely on your device; nothing is uploaded.`;
+
+  downloadBtn.addEventListener('click', async () => {
+    downloadBtn.disabled = true;
+    progressWrap.style.display = '';
+    statusEl.setAttribute('data-slm-state', 'loading');
+    try {
+      await ondeviceLLM.loadModel(({ progress, text }) => {
+        progressBar.style.width = `${Math.round((progress || 0) * 100)}%`;
+        statusEl.textContent = text || `Downloading model… ${Math.round((progress || 0) * 100)}%`;
+      });
+      progressWrap.style.display = 'none';
+      statusEl.textContent = 'Model loaded — running fully offline on your device.';
+      statusEl.setAttribute('data-slm-state', 'ready');
+      downloadBtn.style.display = 'none';
+      synthBtn.style.display = '';
+    } catch (err) {
+      progressWrap.style.display = 'none';
+      downloadBtn.disabled = false;
+      statusEl.setAttribute('data-slm-state', err.code === 'NO_WEBGPU' ? 'no-webgpu' : 'error');
+      statusEl.textContent = err.message || 'Model failed to load.';
+    }
+  });
+
+  synthBtn.addEventListener('click', async () => {
+    const results = window.__dataglowLastValidation;
+    if (!results) { toast('Run the validation suite first', 'error'); return; }
+    synthBtn.disabled = true;
+    const original = synthBtn.textContent;
+    synthBtn.textContent = 'Synthesizing…';
+    outputEl.style.display = '';
+    outputEl.textContent = '';
+    try {
+      const context = {
+        ledgerEntries: ledger.getLedgerEntries(),
+        layerResults: results,
+        physicsOutput: window.__dataglowPhysicsOutput || null,
+      };
+      await ondeviceLLM.synthesizeFindings(context, (partial) => {
+        outputEl.textContent = partial;
+      });
+    } catch (err) {
+      outputEl.textContent = 'Synthesis failed: ' + (err.message || err);
+    } finally {
+      synthBtn.disabled = false;
+      synthBtn.textContent = original;
+    }
   });
 }
 
@@ -1067,6 +1230,248 @@ function renderDiffResults(out, { keyCol, rowDiff, distDiff, flips }) {
         `${def ? def.name : f.layer}: ${f.from.toUpperCase()} → ${f.to.toUpperCase()}`));
     });
   }
+}
+
+// ============================================================
+// Feature 6 — Synthetic Adversarial Twin (DP synthetic dataset)
+// ============================================================
+function initSyntheticTwin() {
+  const slider = $('#twin-epsilon-slider');
+  const genBtn = $('#btn-twin-generate');
+  const dlBtn = $('#btn-twin-download');
+  if (!slider || !genBtn) return;
+  let lastTwin = null;
+
+  const refreshNote = () => {
+    const eps = parseFloat(slider.value);
+    $('#twin-epsilon-value').textContent = eps;
+    $('#twin-epsilon-note').textContent = syntheticTwin.epsilonExplanation(eps);
+  };
+  slider.addEventListener('input', refreshNote);
+  refreshNote();
+
+  genBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    const out = $('#twin-results');
+    out.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md);"></div>';
+    try {
+      const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const twin = syntheticTwin.generateSyntheticTwin({ columns: ds.cols, rows, epsilon: parseFloat(slider.value) });
+      lastTwin = twin;
+      dlBtn.disabled = false;
+      const disc = $('#twin-disclaimer');
+      disc.style.display = 'block';
+      disc.textContent = twin.disclaimer;
+      out.innerHTML = '';
+      out.appendChild(el('div', { style: 'font-size:var(--text-sm); margin-bottom:var(--space-2);', 'data-testid': 'twin-summary' },
+        `Generated ${twin.rows.length} synthetic rows (ε=${twin.epsilon}, ${twin.mechanism}).`));
+      twin.comparison.forEach(c => {
+        let line;
+        if (c.type === 'numeric') {
+          line = `${c.column} (numeric): real mean ${c.real.mean} / synth ${c.synthetic.mean} · real std ${c.real.std} / synth ${c.synthetic.std}`;
+        } else {
+          const rt = c.real.top[0] ? c.real.top[0].value : '—';
+          const st = c.synthetic.top[0] ? c.synthetic.top[0].value : '—';
+          line = `${c.column} (categorical): real top "${rt}" / synth top "${st}"`;
+        }
+        out.appendChild(el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); padding:2px 0;', 'data-testid': `twin-cmp-${c.column}` }, line));
+      });
+      toast('Synthetic twin generated', 'success');
+    } catch (err) {
+      out.innerHTML = '';
+      toast('Twin generation failed: ' + err.message, 'error');
+    }
+  });
+
+  dlBtn.addEventListener('click', () => {
+    if (!lastTwin) return;
+    const ds = getActiveDataset();
+    downloadText(`dataglow-synthetic-${ds ? ds.table : 'twin'}.csv`, syntheticTwin.toCSV(lastTwin.columns, lastTwin.rows), 'text/csv');
+    toast('Synthetic CSV downloaded', 'success');
+  });
+}
+
+// ============================================================
+// Feature 7 — Data Time Machine (explicit snapshot ledger)
+// ============================================================
+function initTimeMachine() {
+  const saveBtn = $('#btn-tm-save');
+  const exportBtn = $('#btn-tm-export');
+  if (!saveBtn) return;
+
+  const render = async () => {
+    const ds = getActiveDataset();
+    const listEl = $('#tm-list');
+    if (!ds) { listEl.innerHTML = '<span style="color:var(--color-text-faint);">Load a dataset to save snapshots.</span>'; return; }
+    let snaps = [];
+    try { snaps = await timeMachine.listSnapshots(ds.name || ds.table); } catch { /* IndexedDB unavailable */ }
+    if (!snaps.length) { listEl.innerHTML = '<span style="color:var(--color-text-faint);">No snapshots yet for this dataset.</span>'; return; }
+    listEl.innerHTML = '';
+    snaps.forEach(s => {
+      const row = el('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider);', 'data-testid': `tm-snap-${s.hash}` }, [
+        el('div', {}, [
+          el('div', { style: 'font-size:var(--text-sm);' }, `${new Date(s.timestamp).toLocaleString()} — ${s.rowCount} rows`),
+          el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-faint);' }, `${s.hash} · ${s.diffSummary.text}`),
+        ]),
+        el('button', { class: 'btn btn-secondary', 'data-testid': `tm-load-${s.hash}`, onclick: () => loadSnapshot(s) }, 'Load into Diff'),
+      ]);
+      listEl.appendChild(row);
+    });
+  };
+
+  const loadSnapshot = async (snap) => {
+    if (!snap.rows) { toast('This snapshot did not embed its rows and cannot be reloaded.', 'error'); return; }
+    const base = getActiveDataset();
+    if (!base) return;
+    const out = $('#diff-results');
+    out.innerHTML = '<div class="skeleton" style="height:120px; border-radius:var(--radius-md);"></div>';
+    try {
+      const snapTable = `tm_snap_${snap.hash}`.slice(0, 60);
+      await engine.createTableFromRows(snapTable, snap.columns, snap.rows);
+      const aRes = await engine.runQuery(`SELECT * FROM ${base.table}`);
+      const shared = base.cols.map(c => c.name).filter(n => snap.columns.includes(n));
+      const keyCol = timeTravel.detectKeyColumn(shared, aRes.rows);
+      const rowDiff = keyCol ? timeTravel.diffRows(snap.rows, aRes.rows, keyCol) : null;
+      const sharedCols = base.cols.filter(c => snap.columns.includes(c.name));
+      const distDiff = await timeTravel.diffDistributions(snapTable, base.table, sharedCols);
+      renderDiffResults(out, { keyCol, rowDiff, distDiff, flips: [] });
+      switchTab('diff');
+      toast('Snapshot loaded into Diff view', 'success');
+    } catch (err) {
+      out.innerHTML = '';
+      toast('Could not load snapshot: ' + err.message, 'error');
+    }
+  };
+
+  saveBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    try {
+      const quota = await timeMachine.checkStorageQuota();
+      const noteEl = $('#tm-quota-note');
+      if (quota.supported && quota.nearLimit) {
+        noteEl.textContent = `Browser storage is ${(quota.ratio * 100).toFixed(0)}% full — export and prune older snapshots to an archive file to avoid losing data.`;
+      } else {
+        noteEl.textContent = '';
+      }
+      const { columns, rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const previous = await timeMachine.latestSnapshot(ds.name || ds.table);
+      const snap = timeMachine.buildSnapshot({ datasetName: ds.name || ds.table, columns, rows, previous });
+      await timeMachine.saveSnapshot(snap);
+      await render();
+      toast('Snapshot saved', 'success');
+    } catch (err) {
+      toast('Could not save snapshot: ' + err.message, 'error');
+    }
+  });
+
+  if (exportBtn) exportBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    try {
+      const snaps = await timeMachine.listSnapshots(ds.name || ds.table);
+      if (!snaps.length) { toast('No snapshots to export', 'error'); return; }
+      downloadText(`dataglow-timemachine-${ds.table}.json`, timeMachine.exportArchive(snaps), 'application/json');
+      toast('Snapshot archive exported', 'success');
+    } catch (err) {
+      toast('Export failed: ' + err.message, 'error');
+    }
+  });
+
+  render();
+}
+
+// ============================================================
+// Feature 8 — Federated Fingerprinting (Experimental)
+// ============================================================
+function initFederatedFingerprint() {
+  const exportBtn = $('#btn-fp-export');
+  const fileA = $('#fp-file-a');
+  const fileB = $('#fp-file-b');
+  const compareBtn = $('#btn-fp-compare');
+  if (!exportBtn) return;
+  $('#fp-disclaimer').textContent = fingerprint.FINGERPRINT_DISCLAIMER;
+  let fpA = null, fpB = null;
+
+  exportBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    try {
+      const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const fp = fingerprint.buildFingerprint({ datasetName: ds.name || ds.table, columns: ds.cols, rows });
+      downloadText(`dataglow-fingerprint-${ds.table}.json`, JSON.stringify(fp, null, 2), 'application/json');
+      toast('Fingerprint exported', 'success');
+    } catch (err) {
+      toast('Fingerprint export failed: ' + err.message, 'error');
+    }
+  });
+
+  const readFp = (file, which) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const fp = fingerprint.parseFingerprint(reader.result);
+        if (which === 'a') fpA = fp; else fpB = fp;
+        $('#fp-loaded-note').textContent = `${fpA ? 'A: ' + fpA.datasetName : 'A: —'} · ${fpB ? 'B: ' + fpB.datasetName : 'B: —'}`;
+        compareBtn.disabled = !(fpA && fpB);
+      } catch (err) {
+        toast('Not a valid fingerprint file: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+  fileA.addEventListener('change', e => { if (e.target.files[0]) readFp(e.target.files[0], 'a'); e.target.value = ''; });
+  fileB.addEventListener('change', e => { if (e.target.files[0]) readFp(e.target.files[0], 'b'); e.target.value = ''; });
+
+  compareBtn.addEventListener('click', () => {
+    if (!fpA || !fpB) return;
+    const out = $('#fp-results');
+    out.innerHTML = '';
+    try {
+      const cmp = fingerprint.compareFingerprints(fpA, fpB);
+      out.appendChild(el('div', { style: 'font-size:var(--text-sm); margin-bottom:var(--space-2);', 'data-testid': 'fp-compare-summary' },
+        `${cmp.summary.meaningfullyDifferent} of ${cmp.summary.sharedColumns} shared column(s) differ meaningfully (JSD > ${cmp.threshold}).`));
+      cmp.columns.forEach(c => {
+        const color = c.meaningful ? 'var(--color-grade-c)' : 'var(--color-text-muted)';
+        const jsdTxt = c.jsd != null ? `JSD ${c.jsd}` : (c.note || '—');
+        out.appendChild(el('div', { style: `font-size:var(--text-xs); color:${color}; padding:2px 0;`, 'data-testid': `fp-col-${c.column}` },
+          `${c.column} [${c.present}]: ${jsdTxt}${c.meaningful ? ' — meaningfully different' : ''}`));
+      });
+    } catch (err) {
+      toast('Comparison failed: ' + err.message, 'error');
+    }
+  });
+}
+
+// ============================================================
+// Feature 9 — IRB / Regulatory Language Auto-Translation Mode
+// ============================================================
+function initIRBMode() {
+  const btn = $('#btn-export-irb');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    const results = window.__dataglowLastValidation;
+    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return; }
+    try {
+      const chain = provenance.getProvenance(ds.table);
+      const provenanceTrail = chain ? chain.getTrail() : [];
+      const provenanceVerification = chain && chain.length ? await chain.verify() : null;
+      const model = irbMode.buildIRBDocument({
+        datasetName: ds.name || ds.table,
+        results,
+        ledgerEntries: ledger.getLedgerEntries(),
+        provenanceTrail,
+        provenanceVerification,
+        storyText: state.lastStory || null,
+      });
+      downloadText(`dataglow-irb-${ds.table}.html`, irbMode.renderIRBHTML(model), 'text/html');
+      toast('IRB / compliance document exported', 'success');
+    } catch (err) {
+      toast('IRB export failed: ' + err.message, 'error');
+    }
+  });
 }
 
 // Top 5 Problems — a scannable pre-analysis checklist (checklist methodology
@@ -1858,12 +2263,23 @@ function init() {
   initReceipts();
   initPeerReview();
   initTimeTravelDiff();
+  initSyntheticTwin();
+  initTimeMachine();
+  initFederatedFingerprint();
+  initIRBMode();
+  initAISynthesis();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
   $('#btn-validate-run').addEventListener('click', runValidation);
 
   renderSidebar();
+
+  // Signal that the synchronous app init (DOM wiring, tabs, feature panels) is
+  // done — independent of the async DuckDB-WASM warm-up below. The ambient
+  // validation and SLM-degradation e2e paths key off this since they don't need
+  // the SQL engine to be live.
+  window.__dataglowInit = true;
 
   // Pre-warm the query engine in the background so it's live as soon as a
   // dataset is loaded. Sets window.__dataglowReady once the engine responds

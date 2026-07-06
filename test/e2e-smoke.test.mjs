@@ -183,6 +183,42 @@ async function main() {
       failed = true;
       console.log('✗ FAILED: Export Attestation button missing');
     }
+
+    // ---- Gen 9 Batch 3 feature smoke checks ----
+    const expectDownload = async (label, doTrigger) => {
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 15000 }),
+        doTrigger(),
+      ]);
+      const name = download.suggestedFilename();
+      console.log(`✓ ${label} → download "${name}"`);
+      return name;
+    };
+
+    // Feature 9 — IRB / Compliance export (validation already ran). Downloads HTML.
+    await expectDownload('IRB export', () => page.click('[data-testid="button-export-irb"]'));
+
+    // Feature 8 — Federated Fingerprint export. Downloads JSON.
+    await page.click('[data-testid="tab-diff"]');
+    await expectDownload('Fingerprint export', () => page.click('[data-testid="button-fp-export"]'));
+
+    // Feature 7 — Data Time Machine: save a snapshot and confirm it lists.
+    await page.click('[data-testid="button-tm-save"]');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tm-list [data-testid^="tm-snap-"]').length > 0,
+      { timeout: 15000, polling: 500 }
+    );
+    console.log('✓ Time Machine snapshot saved and listed');
+
+    // Feature 6 — Synthetic Adversarial Twin: open Red Team modal, generate.
+    await page.click('#btn-red-team');
+    await page.click('[data-testid="button-twin-generate"]');
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="twin-summary"]') &&
+            getComputedStyle(document.querySelector('[data-testid="twin-disclaimer"]')).display !== 'none',
+      { timeout: 20000, polling: 500 }
+    );
+    console.log('✓ Synthetic Twin generated with disclaimer shown');
   } catch (err) {
     failed = true;
     console.log('\n✗ FAILED: ' + (err && err.message ? err.message : err));
