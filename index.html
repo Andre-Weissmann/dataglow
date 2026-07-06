@@ -6,7 +6,7 @@
 <title>DATAGLOW — Your data, glowing.</title>
 <meta name="description" content="A universal, browser-based, all-in-one data analytics platform. SQL, Python, R, cleaning, validation, and storytelling — zero server, zero uploads.">
 <meta property="og:title" content="DATAGLOW — Your data, glowing.">
-<meta property="og:description" content="A universal, browser-based data analytics platform with 15 validation layers, built for healthcare and beyond.">
+<meta property="og:description" content="A universal, browser-based data analytics platform with 18 validation layers, built for healthcare and beyond.">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -209,9 +209,9 @@
       <div class="panel-header">
         <div>
           <div class="panel-title">Validate</div>
-          <div class="panel-subtitle">The 15 validation layers — DATAGLOW's heartbeat</div>
+          <div class="panel-subtitle">The 18 validation layers — DATAGLOW's heartbeat</div>
         </div>
-        <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 15 Layers</button>
+        <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 18 Layers</button>
       </div>
 
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
@@ -253,7 +253,7 @@
             </div>
             <div>
               <div style="font-weight:600; font-size:var(--text-lg);" id="confidence-verdict">Not yet run</div>
-              <div style="font-size:var(--text-sm); color:var(--color-text-muted);" id="confidence-detail">Run all 15 layers to generate a confidence score.</div>
+              <div style="font-size:var(--text-sm); color:var(--color-text-muted);" id="confidence-detail">Run all 18 layers to generate a confidence score.</div>
             </div>
           </div>
           <div id="confidence-signals" style="display:flex; gap:var(--space-5); flex-wrap:wrap;"></div>
@@ -263,7 +263,7 @@
       <div id="validate-empty" class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         <h3>No dataset loaded</h3>
-        <p>Load a dataset (or the Golden Test Dataset) to run all 14 validation layers.</p>
+        <p>Load a dataset (or the Golden Test Dataset) to run all 18 validation layers.</p>
       </div>
       <div class="validation-grid" id="validation-grid" style="display:none;"></div>
 
@@ -287,6 +287,26 @@
             Points outside the upper/lower control limits (UCL/LCL) signal a process out of statistical control.
           </p>
           <div id="spc-list"></div>
+        </div>
+      </div>
+
+      <div id="assumption-ledger-wrap" style="display:none; margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <div class="sidebar-heading">Assumption Ledger</div>
+            <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+              <button class="btn btn-secondary" id="btn-ledger-copy" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-ledger-copy">Copy</button>
+              <button class="btn btn-secondary" id="btn-ledger-export-txt" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-ledger-txt">Export .txt</button>
+              <button class="btn btn-secondary" id="btn-ledger-export-md" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-ledger-md">Export .md</button>
+              <button class="btn btn-secondary" id="btn-ledger-export-json" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-ledger-json">Export .json</button>
+              <button class="btn btn-secondary" id="btn-ledger-clear" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-ledger-clear">Clear</button>
+            </div>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Every judgment call DATAGLOW makes while cleaning and validating — automated merges, skipped tests,
+            gating decisions — is logged here, in plain language, so nothing is assumed silently on your behalf.
+          </p>
+          <div id="assumption-ledger-list" style="font-family:var(--font-mono, monospace); font-size:var(--text-xs); max-height:320px; overflow-y:auto;"></div>
         </div>
       </div>
     </section>
@@ -494,7 +514,7 @@
       </button>
     </div>
     <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-4);">
-      Loads a built-in, intentionally broken golden dataset and runs all 13 validation layers against it. Every layer must catch its target issue — that's how you know the validation system is real, not decorative.
+      Loads a built-in, intentionally broken golden dataset and runs all 18 validation layers against it. Every layer must catch its target issue — that's how you know the validation system is real, not decorative.
     </p>
     <button class="btn btn-primary" id="btn-redteam-run" style="width:100%; justify-content:center; margin-bottom:var(--space-4);" data-testid="button-redteam-run">Run Self-Attack Test</button>
     <div id="redteam-results"></div>

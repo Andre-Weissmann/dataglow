@@ -26,6 +26,7 @@ import * as goldenSignals from './golden-signals.js';
 import * as entityBaseline from './entity-baseline.js';
 import * as privacyBudget from './privacy-budget.js';
 import * as memoryStore from './memory-store.js';
+import * as ledger from './assumption-ledger.js';
 import * as pyRuntime from './python-runtime.js';
 import * as rRuntime from './r-runtime.js';
 import * as swiftPreview from './swift-preview.js';
@@ -447,6 +448,7 @@ async function scanClean() {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         await clean.applyFix(ds.table, issue, fixType, auditLog);
+        ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`);
         renderAuditLog(auditLog);
         toast(`Applied: ${clean.FIX_LABELS[fixType]}`, 'success');
         card.style.opacity = '0.4';
@@ -576,6 +578,7 @@ async function renderFuzzyDedup(ds, auditLog) {
         const to = String(pair.valueA).replace(/'/g, "''");
         await engine.runQuery(`UPDATE ${ds.table} SET ${col} = '${to}' WHERE ${col} = '${from}'`);
         auditLog.push(`[${new Date().toLocaleTimeString()}] Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
+        ledger.logAssumption('Fuzzy Duplicate Radar', `Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
         renderAuditLog(auditLog);
         // Record as a manual correction; may trigger a reusable-rule suggestion.
         ruleSuggestions.recordCorrection(pair.valueB, pair.valueA, pair.column);
@@ -685,7 +688,7 @@ function renderAuditLog(auditLog) {
 }
 
 // ============================================================
-// Validate Tab (15 layers)
+// Validate Tab (18 layers)
 // ============================================================
 function statusIcon(status) {
   const icons = { pass: '✓', fail: '✕', warn: '!', idle: '—' };
@@ -708,6 +711,50 @@ async function runValidation() {
   await renderMultivariate(ds);
   await renderSPC(ds);
   await persistColumnProfiles(ds, results);
+  renderAssumptionLedger();
+}
+
+// The Assumption Ledger — a running, exportable log of every judgment call.
+function renderAssumptionLedger() {
+  const wrap = $('#assumption-ledger-wrap');
+  const list = $('#assumption-ledger-list');
+  const entries = ledger.getLedgerEntries();
+  wrap.style.display = '';
+  if (!entries.length) {
+    list.innerHTML = '<span style="color:var(--color-text-faint);">No assumptions recorded yet — run validation or apply a cleaning fix.</span>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const e of entries) {
+    const time = new Date(e.ts).toLocaleTimeString();
+    list.appendChild(el('div', { style: 'padding:4px 0; border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: 'color:var(--color-text-faint);' }, `[${time}] `),
+      el('span', { style: 'font-weight:600; color:var(--color-text-muted);' }, `${e.source}: `),
+      el('span', {}, e.action),
+    ]));
+  }
+  list.scrollTop = list.scrollHeight;
+}
+
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function initLedger() {
+  $('#btn-ledger-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(ledger.exportLedger('text')); toast('Ledger copied', 'success'); }
+    catch (e) { toast('Copy failed: ' + e.message, 'error'); }
+  });
+  $('#btn-ledger-export-txt').addEventListener('click', () => downloadText('dataglow-assumption-ledger.txt', ledger.exportLedger('text'), 'text/plain'));
+  $('#btn-ledger-export-md').addEventListener('click', () => downloadText('dataglow-assumption-ledger.md', ledger.exportLedger('markdown'), 'text/markdown'));
+  $('#btn-ledger-export-json').addEventListener('click', () => downloadText('dataglow-assumption-ledger.json', ledger.exportLedger('json'), 'application/json'));
+  $('#btn-ledger-clear').addEventListener('click', () => { ledger.clearLedger(); renderAssumptionLedger(); toast('Ledger cleared', 'success'); });
 }
 
 // Top 5 Problems — a scannable pre-analysis checklist (checklist methodology
@@ -1032,6 +1079,38 @@ function renderValidationResults(results) {
       r.detail.slice(0, 5).forEach(d => detailList.appendChild(el('li', {}, d)));
       card.appendChild(detailList);
     }
+    // Categorical Consistency Engine: offer a one-click canonical merge per
+    // cluster, reusing the same UPDATE mechanism as the Clean tab's fuzzy dedup.
+    if (layer.id === 'categorical_consistency' && Array.isArray(r.clusters) && r.clusters.length) {
+      const ds = getActiveDataset();
+      for (const cl of r.clusters.slice(0, 10)) {
+        const clRow = el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': `cat-cluster-${layer.id}-${cl.column}` }, [
+          el('span', { class: 'mono', style: 'font-size:var(--text-xs);' }, `${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}"`),
+        ]);
+        const mergeBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:5px 10px; margin-left:auto;', 'data-testid': `button-cat-merge-${cl.column}` }, 'Apply Merge');
+        mergeBtn.addEventListener('click', async () => {
+          mergeBtn.disabled = true;
+          try {
+            const col = `"${cl.column}"`;
+            const to = String(cl.canonical).replace(/'/g, "''");
+            for (const m of cl.merges) {
+              const from = String(m.from).replace(/'/g, "''");
+              await engine.runQuery(`UPDATE ${ds.table} SET ${col} = '${to}' WHERE ${col} = '${from}'`);
+            }
+            ledger.logAssumption('Categorical Consistency Engine',
+              `Applied merge: ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${cl.column}".`);
+            renderAssumptionLedger();
+            clRow.style.opacity = '0.4'; clRow.style.pointerEvents = 'none';
+            toast(`Merged into "${cl.canonical}"`, 'success');
+          } catch (e) {
+            mergeBtn.disabled = false;
+            toast('Merge failed: ' + e.message, 'error');
+          }
+        });
+        clRow.appendChild(mergeBtn);
+        card.appendChild(clRow);
+      }
+    }
     grid.appendChild(card);
   }
 }
@@ -1304,6 +1383,7 @@ function init() {
   initRedTeam();
   initMemory();
   initAnonExport();
+  initLedger();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
