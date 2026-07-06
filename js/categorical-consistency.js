@@ -18,10 +18,20 @@ const MAX_DISTINCT = 500; // clustering is O(n^2) on distinct values; cap for sa
 // are the same thing — they are distinct categories that materially affect
 // equity and reimbursement analysis. Auto-merging them would corrupt real
 // analysis, so merges are disabled on any column whose name matches.
-const SENSITIVE_CATEGORY_NAME = /(race|ethnic|insurance|payer|payor|gender|religion|marital)/i;
+const SENSITIVE_CATEGORY_NAME = /(race|ethnic|insurance|payer|payor|gender|\bsex\b|religion|marital)/i;
 
 export function isSensitiveCategory(columnName) {
   return SENSITIVE_CATEGORY_NAME.test(String(columnName ?? ''));
+}
+
+// Render a cluster's one-line finding string. Shared by the Categorical
+// Consistency Engine (validation.js) and the Domain Physics Engine so that
+// flipping a cluster to "sensitive" produces the identical text either place.
+export function describeCluster(cl) {
+  const variantList = cl.variants.map(v => `"${v.value}" (${v.count})`).join(', ');
+  return cl.sensitive
+    ? `"${cl.column}" (sensitive category — merges disabled): ${variantList}`
+    : `"${cl.column}": ${variantList} → canonical "${cl.canonical}"`;
 }
 
 // A small, hand-maintained lookup of common ISO-3166 country and US state

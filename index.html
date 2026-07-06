@@ -213,7 +213,9 @@
           <div class="panel-title">Validate</div>
           <div class="panel-subtitle">The 18 validation layers — DATAGLOW's heartbeat</div>
         </div>
-        <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+        <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
+          <label for="domain-pack-select" style="font-size:var(--text-sm); color:var(--color-text-muted);" title="A swappable domain pack reinterprets the 18 layers' raw output in context (e.g. de-identification date-shifting, protected-category merge guards). It never re-runs a layer; 'None' shows the raw, domain-agnostic output.">Domain pack:</label>
+          <select id="domain-pack-select" class="input" style="width:auto; padding:6px 10px;" data-testid="select-domain-pack"></select>
           <button class="btn btn-secondary" id="btn-export-receipt" data-testid="button-export-receipt" title="Package the confidence grade, all 18 layer results, key assumptions, and the story into one shareable HTML file.">Export Validation Receipt</button>
           <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 18 Layers</button>
         </div>
@@ -229,6 +231,7 @@
       <div id="data-health-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-3);">Data Health Dashboard</div>
+          <div id="calibrated-grades" style="display:none; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
           <div id="cat-scorecard" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
           <div id="golden-signals" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
           <div style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;">
@@ -322,6 +325,8 @@
             <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
               <button class="btn btn-secondary" id="btn-provenance-verify" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-provenance-verify">Verify Chain</button>
               <button class="btn btn-secondary" id="btn-provenance-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-provenance-export">Export .json</button>
+              <button class="btn btn-secondary" id="btn-attestation-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-attestation-export" title="Export a self-describing attestation (full hash chain, dataset metadata, SHA-256 digest ready for third-party notarization).">Export Attestation</button>
+              <button class="btn btn-secondary" id="btn-attestation-html" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-attestation-html" title="Export a printable, PDF-friendly HTML attestation certificate.">Attestation HTML</button>
             </div>
           </div>
           <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
