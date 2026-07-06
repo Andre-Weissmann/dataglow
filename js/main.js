@@ -2,7 +2,7 @@
 // DATAGLOW — Main Application Controller
 // ============================================================
 
-import { state, getActiveDataset } from './state.js';
+import { state, getActiveDataset, addDataset } from './state.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
@@ -27,6 +27,9 @@ import * as entityBaseline from './entity-baseline.js';
 import * as privacyBudget from './privacy-budget.js';
 import * as memoryStore from './memory-store.js';
 import * as ledger from './assumption-ledger.js';
+import * as provenance from './provenance.js';
+import * as devilsAdvocate from './devils-advocate.js';
+import * as syntheticAdversarial from './synthetic-adversarial.js';
 import * as pyRuntime from './python-runtime.js';
 import * as rRuntime from './r-runtime.js';
 import * as swiftPreview from './swift-preview.js';
@@ -449,6 +452,7 @@ async function scanClean() {
         btn.disabled = true;
         await clean.applyFix(ds.table, issue, fixType, auditLog);
         ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`);
+        await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`, { fixType, column: issue.column });
         renderAuditLog(auditLog);
         toast(`Applied: ${clean.FIX_LABELS[fixType]}`, 'success');
         card.style.opacity = '0.4';
@@ -579,6 +583,7 @@ async function renderFuzzyDedup(ds, auditLog) {
         await engine.runQuery(`UPDATE ${ds.table} SET ${col} = '${to}' WHERE ${col} = '${from}'`);
         auditLog.push(`[${new Date().toLocaleTimeString()}] Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
         ledger.logAssumption('Fuzzy Duplicate Radar', `Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
+        await provenance.recordStep(ds.table, 'merge', `Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`, { column: pair.column });
         renderAuditLog(auditLog);
         // Record as a manual correction; may trigger a reusable-rule suggestion.
         ruleSuggestions.recordCorrection(pair.valueB, pair.valueA, pair.column);
@@ -712,6 +717,7 @@ async function runValidation() {
   await renderSPC(ds);
   await persistColumnProfiles(ds, results);
   renderAssumptionLedger();
+  renderProvenanceTrail();
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.
@@ -755,6 +761,82 @@ function initLedger() {
   $('#btn-ledger-export-md').addEventListener('click', () => downloadText('dataglow-assumption-ledger.md', ledger.exportLedger('markdown'), 'text/markdown'));
   $('#btn-ledger-export-json').addEventListener('click', () => downloadText('dataglow-assumption-ledger.json', ledger.exportLedger('json'), 'application/json'));
   $('#btn-ledger-clear').addEventListener('click', () => { ledger.clearLedger(); renderAssumptionLedger(); toast('Ledger cleared', 'success'); });
+}
+
+// Data Provenance Trail — the tamper-evident cryptographic sibling of the
+// Assumption Ledger. Renders the hash-chained transformation timeline for the
+// active dataset and lets the analyst verify + export it for audit.
+function renderProvenanceTrail() {
+  const wrap = $('#provenance-wrap');
+  const list = $('#provenance-list');
+  if (!wrap || !list) return;
+  const ds = getActiveDataset();
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  wrap.style.display = '';
+  const trail = chain ? chain.getTrail() : [];
+  if (!trail.length) {
+    list.innerHTML = '<span style="color:var(--color-text-faint);">No provenance recorded yet — load a dataset to anchor the chain of custody.</span>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const e of trail) {
+    list.appendChild(el('div', { style: 'padding:5px 0; border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: 'color:var(--color-text-faint);' }, `#${e.index} `),
+      el('span', { style: 'font-weight:600; color:var(--color-text-muted);' }, `${e.op}: `),
+      el('span', {}, e.description),
+      el('div', { class: 'mono', style: 'font-size:0.9em; color:var(--color-text-faint);' }, `hash ${e.hash.slice(0, 16)}… ← parent ${e.parentHash.slice(0, 16)}…`),
+    ]));
+  }
+}
+
+function initProvenance() {
+  $('#btn-provenance-verify').addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    const chain = ds ? provenance.getProvenance(ds.table) : null;
+    const statusEl = $('#provenance-verify-status');
+    if (!chain || !chain.length) { statusEl.textContent = 'Nothing to verify yet.'; statusEl.style.color = 'var(--color-text-faint)'; return; }
+    const res = await chain.verify();
+    statusEl.textContent = res.reason;
+    statusEl.style.color = res.valid ? 'var(--color-grade-a)' : 'var(--color-grade-d)';
+    toast(res.valid ? 'Provenance chain intact' : 'Provenance chain broken', res.valid ? 'success' : 'error');
+  });
+  $('#btn-provenance-export').addEventListener('click', () => {
+    const ds = getActiveDataset();
+    const chain = ds ? provenance.getProvenance(ds.table) : null;
+    if (!chain || !chain.length) { toast('No provenance to export', 'error'); return; }
+    downloadText(`dataglow-provenance-${ds.table}.json`, chain.exportTrail('json'), 'application/json');
+  });
+}
+
+// Devil's Advocate Mode — stress-tests the current SQL result and renders a
+// robust/sensitive verdict. Logs the attack into the Assumption Ledger.
+function initDevilsAdvocate() {
+  const btn = $('#btn-attack-analysis');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const out = $('#attack-results');
+    if (!state.lastQueryResult || !state.lastQueryResult.rows.length) {
+      out.innerHTML = '';
+      toast('Run a SQL query with results first', 'error');
+      return;
+    }
+    const report = devilsAdvocate.attackAnalysis(state.lastQueryResult);
+    out.innerHTML = '';
+    const color = report.robust ? 'var(--color-grade-a)' : 'var(--color-grade-d)';
+    out.appendChild(el('div', { class: 'card', style: `padding:var(--space-4); margin-top:var(--space-3); border-color:${color};`, 'data-testid': 'attack-verdict' }, [
+      el('div', { style: `font-weight:600; color:${color}; margin-bottom:var(--space-2);` }, report.verdict),
+      report.headline ? el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' },
+        `Headline tested: mean of "${report.headline.column}" = ${report.headline.value.toFixed(2)} (n=${report.headline.n}).`) : null,
+      ...report.checks.map(c => el('div', { style: 'display:flex; gap:var(--space-2); align-items:flex-start; padding:var(--space-2) 0; border-top:1px solid var(--color-divider); font-size:var(--text-sm);' }, [
+        el('span', { class: `status-dot ${c.robust ? 'pass' : 'fail'}`, style: 'margin-top:4px; flex:none;' }),
+        el('div', {}, [
+          el('div', { style: 'font-weight:600;' }, c.name),
+          el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, c.detail),
+        ]),
+      ])),
+    ]));
+    renderAssumptionLedger();
+  });
 }
 
 // Top 5 Problems — a scannable pre-analysis checklist (checklist methodology
@@ -875,6 +957,20 @@ async function renderEntityBaselines(ds) {
 }
 
 // Multivariate Outliers: diagonal-Mahalanobis (ondevice-ml) + Isolation Forest.
+// Pick a low-cardinality categorical column to serve as the peer group for the
+// Anomaly Explainer. Returns null when no suitable grouping exists.
+async function pickPeerGroupColumn(ds) {
+  const cats = ds.cols.filter(c => !['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
+  for (const c of cats) {
+    try {
+      const { rows } = await engine.runQuery(`SELECT COUNT(DISTINCT "${c.name}") AS d FROM ${ds.table}`);
+      const d = Number(rows[0]?.d ?? 0);
+      if (d >= 2 && d <= Math.max(20, ds.rowCount / 5)) return c.name;
+    } catch { /* skip unqueryable column */ }
+  }
+  return null;
+}
+
 async function renderMultivariate(ds) {
   const wrap = $('#multivariate-wrap');
   const list = $('#multivariate-list');
@@ -885,6 +981,11 @@ async function renderMultivariate(ds) {
 
   const maha = await ondeviceML.scoreMultivariateAnomalies(ds.table, numericCols, engine).catch(() => null);
   const iforest = await scoreIsolationForest(ds.table, numericCols, engine).catch(() => null);
+
+  // Peer-group column for the on-device Anomaly Explainer: first low-cardinality
+  // categorical (VARCHAR) column, so contributions read relative to a real peer
+  // set (e.g. Geography) rather than the whole table.
+  const groupColumn = await pickPeerGroupColumn(ds);
 
   const section = (title, cite, res) => {
     const block = el('div', { style: 'margin-bottom:var(--space-4);' });
@@ -899,10 +1000,26 @@ async function renderMultivariate(ds) {
       `${anomalies.length} row(s) flagged as anomalous (top ${Math.min(5, res.rows.length)} shown by score).`));
     res.rows.slice(0, 5).forEach(r => {
       const color = r.isAnomaly ? 'var(--color-grade-d)' : 'var(--color-text-muted)';
-      block.appendChild(el('div', { style: 'font-size:var(--text-xs); padding:3px 0; border-top:1px solid var(--color-divider); display:flex; gap:var(--space-2);' }, [
+      const rowEl = el('div', { style: 'font-size:var(--text-xs); padding:3px 0; border-top:1px solid var(--color-divider); display:flex; gap:var(--space-2); align-items:center;' }, [
         el('span', { style: `font-weight:600; color:${color};` }, `#${r.rowIndex} · ${r.anomalyScore}`),
-        el('span', { class: 'mono', style: 'color:var(--color-text-muted); overflow:hidden; text-overflow:ellipsis;' }, Object.entries(r.values).map(([k, v]) => `${k}=${v}`).join(', ')),
-      ]));
+        el('span', { class: 'mono', style: 'color:var(--color-text-muted); overflow:hidden; text-overflow:ellipsis; flex:1;' }, Object.entries(r.values).map(([k, v]) => `${k}=${v}`).join(', ')),
+      ]);
+      // On-Device Anomaly Explainer (Feature 4): explain WHY this row is flagged.
+      const explainBtn = el('button', { class: 'btn', style: 'font-size:11px; padding:2px 8px; flex:none;', 'data-testid': `explain-anomaly-${r.rowIndex}` }, 'Explain');
+      const reasonEl = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin:2px 0 4px var(--space-3);' });
+      explainBtn.addEventListener('click', async () => {
+        explainBtn.disabled = true;
+        try {
+          const ex = await ondeviceML.explainAnomaly(ds.table, numericCols, r.rowIndex, engine, groupColumn ? { groupColumn } : {});
+          reasonEl.setAttribute('data-testid', `anomaly-reason-${r.rowIndex}`);
+          reasonEl.textContent = ex.reason;
+        } catch (e) {
+          reasonEl.textContent = 'Could not explain: ' + e.message;
+        }
+      });
+      rowEl.appendChild(explainBtn);
+      block.appendChild(rowEl);
+      block.appendChild(reasonEl);
     });
     return block;
   };
@@ -1079,6 +1196,18 @@ function renderValidationResults(results) {
       r.detail.slice(0, 5).forEach(d => detailList.appendChild(el('li', {}, d)));
       card.appendChild(detailList);
     }
+    // Explainable Benford Gate (Feature 6): when the eligibility gate skips a
+    // column, show a plain-language "why" note so the skip teaches rather than
+    // silently passing. Reuses r.skips / r.teaching from the validation layer.
+    if (layer.id === 'benford' && Array.isArray(r.skips) && r.skips.length) {
+      const details = el('details', { style: 'margin-top:var(--space-2); font-size:var(--text-xs);', 'data-testid': 'benford-teaching' });
+      details.appendChild(el('summary', { style: 'cursor:pointer; color:var(--color-text-muted);' }, `Why ${r.skips.length} column(s) were skipped`));
+      if (r.teaching) details.appendChild(el('div', { style: 'color:var(--color-text-muted); margin:var(--space-2) 0;' }, r.teaching));
+      const ul = el('ul', { style: 'color:var(--color-text-muted); padding-left:var(--space-4); margin:0;' });
+      r.skips.slice(0, 8).forEach(s => ul.appendChild(el('li', {}, typeof s === 'string' ? s : `"${s.column}" — ${s.reason}`)));
+      details.appendChild(ul);
+      card.appendChild(details);
+    }
     // Categorical Consistency Engine: offer a one-click canonical merge per
     // cluster, reusing the same UPDATE mechanism as the Clean tab's fuzzy dedup.
     if (layer.id === 'categorical_consistency' && Array.isArray(r.clusters) && r.clusters.length) {
@@ -1099,7 +1228,10 @@ function renderValidationResults(results) {
             }
             ledger.logAssumption('Categorical Consistency Engine',
               `Applied merge: ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${cl.column}".`);
+            await provenance.recordStep(ds.table, 'merge',
+              `Categorical merge: ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${cl.column}".`, { column: cl.column, canonical: cl.canonical });
             renderAssumptionLedger();
+            renderProvenanceTrail();
             clRow.style.opacity = '0.4'; clRow.style.pointerEvents = 'none';
             toast(`Merged into "${cl.canonical}"`, 'success');
           } catch (e) {
@@ -1179,6 +1311,65 @@ function initRedTeam() {
     $('#redteam-modal').classList.remove('open');
     toast(allPassed ? 'Red Team self-test passed' : 'Red Team self-test found a gap', allPassed ? 'success' : 'error');
   });
+
+  // Red Team Mode v2 (Feature 5): synthesize a fresh adversarial dataset that
+  // matches the ACTIVE dataset's schema, load it, run all layers, and report
+  // which seeded issue categories the validation stack caught.
+  const v2Btn = $('#btn-redteam-v2');
+  if (v2Btn) v2Btn.addEventListener('click', async () => {
+    const resultsEl = $('#redteam-results');
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first to model its schema', 'error'); return; }
+    resultsEl.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md);"></div>';
+    await ensureDuckDB();
+    const gen = syntheticAdversarial.generateAdversarialDataset(ds.cols);
+    const tableName = `redteam_v2_${ds.table}`.slice(0, 60);
+    await engine.createTableFromRows(tableName, gen.columns, gen.rows);
+    const synthDs = {
+      name: `${tableName}.synthetic`, table: tableName, rowCount: gen.rows.length,
+      cols: (await engine.getTableSchema(tableName)).map(s => ({ name: s.column_name, type: s.column_type })),
+      loadedAt: Date.now(), isSynthetic: true,
+    };
+    addDataset(synthDs);
+    renderSidebar();
+    const results = await validation.runAllLayers(synthDs, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
+
+    // Map each seeded issue category to the layer(s) expected to catch it.
+    const CATEGORY_LAYERS = {
+      categorical_variants: ['categorical_consistency'],
+      cross_column_dates: ['cross_column_logic'],
+      cross_column_age: ['cross_column_logic'],
+      cross_column_numeric: ['cross_column_logic'],
+      duplicates: ['unit_tests'],
+      nulls: ['unit_tests'],
+      semantic_outlier: ['semantic_drift', 'outlier_detection', 'sanity_anchor', 'unit_tests'],
+      future_date: ['freshness', 'unit_tests'],
+      negative_magnitude: ['outlier_detection', 'unit_tests'],
+    };
+    const seededKeys = Object.keys(gen.seeded || {});
+    const checks = seededKeys.map(cat => {
+      const layers = CATEGORY_LAYERS[cat] || [];
+      const caught = layers.some(lid => results[lid] && (results[lid].status === 'fail' || results[lid].status === 'warn'));
+      return { cat, caught, layers };
+    });
+    const caughtCount = checks.filter(c => c.caught).length;
+
+    resultsEl.innerHTML = '';
+    resultsEl.appendChild(el('div', { class: 'card', style: `padding:var(--space-4); margin-bottom:var(--space-3); border-color:${caughtCount === checks.length ? 'var(--color-grade-a)' : 'var(--color-grade-c)'};`, 'data-testid': 'redteam-v2-verdict' }, [
+      el('div', { style: 'font-weight:600;' }, `Red Team v2 — synthesized ${gen.rows.length} rows matching "${ds.name}" schema; caught ${caughtCount}/${checks.length} seeded issue categories.`),
+    ]));
+    for (const c of checks) {
+      resultsEl.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider); font-size:var(--text-sm);', 'data-testid': `redteam-v2-cat-${c.cat}` }, [
+        el('span', { class: `status-dot ${c.caught ? 'pass' : 'fail'}` }),
+        el('span', {}, c.cat.replace(/_/g, ' ')),
+        el('span', { style: 'margin-left:auto; color:var(--color-text-faint); font-size:var(--text-xs);' }, c.caught ? 'caught it' : 'missed it'),
+      ]));
+    }
+    switchTab('validate');
+    renderValidationResults(results);
+    $('#redteam-modal').classList.remove('open');
+    toast(`Red Team v2 caught ${caughtCount}/${checks.length} categories`, caughtCount === checks.length ? 'success' : 'error');
+  });
 }
 
 // ============================================================
@@ -1256,12 +1447,34 @@ function initStoryTab() {
       }
       const badge = $('#story-model-badge');
       badge.textContent = source === 'local' ? 'Rule-based (offline)' : source === 'local-fallback' ? 'Rule-based (API fallback)' : story.MODEL_PROVIDERS.find(p => p.id === provider)?.name || provider;
+      renderStoryClaims(state.lastQueryResult);
     } catch (err) {
       toast('Story generation failed: ' + err.message, 'error');
     } finally {
       btn.disabled = false; btn.textContent = 'Generate Story';
     }
   });
+}
+
+// Confidence-Aware Narration (Feature 3): render each quantitative claim from
+// the story with its per-claim confidence badge, scored by the Confidence Layer.
+function renderStoryClaims(queryResult) {
+  const wrap = $('#story-claims');
+  if (!wrap) return;
+  const claims = story.buildStoryClaims(queryResult);
+  wrap.innerHTML = '';
+  if (!claims.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const gradeClass = { A: 'badge-a', B: 'badge-b', C: 'badge-c', D: 'badge-d' };
+  wrap.appendChild(el('div', { style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:var(--space-2);' }, 'Claim-level confidence'));
+  for (const c of claims) {
+    const conf = c.confidence;
+    const pctMissing = (conf.missingRate * 100).toFixed(conf.missingRate ? 1 : 0);
+    wrap.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-top:1px solid var(--color-divider); font-size:var(--text-sm);', 'data-testid': `story-claim-${c.kind}` }, [
+      el('span', { style: 'flex:1;' }, c.text),
+      el('span', { class: `badge ${gradeClass[conf.grade] || ''}`, style: 'flex:none;', 'data-testid': `claim-badge-${c.kind}` }, `${conf.grade} · n=${conf.n} · ${pctMissing}% missing`),
+    ]));
+  }
 }
 
 // ============================================================
@@ -1384,6 +1597,8 @@ function init() {
   initMemory();
   initAnonExport();
   initLedger();
+  initProvenance();
+  initDevilsAdvocate();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
