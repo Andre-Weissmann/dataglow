@@ -12,6 +12,18 @@ import { similarity } from './fuzzy-dedup.js';
 
 const MAX_DISTINCT = 500; // clustering is O(n^2) on distinct values; cap for safety
 
+// Legally/clinically sensitive category families. Textual similarity between
+// values in these columns (e.g. "HISPANIC/LATINO - PUERTO RICAN" vs
+// "HISPANIC/LATINO - CUBAN", or "Medicaid" vs "Medicare") is NOT evidence they
+// are the same thing — they are distinct categories that materially affect
+// equity and reimbursement analysis. Auto-merging them would corrupt real
+// analysis, so merges are disabled on any column whose name matches.
+const SENSITIVE_CATEGORY_NAME = /(race|ethnic|insurance|payer|payor|gender|religion|marital)/i;
+
+export function isSensitiveCategory(columnName) {
+  return SENSITIVE_CATEGORY_NAME.test(String(columnName ?? ''));
+}
+
 // A small, hand-maintained lookup of common ISO-3166 country and US state
 // abbreviations mapped to their canonical long form. This is DATAGLOW's own
 // short table (not a copied library) covering the abbreviations most likely

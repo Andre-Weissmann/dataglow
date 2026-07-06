@@ -6,7 +6,7 @@
 import { state } from './state.js';
 import * as engine from './duckdb-engine.js';
 import { sha256, formatNumber } from './utils.js';
-import { detectColumnClusters } from './categorical-consistency.js';
+import { detectColumnClusters, isSensitiveCategory } from './categorical-consistency.js';
 import { logAssumption } from './assumption-ledger.js';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
@@ -79,6 +79,9 @@ async function runHistoricalDrift(table) {
 // ---------- 3. Unit Test Layer ----------
 async function runUnitTests(table, cols) {
   const tests = [];
+  // Soft warnings: findings that look like a systematic data-preparation
+  // artifact (e.g. de-identification date-shifting) rather than a defect.
+  const softWarnings = [];
   const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
   const dateCols = cols.filter(c => c.type.includes('DATE') || /date|admit|discharge/i.test(c.name));
   // negative values
@@ -89,8 +92,28 @@ async function runUnitTests(table, cols) {
   // future dates
   for (const c of dateCols) {
     try {
-      const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE TRY_CAST("${c.name}" AS DATE) > CURRENT_DATE`);
-      if (rows[0].n > 0) tests.push(`${rows[0].n} future date(s) in "${c.name}"`);
+      const { rows } = await engine.runQuery(`
+        SELECT
+          COUNT(*) FILTER (WHERE TRY_CAST("${c.name}" AS DATE) IS NOT NULL) AS nonnull,
+          COUNT(*) FILTER (WHERE TRY_CAST("${c.name}" AS DATE) > CURRENT_DATE) AS future,
+          COUNT(*) FILTER (WHERE TRY_CAST("${c.name}" AS DATE) > CURRENT_DATE + INTERVAL 20 YEAR) AS farFuture
+        FROM ${table}`);
+      const nonnull = Number(rows[0].nonnull) || 0;
+      const future = Number(rows[0].future) || 0;
+      const farFuture = Number(rows[0].farFuture) || 0;
+      if (future === 0) continue;
+      // Publicly released healthcare datasets (MIMIC-IV, PhysioNet, …) shift
+      // dates far into the future for de-identification. When the vast majority
+      // of a column's non-null dates are decades ahead, that is a systematic
+      // shift, not a data error — downgrade fail → warn rather than tanking the
+      // grade. A small minority of future dates is more likely a real typo, so
+      // it stays a hard failure.
+      const farFutureShare = nonnull > 0 ? farFuture / nonnull : 0;
+      if (farFutureShare > 0.9) {
+        softWarnings.push(`${(farFutureShare * 100).toFixed(0)}% of dates in "${c.name}" are unusually far in the future — this is consistent with de-identification date-shifting (common in datasets like MIMIC-IV/PhysioNet), not necessarily a data error. Review before treating as a defect.`);
+      } else {
+        tests.push(`${future} future date(s) in "${c.name}"`);
+      }
     } catch (e) { /* skip */ }
   }
   // blank/null keys (first column treated as key)
@@ -111,8 +134,13 @@ async function runUnitTests(table, cols) {
     if (rows[0].n > 0) tests.push(`${rows[0].n} null reference(s) in "${c.name}"`);
   }
 
-  if (tests.length === 0) return result('pass', 'All 5 unit tests passed — no negatives, future dates, blank keys, duplicates, or broken references.');
-  return result('fail', `${tests.length} issue(s) found`, tests);
+  if (tests.length === 0 && softWarnings.length === 0) {
+    return result('pass', 'All 5 unit tests passed — no negatives, future dates, blank keys, duplicates, or broken references.');
+  }
+  if (tests.length === 0) {
+    return result('warn', `${softWarnings.length} date column(s) show a pattern consistent with de-identification date-shifting — review, don't assume a defect.`, softWarnings);
+  }
+  return result('fail', `${tests.length} issue(s) found`, [...tests, ...softWarnings]);
 }
 
 // ---------- 4. Confidence Layer ----------
@@ -321,6 +349,43 @@ export async function checkNarrativeConsistency(storyText, queryResult) {
       addNumber(v);
     }
   }
+
+  // DERIVED statistics: the Story tab narrates aggregates computed FROM the
+  // result set (a column's average/min/max, or "X% of rows are the most common
+  // category") — these never appear as raw literal cell values, so without
+  // recomputing them here every correct computed figure would be flagged as a
+  // false mismatch. Mirror the Story Engine's math (see buildStoryClaims /
+  // generateLocalStory in story.js) so the two agree.
+  const rows = queryResult.rows || [];
+  const columns = Array.isArray(queryResult.columns)
+    ? queryResult.columns
+    : (rows.length ? Object.keys(rows[0]) : []);
+  if (rows.length) {
+    for (const c of columns) {
+      const nums = rows.map(r => r[c]).filter(v => typeof v === 'number' && !Number.isNaN(v));
+      if (nums.length) {
+        // Column average, min, max — as stated by the numeric_mean claim.
+        addNumber(nums.reduce((a, b) => a + b, 0) / nums.length);
+        addNumber(Math.min(...nums));
+        addNumber(Math.max(...nums));
+      } else {
+        // Categorical: percentage of rows equal to the modal value, matching
+        // category_share's ((topCount / rows.length) * 100) computation.
+        const counts = {};
+        let nonNull = 0;
+        for (const r of rows) {
+          const v = r[c];
+          if (v != null) { counts[v] = (counts[v] || 0) + 1; nonNull++; }
+        }
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        if (top) {
+          addNumber((top[1] / rows.length) * 100);
+          // Also allow the share expressed against the non-null denominator.
+          if (nonNull) addNumber((top[1] / nonNull) * 100);
+        }
+      }
+    }
+  }
   const mismatches = [];
   for (const n of numbersInText) {
     const clean = n.replace('%', '');
@@ -443,9 +508,16 @@ async function benfordEligibility(table, c) {
   if (BENFORD_BOUNDED_NAME.test(c.name)) {
     return { eligible: false, reason: `"${c.name}" skipped — bounded range, not a naturally-scaled magnitude Benford's Law applies to.` };
   }
+  // Guard LOG10 inside a CASE so it is NEVER evaluated on a value < 1 (e.g. a
+  // literal 0, extremely common in healthcare flag columns). DuckDB may evaluate
+  // the LOG10 argument for every row before applying a FILTER clause, so relying
+  // on FILTER alone throws "cannot take logarithm of zero" and aborts the whole
+  // Benford layer. The CASE returns NULL for excluded rows; COUNT(DISTINCT ...)
+  // ignores NULLs, so the order-of-magnitude count stays correct.
   const { rows } = await engine.runQuery(`
     SELECT COUNT(*) FILTER (WHERE ${col} IS NOT NULL AND ABS(${col}) >= 1) AS n,
-           COUNT(DISTINCT FLOOR(LOG10(ABS(${col})))) FILTER (WHERE ${col} IS NOT NULL AND ABS(${col}) >= 1) AS orders
+           COUNT(DISTINCT CASE WHEN ${col} IS NOT NULL AND ABS(${col}) >= 1
+                               THEN FLOOR(LOG10(ABS(${col}))) END) AS orders
     FROM ${table}`);
   const n = Number(rows[0].n) || 0;
   const orders = Number(rows[0].orders) || 0;
@@ -526,15 +598,29 @@ async function runCategoricalConsistency(table, cols) {
   const clusters = []; // machine-readable, for one-click merge in the UI
   for (const c of catCols) {
     const cols16 = await detectColumnClusters(table, c.name, engine).catch(() => []);
+    const sensitive = isSensitiveCategory(c.name);
     for (const cl of cols16) {
       const variantList = cl.variants.map(v => `"${v.value}" (${v.count})`).join(', ');
-      findings.push(`"${c.name}": ${variantList} → canonical "${cl.canonical}"`);
-      clusters.push({ column: c.name, ...cl });
-      logAssumption(
-        'Categorical Consistency Engine',
-        `Proposed merging ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${c.name}" (canonical = most frequent variant).`,
-        { column: c.name, canonical: cl.canonical, merges: cl.merges }
-      );
+      if (sensitive) {
+        // Show the cluster for human review but never offer an auto-merge —
+        // these values may be legally/clinically distinct even if textually
+        // similar (e.g. Medicaid vs Medicare, distinct ethnicities).
+        findings.push(`"${c.name}" (sensitive category — merges disabled): ${variantList}`);
+        clusters.push({ column: c.name, sensitive: true, ...cl });
+        logAssumption(
+          'Categorical Consistency Engine',
+          `Flagged near-identical values in sensitive column "${c.name}" (${cl.variants.map(v => `"${v.value}"`).join(', ')}) but disabled auto-merge — these may be legally/clinically distinct.`,
+          { column: c.name, sensitive: true, variants: cl.variants }
+        );
+      } else {
+        findings.push(`"${c.name}": ${variantList} → canonical "${cl.canonical}"`);
+        clusters.push({ column: c.name, sensitive: false, ...cl });
+        logAssumption(
+          'Categorical Consistency Engine',
+          `Proposed merging ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${c.name}" (canonical = most frequent variant).`,
+          { column: c.name, canonical: cl.canonical, merges: cl.merges }
+        );
+      }
     }
   }
   if (findings.length === 0) return result('pass', 'No near-duplicate category spellings detected.');

@@ -14,6 +14,43 @@
 // avoids pulling in a large new dependency for now.
 
 const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+// DuckDB temporal type names. Columns of these types are per-event and, after
+// de-identification date-shifting, effectively per-row-unique — never a real
+// "peer group".
+const DATETIME_TYPE = /\b(TIMESTAMP|DATE|TIME)\b/i;
+
+// Pick a low-cardinality, genuinely categorical column to serve as the peer
+// group for the Anomaly Explainer. Returns null when no suitable grouping
+// exists. Rejects:
+//   - numeric and temporal (timestamp/date/time) typed columns,
+//   - columns whose distinct-value count is near-unique relative to the number
+//     of non-null values (e.g. a `deathtime` timestamp that loaded as VARCHAR),
+//     since each such "peer group" would contain ~1 member and produce
+//     nonsensical explanations.
+// Kept engine-injectable (and free of DOM/browser globals) so it is unit-testable.
+export async function pickPeerGroupColumn(table, cols, engine, options = {}) {
+  const maxUniqueRatio = options.maxUniqueRatio ?? 0.5;
+  const cats = cols.filter(c => !NUMERIC_TYPES.includes(c.type) && !DATETIME_TYPE.test(c.type));
+  let rowCount = options.rowCount;
+  if (rowCount == null) {
+    const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table}`);
+    rowCount = Number(rows[0]?.n ?? 0);
+  }
+  const upperBound = Math.max(20, rowCount / 5);
+  for (const c of cats) {
+    try {
+      const { rows } = await engine.runQuery(
+        `SELECT COUNT(DISTINCT "${c.name}") AS d, COUNT("${c.name}") AS nn FROM ${table}`
+      );
+      const d = Number(rows[0]?.d ?? 0);
+      const nn = Number(rows[0]?.nn ?? 0);
+      if (d < 2 || d > upperBound) continue;
+      if (nn > 0 && d / nn > maxUniqueRatio) continue; // near-unique → not a peer group
+      return c.name;
+    } catch { /* skip unqueryable column */ }
+  }
+  return null;
+}
 
 export async function scoreMultivariateAnomalies(table, numericCols, engine) {
   const names = numericCols
