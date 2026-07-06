@@ -1142,20 +1142,6 @@ async function renderEntityBaselines(ds) {
 }
 
 // Multivariate Outliers: diagonal-Mahalanobis (ondevice-ml) + Isolation Forest.
-// Pick a low-cardinality categorical column to serve as the peer group for the
-// Anomaly Explainer. Returns null when no suitable grouping exists.
-async function pickPeerGroupColumn(ds) {
-  const cats = ds.cols.filter(c => !['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
-  for (const c of cats) {
-    try {
-      const { rows } = await engine.runQuery(`SELECT COUNT(DISTINCT "${c.name}") AS d FROM ${ds.table}`);
-      const d = Number(rows[0]?.d ?? 0);
-      if (d >= 2 && d <= Math.max(20, ds.rowCount / 5)) return c.name;
-    } catch { /* skip unqueryable column */ }
-  }
-  return null;
-}
-
 async function renderMultivariate(ds) {
   const wrap = $('#multivariate-wrap');
   const list = $('#multivariate-list');
@@ -1170,7 +1156,7 @@ async function renderMultivariate(ds) {
   // Peer-group column for the on-device Anomaly Explainer: first low-cardinality
   // categorical (VARCHAR) column, so contributions read relative to a real peer
   // set (e.g. Geography) rather than the whole table.
-  const groupColumn = await pickPeerGroupColumn(ds);
+  const groupColumn = await ondeviceML.pickPeerGroupColumn(ds.table, ds.cols, engine, { rowCount: ds.rowCount });
 
   const section = (title, cite, res) => {
     const block = el('div', { style: 'margin-bottom:var(--space-4);' });
@@ -1401,6 +1387,17 @@ function renderValidationResults(results) {
         const clRow = el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': `cat-cluster-${layer.id}-${cl.column}` }, [
           el('span', { class: 'mono', style: 'font-size:var(--text-xs);' }, `${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}"`),
         ]);
+        // Sensitive demographic/payer columns: never offer an auto-merge —
+        // textually similar values may be legally/clinically distinct.
+        if (cl.sensitive) {
+          clRow.appendChild(el('span', {
+            style: 'font-size:var(--text-xs); font-weight:600; padding:3px 8px; border-radius:6px; color:#fff; background:var(--color-grade-c); margin-left:auto;',
+            'data-testid': `cat-sensitive-badge-${cl.column}`,
+            title: 'These values may be legally/clinically distinct even if textually similar.',
+          }, 'Sensitive category — merges disabled'));
+          card.appendChild(clRow);
+          continue;
+        }
         const mergeBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:5px 10px; margin-left:auto;', 'data-testid': `button-cat-merge-${cl.column}` }, 'Apply Merge');
         mergeBtn.addEventListener('click', async () => {
           mergeBtn.disabled = true;

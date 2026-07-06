@@ -23,6 +23,11 @@ export async function loadFile(file) {
   // overwrite each other's data via CREATE OR REPLACE TABLE. Disambiguate up front.
   const tableName = uniqueTableName(sanitizeTableName(file.name));
   const arrayBuffer = await file.arrayBuffer();
+  // Hash the raw bytes NOW, before handing the buffer to the DuckDB engine.
+  // db.registerFileBuffer() transfers/detaches the underlying ArrayBuffer as an
+  // optimization, so any later read (e.g. hashBytes) would throw on a detached
+  // buffer and provenance would silently never be recorded.
+  const rawHash = await hashBytes(arrayBuffer);
 
   try {
     if (['csv', 'tsv'].includes(ext)) {
@@ -58,8 +63,8 @@ export async function loadFile(file) {
       sizeBytes: file.size,
     };
     addDataset(ds);
-    // Anchor the Chain of Custody to the raw bytes the analyst started from.
-    const rawHash = await hashBytes(arrayBuffer);
+    // Anchor the Chain of Custody to the raw bytes the analyst started from
+    // (hashed above, before the engine detached the buffer).
     const chain = startProvenance(tableName);
     await chain.append('load', `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`, { file: file.name, rows: rowCount, sizeBytes: file.size }, rawHash);
     toast(`Loaded ${file.name} — ${rowCount.toLocaleString()} rows`, 'success');
