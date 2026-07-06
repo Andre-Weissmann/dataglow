@@ -27,6 +27,7 @@ export const LAYER_DEFS = [
   { id: 'freshness', name: 'Freshness Meter', desc: 'Timestamps every dataset load; visible staleness badge.' },
   { id: 'blind_spot', name: 'Blind Spot Scanner', desc: 'Prompts about missing data that would change the conclusion.' },
   { id: 'reproducibility', name: 'Reproducibility Badge', desc: 'Runs the same query 10x, confirms identical results.' },
+  { id: 'outlier_detection', name: 'Outlier Detection (MAD + IQR)', desc: 'Flags high AND low outliers via modified z-score and IQR fences — catches large positives, not just negatives.' },
   { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 12 layers against an intentionally broken golden dataset.' },
 ];
 
@@ -337,6 +338,54 @@ async function runReproducibility(table) {
     : result('fail', 'Results varied across identical runs — reproducibility failure.');
 }
 
+// ---------- 13. Outlier Detection (MAD + IQR) ----------
+// MAD-based modified z-score outlier detection, Iglewicz & Hoaglin 1993
+// (threshold |Mi| > 3.5); Tukey's IQR fences, Tukey 1977 (Q1-1.5*IQR, Q3+1.5*IQR).
+async function runOutlierDetection(table, cols) {
+  const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
+  if (numericCols.length === 0) return result('idle', 'No numeric columns to scan for outliers. Skipped.');
+  const findings = [];
+  for (const c of numericCols) {
+    const col = `"${c.name}"`;
+    const { rows } = await engine.runQuery(`
+      SELECT
+        median(${col}) AS med,
+        mad(${col}) AS mad_val,
+        quantile_cont(${col}, 0.25) AS q1,
+        quantile_cont(${col}, 0.75) AS q3
+      FROM ${table} WHERE ${col} IS NOT NULL`);
+    const { med, mad_val, q1, q3 } = rows[0];
+    if (med == null || q1 == null || q3 == null) continue;
+    const iqr = q3 - q1;
+    const lowerFence = q1 - 1.5 * iqr;
+    const upperFence = q3 + 1.5 * iqr;
+    // Modified z-score = 0.6745 * (x - median) / MAD. |Mi| > 3.5 flags an outlier.
+    // When MAD is 0 the modified z-score is undefined, so rely on IQR fences alone.
+    const madClause = (mad_val && mad_val > 0)
+      ? `ABS(0.6745 * (${col} - ${med}) / ${mad_val}) > 3.5`
+      : 'FALSE';
+    const { rows: viol } = await engine.runQuery(`
+      SELECT
+        COUNT(*) FILTER (WHERE ${col} < ${lowerFence}) AS iqr_low,
+        COUNT(*) FILTER (WHERE ${col} > ${upperFence}) AS iqr_high,
+        COUNT(*) FILTER (WHERE ${madClause} AND ${col} < ${med}) AS mad_low,
+        COUNT(*) FILTER (WHERE ${madClause} AND ${col} > ${med}) AS mad_high
+      FROM ${table} WHERE ${col} IS NOT NULL`);
+    const v = viol[0];
+    const total = (v.iqr_low || 0) + (v.iqr_high || 0) + (v.mad_low || 0) + (v.mad_high || 0);
+    if (total > 0) {
+      const parts = [];
+      if (v.mad_high > 0) parts.push(`${v.mad_high} high (MAD z>3.5)`);
+      if (v.mad_low > 0) parts.push(`${v.mad_low} low (MAD z<-3.5)`);
+      if (v.iqr_high > 0) parts.push(`${v.iqr_high} above IQR fence (>${formatNumber(upperFence)})`);
+      if (v.iqr_low > 0) parts.push(`${v.iqr_low} below IQR fence (<${formatNumber(lowerFence)})`);
+      findings.push(`"${c.name}": ${parts.join(', ')}`);
+    }
+  }
+  if (findings.length === 0) return result('pass', 'No outliers detected via modified z-score or IQR fences.');
+  return result('warn', `${findings.length} column(s) contain outliers (both high and low bounds checked).`, findings);
+}
+
 // ---------- Orchestrator ----------
 export async function runAllLayers(ds, options = {}) {
   const table = ds.table;
@@ -361,6 +410,7 @@ export async function runAllLayers(ds, options = {}) {
   results.freshness = runFreshness(ds, options.freshnessThresholdHours || 24);
   results.blind_spot = runBlindSpotScanner(cols);
   results.reproducibility = await runReproducibility(table).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.outlier_detection = await runOutlierDetection(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
 
   state.validationResults = results;
   return results;

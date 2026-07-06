@@ -10,6 +10,7 @@ import * as validation from './validation.js';
 import * as viz from './visualize.js';
 import * as story from './story.js';
 import * as clean from './clean.js';
+import * as formatFingerprint from './format-fingerprint.js';
 import * as pyRuntime from './python-runtime.js';
 import * as rRuntime from './r-runtime.js';
 import * as swiftPreview from './swift-preview.js';
@@ -442,6 +443,57 @@ async function scanClean() {
   resultsEl.appendChild(grid);
   $('#clean-audit-wrap').style.display = '';
   renderAuditLog(auditLog);
+  await renderFormatIssues(ds, auditLog);
+}
+
+async function renderFormatIssues(ds, auditLog) {
+  const wrap = $('#format-issues-wrap');
+  const list = $('#format-issues-list');
+  const issues = await formatFingerprint.scanFormatIssues(ds.table, ds.cols).catch(() => []);
+  if (!issues.length) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  const grid = el('div', { class: 'validation-grid' });
+  for (const issue of issues) {
+    const card = el('div', { class: 'card validation-card', 'data-testid': `card-format-${issue.column}-${issue.issueType}` });
+    card.appendChild(el('div', { class: 'validation-card-head' }, [
+      el('span', { class: 'validation-card-name' }, `"${issue.column}" — ${issue.issueType.replace(/_/g, ' ')}`),
+    ]));
+    card.appendChild(el('div', { class: 'validation-card-desc' }, issue.detail));
+    card.appendChild(el('pre', { class: 'mono', style: 'font-size:var(--text-xs); background:var(--color-surface-offset); padding:var(--space-2); border-radius:var(--radius-sm); overflow-x:auto; margin-top:var(--space-2); white-space:pre-wrap;' }, issue.suggestedFixSQL));
+    const btnRow = el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2);' });
+    const copyBtn = el('button', { class: 'btn btn-secondary', style: 'font-size:var(--text-xs); padding:6px 10px;' }, 'Copy SQL');
+    copyBtn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(issue.suggestedFixSQL); toast('SQL copied to clipboard', 'success'); }
+      catch (e) { toast('Copy failed: ' + e.message, 'error'); }
+    });
+    const applyBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:6px 10px;', 'data-testid': `button-format-apply-${issue.column}-${issue.issueType}` }, 'Apply');
+    applyBtn.addEventListener('click', async () => {
+      applyBtn.disabled = true;
+      try {
+        for (const stmt of issue.suggestedFixSQL.split(';')) {
+          const s = stmt.replace(/--.*$/gm, '').trim();
+          if (s) await engine.runQuery(s);
+        }
+        auditLog.push(`[${new Date().toLocaleTimeString()}] Applied format fix on "${issue.column}" (${issue.issueType}).`);
+        renderAuditLog(auditLog);
+        toast(`Applied format fix on "${issue.column}"`, 'success');
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+      } catch (e) {
+        applyBtn.disabled = false;
+        toast('Apply failed: ' + e.message, 'error');
+      }
+    });
+    btnRow.appendChild(copyBtn);
+    btnRow.appendChild(applyBtn);
+    card.appendChild(btnRow);
+    grid.appendChild(card);
+  }
+  list.appendChild(grid);
 }
 
 function renderAuditLog(auditLog) {
