@@ -216,6 +216,7 @@
         </div>
         <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
           <button class="btn btn-secondary" id="btn-export-receipt" data-testid="button-export-receipt" title="Package the confidence grade, all 18 layer results, key assumptions, and the story into one shareable HTML file.">Export Validation Receipt</button>
+          <button class="btn btn-secondary" id="btn-export-irb" data-testid="button-export-irb" title="Reformat the validation results, assumption ledger, and provenance chain into an IRB / HIPAA-structured documentation aid (printable HTML).">Export for IRB/Compliance Review</button>
           <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 18 Layers</button>
         </div>
       </div>
@@ -416,6 +417,50 @@
       </div>
 
       <div id="diff-results"></div>
+
+      <!-- ---- Feature 7: Data Time Machine ---- -->
+      <div class="card" style="margin-top:var(--space-6);">
+        <div style="padding:var(--space-4);">
+          <div class="panel-title" style="font-size:var(--text-lg);">Data Time Machine</div>
+          <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin:var(--space-2) 0 var(--space-3);">
+            Explicitly save a snapshot of the active dataset's current state. Each snapshot records a content hash, a timestamp, and a diff summary against the previous snapshot, and is stored in your browser (IndexedDB). Click a stored snapshot to load it as the comparison dataset in the Diff view above.
+          </p>
+          <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
+            <button class="btn btn-primary" id="btn-tm-save" data-testid="button-tm-save">Save Snapshot</button>
+            <button class="btn btn-secondary" id="btn-tm-export" data-testid="button-tm-export">Export Archive (JSON)</button>
+          </div>
+          <div id="tm-quota-note" style="font-size:var(--text-xs); color:var(--color-grade-c); margin-top:var(--space-2);"></div>
+          <div id="tm-list" style="margin-top:var(--space-3); font-size:var(--text-sm);"></div>
+        </div>
+      </div>
+
+      <!-- ---- Feature 8: Federated Fingerprinting (Experimental) ---- -->
+      <div class="card" style="margin-top:var(--space-6);">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; gap:var(--space-2);">
+            <div class="panel-title" style="font-size:var(--text-lg);">Federated Fingerprinting</div>
+            <span style="font-size:11px; font-weight:700; letter-spacing:0.04em; padding:2px 8px; border-radius:999px; color:#fff; background:var(--color-grade-c);">EXPERIMENTAL</span>
+          </div>
+          <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin:var(--space-2) 0 var(--space-3);">
+            Export a non-reversible, differentially-private statistical <em>fingerprint</em> of the active dataset (per-column distribution shape, coarse cardinality, and missingness — <strong>no raw values</strong>). Two sites can then compare fingerprints to see where their data's shape differs, without ever sharing row-level data. Columns with fewer than 50 rows are suppressed.
+          </p>
+          <div id="fp-disclaimer" style="font-size:var(--text-xs); color:var(--color-grade-c); background:var(--color-surface-2, rgba(0,0,0,0.04)); border-left:3px solid var(--color-grade-c); padding:var(--space-2) var(--space-3); margin-bottom:var(--space-3); border-radius:var(--radius-sm);" data-testid="fp-disclaimer"></div>
+          <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
+            <button class="btn btn-primary" id="btn-fp-export" data-testid="button-fp-export">Export Fingerprint</button>
+            <label class="btn btn-secondary" style="cursor:pointer;" data-testid="label-fp-a">
+              Compare: load fingerprint A
+              <input type="file" id="fp-file-a" accept=".json" style="display:none;">
+            </label>
+            <label class="btn btn-secondary" style="cursor:pointer;" data-testid="label-fp-b">
+              load fingerprint B
+              <input type="file" id="fp-file-b" accept=".json" style="display:none;">
+            </label>
+            <button class="btn btn-primary" id="btn-fp-compare" data-testid="button-fp-compare" disabled>Compare Fingerprints</button>
+          </div>
+          <div id="fp-loaded-note" style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-2);"></div>
+          <div id="fp-results" style="margin-top:var(--space-3);"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ VISUALIZE TAB ============ -->
@@ -630,6 +675,23 @@
     </p>
     <button class="btn btn-secondary" id="btn-redteam-v2" style="width:100%; justify-content:center; margin-bottom:var(--space-4);" data-testid="button-redteam-v2">Generate Adversarial Test from My Schema</button>
     <div id="redteam-results"></div>
+
+    <hr style="border:none; border-top:1px solid var(--color-divider); margin:var(--space-4) 0;">
+    <h3 style="font-size:var(--text-lg); font-weight:600; margin-bottom:var(--space-2);">Synthetic Adversarial Twin</h3>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);">
+      Generate a <strong>synthetic</strong> version of your currently-loaded dataset that preserves each column's overall shape but contains <em>no real rows</em>. Differentially-private (Laplace) noise is added to every histogram / category count before resampling, so the synthetic data is safe to share for demos and testing.
+    </p>
+    <div style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+      <label style="font-size:var(--text-sm); color:var(--color-text-muted);">Privacy budget ε: <span id="twin-epsilon-value" class="mono">5</span></label>
+      <input type="range" id="twin-epsilon-slider" min="0.5" max="20" step="0.5" value="5" style="flex:1; min-width:160px;" data-testid="slider-twin-epsilon">
+    </div>
+    <p id="twin-epsilon-note" style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);"></p>
+    <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; margin-bottom:var(--space-3);">
+      <button class="btn btn-primary" id="btn-twin-generate" data-testid="button-twin-generate">Generate Synthetic Twin</button>
+      <button class="btn btn-secondary" id="btn-twin-download" data-testid="button-twin-download" disabled>Download Synthetic CSV</button>
+    </div>
+    <div id="twin-disclaimer" style="display:none; font-size:var(--text-xs); color:var(--color-grade-c); background:var(--color-surface-2, rgba(0,0,0,0.04)); border-left:3px solid var(--color-grade-c); padding:var(--space-2) var(--space-3); margin-bottom:var(--space-3); border-radius:var(--radius-sm);" data-testid="twin-disclaimer"></div>
+    <div id="twin-results"></div>
   </div>
 </div>
 

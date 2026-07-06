@@ -10,6 +10,7 @@
     "test:gen8": "node --import ./test/duckdb-loader-hook.mjs test/gen8-features.test.mjs",
     "test:gen8b": "node --import ./test/duckdb-loader-hook.mjs test/gen8-batch3.test.mjs",
     "test:mimic": "node --import ./test/duckdb-loader-hook.mjs test/mimic-bugfixes.test.mjs",
+    "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/gen9-batch3.test.mjs",
     "test:ambient": "node test/ambient-validation.test.mjs",
     "test:slm": "node test/slm-prompt.test.mjs",
     "test:e2e": "node test/e2e-smoke.test.mjs",

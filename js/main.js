@@ -36,6 +36,10 @@ import * as swiftPreview from './swift-preview.js';
 import * as receipt from './validation-receipt.js';
 import * as peerReview from './peer-review.js';
 import * as timeTravel from './time-travel-diff.js';
+import * as syntheticTwin from './synthetic-twin.js';
+import * as timeMachine from './time-machine.js';
+import * as fingerprint from './federated-fingerprint.js';
+import * as irbMode from './irb-mode.js';
 import * as ondeviceLLM from './ondevice-llm.js';
 
 // ============================================================
@@ -1183,6 +1187,248 @@ function renderDiffResults(out, { keyCol, rowDiff, distDiff, flips }) {
   }
 }
 
+// ============================================================
+// Feature 6 — Synthetic Adversarial Twin (DP synthetic dataset)
+// ============================================================
+function initSyntheticTwin() {
+  const slider = $('#twin-epsilon-slider');
+  const genBtn = $('#btn-twin-generate');
+  const dlBtn = $('#btn-twin-download');
+  if (!slider || !genBtn) return;
+  let lastTwin = null;
+
+  const refreshNote = () => {
+    const eps = parseFloat(slider.value);
+    $('#twin-epsilon-value').textContent = eps;
+    $('#twin-epsilon-note').textContent = syntheticTwin.epsilonExplanation(eps);
+  };
+  slider.addEventListener('input', refreshNote);
+  refreshNote();
+
+  genBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    const out = $('#twin-results');
+    out.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md);"></div>';
+    try {
+      const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const twin = syntheticTwin.generateSyntheticTwin({ columns: ds.cols, rows, epsilon: parseFloat(slider.value) });
+      lastTwin = twin;
+      dlBtn.disabled = false;
+      const disc = $('#twin-disclaimer');
+      disc.style.display = 'block';
+      disc.textContent = twin.disclaimer;
+      out.innerHTML = '';
+      out.appendChild(el('div', { style: 'font-size:var(--text-sm); margin-bottom:var(--space-2);', 'data-testid': 'twin-summary' },
+        `Generated ${twin.rows.length} synthetic rows (ε=${twin.epsilon}, ${twin.mechanism}).`));
+      twin.comparison.forEach(c => {
+        let line;
+        if (c.type === 'numeric') {
+          line = `${c.column} (numeric): real mean ${c.real.mean} / synth ${c.synthetic.mean} · real std ${c.real.std} / synth ${c.synthetic.std}`;
+        } else {
+          const rt = c.real.top[0] ? c.real.top[0].value : '—';
+          const st = c.synthetic.top[0] ? c.synthetic.top[0].value : '—';
+          line = `${c.column} (categorical): real top "${rt}" / synth top "${st}"`;
+        }
+        out.appendChild(el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); padding:2px 0;', 'data-testid': `twin-cmp-${c.column}` }, line));
+      });
+      toast('Synthetic twin generated', 'success');
+    } catch (err) {
+      out.innerHTML = '';
+      toast('Twin generation failed: ' + err.message, 'error');
+    }
+  });
+
+  dlBtn.addEventListener('click', () => {
+    if (!lastTwin) return;
+    const ds = getActiveDataset();
+    downloadText(`dataglow-synthetic-${ds ? ds.table : 'twin'}.csv`, syntheticTwin.toCSV(lastTwin.columns, lastTwin.rows), 'text/csv');
+    toast('Synthetic CSV downloaded', 'success');
+  });
+}
+
+// ============================================================
+// Feature 7 — Data Time Machine (explicit snapshot ledger)
+// ============================================================
+function initTimeMachine() {
+  const saveBtn = $('#btn-tm-save');
+  const exportBtn = $('#btn-tm-export');
+  if (!saveBtn) return;
+
+  const render = async () => {
+    const ds = getActiveDataset();
+    const listEl = $('#tm-list');
+    if (!ds) { listEl.innerHTML = '<span style="color:var(--color-text-faint);">Load a dataset to save snapshots.</span>'; return; }
+    let snaps = [];
+    try { snaps = await timeMachine.listSnapshots(ds.name || ds.table); } catch { /* IndexedDB unavailable */ }
+    if (!snaps.length) { listEl.innerHTML = '<span style="color:var(--color-text-faint);">No snapshots yet for this dataset.</span>'; return; }
+    listEl.innerHTML = '';
+    snaps.forEach(s => {
+      const row = el('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider);', 'data-testid': `tm-snap-${s.hash}` }, [
+        el('div', {}, [
+          el('div', { style: 'font-size:var(--text-sm);' }, `${new Date(s.timestamp).toLocaleString()} — ${s.rowCount} rows`),
+          el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-faint);' }, `${s.hash} · ${s.diffSummary.text}`),
+        ]),
+        el('button', { class: 'btn btn-secondary', 'data-testid': `tm-load-${s.hash}`, onclick: () => loadSnapshot(s) }, 'Load into Diff'),
+      ]);
+      listEl.appendChild(row);
+    });
+  };
+
+  const loadSnapshot = async (snap) => {
+    if (!snap.rows) { toast('This snapshot did not embed its rows and cannot be reloaded.', 'error'); return; }
+    const base = getActiveDataset();
+    if (!base) return;
+    const out = $('#diff-results');
+    out.innerHTML = '<div class="skeleton" style="height:120px; border-radius:var(--radius-md);"></div>';
+    try {
+      const snapTable = `tm_snap_${snap.hash}`.slice(0, 60);
+      await engine.createTableFromRows(snapTable, snap.columns, snap.rows);
+      const aRes = await engine.runQuery(`SELECT * FROM ${base.table}`);
+      const shared = base.cols.map(c => c.name).filter(n => snap.columns.includes(n));
+      const keyCol = timeTravel.detectKeyColumn(shared, aRes.rows);
+      const rowDiff = keyCol ? timeTravel.diffRows(snap.rows, aRes.rows, keyCol) : null;
+      const sharedCols = base.cols.filter(c => snap.columns.includes(c.name));
+      const distDiff = await timeTravel.diffDistributions(snapTable, base.table, sharedCols);
+      renderDiffResults(out, { keyCol, rowDiff, distDiff, flips: [] });
+      switchTab('diff');
+      toast('Snapshot loaded into Diff view', 'success');
+    } catch (err) {
+      out.innerHTML = '';
+      toast('Could not load snapshot: ' + err.message, 'error');
+    }
+  };
+
+  saveBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    try {
+      const quota = await timeMachine.checkStorageQuota();
+      const noteEl = $('#tm-quota-note');
+      if (quota.supported && quota.nearLimit) {
+        noteEl.textContent = `Browser storage is ${(quota.ratio * 100).toFixed(0)}% full — export and prune older snapshots to an archive file to avoid losing data.`;
+      } else {
+        noteEl.textContent = '';
+      }
+      const { columns, rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const previous = await timeMachine.latestSnapshot(ds.name || ds.table);
+      const snap = timeMachine.buildSnapshot({ datasetName: ds.name || ds.table, columns, rows, previous });
+      await timeMachine.saveSnapshot(snap);
+      await render();
+      toast('Snapshot saved', 'success');
+    } catch (err) {
+      toast('Could not save snapshot: ' + err.message, 'error');
+    }
+  });
+
+  if (exportBtn) exportBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    try {
+      const snaps = await timeMachine.listSnapshots(ds.name || ds.table);
+      if (!snaps.length) { toast('No snapshots to export', 'error'); return; }
+      downloadText(`dataglow-timemachine-${ds.table}.json`, timeMachine.exportArchive(snaps), 'application/json');
+      toast('Snapshot archive exported', 'success');
+    } catch (err) {
+      toast('Export failed: ' + err.message, 'error');
+    }
+  });
+
+  render();
+}
+
+// ============================================================
+// Feature 8 — Federated Fingerprinting (Experimental)
+// ============================================================
+function initFederatedFingerprint() {
+  const exportBtn = $('#btn-fp-export');
+  const fileA = $('#fp-file-a');
+  const fileB = $('#fp-file-b');
+  const compareBtn = $('#btn-fp-compare');
+  if (!exportBtn) return;
+  $('#fp-disclaimer').textContent = fingerprint.FINGERPRINT_DISCLAIMER;
+  let fpA = null, fpB = null;
+
+  exportBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    try {
+      const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+      const fp = fingerprint.buildFingerprint({ datasetName: ds.name || ds.table, columns: ds.cols, rows });
+      downloadText(`dataglow-fingerprint-${ds.table}.json`, JSON.stringify(fp, null, 2), 'application/json');
+      toast('Fingerprint exported', 'success');
+    } catch (err) {
+      toast('Fingerprint export failed: ' + err.message, 'error');
+    }
+  });
+
+  const readFp = (file, which) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const fp = fingerprint.parseFingerprint(reader.result);
+        if (which === 'a') fpA = fp; else fpB = fp;
+        $('#fp-loaded-note').textContent = `${fpA ? 'A: ' + fpA.datasetName : 'A: —'} · ${fpB ? 'B: ' + fpB.datasetName : 'B: —'}`;
+        compareBtn.disabled = !(fpA && fpB);
+      } catch (err) {
+        toast('Not a valid fingerprint file: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+  fileA.addEventListener('change', e => { if (e.target.files[0]) readFp(e.target.files[0], 'a'); e.target.value = ''; });
+  fileB.addEventListener('change', e => { if (e.target.files[0]) readFp(e.target.files[0], 'b'); e.target.value = ''; });
+
+  compareBtn.addEventListener('click', () => {
+    if (!fpA || !fpB) return;
+    const out = $('#fp-results');
+    out.innerHTML = '';
+    try {
+      const cmp = fingerprint.compareFingerprints(fpA, fpB);
+      out.appendChild(el('div', { style: 'font-size:var(--text-sm); margin-bottom:var(--space-2);', 'data-testid': 'fp-compare-summary' },
+        `${cmp.summary.meaningfullyDifferent} of ${cmp.summary.sharedColumns} shared column(s) differ meaningfully (JSD > ${cmp.threshold}).`));
+      cmp.columns.forEach(c => {
+        const color = c.meaningful ? 'var(--color-grade-c)' : 'var(--color-text-muted)';
+        const jsdTxt = c.jsd != null ? `JSD ${c.jsd}` : (c.note || '—');
+        out.appendChild(el('div', { style: `font-size:var(--text-xs); color:${color}; padding:2px 0;`, 'data-testid': `fp-col-${c.column}` },
+          `${c.column} [${c.present}]: ${jsdTxt}${c.meaningful ? ' — meaningfully different' : ''}`));
+      });
+    } catch (err) {
+      toast('Comparison failed: ' + err.message, 'error');
+    }
+  });
+}
+
+// ============================================================
+// Feature 9 — IRB / Regulatory Language Auto-Translation Mode
+// ============================================================
+function initIRBMode() {
+  const btn = $('#btn-export-irb');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    const results = window.__dataglowLastValidation;
+    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return; }
+    try {
+      const chain = provenance.getProvenance(ds.table);
+      const provenanceTrail = chain ? chain.getTrail() : [];
+      const provenanceVerification = chain && chain.length ? await chain.verify() : null;
+      const model = irbMode.buildIRBDocument({
+        datasetName: ds.name || ds.table,
+        results,
+        ledgerEntries: ledger.getLedgerEntries(),
+        provenanceTrail,
+        provenanceVerification,
+        storyText: state.lastStory || null,
+      });
+      downloadText(`dataglow-irb-${ds.table}.html`, irbMode.renderIRBHTML(model), 'text/html');
+      toast('IRB / compliance document exported', 'success');
+    } catch (err) {
+      toast('IRB export failed: ' + err.message, 'error');
+    }
+  });
+}
+
 // Top 5 Problems — a scannable pre-analysis checklist (checklist methodology
 // popularized by Atul Gawande, "The Checklist Manifesto"). Surfaces the
 // highest-severity findings across all layers with jump-links.
@@ -1943,6 +2189,10 @@ function init() {
   initReceipts();
   initPeerReview();
   initTimeTravelDiff();
+  initSyntheticTwin();
+  initTimeMachine();
+  initFederatedFingerprint();
+  initIRBMode();
   initAISynthesis();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
