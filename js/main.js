@@ -43,6 +43,8 @@ import * as timeMachine from './time-machine.js';
 import * as fingerprint from './federated-fingerprint.js';
 import * as irbMode from './irb-mode.js';
 import * as ondeviceLLM from './ondevice-llm.js';
+import * as digitalTwin from './digital-twin.js';
+import * as watchFolder from './watch-folder.js';
 
 // ============================================================
 // Tab Definitions
@@ -58,6 +60,8 @@ const TAB_META = {
   visualize: { label: 'Visualize', icon: 'pie-chart' },
   story: { label: 'Story', icon: 'book-open' },
   swift: { label: 'Swift', icon: 'smartphone' },
+  twin: { label: 'Digital Twin', icon: 'sliders' },
+  watch: { label: 'Watch Folder', icon: 'folder' },
 };
 
 const ICONS = {
@@ -71,6 +75,8 @@ const ICONS = {
   'book-open': '<path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>',
   smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/>',
   'git-compare': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/>',
+  sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+  folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -147,6 +153,7 @@ function switchTab(tabId) {
   if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
+  if (tabId === 'twin') buildTwinControls();
   if (tabId === 'swift' && !$('#swift-input').value) {
     $('#swift-input').value = swiftPreview.SWIFT_TEMPLATE;
     $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
@@ -228,6 +235,9 @@ function resetPanelStates() {
   $('#clean-empty').style.display = hasData ? 'none' : '';
   $('#validate-empty').style.display = hasData ? 'none' : '';
   $('#visualize-empty').style.display = hasData ? 'none' : '';
+  const twinEmpty = $('#twin-empty');
+  if (twinEmpty) { twinEmpty.style.display = hasData ? 'none' : ''; $('#twin-body').style.display = hasData ? '' : 'none'; }
+  if (activeTab === 'twin') buildTwinControls();
   if (hasData) {
     $('#sql-input').value = $('#sql-input').value || `SELECT * FROM ${getActiveDataset().table} LIMIT 100;`;
     populateVisualizeBuilder();
@@ -2270,6 +2280,315 @@ async function runDiagnostics() {
 }
 
 // ============================================================
+// Digital Twin — What-If Simulator (Gen 10 Batch 2, Feature 1)
+// ============================================================
+// Perturbs an in-memory SAMPLE of the active dataset and re-runs the exact same
+// runAllLayers + Confidence-Calibrated Grades pipeline against a throwaway copy
+// table (__twin_sim), never touching the real dataset. See js/digital-twin.js
+// for the pure perturbation engine + isolation guarantee.
+const TWIN_SAMPLE_CAP = 5000;      // rows pulled into the sandbox for live speed
+const TWIN_TABLE = '__twin_sim';   // throwaway table, dropped/rebuilt each sim
+let twinState = null;              // { table, cols, rows, sampled, total, knobs, baseline }
+let twinSimSeq = 0;                // guards against out-of-order async renders
+
+// A compact "concerns" summary of a results map: how many layers fail/warn.
+function twinConcernSummary(results) {
+  let fail = 0, warn = 0;
+  for (const [k, v] of Object.entries(results)) {
+    if (k === 'domainPack' || k === 'calibratedGrades' || k === 'confidence') continue;
+    if (v && v.status === 'fail') fail++;
+    else if (v && v.status === 'warn') warn++;
+  }
+  return { fail, warn };
+}
+
+function selectedPack() {
+  const sel = $('#domain-pack-select');
+  return sel && sel.value ? sel.value : 'healthcare';
+}
+
+// Run one what-if simulation: perturb the sampled rows, load them into the
+// throwaway table, and run the full validation + grading pipeline on that copy.
+// Simulations are serialized through twinChain because they share a single
+// throwaway table (__twin_sim); overlapping runs would DROP it mid-query.
+let twinChain = Promise.resolve();
+function runTwinSimulation(knobs) {
+  const run = () => runTwinSimulationInner(knobs);
+  twinChain = twinChain.then(run, run);
+  return twinChain;
+}
+
+async function runTwinSimulationInner(knobs) {
+  const t = twinState;
+  const { rows: pRows, columns: pCols } = digitalTwin.perturbRows(t.rows, t.cols, knobs);
+  await ensureDuckDB();
+  await engine.createTableFromRows(TWIN_TABLE, pCols, pRows);
+  const schema = await engine.getTableSchema(TWIN_TABLE);
+  const twinDs = {
+    name: `${t.table}.__twin`, table: TWIN_TABLE, rowCount: pRows.length,
+    cols: schema.map(s => ({ name: s.column_name, type: s.column_type })),
+    loadedAt: Date.now(), isSynthetic: true,
+  };
+  // runAllLayers writes state.validationResults as a side effect; snapshot and
+  // restore it so a what-if never clobbers the real Validate tab's state.
+  const savedResults = state.validationResults;
+  let results;
+  try {
+    results = await validation.runAllLayers(twinDs, {
+      freshnessThresholdHours: state.settings.freshnessThresholdHours, pack: selectedPack(),
+    });
+  } finally {
+    state.validationResults = savedResults;
+  }
+  return results;
+}
+
+function renderTwinComparison(baseline, sim) {
+  const wrap = $('#twin-comparison');
+  if (!wrap) return;
+  const gradeColor = g => ({ A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)', F: 'var(--color-grade-d)' }[g] || 'var(--color-text-muted)');
+  const axisRow = (label, baseAxis, simAxis, testid) => {
+    const delta = digitalTwin.gradeDelta(baseAxis.grade, simAxis.grade);
+    const arrow = delta < 0 ? '▼' : delta > 0 ? '▲' : '=';
+    const arrowColor = delta < 0 ? 'var(--color-grade-d)' : delta > 0 ? 'var(--color-grade-a)' : 'var(--color-text-faint)';
+    return el('div', { style: 'display:flex; align-items:center; gap:var(--space-3); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider);', 'data-testid': testid }, [
+      el('div', { style: 'flex:1; font-size:var(--text-sm);' }, label),
+      el('div', { style: `font-weight:700; font-size:var(--text-lg); color:${gradeColor(baseAxis.grade)};`, 'data-testid': `${testid}-baseline` }, baseAxis.grade),
+      el('div', { style: `color:${arrowColor}; font-weight:700;` }, arrow),
+      el('div', { style: `font-weight:700; font-size:var(--text-lg); color:${gradeColor(simAxis.grade)};`, 'data-testid': `${testid}-sim` }, simAxis.grade),
+    ]);
+  };
+  const bc = twinConcernSummary(baseline);
+  const sc = twinConcernSummary(sim);
+  wrap.innerHTML = '';
+  wrap.appendChild(el('div', { style: 'display:flex; gap:var(--space-3); font-size:var(--text-xs); color:var(--color-text-faint); padding-bottom:var(--space-2);' }, [
+    el('div', { style: 'flex:1;' }, ''), el('div', {}, 'Baseline'), el('div', {}, '→'), el('div', {}, 'Simulated'),
+  ]));
+  wrap.appendChild(axisRow('Data Integrity', baseline.calibratedGrades.integrity, sim.calibratedGrades.integrity, 'twin-grade-integrity'));
+  wrap.appendChild(axisRow('Domain Plausibility', baseline.calibratedGrades.plausibility, sim.calibratedGrades.plausibility, 'twin-grade-plausibility'));
+  wrap.appendChild(el('div', { style: 'padding:var(--space-2) 0; font-size:var(--text-sm);', 'data-testid': 'twin-flag-summary' }, [
+    el('span', { style: 'flex:1;' }, 'Layers flagged (fail / warn): '),
+    el('span', { style: 'color:var(--color-text-muted);' }, `${bc.fail}/${bc.warn}`),
+    el('span', { style: 'color:var(--color-text-faint);' }, '  →  '),
+    el('span', { style: 'font-weight:600;' }, `${sc.fail}/${sc.warn}`),
+  ]));
+}
+
+const runTwinDebounced = debounce(async () => {
+  if (!twinState) return;
+  const seq = ++twinSimSeq;
+  try {
+    const sim = await runTwinSimulation(twinState.knobs);
+    if (seq !== twinSimSeq) return; // a newer drag superseded this one
+    renderTwinComparison(twinState.baseline, sim);
+  } catch (err) {
+    toast('Twin simulation failed: ' + (err && err.message || err), 'error');
+  }
+}, 220);
+
+function renderTwinControls() {
+  const host = $('#twin-controls');
+  if (!host) return;
+  host.innerHTML = '';
+  const sliders = digitalTwin.inferPerturbations(twinState.cols);
+  for (const s of sliders) {
+    const valSpan = el('span', { style: 'min-width:38px; text-align:right; font-variant-numeric:tabular-nums; color:var(--color-text-muted);' }, `${twinState.knobs[s.key] || 0}%`);
+    const input = el('input', {
+      type: 'range', min: String(s.min), max: String(s.max), step: String(s.step),
+      value: String(twinState.knobs[s.key] || 0), 'data-testid': `twin-slider-${s.key}`,
+      style: 'flex:1;',
+    });
+    input.addEventListener('input', () => {
+      twinState.knobs[s.key] = Number(input.value);
+      valSpan.textContent = `${input.value}%`;
+      runTwinDebounced();
+    });
+    host.appendChild(el('div', { style: 'margin-bottom:var(--space-3);' }, [
+      el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:4px;' }, s.label),
+      el('div', { style: 'display:flex; align-items:center; gap:var(--space-2);' }, [input, valSpan]),
+    ]));
+  }
+}
+
+// Build (or rebuild) the twin sandbox for the active dataset: sample its rows,
+// compute the baseline grades on that same sample, and render controls.
+let twinBuilding = false;
+async function buildTwinControls() {
+  const ds = getActiveDataset();
+  const empty = $('#twin-empty');
+  const body = $('#twin-body');
+  if (!empty || !body) return;
+  if (!ds) { empty.style.display = ''; body.style.display = 'none'; return; }
+  empty.style.display = 'none'; body.style.display = '';
+  // Reuse an existing sandbox if it's already built for this table.
+  if (twinState && twinState.table === ds.table) { renderTwinControls(); return; }
+  if (twinBuilding) return;
+  twinBuilding = true;
+  try {
+    await ensureDuckDB();
+    const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT ${TWIN_SAMPLE_CAP}`);
+    twinState = {
+      table: ds.table, cols: ds.cols.map(c => ({ name: c.name, type: c.type })),
+      rows, sampled: ds.rowCount > TWIN_SAMPLE_CAP, total: ds.rowCount, knobs: {}, baseline: null,
+    };
+    const note = $('#twin-sample-note');
+    if (twinState.sampled) {
+      note.style.display = '';
+      note.textContent = `For responsiveness, this what-if simulator runs on a sample of ${rows.length.toLocaleString()} rows out of ${ds.rowCount.toLocaleString()} total. Grades are indicative of the sample.`;
+    } else {
+      note.style.display = 'none';
+    }
+    renderTwinControls();
+    // Baseline = the same sample with zero perturbation, so before/after is
+    // an apples-to-apples comparison on identical rows.
+    twinState.baseline = await runTwinSimulation({});
+    renderTwinComparison(twinState.baseline, twinState.baseline);
+  } catch (err) {
+    toast('Could not build digital twin: ' + (err && err.message || err), 'error');
+  } finally {
+    twinBuilding = false;
+  }
+}
+
+function initDigitalTwin() {
+  const resetBtn = $('#btn-twin-reset');
+  if (!resetBtn) return;
+  resetBtn.addEventListener('click', () => {
+    if (!twinState) return;
+    twinState.knobs = {};
+    renderTwinControls();
+    if (twinState.baseline) renderTwinComparison(twinState.baseline, twinState.baseline);
+  });
+}
+
+// ============================================================
+// Ambient Watch Folder Mode (Gen 10 Batch 2, Feature 2)
+// ============================================================
+// Points DATAGLOW at a local folder via the File System Access API and polls it
+// for new/changed files, running each through the SAME loaders.loadFile +
+// runAllLayers path as a manual upload. Zero network I/O. See js/watch-folder.js.
+let watchController = null;
+const watchStatuses = new Map(); // name -> { name, ok, grade, detail, ts }
+
+function gradeFromResults(results) {
+  if (results && results.calibratedGrades && results.calibratedGrades.integrity) {
+    return results.calibratedGrades.integrity.grade;
+  }
+  if (results && results.confidence && results.confidence.grade) return results.confidence.grade;
+  return '?';
+}
+
+function renderWatchStatus(headline) {
+  const host = $('#watch-status');
+  if (!host) return;
+  host.innerHTML = '';
+  if (headline) {
+    host.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);', 'data-testid': 'watch-headline' }, headline));
+  }
+  const items = [...watchStatuses.values()].sort((a, b) => b.ts - a.ts);
+  if (!items.length) {
+    host.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-faint);' }, 'No files validated yet.'));
+    return;
+  }
+  for (const s of items) {
+    host.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider); font-size:var(--text-sm);', 'data-testid': `watch-file-${s.name}` }, [
+      el('span', { class: `status-dot ${s.ok ? 'pass' : 'fail'}` }),
+      el('span', { class: 'mono', style: 'flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, s.name),
+      el('span', { style: 'font-weight:700;' }, s.ok ? `Grade ${s.grade}` : 'Error'),
+      el('span', { style: 'color:var(--color-text-faint); font-size:var(--text-xs);' }, new Date(s.ts).toLocaleTimeString()),
+    ]));
+  }
+}
+
+// The shared ingest path — deliberately the SAME functions the manual upload
+// button uses (loaders.loadFile + validation.runAllLayers), not a copy.
+async function watchIngestAndValidate(file /*, entry */) {
+  await ensureDuckDB();
+  const ds = await loaders.loadFile(file);
+  renderSidebar();
+  resetPanelStates();
+  const results = await validation.runAllLayers(ds, {
+    freshnessThresholdHours: state.settings.freshnessThresholdHours, pack: selectedPack(),
+  });
+  return { ds, results, grade: gradeFromResults(results) };
+}
+
+function initWatchFolder() {
+  const connectBtn = $('#btn-watch-connect');
+  const stopBtn = $('#btn-watch-stop');
+  if (!connectBtn) return;
+
+  $('#watch-privacy').textContent = watchFolder.PRIVACY_NOTICE;
+
+  if (!watchFolder.directoryPickerSupported(window)) {
+    const msg = $('#watch-unsupported');
+    msg.style.display = '';
+    msg.textContent = watchFolder.UNSUPPORTED_MESSAGE;
+    connectBtn.disabled = true;
+    connectBtn.title = 'Not supported in this browser';
+    return;
+  }
+
+  watchController = new watchFolder.WatchFolderController({
+    ingestAndValidate: watchIngestAndValidate,
+    intervalMs: 4000,
+  });
+  watchController.onUpdate = ({ name, ok, result, error, ts }) => {
+    watchStatuses.set(name, {
+      name, ok, ts,
+      grade: ok && result ? result.grade : null,
+      detail: ok ? '' : (error && error.message || String(error)),
+    });
+    renderWatchStatus('Watching folder — files auto-validate on drop or change.');
+  };
+  watchController.onError = (err) => {
+    stopBtn.style.display = 'none';
+    connectBtn.style.display = '';
+    renderWatchStatus('Permission lost or folder unavailable — please reconnect. (' + (err && err.message || err) + ')');
+  };
+
+  connectBtn.addEventListener('click', async () => {
+    let dirHandle;
+    try {
+      dirHandle = await window.showDirectoryPicker();
+    } catch (err) {
+      return; // user dismissed the native picker — not an error
+    }
+    await ensureDuckDB();
+    watchStatuses.clear();
+    await watchController.start(dirHandle);
+    connectBtn.style.display = 'none';
+    stopBtn.style.display = '';
+    renderWatchStatus('Watching folder — files auto-validate on drop or change.');
+    toast('Watching folder for changes', 'success');
+  });
+
+  stopBtn.addEventListener('click', () => {
+    watchController.stop();
+    stopBtn.style.display = 'none';
+    connectBtn.style.display = '';
+    renderWatchStatus('Stopped watching. Reconnect a folder to resume.');
+    toast('Stopped watching folder', 'success');
+  });
+
+  // Don't leave a poll loop dangling if the user navigates away.
+  window.addEventListener('beforeunload', () => { if (watchController) watchController.stop(); });
+
+  // Test/automation hook: drive the controller with a mock directory handle so
+  // the poll + ingest path can be exercised without the native picker (which
+  // needs a user gesture and can't run headless). Not used in normal operation.
+  window.__dataglowStartWatch = async (mockHandle) => {
+    watchStatuses.clear();
+    await watchController.start(mockHandle);
+    connectBtn.style.display = 'none';
+    stopBtn.style.display = '';
+    renderWatchStatus('Watching folder — files auto-validate on drop or change.');
+    return watchController;
+  };
+  window.__dataglowWatchController = watchController;
+}
+
+// ============================================================
 // Init
 // ============================================================
 function init() {
@@ -2299,6 +2618,8 @@ function init() {
   initFederatedFingerprint();
   initIRBMode();
   initAISynthesis();
+  initDigitalTwin();
+  initWatchFolder();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
