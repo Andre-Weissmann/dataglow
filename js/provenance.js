@@ -26,7 +26,10 @@ function stepPayload(parentHash, step) {
   });
 }
 
-async function sha256Hex(str) {
+// SHA-256 of a UTF-8 string, hex-encoded. Exported so the ZK-style proof module
+// (js/zk-provenance.js) commits its Merkle leaves with the identical hash
+// primitive rather than introducing a second hashing approach.
+export async function sha256Hex(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
