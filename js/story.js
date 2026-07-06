@@ -5,6 +5,78 @@
 // ============================================================
 
 import { state } from './state.js';
+import { scoreClaimConfidence } from './validation.js';
+
+// Grade → color, matching the Confidence Layer's ring colors so a claim badge
+// reads the same as the table-level grade.
+const GRADE_COLOR = { A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)' };
+
+function confidenceBadgeHTML(conf) {
+  const pctMissing = (conf.missingRate * 100).toFixed(conf.missingRate ? 1 : 0);
+  const color = GRADE_COLOR[conf.grade] || 'var(--color-text-muted)';
+  return ` <span class="conf-badge" style="display:inline-block; font-size:0.75em; font-weight:700; padding:1px 6px; border-radius:6px; color:#fff; background:${color};" title="Confidence ${conf.grade} — reused from DATAGLOW's Confidence Layer scoring (n=${conf.n}, ${pctMissing}% missing)">Confidence: ${conf.grade} · n=${conf.n} · ${pctMissing}% missing</span>`;
+}
+
+// Extract the individual quantitative claims a rule-based story makes, each
+// scored per-claim by the SAME Confidence Layer logic (scoreClaimConfidence)
+// rather than one global score for the whole narrative. Pure + Node-testable.
+export function buildStoryClaims(queryResult) {
+  const { columns, rows, rowCount } = queryResult;
+  const claims = [];
+  if (!rows || rows.length === 0) return claims;
+
+  const numericCols = columns.filter(c => rows.every(r => r[c] == null || typeof r[c] === 'number'));
+  const catCols = columns.filter(c => !numericCols.includes(c));
+
+  // Claim: how many rows the result rests on.
+  claims.push({
+    kind: 'rowcount',
+    column: null,
+    value: rowCount,
+    text: `returned ${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'}`,
+    confidence: scoreClaimConfidence({ n: rowCount, missingRate: 0 }),
+  });
+
+  // Claim: the average of the first numeric column.
+  if (numericCols.length > 0) {
+    const nc = numericCols[0];
+    const vals = rows.map(r => r[nc]).filter(v => typeof v === 'number');
+    if (vals.length > 0) {
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const missingRate = rows.length ? (rows.length - vals.length) / rows.length : 0;
+      claims.push({
+        kind: 'numeric_mean',
+        column: nc,
+        value: avg,
+        text: `${nc} averages ${avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+        confidence: scoreClaimConfidence({ n: vals.length, missingRate }),
+      });
+    }
+  }
+
+  // Claim: the dominant category and its share.
+  if (catCols.length > 0) {
+    const cc = catCols[0];
+    const counts = {};
+    let nonNull = 0;
+    for (const r of rows) { const v = r[cc]; if (v != null) { counts[v] = (counts[v] || 0) + 1; nonNull++; } }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (top) {
+      const pct = ((top[1] / rows.length) * 100).toFixed(1);
+      const missingRate = rows.length ? (rows.length - nonNull) / rows.length : 0;
+      claims.push({
+        kind: 'category_share',
+        column: cc,
+        value: Number(pct),
+        text: `the most common ${cc} is "${top[0]}" at ${pct}% of rows`,
+        confidence: scoreClaimConfidence({ n: nonNull, missingRate }),
+      });
+    }
+  }
+
+  return claims;
+}
+
 
 export const MODEL_PROVIDERS = [
   // "default" marks the provider pre-selected on first load. "requiresKey" controls
@@ -31,39 +103,42 @@ Data sample (JSON):
 ${JSON.stringify(sample, null, 0).slice(0, 4000)}`;
 }
 
-// Deterministic, template-based fallback narrative (no LLM, no API key, works fully offline)
+// Deterministic, template-based fallback narrative (no LLM, no API key, works
+// fully offline). Every quantitative claim carries an inline confidence badge
+// scored per-claim by the Confidence Layer (see buildStoryClaims), and any
+// low-confidence (grade C/D) claim gets a visible caveat.
 function generateLocalStory(queryResult, tableName) {
   const { columns, rows, rowCount } = queryResult;
   if (rows.length === 0) return `The query against "${tableName}" returned no rows. There's nothing to summarize until the filters are loosened or the underlying data is checked.`;
 
-  const numericCols = columns.filter(c => rows.every(r => r[c] == null || typeof r[c] === 'number'));
-  const catCols = columns.filter(c => !numericCols.includes(c));
+  const claims = buildStoryClaims(queryResult);
+  const byKind = Object.fromEntries(claims.map(c => [c.kind, c]));
 
-  let sentence1 = `The query against "${tableName}" returned ${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'} across ${columns.length} column${columns.length === 1 ? '' : 's'}.`;
+  const rc = byKind.rowcount;
+  let sentence1 = `The query against "${tableName}" returned ${rowCount.toLocaleString()} row${rowCount === 1 ? '' : 's'} across ${columns.length} column${columns.length === 1 ? '' : 's'}.${rc ? confidenceBadgeHTML(rc.confidence) : ''}`;
 
   let sentence2 = '';
-  if (numericCols.length > 0) {
-    const nc = numericCols[0];
+  const numericCols = columns.filter(c => rows.every(r => r[c] == null || typeof r[c] === 'number'));
+  if (byKind.numeric_mean) {
+    const nc = byKind.numeric_mean.column;
     const vals = rows.map(r => r[nc]).filter(v => typeof v === 'number');
-    if (vals.length > 0) {
-      const sum = vals.reduce((a, b) => a + b, 0);
-      const avg = sum / vals.length;
-      const max = Math.max(...vals);
-      const min = Math.min(...vals);
-      sentence2 = ` Looking at <span class="story-highlight">${nc}</span>, values range from ${min.toLocaleString(undefined, { maximumFractionDigits: 2 })} to ${max.toLocaleString(undefined, { maximumFractionDigits: 2 })}, averaging ${avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`;
+    const avg = byKind.numeric_mean.value;
+    const max = Math.max(...vals);
+    const min = Math.min(...vals);
+    sentence2 = ` Looking at <span class="story-highlight">${nc}</span>, values range from ${min.toLocaleString(undefined, { maximumFractionDigits: 2 })} to ${max.toLocaleString(undefined, { maximumFractionDigits: 2 })}, averaging ${avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}.${confidenceBadgeHTML(byKind.numeric_mean.confidence)}`;
+    if (['C', 'D'].includes(byKind.numeric_mean.confidence.grade)) {
+      sentence2 += ` <em>(Treat this average cautiously — it rests on limited or partly-missing data.)</em>`;
     }
   }
 
   let sentence3 = '';
-  if (catCols.length > 0) {
-    const cc = catCols[0];
+  if (byKind.category_share) {
+    const cc = byKind.category_share.column;
     const counts = {};
     for (const r of rows) { const v = r[cc]; if (v != null) counts[v] = (counts[v] || 0) + 1; }
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    if (top) {
-      const pct = ((top[1] / rows.length) * 100).toFixed(1);
-      sentence3 = ` The most common value in <span class="story-highlight">${cc}</span> is "${top[0]}", appearing in ${pct}% of returned rows.`;
-    }
+    const pct = byKind.category_share.value.toFixed(1);
+    sentence3 = ` The most common value in <span class="story-highlight">${cc}</span> is "${top[0]}", appearing in ${pct}% of returned rows.${confidenceBadgeHTML(byKind.category_share.confidence)}`;
   }
 
   const caveat = ` This reflects only the rows returned by the current query — it does not account for records filtered out, or populations entirely absent from this dataset.`;
