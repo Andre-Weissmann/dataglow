@@ -44,6 +44,8 @@ jobs:
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient
       - run: npm run test:slm
+      # Security regression: Story Engine escapes user-controlled data (stored XSS).
+      - run: npm run test:story-xss
 
   e2e-smoke:
     name: e2e smoke (real Chrome)
