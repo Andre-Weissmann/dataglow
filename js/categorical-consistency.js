@@ -132,6 +132,23 @@ export function clusterValues(valueFreqs, threshold = 0.82) {
   return clusters;
 }
 
+// Recompute a cluster's merge mapping for a user-chosen canonical value.
+// The suggested canonical is only a proposal; requirement is that the analyst
+// may accept it, reject the cluster, or EDIT the canonical to any spelling —
+// including a brand-new one that is not among the observed variants (e.g.
+// clustering "USA"/"U.S.A." but wanting the canonical to be "United States").
+// Every variant whose value differs from the chosen canonical becomes a merge
+// source; a variant equal to it (if present) is left as the untouched target.
+// Returns a new cluster object and never mutates the input.
+export function withCanonical(cluster, canonical) {
+  const target = String(canonical ?? '').trim();
+  if (!target) return { ...cluster }; // ignore empty override; keep proposal
+  const merges = cluster.variants
+    .filter(v => String(v.value) !== target)
+    .map(v => ({ from: v.value, to: target, count: v.count }));
+  return { ...cluster, canonical: target, merges };
+}
+
 // Query distinct value frequencies for one column and cluster them.
 export async function detectColumnClusters(table, column, engine, options = {}) {
   const { rows } = await engine.runQuery(
