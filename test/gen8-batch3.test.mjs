@@ -3,7 +3,7 @@
 // Trust & Collaboration Suite: Receipts, Peer Review, Time-Travel Diff
 // ============================================================
 // Verifies the three Batch 3 features end-to-end against real logic:
-//   1. Validation Receipts  — export packages grade + 18-layer summary +
+//   1. Validation Receipts  — export packages grade + 20-layer + Red Team summary +
 //                             ledger entries + story into one HTML artifact
 //   2. Peer Review Mode      — packet exports and re-imports with feedback intact
 //   3. Time-Travel Diff Mode — row add/remove/change detection, distributional

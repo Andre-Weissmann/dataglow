@@ -4,7 +4,7 @@
 // Packages a completed analysis into ONE self-contained, readable artifact a
 // non-technical stakeholder can open in any browser without running DATAGLOW:
 //   • the overall Confidence grade,
-//   • a pass/fail summary of all 18 validation layers,
+//   • a pass/fail summary of all 20 validation layers plus the Red Team self-test,
 //   • the key Assumption Ledger entries, and
 //   • the generated Story narrative.
 //
@@ -39,7 +39,7 @@ export function buildValidationReceipt({ datasetName, results = {}, ledgerEntrie
   for (const def of LAYER_DEFS) {
     if (def.id === SCORE_LAYER) {
       // Fold the Confidence Layer in using its grade→status mapping so the
-      // pass/fail tally covers all 18 layers.
+      // pass/fail tally covers all 20 layers plus the Red Team self-test.
       const status = confidence ? confidence.status : 'idle';
       layers.push({ id: def.id, name: def.name, status, summary: confidence ? `Grade ${confidence.grade} — ${confidence.verdict} (${confidence.score}/100).` : 'Not run.' });
       summary[status] = (summary[status] || 0) + 1;

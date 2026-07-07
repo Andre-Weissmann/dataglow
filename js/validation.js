@@ -1,5 +1,5 @@
 // ============================================================
-// DATAGLOW — The 18 Validation Layers
+// DATAGLOW — The 20 Validation Layers (+ Red Team self-test)
 // "The features nobody else has."
 // ============================================================
 
@@ -45,7 +45,7 @@ export const LAYER_DEFS = [
   { id: 'physiological_plausibility', name: 'Physiological Plausibility', desc: 'Healthcare-aware check: flags vital-sign values (heart rate, temperature, blood pressure, respiratory rate, SpO₂) outside general human physiological limits. A data-plausibility check, not medical advice.' },
   { id: 'upper_bound_sanity', name: 'Upper-Bound Sanity Anchor', desc: 'Flags values outside a column\'s definitional bounds — percentages above 100 or below 0, proportions/probabilities outside 0–1. Anchored on logical/mathematical limits, not this dataset\'s statistics. Conservative: skips ambiguous unbounded rates/ratios.' },
   { id: 'missingness_detective', name: 'Missingness Detective', desc: 'Classifies each column\'s missingness with Rubin\'s MCAR/MAR/MNAR taxonomy: finds an observed column that explains the missingness (MAR), defaults to "no driver found" (MCAR), and raises a conservative MNAR hypothesis for heavily-missing core fields.' },
-  { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 17 layers against an intentionally broken golden dataset.' },
+  { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 20 layers against an intentionally broken golden dataset.' },
 ];
 
 function result(status, summary, detail = null) {
@@ -1063,7 +1063,7 @@ export async function runAllLayers(ds, options = {}) {
   results.missingness_detective = await runMissingnessDetectiveLayer(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
 
   // ---- Domain Physics Engine ----
-  // Sits ABOVE the 18 layers: it reinterprets/annotates their raw output using a
+  // Sits ABOVE the 20 layers: it reinterprets/annotates their raw output using a
   // swappable domain pack (default "healthcare"). It never re-runs a layer.
   // Selecting "none" restores the raw, domain-agnostic output.
   const packName = options.pack || 'healthcare';

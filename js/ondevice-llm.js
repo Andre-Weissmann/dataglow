@@ -2,7 +2,7 @@
 // DATAGLOW — On-Device Small Language Model Interpreter
 // ============================================================
 // An opt-in, in-browser LLM that turns DATAGLOW's structured validation output
-// (the Assumption Ledger, the 18-layer results, and the Domain Physics Engine
+// (the Assumption Ledger, the 20-layer results, and the Domain Physics Engine
 // output when present) into a plain-English synthesis — WITHOUT any data ever
 // leaving the browser.
 //
@@ -140,7 +140,7 @@ export function buildSynthesisPrompt({ ledgerEntries = [], layerResults = {}, ph
   sections.push('## Assumption Ledger (judgment calls DATAGLOW made on the analyst\'s behalf)');
   sections.push(summarizeLedger(ledgerEntries));
   sections.push('');
-  sections.push('## Validation Layer Results (18-layer suite)');
+  sections.push('## Validation Layer Results (20-layer suite)');
   sections.push(summarizeLayerResults(layerResults));
 
   const physics = summarizePhysics(physicsOutput);

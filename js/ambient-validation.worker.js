@@ -3,7 +3,7 @@
 // ============================================================
 // Runs a lightweight, static subset of the validation suite against the SQL
 // query a user is *currently typing*, off the main thread so the editor never
-// blocks. This is deliberately NOT the full 18-layer suite (far too expensive
+// blocks. This is deliberately NOT the full 20-layer suite (far too expensive
 // to run on every keystroke against real data) — it is a cheap, purely
 // syntactic read of the query text plus the known column schema, catching the
 // small set of mistakes that are both common and detectable before the query

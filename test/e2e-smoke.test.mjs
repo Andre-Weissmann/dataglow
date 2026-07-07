@@ -2,7 +2,7 @@
 // DATAGLOW — Playwright end-to-end smoke test
 // ============================================================
 // Boots the real app in a real (headless) Chromium, waits for the DuckDB-WASM
-// engine to come alive, loads the built-in golden dataset, runs the 15-layer
+// engine to come alive, loads the built-in golden dataset, runs the 20-layer
 // validation suite, and asserts the Validate tab actually populates with
 // result cards. This is the closest thing to "a human opened the page and it
 // worked" that can run unattended.
@@ -122,7 +122,7 @@ async function main() {
     );
     console.log('✓ golden dataset loaded');
 
-    // Move to the Validate tab and run the 15-layer suite.
+    // Move to the Validate tab and run the 20-layer suite.
     await page.click('[data-testid="tab-validate"]');
     await page.click('#btn-validate-run');
     console.log('▶ validation run triggered, waiting for result cards…');
