@@ -1574,14 +1574,12 @@ async function renderDataHealth(ds, results) {
   const wrap = $('#data-health-wrap');
   wrap.style.display = '';
 
-  // Confidence-Calibrated Grades (two honest, heuristic axes). The combined
-  // Overall grade is the headline signal; the Integrity/Domain breakdown sits
-  // one tap away. The legacy CAT scorecard + confidence ring are de-prioritised
-  // under the Advanced/Legacy disclosure (see index.html). Hover each card for
-  // the plain-English reason.
-  renderCalibratedGrades(results && results.calibratedGrades);
-
   // CAT scorecard (CDC Data Quality Framework) — now under Advanced/Legacy.
+  // Computed and populated BEFORE the calibrated grades below so that the two
+  // async steps complete in a deterministic order: renderCalibratedGrades is the
+  // signal consumers (and the e2e smoke test) synchronize on, and it must not
+  // appear until the awaited CAT queries have finished filling #cat-scorecard —
+  // otherwise the scorecard reads as empty in the brief window between them.
   const cat = await catScorecard.computeCATScore(ds, results).catch(() => null);
   const catEl = $('#cat-scorecard');
   catEl.innerHTML = '';
@@ -1596,6 +1594,13 @@ async function renderDataHealth(ds, results) {
     catEl.appendChild(cell('Accuracy', cat.accuracy));
     catEl.appendChild(cell('Timeliness', cat.timeliness));
   }
+
+  // Confidence-Calibrated Grades (two honest, heuristic axes). The combined
+  // Overall grade is the headline signal; the Integrity/Domain breakdown sits
+  // one tap away. The legacy CAT scorecard + confidence ring are de-prioritised
+  // under the Advanced/Legacy disclosure (see index.html). Hover each card for
+  // the plain-English reason.
+  renderCalibratedGrades(results && results.calibratedGrades);
 
   // Golden Signals (Google SRE-inspired, mapped to data quality).
   const gs = await goldenSignals.computeGoldenSignals(ds, results).catch(() => null);
