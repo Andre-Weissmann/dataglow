@@ -2048,6 +2048,28 @@ function renderValidationResults(results) {
         card.appendChild(fRow);
       }
     }
+    // Physiological Plausibility: show the per-finding "why it's implausible"
+    // explanation and ALWAYS surface the visible, non-clinical disclaimer so it
+    // travels with the results wherever this card is shown.
+    if (layer.id === 'physiological_plausibility') {
+      if (r.checkedLabel) {
+        card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);', 'data-testid': 'physio-checked' }, `Columns checked: ${r.checkedLabel}`));
+      }
+      if (Array.isArray(r.findings) && r.findings.length) {
+        for (const f of r.findings) {
+          card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': `physio-finding-${f.vital}` }, [
+            el('div', { style: 'font-weight:600;' }, f.columns ? f.columns.map(c => `"${c}"`).join(' × ') : `"${f.column}"`),
+            el('div', {}, f.explanation),
+          ]));
+        }
+      }
+      if (r.disclaimer) {
+        card.appendChild(el('div', {
+          'data-testid': 'physio-disclaimer',
+          style: 'margin-top:var(--space-2); padding:var(--space-2); border-left:3px solid var(--color-grade-c); background:rgba(255,180,0,0.08); font-size:var(--text-xs); color:var(--color-text-muted); border-radius:6px;',
+        }, r.disclaimer));
+      }
+    }
     grid.appendChild(card);
   }
 }

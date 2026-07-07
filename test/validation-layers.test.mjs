@@ -47,11 +47,12 @@ async function main() {
   clearLedger();
 
   // ---- Layer registry ----
-  ok(LAYER_DEFS.length === 18, `registry: 18 validation layers defined (got ${LAYER_DEFS.length})`);
+  ok(LAYER_DEFS.length === 19, `registry: 19 validation layers defined (got ${LAYER_DEFS.length})`);
   const ids = new Set(LAYER_DEFS.map(l => l.id));
   ok(ids.has('categorical_consistency'), 'registry: layer 16 (categorical_consistency) present');
   ok(ids.has('cross_column_logic'), 'registry: layer 17 (cross_column_logic) present');
   ok(ids.has('distribution_drift'), 'registry: layer 18 (distribution_drift) present');
+  ok(ids.has('physiological_plausibility'), 'registry: layer 19 (physiological_plausibility) present');
 
   // ---- Pure clustering algorithm (dependency-free) ----
   const clusters = clusterValues([
