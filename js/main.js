@@ -46,6 +46,7 @@ import * as ondeviceLLM from './ondevice-llm.js';
 import * as digitalTwin from './digital-twin.js';
 import * as watchFolder from './watch-folder.js';
 import { withCanonical } from './categorical-consistency.js';
+import { SelfLearningModel, MIN_EXAMPLES } from './self-learning-rules.js';
 
 // ============================================================
 // Tab Definitions
@@ -427,7 +428,7 @@ function renderAmbientWarnings(warnings) {
       class: 'btn btn-secondary',
       style: 'font-size:var(--text-xs); padding:2px 8px; flex:none;',
       'data-testid': `ambient-dismiss-${w.id}`,
-      onclick: () => { dismissedAmbient.add(ambientKey(w)); renderAmbientWarnings(warnings); },
+      onclick: () => { dismissedAmbient.add(ambientKey(w)); recordLearningSignal({ source: 'ambient', column: w.column }, 'dismiss'); renderAmbientWarnings(warnings); },
     }, 'Dismiss');
     row.appendChild(dismiss);
     wrap.appendChild(row);
@@ -768,6 +769,7 @@ async function renderFuzzyDedup(ds, auditLog) {
         renderAuditLog(auditLog);
         // Record as a manual correction; may trigger a reusable-rule suggestion.
         ruleSuggestions.recordCorrection(pair.valueB, pair.valueA, pair.column);
+        await recordLearningSignal({ source: 'fuzzy_dedup', column: pair.column, categorical: true, severity: pair.similarity }, 'accept');
         await maybeShowRuleSuggestion(ds);
         row.style.opacity = '0.4'; row.style.pointerEvents = 'none';
         toast('Merged', 'success');
@@ -776,7 +778,10 @@ async function renderFuzzyDedup(ds, auditLog) {
         toast('Merge failed: ' + e.message, 'error');
       }
     });
-    ignoreBtn.addEventListener('click', () => { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; });
+    ignoreBtn.addEventListener('click', () => {
+      recordLearningSignal({ source: 'fuzzy_dedup', column: pair.column, categorical: true, severity: pair.similarity }, 'dismiss');
+      row.style.opacity = '0.4'; row.style.pointerEvents = 'none';
+    });
     row.appendChild(mergeBtn);
     row.appendChild(ignoreBtn);
     list.appendChild(row);
@@ -1908,6 +1913,137 @@ function initMemory() {
 }
 
 // ============================================================
+// Self-Learning Validation Rules
+// A single on-device logistic-regression model that personalizes flag ranking
+// to THIS user's own correction patterns. Per-session learning is always on
+// (RAM only, wiped on reload); cross-session persistence to IndexedDB is a
+// separate opt-in. See js/self-learning-rules.js for the model + technique.
+// ============================================================
+const SL_CONSENT_KEY = 'dataglow_persist_learned_corrections';
+const SL_MODEL_ID = 'default';
+let selfLearner = new SelfLearningModel();
+
+// Record a user correction as a labeled training example, then (if opted in)
+// persist the updated model. Never blocks the correction it is observing —
+// any failure is swallowed so learning can't break a real edit/merge/dismiss.
+async function recordLearningSignal(snapshot, action) {
+  if (!state.settings.selfLearningEnabled) return;
+  try {
+    const ex = selfLearner.record(snapshot, action);
+    if (!ex) return; // ambiguous action — no signal
+    if (state.settings.persistLearnedCorrections) {
+      await memoryStore.saveLearnedModel(SL_MODEL_ID, selfLearner.toJSON());
+    }
+    refreshSelfLearningStats();
+    // Re-highlight the currently shown validation results with the new knowledge.
+    if (window.__dataglowLastValidation) applySelfLearningHighlights();
+  } catch (e) { /* learning is best-effort; never disrupt the user's action */ }
+}
+
+// Add a small "likely relevant / likely dismiss" badge + plain-language reason
+// to an actionable flag row, IF the model is ready. Pure ranking aid — it never
+// changes data or auto-applies anything. `snapshot` describes the flag.
+function annotateWithPrediction(rowEl, snapshot) {
+  if (!state.settings.selfLearningEnabled || !selfLearner.isReady()) return;
+  try {
+    const ex = selfLearner.explain(snapshot);
+    const relevant = ex.prediction === 'likely-relevant';
+    const badge = el('span', {
+      class: 'self-learning-badge',
+      'data-testid': `self-learning-badge-${snapshot.source}-${snapshot.column || 'na'}`,
+      title: ex.reason,
+      style: `font-size:11px; font-weight:600; padding:2px 8px; border-radius:8px; color:#fff; background:${relevant ? 'var(--color-grade-d)' : 'var(--color-text-faint)'};`,
+    }, relevant ? `★ Likely relevant (${Math.round(ex.probability * 100)}%)` : `Likely dismiss (${Math.round(ex.probability * 100)}%)`);
+    const note = el('div', {
+      style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px; font-style:italic;',
+    }, `Personalized: ${ex.reason}`);
+    rowEl.appendChild(badge);
+    rowEl.appendChild(note);
+  } catch (e) { /* non-fatal */ }
+}
+
+// Re-render highlights over the last validation results by re-running the
+// validate render (cheap; results are cached). Kept indirect so both the toggle
+// and each new correction can refresh the view.
+function applySelfLearningHighlights() {
+  if (window.__dataglowLastValidation) renderValidationResults(window.__dataglowLastValidation);
+}
+
+function refreshSelfLearningStats() {
+  const statsEl = $('#self-learning-stats');
+  if (!statsEl) return;
+  if (!state.settings.selfLearningEnabled) {
+    statsEl.textContent = 'Self-learning is off — no corrections are being recorded.';
+    return;
+  }
+  const n = selfLearner.count;
+  if (selfLearner.isReady()) {
+    statsEl.textContent = `Learning from ${n} of your correction${n === 1 ? '' : 's'} this ${state.settings.persistLearnedCorrections ? 'device' : 'session'} — personalized ranking is active.`;
+  } else {
+    statsEl.textContent = `Learning from ${n} correction${n === 1 ? '' : 's'} so far. ${selfLearner.examplesUntilReady()} more needed before personalized ranking turns on (minimum ${MIN_EXAMPLES}).`;
+  }
+}
+
+function initSelfLearning() {
+  const enableToggle = $('#toggle-self-learning');
+  if (enableToggle) {
+    enableToggle.checked = state.settings.selfLearningEnabled;
+    enableToggle.addEventListener('change', () => {
+      state.settings.selfLearningEnabled = enableToggle.checked;
+      toast(enableToggle.checked ? 'Self-learning enabled for this session.' : 'Self-learning turned off.', 'success');
+      refreshSelfLearningStats();
+      applySelfLearningHighlights();
+    });
+  }
+
+  const persistToggle = $('#toggle-persist-learning');
+  if (persistToggle) {
+    state.settings.persistLearnedCorrections = localStorage.getItem(SL_CONSENT_KEY) === '1';
+    persistToggle.checked = state.settings.persistLearnedCorrections;
+    persistToggle.addEventListener('change', async () => {
+      state.settings.persistLearnedCorrections = persistToggle.checked;
+      localStorage.setItem(SL_CONSENT_KEY, persistToggle.checked ? '1' : '0');
+      try {
+        if (persistToggle.checked) {
+          // Turning persistence ON: save whatever we've learned this session so
+          // far, so nothing is silently lost, and merge in any prior device model.
+          const prior = await memoryStore.getLearnedModel(SL_MODEL_ID);
+          if (prior && selfLearner.count === 0) selfLearner = SelfLearningModel.fromJSON(prior);
+          await memoryStore.saveLearnedModel(SL_MODEL_ID, selfLearner.toJSON());
+        }
+      } catch (e) { /* IndexedDB unavailable — non-fatal */ }
+      toast(persistToggle.checked
+        ? 'Learned corrections will be remembered on this device (stored locally only).'
+        : 'Cross-session learning disabled — corrections stay in this session only.', 'success');
+      refreshSelfLearningStats();
+    });
+  }
+
+  const clearBtn = $('#btn-clear-learning');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('Clear all learned corrections from this browser? DATAGLOW will forget your personalization and start from zero.')) return;
+      selfLearner = new SelfLearningModel();
+      try { await memoryStore.clearLearnedModels(); } catch (e) { /* non-fatal */ }
+      toast('Learned corrections cleared', 'success');
+      refreshSelfLearningStats();
+      applySelfLearningHighlights();
+    });
+  }
+
+  // Load a persisted model if the user has previously opted in.
+  (async () => {
+    try {
+      if (state.settings.persistLearnedCorrections) {
+        const prior = await memoryStore.getLearnedModel(SL_MODEL_ID);
+        if (prior) selfLearner = SelfLearningModel.fromJSON(prior);
+      }
+    } catch (e) { /* non-fatal */ }
+    refreshSelfLearningStats();
+  })();
+}
+
+// ============================================================
 // Anonymized Export (Differential Privacy)
 // ============================================================
 function initAnonExport() {
@@ -2044,6 +2180,9 @@ function renderValidationResults(results) {
               `Categorical merge: ${applied.merges.map(m => `"${m.from}"`).join(', ')} → "${applied.canonical}" in "${cl.column}"${edited}.`, { column: cl.column, canonical: applied.canonical, edited: applied.canonical !== cl.canonical });
             renderAssumptionLedger();
             renderProvenanceTrail();
+            // Treat an edited canonical as a stronger accept signal (the user
+            // engaged with, rather than rubber-stamped, the flag).
+            await recordLearningSignal({ source: 'categorical_consistency', column: cl.column, sensitive: cl.sensitive, categorical: true, severity: Math.min(1, cl.variants.length / 5) }, applied.canonical !== cl.canonical ? 'edit' : 'accept');
             clRow.style.opacity = '0.4'; clRow.style.pointerEvents = 'none';
             toast(`Merged into "${applied.canonical}"`, 'success');
           } catch (e) {
@@ -2057,6 +2196,7 @@ function renderValidationResults(results) {
           ledger.logAssumption('Categorical Consistency Engine',
             `Rejected suggested merge for "${cl.column}" (${cl.variants.map(v => `"${v.value}"`).join(', ')}) — values kept distinct.`,
             { column: cl.column, rejected: true, variants: cl.variants });
+          recordLearningSignal({ source: 'categorical_consistency', column: cl.column, sensitive: cl.sensitive, categorical: true, severity: Math.min(1, cl.variants.length / 5) }, 'reject');
           renderAssumptionLedger();
           clRow.style.opacity = '0.4'; clRow.style.pointerEvents = 'none';
           toast('Suggestion rejected', 'success');
@@ -2064,6 +2204,7 @@ function renderValidationResults(results) {
         clRow.appendChild(canonInput);
         clRow.appendChild(mergeBtn);
         clRow.appendChild(rejectBtn);
+        annotateWithPrediction(clRow, { source: 'categorical_consistency', column: cl.column, sensitive: cl.sensitive, categorical: true, severity: Math.min(1, cl.variants.length / 5) });
         card.appendChild(clRow);
       }
     }
@@ -2089,11 +2230,13 @@ function renderValidationResults(results) {
             { rule: f.rule, columns: f.columns, count: f.count, dismissed: true });
           if (ds) await provenance.recordStep(ds.table, 'validate',
             `Dismissed cross-column flag: ${f.ruleLabel} on ${f.columns.map(c => `"${c}"`).join(', ')}.`, { rule: f.rule, columns: f.columns, dismissed: true });
+          await recordLearningSignal({ source: 'cross_column_logic', column: f.columns && f.columns[0], severity: 0.6 }, 'dismiss');
           renderAssumptionLedger();
           renderProvenanceTrail();
           fRow.style.opacity = '0.4'; fRow.style.pointerEvents = 'none';
           toast('Flag dismissed and recorded in the audit trail', 'success');
         });
+        annotateWithPrediction(fRow, { source: 'cross_column_logic', column: f.columns && f.columns[0], severity: 0.6 });
         card.appendChild(fRow);
       }
     }
@@ -2146,11 +2289,13 @@ function renderValidationResults(results) {
               { column: f.column, category: f.category, count: f.count, dismissed: true });
             if (ds) await provenance.recordStep(ds.table, 'validate',
               `Dismissed upper-bound flag on "${f.column}" (${f.category} ${f.low}–${f.high}).`, { column: f.column, dismissed: true });
+            await recordLearningSignal({ source: 'upper_bound_sanity', column: f.column, numeric: true, severity: 0.7 }, 'dismiss');
             renderAssumptionLedger();
             renderProvenanceTrail();
             fRow.style.opacity = '0.4'; fRow.style.pointerEvents = 'none';
             toast('Flag dismissed and recorded in the audit trail', 'success');
           });
+          annotateWithPrediction(fRow, { source: 'upper_bound_sanity', column: f.column, numeric: true, severity: 0.7 });
           card.appendChild(fRow);
         }
       }
@@ -2863,6 +3008,7 @@ function init() {
   initSettings();
   initRedTeam();
   initMemory();
+  initSelfLearning();
   initAnonExport();
   initLedger();
   initProvenance();

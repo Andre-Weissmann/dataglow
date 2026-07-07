@@ -721,6 +721,31 @@
     <div id="fingerprint-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
     <button class="btn btn-secondary" id="btn-clear-fingerprints" style="margin-bottom:var(--space-5);" data-testid="button-clear-fingerprints">Clear stored fingerprints</button>
 
+    <div class="sidebar-heading">Self-Learning Validation Rules</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      DATAGLOW can learn from <strong>your own corrections</strong> — every time you apply or reject a
+      suggested merge, or dismiss a validation flag — and use that to <strong>rank the flags you're most
+      likely to care about first</strong>. It records a small labeled example (which check fired, the
+      column type, and whether you acted on it or dismissed it) — <strong>never your raw cell values</strong>.
+    </p>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      <strong>What this is:</strong> a simple on-device statistical learner (a textbook
+      <strong>logistic-regression</strong> model) that personalizes to your patterns. It is
+      <strong>not</strong> a general-purpose AI, neural network, or deep-learning system, and it starts
+      knowing <strong>nothing</strong> until you've made several corrections (at least 10). It only ever
+      <strong>ranks and highlights</strong> — it never auto-edits your data.
+    </p>
+    <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); margin-bottom:var(--space-2); cursor:pointer;">
+      <input type="checkbox" id="toggle-self-learning" data-testid="toggle-self-learning" checked />
+      Learn from my corrections this session (in-memory only, wiped on reload)
+    </label>
+    <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); margin-bottom:var(--space-2); cursor:pointer;">
+      <input type="checkbox" id="toggle-persist-learning" data-testid="toggle-persist-learning" />
+      Remember what I've taught it across sessions on this device (opt-in)
+    </label>
+    <div id="self-learning-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
+    <button class="btn btn-secondary" id="btn-clear-learning" style="margin-bottom:var(--space-5);" data-testid="button-clear-learning">Clear my learned corrections</button>
+
     <div class="sidebar-heading">About &amp; Attributions</div>
     <div style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-5);">
       <p style="margin-bottom:var(--space-2);">
