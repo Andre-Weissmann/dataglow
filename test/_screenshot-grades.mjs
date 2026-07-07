@@ -42,8 +42,23 @@ try {
     const o = document.querySelector('[data-testid="grade-overall-grade"]');
     return i && p && o && /[A-F]/.test(i.textContent) && /[A-F]/.test(p.textContent) && /[A-F]/.test(o.textContent);
   }, { timeout: 20000, polling: 500 });
-  const box = await page.$('#calibrated-grades');
-  await box.screenshot({ path: join(REPO_ROOT, 'docs/calibrated-grades.png') });
+  // Capture the whole Data Health Dashboard so the screenshot shows the full
+  // visual hierarchy: the Overall headline (primary), the Integrity/Domain
+  // breakdown (expanded), and the collapsed Advanced/Legacy disclosure.
+  const wrap = await page.$('#data-health-wrap');
+  await wrap.screenshot({ path: join(REPO_ROOT, 'docs/calibrated-grades.png') });
+
+  // A second capture with the Advanced/Legacy disclosure expanded, showing the
+  // de-prioritised legacy confidence ring + CAT scorecard are still reachable.
+  await page.click('[data-testid="advanced-legacy"] > summary');
+  await page.waitForFunction(() => {
+    const r = document.querySelector('#confidence-summary');
+    return r && r.getBoundingClientRect().height > 0;
+  }, { timeout: 5000, polling: 200 });
+  const adv = await page.$('[data-testid="advanced-legacy"]');
+  await adv.scrollIntoViewIfNeeded();
+  await adv.screenshot({ path: join(REPO_ROOT, 'docs/calibrated-grades-advanced-expanded.png') });
+
   const grades = await page.evaluate(() => ({
     integrity: document.querySelector('[data-testid="grade-integrity-grade"]').textContent.trim(),
     domain: document.querySelector('[data-testid="grade-plausibility-grade"]').textContent.trim(),

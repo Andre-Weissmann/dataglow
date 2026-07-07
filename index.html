@@ -243,8 +243,19 @@
       <div id="data-health-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-3);">Data Health Dashboard</div>
-          <div id="calibrated-grades" style="display:none; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
-          <div id="cat-scorecard" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
+
+          <!-- PRIMARY / headline: single-glance Overall quality grade (Confidence-
+               Calibrated Grades). This is THE number users should see first. -->
+          <div id="overall-headline" style="display:none; margin-bottom:var(--space-4);" data-testid="overall-headline"></div>
+
+          <!-- SECONDARY / one tap away: the Integrity vs Domain Confidence
+               breakdown behind the Overall grade. Expanded by default so the
+               "why" is immediately reachable directly below the headline. -->
+          <details id="grade-breakdown" data-testid="grade-breakdown" open style="margin-bottom:var(--space-4);">
+            <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:600; color:var(--color-text-muted); margin-bottom:var(--space-3);">Why this grade? — Integrity &amp; Domain Confidence breakdown</summary>
+            <div id="calibrated-grades" style="display:none; gap:var(--space-4); flex-wrap:wrap;"></div>
+          </details>
+
           <div id="golden-signals" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-4);"></div>
           <div style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap;">
             <label style="font-size:var(--text-sm); color:var(--color-text-muted);">Materiality threshold: <span id="materiality-value" class="mono">1.0</span>% of rows</label>
@@ -255,28 +266,41 @@
             <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Per-Entity Deviations (UEBA-style)</div>
             <div id="entity-baseline-list"></div>
           </div>
-        </div>
-      </div>
 
-      <div id="confidence-summary" style="display:none; margin-bottom:var(--space-6);" class="card" >
-        <div style="padding:var(--space-5); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-4);">
-          <div class="confidence-ring-wrap">
-            <div class="confidence-ring">
-              <svg width="96" height="96" viewBox="0 0 96 96">
-                <circle cx="48" cy="48" r="42" fill="none" stroke="var(--color-surface-offset)" stroke-width="8"/>
-                <circle id="confidence-ring-arc" cx="48" cy="48" r="42" fill="none" stroke="var(--color-grade-a)" stroke-width="8" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"/>
-              </svg>
-              <div class="confidence-ring-label">
-                <div class="confidence-ring-score" id="confidence-score">--</div>
-                <div class="confidence-ring-grade" id="confidence-grade-label">—</div>
+          <!-- ADVANCED / legacy: the two older quality surfaces (legacy blended
+               confidence ring + CAT scorecard) kept fully functional but
+               collapsed by default so they no longer compete with the Overall
+               grade for primary attention. Not deleted, not broken — supplementary. -->
+          <details id="advanced-legacy" data-testid="advanced-legacy" style="margin-top:var(--space-5); border-top:1px solid var(--color-divider); padding-top:var(--space-4);">
+            <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:600; color:var(--color-text-muted);">Advanced / Legacy quality views — confidence ring &amp; CAT scorecard</summary>
+            <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin:var(--space-2) 0 var(--space-4);">Supplementary and legacy scoring surfaces, kept for continuity and comparison against historical behavior. The Overall grade above is the primary signal — these are not required reading.</div>
+
+            <div style="font-size:var(--text-sm); font-weight:600; color:var(--color-text-muted); margin-bottom:var(--space-2);">CAT Scorecard <span style="font-weight:400; color:var(--color-text-faint);">(CDC Data Quality Framework)</span></div>
+            <div id="cat-scorecard" style="display:flex; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-5);"></div>
+
+            <div style="font-size:var(--text-sm); font-weight:600; color:var(--color-text-muted); margin-bottom:var(--space-2);">Legacy Confidence Score <span style="font-weight:400; color:var(--color-text-faint);">(blended 0–100 ring)</span></div>
+            <div id="confidence-summary" style="display:none;">
+              <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-4);">
+                <div class="confidence-ring-wrap">
+                  <div class="confidence-ring">
+                    <svg width="96" height="96" viewBox="0 0 96 96">
+                      <circle cx="48" cy="48" r="42" fill="none" stroke="var(--color-surface-offset)" stroke-width="8"/>
+                      <circle id="confidence-ring-arc" cx="48" cy="48" r="42" fill="none" stroke="var(--color-grade-a)" stroke-width="8" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"/>
+                    </svg>
+                    <div class="confidence-ring-label">
+                      <div class="confidence-ring-score" id="confidence-score">--</div>
+                      <div class="confidence-ring-grade" id="confidence-grade-label">—</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style="font-weight:600; font-size:var(--text-lg);" id="confidence-verdict">Not yet run</div>
+                    <div style="font-size:var(--text-sm); color:var(--color-text-muted);" id="confidence-detail">Run all 18 layers to generate a confidence score.</div>
+                  </div>
+                </div>
+                <div id="confidence-signals" style="display:flex; gap:var(--space-5); flex-wrap:wrap;"></div>
               </div>
             </div>
-            <div>
-              <div style="font-weight:600; font-size:var(--text-lg);" id="confidence-verdict">Not yet run</div>
-              <div style="font-size:var(--text-sm); color:var(--color-text-muted);" id="confidence-detail">Run all 18 layers to generate a confidence score.</div>
-            </div>
-          </div>
-          <div id="confidence-signals" style="display:flex; gap:var(--space-5); flex-wrap:wrap;"></div>
+          </details>
         </div>
       </div>
 
