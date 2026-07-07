@@ -22,6 +22,7 @@ Everything runs on WebAssembly and vanilla JS. Your data never leaves your machi
 - **R** — in-browser notebook via WebR
 - **Swift** — structural SwiftUI-syntax preview (renders Text/VStack/HStack/Button/Divider live); full SwiftWasm compilation is planned for a future generation
 - **Red Team Mode** — a built-in self-test that runs a golden dataset with known injected defects (nulls, negatives, an outlier, duplicate rows) through every validation layer and checks that DATAGLOW actually catches them
+- **Self-Learning Validation Rules** — learns from *your own* corrections (applying/rejecting a suggested merge, dismissing a validation flag) and re-ranks flags so the ones you're most likely to care about surface first, with a plain-language "why". It is a simple, transparent, on-device **logistic-regression** model — not a neural network or general-purpose AI — that starts knowing nothing until you've made at least 10 corrections. Only labeled examples of your corrections (which check fired, the column type, accept/dismiss) are recorded — **never your raw cell values** — and nothing ever leaves your browser. Per-session learning is on by default (RAM only, wiped on reload); remembering it across sessions in IndexedDB is a separate opt-in, and a one-click **"Clear my learned corrections"** wipes it. It only ranks and highlights — it never auto-edits your data.
 
 ### Supported file formats (Tier 1)
 
@@ -53,6 +54,7 @@ dataglow/
 │   ├── loaders.js           # file format loaders
 │   ├── clean.js             # automated cleaning + audit trail
 │   ├── validation.js        # 20-layer validation suite + Red Team self-test
+│   ├── self-learning-rules.js # on-device logistic-regression learner (personalizes flag ranking)
 │   ├── visualize.js         # chart builder
 │   ├── story.js             # AI narrative generation (pluggable providers)
 │   ├── python-runtime.js    # Pyodide notebook

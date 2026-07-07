@@ -22,6 +22,12 @@ export const state = {
     // file loaded today and a same-schema file loaded on a future visit.
     // Only summary numbers are stored, never raw rows. See js/memory-store.js.
     persistFingerprints: false,
+    // Self-Learning Validation Rules. Per-session learning is ON by default —
+    // it lives only in RAM and is wiped on reload, never leaving this session.
+    // Cross-session persistence (saving the learned model to IndexedDB) is a
+    // separate, explicit opt-in, default OFF. See js/self-learning-rules.js.
+    selfLearningEnabled: true,
+    persistLearnedCorrections: false,
   },
   tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch'],
 };

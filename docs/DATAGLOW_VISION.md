@@ -251,6 +251,22 @@ Row-level and layer-flip diffing are pure and Node-testable; the distributional 
 
 ---
 
+## 🧠 SELF-LEARNING VALIDATION RULES (This Release)
+
+DATAGLOW's flags are the same for everyone, but which flags *matter* is personal — one analyst always merges near-duplicate country codes, another always dismisses the same "impossible" upper-bound as a legitimate sentinel value. **Self-Learning Validation Rules** (`js/self-learning-rules.js`) personalizes flag *ranking* to the individual user, entirely on-device.
+
+**How it learns.** It hooks into the corrective actions the app *already* supports — applying or rejecting a Categorical Consistency merge, ignoring a fuzzy-duplicate, dismissing a Cross-Column or Upper-Bound flag, dismissing an ambient warning. Each action becomes one labeled example: a small **feature snapshot** of the flag (which check fired, whether the column is numeric/categorical, whether it's a sensitive category, a severity estimate) paired with the **label** (acted-on = a real issue; dismissed = not). Crucially, it records only these derived features — **never the raw cell values**.
+
+**The model — precise branding.** It is a textbook **binary logistic regression** (Cox 1958), trained online with stochastic gradient descent so it updates incrementally after each correction. It is deliberately linear and transparent — **not** a neural network, deep-learning system, or general-purpose AI — because a linear model's prediction decomposes exactly into a per-feature sum (`logit = Σ wᵢxᵢ`), which is what lets DATAGLOW show a plain-language *why* ("You've dismissed 4 similar flags before"). This is the same explainability standard as the Assumption Ledger and the Explainable Benford Gate, and the same precision standard applied to the ZK-proof branding fix — we call it exactly what it is.
+
+**Applying the learning.** Once at least **10** corrections exist (the threshold is displayed, and the model stays silent below it because it genuinely knows nothing yet), each actionable flag gets a **"Likely relevant" / "Likely dismiss"** badge with its probability and a one-line personalized reason. It only **ranks and highlights** — it never auto-edits data or auto-applies a correction. A human action is still required for every change.
+
+**Privacy & persistence.** Per-session learning is **on by default** but lives only in RAM and is wiped on reload — it never leaves the session. Remembering the learned model **across sessions** (serialized weights + labeled examples in IndexedDB) is a **separate, explicit opt-in, default OFF**, following the same consent pattern as the Distributional Fingerprint Drift layer (a `localStorage` consent boolean + an injected store, so the model core stays pure and Node-testable). A one-click **"Clear my learned corrections"** wipes it. Nothing is ever uploaded.
+
+**Honest disclaimer.** This is a simple on-device statistical learner personalizing to one user's patterns — not a general-purpose AI — and it starts with zero knowledge until several corrections have been made.
+
+---
+
 ## ✅ HOW TO KNOW FEATURES ARE REALLY WORKING (Not Fake)
 
 ### Golden Dataset Test

@@ -46,6 +46,10 @@ jobs:
       - run: npm run test:upperbound
       # Missingness Detective: MCAR/MAR/MNAR causal-missingness classification.
       - run: npm run test:missingness
+      # Self-Learning Validation Rules: labeled-example capture, incremental
+      # logistic-regression training, min-examples gating, ranking/explanation,
+      # and the opt-in/opt-out/clear persistence contract.
+      - run: npm run test:selflearn
       # Fast, deterministic, browser-free unit suites (Gen 9 Batch 2):
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient

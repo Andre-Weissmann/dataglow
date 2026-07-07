@@ -5,10 +5,11 @@
 // ============================================================
 
 const DB_NAME = 'dataglow_memory';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROFILES = 'columnProfiles';
 const STORE_RULES = 'approvedRules';
 const STORE_BASELINES = 'datasetBaselines';
+const STORE_LEARNED = 'learnedCorrections';
 
 const PROFILE_CAP = 200; // hard cap; evict least-recently-used beyond this
 
@@ -49,6 +50,9 @@ export function initMemoryStore() {
       }
       if (!db.objectStoreNames.contains(STORE_BASELINES)) {
         db.createObjectStore(STORE_BASELINES, { keyPath: 'fingerprintHash' });
+      }
+      if (!db.objectStoreNames.contains(STORE_LEARNED)) {
+        db.createObjectStore(STORE_LEARNED, { keyPath: 'modelId' });
       }
     };
     open.onsuccess = () => resolve(open.result);
@@ -171,5 +175,39 @@ export async function clearBaselines() {
   const db = await initMemoryStore();
   const tx = db.transaction(STORE_BASELINES, 'readwrite');
   tx.objectStore(STORE_BASELINES).clear();
+  await txDone(tx);
+}
+
+// ---------- learnedCorrections (Self-Learning Validation Rules, opt-in) ----------
+// Stores the serialized on-device logistic-regression model (learned weights +
+// the labeled examples of the user's own corrections). Persisted ONLY when the
+// user opts in to cross-session learning. Keyed by a caller-supplied modelId so
+// a future per-dataset split is possible; today a single 'default' model is used.
+
+export async function getLearnedModel(modelId = 'default') {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEARNED, 'readonly');
+  const rec = await req(tx.objectStore(STORE_LEARNED).get(modelId));
+  return rec ? rec.model : null;
+}
+
+export async function saveLearnedModel(modelId, model) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEARNED, 'readwrite');
+  tx.objectStore(STORE_LEARNED).put({ modelId: modelId || 'default', model, savedAt: Date.now() });
+  await txDone(tx);
+}
+
+export async function countLearnedExamples(modelId = 'default') {
+  const m = await getLearnedModel(modelId);
+  return m && Array.isArray(m.examples) ? m.examples.length : 0;
+}
+
+// Clear ONLY the learned corrections, leaving fingerprints/profiles/rules intact.
+// Backs the "Clear my learned corrections" consent control.
+export async function clearLearnedModels() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEARNED, 'readwrite');
+  tx.objectStore(STORE_LEARNED).clear();
   await txDone(tx);
 }
