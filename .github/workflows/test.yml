@@ -43,6 +43,10 @@ jobs:
       # min-history gate, trend-aware flagging, and the injected trend-history
       # store wiring that extends Distributional Fingerprint Drift (PR#15).
       - run: npm run test:driftforecast
+      # Expected Value Ranges: informational numeric-column trend bands derived
+      # from the forecast projections (per-upload trend %, within/outside-range
+      # phrasing, numeric-only scope, graceful fallback, no status change).
+      - run: npm run test:expectedrange
       # Gen 9 Batch 1: Domain Physics Engine unit suite + provenance attestation verifier.
       - run: npm run test:physics
       - run: npm run test:attestation
