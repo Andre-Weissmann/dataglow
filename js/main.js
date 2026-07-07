@@ -19,6 +19,7 @@ import * as fixConfidence from './fix-confidence.js';
 import * as activeLearning from './active-learning.js';
 import * as ondeviceML from './ondevice-ml.js';
 import { scoreIsolationForest } from './isolation-forest.js';
+import { scorePredictiveAnomalies } from './predictive-anomaly.js';
 import * as spc from './spc-control.js';
 import * as catScorecard from './cat-scorecard.js';
 import * as materiality from './materiality.js';
@@ -905,6 +906,7 @@ async function runValidation() {
   await renderTopProblems(ds, results);
   await renderDataHealth(ds, results);
   await renderMultivariate(ds);
+  await renderPredictiveAnomaly(ds);
   await renderSPC(ds);
   await persistColumnProfiles(ds, results);
   renderAssumptionLedger();
@@ -1765,6 +1767,54 @@ async function renderMultivariate(ds) {
 
   list.appendChild(section('Mahalanobis (diagonal approximation)', 'Mahalanobis (1936) — standardized distance from the centroid.', maha));
   list.appendChild(section('Isolation Forest', 'Liu, Ting & Zhou (2008) — anomalies isolate in shorter tree paths.', iforest));
+}
+
+// Predictive Anomaly Scoring: holistic kNN/Gower outlier score over mixed
+// numeric + categorical features. Distinct from the numeric-only Multivariate
+// Outliers panel and deliberately NOT one of the 20 layers.
+async function renderPredictiveAnomaly(ds) {
+  const wrap = $('#predictive-anomaly-wrap');
+  const list = $('#predictive-anomaly-list');
+  if (!wrap || !list) return;
+  const usableCols = ds.cols.filter(c =>
+    ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type) ||
+    !/\b(TIMESTAMP|DATE|TIME)\b/i.test(c.type)
+  );
+  if (usableCols.length < 2) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+
+  const res = await scorePredictiveAnomalies(ds.table, ds.cols, engine, { rowCount: ds.rowCount }).catch(() => null);
+  if (!res || !res.rows || !res.rows.length) {
+    list.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted);' },
+      (res && res.note) ? res.note : 'Not enough usable features or rows to score holistic anomalies.'));
+    return;
+  }
+
+  const feats = [...res.features.numeric, ...res.features.categorical];
+  list.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' },
+    `Scored on ${feats.length} feature(s): ${feats.join(', ')}. k=${res.k} nearest neighbours.`));
+
+  if (res.sampling && res.sampling.sampled) {
+    list.appendChild(el('div', { 'data-testid': 'predictive-anomaly-sampling', style: 'font-size:var(--text-xs); color:var(--color-grade-c); margin-bottom:var(--space-2);' },
+      `Dataset has ${res.sampling.totalRows.toLocaleString()} rows; scoring a uniform random sample of ${res.sampling.usedRows.toLocaleString()} for performance. Unsampled rows are not scored.`));
+  }
+
+  const anomalies = res.rows.filter(r => r.isAnomaly);
+  list.appendChild(el('div', { 'data-testid': 'predictive-anomaly-summary', style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);' },
+    `${anomalies.length} row(s) flagged as holistically anomalous (mean+3σ of the kNN distance). Top ${Math.min(5, res.rows.length)} by score shown.`));
+
+  res.rows.slice(0, 5).forEach(r => {
+    const color = r.isAnomaly ? 'var(--color-grade-d)' : 'var(--color-text-muted)';
+    const card = el('div', { 'data-testid': `predictive-anomaly-row-${r.rowIndex}`, style: 'padding:var(--space-2) 0; border-top:1px solid var(--color-divider);' });
+    card.appendChild(el('div', { style: 'display:flex; gap:var(--space-2); align-items:center;' }, [
+      el('span', { style: `font-weight:600; color:${color};` }, `#${r.rowIndex} · score ${r.score}`),
+      el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); overflow:hidden; text-overflow:ellipsis; flex:1;' },
+        Object.entries(r.values).map(([k, v]) => `${k}=${v}`).join(', ')),
+    ]));
+    card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:2px;' }, r.reason));
+    list.appendChild(card);
+  });
 }
 
 // SPC control charts + Cpk badge per numeric column, rendered as inline SVG.

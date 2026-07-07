@@ -16,6 +16,7 @@
     "test:physiology": "node --import ./test/duckdb-loader-hook.mjs test/physiological-plausibility.test.mjs",
     "test:upperbound": "node --import ./test/duckdb-loader-hook.mjs test/upper-bound-sanity.test.mjs",
     "test:missingness": "node --import ./test/duckdb-loader-hook.mjs test/missingness-detective.test.mjs",
+    "test:predanomaly": "node --import ./test/duckdb-loader-hook.mjs test/predictive-anomaly.test.mjs",
     "test:selflearn": "node test/self-learning-rules.test.mjs",
     "test:attestation": "node test/verify-attestation.mjs",
     "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/gen9-batch3.test.mjs",

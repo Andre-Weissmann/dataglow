@@ -323,6 +323,25 @@
         </div>
       </div>
 
+      <div id="predictive-anomaly-wrap" style="display:none; margin-top:var(--space-6);" class="card" data-testid="predictive-anomaly-panel">
+        <div style="padding:var(--space-4);">
+          <div class="sidebar-heading" style="margin-bottom:var(--space-2);">
+            Predictive Anomaly Scoring
+            <span style="font-size:11px; font-weight:500; padding:1px 6px; border-radius:8px; background:var(--color-surface-offset); color:var(--color-text-muted); margin-left:var(--space-2);">ML-based holistic score · not a validation layer</span>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            An on-device, unsupervised k-nearest-neighbours outlier score (kNN distance, Ramaswamy&nbsp;et&nbsp;al. 2000)
+            over Gower distance (Gower 1971), so it works across <em>numeric and categorical</em> columns at once.
+            It learns the normal <em>shape</em> of the currently-loaded dataset and flags whole rows whose
+            <em>combination</em> of values is unusual — holistic anomalies the single-column rules and the numeric-only
+            Multivariate Outliers panel can miss. This is a statistical outlier detector personalised to
+            <em>this</em> dataset's own distribution, not a general AI — and unusual is not the same as wrong: a flag may
+            be a legitimate rare case, not an error. It is a complementary capability, separate from the 20 validation layers.
+          </p>
+          <div id="predictive-anomaly-list"></div>
+        </div>
+      </div>
+
       <div id="spc-wrap" style="display:none; margin-top:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">SPC Control Charts &amp; Process Capability</div>

@@ -267,6 +267,20 @@ DATAGLOW's flags are the same for everyone, but which flags *matter* is personal
 
 ---
 
+## 🔮 PREDICTIVE ANOMALY SCORING (This Release)
+
+The rule-based layers and the numeric-only Multivariate Outliers panel each ask a *single* question at a time — is *this* value negative, is *this* column drifting, is *this* number far from *this* column's mean. They structurally cannot see a row that is wrong only in the *combination* of its values: a 15-year-old with a retirement account, a tiny claim from a region that never files tiny claims. **Predictive Anomaly Scoring** (`js/predictive-anomaly.js`) is an on-device, unsupervised detector that learns the "normal shape" of the *currently-loaded* dataset and scores whole rows by how holistically unusual they are.
+
+**The technique — precise branding.** It is a **k-nearest-neighbours distance outlier score** (Ramaswamy, Rastogi & Shim 2000; Angiulli & Pizzuti 2002 — public academic algorithms): a row's score is its mean distance to its *k* nearest neighbours, so rows that sit far from every dense neighbourhood score high. The distance is **Gower distance** (Gower 1971), which is what lets the score span *mixed* numeric **and** categorical columns on one [0,1] scale — numeric features contribute range-normalised absolute differences, categorical features contribute 0/1 match/mismatch. This is not a neural network and not a general-purpose AI; it is a distance calculation fit to this dataset's own spread, in memory, per-session.
+
+**Explainability.** Because Gower distance is an *average of per-feature terms*, a row's distance to its neighbours decomposes additively across features. We aggregate each feature's mean dissimilarity to the row's *k* nearest neighbours and report the top contributors in plain language — "Row #40's combination of values is unusual: amount (5000) sits far from similar rows (61%) and region='Z' rarely co-occurs with these values (33%)." Same explainability standard as the Assumption Ledger and the On-Device Anomaly Explainer.
+
+**Not a 21st layer.** It is deliberately surfaced as its *own* clearly-labelled panel in the Validate tab ("ML-based holistic score · not a validation layer"), separate from the 20 validation layers and their count, and separate from both the numeric-only Multivariate Outliers panel and the Self-Learning Validation Rules learner (which is supervised on *user feedback*, and cross-session-optional). It is also distinct from Distributional Fingerprint Drift, which is about *cross-file* drift, not *intra-dataset* row-level anomalies.
+
+**Performance & honesty.** The pairwise kNN search is O(n²); the working set is capped (default **2,000 rows**) and larger tables are uniformly random-sampled down to the cap, with the sampling **disclosed in the UI** ("scoring a uniform random sample of N … unsampled rows are not scored"). Near-unique / identifier-like categorical columns and temporal columns are excluded so the score reflects real structure. Disclaimer shown to the user: this is a statistical outlier detector personalised to *this* dataset's distribution, not a general AI — and **unusual is not the same as wrong**; a flag may be a legitimate rare case, not an error.
+
+---
+
 ## ✅ HOW TO KNOW FEATURES ARE REALLY WORKING (Not Fake)
 
 ### Golden Dataset Test
