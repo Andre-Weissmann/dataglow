@@ -3,3 +3,4 @@ node_modules/
 *.log
 test/e2e-failure.png
 test/_upperbound-demo.csv
+test/_missingness-demo.csv
