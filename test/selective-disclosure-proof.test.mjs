@@ -1,9 +1,9 @@
 // ============================================================
 // DATAGLOW — Gen 10 Batch 3 test
-// Zero-Knowledge-Style "Prove Without Revealing" Mode
+// Selective-Disclosure Provenance Proof
 // ============================================================
 // Verifies the Merkle-tree commitment + selective-disclosure scheme in
-// js/zk-provenance.js against its real logic:
+// js/selective-disclosure-proof.js against its real logic:
 //   • builds a proof artifact for a realistic MIMIC-IV-style fixture, using the
 //     existing Confidence-Calibrated Grades to derive the claim set;
 //   • runs the independent verifier and asserts true claims validate;
@@ -11,16 +11,16 @@
 //     its Merkle proof and asserts the verifier detects it and returns false;
 //   • asserts the verifier needs ONLY the proof artifact — never the dataset.
 //
-// RUN WITH:  node test/zk-provenance-proof.test.mjs
+// RUN WITH:  node test/selective-disclosure-proof.test.mjs
 //
 // Pure crypto (SHA-256 via crypto.subtle) — no DuckDB engine needed, so the
 // fixture is a plain JS results map like the other pure-module tests.
 
 import { computeCalibratedGrades } from '../js/calibrated-grades.js';
 import {
-  generateProof, verifyZkProof, buildClaims, hashLeaf,
-  buildMerkleTree, merkleProof, rootFromProof, ZK_PROOF_KIND,
-} from '../js/zk-provenance.js';
+  generateProof, verifyProof, buildClaims, hashLeaf,
+  buildMerkleTree, merkleProof, rootFromProof, SD_PROOF_KIND,
+} from '../js/selective-disclosure-proof.js';
 
 // ---------- tiny test harness (mirrors the other test files) ----------
 let passed = 0, failed = 0;
@@ -101,14 +101,14 @@ async function main() {
     attestationRef: { digest: 'a'.repeat(64), finalHash: 'b'.repeat(64) },
   });
   {
-    ok(artifact.kind === ZK_PROOF_KIND && artifact.version === 1, 'artifact: correct kind + version');
+    ok(artifact.kind === SD_PROOF_KIND && artifact.version === 1, 'artifact: correct kind + version');
     ok(/^[0-9a-f]{64}$/.test(artifact.commitment.merkleRoot), 'artifact: publishes a SHA-256 Merkle root as the shareable fingerprint');
     ok(artifact.disclosedClaims.length === artifact.commitment.leafCount, 'artifact: discloses all claims by default (each with a proof path)');
     ok(artifact.attestationRef && artifact.attestationRef.digest === 'a'.repeat(64),
       'artifact: links back to the existing Provenance Attestation (builds on, not replaces)');
     ok(/not a formal zero-knowledge/i.test(artifact.disclaimer), 'artifact: disclaimer is honest that this is NOT a formal ZK proof');
 
-    const res = await verifyZkProof(artifact);
+    const res = await verifyProof(artifact);
     ok(res.valid, 'verify: an untampered proof validates');
     ok(res.claims.length === artifact.disclosedClaims.length && res.claims.every(c => c.valid),
       'verify: every disclosed claim is confirmed a member of the committed set');
@@ -124,7 +124,7 @@ async function main() {
     });
     ok(partial.disclosedClaims.length < partial.commitment.leafCount,
       'selective: fewer claims disclosed than committed (undisclosed leaves stay private)');
-    const res = await verifyZkProof(partial);
+    const res = await verifyProof(partial);
     ok(res.valid && res.claims.length === partial.disclosedClaims.length,
       'selective: the disclosed subset still verifies against the full commitment root');
   }
@@ -142,7 +142,7 @@ async function main() {
     // NOTE: proof path left untouched — the forger cannot recompute it without
     // the committed sibling hashes, which the root binds.
 
-    const res = await verifyZkProof(tampered);
+    const res = await verifyProof(tampered);
     ok(!res.valid, 'TAMPER: verifier returns invalid when a disclosed grade is forged');
     const badClaim = res.claims.find(c => c.index === gradeClaim.index);
     ok(badClaim && !badClaim.valid, 'TAMPER: the specific forged claim is flagged as not a member of the committed set');
@@ -154,7 +154,7 @@ async function main() {
   {
     const tampered = JSON.parse(JSON.stringify(artifact));
     tampered.commitment.merkleRoot = 'c'.repeat(64);
-    const res = await verifyZkProof(tampered);
+    const res = await verifyProof(tampered);
     ok(!res.valid, 'TAMPER: verifier returns invalid when the published root is swapped');
   }
 
@@ -169,11 +169,11 @@ async function main() {
       // Inside this closure the only binding available is `json`. There is no
       // `results`, `grades`, `recordCount`, or dataset object in scope.
       const only = JSON.parse(json);
-      return verifyZkProof(only);
+      return verifyProof(only);
     };
     const res = await verifyWithoutDataset(wireJson);
     ok(res.valid, 'independence: proof verifies from JSON alone, with no dataset argument in scope');
-    ok(verifyZkProof.length === 1, 'independence: verifyZkProof takes exactly one argument (the artifact) — no dataset parameter exists');
+    ok(verifyProof.length === 1, 'independence: verifyProof takes exactly one argument (the artifact) — no dataset parameter exists');
     // The artifact must not smuggle raw rows/values from the dataset.
     ok(!/mimic_admissions|subject_id|hadm_id/.test(wireJson),
       'independence: the artifact contains no raw dataset rows/identifiers, only hashes + committed claim results');

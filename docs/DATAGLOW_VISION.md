@@ -379,7 +379,7 @@ DATAGLOW Swift Tab:
 | Gen 1 | Core DuckDB engine, basic SQL, CSV upload | ✅ Complete |
 | Gen 2 | Excel support, JSON, basic cleaning | ✅ Complete |
 | Gen 3 | Validate tab, first 3 validation layers | ✅ Complete |
-| Gen 4 | ZKP Verifiable Reports, Synthetic Data (PSyGenTAB v2 — differential-privacy synthesis; fidelity/privacy not yet independently measured), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
+| Gen 4 | Selective-Disclosure Verifiable Reports (Merkle-tree SHA-256 commitment), Synthetic Data (PSyGenTAB v2 — differential-privacy synthesis; fidelity/privacy not yet independently measured), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
 | Gen 5 | Confidence Layer, UX overhaul, light/dark mode | ✅ Complete |
 | Gen 6 | All 7 validation layers live, Story tab, Preflight tab | ✅ Complete (expired session) |
 | **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 18 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
