@@ -45,6 +45,7 @@ import * as irbMode from './irb-mode.js';
 import * as ondeviceLLM from './ondevice-llm.js';
 import * as digitalTwin from './digital-twin.js';
 import * as watchFolder from './watch-folder.js';
+import { withCanonical } from './categorical-consistency.js';
 
 // ============================================================
 // Tab Definitions
@@ -1912,30 +1913,58 @@ function renderValidationResults(results) {
           card.appendChild(clRow);
           continue;
         }
-        const mergeBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:5px 10px; margin-left:auto;', 'data-testid': `button-cat-merge-${cl.column}` }, 'Apply Merge');
+        // The suggested canonical is editable: the analyst can accept it as-is,
+        // type a different spelling (even one not among the variants), or reject
+        // the whole cluster. Nothing is applied until "Apply Merge" is clicked.
+        const canonInput = el('input', {
+          type: 'text', value: cl.canonical, class: 'mono',
+          style: 'font-size:var(--text-xs); padding:4px 8px; border:1px solid var(--color-divider); border-radius:6px; background:var(--color-surface); color:var(--color-text); min-width:140px; margin-left:auto;',
+          'data-testid': `input-cat-canonical-${cl.column}`,
+          title: 'Edit the canonical value all variants will be merged into.',
+        });
+        const mergeBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:5px 10px;', 'data-testid': `button-cat-merge-${cl.column}` }, 'Apply Merge');
+        const rejectBtn = el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:5px 10px;', 'data-testid': `button-cat-reject-${cl.column}` }, 'Reject');
         mergeBtn.addEventListener('click', async () => {
-          mergeBtn.disabled = true;
+          const chosen = String(canonInput.value).trim();
+          if (!chosen) { toast('Canonical value cannot be empty', 'error'); return; }
+          // Recompute the merge mapping against the (possibly edited) canonical.
+          const applied = withCanonical(cl, chosen);
+          if (!applied.merges.length) { toast('Nothing to merge into that value', 'error'); return; }
+          mergeBtn.disabled = true; rejectBtn.disabled = true;
           try {
             const col = `"${cl.column}"`;
-            const to = String(cl.canonical).replace(/'/g, "''");
-            for (const m of cl.merges) {
+            const to = String(applied.canonical).replace(/'/g, "''");
+            for (const m of applied.merges) {
               const from = String(m.from).replace(/'/g, "''");
               await engine.runQuery(`UPDATE ${ds.table} SET ${col} = '${to}' WHERE ${col} = '${from}'`);
             }
+            const edited = applied.canonical !== cl.canonical ? ' (canonical edited by user)' : '';
             ledger.logAssumption('Categorical Consistency Engine',
-              `Applied merge: ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${cl.column}".`);
+              `Applied merge: ${applied.merges.map(m => `"${m.from}"`).join(', ')} → "${applied.canonical}" in "${cl.column}"${edited}.`);
             await provenance.recordStep(ds.table, 'merge',
-              `Categorical merge: ${cl.merges.map(m => `"${m.from}"`).join(', ')} → "${cl.canonical}" in "${cl.column}".`, { column: cl.column, canonical: cl.canonical });
+              `Categorical merge: ${applied.merges.map(m => `"${m.from}"`).join(', ')} → "${applied.canonical}" in "${cl.column}"${edited}.`, { column: cl.column, canonical: applied.canonical, edited: applied.canonical !== cl.canonical });
             renderAssumptionLedger();
             renderProvenanceTrail();
             clRow.style.opacity = '0.4'; clRow.style.pointerEvents = 'none';
-            toast(`Merged into "${cl.canonical}"`, 'success');
+            toast(`Merged into "${applied.canonical}"`, 'success');
           } catch (e) {
-            mergeBtn.disabled = false;
+            mergeBtn.disabled = false; rejectBtn.disabled = false;
             toast('Merge failed: ' + e.message, 'error');
           }
         });
+        rejectBtn.addEventListener('click', () => {
+          // Explicit rejection is a decision too — record it in the audit trail
+          // so a skipped merge is visible rather than silently forgotten.
+          ledger.logAssumption('Categorical Consistency Engine',
+            `Rejected suggested merge for "${cl.column}" (${cl.variants.map(v => `"${v.value}"`).join(', ')}) — values kept distinct.`,
+            { column: cl.column, rejected: true, variants: cl.variants });
+          renderAssumptionLedger();
+          clRow.style.opacity = '0.4'; clRow.style.pointerEvents = 'none';
+          toast('Suggestion rejected', 'success');
+        });
+        clRow.appendChild(canonInput);
         clRow.appendChild(mergeBtn);
+        clRow.appendChild(rejectBtn);
         card.appendChild(clRow);
       }
     }

@@ -16,7 +16,7 @@ import { createTableFromObjects, getTableSchema, closeConnection } from './node-
 
 import { LAYER_DEFS, runAllLayers } from '../js/validation.js';
 import { buildGoldenDataset } from '../js/loaders.js';
-import { clusterValues } from '../js/categorical-consistency.js';
+import { clusterValues, withCanonical } from '../js/categorical-consistency.js';
 import { getLedgerEntries, clearLedger } from '../js/assumption-ledger.js';
 
 // ---------- tiny test harness (no framework) ----------
@@ -66,6 +66,26 @@ async function main() {
   ok(usCluster && usCluster.variants.length >= 3, 'cluster: near-duplicate + abbreviation spellings of "United States" grouped');
   const frCluster = clusters.find(c => c.variants.some(v => v.value === 'France') && c.variants.some(v => v.value === 'FRA'));
   ok(!!frCluster, 'cluster: "France" and abbreviation "FRA" grouped via ISO lookup');
+
+  // ---- User-editable canonical (accept / reject / edit per cluster) ----
+  const editCluster = usCluster;
+  // Accept-as-is: withCanonical with the proposal is a no-op on the mapping.
+  const asIs = withCanonical(editCluster, editCluster.canonical);
+  ok(asIs.canonical === editCluster.canonical && asIs.merges.length === editCluster.merges.length,
+    'withCanonical: accepting the proposal preserves the suggested mapping');
+  // Edit to an existing variant: that variant becomes the untouched target.
+  const toUSA = withCanonical(editCluster, 'USA');
+  ok(toUSA.canonical === 'USA' && toUSA.merges.every(m => m.from !== 'USA') && toUSA.merges.some(m => m.from === 'United States'),
+    'withCanonical: editing to an existing variant remaps every other variant to it');
+  // Edit to a brand-new spelling not among the variants: all variants merge in.
+  const custom = withCanonical(editCluster, 'U.S.A.');
+  ok(custom.canonical === 'U.S.A.' && custom.merges.length === editCluster.variants.length,
+    'withCanonical: a custom canonical merges every observed variant into it');
+  // Empty / whitespace override is ignored (keeps the original proposal).
+  const empty = withCanonical(editCluster, '   ');
+  ok(empty.canonical === editCluster.canonical, 'withCanonical: blank override falls back to the proposal');
+  // Purity: the source cluster is never mutated.
+  ok(editCluster.canonical === 'United States', 'withCanonical: does not mutate the input cluster');
 
   // ---- Full 18-layer run on the extended golden dataset ----
   const goldenRows = buildGoldenDataset();
