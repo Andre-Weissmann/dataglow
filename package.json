@@ -7,6 +7,7 @@
   "scripts": {
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:layers": "node --import ./test/duckdb-loader-hook.mjs test/validation-layers.test.mjs",
+    "test:crosscol": "node --import ./test/duckdb-loader-hook.mjs test/cross-column-consistency.test.mjs",
     "test:gen8": "node --import ./test/duckdb-loader-hook.mjs test/gen8-features.test.mjs",
     "test:gen8b": "node --import ./test/duckdb-loader-hook.mjs test/gen8-batch3.test.mjs",
     "test:mimic": "node --import ./test/duckdb-loader-hook.mjs test/mimic-bugfixes.test.mjs",
