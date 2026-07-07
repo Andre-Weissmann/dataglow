@@ -48,8 +48,10 @@ import * as ondeviceLLM from './ondevice-llm.js';
 import * as digitalTwin from './digital-twin.js';
 import * as watchFolder from './watch-folder.js';
 import { withCanonical } from './categorical-consistency.js';
-import { SelfLearningModel, MIN_EXAMPLES } from './self-learning-rules.js';
+import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from './self-learning-rules.js';
 import { LayerPriorityModel, MIN_ACTIONS } from './adaptive-priority.js';
+import { LocalFingerprintModel, MIN_COHORT, DEFAULT_EPSILON } from './federated-learning.js';
+import { FederatedCoordinator, createGithubSignaling, createWebRTCMesh } from './federated-transport.js';
 
 // ============================================================
 // Tab Definitions
@@ -2025,6 +2027,7 @@ async function recordLearningSignal(snapshot, action) {
   // A single tracking pathway, two lightweight consumers.
   await recordSelfLearningSignal(snapshot, action);
   await recordLayerPrioritySignal(snapshot, action);
+  await recordFederatedSignal(snapshot, action);
 }
 
 async function recordSelfLearningSignal(snapshot, action) {
@@ -2287,6 +2290,155 @@ function initLayerPriority() {
       }
     } catch (e) { /* non-fatal */ }
     refreshLayerPriorityStats();
+  })();
+}
+
+// ============================================================
+// Federated Fingerprint Learning (Phase 1, opt-in / OFF by default)
+// A tiny on-device model, trained on the SAME accept/dismiss signal stream as the
+// features above, whose privacy-protected weight updates can be averaged with
+// other opted-in users over WebRTC (GitHub used only as an ephemeral peer phone
+// book). Raw data never leaves the browser. See js/federated-learning.js and
+// js/federated-transport.js for the model, privacy math, and transport.
+// ============================================================
+const FED_CONSENT_KEY = 'dataglow_persist_federated_model';
+const FED_EPSILON_KEY = 'dataglow_federated_epsilon';
+const FED_MODEL_ID = 'federated_fingerprint';
+let federatedModel = new LocalFingerprintModel();
+let federatedCoordinator = null;
+const federatedReceipts = [];
+
+// Feed one accept/dismiss interaction into the local federated model. Best-effort
+// and gated on opt-in; never disrupts the user's actual correction.
+async function recordFederatedSignal(snapshot, action) {
+  if (!state.settings.federatedLearningEnabled) return;
+  try {
+    const label = actionToLabel(action);
+    if (label == null) return; // ambiguous action — no signal
+    federatedModel.recordSignal(snapshot && snapshot.source, label);
+    if (state.settings.persistFederatedModel) {
+      await memoryStore.saveLearnedModel(FED_MODEL_ID, federatedModel.toJSON());
+    }
+    refreshFederatedStats();
+  } catch (e) { /* federated learning is best-effort; never disrupt the user */ }
+}
+
+// Lazily build the coordinator with real (best-effort) browser adapters. The
+// GitHub signaling adapter reads the public coordination branch; WebRTC is used
+// for the actual exchange. Both degrade to local-only behavior on any failure.
+function ensureFederatedCoordinator() {
+  if (federatedCoordinator) return federatedCoordinator;
+  let signaling; let rtc;
+  try {
+    signaling = createGithubSignaling({ owner: 'Andre-Weissmann', repo: 'dataglow' });
+    rtc = createWebRTCMesh({ signaling });
+  } catch (e) { signaling = undefined; rtc = undefined; }
+  federatedCoordinator = new FederatedCoordinator({
+    model: federatedModel,
+    signaling,
+    rtc,
+    minCohort: MIN_COHORT,
+    epsilon: state.settings.federatedEpsilon || DEFAULT_EPSILON,
+    onReceipt: (r) => { federatedReceipts.push(r); refreshFederatedStats(); },
+  });
+  return federatedCoordinator;
+}
+
+function refreshFederatedStats() {
+  const statsEl = $('#federated-stats');
+  if (!statsEl) return;
+  if (!state.settings.federatedLearningEnabled) {
+    statsEl.textContent = 'Federated learning is off — nothing is shared and no updates leave this browser.';
+    return;
+  }
+  const n = federatedModel.totalSignals;
+  const rounds = federatedModel.round;
+  statsEl.textContent = `Learning locally from ${n} of your accept/dismiss signal${n === 1 ? '' : 's'} this ${state.settings.persistFederatedModel ? 'device' : 'session'}. `
+    + `${rounds} federated round${rounds === 1 ? '' : 's'} applied (min cohort ${MIN_COHORT}, ε=${(state.settings.federatedEpsilon || DEFAULT_EPSILON).toFixed(1)}). `
+    + 'Only masked, DP-noised weight updates are ever shared.';
+}
+
+function initFederatedLearning() {
+  const enableToggle = $('#toggle-federated');
+  if (enableToggle) {
+    enableToggle.checked = state.settings.federatedLearningEnabled;
+    enableToggle.addEventListener('change', () => {
+      state.settings.federatedLearningEnabled = enableToggle.checked;
+      if (enableToggle.checked) {
+        ensureFederatedCoordinator().enable();
+        toast('Federated learning enabled. Only masked, noised weight updates are shared — never your raw data.', 'success');
+      } else {
+        if (federatedCoordinator) federatedCoordinator.disable();
+        toast('Federated learning turned off — back to purely local behavior.', 'success');
+      }
+      refreshFederatedStats();
+    });
+  }
+
+  const persistToggle = $('#toggle-persist-federated');
+  if (persistToggle) {
+    state.settings.persistFederatedModel = localStorage.getItem(FED_CONSENT_KEY) === '1';
+    persistToggle.checked = state.settings.persistFederatedModel;
+    persistToggle.addEventListener('change', async () => {
+      state.settings.persistFederatedModel = persistToggle.checked;
+      localStorage.setItem(FED_CONSENT_KEY, persistToggle.checked ? '1' : '0');
+      try {
+        if (persistToggle.checked) {
+          const prior = await memoryStore.getLearnedModel(FED_MODEL_ID);
+          if (prior && federatedModel.totalSignals === 0) {
+            federatedModel = LocalFingerprintModel.fromJSON(prior);
+            if (federatedCoordinator) federatedCoordinator.model = federatedModel;
+          }
+          await memoryStore.saveLearnedModel(FED_MODEL_ID, federatedModel.toJSON());
+        }
+      } catch (e) { /* IndexedDB unavailable — non-fatal */ }
+      toast(persistToggle.checked
+        ? 'The shared model will be remembered on this device (stored locally only).'
+        : 'Cross-session federated model disabled — it stays in this session only.', 'success');
+      refreshFederatedStats();
+    });
+  }
+
+  const slider = $('#federated-epsilon-slider');
+  const valueEl = $('#federated-epsilon-value');
+  if (slider) {
+    const saved = parseFloat(localStorage.getItem(FED_EPSILON_KEY));
+    if (Number.isFinite(saved)) { state.settings.federatedEpsilon = saved; slider.value = String(saved); }
+    if (valueEl) valueEl.textContent = parseFloat(slider.value).toFixed(1);
+    slider.addEventListener('input', () => {
+      const eps = parseFloat(slider.value);
+      state.settings.federatedEpsilon = eps;
+      localStorage.setItem(FED_EPSILON_KEY, String(eps));
+      if (valueEl) valueEl.textContent = eps.toFixed(1);
+      if (federatedCoordinator) federatedCoordinator.setEpsilon(eps);
+      refreshFederatedStats();
+    });
+  }
+
+  const clearBtn = $('#btn-clear-federated');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('Clear the locally cached federated model from this browser? DATAGLOW will start contributing from a fresh, neutral model.')) return;
+      federatedModel = new LocalFingerprintModel();
+      if (federatedCoordinator) federatedCoordinator.model = federatedModel;
+      federatedReceipts.length = 0;
+      try { await memoryStore.deleteLearnedModel(FED_MODEL_ID); } catch (e) { /* non-fatal */ }
+      toast('Local federated model cleared', 'success');
+      refreshFederatedStats();
+    });
+  }
+
+  // Load a persisted model if the user previously opted in, and arm the
+  // coordinator if the feature is enabled.
+  (async () => {
+    try {
+      if (state.settings.persistFederatedModel) {
+        const prior = await memoryStore.getLearnedModel(FED_MODEL_ID);
+        if (prior) federatedModel = LocalFingerprintModel.fromJSON(prior);
+      }
+    } catch (e) { /* non-fatal */ }
+    if (state.settings.federatedLearningEnabled) ensureFederatedCoordinator().enable();
+    refreshFederatedStats();
   })();
 }
 
@@ -3439,6 +3591,7 @@ function init() {
   initMemory();
   initSelfLearning();
   initLayerPriority();
+  initFederatedLearning();
   initAnonExport();
   initLedger();
   initProvenance();
