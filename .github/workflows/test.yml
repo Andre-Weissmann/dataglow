@@ -42,6 +42,8 @@ jobs:
       # Gen 9 Batch 1: Domain Physics Engine unit suite + provenance attestation verifier.
       - run: npm run test:physics
       - run: npm run test:attestation
+      # Upper-Bound Sanity Anchor: logical/definitional bounds detection + runner.
+      - run: npm run test:upperbound
       # Fast, deterministic, browser-free unit suites (Gen 9 Batch 2):
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient

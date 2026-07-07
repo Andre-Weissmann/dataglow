@@ -11,6 +11,7 @@ import { runCrossColumnChecks } from './cross-column-consistency.js';
 import { logAssumption } from './assumption-ledger.js';
 import { applyDomainPack, summarizeUnitTests } from './domain-physics.js';
 import { runPhysiologicalChecks, PHYSIO_DISCLAIMER } from './physiological-plausibility.js';
+import { runUpperBoundChecks, UPPER_BOUND_NOTE } from './upper-bound-sanity.js';
 import { computeCalibratedGrades } from './calibrated-grades.js';
 import { devAssertConformance, toValidationRun, toDataset } from './protocol-conformance.js';
 
@@ -41,6 +42,7 @@ export const LAYER_DEFS = [
   { id: 'cross_column_logic', name: 'Cross-Column Logical Consistency', desc: 'Detects impossible combinations across columns — end-before-start ranges, discharge-before-admit, adult-only status on minors.' },
   { id: 'distribution_drift', name: 'Distributional Fingerprint Drift', desc: 'Stores each column\'s distribution shape and flags drift on a later load of the same schema.' },
   { id: 'physiological_plausibility', name: 'Physiological Plausibility', desc: 'Healthcare-aware check: flags vital-sign values (heart rate, temperature, blood pressure, respiratory rate, SpO₂) outside general human physiological limits. A data-plausibility check, not medical advice.' },
+  { id: 'upper_bound_sanity', name: 'Upper-Bound Sanity Anchor', desc: 'Flags values outside a column\'s definitional bounds — percentages above 100 or below 0, proportions/probabilities outside 0–1. Anchored on logical/mathematical limits, not this dataset\'s statistics. Conservative: skips ambiguous unbounded rates/ratios.' },
   { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 17 layers against an intentionally broken golden dataset.' },
 ];
 
@@ -944,6 +946,41 @@ async function runPhysiologicalPlausibility(table, cols) {
   return r;
 }
 
+// ---------- 20. Upper-Bound Sanity Anchor (logical/definitional bounds) ----------
+// A sibling of the Physiological Plausibility layer that anchors on LOGICAL
+// rather than biological limits: percentages are 0–100 and proportions/
+// probabilities are 0–1 by definition, so a value outside those bounds is
+// impossible regardless of the column's own statistics (a percentage of 500 is
+// a typo/decimal slip, not merely an outlier). The detection + conservative
+// bound-selection logic lives in js/upper-bound-sanity.js so it is unit-testable
+// in isolation; this wrapper adds the standard result shape and records each
+// finding in the Assumption Ledger, as the other layers do.
+async function runUpperBoundSanity(table, cols) {
+  const { findings, matched } = await runUpperBoundChecks(table, cols, engine);
+  if (matched.length === 0) {
+    const r = result('idle', 'No definitionally-bounded columns (percentages, proportions/probabilities) detected. Skipped.');
+    r.findings = [];
+    r.matched = [];
+    r.note = UPPER_BOUND_NOTE;
+    return r;
+  }
+  for (const f of findings) {
+    logAssumption('Upper-Bound Sanity Anchor', `Flagged ${f.text}`, { column: f.column, category: f.category, count: f.count });
+  }
+  const checkedLabel = matched.map(m => `${m.column} (${m.category} ${m.low}–${m.high})`).join(', ');
+  let r;
+  if (findings.length === 0) {
+    r = result('pass', `Checked ${matched.length} definitionally-bounded column(s) — all values within their logical bounds.`);
+  } else {
+    r = result('warn', `${findings.length} column(s) contain values outside their logical bounds — impossible by definition, likely data-entry or unit errors.`, findings.map(f => f.text));
+  }
+  r.findings = findings;
+  r.matched = matched;
+  r.checkedLabel = checkedLabel;
+  r.note = UPPER_BOUND_NOTE;
+  return r;
+}
+
 // ---------- Orchestrator ----------
 export async function runAllLayers(ds, options = {}) {
   const table = ds.table;
@@ -974,6 +1011,7 @@ export async function runAllLayers(ds, options = {}) {
   results.cross_column_logic = await runCrossColumnLogic(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.distribution_drift = await runDistributionDrift(table, cols, { fingerprintStore: options.fingerprintStore }).catch(e => result('warn', `Could not run: ${e.message}`));
   results.physiological_plausibility = await runPhysiologicalPlausibility(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.upper_bound_sanity = await runUpperBoundSanity(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
 
   // ---- Domain Physics Engine ----
   // Sits ABOVE the 18 layers: it reinterprets/annotates their raw output using a
