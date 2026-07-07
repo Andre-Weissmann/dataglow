@@ -1561,11 +1561,14 @@ async function renderDataHealth(ds, results) {
   const wrap = $('#data-health-wrap');
   wrap.style.display = '';
 
-  // Confidence-Calibrated Grades (two honest, heuristic axes). Primary display
-  // above the CAT scorecard; hover/click each card for the plain-English reason.
+  // Confidence-Calibrated Grades (two honest, heuristic axes). The combined
+  // Overall grade is the headline signal; the Integrity/Domain breakdown sits
+  // one tap away. The legacy CAT scorecard + confidence ring are de-prioritised
+  // under the Advanced/Legacy disclosure (see index.html). Hover each card for
+  // the plain-English reason.
   renderCalibratedGrades(results && results.calibratedGrades);
 
-  // CAT scorecard (CDC Data Quality Framework).
+  // CAT scorecard (CDC Data Quality Framework) — now under Advanced/Legacy.
   const cat = await catScorecard.computeCATScore(ds, results).catch(() => null);
   const catEl = $('#cat-scorecard');
   catEl.innerHTML = '';
@@ -1613,15 +1616,47 @@ async function renderDataHealth(ds, results) {
   await renderEntityBaselines(ds);
 }
 
-// Render the two-axis Confidence-Calibrated Grades: Data Integrity (mechanical
-// well-formedness) and Domain Confidence (real-world plausibility), plus a small
-// combined "overall" chip for a single-glance signal. Both axes are explicitly
-// heuristics (labelled in each card), not legal/clinical determinations.
+// Render the two-axis Confidence-Calibrated Grades with an explicit visual
+// hierarchy so the three coexisting quality surfaces stop competing:
+//   1. the combined "Overall" grade is the headline, single-glance signal;
+//   2. the Data Integrity (mechanical well-formedness) and Domain Confidence
+//      (real-world plausibility) breakdown sits one tap away, explaining the why.
+// The legacy confidence ring and CAT scorecard live under the Advanced/Legacy
+// disclosure in index.html. All axes are explicitly heuristics (labelled), not
+// legal/clinical determinations.
 function renderCalibratedGrades(cg) {
   const box = $('#calibrated-grades');
+  const headline = $('#overall-headline');
   if (!box) return;
-  if (!cg) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  if (!cg) {
+    box.style.display = 'none'; box.innerHTML = '';
+    if (headline) { headline.style.display = 'none'; headline.innerHTML = ''; }
+    return;
+  }
   const gradeColor = g => ({ A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)', F: 'var(--color-grade-d)' }[g] || 'var(--color-text-muted)');
+
+  // PRIMARY: the Overall combined grade, rendered large as THE headline number.
+  if (headline) {
+    headline.innerHTML = '';
+    if (cg.overall) {
+      headline.appendChild(el('div', {
+        style: 'display:flex; align-items:center; gap:var(--space-4); padding:var(--space-4) var(--space-5); border:1px solid var(--color-divider); border-radius:var(--radius-lg); background:var(--color-surface-offset,transparent); cursor:help;',
+        title: cg.overall.explanation,
+        'data-testid': 'grade-overall',
+      }, [
+        el('div', { style: `font-size:var(--text-4xl,56px); line-height:1; font-weight:800; color:${gradeColor(cg.overall.grade)};`, 'data-testid': 'grade-overall-grade' }, cg.overall.grade),
+        el('div', {}, [
+          el('div', { style: 'font-size:var(--text-lg); font-weight:700;' }, 'Overall Data Quality'),
+          el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-top:2px;' }, cg.overall.explanation || 'Combined Integrity & Domain Confidence grade.'),
+        ]),
+      ]));
+      headline.style.display = '';
+    } else {
+      headline.style.display = 'none';
+    }
+  }
+
+  // SECONDARY: the two-axis breakdown behind the Overall grade.
   const card = (title, subtitle, axis, testid) => el('div', {
     style: 'flex:1; min-width:240px; padding:var(--space-4); border:1px solid var(--color-divider); border-radius:var(--radius-lg); cursor:help;',
     title: axis.explanation,
@@ -1643,16 +1678,6 @@ function renderCalibratedGrades(cg) {
     'Domain Confidence',
     'How plausible this data is given real-world domain knowledge.',
     cg.plausibility, 'grade-plausibility'));
-  if (cg.overall) {
-    box.appendChild(el('div', {
-      style: 'display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:120px; padding:var(--space-4); border:1px dashed var(--color-divider); border-radius:var(--radius-lg); cursor:help;',
-      title: cg.overall.explanation,
-      'data-testid': 'grade-overall',
-    }, [
-      el('div', { style: `font-size:var(--text-2xl,28px); font-weight:700; color:${gradeColor(cg.overall.grade)};`, 'data-testid': 'grade-overall-grade' }, cg.overall.grade),
-      el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1); text-align:center;' }, 'Overall (combined)'),
-    ]));
-  }
   box.style.display = 'flex';
 }
 

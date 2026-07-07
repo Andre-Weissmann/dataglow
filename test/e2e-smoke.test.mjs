@@ -173,6 +173,83 @@ async function main() {
     }));
     console.log(`✓ Two-axis grades rendered (Integrity=${grades.integrity}, Plausibility=${grades.plausibility})`);
 
+    // ---- Quality-grade visual hierarchy (IA fix) ----
+    // The three coexisting "how good is this data" surfaces are now ranked:
+    //   1. Overall combined grade = the prominent headline (seen first, largest);
+    //   2. Integrity/Domain breakdown = one tap away, expanded by default;
+    //   3. legacy confidence ring + CAT scorecard = under a collapsed
+    //      Advanced/Legacy disclosure (de-prioritised, not deleted).
+
+    // 1. PRIMARY: the Overall headline renders with a letter grade and appears
+    //    visually before (above) the Integrity/Domain breakdown cards.
+    const hierarchy = await page.evaluate(() => {
+      const overall = document.querySelector('[data-testid="grade-overall-grade"]');
+      const breakdown = document.querySelector('[data-testid="grade-breakdown"]');
+      const headline = document.querySelector('[data-testid="overall-headline"]');
+      const integrity = document.querySelector('[data-testid="grade-integrity"]');
+      if (!overall || !breakdown || !headline || !integrity) return null;
+      const overallFont = parseFloat(getComputedStyle(overall).fontSize) || 0;
+      const integrityGrade = document.querySelector('[data-testid="grade-integrity-grade"]');
+      const integrityFont = parseFloat(getComputedStyle(integrityGrade).fontSize) || 0;
+      // Position: headline top must be above the breakdown top.
+      const headlineTop = headline.getBoundingClientRect().top;
+      const breakdownTop = breakdown.getBoundingClientRect().top;
+      return {
+        overallGrade: overall.textContent.trim(),
+        overallFont, integrityFont,
+        headlineAboveBreakdown: headlineTop < breakdownTop,
+        breakdownOpen: breakdown.open === true,
+      };
+    });
+    if (hierarchy && /[A-F]/.test(hierarchy.overallGrade)
+        && hierarchy.overallFont > hierarchy.integrityFont
+        && hierarchy.headlineAboveBreakdown && hierarchy.breakdownOpen) {
+      console.log(`✓ Overall grade is the headline (grade=${hierarchy.overallGrade}, `
+        + `font ${hierarchy.overallFont}px > breakdown ${hierarchy.integrityFont}px, above & breakdown open)`);
+    } else {
+      failed = true;
+      console.log('✗ FAILED: Overall grade hierarchy incorrect: ' + JSON.stringify(hierarchy));
+    }
+
+    // 3. ADVANCED/LEGACY: the disclosure exists and is COLLAPSED by default, yet
+    //    still contains the fully-rendered legacy confidence ring + CAT scorecard.
+    const legacy = await page.evaluate(() => {
+      const adv = document.querySelector('[data-testid="advanced-legacy"]');
+      if (!adv) return null;
+      const cat = adv.querySelector('#cat-scorecard');
+      const ring = adv.querySelector('#confidence-summary');
+      const ringScore = adv.querySelector('#confidence-score');
+      return {
+        collapsedByDefault: adv.open === false,
+        containsCat: !!cat && cat.children.length > 0,
+        containsRing: !!ring,
+        ringScore: ringScore ? ringScore.textContent.trim() : null,
+      };
+    });
+    if (legacy && legacy.collapsedByDefault && legacy.containsCat
+        && legacy.containsRing && /\d/.test(legacy.ringScore || '')) {
+      console.log(`✓ Advanced/Legacy section collapsed by default, still contains `
+        + `CAT scorecard + confidence ring (score=${legacy.ringScore})`);
+    } else {
+      failed = true;
+      console.log('✗ FAILED: Advanced/Legacy disclosure incorrect: ' + JSON.stringify(legacy));
+    }
+
+    // The legacy views must remain reachable: expanding the disclosure reveals
+    // the confidence ring (proving it is de-prioritised, not removed/broken).
+    await page.click('[data-testid="advanced-legacy"] > summary');
+    const ringVisible = await page.evaluate(() => {
+      const ring = document.querySelector('#confidence-summary');
+      if (!ring) return false;
+      return ring.getBoundingClientRect().height > 0;
+    });
+    if (ringVisible) {
+      console.log('✓ Expanding Advanced/Legacy reveals the legacy confidence ring (still functional)');
+    } else {
+      failed = true;
+      console.log('✗ FAILED: legacy confidence ring not visible after expanding disclosure');
+    }
+
     // Feature 3: the Export Attestation button is present and clickable (it
     // triggers a client-side download; we assert it exists and does not throw).
     const attBtn = await page.$('[data-testid="button-attestation-export"]');
