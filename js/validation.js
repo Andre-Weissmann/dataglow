@@ -956,6 +956,20 @@ export async function runAllLayers(ds, options = {}) {
     packLabel: domainPack.packLabel,
     annotations: domainPack.annotations,
   });
+  // Record the two-axis grade in the Assumption Ledger so the scoring is
+  // auditable alongside every other assumption the run made.
+  const cg = results.calibratedGrades;
+  logAssumption(
+    'Confidence-Calibrated Grades',
+    `Data Integrity ${cg.integrity.grade} (mechanical well-formedness) · Domain Confidence ${cg.plausibility.grade} (real-world plausibility) · Overall ${cg.overall.grade}`,
+    {
+      integrityScore: cg.integrity.score,
+      domainConfidenceScore: cg.plausibility.score,
+      overallScore: cg.overall.score,
+      domainConcerns: cg.plausibility.concerns,
+      domainConcernsReinterpreted: cg.plausibility.interpreted,
+    },
+  );
 
   state.validationResults = results;
   // Dev-mode, non-fatal: confirm the run + its two-axis grade conform to the
