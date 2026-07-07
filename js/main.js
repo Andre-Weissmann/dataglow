@@ -48,6 +48,7 @@ import * as digitalTwin from './digital-twin.js';
 import * as watchFolder from './watch-folder.js';
 import { withCanonical } from './categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES } from './self-learning-rules.js';
+import { LayerPriorityModel, MIN_ACTIONS } from './adaptive-priority.js';
 
 // ============================================================
 // Tab Definitions
@@ -901,6 +902,7 @@ async function runValidation() {
   // the drift layer when the user has enabled persistence. Off by default.
   const fingerprintStore = state.settings.persistFingerprints ? memoryStore : null;
   const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours, pack, fingerprintStore });
+  recordLayerFires(results);
   renderValidationResults(results);
   window.__dataglowLastValidation = results;
   await renderTopProblems(ds, results);
@@ -1973,10 +1975,25 @@ const SL_CONSENT_KEY = 'dataglow_persist_learned_corrections';
 const SL_MODEL_ID = 'default';
 let selfLearner = new SelfLearningModel();
 
+// Adaptive Layer Prioritization — learns which layers catch real issues for this
+// user and reorders/highlights the Validate grid accordingly. Shares PR #25's
+// accept/dismiss signal stream (recordLearningSignal below feeds both models).
+const LP_CONSENT_KEY = 'dataglow_persist_layer_priority';
+const LP_MODEL_ID = 'layer_priority';
+let layerPriority = new LayerPriorityModel();
+
 // Record a user correction as a labeled training example, then (if opted in)
 // persist the updated model. Never blocks the correction it is observing —
 // any failure is swallowed so learning can't break a real edit/merge/dismiss.
 async function recordLearningSignal(snapshot, action) {
+  // One accept/dismiss interaction feeds BOTH on-device learners: the
+  // Self-Learning per-flag ranker (PR #25) and the Adaptive Layer Prioritizer.
+  // A single tracking pathway, two lightweight consumers.
+  await recordSelfLearningSignal(snapshot, action);
+  await recordLayerPrioritySignal(snapshot, action);
+}
+
+async function recordSelfLearningSignal(snapshot, action) {
   if (!state.settings.selfLearningEnabled) return;
   try {
     const ex = selfLearner.record(snapshot, action);
@@ -1988,6 +2005,23 @@ async function recordLearningSignal(snapshot, action) {
     // Re-highlight the currently shown validation results with the new knowledge.
     if (window.__dataglowLastValidation) applySelfLearningHighlights();
   } catch (e) { /* learning is best-effort; never disrupt the user's action */ }
+}
+
+// The interactive flag sources map 1:1 onto validation layer ids, so snapshot.source
+// IS the layer id for prioritization purposes.
+async function recordLayerPrioritySignal(snapshot, action) {
+  if (!state.settings.adaptivePriorityEnabled) return;
+  try {
+    const layerId = snapshot && snapshot.source;
+    const rec = layerPriority.recordAction(layerId, action);
+    if (!rec) return; // ambiguous action or no layer id — no signal
+    if (state.settings.persistLayerPriority) {
+      await memoryStore.saveLearnedModel(LP_MODEL_ID, layerPriority.toJSON());
+    }
+    refreshLayerPriorityStats();
+    // Re-render so the new ordering/badges take effect immediately.
+    if (window.__dataglowLastValidation) applySelfLearningHighlights();
+  } catch (e) { /* prioritization is best-effort; never disrupt the user's action */ }
 }
 
 // Add a small "likely relevant / likely dismiss" badge + plain-language reason
@@ -2094,6 +2128,135 @@ function initSelfLearning() {
 }
 
 // ============================================================
+// Adaptive Layer Prioritization
+// Reorders/highlights the Validate grid by how often each layer has caught a
+// real issue for THIS user. Learns from the SAME accept/dismiss stream as the
+// Self-Learning Rules feature. See js/adaptive-priority.js for the model +
+// technique (Beta-Binomial confidence with exponential recency decay).
+// ============================================================
+
+// A layer counts as having "fired" when its result flagged something (warn/fail
+// status, or it produced findings/clusters). Recorded once per validation run.
+function recordLayerFires(results) {
+  if (!state.settings.adaptivePriorityEnabled || !results) return;
+  try {
+    for (const layer of validation.LAYER_DEFS) {
+      if (layer.id === 'confidence' || layer.id === 'red_team') continue;
+      const r = results[layer.id];
+      if (!r) continue;
+      const fired = r.status === 'warn' || r.status === 'fail'
+        || (Array.isArray(r.findings) && r.findings.length)
+        || (Array.isArray(r.clusters) && r.clusters.length);
+      if (fired) layerPriority.recordFire(layer.id);
+    }
+  } catch (e) { /* non-fatal */ }
+}
+
+// The prioritized ordering for the grid, or null when prioritization is off
+// (renderValidationResults then falls back to the fixed registry order).
+function getLayerPriorityView() {
+  if (!state.settings.adaptivePriorityEnabled) return null;
+  return layerPriority.prioritize(validation.LAYER_DEFS);
+}
+
+// A compact ▲/▼ badge for a layer's card head. Only shown once the model is
+// ready and only for layers that have actually moved off neutral, to avoid noise.
+function priorityBadgeFor(layerId) {
+  if (!state.settings.adaptivePriorityEnabled || !layerPriority.isReady()) return null;
+  const ex = layerPriority.explain(layerId);
+  if (ex.tier === 'neutral') return null;
+  const promoted = ex.tier === 'promoted';
+  return el('span', {
+    class: 'layer-priority-badge',
+    'data-testid': `layer-priority-badge-${layerId}`,
+    title: ex.reason,
+    style: `font-size:11px; font-weight:600; padding:2px 8px; border-radius:8px; margin-left:auto; color:#fff; background:${promoted ? 'var(--color-grade-a)' : 'var(--color-text-faint)'};`,
+  }, promoted ? `▲ Prioritized (${Math.round(ex.score * 100)}%)` : `▼ Deprioritized (${Math.round(ex.score * 100)}%)`);
+}
+
+// A one-line plain-language note under a moved layer explaining WHY it moved.
+function priorityNoteFor(layerId) {
+  if (!state.settings.adaptivePriorityEnabled || !layerPriority.isReady()) return null;
+  const ex = layerPriority.explain(layerId);
+  if (ex.tier === 'neutral') return null;
+  return el('div', {
+    'data-testid': `layer-priority-note-${layerId}`,
+    style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px; font-style:italic;',
+  }, `Learned ordering: ${ex.reason}`);
+}
+
+function refreshLayerPriorityStats() {
+  const statsEl = $('#layer-priority-stats');
+  if (!statsEl) return;
+  if (!state.settings.adaptivePriorityEnabled) {
+    statsEl.textContent = 'Adaptive prioritization is off — layers stay in their default order.';
+    return;
+  }
+  const n = layerPriority.totalActions;
+  if (layerPriority.isReady()) {
+    statsEl.textContent = `Prioritizing from ${n} of your accept/dismiss action${n === 1 ? '' : 's'} this ${state.settings.persistLayerPriority ? 'device' : 'session'} — the most useful layers are surfaced first.`;
+  } else {
+    statsEl.textContent = `Watching ${n} action${n === 1 ? '' : 's'} so far. ${layerPriority.actionsUntilReady()} more needed before layers are reordered (minimum ${MIN_ACTIONS}). All layers stay in their default order until then.`;
+  }
+}
+
+function initLayerPriority() {
+  const enableToggle = $('#toggle-adaptive-priority');
+  if (enableToggle) {
+    enableToggle.checked = state.settings.adaptivePriorityEnabled;
+    enableToggle.addEventListener('change', () => {
+      state.settings.adaptivePriorityEnabled = enableToggle.checked;
+      toast(enableToggle.checked ? 'Adaptive layer prioritization enabled for this session.' : 'Adaptive prioritization turned off — layers stay in default order.', 'success');
+      refreshLayerPriorityStats();
+      applySelfLearningHighlights();
+    });
+  }
+
+  const persistToggle = $('#toggle-persist-priority');
+  if (persistToggle) {
+    state.settings.persistLayerPriority = localStorage.getItem(LP_CONSENT_KEY) === '1';
+    persistToggle.checked = state.settings.persistLayerPriority;
+    persistToggle.addEventListener('change', async () => {
+      state.settings.persistLayerPriority = persistToggle.checked;
+      localStorage.setItem(LP_CONSENT_KEY, persistToggle.checked ? '1' : '0');
+      try {
+        if (persistToggle.checked) {
+          const prior = await memoryStore.getLearnedModel(LP_MODEL_ID);
+          if (prior && layerPriority.totalActions === 0) layerPriority = LayerPriorityModel.fromJSON(prior);
+          await memoryStore.saveLearnedModel(LP_MODEL_ID, layerPriority.toJSON());
+        }
+      } catch (e) { /* IndexedDB unavailable — non-fatal */ }
+      toast(persistToggle.checked
+        ? 'Learned prioritization will be remembered on this device (stored locally only).'
+        : 'Cross-session prioritization disabled — it stays in this session only.', 'success');
+      refreshLayerPriorityStats();
+    });
+  }
+
+  const clearBtn = $('#btn-clear-priority');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('Clear the learned layer prioritization from this browser? The Validate tab will go back to the default layer order.')) return;
+      layerPriority = new LayerPriorityModel();
+      try { await memoryStore.deleteLearnedModel(LP_MODEL_ID); } catch (e) { /* non-fatal */ }
+      toast('Learned prioritization cleared', 'success');
+      refreshLayerPriorityStats();
+      applySelfLearningHighlights();
+    });
+  }
+
+  (async () => {
+    try {
+      if (state.settings.persistLayerPriority) {
+        const prior = await memoryStore.getLearnedModel(LP_MODEL_ID);
+        if (prior) layerPriority = LayerPriorityModel.fromJSON(prior);
+      }
+    } catch (e) { /* non-fatal */ }
+    refreshLayerPriorityStats();
+  })();
+}
+
+// ============================================================
 // Anonymized Export (Differential Privacy)
 // ============================================================
 function initAnonExport() {
@@ -2143,21 +2306,34 @@ function initAnonExport() {
 function renderValidationResults(results) {
   const grid = $('#validation-grid');
   grid.innerHTML = '';
-  for (const layer of validation.LAYER_DEFS) {
+  // Adaptive Layer Prioritization: reorder the grid so the layers that have
+  // historically caught real issues for this user surface first. Falls back to
+  // the fixed registry order when learning is off or not yet ready. This only
+  // changes card ORDER and adds an explanatory badge — every layer is still
+  // rendered, and what each layer validates is unchanged.
+  const priorityView = getLayerPriorityView();
+  const orderedLayers = priorityView ? priorityView.items.map(it => it.def) : validation.LAYER_DEFS;
+  refreshLayerPriorityStats();
+  for (const layer of orderedLayers) {
     if (layer.id === 'confidence') {
       renderConfidenceSummary(results.confidence);
       continue;
     }
     if (layer.id === 'red_team') continue; // rendered via modal
     const r = results[layer.id] || { status: 'idle', summary: 'Not run' };
+    const head = el('div', { class: 'validation-card-head' }, [
+      el('span', { class: 'validation-card-name' }, layer.name),
+      el('span', { class: `validation-status ${r.status}` }, [el('span', { class: `status-dot ${r.status}` }), r.status.toUpperCase()]),
+    ]);
+    const priorityBadge = priorityBadgeFor(layer.id);
+    if (priorityBadge) head.appendChild(priorityBadge);
     const card = el('div', { class: 'card validation-card', 'data-testid': `card-validation-${layer.id}` }, [
-      el('div', { class: 'validation-card-head' }, [
-        el('span', { class: 'validation-card-name' }, layer.name),
-        el('span', { class: `validation-status ${r.status}` }, [el('span', { class: `status-dot ${r.status}` }), r.status.toUpperCase()]),
-      ]),
+      head,
       el('div', { class: 'validation-card-desc' }, layer.desc),
       el('div', { style: 'font-size:var(--text-sm); margin-top:var(--space-1);' }, r.summary),
     ]);
+    const priorityNote = priorityNoteFor(layer.id);
+    if (priorityNote) card.appendChild(priorityNote);
     if (r.detail && Array.isArray(r.detail)) {
       const detailList = el('ul', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); padding-left:var(--space-4); margin-top:var(--space-1);' });
       r.detail.slice(0, 5).forEach(d => detailList.appendChild(el('li', {}, d)));
@@ -3059,6 +3235,7 @@ function init() {
   initRedTeam();
   initMemory();
   initSelfLearning();
+  initLayerPriority();
   initAnonExport();
   initLedger();
   initProvenance();

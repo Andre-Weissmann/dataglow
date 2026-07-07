@@ -203,6 +203,16 @@ export async function countLearnedExamples(modelId = 'default') {
   return m && Array.isArray(m.examples) ? m.examples.length : 0;
 }
 
+// Delete ONE learned model by id, leaving every other model intact. Backs the
+// "Clear my learned prioritization" control, which must not wipe the separate
+// Self-Learning corrections model stored under a different modelId.
+export async function deleteLearnedModel(modelId = 'default') {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEARNED, 'readwrite');
+  tx.objectStore(STORE_LEARNED).delete(modelId);
+  await txDone(tx);
+}
+
 // Clear ONLY the learned corrections, leaving fingerprints/profiles/rules intact.
 // Backs the "Clear my learned corrections" consent control.
 export async function clearLearnedModels() {

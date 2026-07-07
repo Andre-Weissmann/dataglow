@@ -765,6 +765,30 @@
     <div id="self-learning-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
     <button class="btn btn-secondary" id="btn-clear-learning" style="margin-bottom:var(--space-5);" data-testid="button-clear-learning">Clear my learned corrections</button>
 
+    <div class="sidebar-heading">Adaptive Layer Prioritization</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      DATAGLOW can also learn <strong>which of the 20 validation layers</strong> tend to catch real issues for
+      <strong>your</strong> data, and <strong>reorder the Validate tab</strong> so those layers surface first. Layers
+      whose flags you keep <strong>acting on</strong> rise; layers you keep <strong>dismissing as noise</strong> sink.
+    </p>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      <strong>This only changes the order and adds a badge</strong> — it never hides, disables, or changes what any
+      layer checks. Every one of the 20 layers still runs and stays visible. The score is a simple, explainable
+      <strong>Beta-Binomial confidence</strong> (Laplace's rule of succession) with recency weighting — not a
+      black-box model — so a layer with no feedback stays exactly where it is (it needs at least
+      <strong>5 accept/dismiss actions</strong> before anything moves).
+    </p>
+    <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); margin-bottom:var(--space-2); cursor:pointer;">
+      <input type="checkbox" id="toggle-adaptive-priority" data-testid="toggle-adaptive-priority" checked />
+      Reorder layers from my corrections this session (in-memory only, wiped on reload)
+    </label>
+    <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); margin-bottom:var(--space-2); cursor:pointer;">
+      <input type="checkbox" id="toggle-persist-priority" data-testid="toggle-persist-priority" />
+      Remember the learned order across sessions on this device (opt-in)
+    </label>
+    <div id="layer-priority-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
+    <button class="btn btn-secondary" id="btn-clear-priority" style="margin-bottom:var(--space-5);" data-testid="button-clear-priority">Clear my learned prioritization</button>
+
     <div class="sidebar-heading">About &amp; Attributions</div>
     <div style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-5);">
       <p style="margin-bottom:var(--space-2);">

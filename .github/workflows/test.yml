@@ -53,6 +53,10 @@ jobs:
       # logistic-regression training, min-examples gating, ranking/explanation,
       # and the opt-in/opt-out/clear persistence contract.
       - run: npm run test:selflearn
+      # Adaptive Layer Prioritization: Beta-Binomial/Laplace per-layer scoring,
+      # exponential recency decay, the min-actions reorder gate, permutation-safe
+      # reordering (never hides a layer), and opt-in/opt-out/clear persistence.
+      - run: npm run test:adaptivepriority
       # Fast, deterministic, browser-free unit suites (Gen 9 Batch 2):
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient

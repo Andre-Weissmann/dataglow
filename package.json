@@ -18,6 +18,7 @@
     "test:missingness": "node --import ./test/duckdb-loader-hook.mjs test/missingness-detective.test.mjs",
     "test:predanomaly": "node --import ./test/duckdb-loader-hook.mjs test/predictive-anomaly.test.mjs",
     "test:selflearn": "node test/self-learning-rules.test.mjs",
+    "test:adaptivepriority": "node test/adaptive-priority.test.mjs",
     "test:attestation": "node test/verify-attestation.mjs",
     "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/gen9-batch3.test.mjs",
     "test:sd-proof": "node test/selective-disclosure-proof.test.mjs",

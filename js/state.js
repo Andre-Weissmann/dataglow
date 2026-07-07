@@ -28,6 +28,13 @@ export const state = {
     // separate, explicit opt-in, default OFF. See js/self-learning-rules.js.
     selfLearningEnabled: true,
     persistLearnedCorrections: false,
+    // Adaptive Layer Prioritization. Reorders/highlights the Validate tab's 20
+    // layers by how often each has historically caught a real issue for this
+    // user. Per-session learning is ON by default (RAM only, wiped on reload);
+    // cross-session persistence to IndexedDB is a separate opt-in, default OFF.
+    // See js/adaptive-priority.js. Never hides or disables any layer.
+    adaptivePriorityEnabled: true,
+    persistLayerPriority: false,
   },
   tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch'],
 };
