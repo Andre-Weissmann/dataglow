@@ -14,7 +14,10 @@ export const state = {
   queryHistory: [],        // for Historical Drift Detector
   validationResults: {},   // layerId -> result
   settings: {
-    modelProvider: 'perplexity',
+    // Default to the private, in-browser small model (no API key, no upload).
+    // If the browser lacks WebGPU, the Story tab transparently uses the offline
+    // rule-based engine instead — see js/main.js updateStoryModelPanel().
+    modelProvider: 'ondevice',
     apiKeys: {},
     freshnessThresholdHours: 24,
     // Opt-in (default OFF): persist small per-column distribution fingerprints

@@ -27,6 +27,14 @@
 // A small, quantized instruct model from WebLLM's prebuilt registry. Qwen2.5's
 // 1.5B-Instruct at 4-bit (~1.1GB) is a strong small model that runs on modest
 // consumer GPUs; swap the id here to trade size for quality.
+//
+// MODEL & LICENSE (per DATAGLOW's open-weights guardrail):
+//   • Model:   Qwen2.5-1.5B-Instruct  (Alibaba Cloud / Qwen)
+//   • Weights: q4f16_1 MLC build from WebLLM's official prebuilt registry
+//   • License: Apache-2.0  (https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct)
+//   • Runtime: WebLLM / MLC-AI, Apache-2.0 (https://github.com/mlc-ai/web-llm)
+// Both the model weights and the inference runtime are permissively licensed and
+// open-weight; nothing proprietary is used or bundled.
 export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
 export const MODEL_LABEL = 'Qwen2.5 1.5B Instruct (4-bit, ~1.1 GB)';
 
@@ -166,6 +174,60 @@ export function buildSynthesisPrompt({ ledgerEntries = [], layerResults = {}, ph
 }
 
 // ============================================================
+// Story-tab narrative prompt (query-result storytelling)
+// ============================================================
+// The Story tab writes a plain-English narrative about a SQL query RESULT (not
+// the validation suite). This prompt is separate from buildSynthesisPrompt: it
+// describes the result shape plus the per-claim confidence grades DATAGLOW's
+// Confidence Layer already computed, and asks for a short, honest story. Kept
+// pure/deterministic and browser-free so it is unit-testable in Node.
+const STORY_SYSTEM_PROMPT = [
+  'You are DATAGLOW\'s Story Engine, a data-analyst assistant that runs entirely on the user\'s own device.',
+  'You turn a SQL query result into a short, plain-English data story for a non-technical analyst.',
+  'You are NOT a medical, clinical, or diagnostic AI. Never give medical advice, diagnoses, or treatment guidance.',
+  'If the data appears to be healthcare data, reason ONLY about the data itself (counts, averages, categories), never about patients or care.',
+  'Only use numbers that appear in the provided figures — never invent, round loosely, or extrapolate. Do not output code, headers, or bullet points; write flowing prose.',
+].join(' ');
+
+// Build the Story-tab prompt from a query result and its pre-scored claims.
+// `claims` is the output of story.js buildStoryClaims (each { text, confidence:{grade} }).
+export function buildStoryModelPrompt({ tableName = 'the dataset', queryResult = {}, claims = [] } = {}) {
+  const cols = Array.isArray(queryResult.columns) ? queryResult.columns : [];
+  const rowCount = typeof queryResult.rowCount === 'number'
+    ? queryResult.rowCount
+    : (Array.isArray(queryResult.rows) ? queryResult.rows.length : 0);
+
+  const lines = [];
+  lines.push('## Query result');
+  lines.push(`- Source table: ${tableName}`);
+  lines.push(`- Rows returned: ${rowCount.toLocaleString()}`);
+  lines.push(`- Columns (${cols.length}): ${cols.length ? cols.join(', ') : '(none)'}`);
+
+  if (Array.isArray(claims) && claims.length) {
+    lines.push('');
+    lines.push('## Key figures (each carries a DATAGLOW confidence grade A–D, A = strongest)');
+    for (const c of claims) {
+      const grade = c && c.confidence && c.confidence.grade;
+      lines.push(`- ${c.text}${grade ? ` [confidence ${grade}]` : ''}`);
+    }
+  }
+
+  lines.push('');
+  lines.push('## Task');
+  lines.push('Write a short data story (3–5 sentences of flowing prose). State one clear insight and its practical implication, reflect the confidence grades where a figure is weakly supported (grade C or D), and end with one honest caveat about what this query does NOT show (e.g. rows filtered out or populations absent). Use only the numbers above.');
+
+  const user = lines.join('\n');
+  return {
+    system: STORY_SYSTEM_PROMPT,
+    user,
+    messages: [
+      { role: 'system', content: STORY_SYSTEM_PROMPT },
+      { role: 'user', content: user },
+    ],
+  };
+}
+
+// ============================================================
 // Browser-only: model loading + inference (WebGPU / WebLLM)
 // ============================================================
 let enginePromise = null;
@@ -221,4 +283,39 @@ export async function synthesizeFindings(context, onToken) {
     }
   }
   return full.trim();
+}
+
+// Generate the Story-tab narrative from a query result. `context` is
+// { tableName, queryResult, claims }. `onToken` (optional) streams partial text.
+// max_tokens is kept tight (short story, small-model context budget).
+export async function generateStoryNarrative(context, onToken) {
+  const engine = await loadModel();
+  const { messages } = buildStoryModelPrompt(context);
+  const chunks = await engine.chat.completions.create({
+    messages,
+    temperature: 0.4,
+    max_tokens: 400,
+    stream: true,
+  });
+  let full = '';
+  for await (const chunk of chunks) {
+    const delta = chunk?.choices?.[0]?.delta?.content || '';
+    if (delta) {
+      full += delta;
+      if (typeof onToken === 'function') onToken(full);
+    }
+  }
+  return full.trim();
+}
+
+// Free the browser storage the model weights occupy: drop the in-memory engine
+// and delete WebLLM's Cache-API entries so the next load re-downloads cleanly.
+// No-ops safely in Node (no `caches`). Returns the number of caches removed.
+export async function clearModelCache() {
+  enginePromise = null;
+  if (typeof caches === 'undefined' || typeof caches.keys !== 'function') return 0;
+  const keys = await caches.keys();
+  const targets = keys.filter(k => /webllm|mlc|model/i.test(k));
+  await Promise.all(targets.map(k => caches.delete(k)));
+  return targets.length;
 }
