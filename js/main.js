@@ -891,7 +891,10 @@ async function runValidation() {
 
   const packSel = $('#domain-pack-select');
   const pack = packSel && packSel.value ? packSel.value : 'healthcare';
-  const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours, pack });
+  // Cross-session fingerprint drift is opt-in: only hand the IndexedDB store to
+  // the drift layer when the user has enabled persistence. Off by default.
+  const fingerprintStore = state.settings.persistFingerprints ? memoryStore : null;
+  const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours, pack, fingerprintStore });
   renderValidationResults(results);
   window.__dataglowLastValidation = results;
   await renderTopProblems(ds, results);
@@ -1792,6 +1795,26 @@ async function refreshMemoryPanel() {
   }
 }
 
+// Consent for cross-session fingerprint persistence is a single boolean UI
+// preference (not user data), so it lives in localStorage; the fingerprints
+// themselves stay in IndexedDB (js/memory-store.js).
+const FP_CONSENT_KEY = 'dataglow_persist_fingerprints';
+
+async function refreshFingerprintStats() {
+  const el = $('#fingerprint-stats');
+  if (!el) return;
+  if (!state.settings.persistFingerprints) {
+    el.textContent = 'Persistence off — fingerprints are compared only within the current session.';
+    return;
+  }
+  try {
+    const n = await memoryStore.countBaselines();
+    el.textContent = `${n} schema fingerprint(s) stored locally on this device.`;
+  } catch (e) {
+    el.textContent = 'Local storage unavailable in this browser.';
+  }
+}
+
 function initMemory() {
   memoryStore.initMemoryStore().then(refreshMemoryPanel).catch(() => {
     const el0 = $('#memory-stats');
@@ -1806,10 +1829,37 @@ function initMemory() {
       if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('dataglow_memory');
       toast('Local memory cleared', 'success');
       $('#memory-stats').textContent = '0 approved rule(s) stored locally.';
+      refreshFingerprintStats();
     } catch (e) {
       toast('Clear failed: ' + e.message, 'error');
     }
   });
+
+  // ---- Distribution Fingerprint Drift: opt-in persistence ----
+  const toggle = $('#toggle-persist-fingerprints');
+  if (toggle) {
+    state.settings.persistFingerprints = localStorage.getItem(FP_CONSENT_KEY) === '1';
+    toggle.checked = state.settings.persistFingerprints;
+    toggle.addEventListener('change', () => {
+      state.settings.persistFingerprints = toggle.checked;
+      localStorage.setItem(FP_CONSENT_KEY, toggle.checked ? '1' : '0');
+      toast(toggle.checked
+        ? 'Fingerprint persistence enabled — only summary stats are stored locally.'
+        : 'Fingerprint persistence disabled.', 'success');
+      refreshFingerprintStats();
+    });
+  }
+  $('#btn-clear-fingerprints').addEventListener('click', async () => {
+    if (!confirm('Clear all stored distribution fingerprints from this device? This cannot be undone.')) return;
+    try {
+      await memoryStore.clearBaselines();
+      toast('Stored fingerprints cleared', 'success');
+    } catch (e) {
+      toast('Clear failed: ' + e.message, 'error');
+    }
+    refreshFingerprintStats();
+  });
+  refreshFingerprintStats();
 }
 
 // ============================================================

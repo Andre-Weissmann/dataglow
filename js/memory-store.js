@@ -158,3 +158,18 @@ export async function saveBaseline(fingerprintHash, stats) {
   await txDone(tx);
   return record;
 }
+
+export async function countBaselines() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_BASELINES, 'readonly');
+  return req(tx.objectStore(STORE_BASELINES).count());
+}
+
+// Clear ONLY the stored distribution fingerprints, leaving column profiles and
+// approved rules intact. Backs the "clear stored fingerprints" consent control.
+export async function clearBaselines() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_BASELINES, 'readwrite');
+  tx.objectStore(STORE_BASELINES).clear();
+  await txDone(tx);
+}
