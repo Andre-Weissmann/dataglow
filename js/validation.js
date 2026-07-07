@@ -10,6 +10,7 @@ import { detectColumnClusters, describeCluster } from './categorical-consistency
 import { runCrossColumnChecks } from './cross-column-consistency.js';
 import { logAssumption } from './assumption-ledger.js';
 import { applyDomainPack, summarizeUnitTests } from './domain-physics.js';
+import { runPhysiologicalChecks, PHYSIO_DISCLAIMER } from './physiological-plausibility.js';
 import { computeCalibratedGrades } from './calibrated-grades.js';
 import { devAssertConformance, toValidationRun, toDataset } from './protocol-conformance.js';
 
@@ -39,6 +40,7 @@ export const LAYER_DEFS = [
   { id: 'categorical_consistency', name: 'Categorical Consistency Engine', desc: 'Clusters near-identical spellings (Levenshtein / Jaro-Winkler + ISO abbreviations) and proposes a canonical merge.' },
   { id: 'cross_column_logic', name: 'Cross-Column Logical Consistency', desc: 'Detects impossible combinations across columns — end-before-start ranges, discharge-before-admit, adult-only status on minors.' },
   { id: 'distribution_drift', name: 'Distributional Fingerprint Drift', desc: 'Stores each column\'s distribution shape and flags drift on a later load of the same schema.' },
+  { id: 'physiological_plausibility', name: 'Physiological Plausibility', desc: 'Healthcare-aware check: flags vital-sign values (heart rate, temperature, blood pressure, respiratory rate, SpO₂) outside general human physiological limits. A data-plausibility check, not medical advice.' },
   { id: 'red_team', name: 'Red Team Mode', desc: 'Runs all 17 layers against an intentionally broken golden dataset.' },
 ];
 
@@ -867,6 +869,41 @@ async function computeColumnMeta(table, cols) {
   return meta;
 }
 
+// ---------- 19. Physiological Plausibility (healthcare-aware) ----------
+// A healthcare-aware validation layer above the generic statistical validators.
+// It encodes hard human-biology plausibility bounds for five well-established
+// vital signs and flags values that are physiologically impossible (data errors
+// such as unit slips or typos) rather than merely statistically unusual. The
+// detection/bounds logic lives in js/physiological-plausibility.js so it is
+// unit-testable in isolation; this wrapper adds the standard result shape,
+// records each finding in the Assumption Ledger (as the other layers do), and
+// always carries the plain-language, non-clinical disclaimer.
+async function runPhysiologicalPlausibility(table, cols) {
+  const { findings, matched } = await runPhysiologicalChecks(table, cols, engine);
+  if (matched.length === 0) {
+    const r = result('idle', 'No recognizable vital-sign columns (heart rate, temperature, blood pressure, respiratory rate, SpO₂) detected. Skipped.');
+    r.disclaimer = PHYSIO_DISCLAIMER;
+    r.findings = [];
+    r.matched = [];
+    return r;
+  }
+  for (const f of findings) {
+    logAssumption('Physiological Plausibility', `Flagged ${f.text}`, { vital: f.vital, columns: f.columns || [f.column], count: f.count });
+  }
+  const checkedLabel = matched.map(m => `${m.column}${m.unit ? ` (${m.unit})` : ''}`).join(', ');
+  let r;
+  if (findings.length === 0) {
+    r = result('pass', `Checked ${matched.length} vital-sign column(s) — all values within general human physiological plausibility limits.`);
+  } else {
+    r = result('warn', `${findings.length} vital-sign issue(s) with physiologically implausible values — likely data errors to review.`, findings.map(f => f.text));
+  }
+  r.disclaimer = PHYSIO_DISCLAIMER;
+  r.findings = findings;
+  r.matched = matched;
+  r.checkedLabel = checkedLabel;
+  return r;
+}
+
 // ---------- Orchestrator ----------
 export async function runAllLayers(ds, options = {}) {
   const table = ds.table;
@@ -896,6 +933,7 @@ export async function runAllLayers(ds, options = {}) {
   results.categorical_consistency = await runCategoricalConsistency(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.cross_column_logic = await runCrossColumnLogic(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.distribution_drift = await runDistributionDrift(table, cols, { fingerprintStore: options.fingerprintStore }).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.physiological_plausibility = await runPhysiologicalPlausibility(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
 
   // ---- Domain Physics Engine ----
   // Sits ABOVE the 18 layers: it reinterprets/annotates their raw output using a
