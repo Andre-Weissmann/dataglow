@@ -82,7 +82,7 @@ A **universal, all-in-one, browser-based data analytics platform** built to repl
 ### Primary Database Engine
 - **DuckDB-WASM v1.5.4** — runs entirely in the browser
 - Zero server required, zero uploads, zero latency
-- Handles large files — tested against MIMIC-IV scale (300M+ rows with chunking)
+- Designed to handle large files via DuckDB-WASM's chunked/streaming execution. Verified so far on the small, public MIMIC-IV Clinical Database Demo and on synthetic MIMIC-IV-style fixtures (up to tens of thousands of rows); full-database (300M-row) scale is a design target, not a measured benchmark
 - Zero installation — open a browser, it works
 
 ### Language Engines
@@ -115,7 +115,7 @@ A **universal, all-in-one, browser-based data analytics platform** built to repl
 ### Tier 1 — DuckDB-WASM Native (Build Now)
 - CSV / TSV
 - JSON / NDJSON
-- Parquet (columnar — handles MIMIC-IV scale)
+- Parquet (columnar — well suited to large healthcare datasets)
 - Apache Arrow / Feather / IPC
 - Excel (.xlsx, .xls)
 - SQLite
@@ -259,8 +259,8 @@ Built-in test CSV with exactly:
 
 All 18 validation layers must catch their specific issues on this dataset before any deployment is considered successful. (The Distributional Fingerprint Drift layer establishes its baseline on first load and flags drift on a later same-schema load.)
 
-### MIMIC-IV Ground Truth Test
-MIMIC-IV has published summary statistics in peer-reviewed papers. Run DATAGLOW against MIMIC-IV and compare output numbers to published statistics. If they match — the engine is real.
+### MIMIC-IV Ground Truth Test (proposed)
+MIMIC-IV has published summary statistics in peer-reviewed papers. The proposed check is to run DATAGLOW against MIMIC-IV and compare output numbers to published statistics; if they match, the engine is trustworthy. To date this has only been exercised against the small, public MIMIC-IV Clinical Database Demo and synthetic MIMIC-IV-style fixtures — the full-database comparison requires credentialed PhysioNet access and has not yet been run.
 
 ### Two-Path Sanity Check
 Run the same calculation:
@@ -349,7 +349,7 @@ DATAGLOW Swift Tab:
 
 ### Primary: Healthcare Data Analytics
 - HIPAA-aware architecture throughout
-- Tested on MIMIC-IV (300M+ rows, one of world's hardest clinical datasets)
+- Validated against the public MIMIC-IV Clinical Database Demo and synthetic MIMIC-IV-style fixtures; the full MIMIC-IV database (one of the world's hardest clinical datasets, requiring credentialed PhysioNet access) is a design target, not yet a measured benchmark
 - Target users: quality improvement departments, small critical access hospitals
 - Features: Denial Radar, FHIR support, EDI 837/835, DICOM metadata
 - Equity Lens: automatic demographic disparity checking
@@ -379,7 +379,7 @@ DATAGLOW Swift Tab:
 | Gen 1 | Core DuckDB engine, basic SQL, CSV upload | ✅ Complete |
 | Gen 2 | Excel support, JSON, basic cleaning | ✅ Complete |
 | Gen 3 | Validate tab, first 3 validation layers | ✅ Complete |
-| Gen 4 | ZKP Verifiable Reports, Synthetic Data (PSyGenTAB v2 — 95% fidelity/97% privacy), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
+| Gen 4 | ZKP Verifiable Reports, Synthetic Data (PSyGenTAB v2 — differential-privacy synthesis; fidelity/privacy not yet independently measured), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
 | Gen 5 | Confidence Layer, UX overhaul, light/dark mode | ✅ Complete |
 | Gen 6 | All 7 validation layers live, Story tab, Preflight tab | ✅ Complete (expired session) |
 | **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 18 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
@@ -446,7 +446,7 @@ BRANDING:
 
 HEALTHCARE FOCUS:
 - HIPAA-aware architecture
-- MIMIC-IV tested (300M+ row chunking strategy)
+- Bug-fix regression tests derived from the public MIMIC-IV Clinical Database Demo; large-scale (300M-row) chunking is a design goal, not a measured benchmark
 - Equity Lens: automatic demographic disparity checking
 - Target: quality improvement departments, small critical access hospitals
 
