@@ -1,24 +1,29 @@
 // ============================================================
-// DATAGLOW — Zero-Knowledge-Style "Prove Without Revealing" Mode
+// DATAGLOW — Selective-Disclosure Provenance Proof
+// ("Prove Specific Claims Without Sharing the Dataset")
 // ============================================================
 // Extends the Verifiable Provenance Attestation system (js/provenance.js) with a
 // cryptographic COMMITMENT + SELECTIVE DISCLOSURE scheme so a third party
 // (auditor, partner org, hospital compliance office) can verify specific
-// validation claims about a dataset WITHOUT ever seeing the underlying data.
+// validation claims about a dataset WITHOUT ever receiving the underlying data.
 //
-// HONEST STATEMENT OF THE GUARANTEE (compliance/legal-risk constraint):
-// This is NOT a formal zero-knowledge succinct proof (zk-SNARK/zk-STARK). It is
-// a Merkle-tree commitment over a canonical set of validation claims, using
-// SHA-256 (the same primitive js/provenance.js already uses). What it proves:
+// WHAT THIS ACTUALLY IS (precise statement of the cryptographic guarantee):
+// This is a Merkle-tree commitment over a canonical set of validation claims,
+// using SHA-256 (the same primitive js/provenance.js already uses), combined
+// with per-claim Merkle-proof selective disclosure. What it proves:
 //   • that the publisher committed to a fixed set of claims BEFORE sharing the
 //     root (the root is a binding fingerprint of all claims), and
 //   • that each disclosed claim is a genuine member of that committed set,
 //     verifiable by anyone holding only the proof artifact — no dataset needed.
-// What it does NOT prove:
-//   • it does not hide the disclosed claims themselves (only the undisclosed
-//     leaves and the raw data stay private — this is selective disclosure, not
-//     true zero knowledge);
-//   • it does not prove the ORIGINAL raw data was correct or PHI-compliant, only
+//
+// WHAT THIS IS NOT (deliberately avoids a cryptographic overclaim):
+//   • This is NOT a formal zero-knowledge proof system (not a zk-SNARK, zk-STARK,
+//     or any succinct zero-knowledge construction). Do NOT describe it as
+//     "zero-knowledge" or "ZK": the disclosed claims are revealed in cleartext.
+//   • It does not hide the disclosed claims themselves; only the undisclosed
+//     leaves and the raw data stay private. This is selective disclosure with
+//     hash-verified membership, not zero knowledge.
+//   • It does not prove the ORIGINAL raw data was correct or PHI-compliant, only
 //     that DATAGLOW's checks ran and produced the committed pass/fail results
 //     against a committed dataset fingerprint.
 // The public technique used is a standard "Merkle tree + SHA-256 commitment with
@@ -36,15 +41,16 @@
 
 import { sha256Hex } from './provenance.js';
 
-export const ZK_PROOF_KIND = 'dataglow-zk-provenance-proof';
-export const ZK_PROOF_VERSION = 1;
+export const SD_PROOF_KIND = 'dataglow-selective-disclosure-proof';
+export const SD_PROOF_VERSION = 1;
 
-export const ZK_PROOF_DISCLAIMER =
+export const SD_PROOF_DISCLAIMER =
   'This is a Merkle-tree (SHA-256) cryptographic commitment with selective '
   + 'disclosure — it proves the disclosed validation claims belong to a fixed set '
   + 'committed to by the published root hash, verifiable by anyone with only this '
   + 'artifact and no access to the dataset. It is NOT a formal zero-knowledge '
-  + 'succinct proof, and it does NOT attest that the original raw data was correct '
+  + 'proof (not a zk-SNARK/zk-STARK); the disclosed claims are shown in cleartext. '
+  + 'It does NOT attest that the original raw data was correct '
   + 'or PHI/HIPAA-compliant — only that DATAGLOW’s checks ran and produced '
   + 'these results against the committed dataset fingerprint. Not a legal, '
   + 'clinical, or regulatory determination.';
@@ -219,8 +225,8 @@ export async function generateProof({
   }));
 
   return {
-    kind: ZK_PROOF_KIND,
-    version: ZK_PROOF_VERSION,
+    kind: SD_PROOF_KIND,
+    version: SD_PROOF_VERSION,
     generatedAt: generatedAt != null ? new Date(generatedAt).toISOString() : new Date().toISOString(),
     algorithm: 'Merkle tree (SHA-256, domain-separated leaves 0x00 / nodes 0x01) commitment with Merkle-proof selective disclosure',
     dataglow: {
@@ -240,7 +246,7 @@ export async function generateProof({
       nodeHash: 'SHA-256 of "N:" + leftHex + rightHex',
     },
     disclosedClaims,
-    disclaimer: ZK_PROOF_DISCLAIMER,
+    disclaimer: SD_PROOF_DISCLAIMER,
   };
 }
 
@@ -251,9 +257,9 @@ export async function generateProof({
 // from its committed fields, folds it up the recorded proof path, and checks the
 // result equals the published root. Never references the original dataset — that
 // is the entire point. Returns per-claim results plus an overall verdict.
-export async function verifyZkProof(artifact) {
-  if (!artifact || artifact.kind !== ZK_PROOF_KIND) {
-    return { valid: false, reason: 'Not a DATAGLOW ZK-style provenance proof (missing/incorrect "kind").', root: null, claims: [] };
+export async function verifyProof(artifact) {
+  if (!artifact || artifact.kind !== SD_PROOF_KIND) {
+    return { valid: false, reason: 'Not a DATAGLOW selective-disclosure provenance proof (missing/incorrect "kind").', root: null, claims: [] };
   }
   const root = artifact.commitment && artifact.commitment.merkleRoot;
   if (!root) {
