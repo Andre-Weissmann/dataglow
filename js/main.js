@@ -1968,6 +1968,36 @@ function renderValidationResults(results) {
         card.appendChild(clRow);
       }
     }
+    // Cross-Column Logical Consistency: show each contradiction with the exact
+    // rule, the columns involved, and a plain-language reason. The analyst can
+    // dismiss a flag they judge acceptable — the dismissal is written to the
+    // Assumption Ledger and Provenance Trail, same as a categorical reject.
+    if (layer.id === 'cross_column_logic' && Array.isArray(r.findings) && r.findings.length) {
+      const ds = getActiveDataset();
+      for (const f of r.findings) {
+        const fRow = el('div', { style: 'margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': `xcol-finding-${f.rule}` }, [
+          el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;' }, [
+            el('span', { style: 'font-size:var(--text-xs); font-weight:600; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-grade-d);' }, f.ruleLabel),
+            el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, f.columns.map(c => `"${c}"`).join(' × ')),
+            el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px; margin-left:auto;', 'data-testid': `button-xcol-dismiss-${f.rule}` }, 'Dismiss'),
+          ]),
+          el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);' }, f.explanation),
+        ]);
+        const dismissBtn = fRow.querySelector('button');
+        dismissBtn.addEventListener('click', async () => {
+          ledger.logAssumption('Cross-Column Logical Consistency',
+            `Analyst dismissed ${f.count} flagged row(s) for "${f.ruleLabel}" on ${f.columns.map(c => `"${c}"`).join(', ')} — accepted as valid.`,
+            { rule: f.rule, columns: f.columns, count: f.count, dismissed: true });
+          if (ds) await provenance.recordStep(ds.table, 'validate',
+            `Dismissed cross-column flag: ${f.ruleLabel} on ${f.columns.map(c => `"${c}"`).join(', ')}.`, { rule: f.rule, columns: f.columns, dismissed: true });
+          renderAssumptionLedger();
+          renderProvenanceTrail();
+          fRow.style.opacity = '0.4'; fRow.style.pointerEvents = 'none';
+          toast('Flag dismissed and recorded in the audit trail', 'success');
+        });
+        card.appendChild(fRow);
+      }
+    }
     grid.appendChild(card);
   }
 }

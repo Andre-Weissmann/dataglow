@@ -7,6 +7,7 @@ import { state } from './state.js';
 import * as engine from './duckdb-engine.js';
 import { sha256, formatNumber } from './utils.js';
 import { detectColumnClusters, describeCluster } from './categorical-consistency.js';
+import { runCrossColumnChecks } from './cross-column-consistency.js';
 import { logAssumption } from './assumption-ledger.js';
 import { applyDomainPack, summarizeUnitTests } from './domain-physics.js';
 import { computeCalibratedGrades } from './calibrated-grades.js';
@@ -655,96 +656,25 @@ function logCategoricalAssumptions(catResult) {
 }
 
 // ---------- 17. Cross-Column Logical Consistency ----------
-// Detects impossible combinations across column pairs/groups. Column pairing
-// is heuristic (substring/keyword matching on names), never hardcoded to one
-// dataset's columns.
-const START_KW = ['start', 'begin', 'admit', 'admission', 'open', 'from', 'onset', 'entry', 'hire', 'issue', 'effective'];
-const END_KW = ['end', 'finish', 'discharge', 'close', 'stop', 'exit', 'termination', 'terminate', 'expiry', 'expire', 'resolved', 'completion', 'complete', 'return'];
-const MIN_KW = ['min', 'minimum', 'low', 'lower', 'floor'];
-const MAX_KW = ['max', 'maximum', 'high', 'higher', 'ceiling', 'cap'];
+// Detects impossible/contradictory combinations across columns in the same row
+// (end-before-start dates, inverted numeric ranges, male-and-pregnant,
+// infant-with-adult-marital-status, minor-with-adult-only-status, an abnormal
+// status flag with no measurement behind it). The rule engine + heuristic,
+// name-pattern column pairing live in js/cross-column-consistency.js so the
+// detection/firing logic is unit-testable in isolation; this layer wraps it in
+// the standard result shape and, like the Categorical Consistency Engine,
+// records each finding in the Assumption Ledger for the audit trail.
 const NUMERIC_T = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
 
-// Heuristic column-name matching: split a name into alphanumeric tokens (so
-// "admit_date" -> ["admit","date"]) and test whether any token begins with a
-// keyword. Token-based matching avoids both the underscore/word-boundary trap
-// and false hits from keywords buried inside unrelated words.
-function nameTokens(name) {
-  return String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-}
-function hasKeyword(name, keywords) {
-  const tokens = nameTokens(name);
-  return keywords.some(kw => tokens.some(t => t.startsWith(kw)));
-}
-
-function isDateLike(c) {
-  return /DATE|TIMESTAMP/i.test(c.type) || /date|admit|discharge|_at$|_on$|time/i.test(c.name);
-}
-
 async function runCrossColumnLogic(table, cols) {
-  const findings = [];
-  const dateCols = cols.filter(isDateLike);
-  const numericCols = cols.filter(c => NUMERIC_T.includes(c.type));
-
-  // (a/b) start/end (and admit/discharge) DATE pairs where end < start.
-  const startDates = dateCols.filter(c => hasKeyword(c.name, START_KW));
-  const endDates = dateCols.filter(c => hasKeyword(c.name, END_KW));
-  for (const s of startDates) {
-    for (const e of endDates) {
-      if (s.name === e.name) continue;
-      try {
-        const { rows } = await engine.runQuery(`
-          SELECT COUNT(*) AS n FROM ${table}
-          WHERE TRY_CAST("${s.name}" AS DATE) IS NOT NULL
-            AND TRY_CAST("${e.name}" AS DATE) IS NOT NULL
-            AND TRY_CAST("${e.name}" AS DATE) < TRY_CAST("${s.name}" AS DATE)`);
-        const n = Number(rows[0].n) || 0;
-        if (n > 0) {
-          findings.push(`${n} row(s) where "${e.name}" is before "${s.name}" — an end date cannot precede its start date.`);
-          logAssumption('Cross-Column Logical Consistency', `Flagged ${n} row(s) where "${e.name}" precedes "${s.name}" (impossible date order).`);
-        }
-      } catch (e) { /* incompatible columns — skip pair */ }
-    }
+  const findings = await runCrossColumnChecks(table, cols, engine);
+  for (const f of findings) {
+    logAssumption('Cross-Column Logical Consistency', `Flagged ${f.text}`, { rule: f.rule, columns: f.columns, count: f.count });
   }
-
-  // (a) numeric min/max (low/high) range pairs where max < min.
-  const minCols = numericCols.filter(c => hasKeyword(c.name, MIN_KW));
-  const maxCols = numericCols.filter(c => hasKeyword(c.name, MAX_KW));
-  for (const lo of minCols) {
-    for (const hi of maxCols) {
-      if (lo.name === hi.name) continue;
-      const { rows } = await engine.runQuery(`
-        SELECT COUNT(*) AS n FROM ${table}
-        WHERE "${lo.name}" IS NOT NULL AND "${hi.name}" IS NOT NULL AND "${hi.name}" < "${lo.name}"`);
-      const n = Number(rows[0].n) || 0;
-      if (n > 0) {
-        findings.push(`${n} row(s) where "${hi.name}" < "${lo.name}" — a maximum cannot be below its minimum.`);
-        logAssumption('Cross-Column Logical Consistency', `Flagged ${n} row(s) where "${hi.name}" < "${lo.name}" (inverted numeric range).`);
-      }
-    }
-  }
-
-  // (c) minors flagged with an adult-only status (age < 18 AND an
-  // adult-only boolean-like column is true).
-  const ageCol = cols.find(c => /\bage\b/i.test(c.name) && NUMERIC_T.includes(c.type));
-  const adultFlagCols = cols.filter(c => /retire|retirement|pension|401k|is_?adult|has_?mortgage|has_?license|is_?senior|medicare/i.test(c.name));
-  if (ageCol) {
-    for (const flag of adultFlagCols) {
-      try {
-        const { rows } = await engine.runQuery(`
-          SELECT COUNT(*) AS n FROM ${table}
-          WHERE "${ageCol.name}" < 18
-            AND LOWER(CAST("${flag.name}" AS VARCHAR)) IN ('true','t','yes','y','1')`);
-        const n = Number(rows[0].n) || 0;
-        if (n > 0) {
-          findings.push(`${n} row(s) where "${ageCol.name}" < 18 but "${flag.name}" is true — an adult-only status on a minor.`);
-          logAssumption('Cross-Column Logical Consistency', `Flagged ${n} row(s): minor (age<18) with adult-only status "${flag.name}"=true.`);
-        }
-      } catch (e) { /* skip */ }
-    }
-  }
-
   if (findings.length === 0) return result('pass', 'No impossible cross-column combinations detected.');
-  return result('fail', `${findings.length} logical inconsistency type(s) found across columns.`, findings);
+  const r = result('fail', `${findings.length} logical inconsistency type(s) found across columns.`, findings.map(f => f.text));
+  r.findings = findings;
+  return r;
 }
 
 // ---------- 18. Distributional Fingerprint Drift ----------

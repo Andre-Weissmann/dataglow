@@ -37,6 +37,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:sql
+      # Cross-Column Logical Consistency Checker: rule detection/firing unit suite.
+      - run: npm run test:crosscol
       # Gen 9 Batch 1: Domain Physics Engine unit suite + provenance attestation verifier.
       - run: npm run test:physics
       - run: npm run test:attestation
