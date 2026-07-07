@@ -5,13 +5,18 @@
 // ============================================================
 
 const DB_NAME = 'dataglow_memory';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_PROFILES = 'columnProfiles';
 const STORE_RULES = 'approvedRules';
 const STORE_BASELINES = 'datasetBaselines';
 const STORE_LEARNED = 'learnedCorrections';
+const STORE_FP_HISTORY = 'fingerprintHistory';
 
 const PROFILE_CAP = 200; // hard cap; evict least-recently-used beyond this
+// Bounded per-schema history depth for Forecast-Based Drift Alerting — mirrors
+// FORECAST_HISTORY_CAP in js/drift-forecast.js (kept in sync; not imported here
+// to keep this browser-only store dependency-free).
+const FP_HISTORY_CAP = 24;
 
 let dbPromise = null;
 
@@ -53,6 +58,9 @@ export function initMemoryStore() {
       }
       if (!db.objectStoreNames.contains(STORE_LEARNED)) {
         db.createObjectStore(STORE_LEARNED, { keyPath: 'modelId' });
+      }
+      if (!db.objectStoreNames.contains(STORE_FP_HISTORY)) {
+        db.createObjectStore(STORE_FP_HISTORY, { keyPath: 'fingerprintHash' });
       }
     };
     open.onsuccess = () => resolve(open.result);
@@ -175,6 +183,55 @@ export async function clearBaselines() {
   const db = await initMemoryStore();
   const tx = db.transaction(STORE_BASELINES, 'readwrite');
   tx.objectStore(STORE_BASELINES).clear();
+  await txDone(tx);
+}
+
+// ---------- fingerprintHistory (Forecast-Based Drift Alerting, opt-in) ----------
+// A short, bounded, time-ordered sequence of distribution fingerprints per
+// schema signature. The single-slot datasetBaselines store above deliberately
+// keeps only current + 1 prior version; forecasting needs a genuine SEQUENCE to
+// project a trend, so it lives in its own store. Like every other summary here
+// it holds ONLY the derived stat numbers (mean / null rate / modal share),
+// never raw rows, and is written only when the user has opted into persistence.
+// Injected into the drift layer via the same fingerprintStore contract.
+
+export async function getFingerprintHistory(fingerprintHash) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_FP_HISTORY, 'readonly');
+  const rec = await req(tx.objectStore(STORE_FP_HISTORY).get(fingerprintHash));
+  return rec && Array.isArray(rec.series) ? rec.series : [];
+}
+
+export async function appendFingerprintHistory(fingerprintHash, stats, cap = FP_HISTORY_CAP) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_FP_HISTORY, 'readwrite');
+  const store = tx.objectStore(STORE_FP_HISTORY);
+  const existing = await req(store.get(fingerprintHash));
+  const series = existing && Array.isArray(existing.series) ? existing.series : [];
+  series.push({ ts: Date.now(), stats });
+  while (series.length > cap) series.shift(); // keep only the most recent `cap`
+  store.put({ fingerprintHash, series });
+  await txDone(tx);
+  return series.length;
+}
+
+// Summary for the Settings panel: how many schemas are tracked and the total
+// number of stored fingerprints across them.
+export async function fingerprintHistoryStats() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_FP_HISTORY, 'readonly');
+  const all = await req(tx.objectStore(STORE_FP_HISTORY).getAll());
+  const schemas = all.length;
+  const points = all.reduce((a, r) => a + (Array.isArray(r.series) ? r.series.length : 0), 0);
+  return { schemas, points };
+}
+
+// Clear ONLY the trend history, leaving single-slot baselines/profiles/rules
+// intact. Backs the "Clear drift history" control.
+export async function clearFingerprintHistory() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_FP_HISTORY, 'readwrite');
+  tx.objectStore(STORE_FP_HISTORY).clear();
   await txDone(tx);
 }
 

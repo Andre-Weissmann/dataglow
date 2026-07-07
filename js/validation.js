@@ -15,6 +15,7 @@ import { runUpperBoundChecks, UPPER_BOUND_NOTE } from './upper-bound-sanity.js';
 import { runMissingnessDetective, MISSINGNESS_NOTE } from './missingness-detective.js';
 import { computeCalibratedGrades } from './calibrated-grades.js';
 import { devAssertConformance, toValidationRun, toDataset } from './protocol-conformance.js';
+import { forecastDriftReport } from './drift-forecast.js';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
 const history = {
@@ -771,10 +772,19 @@ export async function computeDistributionFingerprint(table, cols) {
       const { rows } = await engine.runQuery(`
         SELECT ${col} AS v, COUNT(*) AS n FROM ${table}
         WHERE ${col} IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 5`);
+      // Modal-category share: proportion of non-null rows equal to the single
+      // most-frequent label. Added alongside the existing `top` list (additive,
+      // so older baselines missing it still compare fine) to give the
+      // Forecast-Based Drift Alerting extension a forecastable scalar series for
+      // categorical columns — reusing this GROUP BY rather than a new scan.
+      const topCount = rows.length ? Number(rows[0].n) : 0;
+      const topProp = nonnull > 0 ? topCount / nonnull : null;
       stats[c.name] = {
         kind: 'categorical',
         nullRate, cardinality,
         top: rows.map(r => String(r.v)),
+        topLabel: rows.length ? String(rows[0].v) : null,
+        topProp,
       };
     }
   }
@@ -875,17 +885,57 @@ async function runDistributionDrift(table, cols, opts = {}) {
     source = 'the fingerprint recorded earlier this session';
   }
 
+  // Static (baseline) drift — the original PR#15 behaviour, unchanged.
+  let r;
   if (!baselineStats) {
-    return result('pass', `Distribution fingerprint recorded for ${Object.keys(stats).length} column(s) — baseline established.`);
+    r = result('pass', `Distribution fingerprint recorded for ${Object.keys(stats).length} column(s) — baseline established.`);
+  } else {
+    const drifts = compareDistributions(baselineStats, stats);
+    if (drifts.length === 0) {
+      r = result('pass', `Column distributions are stable versus ${source} — no drift.`);
+    } else {
+      for (const d of drifts) {
+        logAssumption('Distributional Fingerprint Drift', `Detected drift vs ${source}: ${d}`);
+      }
+      r = result('fail', `${drifts.length} column(s) drifted versus ${source} despite an unchanged schema — the data moved even though its shape didn't.`, drifts);
+    }
   }
-  const drifts = compareDistributions(baselineStats, stats);
-  if (drifts.length === 0) {
-    return result('pass', `Column distributions are stable versus ${source} — no drift.`);
+
+  // Forecast-Based Drift Alerting (extends the static check above). Only runs
+  // when the injected store exposes the trend-history contract — i.e. the user
+  // opted into cross-session persistence. It projects each tracked stat forward
+  // from the stored sequence of prior uploads and flags this upload if it falls
+  // outside the forecast's confidence band. With too little history it stays
+  // inactive and we silently keep the static behaviour above (never a
+  // forecast claim on a trajectory we haven't observed).
+  r.forecast = await runForecastAlerting(hash, stats, opts).catch(() => null);
+  if (r.forecast && r.forecast.active && r.forecast.flags.length) {
+    for (const f of r.forecast.flags) {
+      logAssumption('Forecast-Based Drift Alerting', f.message);
+    }
+    // Surface trend-aware alerts even when the static check passed, but never
+    // downgrade a hard static drift failure.
+    if (r.status === 'pass') {
+      r.status = 'warn';
+      r.summary = `${r.forecast.flags.length} trend-aware drift alert(s): this upload is outside the forecasted trajectory from ${r.forecast.historyLen} prior upload(s), even though static drift did not fire.`;
+    }
   }
-  for (const d of drifts) {
-    logAssumption('Distributional Fingerprint Drift', `Detected drift vs ${source}: ${d}`);
+  return r;
+}
+
+// Fetch the stored per-schema history, forecast the next upload, and append the
+// current fingerprint for future runs. Kept separate so runDistributionDrift's
+// static path is untouched when no trend-history store is injected.
+async function runForecastAlerting(hash, stats, opts) {
+  const store = opts.fingerprintStore;
+  if (!store || typeof store.getFingerprintHistory !== 'function') return null;
+  const history = await store.getFingerprintHistory(hash);        // [{ ts, stats }]
+  const priorStats = (history || []).map(h => h.stats).filter(Boolean);
+  const report = forecastDriftReport(priorStats, stats, {});
+  if (typeof store.appendFingerprintHistory === 'function') {
+    await store.appendFingerprintHistory(hash, stats);
   }
-  return result('fail', `${drifts.length} column(s) drifted versus ${source} despite an unchanged schema — the data moved even though its shape didn't.`, drifts);
+  return report;
 }
 
 // Build per-column metadata the Domain Physics Engine's rules match on. Kept

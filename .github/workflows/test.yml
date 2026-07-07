@@ -39,6 +39,10 @@ jobs:
       - run: npm run test:sql
       # Cross-Column Logical Consistency Checker: rule detection/firing unit suite.
       - run: npm run test:crosscol
+      # Forecast-Based Drift Alerting: Holt's exponential-smoothing math, the
+      # min-history gate, trend-aware flagging, and the injected trend-history
+      # store wiring that extends Distributional Fingerprint Drift (PR#15).
+      - run: npm run test:driftforecast
       # Gen 9 Batch 1: Domain Physics Engine unit suite + provenance attestation verifier.
       - run: npm run test:physics
       - run: npm run test:attestation

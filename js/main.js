@@ -27,6 +27,7 @@ import * as goldenSignals from './golden-signals.js';
 import * as entityBaseline from './entity-baseline.js';
 import * as privacyBudget from './privacy-budget.js';
 import * as memoryStore from './memory-store.js';
+import * as driftForecast from './drift-forecast.js';
 import * as ledger from './assumption-ledger.js';
 import * as provenance from './provenance.js';
 import * as sdProof from './selective-disclosure-proof.js';
@@ -1904,14 +1905,34 @@ const FP_CONSENT_KEY = 'dataglow_persist_fingerprints';
 
 async function refreshFingerprintStats() {
   const el = $('#fingerprint-stats');
+  if (el) {
+    if (!state.settings.persistFingerprints) {
+      el.textContent = 'Persistence off — fingerprints are compared only within the current session.';
+    } else {
+      try {
+        const n = await memoryStore.countBaselines();
+        el.textContent = `${n} schema fingerprint(s) stored locally on this device.`;
+      } catch (e) {
+        el.textContent = 'Local storage unavailable in this browser.';
+      }
+    }
+  }
+  await refreshDriftForecastStats();
+}
+
+// Trend-history summary for the Forecast-Based Drift Alerting control.
+async function refreshDriftForecastStats() {
+  const el = $('#drift-forecast-stats');
   if (!el) return;
   if (!state.settings.persistFingerprints) {
-    el.textContent = 'Persistence off — fingerprints are compared only within the current session.';
+    el.textContent = `Trend history off — enable persistence to build the ${driftForecast.MIN_FORECAST_HISTORY}-upload history that unlocks trend-aware alerts.`;
     return;
   }
   try {
-    const n = await memoryStore.countBaselines();
-    el.textContent = `${n} schema fingerprint(s) stored locally on this device.`;
+    const { schemas, points } = await memoryStore.fingerprintHistoryStats();
+    el.textContent = schemas
+      ? `${points} fingerprint(s) tracked across ${schemas} schema(s) for trend forecasting (need ${driftForecast.MIN_FORECAST_HISTORY} per schema to activate).`
+      : `No trend history yet — re-upload the same schema ${driftForecast.MIN_FORECAST_HISTORY}+ times to activate forecast alerts.`;
   } catch (e) {
     el.textContent = 'Local storage unavailable in this browser.';
   }
@@ -1961,6 +1982,19 @@ function initMemory() {
     }
     refreshFingerprintStats();
   });
+  const clearHistoryBtn = $('#btn-clear-drift-history');
+  if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', async () => {
+      if (!confirm('Clear the tracked drift history used for trend-aware forecast alerts? This cannot be undone.')) return;
+      try {
+        await memoryStore.clearFingerprintHistory();
+        toast('Drift history cleared', 'success');
+      } catch (e) {
+        toast('Clear failed: ' + e.message, 'error');
+      }
+      refreshDriftForecastStats();
+    });
+  }
   refreshFingerprintStats();
 }
 
@@ -2303,6 +2337,56 @@ function initAnonExport() {
   });
 }
 
+// Render the Forecast-Based Drift Alerting block shown inside the Distributional
+// Fingerprint Drift card. Styled distinctly from the static drift lines so a
+// trend-aware alert reads as "outside the projected trajectory", not just
+// "outside a static threshold".
+function renderForecastDrift(forecast) {
+  const wrap = el('div', { style: 'margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': 'forecast-drift' });
+  // Persistence off, or store without history contract → nothing accumulated.
+  if (!state.settings.persistFingerprints) {
+    wrap.appendChild(el('div', {
+      style: 'font-size:var(--text-xs); color:var(--color-text-faint);',
+      'data-testid': 'forecast-drift-locked',
+    }, '↗ Enable drift history tracking in Settings to unlock trend-aware alerts (forecasts this upload against the expected trajectory of recent uploads, not just a static baseline).'));
+    return wrap;
+  }
+  if (!forecast || !forecast.active) {
+    const have = forecast ? forecast.historyLen : 0;
+    const need = forecast ? forecast.minHistory : driftForecast.MIN_FORECAST_HISTORY;
+    wrap.appendChild(el('div', {
+      style: 'font-size:var(--text-xs); color:var(--color-text-faint);',
+      'data-testid': 'forecast-drift-warmup',
+    }, `↗ Trend-aware forecasting warms up after ${need} prior uploads of this schema (have ${have}). Until then, only static drift above applies.`));
+    return wrap;
+  }
+  const header = el('div', {
+    style: 'display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-1);',
+  }, [
+    el('span', {
+      style: 'font-size:var(--text-xs); font-weight:700; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-accent, #6d28d9);',
+      'data-testid': 'forecast-drift-badge',
+    }, 'TREND-AWARE FORECAST'),
+    el('span', { style: 'font-size:var(--text-xs); color:var(--color-text-faint);' },
+      `${forecast.method} · ${forecast.historyLen} prior upload(s)`),
+  ]);
+  wrap.appendChild(header);
+  if (forecast.flags.length === 0) {
+    wrap.appendChild(el('div', {
+      style: 'font-size:var(--text-xs); color:var(--color-text-muted);',
+      'data-testid': 'forecast-drift-ok',
+    }, '✓ Every tracked stat is within the range forecast from its recent trend.'));
+    return wrap;
+  }
+  const list = el('ul', {
+    style: 'font-size:var(--text-xs); color:var(--color-text); padding-left:var(--space-4); margin:0;',
+    'data-testid': 'forecast-drift-flags',
+  });
+  forecast.flags.slice(0, 6).forEach(f => list.appendChild(el('li', { style: 'margin-bottom:2px;' }, f.message)));
+  wrap.appendChild(list);
+  return wrap;
+}
+
 function renderValidationResults(results) {
   const grid = $('#validation-grid');
   grid.innerHTML = '';
@@ -2354,6 +2438,13 @@ function renderValidationResults(results) {
         details.appendChild(ul);
       }
       card.appendChild(details);
+    }
+    // Forecast-Based Drift Alerting: the trend-aware extension of the static
+    // Distributional Fingerprint Drift check. Rendered as a visually distinct
+    // block so users can tell these apart from the plain historical-drift lines
+    // above — these are projected-trajectory alerts, not static thresholds.
+    if (layer.id === 'distribution_drift') {
+      card.appendChild(renderForecastDrift(r.forecast));
     }
     // Categorical Consistency Engine: offer a one-click canonical merge per
     // cluster, reusing the same UPDATE mechanism as the Clean tab's fuzzy dedup.
