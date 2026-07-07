@@ -159,16 +159,18 @@ All tabs are **draggable and reorderable** by the user.
 | 3 | **Python** 🔨 | Pyodide Python 3.12 — full notebook experience in browser |
 | 4 | **R** 🔨 | WebR 4.4 — tidyverse, ggplot2, dplyr in browser |
 | 5 | **Clean** ✅ | Automated data cleaning with full audit trail |
-| 6 | **Validate** ✅ | All 18 validation layers (see below) |
+| 6 | **Validate** ✅ | All 20 validation layers (see below) |
 | 7 | **Visualize** ✅ | Plotly charts, drag-and-drop builder |
 | 8 | **Story** ✅ | AI narrative generation from query results |
 | 9 | **Swift** 🔨 | SwiftWasm — write Swift, preview iOS app layouts in browser |
 
 ---
 
-## 🛡️ THE 18 VALIDATION LAYERS — DATAGLOW'S HEARTBEAT
+## 🛡️ THE 20 VALIDATION LAYERS — DATAGLOW'S HEARTBEAT
 
 *"The features nobody else has."*
+
+> **Counting note:** DATAGLOW runs **20 validation layers** against your data (`runAllLayers`). A 21st registry entry, **Red Team Mode**, is a *self-test* that runs all 20 layers against a deliberately broken golden dataset — it validates DATAGLOW itself, not your data, which is why the headline count is 20.
 
 ### Live (Gen 6)
 1. **Sanity Anchor** — Runs the same GROUP BY query two independent ways and auto-compares. Catches calculation errors before they reach a presentation.
@@ -192,7 +194,12 @@ All tabs are **draggable and reorderable** by the user.
 15. **Categorical Consistency Engine** — For each text column, clusters near-identical spellings using published string-similarity algorithms (Levenshtein 1965 edit distance and Jaro-Winkler 1990) plus a small ISO-3166 country/state abbreviation lookup. Recognises that "France" / "FRA" / "French" are one category, proposes the most frequent variant as the canonical form, and offers a one-click merge that reuses the Clean tab's dedup mechanism.
 16. **Cross-Column Logical Consistency Checker** — Detects impossible combinations across column pairs/groups via DuckDB SQL: end-before-start date ranges, discharge-before-admit, inverted numeric min/max ranges, and adult-only status on minors (age < 18 with a retirement/pension flag set true). Column pairing is heuristic keyword matching on names — never hardcoded to one dataset.
 17. **Distributional Fingerprint Drift** — Sibling to the Schema Fingerprint layer. On each load it records a per-column distribution fingerprint (mean/std/skewness for numeric, top-5 value frequencies for categorical) keyed by the schema hash. On a later load of the *same* schema it flags significant drift (mean shift > 2σ, or a change in the categorical top-5 composition) — catching data that moved even though the shape did not.
-18. **Red Team Mode** — Loads a built-in intentionally broken dataset. All 17 preceding layers must catch their respective issues. If any miss — the feature is broken. NASA-style self-attack testing.
+18. **Physiological Plausibility** — Healthcare-aware check: flags vital-sign values (heart rate, temperature, blood pressure, respiratory rate, SpO₂) outside general human physiological limits. A data-plausibility check, not medical advice.
+19. **Upper-Bound Sanity Anchor** — Flags values outside a column's definitional bounds — percentages above 100 or below 0, proportions/probabilities outside 0–1. Anchored on logical/mathematical limits, not this dataset's statistics. Conservative: skips ambiguous unbounded rates/ratios.
+20. **Missingness Detective** — Classifies each column's missingness with Rubin's MCAR/MAR/MNAR taxonomy: finds an observed column that explains the missingness (MAR), defaults to "no driver found" (MCAR), and raises a conservative MNAR hypothesis for heavily-missing core fields.
+
+### Self-test (not counted in the 20)
+**Red Team Mode** — Loads a built-in intentionally broken dataset. All 20 preceding validation layers must catch their respective issues. If any miss — the feature is broken. NASA-style self-attack testing. (This is the 21st entry in the layer registry, but it validates DATAGLOW itself rather than your data.)
 
 ### The Assumption Ledger
 Cutting across every layer above (and the Clean tab), the **Assumption Ledger** is a running, exportable, plain-language log of every judgment call DATAGLOW makes: "Proposed merging 'FRA' → 'France'", "Skipped Benford's Law on Age (bounded column)", "Flagged 2 rows where discharge_date precedes admit_date", "Detected drift on same-schema reload". Each of the automated features above emits a ledger entry whenever it takes an action or makes a skip/gating decision. The ledger is a first-class panel in the Validate tab and exports as text, Markdown, or JSON — so nothing is ever assumed silently on the analyst's behalf.
@@ -219,7 +226,7 @@ The Story tab now scores **each quantitative claim individually** with the exist
 When a row is flagged by the multivariate scorers, an "Explain" button produces a plain-language reason on-device (`explainAnomaly` in `js/ondevice-ml.js`). It uses a simplified additive-Shapley attribution (Lundberg & Lee 2017): because the anomaly score is a sum of per-feature standardized squared deviations, each feature's Shapley contribution reduces to its own share of the total. Contributions are measured relative to the row's **peer group** (a low-cardinality categorical column) — "Row flagged because claim_amount is 2.3 std devs above its country='France' peer group mean (contributing 71% of the anomaly)."
 
 ### 5. Synthetic Adversarial Test Generator ("Red Team Mode v2")
-Given the currently-loaded dataset's schema (column names + inferred types), synthesizes a *fresh* adversarial dataset matching that schema (`js/synthetic-adversarial.js`, seeded mulberry32 PRNG for reproducibility). It plants the issue categories layers 15–18 and the original checks are meant to catch: near-duplicate categorical spellings, cross-column logic violations, exact duplicates, nulls, magnitude outliers/negatives, future dates, and schema-mismatched semantic values. Runs all layers on the synthetic table and reports which seeded categories were caught.
+Given the currently-loaded dataset's schema (column names + inferred types), synthesizes a *fresh* adversarial dataset matching that schema (`js/synthetic-adversarial.js`, seeded mulberry32 PRNG for reproducibility). It plants the issue categories layers 15–20 and the original checks are meant to catch: near-duplicate categorical spellings, cross-column logic violations, exact duplicates, nulls, magnitude outliers/negatives, future dates, and schema-mismatched semantic values. Runs all layers on the synthetic table and reports which seeded categories were caught.
 
 ### 6. Explainable Benford Gate (Teaching UI)
 UI polish on the Gen 7 Statistical Test Eligibility Gate: when Benford's Law is skipped for a column, the Validate tab now shows an expandable, plain-language "why" note (the gate teaches, rather than silently passing) — reusing the gate's existing skip reasons and a one-paragraph explanation of when Benford applies.
@@ -229,16 +236,16 @@ UI polish on the Gen 7 Statistical Test Eligibility Gate: when Benford's Law is 
 Three features that take DATAGLOW's trust story out of the single browser session: an analysis becomes a *shareable artifact*, a *reviewable packet*, and a *comparable-over-time* object. All three are file-based — no backend, no accounts, no real-time multiplayer — and use DATAGLOW's own visual/interaction design, not any competitor's report or review UI.
 
 ### 7. Shareable Validation Receipts
-A single "Export Validation Receipt" action in the Validate tab packages the whole analysis into one self-contained HTML file (`js/validation-receipt.js`) that a non-technical stakeholder can open in any browser without running DATAGLOW. The receipt bundles: the overall **Confidence grade** (with the six-signal verdict), a **pass/fail summary of all 18 validation layers**, the **key Assumption Ledger entries**, and the **generated Story narrative**. `buildValidationReceipt()` is a pure model-builder; `renderReceiptHTML()` emits a script-free, inline-styled document (its own "certificate" layout — a confidence-ring badge over a plain-language layer table) so it is safe to email or archive.
+A single "Export Validation Receipt" action in the Validate tab packages the whole analysis into one self-contained HTML file (`js/validation-receipt.js`) that a non-technical stakeholder can open in any browser without running DATAGLOW. The receipt bundles: the overall **Confidence grade** (with the six-signal verdict), a **pass/fail summary of all 20 validation layers plus the Red Team self-test**, the **key Assumption Ledger entries**, and the **generated Story narrative**. `buildValidationReceipt()` is a pure model-builder; `renderReceiptHTML()` emits a script-free, inline-styled document (its own "certificate" layout — a confidence-ring badge over a plain-language layer table) so it is safe to email or archive.
 
 ### 8. Async Peer Review Mode
-A lightweight, file-based second-reviewer workflow (`js/peer-review.js`). DATAGLOW exports a structured **review packet** (JSON or a human-readable markdown companion) containing the query, the key findings (failing/warning layers surfaced first), the full 18-layer roll-up, and the Assumption Ledger. A second person opens it offline, sets a per-section **approve / flag** decision plus free-text notes, and returns the JSON. DATAGLOW re-imports it (`importReview()` validates it is a genuine DATAGLOW packet), tallies the decisions into an "Approved" / "Changes requested" verdict (`summarizeReview()`), and renders the review beside the analysis. This is DATAGLOW's OWN flat-checklist model — a list of analysis sections each with a three-state decision chip — deliberately not modeled on any pull-request or document-commenting product.
+A lightweight, file-based second-reviewer workflow (`js/peer-review.js`). DATAGLOW exports a structured **review packet** (JSON or a human-readable markdown companion) containing the query, the key findings (failing/warning layers surfaced first), the full 20-layer roll-up, and the Assumption Ledger. A second person opens it offline, sets a per-section **approve / flag** decision plus free-text notes, and returns the JSON. DATAGLOW re-imports it (`importReview()` validates it is a genuine DATAGLOW packet), tallies the decisions into an "Approved" / "Changes requested" verdict (`summarizeReview()`), and renders the review beside the analysis. This is DATAGLOW's OWN flat-checklist model — a list of analysis sections each with a three-state decision chip — deliberately not modeled on any pull-request or document-commenting product.
 
 ### 9. Time-Travel Diff Mode
 A dedicated **Diff** tab where the analyst loads a second dataset version alongside the active one (`js/time-travel-diff.js`) and DATAGLOW auto-diffs at three levels:
 - **Row-level** — auto-detects a likely primary key (id/key/code-like unique column, or the first fully-unique column) or lets the user pick one, then reports which rows were **added / removed / changed**, and for changed rows the exact fields with before→after values.
 - **Distributional** — reuses Layer 18's **Distributional Fingerprint Drift** logic (the now-exported `computeDistributionFingerprint` / `compareDistributions`) to flag which columns' distributions shifted (numeric mean-shift > 2σ, categorical top-5 composition change).
-- **Validation-layer flips** — runs all 18 layers on both versions and reports which layers flip **PASS↔FAIL** between them, so a regression in data quality is impossible to miss.
+- **Validation-layer flips** — runs all 20 layers on both versions and reports which layers flip **PASS↔FAIL** between them, so a regression in data quality is impossible to miss.
 
 Row-level and layer-flip diffing are pure and Node-testable; the distributional diff is engine-backed against the shared DuckDB connection.
 
@@ -257,7 +264,7 @@ Built-in test CSV with exactly:
 - Near-duplicate category spellings ("United States" / "United State" / "USA" / "US"; "France" / "FRA") for the Categorical Consistency Engine
 - A discharge_date earlier than its admit_date, and a minor (age < 18) flagged has_retirement_account = true, for the Cross-Column Logical Consistency Checker
 
-All 18 validation layers must catch their specific issues on this dataset before any deployment is considered successful. (The Distributional Fingerprint Drift layer establishes its baseline on first load and flags drift on a later same-schema load.)
+All 20 validation layers must catch their specific issues on this dataset before any deployment is considered successful. (The Distributional Fingerprint Drift layer establishes its baseline on first load and flags drift on a later same-schema load.)
 
 ### MIMIC-IV Ground Truth Test (proposed)
 MIMIC-IV has published summary statistics in peer-reviewed papers. The proposed check is to run DATAGLOW against MIMIC-IV and compare output numbers to published statistics; if they match, the engine is trustworthy. To date this has only been exercised against the small, public MIMIC-IV Clinical Database Demo and synthetic MIMIC-IV-style fixtures — the full-database comparison requires credentialed PhysioNet access and has not yet been run.
@@ -322,7 +329,7 @@ In the spirit of Steve Jobs: *enrich people's lives through liberal arts and tec
 |---|---|---|
 | 🥇 | Observable | DATAGLOW adds validation + healthcare + storytelling |
 | 🥈 | Hex | DATAGLOW is fully browser-native, no server |
-| 🥉 | Deepnote | DATAGLOW adds 18 validation layers |
+| 🥉 | Deepnote | DATAGLOW adds 20 validation layers |
 | 4 | Marimo | DATAGLOW adds multi-language + healthcare |
 | 5 | Google Colab | DATAGLOW needs no Google account |
 | 6 | Quadratic | DATAGLOW adds SQL + R + Swift + validation |
@@ -382,11 +389,13 @@ DATAGLOW Swift Tab:
 | Gen 4 | Selective-Disclosure Verifiable Reports (Merkle-tree SHA-256 commitment), Synthetic Data (PSyGenTAB v2 — differential-privacy synthesis; fidelity/privacy not yet independently measured), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
 | Gen 5 | Confidence Layer, UX overhaul, light/dark mode | ✅ Complete |
 | Gen 6 | All 7 validation layers live, Story tab, Preflight tab | ✅ Complete (expired session) |
-| **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 18 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
+| **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 20 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
 
 ---
 
 ## 🔥 COMPLETE GEN 7 BUILD PROMPT (Computer Session)
+
+> **Historical artifact:** the build prompt below is preserved verbatim from the original Gen 7 planning session and its layer counts (e.g. "13 VALIDATION LAYERS", "18 validation layers") reflect that point in time. The current product ships **20 validation layers** — see [THE 20 VALIDATION LAYERS](#️-the-20-validation-layers--dataglows-heartbeat) above.
 
 ```
 Build and deploy DATAGLOW — a universal, browser-based, all-in-one data analytics platform. This is a complete rebuild from the Facet codebase (Gen 1-6), now rebranded as DATAGLOW.
@@ -475,7 +484,7 @@ Deploy publicly. Output the live URL.
 | Python tab | 🔨 Gen 7 |
 | R tab | 🔨 Gen 7 |
 | Swift tab | 🔨 Gen 7 |
-| All 18 validation layers | 🔨 Gen 7 |
+| All 20 validation layers | 🔨 Gen 7 |
 
 ---
 

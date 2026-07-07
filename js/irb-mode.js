@@ -2,7 +2,7 @@
 // DATAGLOW — IRB / Regulatory Language Auto-Translation Mode
 // ============================================================
 // Reformats DATAGLOW's existing analysis artifacts — the Validation Receipt
-// (confidence + 18 validation layers), the Assumption Ledger, and the
+// (confidence + 20 validation layers), the Assumption Ledger, and the
 // Provenance Trail (chain of custody) — into a document structured with the
 // section headers an IRB reviewer or HIPAA privacy officer expects, using
 // template-based text generation (no LLM dependency). The validation findings

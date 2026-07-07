@@ -1,7 +1,7 @@
 // ============================================================
 // DATAGLOW — Domain Physics Engine
 // ============================================================
-// A swappable "domain pack" layer that sits ABOVE the 18 validation layers.
+// A swappable "domain pack" layer that sits ABOVE the 20 validation layers.
 // It never re-runs or modifies the layers; it reinterprets / annotates their
 // raw output using domain-specific rules. Turning a pack off restores the raw,
 // domain-agnostic layer output.
@@ -163,7 +163,7 @@ export const DOMAIN_PACKS = {
   none: {
     name: 'none',
     label: 'None (generic)',
-    description: 'No domain reinterpretation — the 18 layers report their raw, domain-agnostic output.',
+    description: 'No domain reinterpretation — the 20 layers report their raw, domain-agnostic output.',
     rules: [],
   },
   healthcare: {

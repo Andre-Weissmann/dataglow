@@ -1,5 +1,5 @@
 // ============================================================
-// DATAGLOW — 18-layer validation + Assumption Ledger test suite
+// DATAGLOW — 20-layer validation + Assumption Ledger test suite
 // ============================================================
 // Loads the extended golden dataset and confirms every validation layer —
 // including the three new ones (Categorical Consistency Engine #16,
@@ -90,7 +90,7 @@ async function main() {
   // Purity: the source cluster is never mutated.
   ok(editCluster.canonical === 'United States', 'withCanonical: does not mutate the input cluster');
 
-  // ---- Full 18-layer run on the extended golden dataset ----
+  // ---- Full 20-layer run on the extended golden dataset ----
   const goldenRows = buildGoldenDataset();
   const ds = await makeDataset('golden_test_dataset', goldenRows);
   const results = await runAllLayers(ds);

@@ -6,7 +6,7 @@
 //                      which rows were added, removed, or changed (field-level).
 //   (b) aggregate    — reuses layer 18's Distributional Fingerprint Drift logic
 //                      to show which columns' distributions shifted, plus which
-//                      of the 18 validation layers flip PASS↔FAIL between the two
+//                      of the 20 validation layers flip PASS↔FAIL between the two
 //                      dataset versions.
 //
 // Row/layer diffing is pure and Node-testable. The distributional diff reuses

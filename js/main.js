@@ -874,7 +874,7 @@ function renderAuditLog(auditLog) {
 }
 
 // ============================================================
-// Validate Tab (18 layers)
+// Validate Tab (20 layers)
 // ============================================================
 function statusIcon(status) {
   const icons = { pass: '✓', fail: '✕', warn: '!', idle: '—' };
@@ -1094,7 +1094,7 @@ function initDevilsAdvocate() {
 }
 
 // Shareable Validation Receipts — package the current analysis (Confidence
-// grade, all 18 layer statuses, key ledger entries, and the Story narrative)
+// grade, all 20 layer statuses, key ledger entries, and the Story narrative)
 // into one self-contained HTML file a stakeholder can open without DATAGLOW.
 function initReceipts() {
   const btn = $('#btn-export-receipt');
@@ -1102,7 +1102,7 @@ function initReceipts() {
   btn.addEventListener('click', () => {
     const ds = getActiveDataset();
     const results = window.__dataglowLastValidation;
-    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return; }
+    if (!ds || !results) { toast('Run all 20 layers first', 'error'); return; }
     const model = receipt.buildValidationReceipt({
       datasetName: ds.name || ds.table,
       results,
@@ -1126,7 +1126,7 @@ function initPeerReview() {
   const buildPacket = () => {
     const ds = getActiveDataset();
     const results = window.__dataglowLastValidation;
-    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return null; }
+    if (!ds || !results) { toast('Run all 20 layers first', 'error'); return null; }
     return peerReview.buildReviewPacket({
       datasetName: ds.name || ds.table,
       query: state.lastQuery || null,
@@ -1220,7 +1220,7 @@ function initTimeTravelDiff() {
       const sharedCols = base.cols.filter(c => otherDs.cols.some(o => o.name === c.name));
       const distDiff = await timeTravel.diffDistributions(base.table, otherDs.table, sharedCols);
 
-      // Which of the 18 layers flip between the two versions.
+      // Which of the 20 layers flip between the two versions.
       const layersA = await validation.runAllLayers(base, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
       const layersB = await validation.runAllLayers(otherDs, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
       setActiveDataset(base.name);
@@ -1494,7 +1494,7 @@ function initIRBMode() {
   btn.addEventListener('click', async () => {
     const ds = getActiveDataset();
     const results = window.__dataglowLastValidation;
-    if (!ds || !results) { toast('Run all 18 layers first', 'error'); return; }
+    if (!ds || !results) { toast('Run all 20 layers first', 'error'); return; }
     try {
       const chain = provenance.getProvenance(ds.table);
       const provenanceTrail = chain ? chain.getTrail() : [];

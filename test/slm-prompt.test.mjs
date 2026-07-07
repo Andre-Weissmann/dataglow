@@ -67,7 +67,7 @@ ok(/no assumptions/i.test(summarizeLedger([])), 'ledger summary: empty ledger ha
 
   ok(/## Assumption Ledger/.test(user), 'prompt: includes the Assumption Ledger section');
   ok(/disabled auto-merge/.test(user), 'prompt: embeds the actual ledger content');
-  ok(/## Validation Layer Results/.test(user), 'prompt: includes the 18-layer results section');
+  ok(/## Validation Layer Results/.test(user), 'prompt: includes the 20-layer results section');
   ok(/grade B \(score 72\/100\)/.test(user), 'prompt: embeds the actual layer summary');
   ok(/## Domain Physics Engine Output/.test(user) && /BMI vs weight/.test(user),
     'prompt: includes the Domain Physics Engine output when present');
