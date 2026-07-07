@@ -485,11 +485,33 @@ async function runOutlierDetection(table, cols) {
 // statistic) can indicate fabricated, capped, or otherwise anomalous data.
 const BENFORD_EXPECTED = [null, 0.301, 0.176, 0.125, 0.097, 0.079, 0.067, 0.058, 0.051, 0.046];
 
-// Column names that denote a bounded, non-magnitude quantity — Benford's Law
-// does not apply to these no matter how they're distributed.
-const BENFORD_BOUNDED_NAME = /\b(age|rating|score|stars?|grade|level|rank|year|quarter|month|week|day|hour|minute|percent|pct|rate|ratio|likert)\b/i;
+// Keywords that denote a bounded, non-magnitude quantity — Benford's Law does
+// not apply to these no matter how they're distributed.
+const BENFORD_BOUNDED_KEYWORDS = new Set([
+  'age', 'rating', 'score', 'star', 'stars', 'grade', 'level', 'rank', 'year',
+  'quarter', 'month', 'week', 'day', 'hour', 'minute', 'percent', 'pct', 'rate',
+  'ratio', 'likert',
+]);
 // Column names that denote a naturally-scaled magnitude Benford's Law suits.
 const BENFORD_MAGNITUDE_NAME = /amount|revenue|sales|price|cost|charge|population|transaction|balance|income|expense|salary|payment|volume|total|value|spend|budget/i;
+
+// Split a column name into lowercased constituent words, breaking on snake_case
+// (_), kebab-case (-), whitespace, and camelCase/PascalCase transitions. A raw
+// \b word-boundary regex misses keywords inside compound names because \b treats
+// "_" as a word char, so "patient_age" never yields an "age" boundary.
+export function splitColumnNameWords(name) {
+  return String(name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .map(w => w.toLowerCase())
+    .filter(Boolean);
+}
+
+// True when any constituent word of the column name is a bounded-quantity keyword.
+export function isBenfordBoundedName(name) {
+  return splitColumnNameWords(name).some(w => BENFORD_BOUNDED_KEYWORDS.has(w));
+}
 
 // Statistical Test Eligibility Gate. Decides whether Benford's Law is
 // appropriate for a column and, when not, returns a human-readable reason.
@@ -497,7 +519,7 @@ const BENFORD_MAGNITUDE_NAME = /amount|revenue|sales|price|cost|charge|populatio
 // of magnitude; it does NOT apply to bounded ranges (Age, ratings 1–5, etc.).
 async function benfordEligibility(table, c) {
   const col = `"${c.name}"`;
-  if (BENFORD_BOUNDED_NAME.test(c.name)) {
+  if (isBenfordBoundedName(c.name)) {
     return { eligible: false, reason: `"${c.name}" skipped — bounded range, not a naturally-scaled magnitude Benford's Law applies to.` };
   }
   // Guard LOG10 inside a CASE so it is NEVER evaluated on a value < 1 (e.g. a

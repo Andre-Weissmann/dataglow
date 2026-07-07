@@ -14,7 +14,7 @@
 
 import { createTableFromObjects, getTableSchema, closeConnection } from './node-duckdb-engine.mjs';
 
-import { LAYER_DEFS, runAllLayers } from '../js/validation.js';
+import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords } from '../js/validation.js';
 import { buildGoldenDataset } from '../js/loaders.js';
 import { clusterValues, withCanonical } from '../js/categorical-consistency.js';
 import { getLedgerEntries, clearLedger } from '../js/assumption-ledger.js';
@@ -113,6 +113,34 @@ async function main() {
     'benford-gate: "age" skipped as a bounded range with an explanation');
   ok(!/"claim_amount" skipped/.test(detailStr(bf)),
     'benford-gate: "claim_amount" (naturally scaled) was NOT skipped');
+
+  // Benford bounded-name matching across naming conventions (regression for the
+  // \b word-boundary bug that let compound names like "patient_age" slip through
+  // and get falsely tested — a common healthcare/MIMIC column name).
+  for (const name of [
+    'age', 'exam_grade', 'patient_age', 'test_score', 'percentage_score',
+    'age_years', 'ageYears', 'AgeYears', 'patient-age', 'patient age',
+    'RatingStars', 'likert_response',
+  ]) {
+    ok(isBenfordBoundedName(name), `benford-name: "${name}" recognised as a bounded quantity`);
+  }
+  for (const name of [
+    'transaction_amount', 'claim_amount', 'revenue', 'total_charge',
+    'account_balance', 'reading', 'pageviews',
+  ]) {
+    ok(!isBenfordBoundedName(name), `benford-name: "${name}" NOT treated as bounded`);
+  }
+  ok(JSON.stringify(splitColumnNameWords('patient_ageYears-final')) ===
+     JSON.stringify(['patient', 'age', 'years', 'final']),
+    'benford-name: splits snake_case, camelCase, and kebab-case into words');
+
+  // End-to-end: a snake_case "patient_age" column (0-99, spans 2 orders of
+  // magnitude) must be SKIPPED, not falsely flagged as a Benford anomaly.
+  const ageRows = Array.from({ length: 120 }, (_, i) => ({ patient_age: i % 100 }));
+  const ageDs = await makeDataset('benford_patient_age', ageRows);
+  const ageResults = await runAllLayers(ageDs);
+  ok(/patient_age.*skipped|skipped.*patient_age/i.test(detailStr(ageResults.benford)),
+    'benford-gate: "patient_age" (snake_case bounded) skipped instead of falsely flagged');
 
   // Existing layers still catch their seeded issues
   ok(results.unit_tests.status === 'fail', `unit_tests: still fails on seeded issues (status=${results.unit_tests.status})`);
