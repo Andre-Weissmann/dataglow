@@ -28,6 +28,7 @@ import * as entityBaseline from './entity-baseline.js';
 import * as privacyBudget from './privacy-budget.js';
 import * as memoryStore from './memory-store.js';
 import * as driftForecast from './drift-forecast.js';
+import * as expectedRange from './expected-range.js';
 import * as ledger from './assumption-ledger.js';
 import * as provenance from './provenance.js';
 import * as sdProof from './selective-disclosure-proof.js';
@@ -2544,6 +2545,44 @@ function renderForecastDrift(forecast) {
   return wrap;
 }
 
+// Render the Expected Value Ranges block: a purely INFORMATIONAL trend band for
+// numeric columns with enough upload history, shown beneath the forecast/static
+// drift lines in the Distributional Fingerprint Drift card. Unlike the alerting
+// block above it never changes status — it narrates "here's the recent trend and
+// whether today fits it", with an explicit non-prediction disclaimer. Returns
+// null (renders nothing) whenever there aren't enough numeric-mean bands to
+// describe, so legacy/first-time/opt-out users simply see no band.
+function renderExpectedRanges(forecast) {
+  if (!state.settings.persistFingerprints) return null;
+  const report = expectedRange.expectedRangeReport(forecast);
+  if (!report.active || !report.bands.length) return null;
+  const wrap = el('div', { style: 'margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': 'expected-range' });
+  const header = el('div', {
+    style: 'display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-1);',
+  }, [
+    el('span', {
+      style: 'font-size:var(--text-xs); font-weight:700; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-info, #0369a1);',
+      'data-testid': 'expected-range-badge',
+    }, 'EXPECTED VALUE RANGES'),
+    el('span', { style: 'font-size:var(--text-xs); color:var(--color-text-faint);' },
+      `${report.bands.length} numeric column(s) · ${report.historyLen} prior upload(s)`),
+  ]);
+  wrap.appendChild(header);
+  const list = el('ul', {
+    style: 'font-size:var(--text-xs); color:var(--color-text); padding-left:var(--space-4); margin:0;',
+    'data-testid': 'expected-range-bands',
+  });
+  report.bands.slice(0, 8).forEach(b => list.appendChild(el('li', {
+    style: `margin-bottom:2px; ${b.within ? '' : 'color:var(--color-warn, #b45309);'}`,
+  }, b.message)));
+  wrap.appendChild(list);
+  wrap.appendChild(el('div', {
+    style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-1);',
+    'data-testid': 'expected-range-disclaimer',
+  }, 'This is informational context about the recent trend, not a forecast of future values.'));
+  return wrap;
+}
+
 function renderValidationResults(results) {
   const grid = $('#validation-grid');
   grid.innerHTML = '';
@@ -2602,6 +2641,10 @@ function renderValidationResults(results) {
     // above — these are projected-trajectory alerts, not static thresholds.
     if (layer.id === 'distribution_drift') {
       card.appendChild(renderForecastDrift(r.forecast));
+      // Expected Value Ranges: informational numeric-column trend bands derived
+      // from the same forecast projections (no status change, adds context).
+      const ranges = renderExpectedRanges(r.forecast);
+      if (ranges) card.appendChild(ranges);
     }
     // Categorical Consistency Engine: offer a one-click canonical merge per
     // cluster, reusing the same UPDATE mechanism as the Clean tab's fuzzy dedup.
