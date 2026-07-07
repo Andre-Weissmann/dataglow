@@ -758,7 +758,18 @@
       Remember column fingerprints across sessions (opt-in)
     </label>
     <div id="fingerprint-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
-    <button class="btn btn-secondary" id="btn-clear-fingerprints" style="margin-bottom:var(--space-5);" data-testid="button-clear-fingerprints">Clear stored fingerprints</button>
+    <button class="btn btn-secondary" id="btn-clear-fingerprints" style="margin-bottom:var(--space-3);" data-testid="button-clear-fingerprints">Clear stored fingerprints</button>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      <strong>Trend-aware alerts.</strong> With persistence enabled, DATAGLOW also keeps a short,
+      time-ordered history of each column's <strong>mean, missingness rate, and top-category share</strong>
+      across uploads and projects the expected next value forward using
+      <strong>Holt's linear exponential smoothing (Holt 1957)</strong>. A new upload is flagged when it falls
+      outside a confidence band sized by the method's own forecast error — catching drift <em>away from the
+      expected trajectory</em>, not just away from a static baseline. This needs at least a few prior uploads
+      of the same schema before it activates; until then the static drift check above applies.
+    </p>
+    <div id="drift-forecast-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
+    <button class="btn btn-secondary" id="btn-clear-drift-history" style="margin-bottom:var(--space-5);" data-testid="button-clear-drift-history">Clear drift history</button>
 
     <div class="sidebar-heading">Self-Learning Validation Rules</div>
     <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
