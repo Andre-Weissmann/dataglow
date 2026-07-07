@@ -2740,6 +2740,8 @@ function updateStoryBadgePreview() {
   const hasKey = providerDef && providerDef.requiresKey && !!state.settings.apiKeys[provider];
   if (!providerDef || providerDef.id === 'local') {
     badge.textContent = 'Rule-based (offline)';
+  } else if (providerDef.inBrowser) {
+    badge.textContent = ondeviceLLM.isWebGPUAvailable() ? 'In-browser AI (private)' : 'Rule-based (no WebGPU)';
   } else if (!providerDef.requiresKey) {
     badge.textContent = providerDef.name;
   } else if (hasKey) {
@@ -2747,10 +2749,95 @@ function updateStoryBadgePreview() {
   } else {
     badge.textContent = 'Rule-based (no API key set)';
   }
+  updateStoryModelPanel();
+}
+
+// Cancellation flag for an in-flight model download (set by the Cancel button and
+// checked inside WebLLM's progress callback to abort the load).
+let storyModelCancelled = false;
+
+// Show/refresh the in-browser-model panel in the Story tab. Visible only when the
+// on-device provider is selected; adapts its copy to WebGPU availability and
+// whether the model is already cached/loaded in this session.
+function updateStoryModelPanel() {
+  const panel = $('#story-model-panel');
+  if (!panel) return;
+  const provider = state.settings.modelProvider;
+  const providerDef = story.MODEL_PROVIDERS.find(p => p.id === provider);
+  const info = $('#story-model-info');
+  const clearBtn = $('#btn-story-model-clear');
+  if (!providerDef || !providerDef.inBrowser) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  if (!ondeviceLLM.isWebGPUAvailable()) {
+    info.innerHTML = 'Your browser doesn\'t support <strong>WebGPU</strong>, so the in-browser AI model can\'t run here. Generating a story will use DATAGLOW\'s offline rule-based summary instead. For the in-browser model, try a recent Chrome, Edge, or Chrome on Android (or Safari 18+). You can also switch to an API key in Settings.';
+    if (clearBtn) clearBtn.style.display = 'none';
+    return;
+  }
+  if (ondeviceLLM.isModelLoaded()) {
+    info.innerHTML = `<strong>${escapeHtml(ondeviceLLM.MODEL_LABEL)}</strong> is loaded and running fully on your device — nothing you generate is uploaded.`;
+    if (clearBtn) clearBtn.style.display = '';
+  } else {
+    info.innerHTML = `The first time you generate a story, DATAGLOW downloads <strong>${escapeHtml(ondeviceLLM.MODEL_LABEL)}</strong> once (a few hundred MB) and caches it in your browser for offline reuse. After that it runs entirely on your device — your data never leaves it.`;
+    if (clearBtn) clearBtn.style.display = 'none';
+  }
+}
+
+// Lazy-load the on-device model (with progress + cancel UI) then stream the
+// narrative. Injected into story.generateStory so story.js stays WebLLM-free.
+async function ondeviceGenerateStory(queryResult, tableName) {
+  const claims = story.buildStoryClaims(queryResult);
+  const progressWrap = $('#story-model-progress-wrap');
+  const progressBar = $('#story-model-progress-bar');
+  const progressText = $('#story-model-progress-text');
+  const cancelBtn = $('#btn-story-model-cancel');
+
+  if (!ondeviceLLM.isModelLoaded()) {
+    storyModelCancelled = false;
+    progressWrap.style.display = '';
+    cancelBtn.style.display = '';
+    progressBar.style.width = '0%';
+    progressText.textContent = 'Preparing download…';
+    try {
+      await ondeviceLLM.loadModel(({ progress, text }) => {
+        if (storyModelCancelled) { const e = new Error('Model download cancelled.'); e.code = 'CANCELLED'; throw e; }
+        progressBar.style.width = `${Math.round((progress || 0) * 100)}%`;
+        progressText.textContent = text || `Downloading model… ${Math.round((progress || 0) * 100)}%`;
+      });
+    } finally {
+      progressWrap.style.display = 'none';
+      cancelBtn.style.display = 'none';
+    }
+  }
+
+  updateStoryModelPanel();
+  // Stream tokens live into the story pane (escaped — this is free-form model text).
+  return ondeviceLLM.generateStoryNarrative({ queryResult, tableName, claims }, (partial) => {
+    $('#story-empty').style.display = 'none';
+    $('#story-content-wrap').style.display = '';
+    $('#story-text').innerHTML = `<p>${escapeHtml(partial)}</p>`;
+  });
 }
 
 function initStoryTab() {
   updateStoryBadgePreview();
+
+  const cancelBtn = $('#btn-story-model-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => { storyModelCancelled = true; toast('Cancelling model download…', 'info'); });
+
+  const clearBtn = $('#btn-story-model-clear');
+  if (clearBtn) clearBtn.addEventListener('click', async () => {
+    clearBtn.disabled = true;
+    try {
+      const n = await ondeviceLLM.clearModelCache();
+      toast(n ? 'Cached model cleared — storage freed.' : 'No cached model found.', 'success');
+    } catch (err) {
+      toast('Could not clear cached model: ' + err.message, 'error');
+    } finally {
+      clearBtn.disabled = false;
+      updateStoryModelPanel();
+    }
+  });
+
   $('#btn-story-generate').addEventListener('click', async () => {
     if (!state.lastQueryResult) { toast('Run a SQL query first', 'error'); return; }
     const btn = $('#btn-story-generate');
@@ -2758,14 +2845,17 @@ function initStoryTab() {
     try {
       const provider = state.settings.modelProvider;
       const apiKey = state.settings.apiKeys[provider];
-      const { text, source } = await story.generateStory(state.lastQueryResult, getActiveDataset().table, provider, apiKey);
+      const { text, source } = await story.generateStory(
+        state.lastQueryResult, getActiveDataset().table, provider, apiKey,
+        { ondeviceGenerate: ondeviceGenerateStory },
+      );
       state.lastStory = text.replace(/<[^>]+>/g, ''); // plain text kept for consistency checker
       $('#story-empty').style.display = 'none';
       $('#story-content-wrap').style.display = '';
       // Local stories are built from hardcoded-safe markup wrapping escapeHtml()'d
       // data values, so they render as-is. Any other source is free-form text from
-      // a third-party model (a crafted dataset could prompt-inject it into emitting
-      // raw HTML), so it is escaped before hitting innerHTML.
+      // a model (on-device or a third-party API; a crafted dataset could prompt-inject
+      // it into emitting raw HTML), so it is escaped before hitting innerHTML.
       const storyHtml = (source === 'local' || source === 'local-fallback') ? text : escapeHtml(text);
       $('#story-text').innerHTML = `<p>${storyHtml}</p>`;
       const consistency = await validation.checkNarrativeConsistency(state.lastStory, state.lastQueryResult);
@@ -2776,7 +2866,11 @@ function initStoryTab() {
         consistEl.innerHTML = `<div class="validation-status fail"><span class="status-dot fail"></span> ${consistency.mismatches.length} number(s) don't clearly match the query result: ${consistency.mismatches.slice(0,5).map(escapeHtml).join(', ')}</div>`;
       }
       const badge = $('#story-model-badge');
-      badge.textContent = source === 'local' ? 'Rule-based (offline)' : source === 'local-fallback' ? 'Rule-based (API fallback)' : story.MODEL_PROVIDERS.find(p => p.id === provider)?.name || provider;
+      badge.textContent =
+        source === 'ondevice' ? 'In-browser AI (private)' :
+        source === 'local' ? 'Rule-based (offline)' :
+        source === 'local-fallback' ? 'Rule-based (fallback)' :
+        story.MODEL_PROVIDERS.find(p => p.id === provider)?.name || provider;
       renderStoryClaims(state.lastQueryResult);
     } catch (err) {
       toast('Story generation failed: ' + err.message, 'error');
@@ -2821,12 +2915,25 @@ function initSwiftTab() {
 // ============================================================
 function initSettings() {
   const providerList = $('#model-provider-list');
+  const webgpuOK = ondeviceLLM.isWebGPUAvailable();
+  const webgpuNote = $('#model-webgpu-note');
+  if (webgpuNote && !webgpuOK) {
+    webgpuNote.style.display = '';
+    webgpuNote.innerHTML = 'Heads up: this browser doesn\'t support <strong>WebGPU</strong>, so the in-browser AI model is unavailable here. It runs in recent Chrome, Edge, or Chrome on Android (Safari 18+). The rule-based and API-key options work everywhere.';
+  }
   story.MODEL_PROVIDERS.forEach(p => {
+    const disabled = p.inBrowser && !webgpuOK;
+    const badgeEl = p.inBrowser
+      ? el('span', { class: `badge ${disabled ? 'badge-c' : 'badge-a'}`, style: 'margin-left:auto;' }, disabled ? 'Needs WebGPU' : 'On-device · no key')
+      : (p.requiresKey
+        ? el('span', { class: 'badge badge-b', style: 'margin-left:auto;' }, 'Requires API key')
+        : el('span', { class: 'badge badge-a', style: 'margin-left:auto;' }, 'No key needed'));
     const chip = el('div', {
       class: `chip ${state.settings.modelProvider === p.id ? 'active' : ''}`,
-      style: 'width:100%; justify-content:flex-start; padding:var(--space-3);',
+      style: `width:100%; justify-content:flex-start; padding:var(--space-3);${disabled ? ' opacity:0.55; cursor:not-allowed;' : ''}`,
       'data-testid': `chip-provider-${p.id}`,
       onclick: () => {
+        if (disabled) { toast('The in-browser AI model needs a WebGPU-capable browser.', 'error'); return; }
         state.settings.modelProvider = p.id;
         $$('.chip[data-provider]').forEach(c => c.classList.remove('active'));
         $$('#model-provider-list .chip').forEach(c => c.classList.remove('active'));
@@ -2837,11 +2944,16 @@ function initSettings() {
       },
     }, [
       el('span', {}, p.name),
-      p.requiresKey ? el('span', { class: 'badge badge-b', style: 'margin-left:auto;' }, 'Requires API key') : el('span', { class: 'badge badge-a', style: 'margin-left:auto;' }, 'No key needed'),
+      badgeEl,
     ]);
     chip.setAttribute('data-provider', p.id);
     providerList.appendChild(chip);
   });
+
+  // Reflect the initial provider: the API-key field only makes sense for key-based
+  // providers (the default in-browser and rule-based modes need no key).
+  const initialDef = story.MODEL_PROVIDERS.find(p => p.id === state.settings.modelProvider);
+  $('#api-key-section').style.display = (initialDef && initialDef.requiresKey) ? '' : 'none';
 
   $('#btn-settings').addEventListener('click', () => $('#settings-modal').classList.add('open'));
   $('#btn-settings-close').addEventListener('click', () => $('#settings-modal').classList.remove('open'));

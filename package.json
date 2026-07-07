@@ -25,6 +25,7 @@
     "test:sd-verify": "node test/verify-proof.mjs",
     "test:ambient": "node test/ambient-validation.test.mjs",
     "test:slm": "node test/slm-prompt.test.mjs",
+    "test:storymodel": "node test/story-model.test.mjs",
     "test:story-xss": "node test/story-xss.test.mjs",
     "test:twin": "node --import ./test/duckdb-loader-hook.mjs test/digital-twin.test.mjs",
     "test:watch": "node test/watch-folder.test.mjs",

@@ -18,8 +18,8 @@
     },
     "source": {
       "type": "string",
-      "enum": ["local", "local-fallback", "perplexity", "anthropic", "google", "openai"],
-      "description": "Which engine produced the narrative. \"local\" = offline rule-based; \"local-fallback\" = a model call failed and the rule-based engine was used instead."
+      "enum": ["local", "local-fallback", "ondevice", "perplexity", "anthropic", "google", "openai"],
+      "description": "Which engine produced the narrative. \"local\" = offline rule-based; \"ondevice\" = the in-browser WebLLM small model (no network, no API key); \"local-fallback\" = a model call failed and the rule-based engine was used instead."
     },
     "generatedAt": { "type": "string", "format": "date-time" },
     "error": {

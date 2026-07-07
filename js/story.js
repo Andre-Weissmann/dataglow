@@ -84,7 +84,11 @@ export const MODEL_PROVIDERS = [
   // "default" marks the provider pre-selected on first load. "requiresKey" controls
   // whether the Settings UI shows an API-key field and whether the badge/generation
   // logic falls back to the offline rule-based engine when no key is present.
-  { id: 'perplexity', name: 'Perplexity (Sonar)', endpoint: 'https://api.perplexity.ai/chat/completions', model: 'sonar', default: true, requiresKey: true },
+  // "inBrowser" marks the on-device WebLLM model: no key, no network at inference
+  // time, runs 100% on the user's device (see js/ondevice-llm.js). It is the
+  // recommended default — private by construction and DATAGLOW's core promise.
+  { id: 'ondevice', name: 'In-browser AI (private, no API key)', endpoint: null, model: null, default: true, requiresKey: false, inBrowser: true },
+  { id: 'perplexity', name: 'Perplexity (Sonar)', endpoint: 'https://api.perplexity.ai/chat/completions', model: 'sonar', default: false, requiresKey: true },
   { id: 'anthropic', name: 'Claude (Anthropic)', endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-5', default: false, requiresKey: true },
   { id: 'google', name: 'Gemini (Google)', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', model: 'gemini-2.0-flash', default: false, requiresKey: true },
   { id: 'openai', name: 'OpenAI (GPT)', endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o', default: false, requiresKey: true },
@@ -148,8 +152,11 @@ export function generateLocalStory(queryResult, tableName) {
   return sentence1 + sentence2 + sentence3 + caveat;
 }
 
-export async function generateStory(queryResult, tableName, provider, apiKey) {
-  const result = await produceStory(queryResult, tableName, provider, apiKey);
+// `opts.ondeviceGenerate(queryResult, tableName)` is injected by the browser
+// (main.js) to run the on-device WebLLM model. It is a dependency so this module
+// stays free of any WebGPU/WebLLM import and remains unit-testable in Node.
+export async function generateStory(queryResult, tableName, provider, apiKey, opts = {}) {
+  const result = await produceStory(queryResult, tableName, provider, apiKey, opts);
   // Dev-mode, non-fatal: confirm the Story Engine output conforms to the
   // published protocol/schema/story-output.schema.json.
   const claims = (queryResult && queryResult.rows && queryResult.rows.length) ? buildStoryClaims(queryResult) : [];
@@ -157,9 +164,27 @@ export async function generateStory(queryResult, tableName, provider, apiKey) {
   return result;
 }
 
-async function produceStory(queryResult, tableName, provider, apiKey) {
+async function produceStory(queryResult, tableName, provider, apiKey, opts = {}) {
   if (!queryResult || queryResult.rows.length === 0) {
     throw new Error('Run a SQL query with results first.');
+  }
+
+  // On-device model path: no API key, nothing leaves the browser. Any failure
+  // (no WebGPU, out-of-memory, cancelled download, empty output) degrades to the
+  // deterministic rule-based story so the tab always produces something.
+  if (provider === 'ondevice') {
+    const gen = opts.ondeviceGenerate;
+    if (typeof gen !== 'function') {
+      return { text: generateLocalStory(queryResult, tableName), source: 'local-fallback' };
+    }
+    try {
+      const text = await gen(queryResult, tableName);
+      if (!text || !String(text).trim()) throw new Error('The on-device model returned no text.');
+      return { text: String(text).trim(), source: 'ondevice' };
+    } catch (err) {
+      console.warn('On-device model failed, falling back to local story engine:', err);
+      return { text: generateLocalStory(queryResult, tableName), source: 'local-fallback', error: err.message };
+    }
   }
 
   if (provider === 'local' || !apiKey) {

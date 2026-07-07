@@ -594,6 +594,22 @@
           <button class="btn btn-primary" id="btn-story-generate" data-testid="button-story-generate">Generate Story</button>
         </div>
       </div>
+      <!-- In-browser model panel: shown only when the "In-browser AI" provider is
+           selected. The model is lazy-loaded on the first Generate Story click and
+           cached by the browser for offline reuse — nothing here downloads on page load. -->
+      <div id="story-model-panel" data-testid="story-model-panel" style="display:none; margin-bottom:var(--space-4); padding:var(--space-4); border:1px solid var(--color-divider); border-radius:var(--radius-md); border-left:3px solid var(--color-grade-a);">
+        <div id="story-model-info" data-testid="story-model-info" style="font-size:var(--text-sm); color:var(--color-text-muted);"></div>
+        <div id="story-model-progress-wrap" style="display:none; margin-top:var(--space-3);">
+          <div style="height:6px; background:var(--color-divider); border-radius:3px; overflow:hidden;">
+            <div id="story-model-progress-bar" style="height:100%; width:0%; background:var(--color-accent, #FF6B6B); transition:width .2s;"></div>
+          </div>
+          <div id="story-model-progress-text" data-testid="story-model-progress-text" style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:4px;"></div>
+        </div>
+        <div style="display:flex; gap:var(--space-2); margin-top:var(--space-3); flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="btn-story-model-cancel" data-testid="button-story-model-cancel" style="display:none; font-size:var(--text-xs); padding:6px 10px;">Cancel download</button>
+          <button class="btn btn-secondary" id="btn-story-model-clear" data-testid="button-story-model-clear" style="display:none; font-size:var(--text-xs); padding:6px 10px;">Clear cached model (free storage)</button>
+        </div>
+      </div>
       <div id="story-empty" class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
         <h3>Run a SQL query first</h3>
@@ -690,8 +706,12 @@
 
     <div class="sidebar-heading">Story &amp; Narrative Model</div>
     <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);">
-      Choose which model powers the Story tab, Narrative Consistency Checker, and Invisible Analyst suggestions.
+      Choose which engine powers the Story tab. <strong>In-browser AI</strong> (recommended) runs a small open-weight
+      language model 100% on your device — no API key, and your data never leaves the browser. <strong>Bring your own
+      API key</strong> sends the query result to a third-party provider you choose. <strong>Rule-based</strong> is a fully
+      offline template summary with no AI. All three keep every option below available at any time.
     </p>
+    <div id="model-webgpu-note" data-testid="model-webgpu-note" style="display:none; font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-3); padding:var(--space-2) var(--space-3); border-left:3px solid var(--color-grade-c); border-radius:var(--radius-sm);"></div>
     <div id="model-provider-list" style="display:flex; flex-direction:column; gap:var(--space-2); margin-bottom:var(--space-5);"></div>
 
     <div id="api-key-section" style="margin-bottom:var(--space-5);">

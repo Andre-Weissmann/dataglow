@@ -17,7 +17,7 @@ Everything runs on WebAssembly and vanilla JS. Your data never leaves your machi
 - **Clean** — automated cleaning (duplicates, nulls, formatting) with a full audit trail of every change made
 - **Validate** — 20 independent validation layers (schema, nulls, duplicates, outliers, Benford's Law, semantic drift, cross-column logic, distributional drift, physiological plausibility, missingness classification, confidence scoring with anomaly-concentration detection, unit tests, and more)
 - **Visualize** — drag-and-drop chart builder powered by Plotly
-- **Story** — AI-generated plain-language narrative summaries of your dataset. Uses Perplexity by default; Claude, Gemini, and other providers can be attached in Settings. Falls back to an honest rule-based summary when no API key is configured
+- **Story** — AI-generated plain-language narrative summaries of your dataset, with three interchangeable engines you pick in Settings: (1) **In-browser AI** (default, recommended) runs a small open-weight language model — **Qwen2.5-1.5B-Instruct**, 4-bit quantized (~1.1 GB), Apache-2.0 licensed — **100% on your device via WebGPU/WebLLM**, so no API key is needed and your data never leaves the browser; the weights download once and are cached for offline reuse. (2) **Bring your own API key** (Perplexity, Claude, Gemini, OpenAI). (3) An honest **rule-based** offline summary with no AI. The in-browser option needs a WebGPU-capable browser (recent Chrome, Edge, or Chrome on Android; Safari 18+) and gracefully falls back to the rule-based summary where WebGPU is unavailable
 - **Python** — in-browser notebook via Pyodide
 - **R** — in-browser notebook via WebR
 - **Swift** — structural SwiftUI-syntax preview (renders Text/VStack/HStack/Button/Divider live); full SwiftWasm compilation is planned for a future generation
@@ -37,6 +37,7 @@ Additional formats (ORC, Avro, HDF5, Delta Lake, FHIR, DICOM, EDI, PDF tables, G
 - [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) for in-browser SQL
 - [Pyodide](https://pyodide.org/) for in-browser Python
 - [WebR](https://webr.r-wasm.org/) for in-browser R
+- [WebLLM](https://github.com/mlc-ai/web-llm) (Apache-2.0) for the in-browser Story model — running [Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) (Apache-2.0), lazy-loaded from WebLLM's prebuilt model registry and cached in-browser
 - [Plotly.js](https://plotly.com/javascript/) for visualization
 - [SheetJS (xlsx)](https://sheetjs.com/) for Excel parsing
 

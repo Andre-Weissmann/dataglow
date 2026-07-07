@@ -61,6 +61,9 @@ jobs:
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient
       - run: npm run test:slm
+      # In-browser Story model: prompt construction + provider/mode selection +
+      # generateStory routing/fallback with the WebLLM engine stubbed (no GPU in CI).
+      - run: npm run test:storymodel
       # Security regression: Story Engine escapes user-controlled data (stored XSS).
       - run: npm run test:story-xss
       # Gen 10 Batch 2: Digital Twin perturbation → grading pipeline (native DuckDB)
