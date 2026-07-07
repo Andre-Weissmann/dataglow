@@ -17,6 +17,11 @@ export const state = {
     modelProvider: 'perplexity',
     apiKeys: {},
     freshnessThresholdHours: 24,
+    // Opt-in (default OFF): persist small per-column distribution fingerprints
+    // across sessions in local IndexedDB so drift can be detected between a
+    // file loaded today and a same-schema file loaded on a future visit.
+    // Only summary numbers are stored, never raw rows. See js/memory-store.js.
+    persistFingerprints: false,
   },
   tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch'],
 };

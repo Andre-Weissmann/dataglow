@@ -680,42 +680,101 @@ async function runCrossColumnLogic(table, cols) {
 // ---------- 18. Distributional Fingerprint Drift ----------
 // Sibling of the Schema Fingerprint layer: even when the schema is unchanged,
 // the DATA can silently shift. On each load we record a per-column
-// distribution fingerprint (mean/std/skewness for numeric; top-5 value
-// frequencies for categorical) keyed by the schema hash, then compare a later
-// load of the same schema against the stored baseline.
+// distribution fingerprint keyed by the schema signature, then compare a later
+// load of the same schema against a stored baseline.
+//
+// The fingerprint is a handful of cheap-to-derive summary numbers per
+// column — for every column: null rate and cardinality ratio; additionally for
+// numeric columns mean/std/skew/min/max, and for categorical columns the five
+// most frequent labels. It contains NO raw rows and is not reversible back to
+// the data; that is what makes it safe to cache locally (see runDistributionDrift
+// and js/memory-store.js) without violating the zero-upload trust story.
 export async function computeDistributionFingerprint(table, cols) {
   const stats = {};
   for (const c of cols) {
     const col = `"${c.name}"`;
+    // Common shape stats for every column: null rate + cardinality ratio.
+    const { rows: shapeRows } = await engine.runQuery(`
+      SELECT COUNT(*) AS total,
+             COUNT(${col}) AS nonnull,
+             COUNT(DISTINCT ${col}) AS ndistinct
+      FROM ${table}`);
+    const total = Number(shapeRows[0].total) || 0;
+    const nonnull = Number(shapeRows[0].nonnull) || 0;
+    const ndistinct = Number(shapeRows[0].ndistinct) || 0;
+    const nullRate = total > 0 ? (total - nonnull) / total : null;
+    // Cardinality as a ratio of distinct non-null values to non-null rows,
+    // so it is comparable across files of different sizes (1.0 = all unique).
+    const cardinality = nonnull > 0 ? ndistinct / nonnull : null;
+
     if (NUMERIC_T.includes(c.type)) {
       const { rows } = await engine.runQuery(`
-        SELECT AVG(${col}) AS mean, STDDEV_POP(${col}) AS std, skewness(${col}) AS skew
+        SELECT AVG(${col}) AS mean, STDDEV_POP(${col}) AS std, skewness(${col}) AS skew,
+               MIN(${col}) AS mn, MAX(${col}) AS mx
         FROM ${table} WHERE ${col} IS NOT NULL`);
       stats[c.name] = {
         kind: 'numeric',
+        nullRate, cardinality,
         mean: rows[0].mean != null ? Number(rows[0].mean) : null,
         std: rows[0].std != null ? Number(rows[0].std) : null,
         skew: rows[0].skew != null ? Number(rows[0].skew) : null,
+        min: rows[0].mn != null ? Number(rows[0].mn) : null,
+        max: rows[0].mx != null ? Number(rows[0].mx) : null,
       };
     } else if (c.type === 'VARCHAR') {
       const { rows } = await engine.runQuery(`
         SELECT ${col} AS v, COUNT(*) AS n FROM ${table}
         WHERE ${col} IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 5`);
-      stats[c.name] = { kind: 'categorical', top: rows.map(r => String(r.v)) };
+      stats[c.name] = {
+        kind: 'categorical',
+        nullRate, cardinality,
+        top: rows.map(r => String(r.v)),
+      };
     }
   }
   return stats;
 }
 
+// A stable schema signature: sorted [name, type] pairs. Files with matching
+// schemas produce the same signature even if their filenames (or the DuckDB
+// table name) differ — so "this month's export" can be compared against "last
+// month's export". Exported so the persistence layer and tests share one
+// definition of "same schema".
+export function schemaSignature(cols) {
+  return JSON.stringify(cols.map(c => [c.name, c.type]).sort());
+}
+
+// Drift thresholds. Deliberately conservative, first-principles heuristics —
+// not tuned to mimic any specific commercial data-observability tool.
+const DRIFT_MEAN_SIGMA = 2;      // mean shift, in prior standard deviations
+const DRIFT_NULLRATE_JUMP = 0.2; // absolute change in null rate (20 pts)
+const DRIFT_CARDINALITY_JUMP = 0.3; // absolute change in cardinality ratio
+
 export function compareDistributions(prev, curr) {
   const drifts = [];
+  const pct = (x) => `${(x * 100).toFixed(0)}%`;
   for (const [name, cs] of Object.entries(curr)) {
     const ps = prev[name];
     if (!ps || ps.kind !== cs.kind) continue;
+
+    // Null-rate jump — applies to every column kind. Older baselines may lack
+    // nullRate, so both sides are guarded.
+    if (ps.nullRate != null && cs.nullRate != null &&
+        Math.abs(cs.nullRate - ps.nullRate) >= DRIFT_NULLRATE_JUMP) {
+      drifts.push(`"${name}": null rate jumped from ${pct(ps.nullRate)} to ${pct(cs.nullRate)}.`);
+    }
+    // Cardinality change — a column going from mostly-unique to mostly-repeated
+    // (or vice-versa) often signals a schema/meaning change even if the schema
+    // string is unchanged.
+    if (ps.cardinality != null && cs.cardinality != null &&
+        Math.abs(cs.cardinality - ps.cardinality) >= DRIFT_CARDINALITY_JUMP) {
+      drifts.push(`"${name}": distinct-value ratio changed from ${pct(ps.cardinality)} to ${pct(cs.cardinality)}.`);
+    }
+
     if (cs.kind === 'numeric') {
       if (ps.mean != null && cs.mean != null && ps.std != null && ps.std > 0) {
         const shift = Math.abs(cs.mean - ps.mean) / ps.std;
-        if (shift > 2) {
+        if (shift > DRIFT_MEAN_SIGMA) {
           drifts.push(`"${name}": mean shifted ${shift.toFixed(1)}σ (was ${ps.mean.toFixed(2)}, now ${cs.mean.toFixed(2)}).`);
         }
       }
@@ -730,25 +789,57 @@ export function compareDistributions(prev, curr) {
   return drifts;
 }
 
-async function runDistributionDrift(table, cols) {
-  const schemaStr = JSON.stringify(cols.map(c => [c.name, c.type]).sort());
-  const hash = await sha256(schemaStr);
+// Persistence is INJECTED, never imported: validation.js stays pure and
+// Node-testable, and the browser-only IndexedDB store (js/memory-store.js) is
+// passed in via opts only when the user has opted in. opts.fingerprintStore, if
+// present, must expose async getBaseline(hash) -> { columnStats } | undefined
+// and async saveBaseline(hash, stats). Without it the layer falls back to the
+// in-session (RAM-only) baseline, exactly as before — no consent required for
+// same-session comparison because nothing is persisted.
+async function runDistributionDrift(table, cols, opts = {}) {
+  const hash = await sha256(schemaSignature(cols));
   const stats = await computeDistributionFingerprint(table, cols);
+
+  // In-session baseline (RAM only): drift between two loads within one session.
   const prior = history.distributionFingerprints[table] || [];
   const lastSameSchema = [...prior].reverse().find(p => p.hash === hash);
   prior.push({ ts: Date.now(), hash, stats });
   history.distributionFingerprints[table] = prior;
-  if (!lastSameSchema) {
+
+  // Cross-session baseline (opt-in): compare against a fingerprint persisted on
+  // a PRIOR session for the SAME schema — e.g. last month's export vs this
+  // month's, even under a different filename. Only stores the small numeric
+  // summary above, never raw rows.
+  let baselineStats = null;
+  let source = null;
+  if (opts.fingerprintStore) {
+    try {
+      const stored = await opts.fingerprintStore.getBaseline(hash);
+      if (stored && stored.columnStats) {
+        baselineStats = stored.columnStats;
+        source = stored.version > 1
+          ? `the stored fingerprint from a previous session (v${stored.version})`
+          : 'the stored fingerprint from a previous session';
+      }
+      await opts.fingerprintStore.saveBaseline(hash, stats);
+    } catch (e) { /* IndexedDB unavailable/blocked — fall back to in-session */ }
+  }
+  if (!baselineStats && lastSameSchema) {
+    baselineStats = lastSameSchema.stats;
+    source = 'the fingerprint recorded earlier this session';
+  }
+
+  if (!baselineStats) {
     return result('pass', `Distribution fingerprint recorded for ${Object.keys(stats).length} column(s) — baseline established.`);
   }
-  const drifts = compareDistributions(lastSameSchema.stats, stats);
+  const drifts = compareDistributions(baselineStats, stats);
   if (drifts.length === 0) {
-    return result('pass', 'Column distributions are stable versus the stored fingerprint — no drift.');
+    return result('pass', `Column distributions are stable versus ${source} — no drift.`);
   }
   for (const d of drifts) {
-    logAssumption('Distributional Fingerprint Drift', `Detected drift on same-schema reload: ${d}`);
+    logAssumption('Distributional Fingerprint Drift', `Detected drift vs ${source}: ${d}`);
   }
-  return result('fail', `${drifts.length} column(s) drifted despite an unchanged schema — the data moved even though the shape didn't.`, drifts);
+  return result('fail', `${drifts.length} column(s) drifted versus ${source} despite an unchanged schema — the data moved even though its shape didn't.`, drifts);
 }
 
 // Build per-column metadata the Domain Physics Engine's rules match on. Kept
@@ -804,7 +895,7 @@ export async function runAllLayers(ds, options = {}) {
   results.benford = await runBenford(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.categorical_consistency = await runCategoricalConsistency(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.cross_column_logic = await runCrossColumnLogic(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
-  results.distribution_drift = await runDistributionDrift(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.distribution_drift = await runDistributionDrift(table, cols, { fingerprintStore: options.fingerprintStore }).catch(e => result('warn', `Could not run: ${e.message}`));
 
   // ---- Domain Physics Engine ----
   // Sits ABOVE the 18 layers: it reinterprets/annotates their raw output using a

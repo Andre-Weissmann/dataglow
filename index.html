@@ -682,6 +682,21 @@
     </div>
     <button class="btn btn-secondary" id="btn-memory-clear" style="margin-bottom:var(--space-5);" data-testid="button-memory-clear">Clear local memory</button>
 
+    <div class="sidebar-heading">Distribution Fingerprint Drift</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+      When enabled, DATAGLOW saves a tiny <strong>statistical summary</strong> of each column
+      (mean, standard deviation, min/max, null rate, and distinct-value ratio) on this device only,
+      so that a future file with the same schema — e.g. next month's export — can be checked for
+      distribution drift. <strong>Only these summary numbers are stored — never your raw rows</strong>,
+      and nothing is ever uploaded. Off by default.
+    </p>
+    <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); margin-bottom:var(--space-2); cursor:pointer;">
+      <input type="checkbox" id="toggle-persist-fingerprints" data-testid="toggle-persist-fingerprints" />
+      Remember column fingerprints across sessions (opt-in)
+    </label>
+    <div id="fingerprint-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
+    <button class="btn btn-secondary" id="btn-clear-fingerprints" style="margin-bottom:var(--space-5);" data-testid="button-clear-fingerprints">Clear stored fingerprints</button>
+
     <div class="sidebar-heading">About &amp; Attributions</div>
     <div style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-5);">
       <p style="margin-bottom:var(--space-2);">
