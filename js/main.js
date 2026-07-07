@@ -2160,6 +2160,42 @@ function renderValidationResults(results) {
         }, r.note));
       }
     }
+    // Missingness Detective: for each analysed column show its MCAR/MAR/MNAR
+    // classification badge, the plain-language narrative (with the driver column
+    // named + effect size for MAR), the "why it matters for analysis" note, and
+    // any conservative — clearly labelled — MNAR hypothesis. Closes with the
+    // taxonomy note explaining what the classifications do and don't prove.
+    if (layer.id === 'missingness_detective') {
+      if (r.checkedLabel) {
+        card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);', 'data-testid': 'missingness-checked' }, `Columns analysed: ${r.checkedLabel}`));
+      }
+      if (Array.isArray(r.findings) && r.findings.length) {
+        const badgeColor = (f) => f.classification === 'MAR' ? 'var(--color-grade-c)' : 'var(--color-grade-a)';
+        for (const f of r.findings) {
+          const fRow = el('div', { style: 'margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': `missingness-finding-${f.column}` }, [
+            el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;' }, [
+              el('span', { style: `font-size:var(--text-xs); font-weight:600; padding:2px 8px; border-radius:6px; color:#fff; background:${badgeColor(f)};` }, f.classification === 'MAR' ? 'Likely MAR' : 'MCAR (no driver)'),
+              el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, `"${f.column}" — ${f.missingRate}% missing`),
+              ...(f.mnarCaution ? [el('span', { style: 'font-size:var(--text-xs); font-weight:600; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-grade-d);', 'data-testid': `missingness-mnar-${f.column}` }, 'MNAR risk?')] : []),
+            ]),
+            el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);' }, f.narrative),
+            el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1); font-style:italic;' }, f.why),
+          ]);
+          if (f.mnarNote) {
+            fRow.appendChild(el('div', {
+              style: 'margin-top:var(--space-2); padding:var(--space-2); border-left:3px solid var(--color-grade-d); background:rgba(220,80,80,0.08); font-size:var(--text-xs); color:var(--color-text-muted); border-radius:6px;',
+            }, f.mnarNote));
+          }
+          card.appendChild(fRow);
+        }
+      }
+      if (r.note) {
+        card.appendChild(el('div', {
+          'data-testid': 'missingness-note',
+          style: 'margin-top:var(--space-2); padding:var(--space-2); border-left:3px solid var(--color-grade-c); background:rgba(255,180,0,0.08); font-size:var(--text-xs); color:var(--color-text-muted); border-radius:6px;',
+        }, r.note));
+      }
+    }
     grid.appendChild(card);
   }
 }

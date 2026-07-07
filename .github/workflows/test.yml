@@ -44,6 +44,8 @@ jobs:
       - run: npm run test:attestation
       # Upper-Bound Sanity Anchor: logical/definitional bounds detection + runner.
       - run: npm run test:upperbound
+      # Missingness Detective: MCAR/MAR/MNAR causal-missingness classification.
+      - run: npm run test:missingness
       # Fast, deterministic, browser-free unit suites (Gen 9 Batch 2):
       # ambient-validation worker logic + on-device SLM prompt construction.
       - run: npm run test:ambient

@@ -15,6 +15,7 @@
     "test:physics": "node --import ./test/duckdb-loader-hook.mjs test/domain-physics.test.mjs",
     "test:physiology": "node --import ./test/duckdb-loader-hook.mjs test/physiological-plausibility.test.mjs",
     "test:upperbound": "node --import ./test/duckdb-loader-hook.mjs test/upper-bound-sanity.test.mjs",
+    "test:missingness": "node --import ./test/duckdb-loader-hook.mjs test/missingness-detective.test.mjs",
     "test:attestation": "node test/verify-attestation.mjs",
     "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/gen9-batch3.test.mjs",
     "test:zk-proof": "node test/zk-provenance-proof.test.mjs",
@@ -30,7 +31,8 @@
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs",
     "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
     "screenshot:grades": "node test/_screenshot-grades.mjs",
-    "screenshot:upperbound": "node test/_screenshot-upperbound.mjs"
+    "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
+    "screenshot:missingness": "node test/_screenshot-missingness.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
