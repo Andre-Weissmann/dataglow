@@ -498,6 +498,51 @@ const BENFORD_BOUNDED_KEYWORDS = new Set([
 // Column names that denote a naturally-scaled magnitude Benford's Law suits.
 const BENFORD_MAGNITUDE_NAME = /amount|revenue|sales|price|cost|charge|population|transaction|balance|income|expense|salary|payment|volume|total|value|spend|budget/i;
 
+// Plain-language teaching notes surfaced in the Validate tab whenever a column
+// is skipped — one per eligibility-gate cause, so the explanation always matches
+// the REASON a column was skipped rather than defaulting to the bounded-range
+// rationale. Each reads as a short lesson on WHY Benford's Law does or doesn't
+// apply, turning the skip from a silent pass/fail into an explanation.
+export const BENFORD_TEACHINGS = {
+  bounded_name: "Benford's Law describes naturally-scaled, multiplicative quantities that span several orders of magnitude — revenue, populations, transaction amounts. Bounded, human-assigned ranges like Age, ratings, or credit scores don't follow it, so applying the test there would produce meaningless \"violations.\" Columns below are skipped for that reason, not because anything is wrong with them.",
+  small_sample: "Benford's Law is a statistical pattern that only emerges reliably once there are enough data points to observe it. With just a handful of rows the leading-digit distribution is dominated by chance, so the test would report a statistically meaningless result — a false pass or a false \"violation\" — in either direction. Columns below are skipped because there isn't enough data to draw a conclusion, not because the data is bad.",
+  narrow_range: "Benford's Law relies on values spanning several orders of magnitude — from tens to hundreds to thousands and beyond — for the leading-digit distribution to take its expected shape. When every value sits at roughly the same scale (say, all in the hundreds), only one or two leading digits ever appear, so the pattern can't emerge even for a column that would otherwise be a good Benford candidate. Columns below are skipped for that reason.",
+  binary_flag: "Binary flag columns (0/1, true/false) have only one or two possible leading digits by definition, so a leading-digit distribution test has nothing to measure. This isn't about a value range being \"bounded\" — it's a more basic reason the test doesn't apply at all: there is simply no distribution of leading digits to compare against Benford's expectation. Columns below are skipped for that reason.",
+};
+
+// Classify a skip-reason string into its teaching cause. The reason strings are
+// produced by benfordEligibility() (bounded_name/small_sample/narrow_range) and,
+// once a domain pack runs, by the binary-flag exemption rule — so classification
+// is done on the final string and works no matter which layer produced the skip.
+// Order matters: the more specific phrasings are matched before the generic
+// "bounded" fallback, because the narrow-range reason also contains "(bounded)".
+export function benfordSkipCause(reason) {
+  const s = String(reason);
+  if (/binary 0\/1 flag column/i.test(s)) return 'binary_flag';
+  if (/orders of magnitude/i.test(s)) return 'narrow_range';
+  if (/too few for a meaningful Benford test|usable value/i.test(s)) return 'small_sample';
+  return 'bounded_name';
+}
+
+// Group skip-reason strings by teaching cause, preserving order of first
+// appearance, so the UI (and tests) can render each distinct reason with the
+// matching teaching paragraph. Returns [{ cause, teaching, skips: [reason...] }].
+export function benfordTeachingGroups(skips) {
+  const groups = [];
+  const byCause = new Map();
+  for (const reason of skips || []) {
+    const cause = benfordSkipCause(reason);
+    let g = byCause.get(cause);
+    if (!g) {
+      g = { cause, teaching: BENFORD_TEACHINGS[cause], skips: [] };
+      byCause.set(cause, g);
+      groups.push(g);
+    }
+    g.skips.push(reason);
+  }
+  return groups;
+}
+
 // Split a column name into lowercased constituent words, breaking on snake_case
 // (_), kebab-case (-), whitespace, and camelCase/PascalCase transitions. A raw
 // \b word-boundary regex misses keywords inside compound names because \b treats
@@ -587,10 +632,6 @@ async function runBenford(table, cols) {
     }
   }
   const detail = [...flags, ...skips];
-  // Plain-language teaching note surfaced in the Validate tab whenever a column
-  // is skipped — turns the eligibility gate from a silent pass/fail into a
-  // short lesson on WHY the test does or doesn't apply.
-  const teaching = "Benford's Law describes naturally-scaled, multiplicative quantities that span several orders of magnitude — revenue, populations, transaction amounts. Bounded, human-assigned ranges like Age, ratings, or credit scores don't follow it, so applying the test there would produce meaningless \"violations.\" Columns below are skipped for that reason, not because anything is wrong with them.";
   let r;
   if (flags.length > 0) {
     r = result('warn', `${flags.length} column(s) deviate from Benford's Law — worth a closer look.`, detail);
@@ -601,7 +642,6 @@ async function runBenford(table, cols) {
   }
   r.skips = skips;
   r.flags = flags;
-  if (skips.length) r.teaching = teaching;
   return r;
 }
 

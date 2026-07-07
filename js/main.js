@@ -1953,14 +1953,18 @@ function renderValidationResults(results) {
     }
     // Explainable Benford Gate (Feature 6): when the eligibility gate skips a
     // column, show a plain-language "why" note so the skip teaches rather than
-    // silently passing. Reuses r.skips / r.teaching from the validation layer.
+    // silently passing. Skipped columns are grouped by their cause (bounded
+    // range, too few rows, too narrow a range, binary flag) and each group is
+    // shown under the teaching paragraph that explains THAT specific reason.
     if (layer.id === 'benford' && Array.isArray(r.skips) && r.skips.length) {
       const details = el('details', { style: 'margin-top:var(--space-2); font-size:var(--text-xs);', 'data-testid': 'benford-teaching' });
       details.appendChild(el('summary', { style: 'cursor:pointer; color:var(--color-text-muted);' }, `Why ${r.skips.length} column(s) were skipped`));
-      if (r.teaching) details.appendChild(el('div', { style: 'color:var(--color-text-muted); margin:var(--space-2) 0;' }, r.teaching));
-      const ul = el('ul', { style: 'color:var(--color-text-muted); padding-left:var(--space-4); margin:0;' });
-      r.skips.slice(0, 8).forEach(s => ul.appendChild(el('li', {}, typeof s === 'string' ? s : `"${s.column}" — ${s.reason}`)));
-      details.appendChild(ul);
+      for (const group of validation.benfordTeachingGroups(r.skips)) {
+        if (group.teaching) details.appendChild(el('div', { style: 'color:var(--color-text-muted); margin:var(--space-2) 0;', 'data-testid': `benford-teaching-${group.cause}` }, group.teaching));
+        const ul = el('ul', { style: 'color:var(--color-text-muted); padding-left:var(--space-4); margin:0;' });
+        group.skips.slice(0, 8).forEach(s => ul.appendChild(el('li', {}, s)));
+        details.appendChild(ul);
+      }
       card.appendChild(details);
     }
     // Categorical Consistency Engine: offer a one-click canonical merge per

@@ -14,7 +14,7 @@
 
 import { createTableFromObjects, getTableSchema, closeConnection } from './node-duckdb-engine.mjs';
 
-import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords } from '../js/validation.js';
+import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords, BENFORD_TEACHINGS, benfordSkipCause, benfordTeachingGroups } from '../js/validation.js';
 import { buildGoldenDataset } from '../js/loaders.js';
 import { clusterValues, withCanonical } from '../js/categorical-consistency.js';
 import { getLedgerEntries, clearLedger } from '../js/assumption-ledger.js';
@@ -142,6 +142,53 @@ async function main() {
   const ageResults = await runAllLayers(ageDs);
   ok(/patient_age.*skipped|skipped.*patient_age/i.test(detailStr(ageResults.benford)),
     'benford-gate: "patient_age" (snake_case bounded) skipped instead of falsely flagged');
+
+  // Explainable Benford Gate — each of the FOUR skip reasons must map to its own
+  // distinct teaching paragraph, so a column skipped for (e.g.) too few rows no
+  // longer gets the generic "bounded range" explanation. Reason strings below
+  // are the verbatim ones produced by benfordEligibility() and the healthcare
+  // binary-flag exemption rule (js/domain-physics.js).
+  const boundedReason  = '"age" skipped — bounded range, not a naturally-scaled magnitude Benford\'s Law applies to.';
+  const sampleReason   = '"reading" skipped — only 12 usable value(s); too few for a meaningful Benford test.';
+  const rangeReason    = '"reading" skipped — values span <2 orders of magnitude (bounded), so Benford\'s Law is not applicable.';
+  const binaryReason   = '"mortality_flag" skipped — binary 0/1 flag column, exempt from Benford\'s Law (which applies only to multi-order-of-magnitude quantities). [Domain Physics: healthcare pack]';
+
+  ok(benfordSkipCause(boundedReason) === 'bounded_name', 'benford-teaching: bounded-range reason classified as bounded_name');
+  ok(benfordSkipCause(sampleReason) === 'small_sample', 'benford-teaching: too-few-rows reason classified as small_sample');
+  ok(benfordSkipCause(rangeReason) === 'narrow_range', 'benford-teaching: narrow-range reason classified as narrow_range (not bounded_name)');
+  ok(benfordSkipCause(binaryReason) === 'binary_flag', 'benford-teaching: binary-flag reason classified as binary_flag');
+
+  // All four teaching paragraphs exist and are distinct (no reason falls back to
+  // the one-size-fits-all bounded-range text).
+  const teachingTexts = ['bounded_name', 'small_sample', 'narrow_range', 'binary_flag'].map(c => BENFORD_TEACHINGS[c]);
+  ok(teachingTexts.every(t => typeof t === 'string' && t.length > 60), 'benford-teaching: all four causes have a substantial teaching paragraph');
+  ok(new Set(teachingTexts).size === 4, 'benford-teaching: the four teaching paragraphs are all distinct');
+  ok(BENFORD_TEACHINGS.bounded_name.startsWith("Benford's Law describes naturally-scaled, multiplicative quantities"),
+    'benford-teaching: bounded-range paragraph preserved verbatim');
+  ok(/only reliably|dominated by chance|enough data|handful of rows|statistically meaningless/i.test(BENFORD_TEACHINGS.small_sample),
+    'benford-teaching: small-sample paragraph explains the too-few-rows rationale');
+  ok(/orders of magnitude|same scale|one or two leading digits/i.test(BENFORD_TEACHINGS.narrow_range),
+    'benford-teaching: narrow-range paragraph explains the magnitude-span rationale');
+  ok(/binary|0\/1|true\/false|one or two possible leading digits/i.test(BENFORD_TEACHINGS.binary_flag),
+    'benford-teaching: binary-flag paragraph explains the flag-column rationale');
+
+  // Grouping: a mixed skip list yields one group per cause, each carrying the
+  // matching teaching paragraph and only the reasons for that cause.
+  const groups = benfordTeachingGroups([boundedReason, sampleReason, rangeReason, binaryReason]);
+  ok(groups.length === 4, 'benford-teaching: four distinct skip reasons produce four teaching groups');
+  for (const g of groups) {
+    ok(g.teaching === BENFORD_TEACHINGS[g.cause], `benford-teaching: group "${g.cause}" carries its matching paragraph`);
+  }
+  ok(new Set(groups.map(g => g.teaching)).size === 4, 'benford-teaching: rendered paragraphs are distinct per cause');
+  // Two columns skipped for the SAME cause collapse into one group (one paragraph).
+  const merged = benfordTeachingGroups([sampleReason, '"foo" skipped — only 3 usable value(s); too few for a meaningful Benford test.']);
+  ok(merged.length === 1 && merged[0].cause === 'small_sample' && merged[0].skips.length === 2,
+    'benford-teaching: same-cause skips share a single teaching group');
+
+  // The real golden run: "age" is skipped and surfaces the bounded-range lesson.
+  const bfGroups = benfordTeachingGroups(bf.skips);
+  ok(bfGroups.some(g => g.cause === 'bounded_name' && g.skips.some(s => /"age"/.test(s))),
+    'benford-teaching: golden run maps skipped "age" to the bounded-range paragraph');
 
   // Existing layers still catch their seeded issues
   ok(results.unit_tests.status === 'fail', `unit_tests: still fails on seeded issues (status=${results.unit_tests.status})`);
