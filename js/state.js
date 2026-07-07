@@ -38,6 +38,15 @@ export const state = {
     // See js/adaptive-priority.js. Never hides or disables any layer.
     adaptivePriorityEnabled: true,
     persistLayerPriority: false,
+    // Federated Fingerprint Learning (Phase 1). Collaboratively improves the
+    // shared fingerprint/pattern model by exchanging ONLY privacy-protected
+    // weight updates (pairwise-masked + DP-noised) with other opted-in users
+    // over WebRTC, using a GitHub coordination branch only as an ephemeral peer
+    // "phone book". OFF by default — fully opt-in. Raw data never leaves the
+    // browser. See js/federated-learning.js / js/federated-transport.js.
+    federatedLearningEnabled: false,
+    persistFederatedModel: false,
+    federatedEpsilon: 1.0,
   },
   tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch'],
 };

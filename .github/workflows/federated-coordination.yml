@@ -1,0 +1,76 @@
+# ============================================================
+# DATAGLOW — Federated Fingerprint Learning: coordination-branch rotation
+# ============================================================
+# GitHub is used ONLY as an ephemeral "phone book" for peer discovery: a small,
+# short-lived JSON file (coordination.json) on the dedicated `federated-coordination`
+# branch listing who is online right now and how to reach them over WebRTC
+# (signaling offers / ICE candidates), plus — in relay-fallback mode — already
+# masked + DP-noised weight deltas for offline pickup. It NEVER stores raw user
+# data or any readable individual model update.
+#
+# This scheduled job rotates that file: every few minutes it prunes entries older
+# than the TTL (see COORDINATION_TTL_MS in js/federated-learning.js) and commits
+# the shrunken file back, so stale peers/updates expire automatically.
+#
+# Safe if the branch/file does not exist yet: the pruner writes a fresh empty file.
+
+name: federated-coordination
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # every 5 minutes
+  workflow_dispatch: {}
+
+# Only one rotation at a time; don't pile up commits.
+concurrency:
+  group: federated-coordination
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      # main is checked out for the pruner source (js/federated-learning.js).
+      - name: Checkout main (pruner source)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      # The coordination branch holds only the ephemeral coordination.json.
+      - name: Checkout coordination branch
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: federated-coordination
+          path: coord
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Prune expired entries
+        run: |
+          mkdir -p coord
+          cd coord
+          if [ ! -d .git ]; then
+            git init -q
+            git checkout -q -b federated-coordination
+          fi
+          COORDINATION_FILE="$PWD/coordination.json" node "$GITHUB_WORKSPACE/main/.github/scripts/prune-coordination.mjs"
+
+      - name: Commit rotated file
+        run: |
+          cd coord
+          git config user.name "dataglow-bot"
+          git config user.email "dataglow-bot@users.noreply.github.com"
+          git add coordination.json
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+          else
+            git commit -q -m "chore(federated): rotate coordination phone book"
+            git push -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:federated-coordination
+          fi
