@@ -46,6 +46,9 @@ jobs:
       - run: npm run test:upperbound
       # Missingness Detective: MCAR/MAR/MNAR causal-missingness classification.
       - run: npm run test:missingness
+      # Predictive Anomaly Scoring: holistic kNN/Gower mixed-type outlier score,
+      # feature attribution, feature selection, and the size-guard/sampling path.
+      - run: npm run test:predanomaly
       # Self-Learning Validation Rules: labeled-example capture, incremental
       # logistic-regression training, min-examples gating, ranking/explanation,
       # and the opt-in/opt-out/clear persistence contract.
