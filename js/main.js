@@ -2118,6 +2118,48 @@ function renderValidationResults(results) {
         }, r.disclaimer));
       }
     }
+    // Upper-Bound Sanity Anchor: show which bounded columns were checked, a
+    // per-column plain-language "why it's impossible by definition" explanation,
+    // and the conservative-scope note. Each flag can be dismissed — the
+    // dismissal is written to the Assumption Ledger and Provenance Trail, exactly
+    // like a Cross-Column flag.
+    if (layer.id === 'upper_bound_sanity') {
+      if (r.checkedLabel) {
+        card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);', 'data-testid': 'upperbound-checked' }, `Columns checked: ${r.checkedLabel}`));
+      }
+      if (Array.isArray(r.findings) && r.findings.length) {
+        const ds = getActiveDataset();
+        for (const f of r.findings) {
+          const fRow = el('div', { style: 'margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': `upperbound-finding-${f.column}` }, [
+            el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;' }, [
+              el('span', { style: 'font-size:var(--text-xs); font-weight:600; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-grade-c);' }, `${f.category} ${f.low}–${f.high}`),
+              el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, `"${f.column}"`),
+              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px; margin-left:auto;', 'data-testid': `button-upperbound-dismiss-${f.column}` }, 'Dismiss'),
+            ]),
+            el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);' }, f.explanation),
+          ]);
+          const dismissBtn = fRow.querySelector('button');
+          dismissBtn.addEventListener('click', async () => {
+            ledger.logAssumption('Upper-Bound Sanity Anchor',
+              `Analyst dismissed ${f.count} out-of-bound value(s) in "${f.column}" (${f.category} ${f.low}–${f.high}) — accepted as valid.`,
+              { column: f.column, category: f.category, count: f.count, dismissed: true });
+            if (ds) await provenance.recordStep(ds.table, 'validate',
+              `Dismissed upper-bound flag on "${f.column}" (${f.category} ${f.low}–${f.high}).`, { column: f.column, dismissed: true });
+            renderAssumptionLedger();
+            renderProvenanceTrail();
+            fRow.style.opacity = '0.4'; fRow.style.pointerEvents = 'none';
+            toast('Flag dismissed and recorded in the audit trail', 'success');
+          });
+          card.appendChild(fRow);
+        }
+      }
+      if (r.note) {
+        card.appendChild(el('div', {
+          'data-testid': 'upperbound-note',
+          style: 'margin-top:var(--space-2); padding:var(--space-2); border-left:3px solid var(--color-grade-c); background:rgba(255,180,0,0.08); font-size:var(--text-xs); color:var(--color-text-muted); border-radius:6px;',
+        }, r.note));
+      }
+    }
     grid.appendChild(card);
   }
 }

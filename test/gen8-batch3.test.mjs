@@ -90,8 +90,8 @@ async function main() {
 
   ok(receipt.kind === 'dataglow-validation-receipt', 'receipt: model is tagged as a DATAGLOW validation receipt');
   ok(receipt.confidence && ['A', 'B', 'C', 'D'].includes(receipt.confidence.grade), `receipt: carries an overall confidence grade (${receipt.confidence && receipt.confidence.grade})`);
-  ok(receipt.layers.length === 19, `receipt: summarizes all 19 validation layers (got ${receipt.layers.length})`);
-  ok(receipt.summary.total === 19 && (receipt.summary.pass + receipt.summary.fail + receipt.summary.warn + receipt.summary.idle) === 19, 'receipt: pass/fail/warn/idle tally accounts for every layer');
+  ok(receipt.layers.length === 20, `receipt: summarizes all 20 validation layers (got ${receipt.layers.length})`);
+  ok(receipt.summary.total === 20 && (receipt.summary.pass + receipt.summary.fail + receipt.summary.warn + receipt.summary.idle) === 20, 'receipt: pass/fail/warn/idle tally accounts for every layer');
   ok(receipt.ledger.length === 2, 'receipt: includes the supplied Assumption Ledger entries');
   ok(receipt.story === sampleStory, 'receipt: embeds the story narrative');
 
@@ -119,7 +119,7 @@ async function main() {
   ok(packet.sections.every(s => s.review && s.review.decision === 'pending'), 'peer-review: every section starts as pending review');
 
   const layersSection = packet.sections.find(s => s.id === 'validation_layers');
-  ok(layersSection.layers.length === 18, `peer-review: layers section covers the 18 runAllLayers layers (got ${layersSection.layers.length})`);
+  ok(layersSection.layers.length === 19, `peer-review: layers section covers the 19 runAllLayers layers (got ${layersSection.layers.length})`);
 
   const md = exportPacket(packet, 'markdown');
   ok(md.includes('# DATAGLOW Peer Review Packet') && md.includes('## Key Findings'), 'peer-review: markdown export is human-readable with section headings');
