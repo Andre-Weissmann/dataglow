@@ -27,7 +27,8 @@
     "test:pwa": "node test/pwa-manifest.test.mjs",
     "test:e2e": "node test/e2e-smoke.test.mjs",
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs",
-    "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs"
+    "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
+    "screenshot:grades": "node test/_screenshot-grades.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

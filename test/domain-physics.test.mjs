@@ -153,49 +153,105 @@ async function main() {
     'physics(e2e): turning the pack off restores the raw fail on the same data');
 
   // ============================================================
-  // Feature 2 — Confidence-Calibrated Grades
+  // Feature 2 — Confidence-Calibrated Grades (two-axis)
+  //   Integrity  = mechanical well-formedness (unit_tests, cross_column_logic,
+  //                categorical_consistency, schema_fingerprint, sanity_anchor,
+  //                reproducibility).
+  //   Domain     = real-world plausibility (physiological_plausibility,
+  //                distribution_drift, semantic_drift, outlier_detection,
+  //                benford, correlation_watchdog), with reinterpretation credit.
   // ============================================================
 
-  // -- All integrity layers pass, no concerns → both axes grade A.
+  // -- All layers pass on both axes → both grade A + honest labelling.
   {
     const results = {
       unit_tests: { status: 'pass' }, cross_column_logic: { status: 'pass' },
-      semantic_drift: { status: 'pass' }, sanity_anchor: { status: 'pass' },
+      categorical_consistency: { status: 'pass' }, schema_fingerprint: { status: 'pass' },
+      sanity_anchor: { status: 'pass' }, reproducibility: { status: 'pass' },
+      physiological_plausibility: { status: 'pass' }, distribution_drift: { status: 'pass' },
+      semantic_drift: { status: 'pass' }, outlier_detection: { status: 'pass' },
+      benford: { status: 'pass' }, correlation_watchdog: { status: 'pass' },
     };
     const cg = computeCalibratedGrades({ results, packName: 'healthcare', annotations: [] });
-    ok(cg.integrity.grade === 'A', 'grades: all-pass integrity → A');
+    ok(cg.integrity.grade === 'A', 'grades: all mechanical checks pass → integrity A');
     ok(cg.plausibility.grade === 'A' && cg.plausibility.concerns === 0,
-      'grades: no concerns → full plausibility confidence (A)');
+      'grades: all domain checks pass → domain confidence A, no concerns');
+    ok(cg.overall.grade === 'A', 'grades: both axes A → overall A');
     ok(/[Hh]euristic/.test(cg.integrity.explanation) && /[Hh]euristic/.test(cg.plausibility.explanation),
       'grades: both axes are explicitly labelled heuristic');
     ok(/[Nn]ot a legal or clinical/.test(cg.integrity.explanation),
       'grades: integrity explanation disclaims legal/clinical determination');
+    ok(cg.integrity.considered === 6 && cg.plausibility.considered === 6,
+      'grades: each axis aggregates its six mapped layers when all ran');
   }
 
-  // -- All integrity layers fail → integrity F.
+  // -- Only idle/absent layers → axis defaults to full (never a false failure).
+  {
+    const cg = computeCalibratedGrades({ results: { unit_tests: { status: 'idle' } }, packName: 'none', annotations: [] });
+    ok(cg.integrity.considered === 0 && cg.integrity.grade === 'A',
+      'grades: idle/not-run layers are excluded, not counted as failures');
+  }
+
+  // -- KEY DIFFERENTIATOR A: HIGH integrity + LOW domain confidence.
+  //    Every mechanical check passes (the data is perfectly well-formed) but the
+  //    subject-matter layers fail — physiologically impossible values that no
+  //    longer resemble known-good data. Integrity must stay high while domain
+  //    confidence collapses; the two axes are independent.
+  {
+    const results = {
+      unit_tests: { status: 'pass' }, cross_column_logic: { status: 'pass' },
+      categorical_consistency: { status: 'pass' }, schema_fingerprint: { status: 'pass' },
+      sanity_anchor: { status: 'pass' }, reproducibility: { status: 'pass' },
+      physiological_plausibility: { status: 'fail' }, distribution_drift: { status: 'fail' },
+      semantic_drift: { status: 'fail' }, outlier_detection: { status: 'fail' },
+      benford: { status: 'fail' }, correlation_watchdog: { status: 'fail' },
+    };
+    const cg = computeCalibratedGrades({ results, packName: 'none', annotations: [] });
+    ok(cg.integrity.grade === 'A', 'grades(differentiator): mechanically clean data keeps integrity A');
+    ok(cg.plausibility.grade === 'F', 'grades(differentiator): domain-implausible data drops domain confidence to F');
+    ok(cg.integrity.score > cg.plausibility.score,
+      'grades(differentiator): integrity can be high while domain confidence is low');
+    ok(cg.plausibility.concerns === 6,
+      'grades(differentiator): all six domain layers register as concerns');
+  }
+
+  // -- KEY DIFFERENTIATOR B: LOW integrity + HIGH domain confidence.
+  //    Mechanically broken (duplicates, impossible cross-column combos) but the
+  //    values that ARE present are domain-plausible.
   {
     const results = {
       unit_tests: { status: 'fail' }, cross_column_logic: { status: 'fail' },
-      semantic_drift: { status: 'fail' }, sanity_anchor: { status: 'fail' },
+      categorical_consistency: { status: 'fail' }, schema_fingerprint: { status: 'fail' },
+      sanity_anchor: { status: 'fail' }, reproducibility: { status: 'fail' },
+      physiological_plausibility: { status: 'pass' }, distribution_drift: { status: 'pass' },
+      semantic_drift: { status: 'pass' }, outlier_detection: { status: 'pass' },
+      benford: { status: 'pass' }, correlation_watchdog: { status: 'pass' },
     };
     const cg = computeCalibratedGrades({ results, packName: 'none', annotations: [] });
-    ok(cg.integrity.grade === 'F', 'grades: all-fail integrity → F');
+    ok(cg.integrity.grade === 'F', 'grades(differentiator): mechanically broken data → integrity F');
+    ok(cg.plausibility.grade === 'A', 'grades(differentiator): domain-plausible values → domain confidence A');
+    ok(cg.plausibility.score > cg.integrity.score,
+      'grades(differentiator): domain confidence can be high while integrity is low');
   }
 
-  // -- Mixed: concerns raised, all interpreted by the pack → plausibility A;
-  //    none interpreted → plausibility floored at C.
+  // -- Reinterpretation credit: a domain layer flag the pack contextualised
+  //    (annotation carries the matching `layer`) counts LESS against domain
+  //    confidence than the same flag left unexplained.
   {
     const results = {
-      unit_tests: { status: 'warn' }, cross_column_logic: { status: 'pass' },
-      semantic_drift: { status: 'pass' }, sanity_anchor: { status: 'pass' },
-      benford: { status: 'warn' },
+      physiological_plausibility: { status: 'pass' }, distribution_drift: { status: 'pass' },
+      semantic_drift: { status: 'pass' }, outlier_detection: { status: 'pass' },
+      benford: { status: 'warn' }, correlation_watchdog: { status: 'pass' },
     };
-    const allInterpreted = computeCalibratedGrades({ results, packName: 'healthcare', annotations: [{}, {}] });
-    ok(allInterpreted.plausibility.concerns === 2 && allInterpreted.plausibility.interpreted === 2 && allInterpreted.plausibility.grade === 'A',
-      'grades: every concern reinterpreted by the pack → plausibility A');
-    const noneInterpreted = computeCalibratedGrades({ results, packName: 'none', annotations: [] });
-    ok(noneInterpreted.plausibility.grade === 'C',
-      'grades: unreviewed concerns floor plausibility confidence at C');
+    const unreviewed = computeCalibratedGrades({ results, packName: 'none', annotations: [] });
+    const reinterpreted = computeCalibratedGrades({ results, packName: 'healthcare', annotations: [{ layer: 'benford' }] });
+    ok(unreviewed.plausibility.concerns === 1 && unreviewed.plausibility.interpreted === 0,
+      'grades: an unreviewed domain flag is a concern with no interpretation credit');
+    ok(reinterpreted.plausibility.interpreted === 1 &&
+       reinterpreted.plausibility.score > unreviewed.plausibility.score,
+      'grades: a domain flag the pack reinterpreted raises domain confidence vs. the raw flag');
+    ok(reinterpreted.plausibility.layers.some(l => l.layer === 'benford' && l.credited === true),
+      'grades: the per-layer breakdown marks the reinterpreted layer as credited');
   }
 
   // ============================================================

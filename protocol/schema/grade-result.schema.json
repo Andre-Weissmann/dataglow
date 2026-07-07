@@ -13,11 +13,15 @@
     },
     "integrity": {
       "$ref": "#/$defs/axis",
-      "description": "Data Integrity axis — internal consistency (duplicates, cross-column logic, format/label validity)."
+      "description": "Data Integrity axis — mechanical/statistical well-formedness, domain-agnostic (weighted pass-rate over unit_tests, cross_column_logic, categorical_consistency, schema_fingerprint, sanity_anchor, reproducibility)."
     },
     "plausibility": {
       "$ref": "#/$defs/axis",
-      "description": "Domain Plausibility Confidence axis — how confident DATAGLOW is that its flags are real problems vs. domain quirks it reinterpreted."
+      "description": "Domain Confidence axis — real-world plausibility (weighted pass-rate over physiological_plausibility, distribution_drift, semantic_drift, outlier_detection, benford, correlation_watchdog), with reinterpretation credit for flags the domain pack contextualised. Field name kept as \"plausibility\" for wire compatibility."
+    },
+    "overall": {
+      "$ref": "#/$defs/axis",
+      "description": "Optional combined single-glance signal — the mean of the integrity and plausibility axis scores, banded to A–F."
     }
   },
   "$defs": {
@@ -60,6 +64,20 @@
           "type": "integer",
           "minimum": 0,
           "description": "Plausibility axis: count of flags raised by the concern layers."
+        },
+        "layers": {
+          "type": "array",
+          "description": "Per-layer contribution breakdown feeding this axis (auditable).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "layer": { "type": "string" },
+              "status": { "type": "string" },
+              "weight": { "type": "number" },
+              "score": { "type": "number" },
+              "credited": { "type": "boolean" }
+            }
+          }
         }
       }
     }

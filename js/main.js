@@ -1613,15 +1613,17 @@ async function renderDataHealth(ds, results) {
   await renderEntityBaselines(ds);
 }
 
-// Render the two-axis Confidence-Calibrated Grades. Both are explicitly
-// heuristics (labelled in each card's explanation), not legal/clinical calls.
+// Render the two-axis Confidence-Calibrated Grades: Data Integrity (mechanical
+// well-formedness) and Domain Confidence (real-world plausibility), plus a small
+// combined "overall" chip for a single-glance signal. Both axes are explicitly
+// heuristics (labelled in each card), not legal/clinical determinations.
 function renderCalibratedGrades(cg) {
   const box = $('#calibrated-grades');
   if (!box) return;
   if (!cg) { box.style.display = 'none'; box.innerHTML = ''; return; }
   const gradeColor = g => ({ A: 'var(--color-grade-a)', B: 'var(--color-grade-b)', C: 'var(--color-grade-c)', D: 'var(--color-grade-d)', F: 'var(--color-grade-d)' }[g] || 'var(--color-text-muted)');
-  const card = (title, axis, testid) => el('div', {
-    style: 'flex:1; min-width:220px; padding:var(--space-4); border:1px solid var(--color-divider); border-radius:var(--radius-lg); cursor:help;',
+  const card = (title, subtitle, axis, testid) => el('div', {
+    style: 'flex:1; min-width:240px; padding:var(--space-4); border:1px solid var(--color-divider); border-radius:var(--radius-lg); cursor:help;',
     title: axis.explanation,
     'data-testid': testid,
   }, [
@@ -1629,11 +1631,28 @@ function renderCalibratedGrades(cg) {
       el('div', { style: `font-size:var(--text-2xl,28px); font-weight:700; color:${gradeColor(axis.grade)};`, 'data-testid': `${testid}-grade` }, axis.grade),
       el('div', { style: 'font-weight:600;' }, title),
     ]),
-    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-2);' }, axis.explanation),
+    el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-top:var(--space-1); font-weight:500;' }, subtitle),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint,var(--color-text-muted)); margin-top:var(--space-2);' }, axis.explanation),
   ]);
   box.innerHTML = '';
-  box.appendChild(card('Data Integrity', cg.integrity, 'grade-integrity'));
-  box.appendChild(card('Domain Plausibility Confidence', cg.plausibility, 'grade-plausibility'));
+  box.appendChild(card(
+    'Data Integrity',
+    'How internally consistent and well-formed this data is.',
+    cg.integrity, 'grade-integrity'));
+  box.appendChild(card(
+    'Domain Confidence',
+    'How plausible this data is given real-world domain knowledge.',
+    cg.plausibility, 'grade-plausibility'));
+  if (cg.overall) {
+    box.appendChild(el('div', {
+      style: 'display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:120px; padding:var(--space-4); border:1px dashed var(--color-divider); border-radius:var(--radius-lg); cursor:help;',
+      title: cg.overall.explanation,
+      'data-testid': 'grade-overall',
+    }, [
+      el('div', { style: `font-size:var(--text-2xl,28px); font-weight:700; color:${gradeColor(cg.overall.grade)};`, 'data-testid': 'grade-overall-grade' }, cg.overall.grade),
+      el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1); text-align:center;' }, 'Overall (combined)'),
+    ]));
+  }
   box.style.display = 'flex';
 }
 
@@ -2496,7 +2515,7 @@ function renderTwinComparison(baseline, sim) {
     el('div', { style: 'flex:1;' }, ''), el('div', {}, 'Baseline'), el('div', {}, '→'), el('div', {}, 'Simulated'),
   ]));
   wrap.appendChild(axisRow('Data Integrity', baseline.calibratedGrades.integrity, sim.calibratedGrades.integrity, 'twin-grade-integrity'));
-  wrap.appendChild(axisRow('Domain Plausibility', baseline.calibratedGrades.plausibility, sim.calibratedGrades.plausibility, 'twin-grade-plausibility'));
+  wrap.appendChild(axisRow('Domain Confidence', baseline.calibratedGrades.plausibility, sim.calibratedGrades.plausibility, 'twin-grade-plausibility'));
   wrap.appendChild(el('div', { style: 'padding:var(--space-2) 0; font-size:var(--text-sm);', 'data-testid': 'twin-flag-summary' }, [
     el('span', { style: 'flex:1;' }, 'Layers flagged (fail / warn): '),
     el('span', { style: 'color:var(--color-text-muted);' }, `${bc.fail}/${bc.warn}`),
