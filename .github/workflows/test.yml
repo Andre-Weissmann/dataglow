@@ -176,6 +176,41 @@ jobs:
       # real repo and fails on any drift. See .github/scripts/capability-drift.mjs.
       - run: npm run test:capdrift
 
+  supply-chain-hardening:
+    name: Supply-chain install hardening
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      # `npm ci` here honors the repo .npmrc (ignore-scripts=true), so no
+      # dependency's install/postinstall runs. DATAGLOW's DuckDB dependencies
+      # need no install script, so nothing needs rebuilding; if a future
+      # dependency does, add an explicit `npm rebuild <pkg>` step right after
+      # this line AND allowlist it in the check script below.
+      - run: npm ci
+      # Supply-Chain Install Hardening: fail the build if any dependency
+      # declares a preinstall/install/postinstall lifecycle script that is not
+      # on the reviewed allowlist in .github/scripts/check-lifecycle-scripts.mjs.
+      # Malicious install scripts are the most common 2026 supply-chain vector;
+      # .npmrc disables them by default and this gate keeps new ones from
+      # slipping in unreviewed.
+      - name: Fail on new lifecycle (install) scripts
+        run: npm run test:lifecycle-scripts
+      # Generate a CycloneDX Software Bill of Materials and publish it as a
+      # build artifact (no bot commit needed). docs/sbom.json is gitignored so
+      # a locally generated copy never lands in the repo by accident.
+      - name: Generate CycloneDX SBOM
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file docs/sbom.json
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: docs/sbom.json
+          if-no-files-found: error
+
   agents-md-drift:
     name: AGENTS.md context-rot detector
     runs-on: ubuntu-latest
