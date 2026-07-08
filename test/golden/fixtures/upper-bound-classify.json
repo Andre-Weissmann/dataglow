@@ -1,0 +1,79 @@
+{
+  "classifications": [
+    [
+      "completion_pct",
+      {
+        "category": "percentage",
+        "word": "percentage"
+      }
+    ],
+    [
+      "success_rate",
+      {
+        "category": "rate_like",
+        "word": "percentage"
+      }
+    ],
+    [
+      "win_probability",
+      {
+        "category": "proportion",
+        "word": "probability"
+      }
+    ],
+    [
+      "flow_rate",
+      {
+        "category": "ambiguous",
+        "word": "rate"
+      }
+    ],
+    [
+      "pe_ratio",
+      {
+        "category": "ambiguous",
+        "word": "ratio"
+      }
+    ],
+    [
+      "growth_pct",
+      null
+    ],
+    [
+      "heart_rate",
+      null
+    ],
+    [
+      "discount_percentage",
+      {
+        "category": "percentage",
+        "word": "percentage"
+      }
+    ],
+    [
+      "roi_percent",
+      null
+    ]
+  ],
+  "decisions": {
+    "ambiguous_proportion": {
+      "high": 1,
+      "label": "ratio",
+      "low": 0,
+      "unit": ""
+    },
+    "ambiguous_unbounded_skips": null,
+    "percentage_over_percent": {
+      "high": 100,
+      "label": "percentage",
+      "low": 0,
+      "unit": "%"
+    },
+    "proportion_over_prop": {
+      "high": 1,
+      "label": "probability",
+      "low": 0,
+      "unit": ""
+    }
+  }
+}

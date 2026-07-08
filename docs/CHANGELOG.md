@@ -11,6 +11,7 @@ record from roughly that point on.
 
 ## Unreleased
 
+- Add a Golden Regression Suite (`test/golden/`, `npm run test:golden`, new CI job) that snapshot-tests the core deterministic operations — SQL cleaners, the validation-layer orchestrator, cross-column/bounds checkers, and the calibrated-grade roll-up — against versioned fixtures; why: give the fast-moving, agent-authored feature stream a safety net so adding a feature can't silently change existing output.
 - Add a progressive-disclosure capability map (`docs/capability-map.md` + `docs/capability-map/`) that maps every `js/` module to a feature area (#34).
 - Document the plan-before-code and changelog-on-completion conventions in a new root `AGENTS.md`, and start this changelog (#34).
 

@@ -1,0 +1,26 @@
+{
+  "findings": [
+    {
+      "columns": [
+        "admit_date",
+        "discharge_date"
+      ],
+      "count": 2,
+      "explanation": "\"discharge_date\" is expected to fall on or after \"admit_date\" (admission → discharge); 2 row(s) violate that order.",
+      "rule": "date_order",
+      "ruleLabel": "Date ordering (admission → discharge)",
+      "text": "2 row(s) where \"discharge_date\" is before \"admit_date\" — a later date cannot precede its earlier date."
+    },
+    {
+      "columns": [
+        "age",
+        "has_retirement_account"
+      ],
+      "count": 3,
+      "explanation": "\"has_retirement_account\" is an adult-only entitlement; 3 row(s) set it true for a minor (age < 18 in \"age\").",
+      "rule": "minor_adult_status",
+      "ruleLabel": "Impossible demographic combination",
+      "text": "3 row(s) where \"age\" < 18 but \"has_retirement_account\" is true — an adult-only status on a minor."
+    }
+  ]
+}

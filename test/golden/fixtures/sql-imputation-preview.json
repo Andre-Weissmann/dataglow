@@ -1,0 +1,27 @@
+{
+  "groupByCols": [
+    "region"
+  ],
+  "nullCount": 3,
+  "remainingNulls": 0,
+  "sample": [
+    {
+      "after_value": 15,
+      "before_value": null,
+      "region": "north"
+    },
+    {
+      "after_value": 200,
+      "before_value": null,
+      "region": "south"
+    },
+    {
+      "after_value": 126,
+      "before_value": null,
+      "region": "east"
+    }
+  ],
+  "targetCol": "score",
+  "totalRows": 8,
+  "wouldFill": 3
+}

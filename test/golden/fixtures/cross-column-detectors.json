@@ -1,0 +1,124 @@
+{
+  "adultOnlyFlags": [
+    "has_retirement_account"
+  ],
+  "ageColumn": "age",
+  "classifiers": {
+    "isAbnormalStatus": [
+      [
+        "abnormal",
+        true
+      ],
+      [
+        "critical",
+        true
+      ],
+      [
+        "normal",
+        false
+      ],
+      [
+        "high",
+        true
+      ],
+      [
+        "ok",
+        false
+      ]
+    ],
+    "isAffirmative": [
+      [
+        "yes",
+        true
+      ],
+      [
+        "true",
+        true
+      ],
+      [
+        "1",
+        true
+      ],
+      [
+        "no",
+        false
+      ],
+      [
+        "positive",
+        true
+      ],
+      [
+        "",
+        false
+      ]
+    ],
+    "isMaleValue": [
+      [
+        "M",
+        true
+      ],
+      [
+        "male",
+        true
+      ],
+      [
+        "F",
+        false
+      ],
+      [
+        "x",
+        false
+      ],
+      [
+        "1",
+        false
+      ]
+    ],
+    "maritalImpliesAdult": [
+      [
+        "married",
+        true
+      ],
+      [
+        "single",
+        false
+      ],
+      [
+        "divorced",
+        true
+      ],
+      [
+        "widowed",
+        true
+      ],
+      [
+        "never married",
+        true
+      ]
+    ]
+  },
+  "datePairs": [
+    {
+      "earlier": "admit_date",
+      "label": "admission → discharge",
+      "later": "discharge_date"
+    }
+  ],
+  "maritalColumn": "marital_status",
+  "pregnancyColumns": [
+    "pregnant"
+  ],
+  "rangePairs": [
+    {
+      "max": "temp_max",
+      "min": "temp_min"
+    }
+  ],
+  "sexColumn": "sex",
+  "statusPairs": [
+    {
+      "measurement": "glucose",
+      "status": "glucose_flag"
+    }
+  ]
+}

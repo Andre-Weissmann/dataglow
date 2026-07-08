@@ -1,0 +1,122 @@
+{
+  "calibratedGrades": {
+    "integrity": {
+      "considered": 6,
+      "explanation": "Heuristic: how internally consistent and well-formed this data is — 3 of 6 mechanical checks passed (duplicates, blank keys, impossible cross-column combinations, format/label validity, internal calculation agreement). Independent of whether the data makes real-world sense. Not a legal or clinical determination.",
+      "grade": "F",
+      "layers": [
+        {
+          "credited": false,
+          "layer": "unit_tests",
+          "score": 0,
+          "status": "fail",
+          "weight": 0.3
+        },
+        {
+          "credited": false,
+          "layer": "cross_column_logic",
+          "score": 0,
+          "status": "fail",
+          "weight": 0.25
+        },
+        {
+          "credited": false,
+          "layer": "categorical_consistency",
+          "score": 0.5,
+          "status": "warn",
+          "weight": 0.15
+        },
+        {
+          "credited": false,
+          "layer": "schema_fingerprint",
+          "score": 1,
+          "status": "pass",
+          "weight": 0.12
+        },
+        {
+          "credited": false,
+          "layer": "sanity_anchor",
+          "score": 1,
+          "status": "pass",
+          "weight": 0.1
+        },
+        {
+          "credited": false,
+          "layer": "reproducibility",
+          "score": 1,
+          "status": "pass",
+          "weight": 0.08
+        }
+      ],
+      "passed": 3,
+      "score": 0.375
+    },
+    "overall": {
+      "explanation": "Heuristic: combined single-glance signal — the mean of Data Integrity and Domain Confidence. See the two component axes for the honest breakdown.",
+      "grade": "F",
+      "score": 0.513
+    },
+    "packName": "healthcare",
+    "plausibility": {
+      "concerns": 2,
+      "considered": 4,
+      "explanation": "Heuristic: 2 domain concern(s) raised by the subject-matter layers; the \"Healthcare\" pack contextualised 0 of them (understood flags count less). Lower means the data looks less like plausible real-world data for its domain. Not a legal or clinical determination.",
+      "grade": "D",
+      "interpreted": 0,
+      "layers": [
+        {
+          "credited": false,
+          "layer": "distribution_drift",
+          "score": 1,
+          "status": "pass",
+          "weight": 0.25
+        },
+        {
+          "credited": false,
+          "layer": "semantic_drift",
+          "score": 0,
+          "status": "fail",
+          "weight": 0.15
+        },
+        {
+          "credited": false,
+          "layer": "outlier_detection",
+          "score": 0.5,
+          "status": "warn",
+          "weight": 0.12
+        },
+        {
+          "credited": false,
+          "layer": "correlation_watchdog",
+          "score": 1,
+          "status": "pass",
+          "weight": 0.08
+        }
+      ],
+      "score": 0.65
+    }
+  },
+  "confidenceGrade": "D",
+  "statuses": {
+    "benford": "idle",
+    "blind_spot": "warn",
+    "categorical_consistency": "warn",
+    "confidence": "fail",
+    "correlation_watchdog": "pass",
+    "cross_column_logic": "fail",
+    "denial_radar": "warn",
+    "distribution_drift": "pass",
+    "freshness": "pass",
+    "historical_drift": "warn",
+    "missingness_detective": "pass",
+    "narrative_consistency": "idle",
+    "outlier_detection": "warn",
+    "physiological_plausibility": "idle",
+    "reproducibility": "pass",
+    "sanity_anchor": "pass",
+    "schema_fingerprint": "pass",
+    "semantic_drift": "fail",
+    "unit_tests": "fail",
+    "upper_bound_sanity": "warn"
+  }
+}

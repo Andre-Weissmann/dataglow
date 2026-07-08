@@ -36,6 +36,8 @@
     "test:watch": "node test/watch-folder.test.mjs",
     "test:protocol": "node test/protocol-schema.test.mjs",
     "test:pwa": "node test/pwa-manifest.test.mjs",
+    "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
+    "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:e2e": "node test/e2e-smoke.test.mjs",
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs",
     "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
