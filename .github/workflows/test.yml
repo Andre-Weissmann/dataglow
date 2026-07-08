@@ -71,6 +71,11 @@ jobs:
       # entropy-reduction-scan workflow. This unit test only keeps the scan
       # SCRIPT honest; it does not run the scan as a merge gate.
       - run: npm run test:entropy
+      # Dependency Freshness Ledger (repo-tooling, not a shipped feature): the
+      # pure staleness/vulnerability scoring core used by the dependency-freshness
+      # job below. This network-free unit test only keeps the SCRIPT honest; the
+      # actual registry-backed gate runs in its own job.
+      - run: npm run test:deps-freshness-unit
       # Adaptive Layer Prioritization: Beta-Binomial/Laplace per-layer scoring,
       # exponential recency decay, the min-actions reorder gate, permutation-safe
       # reordering (never hides a layer), and opt-in/opt-out/clear persistence.
@@ -131,6 +136,24 @@ jobs:
       # output — intended or not. If intended, regenerate with
       # `npm run test:golden:update` and review the fixture diff in the PR.
       - run: npm run test:golden
+
+  dependency-freshness:
+    name: Dependency freshness ledger
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Dependency Freshness Ledger: reads package.json + package-lock.json,
+      # queries the npm registry (`npm outdated --json`) and known-vulnerability
+      # data (`npm audit --json`), and regenerates docs/dependency-freshness-ledger.md.
+      # FAILS the build if any dependency is more than 2 majors behind latest, or
+      # if npm audit reports a high/critical advisory; minor/patch staleness only
+      # warns. A network blip talking to the registry warns but does not fail.
+      - run: npm run test:deps-freshness
 
   e2e-smoke:
     name: e2e smoke (real Chrome)
