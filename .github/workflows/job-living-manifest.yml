@@ -1,0 +1,24 @@
+# ============================================================
+# DATAGLOW — CI job: Living-manifest automation unit tests
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml). Runs the pure-function
+# unit tests for the living-manifest docs automation (capability dashboard
+# renderer, provenance-timeline renderer, wiki-gap detector). Pure Node built-ins
+# — no browser, no network, no gh. The generating/issue-opening side effects live
+# in the standalone .github/workflows/living-manifest.yml automation workflow, not
+# here; this job only guards the logic.
+name: Living-manifest automation
+
+on:
+  workflow_call:
+
+jobs:
+  living-manifest:
+    name: Living-manifest automation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm run test:living-manifest

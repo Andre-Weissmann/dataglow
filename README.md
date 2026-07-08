@@ -83,6 +83,49 @@ dataglow/
     └── DATAGLOW_VISION.md   # original Gen 7 vision document
 ```
 
+## Capability dashboard
+
+Every capability area below is generated from `capability-map.manifest.json` — the
+same file the capability-map drift gate (`npm run test:capdrift`) validates against
+the shipped `js/` code — so this table and the code can never silently disagree. It
+is regenerated automatically on every merge to `main`; do not edit it by hand.
+
+<!-- CAPABILITY_TABLE_START -->
+| Capability area | Name | Files |
+| --- | --- | --- |
+| App shell & data engine | Controller & wiring | `js/main.js` |
+|  | State & helpers | `js/state.js`, `js/utils.js` |
+|  | Query engine | `js/duckdb-engine.js` |
+|  | File loading | `js/loaders.js` |
+|  | Warehouse import | `js/databricks-connect.js` |
+| Validation layers | Orchestrator | `js/validation.js` |
+|  | Standalone layer modules | `js/categorical-consistency.js`, `js/cross-column-consistency.js`, `js/physiological-plausibility.js`, `js/upper-bound-sanity.js`, `js/missingness-detective.js`, `js/missingness.js` |
+|  | Reinterpretation & context | `js/domain-physics.js`, `js/expected-range.js` |
+| Anomaly & outlier detection | Detectors | `js/isolation-forest.js`, `js/ondevice-ml.js`, `js/predictive-anomaly.js` |
+|  | Baselining & process control | `js/entity-baseline.js`, `js/spc-control.js` |
+|  | Triage | `js/active-learning.js` |
+| Analysis robustness | Devil's Advocate | `js/devils-advocate.js` |
+| Drift, trend & fingerprinting | Forecasting | `js/drift-forecast.js` |
+|  | Trend narration | `js/expected-range.js` |
+| Cleaning & fixes | Core cleaning | `js/clean.js`, `js/fix-confidence.js`, `js/materiality.js` |
+|  | Targeted transforms | `js/imputation.js`, `js/format-fingerprint.js`, `js/fuzzy-dedup.js` |
+| Grades & health scores | Grades | `js/calibrated-grades.js`, `js/cat-scorecard.js`, `js/golden-signals.js` |
+| On-device learning & personalization | Learners | `js/self-learning-rules.js`, `js/adaptive-priority.js`, `js/rule-suggestions.js` |
+|  | Shared state | `js/signal-store.js`, `js/memory-store.js` |
+| Federated learning | Core & transport | `js/federated-fingerprint.js`, `js/federated-learning.js`, `js/federated-transport.js` |
+| Provenance, audit & trust | Chain of custody | `js/provenance.js`, `js/assumption-ledger.js` |
+|  | Shareable artifacts | `js/validation-receipt.js`, `js/selective-disclosure-proof.js`, `js/irb-mode.js`, `js/peer-review.js` |
+| Privacy & synthetic data | DP export & synthesis | `js/privacy-budget.js`, `js/synthetic-twin.js`, `js/synthetic-adversarial.js` |
+| Simulation & time travel | What-if & history | `js/digital-twin.js`, `js/time-travel-diff.js`, `js/time-machine.js` |
+| Narrative & language models | Story & LLM | `js/story.js`, `js/ondevice-llm.js` |
+| Ambient & real-time | Live validation | `js/ambient-validation.worker.js`, `js/watch-folder.js` |
+| Language runtimes & visualization | Runtimes & charts | `js/python-runtime.js`, `js/r-runtime.js`, `js/swift-preview.js`, `js/visualize.js` |
+| Protocol & interoperability | Conformance | `js/protocol-conformance.js` |
+| Problem framing | Problem Framer | `js/problem-framer.js` |
+
+_29 capabilities across 17 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
+<!-- CAPABILITY_TABLE_END -->
+
 ## Known Simplifications
 
 - Swift tab is a structural-syntax preview only, not full SwiftWasm compilation

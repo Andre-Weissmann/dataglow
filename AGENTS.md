@@ -109,6 +109,30 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Living Manifest — public-presence automation
+
+The capability-map drift gate keeps the *internal* docs honest against the code;
+the **Living Manifest** workflow (`.github/workflows/living-manifest.yml`, on push
+to `main` + `workflow_dispatch`) extends that same discipline *outward* to the
+repo's public face, regenerating three artifacts from the same
+`capability-map.manifest.json` (and git history) so they can't silently drift:
+(1) the capability dashboard table injected into `README.md` between the
+`CAPABILITY_TABLE_START`/`END` markers (`.github/scripts/render-capability-dashboard.mjs`,
+`npm run docs:dashboard`); (2) `docs/PROVENANCE_TIMELINE.md`, a git-history
+timeline (`.github/scripts/render-provenance-timeline.mjs`, `npm run docs:provenance`)
+— a markdown table, not the browser-only `js/visualize.js`, which needs the
+DOM/Plotly; (3) a wiki-gap detector (`.github/scripts/wiki-gap-detector.mjs`,
+`npm run docs:wiki-gap`) that opens a "Wiki page needed: <area>" issue for any
+capability area missing from `docs/wiki-coverage.json`. Pure logic is unit-tested
+(`npm run test:living-manifest`, `living-manifest` CI job). It is docs/metadata
+automation only — it must never touch `js/`, `index.html`, `css/`, `sw.js`, or
+`manifest.webmanifest`. Two rules keep it safe: the auto-commit message carries
+`[skip ci]` (GitHub Actions skips the resulting push, so the bot's commit never
+re-triggers the workflow), and every generator is a no-op when its output is
+unchanged. When you add a capability area, its README row and a wiki-gap issue
+appear automatically; when you write an area's wiki page, add that area to
+`docs/wiki-coverage.json` so the detector stops filing it.
+
 ### Optional Tauri v1 desktop shell
 
 An optional native desktop wrapper lives under `src-tauri/`. It is the stock
