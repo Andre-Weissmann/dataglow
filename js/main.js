@@ -49,6 +49,7 @@ import * as irbMode from './irb-mode.js';
 import * as ondeviceLLM from './ondevice-llm.js';
 import * as digitalTwin from './digital-twin.js';
 import * as watchFolder from './watch-folder.js';
+import * as problemFramer from './problem-framer.js';
 import { DatabricksConnector, DEFAULT_QUERY, TRUST_NOTICE } from './databricks-connect.js';
 import { withCanonical } from './categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from './self-learning-rules.js';
@@ -60,6 +61,7 @@ import { FederatedCoordinator, createGithubSignaling, createWebRTCMesh } from '.
 // Tab Definitions
 // ============================================================
 const TAB_META = {
+  framer: { label: 'Problem Framer', icon: 'compass' },
   preflight: { label: 'Preflight', icon: 'check-circle' },
   sql: { label: 'SQL', icon: 'database' },
   python: { label: 'Python', icon: 'code' },
@@ -87,6 +89,7 @@ const ICONS = {
   'git-compare': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/>',
   sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -3762,6 +3765,124 @@ function initWatchFolder() {
 }
 
 // ============================================================
+// Problem Framer
+// ============================================================
+// A pre-analysis wizard: intake → four fixed SMART-style prompts → restated
+// analytical question → (if a dataset is loaded) keyword-matched column
+// suggestions → one-page Markdown recap. All deterministic and offline; the
+// pure logic lives in js/problem-framer.js and is exercised by test/.
+function renderFramerQuestions() {
+  const wrap = $('#framer-questions');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const q of problemFramer.REFRAMING_QUESTIONS) {
+    wrap.appendChild(el('div', { class: 'framer-question' }, [
+      el('label', { class: 'framer-q-label', for: `framer-q-${q.id}` }, q.label),
+      el('input', {
+        type: 'text',
+        class: 'framer-input',
+        id: `framer-q-${q.id}`,
+        'data-framer-q': q.id,
+        'data-testid': `input-framer-${q.id}`,
+        placeholder: q.placeholder,
+      }),
+      el('div', { class: 'framer-q-hint' }, q.hint),
+    ]));
+  }
+}
+
+function collectFramerAnswers() {
+  const answers = {};
+  $$('[data-framer-q]').forEach((input) => { answers[input.dataset.framerQ] = input.value; });
+  return answers;
+}
+
+function renderFramerOutput() {
+  const out = $('#framer-output');
+  const intake = $('#framer-intake').value;
+  const answers = collectFramerAnswers();
+  const ds = getActiveDataset();
+  const columns = ds ? ds.cols.map((c) => c.name) : [];
+  const analytical = problemFramer.buildAnalyticalQuestion(intake, answers);
+  const suggestions = problemFramer.suggestColumns(intake, answers, columns);
+
+  out.innerHTML = '';
+  out.style.display = 'block';
+
+  const card = el('div', { class: 'card framer-step' }, [
+    el('div', { class: 'framer-step-title' }, '3 · Your restated analytical question'),
+    el('div', { class: 'framer-restated', 'data-testid': 'framer-restated' }, analytical),
+  ]);
+  out.appendChild(card);
+
+  // Step 4 — column mapping suggestion (only when a dataset is loaded).
+  const colCard = el('div', { class: 'card framer-step' });
+  colCard.appendChild(el('div', { class: 'framer-step-title' }, '4 · Suggested columns'));
+  if (!ds) {
+    colCard.appendChild(el('div', { class: 'framer-step-help', 'data-testid': 'framer-no-dataset' },
+      'No dataset is loaded yet. Load a file from the sidebar to get column suggestions matched to your answers.'));
+  } else if (suggestions.length === 0) {
+    colCard.appendChild(el('div', { class: 'framer-step-help' },
+      `Scanned ${columns.length} column${columns.length === 1 ? '' : 's'} in "${escapeHtml(ds.table)}" — nothing matched your wording yet. Try naming the metric or entity more directly above.`));
+  } else {
+    colCard.appendChild(el('div', { class: 'framer-step-help' },
+      `Matched against the ${columns.length} columns in "${escapeHtml(ds.table)}":`));
+    const list = el('div', { class: 'framer-col-suggestions', 'data-testid': 'framer-col-suggestions' });
+    for (const s of suggestions) {
+      list.appendChild(el('div', { class: 'framer-col-row' }, [
+        el('span', {}, 'You mentioned '),
+        el('span', { class: 'story-highlight' }, s.term),
+        el('span', {}, ' — matching columns: '),
+        el('span', { class: 'mono', html: s.columns.map((c) => escapeHtml(c)).join(', ') }),
+      ]));
+    }
+    colCard.appendChild(list);
+  }
+  out.appendChild(colCard);
+
+  // Step 5 — export.
+  const exportCard = el('div', { class: 'card framer-step' }, [
+    el('div', { class: 'framer-step-title' }, '5 · Share it'),
+    el('div', { class: 'framer-step-help' }, 'Export a one-page Markdown recap to paste into a meeting note or ticket.'),
+    el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap;' }, [
+      el('button', {
+        class: 'btn btn-primary',
+        id: 'btn-framer-export',
+        'data-testid': 'button-framer-export',
+        onclick: () => {
+          const md = problemFramer.buildExportMarkdown({ intake, answers, columns });
+          downloadText('dataglow-problem-framer.md', md, 'text/markdown');
+          toast('Problem Framer recap downloaded', 'success');
+        },
+      }, 'Download Markdown'),
+      el('button', {
+        class: 'btn btn-secondary',
+        id: 'btn-framer-copy',
+        'data-testid': 'button-framer-copy',
+        onclick: async () => {
+          const md = problemFramer.buildExportMarkdown({ intake, answers, columns });
+          try { await navigator.clipboard.writeText(md); toast('Recap copied to clipboard', 'success'); }
+          catch (e) { toast('Copy failed: ' + e.message, 'error'); }
+        },
+      }, 'Copy Markdown'),
+    ]),
+  ]);
+  out.appendChild(exportCard);
+}
+
+function initProblemFramer() {
+  renderFramerQuestions();
+  $('#btn-framer-build').addEventListener('click', renderFramerOutput);
+  $('#btn-framer-reset').addEventListener('click', () => {
+    $('#framer-intake').value = '';
+    $$('[data-framer-q]').forEach((input) => { input.value = ''; });
+    const out = $('#framer-output');
+    out.style.display = 'none';
+    out.innerHTML = '';
+  });
+}
+
+// ============================================================
 // Init
 // ============================================================
 function init() {
@@ -3797,6 +3918,7 @@ function init() {
   initAISynthesis();
   initDigitalTwin();
   initWatchFolder();
+  initProblemFramer();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
