@@ -61,6 +61,11 @@ jobs:
       # logistic-regression training, min-examples gating, ranking/explanation,
       # and the opt-in/opt-out/clear persistence contract.
       - run: npm run test:selflearn
+      # Unified Signal Layer: the shared in-memory signal store (row/column-keyed
+      # register/query/lookups + typed clear), the ranker's per-column verdict
+      # tally, anomaly suppression when the ranker has learned a dismissal, and
+      # drift-flag enrichment with recent rule changes — all additive/no-op-safe.
+      - run: npm run test:signalstore
       # Adaptive Layer Prioritization: Beta-Binomial/Laplace per-layer scoring,
       # exponential recency decay, the min-actions reorder gate, permutation-safe
       # reordering (never hides a layer), and opt-in/opt-out/clear persistence.

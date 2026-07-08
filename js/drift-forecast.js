@@ -161,6 +161,41 @@ export function describeForecastFlag(p) {
 }
 
 // ---------------------------------------------------------------
+// Unified Signal Layer integration (purely additive enrichment).
+//
+// A trend-aware drift flag on column X is far more useful to the user if we can
+// connect it to something they just did. This step lets the alerter READ the
+// shared store: if the user recently disabled/changed a validation rule on the
+// SAME column (e.g. dismissed its flag), we append that context to the flag's
+// message instead of presenting an unexplained drift warning in isolation.
+//
+// `lookup` is a tiny injected contract — `recentRuleChange(column) -> change |
+// null` — keeping this pure and Node-testable. With no lookup, or no related
+// change, the report is returned untouched (identical to before). Mutates and
+// returns the same report; enriched flags gain a `relatedRuleChange` field and a
+// clause appended to `message`.
+// ---------------------------------------------------------------
+export function enrichForecastWithSignals(report, lookup) {
+  if (!report || !report.active || !Array.isArray(report.flags) || !lookup || typeof lookup.recentRuleChange !== 'function') {
+    return report;
+  }
+  for (const f of report.flags) {
+    const change = lookup.recentRuleChange(f.column);
+    if (!change) continue;
+    f.relatedRuleChange = change;
+    f.message = `${f.message} ${describeRelatedRuleChange(change, f.column)}`;
+  }
+  return report;
+}
+
+// Plain-language clause connecting a drift flag to a recent user rule change.
+export function describeRelatedRuleChange(change, column) {
+  const rule = (change.meta && (change.meta.ruleName || change.meta.source)) || 'a validation rule';
+  const pretty = String(rule).replace(/_/g, ' ');
+  return `This may be related to a recently disabled/changed validation rule (${pretty}) on "${column}".`;
+}
+
+// ---------------------------------------------------------------
 // The report. Given the PRIOR fingerprints (chronological, excluding the current
 // upload) and the CURRENT fingerprint, forecast each tracked stat and flag the
 // ones whose actual value falls outside the forecast's confidence band.
