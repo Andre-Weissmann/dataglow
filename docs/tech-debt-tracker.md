@@ -45,6 +45,25 @@ Newest entries go at the bottom of **Entries**.
 
 ## Entries
 
+### 2026-07-08 — Tauri desktop shell stages web assets via a hand-maintained allowlist
+
+- **Description:** Tauri v1 refuses a `distDir` that contains `node_modules` or
+  `src-tauri`, so the shell cannot point `distDir` at the repo root where the
+  static site lives. Instead `scripts/stage-desktop-frontend.mjs` copies an
+  explicit allowlist of runtime entries (`index.html`, `manifest.webmanifest`,
+  `sw.js`, `assets/`, `css/`, `js/`, `protocol/`) into `src-tauri/dist/` before
+  each build. The allowlist is maintained by hand: if the site adds a new
+  top-level runtime asset (a new directory, or a new root file the app loads) and
+  nobody updates the script, the desktop window will 404 on it while the browser
+  build works. There is no automated check tying the two together. Cleaner
+  options if next touched: derive the list from what `index.html`/the module
+  graph actually reference, or add a smoke assertion that every root asset the
+  site loads is present under the staged dir.
+- **Date:** 2026-07-08
+- **Severity:** low
+- **Area:** `scripts/stage-desktop-frontend.mjs`, `src-tauri/tauri.conf.json`
+- **Status:** open
+
 ### 2026-07-08 — Divergent `NUMERIC_TYPES` constant duplicated across 12 modules
 
 - **Date:** 2026-07-08

@@ -58,3 +58,6 @@ jobs:
 
   e2e-smoke:
     uses: ./.github/workflows/job-e2e-smoke.yml
+
+  tauri-smoke:
+    uses: ./.github/workflows/job-tauri-smoke.yml

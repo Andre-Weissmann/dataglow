@@ -109,6 +109,28 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Optional Tauri v1 desktop shell
+
+An optional native desktop wrapper lives under `src-tauri/`. It is the stock
+Tauri "vanilla" template (`src-tauri/src/main.rs` registers no commands) that
+loads the existing static site unchanged. Tauri v1 refuses a `distDir` that
+contains `node_modules` or `src-tauri`, so `distDir` cannot be the repo root;
+instead a tiny copy step (`scripts/stage-desktop-frontend.mjs`, wired via
+`beforeBuildCommand`/`beforeDevCommand`) stages the site's runtime assets into a
+gitignored dist folder under `src-tauri/` that `distDir` points at. It is a plain
+file copy — no bundler, transpiler, or minifier — so the bytes served in the
+window are identical to the browser; if the site gains a new top-level runtime
+asset, add it to that script's allowlist. The v1 allowlist is deny-by-default
+(`tauri.allowlist.all = false`), so the window has only what a browser tab has;
+the site's opt-in CDN/Databricks fetches are ordinary webview requests and are
+untouched by it. Build via `npm run tauri:dev` / `npm run tauri:build` (Tauri CLI
+invoked through `npx`, so nothing is added to `package-lock.json`); a debug build
+is smoke-tested in CI by `.github/workflows/job-tauri-smoke.yml` on `ubuntu-22.04`
+(Tauri v1 needs webkit2gtk-4.0, absent from 24.04). The produced installers are
+**not** signed or notarized — see `docs/desktop-shell.md` for the signing/legal
+notes (macOS notarization needs the ~US$99/yr Apple Developer Program; unsigned
+Windows binaries trip SmartScreen). Do not describe the artifacts as signed.
+
 ### Vendored page-load libraries (Plotly + SheetJS)
 
 Everything the app needs on a normal page load is now self-hosted under `assets/`,
