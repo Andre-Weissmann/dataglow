@@ -64,7 +64,7 @@ but do confirm every file path and link you write actually resolves.
 Dependency installs are locked down against the most common supply-chain
 attack — malicious install-time scripts. The root `.npmrc` sets
 `ignore-scripts=true`, so no package's preinstall/install/postinstall runs on
-`npm install`/`npm ci`. The `supply-chain-hardening` CI job then enforces this:
+an npm install / npm ci. The `supply-chain-hardening` CI job then enforces this:
 `.github/scripts/check-lifecycle-scripts.mjs` scans `package-lock.json` (and the
 installed tree) and fails the build if any dependency declares a lifecycle
 script that is not on the allowlist defined at the top of that script. It also
@@ -72,6 +72,20 @@ emits a CycloneDX SBOM as a build artifact. To add a dependency that genuinely
 needs an install script, add its bare package name to that `ALLOWLIST` array
 (with a one-line reason) and add a matching `npm rebuild <pkg>` step to the CI
 job so the build still runs; note both in your PR.
+
+## This file is checked against reality
+
+Because you (and every agent before and after you) read and trust this file
+without sanity-checking it, a stale reference here quietly misleads the whole
+chain of sessions. The **AGENTS.md context-rot detector**
+(`.github/scripts/agents-md-drift.mjs`, run via `npm run test:agentsdrift`, gated
+in CI) guards against that: it extracts the backtick-quoted file paths and npm
+script names mentioned above and fails the build if any of them no longer exists
+on disk or in `package.json`. It is pure static analysis — no network, no model
+calls. If it fails, the fix is one of two things: either the code moved and this
+file is now wrong (correct the reference here), or this file is right and the code
+regressed (restore or rename the code). Do whichever is actually true, in the same
+PR — never silence the check by deleting a reference that should still resolve.
 
 ## PRs
 
