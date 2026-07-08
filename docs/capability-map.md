@@ -16,11 +16,13 @@ is the whole point: the index stays skimmable, the depth stays out of the way
 until you want it.
 
 **Keep it honest.** When you add, remove, or repurpose a `js/` module, update the
-relevant area below in the same PR (the same rule the [changelog](./CHANGELOG.md)
-and [tech-debt tracker](./tech-debt-tracker.md) follow). A file that exists but
-isn't mapped here — or a mapped file that no longer exists — is exactly the kind
-of drift the weekly [entropy-reduction scan](./entropy-reduction-scan.md) is
-meant to surface.
+relevant area below — and its entry in [`capability-map.manifest.json`](../capability-map.manifest.json) —
+in the same PR (the same rule the [changelog](./CHANGELOG.md) and
+[tech-debt tracker](./tech-debt-tracker.md) follow). A file that exists but isn't
+mapped here — or a mapped file that no longer exists — is exactly the kind of
+drift the CI **capability-map drift detector** (`npm run test:capdrift`,
+`.github/scripts/capability-drift.mjs`) fails the build on, and that the weekly
+[entropy-reduction scan](./entropy-reduction-scan.md) also surfaces.
 
 > On provenance: keeping a short top-level index that points to deeper detail
 > only when needed is a general, widely-used documentation practice. Everything
@@ -52,6 +54,12 @@ columns up to whole-row multivariate anomalies.
 - **Detectors** — `js/isolation-forest.js`, `js/ondevice-ml.js` (diagonal-covariance / Mahalanobis-style scoring), `js/predictive-anomaly.js` (kNN/Gower row outliers).
 - **Baselining & process control** — `js/entity-baseline.js` (per-entity UEBA baselines), `js/spc-control.js` (Shewhart control charts + Cpk).
 - **Triage** — `js/active-learning.js` (uncertainty sampling; surfaces least-confident cells first).
+
+## Analysis robustness
+Adversarial re-analysis that stress-tests whether a query result's headline finding
+actually holds up — this scrutinizes the *conclusion drawn from* the data, not the data
+itself (which is the validation layers' job).
+- **Devil's Advocate** — `js/devils-advocate.js` (bootstrap resampling, trimmed re-estimate, and subgroup leave-one-out robustness checks run over the current SQL result).
 
 ## Drift, trend & fingerprinting
 Detects when a new upload has moved away from what history would predict. The base
