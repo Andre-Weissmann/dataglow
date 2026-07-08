@@ -4,3 +4,4 @@ node_modules/
 test/e2e-failure.png
 test/_upperbound-demo.csv
 test/_missingness-demo.csv
+docs/sbom.json

@@ -59,6 +59,20 @@ Tests live in `test/` and run through npm scripts named `test:*` (see
 PR; CI runs the suite too. Documentation-only changes don't need new unit tests,
 but do confirm every file path and link you write actually resolves.
 
+## Supply-chain install hardening
+
+Dependency installs are locked down against the most common supply-chain
+attack — malicious install-time scripts. The root `.npmrc` sets
+`ignore-scripts=true`, so no package's preinstall/install/postinstall runs on
+`npm install`/`npm ci`. The `supply-chain-hardening` CI job then enforces this:
+`.github/scripts/check-lifecycle-scripts.mjs` scans `package-lock.json` (and the
+installed tree) and fails the build if any dependency declares a lifecycle
+script that is not on the allowlist defined at the top of that script. It also
+emits a CycloneDX SBOM as a build artifact. To add a dependency that genuinely
+needs an install script, add its bare package name to that `ALLOWLIST` array
+(with a one-line reason) and add a matching `npm rebuild <pkg>` step to the CI
+job so the build still runs; note both in your PR.
+
 ## PRs
 
 Open PRs as drafts with a clear summary and test plan. Don't merge your own PR.

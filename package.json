@@ -42,6 +42,8 @@
     "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:deps-freshness": "node .github/scripts/dependency-freshness.mjs",
     "test:deps-freshness-unit": "node test/dependency-freshness.test.mjs",
+    "test:lifecycle-scripts": "node .github/scripts/check-lifecycle-scripts.mjs",
+    "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-file docs/sbom.json",
     "test:e2e": "node test/e2e-smoke.test.mjs",
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs",
     "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
