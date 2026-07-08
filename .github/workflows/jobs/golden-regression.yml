@@ -1,0 +1,29 @@
+# ============================================================
+# DATAGLOW — CI job: Golden regression suite (snapshot)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+
+name: Golden regression suite (snapshot)
+
+on:
+  workflow_call:
+
+jobs:
+  golden-regression:
+    name: Golden regression suite (snapshot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Golden Regression Suite: re-runs DATAGLOW's core deterministic
+      # operations (SQL-generating cleaners, the full validation-layer
+      # orchestrator, cross-column / bounds checkers, and the calibrated-grade
+      # roll-up) and diffs their output against versioned fixtures in
+      # test/golden/fixtures/. A failure means a change moved an existing
+      # output — intended or not. If intended, regenerate with
+      # `npm run test:golden:update` and review the fixture diff in the PR.
+      - run: npm run test:golden

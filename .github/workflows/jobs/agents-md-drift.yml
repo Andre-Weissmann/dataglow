@@ -1,0 +1,33 @@
+# ============================================================
+# DATAGLOW — CI job: AGENTS.md context-rot detector
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+
+name: AGENTS.md context-rot detector
+
+on:
+  workflow_call:
+
+jobs:
+  agents-md-drift:
+    name: AGENTS.md context-rot detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # AGENTS.md Context-Rot Detector: a merge gate that keeps the shared
+      # agent-instructions file honest against the code. Every coding subagent
+      # reads AGENTS.md and trusts it confidently, so a stale reference (a file
+      # path or npm script that has since been renamed/removed) silently misleads
+      # every later generation. This checker extracts backtick-quoted file-path-
+      # and npm-script-like identifiers from AGENTS.md and fails if a referenced
+      # file is gone from the tree or a referenced script is absent from
+      # package.json (wildcard globs like `test:*` are ignored). Pure static
+      # analysis — regex + file I/O + package.json lookup, no browser, no network,
+      # no LLM. The test suite doubles as the gate: its final case runs the check
+      # against the real repo. See .github/scripts/agents-md-drift.mjs.
+      - run: npm run test:agentsdrift
