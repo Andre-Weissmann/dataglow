@@ -11,10 +11,12 @@
 //     every OTHER same-origin GET — this transparently picks up the JS ES
 //     modules and the large vendored DuckDB-WASM / Apache Arrow assets under
 //     assets/ as they are first requested, without a brittle exhaustive list.
-//   - Cross-origin requests (CDN libs: Plotly, Pyodide, webR, Google Fonts, and
-//     any optional cloud-LLM calls) are deliberately NOT intercepted: they fall
-//     through to the network and degrade gracefully offline instead of breaking
-//     the page.
+//     Plotly and SheetJS are vendored under assets/ too, so they are same-origin
+//     and cached the same way.
+//   - Cross-origin requests (the on-demand CDN runtimes Pyodide, webR and WebLLM,
+//     Google Fonts, and any optional cloud-LLM calls) are deliberately NOT
+//     intercepted: they fall through to the network and degrade gracefully
+//     offline instead of breaking the page.
 //
 // The cache name is versioned; bump CACHE_VERSION on deploy so stale JS is not
 // served forever — old caches are deleted on activate.

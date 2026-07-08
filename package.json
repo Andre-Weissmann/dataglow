@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DATAGLOW — browser-based data analytics platform. The app ships with zero build step; it runs vanilla ES modules and self-hosted, vendored assets (see assets/duckdb/). The dependencies below are used only as the source for those vendored assets and for dev/test tooling — nothing here is fetched at runtime by end users.",
+  "description": "DATAGLOW — browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
   "scripts": {
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:layers": "node --import ./test/duckdb-loader-hook.mjs test/validation-layers.test.mjs",

@@ -6,13 +6,23 @@ purpose. Read it once at the start of a task, then get to work.
 ## What DATAGLOW is (and the one hard constraint)
 
 DATAGLOW is a zero-server, zero-upload static site. Everything runs in the
-browser: `index.html` loads vanilla ES modules from `js/`, and all vendored
-assets are self-hosted (see `assets/`). There is no backend and nothing is
-fetched from a third party at runtime.
+browser: `index.html` loads vanilla ES modules from `js/`, there is no backend,
+and **your data never leaves your machine** — nothing you load is ever uploaded.
 
-**The hard constraint:** never introduce a runtime network dependency or a build
-step into the shipped app. Tooling, tests, and docs may use dev dependencies, but
-`index.html` and the deployed site must keep working offline with no server.
+The app's own code and the libraries needed on every page load are self-hosted
+under `assets/`: DuckDB-WASM (SQL engine), Plotly.js (charts), and SheetJS/xlsx
+(Excel parsing) are all vendored, so a normal page load fetches nothing from a
+third party. The three *large* runtimes behind optional tabs — Pyodide (Python),
+WebR (R), and WebLLM (the on-device Story model) — are the exception: they are
+fetched from public CDNs on demand, the first time you open those tabs, because
+vendoring multi-hundred-megabyte runtimes into every page load isn't practical.
+
+**The hard constraint:** never add a runtime network dependency for the *core*
+app or a build step, and never route user data off the machine. `index.html` and
+the deployed site must cold-start and do their core work (load, SQL, clean,
+validate, visualize) offline with no server; only the opt-in Python/R/Story tabs
+may reach a CDN, and only to pull their own runtime. Tooling, tests, and docs may
+use dev dependencies freely.
 
 ## Orient yourself before writing code
 
@@ -98,6 +108,21 @@ Self-contained, one-per-foundation notes for the CI/infra foundations and
 reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
+
+### Vendored page-load libraries (Plotly + SheetJS)
+
+Everything the app needs on a normal page load is now self-hosted under `assets/`,
+so a cold load fetches nothing from a third party. Alongside the pre-existing
+DuckDB-WASM bundle, Plotly.js (`assets/plotly/`, MIT) and SheetJS/xlsx
+(`assets/xlsx/`, Apache-2.0) are vendored and referenced by local path in
+`index.html`; their upstream licenses ship next to them. The only remaining
+third-party fetches are the three large opt-in runtimes — Pyodide, WebR and
+WebLLM — which load from public CDNs on demand when their tabs are first opened
+(`js/python-runtime.js` injects the Pyodide loader lazily; `js/r-runtime.js` and
+`js/ondevice-llm.js` dynamically `import()` theirs). When you touch prose about
+what loads from where, keep this vendored-vs-on-demand split accurate — the
+AGENTS.md context-rot detector only checks that paths resolve, not that claims
+are true, so the honesty here is on you.
 
 ### Append-only zones + per-job reusable CI workflows
 

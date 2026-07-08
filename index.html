@@ -958,10 +958,13 @@
 </div>
 
 <!-- ============ SCRIPTS ============ -->
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
-<script src="https://webr.r-wasm.org/latest/webr.mjs" type="module"></script>
+<!-- Self-hosted, vendored libraries (no third-party fetch at page load). Plotly.js
+     (MIT) and SheetJS/xlsx (Apache-2.0) are used on every page load, so they are
+     vendored under assets/ alongside DuckDB-WASM. Pyodide (Python), WebR (R) and
+     WebLLM (Story) are large on-demand runtimes fetched from public CDNs only when
+     you open those tabs — see js/python-runtime.js, js/r-runtime.js, js/ondevice-llm.js. -->
+<script src="assets/plotly/plotly-2.35.2.min.js"></script>
+<script src="assets/xlsx/xlsx-0.18.5.full.min.js"></script>
 
 <script type="module" src="js/main.js"></script>
 
