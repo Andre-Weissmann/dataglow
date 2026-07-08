@@ -81,11 +81,14 @@ but do confirm every file path and link you write actually resolves.
 
 CI lives in `.github/workflows/test.yml`, but that file is now only a thin
 orchestrator: it triggers on `push`, `pull_request`, and `merge_group`, and each
-job is a one-line `uses:` call into a standalone reusable workflow under
-`.github/workflows/jobs/`. Each foundation owns its own job file there (one job
-per file, triggered via `on: workflow_call`), so adding or changing a job touches
-that job's file rather than a shared 8-job YAML. To add a new CI job: create
-`.github/workflows/jobs/<name>.yml` as a `workflow_call` reusable workflow, then
+job is a one-line `uses:` call into a standalone reusable workflow named
+`.github/workflows/job-<name>.yml`. Each foundation owns its own job file (one
+job per file, triggered via `on: workflow_call`), so adding or changing a job
+touches that job's file rather than a shared 8-job YAML. The job files sit at the
+top level of `.github/workflows/` — not a subdirectory — because GitHub only
+resolves reusable workflows referenced from the top level of that directory; the
+`job-` prefix keeps them grouped. To add a new CI job: create
+`.github/workflows/job-<name>.yml` as a `workflow_call` reusable workflow, then
 append a `uses:` block for it under the `NEW-JOB-ENTRIES-BELOW` marker in
 `.github/workflows/test.yml`.
 
@@ -105,9 +108,10 @@ surrounding prose in all three. Each now carries an explicit append-only marker
 a new entry is a one-line insert at a fixed point rather than an edit to shared
 text — see *Append-only zones* under *Finish the paper trail in the same PR*. CI
 was also split: `.github/workflows/test.yml` is now a thin orchestrator that
-`uses:` one reusable workflow per job under `.github/workflows/jobs/` (each with
-`on: workflow_call`), so a job change touches its own file instead of the shared
-YAML — see *CI is a thin orchestrator*.
+`uses:` one reusable workflow per job, each a top-level
+`.github/workflows/job-<name>.yml` file (each with `on: workflow_call`), so a job
+change touches its own file instead of the shared YAML — see *CI is a thin
+orchestrator*.
 
 ### Supply-chain install hardening
 

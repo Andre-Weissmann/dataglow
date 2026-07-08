@@ -3,12 +3,21 @@
 # ============================================================
 # This file used to hold every CI job inline, which meant two PRs each adding a
 # job collided on this one YAML file. It is now a THIN ORCHESTRATOR: every job
-# lives in its own standalone reusable workflow under .github/workflows/jobs/
-# (each triggered via `on: workflow_call`), and each entry below is a one-line
-# `uses:` call into one of those files. Adding a CI job is a single appended
-# block under the NEW-JOB-ENTRIES-BELOW marker — no edits to existing entries.
+# lives in its own standalone reusable workflow (each triggered via
+# `on: workflow_call`), and each entry below is a one-line `uses:` call into one
+# of those files. Adding a CI job is a single appended block under the
+# NEW-JOB-ENTRIES-BELOW marker — no edits to existing entries.
 #
-# To add a job: create .github/workflows/jobs/<name>.yml as a `workflow_call`
+# The per-job files are named `.github/workflows/job-<name>.yml`. They live at
+# the TOP LEVEL of .github/workflows/ (not a subdirectory) because GitHub only
+# resolves reusable workflows referenced from the top level of that directory —
+# a `jobs/` subdirectory fails with "workflows must be defined at the top level
+# of the .github/workflows/ directory". The `job-` prefix keeps them grouped and
+# distinguishable from this orchestrator and the two standalone scheduled
+# workflows. Each is `workflow_call`-only, so none of them triggers a run on its
+# own; they execute only when called from here.
+#
+# To add a job: create .github/workflows/job-<name>.yml as a `workflow_call`
 # reusable workflow, then append a `uses:` block below the marker.
 
 name: tests
@@ -23,26 +32,26 @@ on:
 
 jobs:
   sql-logic:
-    uses: ./.github/workflows/jobs/sql-logic.yml
+    uses: ./.github/workflows/job-sql-logic.yml
 
   databricks-connect:
-    uses: ./.github/workflows/jobs/databricks-connect.yml
+    uses: ./.github/workflows/job-databricks-connect.yml
 
   golden-regression:
-    uses: ./.github/workflows/jobs/golden-regression.yml
+    uses: ./.github/workflows/job-golden-regression.yml
 
   dependency-freshness:
-    uses: ./.github/workflows/jobs/dependency-freshness.yml
+    uses: ./.github/workflows/job-dependency-freshness.yml
 
   capability-map-drift:
-    uses: ./.github/workflows/jobs/capability-map-drift.yml
+    uses: ./.github/workflows/job-capability-map-drift.yml
 
   supply-chain-hardening:
-    uses: ./.github/workflows/jobs/supply-chain-hardening.yml
+    uses: ./.github/workflows/job-supply-chain-hardening.yml
 
   agents-md-drift:
-    uses: ./.github/workflows/jobs/agents-md-drift.yml
+    uses: ./.github/workflows/job-agents-md-drift.yml
 
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
   e2e-smoke:
-    uses: ./.github/workflows/jobs/e2e-smoke.yml
+    uses: ./.github/workflows/job-e2e-smoke.yml
