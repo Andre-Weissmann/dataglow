@@ -155,6 +155,27 @@ jobs:
       # warns. A network blip talking to the registry warns but does not fail.
       - run: npm run test:deps-freshness
 
+  capability-map-drift:
+    name: Capability-map drift detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Capability-Map Drift Detector: a merge gate that keeps the capability-map
+      # docs honest against the shipped code. It reads capability-map.manifest.json
+      # (documented capability -> backing js/ file(s)/symbol(s)) and fails if a
+      # documented capability's backing file/symbol is gone (overclaim/doc rot),
+      # if docs reference a js/ file that no longer exists, or if a shipped
+      # top-level js/ module has no capability-map entry (best-effort underclaim
+      # heuristic). Pure file I/O + string checks — no browser, no network. The
+      # test suite doubles as the gate: its final case runs the check against the
+      # real repo and fails on any drift. See .github/scripts/capability-drift.mjs.
+      - run: npm run test:capdrift
+
   e2e-smoke:
     name: e2e smoke (real Chrome)
     runs-on: ubuntu-latest

@@ -1,0 +1,215 @@
+{
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
+  "docs": [
+    "docs/capability-map.md",
+    "docs/capability-map/validation-layers.md",
+    "README.md"
+  ],
+  "capabilities": [
+    {
+      "id": "app-shell-controller",
+      "area": "App shell & data engine",
+      "name": "Controller & wiring",
+      "files": ["js/main.js"]
+    },
+    {
+      "id": "app-shell-state",
+      "area": "App shell & data engine",
+      "name": "State & helpers",
+      "files": ["js/state.js", "js/utils.js"]
+    },
+    {
+      "id": "app-shell-engine",
+      "area": "App shell & data engine",
+      "name": "Query engine",
+      "files": ["js/duckdb-engine.js"]
+    },
+    {
+      "id": "app-shell-loaders",
+      "area": "App shell & data engine",
+      "name": "File loading",
+      "files": ["js/loaders.js"]
+    },
+    {
+      "id": "app-shell-warehouse",
+      "area": "App shell & data engine",
+      "name": "Warehouse import",
+      "files": ["js/databricks-connect.js"],
+      "symbols": [{ "file": "js/databricks-connect.js", "name": "DatabricksConnector" }]
+    },
+    {
+      "id": "validation-orchestrator",
+      "area": "Validation layers",
+      "name": "Orchestrator",
+      "files": ["js/validation.js"],
+      "symbols": [{ "file": "js/validation.js", "name": "LAYER_DEFS" }]
+    },
+    {
+      "id": "validation-standalone",
+      "area": "Validation layers",
+      "name": "Standalone layer modules",
+      "files": [
+        "js/categorical-consistency.js",
+        "js/cross-column-consistency.js",
+        "js/physiological-plausibility.js",
+        "js/upper-bound-sanity.js",
+        "js/missingness-detective.js",
+        "js/missingness.js"
+      ],
+      "symbols": [
+        { "file": "js/cross-column-consistency.js", "name": "hasAnyKeyword" },
+        { "file": "js/upper-bound-sanity.js", "name": "matchBoundedType" },
+        { "file": "js/missingness-detective.js", "name": "MIN_MISSING_RATE" }
+      ]
+    },
+    {
+      "id": "validation-reinterpretation",
+      "area": "Validation layers",
+      "name": "Reinterpretation & context",
+      "files": ["js/domain-physics.js", "js/expected-range.js"]
+    },
+    {
+      "id": "anomaly-detectors",
+      "area": "Anomaly & outlier detection",
+      "name": "Detectors",
+      "files": ["js/isolation-forest.js", "js/ondevice-ml.js", "js/predictive-anomaly.js"],
+      "symbols": [{ "file": "js/predictive-anomaly.js", "name": "scorePredictiveAnomalies" }]
+    },
+    {
+      "id": "anomaly-baselining",
+      "area": "Anomaly & outlier detection",
+      "name": "Baselining & process control",
+      "files": ["js/entity-baseline.js", "js/spc-control.js"]
+    },
+    {
+      "id": "anomaly-triage",
+      "area": "Anomaly & outlier detection",
+      "name": "Triage",
+      "files": ["js/active-learning.js"]
+    },
+    {
+      "id": "analysis-robustness-devils-advocate",
+      "area": "Analysis robustness",
+      "name": "Devil's Advocate",
+      "files": ["js/devils-advocate.js"],
+      "symbols": [{ "file": "js/devils-advocate.js", "name": "attackAnalysis" }]
+    },
+    {
+      "id": "drift-forecasting",
+      "area": "Drift, trend & fingerprinting",
+      "name": "Forecasting",
+      "files": ["js/drift-forecast.js"],
+      "symbols": [{ "file": "js/drift-forecast.js", "name": "MIN_FORECAST_HISTORY" }]
+    },
+    {
+      "id": "drift-narration",
+      "area": "Drift, trend & fingerprinting",
+      "name": "Trend narration",
+      "files": ["js/expected-range.js"]
+    },
+    {
+      "id": "cleaning-core",
+      "area": "Cleaning & fixes",
+      "name": "Core cleaning",
+      "files": ["js/clean.js", "js/fix-confidence.js", "js/materiality.js"]
+    },
+    {
+      "id": "cleaning-transforms",
+      "area": "Cleaning & fixes",
+      "name": "Targeted transforms",
+      "files": ["js/imputation.js", "js/format-fingerprint.js", "js/fuzzy-dedup.js"]
+    },
+    {
+      "id": "grades",
+      "area": "Grades & health scores",
+      "name": "Grades",
+      "files": ["js/calibrated-grades.js", "js/cat-scorecard.js", "js/golden-signals.js"],
+      "symbols": [{ "file": "js/calibrated-grades.js", "name": "computeCalibratedGrades" }]
+    },
+    {
+      "id": "learning-learners",
+      "area": "On-device learning & personalization",
+      "name": "Learners",
+      "files": ["js/self-learning-rules.js", "js/adaptive-priority.js", "js/rule-suggestions.js"],
+      "symbols": [
+        { "file": "js/self-learning-rules.js", "name": "MIN_EXAMPLES" },
+        { "file": "js/adaptive-priority.js", "name": "LayerPriorityModel" }
+      ]
+    },
+    {
+      "id": "learning-shared-state",
+      "area": "On-device learning & personalization",
+      "name": "Shared state",
+      "files": ["js/signal-store.js", "js/memory-store.js"],
+      "symbols": [{ "file": "js/signal-store.js", "name": "SignalStore" }]
+    },
+    {
+      "id": "federated",
+      "area": "Federated learning",
+      "name": "Core & transport",
+      "files": ["js/federated-fingerprint.js", "js/federated-learning.js", "js/federated-transport.js"],
+      "symbols": [{ "file": "js/federated-learning.js", "name": "MODEL_DIM" }]
+    },
+    {
+      "id": "provenance-custody",
+      "area": "Provenance, audit & trust",
+      "name": "Chain of custody",
+      "files": ["js/provenance.js", "js/assumption-ledger.js"]
+    },
+    {
+      "id": "provenance-artifacts",
+      "area": "Provenance, audit & trust",
+      "name": "Shareable artifacts",
+      "files": [
+        "js/validation-receipt.js",
+        "js/selective-disclosure-proof.js",
+        "js/irb-mode.js",
+        "js/peer-review.js"
+      ],
+      "symbols": [{ "file": "js/selective-disclosure-proof.js", "name": "SD_PROOF_KIND" }]
+    },
+    {
+      "id": "privacy-synthetic",
+      "area": "Privacy & synthetic data",
+      "name": "DP export & synthesis",
+      "files": ["js/privacy-budget.js", "js/synthetic-twin.js", "js/synthetic-adversarial.js"]
+    },
+    {
+      "id": "simulation-history",
+      "area": "Simulation & time travel",
+      "name": "What-if & history",
+      "files": ["js/digital-twin.js", "js/time-travel-diff.js", "js/time-machine.js"],
+      "symbols": [{ "file": "js/digital-twin.js", "name": "inferPerturbations" }]
+    },
+    {
+      "id": "narrative",
+      "area": "Narrative & language models",
+      "name": "Story & LLM",
+      "files": ["js/story.js", "js/ondevice-llm.js"],
+      "symbols": [
+        { "file": "js/story.js", "name": "buildStoryClaims" },
+        { "file": "js/ondevice-llm.js", "name": "MODEL_ID" }
+      ]
+    },
+    {
+      "id": "ambient",
+      "area": "Ambient & real-time",
+      "name": "Live validation",
+      "files": ["js/ambient-validation.worker.js", "js/watch-folder.js"],
+      "symbols": [{ "file": "js/watch-folder.js", "name": "isSupportedFile" }]
+    },
+    {
+      "id": "runtimes-viz",
+      "area": "Language runtimes & visualization",
+      "name": "Runtimes & charts",
+      "files": ["js/python-runtime.js", "js/r-runtime.js", "js/swift-preview.js", "js/visualize.js"]
+    },
+    {
+      "id": "protocol",
+      "area": "Protocol & interoperability",
+      "name": "Conformance",
+      "files": ["js/protocol-conformance.js"],
+      "symbols": [{ "file": "js/protocol-conformance.js", "name": "toDataset" }]
+    }
+  ]
+}
