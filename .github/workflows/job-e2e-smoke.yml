@@ -1,0 +1,60 @@
+# ============================================================
+# DATAGLOW — CI job: e2e smoke (real Chrome)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Boots the real app in real Chrome and asserts the DuckDB-WASM engine comes
+# alive and the Validate tab populates.
+# WHY real Chrome (installed via setup-chrome, not the bundled Playwright
+# headless-shell): the WASM + Web Worker + Blob-URL bootstrap that DuckDB-WASM
+# relies on can be blocked in stripped headless-sandbox environments. GitHub
+# Actions with real Chrome is the authoritative "does it actually work in a
+# browser" source of truth — a flaky local headless run is not.
+
+name: e2e smoke (real Chrome)
+
+on:
+  workflow_call:
+
+jobs:
+  e2e-smoke:
+    name: e2e smoke (real Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install real Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      # Point Playwright at the system Chrome installed above rather than
+      # downloading its own headless-shell build.
+      - name: Run e2e smoke test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e
+      # Gen 9 Batch 2: ambient-validation warnings + on-device SLM graceful
+      # degradation (both engine-independent, so robust in headless CI).
+      - name: Run ambient + SLM e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-ambient-slm
+      # Gen 10 Batch 2: Watch-Folder (driven via the mock-directory test hook, as
+      # showDirectoryPicker needs a user gesture) + Digital Twin live simulation,
+      # including a network sniffer asserting watched files never leave the device.
+      - name: Run watch-folder + digital-twin e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-watch-twin
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-screenshot
+          path: test/e2e-failure.png
+          if-no-files-found: ignore

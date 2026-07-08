@@ -1,0 +1,89 @@
+# ============================================================
+# DATAGLOW — CI job: SQL logic (native DuckDB)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the Node-side SQL logic suite against a REAL (native) DuckDB engine.
+# Exercises the exact production SQL-generating modules (imputation,
+# format-fingerprint, validation) with the browser engine transparently swapped
+# for @duckdb/node-api via a loader hook. Fast, deterministic, no browser needed.
+
+name: SQL logic (native DuckDB)
+
+on:
+  workflow_call:
+
+jobs:
+  sql-logic:
+    name: SQL logic (native DuckDB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sql
+      # Cross-Column Logical Consistency Checker: rule detection/firing unit suite.
+      - run: npm run test:crosscol
+      # Forecast-Based Drift Alerting: Holt's exponential-smoothing math, the
+      # min-history gate, trend-aware flagging, and the injected trend-history
+      # store wiring that extends Distributional Fingerprint Drift (PR#15).
+      - run: npm run test:driftforecast
+      # Expected Value Ranges: informational numeric-column trend bands derived
+      # from the forecast projections (per-upload trend %, within/outside-range
+      # phrasing, numeric-only scope, graceful fallback, no status change).
+      - run: npm run test:expectedrange
+      # Gen 9 Batch 1: Domain Physics Engine unit suite + provenance attestation verifier.
+      - run: npm run test:physics
+      - run: npm run test:attestation
+      # Upper-Bound Sanity Anchor: logical/definitional bounds detection + runner.
+      - run: npm run test:upperbound
+      # Missingness Detective: MCAR/MAR/MNAR causal-missingness classification.
+      - run: npm run test:missingness
+      # Predictive Anomaly Scoring: holistic kNN/Gower mixed-type outlier score,
+      # feature attribution, feature selection, and the size-guard/sampling path.
+      - run: npm run test:predanomaly
+      # Self-Learning Validation Rules: labeled-example capture, incremental
+      # logistic-regression training, min-examples gating, ranking/explanation,
+      # and the opt-in/opt-out/clear persistence contract.
+      - run: npm run test:selflearn
+      # Unified Signal Layer: the shared in-memory signal store (row/column-keyed
+      # register/query/lookups + typed clear), the ranker's per-column verdict
+      # tally, anomaly suppression when the ranker has learned a dismissal, and
+      # drift-flag enrichment with recent rule changes — all additive/no-op-safe.
+      - run: npm run test:signalstore
+      # Entropy-Reduction Scan (repo-tooling, not a shipped feature): the pure,
+      # read-only golden-principles scanner used by the weekly
+      # entropy-reduction-scan workflow. This unit test only keeps the scan
+      # SCRIPT honest; it does not run the scan as a merge gate.
+      - run: npm run test:entropy
+      # Dependency Freshness Ledger (repo-tooling, not a shipped feature): the
+      # pure staleness/vulnerability scoring core used by the dependency-freshness
+      # job below. This network-free unit test only keeps the SCRIPT honest; the
+      # actual registry-backed gate runs in its own job.
+      - run: npm run test:deps-freshness-unit
+      # Adaptive Layer Prioritization: Beta-Binomial/Laplace per-layer scoring,
+      # exponential recency decay, the min-actions reorder gate, permutation-safe
+      # reordering (never hides a layer), and opt-in/opt-out/clear persistence.
+      - run: npm run test:adaptivepriority
+      # Federated Fingerprint Learning (opt-in): pairwise-masking secure
+      # aggregation cancellation, DP Gaussian clip+noise, min-cohort gating,
+      # FedAvg, gossip peer-selection, GitHub-relay fallback, coordination-file
+      # rotation, hash-chained receipts, and graceful degradation — all with
+      # network/WebRTC/GitHub adapters stubbed (no real network in CI).
+      - run: npm run test:federated
+      # Fast, deterministic, browser-free unit suites (Gen 9 Batch 2):
+      # ambient-validation worker logic + on-device SLM prompt construction.
+      - run: npm run test:ambient
+      - run: npm run test:slm
+      # In-browser Story model: prompt construction + provider/mode selection +
+      # generateStory routing/fallback with the WebLLM engine stubbed (no GPU in CI).
+      - run: npm run test:storymodel
+      # Security regression: Story Engine escapes user-controlled data (stored XSS).
+      - run: npm run test:story-xss
+      # Gen 10 Batch 2: Digital Twin perturbation → grading pipeline (native DuckDB)
+      # and Ambient Watch-Folder change-detection + validation-pipeline reuse.
+      - run: npm run test:twin
+      - run: npm run test:watch

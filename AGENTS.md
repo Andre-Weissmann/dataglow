@@ -41,12 +41,30 @@ code. As part of the *same* PR (not a follow-up):
 - **Add a changelog entry.** One line in [`docs/CHANGELOG.md`](./docs/CHANGELOG.md)
   describing the user-visible or structural change. Do this as you wrap up, not
   later.
+- **Record a new foundation.** If you shipped a new CI/infra foundation or a
+  reusable capability (the kind of one-paragraph blurb that belongs next to the
+  supply-chain and context-rot entries), add it to the *Foundations &
+  capabilities* section below.
 - **Keep the capability map current.** If you added, removed, or repurposed a
   `js/` module, update its area in `docs/capability-map.md` so the map never
   points at something that isn't there (and vice versa).
 - **Note drift you're not fixing.** If you spot debt you're deliberately leaving
   alone, record it in [`docs/tech-debt-tracker.md`](./docs/tech-debt-tracker.md)
   so the next session doesn't re-discover it.
+
+**Append-only zones — do not edit around them.** Three files used to collide on
+every parallel PR because each new foundation had to edit surrounding prose in
+all of them. They now carry explicit append-only markers; adding an entry is a
+single-line insert at one fixed point, so two PRs adding different entries land
+on different lines and never textually conflict. When you add an entry, insert it
+*directly below* the marker and leave the existing entries above it untouched:
+
+- `docs/CHANGELOG.md` — one-line changelog bullets go under the
+  `NEW-ENTRIES-BELOW` marker in the `## Unreleased` section.
+- `AGENTS.md` — foundation/capability blurbs go under the
+  `NEW-FOUNDATION-ENTRIES-BELOW` marker in *Foundations & capabilities* below.
+- `.github/workflows/test.yml` — new CI jobs go under the `NEW-JOB-ENTRIES-BELOW`
+  marker as a new `uses:` block (see *CI is a thin orchestrator* below).
 
 The weekly read-only [entropy-reduction scan](./docs/entropy-reduction-scan.md)
 flags dangling doc references and untracked TODOs; keeping the paper trail current
@@ -59,7 +77,43 @@ Tests live in `test/` and run through npm scripts named `test:*` (see
 PR; CI runs the suite too. Documentation-only changes don't need new unit tests,
 but do confirm every file path and link you write actually resolves.
 
-## Supply-chain install hardening
+## CI is a thin orchestrator
+
+CI lives in `.github/workflows/test.yml`, but that file is now only a thin
+orchestrator: it triggers on `push`, `pull_request`, and `merge_group`, and each
+job is a one-line `uses:` call into a standalone reusable workflow named
+`.github/workflows/job-<name>.yml`. Each foundation owns its own job file (one
+job per file, triggered via `on: workflow_call`), so adding or changing a job
+touches that job's file rather than a shared 8-job YAML. The job files sit at the
+top level of `.github/workflows/` — not a subdirectory — because GitHub only
+resolves reusable workflows referenced from the top level of that directory; the
+`job-` prefix keeps them grouped. To add a new CI job: create
+`.github/workflows/job-<name>.yml` as a `workflow_call` reusable workflow, then
+append a `uses:` block for it under the `NEW-JOB-ENTRIES-BELOW` marker in
+`.github/workflows/test.yml`.
+
+## Foundations & capabilities
+
+Self-contained, one-per-foundation notes for the CI/infra foundations and
+reusable capabilities that shape how work is done here. Newest first.
+
+<!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
+
+### Append-only zones + per-job reusable CI workflows
+
+Three files (`docs/CHANGELOG.md`, `AGENTS.md`, `.github/workflows/test.yml`) used
+to collide on every parallel PR, because nearly every new foundation had to edit
+surrounding prose in all three. Each now carries an explicit append-only marker
+(`NEW-ENTRIES-BELOW`, `NEW-FOUNDATION-ENTRIES-BELOW`, `NEW-JOB-ENTRIES-BELOW`), so
+a new entry is a one-line insert at a fixed point rather than an edit to shared
+text — see *Append-only zones* under *Finish the paper trail in the same PR*. CI
+was also split: `.github/workflows/test.yml` is now a thin orchestrator that
+`uses:` one reusable workflow per job, each a top-level
+`.github/workflows/job-<name>.yml` file (each with `on: workflow_call`), so a job
+change touches its own file instead of the shared YAML — see *CI is a thin
+orchestrator*.
+
+### Supply-chain install hardening
 
 Dependency installs are locked down against the most common supply-chain
 attack — malicious install-time scripts. The root `.npmrc` sets
@@ -73,19 +127,20 @@ needs an install script, add its bare package name to that `ALLOWLIST` array
 (with a one-line reason) and add a matching `npm rebuild <pkg>` step to the CI
 job so the build still runs; note both in your PR.
 
-## This file is checked against reality
+### AGENTS.md context-rot detector
 
 Because you (and every agent before and after you) read and trust this file
 without sanity-checking it, a stale reference here quietly misleads the whole
 chain of sessions. The **AGENTS.md context-rot detector**
 (`.github/scripts/agents-md-drift.mjs`, run via `npm run test:agentsdrift`, gated
 in CI) guards against that: it extracts the backtick-quoted file paths and npm
-script names mentioned above and fails the build if any of them no longer exists
-on disk or in `package.json`. It is pure static analysis — no network, no model
-calls. If it fails, the fix is one of two things: either the code moved and this
-file is now wrong (correct the reference here), or this file is right and the code
-regressed (restore or rename the code). Do whichever is actually true, in the same
-PR — never silence the check by deleting a reference that should still resolve.
+script names mentioned in this file and fails the build if any of them no longer
+exists on disk or in `package.json`. It is pure static analysis — no network, no
+model calls. If it fails, the fix is one of two things: either the code moved and
+this file is now wrong (correct the reference here), or this file is right and the
+code regressed (restore or rename the code). Do whichever is actually true, in the
+same PR — never silence the check by deleting a reference that should still
+resolve.
 
 ## PRs
 
