@@ -45,6 +45,22 @@ Newest entries go at the bottom of **Entries**.
 
 ## Entries
 
+### 2026-07-08 — Tauri desktop shell bundles the whole repo root as `frontendDist`
+
+- **Description:** The Tauri v1 shell (`src-tauri/tauri.conf.json`) sets
+  `frontendDist`/`distDir` to `"../"` — the repository root — because the app
+  ships as static files with no build/output directory. Tauri's asset walker
+  honours `.gitignore`, so `node_modules/` and `src-tauri/target/` are excluded,
+  but everything else tracked at the root (docs, tests, workflows, config) is
+  still swept into the bundle even though only `index.html` + `js/`/`css/`/
+  `assets/` are needed at runtime. Harmless for correctness but bloats installer
+  size and is coarse. Cleaner options if this is next touched: a small explicit
+  static subtree to point `distDir` at, or a `.taurignore`/tightened ignore set.
+- **Date:** 2026-07-08
+- **Severity:** low
+- **Area:** `src-tauri/tauri.conf.json`
+- **Status:** open
+
 ### 2026-07-08 — Divergent `NUMERIC_TYPES` constant duplicated across 12 modules
 
 - **Date:** 2026-07-08

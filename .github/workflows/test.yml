@@ -55,3 +55,6 @@ jobs:
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
   e2e-smoke:
     uses: ./.github/workflows/job-e2e-smoke.yml
+
+  tauri-smoke:
+    uses: ./.github/workflows/job-tauri-smoke.yml
