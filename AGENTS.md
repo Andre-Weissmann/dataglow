@@ -112,10 +112,15 @@ reusable capabilities that shape how work is done here. Newest first.
 ### Optional Tauri v1 desktop shell
 
 An optional native desktop wrapper lives under `src-tauri/`. It is the stock
-Tauri "vanilla" template (`src-tauri/src/main.rs` registers no commands) pointed
-at the existing static site with no build step — `frontendDist` is the repo root,
-and Tauri's `.gitignore`-aware asset walker keeps `node_modules/` and the compiled
-Rust output out of the bundle. The v1 allowlist is deny-by-default
+Tauri "vanilla" template (`src-tauri/src/main.rs` registers no commands) that
+loads the existing static site unchanged. Tauri v1 refuses a `distDir` that
+contains `node_modules` or `src-tauri`, so `distDir` cannot be the repo root;
+instead a tiny copy step (`scripts/stage-desktop-frontend.mjs`, wired via
+`beforeBuildCommand`/`beforeDevCommand`) stages the site's runtime assets into a
+gitignored dist folder under `src-tauri/` that `distDir` points at. It is a plain
+file copy — no bundler, transpiler, or minifier — so the bytes served in the
+window are identical to the browser; if the site gains a new top-level runtime
+asset, add it to that script's allowlist. The v1 allowlist is deny-by-default
 (`tauri.allowlist.all = false`), so the window has only what a browser tab has;
 the site's opt-in CDN/Databricks fetches are ordinary webview requests and are
 untouched by it. Build via `npm run tauri:dev` / `npm run tauri:build` (Tauri CLI

@@ -2,10 +2,10 @@
 
 An optional native desktop wrapper around the existing DATAGLOW static site,
 built with [Tauri v1](https://v1.tauri.app/). It ships the exact same vanilla
-ES-module app you get in a browser, packaged as a signed-once, self-contained
-window with a native title bar and app icon. There is **no** second copy of the
-app and **no** build step: the shell points directly at the repository's static
-files and serves them from a local custom protocol.
+ES-module app you get in a browser, packaged as a self-contained window with a
+native title bar and app icon. There is **no** bundler, transpiler, or framework:
+the shell serves the repository's own static files, staged verbatim (a plain
+copy) into a local directory that Tauri packages into the window.
 
 ## What it is (and is not)
 
@@ -26,13 +26,25 @@ files and serves them from a local custom protocol.
 | `src-tauri/src/main.rs` | Stock entry point; registers no commands. |
 | `src-tauri/build.rs` | Standard `tauri_build::build()`. |
 | `src-tauri/icons/` | App icons reused across platforms. |
+| `scripts/stage-desktop-frontend.mjs` | Copies the site's runtime assets into `src-tauri/dist/`. |
 
-`frontendDist` (via `build.distDir`/`devPath`) is set to `"../"` — the repository
-root — because the app is served as-is with no compile output. Tauri's asset
-walker honours `.gitignore`, so `node_modules/` (root `.gitignore`) and
-`src-tauri/target/` (`src-tauri/.gitignore`) are excluded from the bundle even
-though the dist directory is the repo root. This "bundle the whole root" choice
-is coarse and is tracked in [`tech-debt-tracker.md`](tech-debt-tracker.md).
+### Why a staging copy (and not `distDir = "../"`)
+
+The app's static files live at the repository root, but Tauri v1's CLI **refuses**
+a `distDir` that contains a `node_modules` or `src-tauri` folder — it errors with
+*"isolate your web assets on a separate folder."* So the shell cannot point
+`distDir` straight at the root.
+
+Instead, `scripts/stage-desktop-frontend.mjs` copies the site's runtime surface
+— `index.html`, `manifest.webmanifest`, `sw.js`, and the `assets/`, `css/`,
+`js/`, and `protocol/` directories — into `src-tauri/dist/`, and `distDir`/`devPath`
+point there. It is a **plain file copy**: no bundling, transpiling, or
+minification, so the bytes served in the window are byte-for-byte the files a
+browser loads. The script is wired into `beforeBuildCommand` and
+`beforeDevCommand` in `tauri.conf.json`, so it runs automatically before every
+`tauri dev`/`tauri build`; its output (`src-tauri/dist/`) is gitignored. The
+allowlist of staged entries is maintained by hand in that script — if the site
+grows a new top-level runtime asset, add it there.
 
 ## Capability posture (deny-by-default)
 

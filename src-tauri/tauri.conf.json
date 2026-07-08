@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/1",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
-    "devPath": "../",
-    "distDir": "../",
+    "beforeDevCommand": "node scripts/stage-desktop-frontend.mjs",
+    "beforeBuildCommand": "node scripts/stage-desktop-frontend.mjs",
+    "devPath": "dist",
+    "distDir": "dist",
     "withGlobalTauri": false
   },
   "package": {
