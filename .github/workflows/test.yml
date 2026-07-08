@@ -53,5 +53,8 @@ jobs:
     uses: ./.github/workflows/job-agents-md-drift.yml
 
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
+  problem-framer:
+    uses: ./.github/workflows/job-problem-framer.yml
+
   e2e-smoke:
     uses: ./.github/workflows/job-e2e-smoke.yml

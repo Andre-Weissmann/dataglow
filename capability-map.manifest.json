@@ -210,6 +210,13 @@
       "name": "Conformance",
       "files": ["js/protocol-conformance.js"],
       "symbols": [{ "file": "js/protocol-conformance.js", "name": "toDataset" }]
+    },
+    {
+      "id": "problem-framer",
+      "area": "Problem framing",
+      "name": "Problem Framer",
+      "files": ["js/problem-framer.js"],
+      "symbols": [{ "file": "js/problem-framer.js", "name": "buildAnalyticalQuestion" }]
     }
   ]
 }
