@@ -11,6 +11,8 @@ record from roughly that point on.
 
 ## Unreleased
 
+- Add a proof-of-concept Databricks Direct-Connect: optional BYO-token, browser-direct, read-only pull from a user's own Databricks SQL warehouse into local DuckDB, reusing the file-import ingest path. Why: validate whether users can bring warehouse data into DATAGLOW's local engine without a server or persisted credentials (`js/databricks-connect.js`, `docs/databricks-connect.md`).
+- Wire the `test:databricks` suite into CI as its own `databricks-connect` job so it runs on every push/PR. Follow-up fix: the Databricks Direct-Connect PR added the script and test but never ran them in GitHub Actions (`.github/workflows/test.yml`).
 - Add a Golden Regression Suite (`test/golden/`, `npm run test:golden`, new CI job) that snapshot-tests the core deterministic operations — SQL cleaners, the validation-layer orchestrator, cross-column/bounds checkers, and the calibrated-grade roll-up — against versioned fixtures; why: give the fast-moving, agent-authored feature stream a safety net so adding a feature can't silently change existing output.
 - Add a progressive-disclosure capability map (`docs/capability-map.md` + `docs/capability-map/`) that maps every `js/` module to a feature area (#34).
 - Document the plan-before-code and changelog-on-completion conventions in a new root `AGENTS.md`, and start this changelog (#34).

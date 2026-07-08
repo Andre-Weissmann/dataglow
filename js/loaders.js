@@ -76,6 +76,37 @@ export async function loadFile(file) {
   }
 }
 
+// Ingest an already-parsed, in-memory result set (array of row objects) as a
+// local dataset, following the exact same path a file upload takes: build a
+// DuckDB table, register it in app state, and anchor the Chain of Custody to the
+// rows the analyst started from. Used by the Databricks Direct-Connect connector
+// so a warehouse query result becomes a local table just like an imported CSV.
+export async function loadRowsAsDataset({ name, columns, rows, source = 'rows', meta = {} }) {
+  const tableName = uniqueTableName(sanitizeTableName(name));
+  try {
+    await engine.createTableFromRows(tableName, columns, rows);
+    const rowCount = await engine.getRowCount(tableName);
+    const schema = await engine.getTableSchema(tableName);
+    const ds = {
+      name,
+      table: tableName,
+      rowCount,
+      cols: schema.map(s => ({ name: s.column_name, type: s.column_type })),
+      loadedAt: Date.now(),
+    };
+    addDataset(ds);
+    const rawHash = await hashBytes(new TextEncoder().encode(JSON.stringify(rows)));
+    const chain = startProvenance(tableName);
+    await chain.append('load', `Loaded "${name}" (${rowCount.toLocaleString()} rows) from ${source}`, { source, rows: rowCount, ...meta }, rawHash);
+    toast(`Loaded ${name} — ${rowCount.toLocaleString()} rows`, 'success');
+    return ds;
+  } catch (err) {
+    console.error(err);
+    toast(`Failed to load ${name}: ${err.message}`, 'error');
+    throw err;
+  }
+}
+
 async function loadExcel(arrayBuffer, tableName) {
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
   const sheetName = wb.SheetNames[0];

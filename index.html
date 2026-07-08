@@ -94,6 +94,26 @@
         <button class="btn btn-ghost" id="btn-load-golden" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-golden">
           Load Golden Test Dataset
         </button>
+        <details id="databricks-connect" style="margin-top:var(--space-3);">
+          <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:500;">Connect to Databricks <span class="badge badge-c" style="font-size:9px; vertical-align:middle;">POC</span></summary>
+          <div style="margin-top:var(--space-2); display:flex; flex-direction:column; gap:var(--space-2);">
+            <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin:0; line-height:1.4;" id="databricks-trust-note"></p>
+            <label style="font-size:var(--text-xs); color:var(--color-text-muted);">Workspace host URL
+              <input type="url" id="databricks-host" class="sql-textarea mono" placeholder="https://dbc-xxxx.cloud.databricks.com" autocomplete="off" spellcheck="false" data-testid="input-databricks-host" style="width:100%; min-height:auto; padding:var(--space-2) var(--space-3);">
+            </label>
+            <label style="font-size:var(--text-xs); color:var(--color-text-muted);">Personal access token (in-memory only)
+              <input type="password" id="databricks-token" class="sql-textarea mono" placeholder="dapi…" autocomplete="off" spellcheck="false" data-testid="input-databricks-token" style="width:100%; min-height:auto; padding:var(--space-2) var(--space-3);">
+            </label>
+            <label style="font-size:var(--text-xs); color:var(--color-text-muted);">SQL warehouse ID
+              <input type="text" id="databricks-warehouse" class="sql-textarea mono" placeholder="e.g. 1234567890abcdef" autocomplete="off" spellcheck="false" data-testid="input-databricks-warehouse" style="width:100%; min-height:auto; padding:var(--space-2) var(--space-3);">
+            </label>
+            <label style="font-size:var(--text-xs); color:var(--color-text-muted);">Read-only SQL query
+              <textarea id="databricks-sql" class="sql-textarea mono" rows="3" spellcheck="false" data-testid="input-databricks-sql" style="width:100%; min-height:60px;"></textarea>
+            </label>
+            <button class="btn btn-secondary" id="btn-databricks-run" style="width:100%; justify-content:center;" data-testid="button-databricks-run">Run query &amp; import</button>
+            <div id="databricks-status" style="font-size:var(--text-xs); color:var(--color-text-muted);" aria-live="polite"></div>
+          </div>
+        </details>
       </div>
       <div class="sidebar-section">
         <div class="sidebar-heading">Datasets</div>

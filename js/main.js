@@ -49,6 +49,7 @@ import * as irbMode from './irb-mode.js';
 import * as ondeviceLLM from './ondevice-llm.js';
 import * as digitalTwin from './digital-twin.js';
 import * as watchFolder from './watch-folder.js';
+import { DatabricksConnector, DEFAULT_QUERY, TRUST_NOTICE } from './databricks-connect.js';
 import { withCanonical } from './categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from './self-learning-rules.js';
 import { LayerPriorityModel, MIN_ACTIONS } from './adaptive-priority.js';
@@ -236,6 +237,65 @@ async function handleFiles(files) {
   }
   renderSidebar();
   resetPanelStates();
+}
+
+// ============================================================
+// Databricks Direct-Connect (proof of concept)
+// ============================================================
+// Optional: pull a read-only SQL result from the user's OWN Databricks
+// workspace into the SAME local DuckDB path a file upload uses
+// (loaders.loadRowsAsDataset). The token lives only in the in-memory input for
+// the duration of the call — never stored, never persisted, never proxied.
+function initDatabricksConnect() {
+  const runBtn = $('#btn-databricks-run');
+  if (!runBtn) return;
+  const hostEl = $('#databricks-host');
+  const tokenEl = $('#databricks-token');
+  const warehouseEl = $('#databricks-warehouse');
+  const sqlEl = $('#databricks-sql');
+  const statusEl = $('#databricks-status');
+  const trustEl = $('#databricks-trust-note');
+  if (trustEl) trustEl.textContent = TRUST_NOTICE;
+  if (sqlEl && !sqlEl.value.trim()) sqlEl.value = DEFAULT_QUERY;
+
+  const setStatus = (msg, type = 'muted') => {
+    if (!statusEl) return;
+    const color = type === 'error' ? 'var(--color-danger, #c0392b)'
+      : type === 'success' ? 'var(--color-success, #2e7d32)'
+      : 'var(--color-text-muted)';
+    statusEl.style.color = color;
+    statusEl.textContent = msg;
+  };
+
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    setStatus('Submitting query to your workspace…');
+    try {
+      await ensureDuckDB();
+      const connector = new DatabricksConnector({
+        fetch: (url, init) => window.fetch(url, init),
+        loadRows: (args) => loaders.loadRowsAsDataset(args),
+      });
+      const result = await connector.run({
+        host: hostEl.value,
+        token: tokenEl.value,
+        warehouseId: warehouseEl.value,
+        statement: sqlEl.value,
+        name: 'databricks_query',
+        onState: (s) => setStatus(`Query ${s.toLowerCase()}…`),
+      });
+      // Never keep the token around after the call returns.
+      tokenEl.value = '';
+      renderSidebar();
+      resetPanelStates();
+      const note = result.truncated ? ' (first chunk only — see connector docs)' : '';
+      setStatus(`Imported ${result.rowCount.toLocaleString()} rows${note}.`, 'success');
+    } catch (err) {
+      setStatus(err.message || 'Databricks connection failed.', 'error');
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
 }
 
 function resetPanelStates() {
@@ -3709,6 +3769,7 @@ function init() {
   switchTab('preflight');
   initTheme();
   initFileLoading();
+  initDatabricksConnect();
   initSqlTab();
   initPythonTab();
   initRTab();

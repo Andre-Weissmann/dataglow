@@ -34,7 +34,8 @@ helpers, the in-browser query engine, and file ingestion.
 - **Controller & wiring** — `js/main.js` (top-level app controller; wires tabs, events, and every feature module together).
 - **State & helpers** — `js/state.js` (central mutable app state), `js/utils.js` (shared DOM, formatting, and hashing helpers).
 - **Query engine** — `js/duckdb-engine.js` (DuckDB-WASM engine; all SQL runs here, in-browser, zero upload).
-- **File loading** — `js/loaders.js` (CSV/TSV, JSON/NDJSON, Parquet, Excel, SQLite ingestion into DuckDB).
+- **File loading** — `js/loaders.js` (CSV/TSV, JSON/NDJSON, Parquet, Excel, SQLite ingestion into DuckDB; also `loadRowsAsDataset` for in-memory result sets).
+- **Warehouse import** — `js/databricks-connect.js` (proof-of-concept BYO-token, browser-direct read-only pull from a user's own Databricks SQL warehouse into DuckDB; see [`databricks-connect.md`](./databricks-connect.md)).
 
 ## Validation layers
 DATAGLOW's headline: the 20 validation layers plus the Red Team self-test, and the

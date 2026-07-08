@@ -1,7 +1,7 @@
 # ============================================================
 # DATAGLOW — Continuous Integration
 # ============================================================
-# Two jobs:
+# Jobs:
 #
 #   sql-logic  — Runs the Node-side SQL logic suite against a REAL (native)
 #                DuckDB engine. Exercises the exact production SQL-generating
@@ -94,6 +94,24 @@ jobs:
       # and Ambient Watch-Folder change-detection + validation-pipeline reuse.
       - run: npm run test:twin
       - run: npm run test:watch
+
+  databricks-connect:
+    name: Databricks Direct-Connect
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Databricks Direct-Connect: unit suite for the optional BYO-token,
+      # browser-direct, read-only warehouse pull. Exercises request/URL
+      # construction, the submit → poll → succeed path, reuse of the injected
+      # loadRows ingest seam, HTTP/failure-state error phrasing, and the
+      # read-only/in-memory-only/never-stored credential contract — all with
+      # fetch stubbed (no live Databricks workspace or token in CI).
+      - run: npm run test:databricks
 
   golden-regression:
     name: Golden regression suite (snapshot)
