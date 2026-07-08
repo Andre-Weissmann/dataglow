@@ -48,7 +48,7 @@ export const state = {
     persistFederatedModel: false,
     federatedEpsilon: 1.0,
   },
-  tabOrder: ['preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch'],
+  tabOrder: ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch'],
 };
 
 export function setActiveDataset(name) {

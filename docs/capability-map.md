@@ -120,3 +120,9 @@ In-browser second-language tabs and charting.
 Bridges internal runtime objects to DATAGLOW's versioned, external-facing data contract
 under [`protocol/`](../protocol/).
 - **Conformance** — `js/protocol-conformance.js` (adapters to the wire shapes + dev-mode runtime schema check).
+
+## Problem framing
+A pre-analysis wizard that turns a vague business question into a specific, measurable
+analytical one before any querying begins. Fully offline and deterministic (a fixed
+SMART-style prompt set, no model call).
+- **Problem Framer** — `js/problem-framer.js` (fixed reframing question set, deterministic question restatement, keyword/substring column matching against loaded column names, and one-page Markdown recap export; UI lives in the Problem Framer tab in `js/main.js`).

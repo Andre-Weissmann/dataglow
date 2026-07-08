@@ -125,6 +125,36 @@
       </div>
     </aside>
 
+    <!-- ============ PROBLEM FRAMER TAB ============ -->
+    <section class="panel" id="panel-framer" data-panel="framer">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Problem Framer</div>
+          <div class="panel-subtitle">Turn a vague business question into a specific, measurable analytical one — before you analyze. Runs fully offline; nothing is uploaded.</div>
+        </div>
+        <div style="display:flex; gap:var(--space-2);">
+          <button class="btn btn-secondary" id="btn-framer-reset" data-testid="button-framer-reset">Reset</button>
+          <button class="btn btn-primary" id="btn-framer-build" data-testid="button-framer-build">Reframe the question</button>
+        </div>
+      </div>
+
+      <div class="framer-flow">
+        <div class="card framer-step">
+          <div class="framer-step-title">1 · What's the question you're actually trying to answer?</div>
+          <div class="framer-step-help">Type the vague problem or ask in your own words — no jargon needed.</div>
+          <textarea class="framer-textarea mono" id="framer-intake" spellcheck="true" rows="3" placeholder="e.g. sales feel off this quarter" data-testid="input-framer-intake"></textarea>
+        </div>
+
+        <div class="card framer-step">
+          <div class="framer-step-title">2 · A few guided questions</div>
+          <div class="framer-step-help">These four fixed prompts sharpen the ask along the axes a vague question usually leaves implicit.</div>
+          <div id="framer-questions"></div>
+        </div>
+
+        <div id="framer-output" style="display:none;"></div>
+      </div>
+    </section>
+
     <!-- ============ PREFLIGHT TAB ============ -->
     <section class="panel" id="panel-preflight" data-panel="preflight">
       <div class="panel-header">

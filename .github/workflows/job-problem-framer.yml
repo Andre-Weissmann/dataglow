@@ -1,0 +1,27 @@
+# ============================================================
+# DATAGLOW — CI job: Problem Framer
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the browser-free unit suite for the Problem Framer wizard's pure logic:
+# the fixed SMART-style question set, the deterministic question restatement,
+# keyword/substring column matching against a loaded dataset's column names,
+# and the one-page Markdown recap export. No DuckDB, no browser, no network.
+
+name: Problem Framer
+
+on:
+  workflow_call:
+
+jobs:
+  problem-framer:
+    name: Problem Framer (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:framer
