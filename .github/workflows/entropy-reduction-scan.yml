@@ -1,0 +1,121 @@
+# ============================================================
+# DATAGLOW — Weekly Entropy-Reduction Scan (READ-ONLY / DISCOVERY-ONLY)
+# ============================================================
+# A low-priority, scheduled upkeep scan that looks for slow structural drift no
+# single feature PR would notice: untracked TODO/FIXME markers, docs that point
+# at js/ files or functions that no longer exist, and unbounded growth of the
+# flat js/ directory. See docs/entropy-reduction-scan.md for the full write-up.
+#
+# READ-ONLY GUARANTEE — this workflow:
+#   • does NOT commit code, does NOT modify files in the repo, does NOT open or
+#     merge pull requests, and is NOT wired into the merge-gating CI pipeline;
+#   • its ONLY side effects are (a) reading docs/tech-debt-tracker.md + the code,
+#     (b) writing a job-summary + an uploaded artifact (a *proposal* the scan
+#     would suggest appending to the tracker — NOT committed), and
+#     (c) opening/refreshing a single GitHub issue with the findings.
+# Any actual cleanup is a human decision made via a normal, reviewed PR.
+#
+# Permissions are intentionally minimal: contents:read + issues:write only.
+# There is deliberately NO pull-requests permission and NO write to contents.
+
+name: entropy-reduction-scan
+
+on:
+  schedule:
+    # Weekly, Monday 06:17 UTC (off the top-of-hour to avoid scheduler pileups).
+    - cron: '17 6 * * 1'
+  workflow_dispatch: {}
+
+# Least privilege: read the repo, write issues. No contents:write, no PR access.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: entropy-reduction-scan
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Read-only golden-principles scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Run the pure scanner. It writes a Markdown job summary (via
+      # $GITHUB_STEP_SUMMARY) and a machine-readable JSON to $SCAN_OUTPUT.
+      # It always exits 0 — findings are informational, never a build gate.
+      # $GITHUB_STEP_SUMMARY is provided natively by the runner; the script
+      # appends its Markdown report there when present.
+      - name: Run entropy-reduction scan
+        env:
+          SCAN_OUTPUT: scan-output/entropy-scan.json
+        run: node .github/scripts/entropy-scan.mjs
+
+      # Persist the findings (incl. the "proposed tracker append") as an artifact.
+      # This is a PROPOSAL only — nothing is committed back to the repo.
+      - name: Upload scan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: entropy-scan-findings
+          path: scan-output/
+          if-no-files-found: warn
+
+      # Open (or refresh) a single tracking issue summarizing the findings.
+      # Opening an issue is not a code change and needs no merge/review to be
+      # safe. We reuse one issue (matched by title) so the scan does not spam.
+      - name: Open / refresh findings issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { result, markdown } = JSON.parse(
+              fs.readFileSync('scan-output/entropy-scan.json', 'utf8'),
+            );
+            const title = 'Entropy-Reduction Scan — weekly findings';
+            const body = [
+              markdown,
+              '',
+              '---',
+              '_Automated, **read-only** scan (`.github/workflows/entropy-reduction-scan.yml`).',
+              'It does not commit, open PRs, or auto-fix anything. To act on a finding,',
+              'add an entry to `docs/tech-debt-tracker.md` in a normal reviewed PR._',
+              '',
+              `_Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}_`,
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const found = existing.data.find(
+              (i) => i.title === title && !i.pull_request,
+            );
+
+            if (found) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: found.number,
+                body,
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: found.number,
+                body: `Refreshed by scan run — **${result.totalFindings}** finding(s) this week.`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              });
+            }
