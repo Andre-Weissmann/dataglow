@@ -59,6 +59,20 @@ Tests live in `test/` and run through npm scripts named `test:*` (see
 PR; CI runs the suite too. Documentation-only changes don't need new unit tests,
 but do confirm every file path and link you write actually resolves.
 
+## This file is checked against reality
+
+Because you (and every agent before and after you) read and trust this file
+without sanity-checking it, a stale reference here quietly misleads the whole
+chain of sessions. The **AGENTS.md context-rot detector**
+(`.github/scripts/agents-md-drift.mjs`, run via `npm run test:agentsdrift`, gated
+in CI) guards against that: it extracts the backtick-quoted file paths and npm
+script names mentioned above and fails the build if any of them no longer exists
+on disk or in `package.json`. It is pure static analysis — no network, no model
+calls. If it fails, the fix is one of two things: either the code moved and this
+file is now wrong (correct the reference here), or this file is right and the code
+regressed (restore or rename the code). Do whichever is actually true, in the same
+PR — never silence the check by deleting a reference that should still resolve.
+
 ## PRs
 
 Open PRs as drafts with a clear summary and test plan. Don't merge your own PR.
