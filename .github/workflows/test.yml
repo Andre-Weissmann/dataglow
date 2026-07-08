@@ -66,6 +66,11 @@ jobs:
       # tally, anomaly suppression when the ranker has learned a dismissal, and
       # drift-flag enrichment with recent rule changes — all additive/no-op-safe.
       - run: npm run test:signalstore
+      # Entropy-Reduction Scan (repo-tooling, not a shipped feature): the pure,
+      # read-only golden-principles scanner used by the weekly
+      # entropy-reduction-scan workflow. This unit test only keeps the scan
+      # SCRIPT honest; it does not run the scan as a merge gate.
+      - run: npm run test:entropy
       # Adaptive Layer Prioritization: Beta-Binomial/Laplace per-layer scoring,
       # exponential recency decay, the min-actions reorder gate, permutation-safe
       # reordering (never hides a layer), and opt-in/opt-out/clear persistence.
