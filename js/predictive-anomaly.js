@@ -264,6 +264,61 @@ export async function scorePredictiveAnomalies(table, cols, engine, options = {}
   return { rows: scored, features, sampling, k, threshold: Number(threshold.toFixed(4)), meanScore: Number(mean.toFixed(4)), stdScore: Number(std.toFixed(4)) };
 }
 
+// ---------------------------------------------------------------
+// Unified Signal Layer integration (purely additive suppression).
+//
+// The kNN/Gower score above is computed in complete isolation, exactly as
+// before. This step lets the scorer READ what other modules already concluded
+// before its flags reach the UI: if the self-learning ranker has learned that
+// the user repeatedly dismisses flags on a row's DOMINANT column as false
+// positives, showing yet another warning on that row is noise, not signal. So we
+// suppress (de-flag + de-rank) it and record WHY.
+//
+// `lookup` is a tiny injected contract — `dismissalVerdict(column) -> verdict |
+// null` — so this stays pure and Node-testable (the browser passes the shared
+// SignalStore; tests pass a plain object). With no lookup, or no matching
+// verdict, the result is returned untouched: no cross-module signal → identical
+// behaviour to before. Mutates and returns the same result object for
+// convenience; suppressed rows keep their score but get `suppressed: true`,
+// `isAnomaly: false`, a `suppression` record, and an explanatory `reason`.
+// ---------------------------------------------------------------
+export function suppressAnomaliesWithVerdicts(result, lookup) {
+  if (!result || !Array.isArray(result.rows) || !lookup || typeof lookup.dismissalVerdict !== 'function') {
+    return result;
+  }
+  let suppressedCount = 0;
+  for (const row of result.rows) {
+    if (!row.isAnomaly) continue; // only ever downgrades a flag; never creates one
+    // The dominant column is the top contributor to this row's outlier score.
+    const top = (row.contributions || []).find(c => c.contribution > 0);
+    if (!top) continue;
+    const verdict = lookup.dismissalVerdict(top.feature);
+    if (!verdict || verdict.verdict !== 'dismiss') continue;
+    const times = verdict.meta && Number.isFinite(verdict.meta.dismiss) ? verdict.meta.dismiss : null;
+    row.suppressed = true;
+    row.isAnomaly = false;
+    row.suppression = {
+      by: verdict.module || 'self_learning',
+      column: top.feature,
+      dismiss: times,
+      confidence: verdict.confidence ?? null,
+    };
+    row.reason = describeSuppression(row.rowIndex, top.feature, times) + ' ' + row.reason;
+    suppressedCount++;
+  }
+  result.suppressedCount = suppressedCount;
+  return result;
+}
+
+// Plain-language "why" for a suppressed row — mirrors the Assumption Ledger's
+// readable, first-person style so the user can see the cross-module reasoning.
+export function describeSuppression(rowIndex, column, times) {
+  const learned = times != null
+    ? `you've dismissed flags on "${column}" as false positives ${times} time${times === 1 ? '' : 's'}`
+    : `you've repeatedly dismissed flags on "${column}" as false positives`;
+  return `Suppressed by the self-learning ranker: ${learned}, so this holistic-anomaly flag is de-ranked as a likely duplicate.`;
+}
+
 // Plain-language "why" for a single scored row, from its top feature
 // contributions. Consistent with the Assumption Ledger's readable style.
 export function describeAnomaly(scored) {

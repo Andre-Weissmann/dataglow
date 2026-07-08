@@ -19,7 +19,8 @@ import * as fixConfidence from './fix-confidence.js';
 import * as activeLearning from './active-learning.js';
 import * as ondeviceML from './ondevice-ml.js';
 import { scoreIsolationForest } from './isolation-forest.js';
-import { scorePredictiveAnomalies } from './predictive-anomaly.js';
+import { scorePredictiveAnomalies, suppressAnomaliesWithVerdicts } from './predictive-anomaly.js';
+import { SignalStore, SIGNAL_TYPES, VERDICTS } from './signal-store.js';
 import * as spc from './spc-control.js';
 import * as catScorecard from './cat-scorecard.js';
 import * as materiality from './materiality.js';
@@ -907,6 +908,10 @@ async function runValidation() {
   const fingerprintStore = state.settings.persistFingerprints ? memoryStore : null;
   const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours, pack, fingerprintStore });
   recordLayerFires(results);
+  // Unified Signal Layer: publish the ranker's learned per-column verdicts into
+  // the shared store BEFORE any flag/badge renders, so the drift alerter (in the
+  // grid below) and the anomaly scorer can read them and coordinate.
+  publishRankerVerdicts(ds.cols);
   renderValidationResults(results);
   window.__dataglowLastValidation = results;
   await renderTopProblems(ds, results);
@@ -1802,6 +1807,13 @@ async function renderPredictiveAnomaly(ds) {
     return;
   }
 
+  // Unified Signal Layer: ensure the ranker's learned verdicts are published, then
+  // let the scorer read them and suppress rows whose dominant column the user has
+  // repeatedly dismissed as a false positive — instead of showing a contradictory
+  // duplicate warning. Purely additive: with no matching verdict, rows are unchanged.
+  publishRankerVerdicts(ds.cols);
+  suppressAnomaliesWithVerdicts(res, signalStore);
+
   const feats = [...res.features.numeric, ...res.features.categorical];
   list.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' },
     `Scored on ${feats.length} feature(s): ${feats.join(', ')}. k=${res.k} nearest neighbours.`));
@@ -1812,17 +1824,30 @@ async function renderPredictiveAnomaly(ds) {
   }
 
   const anomalies = res.rows.filter(r => r.isAnomaly);
+  const suppressed = res.rows.filter(r => r.suppressed);
+  const suppressNote = suppressed.length
+    ? ` ${suppressed.length} flag(s) suppressed by the self-learning ranker (shown de-ranked below).`
+    : '';
   list.appendChild(el('div', { 'data-testid': 'predictive-anomaly-summary', style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);' },
-    `${anomalies.length} row(s) flagged as holistically anomalous (mean+3σ of the kNN distance). Top ${Math.min(5, res.rows.length)} by score shown.`));
+    `${anomalies.length} row(s) flagged as holistically anomalous (mean+3σ of the kNN distance).${suppressNote} Top ${Math.min(5, res.rows.length)} by score shown.`));
 
-  res.rows.slice(0, 5).forEach(r => {
-    const color = r.isAnomaly ? 'var(--color-grade-d)' : 'var(--color-text-muted)';
-    const card = el('div', { 'data-testid': `predictive-anomaly-row-${r.rowIndex}`, style: 'padding:var(--space-2) 0; border-top:1px solid var(--color-divider);' });
-    card.appendChild(el('div', { style: 'display:flex; gap:var(--space-2); align-items:center;' }, [
-      el('span', { style: `font-weight:600; color:${color};` }, `#${r.rowIndex} · score ${r.score}`),
+  // De-rank suppressed rows so genuine flags surface first, then by raw score.
+  const display = [...res.rows].sort((a, b) =>
+    (a.suppressed ? 1 : 0) - (b.suppressed ? 1 : 0) || b.rawScore - a.rawScore);
+
+  display.slice(0, 5).forEach(r => {
+    const color = r.suppressed ? 'var(--color-text-faint)' : r.isAnomaly ? 'var(--color-grade-d)' : 'var(--color-text-muted)';
+    const card = el('div', { 'data-testid': `predictive-anomaly-row-${r.rowIndex}`, style: `padding:var(--space-2) 0; border-top:1px solid var(--color-divider);${r.suppressed ? ' opacity:0.7;' : ''}` });
+    const head = el('div', { style: 'display:flex; gap:var(--space-2); align-items:center;' }, [
+      el('span', { style: `font-weight:600; color:${color};${r.suppressed ? ' text-decoration:line-through;' : ''}` }, `#${r.rowIndex} · score ${r.score}`),
       el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); overflow:hidden; text-overflow:ellipsis; flex:1;' },
         Object.entries(r.values).map(([k, v]) => `${k}=${v}`).join(', ')),
-    ]));
+    ]);
+    if (r.suppressed) head.appendChild(el('span', {
+      'data-testid': `predictive-anomaly-suppressed-${r.rowIndex}`,
+      style: 'font-size:11px; font-weight:600; padding:2px 8px; border-radius:8px; color:#fff; background:var(--color-text-faint);',
+    }, 'SUPPRESSED'));
+    card.appendChild(head);
     card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:2px;' }, r.reason));
     list.appendChild(card);
   });
@@ -2024,6 +2049,39 @@ const LP_CONSENT_KEY = 'dataglow_persist_layer_priority';
 const LP_MODEL_ID = 'layer_priority';
 let layerPriority = new LayerPriorityModel();
 
+// Unified Signal Layer — a synchronous, in-memory scratch pad the on-device
+// modules read/write BEFORE anything is rendered, so they can suppress duplicate
+// warnings and enrich each other's output instead of operating in silos. It
+// holds no user data of its own and never persists; it is repopulated per run.
+// See js/signal-store.js. Exposed on window for e2e inspection.
+const signalStore = new SignalStore();
+if (typeof window !== 'undefined') window.__dataglowSignalStore = signalStore;
+
+// Recompute and (re)publish the self-learning ranker's per-column verdicts into
+// the shared store. Called before the anomaly scorer and drift alerter render,
+// so those modules can see "the user has repeatedly dismissed flags on column X".
+// Idempotent: it first drops the ranker's previous verdicts, then republishes —
+// leaving other producers' signals (e.g. rule changes) intact.
+function publishRankerVerdicts(cols) {
+  signalStore.clear(s => s.module === 'self_learning' && s.type === SIGNAL_TYPES.LEARNED_VERDICT);
+  if (!state.settings.selfLearningEnabled || !Array.isArray(cols)) return;
+  for (const c of cols) {
+    const column = c && (c.name != null ? c.name : c);
+    if (column == null) continue;
+    let v;
+    try { v = selfLearner.columnVerdict(column); } catch { v = null; }
+    if (!v || !v.verdict) continue;
+    signalStore.register({
+      module: 'self_learning',
+      type: SIGNAL_TYPES.LEARNED_VERDICT,
+      column,
+      verdict: v.verdict === 'dismiss' ? VERDICTS.DISMISS : VERDICTS.ACCEPT,
+      confidence: v.confidence,
+      meta: { dismiss: v.dismiss, accept: v.accept, total: v.total },
+    });
+  }
+}
+
 // Record a user correction as a labeled training example, then (if opted in)
 // persist the updated model. Never blocks the correction it is observing —
 // any failure is swallowed so learning can't break a real edit/merge/dismiss.
@@ -2034,6 +2092,24 @@ async function recordLearningSignal(snapshot, action) {
   await recordSelfLearningSignal(snapshot, action);
   await recordLayerPrioritySignal(snapshot, action);
   await recordFederatedSignal(snapshot, action);
+  publishRuleChangeSignal(snapshot, action);
+}
+
+// When the user dismisses/rejects a validation flag on a column, record it in the
+// Unified Signal Layer as a "rule change" so the drift alerter can later connect
+// an otherwise-unexplained drift warning on that same column to this action.
+function publishRuleChangeSignal(snapshot, action) {
+  try {
+    if (actionToLabel(action) !== 0) return; // only dismissals signal a rule change
+    const column = snapshot && snapshot.column;
+    if (column == null) return;
+    signalStore.register({
+      module: 'self_learning',
+      type: SIGNAL_TYPES.RULE_CHANGE,
+      column,
+      meta: { source: snapshot.source || null, action: String(action) },
+    });
+  } catch (e) { /* coordination is best-effort; never disrupt the user's action */ }
 }
 
 async function recordSelfLearningSignal(snapshot, action) {
@@ -2509,6 +2585,11 @@ function renderForecastDrift(forecast) {
     }, '↗ Enable drift history tracking in Settings to unlock trend-aware alerts (forecasts this upload against the expected trajectory of recent uploads, not just a static baseline).'));
     return wrap;
   }
+  // Unified Signal Layer: connect any trend-aware flag to a validation rule the
+  // user recently disabled/changed on the same column, rather than showing an
+  // unexplained drift warning. Additive — leaves flags without a related change
+  // untouched.
+  driftForecast.enrichForecastWithSignals(forecast, signalStore);
   if (!forecast || !forecast.active) {
     const have = forecast ? forecast.historyLen : 0;
     const need = forecast ? forecast.minHistory : driftForecast.MIN_FORECAST_HISTORY;

@@ -53,6 +53,13 @@ const DISMISS_ACTIONS = new Set(['reject', 'dismiss', 'ignore', 'skip']);
 // this it stays silent — it genuinely knows nothing yet. Displayed in the UI.
 export const MIN_EXAMPLES = 10;
 
+// Minimum decisive corrections on ONE column before the model will publish a
+// per-column verdict into the Unified Signal Layer (see columnVerdict). This is
+// a local, per-column count — independent of MIN_EXAMPLES — so a focused pattern
+// ("the user has dismissed flags on this column 4 times") can coordinate with
+// other modules even before the global ranker is ready.
+export const MIN_COLUMN_VERDICT = 3;
+
 // Hard cap on retained examples (bounded memory, LRU by insertion order). Keeps
 // IndexedDB payloads and per-record training cost small.
 const MAX_EXAMPLES = 2000;
@@ -272,6 +279,33 @@ export class SelfLearningModel {
     });
     scored.sort((a, b) => b.probability - a.probability || a.originalIndex - b.originalIndex);
     return { ranked: true, examplesUntilReady: 0, items: scored };
+  }
+
+  // The user's decisive, learned verdict for a single COLUMN, tallied directly
+  // from the stored labeled examples (not the logistic weights) so it reads as a
+  // plain, auditable count: "you dismissed N flags on this column and acted on M".
+  // Returns null when the column has no examples. `verdict` is only set to
+  // 'dismiss'/'accept' once one side reaches MIN_COLUMN_VERDICT and strictly
+  // outnumbers the other; otherwise it stays null (a genuinely mixed history).
+  //
+  // This is the payload the Unified Signal Layer publishes so the anomaly scorer
+  // can suppress a row whose dominant column the user has repeatedly dismissed.
+  // It reports learned counts — it does NOT change the model's statistics.
+  columnVerdict(column) {
+    if (column == null) return null;
+    const col = String(column);
+    let dismiss = 0, accept = 0;
+    for (const ex of this.examples) {
+      if (ex.column == null || String(ex.column) !== col) continue;
+      if (ex.label === 0) dismiss++; else accept++;
+    }
+    const total = dismiss + accept;
+    if (total === 0) return null;
+    let verdict = null;
+    if (dismiss >= MIN_COLUMN_VERDICT && dismiss > accept) verdict = 'dismiss';
+    else if (accept >= MIN_COLUMN_VERDICT && accept > dismiss) verdict = 'accept';
+    const confidence = Math.max(dismiss, accept) / total;
+    return { column: col, dismiss, accept, total, verdict, confidence: Number(confidence.toFixed(4)) };
   }
 
   // Serialize the learned state for IndexedDB persistence (opt-in).

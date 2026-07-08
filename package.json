@@ -20,6 +20,7 @@
     "test:missingness": "node --import ./test/duckdb-loader-hook.mjs test/missingness-detective.test.mjs",
     "test:predanomaly": "node --import ./test/duckdb-loader-hook.mjs test/predictive-anomaly.test.mjs",
     "test:selflearn": "node test/self-learning-rules.test.mjs",
+    "test:signalstore": "node test/signal-store.test.mjs",
     "test:adaptivepriority": "node test/adaptive-priority.test.mjs",
     "test:federated": "node test/federated-learning.test.mjs",
     "test:attestation": "node test/verify-attestation.mjs",
