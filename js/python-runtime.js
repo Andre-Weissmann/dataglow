@@ -5,13 +5,32 @@
 import { state } from './state.js';
 import * as engine from './duckdb-engine.js';
 
+const PYODIDE_CDN_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/';
+
 let loadPromise = null;
+let loaderScriptPromise = null;
+
+// Pyodide is a large runtime, so its loader is fetched from the CDN on demand —
+// only when the Python tab is first opened — rather than on every page load.
+function loadPyodideScript() {
+  if (typeof loadPyodide === 'function') return Promise.resolve();
+  if (loaderScriptPromise) return loaderScriptPromise;
+  loaderScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `${PYODIDE_CDN_BASE}pyodide.js`;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load the Pyodide runtime from the CDN.'));
+    document.head.appendChild(script);
+  });
+  return loaderScriptPromise;
+}
 
 export function initPyodideRuntime(onStatus) {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
     onStatus?.('Downloading Python runtime…');
-    const pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/' });
+    await loadPyodideScript();
+    const pyodide = await loadPyodide({ indexURL: PYODIDE_CDN_BASE });
     onStatus?.('Loading pandas & numpy…');
     await pyodide.loadPackage(['pandas', 'numpy']);
     // Bridge object: dataglow.get_df('table') pulls DuckDB table into pandas via JSON

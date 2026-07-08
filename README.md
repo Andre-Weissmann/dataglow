@@ -36,12 +36,20 @@ Additional formats (ORC, Avro, HDF5, Delta Lake, FHIR, DICOM, EDI, PDF tables, G
 ## Built With
 
 - Vanilla HTML / CSS / JavaScript (no bundler, no build step)
+
+**Self-hosted (vendored under `assets/`, so a normal page load fetches nothing from a third party):**
+
 - [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) for in-browser SQL
+- [Plotly.js](https://plotly.com/javascript/) (MIT) for visualization
+- [SheetJS (xlsx)](https://sheetjs.com/) (Apache-2.0) for Excel parsing
+
+**Loaded from public CDNs on demand, only when you first open these optional tabs** (their multi-hundred-megabyte runtimes aren't practical to vendor into every page load):
+
 - [Pyodide](https://pyodide.org/) for in-browser Python
 - [WebR](https://webr.r-wasm.org/) for in-browser R
 - [WebLLM](https://github.com/mlc-ai/web-llm) (Apache-2.0) for the in-browser Story model — running [Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) (Apache-2.0), lazy-loaded from WebLLM's prebuilt model registry and cached in-browser
-- [Plotly.js](https://plotly.com/javascript/) for visualization
-- [SheetJS (xlsx)](https://sheetjs.com/) for Excel parsing
+
+In every case the library *code* is what's fetched — never your data, which stays in your browser.
 
 ## Project Structure
 
@@ -93,6 +101,6 @@ MIT License — see [LICENSE](LICENSE). Provided AS-IS, without warranty of any 
 
 ## Status
 
-🟢 Actively building — Gen 7.
+🟢 Actively building. See [docs/CHANGELOG.md](docs/CHANGELOG.md) for the latest shipped changes.
 
 *DATAGLOW — because your data deserves to shine.*
