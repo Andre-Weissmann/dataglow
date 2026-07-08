@@ -1,0 +1,40 @@
+{
+  "issues": [
+    {
+      "column": "amount",
+      "detail": "100% of sampled values look like currency/numeric text (e.g. \"$1,200.50\"). Stored as VARCHAR — arithmetic and aggregation will fail.",
+      "issueType": "currency_contaminated",
+      "sampleValues": [
+        "$1,200.50",
+        "$3,400.00",
+        "$25.99",
+        "$1,000.00",
+        "$99.00"
+      ],
+      "suggestedFixSQL": "ALTER TABLE golden_format ADD COLUMN \"amount_num\" DOUBLE;\nUPDATE golden_format SET \"amount_num\" = TRY_CAST(REPLACE(REPLACE(\"amount\", '$', ''), ',', '') AS DOUBLE);"
+    },
+    {
+      "column": "dt",
+      "detail": "2 distinct date formats detected in one column: YYYY-MM-DD, MM/DD/YYYY. Downstream date parsing will be inconsistent.",
+      "issueType": "mixed_date_format",
+      "sampleValues": [
+        "2024-01-15",
+        "01/15/2024",
+        "2024-02-20",
+        "03/22/2024",
+        "2024-04-01"
+      ],
+      "suggestedFixSQL": "-- Standardize \"dt\" to ISO (YYYY-MM-DD). Review before applying:\nALTER TABLE golden_format ADD COLUMN \"dt_date\" DATE;\nUPDATE golden_format SET \"dt_date\" = TRY_CAST(\"dt\" AS DATE);"
+    },
+    {
+      "column": "note",
+      "detail": "Fake-null sentinel string(s) found in sample: \"n/a\", \"null\". These masquerade as data but mean \"missing\".",
+      "issueType": "fake_null",
+      "sampleValues": [
+        "n/a",
+        "null"
+      ],
+      "suggestedFixSQL": "UPDATE golden_format SET \"note\" = NULL WHERE LOWER(TRIM(\"note\")) IN ('null', 'n/a', 'na', 'none', '-', 'unknown') OR TRIM(\"note\") = '';"
+    }
+  ]
+}

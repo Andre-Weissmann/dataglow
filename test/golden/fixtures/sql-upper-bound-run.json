@@ -1,0 +1,30 @@
+{
+  "findings": [
+    {
+      "above": 1,
+      "below": 1,
+      "category": "percentage",
+      "column": "completion_pct",
+      "count": 2,
+      "explanation": "A percentage is bounded by definition to 0%–100% (1 above the logical maximum of 100%, 1 below the logical minimum of 0%). For example, a value of 150% exceeds the logical maximum of 100% for a percentage column; and a value of -5% is below the logical minimum of 0% (a percentage cannot be negative) — impossible by definition and most likely a decimal-point slip, unit mix-up, or data-entry typo rather than a real value.",
+      "high": 100,
+      "low": 0,
+      "text": "2 value(s) in \"completion_pct\" fall outside the logical percentage range of 0%–100%.",
+      "unit": "%"
+    }
+  ],
+  "matched": [
+    {
+      "category": "percentage",
+      "column": "completion_pct",
+      "high": 100,
+      "low": 0
+    },
+    {
+      "category": "percentage",
+      "column": "win_probability",
+      "high": 100,
+      "low": 0
+    }
+  ]
+}
