@@ -47,3 +47,5 @@ record from roughly that point on.
 - Fix inconsistent validation-layer counts across docs and UI (verified: 20 layers) (#24).
 - Rename the "ZK-proof" feature to "selective-disclosure provenance proof" to correct a cryptographic overclaim (#23).
 - Correct unverified dataset-scale and synthetic-fidelity claims in the docs (#22).
+
+<!-- CI trigger: verifying living-manifest-automation checks -->
