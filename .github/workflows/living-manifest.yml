@@ -1,0 +1,77 @@
+# ============================================================
+# DATAGLOW — Living Manifest (public-presence automation)
+# ============================================================
+# Extends the capability-map drift discipline OUTWARD to the repo's public face.
+# On every merge to `main` (and on manual dispatch) it regenerates several
+# artifacts from the SAME source of truth the CI drift gate validates
+# (capability-map.manifest.json) plus the repo's git history, and keeps a wiki
+# backlog honest:
+#
+#   1. Capability dashboard — rewrites the table between the CAPABILITY_TABLE
+#      markers in README.md from the manifest, and commits it back if changed.
+#   2. Provenance timeline — regenerates docs/PROVENANCE_TIMELINE.md from git log.
+#   3. Wiki-gap detector — opens a "Wiki page needed: <area>" issue for any
+#      capability area not yet listed in docs/wiki-coverage.json (idempotent).
+#
+# This is DOCS/METADATA AUTOMATION ONLY. It never touches runtime app code (js/,
+# index.html, css/, sw.js, manifest.webmanifest) — zero product risk.
+#
+# LOOP GUARD: the auto-commit message carries `[skip ci]`, which GitHub Actions
+# honors natively to skip the resulting `push` event, so the bot's own commit
+# never re-triggers this workflow. The generators are also no-ops when their
+# output is unchanged (the timeline ignores its volatile "Generated:" line when
+# diffing), so a merge that changes neither the manifest nor history produces no
+# commit at all.
+
+name: living-manifest
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Serialize runs so two quick merges can't race on the auto-commit / push.
+concurrency:
+  group: living-manifest
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # commit regenerated README + provenance timeline back to main
+  issues: write     # open wiki-gap backlog issues
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for the provenance timeline)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The generator scripts use only Node built-ins + git; no npm install needed.
+      - name: Regenerate capability dashboard (README)
+        run: npm run docs:dashboard
+
+      - name: Regenerate provenance timeline
+        run: npm run docs:provenance
+
+      - name: Commit regenerated docs if changed
+        run: |
+          git config user.name "dataglow-bot"
+          git config user.email "dataglow-bot@users.noreply.github.com"
+          git add README.md docs/PROVENANCE_TIMELINE.md
+          if git diff --cached --quiet; then
+            echo "no doc changes to commit"
+          else
+            git commit -m "chore: regenerate capability dashboard + provenance timeline [skip ci]"
+            git push
+          fi
+
+      - name: Open wiki-gap issues for undocumented capability areas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run docs:wiki-gap
