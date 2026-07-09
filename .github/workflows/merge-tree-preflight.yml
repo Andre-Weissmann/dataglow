@@ -1,0 +1,92 @@
+# ============================================================
+# DATAGLOW — Merge-tree pre-flight (Build Nervous System, Stage 3 "Gate")
+# ============================================================
+# On every PR, simulate merging the PR branch into the current tip of the base
+# branch (`main`) and fail the check if a real TEXTUAL conflict would occur.
+#
+# This is a PURE SIMULATION. `git merge-tree --write-tree` computes the merge in
+# memory and writes only loose objects into the local object store of this
+# throwaway runner; it never creates a merge commit on any branch, never touches
+# a working tree, and never pushes anything anywhere. Nothing about `main` or the
+# PR branch changes. The only output we act on is the exit code (0 = clean,
+# 1 = conflicts) and the conflicted-path list it prints.
+#
+# This check is deliberately a REGULAR, NON-REQUIRED check. It is NOT added to
+# branch protection here; promoting it to a required status check is a separate,
+# deliberate human decision to make later, after it has run cleanly a few times.
+# It adds no new permissions (read-only) and does not modify the repository.
+#
+# See docs/build-nervous-system.md (Stage 3) for the rationale.
+
+name: merge-tree-preflight
+
+on:
+  pull_request:
+
+# Read-only: this workflow inspects history and simulates a merge. It writes
+# nothing back, so it needs no elevated permissions.
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-tree-preflight-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Merge-tree pre-flight (simulation)
+    runs-on: ubuntu-latest
+    steps:
+      # Full history so the merge base of the PR head and the base branch tip is
+      # available locally for the three-way merge simulation.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Simulate merge of PR branch into base (no merge, no push)
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+
+          # Make sure we have the current tip of the base branch to merge against.
+          git fetch --no-tags origin "$BASE_REF"
+          BASE_SHA="$(git rev-parse "origin/${BASE_REF}")"
+
+          echo "Simulating merge:"
+          echo "  base: ${BASE_REF} @ ${BASE_SHA}"
+          echo "  head: PR branch @ ${HEAD_SHA}"
+          echo ""
+
+          # --write-tree performs a full three-way merge in memory and writes the
+          # resulting tree/objects locally. Exit status: 0 = clean merge,
+          # 1 = merge conflicts, >1 = the command itself failed. Capture stdout so
+          # we can show the conflicted paths on failure.
+          set +e
+          OUTPUT="$(git merge-tree --write-tree --name-only "$BASE_SHA" "$HEAD_SHA")"
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -eq 0 ]; then
+            echo "✓ No merge conflict: this branch merges cleanly into '${BASE_REF}'."
+            exit 0
+          elif [ "$STATUS" -eq 1 ]; then
+            echo "✗ Merge conflict detected against '${BASE_REF}'."
+            echo ""
+            echo "This branch and the current tip of '${BASE_REF}' both changed the same"
+            echo "region of one or more files. Rebase or merge '${BASE_REF}' into your"
+            echo "branch and resolve the conflicts before this can merge."
+            echo ""
+            echo "Conflicting paths (from git merge-tree):"
+            # With --name-only the output is: line 1 = the written tree OID, then
+            # the conflicted paths, then a blank line, then informational
+            # messages. Print just the path block: skip the OID line and stop at
+            # the first blank line.
+            echo "$OUTPUT" | tail -n +2 | awk 'NF==0{exit} {print "  - " $0}'
+            exit 1
+          else
+            echo "git merge-tree failed to run (exit ${STATUS}). Output:"
+            echo "$OUTPUT"
+            exit "$STATUS"
+          fi
