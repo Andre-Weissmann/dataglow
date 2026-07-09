@@ -13,7 +13,7 @@
 //   9. IRB Mode         — templated document model + HTML rendering with the
 //                        actual validation findings substituted in
 //
-// RUN WITH:  node --import ./test/duckdb-loader-hook.mjs test/gen9-batch3.test.mjs
+// RUN WITH:  node --import ./test/duckdb-loader-hook.mjs test/synthetic-twin-time-machine-suite.test.mjs
 //
 // These four feature modules are pure (no DOM/engine), so datasets here are
 // built as plain JS row arrays — no DuckDB needed.

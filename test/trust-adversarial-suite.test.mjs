@@ -9,7 +9,7 @@
 //   5. Synthetic Adversarial Gen  — schema-matched file with seeded issue categories
 //   6. (Benford teaching passthrough is covered in validation-layers.test.mjs)
 //
-// RUN WITH:  node --import ./test/duckdb-loader-hook.mjs test/gen8-features.test.mjs
+// RUN WITH:  node --import ./test/duckdb-loader-hook.mjs test/trust-adversarial-suite.test.mjs
 //
 // The production modules import '../js/duckdb-engine.js'; the loader hook
 // transparently redirects that to the native node-duckdb-engine.mjs.
