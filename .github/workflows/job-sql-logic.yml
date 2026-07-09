@@ -40,6 +40,10 @@ jobs:
       - run: npm run test:attestation
       # Upper-Bound Sanity Anchor: logical/definitional bounds detection + runner.
       - run: npm run test:upperbound
+      # The Standards Bridge (Gen 33): OMOP/FHIR schema recognition, concept→vital
+      # mapping, and the specified cross-column / physiological-plausibility /
+      # missingness violations — all routed through the existing layers' bounds.
+      - run: npm run test:standards
       # Missingness Detective: MCAR/MAR/MNAR causal-missingness classification.
       - run: npm run test:missingness
       # Predictive Anomaly Scoring: holistic kNN/Gower mixed-type outlier score,

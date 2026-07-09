@@ -16,6 +16,7 @@
     "test:mimic": "node --import ./test/duckdb-loader-hook.mjs test/mimic-bugfixes.test.mjs",
     "test:physics": "node --import ./test/duckdb-loader-hook.mjs test/domain-physics.test.mjs",
     "test:physiology": "node --import ./test/duckdb-loader-hook.mjs test/physiological-plausibility.test.mjs",
+    "test:standards": "node test/health-standards.test.mjs",
     "test:upperbound": "node --import ./test/duckdb-loader-hook.mjs test/upper-bound-sanity.test.mjs",
     "test:missingness": "node --import ./test/duckdb-loader-hook.mjs test/missingness-detective.test.mjs",
     "test:predanomaly": "node --import ./test/duckdb-loader-hook.mjs test/predictive-anomaly.test.mjs",
