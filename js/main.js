@@ -1137,6 +1137,9 @@ function initProvenance() {
 
 // Populate the Domain Physics pack selector and re-run validation on change so
 // switching packs (or turning reinterpretation off with "None") updates results.
+// Also wires the optional Context Card: typing what the data is for re-orders
+// the already-computed layer grid (no re-run needed) so the most relevant
+// findings surface first; clearing it restores the default order.
 function initDomainPack() {
   const sel = $('#domain-pack-select');
   if (!sel) return;
@@ -1150,6 +1153,20 @@ function initDomainPack() {
   sel.addEventListener('change', () => {
     if (getActiveDataset()) runValidation();
   });
+
+  const context = $('#context-card-input');
+  if (context) {
+    context.addEventListener('input', () => {
+      if (window.__dataglowLastValidation) renderValidationResults(window.__dataglowLastValidation);
+    });
+  }
+}
+
+// The Context Card free text ("What is this data for?"), session-only and never
+// persisted or uploaded — read straight from the input each render.
+function getDataContext() {
+  const input = $('#context-card-input');
+  return input ? input.value : '';
 }
 
 // Devil's Advocate Mode — stress-tests the current SQL result and renders a
@@ -2808,7 +2825,18 @@ function renderValidationResults(results) {
   // changes card ORDER and adds an explanatory badge — every layer is still
   // rendered, and what each layer validates is unchanged.
   const priorityView = getLayerPriorityView();
-  const orderedLayers = priorityView ? priorityView.items.map(it => it.def) : validation.LAYER_DEFS;
+  // Ordering precedence: an explicitly-enabled adaptive priority model wins;
+  // otherwise the optional Context Card re-weights layer order; otherwise the
+  // fixed registry order. With adaptive priority off and no context typed, the
+  // order is identical to before this feature existed.
+  let orderedLayers;
+  if (priorityView) {
+    orderedLayers = priorityView.items.map(it => it.def);
+  } else {
+    orderedLayers = problemFramer
+      ? problemFramer.orderLayersByContext(getDataContext(), validation.LAYER_DEFS)
+      : validation.LAYER_DEFS;
+  }
   refreshLayerPriorityStats();
   for (const layer of orderedLayers) {
     if (layer.id === 'confidence') {

@@ -43,9 +43,10 @@ those are the ones the index calls out as "standalone layer modules."
 
 ## Related but not layers
 
-- `js/domain-physics.js` — swappable domain packs that reinterpret/annotate raw
-  layer output after the fact; turning a pack off restores the raw result. It
-  never re-runs or changes what the layers check.
+- `js/domain-physics.js` — swappable domain packs (Healthcare, Retail/E-commerce,
+  Finance/Accounting, plus "None") that reinterpret/annotate raw layer output
+  after the fact; turning a pack off restores the raw result. It never re-runs or
+  changes what the layers check.
 - `js/missingness.js` — the older, lighter MCAR/MAR heuristic; distinct from the
   fuller Missingness Detective layer above.
 - `js/expected-range.js` — informational numeric trend bands that sit alongside

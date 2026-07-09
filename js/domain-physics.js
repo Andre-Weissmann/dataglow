@@ -157,6 +157,197 @@ const binaryBenfordRule = {
 };
 
 // ------------------------------------------------------------
+// Reusable rule shapes for the generalized pack marketplace
+// ------------------------------------------------------------
+// The Retail and Finance packs reinterpret their layers with the same three
+// mechanical shapes the healthcare pack pioneered (a no-merge guard on
+// categorical columns, a Benford exemption on binary flag columns, and an
+// outlier reinterpretation), but with pack-specific column matchers and
+// wording. Rather than copy the healthcare rules' bodies twice, the two new
+// packs are built from these small factories. The healthcare rules above are
+// intentionally left as hand-written literals and untouched.
+//
+// Every factory obeys the same safety contract as the healthcare rules: it only
+// reinterprets, annotates, or downgrades severity of existing findings — it
+// never deletes a finding without leaving an explanatory note in its place, and
+// never raises a new hard failure. (Any throw is additionally caught by the
+// engine, so a buggy rule can never break a validation run.)
+
+function escapeReMeta(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// A no-merge guard: mark the clusters on matched columns as sensitive so the
+// Categorical Consistency layer stops offering a one-click auto-merge. Mirrors
+// the healthcare protected-category rule for domains where textually-similar
+// values are legitimately distinct (SKUs, ledger accounts).
+function makeNoMergeRule({ id, description, match, note }) {
+  return {
+    id,
+    appliesToLayer: 'categorical_consistency',
+    description,
+    match,
+    transform(layerResult, matchedColumns, ctx) {
+      const clusters = layerResult.clusters;
+      if (!Array.isArray(clusters)) return layerResult;
+      const names = new Set(matchedColumns.map(c => c.name));
+      let changed = false;
+      for (const cl of clusters) {
+        if (names.has(cl.column) && !cl.sensitive) {
+          cl.sensitive = true;
+          changed = true;
+          ctx.annotations.push({ layer: 'categorical_consistency', column: cl.column, rule: id, note });
+        }
+      }
+      if (changed) layerResult.detail = clusters.map(describeCluster);
+      return layerResult;
+    },
+  };
+}
+
+// A Benford exemption for binary 0/1 flag columns a domain treats as legitimate
+// (return/refund flags, reconciliation flags). Mirrors the healthcare
+// binary-benford-exempt rule: drop the matched column's flag and record an
+// explained skip rather than a bare deviation.
+function makeBinaryBenfordExemptRule({ id, description, match, packLabel, note }) {
+  return {
+    id,
+    appliesToLayer: 'benford',
+    description,
+    match,
+    transform(layerResult, matchedColumns, ctx) {
+      const names = new Set(matchedColumns.map(c => c.name));
+      if (!names.size) return layerResult;
+      const flags = Array.isArray(layerResult.flags)
+        ? layerResult.flags.filter(f => { const m = /^"([^"]+)"/.exec(f); return !(m && names.has(m[1])); })
+        : [];
+      const skips = Array.isArray(layerResult.skips) ? [...layerResult.skips] : [];
+      let changed = false;
+      for (const name of names) {
+        const reason = `"${name}" skipped — binary 0/1 flag column, exempt from Benford's Law (which applies only to multi-order-of-magnitude quantities). [Domain Physics: ${packLabel} pack]`;
+        const idx = skips.findIndex(s => new RegExp(`^"${escapeReMeta(name)}"`).test(s));
+        if (idx >= 0) { skips[idx] = reason; changed = true; }
+        else if (!skips.includes(reason)) { skips.push(reason); changed = true; }
+        ctx.annotations.push({ layer: 'benford', column: name, rule: id, note });
+      }
+      if (!changed && flags.length === (layerResult.flags || []).length) return layerResult;
+      layerResult.flags = flags;
+      layerResult.skips = skips;
+      layerResult.detail = [...flags, ...skips];
+      return layerResult;
+    },
+  };
+}
+
+// An outlier reinterpretation: on matched columns, replace the raw Outlier
+// Detection finding with an explanatory note that the extremes are expected for
+// this domain (seasonal retail swings, offsetting ledger entries). The finding
+// is never silently dropped — a note takes its place and an annotation is
+// recorded — and the layer can only ever be downgraded (warn → warn/pass),
+// never escalated.
+function makeOutlierContextRule({ id, description, match, packLabel, reason }) {
+  return {
+    id,
+    appliesToLayer: 'outlier_detection',
+    description,
+    match,
+    transform(layerResult, matchedColumns, ctx) {
+      const detail = Array.isArray(layerResult.detail) ? layerResult.detail : [];
+      if (!detail.length) return layerResult;
+      const names = new Set(matchedColumns.map(c => c.name));
+      const kept = [];
+      const contextualised = [];
+      for (const line of detail) {
+        const m = /^"([^"]+)"/.exec(line);
+        if (m && names.has(m[1])) contextualised.push(m[1]);
+        else kept.push(line);
+      }
+      if (!contextualised.length) return layerResult;
+      const to = kept.length ? 'warn' : 'pass';
+      for (const column of contextualised) {
+        ctx.annotations.push({ layer: 'outlier_detection', column, rule: id, from: layerResult.status, to, note: reason });
+      }
+      const notes = contextualised.map(column =>
+        `"${column}": outliers reinterpreted as expected ${packLabel} variation — ${reason} Review, don't assume a defect.`);
+      layerResult.detail = [...kept, ...notes];
+      layerResult.status = to;
+      layerResult.summary = kept.length
+        ? `${kept.length} column(s) contain outliers; ${contextualised.length} column(s) reinterpreted as expected ${packLabel} variation.`
+        : `Outliers present but reinterpreted as expected ${packLabel} variation — no unexplained outliers.`;
+      return layerResult;
+    },
+  };
+}
+
+// ------------------------------------------------------------
+// Retail / E-commerce pack rules
+// ------------------------------------------------------------
+
+// Distinct SKUs / product codes look near-identical to the clustering layer
+// ("SKU-1001" vs "SKU-1002") but are deliberately separate catalogue entries;
+// disable the auto-merge suggestion so genuine products are never collapsed.
+const retailSkuNoMergeRule = makeNoMergeRule({
+  id: 'retail-sku-no-merge',
+  description: 'SKU / product-code columns have auto-merge disabled — near-identical codes are distinct catalogue entries.',
+  match: (c) => /(^|[_\s-])sku([_\s-]|$)|product[_\s-]?code|item[_\s-]?(code|no|number)|\bupc\b|barcode|\basin\b/i.test(c.name || ''),
+  note: 'Auto-merge disabled — similar SKUs/product codes are distinct catalogue entries, not spelling variants.',
+});
+
+// Return / refund columns are usually a binary 0/1 flag; like any binary flag
+// they can never satisfy Benford's Law, so mark them as a deliberate exemption.
+const retailReturnFlagBenfordRule = makeBinaryBenfordExemptRule({
+  id: 'retail-return-flag-benford-exempt',
+  description: 'Binary return/refund flag columns are exempt from Benford\'s Law eligibility.',
+  match: (c) => c.isBinary01 === true && /return|refund|is[_\s-]?returned|chargeback/i.test(c.name || ''),
+  packLabel: 'retail',
+  note: 'Binary return/refund flag exempt from Benford eligibility.',
+});
+
+// Price / sales / quantity columns swing hard around promotions and seasonal
+// peaks (Black Friday, clearance); those extremes are expected, not defects.
+const retailSeasonalOutlierRule = makeOutlierContextRule({
+  id: 'retail-seasonal-outlier',
+  description: 'Outliers in price/sales/quantity columns are reinterpreted as expected promotional or seasonal swings.',
+  match: (c) => c.numeric === true && /price|sales|revenue|gmv|units[_\s-]?sold|qty|quantity|discount|margin/i.test(c.name || ''),
+  packLabel: 'retail',
+  reason: 'promotions and seasonal peaks produce legitimate spikes and markdowns.',
+});
+
+// ------------------------------------------------------------
+// Finance / Accounting pack rules
+// ------------------------------------------------------------
+
+// Ledger / GL account codes are textually similar but functionally distinct
+// accounts; collapsing them would corrupt the books, so disable auto-merge.
+const financeLedgerNoMergeRule = makeNoMergeRule({
+  id: 'finance-ledger-account-no-merge',
+  description: 'Ledger / GL-account columns have auto-merge disabled — similar account codes are distinct accounts.',
+  match: (c) => /ledger|(^|[_\s-])account([_\s-]|$)|\bacct\b|gl[_\s-]?(code|account|no)|chart[_\s-]?of[_\s-]?accounts|cost[_\s-]?cent(er|re)/i.test(c.name || ''),
+  note: 'Auto-merge disabled — similar ledger/GL-account codes are distinct accounts, not spelling variants.',
+});
+
+// Reconciliation / posting status is typically a binary 0/1 flag, so exempt it
+// from Benford's Law the same way any binary flag column is exempted.
+const financeReconFlagBenfordRule = makeBinaryBenfordExemptRule({
+  id: 'finance-recon-flag-benford-exempt',
+  description: 'Binary reconciliation/posting-status flag columns are exempt from Benford\'s Law eligibility.',
+  match: (c) => c.isBinary01 === true && /reconcil|posted|cleared|void|is[_\s-]?paid|settled/i.test(c.name || ''),
+  packLabel: 'finance',
+  note: 'Binary reconciliation/status flag exempt from Benford eligibility.',
+});
+
+// Debit / credit / journal amount columns contain large offsetting entries by
+// design (every debit has an equal-and-opposite credit); the resulting
+// symmetric extremes are expected double-entry structure, not anomalies.
+const financeDebitCreditOutlierRule = makeOutlierContextRule({
+  id: 'finance-debit-credit-outlier',
+  description: 'Outliers in debit/credit/journal-amount columns are reinterpreted as expected offsetting double-entry values.',
+  match: (c) => c.numeric === true && /debit|credit|(^|[_\s-])amount([_\s-]|$)|balance|journal|(^|[_\s-])entry([_\s-]|$)|posting/i.test(c.name || ''),
+  packLabel: 'finance',
+  reason: 'double-entry bookkeeping records large equal-and-opposite debits and credits.',
+});
+
+// ------------------------------------------------------------
 // Pack registry
 // ------------------------------------------------------------
 export const DOMAIN_PACKS = {
@@ -171,6 +362,18 @@ export const DOMAIN_PACKS = {
     label: 'Healthcare',
     description: 'De-identification date-shifting, protected-category merge guards, and binary-flag Benford exemptions for clinical/claims data.',
     rules: [deidDateShiftRule, protectedCategoryRule, binaryBenfordRule],
+  },
+  retail: {
+    name: 'retail',
+    label: 'Retail / E-commerce',
+    description: 'SKU merge guards, return/refund binary-flag Benford exemptions, and seasonal/promotional outlier reinterpretation for retail and e-commerce data.',
+    rules: [retailSkuNoMergeRule, retailReturnFlagBenfordRule, retailSeasonalOutlierRule],
+  },
+  finance: {
+    name: 'finance',
+    label: 'Finance / Accounting',
+    description: 'Ledger/GL-account merge guards, reconciliation binary-flag Benford exemptions, and offsetting debit/credit outlier reinterpretation for financial and accounting data.',
+    rules: [financeLedgerNoMergeRule, financeReconFlagBenfordRule, financeDebitCreditOutlierRule],
   },
 };
 

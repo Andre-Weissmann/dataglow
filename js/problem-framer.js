@@ -145,6 +145,72 @@ export function suggestColumns(intake, answers = {}, columns = []) {
   return suggestions;
 }
 
+// ---- Context Card → validation-finding re-weighting -----------------------
+//
+// The optional Context Card ("What is this data for?") lets a user say, in
+// their own words or by picking a domain, what the dataset is about before the
+// 20 layers run. That free text feeds this pure re-weighting: each layer is
+// scored for how well its focus matches the context, and the layers are
+// reordered so the most relevant surface first. It only changes ORDER — every
+// layer still runs and reports exactly what it always did. With no context the
+// input order is returned unchanged, so the default experience is untouched.
+//
+// A small, hand-authored topic vocabulary maps each validation layer to the
+// plain-language concerns it speaks to. Kept static and offline on purpose,
+// exactly like the reframing question set above — no model call, nothing leaves
+// the browser.
+const LAYER_TOPICS = {
+  unit_tests: ['integrity', 'accuracy', 'correct', 'error', 'defect', 'negative', 'duplicate', 'key', 'reference', 'billing', 'financial', 'amount', 'count'],
+  outlier_detection: ['outlier', 'anomaly', 'extreme', 'spike', 'numeric', 'amount', 'price', 'value', 'revenue', 'sales', 'financial', 'billing', 'cost', 'money'],
+  benford: ['fraud', 'manipulation', 'numeric', 'amount', 'financial', 'billing', 'accounting', 'ledger', 'transaction', 'invoice', 'money', 'accuracy'],
+  upper_bound_sanity: ['bound', 'limit', 'percentage', 'proportion', 'probability', 'numeric', 'range', 'accuracy'],
+  cross_column_logic: ['logic', 'consistency', 'impossible', 'combination', 'relationship', 'accuracy', 'integrity'],
+  correlation_watchdog: ['correlation', 'metric', 'relationship', 'numeric', 'trend', 'financial'],
+  sanity_anchor: ['aggregate', 'total', 'sum', 'accuracy', 'numeric', 'financial'],
+  distribution_drift: ['drift', 'distribution', 'shift', 'trend', 'change', 'numeric', 'monitoring'],
+  physiological_plausibility: ['physiological', 'vital', 'clinical', 'health', 'medical', 'patient', 'plausibility'],
+  missingness_detective: ['missing', 'null', 'blank', 'incomplete', 'coverage', 'completeness'],
+  categorical_consistency: ['category', 'categorical', 'label', 'spelling', 'text', 'naming', 'formatting', 'whitespace', 'merge', 'consistency'],
+  semantic_drift: ['naming', 'label', 'text', 'meaning', 'semantic', 'column', 'formatting'],
+  schema_fingerprint: ['schema', 'structure', 'column', 'type', 'formatting', 'naming'],
+  freshness: ['fresh', 'stale', 'recent', 'timestamp', 'date', 'time', 'monitoring'],
+  historical_drift: ['drift', 'change', 'history', 'reproducibility', 'monitoring'],
+  reproducibility: ['reproducibility', 'deterministic', 'repeat', 'stable', 'consistency'],
+  semantic: ['meaning', 'semantic'],
+};
+
+// Score one layer against the tokenized context terms. A term that hits the
+// layer's curated topic vocabulary counts double; a term that only appears in
+// the layer's own name/description counts single. Higher = more relevant.
+function scoreLayerAgainstContext(def, terms) {
+  if (!def || !def.id) return 0;
+  const topics = LAYER_TOPICS[def.id] || [];
+  const nameToks = tokenize(`${def.name || ''} ${def.desc || ''}`);
+  let score = 0;
+  for (const term of terms) {
+    if (topics.some(t => t === term || t.includes(term) || term.includes(t))) score += 2;
+    else if (nameToks.some(t => t === term || t.includes(term) || term.includes(t))) score += 1;
+  }
+  return score;
+}
+
+// Reorder `layerDefs` (each `{ id, name, desc, ... }`) so the layers most
+// relevant to the Context Card text surface first. Ties keep the original
+// registry order (stable), and an empty/whitespace/unmatched context returns a
+// copy of the input in its original order — so skipping the Context Card leaves
+// ordering exactly as it is today. Pure: never mutates its input.
+export function orderLayersByContext(context, layerDefs = []) {
+  const defs = Array.isArray(layerDefs) ? layerDefs.slice() : [];
+  const ctx = clean(context);
+  if (!ctx || defs.length === 0) return defs;
+  const terms = tokenize(ctx);
+  if (terms.length === 0) return defs;
+  const scored = defs.map((def, i) => ({ def, i, score: scoreLayerAgainstContext(def, terms) }));
+  if (scored.every(s => s.score === 0)) return defs;
+  scored.sort((a, b) => (b.score - a.score) || (a.i - b.i));
+  return scored.map(s => s.def);
+}
+
 // ---- Markdown export ------------------------------------------------------
 
 // Produce a clean, one-page Markdown recap: the original vague question, the

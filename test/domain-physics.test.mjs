@@ -153,6 +153,131 @@ async function main() {
     'physics(e2e): turning the pack off restores the raw fail on the same data');
 
   // ============================================================
+  // Gen 34 Stage B — Domain Pack Marketplace (Retail + Finance)
+  //   The two new packs generalize the swappable pack architecture beyond
+  //   healthcare. Each must fire on matching columns, stay silent on
+  //   non-matching ones, and never break the run if a rule throws.
+  // ============================================================
+
+  // -- listPacks now exposes all four packs for the picker UI.
+  {
+    const names = listPacks().map(p => p.name);
+    ok(['none', 'healthcare', 'retail', 'finance'].every(n => names.includes(n)),
+      'stageB: listPacks() exposes none, healthcare, retail, and finance');
+    ok(DOMAIN_PACKS.retail.rules.length >= 2 && DOMAIN_PACKS.finance.rules.length >= 2,
+      'stageB: retail and finance packs each ship 2-3 rules');
+  }
+
+  // -- Retail: SKU columns get auto-merge disabled; a plain text column stays mergeable.
+  {
+    const clusters = [
+      { column: 'sku', canonical: 'A', variants: [], merges: [], sensitive: false },
+      { column: 'city', canonical: 'Paris', variants: [], merges: [], sensitive: false },
+    ];
+    const layerResults = { categorical_consistency: { status: 'warn', detail: [], clusters } };
+    const columns = [
+      { name: 'sku', type: 'VARCHAR', numeric: false, isBinary01: false },
+      { name: 'city', type: 'VARCHAR', numeric: false, isBinary01: false },
+    ];
+    const summary = applyDomainPack(layerResults, 'retail', { columns });
+    const sku = layerResults.categorical_consistency.clusters.find(c => c.column === 'sku');
+    const city = layerResults.categorical_consistency.clusters.find(c => c.column === 'city');
+    ok(sku.sensitive === true, 'stageB(retail): "sku" cluster flipped to no-merge');
+    ok(city.sensitive === false, 'stageB(retail): non-SKU "city" cluster stays mergeable');
+    ok(summary.annotations.some(a => a.rule === 'retail-sku-no-merge' && a.column === 'sku'),
+      'stageB(retail): an annotation records the SKU no-merge reinterpretation');
+  }
+
+  // -- Retail: a binary return flag is exempted from Benford; a real numeric amount is not.
+  {
+    const layerResults = { benford: { status: 'warn', detail: ['"is_returned": deviates'], flags: ['"is_returned": deviates'], skips: [] } };
+    const columns = [
+      { name: 'is_returned', type: 'BIGINT', numeric: true, isBinary01: true },
+      { name: 'order_total', type: 'DOUBLE', numeric: true, isBinary01: false },
+    ];
+    applyDomainPack(layerResults, 'retail', { columns });
+    const b = layerResults.benford;
+    ok(!b.flags.some(f => /is_returned/.test(f)), 'stageB(retail): binary return flag removed from Benford flags');
+    ok(b.skips.some(s => /binary 0\/1 flag column/.test(s) && /retail pack/.test(s)),
+      'stageB(retail): return flag recorded as an explained retail Benford exemption');
+  }
+
+  // -- Retail: price outliers reinterpreted as seasonal; a non-price numeric column is untouched.
+  {
+    const layerResults = { outlier_detection: { status: 'warn', summary: '2 column(s) contain outliers', detail: ['"unit_price": 4 high (MAD z>3.5)', '"customer_id": 1 above IQR fence'] } };
+    const columns = [
+      { name: 'unit_price', type: 'DOUBLE', numeric: true, isBinary01: false },
+      { name: 'customer_id', type: 'BIGINT', numeric: true, isBinary01: false },
+    ];
+    const summary = applyDomainPack(layerResults, 'retail', { columns });
+    const o = layerResults.outlier_detection;
+    ok(o.detail.some(d => /unit_price/.test(d) && /seasonal|promotions/i.test(d)),
+      'stageB(retail): price outlier replaced with an explanatory seasonal note (not silently dropped)');
+    ok(o.detail.some(d => /customer_id/.test(d) && /IQR fence/.test(d)),
+      'stageB(retail): a non-price column\'s outlier finding is left untouched');
+    ok(summary.annotations.some(a => a.rule === 'retail-seasonal-outlier' && a.column === 'unit_price'),
+      'stageB(retail): the seasonal reinterpretation is annotated');
+  }
+
+  // -- Finance: ledger/account columns get auto-merge disabled.
+  {
+    const clusters = [
+      { column: 'gl_account', canonical: '4000', variants: [], merges: [], sensitive: false },
+      { column: 'notes', canonical: 'misc', variants: [], merges: [], sensitive: false },
+    ];
+    const layerResults = { categorical_consistency: { status: 'warn', detail: [], clusters } };
+    const columns = [
+      { name: 'gl_account', type: 'VARCHAR', numeric: false, isBinary01: false },
+      { name: 'notes', type: 'VARCHAR', numeric: false, isBinary01: false },
+    ];
+    applyDomainPack(layerResults, 'finance', { columns });
+    const acct = layerResults.categorical_consistency.clusters.find(c => c.column === 'gl_account');
+    const notes = layerResults.categorical_consistency.clusters.find(c => c.column === 'notes');
+    ok(acct.sensitive === true, 'stageB(finance): "gl_account" cluster flipped to no-merge');
+    ok(notes.sensitive === false, 'stageB(finance): non-account "notes" cluster stays mergeable');
+  }
+
+  // -- Finance: reconciliation flag exempted from Benford; debit/credit outliers reinterpreted.
+  {
+    const benfordResults = { benford: { status: 'warn', detail: ['"is_reconciled": deviates'], flags: ['"is_reconciled": deviates'], skips: [] } };
+    applyDomainPack(benfordResults, 'finance', { columns: [{ name: 'is_reconciled', type: 'BIGINT', numeric: true, isBinary01: true }] });
+    ok(!benfordResults.benford.flags.some(f => /is_reconciled/.test(f)) &&
+       benfordResults.benford.skips.some(s => /finance pack/.test(s)),
+      'stageB(finance): binary reconciliation flag recorded as an explained finance Benford exemption');
+
+    const outlierResults = { outlier_detection: { status: 'warn', summary: '1 column(s) contain outliers', detail: ['"debit_amount": 6 high (MAD z>3.5)'] } };
+    applyDomainPack(outlierResults, 'finance', { columns: [{ name: 'debit_amount', type: 'DOUBLE', numeric: true, isBinary01: false }] });
+    ok(outlierResults.outlier_detection.status === 'pass' &&
+       outlierResults.outlier_detection.detail.some(d => /debit_amount/.test(d) && /double-entry/i.test(d)),
+      'stageB(finance): the only outlier column is reinterpreted, dropping the layer to pass with a note');
+  }
+
+  // -- Safety contract: a rule that throws is caught and skipped, and the run's
+  //    other rules still apply — a buggy pack rule can never break validation.
+  {
+    const broken = {
+      id: 'retail-broken-test-rule',
+      appliesToLayer: 'categorical_consistency',
+      description: 'Deliberately throws to exercise the engine\'s error isolation.',
+      match: (c) => c.name === 'sku',
+      transform() { throw new Error('deliberate rule failure'); },
+    };
+    DOMAIN_PACKS.retail.rules.push(broken);
+    const clusters = [{ column: 'sku', canonical: 'A', variants: [], merges: [], sensitive: false }];
+    const layerResults = { categorical_consistency: { status: 'warn', detail: [], clusters } };
+    const columns = [{ name: 'sku', type: 'VARCHAR', numeric: false, isBinary01: false }];
+    let threw = false;
+    let summary = null;
+    try { summary = applyDomainPack(layerResults, 'retail', { columns }); }
+    catch { threw = true; }
+    DOMAIN_PACKS.retail.rules.pop(); // restore the pack so later tests are unaffected
+    ok(threw === false && summary && summary.packName === 'retail',
+      'stageB(safety): a rule that throws does not break applyDomainPack');
+    ok(layerResults.categorical_consistency.clusters[0].sensitive === true,
+      'stageB(safety): the healthy SKU no-merge rule still applied despite the broken rule');
+  }
+
+  // ============================================================
   // Feature 2 — Confidence-Calibrated Grades (two-axis)
   //   Integrity  = mechanical well-formedness (unit_tests, cross_column_logic,
   //                categorical_consistency, schema_fingerprint, sanity_anchor,
