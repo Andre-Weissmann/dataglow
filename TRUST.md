@@ -26,6 +26,7 @@ one opaque monolith. The jobs that run on every push and pull request today are:
 - `agents-md-drift` — fails if `AGENTS.md` references a path or script that no longer exists
 - `dependency-freshness` — gates on badly outdated or vulnerable dependencies
 - `supply-chain-hardening` — install-script lockdown plus SBOM generation (see below)
+- `pack-architecture` — domain-pack plugin isolation, manifest validation, and the enforced no-network guard
 - `living-manifest` — keeps the public-facing docs regenerated from a single source of truth
 - `problem-framer`, `export-reporting`, `databricks-connect` — feature-specific logic suites
 - `e2e-smoke`, `tauri-smoke` — end-to-end and desktop-shell smoke builds
@@ -60,6 +61,49 @@ claim you'd have to take on faith. Treat the commit date of this file as its
 it stood when it was last committed. To see how current that is, check this file's
 history or the latest commit on the default branch. For a machine-checkable,
 per-run record, use the CI provenance ledger and verifier described above.
+
+## Domain Packs: Isolated, Auditable, Offline
+
+DATAGLOW's industry "domain packs" (Healthcare, Retail, Finance, plus the OMOP
+and FHIR healthcare profiles) reinterpret the 20 validation layers' raw output in
+context — they never re-run a layer, and they can only annotate or downgrade a
+finding, never hard-fail your data. As of the Gen 40 plugin architecture, each
+pack is a **self-contained plugin module** under [`js/packs/`](js/packs/): a pack
+is one file that *declares* which stable extension points it fills, rather than a
+diff pasted into a single shared engine file. Adding, updating, or removing a pack
+is a new file plus one registration line — two packs can never collide on the same
+file again.
+
+Three properties make this trustworthy rather than merely tidy:
+
+- **Enforced no-network guarantee.** Packs preserve DATAGLOW's zero-upload
+  promise: pack code may only transform data already loaded locally, and must
+  never reach the network. This is no longer a convention. A static source scan
+  ([`js/packs/pack-network-guard.js`](js/packs/pack-network-guard.js)) rejects any
+  pack whose code so much as references `fetch`, `XMLHttpRequest`, `WebSocket`, or
+  similar, and a runtime trap shadows those globals while pack code runs as
+  defence in depth. The `pack-architecture` CI job scans every shipped pack file
+  on every run, and includes a test-only rogue pack that tries to `fetch()` — the
+  test passes only because the guard catches it.
+
+- **Manifest validation & isolation.** Every pack ships a manifest (id, semver
+  version, industry, the extension points it fills, and license/provenance for any
+  synthetic sample data). The loader
+  ([`js/packs/pack-registry.js`](js/packs/pack-registry.js)) rejects a malformed
+  manifest, an unknown extension point, or any *inter-pack dependency* — so
+  removing or updating one pack can never break another.
+
+- **In-app provenance.** When packs load through the registry, the app's domain-pack
+  panel exposes a "Loaded domain packs" disclosure listing each active pack's id,
+  version, filled extension points, and the license/provenance of any sample data
+  it ships — the same information surfaced here, verifiable in the running app.
+
+The migration landed behind the existing feature-flag system (`flags.manifest.json`,
+read by [`js/build/build-flags.js`](js/build/build-flags.js)): the `pluginPacks`
+flag selects the plugin path and can be flipped off to fall back to the legacy
+inline map. Because the plugin path reuses the *same* runtime pack objects, the
+two paths are behaviour-identical — the flag is a rollback lever, not a behaviour
+switch.
 
 ## How This Repo Talks to Agents
 

@@ -5,6 +5,8 @@
 import { state, getActiveDataset, addDataset, setActiveDataset } from './state.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import { loadRegistry } from './capability-registry.js';
+import { configureFlags, isEnabled } from '../build/build-flags.js';
+import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
 import * as validation from '../validation/validation.js';
@@ -42,6 +44,10 @@ import * as sdProof from '../provenance/selective-disclosure-proof.js';
 // ~55 capability modules remain static imports for now — see the follow-up
 // issue tracked in the PR that introduced this registry.
 let domainPhysics;
+// Populated in bootstrapCapabilities when the `pluginPacks` flag is on: the
+// loaded domain-pack plugin registry, used to install the active pack source and
+// to surface loaded-pack provenance on the trust/audit page.
+let packRegistry;
 let devilsAdvocate;
 let syntheticAdversarial;
 import * as pyRuntime from '../runtimes-viz/python-runtime.js';
@@ -1189,6 +1195,8 @@ function initDomainPack() {
     if (getActiveDataset()) runValidation();
   });
 
+  renderLoadedPacksAudit();
+
   const context = $('#context-card-input');
   if (context) {
     context.addEventListener('input', () => {
@@ -1206,6 +1214,36 @@ function initDomainPack() {
   if (lessonToggle) lessonToggle.addEventListener('change', rerender);
   const lessonLevel = $('#micro-lesson-level');
   if (lessonLevel) lessonLevel.addEventListener('change', rerender);
+}
+
+// Trust/audit surface for the Gen 40 plugin architecture: when domain packs are
+// loaded through the plugin registry (the `pluginPacks` flag), list each loaded
+// pack's id, version, industry, filled extension points, and the license /
+// provenance of any sample data it ships. Purely informational and read-only; if
+// the registry is absent (flag off / legacy path) the panel stays hidden so the
+// UI is unchanged.
+function renderLoadedPacksAudit() {
+  const wrap = $('#loaded-packs-audit');
+  const list = $('#loaded-packs-list');
+  if (!wrap || !list) return;
+  const described = packRegistry && typeof packRegistry.describeLoadedPacks === 'function'
+    ? packRegistry.describeLoadedPacks() : [];
+  if (!described.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  list.innerHTML = '';
+  for (const p of described) {
+    const points = (p.extensionPoints || []).join(', ') || 'none';
+    const prov = p.provenance || {};
+    const provBits = [];
+    if (prov.sampleData) provBits.push(`sample data: ${prov.sampleData}`);
+    if (prov.license) provBits.push(`license: ${prov.license}`);
+    if (prov.disclaimer) provBits.push(prov.disclaimer);
+    const row = el('div', { style: 'margin-bottom:var(--space-2);' });
+    row.appendChild(el('div', {}, `${p.industry} — ${p.id} v${p.version}`));
+    row.appendChild(el('div', { style: 'color:var(--color-text-faint);' }, `extension points: ${points}`));
+    if (provBits.length) row.appendChild(el('div', { style: 'color:var(--color-text-faint);' }, provBits.join(' · ')));
+    list.appendChild(row);
+  }
 }
 
 // The Context Card free text ("What is this data for?"), session-only and never
@@ -1293,7 +1331,7 @@ function initCommunityPack() {
   exportBtn.addEventListener('click', () => {
     const sel = $('#domain-pack-select');
     const name = sel ? sel.value : null;
-    const pack = name && domainPhysics.DOMAIN_PACKS[name];
+    const pack = name && domainPhysics.getPackByName(name);
     if (!pack) { toast('Select a domain pack first', 'error'); return; }
     const { ok, json, reason } = communityPack.serializePack(pack);
     if (!ok) {
@@ -1322,7 +1360,7 @@ function initCommunityPack() {
         }
         // Register the validated, compiled pack for this session (in-memory only)
         // and surface it in the pack selector so it can be applied like a built-in.
-        domainPhysics.DOMAIN_PACKS[pack.name] = pack;
+        domainPhysics.registerRuntimePack(pack);
         const sel = $('#domain-pack-select');
         if (sel && !Array.from(sel.options).some(o => o.value === pack.name)) {
           sel.appendChild(el('option', { value: pack.name, title: pack.description }, `${pack.label} (imported)`));
@@ -4221,6 +4259,31 @@ async function bootstrapCapabilities() {
 
     // Universal (browser + desktop) modules migrated to the registry.
     domainPhysics = registry.get('domain-physics');
+
+    // Gen 40 domain-pack plugin architecture (behind the `pluginPacks` flag).
+    // Load the bundled flag manifest the same same-origin way the capability
+    // manifest is loaded, then — if enabled — assemble the active pack source
+    // from the self-contained plugin modules and install it into the engine.
+    // Behaviour-identical to the legacy inline DOMAIN_PACKS map (the plugins
+    // reference the same runtime pack objects); flipping the flag off falls back
+    // to the inline map. Any failure here degrades to the legacy path.
+    try {
+      const flagsUrl = new URL('../../flags.manifest.json', import.meta.url);
+      const flagsRes = await fetch(flagsUrl);
+      if (flagsRes && flagsRes.ok) configureFlags(await flagsRes.json());
+    } catch (flagErr) {
+      console.warn('[pluginPacks] flag manifest unavailable; using legacy pack map:', flagErr);
+    }
+    if (isEnabled('pluginPacks') && domainPhysics && typeof domainPhysics.setPackSource === 'function') {
+      try {
+        packRegistry = loadBuiltInPacks();
+        domainPhysics.setPackSource(packRegistry.toPackMap());
+        window.__dataglowPackRegistry = packRegistry;
+      } catch (packErr) {
+        console.error('[pluginPacks] pack registry load failed; using legacy pack map:', packErr);
+        packRegistry = undefined;
+      }
+    }
     devilsAdvocate = registry.get('devils-advocate');
     syntheticAdversarial = registry.get('synthetic-adversarial');
     swiftPreview = registry.get('swift-preview');
