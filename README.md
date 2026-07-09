@@ -123,8 +123,9 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 | Protocol & interoperability | Conformance | `js/protocol-conformance.js` |
 | Problem framing | Problem Framer | `js/problem-framer.js` |
 | App shell & data engine | Capability registry | `js/capability-registry.js` |
+| Export & reporting | Universal export (Excel + PDF) | `js/export-report.js`, `js/export-delivery.js` |
 
-_30 capabilities across 17 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
+_31 capabilities across 18 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
 <!-- CAPABILITY_TABLE_END -->
 
 ## Known Simplifications
