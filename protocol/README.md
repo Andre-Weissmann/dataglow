@@ -26,9 +26,9 @@ validator in any language can consume them.
 | **StoryOutput** | `schema/story-output.schema.json` | A data narrative plus per-claim confidence scoring. |
 
 `ProvenanceAttestation` and `GradeResult` mirror the app's runtime objects
-**exactly** (from `js/provenance.js` and `js/calibrated-grades.js`).
+**exactly** (from `js/provenance/provenance.js` and `js/grades/calibrated-grades.js`).
 `ValidationRun` and `StoryOutput` are stable *envelopes* derived deterministically
-from internal objects (see `js/protocol-conformance.js`), so the wire shape does
+from internal objects (see `js/protocol/protocol-conformance.js`), so the wire shape does
 not churn when internal bookkeeping changes.
 
 ## Validating a payload

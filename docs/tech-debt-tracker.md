@@ -40,7 +40,7 @@ Each entry is one `###` block under **Entries** with these fields:
   - `wontfix` means a deliberate decision to accept it — record *why*, so it isn't
     re-raised.
 
-Keep entries short. Link related modules with backtick paths (e.g. `js/utils.js`).
+Keep entries short. Link related modules with backtick paths (e.g. `js/app-shell/utils.js`).
 Newest entries go at the bottom of **Entries**.
 
 ## Entries
@@ -71,21 +71,21 @@ Newest entries go at the bottom of **Entries**.
   local `const` in 12 separate `js/` modules, in **three divergent variants**:
   the short set `['DOUBLE','BIGINT','INTEGER','HUGEINT','FLOAT']` (7 files), a
   medium set adding `'DECIMAL','REAL'` (4 files), and one extended set in
-  `js/synthetic-twin.js` also adding `SMALLINT/TINYINT/UINTEGER/UBIGINT`. Because
+  `js/privacy/synthetic-twin.js` also adding `SMALLINT/TINYINT/UINTEGER/UBIGINT`. Because
   the variants disagree, the same DuckDB column type (e.g. `DECIMAL`, `SMALLINT`)
   is treated as numeric by some validation layers and non-numeric by others. A
-  single shared constant (e.g. exported from `js/utils.js`) would remove the drift.
+  single shared constant (e.g. exported from `js/app-shell/utils.js`) would remove the drift.
 - **Severity:** medium
-- **Area:** `js/active-learning.js`, `js/missingness.js`, `js/predictive-anomaly.js`,
-  `js/digital-twin.js`, `js/synthetic-adversarial.js`, `js/isolation-forest.js`,
-  `js/spc-control.js`, `js/golden-signals.js`, `js/federated-fingerprint.js`,
-  `js/ondevice-ml.js`, `js/synthetic-twin.js`, `js/self-learning-rules.js`
+- **Area:** `js/anomaly/active-learning.js`, `js/validation/missingness.js`, `js/anomaly/predictive-anomaly.js`,
+  `js/simulation/digital-twin.js`, `js/privacy/synthetic-adversarial.js`, `js/anomaly/isolation-forest.js`,
+  `js/anomaly/spc-control.js`, `js/grades/golden-signals.js`, `js/federated/federated-fingerprint.js`,
+  `js/anomaly/ondevice-ml.js`, `js/privacy/synthetic-twin.js`, `js/learning/self-learning-rules.js`
 - **Status:** open
 
 ### 2026-07-08 — Two overlapping missingness modules classify MCAR/MAR/MNAR
 
-- **Description:** Both `js/missingness.js` (`analyzeMissingness`, wired into the
-  summary/Golden-Signals path in `js/main.js`) and `js/missingness-detective.js`
+- **Description:** Both `js/validation/missingness.js` (`analyzeMissingness`, wired into the
+  summary/Golden-Signals path in `js/app-shell/main.js`) and `js/validation/missingness-detective.js`
   (the standalone validation layer) independently implement Rubin's
   MCAR/MAR/MNAR missingness taxonomy with their own thresholds and group-variation
   heuristics. The concepts and cut-offs are maintained twice; they can drift apart
@@ -94,7 +94,7 @@ Newest entries go at the bottom of **Entries**.
   shared heuristic if either is next touched.
 - **Date:** 2026-07-08
 - **Severity:** low
-- **Area:** `js/missingness.js`, `js/missingness-detective.js`
+- **Area:** `js/validation/missingness.js`, `js/validation/missingness-detective.js`
 - **Status:** open
 
 ### 2026-07-08 — Flat `js/` directory has grown to ~60 top-level modules

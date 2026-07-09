@@ -30,8 +30,8 @@ import {
   aggregateRound, aggregateSecureSum, selectGossipPeers, decideTransport,
   isExpired, pruneCoordinationEntries, upsertPresence, appendRelayUpdate, buildRelayPayload,
   buildContributionReceipt, hashUpdate, isWebRTCSupported, mulberry32, seedFromString,
-} from '../js/federated-learning.js';
-import { FederatedCoordinator } from '../js/federated-transport.js';
+} from '../js/federated/federated-learning.js';
+import { FederatedCoordinator } from '../js/federated/federated-transport.js';
 
 // ---------- tiny test harness ----------
 let passed = 0, failed = 0;

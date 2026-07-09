@@ -1027,11 +1027,11 @@
      (MIT) and SheetJS/xlsx (Apache-2.0) are used on every page load, so they are
      vendored under assets/ alongside DuckDB-WASM. Pyodide (Python), WebR (R) and
      WebLLM (Story) are large on-demand runtimes fetched from public CDNs only when
-     you open those tabs — see js/python-runtime.js, js/r-runtime.js, js/ondevice-llm.js. -->
+     you open those tabs — see js/runtimes-viz/python-runtime.js, js/runtimes-viz/r-runtime.js, js/narrative/ondevice-llm.js. -->
 <script src="assets/plotly/plotly-2.35.2.min.js"></script>
 <script src="assets/xlsx/xlsx-0.18.5.full.min.js"></script>
 
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/app-shell/main.js"></script>
 
 <!-- ============ PWA: service worker + install affordance ============ -->
 <script>

@@ -16,14 +16,14 @@
 
 import { createTableFromObjects, getTableSchema, runQuery, closeConnection } from './node-duckdb-engine.mjs';
 
-import { createProvenanceChain, hashBytes } from '../js/provenance.js';
-import { attackAnalysis } from '../js/devils-advocate.js';
-import { buildStoryClaims } from '../js/story.js';
-import { scoreClaimConfidence } from '../js/validation.js';
-import { explainAnomaly, scoreMultivariateAnomalies } from '../js/ondevice-ml.js';
-import { generateAdversarialDataset } from '../js/synthetic-adversarial.js';
-import { buildGoldenDataset } from '../js/loaders.js';
-import { runAllLayers } from '../js/validation.js';
+import { createProvenanceChain, hashBytes } from '../js/provenance/provenance.js';
+import { attackAnalysis } from '../js/analysis-robustness/devils-advocate.js';
+import { buildStoryClaims } from '../js/narrative/story.js';
+import { scoreClaimConfidence } from '../js/validation/validation.js';
+import { explainAnomaly, scoreMultivariateAnomalies } from '../js/anomaly/ondevice-ml.js';
+import { generateAdversarialDataset } from '../js/privacy/synthetic-adversarial.js';
+import { buildGoldenDataset } from '../js/app-shell/loaders.js';
+import { runAllLayers } from '../js/validation/validation.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

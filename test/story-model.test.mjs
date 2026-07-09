@@ -9,8 +9,8 @@
 //
 // RUN WITH:  node test/story-model.test.mjs
 
-import { buildStoryModelPrompt, MODEL_ID, MODEL_LABEL } from '../js/ondevice-llm.js';
-import { generateStory, buildStoryClaims, MODEL_PROVIDERS, generateLocalStory } from '../js/story.js';
+import { buildStoryModelPrompt, MODEL_ID, MODEL_LABEL } from '../js/narrative/ondevice-llm.js';
+import { generateStory, buildStoryClaims, MODEL_PROVIDERS, generateLocalStory } from '../js/narrative/story.js';
 
 let passed = 0;
 let failed = 0;

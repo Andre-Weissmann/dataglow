@@ -18,8 +18,8 @@ import {
   compareDistributions,
   schemaSignature,
   runAllLayers,
-} from '../js/validation.js';
-import { clearLedger } from '../js/assumption-ledger.js';
+} from '../js/validation/validation.js';
+import { clearLedger } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

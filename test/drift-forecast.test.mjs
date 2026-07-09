@@ -22,9 +22,9 @@ import {
   formatStatValue,
   MIN_FORECAST_HISTORY,
   FORECAST_HISTORY_CAP,
-} from '../js/drift-forecast.js';
-import { runAllLayers } from '../js/validation.js';
-import { clearLedger } from '../js/assumption-ledger.js';
+} from '../js/drift/drift-forecast.js';
+import { runAllLayers } from '../js/validation/validation.js';
+import { clearLedger } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

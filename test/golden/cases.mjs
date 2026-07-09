@@ -25,19 +25,19 @@ import { createTableFromObjects, getTableSchema } from '../node-duckdb-engine.mj
 import * as engine from '../node-duckdb-engine.mjs';
 
 // ---- production modules under test (resolved through the loader hook) ----
-import { buildGroupedImputationSQL, previewGroupedImputation } from '../../js/imputation.js';
-import { scanFormatIssues } from '../../js/format-fingerprint.js';
-import { runAllLayers } from '../../js/validation.js';
-import { computeCalibratedGrades } from '../../js/calibrated-grades.js';
+import { buildGroupedImputationSQL, previewGroupedImputation } from '../../js/cleaning/imputation.js';
+import { scanFormatIssues } from '../../js/cleaning/format-fingerprint.js';
+import { runAllLayers } from '../../js/validation/validation.js';
+import { computeCalibratedGrades } from '../../js/grades/calibrated-grades.js';
 import {
   runCrossColumnChecks,
   detectDatePairs, detectRangePairs, detectStatusPairs,
   detectSexColumn, detectPregnancyColumns, detectAgeColumn, detectMaritalColumn,
   detectAdultOnlyFlags, isMaleValue, isAffirmative, maritalImpliesAdult, isAbnormalStatus,
-} from '../../js/cross-column-consistency.js';
+} from '../../js/validation/cross-column-consistency.js';
 import {
   runUpperBoundChecks, matchBoundedType, decideBound,
-} from '../../js/upper-bound-sanity.js';
+} from '../../js/validation/upper-bound-sanity.js';
 
 // ------------------------------------------------------------
 // Fixed sample datasets. These are the "golden inputs" — never change them

@@ -18,10 +18,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { validate, buildRegistry } from '../protocol/validator.mjs';
-import { createProvenanceChain } from '../js/provenance.js';
-import { computeCalibratedGrades } from '../js/calibrated-grades.js';
-import { buildStoryClaims } from '../js/story.js';
-import { toValidationRun, toStoryOutput, toDataset } from '../js/protocol-conformance.js';
+import { createProvenanceChain } from '../js/provenance/provenance.js';
+import { computeCalibratedGrades } from '../js/grades/calibrated-grades.js';
+import { buildStoryClaims } from '../js/narrative/story.js';
+import { toValidationRun, toStoryOutput, toDataset } from '../js/protocol/protocol-conformance.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaDir = join(here, '..', 'protocol', 'schema');

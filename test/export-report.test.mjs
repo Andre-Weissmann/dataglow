@@ -20,13 +20,13 @@ import {
   buildWorkbookBlob,
   buildBlobFor,
   exportDataset,
-} from '../js/export-report.js';
+} from '../js/export/export-report.js';
 import {
   selectAdapter,
   deliverViaBrowser,
   deliverViaDesktop,
   deliverViaMobile,
-} from '../js/export-delivery.js';
+} from '../js/export/export-delivery.js';
 
 let passed = 0;
 let failed = 0;
@@ -214,8 +214,8 @@ async function main() {
     const here = dirname(fileURLToPath(import.meta.url));
     const netRe = /\b(fetch|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon)\b/;
     for (const f of ['export-report.js', 'export-delivery.js']) {
-      const src = readFileSync(join(here, '..', 'js', f), 'utf8');
-      ok(!netRe.test(src), `zero-upload: js/${f} contains no network primitive`);
+      const src = readFileSync(join(here, '..', 'js', 'export', f), 'utf8');
+      ok(!netRe.test(src), `zero-upload: js/export/${f} contains no network primitive`);
     }
   }
 

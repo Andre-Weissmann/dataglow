@@ -14,7 +14,7 @@ import {
   checkCrossColumnLogic,
   checkSanityAnchor,
   runAmbientChecks,
-} from '../js/ambient-validation.worker.js';
+} from '../js/ambient/ambient-validation.worker.js';
 
 let passed = 0;
 let failed = 0;

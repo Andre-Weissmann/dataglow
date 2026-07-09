@@ -3,7 +3,7 @@
   "$id": "https://dataglow.app/protocol/1.0.0/validation-run.schema.json",
   "title": "ValidationRun",
   "version": "1.0.0",
-  "description": "A stable, external-client-facing envelope describing one run of DATAGLOW's validation layers over a dataset. This is a derived contract: it is produced deterministically from the app's internal `results` map (see toValidationRun() in js/protocol-conformance.js) rather than exposing that internal map verbatim, so the wire shape stays stable even if internal layer bookkeeping changes.",
+  "description": "A stable, external-client-facing envelope describing one run of DATAGLOW's validation layers over a dataset. This is a derived contract: it is produced deterministically from the app's internal `results` map (see toValidationRun() in js/protocol/protocol-conformance.js) rather than exposing that internal map verbatim, so the wire shape stays stable even if internal layer bookkeeping changes.",
   "type": "object",
   "required": ["protocolVersion", "generatedAt", "layers"],
   "properties": {

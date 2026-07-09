@@ -29,12 +29,15 @@ export const GOLDEN_PRINCIPLES = {
   DANGLING_DOC_REF:
     'docs/*.md must not reference js/ files or fenced `func()` names that no longer exist in js/.',
   JS_DIR_GROWTH:
-    'The flat js/ directory should not grow unbounded; growth past the tracked baseline should be noted in the tracker.',
+    'The js/ module count should not grow unbounded; growth past the tracked baseline should be noted in the tracker.',
 };
 
-// The baseline count of top-level js/ modules recorded in the tracker on
-// 2026-07-08. The scan only *reports* growth beyond this; it never edits code.
-export const JS_DIR_BASELINE = 60;
+// The baseline count of js/ source modules (recursed into the domain
+// subfolders) recorded in the tracker. Gen 37 reorganized the formerly flat
+// js/ directory into domain-grouped subfolders; the module count is unchanged
+// by that move, so this counts every module across the subfolders. The scan
+// only *reports* growth beyond this; it never edits code.
+export const JS_DIR_BASELINE = 69;
 
 const TODO_MARKER = /\b(TODO|FIXME|HACK|XXX)\b/;
 const SOURCE_EXT = /\.(m?js)$/;
@@ -51,15 +54,12 @@ function listFiles(dir) {
   return out;
 }
 
-// Top-level (non-recursive) source modules directly under js/.
+// Every source module shipped under js/, recursed into the domain subfolders.
 function listTopLevelJs(jsDir) {
   if (!existsSync(jsDir)) return [];
-  return readdirSync(jsDir)
-    .filter((n) => SOURCE_EXT.test(n))
-    .filter((n) => {
-      try { return statSync(join(jsDir, n)).isFile(); }
-      catch { return false; }
-    })
+  return listFiles(jsDir)
+    .filter((f) => SOURCE_EXT.test(f))
+    .map((f) => relative(jsDir, f))
     .sort();
 }
 
@@ -99,10 +99,11 @@ function checkDanglingDocRefs(docsDir, jsDir) {
     if (!doc.endsWith('.md')) continue;
     const text = readFileSync(doc, 'utf8');
 
-    // (a) js/<name> path references that don't exist on disk.
-    for (const m of text.matchAll(/js\/([A-Za-z0-9_.-]+\.m?js)/g)) {
+    // (a) js/<name> or js/<area>/<name> path references that don't exist on disk.
+    for (const m of text.matchAll(/js\/([A-Za-z0-9_.\/-]+\.m?js)/g)) {
       const name = m[1];
-      if (!jsFileNames.has(name)) {
+      const base = name.includes('/') ? name.split('/').pop() : name;
+      if (!jsFileNames.has(base)) {
         findings.push({ principle: 'DANGLING_DOC_REF', doc, kind: 'file', ref: `js/${name}` });
       }
     }
@@ -122,7 +123,7 @@ function checkDanglingDocRefs(docsDir, jsDir) {
   return findings;
 }
 
-// --- Principle 3: flat js/ directory growth -----------------------------------
+// --- Principle 3: js/ module growth -----------------------------------
 function checkJsDirGrowth(jsDir) {
   const files = listTopLevelJs(jsDir);
   const count = files.length;
@@ -132,7 +133,7 @@ function checkJsDirGrowth(jsDir) {
       principle: 'JS_DIR_GROWTH',
       count,
       baseline: JS_DIR_BASELINE,
-      note: `Top-level js/ modules grew from baseline ${JS_DIR_BASELINE} to ${count}. Consider recording a grouping plan in docs/tech-debt-tracker.md.`,
+      note: `js/ modules grew from baseline ${JS_DIR_BASELINE} to ${count}. Consider recording a grouping plan in docs/tech-debt-tracker.md.`,
     },
   ];
 }
@@ -180,7 +181,7 @@ export function renderMarkdown(result) {
   lines.push('## DATAGLOW — Entropy-Reduction Scan (read-only)');
   lines.push('');
   lines.push(`- Generated: \`${result.generatedAt}\``);
-  lines.push(`- Top-level \`js/\` modules: **${result.jsFileCount}** (baseline ${JS_DIR_BASELINE})`);
+  lines.push(`- \`js/\` modules: **${result.jsFileCount}** (baseline ${JS_DIR_BASELINE})`);
   lines.push(`- Tracker present: ${result.trackerPresent ? 'yes' : 'NO — docs/tech-debt-tracker.md missing'}`);
   lines.push(`- Total findings: **${result.totalFindings}**`);
   lines.push('');
@@ -199,7 +200,7 @@ export function renderMarkdown(result) {
   else for (const f of danglingDocRefs) lines.push(`- \`${f.doc}\` → missing ${f.kind} \`${f.ref}\``);
   lines.push('');
 
-  lines.push('### Flat js/ directory growth');
+  lines.push('### js/ module growth');
   if (jsDirGrowth.length === 0) lines.push(`_Within baseline (${JS_DIR_BASELINE})._`);
   else for (const f of jsDirGrowth) lines.push(`- ${f.note}`);
   lines.push('');

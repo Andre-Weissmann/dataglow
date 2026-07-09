@@ -18,12 +18,12 @@
 
 import { createTableFromObjects, getTableSchema, closeConnection } from './node-duckdb-engine.mjs';
 
-import { runAllLayers } from '../js/validation.js';
+import { runAllLayers } from '../js/validation/validation.js';
 import {
   inferPerturbations, perturbRows, hasActivePerturbation, gradeDelta,
   isNumericType, isCategoricalCol,
-} from '../js/digital-twin.js';
-import { clearLedger } from '../js/assumption-ledger.js';
+} from '../js/simulation/digital-twin.js';
+import { clearLedger } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

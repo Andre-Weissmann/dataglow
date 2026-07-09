@@ -12,7 +12,7 @@
 // never any raw data.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { pruneCoordinationEntries, COORDINATION_TTL_MS } from '../../js/federated-learning.js';
+import { pruneCoordinationEntries, COORDINATION_TTL_MS } from '../../js/federated/federated-learning.js';
 
 const FILE = process.env.COORDINATION_FILE || 'coordination.json';
 const now = Date.now();

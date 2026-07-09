@@ -16,10 +16,10 @@
 // Engine-free (no DuckDB): every unit under test is pure JS. This mirrors the
 // self-learning-rules / adaptive-priority suites.
 
-import { SignalStore, SIGNAL_TYPES, VERDICTS } from '../js/signal-store.js';
-import { SelfLearningModel, MIN_COLUMN_VERDICT } from '../js/self-learning-rules.js';
-import { suppressAnomaliesWithVerdicts, describeSuppression } from '../js/predictive-anomaly.js';
-import { enrichForecastWithSignals } from '../js/drift-forecast.js';
+import { SignalStore, SIGNAL_TYPES, VERDICTS } from '../js/learning/signal-store.js';
+import { SelfLearningModel, MIN_COLUMN_VERDICT } from '../js/learning/self-learning-rules.js';
+import { suppressAnomaliesWithVerdicts, describeSuppression } from '../js/anomaly/predictive-anomaly.js';
+import { enrichForecastWithSignals } from '../js/drift/drift-forecast.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

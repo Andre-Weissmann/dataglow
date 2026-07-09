@@ -21,7 +21,7 @@ import {
   suggestColumns,
   buildExportMarkdown,
   orderLayersByContext,
-} from '../js/problem-framer.js';
+} from '../js/problem-framing/problem-framer.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

@@ -11,7 +11,7 @@
 import {
   detectPlatform, moduleKey, buildRouting, loadRegistry,
   PLATFORM_BROWSER, PLATFORM_DESKTOP, VALID_PLATFORMS,
-} from '../js/capability-registry.js';
+} from '../js/app-shell/capability-registry.js';
 
 let passed = 0;
 let failed = 0;

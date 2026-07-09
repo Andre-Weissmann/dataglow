@@ -3,7 +3,7 @@
   "$id": "https://dataglow.app/protocol/1.0.0/provenance-attestation.schema.json",
   "title": "ProvenanceAttestation",
   "version": "1.0.0",
-  "description": "A tamper-evident, hash-chained record of a dataset's chain of custody, plus a SHA-256 digest of its canonical core. Mirrors EXACTLY the object produced by buildAttestation() in js/provenance.js. This is a cryptographic integrity record only — NOT a notarization, and NOT a legal, clinical, or regulatory determination. The `version` field here is the attestation document format version (integer 1), distinct from the semver protocol version.",
+  "description": "A tamper-evident, hash-chained record of a dataset's chain of custody, plus a SHA-256 digest of its canonical core. Mirrors EXACTLY the object produced by buildAttestation() in js/provenance/provenance.js. This is a cryptographic integrity record only — NOT a notarization, and NOT a legal, clinical, or regulatory determination. The `version` field here is the attestation document format version (integer 1), distinct from the semver protocol version.",
   "type": "object",
   "required": ["kind", "version", "generatedAt", "algorithm", "dataset", "chain", "summary", "digest", "notarization"],
   "properties": {

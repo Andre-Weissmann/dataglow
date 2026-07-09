@@ -26,10 +26,10 @@ import {
   trendPerUploadPct,
   MIN_RANGE_HISTORY,
   FLAT_PCT_EPSILON,
-} from '../js/expected-range.js';
-import { forecastDriftReport, MIN_FORECAST_HISTORY } from '../js/drift-forecast.js';
-import { runAllLayers } from '../js/validation.js';
-import { clearLedger } from '../js/assumption-ledger.js';
+} from '../js/validation/expected-range.js';
+import { forecastDriftReport, MIN_FORECAST_HISTORY } from '../js/drift/drift-forecast.js';
+import { runAllLayers } from '../js/validation/validation.js';
+import { clearLedger } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

@@ -19,7 +19,7 @@ import {
   isTerminalState, normalizeHost, statementsUrl, statementUrl,
   buildExecuteRequest, buildPollRequest, describeHttpError,
   stateFailureMessage, parseResultSet,
-} from '../js/databricks-connect.js';
+} from '../js/app-shell/databricks-connect.js';
 
 let passed = 0;
 let failed = 0;

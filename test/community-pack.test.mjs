@@ -21,8 +21,8 @@ import {
   exportPack,
   serializePack,
   exportablePackNames,
-} from '../js/community-pack.js';
-import { DOMAIN_PACKS, PACK_RULE_LAYERS, applyDomainPack } from '../js/domain-physics.js';
+} from '../js/teaching/community-pack.js';
+import { DOMAIN_PACKS, PACK_RULE_LAYERS, applyDomainPack } from '../js/validation/domain-physics.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

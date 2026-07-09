@@ -42,17 +42,23 @@ const MANIFEST_NAME = 'capability-map.manifest.json';
 // manifest's `_platforms` note. "mobile" is forward-looking and unused today.
 const VALID_PLATFORMS = ['browser', 'desktop', 'mobile'];
 
-// Top-level (non-recursive) source modules directly under js/. These are the
-// units the underclaim heuristic expects the manifest to account for.
+// Every source module shipped under js/, recursed into the domain subfolders
+// (e.g. `validation/validation.js`). Paths are returned relative to js/ so the
+// underclaim heuristic can rebuild the manifest-style `js/<area>/<name>` key.
 function listTopLevelJs(jsDir) {
   if (!existsSync(jsDir)) return [];
-  return readdirSync(jsDir)
-    .filter((n) => SOURCE_EXT.test(n))
-    .filter((n) => {
-      try { return statSync(join(jsDir, n)).isFile(); }
-      catch { return false; }
-    })
-    .sort();
+  const out = [];
+  const walk = (dir, prefix) => {
+    for (const n of readdirSync(dir)) {
+      const full = join(dir, n);
+      let st;
+      try { st = statSync(full); } catch { continue; }
+      if (st.isDirectory()) walk(full, prefix ? `${prefix}/${n}` : n);
+      else if (SOURCE_EXT.test(n)) out.push(prefix ? `${prefix}/${n}` : n);
+    }
+  };
+  walk(jsDir, '');
+  return out.sort();
 }
 
 function escapeRegExp(s) {
@@ -77,7 +83,7 @@ function collectDocRefs(root, docPaths) {
     const full = join(root, rel);
     if (!existsSync(full)) continue;
     const text = readFileSync(full, 'utf8');
-    for (const m of text.matchAll(/js\/([A-Za-z0-9_.-]+\.m?js)/g)) {
+    for (const m of text.matchAll(/js\/([A-Za-z0-9_.\/-]+\.m?js)/g)) {
       const ref = `js/${m[1]}`;
       if (!refs.has(ref)) refs.set(ref, []);
       if (!refs.get(ref).includes(rel)) refs.get(ref).push(rel);

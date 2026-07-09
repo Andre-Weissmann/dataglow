@@ -18,7 +18,7 @@
 // transparently redirects that to the native node-duckdb-engine.mjs.
 
 import { createTableFromObjects, getTableSchema, runQuery, closeConnection } from './node-duckdb-engine.mjs';
-import { scorePredictiveAnomalies, selectFeatures, describeAnomaly, MAX_ROWS } from '../js/predictive-anomaly.js';
+import { scorePredictiveAnomalies, selectFeatures, describeAnomaly, MAX_ROWS } from '../js/anomaly/predictive-anomaly.js';
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {

@@ -16,11 +16,11 @@
 // Pure crypto (SHA-256 via crypto.subtle) — no DuckDB engine needed, so the
 // fixture is a plain JS results map like the other pure-module tests.
 
-import { computeCalibratedGrades } from '../js/calibrated-grades.js';
+import { computeCalibratedGrades } from '../js/grades/calibrated-grades.js';
 import {
   generateProof, verifyProof, buildClaims, hashLeaf,
   buildMerkleTree, merkleProof, rootFromProof, SD_PROOF_KIND,
-} from '../js/selective-disclosure-proof.js';
+} from '../js/provenance/selective-disclosure-proof.js';
 
 // ---------- tiny test harness (mirrors the other test files) ----------
 let passed = 0, failed = 0;

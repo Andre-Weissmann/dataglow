@@ -23,7 +23,7 @@ import {
   detectAgeColumn, detectMaritalColumn, detectAdultOnlyFlags, detectStatusPairs,
   isMaleValue, isAffirmative, maritalImpliesAdult, isAbnormalStatus,
   runCrossColumnChecks,
-} from '../js/cross-column-consistency.js';
+} from '../js/validation/cross-column-consistency.js';
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {

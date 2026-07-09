@@ -123,7 +123,7 @@ are tagged with the `good-first-task` label.
   — writing this page is a great orientation task, because the "App shell & data
   engine" area is the spine of the whole application (routing, state, the query
   engine, file loading); documenting it teaches you how DATAGLOW fits together.
-- [#50 — Migrate remaining `js/main.js` feature modules onto the capability registry](https://github.com/Andre-Weissmann/dataglow/issues/50)
+- [#50 — Migrate remaining `js/app-shell/main.js` feature modules onto the capability registry](https://github.com/Andre-Weissmann/dataglow/issues/50)
   — a code task rather than a docs task, and explicitly incremental: unmigrated
   modules keep working, so you can migrate a single module as a first contribution.
   The issue lists exactly which modules remain and points at the pattern to follow.
