@@ -10,7 +10,7 @@
 //                             drift, and a real validation-layer PASS→FAIL flip
 //                             between two versions of the golden dataset
 //
-// RUN WITH:  node --import ./test/duckdb-loader-hook.mjs test/gen8-batch3.test.mjs
+// RUN WITH:  node --import ./test/duckdb-loader-hook.mjs test/trust-collaboration-suite.test.mjs
 //
 // NOTE (test data): buildCleanGoldenVariant() below constructs a clean, 100-row
 // dataset with the golden schema but no seeded defects. It is the "before"
