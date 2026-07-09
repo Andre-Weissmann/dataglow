@@ -78,6 +78,17 @@
       "files": ["js/domain-physics.js", "js/expected-range.js"]
     },
     {
+      "id": "validation-healthcare-standards",
+      "platforms": ["browser", "desktop"],
+      "area": "Validation layers",
+      "name": "Healthcare standards bridge",
+      "files": ["js/health-standards.js"],
+      "symbols": [
+        { "file": "js/health-standards.js", "name": "recognizeOmopTable" },
+        { "file": "js/health-standards.js", "name": "flattenFhirBundle" }
+      ]
+    },
+    {
       "id": "anomaly-detectors",
       "platforms": ["browser", "desktop"],
       "area": "Anomaly & outlier detection",

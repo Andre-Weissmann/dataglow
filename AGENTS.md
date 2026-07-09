@@ -109,6 +109,26 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### The Standards Bridge — recognise healthcare-data standards, reuse the existing engines
+
+`js/health-standards.js` is a schema-recognition + concept-mapping seam, not a new
+validation engine. It recognises the shape of two common healthcare-data standards —
+the OMOP Common Data Model (five in-scope tables: PERSON, CONDITION_OCCURRENCE,
+DRUG_EXPOSURE, MEASUREMENT, OBSERVATION_PERIOD) and HL7 FHIR bundles (Patient,
+Condition, Observation, Encounter) — and maps their long-format concepts onto the
+tabular, one-column-per-measurement shape the existing layers expect. Every plausibility
+bound it uses is imported from the Physiological Plausibility layer's `VITALS` table and
+every missingness cutoff from the Missingness Detective's `MIN_MISSING_RATE`; it defines
+no bounds of its own and adds no ML. The two Domain Packs it feeds (`omop`, `fhir`) are
+plain entries in `js/domain-physics.js` built the same way as the Retail/Finance packs and
+carry a shared non-clinical medical disclaimer (`MEDICAL_DISCLAIMER`) surfaced wherever
+their findings show. When you extend it, keep the guardrail: recognise and route, never
+re-implement a bound or a check the layers already own, and never let a finding read as a
+clinical determination. Scope is deliberately narrow — the five OMOP tables and four FHIR
+resources above only; full-CDM / full-FHIR support and any pack marketplace are out of
+scope by design. Field/table names are the standards' public identifiers; all logic,
+wording, and the synthetic sample fixtures are original to DATAGLOW.
+
 ### CI Provenance Ledger — self-contained, offline-verifiable build provenance
 
 Every CI run that lands on `main` appends one hash-linked entry to the append-only

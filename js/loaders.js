@@ -7,6 +7,7 @@ import { state, addDataset } from './state.js';
 import { sanitizeTableName, toast } from './utils.js';
 import * as engine from './duckdb-engine.js';
 import { startProvenance, hashBytes } from './provenance.js';
+import { buildOmopSample, buildFhirSample, flattenFhirBundle } from './health-standards.js';
 
 function uniqueTableName(baseName) {
   const existingTables = new Set(state.datasets.map(d => d.table));
@@ -105,6 +106,54 @@ export async function loadRowsAsDataset({ name, columns, rows, source = 'rows', 
     toast(`Failed to load ${name}: ${err.message}`, 'error');
     throw err;
   }
+}
+
+// ============================================================
+// Healthcare standards sample datasets (Gen 33 — The Standards Bridge)
+// ============================================================
+// Load the synthetic, clearly-labelled OMOP / FHIR sample fixtures through the
+// SAME in-memory ingestion path a file upload uses (loadRowsAsDataset), so the
+// standard tables/resources become ordinary local tables the existing 20 layers
+// and the OMOP/FHIR Domain Packs run against. All data is fabricated — never
+// real PHI — and carries a couple of planted data-quality issues to demonstrate
+// the packs' findings. See js/health-standards.js.
+
+// Load the five in-scope OMOP CDM tables as separate local datasets.
+export async function loadOmopSampleDataset() {
+  const tables = buildOmopSample();
+  const loaded = [];
+  for (const [table, rows] of Object.entries(tables)) {
+    if (!rows.length) continue;
+    const ds = await loadRowsAsDataset({
+      name: `omop_sample_${table}.csv`,
+      columns: Object.keys(rows[0]),
+      rows,
+      source: 'omop-sample',
+      meta: { standard: 'OMOP CDM', table, synthetic: true },
+    });
+    loaded.push(ds);
+  }
+  toast(`OMOP CDM sample loaded — ${loaded.length} tables (synthetic, with planted issues)`, 'success');
+  return loaded;
+}
+
+// Flatten the synthetic FHIR Bundle and load each resource type as a dataset.
+export async function loadFhirSampleDataset() {
+  const flat = flattenFhirBundle(buildFhirSample());
+  const loaded = [];
+  for (const [resource, rows] of Object.entries(flat)) {
+    if (!rows.length) continue;
+    const ds = await loadRowsAsDataset({
+      name: `fhir_sample_${resource}.csv`,
+      columns: Object.keys(rows[0]),
+      rows,
+      source: 'fhir-sample',
+      meta: { standard: 'HL7 FHIR', resource, synthetic: true },
+    });
+    loaded.push(ds);
+  }
+  toast(`FHIR sample loaded — ${loaded.length} resource tables (synthetic, with planted issues)`, 'success');
+  return loaded;
 }
 
 async function loadExcel(arrayBuffer, tableName) {
