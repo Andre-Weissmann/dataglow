@@ -275,6 +275,8 @@
           <div class="panel-subtitle">The 20 validation layers — DATAGLOW's heartbeat</div>
         </div>
         <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
+          <label for="context-card-input" style="font-size:var(--text-sm); color:var(--color-text-muted);" title="Optional. Say in a few words what this data is for (e.g. 'for billing accuracy', 'retail sales', 'patient vitals') and DATAGLOW surfaces the most relevant validation layers first. Purely a display re-ordering — every layer still runs, and skipping this leaves the order unchanged. Nothing is stored or uploaded.">What is this data for?</label>
+          <input id="context-card-input" type="text" class="input" style="width:220px; padding:6px 10px;" placeholder="optional — e.g. for billing accuracy" data-testid="input-context-card" />
           <label for="domain-pack-select" style="font-size:var(--text-sm); color:var(--color-text-muted);" title="A swappable domain pack reinterprets the 20 layers' raw output in context (e.g. de-identification date-shifting, protected-category merge guards). It never re-runs a layer; 'None' shows the raw, domain-agnostic output.">Domain pack:</label>
           <select id="domain-pack-select" class="input" style="width:auto; padding:6px 10px;" data-testid="select-domain-pack"></select>
           <button class="btn btn-secondary" id="btn-export-receipt" data-testid="button-export-receipt" title="Package the confidence grade, all 20 layer results plus the Red Team self-test, key assumptions, and the story into one shareable HTML file.">Export Validation Receipt</button>

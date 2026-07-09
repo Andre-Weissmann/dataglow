@@ -55,7 +55,7 @@ domain/bounds checkers that reinterpret or extend them. This area is large — s
 per-layer breakdown and how the pieces compose.
 - **Orchestrator** — `js/validation.js` (runs all layers + Red Team self-test; the entry point most features call).
 - **Standalone layer modules** — `js/categorical-consistency.js`, `js/cross-column-consistency.js`, `js/physiological-plausibility.js`, `js/upper-bound-sanity.js`, `js/missingness-detective.js`, `js/missingness.js`.
-- **Reinterpretation & context** — `js/domain-physics.js` (swappable domain packs that annotate raw layer output), `js/expected-range.js` (informational numeric trend bands).
+- **Reinterpretation & context** — `js/domain-physics.js` (swappable domain packs — Healthcare, Retail/E-commerce, and Finance/Accounting — that annotate raw layer output), `js/expected-range.js` (informational numeric trend bands).
 
 ## Anomaly & outlier detection
 On-device, dependency-free detectors for values and rows that don't fit — from single
@@ -134,7 +134,7 @@ under [`protocol/`](../protocol/).
 A pre-analysis wizard that turns a vague business question into a specific, measurable
 analytical one before any querying begins. Fully offline and deterministic (a fixed
 SMART-style prompt set, no model call).
-- **Problem Framer** — `js/problem-framer.js` (fixed reframing question set, deterministic question restatement, keyword/substring column matching against loaded column names, and one-page Markdown recap export; UI lives in the Problem Framer tab in `js/main.js`).
+- **Problem Framer & Context Card** — `js/problem-framer.js` (fixed reframing question set, deterministic question restatement, keyword/substring column matching against loaded column names, one-page Markdown recap export, and the optional Context Card re-weighting — `orderLayersByContext` reorders the validation grid so the layers most relevant to what the data is *for* surface first, unchanged when skipped; UI lives in the Problem Framer tab and the Validate tab's Context Card in `js/main.js`).
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.

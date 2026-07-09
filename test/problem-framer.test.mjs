@@ -20,6 +20,7 @@ import {
   buildAnalyticalQuestion,
   suggestColumns,
   buildExportMarkdown,
+  orderLayersByContext,
 } from '../js/problem-framer.js';
 
 // ---------- tiny test harness ----------
@@ -119,6 +120,48 @@ function main() {
   const mdNoData = buildExportMarkdown({ intake: 'x', answers: {}, columns: [] });
   ok(mdNoData.includes('_No dataset loaded, or no column names matched the answers._'),
     'export: graceful no-dataset phrasing when no columns');
+
+  // ============================================================
+  // 6) orderLayersByContext — Context Card re-weighting
+  // ============================================================
+  const LAYERS = [
+    { id: 'schema_fingerprint', name: 'Schema Fingerprint', desc: 'Hash of the schema.' },
+    { id: 'categorical_consistency', name: 'Categorical Consistency Engine', desc: 'Clusters near-identical spellings and whitespace.' },
+    { id: 'outlier_detection', name: 'Outlier Detection', desc: 'Flags high and low numeric outliers.' },
+    { id: 'benford', name: "Benford's Law Check", desc: 'Leading-digit distribution for numeric amounts.' },
+    { id: 'unit_tests', name: 'Unit Test Layer', desc: 'Negatives, future dates, blank keys, duplicates.' },
+  ];
+  const layerIds = (defs) => defs.map(d => d.id);
+
+  // No context → order and identity are unchanged.
+  const unchanged = orderLayersByContext('', LAYERS);
+  ok(JSON.stringify(layerIds(unchanged)) === JSON.stringify(layerIds(LAYERS)),
+    'orderLayers: empty context leaves order unchanged');
+  ok(orderLayersByContext('   ', LAYERS).length === LAYERS.length,
+    'orderLayers: whitespace-only context is treated as no context');
+  ok(orderLayersByContext('billing', LAYERS) !== LAYERS,
+    'orderLayers: returns a new array, never mutating the input');
+  ok(JSON.stringify(layerIds(LAYERS)) === JSON.stringify(['schema_fingerprint', 'categorical_consistency', 'outlier_detection', 'benford', 'unit_tests']),
+    'orderLayers: the caller\'s input array is left untouched');
+
+  // "for billing accuracy" → numeric/financial layers surface before formatting ones.
+  const billing = layerIds(orderLayersByContext('for billing accuracy', LAYERS));
+  const idxBenford = billing.indexOf('benford');
+  const idxOutlier = billing.indexOf('outlier_detection');
+  const idxCat = billing.indexOf('categorical_consistency');
+  const idxSchema = billing.indexOf('schema_fingerprint');
+  ok(idxBenford < idxCat && idxBenford < idxSchema,
+    'orderLayers: a billing/financial context surfaces Benford ahead of formatting layers');
+  ok(idxOutlier < idxCat && idxOutlier < idxSchema,
+    'orderLayers: a billing/financial context surfaces outlier detection ahead of formatting layers');
+
+  // An unmatched context falls back to the original order (never all-zero shuffled).
+  ok(JSON.stringify(layerIds(orderLayersByContext('zzz qqq nomatch', LAYERS))) === JSON.stringify(layerIds(LAYERS)),
+    'orderLayers: a context matching nothing leaves order unchanged');
+
+  // Degenerate inputs never throw.
+  ok(orderLayersByContext('anything', []).length === 0, 'orderLayers: empty layer list returns empty');
+  ok(Array.isArray(orderLayersByContext(null, LAYERS)), 'orderLayers: null context does not throw');
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

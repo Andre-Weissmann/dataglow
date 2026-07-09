@@ -246,10 +246,13 @@
     {
       "id": "problem-framer",
       "area": "Problem framing",
-      "name": "Problem Framer",
+      "name": "Problem Framer & Context Card",
       "platforms": ["browser", "desktop"],
       "files": ["js/problem-framer.js"],
-      "symbols": [{ "file": "js/problem-framer.js", "name": "buildAnalyticalQuestion" }]
+      "symbols": [
+        { "file": "js/problem-framer.js", "name": "buildAnalyticalQuestion" },
+        { "file": "js/problem-framer.js", "name": "orderLayersByContext" }
+      ]
     },
     {
       "id": "app-shell-capability-registry",
