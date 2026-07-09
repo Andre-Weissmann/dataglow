@@ -1,0 +1,31 @@
+# ============================================================
+# DATAGLOW — CI job: Domain-pack plugin architecture
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+
+name: Domain-pack plugin architecture
+
+on:
+  workflow_call:
+
+jobs:
+  pack-architecture:
+    name: Domain-pack plugin architecture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Gen 40 domain-pack plugin architecture. Proves the refactor is
+      # behaviour-preserving (legacy inline pack map vs plugin registry produce
+      # identical output per extension point) and that the no-network guarantee is
+      # ENFORCED: a static source scan rejects any pack that references a network
+      # primitive, a runtime trap backs it up, every shipped pack file under
+      # js/packs/ is scanned, and a test-only rogue pack that attempts fetch() is
+      # caught. Also validates every manifest (semver, id↔name, known extension
+      # points, no inter-pack dependencies). Pure JS + fs — no browser, no
+      # network, no DuckDB. See test/pack-architecture.test.mjs.
+      - run: npm run test:packs

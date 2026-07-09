@@ -89,6 +89,28 @@
       ]
     },
     {
+      "id": "domain-pack-plugins",
+      "platforms": ["browser", "desktop"],
+      "area": "Validation layers",
+      "name": "Domain-pack plugin architecture",
+      "files": [
+        "js/packs/extension-points.js",
+        "js/packs/pack-network-guard.js",
+        "js/packs/pack-registry.js",
+        "js/packs/builtin/none.pack.js",
+        "js/packs/builtin/healthcare.pack.js",
+        "js/packs/builtin/retail.pack.js",
+        "js/packs/builtin/finance.pack.js",
+        "js/packs/builtin/omop.pack.js",
+        "js/packs/builtin/fhir.pack.js"
+      ],
+      "symbols": [
+        { "file": "js/packs/extension-points.js", "name": "EXTENSION_POINTS" },
+        { "file": "js/packs/pack-network-guard.js", "name": "scanSourceForNetwork" },
+        { "file": "js/packs/pack-registry.js", "name": "loadBuiltInPacks" }
+      ]
+    },
+    {
       "id": "anomaly-detectors",
       "platforms": ["browser", "desktop"],
       "area": "Anomaly & outlier detection",

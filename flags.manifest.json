@@ -5,6 +5,11 @@
       "enabled": false,
       "addedInPR": "this PR number",
       "description": "demo flag for BNS"
+    },
+    "pluginPacks": {
+      "enabled": true,
+      "addedInPR": "gen40-domain-pack-plugin-architecture",
+      "description": "Gen 40 domain-pack plugin architecture: assemble the active domain-pack source from self-contained plugin modules under js/packs/ via the pack registry instead of the inline DOMAIN_PACKS map. Behaviour-identical (same runtime pack objects); flip off to fall back to the legacy inline map."
     }
   }
 }

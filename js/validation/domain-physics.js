@@ -461,13 +461,43 @@ export const DOMAIN_PACKS = {
   },
 };
 
+// ------------------------------------------------------------
+// Active pack source (Gen 40 plugin architecture)
+// ------------------------------------------------------------
+// The engine reads packs from a swappable "source" map, which defaults to the
+// built-in DOMAIN_PACKS above. Behind the `pluginPacks` feature flag, the plugin
+// registry (js/packs/pack-registry.js) installs an equivalent map assembled from
+// the self-contained pack modules via setPackSource(). Because the registry's
+// packs ARE the same runtime pack objects, swapping the source is
+// behaviour-preserving — this is what lets the migration land dark and be rolled
+// back independently by flipping one flag.
+let activePackSource = DOMAIN_PACKS;
+
+/** Install a pack source map (id -> pack). Falsy resets to the built-in map. */
+export function setPackSource(map) { activePackSource = map || DOMAIN_PACKS; }
+/** Restore the built-in DOMAIN_PACKS as the active source. */
+export function resetPackSource() { activePackSource = DOMAIN_PACKS; }
+/** The currently active pack source map. */
+export function getActivePackSource() { return activePackSource; }
+/** Look up a pack by name in the active source (undefined if absent). */
+export function getPackByName(name) { return activePackSource[name]; }
+/**
+ * Add or replace a runtime pack (e.g. an imported community pack) in the active
+ * source so it can be selected and applied like a built-in. Returns the pack.
+ */
+export function registerRuntimePack(pack) {
+  if (pack && typeof pack.name === 'string') activePackSource[pack.name] = pack;
+  return pack;
+}
+
 export function listPacks() {
-  return Object.values(DOMAIN_PACKS).map(p => ({ name: p.name, label: p.label, description: p.description }));
+  return Object.values(activePackSource).map(p => ({ name: p.name, label: p.label, description: p.description }));
 }
 
 function getPack(name) {
-  if (!name) return DOMAIN_PACKS.healthcare;
-  return DOMAIN_PACKS[name] || DOMAIN_PACKS.none;
+  const src = activePackSource;
+  if (!name) return src.healthcare || DOMAIN_PACKS.healthcare;
+  return src[name] || src.none || DOMAIN_PACKS.none;
 }
 
 // ------------------------------------------------------------

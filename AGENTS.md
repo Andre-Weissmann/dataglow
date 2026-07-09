@@ -109,6 +109,26 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Domain-pack plugin architecture (Gen 40)
+
+Domain packs are self-contained plugins under `js/packs/`, not code pasted into
+`js/validation/domain-physics.js`. To add or change a pack, add/edit ONE file
+under `js/packs/builtin/<id>.pack.js` (it exports `{ manifest, pack }`) and
+register it in `js/packs/pack-registry.js` — never edit another pack's file or the
+core engine. A manifest declares `id` (must equal `pack.name`), semver `version`,
+`industry`, and a `capabilities` map whose keys MUST be a subset of the extension
+points in `js/packs/extension-points.js`; packs must NOT declare inter-pack
+dependencies. Two hard rules the loader/tests enforce: (1) **no network** — pack
+code may never reference `fetch`/`XMLHttpRequest`/`WebSocket`/etc.; the guard in
+`js/packs/pack-network-guard.js` statically scans every shipped pack file and a
+runtime trap backs it up, so a pack that names a network primitive fails
+`npm run test:packs`. (2) **behaviour-preserving** — the plugin path installs the
+SAME runtime pack objects via `setPackSource`, so legacy-vs-plugin output must stay
+identical (the test proves it per extension point). The migration is gated by the
+`pluginPacks` flag in `flags.manifest.json`; the loaded-pack provenance is surfaced
+in the Validate tab and in `TRUST.md`. Registered as the `domain-pack-plugins`
+capability in `capability-map.manifest.json`; CI job `pack-architecture`.
+
 ### Teach-As-You-Clean micro-lessons + Community Pack sharing (Gen 34 C/D)
 
 `js/teaching/micro-lessons.js` is a pure catalog: a finding-type id → `{beginner, practitioner, expert}`
