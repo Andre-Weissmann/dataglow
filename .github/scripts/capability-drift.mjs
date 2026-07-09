@@ -18,6 +18,9 @@
 //                         (best-effort underclaim heuristic: new feature, no doc).
 //   MANIFEST_DOC_MISMATCH — a manifest capability whose files the docs never
 //                         mention, i.e. the manifest itself has drifted.
+//   INVALID_PLATFORMS  — a capability missing a valid non-empty `platforms`
+//                         list (the field the capability registry reads to
+//                         decide what to load per runtime).
 //
 // The check logic is a pure function (`runCheck`) so it is unit-testable in CI
 // (see test/capability-drift.test.mjs) and can be run locally with
@@ -33,6 +36,11 @@ import { fileURLToPath } from 'node:url';
 
 const SOURCE_EXT = /\.(m?js)$/;
 const MANIFEST_NAME = 'capability-map.manifest.json';
+
+// The closed set of platform tokens a capability's `platforms` list may use.
+// Kept in sync with js/capability-registry.js (VALID_PLATFORMS) and the
+// manifest's `_platforms` note. "mobile" is forward-looking and unused today.
+const VALID_PLATFORMS = ['browser', 'desktop', 'mobile'];
 
 // Top-level (non-recursive) source modules directly under js/. These are the
 // units the underclaim heuristic expects the manifest to account for.
@@ -84,7 +92,7 @@ function collectDocRefs(root, docPaths) {
  * @returns {{root:string, generatedAt:string, manifestPresent:boolean,
  *   capabilityCount:number, jsModuleCount:number,
  *   findings:{overclaimFiles:any[], overclaimSymbols:any[], danglingDocRefs:any[],
- *     undocumentedModules:any[], manifestDocMismatch:any[]},
+ *     undocumentedModules:any[], manifestDocMismatch:any[], invalidPlatforms:any[]},
  *   totalDrift:number, error?:string}}
  */
 export function runCheck({ root = process.cwd() } = {}) {
@@ -94,7 +102,7 @@ export function runCheck({ root = process.cwd() } = {}) {
 
   const empty = {
     overclaimFiles: [], overclaimSymbols: [], danglingDocRefs: [],
-    undocumentedModules: [], manifestDocMismatch: [],
+    undocumentedModules: [], manifestDocMismatch: [], invalidPlatforms: [],
   };
 
   if (!existsSync(manifestPath)) {
@@ -123,6 +131,7 @@ export function runCheck({ root = process.cwd() } = {}) {
   const overclaimFiles = [];
   const overclaimSymbols = [];
   const manifestDocMismatch = [];
+  const invalidPlatforms = [];
   const mappedFiles = new Set();
 
   // Cache of file source text so we only read each backing file once.
@@ -162,6 +171,36 @@ export function runCheck({ root = process.cwd() } = {}) {
     if (files.length > 0 && !files.some((f) => docRefs.has(f))) {
       manifestDocMismatch.push({ capability: label, id: cap.id, files });
     }
+
+    // INVALID_PLATFORMS: every capability must declare a non-empty `platforms`
+    // list drawn from the closed token set, so the capability registry can
+    // decide what to load on each runtime and this can't silently regress. An
+    // optional `platformsByFile` override, when present, is validated the same
+    // way. Reasons are collected per capability for a single clear finding.
+    const reasons = [];
+    if (!Array.isArray(cap.platforms) || cap.platforms.length === 0) {
+      reasons.push('missing or empty `platforms`');
+    } else {
+      const bad = cap.platforms.filter((p) => !VALID_PLATFORMS.includes(p));
+      if (bad.length) reasons.push(`invalid platform value(s): ${bad.join(', ')}`);
+    }
+    if (cap.platformsByFile != null) {
+      if (typeof cap.platformsByFile !== 'object' || Array.isArray(cap.platformsByFile)) {
+        reasons.push('`platformsByFile` must be an object');
+      } else {
+        for (const [file, list] of Object.entries(cap.platformsByFile)) {
+          if (!files.includes(file)) reasons.push(`platformsByFile references unmapped file \`${file}\``);
+          if (!Array.isArray(list) || list.length === 0) reasons.push(`platformsByFile[\`${file}\`] is empty`);
+          else {
+            const bad = list.filter((p) => !VALID_PLATFORMS.includes(p));
+            if (bad.length) reasons.push(`platformsByFile[\`${file}\`] invalid value(s): ${bad.join(', ')}`);
+          }
+        }
+      }
+    }
+    if (reasons.length) {
+      invalidPlatforms.push({ capability: label, id: cap.id, reasons });
+    }
   }
 
   // DANGLING_DOC_REF: a js/ path referenced in the docs that is gone from disk.
@@ -185,11 +224,11 @@ export function runCheck({ root = process.cwd() } = {}) {
 
   const findings = {
     overclaimFiles, overclaimSymbols, danglingDocRefs,
-    undocumentedModules, manifestDocMismatch,
+    undocumentedModules, manifestDocMismatch, invalidPlatforms,
   };
   const totalDrift =
     overclaimFiles.length + overclaimSymbols.length + danglingDocRefs.length +
-    undocumentedModules.length + manifestDocMismatch.length;
+    undocumentedModules.length + manifestDocMismatch.length + invalidPlatforms.length;
 
   return {
     root,
@@ -218,7 +257,7 @@ export function renderReport(result) {
   lines.push(`- Total drift findings: **${result.totalDrift}**`);
   lines.push('');
 
-  const { overclaimFiles, overclaimSymbols, danglingDocRefs, undocumentedModules, manifestDocMismatch } = result.findings;
+  const { overclaimFiles, overclaimSymbols, danglingDocRefs, undocumentedModules, manifestDocMismatch, invalidPlatforms = [] } = result.findings;
 
   lines.push('### Overclaims — documented capability, missing backing file');
   if (overclaimFiles.length === 0) lines.push('_None._');
@@ -243,6 +282,11 @@ export function renderReport(result) {
   lines.push('### Manifest drift — capability whose files the docs never mention');
   if (manifestDocMismatch.length === 0) lines.push('_None._');
   else for (const f of manifestDocMismatch) lines.push(`- "${f.capability}" maps ${f.files.map((x) => `\`${x}\``).join(', ')} but none appear in the docs`);
+  lines.push('');
+
+  lines.push('### Invalid platforms — capability with a missing/invalid `platforms` declaration');
+  if (invalidPlatforms.length === 0) lines.push('_None._');
+  else for (const f of invalidPlatforms) lines.push(`- "${f.capability}" (\`${f.id}\`): ${f.reasons.join('; ')}`);
   lines.push('');
 
   if (result.totalDrift === 0) {

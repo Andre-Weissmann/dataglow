@@ -27,6 +27,7 @@ const distDir = join(repoRoot, 'src-tauri', 'dist');
 const ASSETS = [
   'index.html',
   'manifest.webmanifest',
+  'capability-map.manifest.json',
   'sw.js',
   'assets',
   'css',

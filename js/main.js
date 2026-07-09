@@ -4,6 +4,7 @@
 
 import { state, getActiveDataset, addDataset, setActiveDataset } from './state.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
+import { loadRegistry } from './capability-registry.js';
 import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
 import * as validation from './validation.js';
@@ -33,23 +34,30 @@ import * as expectedRange from './expected-range.js';
 import * as ledger from './assumption-ledger.js';
 import * as provenance from './provenance.js';
 import * as sdProof from './selective-disclosure-proof.js';
-import * as domainPhysics from './domain-physics.js';
-import * as devilsAdvocate from './devils-advocate.js';
-import * as syntheticAdversarial from './synthetic-adversarial.js';
+// Capability modules loaded lazily through the platform-aware registry (see
+// bootstrapCapabilities below). They are `let` bindings, assigned once the
+// registry has dynamically imported the modules appropriate for this runtime;
+// every consumer runs inside an init*/event handler that fires only after
+// bootstrap, so the bindings are always populated before use. The rest of the
+// ~55 capability modules remain static imports for now — see the follow-up
+// issue tracked in the PR that introduced this registry.
+let domainPhysics;
+let devilsAdvocate;
+let syntheticAdversarial;
 import * as pyRuntime from './python-runtime.js';
 import * as rRuntime from './r-runtime.js';
-import * as swiftPreview from './swift-preview.js';
-import * as receipt from './validation-receipt.js';
-import * as peerReview from './peer-review.js';
-import * as timeTravel from './time-travel-diff.js';
-import * as syntheticTwin from './synthetic-twin.js';
-import * as timeMachine from './time-machine.js';
+let swiftPreview;
+let receipt;
+let peerReview;
+let timeTravel;
+let syntheticTwin;
+let timeMachine;
 import * as fingerprint from './federated-fingerprint.js';
-import * as irbMode from './irb-mode.js';
+let irbMode;
 import * as ondeviceLLM from './ondevice-llm.js';
-import * as digitalTwin from './digital-twin.js';
-import * as watchFolder from './watch-folder.js';
-import * as problemFramer from './problem-framer.js';
+let digitalTwin;
+let watchFolder;
+let problemFramer;
 import { DatabricksConnector, DEFAULT_QUERY, TRUST_NOTICE } from './databricks-connect.js';
 import { withCanonical } from './categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from './self-learning-rules.js';
@@ -3694,6 +3702,21 @@ function initWatchFolder() {
   const stopBtn = $('#btn-watch-stop');
   if (!connectBtn) return;
 
+  // Watch Folder is a browser-only capability (File System Access API). On the
+  // Tauri desktop shell the registry doesn't load it, so degrade gracefully:
+  // disable the control with a note instead of dereferencing an absent module.
+  if (!watchFolder) {
+    console.warn('[capability-registry] Watch Folder is browser-only and is not loaded on this runtime; skipping its wiring.');
+    const msg = $('#watch-unsupported');
+    if (msg) {
+      msg.style.display = '';
+      msg.textContent = 'Watch Folder is available in the browser build only.';
+    }
+    connectBtn.disabled = true;
+    connectBtn.title = 'Not available in the desktop app';
+    return;
+  }
+
   $('#watch-privacy').textContent = watchFolder.PRIVACY_NOTICE;
 
   if (!watchFolder.directoryPickerSupported(window)) {
@@ -3946,4 +3969,39 @@ function init() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// Bootstrap: build the platform-aware capability registry, wire the migrated
+// capability modules to their `let` bindings, then run the synchronous init.
+// A registry failure is logged but never blocks the app shell coming up — the
+// migrated feature panels guard for a missing module and degrade gracefully.
+async function bootstrapCapabilities() {
+  try {
+    const registry = await loadRegistry();
+    window.__dataglowRegistry = registry;
+
+    // Universal (browser + desktop) modules migrated to the registry.
+    domainPhysics = registry.get('domain-physics');
+    devilsAdvocate = registry.get('devils-advocate');
+    syntheticAdversarial = registry.get('synthetic-adversarial');
+    swiftPreview = registry.get('swift-preview');
+    receipt = registry.get('validation-receipt');
+    peerReview = registry.get('peer-review');
+    timeTravel = registry.get('time-travel-diff');
+    syntheticTwin = registry.get('synthetic-twin');
+    timeMachine = registry.get('time-machine');
+    irbMode = registry.get('irb-mode');
+    digitalTwin = registry.get('digital-twin');
+    problemFramer = registry.get('problem-framer');
+
+    // Browser-only: the Watch Folder relies on the File System Access API, which
+    // the Tauri desktop shell deliberately excludes. On desktop, registry.get
+    // returns undefined (with a warning) and initWatchFolder guards for it.
+    watchFolder = registry.get('watch-folder');
+  } catch (err) {
+    console.error('[capability-registry] bootstrap failed; feature panels may be unavailable:', err);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await bootstrapCapabilities();
+  init();
+});

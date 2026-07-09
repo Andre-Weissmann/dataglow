@@ -109,6 +109,30 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Capability registry — platform-aware module loading
+
+`js/main.js` no longer statically imports every feature module. Each capability
+in `capability-map.manifest.json` declares a `platforms` list from a closed set
+(`browser`, `desktop`, and reserved `mobile`); most are `["browser", "desktop"]`
+because they behave identically in a plain browser and inside the Tauri desktop
+shell, while runtime-specific ones are narrowed — the Watch Folder is browser-only
+via a per-file `platformsByFile` override (a capability's `platforms` stays the
+honest union; the override marks the one file). The loader `js/capability-registry.js`
+reads that manifest at runtime (same-origin `fetch`, precached by `sw.js` and
+staged into the desktop bundle by `scripts/stage-desktop-frontend.mjs` — no new
+network or upload path), detects browser vs. Tauri desktop, and dynamically
+imports only the modules meant for the detected runtime, exposing
+`registry.get(name)`/`has`/`available`/`list`. Requesting a wrong-platform or
+unknown capability returns `undefined` with a `console.warn` rather than crashing.
+When you add or reclassify a capability, set its `platforms` (and, if a single
+backing file differs, `platformsByFile`): the drift gate `npm run test:capdrift`
+fails the build on a missing/invalid list, and `npm run test:capregistry`
+unit-tests the loader (both run in the `capability-map-drift` CI job,
+`.github/workflows/job-capability-map-drift.yml`). Migrating a module onto the
+registry means dropping its static import in `js/main.js` and fetching it via the
+registry during bootstrap; unmigrated modules keep their static imports and still
+work — migration is incremental, not all-or-nothing.
+
 ### Living Manifest — public-presence automation
 
 The capability-map drift gate keeps the *internal* docs honest against the code;

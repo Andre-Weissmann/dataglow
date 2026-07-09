@@ -32,6 +32,7 @@ const PRECACHE_URLS = [
   './css/base.css',
   './css/app.css',
   './js/main.js',
+  './capability-map.manifest.json',
   './manifest.webmanifest',
   './assets/favicon.svg',
   './assets/logo.svg',
