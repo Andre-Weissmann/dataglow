@@ -135,3 +135,10 @@ A pre-analysis wizard that turns a vague business question into a specific, meas
 analytical one before any querying begins. Fully offline and deterministic (a fixed
 SMART-style prompt set, no model call).
 - **Problem Framer** — `js/problem-framer.js` (fixed reframing question set, deterministic question restatement, keyword/substring column matching against loaded column names, and one-page Markdown recap export; UI lives in the Problem Framer tab in `js/main.js`).
+
+## Export & reporting
+Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
+Built on a Universal Export Contract: one byte-builder per format, decoupled from a
+per-platform delivery adapter (browser download vs. Tauri native Save-As vs. a planned
+mobile share sheet). 100% local — no upload path.
+- **Universal export (Excel + PDF)** — `js/export-report.js` (format-agnostic view model + the `.xlsx` builder that reuses the vendored SheetJS global and a dependency-free first-party PDF summary writer; `exportDataset` is the single call the UI makes), `js/export-delivery.js` (the delivery adapters — `deliverViaBrowser`, `deliverViaDesktop` using Tauri `dialog.save` + `fs.writeBinaryFile` when the shell enables them and a transparent browser-download fallback otherwise, a `deliverViaMobile` future-work stub, and `selectAdapter`). UI lives in the Export card on the Visualize tab in `js/main.js`.

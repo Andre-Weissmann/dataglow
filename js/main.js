@@ -58,6 +58,7 @@ import * as ondeviceLLM from './ondevice-llm.js';
 let digitalTwin;
 let watchFolder;
 let problemFramer;
+let exportReport;
 import { DatabricksConnector, DEFAULT_QUERY, TRUST_NOTICE } from './databricks-connect.js';
 import { withCanonical } from './categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from './self-learning-rules.js';
@@ -2642,6 +2643,69 @@ function initAnonExport() {
   });
 }
 
+// ============================================================
+// Export / Reporting (Excel + PDF via the Universal Export Contract)
+// ============================================================
+// Collects what app state already holds — the active dataset, its rows as
+// currently displayed, and the last validation run — into a format-agnostic
+// view, then asks the registry-loaded export module to build the bytes and hand
+// them to the platform's delivery adapter (browser download or, on the desktop
+// shell with the native APIs enabled, a Tauri Save-As). All client-side.
+function collectValidationSummary() {
+  const results = window.__dataglowLastValidation;
+  if (!results) return { validation: [], grades: null };
+  const summary = [];
+  for (const layer of validation.LAYER_DEFS) {
+    const r = results[layer.id];
+    if (!r || !r.status) continue;
+    summary.push({ layer: layer.id, name: layer.name, status: r.status, summary: r.summary || '' });
+  }
+  let grades = null;
+  const cg = results.calibratedGrades;
+  if (cg) {
+    grades = {
+      overall: cg.overall && cg.overall.grade,
+      integrity: cg.integrity && cg.integrity.grade,
+      plausibility: cg.plausibility && cg.plausibility.grade,
+    };
+  }
+  return { validation: summary, grades };
+}
+
+async function runExport(format, noteEl) {
+  if (!exportReport) { toast('Export module unavailable on this runtime', 'error'); return; }
+  const ds = getActiveDataset();
+  if (!ds) { toast('Load a dataset first', 'error'); return; }
+  try {
+    const { columns, rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+    const { validation: valSummary, grades } = collectValidationSummary();
+    const platform = (window.__dataglowRegistry && window.__dataglowRegistry.platform) || 'browser';
+    const { delivery } = await exportReport.exportDataset({
+      format, dataset: ds, columns, rows,
+      validation: valSummary, grades, platform, win: window,
+    });
+    if (delivery && delivery.cancelled) {
+      if (noteEl) noteEl.textContent = 'Export cancelled.';
+      return;
+    }
+    if (noteEl) {
+      noteEl.textContent = `Exported ${rows.length} row(s) to ${format.toUpperCase()}`
+        + (valSummary.length ? ` with a ${valSummary.length}-layer validation summary.` : '.');
+    }
+    toast(`${format.toUpperCase()} export ready`, 'success');
+  } catch (e) {
+    toast('Export failed: ' + e.message, 'error');
+  }
+}
+
+function initExportReport() {
+  const noteEl = $('#export-note');
+  const xlsxBtn = $('#btn-export-xlsx');
+  const pdfBtn = $('#btn-export-pdf');
+  if (xlsxBtn) xlsxBtn.addEventListener('click', () => runExport('xlsx', noteEl));
+  if (pdfBtn) pdfBtn.addEventListener('click', () => runExport('pdf', noteEl));
+}
+
 // Render the Forecast-Based Drift Alerting block shown inside the Distributional
 // Fingerprint Drift card. Styled distinctly from the static drift lines so a
 // trend-aware alert reads as "outside the projected trajectory", not just
@@ -3927,6 +3991,7 @@ function init() {
   initLayerPriority();
   initFederatedLearning();
   initAnonExport();
+  initExportReport();
   initLedger();
   initProvenance();
   initDomainPack();
@@ -3991,6 +4056,7 @@ async function bootstrapCapabilities() {
     irbMode = registry.get('irb-mode');
     digitalTwin = registry.get('digital-twin');
     problemFramer = registry.get('problem-framer');
+    exportReport = registry.get('export-report');
 
     // Browser-only: the Watch Folder relies on the File System Access API, which
     // the Tauri desktop shell deliberately excludes. On desktop, registry.get
