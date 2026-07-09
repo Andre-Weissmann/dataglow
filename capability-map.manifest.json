@@ -258,6 +258,17 @@
       "platforms": ["browser", "desktop"],
       "files": ["js/capability-registry.js"],
       "symbols": [{ "file": "js/capability-registry.js", "name": "loadRegistry" }]
+    },
+    {
+      "id": "export-reporting",
+      "area": "Export & reporting",
+      "name": "Universal export (Excel + PDF)",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/export-report.js", "js/export-delivery.js"],
+      "symbols": [
+        { "file": "js/export-report.js", "name": "exportDataset" },
+        { "file": "js/export-delivery.js", "name": "selectAdapter" }
+      ]
     }
   ]
 }

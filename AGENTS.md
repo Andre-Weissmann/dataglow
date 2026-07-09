@@ -109,6 +109,26 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Export / reporting — Universal Export Contract + delivery adapters
+
+The Visualize tab can export the loaded, validated dataset as an Excel workbook
+or a PDF report, 100% client-side. `js/export-report.js` is a Universal Export
+Contract: it builds raw bytes per format (a `{data, filename, mimeType}` blob
+descriptor) independent of how they reach disk. The `.xlsx` builder reuses the
+already-vendored SheetJS (global `XLSX` from `assets/xlsx/`, no new dependency);
+the PDF builder is a small first-party, dependency-free PDF 1.4 writer (no PDF
+library) so nothing heavy is pulled in. Delivery lives in `js/export-delivery.js`
+as platform adapters selected by `selectAdapter(platform)`: browser (Blob +
+object URL + synthetic `<a download>`, the repo's existing pattern), desktop
+(feature-detects Tauri `dialog.save` + `fs.writeBinaryFile` for a native Save-As,
+falls back to the browser download when those APIs are absent — the shell's
+current deny-by-default posture), and a mobile share-sheet stub that throws
+(future work). The module is registry-native: capability `export-reporting` in
+`capability-map.manifest.json` with `platforms: ["browser", "desktop"]`, reached
+from `js/main.js` via `registry.get('export-report')`. No network primitive
+appears in either file — a source guard in `npm run test:export` (the
+`export-reporting` CI job) enforces the zero-upload promise.
+
 ### Capability registry — platform-aware module loading
 
 `js/main.js` no longer statically imports every feature module. Each capability

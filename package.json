@@ -40,6 +40,7 @@
     "test:framer": "node test/problem-framer.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
+    "test:export": "node test/export-report.test.mjs",
     "test:living-manifest": "node test/living-manifest.test.mjs",
     "test:agentsdrift": "node test/agents-md-drift.test.mjs",
     "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",

@@ -64,3 +64,6 @@ jobs:
 
   tauri-smoke:
     uses: ./.github/workflows/job-tauri-smoke.yml
+
+  export-reporting:
+    uses: ./.github/workflows/job-export-reporting.yml
