@@ -53,6 +53,19 @@ Additional formats (ORC, Avro, HDF5, Delta Lake, FHIR, DICOM, EDI, PDF tables, G
 
 In every case the library *code* is what's fetched — never your data, which stays in your browser.
 
+## Supply-chain
+
+![supply-chain: SBOM + provenance ledger](https://img.shields.io/badge/supply--chain-SBOM%20%2B%20provenance%20ledger-informational?style=flat)
+
+DATAGLOW keeps an honest, self-contained record of how its own CI builds things — no hosted attestation service, no third-party trust-score integration:
+
+- **SBOM every CI run.** Each run generates a CycloneDX Software Bill of Materials (`npm run sbom`) listing the full dependency set.
+- **Zero unreviewed install scripts.** The root `.npmrc` sets `ignore-scripts=true`, and the `supply-chain-hardening` CI job fails the build if any dependency introduces an unreviewed `preinstall`/`install`/`postinstall` script (enforced by [`.github/workflows/job-supply-chain-hardening.yml`](.github/workflows/job-supply-chain-hardening.yml)).
+- **CI provenance ledger.** Every CI run that lands on `main` appends one hash-linked entry — commit, timestamp, test conclusion, and the SHA-256 of that run's SBOM — to an append-only [`docs/ci-provenance-ledger.jsonl`](docs/ci-provenance-ledger.jsonl). Each entry chains to the previous one's hash, so the record is tamper-evident.
+- **Independently verifiable, fully offline.** Clone the repo and run `npm run verify:ci-provenance` ([`.github/scripts/verify-ci-provenance.mjs`](.github/scripts/verify-ci-provenance.mjs)) to recompute the whole chain — zero network, zero GitHub API calls. It reports "chain intact" or names the exact entry that broke.
+
+Roughly SLSA L1 equivalent (basic build provenance, no hosted attestation service) — and only that. We do **not** claim a higher SLSA level, and add no cryptographic signing or attestation service; the hash chain is self-contained and zero-dependency by design.
+
 ## Project Structure
 
 ```

@@ -43,15 +43,23 @@ the build if any dependency introduces an unreviewed install/postinstall lifecyc
 script, so install-time code execution is a deliberate, versioned decision rather
 than something that can creep in silently.
 
+**Build provenance.** Beyond the per-run SBOM, DATAGLOW keeps a tamper-evident
+record of its own CI history: every CI run that lands on `main` appends one
+hash-linked entry — commit, timestamp, test conclusion, and the SHA-256 of that
+run's SBOM — to an append-only [`docs/ci-provenance-ledger.jsonl`](docs/ci-provenance-ledger.jsonl),
+each entry chaining to the previous one's hash. You don't have to take that on
+faith either: clone the repo and run `npm run verify:ci-provenance` to recompute
+and re-link the entire chain fully offline (no network, no GitHub API), which
+reports "chain intact" or names the exact entry that broke. The README's
+[Supply-chain section](README.md#supply-chain) has the fuller write-up.
+
 **"Last verified" convention.** There is no live-updating trust badge or scoreboard
-here on purpose — a number that updates itself is exactly the kind of claim you'd
-have to take on faith. Instead, treat the commit date of this file as its
+on *this page* on purpose — a number that updates itself is exactly the kind of
+claim you'd have to take on faith. Treat the commit date of this file as its
 "last verified" timestamp: this page was reviewed against the CI configuration as
 it stood when it was last committed. To see how current that is, check this file's
-history or the latest commit on the default branch. A more automated,
-continuously-updated provenance mechanism (a tamper-evident record of CI runs) is
-planned as separate work; when it lands, this section will link to it rather than
-duplicating it.
+history or the latest commit on the default branch. For a machine-checkable,
+per-run record, use the CI provenance ledger and verifier described above.
 
 ## How This Repo Talks to Agents
 
