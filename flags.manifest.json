@@ -1,0 +1,10 @@
+{
+  "_about": "Build Nervous System (Stage 4, 'Land dark') client-side feature-flag manifest. Maps a flag name to { enabled, addedInPR, description }. Read once at init time by js/build-flags.js into an in-memory object — no localStorage, cookies, network, or server — so it behaves identically in the browser bundle, the Tauri desktop webview, and any future Tauri mobile build. Flag hygiene follows the promote-or-delete rule in docs/build-nervous-system.md: a flag left here for more than 3 merged PRs without being promoted (removed, code kept) or reverted (removed, code deleted) must be flagged in the 4th PR that touches this manifest. `addedInPR` records where each flag's clock started.",
+  "flags": {
+    "exampleFlag": {
+      "enabled": false,
+      "addedInPR": "this PR number",
+      "description": "demo flag for BNS"
+    }
+  }
+}

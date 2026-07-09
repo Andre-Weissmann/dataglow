@@ -109,6 +109,31 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Build Nervous System — build-safety spine (isolate / author / gate / land dark)
+
+A single four-stage build-safety pipeline, documented in full at
+`docs/build-nervous-system.md`. The stages: (1) **Isolate** — every coding-agent
+session runs in its own git worktree; `scripts/new-agent-worktree.sh <branch>`
+creates one (`git worktree add ../dataglow-worktrees/<branch> -b <branch>`).
+(2) **Author** — every PR carries a three-layer record, `intent` (what was asked,
+one line) / `gen` (what the agent generated, one factual line) / `integrate`
+(what a human/agent adjusted before merge, one line, or "none"); the PR template
+`.github/PULL_REQUEST_TEMPLATE.md` has these as required sections, so use them on
+every PR. (3) **Gate** — `.github/workflows/merge-tree-preflight.yml` runs on each
+PR and fails if merging the branch into current `main` would textually conflict
+(a pure `git merge-tree` simulation — it never merges or pushes), and the existing
+golden regression suite (`npm run test:golden`) is the moved-output net; it runs
+every case in `test/golden/cases.mjs`, so adding coverage means adding a case +
+fixture, not editing the workflow. (4) **Land dark** — a client-side feature-flag
+manifest `flags.manifest.json` (flag -> `{enabled, addedInPR, description}`) read
+by `js/build-flags.js` (`isEnabled(name)`; in-memory only, no localStorage /
+cookies / network, so it behaves identically in browser, Tauri desktop, and future
+Tauri mobile). Flag hygiene follows a **promote-or-delete rule**: a flag left in
+the manifest for more than 3 merged PRs without being promoted (removed, code kept)
+or reverted (removed, code deleted) is flagged in the 4th PR that touches the
+manifest. The merge-tree check is intentionally a **non-required** check for now
+(promoting it in branch protection is a later human decision).
+
 ### Export / reporting — Universal Export Contract + delivery adapters
 
 The Visualize tab can export the loaded, validated dataset as an Excel workbook

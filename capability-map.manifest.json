@@ -269,6 +269,14 @@
         { "file": "js/export-report.js", "name": "exportDataset" },
         { "file": "js/export-delivery.js", "name": "selectAdapter" }
       ]
+    },
+    {
+      "id": "build-flags",
+      "area": "Build tooling & feature flags",
+      "name": "Build feature flags",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/build-flags.js"],
+      "symbols": [{ "file": "js/build-flags.js", "name": "isEnabled" }]
     }
   ]
 }

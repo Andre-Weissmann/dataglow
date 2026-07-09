@@ -82,6 +82,27 @@ const FORMAT_ROWS = [
   { amount: '$99.00', dt: '2024-04-01', note: 'fine' },
 ];
 
+// A Titanic-style passenger manifest — the classic public dataset SHAPE
+// (sex / age / passenger class / survived / fare / embarkation), not any real
+// passenger data. Original synthetic rows, chosen to be a different-looking
+// dataset than the clinical one above so the layer orchestrator, cross-column
+// checks, and bounded-quantity checks are exercised on a second surface. It
+// includes deliberate messiness: a duplicate passenger row, a null age, a
+// negative fare, and an impossible age, so several layers have something to say.
+const TITANIC_ROWS = [
+  { passenger_id: 1, name: 'Ashford, Mr. Colm', sex: 'male', age: 22, pclass: 3, survived: 0, sibsp: 1, parch: 0, fare: '7.25', embarked: 'S' },
+  { passenger_id: 2, name: 'Brenner, Mrs. Ada', sex: 'female', age: 38, pclass: 1, survived: 1, sibsp: 1, parch: 0, fare: '71.28', embarked: 'C' },
+  { passenger_id: 3, name: 'Calloway, Miss. Ines', sex: 'female', age: 26, pclass: 3, survived: 1, sibsp: 0, parch: 0, fare: '7.92', embarked: 'S' },
+  { passenger_id: 4, name: 'Dumont, Mr. Pieter', sex: 'male', age: 35, pclass: 2, survived: 0, sibsp: 0, parch: 0, fare: '13.00', embarked: 'S' },
+  { passenger_id: 5, name: 'Everly, Master. Tom', sex: 'male', age: 4, pclass: 3, survived: 1, sibsp: 1, parch: 1, fare: '16.70', embarked: 'Q' },
+  { passenger_id: 6, name: 'Fenwick, Mrs. Lou', sex: 'female', age: null, pclass: 1, survived: 1, sibsp: 0, parch: 0, fare: '146.52', embarked: 'C' },
+  { passenger_id: 7, name: 'Grady, Mr. Sean', sex: 'male', age: 54, pclass: 1, survived: 0, sibsp: 0, parch: 1, fare: '51.86', embarked: 'S' },
+  { passenger_id: 8, name: 'Holt, Miss. Vera', sex: 'female', age: 27, pclass: 2, survived: 1, sibsp: 0, parch: 2, fare: '26.00', embarked: 'S' },
+  { passenger_id: 9, name: 'Ives, Mr. Karl', sex: 'male', age: 210, pclass: 3, survived: 0, sibsp: 0, parch: 0, fare: '8.05', embarked: 'S' },
+  { passenger_id: 10, name: 'Jansen, Mr. Nils', sex: 'male', age: 40, pclass: 3, survived: 0, sibsp: 0, parch: 0, fare: '-9.50', embarked: 'S' },
+  { passenger_id: 10, name: 'Jansen, Mr. Nils', sex: 'male', age: 40, pclass: 3, survived: 0, sibsp: 0, parch: 0, fare: '-9.50', embarked: 'S' },
+];
+
 // A bounded-quantity dataset: a percentage column that breaks 0–100 and a
 // proportion column that breaks 0–1.
 const BOUNDS_ROWS = [
@@ -285,6 +306,24 @@ export function buildCases() {
       async run() {
         const ds = await makeDataset('golden_clinical_layers', CLINICAL_ROWS);
         const results = await runAllLayers(ds, { pack: 'healthcare' });
+        return {
+          statuses: layerStatuses(results),
+          confidenceGrade: results.confidence?.grade ?? null,
+          calibratedGrades: results.calibratedGrades ?? null,
+        };
+      },
+    },
+
+    // ---- SQL: full orchestrator on the Titanic passenger-manifest shape ----
+    // A second, differently-shaped golden input for the headline 20-layer
+    // pipeline (Build Nervous System, Stage 3). Run domain-agnostic (pack:
+    // 'none') because a passenger manifest is not a clinical dataset; this pins
+    // the raw, un-reinterpreted verdicts on a well-known public dataset shape.
+    {
+      name: 'titanic-validation-layers',
+      async run() {
+        const ds = await makeDataset('golden_titanic_layers', TITANIC_ROWS);
+        const results = await runAllLayers(ds, { pack: 'none' });
         return {
           statuses: layerStatuses(results),
           confidenceGrade: results.confidence?.grade ?? null,

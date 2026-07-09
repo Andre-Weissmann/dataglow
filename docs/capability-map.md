@@ -142,3 +142,8 @@ Built on a Universal Export Contract: one byte-builder per format, decoupled fro
 per-platform delivery adapter (browser download vs. Tauri native Save-As vs. a planned
 mobile share sheet). 100% local — no upload path.
 - **Universal export (Excel + PDF)** — `js/export-report.js` (format-agnostic view model + the `.xlsx` builder that reuses the vendored SheetJS global and a dependency-free first-party PDF summary writer; `exportDataset` is the single call the UI makes), `js/export-delivery.js` (the delivery adapters — `deliverViaBrowser`, `deliverViaDesktop` using Tauri `dialog.save` + `fs.writeBinaryFile` when the shell enables them and a transparent browser-download fallback otherwise, a `deliverViaMobile` future-work stub, and `selectAdapter`). UI lives in the Export card on the Visualize tab in `js/main.js`.
+
+## Build tooling & feature flags
+Build-time safety machinery, not runtime app behavior. Part of the Build Nervous
+System (see [`build-nervous-system.md`](./build-nervous-system.md)).
+- **Build feature flags** — `js/build-flags.js` (framework-agnostic reader for the root `flags.manifest.json`; `configureFlags` populates an in-memory map once at startup and `isEnabled(name)` reads it — no localStorage/cookies/network, so it behaves identically in the browser, the Tauri desktop webview, and future Tauri mobile). Ships as a copyable pattern; not wired into any existing module.
