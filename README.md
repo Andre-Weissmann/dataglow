@@ -2,6 +2,8 @@
 
 > **Your data, glowing.** A universal, browser-based, all-in-one data analytics platform — no install, no server, no upload.
 
+📋 **New here?** See [TRUST.md](TRUST.md) for a first-party, verifiable look at this repo's health, how it's built to work with AI coding agents, and a curated "Start Here" list of good first contributions.
+
 ---
 
 ## What is DATAGLOW?
