@@ -240,6 +240,31 @@ function initFileLoading() {
     renderSidebar();
     resetPanelStates();
   });
+
+  const omopBtn = $('#btn-load-omop-sample');
+  if (omopBtn) omopBtn.addEventListener('click', async () => {
+    await ensureDuckDB();
+    await loaders.loadOmopSampleDataset();
+    selectDomainPack('omop');
+    renderSidebar();
+    resetPanelStates();
+  });
+
+  const fhirBtn = $('#btn-load-fhir-sample');
+  if (fhirBtn) fhirBtn.addEventListener('click', async () => {
+    await ensureDuckDB();
+    await loaders.loadFhirSampleDataset();
+    selectDomainPack('fhir');
+    renderSidebar();
+    resetPanelStates();
+  });
+}
+
+// Pre-select a domain pack in the dropdown (used when loading a standards sample
+// so the matching pack — and its medical disclaimer — is active straight away).
+function selectDomainPack(name) {
+  const sel = $('#domain-pack-select');
+  if (sel && [...sel.options].some(o => o.value === name)) sel.value = name;
 }
 
 async function handleFiles(files) {
@@ -987,6 +1012,14 @@ async function runValidation() {
   // grid below) and the anomaly scorer can read them and coordinate.
   publishRankerVerdicts(ds.cols);
   renderValidationResults(results);
+  // Surface the active domain pack's medical disclaimer (OMOP/FHIR packs) so it
+  // appears wherever their findings are shown; hidden for packs without one.
+  const discEl = $('#domain-pack-disclaimer');
+  if (discEl) {
+    const disc = results.domainPack && results.domainPack.disclaimer;
+    discEl.textContent = disc || '';
+    discEl.style.display = disc ? '' : 'none';
+  }
   window.__dataglowLastValidation = results;
   await renderTopProblems(ds, results);
   await renderDataHealth(ds, results);

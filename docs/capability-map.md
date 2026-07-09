@@ -55,7 +55,8 @@ domain/bounds checkers that reinterpret or extend them. This area is large — s
 per-layer breakdown and how the pieces compose.
 - **Orchestrator** — `js/validation.js` (runs all layers + Red Team self-test; the entry point most features call).
 - **Standalone layer modules** — `js/categorical-consistency.js`, `js/cross-column-consistency.js`, `js/physiological-plausibility.js`, `js/upper-bound-sanity.js`, `js/missingness-detective.js`, `js/missingness.js`.
-- **Reinterpretation & context** — `js/domain-physics.js` (swappable domain packs — Healthcare, Retail/E-commerce, and Finance/Accounting — that annotate raw layer output), `js/expected-range.js` (informational numeric trend bands).
+- **Reinterpretation & context** — `js/domain-physics.js` (swappable domain packs — Healthcare, Retail/E-commerce, Finance/Accounting, plus the OMOP CDM and FHIR healthcare-standards packs — that annotate raw layer output), `js/expected-range.js` (informational numeric trend bands).
+- **Healthcare standards bridge** — `js/health-standards.js` (Gen 33 — The Standards Bridge: recognises OMOP CDM tables and FHIR Bundles, maps their long-format concepts onto the tabular shape the existing layers expect, and routes them through the cross-column, physiological-plausibility, and missingness layers reusing those layers' bounds — no new validation math. Ships synthetic OMOP/FHIR sample fixtures and the shared non-clinical medical disclaimer).
 
 ## Anomaly & outlier detection
 On-device, dependency-free detectors for values and rows that don't fit — from single

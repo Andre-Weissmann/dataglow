@@ -94,6 +94,12 @@
         <button class="btn btn-ghost" id="btn-load-golden" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-golden">
           Load Golden Test Dataset
         </button>
+        <button class="btn btn-ghost" id="btn-load-omop-sample" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-omop-sample" title="Load a synthetic OMOP CDM sample (PERSON, CONDITION_OCCURRENCE, DRUG_EXPOSURE, MEASUREMENT, OBSERVATION_PERIOD) with planted data-quality issues. Fabricated data — never real PHI.">
+          Load OMOP CDM Sample
+        </button>
+        <button class="btn btn-ghost" id="btn-load-fhir-sample" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-fhir-sample" title="Load a synthetic FHIR Bundle sample (Patient, Condition, Observation, Encounter) flattened to tables, with planted data-quality issues. Fabricated data — never real PHI.">
+          Load FHIR Bundle Sample
+        </button>
         <details id="databricks-connect" style="margin-top:var(--space-3);">
           <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:500;">Connect to Databricks <span class="badge badge-c" style="font-size:9px; vertical-align:middle;">POC</span></summary>
           <div style="margin-top:var(--space-2); display:flex; flex-direction:column; gap:var(--space-2);">
@@ -297,6 +303,7 @@
           <button class="btn btn-secondary" id="btn-export-irb" data-testid="button-export-irb" title="Reformat the validation results, assumption ledger, and provenance chain into an IRB / HIPAA-structured documentation aid (printable HTML).">Export for IRB/Compliance Review</button>
           <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 20 Layers</button>
         </div>
+        <p id="domain-pack-disclaimer" data-testid="domain-pack-disclaimer" style="display:none; font-size:var(--text-xs); color:var(--color-text-muted); margin:var(--space-2) 0 0; line-height:1.4; padding:var(--space-2) var(--space-3); border:1px solid var(--color-divider); border-radius:var(--radius-md);"></p>
       </div>
 
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">

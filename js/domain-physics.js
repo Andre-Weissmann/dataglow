@@ -32,6 +32,7 @@
 // consumers (Confidence-Calibrated Grades) can see what the pack "understood".
 
 import { isSensitiveCategory, describeCluster } from './categorical-consistency.js';
+import { MEDICAL_DISCLAIMER } from './health-standards.js';
 
 // ------------------------------------------------------------
 // Shared unit-test summariser.
@@ -437,6 +438,27 @@ export const DOMAIN_PACKS = {
   },
   retail: packFromDescriptor(RETAIL_PACK_DESCRIPTOR),
   finance: packFromDescriptor(FINANCE_PACK_DESCRIPTOR),
+  // The OMOP and FHIR packs (Gen 33 — The Standards Bridge) recognise two common
+  // healthcare-data standards and route them through the SAME layers as any other
+  // dataset (see js/health-standards.js). As clinical/claims data they reuse the
+  // healthcare pack's reinterpretations (de-identification date-shifting,
+  // protected-category merge guards, binary-flag Benford exemptions) unchanged,
+  // and additionally carry the shared non-clinical medical disclaimer so it is
+  // surfaced wherever their findings appear.
+  omop: {
+    name: 'omop',
+    label: 'Healthcare — OMOP CDM',
+    description: 'Recognises OMOP CDM tables (PERSON, CONDITION_OCCURRENCE, DRUG_EXPOSURE, MEASUREMENT, OBSERVATION_PERIOD) and routes them through the existing cross-column, physiological-plausibility, and missingness layers. Reuses the healthcare pack reinterpretations.',
+    disclaimer: MEDICAL_DISCLAIMER,
+    rules: [deidDateShiftRule, protectedCategoryRule, binaryBenfordRule],
+  },
+  fhir: {
+    name: 'fhir',
+    label: 'Healthcare — FHIR Bundle',
+    description: 'Recognises FHIR Bundles (Patient, Condition, Observation, Encounter), flattens them into DATAGLOW\'s tabular shape, and routes them through the existing validation layers. Reuses the healthcare pack reinterpretations.',
+    disclaimer: MEDICAL_DISCLAIMER,
+    rules: [deidDateShiftRule, protectedCategoryRule, binaryBenfordRule],
+  },
 };
 
 export function listPacks() {
@@ -471,5 +493,5 @@ export function applyDomainPack(layerResults, packName, context = {}) {
       if (updated) layerResults[rule.appliesToLayer] = updated;
     } catch { /* a pack rule must never break validation — skip on error */ }
   }
-  return { packName: pack.name, packLabel: pack.label, annotations };
+  return { packName: pack.name, packLabel: pack.label, disclaimer: pack.disclaimer || null, annotations };
 }
