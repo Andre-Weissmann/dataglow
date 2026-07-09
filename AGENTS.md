@@ -109,6 +109,32 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### CI Provenance Ledger — self-contained, offline-verifiable build provenance
+
+Every CI run that lands on `main` appends one hash-linked entry to the append-only
+`docs/ci-provenance-ledger.jsonl` (JSON Lines — one entry per line, never rewritten).
+Each entry records `commit`, `timestamp` (ISO 8601 UTC), `test_conclusion`, `sbom_hash`
+(SHA-256 of that run's SBOM, from the existing `npm run sbom` — reused, not duplicated),
+`prev_hash` (previous entry's `entry_hash`, or 64 zero chars for the genesis entry), and
+`entry_hash` (SHA-256 of the entry's own contents). This is the lightweight alternative
+to SLSA hosted attestation that was deliberately chosen for a solo-maintained repo:
+provenance you can re-check offline, no attestation/signing service, zero dependencies.
+The appender `.github/scripts/append-ci-ledger.mjs` and the verifier
+`.github/scripts/verify-ci-provenance.mjs` share one canonical hashing helper
+`.github/scripts/ci-ledger-hash.mjs`, so the writer and checker can never disagree.
+Anyone can run `npm run verify:ci-provenance` to recompute and re-link the whole chain
+with zero network and zero GitHub API calls; it prints "N entries verified, chain intact"
+or names the exact entry that broke. The recording side is a standalone workflow
+`.github/workflows/ci-provenance-ledger.yml` (NOT a reusable job in
+`.github/workflows/test.yml`): it fires
+on completion of the `tests` workflow filtered to `main`, so it records only what actually
+lands on `main` and never PR branches, and commits the appended line back through the same
+carrier-branch self-PR + `[skip ci]` loop-guard pattern as
+`.github/workflows/living-manifest.yml`. It is
+recording only — human-on-the-loop, it never auto-fixes CI or edits app code. When you
+change the ledger's field set or serialization, change it in the shared hashing helper so
+both scripts stay in lockstep; the chain is append-only, so never rewrite existing lines.
+
 ### Build Nervous System — build-safety spine (isolate / author / gate / land dark)
 
 A single four-stage build-safety pipeline, documented in full at
