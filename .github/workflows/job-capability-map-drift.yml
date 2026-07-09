@@ -29,3 +29,9 @@ jobs:
       # test suite doubles as the gate: its final case runs the check against the
       # real repo and fails on any drift. See .github/scripts/capability-drift.mjs.
       - run: npm run test:capdrift
+      # Capability registry: unit-tests the platform-aware module loader
+      # (js/capability-registry.js) that reads the same manifest's `platforms`
+      # field and dynamically imports only the modules meant for the detected
+      # runtime. Pure functions + injected manifest/importer — no browser, no
+      # network. See test/capability-registry.test.mjs.
+      - run: npm run test:capregistry

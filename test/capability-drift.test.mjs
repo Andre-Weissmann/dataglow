@@ -48,8 +48,8 @@ function main() {
       manifest: {
         docs: ['docs/capability-map.md'],
         capabilities: [
-          { id: 'engine', name: 'Engine', files: ['js/engine.js'], symbols: [{ file: 'js/engine.js', name: 'query' }] },
-          { id: 'clean', name: 'Cleaning', files: ['js/clean.js'] },
+          { id: 'engine', name: 'Engine', platforms: ['browser', 'desktop'], files: ['js/engine.js'], symbols: [{ file: 'js/engine.js', name: 'query' }] },
+          { id: 'clean', name: 'Cleaning', platforms: ['browser'], files: ['js/clean.js'] },
         ],
       },
     });
@@ -166,6 +166,78 @@ function main() {
     const r = runCheck({ root });
     ok(r.findings.manifestDocMismatch.some((f) => f.id === 'secret'), 'manifest-drift: capability absent from docs is flagged');
     rmSync(root, { recursive: true, force: true });
+  }
+
+  // --- Platforms: a capability with no `platforms` field → INVALID_PLATFORMS.
+  {
+    const root = makeFixture({
+      jsFiles: { 'engine.js': 'export function query() {}\n' },
+      docFiles: { 'capability-map.md': 'Engine `js/engine.js`.\n' },
+      manifest: {
+        docs: ['docs/capability-map.md'],
+        capabilities: [{ id: 'engine', name: 'Engine', files: ['js/engine.js'] }],
+      },
+    });
+    const r = runCheck({ root });
+    ok(r.findings.invalidPlatforms.some((f) => f.id === 'engine'), 'platforms: missing `platforms` is flagged');
+    ok(r.totalDrift > 0, 'platforms: missing `platforms` counts as drift');
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // --- Platforms: an empty list and an unknown token are both rejected.
+  {
+    const root = makeFixture({
+      jsFiles: { 'a.js': 'export const a = 1;\n', 'b.js': 'export const b = 2;\n' },
+      docFiles: { 'capability-map.md': 'A `js/a.js`. B `js/b.js`.\n' },
+      manifest: {
+        docs: ['docs/capability-map.md'],
+        capabilities: [
+          { id: 'a', name: 'A', platforms: [], files: ['js/a.js'] },
+          { id: 'b', name: 'B', platforms: ['browser', 'watch'], files: ['js/b.js'] },
+        ],
+      },
+    });
+    const r = runCheck({ root });
+    ok(r.findings.invalidPlatforms.some((f) => f.id === 'a'), 'platforms: empty list is flagged');
+    ok(r.findings.invalidPlatforms.some((f) => f.id === 'b' && f.reasons.some((x) => /watch/.test(x))),
+      'platforms: unknown token is flagged with its value');
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // --- Platforms: a valid `platformsByFile` override does not false-positive,
+  //     but one pointing at an unmapped file or holding a bad token is flagged.
+  {
+    const root = makeFixture({
+      jsFiles: { 'a.js': 'export const a = 1;\n', 'b.js': 'export const b = 2;\n' },
+      docFiles: { 'capability-map.md': 'A `js/a.js`. B `js/b.js`.\n' },
+      manifest: {
+        docs: ['docs/capability-map.md'],
+        capabilities: [
+          { id: 'ok', name: 'Ok', platforms: ['browser', 'desktop'], files: ['js/a.js', 'js/b.js'],
+            platformsByFile: { 'js/b.js': ['browser'] } },
+        ],
+      },
+    });
+    ok(runCheck({ root }).findings.invalidPlatforms.length === 0, 'platforms: valid platformsByFile override is accepted');
+    rmSync(root, { recursive: true, force: true });
+
+    const root2 = makeFixture({
+      jsFiles: { 'a.js': 'export const a = 1;\n' },
+      docFiles: { 'capability-map.md': 'A `js/a.js`.\n' },
+      manifest: {
+        docs: ['docs/capability-map.md'],
+        capabilities: [
+          { id: 'bad', name: 'Bad', platforms: ['browser'], files: ['js/a.js'],
+            platformsByFile: { 'js/ghost.js': ['browser'], 'js/a.js': ['nope'] } },
+        ],
+      },
+    });
+    const r2 = runCheck({ root: root2 });
+    ok(r2.findings.invalidPlatforms.some((f) => f.id === 'bad' && f.reasons.some((x) => /ghost/.test(x))),
+      'platforms: platformsByFile referencing an unmapped file is flagged');
+    ok(r2.findings.invalidPlatforms.some((f) => f.id === 'bad' && f.reasons.some((x) => /nope/.test(x))),
+      'platforms: platformsByFile with an invalid token is flagged');
+    rmSync(root2, { recursive: true, force: true });
   }
 
   // --- Missing manifest → treated as drift (non-zero), with an error string.

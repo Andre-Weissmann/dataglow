@@ -38,6 +38,15 @@ helpers, the in-browser query engine, and file ingestion.
 - **Query engine** — `js/duckdb-engine.js` (DuckDB-WASM engine; all SQL runs here, in-browser, zero upload).
 - **File loading** — `js/loaders.js` (CSV/TSV, JSON/NDJSON, Parquet, Excel, SQLite ingestion into DuckDB; also `loadRowsAsDataset` for in-memory result sets).
 - **Warehouse import** — `js/databricks-connect.js` (proof-of-concept BYO-token, browser-direct read-only pull from a user's own Databricks SQL warehouse into DuckDB; see [`databricks-connect.md`](./databricks-connect.md)).
+- **Capability registry** — `js/capability-registry.js` (platform-aware module loader; reads each capability's `platforms` field from [`capability-map.manifest.json`](../capability-map.manifest.json), detects browser vs. Tauri desktop at runtime, and dynamically `import()`s only the modules meant for that runtime so `js/main.js` no longer statically imports every feature).
+
+> **Platforms.** Every capability in [`capability-map.manifest.json`](../capability-map.manifest.json)
+> declares a `platforms` list drawn from `browser`, `desktop`, and (reserved) `mobile`.
+> Most capabilities work identically in a plain browser and inside the Tauri desktop
+> shell and so are `["browser", "desktop"]`; the Watch Folder is browser-only (its File
+> System Access polling has no counterpart in the desktop shell) via a per-file
+> `platformsByFile` override. The capability-map drift gate (`npm run test:capdrift`)
+> fails the build if any capability is missing a valid, non-empty `platforms` list.
 
 ## Validation layers
 DATAGLOW's headline: the 20 validation layers plus the Red Team self-test, and the
