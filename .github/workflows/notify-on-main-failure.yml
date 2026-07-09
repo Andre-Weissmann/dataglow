@@ -1,0 +1,120 @@
+# ============================================================
+# DATAGLOW — Alert when CI fails ON MAIN (post-merge)
+# ============================================================
+# A red check on a pull request is already impossible to miss — it shows inline
+# on the PR and blocks the author. What is easy to miss is a workflow that fails
+# AFTER a merge, running against `main` itself (exactly what happened to the
+# living-manifest automation, which failed three consecutive times on `main`
+# before anyone noticed). This workflow closes that gap.
+#
+# It watches the completion of the repo's post-merge workflows and, when one
+# concludes in `failure` on `main`, opens (or refreshes) a GitHub Issue naming
+# the failing workflow and linking the run. Issues are chosen deliberately: they
+# need no external service, webhook, or secret — the notification lives in the
+# repo's own Issues tab and can be assigned/closed like any other work item. (If
+# this repo later grows a Slack/webhook channel, add it as an extra step here;
+# the Issue remains the zero-secret baseline.)
+#
+# SCOPE — main only, real failures only:
+#   * `workflow_run` fires only for the workflows named below, and the `if`
+#     guard requires `head_branch == main` and `conclusion == failure`, so PR-run
+#     failures (already visible on the PR) never trigger it.
+#   * De-duplication: one open issue per failing workflow. A repeat failure of a
+#     workflow that already has an open alert issue just appends a comment rather
+#     than opening a second issue, so a flapping job can't spam the tracker.
+#
+# LEAST-PRIVILEGE: the only write scope needed is `issues: write` (creating an
+# issue / comment is NOT "creating or approving a pull request", so it is
+# unaffected by the repo's disabled Actions-PR-creation setting). Everything else
+# stays read-only, and no PAT or repo-wide permission change is involved.
+
+name: notify-on-main-failure
+
+on:
+  workflow_run:
+    # Post-merge workflows that run against `main`. Add new `main`-triggered
+    # workflow names here to have their post-merge failures alert too.
+    workflows:
+      - tests
+      - living-manifest
+    types:
+      - completed
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: notify-on-main-failure-${{ github.event.workflow_run.name }}
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    name: Open an issue on main CI failure
+    runs-on: ubuntu-latest
+    # Only a genuine failure that landed on main — not PR runs, not successes,
+    # not cancellations.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == 'main'
+    steps:
+      - name: Create or update the alert issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const wf = run.name;
+            const label = 'ci-failure-main';
+            const title = `CI failure on main: ${wf}`;
+            const body = [
+              `The **${wf}** workflow failed on \`main\` (post-merge).`,
+              '',
+              `- Run: ${run.html_url}`,
+              `- Commit: \`${run.head_sha}\``,
+              `- Triggering event: \`${run.event}\``,
+              `- Concluded: ${run.updated_at}`,
+              '',
+              'This alert only fires for failures on `main` itself; PR-run failures are surfaced on the PR. Close this issue once the failure is resolved.',
+            ].join('\n');
+
+            // Make sure the label exists (ignore "already exists").
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+                color: 'b60205',
+                description: 'Automated alert: a workflow failed on main',
+              });
+            } catch (e) {
+              if (e.status !== 422) throw e;
+            }
+
+            // One open issue per failing workflow: reuse it if present.
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+              per_page: 100,
+            });
+            const match = existing.find((i) => i.title === title);
+
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Failed again on \`main\`: ${run.html_url} (commit \`${run.head_sha}\`).`,
+              });
+              core.notice(`Appended to existing alert issue #${match.number} for "${wf}".`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: [label],
+              });
+              core.notice(`Opened alert issue #${created.data.number} for "${wf}".`);
+            }

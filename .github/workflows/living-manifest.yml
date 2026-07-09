@@ -23,10 +23,25 @@
 # PAT, deploy key, or App is added on purpose), the bot behaves like any other
 # contributor: it pushes the regenerated docs to a fixed, non-protected branch
 # (`chore/living-manifest-update`) — pushing to a non-protected branch works with
-# the default GITHUB_TOKEN — opens (or reuses) a PR into `main`, and auto-merges
-# it. The diff is auto-generated, docs-only, and low-risk, so auto-merge once the
-# PR's own checks pass is safe. A fixed branch name (not a random suffix) means
-# only one such PR is ever open, avoiding branch/PR pileup.
+# the default GITHUB_TOKEN — and opens (or reuses + squash-merges) a PR into
+# `main`. A fixed branch name (not a random suffix) means only one such PR is
+# ever open, avoiding branch/PR pileup.
+#
+# KNOWN CONSTRAINT — PR CREATION MAY BE DISABLED: this repo has the Actions
+# setting "Allow GitHub Actions to create and approve pull requests" turned OFF
+# (`can_approve_pull_request_reviews: false`). While the `permissions:` block
+# below already grants the run's GITHUB_TOKEN `pull-requests: write`, that
+# per-workflow scope CANNOT override the repo-wide create/approve restriction, so
+# `gh pr create` is rejected with:
+#   GraphQL: GitHub Actions is not permitted to create or approve pull requests
+# We deliberately do NOT flip that repo-wide setting here (it would let every
+# workflow open PRs — the opposite of least-privilege) and add no PAT. Instead
+# the "land docs" step is FAIL-SOFT: pushing the carrier branch always works, and
+# if the PR cannot be auto-opened the step records an actionable warning + job
+# summary (a maintainer opens/merges the carrier PR once, or enables the setting)
+# and exits green — a stale docs table must never turn `main` red on its own.
+# Once a PR from the carrier branch exists (maintainer-opened, or after the
+# setting is enabled), every later run reuses and squash-merges it automatically.
 #
 # LOOP GUARD: the commit / PR title carries `[skip ci]`, which GitHub Actions
 # honors natively to skip the resulting `push` event when the docs PR lands on
@@ -73,9 +88,11 @@ jobs:
         run: npm run docs:provenance
 
       # Direct `git push` to `main` is rejected by branch protection (GH006), so
-      # route the regenerated docs through a self-PR on a fixed branch and
-      # auto-merge it. See the header comment for the full rationale.
-      - name: Open/update docs self-PR if changed
+      # route the regenerated docs through a self-PR on a fixed carrier branch and
+      # squash-merge it. PR *creation* may be blocked repo-wide (see the header
+      # comment), so this step is fail-soft: it never fails the run on the known
+      # create/approve restriction, only on genuinely unexpected git/gh errors.
+      - name: Land regenerated docs via carrier-branch self-PR (fail-soft)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -88,7 +105,15 @@ jobs:
           git add README.md docs/PROVENANCE_TIMELINE.md
 
           if git diff --cached --quiet; then
-            echo "no doc changes to commit — nothing to PR"
+            echo "no doc changes to commit — nothing to land"
+            # Nothing to publish. If a carrier branch is lingering with no open
+            # PR (e.g. left behind by a past failed run), tidy it up so the repo
+            # doesn't accumulate an orphaned chore/ branch.
+            if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 \
+               && [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+              echo "removing stale carrier branch $BRANCH (no open PR, no pending docs)"
+              git push origin --delete "$BRANCH" || echo "::warning::could not delete stale $BRANCH"
+            fi
             exit 0
           fi
 
@@ -100,25 +125,41 @@ jobs:
           git branch -f "$BRANCH" HEAD
           git push --force origin "$BRANCH"
 
-          # Open the PR only if one isn't already open for this branch; otherwise
-          # the push above has already updated the existing PR's head.
-          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
-            gh pr create \
-              --base main \
-              --head "$BRANCH" \
-              --title "$TITLE" \
-              --body "Automated docs refresh from the living-manifest workflow (capability dashboard + provenance timeline), regenerated from capability-map.manifest.json and git history. Docs-only, no runtime/product code. Safe to auto-merge once checks pass."
+          # Reuse an open PR if one exists; the force-push above already updated
+          # its head. Otherwise try to open one — but tolerate the repo-wide
+          # "Actions may not create pull requests" restriction instead of failing.
+          PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            if gh pr create \
+                 --base main \
+                 --head "$BRANCH" \
+                 --title "$TITLE" \
+                 --body "Automated docs refresh from the living-manifest workflow (capability dashboard + provenance timeline), regenerated from capability-map.manifest.json and git history. Docs-only, no runtime/product code. Safe to squash-merge once checks pass."; then
+              PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+            else
+              echo "::warning title=living-manifest::Regenerated docs pushed to '$BRANCH' but the docs PR could not be auto-opened (GitHub Actions is not permitted to create pull requests on this repo). A maintainer must open/merge that PR, or enable Settings > Actions > 'Allow GitHub Actions to create and approve pull requests'."
+              {
+                echo "### Living manifest: docs drift detected but not auto-landed"
+                echo ""
+                echo "Regenerated docs (capability dashboard + provenance timeline) were pushed to \`$BRANCH\`, but could not be landed automatically because GitHub Actions is not permitted to create pull requests on this repository (\`can_approve_pull_request_reviews: false\`)."
+                echo ""
+                echo "**To land them, either:**"
+                echo "- open a PR from \`$BRANCH\` into \`main\` and squash-merge it (later runs will then keep it updated and auto-merge automatically), or"
+                echo "- enable *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
           else
-            echo "PR already open for $BRANCH — head updated by the push above"
+            echo "PR #$PR already open for $BRANCH — head updated by the push above"
           fi
 
-          # Auto-merge once the PR's own required checks pass. Fall back to an
-          # immediate squash merge if auto-merge isn't enabled for this repo —
-          # a README/docs-only diff carries no meaningful CI risk. Squash keeps
-          # the [skip ci] title as the merge-commit subject, so the resulting
-          # push to main doesn't re-trigger this workflow (loop guard).
-          gh pr merge "$BRANCH" --auto --squash --delete-branch \
-            || gh pr merge "$BRANCH" --squash --delete-branch
+          # A PR exists (reused or freshly opened) — squash-merge it now. Merging
+          # is not blocked by the create/approve restriction. Squash keeps the
+          # [skip ci] title as the merge-commit subject, so the resulting push to
+          # main doesn't re-trigger this workflow (loop guard). Fall back to
+          # enabling auto-merge if an immediate merge is momentarily blocked.
+          gh pr merge "$PR" --squash --delete-branch \
+            || gh pr merge "$PR" --auto --squash --delete-branch
 
       - name: Open wiki-gap issues for undocumented capability areas
         env:
