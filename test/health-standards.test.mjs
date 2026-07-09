@@ -35,9 +35,9 @@ import {
   summarizeFhirMissingness,
   buildOmopSample,
   buildFhirSample,
-} from '../js/health-standards.js';
-import { VITALS } from '../js/physiological-plausibility.js';
-import { MIN_MISSING_RATE } from '../js/missingness-detective.js';
+} from '../js/validation/health-standards.js';
+import { VITALS } from '../js/validation/physiological-plausibility.js';
+import { MIN_MISSING_RATE } from '../js/validation/missingness-detective.js';
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {

@@ -19,7 +19,7 @@ import * as engine from './node-duckdb-engine.mjs';
 
 import {
   matchVital, detectTempUnit, runPhysiologicalChecks, PHYSIO_DISCLAIMER, VITALS,
-} from '../js/physiological-plausibility.js';
+} from '../js/validation/physiological-plausibility.js';
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {

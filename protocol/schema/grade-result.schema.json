@@ -3,7 +3,7 @@
   "$id": "https://dataglow.app/protocol/1.0.0/grade-result.schema.json",
   "title": "GradeResult",
   "version": "1.0.0",
-  "description": "DATAGLOW's Confidence-Calibrated two-axis grade. Both axes are explicitly HEURISTIC, not legal or clinical determinations. Mirrors the object produced by computeCalibratedGrades() in js/calibrated-grades.js.",
+  "description": "DATAGLOW's Confidence-Calibrated two-axis grade. Both axes are explicitly HEURISTIC, not legal or clinical determinations. Mirrors the object produced by computeCalibratedGrades() in js/grades/calibrated-grades.js.",
   "type": "object",
   "required": ["packName", "integrity", "plausibility"],
   "properties": {

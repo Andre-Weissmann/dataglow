@@ -22,9 +22,9 @@ import {
   getMicroLesson,
   listFindingTypes,
   coverageFor,
-} from '../js/micro-lessons.js';
-import { LAYER_DEFS } from '../js/validation.js';
-import { DOMAIN_PACKS } from '../js/domain-physics.js';
+} from '../js/teaching/micro-lessons.js';
+import { LAYER_DEFS } from '../js/validation/validation.js';
+import { DOMAIN_PACKS } from '../js/validation/domain-physics.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

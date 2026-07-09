@@ -20,7 +20,7 @@ hardened, feature-complete connector. See [Limitations](#limitations).
 3. On success, the JSON result set is parsed and loaded into DuckDB-WASM as a new
    local table — the same ingest path a file upload uses.
 
-The network + parsing logic lives in [`js/databricks-connect.js`](../js/databricks-connect.js)
+The network + parsing logic lives in [`js/app-shell/databricks-connect.js`](../js/app-shell/databricks-connect.js)
 and is deliberately DOM-free and engine-free: `fetch`, the ingest step, and the
 poll delay are injected, so it is unit tested against mocked responses with no
 live account (see `test/databricks-connect.test.mjs`).
@@ -55,7 +55,7 @@ public, documented REST surface in original code.
 
 The connector does **not** introduce a parallel data-loading path. It parses the
 result set into `{ columns, rows }` and hands them to `loadRowsAsDataset()` in
-[`js/loaders.js`](../js/loaders.js) — the same helper that registers the dataset
+[`js/app-shell/loaders.js`](../js/app-shell/loaders.js) — the same helper that registers the dataset
 in app state, builds the DuckDB table, and anchors the Chain of Custody. That is
 the identical machinery behind Excel/SQLite/golden-dataset ingestion, so a
 Databricks table behaves like any other dataset from the moment it loads.

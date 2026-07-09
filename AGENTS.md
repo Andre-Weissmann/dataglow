@@ -111,7 +111,7 @@ reusable capabilities that shape how work is done here. Newest first.
 
 ### Teach-As-You-Clean micro-lessons + Community Pack sharing (Gen 34 C/D)
 
-`js/micro-lessons.js` is a pure catalog: a finding-type id → `{beginner, practitioner, expert}`
+`js/teaching/micro-lessons.js` is a pure catalog: a finding-type id → `{beginner, practitioner, expert}`
 one-liner map, plus `getMicroLesson(id, level)` and `coverageFor(requiredTypes)`. If you add
 a new validation layer (a `LAYER_DEFS` entry) or a new domain-pack rule, you MUST add a
 matching micro-lesson entry — `npm run test:microlessons` fails otherwise (it checks coverage
@@ -119,10 +119,10 @@ against the live `LAYER_DEFS` and `DOMAIN_PACKS` ids, not a hard-coded list). Al
 original one-sentence wording. The verbosity slider swaps register only; never make it change
 which findings appear or any validation result.
 
-`js/community-pack.js` exports/imports domain packs as portable JSON with NO backend. The
+`js/teaching/community-pack.js` exports/imports domain packs as portable JSON with NO backend. The
 strict schema in `validateImportedPack` IS the safety sandbox — do not add a second sandboxing
 mechanism. Imported packs compile ONLY through `compilePackRule`/`compileColumnMatch` in
-`js/domain-physics.js`, so a rule's target layer is derived from its `kind` (`PACK_RULE_LAYERS`)
+`js/validation/domain-physics.js`, so a rule's target layer is derived from its `kind` (`PACK_RULE_LAYERS`)
 and can never be supplied by the input. Only descriptor-based packs (retail, finance, imported)
 are portable; the hand-written healthcare pack is not. Keep retail/finance expressed as the
 `RETAIL_PACK_DESCRIPTOR`/`FINANCE_PACK_DESCRIPTOR` declarative descriptors so export round-trips
@@ -130,7 +130,7 @@ without drift; changing a built-in pack's rules means editing its descriptor, no
 
 ### The Standards Bridge — recognise healthcare-data standards, reuse the existing engines
 
-`js/health-standards.js` is a schema-recognition + concept-mapping seam, not a new
+`js/validation/health-standards.js` is a schema-recognition + concept-mapping seam, not a new
 validation engine. It recognises the shape of two common healthcare-data standards —
 the OMOP Common Data Model (five in-scope tables: PERSON, CONDITION_OCCURRENCE,
 DRUG_EXPOSURE, MEASUREMENT, OBSERVATION_PERIOD) and HL7 FHIR bundles (Patient,
@@ -139,7 +139,7 @@ tabular, one-column-per-measurement shape the existing layers expect. Every plau
 bound it uses is imported from the Physiological Plausibility layer's `VITALS` table and
 every missingness cutoff from the Missingness Detective's `MIN_MISSING_RATE`; it defines
 no bounds of its own and adds no ML. The two Domain Packs it feeds (`omop`, `fhir`) are
-plain entries in `js/domain-physics.js` built the same way as the Retail/Finance packs and
+plain entries in `js/validation/domain-physics.js` built the same way as the Retail/Finance packs and
 carry a shared non-clinical medical disclaimer (`MEDICAL_DISCLAIMER`) surfaced wherever
 their findings show. When you extend it, keep the guardrail: recognise and route, never
 re-implement a bound or a check the layers already own, and never let a finding read as a
@@ -191,7 +191,7 @@ golden regression suite (`npm run test:golden`) is the moved-output net; it runs
 every case in `test/golden/cases.mjs`, so adding coverage means adding a case +
 fixture, not editing the workflow. (4) **Land dark** — a client-side feature-flag
 manifest `flags.manifest.json` (flag -> `{enabled, addedInPR, description}`) read
-by `js/build-flags.js` (`isEnabled(name)`; in-memory only, no localStorage /
+by `js/build/build-flags.js` (`isEnabled(name)`; in-memory only, no localStorage /
 cookies / network, so it behaves identically in browser, Tauri desktop, and future
 Tauri mobile). Flag hygiene follows a **promote-or-delete rule**: a flag left in
 the manifest for more than 3 merged PRs without being promoted (removed, code kept)
@@ -202,12 +202,12 @@ manifest. The merge-tree check is intentionally a **non-required** check for now
 ### Export / reporting — Universal Export Contract + delivery adapters
 
 The Visualize tab can export the loaded, validated dataset as an Excel workbook
-or a PDF report, 100% client-side. `js/export-report.js` is a Universal Export
+or a PDF report, 100% client-side. `js/export/export-report.js` is a Universal Export
 Contract: it builds raw bytes per format (a `{data, filename, mimeType}` blob
 descriptor) independent of how they reach disk. The `.xlsx` builder reuses the
 already-vendored SheetJS (global `XLSX` from `assets/xlsx/`, no new dependency);
 the PDF builder is a small first-party, dependency-free PDF 1.4 writer (no PDF
-library) so nothing heavy is pulled in. Delivery lives in `js/export-delivery.js`
+library) so nothing heavy is pulled in. Delivery lives in `js/export/export-delivery.js`
 as platform adapters selected by `selectAdapter(platform)`: browser (Blob +
 object URL + synthetic `<a download>`, the repo's existing pattern), desktop
 (feature-detects Tauri `dialog.save` + `fs.writeBinaryFile` for a native Save-As,
@@ -215,19 +215,19 @@ falls back to the browser download when those APIs are absent — the shell's
 current deny-by-default posture), and a mobile share-sheet stub that throws
 (future work). The module is registry-native: capability `export-reporting` in
 `capability-map.manifest.json` with `platforms: ["browser", "desktop"]`, reached
-from `js/main.js` via `registry.get('export-report')`. No network primitive
+from `js/app-shell/main.js` via `registry.get('export-report')`. No network primitive
 appears in either file — a source guard in `npm run test:export` (the
 `export-reporting` CI job) enforces the zero-upload promise.
 
 ### Capability registry — platform-aware module loading
 
-`js/main.js` no longer statically imports every feature module. Each capability
+`js/app-shell/main.js` no longer statically imports every feature module. Each capability
 in `capability-map.manifest.json` declares a `platforms` list from a closed set
 (`browser`, `desktop`, and reserved `mobile`); most are `["browser", "desktop"]`
 because they behave identically in a plain browser and inside the Tauri desktop
 shell, while runtime-specific ones are narrowed — the Watch Folder is browser-only
 via a per-file `platformsByFile` override (a capability's `platforms` stays the
-honest union; the override marks the one file). The loader `js/capability-registry.js`
+honest union; the override marks the one file). The loader `js/app-shell/capability-registry.js`
 reads that manifest at runtime (same-origin `fetch`, precached by `sw.js` and
 staged into the desktop bundle by `scripts/stage-desktop-frontend.mjs` — no new
 network or upload path), detects browser vs. Tauri desktop, and dynamically
@@ -239,7 +239,7 @@ backing file differs, `platformsByFile`): the drift gate `npm run test:capdrift`
 fails the build on a missing/invalid list, and `npm run test:capregistry`
 unit-tests the loader (both run in the `capability-map-drift` CI job,
 `.github/workflows/job-capability-map-drift.yml`). Migrating a module onto the
-registry means dropping its static import in `js/main.js` and fetching it via the
+registry means dropping its static import in `js/app-shell/main.js` and fetching it via the
 registry during bootstrap; unmigrated modules keep their static imports and still
 work — migration is incremental, not all-or-nothing.
 
@@ -254,7 +254,7 @@ repo's public face, regenerating three artifacts from the same
 `CAPABILITY_TABLE_START`/`END` markers (`.github/scripts/render-capability-dashboard.mjs`,
 `npm run docs:dashboard`); (2) `docs/PROVENANCE_TIMELINE.md`, a git-history
 timeline (`.github/scripts/render-provenance-timeline.mjs`, `npm run docs:provenance`)
-— a markdown table, not the browser-only `js/visualize.js`, which needs the
+— a markdown table, not the browser-only `js/runtimes-viz/visualize.js`, which needs the
 DOM/Plotly; (3) a wiki-gap detector (`.github/scripts/wiki-gap-detector.mjs`,
 `npm run docs:wiki-gap`) that opens a "Wiki page needed: <area>" issue for any
 capability area missing from `docs/wiki-coverage.json`. Pure logic is unit-tested
@@ -298,8 +298,8 @@ DuckDB-WASM bundle, Plotly.js (`assets/plotly/`, MIT) and SheetJS/xlsx
 `index.html`; their upstream licenses ship next to them. The only remaining
 third-party fetches are the three large opt-in runtimes — Pyodide, WebR and
 WebLLM — which load from public CDNs on demand when their tabs are first opened
-(`js/python-runtime.js` injects the Pyodide loader lazily; `js/r-runtime.js` and
-`js/ondevice-llm.js` dynamically `import()` theirs). When you touch prose about
+(`js/runtimes-viz/python-runtime.js` injects the Pyodide loader lazily; `js/runtimes-viz/r-runtime.js` and
+`js/narrative/ondevice-llm.js` dynamically `import()` theirs). When you touch prose about
 what loads from where, keep this vendored-vs-on-demand split accurate — the
 AGENTS.md context-rot detector only checks that paths resolve, not that claims
 are true, so the honesty here is on you.

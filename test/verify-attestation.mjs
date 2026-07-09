@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import {
   createProvenanceChain, verifyAttestation, verifyChainArray, computeAttestationDigest,
-} from '../js/provenance.js';
+} from '../js/provenance/provenance.js';
 
 function report(res) {
   console.log('');

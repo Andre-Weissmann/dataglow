@@ -17,11 +17,11 @@
 
 import { createTableFromObjects, getTableSchema, runQuery, closeConnection } from './node-duckdb-engine.mjs';
 
-import { hashBytes } from '../js/provenance.js';
-import { runAllLayers, checkNarrativeConsistency } from '../js/validation.js';
-import { pickPeerGroupColumn } from '../js/ondevice-ml.js';
-import { isSensitiveCategory } from '../js/categorical-consistency.js';
-import { clearLedger } from '../js/assumption-ledger.js';
+import { hashBytes } from '../js/provenance/provenance.js';
+import { runAllLayers, checkNarrativeConsistency } from '../js/validation/validation.js';
+import { pickPeerGroupColumn } from '../js/anomaly/ondevice-ml.js';
+import { isSensitiveCategory } from '../js/validation/categorical-consistency.js';
+import { clearLedger } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

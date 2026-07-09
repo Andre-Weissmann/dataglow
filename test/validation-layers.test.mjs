@@ -14,10 +14,10 @@
 
 import { createTableFromObjects, getTableSchema, closeConnection } from './node-duckdb-engine.mjs';
 
-import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords, BENFORD_TEACHINGS, benfordSkipCause, benfordTeachingGroups } from '../js/validation.js';
-import { buildGoldenDataset } from '../js/loaders.js';
-import { clusterValues, withCanonical } from '../js/categorical-consistency.js';
-import { getLedgerEntries, clearLedger } from '../js/assumption-ledger.js';
+import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords, BENFORD_TEACHINGS, benfordSkipCause, benfordTeachingGroups } from '../js/validation/validation.js';
+import { buildGoldenDataset } from '../js/app-shell/loaders.js';
+import { clusterValues, withCanonical } from '../js/validation/categorical-consistency.js';
+import { getLedgerEntries, clearLedger } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

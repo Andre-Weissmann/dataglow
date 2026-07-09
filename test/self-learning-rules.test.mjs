@@ -23,7 +23,7 @@ import {
   actionToLabel,
   MIN_EXAMPLES,
   KNOWN_SOURCES,
-} from '../js/self-learning-rules.js';
+} from '../js/learning/self-learning-rules.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

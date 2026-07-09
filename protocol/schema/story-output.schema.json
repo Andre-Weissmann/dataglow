@@ -3,7 +3,7 @@
   "$id": "https://dataglow.app/protocol/1.0.0/story-output.schema.json",
   "title": "StoryOutput",
   "version": "1.0.0",
-  "description": "The output of DATAGLOW's Story Engine: a plain-English data narrative plus the per-claim confidence scoring that backs every quantitative statement. Mirrors the result of generateStory() combined with buildStoryClaims() in js/story.js.",
+  "description": "The output of DATAGLOW's Story Engine: a plain-English data narrative plus the per-claim confidence scoring that backs every quantitative statement. Mirrors the result of generateStory() combined with buildStoryClaims() in js/narrative/story.js.",
   "type": "object",
   "required": ["protocolVersion", "text", "source"],
   "properties": {

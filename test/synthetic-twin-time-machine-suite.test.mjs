@@ -18,20 +18,20 @@
 // These four feature modules are pure (no DOM/engine), so datasets here are
 // built as plain JS row arrays — no DuckDB needed.
 
-import { laplaceNoise, addPrivacyBudgetNoise } from '../js/privacy-budget.js';
+import { laplaceNoise, addPrivacyBudgetNoise } from '../js/privacy/privacy-budget.js';
 import {
   generateSyntheticTwin, buildNumericHistogram, noiseHistogramCounts,
   numericStats, toCSV, DEFAULT_EPSILON, SYNTHETIC_TWIN_DISCLAIMER,
-} from '../js/synthetic-twin.js';
+} from '../js/privacy/synthetic-twin.js';
 import {
   contentHash, canonicalize, summarizeDiffFromPrevious, buildSnapshot,
   exportArchive, parseArchive,
-} from '../js/time-machine.js';
+} from '../js/simulation/time-machine.js';
 import {
   buildFingerprint, computeColumnFingerprint, jensenShannonDivergence,
   rebinDistribution, compareFingerprints, MIN_N, FINGERPRINT_DISCLAIMER,
-} from '../js/federated-fingerprint.js';
-import { buildIRBDocument, renderIRBHTML, IRB_DISCLAIMER } from '../js/irb-mode.js';
+} from '../js/federated/federated-fingerprint.js';
+import { buildIRBDocument, renderIRBHTML, IRB_DISCLAIMER } from '../js/provenance/irb-mode.js';
 
 // ---------- tiny test harness ----------
 let passed = 0, failed = 0;

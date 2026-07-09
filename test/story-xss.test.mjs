@@ -10,8 +10,8 @@
 //
 // RUN WITH:  node test/story-xss.test.mjs
 
-import { generateLocalStory } from '../js/story.js';
-import { escapeHtml } from '../js/utils.js';
+import { generateLocalStory } from '../js/narrative/story.js';
+import { escapeHtml } from '../js/app-shell/utils.js';
 
 let passed = 0;
 let failed = 0;

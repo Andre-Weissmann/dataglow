@@ -29,8 +29,8 @@ Everything runs on WebAssembly and vanilla JS. Your data never leaves your machi
 - **Self-Learning Validation Rules** — learns from *your own* corrections (applying/rejecting a suggested merge, dismissing a validation flag) and re-ranks flags so the ones you're most likely to care about surface first, with a plain-language "why". It is a simple, transparent, on-device **logistic-regression** model — not a neural network or general-purpose AI — that starts knowing nothing until you've made at least 10 corrections. Only labeled examples of your corrections (which check fired, the column type, accept/dismiss) are recorded — **never your raw cell values** — and nothing ever leaves your browser. Per-session learning is on by default (RAM only, wiped on reload); remembering it across sessions in IndexedDB is a separate opt-in, and a one-click **"Clear my learned corrections"** wipes it. It only ranks and highlights — it never auto-edits your data.
 - **Federated Fingerprint Learning** *(opt-in, OFF by default)* — collaboratively improves the shared column-fingerprint/pattern model across users **without any of your data ever leaving your browser**. Each opted-in browser trains a tiny local model on its own validation-session signals and shares **only privacy-protected weight *updates*** — never raw rows, never cell values. Three privacy layers stack: (1) **secure aggregation via pairwise masking** (Bonawitz et al. 2017), where equal-and-opposite masks cancel in the sum so no single peer's update is ever seen in the clear; (2) a **differential-privacy Gaussian mechanism** (Dwork & Roth 2014; DP-SGD clip-then-noise, Abadi et al. 2016) with a tunable ε you control in Settings; and (3) a **minimum-cohort threshold** so an update is never aggregated or applied from fewer than the minimum number of peers per round. Peers find each other through a scheduled GitHub Action that publishes a short-lived, auto-expiring "phone book" of WebRTC signaling offers on a dedicated coordination branch — **GitHub only bootstraps signaling and never sees any weights or data**. The real weight exchange happens **peer-to-peer over WebRTC**, gossiped (Boyd et al. 2006; Lian et al. 2017 D-PSGD) to a few random reachable peers, with a masked-commit relay fallback so it still works with only one or two users. Federated averaging (**FedAvg**, McMahan et al. 2017) combines the updates, and every contribution produces a hash-chained receipt reusing the app's selective-disclosure provenance pattern. If WebRTC is unsupported, no peers are reachable, GitHub is unreachable, or you're offline, it **degrades silently to purely local behavior with zero errors**. One click clears all local federated state.
 - **Unified Signal Layer** — a lightweight, in-memory coordination layer that lets the on-device modules above read each other's conclusions *before* anything is drawn on screen, so they enrich rather than contradict one another. The Self-Learning ranker publishes its learned per-column verdicts into a shared signal store; the Predictive Anomaly scorer then **suppresses** (de-ranks, with a plain-language "why") a row whose dominant column you've repeatedly dismissed as a false positive, instead of showing a duplicate warning; and the Forecast-Based Drift alerter **surfaces the connection** when a drift flag lands on a column whose validation rule you recently disabled. It is purely additive plumbing — it runs no new model and changes no module's statistics, so each module behaves exactly as before whenever there is no cross-module signal to share.
-- **Teach As You Clean** — an optional one-line "why this matters" explanation attached to every validation finding, so the app teaches while it validates. A **"Learn while you clean"** toggle (on by default) shows or hides all of them, and a **Beginner / Practitioner / Expert** verbosity slider changes only the *wording register* — never which findings appear or any validation result. Every explanation is original one-sentence copy covering all 20 layers (plus the Red Team self-test), each domain-pack reinterpretation, and the finer Unit Test and Benford sub-findings. The state is session-only, read straight from the page each render — nothing is stored or uploaded (`js/micro-lessons.js`).
-- **Community Pack Sharing** — export a domain pack as a portable JSON file and import a shared one back, so a data team can pass its Retail/Finance reinterpretations around **without any server, marketplace, or backend** — file-based only, reusing the same browser download/upload the rest of the app uses. Every imported pack is validated against a **strict, closed schema** before it loads (unknown keys, bad shapes, disallowed regex flags, and oversized inputs are rejected), and it then runs inside the **exact same annotate-only sandbox** the built-in packs obey: each rule's target layer is derived from its declared `kind`, so an imported pack can only annotate/reinterpret findings — it can never hard-fail your data, auto-merge protected categories, or touch a core validation layer. Only descriptor-based packs (Retail, Finance, or a pack you imported) are portable; the hand-written Healthcare pack is not (`js/community-pack.js`).
+- **Teach As You Clean** — an optional one-line "why this matters" explanation attached to every validation finding, so the app teaches while it validates. A **"Learn while you clean"** toggle (on by default) shows or hides all of them, and a **Beginner / Practitioner / Expert** verbosity slider changes only the *wording register* — never which findings appear or any validation result. Every explanation is original one-sentence copy covering all 20 layers (plus the Red Team self-test), each domain-pack reinterpretation, and the finer Unit Test and Benford sub-findings. The state is session-only, read straight from the page each render — nothing is stored or uploaded (`js/teaching/micro-lessons.js`).
+- **Community Pack Sharing** — export a domain pack as a portable JSON file and import a shared one back, so a data team can pass its Retail/Finance reinterpretations around **without any server, marketplace, or backend** — file-based only, reusing the same browser download/upload the rest of the app uses. Every imported pack is validated against a **strict, closed schema** before it loads (unknown keys, bad shapes, disallowed regex flags, and oversized inputs are rejected), and it then runs inside the **exact same annotate-only sandbox** the built-in packs obey: each rule's target layer is derived from its declared `kind`, so an imported pack can only annotate/reinterpret findings — it can never hard-fail your data, auto-merge protected categories, or touch a core validation layer. Only descriptor-based packs (Retail, Finance, or a pack you imported) are portable; the hand-written Healthcare pack is not (`js/teaching/community-pack.js`).
 
 ### Supported file formats (Tier 1)
 
@@ -111,40 +111,40 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 <!-- CAPABILITY_TABLE_START -->
 | Capability area | Name | Files |
 | --- | --- | --- |
-| App shell & data engine | Controller & wiring | `js/main.js` |
-|  | State & helpers | `js/state.js`, `js/utils.js` |
-|  | Query engine | `js/duckdb-engine.js` |
-|  | File loading | `js/loaders.js` |
-|  | Warehouse import | `js/databricks-connect.js` |
-| Validation layers | Orchestrator | `js/validation.js` |
-|  | Standalone layer modules | `js/categorical-consistency.js`, `js/cross-column-consistency.js`, `js/physiological-plausibility.js`, `js/upper-bound-sanity.js`, `js/missingness-detective.js`, `js/missingness.js` |
-|  | Reinterpretation & context | `js/domain-physics.js`, `js/expected-range.js` |
-| Anomaly & outlier detection | Detectors | `js/isolation-forest.js`, `js/ondevice-ml.js`, `js/predictive-anomaly.js` |
-|  | Baselining & process control | `js/entity-baseline.js`, `js/spc-control.js` |
-|  | Triage | `js/active-learning.js` |
-| Analysis robustness | Devil's Advocate | `js/devils-advocate.js` |
-| Drift, trend & fingerprinting | Forecasting | `js/drift-forecast.js` |
-|  | Trend narration | `js/expected-range.js` |
-| Cleaning & fixes | Core cleaning | `js/clean.js`, `js/fix-confidence.js`, `js/materiality.js` |
-|  | Targeted transforms | `js/imputation.js`, `js/format-fingerprint.js`, `js/fuzzy-dedup.js` |
-| Grades & health scores | Grades | `js/calibrated-grades.js`, `js/cat-scorecard.js`, `js/golden-signals.js` |
-| On-device learning & personalization | Learners | `js/self-learning-rules.js`, `js/adaptive-priority.js`, `js/rule-suggestions.js` |
-|  | Shared state | `js/signal-store.js`, `js/memory-store.js` |
-| Federated learning | Core & transport | `js/federated-fingerprint.js`, `js/federated-learning.js`, `js/federated-transport.js` |
-| Provenance, audit & trust | Chain of custody | `js/provenance.js`, `js/assumption-ledger.js` |
-|  | Shareable artifacts | `js/validation-receipt.js`, `js/selective-disclosure-proof.js`, `js/irb-mode.js`, `js/peer-review.js` |
-| Privacy & synthetic data | DP export & synthesis | `js/privacy-budget.js`, `js/synthetic-twin.js`, `js/synthetic-adversarial.js` |
-| Simulation & time travel | What-if & history | `js/digital-twin.js`, `js/time-travel-diff.js`, `js/time-machine.js` |
-| Narrative & language models | Story & LLM | `js/story.js`, `js/ondevice-llm.js` |
-| Ambient & real-time | Live validation | `js/ambient-validation.worker.js`, `js/watch-folder.js` |
-| Language runtimes & visualization | Runtimes & charts | `js/python-runtime.js`, `js/r-runtime.js`, `js/swift-preview.js`, `js/visualize.js` |
-| Protocol & interoperability | Conformance | `js/protocol-conformance.js` |
-| Problem framing | Problem Framer & Context Card | `js/problem-framer.js` |
-| App shell & data engine | Capability registry | `js/capability-registry.js` |
-| Export & reporting | Universal export (Excel + PDF) | `js/export-report.js`, `js/export-delivery.js` |
-| Build tooling & feature flags | Build feature flags | `js/build-flags.js` |
-| Teaching & context | Teach-As-You-Clean micro-lessons | `js/micro-lessons.js` |
-|  | Community domain-pack sharing | `js/community-pack.js` |
+| App shell & data engine | Controller & wiring | `js/app-shell/main.js` |
+|  | State & helpers | `js/app-shell/state.js`, `js/app-shell/utils.js` |
+|  | Query engine | `js/app-shell/duckdb-engine.js` |
+|  | File loading | `js/app-shell/loaders.js` |
+|  | Warehouse import | `js/app-shell/databricks-connect.js` |
+| Validation layers | Orchestrator | `js/validation/validation.js` |
+|  | Standalone layer modules | `js/validation/categorical-consistency.js`, `js/validation/cross-column-consistency.js`, `js/validation/physiological-plausibility.js`, `js/validation/upper-bound-sanity.js`, `js/validation/missingness-detective.js`, `js/validation/missingness.js` |
+|  | Reinterpretation & context | `js/validation/domain-physics.js`, `js/validation/expected-range.js` |
+| Anomaly & outlier detection | Detectors | `js/anomaly/isolation-forest.js`, `js/anomaly/ondevice-ml.js`, `js/anomaly/predictive-anomaly.js` |
+|  | Baselining & process control | `js/anomaly/entity-baseline.js`, `js/anomaly/spc-control.js` |
+|  | Triage | `js/anomaly/active-learning.js` |
+| Analysis robustness | Devil's Advocate | `js/analysis-robustness/devils-advocate.js` |
+| Drift, trend & fingerprinting | Forecasting | `js/drift/drift-forecast.js` |
+|  | Trend narration | `js/validation/expected-range.js` |
+| Cleaning & fixes | Core cleaning | `js/cleaning/clean.js`, `js/cleaning/fix-confidence.js`, `js/cleaning/materiality.js` |
+|  | Targeted transforms | `js/cleaning/imputation.js`, `js/cleaning/format-fingerprint.js`, `js/cleaning/fuzzy-dedup.js` |
+| Grades & health scores | Grades | `js/grades/calibrated-grades.js`, `js/grades/cat-scorecard.js`, `js/grades/golden-signals.js` |
+| On-device learning & personalization | Learners | `js/learning/self-learning-rules.js`, `js/learning/adaptive-priority.js`, `js/learning/rule-suggestions.js` |
+|  | Shared state | `js/learning/signal-store.js`, `js/learning/memory-store.js` |
+| Federated learning | Core & transport | `js/federated/federated-fingerprint.js`, `js/federated/federated-learning.js`, `js/federated/federated-transport.js` |
+| Provenance, audit & trust | Chain of custody | `js/provenance/provenance.js`, `js/provenance/assumption-ledger.js` |
+|  | Shareable artifacts | `js/provenance/validation-receipt.js`, `js/provenance/selective-disclosure-proof.js`, `js/provenance/irb-mode.js`, `js/provenance/peer-review.js` |
+| Privacy & synthetic data | DP export & synthesis | `js/privacy/privacy-budget.js`, `js/privacy/synthetic-twin.js`, `js/privacy/synthetic-adversarial.js` |
+| Simulation & time travel | What-if & history | `js/simulation/digital-twin.js`, `js/simulation/time-travel-diff.js`, `js/simulation/time-machine.js` |
+| Narrative & language models | Story & LLM | `js/narrative/story.js`, `js/narrative/ondevice-llm.js` |
+| Ambient & real-time | Live validation | `js/ambient/ambient-validation.worker.js`, `js/ambient/watch-folder.js` |
+| Language runtimes & visualization | Runtimes & charts | `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/swift-preview.js`, `js/runtimes-viz/visualize.js` |
+| Protocol & interoperability | Conformance | `js/protocol/protocol-conformance.js` |
+| Problem framing | Problem Framer & Context Card | `js/problem-framing/problem-framer.js` |
+| App shell & data engine | Capability registry | `js/app-shell/capability-registry.js` |
+| Export & reporting | Universal export (Excel + PDF) | `js/export/export-report.js`, `js/export/export-delivery.js` |
+| Build tooling & feature flags | Build feature flags | `js/build/build-flags.js` |
+| Teaching & context | Teach-As-You-Clean micro-lessons | `js/teaching/micro-lessons.js` |
+|  | Community domain-pack sharing | `js/teaching/community-pack.js` |
 
 _34 capabilities across 20 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
 <!-- CAPABILITY_TABLE_END -->

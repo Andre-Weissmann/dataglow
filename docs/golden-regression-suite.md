@@ -25,15 +25,15 @@ validation-layer orchestrator, and the cross-column / bounds / grade roll-ups:
 
 | Fixture | Module(s) | What it pins down |
 | --- | --- | --- |
-| `calibrated-grades` | `js/calibrated-grades.js` | Two-axis Integrity/Domain grade roll-up (clean, degraded, and pack-reinterpreted inputs) |
-| `cross-column-detectors` | `js/cross-column-consistency.js` | Pure name-pairing detectors + value classifiers (no DB) |
-| `upper-bound-classify` | `js/upper-bound-sanity.js` | Pure bounded-type name classification + bound decision (no DB) |
-| `imputation-sql` | `js/imputation.js` | The generated grouped-imputation SQL string |
-| `sql-imputation-preview` | `js/imputation.js` | Grouped-mean imputation preview run against a real DuckDB engine |
-| `sql-format-issues` | `js/format-fingerprint.js` | Format-contamination scan (currency / mixed dates / fake nulls) |
-| `sql-cross-column-run` | `js/cross-column-consistency.js` | Cross-column findings against a fixed messy dataset |
-| `sql-upper-bound-run` | `js/upper-bound-sanity.js` | Out-of-bounds percentage / proportion findings |
-| `sql-validation-layers` | `js/validation.js` | Every layer's pass/warn/fail/idle status + confidence + calibrated grades on a fixed dataset — the headline regression signal |
+| `calibrated-grades` | `js/grades/calibrated-grades.js` | Two-axis Integrity/Domain grade roll-up (clean, degraded, and pack-reinterpreted inputs) |
+| `cross-column-detectors` | `js/validation/cross-column-consistency.js` | Pure name-pairing detectors + value classifiers (no DB) |
+| `upper-bound-classify` | `js/validation/upper-bound-sanity.js` | Pure bounded-type name classification + bound decision (no DB) |
+| `imputation-sql` | `js/cleaning/imputation.js` | The generated grouped-imputation SQL string |
+| `sql-imputation-preview` | `js/cleaning/imputation.js` | Grouped-mean imputation preview run against a real DuckDB engine |
+| `sql-format-issues` | `js/cleaning/format-fingerprint.js` | Format-contamination scan (currency / mixed dates / fake nulls) |
+| `sql-cross-column-run` | `js/validation/cross-column-consistency.js` | Cross-column findings against a fixed messy dataset |
+| `sql-upper-bound-run` | `js/validation/upper-bound-sanity.js` | Out-of-bounds percentage / proportion findings |
+| `sql-validation-layers` | `js/validation/validation.js` | Every layer's pass/warn/fail/idle status + confidence + calibrated grades on a fixed dataset — the headline regression signal |
 
 The DuckDB-backed cases run against the native node engine via the existing
 [`test/duckdb-loader-hook.mjs`](../test/duckdb-loader-hook.mjs) — the same hook

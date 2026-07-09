@@ -118,7 +118,7 @@ hand-authored JSON manifest read at init time).
 - **Manifest:** [`flags.manifest.json`](../flags.manifest.json) at the project
   root. Schema — an object mapping flag name to
   `{ enabled: boolean, addedInPR: string, description: string }`.
-- **Helper:** [`js/build-flags.js`](../js/build-flags.js) exports `isEnabled(flagName)`
+- **Helper:** [`js/build/build-flags.js`](../js/build/build-flags.js) exports `isEnabled(flagName)`
   (plus small helpers to load/reset the in-memory manifest). It reads a plain
   in-memory object populated once at startup from the bundled JSON — **no
   `localStorage`, no cookies, no network, no server**. It therefore behaves

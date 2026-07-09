@@ -19,8 +19,8 @@
 // Engine-free (no DuckDB): the learner is pure JS. IndexedDB is browser-only, so
 // — exactly as main.js does — persistence is exercised through an in-memory fake.
 
-import { LayerPriorityModel, MIN_ACTIONS } from '../js/adaptive-priority.js';
-import { actionToLabel } from '../js/self-learning-rules.js';
+import { LayerPriorityModel, MIN_ACTIONS } from '../js/learning/adaptive-priority.js';
+import { actionToLabel } from '../js/learning/self-learning-rules.js';
 
 // ---------- tiny test harness ----------
 let passed = 0;

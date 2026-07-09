@@ -15,16 +15,16 @@
 
 import { createTableFromObjects, getTableSchema, runQuery, closeConnection } from './node-duckdb-engine.mjs';
 
-import { runAllLayers } from '../js/validation.js';
+import { runAllLayers } from '../js/validation/validation.js';
 import {
   applyDomainPack, listPacks, summarizeUnitTests, DOMAIN_PACKS,
-} from '../js/domain-physics.js';
-import { computeCalibratedGrades } from '../js/calibrated-grades.js';
+} from '../js/validation/domain-physics.js';
+import { computeCalibratedGrades } from '../js/grades/calibrated-grades.js';
 import {
   createProvenanceChain, buildAttestation, verifyAttestation,
   computeAttestationDigest, verifyChainArray, renderAttestationHTML,
-} from '../js/provenance.js';
-import { clearLedger, getLedgerEntries } from '../js/assumption-ledger.js';
+} from '../js/provenance/provenance.js';
+import { clearLedger, getLedgerEntries } from '../js/provenance/assumption-ledger.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

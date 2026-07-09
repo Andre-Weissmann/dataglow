@@ -1,6 +1,6 @@
 {
   "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -12,44 +12,44 @@
       "platforms": ["browser", "desktop"],
       "area": "App shell & data engine",
       "name": "Controller & wiring",
-      "files": ["js/main.js"]
+      "files": ["js/app-shell/main.js"]
     },
     {
       "id": "app-shell-state",
       "platforms": ["browser", "desktop"],
       "area": "App shell & data engine",
       "name": "State & helpers",
-      "files": ["js/state.js", "js/utils.js"]
+      "files": ["js/app-shell/state.js", "js/app-shell/utils.js"]
     },
     {
       "id": "app-shell-engine",
       "platforms": ["browser", "desktop"],
       "area": "App shell & data engine",
       "name": "Query engine",
-      "files": ["js/duckdb-engine.js"]
+      "files": ["js/app-shell/duckdb-engine.js"]
     },
     {
       "id": "app-shell-loaders",
       "platforms": ["browser", "desktop"],
       "area": "App shell & data engine",
       "name": "File loading",
-      "files": ["js/loaders.js"]
+      "files": ["js/app-shell/loaders.js"]
     },
     {
       "id": "app-shell-warehouse",
       "platforms": ["browser", "desktop"],
       "area": "App shell & data engine",
       "name": "Warehouse import",
-      "files": ["js/databricks-connect.js"],
-      "symbols": [{ "file": "js/databricks-connect.js", "name": "DatabricksConnector" }]
+      "files": ["js/app-shell/databricks-connect.js"],
+      "symbols": [{ "file": "js/app-shell/databricks-connect.js", "name": "DatabricksConnector" }]
     },
     {
       "id": "validation-orchestrator",
       "platforms": ["browser", "desktop"],
       "area": "Validation layers",
       "name": "Orchestrator",
-      "files": ["js/validation.js"],
-      "symbols": [{ "file": "js/validation.js", "name": "LAYER_DEFS" }]
+      "files": ["js/validation/validation.js"],
+      "symbols": [{ "file": "js/validation/validation.js", "name": "LAYER_DEFS" }]
     },
     {
       "id": "validation-standalone",
@@ -57,17 +57,17 @@
       "area": "Validation layers",
       "name": "Standalone layer modules",
       "files": [
-        "js/categorical-consistency.js",
-        "js/cross-column-consistency.js",
-        "js/physiological-plausibility.js",
-        "js/upper-bound-sanity.js",
-        "js/missingness-detective.js",
-        "js/missingness.js"
+        "js/validation/categorical-consistency.js",
+        "js/validation/cross-column-consistency.js",
+        "js/validation/physiological-plausibility.js",
+        "js/validation/upper-bound-sanity.js",
+        "js/validation/missingness-detective.js",
+        "js/validation/missingness.js"
       ],
       "symbols": [
-        { "file": "js/cross-column-consistency.js", "name": "hasAnyKeyword" },
-        { "file": "js/upper-bound-sanity.js", "name": "matchBoundedType" },
-        { "file": "js/missingness-detective.js", "name": "MIN_MISSING_RATE" }
+        { "file": "js/validation/cross-column-consistency.js", "name": "hasAnyKeyword" },
+        { "file": "js/validation/upper-bound-sanity.js", "name": "matchBoundedType" },
+        { "file": "js/validation/missingness-detective.js", "name": "MIN_MISSING_RATE" }
       ]
     },
     {
@@ -75,17 +75,17 @@
       "platforms": ["browser", "desktop"],
       "area": "Validation layers",
       "name": "Reinterpretation & context",
-      "files": ["js/domain-physics.js", "js/expected-range.js"]
+      "files": ["js/validation/domain-physics.js", "js/validation/expected-range.js"]
     },
     {
       "id": "validation-healthcare-standards",
       "platforms": ["browser", "desktop"],
       "area": "Validation layers",
       "name": "Healthcare standards bridge",
-      "files": ["js/health-standards.js"],
+      "files": ["js/validation/health-standards.js"],
       "symbols": [
-        { "file": "js/health-standards.js", "name": "recognizeOmopTable" },
-        { "file": "js/health-standards.js", "name": "flattenFhirBundle" }
+        { "file": "js/validation/health-standards.js", "name": "recognizeOmopTable" },
+        { "file": "js/validation/health-standards.js", "name": "flattenFhirBundle" }
       ]
     },
     {
@@ -93,77 +93,77 @@
       "platforms": ["browser", "desktop"],
       "area": "Anomaly & outlier detection",
       "name": "Detectors",
-      "files": ["js/isolation-forest.js", "js/ondevice-ml.js", "js/predictive-anomaly.js"],
-      "symbols": [{ "file": "js/predictive-anomaly.js", "name": "scorePredictiveAnomalies" }]
+      "files": ["js/anomaly/isolation-forest.js", "js/anomaly/ondevice-ml.js", "js/anomaly/predictive-anomaly.js"],
+      "symbols": [{ "file": "js/anomaly/predictive-anomaly.js", "name": "scorePredictiveAnomalies" }]
     },
     {
       "id": "anomaly-baselining",
       "platforms": ["browser", "desktop"],
       "area": "Anomaly & outlier detection",
       "name": "Baselining & process control",
-      "files": ["js/entity-baseline.js", "js/spc-control.js"]
+      "files": ["js/anomaly/entity-baseline.js", "js/anomaly/spc-control.js"]
     },
     {
       "id": "anomaly-triage",
       "platforms": ["browser", "desktop"],
       "area": "Anomaly & outlier detection",
       "name": "Triage",
-      "files": ["js/active-learning.js"]
+      "files": ["js/anomaly/active-learning.js"]
     },
     {
       "id": "analysis-robustness-devils-advocate",
       "platforms": ["browser", "desktop"],
       "area": "Analysis robustness",
       "name": "Devil's Advocate",
-      "files": ["js/devils-advocate.js"],
-      "symbols": [{ "file": "js/devils-advocate.js", "name": "attackAnalysis" }]
+      "files": ["js/analysis-robustness/devils-advocate.js"],
+      "symbols": [{ "file": "js/analysis-robustness/devils-advocate.js", "name": "attackAnalysis" }]
     },
     {
       "id": "drift-forecasting",
       "platforms": ["browser", "desktop"],
       "area": "Drift, trend & fingerprinting",
       "name": "Forecasting",
-      "files": ["js/drift-forecast.js"],
-      "symbols": [{ "file": "js/drift-forecast.js", "name": "MIN_FORECAST_HISTORY" }]
+      "files": ["js/drift/drift-forecast.js"],
+      "symbols": [{ "file": "js/drift/drift-forecast.js", "name": "MIN_FORECAST_HISTORY" }]
     },
     {
       "id": "drift-narration",
       "platforms": ["browser", "desktop"],
       "area": "Drift, trend & fingerprinting",
       "name": "Trend narration",
-      "files": ["js/expected-range.js"]
+      "files": ["js/validation/expected-range.js"]
     },
     {
       "id": "cleaning-core",
       "platforms": ["browser", "desktop"],
       "area": "Cleaning & fixes",
       "name": "Core cleaning",
-      "files": ["js/clean.js", "js/fix-confidence.js", "js/materiality.js"]
+      "files": ["js/cleaning/clean.js", "js/cleaning/fix-confidence.js", "js/cleaning/materiality.js"]
     },
     {
       "id": "cleaning-transforms",
       "platforms": ["browser", "desktop"],
       "area": "Cleaning & fixes",
       "name": "Targeted transforms",
-      "files": ["js/imputation.js", "js/format-fingerprint.js", "js/fuzzy-dedup.js"]
+      "files": ["js/cleaning/imputation.js", "js/cleaning/format-fingerprint.js", "js/cleaning/fuzzy-dedup.js"]
     },
     {
       "id": "grades",
       "platforms": ["browser", "desktop"],
       "area": "Grades & health scores",
       "name": "Grades",
-      "files": ["js/calibrated-grades.js", "js/cat-scorecard.js", "js/golden-signals.js"],
-      "symbols": [{ "file": "js/calibrated-grades.js", "name": "computeCalibratedGrades" }]
+      "files": ["js/grades/calibrated-grades.js", "js/grades/cat-scorecard.js", "js/grades/golden-signals.js"],
+      "symbols": [{ "file": "js/grades/calibrated-grades.js", "name": "computeCalibratedGrades" }]
     },
     {
       "id": "learning-learners",
       "platforms": ["browser", "desktop"],
       "area": "On-device learning & personalization",
       "name": "Learners",
-      "files": ["js/self-learning-rules.js", "js/adaptive-priority.js", "js/rule-suggestions.js"],
+      "files": ["js/learning/self-learning-rules.js", "js/learning/adaptive-priority.js", "js/learning/rule-suggestions.js"],
       "symbols": [
-        { "file": "js/self-learning-rules.js", "name": "MIN_EXAMPLES" },
-        { "file": "js/adaptive-priority.js", "name": "LayerPriorityModel" }
+        { "file": "js/learning/self-learning-rules.js", "name": "MIN_EXAMPLES" },
+        { "file": "js/learning/adaptive-priority.js", "name": "LayerPriorityModel" }
       ]
     },
     {
@@ -171,23 +171,23 @@
       "platforms": ["browser", "desktop"],
       "area": "On-device learning & personalization",
       "name": "Shared state",
-      "files": ["js/signal-store.js", "js/memory-store.js"],
-      "symbols": [{ "file": "js/signal-store.js", "name": "SignalStore" }]
+      "files": ["js/learning/signal-store.js", "js/learning/memory-store.js"],
+      "symbols": [{ "file": "js/learning/signal-store.js", "name": "SignalStore" }]
     },
     {
       "id": "federated",
       "platforms": ["browser", "desktop"],
       "area": "Federated learning",
       "name": "Core & transport",
-      "files": ["js/federated-fingerprint.js", "js/federated-learning.js", "js/federated-transport.js"],
-      "symbols": [{ "file": "js/federated-learning.js", "name": "MODEL_DIM" }]
+      "files": ["js/federated/federated-fingerprint.js", "js/federated/federated-learning.js", "js/federated/federated-transport.js"],
+      "symbols": [{ "file": "js/federated/federated-learning.js", "name": "MODEL_DIM" }]
     },
     {
       "id": "provenance-custody",
       "platforms": ["browser", "desktop"],
       "area": "Provenance, audit & trust",
       "name": "Chain of custody",
-      "files": ["js/provenance.js", "js/assumption-ledger.js"]
+      "files": ["js/provenance/provenance.js", "js/provenance/assumption-ledger.js"]
     },
     {
       "id": "provenance-artifacts",
@@ -195,37 +195,37 @@
       "area": "Provenance, audit & trust",
       "name": "Shareable artifacts",
       "files": [
-        "js/validation-receipt.js",
-        "js/selective-disclosure-proof.js",
-        "js/irb-mode.js",
-        "js/peer-review.js"
+        "js/provenance/validation-receipt.js",
+        "js/provenance/selective-disclosure-proof.js",
+        "js/provenance/irb-mode.js",
+        "js/provenance/peer-review.js"
       ],
-      "symbols": [{ "file": "js/selective-disclosure-proof.js", "name": "SD_PROOF_KIND" }]
+      "symbols": [{ "file": "js/provenance/selective-disclosure-proof.js", "name": "SD_PROOF_KIND" }]
     },
     {
       "id": "privacy-synthetic",
       "platforms": ["browser", "desktop"],
       "area": "Privacy & synthetic data",
       "name": "DP export & synthesis",
-      "files": ["js/privacy-budget.js", "js/synthetic-twin.js", "js/synthetic-adversarial.js"]
+      "files": ["js/privacy/privacy-budget.js", "js/privacy/synthetic-twin.js", "js/privacy/synthetic-adversarial.js"]
     },
     {
       "id": "simulation-history",
       "platforms": ["browser", "desktop"],
       "area": "Simulation & time travel",
       "name": "What-if & history",
-      "files": ["js/digital-twin.js", "js/time-travel-diff.js", "js/time-machine.js"],
-      "symbols": [{ "file": "js/digital-twin.js", "name": "inferPerturbations" }]
+      "files": ["js/simulation/digital-twin.js", "js/simulation/time-travel-diff.js", "js/simulation/time-machine.js"],
+      "symbols": [{ "file": "js/simulation/digital-twin.js", "name": "inferPerturbations" }]
     },
     {
       "id": "narrative",
       "platforms": ["browser", "desktop"],
       "area": "Narrative & language models",
       "name": "Story & LLM",
-      "files": ["js/story.js", "js/ondevice-llm.js"],
+      "files": ["js/narrative/story.js", "js/narrative/ondevice-llm.js"],
       "symbols": [
-        { "file": "js/story.js", "name": "buildStoryClaims" },
-        { "file": "js/ondevice-llm.js", "name": "MODEL_ID" }
+        { "file": "js/narrative/story.js", "name": "buildStoryClaims" },
+        { "file": "js/narrative/ondevice-llm.js", "name": "MODEL_ID" }
       ]
     },
     {
@@ -234,35 +234,35 @@
       "name": "Live validation",
       "platforms": ["browser", "desktop"],
       "platformsByFile": {
-        "js/watch-folder.js": ["browser"]
+        "js/ambient/watch-folder.js": ["browser"]
       },
-      "files": ["js/ambient-validation.worker.js", "js/watch-folder.js"],
-      "symbols": [{ "file": "js/watch-folder.js", "name": "isSupportedFile" }]
+      "files": ["js/ambient/ambient-validation.worker.js", "js/ambient/watch-folder.js"],
+      "symbols": [{ "file": "js/ambient/watch-folder.js", "name": "isSupportedFile" }]
     },
     {
       "id": "runtimes-viz",
       "platforms": ["browser", "desktop"],
       "area": "Language runtimes & visualization",
       "name": "Runtimes & charts",
-      "files": ["js/python-runtime.js", "js/r-runtime.js", "js/swift-preview.js", "js/visualize.js"]
+      "files": ["js/runtimes-viz/python-runtime.js", "js/runtimes-viz/r-runtime.js", "js/runtimes-viz/swift-preview.js", "js/runtimes-viz/visualize.js"]
     },
     {
       "id": "protocol",
       "platforms": ["browser", "desktop"],
       "area": "Protocol & interoperability",
       "name": "Conformance",
-      "files": ["js/protocol-conformance.js"],
-      "symbols": [{ "file": "js/protocol-conformance.js", "name": "toDataset" }]
+      "files": ["js/protocol/protocol-conformance.js"],
+      "symbols": [{ "file": "js/protocol/protocol-conformance.js", "name": "toDataset" }]
     },
     {
       "id": "problem-framer",
       "area": "Problem framing",
       "name": "Problem Framer & Context Card",
       "platforms": ["browser", "desktop"],
-      "files": ["js/problem-framer.js"],
+      "files": ["js/problem-framing/problem-framer.js"],
       "symbols": [
-        { "file": "js/problem-framer.js", "name": "buildAnalyticalQuestion" },
-        { "file": "js/problem-framer.js", "name": "orderLayersByContext" }
+        { "file": "js/problem-framing/problem-framer.js", "name": "buildAnalyticalQuestion" },
+        { "file": "js/problem-framing/problem-framer.js", "name": "orderLayersByContext" }
       ]
     },
     {
@@ -270,18 +270,18 @@
       "area": "App shell & data engine",
       "name": "Capability registry",
       "platforms": ["browser", "desktop"],
-      "files": ["js/capability-registry.js"],
-      "symbols": [{ "file": "js/capability-registry.js", "name": "loadRegistry" }]
+      "files": ["js/app-shell/capability-registry.js"],
+      "symbols": [{ "file": "js/app-shell/capability-registry.js", "name": "loadRegistry" }]
     },
     {
       "id": "export-reporting",
       "area": "Export & reporting",
       "name": "Universal export (Excel + PDF)",
       "platforms": ["browser", "desktop"],
-      "files": ["js/export-report.js", "js/export-delivery.js"],
+      "files": ["js/export/export-report.js", "js/export/export-delivery.js"],
       "symbols": [
-        { "file": "js/export-report.js", "name": "exportDataset" },
-        { "file": "js/export-delivery.js", "name": "selectAdapter" }
+        { "file": "js/export/export-report.js", "name": "exportDataset" },
+        { "file": "js/export/export-delivery.js", "name": "selectAdapter" }
       ]
     },
     {
@@ -289,18 +289,18 @@
       "area": "Build tooling & feature flags",
       "name": "Build feature flags",
       "platforms": ["browser", "desktop"],
-      "files": ["js/build-flags.js"],
-      "symbols": [{ "file": "js/build-flags.js", "name": "isEnabled" }]
+      "files": ["js/build/build-flags.js"],
+      "symbols": [{ "file": "js/build/build-flags.js", "name": "isEnabled" }]
     },
     {
       "id": "micro-lessons",
       "area": "Teaching & context",
       "name": "Teach-As-You-Clean micro-lessons",
       "platforms": ["browser", "desktop"],
-      "files": ["js/micro-lessons.js"],
+      "files": ["js/teaching/micro-lessons.js"],
       "symbols": [
-        { "file": "js/micro-lessons.js", "name": "getMicroLesson" },
-        { "file": "js/micro-lessons.js", "name": "coverageFor" }
+        { "file": "js/teaching/micro-lessons.js", "name": "getMicroLesson" },
+        { "file": "js/teaching/micro-lessons.js", "name": "coverageFor" }
       ]
     },
     {
@@ -308,11 +308,11 @@
       "area": "Teaching & context",
       "name": "Community domain-pack sharing",
       "platforms": ["browser", "desktop"],
-      "files": ["js/community-pack.js"],
+      "files": ["js/teaching/community-pack.js"],
       "symbols": [
-        { "file": "js/community-pack.js", "name": "validateImportedPack" },
-        { "file": "js/community-pack.js", "name": "importPack" },
-        { "file": "js/community-pack.js", "name": "exportPack" }
+        { "file": "js/teaching/community-pack.js", "name": "validateImportedPack" },
+        { "file": "js/teaching/community-pack.js", "name": "importPack" },
+        { "file": "js/teaching/community-pack.js", "name": "exportPack" }
       ]
     }
   ]

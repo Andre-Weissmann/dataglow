@@ -14,7 +14,7 @@ import {
   summarizeLedger,
   isWebGPUAvailable,
   MODEL_ID,
-} from '../js/ondevice-llm.js';
+} from '../js/narrative/ondevice-llm.js';
 
 let passed = 0;
 let failed = 0;

@@ -19,11 +19,11 @@
 
 import { createTableFromObjects, getTableSchema, runQuery, closeConnection } from './node-duckdb-engine.mjs';
 
-import { buildValidationReceipt, renderReceiptHTML } from '../js/validation-receipt.js';
-import { buildReviewPacket, exportPacket, importReview, summarizeReview } from '../js/peer-review.js';
-import { detectKeyColumn, diffRows, diffLayerStatuses, diffDistributions } from '../js/time-travel-diff.js';
-import { runAllLayers } from '../js/validation.js';
-import { buildGoldenDataset } from '../js/loaders.js';
+import { buildValidationReceipt, renderReceiptHTML } from '../js/provenance/validation-receipt.js';
+import { buildReviewPacket, exportPacket, importReview, summarizeReview } from '../js/provenance/peer-review.js';
+import { detectKeyColumn, diffRows, diffLayerStatuses, diffDistributions } from '../js/simulation/time-travel-diff.js';
+import { runAllLayers } from '../js/validation/validation.js';
+import { buildGoldenDataset } from '../js/app-shell/loaders.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

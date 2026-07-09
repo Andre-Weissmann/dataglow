@@ -19,7 +19,7 @@
 // Exit code 0 = verified / self-test passed; non-zero = broken or tampered.
 
 import { readFile } from 'node:fs/promises';
-import { generateProof, verifyProof } from '../js/selective-disclosure-proof.js';
+import { generateProof, verifyProof } from '../js/provenance/selective-disclosure-proof.js';
 
 function report(res) {
   console.log('');

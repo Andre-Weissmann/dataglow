@@ -21,7 +21,7 @@ import * as engine from './node-duckdb-engine.mjs';
 
 import {
   matchBoundedType, decideBound, runUpperBoundChecks, UPPER_BOUND_NOTE,
-} from '../js/upper-bound-sanity.js';
+} from '../js/validation/upper-bound-sanity.js';
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {

@@ -17,9 +17,9 @@
 import { createTableFromObjects, getTableSchema, closeConnection } from './node-duckdb-engine.mjs';
 
 // Production modules under test — resolved through the loader hook.
-import { buildGroupedImputationSQL, previewGroupedImputation } from '../js/imputation.js';
-import { scanFormatIssues } from '../js/format-fingerprint.js';
-import { runAllLayers } from '../js/validation.js';
+import { buildGroupedImputationSQL, previewGroupedImputation } from '../js/cleaning/imputation.js';
+import { scanFormatIssues } from '../js/cleaning/format-fingerprint.js';
+import { runAllLayers } from '../js/validation/validation.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;

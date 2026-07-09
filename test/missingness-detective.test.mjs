@@ -23,7 +23,7 @@ import * as engine from './node-duckdb-engine.mjs';
 import {
   classifyCategoricalDriver, classifyNumericDriver, looksCoreField, mnarCaution,
   prioritiseDrivers, buildColumnReport, runMissingnessDetective, MISSINGNESS_NOTE,
-} from '../js/missingness-detective.js';
+} from '../js/validation/missingness-detective.js';
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {

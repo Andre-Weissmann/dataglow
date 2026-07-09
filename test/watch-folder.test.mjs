@@ -17,7 +17,7 @@ import {
   fileSignature, hasFileChanged, diffEntries,
   directoryPickerSupported, UNSUPPORTED_MESSAGE, PRIVACY_NOTICE,
   WatchFolderController,
-} from '../js/watch-folder.js';
+} from '../js/ambient/watch-folder.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;
