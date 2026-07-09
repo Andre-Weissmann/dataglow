@@ -52,6 +52,7 @@
     "docs:provenance": "node .github/scripts/render-provenance-timeline.mjs",
     "docs:wiki-gap": "node .github/scripts/wiki-gap-detector.mjs",
     "sbom": "npx --yes @cyclonedx/cyclonedx-npm --output-file docs/sbom.json",
+    "verify:ci-provenance": "node .github/scripts/verify-ci-provenance.mjs",
     "tauri": "npx --yes @tauri-apps/cli@^1.6",
     "tauri:dev": "npx --yes @tauri-apps/cli@^1.6 dev",
     "tauri:build": "npx --yes @tauri-apps/cli@^1.6 build",

@@ -1,0 +1,150 @@
+# ============================================================
+# DATAGLOW — CI Provenance Ledger (post-merge, main only)
+# ============================================================
+# Appends one hash-linked entry to docs/ci-provenance-ledger.jsonl for every CI run
+# that lands on `main`, recording what was built and whether it passed — a lightweight,
+# tamper-evident provenance chain that anyone can re-check offline with
+# `npm run verify:ci-provenance`. A prior design pass deliberately REJECTED SLSA-style
+# hosted cryptographic attestation for this solo-maintained repo (it proves pipeline
+# identity, not content integrity, and isn't worth the complexity) and recommended
+# exactly this instead: a self-contained SHA-256 hash chain over CI outputs plus a
+# zero-dependency verifier. This workflow finally builds the recording half.
+#
+# WHY A STANDALONE `workflow_run` WORKFLOW (not a job inside test.yml):
+#   * The ledger must record ONLY what actually lands on `main`, never PR branches.
+#     The per-job reusable workflows called by test.yml run on every PR too, and they
+#     don't commit anything back — so a ledger step there would both fire on PRs and
+#     have no commit-back path. Instead this fires on the *completion* of the `tests`
+#     workflow, filtered to `head_branch == main`, so it runs after the test + SBOM
+#     steps finish and only for main landings. It mirrors notify-on-main-failure.yml
+#     (also a main-only `workflow_run` consumer of `tests`).
+#   * `github.event.workflow_run.conclusion` is the honest, real conclusion of that
+#     test run — recorded verbatim as `test_conclusion` (success AND failure are both
+#     recorded; the ledger records facts, it does not gate or fix anything).
+#
+# SBOM REUSE: the SBOM itself is regenerated here with the SAME `npm run sbom` script
+# the supply-chain-hardening job already uses (docs/sbom.json is gitignored, produced
+# per-run), and only its SHA-256 hash is stored in the ledger — no new SBOM logic.
+#
+# COMMIT-BACK: `main` is branch-protected, so a direct push is rejected (GH006). This
+# reuses the exact carrier-branch self-PR pattern from living-manifest.yml: push the
+# appended ledger to a fixed non-protected branch and squash-merge a PR into `main`.
+# The step is FAIL-SOFT for the same reason living-manifest is — repo-wide "Actions may
+# create PRs" may be OFF; if so it records an actionable warning and exits green rather
+# than turning `main` red.
+#
+# LOOP GUARD: the commit / PR title carries `[skip ci]`, so the resulting push to `main`
+# does not re-run `tests` — and with no `tests` run there is no `workflow_run` event to
+# re-trigger this ledger. Same guard living-manifest relies on.
+#
+# HUMAN-ON-THE-LOOP: recording only. Nothing here auto-fixes CI, edits app code, or
+# takes any corrective action.
+
+name: ci-provenance-ledger
+
+on:
+  workflow_run:
+    workflows:
+      - tests
+    types:
+      - completed
+
+# Serialize runs so two quick main landings can't race on the append / carrier push.
+concurrency:
+  group: ci-provenance-ledger
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # push the appended ledger to the chore/ci-provenance-ledger branch
+  pull-requests: write   # open / reuse / squash-merge the ledger self-PR into protected main
+
+jobs:
+  append-ledger:
+    name: Append CI provenance ledger entry
+    runs-on: ubuntu-latest
+    # Only real landings on main — never PR-branch runs. Both success and failure of the
+    # test run are recorded (the ledger is a factual record, not a gate).
+    if: ${{ github.event.workflow_run.head_branch == 'main' }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci` honors the repo .npmrc (ignore-scripts=true); needed so the SBOM
+      # generator can read the installed tree.
+      - run: npm ci
+
+      # Reuse the existing SBOM script (docs/sbom.json is gitignored, per-run only).
+      - name: Generate CycloneDX SBOM (for hashing)
+        run: npm run sbom
+
+      - name: Append hash-linked ledger entry
+        env:
+          LEDGER_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          LEDGER_TEST_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: node .github/scripts/append-ci-ledger.mjs
+
+      # Route the appended ledger through a fixed carrier branch + squash-merged self-PR,
+      # exactly as living-manifest.yml does. Fail-soft: never fail the run on the known
+      # repo-wide "Actions may not create PRs" restriction — only on genuine git/gh errors.
+      - name: Land ledger via carrier-branch self-PR (fail-soft)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH=chore/ci-provenance-ledger
+          TITLE="chore: append CI provenance ledger entry [skip ci]"
+
+          git config user.name "dataglow-bot"
+          git config user.email "dataglow-bot@users.noreply.github.com"
+          git add docs/ci-provenance-ledger.jsonl
+
+          if git diff --cached --quiet; then
+            echo "no ledger change to commit — nothing to land"
+            exit 0
+          fi
+
+          git commit -m "$TITLE"
+
+          # Fixed carrier branch: only one ledger self-PR is ever open. Force-push is safe
+          # here (throwaway carrier holding the latest append on top of current main).
+          git branch -f "$BRANCH" HEAD
+          git push --force origin "$BRANCH"
+
+          PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            if gh pr create \
+                 --base main \
+                 --head "$BRANCH" \
+                 --title "$TITLE" \
+                 --body "Automated CI provenance ledger append: one hash-linked entry recording the commit, timestamp, test conclusion, and SBOM hash of a main CI run. Append-only, docs-only, no runtime/product code. Verify offline with \`npm run verify:ci-provenance\`. Safe to squash-merge once checks pass."; then
+              PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+            else
+              echo "::warning title=ci-provenance-ledger::Ledger entry pushed to '$BRANCH' but the self-PR could not be auto-opened (GitHub Actions is not permitted to create pull requests on this repo). A maintainer must open/merge that PR, or enable Settings > Actions > 'Allow GitHub Actions to create and approve pull requests'."
+              {
+                echo "### CI provenance ledger: entry pushed but not auto-landed"
+                echo ""
+                echo "A new ledger entry was pushed to \`$BRANCH\`, but could not be landed automatically because GitHub Actions is not permitted to create pull requests on this repository (\`can_approve_pull_request_reviews: false\`)."
+                echo ""
+                echo "**To land it, either:**"
+                echo "- open a PR from \`$BRANCH\` into \`main\` and squash-merge it (later runs then keep it updated and auto-merge automatically), or"
+                echo "- enable *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            echo "PR #$PR already open for $BRANCH — head updated by the push above"
+          fi
+
+          # Squash-merge (merging is not blocked by the create/approve restriction). The
+          # [skip ci] title becomes the merge-commit subject, so the push to main does not
+          # re-trigger `tests` — and thus does not re-trigger this ledger (loop guard).
+          gh pr merge "$PR" --squash --delete-branch \
+            || gh pr merge "$PR" --auto --squash --delete-branch
