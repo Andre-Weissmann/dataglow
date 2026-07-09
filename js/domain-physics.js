@@ -182,7 +182,7 @@ function escapeReMeta(s) {
 // Categorical Consistency layer stops offering a one-click auto-merge. Mirrors
 // the healthcare protected-category rule for domains where textually-similar
 // values are legitimately distinct (SKUs, ledger accounts).
-function makeNoMergeRule({ id, description, match, note }) {
+export function makeNoMergeRule({ id, description, match, note }) {
   return {
     id,
     appliesToLayer: 'categorical_consistency',
@@ -210,7 +210,7 @@ function makeNoMergeRule({ id, description, match, note }) {
 // (return/refund flags, reconciliation flags). Mirrors the healthcare
 // binary-benford-exempt rule: drop the matched column's flag and record an
 // explained skip rather than a bare deviation.
-function makeBinaryBenfordExemptRule({ id, description, match, packLabel, note }) {
+export function makeBinaryBenfordExemptRule({ id, description, match, packLabel, note }) {
   return {
     id,
     appliesToLayer: 'benford',
@@ -246,7 +246,7 @@ function makeBinaryBenfordExemptRule({ id, description, match, packLabel, note }
 // is never silently dropped — a note takes its place and an annotation is
 // recorded — and the layer can only ever be downgraded (warn → warn/pass),
 // never escalated.
-function makeOutlierContextRule({ id, description, match, packLabel, reason }) {
+export function makeOutlierContextRule({ id, description, match, packLabel, reason }) {
   return {
     id,
     appliesToLayer: 'outlier_detection',
@@ -281,72 +281,144 @@ function makeOutlierContextRule({ id, description, match, packLabel, reason }) {
 }
 
 // ------------------------------------------------------------
-// Retail / E-commerce pack rules
+// Declarative pack descriptors → runtime rules (portable-pack path)
 // ------------------------------------------------------------
+// The three factories above are the only mechanical shapes a data-driven pack
+// may use. A pack expressed as pure data (the shape Stage D exports and imports)
+// lists rules as `{ kind, id, description, match, ...params }`, where `kind` is
+// one of the keys below and `match` is a serializable predicate spec instead of
+// a function. Compiling that spec here — and NOWHERE else — is what lets an
+// imported community pack run inside the exact same sandbox the built-in packs
+// obey: it can only ever produce one of the three annotate-only factory rules,
+// and the layer it touches is DERIVED from `kind` (never taken from input), so a
+// portable pack can never target a core/protected layer like unit_tests.
 
-// Distinct SKUs / product codes look near-identical to the clustering layer
-// ("SKU-1001" vs "SKU-1002") but are deliberately separate catalogue entries;
-// disable the auto-merge suggestion so genuine products are never collapsed.
-const retailSkuNoMergeRule = makeNoMergeRule({
-  id: 'retail-sku-no-merge',
-  description: 'SKU / product-code columns have auto-merge disabled — near-identical codes are distinct catalogue entries.',
-  match: (c) => /(^|[_\s-])sku([_\s-]|$)|product[_\s-]?code|item[_\s-]?(code|no|number)|\bupc\b|barcode|\basin\b/i.test(c.name || ''),
-  note: 'Auto-merge disabled — similar SKUs/product codes are distinct catalogue entries, not spelling variants.',
-});
+// kind → the single validation layer that kind of rule may reinterpret.
+export const PACK_RULE_LAYERS = {
+  'no-merge': 'categorical_consistency',
+  'benford-exempt': 'benford',
+  'outlier-context': 'outlier_detection',
+};
 
-// Return / refund columns are usually a binary 0/1 flag; like any binary flag
-// they can never satisfy Benford's Law, so mark them as a deliberate exemption.
-const retailReturnFlagBenfordRule = makeBinaryBenfordExemptRule({
-  id: 'retail-return-flag-benford-exempt',
-  description: 'Binary return/refund flag columns are exempt from Benford\'s Law eligibility.',
-  match: (c) => c.isBinary01 === true && /return|refund|is[_\s-]?returned|chargeback/i.test(c.name || ''),
-  packLabel: 'retail',
-  note: 'Binary return/refund flag exempt from Benford eligibility.',
-});
+// Regex flags a portable `match` spec may use. Deliberately excludes the
+// stateful global/sticky flags ('g','y'), whose lastIndex would make repeated
+// `.test()` calls non-deterministic across columns.
+const ALLOWED_MATCH_FLAGS = 'ims';
 
-// Price / sales / quantity columns swing hard around promotions and seasonal
-// peaks (Black Friday, clearance); those extremes are expected, not defects.
-const retailSeasonalOutlierRule = makeOutlierContextRule({
-  id: 'retail-seasonal-outlier',
-  description: 'Outliers in price/sales/quantity columns are reinterpreted as expected promotional or seasonal swings.',
-  match: (c) => c.numeric === true && /price|sales|revenue|gmv|units[_\s-]?sold|qty|quantity|discount|margin/i.test(c.name || ''),
-  packLabel: 'retail',
-  reason: 'promotions and seasonal peaks produce legitimate spikes and markdowns.',
-});
+// Build a column-matcher function from a serializable spec:
+//   { pattern: string, flags?: string, binaryOnly?: bool, numericOnly?: bool }
+// The regex is compiled once; binaryOnly/numericOnly gate on the column meta the
+// same way the hand-written healthcare matchers do. Throws on a bad regex so a
+// malformed pack is rejected at compile time rather than failing silently.
+export function compileColumnMatch(spec) {
+  if (!spec || typeof spec.pattern !== 'string') {
+    throw new Error('pack rule match spec requires a string `pattern`');
+  }
+  const flags = spec.flags == null ? '' : String(spec.flags);
+  for (const f of flags) {
+    if (!ALLOWED_MATCH_FLAGS.includes(f)) throw new Error(`disallowed regex flag "${f}" in pack rule match`);
+  }
+  const re = new RegExp(spec.pattern, flags);
+  return (c) => {
+    if (spec.binaryOnly === true && c.isBinary01 !== true) return false;
+    if (spec.numericOnly === true && c.numeric !== true) return false;
+    return re.test(c.name || '');
+  };
+}
 
-// ------------------------------------------------------------
-// Finance / Accounting pack rules
-// ------------------------------------------------------------
+// Compile one declarative rule descriptor into a runtime rule via the matching
+// factory. Throws on an unknown kind — the caller (built-in packs and the Stage
+// D importer) treats a throw as "reject this pack".
+export function compilePackRule(desc) {
+  const match = compileColumnMatch(desc.match);
+  switch (desc.kind) {
+    case 'no-merge':
+      return makeNoMergeRule({ id: desc.id, description: desc.description, match, note: desc.note });
+    case 'benford-exempt':
+      return makeBinaryBenfordExemptRule({ id: desc.id, description: desc.description, match, packLabel: desc.packLabel, note: desc.note });
+    case 'outlier-context':
+      return makeOutlierContextRule({ id: desc.id, description: desc.description, match, packLabel: desc.packLabel, reason: desc.reason });
+    default:
+      throw new Error(`unknown pack rule kind: ${desc.kind}`);
+  }
+}
 
-// Ledger / GL account codes are textually similar but functionally distinct
-// accounts; collapsing them would corrupt the books, so disable auto-merge.
-const financeLedgerNoMergeRule = makeNoMergeRule({
-  id: 'finance-ledger-account-no-merge',
-  description: 'Ledger / GL-account columns have auto-merge disabled — similar account codes are distinct accounts.',
-  match: (c) => /ledger|(^|[_\s-])account([_\s-]|$)|\bacct\b|gl[_\s-]?(code|account|no)|chart[_\s-]?of[_\s-]?accounts|cost[_\s-]?cent(er|re)/i.test(c.name || ''),
-  note: 'Auto-merge disabled — similar ledger/GL-account codes are distinct accounts, not spelling variants.',
-});
+// Turn a full declarative pack descriptor into a runtime pack object (the shape
+// the engine and listPacks() consume). The descriptor is kept on the pack so the
+// exporter can round-trip a built-in pack back to portable JSON without drift.
+export function packFromDescriptor(desc) {
+  return {
+    name: desc.name,
+    label: desc.label,
+    description: desc.description,
+    rules: desc.rules.map(compilePackRule),
+    descriptor: desc,
+  };
+}
 
-// Reconciliation / posting status is typically a binary 0/1 flag, so exempt it
-// from Benford's Law the same way any binary flag column is exempted.
-const financeReconFlagBenfordRule = makeBinaryBenfordExemptRule({
-  id: 'finance-recon-flag-benford-exempt',
-  description: 'Binary reconciliation/posting-status flag columns are exempt from Benford\'s Law eligibility.',
-  match: (c) => c.isBinary01 === true && /reconcil|posted|cleared|void|is[_\s-]?paid|settled/i.test(c.name || ''),
-  packLabel: 'finance',
-  note: 'Binary reconciliation/status flag exempt from Benford eligibility.',
-});
+// The built-in Retail and Finance packs as pure data. These double as the Stage
+// D export fixtures: exporting either pack returns exactly this descriptor.
+export const RETAIL_PACK_DESCRIPTOR = {
+  name: 'retail',
+  label: 'Retail / E-commerce',
+  description: 'SKU merge guards, return/refund binary-flag Benford exemptions, and seasonal/promotional outlier reinterpretation for retail and e-commerce data.',
+  rules: [
+    {
+      kind: 'no-merge',
+      id: 'retail-sku-no-merge',
+      description: 'SKU / product-code columns have auto-merge disabled — near-identical codes are distinct catalogue entries.',
+      match: { pattern: '(^|[_\\s-])sku([_\\s-]|$)|product[_\\s-]?code|item[_\\s-]?(code|no|number)|\\bupc\\b|barcode|\\basin\\b', flags: 'i' },
+      note: 'Auto-merge disabled — similar SKUs/product codes are distinct catalogue entries, not spelling variants.',
+    },
+    {
+      kind: 'benford-exempt',
+      id: 'retail-return-flag-benford-exempt',
+      description: "Binary return/refund flag columns are exempt from Benford's Law eligibility.",
+      match: { pattern: 'return|refund|is[_\\s-]?returned|chargeback', flags: 'i', binaryOnly: true },
+      packLabel: 'retail',
+      note: 'Binary return/refund flag exempt from Benford eligibility.',
+    },
+    {
+      kind: 'outlier-context',
+      id: 'retail-seasonal-outlier',
+      description: 'Outliers in price/sales/quantity columns are reinterpreted as expected promotional or seasonal swings.',
+      match: { pattern: 'price|sales|revenue|gmv|units[_\\s-]?sold|qty|quantity|discount|margin', flags: 'i', numericOnly: true },
+      packLabel: 'retail',
+      reason: 'promotions and seasonal peaks produce legitimate spikes and markdowns.',
+    },
+  ],
+};
 
-// Debit / credit / journal amount columns contain large offsetting entries by
-// design (every debit has an equal-and-opposite credit); the resulting
-// symmetric extremes are expected double-entry structure, not anomalies.
-const financeDebitCreditOutlierRule = makeOutlierContextRule({
-  id: 'finance-debit-credit-outlier',
-  description: 'Outliers in debit/credit/journal-amount columns are reinterpreted as expected offsetting double-entry values.',
-  match: (c) => c.numeric === true && /debit|credit|(^|[_\s-])amount([_\s-]|$)|balance|journal|(^|[_\s-])entry([_\s-]|$)|posting/i.test(c.name || ''),
-  packLabel: 'finance',
-  reason: 'double-entry bookkeeping records large equal-and-opposite debits and credits.',
-});
+export const FINANCE_PACK_DESCRIPTOR = {
+  name: 'finance',
+  label: 'Finance / Accounting',
+  description: 'Ledger/GL-account merge guards, reconciliation binary-flag Benford exemptions, and offsetting debit/credit outlier reinterpretation for financial and accounting data.',
+  rules: [
+    {
+      kind: 'no-merge',
+      id: 'finance-ledger-account-no-merge',
+      description: 'Ledger / GL-account columns have auto-merge disabled — similar account codes are distinct accounts.',
+      match: { pattern: 'ledger|(^|[_\\s-])account([_\\s-]|$)|\\bacct\\b|gl[_\\s-]?(code|account|no)|chart[_\\s-]?of[_\\s-]?accounts|cost[_\\s-]?cent(er|re)', flags: 'i' },
+      note: 'Auto-merge disabled — similar ledger/GL-account codes are distinct accounts, not spelling variants.',
+    },
+    {
+      kind: 'benford-exempt',
+      id: 'finance-recon-flag-benford-exempt',
+      description: "Binary reconciliation/posting-status flag columns are exempt from Benford's Law eligibility.",
+      match: { pattern: 'reconcil|posted|cleared|void|is[_\\s-]?paid|settled', flags: 'i', binaryOnly: true },
+      packLabel: 'finance',
+      note: 'Binary reconciliation/status flag exempt from Benford eligibility.',
+    },
+    {
+      kind: 'outlier-context',
+      id: 'finance-debit-credit-outlier',
+      description: 'Outliers in debit/credit/journal-amount columns are reinterpreted as expected offsetting double-entry values.',
+      match: { pattern: 'debit|credit|(^|[_\\s-])amount([_\\s-]|$)|balance|journal|(^|[_\\s-])entry([_\\s-]|$)|posting', flags: 'i', numericOnly: true },
+      packLabel: 'finance',
+      reason: 'double-entry bookkeeping records large equal-and-opposite debits and credits.',
+    },
+  ],
+};
 
 // ------------------------------------------------------------
 // Pack registry
@@ -364,18 +436,8 @@ export const DOMAIN_PACKS = {
     description: 'De-identification date-shifting, protected-category merge guards, and binary-flag Benford exemptions for clinical/claims data.',
     rules: [deidDateShiftRule, protectedCategoryRule, binaryBenfordRule],
   },
-  retail: {
-    name: 'retail',
-    label: 'Retail / E-commerce',
-    description: 'SKU merge guards, return/refund binary-flag Benford exemptions, and seasonal/promotional outlier reinterpretation for retail and e-commerce data.',
-    rules: [retailSkuNoMergeRule, retailReturnFlagBenfordRule, retailSeasonalOutlierRule],
-  },
-  finance: {
-    name: 'finance',
-    label: 'Finance / Accounting',
-    description: 'Ledger/GL-account merge guards, reconciliation binary-flag Benford exemptions, and offsetting debit/credit outlier reinterpretation for financial and accounting data.',
-    rules: [financeLedgerNoMergeRule, financeReconFlagBenfordRule, financeDebitCreditOutlierRule],
-  },
+  retail: packFromDescriptor(RETAIL_PACK_DESCRIPTOR),
+  finance: packFromDescriptor(FINANCE_PACK_DESCRIPTOR),
   // The OMOP and FHIR packs (Gen 33 — The Standards Bridge) recognise two common
   // healthcare-data standards and route them through the SAME layers as any other
   // dataset (see js/health-standards.js). As clinical/claims data they reuse the

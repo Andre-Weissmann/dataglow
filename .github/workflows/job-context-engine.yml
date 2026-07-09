@@ -1,0 +1,34 @@
+# ============================================================
+# DATAGLOW — CI job: Context Engine (Gen 34 Stage C + D)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the two pure-logic suites behind the Context Engine's teaching layer:
+#   - Teach-As-You-Clean micro-lessons: asserts every live validation layer and
+#     every domain-pack rule id has an original one-line explanation, and that
+#     the verbosity slider changes wording register only.
+#   - Community Pack sharing: asserts descriptor-based packs round-trip through
+#     export/import and that the strict schema rejects malformed/malicious packs
+#     while confining imported packs to the annotate-only sandbox.
+# Both import validation.js / domain-physics.js, which transitively pull the
+# browser-only duckdb-engine.js; the test loader hook redirects that to the Node
+# backend (installed by `npm ci`), so no browser is needed.
+
+name: Context Engine (Gen 34 C/D)
+
+on:
+  workflow_call:
+
+jobs:
+  context-engine:
+    name: Context Engine (micro-lessons + community packs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:microlessons
+      - run: npm run test:communitypack

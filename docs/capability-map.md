@@ -137,6 +137,13 @@ analytical one before any querying begins. Fully offline and deterministic (a fi
 SMART-style prompt set, no model call).
 - **Problem Framer & Context Card** — `js/problem-framer.js` (fixed reframing question set, deterministic question restatement, keyword/substring column matching against loaded column names, one-page Markdown recap export, and the optional Context Card re-weighting — `orderLayersByContext` reorders the validation grid so the layers most relevant to what the data is *for* surface first, unchanged when skipped; UI lives in the Problem Framer tab and the Validate tab's Context Card in `js/main.js`).
 
+## Teaching & context
+Optional learning aids layered over the existing validation output, and file-based
+sharing of the domain packs that reinterpret it. Both are pure, offline, and add
+zero external dependencies.
+- **Teach-As-You-Clean micro-lessons** — `js/micro-lessons.js` (an original one-line "why this matters" explanation for every validation layer, every domain-pack rule, and the finer Unit Test / Benford sub-findings; `getMicroLesson` resolves a finding-type id at one of three wording registers and `coverageFor` lets the test suite assert full coverage). A "Learn while you clean" toggle (default on) and a Beginner/Practitioner/Expert verbosity slider live in the Validate tab header in `js/main.js`; the slider changes only the wording register, never which findings appear or any validation logic. State is session-only, read from the DOM each render — nothing is persisted or uploaded.
+- **Community domain-pack sharing** — `js/community-pack.js` (export a descriptor-based domain pack to portable JSON and import a shared one back; `validateImportedPack` enforces a strict, closed schema and `importPack` compiles the validated descriptor through the same annotate-only rule path the built-in packs use). File-based only — no server, marketplace, or backend. An imported pack runs inside the exact same sandbox built-in packs obey: its target layer is derived from each rule's `kind`, so it can only ever annotate/reinterpret findings and can never hard-fail data or target a core layer. UI (Export Pack / Import Pack) lives in the Validate tab header in `js/main.js`.
+
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
 Built on a Universal Export Contract: one byte-builder per format, decoupled from a

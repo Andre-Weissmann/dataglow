@@ -285,6 +285,20 @@
           <input id="context-card-input" type="text" class="input" style="width:220px; padding:6px 10px;" placeholder="optional — e.g. for billing accuracy" data-testid="input-context-card" />
           <label for="domain-pack-select" style="font-size:var(--text-sm); color:var(--color-text-muted);" title="A swappable domain pack reinterprets the 20 layers' raw output in context (e.g. de-identification date-shifting, protected-category merge guards). It never re-runs a layer; 'None' shows the raw, domain-agnostic output.">Domain pack:</label>
           <select id="domain-pack-select" class="input" style="width:auto; padding:6px 10px;" data-testid="select-domain-pack"></select>
+          <button class="btn btn-secondary" id="btn-pack-export" data-testid="button-pack-export" title="Export the selected domain pack as a portable JSON file you can share. Only descriptor-based packs (Retail, Finance, or an imported pack) are portable; the hand-written Healthcare pack is not.">Export Pack</button>
+          <label class="btn btn-secondary" for="pack-import-input" style="cursor:pointer;" title="Import a shared domain pack (.json). It is validated against a strict schema and runs inside the exact same annotate-only sandbox as the built-in packs — it can never hard-fail your data or auto-merge protected categories.">Import Pack
+            <input id="pack-import-input" type="file" accept=".json,application/json" style="display:none;" data-testid="input-pack-import" />
+          </label>
+          <label style="display:inline-flex; gap:6px; align-items:center; font-size:var(--text-sm); color:var(--color-text-muted);" title="Attach a one-line 'why this matters' explanation under each validation finding. On by default; turn off for just the results.">
+            <input id="micro-lesson-toggle" type="checkbox" checked data-testid="toggle-micro-lesson" /> Learn while you clean
+          </label>
+          <label for="micro-lesson-level" style="font-size:var(--text-sm); color:var(--color-text-muted);" title="Change only the wording of the explanations — Beginner (plain), Practitioner (default), or Expert (technical). Never changes which findings appear.">Level:</label>
+          <select id="micro-lesson-level" class="input" style="width:auto; padding:6px 10px;" data-testid="select-micro-lesson-level">
+            <option value="beginner">Beginner</option>
+            <option value="practitioner" selected>Practitioner</option>
+            <option value="expert">Expert</option>
+          </select>
+          <span id="community-pack-note" style="font-size:var(--text-xs); color:var(--color-text-faint); flex-basis:100%;" data-testid="community-pack-note"></span>
           <button class="btn btn-secondary" id="btn-export-receipt" data-testid="button-export-receipt" title="Package the confidence grade, all 20 layer results plus the Red Team self-test, key assumptions, and the story into one shareable HTML file.">Export Validation Receipt</button>
           <button class="btn btn-secondary" id="btn-export-irb" data-testid="button-export-irb" title="Reformat the validation results, assumption ledger, and provenance chain into an IRB / HIPAA-structured documentation aid (printable HTML).">Export for IRB/Compliance Review</button>
           <button class="btn btn-primary" id="btn-validate-run" data-testid="button-validate-run">Run All 20 Layers</button>

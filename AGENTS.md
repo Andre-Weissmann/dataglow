@@ -109,6 +109,25 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Teach-As-You-Clean micro-lessons + Community Pack sharing (Gen 34 C/D)
+
+`js/micro-lessons.js` is a pure catalog: a finding-type id → `{beginner, practitioner, expert}`
+one-liner map, plus `getMicroLesson(id, level)` and `coverageFor(requiredTypes)`. If you add
+a new validation layer (a `LAYER_DEFS` entry) or a new domain-pack rule, you MUST add a
+matching micro-lesson entry — `npm run test:microlessons` fails otherwise (it checks coverage
+against the live `LAYER_DEFS` and `DOMAIN_PACKS` ids, not a hard-coded list). All copy must be
+original one-sentence wording. The verbosity slider swaps register only; never make it change
+which findings appear or any validation result.
+
+`js/community-pack.js` exports/imports domain packs as portable JSON with NO backend. The
+strict schema in `validateImportedPack` IS the safety sandbox — do not add a second sandboxing
+mechanism. Imported packs compile ONLY through `compilePackRule`/`compileColumnMatch` in
+`js/domain-physics.js`, so a rule's target layer is derived from its `kind` (`PACK_RULE_LAYERS`)
+and can never be supplied by the input. Only descriptor-based packs (retail, finance, imported)
+are portable; the hand-written healthcare pack is not. Keep retail/finance expressed as the
+`RETAIL_PACK_DESCRIPTOR`/`FINANCE_PACK_DESCRIPTOR` declarative descriptors so export round-trips
+without drift; changing a built-in pack's rules means editing its descriptor, not a rule literal.
+
 ### The Standards Bridge — recognise healthcare-data standards, reuse the existing engines
 
 `js/health-standards.js` is a schema-recognition + concept-mapping seam, not a new
