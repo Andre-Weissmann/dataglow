@@ -59,6 +59,8 @@ let digitalTwin;
 let watchFolder;
 let problemFramer;
 let exportReport;
+let microLessons;
+let communityPack;
 import { DatabricksConnector, DEFAULT_QUERY, TRUST_NOTICE } from './databricks-connect.js';
 import { withCanonical } from './categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from './self-learning-rules.js';
@@ -1160,6 +1162,17 @@ function initDomainPack() {
       if (window.__dataglowLastValidation) renderValidationResults(window.__dataglowLastValidation);
     });
   }
+
+  // Teach-As-You-Clean controls: the toggle and the verbosity slider only affect
+  // how results are rendered, so re-render the current results in place (no
+  // re-validation) when either changes. State is read from the DOM each render.
+  const rerender = () => {
+    if (window.__dataglowLastValidation) renderValidationResults(window.__dataglowLastValidation);
+  };
+  const lessonToggle = $('#micro-lesson-toggle');
+  if (lessonToggle) lessonToggle.addEventListener('change', rerender);
+  const lessonLevel = $('#micro-lesson-level');
+  if (lessonLevel) lessonLevel.addEventListener('change', rerender);
 }
 
 // The Context Card free text ("What is this data for?"), session-only and never
@@ -1167,6 +1180,36 @@ function initDomainPack() {
 function getDataContext() {
   const input = $('#context-card-input');
   return input ? input.value : '';
+}
+
+// ---- Teach-As-You-Clean (Stage C) --------------------------------------
+// The "Learn while you clean" toggle and the Beginner/Practitioner/Expert
+// verbosity slider are session-only UI state, read straight from the DOM each
+// render (mirroring the Context Card) — never persisted to storage. When the
+// toggle is off, or the module failed to load, no lesson is shown.
+function microLessonsEnabled() {
+  const t = $('#micro-lesson-toggle');
+  return !!t && t.checked;
+}
+function microLessonLevel() {
+  const s = $('#micro-lesson-level');
+  const lvl = s ? s.value : undefined;
+  return microLessons ? microLessons.normalizeLevel(lvl) : (lvl || 'practitioner');
+}
+// Build the one-line explanation element for a finding type, or null when the
+// toggle is off, the module is unavailable, or there is no lesson for the type.
+function microLessonNote(findingType) {
+  if (!microLessons || !microLessonsEnabled()) return null;
+  const text = microLessons.getMicroLesson(findingType, microLessonLevel());
+  if (!text) return null;
+  return el('div', {
+    class: 'micro-lesson',
+    'data-testid': `micro-lesson-${findingType}`,
+    style: 'margin-top:var(--space-2); padding:var(--space-2); border-left:3px solid var(--color-accent, #3b82f6); background:rgba(59,130,246,0.06); font-size:var(--text-xs); color:var(--color-text-muted); border-radius:6px;',
+  }, [
+    el('span', { style: 'font-weight:600; margin-right:var(--space-1);' }, 'Why this matters:'),
+    text,
+  ]);
 }
 
 // Devil's Advocate Mode — stress-tests the current SQL result and renders a
@@ -1198,6 +1241,72 @@ function initDevilsAdvocate() {
     ]));
     renderAssumptionLedger();
   });
+}
+
+// Community Pack Sharing (Stage D) — export the currently-selected domain pack
+// as a portable JSON file and import a shared pack back in. File-based only: no
+// server, marketplace, or backend. An imported pack is validated against the
+// strict community-pack schema and compiled through the SAME annotate-only rule
+// path the built-in packs use, so it runs inside the exact same sandbox (it can
+// only annotate/reinterpret findings — never hard-fail data or target a core
+// layer). Only the descriptor-based packs (Retail, Finance, or a previously
+// imported pack) are exportable; the hand-written healthcare pack is not.
+function initCommunityPack() {
+  const exportBtn = $('#btn-pack-export');
+  const importInput = $('#pack-import-input');
+  const note = $('#community-pack-note');
+  if (!exportBtn || !communityPack) return;
+
+  exportBtn.addEventListener('click', () => {
+    const sel = $('#domain-pack-select');
+    const name = sel ? sel.value : null;
+    const pack = name && domainPhysics.DOMAIN_PACKS[name];
+    if (!pack) { toast('Select a domain pack first', 'error'); return; }
+    const { ok, json, reason } = communityPack.serializePack(pack);
+    if (!ok) {
+      if (note) note.textContent = reason;
+      toast(reason, 'error');
+      return;
+    }
+    downloadText(`dataglow-pack-${name}.json`, json, 'application/json');
+    toast(`Exported the "${pack.label}" pack`, 'success');
+  });
+
+  if (importInput) {
+    importInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        let parsed;
+        try { parsed = JSON.parse(await file.text()); }
+        catch { throw new Error('file is not valid JSON'); }
+        const { ok, errors, pack } = communityPack.importPack(parsed);
+        if (!ok) {
+          const msg = `Import rejected: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? '…' : ''}`;
+          if (note) note.textContent = msg;
+          toast(msg, 'error');
+          return;
+        }
+        // Register the validated, compiled pack for this session (in-memory only)
+        // and surface it in the pack selector so it can be applied like a built-in.
+        domainPhysics.DOMAIN_PACKS[pack.name] = pack;
+        const sel = $('#domain-pack-select');
+        if (sel && !Array.from(sel.options).some(o => o.value === pack.name)) {
+          sel.appendChild(el('option', { value: pack.name, title: pack.description }, `${pack.label} (imported)`));
+        }
+        if (sel) sel.value = pack.name;
+        if (note) note.textContent = `Imported "${pack.label}" — ${pack.rules.length} rule(s). Applied to the current dataset.`;
+        toast(`Imported the "${pack.label}" pack`, 'success');
+        if (getActiveDataset()) runValidation();
+      } catch (err) {
+        const msg = 'Import failed: ' + err.message;
+        if (note) note.textContent = msg;
+        toast(msg, 'error');
+      } finally {
+        importInput.value = '';
+      }
+    });
+  }
 }
 
 // Shareable Validation Receipts — package the current analysis (Confidence
@@ -3103,6 +3212,11 @@ function renderValidationResults(results) {
         }, r.note));
       }
     }
+    // Teach-As-You-Clean: an optional one-line "why this matters" note keyed on
+    // the layer id. Shown only when the "Learn while you clean" toggle is on;
+    // the verbosity slider swaps the wording register, never the presence.
+    const lesson = microLessonNote(layer.id);
+    if (lesson) card.appendChild(lesson);
     grid.appendChild(card);
   }
 }
@@ -4035,6 +4149,7 @@ function init() {
   initDigitalTwin();
   initWatchFolder();
   initProblemFramer();
+  initCommunityPack();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);
@@ -4085,6 +4200,8 @@ async function bootstrapCapabilities() {
     digitalTwin = registry.get('digital-twin');
     problemFramer = registry.get('problem-framer');
     exportReport = registry.get('export-report');
+    microLessons = registry.get('micro-lessons');
+    communityPack = registry.get('community-pack');
 
     // Browser-only: the Watch Folder relies on the File System Access API, which
     // the Tauri desktop shell deliberately excludes. On desktop, registry.get

@@ -280,6 +280,29 @@
       "platforms": ["browser", "desktop"],
       "files": ["js/build-flags.js"],
       "symbols": [{ "file": "js/build-flags.js", "name": "isEnabled" }]
+    },
+    {
+      "id": "micro-lessons",
+      "area": "Teaching & context",
+      "name": "Teach-As-You-Clean micro-lessons",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/micro-lessons.js"],
+      "symbols": [
+        { "file": "js/micro-lessons.js", "name": "getMicroLesson" },
+        { "file": "js/micro-lessons.js", "name": "coverageFor" }
+      ]
+    },
+    {
+      "id": "community-pack",
+      "area": "Teaching & context",
+      "name": "Community domain-pack sharing",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/community-pack.js"],
+      "symbols": [
+        { "file": "js/community-pack.js", "name": "validateImportedPack" },
+        { "file": "js/community-pack.js", "name": "importPack" },
+        { "file": "js/community-pack.js", "name": "exportPack" }
+      ]
     }
   ]
 }
