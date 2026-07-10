@@ -1044,6 +1044,30 @@
   // Register the service worker on load so it never competes with the app's
   // first-load resource fetching. Guarded so environments without SW support
   // (or file:// contexts) are unaffected.
+  // Classify the page's cross-origin isolation state up front so the app shell
+  // (js/app-shell/main.js, which runs after this inline script) can decide
+  // whether a dataset load may run now or must be queued across the one-time
+  // reload below. Values:
+  //   isolated    — SharedArrayBuffer is available; loads run immediately.
+  //   pending     — not isolated yet, but the SW is expected to reload this page
+  //                 into an isolated context; a load started now would be torn
+  //                 down mid-flight by that reload, so it must be queued and
+  //                 replayed on the isolated page instead of failing silently.
+  //   failed      — already reloaded once and STILL not isolated; loads run and
+  //                 the engine's loud-failure UX surfaces the real reason.
+  //   unsupported — no service worker; loads run and surface any loud error.
+  (function () {
+    var reloadedOnce = false;
+    try { reloadedOnce = sessionStorage.getItem('dataglow-coi-reloaded') === '1'; } catch (e) {}
+    if (window.crossOriginIsolated) {
+      window.__dataglowIsolation = 'isolated';
+    } else if (!('serviceWorker' in navigator)) {
+      window.__dataglowIsolation = 'unsupported';
+    } else {
+      window.__dataglowIsolation = reloadedOnce ? 'failed' : 'pending';
+    }
+  })();
+
   if ('serviceWorker' in navigator) {
     // Once the page is genuinely cross-origin isolated, clear the one-shot
     // reload guard so a future SW update can re-trigger the reload if needed.

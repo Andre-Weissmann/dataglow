@@ -135,6 +135,19 @@ through `runDatasetLoad`/`showEngineError`, which render a visible, retryable
 banner with the real reason instead of silently reverting to "No dataset loaded"
 (the original production symptom). Never reintroduce a bare
 `await engine.initDuckDB()` in a click handler without surfacing its failure.
+Third, mind the pre-isolation **load race**: on hosts that fall back to the `sw.js`
+path, there is a brief window where the app shell is interactive but the one-time
+reload has not fired — a load started then would be torn down mid-flight and
+vanish silently. `index.html` publishes `window.__dataglowIsolation`
+(`isolated`/`pending`/`failed`/`unsupported`); the sample-dataset buttons go
+through `requestDatasetLoad(id)`, which — while `pending` — persists the request
+(`dataglow-pending-load`) and shows a non-error "starting" state instead of
+starting a doomed load, then `replayPendingDatasetLoad()` replays it after the
+reload lands on the isolated page (file uploads, which can't cross a reload, just
+show the "starting" state). This timing race is invisible to the static
+`test:coi` suite; the real-browser `test/coi-race.e2e.test.mjs`
+(`npm run test:e2e-coi-race`, in the e2e-smoke CI job) delays the `sw.js` fetch to
+recreate the window and asserts a fast click is queued + replayed, never dropped.
 
 ### Domain-pack plugin architecture (Gen 40)
 

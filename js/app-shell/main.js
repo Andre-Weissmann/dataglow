@@ -240,30 +240,82 @@ function initFileLoading() {
   });
   fileInput.addEventListener('change', async (e) => { await handleFiles(e.target.files); fileInput.value = ''; });
 
-  $('#btn-load-golden').addEventListener('click', () => runDatasetLoad(async () => {
+  $('#btn-load-golden').addEventListener('click', () => requestDatasetLoad('golden'));
+
+  const omopBtn = $('#btn-load-omop-sample');
+  if (omopBtn) omopBtn.addEventListener('click', () => requestDatasetLoad('omop'));
+
+  const fhirBtn = $('#btn-load-fhir-sample');
+  if (fhirBtn) fhirBtn.addEventListener('click', () => requestDatasetLoad('fhir'));
+
+  // If a sample-dataset load was requested during the pre-isolation window on a
+  // previous page view (before the service worker reloaded the page into a
+  // cross-origin isolated context), replay it now that the engine can actually
+  // start. This closes the race where a fast click on first load — before the
+  // one-time reload — would otherwise be silently dropped by that reload.
+  replayPendingDatasetLoad();
+}
+
+// Keyed sample-dataset load actions. Keyed (rather than inline closures) so a
+// request made before cross-origin isolation is established can be persisted by
+// id and replayed after the one-time service-worker reload — see
+// requestDatasetLoad / replayPendingDatasetLoad and the isolation notes in
+// index.html.
+const DATASET_ACTIONS = {
+  golden: async () => {
     await ensureDuckDB();
     await loaders.loadGoldenDataset();
     renderSidebar();
     resetPanelStates();
-  }));
-
-  const omopBtn = $('#btn-load-omop-sample');
-  if (omopBtn) omopBtn.addEventListener('click', () => runDatasetLoad(async () => {
+  },
+  omop: async () => {
     await ensureDuckDB();
     await loaders.loadOmopSampleDataset();
     selectDomainPack('omop');
     renderSidebar();
     resetPanelStates();
-  }));
-
-  const fhirBtn = $('#btn-load-fhir-sample');
-  if (fhirBtn) fhirBtn.addEventListener('click', () => runDatasetLoad(async () => {
+  },
+  fhir: async () => {
     await ensureDuckDB();
     await loaders.loadFhirSampleDataset();
     selectDomainPack('fhir');
     renderSidebar();
     resetPanelStates();
-  }));
+  },
+};
+
+const PENDING_LOAD_KEY = 'dataglow-pending-load';
+
+// True while the page is not yet cross-origin isolated but the service worker is
+// expected to reload it into an isolated context (window.__dataglowIsolation is
+// set in index.html). Starting a DuckDB load in this window is both pointless
+// (no SharedArrayBuffer) and unsafe (the imminent reload tears the handler down
+// mid-flight, which was the original silent-failure symptom).
+function isolationPending() {
+  return typeof window !== 'undefined' && window.__dataglowIsolation === 'pending';
+}
+
+// Entry point for the sample-dataset buttons. Runs the load immediately when the
+// engine can start; otherwise queues it (persisted across the reload) and shows
+// a non-error "starting…" state instead of silently dropping the click.
+function requestDatasetLoad(id) {
+  if (isolationPending()) {
+    try { sessionStorage.setItem(PENDING_LOAD_KEY, id); } catch (e) { /* private mode */ }
+    showEngineInitializing();
+    return;
+  }
+  runDatasetLoad(DATASET_ACTIONS[id]);
+}
+
+function replayPendingDatasetLoad() {
+  let id = null;
+  try { id = sessionStorage.getItem(PENDING_LOAD_KEY); } catch (e) { return; }
+  // Only replay once we've left the pending window (isolated, or failed/
+  // unsupported where the loud-failure UX will surface the real reason). Never
+  // replay while still pending, or the same reload race would recur.
+  if (!id || !DATASET_ACTIONS[id] || isolationPending()) return;
+  try { sessionStorage.removeItem(PENDING_LOAD_KEY); } catch (e) {}
+  runDatasetLoad(DATASET_ACTIONS[id]);
 }
 
 // Pre-select a domain pack in the dropdown (used when loading a standards sample
@@ -274,6 +326,11 @@ function selectDomainPack(name) {
 }
 
 async function handleFiles(files) {
+  // A File can't be persisted across the one-time isolation reload, so during
+  // the pending window we don't start (and silently lose) the load — we show the
+  // "starting…" state; the reload lands on an isolated page moments later and the
+  // user can re-add the file, which then loads normally.
+  if (isolationPending()) { showEngineInitializing(); return; }
   await runDatasetLoad(async () => {
     await ensureDuckDB();
     for (const file of files) {
@@ -403,6 +460,20 @@ function showEngineError(err, onRetry) {
 function clearEngineError() {
   const box = $('#engine-error');
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+// Non-error "one moment" state shown when a load is requested before the page is
+// cross-origin isolated. The service worker is about to reload the page into an
+// isolated context, after which any queued sample-dataset load replays
+// automatically (see requestDatasetLoad / replayPendingDatasetLoad).
+function showEngineInitializing() {
+  const box = $('#engine-error');
+  if (!box) return;
+  box.innerHTML = '';
+  box.appendChild(el('div', { class: 'engine-error-title' }, 'Starting the data engine…'));
+  box.appendChild(el('div', { class: 'engine-error-detail', 'data-testid': 'engine-initializing' },
+    'Preparing a secure in-browser environment. Your dataset will load automatically in a moment.'));
+  box.style.display = '';
 }
 
 // Run a dataset-loading action, surfacing any engine/load failure as a visible,
@@ -4302,6 +4373,11 @@ function init() {
     .then(() => { window.__dataglowReady = true; clearEngineError(); })
     .catch(err => {
       window.__dataglowInitError = String(err && err.message || err);
+      // On the pre-isolation page the engine can't start (no SharedArrayBuffer),
+      // but the service worker is about to reload us into an isolated context.
+      // Show the transient "starting…" state instead of flashing a scary error
+      // that the imminent reload would clear anyway.
+      if (isolationPending()) { showEngineInitializing(); return; }
       // A failed pre-warm means nothing downstream will work — surface it now
       // rather than waiting for the user to click Load and get a silent no-op.
       showEngineError(err, async () => {

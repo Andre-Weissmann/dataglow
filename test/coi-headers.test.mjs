@@ -75,6 +75,11 @@ ok('index.html reloads to pick up isolation on controllerchange',
   /controllerchange/.test(html) && /location\.reload\(\)/.test(html));
 ok('index.html guards the reload against a loop (one-shot sentinel)',
   /dataglow-coi-reloaded/.test(html) && /crossOriginIsolated/.test(html));
+// The app shell keys its "queue the load across the reload" decision off this
+// flag, so index.html must classify isolation state before main.js runs.
+ok('index.html exposes window.__dataglowIsolation state',
+  /window\.__dataglowIsolation\s*=/.test(html)
+  && /['"]pending['"]/.test(html) && /['"]isolated['"]/.test(html));
 
 // ============================================================
 console.log('\nmain.js (silent-failure UX fix)');
@@ -85,7 +90,27 @@ ok('main.js renders a Retry button on engine failure',
 ok('main.js routes dataset loads through a failure-surfacing wrapper',
   /function runDatasetLoad\(/.test(mainJs) && /runDatasetLoad\(async/.test(mainJs));
 ok('main.js surfaces a background pre-warm failure (no silent revert)',
-  /__dataglowInitError[\s\S]{0,400}showEngineError/.test(mainJs));
+  /__dataglowInitError[\s\S]*?showEngineError/.test(mainJs));
+
+// ============================================================
+// Pre-isolation race guard: a load clicked before the one-time SW reload must be
+// queued + replayed on the isolated page, never started (and torn down) mid-flight.
+console.log('\nmain.js (pre-isolation load-race guard)');
+ok('main.js detects the pending pre-isolation window',
+  /function isolationPending\(/.test(mainJs) && /__dataglowIsolation\s*===\s*['"]pending['"]/.test(mainJs));
+ok('main.js routes sample-dataset clicks through requestDatasetLoad',
+  /function requestDatasetLoad\(/.test(mainJs)
+  && /requestDatasetLoad\(\s*['"]golden['"]\s*\)/.test(mainJs));
+ok('main.js persists a load requested during the pending window',
+  /isolationPending\(\)[\s\S]*?sessionStorage\.setItem\(\s*PENDING_LOAD_KEY/.test(mainJs));
+ok('main.js replays a queued load once isolation settles',
+  /function replayPendingDatasetLoad\(/.test(mainJs)
+  && /replayPendingDatasetLoad\(\)/.test(mainJs));
+ok('main.js gates file uploads during the pending window',
+  /async function handleFiles[\s\S]*?isolationPending\(\)/.test(mainJs));
+ok('main.js shows a non-error "starting" state instead of dropping the click',
+  /function showEngineInitializing\(/.test(mainJs)
+  && /data-testid':\s*'engine-initializing'/.test(mainJs));
 
 // ============================================================
 console.log(`\n${failed === 0 ? '✓ ALL PASSED' : '✗ FAILURES'} — ${passed} passed, ${failed} failed\n`);
