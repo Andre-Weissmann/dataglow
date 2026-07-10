@@ -17,6 +17,42 @@ function uniqueTableName(baseName) {
   return `${baseName}_${i}`;
 }
 
+// Record the genesis "load" step of a dataset's Chain of Custody. Centralised so
+// every load path (file upload, in-memory rows, golden fixture) records the same
+// way and, critically, fails LOUDLY rather than silently: provenance is a trust
+// feature, and one that silently drops entries is worse than none. `rawHash` MUST
+// have been computed from the raw bytes BEFORE they were handed to the DuckDB
+// engine — db.registerFileBuffer() transfers/detaches the underlying ArrayBuffer,
+// so a hash attempted afterward throws on a detached buffer. On any failure this
+// surfaces a visible error (via `reportError`, default toast) and returns null;
+// it never throws, so a provenance hiccup cannot abort an otherwise-successful
+// data load. Exported for regression testing of the record-on-load guarantee.
+export async function recordLoadProvenance({ tableName, rawHash, description, detail = null, reportError = toast }) {
+  try {
+    if (rawHash == null) {
+      throw new Error('raw-bytes hash was not captured before the buffer reached the engine');
+    }
+    const chain = startProvenance(tableName);
+    return await chain.append('load', description, detail, rawHash);
+  } catch (err) {
+    console.error('[provenance] failed to record the load step:', err);
+    reportError(`Loaded, but its provenance/audit entry could NOT be recorded: ${err.message}`, 'error');
+    return null;
+  }
+}
+
+// Hash raw bytes for provenance, tolerating (and loudly reporting) failure so the
+// data load itself is never blocked by a provenance problem. Returns null on
+// failure; the null then triggers a loud, non-fatal warning in recordLoadProvenance.
+async function safeRawHash(bytes) {
+  try {
+    return await hashBytes(bytes);
+  } catch (err) {
+    console.error('[provenance] raw-bytes hashing failed:', err);
+    return null;
+  }
+}
+
 export async function loadFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   // Two uploads with the same filename stem but different extensions (e.g. sales.csv
@@ -27,8 +63,9 @@ export async function loadFile(file) {
   // Hash the raw bytes NOW, before handing the buffer to the DuckDB engine.
   // db.registerFileBuffer() transfers/detaches the underlying ArrayBuffer as an
   // optimization, so any later read (e.g. hashBytes) would throw on a detached
-  // buffer and provenance would silently never be recorded.
-  const rawHash = await hashBytes(arrayBuffer);
+  // buffer and provenance would silently never be recorded. Capture defensively:
+  // a hashing failure must not abort the load, but must be surfaced loudly.
+  const rawHash = await safeRawHash(arrayBuffer);
 
   try {
     if (['csv', 'tsv'].includes(ext)) {
@@ -65,9 +102,13 @@ export async function loadFile(file) {
     };
     addDataset(ds);
     // Anchor the Chain of Custody to the raw bytes the analyst started from
-    // (hashed above, before the engine detached the buffer).
-    const chain = startProvenance(tableName);
-    await chain.append('load', `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`, { file: file.name, rows: rowCount, sizeBytes: file.size }, rawHash);
+    // (hashed above, before the engine detached the buffer). Loud on failure.
+    await recordLoadProvenance({
+      tableName,
+      rawHash,
+      description: `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`,
+      detail: { file: file.name, rows: rowCount, sizeBytes: file.size },
+    });
     toast(`Loaded ${file.name} — ${rowCount.toLocaleString()} rows`, 'success');
     return ds;
   } catch (err) {
@@ -96,9 +137,13 @@ export async function loadRowsAsDataset({ name, columns, rows, source = 'rows', 
       loadedAt: Date.now(),
     };
     addDataset(ds);
-    const rawHash = await hashBytes(new TextEncoder().encode(JSON.stringify(rows)));
-    const chain = startProvenance(tableName);
-    await chain.append('load', `Loaded "${name}" (${rowCount.toLocaleString()} rows) from ${source}`, { source, rows: rowCount, ...meta }, rawHash);
+    const rawHash = await safeRawHash(new TextEncoder().encode(JSON.stringify(rows)));
+    await recordLoadProvenance({
+      tableName,
+      rawHash,
+      description: `Loaded "${name}" (${rowCount.toLocaleString()} rows) from ${source}`,
+      detail: { source, rows: rowCount, ...meta },
+    });
     toast(`Loaded ${name} — ${rowCount.toLocaleString()} rows`, 'success');
     return ds;
   } catch (err) {
@@ -261,9 +306,13 @@ export async function loadGoldenDataset() {
     isGolden: true,
   };
   addDataset(ds);
-  const rawHash = await hashBytes(new TextEncoder().encode(JSON.stringify(rows)));
-  const chain = startProvenance(tableName);
-  await chain.append('load', `Loaded built-in golden test dataset (${rowCount} rows with seeded issues)`, { rows: rowCount, source: 'golden' }, rawHash);
+  const rawHash = await safeRawHash(new TextEncoder().encode(JSON.stringify(rows)));
+  await recordLoadProvenance({
+    tableName,
+    rawHash,
+    description: `Loaded built-in golden test dataset (${rowCount} rows with seeded issues)`,
+    detail: { rows: rowCount, source: 'golden' },
+  });
   toast(`Golden test dataset loaded — ${rowCount} rows with known issues`, 'success');
   return ds;
 }
