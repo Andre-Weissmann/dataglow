@@ -332,8 +332,13 @@ export async function checkNarrativeConsistency(storyText, queryResult) {
   if (!queryResult) return { status: 'idle', mismatches: [] };
   const numbersInText = [...storyText.matchAll(/-?\d+(?:\.\d+)?%?/g)].map(m => m[0]);
   const actualNumbers = new Set();
+  // Parallel list of the raw computed values, used for the rounding- and
+  // computation-order-aware numeric comparison below (the string Set alone can't
+  // tolerate a legitimately-consistent figure written at a different precision).
+  const actualNumeric = [];
   const addNumber = (v) => {
     if (typeof v !== 'number' || Number.isNaN(v)) return;
+    actualNumeric.push(v);
     actualNumbers.add(v.toFixed(2));
     actualNumbers.add(String(Math.round(v)));
     actualNumbers.add(v.toFixed(1));
@@ -386,13 +391,32 @@ export async function checkNarrativeConsistency(storyText, queryResult) {
       }
     }
   }
+  const decimalsOf = (s) => { const i = s.indexOf('.'); return i < 0 ? 0 : s.length - i - 1; };
   const mismatches = [];
   for (const n of numbersInText) {
+    const isPercent = n.includes('%');
     const clean = n.replace('%', '');
     const asNum = parseFloat(clean);
     if (Number.isNaN(asNum)) continue;
     const rounded = String(Math.round(asNum));
-    const found = actualNumbers.has(clean) || actualNumbers.has(rounded) || actualNumbers.has(asNum.toFixed(1)) || actualNumbers.has(asNum.toFixed(2));
+    let found = actualNumbers.has(clean) || actualNumbers.has(rounded) || actualNumbers.has(asNum.toFixed(1)) || actualNumbers.has(asNum.toFixed(2));
+    if (!found) {
+      // Rounding- and computation-order-aware match: a stated figure is
+      // consistent with a computed value when the two agree once both are rounded
+      // to the precision the narrative actually used. This tolerates legitimate
+      // rounding / computation-order differences (e.g. a 1/3 rate written as
+      // "33.3%" vs a recomputed 33.333…%) instead of demanding an exact string,
+      // which produced false-positive mismatches. For a percentage token, a
+      // computed proportion in [0,1] is also matched against its ×100 form
+      // (0.3333 ↔ "33.3%"), since the Story tab narrates rates both ways.
+      const dec = decimalsOf(clean);
+      const factor = 10 ** dec;
+      const target = Math.round(asNum * factor) / factor;
+      const candidates = isPercent
+        ? actualNumeric.flatMap(v => (v >= 0 && v <= 1 ? [v, v * 100] : [v]))
+        : actualNumeric;
+      found = candidates.some(v => Math.round(v * factor) / factor === target);
+    }
     if (!found && Math.abs(asNum) > 0) mismatches.push(n);
   }
   return { status: mismatches.length ? 'fail' : 'pass', mismatches };
@@ -574,6 +598,22 @@ async function benfordEligibility(table, c) {
   const col = `"${c.name}"`;
   if (isBenfordBoundedName(c.name)) {
     return { eligible: false, reason: `"${c.name}" skipped — bounded range, not a naturally-scaled magnitude Benford's Law applies to.` };
+  }
+  // Binary / flag columns (distinct values ⊆ {0,1}) have at most a single leading
+  // digit, so there is no leading-digit distribution to test. Detect and skip them
+  // here — in the CORE eligibility gate, so it holds even with no domain pack active
+  // — and do it BEFORE the LOG10 gate query below runs, so an all-0/1 column can
+  // never reach a LOG10 that throws "cannot take logarithm of zero". (An active
+  // domain pack may re-label this skip with pack-specific wording; the classifier
+  // in benfordSkipCause() recognises the shared "binary 0/1 flag column" phrase.)
+  const { rows: binRows } = await engine.runQuery(`
+    SELECT COUNT(DISTINCT ${col}) AS ndistinct,
+           COUNT(*) FILTER (WHERE ${col} IS NOT NULL AND ${col} NOT IN (0, 1)) AS non_binary
+    FROM ${table}`);
+  const ndistinct = Number(binRows[0].ndistinct) || 0;
+  const nonBinary = Number(binRows[0].non_binary) || 0;
+  if (ndistinct > 0 && ndistinct <= 2 && nonBinary === 0) {
+    return { eligible: false, reason: `"${c.name}" skipped — binary 0/1 flag column, not suitable for Benford's Law (a leading-digit distribution needs values spanning multiple orders of magnitude).` };
   }
   // Guard LOG10 inside a CASE so it is NEVER evaluated on a value < 1 (e.g. a
   // literal 0, extremely common in healthcare flag columns). DuckDB may evaluate
