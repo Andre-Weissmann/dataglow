@@ -1,0 +1,103 @@
+# ============================================================
+# DATAGLOW — Zero-Upload Proof (egress-deny)
+# ============================================================
+# Standalone workflow (NOT a reusable job in test.yml) so it produces its own
+# native GitHub Actions status badge:
+#   https://github.com/<owner>/<repo>/actions/workflows/zero-upload-proof.yml/badge.svg
+#
+# WHAT THIS JOB PROVES
+# --------------------
+# DATAGLOW's headline promise is "your data never leaves your machine." This job
+# backs that promise with a genuine, kernel-enforced egress block:
+#
+#   1. `npm ci` runs FIRST, while the network is still available, to install the
+#      dev/test toolchain (native DuckDB engine, etc.).
+#   2. The core engine + validation test suite is then re-run inside a fresh
+#      network namespace (`unshare --net`) that has NO interface except loopback.
+#      Inside that namespace there is physically no route to any host on the
+#      internet — not a mock, not a monitor, an actual absence of network.
+#   3. A POSITIVE CONTROL runs first inside that namespace: it tries to reach the
+#      npm registry and the job FAILS if that connection unexpectedly succeeds.
+#      This proves the block is really active before we trust the test run under
+#      it. (A silent no-network claim with no positive control proves nothing.)
+#   4. The core suite then runs under the block. If any core-library code opens an
+#      outbound connection while handling the fixture data, the call fails and the
+#      job goes red.
+#
+# So a GREEN badge means: the exercised core code paths — SQL engine, the 20
+# validation layers, cross-column/missingness/upper-bound checks, predictive
+# anomaly scoring, the signal store, the standards bridge, and the golden
+# snapshots — completed correctly with zero possibility of network egress.
+#
+# WHAT THIS JOB DOES NOT PROVE (honest limitations)
+# -------------------------------------------------
+# * It proves it for the CODE PATHS THE TESTS EXERCISE, not for every line in the
+#   repo. It is as strong as the suite's coverage of the data-handling code.
+# * It says nothing about the three large OPT-IN runtimes (Pyodide/Python,
+#   WebR/R, WebLLM/Story) that intentionally fetch their own runtime from a public
+#   CDN when you first open those tabs — those are excluded here on purpose,
+#   because the promise is that *your data* never leaves, not that no library code
+#   is ever fetched. Those tabs are exercised by other jobs with their network
+#   adapters stubbed, not under this block.
+# * `npm ci` itself uses the network (step 1) — that is dependency installation,
+#   not the app handling your data, and it happens before the block goes up.
+# * It is a Node-side proof against the same production SQL/validation modules the
+#   browser runs (via the DuckDB loader hook); it is not a live-browser DevTools
+#   network capture.
+#
+# We deliberately do not claim anything stronger than the above.
+
+name: zero-upload-proof
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  zero-upload:
+    name: Zero-upload egress-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Network IS available here — installing the test toolchain is not data egress.
+      - name: Install toolchain (network allowed)
+        run: npm ci
+
+      # Everything below runs with NO network route except loopback.
+      # `sudo unshare --net` creates a private network namespace whose only
+      # interface is a (down) loopback we bring up; the process inside has no
+      # path to any external host. This isolates only the test process, so the
+      # runner's own connection back to GitHub (log/status upload) is untouched.
+      - name: Run core engine + validation suite with egress blocked
+        run: |
+          sudo unshare --net -- bash -euo pipefail -c '
+            ip link set lo up
+
+            echo "::group::Positive control — outbound network MUST be blocked"
+            if curl --silent --show-error --max-time 8 https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "FAIL: outbound network reachable inside the sandbox — egress block is not active."
+              exit 1
+            fi
+            echo "OK: confirmed no outbound network route inside the sandbox."
+            echo "::endgroup::"
+
+            echo "::group::Core suite under egress deny"
+            npm run test:sql
+            npm run test:layers
+            npm run test:crosscol
+            npm run test:missingness
+            npm run test:upperbound
+            npm run test:predanomaly
+            npm run test:signalstore
+            npm run test:standards
+            npm run test:golden
+            echo "::endgroup::"
+          '

@@ -1,0 +1,60 @@
+# ============================================================
+# DATAGLOW — 20-layer Validate suite
+# ============================================================
+# Standalone workflow (NOT a reusable job in test.yml) so it produces its own
+# native GitHub Actions status badge:
+#   https://github.com/<owner>/<repo>/actions/workflows/validate-suite.yml/badge.svg
+#
+# WHAT THIS JOB PROVES
+# --------------------
+# Runs the automated test coverage for DATAGLOW's 20-layer Validate suite against
+# a REAL (native) DuckDB engine — the browser engine is transparently swapped for
+# @duckdb/node-api via test/duckdb-loader-hook.mjs, so these tests exercise the
+# exact production validation modules the browser runs.
+#
+#   * test:layers      — the orchestrated 20-layer suite end to end
+#                        (js/validation/validation.js): schema, nulls, duplicates,
+#                        outliers, Benford, semantic/distribution drift, the ledger,
+#                        the Red Team self-test, etc.
+#   * test:crosscol    — Cross-Column Logical Consistency layer
+#   * test:missingness — Missingness Detective (MCAR/MAR/MNAR) layer
+#   * test:upperbound  — Upper-Bound Sanity Anchor layer
+#   * test:standards   — the Standards Bridge routing OMOP/FHIR data through the
+#                        same layers (no new validation math)
+#
+# A GREEN badge means every one of these suites passed for that commit. These are
+# the same scripts the `sql-logic` job in test.yml already runs; this workflow
+# exists so the Validate suite has its own directly-linkable pass/fail badge.
+#
+# HONEST LIMITATIONS
+# ------------------
+# This is unit/integration coverage of the validation logic, not a live-browser
+# run. The headline "20 layers" is the shipped count of data-validation layers
+# (the Red Team self-test is a 21st LAYER_DEFS entry used for the self-check, not
+# a data layer). Passing here means the layer logic is correct on the test
+# fixtures — it does not assert anything about datasets not covered by fixtures.
+
+name: validate-suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate-suite:
+    name: 20-layer Validate suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:layers
+      - run: npm run test:crosscol
+      - run: npm run test:missingness
+      - run: npm run test:upperbound
+      - run: npm run test:standards

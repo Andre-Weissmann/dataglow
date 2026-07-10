@@ -2,9 +2,49 @@
 
 > **Your data, glowing.** A universal, browser-based, all-in-one data analytics platform — no install, no server, no upload.
 
+[![zero-upload egress-deny](https://github.com/Andre-Weissmann/dataglow/actions/workflows/zero-upload-proof.yml/badge.svg)](https://github.com/Andre-Weissmann/dataglow/actions/workflows/zero-upload-proof.yml)
+[![20-layer Validate suite](https://github.com/Andre-Weissmann/dataglow/actions/workflows/validate-suite.yml/badge.svg)](https://github.com/Andre-Weissmann/dataglow/actions/workflows/validate-suite.yml)
+
 📋 **New here?** See [TRUST.md](TRUST.md) for a first-party, verifiable look at this repo's health, how it's built to work with AI coding agents, and a curated "Start Here" list of good first contributions.
 
 ---
+
+## Three ways to run it
+
+- **Browser** — 🟢 live: a zero-upload web app that runs entirely client-side; nothing you load is ever uploaded.
+- **Desktop** — 🟢 shipped: a native [Tauri](https://tauri.app/) shell for Windows, macOS, and Linux — grab a build from the [releases page](https://github.com/Andre-Weissmann/dataglow/releases).
+- **Mobile / tablet** — ⚪ Planned (Tauri v2) — not yet built.
+
+### What the two badges above actually prove
+
+- **zero-upload egress-deny** — the core engine + 20-layer validation test suite is re-run inside a network namespace with **no route to the internet except loopback** (a positive control first confirms the block is live). Green means those code paths handled the test data with zero possibility of network egress. It does **not** cover the opt-in Python/R/Story tabs, which fetch their own runtime from a CDN on demand — see [`.github/workflows/zero-upload-proof.yml`](.github/workflows/zero-upload-proof.yml) for the full honest scope.
+- **20-layer Validate suite** — runs the automated coverage for all 20 validation layers against a real native DuckDB engine (the same production modules the browser uses). See [`.github/workflows/validate-suite.yml`](.github/workflows/validate-suite.yml).
+
+### Verify it yourself
+
+Don't take the badges on faith — run the exact same checks locally:
+
+```bash
+git clone https://github.com/Andre-Weissmann/dataglow.git
+cd dataglow
+npm ci
+
+# Badge #2 — the 20-layer Validate suite (native DuckDB):
+npm run test:layers
+
+# Badge #1 — the core engine + validation suite with ALL network egress blocked.
+# (Linux; needs sudo for the network namespace.) A positive control proves the
+# block is live, then the suite runs with no route to the internet but loopback:
+sudo unshare --net -- bash -euo pipefail -c '
+  ip link set lo up
+  curl --max-time 8 https://registry.npmjs.org >/dev/null 2>&1 \
+    && { echo "network reachable — egress block FAILED"; exit 1; } \
+    || echo "confirmed: no outbound network"
+  npm run test:sql && npm run test:layers && npm run test:golden
+'
+```
+
+The `npm ci` step needs the network (it installs the test toolchain); everything the egress-blocked step runs is offline. This is the same sequence the two CI workflows above execute.
 
 ## What is DATAGLOW?
 
