@@ -91,3 +91,7 @@ jobs:
       # and Ambient Watch-Folder change-detection + validation-pipeline reuse.
       - run: npm run test:twin
       - run: npm run test:watch
+      # MIMIC-IV bug-fix regression suite: provenance record-on-load + loud-failure
+      # guarantee, Benford eligibility on 0/1 flag columns (no LOG10(0) crash),
+      # and Narrative Consistency tolerance for computed/rounded percentages.
+      - run: npm run test:mimic

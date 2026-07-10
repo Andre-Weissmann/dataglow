@@ -17,8 +17,9 @@
 
 import { createTableFromObjects, getTableSchema, runQuery, closeConnection } from './node-duckdb-engine.mjs';
 
-import { hashBytes } from '../js/provenance/provenance.js';
+import { hashBytes, getProvenance } from '../js/provenance/provenance.js';
 import { runAllLayers, checkNarrativeConsistency } from '../js/validation/validation.js';
+import { recordLoadProvenance } from '../js/app-shell/loaders.js';
 import { pickPeerGroupColumn } from '../js/anomaly/ondevice-ml.js';
 import { isSensitiveCategory } from '../js/validation/categorical-consistency.js';
 import { clearLedger } from '../js/provenance/assumption-ledger.js';
@@ -68,6 +69,37 @@ async function main() {
   try { await hashBytes(buf); } catch { threwOnDetached = true; }
   ok(threwOnDetached, 'bug1: hashing AFTER detachment throws — so the hash MUST be taken first (the fix ordering)');
 
+  // End-to-end: the load path records a provenance entry anchored to the hash
+  // taken before the buffer was detached. This is the actual "an entry was
+  // recorded" guarantee, not just that hashing-first is possible.
+  const entry = await recordLoadProvenance({
+    tableName: 'mimic_prov_load',
+    rawHash: hashBefore,
+    description: 'Loaded raw file "mimic_admissions.csv" (2 rows, CSV)',
+    detail: { file: 'mimic_admissions.csv', rows: 2 },
+  });
+  const provChain = getProvenance('mimic_prov_load');
+  ok(entry && entry.op === 'load' && entry.contentHash === hashBefore,
+    'bug1: a provenance "load" entry is actually recorded, anchored to the pre-detachment hash');
+  ok(provChain && provChain.length === 1,
+    `bug1: the dataset's chain of custody contains the recorded entry (length=${provChain && provChain.length})`);
+
+  // Loud, not silent: if provenance can't be recorded (e.g. the hash was never
+  // captured because the buffer was detached first), a visible error is surfaced
+  // AND the load is not aborted (returns null rather than throwing).
+  let loudMessage = null;
+  let loudType = null;
+  const failedEntry = await recordLoadProvenance({
+    tableName: 'mimic_prov_fail',
+    rawHash: null,
+    description: 'Loaded raw file "detached.csv"',
+    reportError: (msg, type) => { loudMessage = msg; loudType = type; },
+  });
+  ok(failedEntry === null && !getProvenance('mimic_prov_fail'),
+    'bug1: a provenance failure does NOT abort the load and leaves no half-written chain');
+  ok(loudType === 'error' && /provenance\/audit entry could NOT be recorded/i.test(loudMessage || ''),
+    'bug1: a provenance failure is surfaced LOUDLY to the user (visible error), never swallowed silently');
+
   // ============================================================
   // Bug 2 — Benford's Law must not crash on a 0/1 flag column. Pre-fix the
   // LOG10(ABS(col)) was evaluated across the whole column before the FILTER,
@@ -86,6 +118,23 @@ async function main() {
     `bug2: Benford layer runs without crashing on a 0/1 flag column (status=${benResults.benford && benResults.benford.status})`);
   ok(!/"claim_amount" skipped/.test(detailStr(benResults.benford)),
     'bug2: the naturally-scaled "claim_amount" column is still tested (not aborted)');
+
+  // The core eligibility gate (NO domain pack) must itself detect and skip a 0/1
+  // flag column with a clear reason — previously it either crashed on LOG10(0) or
+  // let the column through labelled only as a generic "bounded range" skip. A
+  // column with ≥50 ones defeats the small-sample gate, so this exercises the new
+  // binary detection specifically.
+  const flagRows = [];
+  for (let i = 0; i < 120; i++) {
+    flagRows.push({ has_diabetes: i % 2, claim_amount: Math.round((10 + i * 137.5) * 100) / 100 });
+  }
+  const flagDs = await makeDataset('mimic_binary_flag', flagRows);
+  const flagResults = await runAllLayers(flagDs, { pack: 'none' });
+  ok(flagResults.benford && !/Could not run/i.test(flagResults.benford.summary),
+    `bug2: core gate (no pack) does not crash on a 0/1 column with ≥50 ones (status=${flagResults.benford && flagResults.benford.status})`);
+  const flagSkips = (flagResults.benford && flagResults.benford.skips) || [];
+  ok(flagSkips.some(s => /"has_diabetes".*binary 0\/1 flag column.*not suitable for Benford/i.test(s)),
+    `bug2: the 0/1 column is excluded with a clear binary/flag reason (skips=${JSON.stringify(flagSkips)})`);
 
   // ============================================================
   // Bug 3 — Narrative Consistency must accept correct DERIVED statistics
@@ -106,6 +155,24 @@ async function main() {
   const badCheck = await checkNarrativeConsistency(badStory, nrResult);
   ok(badCheck.status === 'fail' && badCheck.mismatches.includes('99.9%'),
     'bug3: a mathematically wrong percentage (99.9%) is still caught as a mismatch');
+
+  // The concrete false-positive that Bug 3 was reported for: a rate computed as a
+  // proportion in [0,1] (a 0/1 flag column's mean) but narrated as a rounded
+  // percentage. 3 of 9 patients died → mean(died)=0.3333…; the story says "33.3%".
+  // Pre-fix the checker only knew the proportion 0.33/0.3/0 and flagged "33.3%" as
+  // a mismatch even though it is exactly correct once ×100 and rounded to 1 dp.
+  const dieRows = [];
+  for (let i = 1; i <= 9; i++) dieRows.push({ patient_id: i, died: i <= 3 ? 1 : 0 });
+  const dieResult = { columns: ['patient_id', 'died'], rows: dieRows, rowCount: dieRows.length };
+  const rateStory = `Of the 9 patients, 33.3% died.`;
+  const rateCheck = await checkNarrativeConsistency(rateStory, dieResult);
+  ok(rateCheck.status === 'pass',
+    `bug3: a proportion (mean of a 0/1 flag) narrated as a rounded percentage "33.3%" is accepted (status=${rateCheck.status}, mismatches=${JSON.stringify(rateCheck.mismatches)})`);
+  // Negative control on the SAME proportion→percent path — a wrong rate still fails.
+  const wrongRateStory = `Of the 9 patients, 88.8% died.`;
+  const wrongRateCheck = await checkNarrativeConsistency(wrongRateStory, dieResult);
+  ok(wrongRateCheck.status === 'fail' && wrongRateCheck.mismatches.includes('88.8%'),
+    'bug3: a wrong death rate (88.8% vs the true 33.3%) is still caught as a mismatch');
 
   // ============================================================
   // Bug 4 — Anomaly Explainer peer group must reject a per-row-unique timestamp
