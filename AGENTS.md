@@ -109,6 +109,34 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Cross-origin isolation for DuckDB-WASM (COOP + COEP)
+
+DuckDB-WASM's Worker uses SharedArrayBuffer, which the browser only allows when
+the page is **cross-origin isolated** — the top-level document must carry BOTH
+`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` (`window.crossOriginIsolated ===
+true`). The static host sets COOP but not COEP, so `sw.js` stamps both onto every
+navigation response (its `withIsolationHeaders` helper, applied on the online and
+offline-fallback paths); once the SW controls the page (this visit if already
+installed, else the next navigation) the document is isolated. We deliberately do
+NOT force a reload to apply it sooner — DuckDB-WASM also runs single-threaded when
+isolation is off, so the engine works on the first visit regardless. **The COEP
+rule you must not break:** once isolation is on, every *cross-origin* subresource must be
+CORS/CORP-clean or the browser blocks it. Today that means the Google Fonts
+stylesheet in `index.html` (`crossorigin`) and the lazy Pyodide loader script in
+`js/runtimes-viz/python-runtime.js` (`crossOrigin='anonymous'`); WebR/WebLLM load
+via CORS `import()`, and everything on a normal page load is same-origin. If you
+add any new cross-origin `<script>`/`<link>`/`<img>`/font/iframe, give it
+`crossorigin` (and confirm the origin sends `Access-Control-Allow-Origin`) or
+self-host it — otherwise you silently break the core app under isolation.
+Defence in depth: `initDuckDB()` in `js/app-shell/duckdb-engine.js` pre-checks
+`crossOriginIsolated` and throws an actionable message, and every DuckDB entry
+point in `js/app-shell/main.js` (SQL Run, the sample-data buttons, file drop)
+surfaces init failures instead of failing silently. Guarded by
+`npm run test:isolation` (executes the SW fetch handler) and the COOP/COEP/
+crossorigin assertions in `npm run test:pwa`, both in the `isolation` CI job
+(`.github/workflows/job-isolation.yml`).
+
 ### Domain-pack plugin architecture (Gen 40)
 
 Domain packs are self-contained plugins under `js/packs/`, not code pasted into

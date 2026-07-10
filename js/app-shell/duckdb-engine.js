@@ -16,6 +16,17 @@ const asset = (f) => new URL('../../assets/duckdb/' + f, import.meta.url).href;
 
 let initPromise = null;
 
+// If the page is cross-origin isolated, DuckDB-WASM may select a threaded bundle
+// that uses SharedArrayBuffer; if not, it falls back to a single-threaded bundle
+// that works fine. Isolation is therefore *not* required for the engine to run —
+// but when isolation is missing AND init fails, that missing COEP header is the
+// most likely culprit, so we add it as a hint to the surfaced error rather than
+// pre-emptively refusing to start. (`crossOriginIsolated` is undefined in Node
+// and older browsers; treat only an explicit `false` as "not isolated".)
+function isNotCrossOriginIsolated() {
+  return typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated === false;
+}
+
 export function initDuckDB() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
@@ -50,6 +61,11 @@ export function initDuckDB() {
     return { db, conn };
   })().catch(err => {
     initPromise = null;
+    if (isNotCrossOriginIsolated()) {
+      err.message = `${err.message} (the page is not cross-origin isolated — ` +
+        'if this is a SharedArrayBuffer/Worker failure, the server is likely ' +
+        'missing the Cross-Origin-Embedder-Policy: require-corp header)';
+    }
     throw err;
   });
   return initPromise;

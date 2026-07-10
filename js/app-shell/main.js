@@ -240,29 +240,37 @@ function initFileLoading() {
   });
   fileInput.addEventListener('change', async (e) => { await handleFiles(e.target.files); fileInput.value = ''; });
 
+  // Each sample-loader depends on DuckDB being ready. Wrap so an engine-init
+  // failure (e.g. missing COEP header) surfaces a toast instead of a dead button.
   $('#btn-load-golden').addEventListener('click', async () => {
-    await ensureDuckDB();
-    await loaders.loadGoldenDataset();
-    renderSidebar();
-    resetPanelStates();
+    try {
+      await ensureDuckDB();
+      await loaders.loadGoldenDataset();
+      renderSidebar();
+      resetPanelStates();
+    } catch (err) { /* ensureDuckDB already toasted the reason */ }
   });
 
   const omopBtn = $('#btn-load-omop-sample');
   if (omopBtn) omopBtn.addEventListener('click', async () => {
-    await ensureDuckDB();
-    await loaders.loadOmopSampleDataset();
-    selectDomainPack('omop');
-    renderSidebar();
-    resetPanelStates();
+    try {
+      await ensureDuckDB();
+      await loaders.loadOmopSampleDataset();
+      selectDomainPack('omop');
+      renderSidebar();
+      resetPanelStates();
+    } catch (err) { /* ensureDuckDB already toasted the reason */ }
   });
 
   const fhirBtn = $('#btn-load-fhir-sample');
   if (fhirBtn) fhirBtn.addEventListener('click', async () => {
-    await ensureDuckDB();
-    await loaders.loadFhirSampleDataset();
-    selectDomainPack('fhir');
-    renderSidebar();
-    resetPanelStates();
+    try {
+      await ensureDuckDB();
+      await loaders.loadFhirSampleDataset();
+      selectDomainPack('fhir');
+      renderSidebar();
+      resetPanelStates();
+    } catch (err) { /* ensureDuckDB already toasted the reason */ }
   });
 }
 
@@ -274,7 +282,9 @@ function selectDomainPack(name) {
 }
 
 async function handleFiles(files) {
-  await ensureDuckDB();
+  try {
+    await ensureDuckDB();
+  } catch (err) { return; /* ensureDuckDB already toasted the reason */ }
   for (const file of files) {
     try {
       await loaders.loadFile(file);
@@ -358,11 +368,18 @@ function resetPanelStates() {
   }
 }
 
-let duckdbReadyPromise = null;
 async function ensureDuckDB() {
   if (state.duckdb.ready) return;
   toast('Starting DuckDB-WASM engine…', 'warn');
-  await engine.initDuckDB();
+  try {
+    await engine.initDuckDB();
+  } catch (err) {
+    // Never fail silently: show the real reason (commonly a missing COEP header
+    // ⇒ crossOriginIsolated false ⇒ no SharedArrayBuffer for the DuckDB worker).
+    // Rethrow so callers can also render it in their own panel.
+    toast(`DuckDB failed to initialize: ${err.message}`, 'error');
+    throw err;
+  }
   toast('DuckDB-WASM engine ready', 'success');
 }
 
@@ -436,12 +453,15 @@ async function runPreflight() {
 async function runSqlQuery() {
   const sql = $('#sql-input').value.trim();
   if (!sql) return;
-  await ensureDuckDB();
   const statusEl = $('#sql-status');
   const resultWrap = $('#sql-result-wrap');
   statusEl.textContent = 'Running…';
   resultWrap.innerHTML = '<div class="skeleton" style="height:200px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
   try {
+    // ensureDuckDB() is inside the try so an engine-init failure (e.g. missing
+    // COEP header ⇒ no SharedArrayBuffer) renders a visible error instead of
+    // silently leaving the panel blank.
+    await ensureDuckDB();
     const result = await engine.runQuery(sql);
     state.lastQuery = sql;
     state.lastQueryResult = result;

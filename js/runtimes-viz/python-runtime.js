@@ -18,6 +18,10 @@ function loadPyodideScript() {
   loaderScriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = `${PYODIDE_CDN_BASE}pyodide.js`;
+    // Load in CORS mode so it satisfies the page's COEP: require-corp (the CDN
+    // sends Access-Control-Allow-Origin); without this, cross-origin isolation
+    // — required by DuckDB-WASM — would block this cross-origin <script>.
+    script.crossOrigin = 'anonymous';
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Failed to load the Pyodide runtime from the CDN.'));
     document.head.appendChild(script);

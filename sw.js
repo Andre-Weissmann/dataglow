@@ -20,8 +20,19 @@
 //
 // The cache name is versioned; bump CACHE_VERSION on deploy so stale JS is not
 // served forever — old caches are deleted on activate.
+//
+// Cross-origin isolation: the SQL engine (DuckDB-WASM) spins up a Worker that
+// uses SharedArrayBuffer internally, which the browser only permits when
+// `window.crossOriginIsolated === true`. That requires the top-level document to
+// carry BOTH `Cross-Origin-Opener-Policy: same-origin` and
+// `Cross-Origin-Embedder-Policy: require-corp`. The static host sets COOP but not
+// COEP, so we stamp both onto every navigation response here — the host-agnostic
+// way to opt a static site into isolation. Enabling COEP means cross-origin
+// subresources must be CORS/CORP-clean: the Google Fonts stylesheet and the
+// lazy Pyodide loader now request `crossorigin`, and the on-demand ESM runtimes
+// (WebR, WebLLM) already load via CORS `import()`, so nothing else breaks.
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `dataglow-shell-${CACHE_VERSION}`;
 
 // Core shell: small, always-needed, stable. Kept intentionally short — the rest
@@ -65,6 +76,16 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Re-wrap a navigation response with the COOP + COEP headers that make
+// `crossOriginIsolated` true (see the cross-origin isolation note up top). A
+// static host we don't control can't add COEP, so the service worker does it.
+function withIsolationHeaders(res) {
+  const headers = new Headers(res.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
@@ -78,16 +99,20 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   // Navigation requests: try network first (so a fresh deploy is picked up when
-  // online), fall back to the cached app shell when offline.
+  // online), fall back to the cached app shell when offline. Either way the
+  // response is stamped with the cross-origin isolation headers so DuckDB-WASM's
+  // SharedArrayBuffer worker can start.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
-          return res;
+          const isolated = withIsolationHeaders(res);
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, isolated.clone())).catch(() => {});
+          return isolated;
         })
-        .catch(() => caches.match(request).then((c) => c || caches.match('./index.html')))
+        .catch(() => caches.match(request)
+          .then((c) => c || caches.match('./index.html'))
+          .then((c) => (c ? withIsolationHeaders(c) : c)))
     );
     return;
   }

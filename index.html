@@ -21,7 +21,10 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- crossorigin: fetched in CORS mode so it satisfies the page's COEP: require-corp
+     (Google Fonts sends Access-Control-Allow-Origin); without it, enabling
+     cross-origin isolation for DuckDB-WASM would block the stylesheet. -->
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" crossorigin>
 
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/app.css">
@@ -1045,6 +1048,13 @@
   // (or file:// contexts) are unaffected.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
+      // The service worker stamps COOP + COEP onto navigations so that, once it
+      // controls the page (this visit if already installed, otherwise the next
+      // navigation), window.crossOriginIsolated is true and DuckDB-WASM may use
+      // a SharedArrayBuffer worker. We deliberately do NOT force a reload to
+      // apply it sooner: DuckDB also runs single-threaded when isolation is off,
+      // so the engine works on the very first visit regardless, and a forced
+      // reload would race the app's own bootstrap.
       navigator.serviceWorker.register('sw.js').catch(function (err) {
         console.warn('DATAGLOW service worker registration failed (offline support disabled):', err);
       });

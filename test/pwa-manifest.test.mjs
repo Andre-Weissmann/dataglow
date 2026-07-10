@@ -96,6 +96,10 @@ ok('has apple-mobile-web-app-title', /name=["']apple-mobile-web-app-title["']/.t
 ok('registers the service worker', /serviceWorker/.test(html) && /register\(\s*['"]sw\.js['"]\s*\)/.test(html));
 ok('guards SW registration with feature check', /'serviceWorker'\s+in\s+navigator/.test(html));
 ok('handles beforeinstallprompt', /beforeinstallprompt/.test(html));
+// The one cross-origin subresource on a normal page load (Google Fonts CSS) must
+// be requested crossorigin so it satisfies the SW-stamped COEP: require-corp.
+ok('Google Fonts stylesheet is loaded crossorigin (COEP-safe)',
+  /<link[^>]+fonts\.googleapis\.com[^>]+crossorigin/.test(html));
 
 // ============================================================
 console.log('\nService worker (sw.js)');
@@ -113,6 +117,12 @@ ok('sw.js cleans up old caches on activate', /addEventListener\(\s*['"]activate[
 ok('sw.js handles fetch events', /addEventListener\(\s*['"]fetch['"]/.test(sw));
 ok('sw.js only touches same-origin requests', /self\.location\.origin/.test(sw));
 ok('sw.js skips non-GET (does not cache LLM POSTs)', /request\.method\s*!==\s*['"]GET['"]/.test(sw));
+// Cross-origin isolation: the host sets COOP but not COEP, so the SW must stamp
+// both onto navigations to make window.crossOriginIsolated true for DuckDB-WASM.
+ok('sw.js stamps COOP: same-origin on navigations',
+  /Cross-Origin-Opener-Policy['"]\s*,\s*['"]same-origin/.test(sw));
+ok('sw.js stamps COEP: require-corp on navigations',
+  /Cross-Origin-Embedder-Policy['"]\s*,\s*['"]require-corp/.test(sw));
 
 // ============================================================
 console.log(`\n${failed === 0 ? '✓ ALL PASSED' : '✗ FAILURES'} — ${passed} passed, ${failed} failed\n`);

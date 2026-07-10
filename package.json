@@ -38,6 +38,7 @@
     "test:databricks": "node test/databricks-connect.test.mjs",
     "test:protocol": "node test/protocol-schema.test.mjs",
     "test:pwa": "node test/pwa-manifest.test.mjs",
+    "test:isolation": "node test/coop-coep-isolation.test.mjs",
     "test:framer": "node test/problem-framer.test.mjs",
     "test:microlessons": "node --import ./test/duckdb-loader-hook.mjs test/micro-lessons.test.mjs",
     "test:communitypack": "node --import ./test/duckdb-loader-hook.mjs test/community-pack.test.mjs",

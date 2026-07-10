@@ -1,0 +1,31 @@
+# ============================================================
+# DATAGLOW — CI job: cross-origin isolation + PWA sanity
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Guards the fix that lets DuckDB-WASM start: the app must be cross-origin
+# isolated (COOP: same-origin + COEP: require-corp) so its SharedArrayBuffer
+# worker is permitted. `test:isolation` executes sw.js's fetch handler and
+# asserts navigations are stamped with both headers (and that cross-origin
+# subresources are still left to the network); `test:pwa` is the static
+# installability + service-worker sanity gate (manifest, icons, SW wiring).
+# Browser-free, deterministic, no network.
+
+name: Cross-origin isolation + PWA
+
+on:
+  workflow_call:
+
+jobs:
+  isolation:
+    name: Cross-origin isolation + PWA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:isolation
+      - run: npm run test:pwa
