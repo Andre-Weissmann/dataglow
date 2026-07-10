@@ -109,6 +109,33 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Cross-origin isolation (COOP/COEP) + loud engine failures
+
+The whole app is dead without DuckDB-WASM, and DuckDB-WASM's threaded/eh build
+wants `SharedArrayBuffer`, which the browser only exposes when the page is
+**cross-origin isolated**. Isolation needs BOTH `Cross-Origin-Opener-Policy:
+same-origin` and a `Cross-Origin-Embedder-Policy` header on the top-level
+document, sent as REAL HTTP headers — `<meta http-equiv>` does NOT work for
+COOP/COEP. Because DATAGLOW is a static site with no server, isolation is
+delivered two ways and both must stay in sync: (1) host-level `_headers`
+(Netlify/Cloudflare Pages format) and (2) a host-agnostic fallback in `sw.js`
+that injects the same headers on every same-origin response via the
+`withCrossOriginIsolation` wrapper, with a loop-guarded one-time reload in
+`index.html` (a `controllerchange` handler + `dataglow-coi-reloaded` sessionStorage
+sentinel) so a first visit becomes isolated once the worker takes control. COEP
+is **`credentialless`, not `require-corp`**: under `require-corp` every opt-in
+cross-origin CDN runtime (Pyodide/WebR/WebLLM) and Google Fonts would need its
+own CORP/CORS header or be blocked; `credentialless` keeps isolation on while
+letting those no-credentials cross-origin fetches through. If you change the COEP
+value, change it in BOTH `_headers` and `sw.js` (the `COEP` constant) — the
+`coi-headers` CI job (`npm run test:coi`, `test/coi-headers.test.mjs`) fails if
+they drift or a header goes missing. Second, load failures must be LOUD: the
+engine warm-up and every dataset-load entry point in `js/app-shell/main.js` route
+through `runDatasetLoad`/`showEngineError`, which render a visible, retryable
+banner with the real reason instead of silently reverting to "No dataset loaded"
+(the original production symptom). Never reintroduce a bare
+`await engine.initDuckDB()` in a click handler without surfacing its failure.
+
 ### Domain-pack plugin architecture (Gen 40)
 
 Domain packs are self-contained plugins under `js/packs/`, not code pasted into

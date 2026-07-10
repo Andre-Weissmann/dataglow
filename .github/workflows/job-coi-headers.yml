@@ -1,0 +1,28 @@
+# ============================================================
+# DATAGLOW — CI job: cross-origin isolation headers
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Keeps the COOP/COEP delivery honest without a browser: the host-level
+# `_headers` config, the sw.js header-injection fallback, the first-visit reload
+# in index.html, and the main.js silent-failure UX guard. See
+# test/coi-headers.test.mjs for what each assertion covers and why isolation is
+# needed (DuckDB-WASM / SharedArrayBuffer).
+
+name: cross-origin isolation headers
+
+on:
+  workflow_call:
+
+jobs:
+  coi-headers:
+    name: cross-origin isolation headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coi

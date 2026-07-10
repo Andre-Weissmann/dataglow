@@ -240,30 +240,30 @@ function initFileLoading() {
   });
   fileInput.addEventListener('change', async (e) => { await handleFiles(e.target.files); fileInput.value = ''; });
 
-  $('#btn-load-golden').addEventListener('click', async () => {
+  $('#btn-load-golden').addEventListener('click', () => runDatasetLoad(async () => {
     await ensureDuckDB();
     await loaders.loadGoldenDataset();
     renderSidebar();
     resetPanelStates();
-  });
+  }));
 
   const omopBtn = $('#btn-load-omop-sample');
-  if (omopBtn) omopBtn.addEventListener('click', async () => {
+  if (omopBtn) omopBtn.addEventListener('click', () => runDatasetLoad(async () => {
     await ensureDuckDB();
     await loaders.loadOmopSampleDataset();
     selectDomainPack('omop');
     renderSidebar();
     resetPanelStates();
-  });
+  }));
 
   const fhirBtn = $('#btn-load-fhir-sample');
-  if (fhirBtn) fhirBtn.addEventListener('click', async () => {
+  if (fhirBtn) fhirBtn.addEventListener('click', () => runDatasetLoad(async () => {
     await ensureDuckDB();
     await loaders.loadFhirSampleDataset();
     selectDomainPack('fhir');
     renderSidebar();
     resetPanelStates();
-  });
+  }));
 }
 
 // Pre-select a domain pack in the dropdown (used when loading a standards sample
@@ -274,14 +274,16 @@ function selectDomainPack(name) {
 }
 
 async function handleFiles(files) {
-  await ensureDuckDB();
-  for (const file of files) {
-    try {
-      await loaders.loadFile(file);
-    } catch (e) { /* toast already shown */ }
-  }
-  renderSidebar();
-  resetPanelStates();
+  await runDatasetLoad(async () => {
+    await ensureDuckDB();
+    for (const file of files) {
+      try {
+        await loaders.loadFile(file);
+      } catch (e) { /* toast already shown */ }
+    }
+    renderSidebar();
+    resetPanelStates();
+  });
 }
 
 // ============================================================
@@ -358,12 +360,62 @@ function resetPanelStates() {
   }
 }
 
-let duckdbReadyPromise = null;
 async function ensureDuckDB() {
   if (state.duckdb.ready) return;
   toast('Starting DuckDB-WASM engine…', 'warn');
-  await engine.initDuckDB();
+  try {
+    await engine.initDuckDB();
+  } catch (err) {
+    toast('Data engine failed to start: ' + (err && err.message || err), 'error');
+    throw err;
+  }
   toast('DuckDB-WASM engine ready', 'success');
+}
+
+// Render a visible, actionable failure banner in the Load Data sidebar. This is
+// the defense-in-depth against silent failures: if the DuckDB-WASM engine can't
+// start (or a dataset can't load), the user sees the real reason and a Retry
+// button instead of the UI quietly reverting to "No dataset loaded".
+function showEngineError(err, onRetry) {
+  const box = $('#engine-error');
+  if (!box) return;
+  const reason = (err && err.message) ? err.message : String(err || 'Unknown error');
+  const notIsolated = typeof window !== 'undefined' && window.crossOriginIsolated === false;
+  box.innerHTML = '';
+  box.appendChild(el('div', { class: 'engine-error-title' }, 'Couldn’t start the data engine'));
+  box.appendChild(el('div', { class: 'engine-error-detail', 'data-testid': 'engine-error-detail' }, reason));
+  if (notIsolated) {
+    box.appendChild(el('div', { class: 'engine-error-hint' },
+      'This page is not cross-origin isolated (the COOP/COEP headers are missing), so the in-browser SQL engine can’t start. A reload often fixes it once the service worker is active; if it persists, the site needs to send Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers.'));
+  }
+  const retry = el('button', { class: 'btn btn-primary', 'data-testid': 'button-engine-retry' }, 'Retry');
+  retry.addEventListener('click', async () => {
+    clearEngineError();
+    if (typeof onRetry === 'function') {
+      try { await onRetry(); }
+      catch (e) { showEngineError(e, onRetry); }
+    }
+  });
+  box.appendChild(retry);
+  box.style.display = '';
+}
+
+function clearEngineError() {
+  const box = $('#engine-error');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+// Run a dataset-loading action, surfacing any engine/load failure as a visible,
+// retryable banner instead of letting the click handler's promise reject
+// silently. The Retry button re-runs the exact same action.
+async function runDatasetLoad(action) {
+  clearEngineError();
+  try {
+    await action();
+  } catch (err) {
+    console.error('DATAGLOW dataset load failed:', err);
+    showEngineError(err, () => runDatasetLoad(action));
+  }
 }
 
 // ============================================================
@@ -3324,8 +3376,15 @@ function initRedTeam() {
   $('#btn-redteam-run').addEventListener('click', async () => {
     const resultsEl = $('#redteam-results');
     resultsEl.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md);"></div>';
-    await ensureDuckDB();
-    const ds = await loaders.loadGoldenDataset();
+    let ds;
+    try {
+      await ensureDuckDB();
+      ds = await loaders.loadGoldenDataset();
+    } catch (err) {
+      resultsEl.innerHTML = '';
+      showEngineError(err);
+      return;
+    }
     renderSidebar();
     resetPanelStates();
     const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours });
@@ -4240,8 +4299,17 @@ function init() {
   // page stays fully interactive while this runs; a failure is recorded but
   // never blocks the UI.
   engine.initDuckDB()
-    .then(() => { window.__dataglowReady = true; })
-    .catch(err => { window.__dataglowInitError = String(err && err.message || err); });
+    .then(() => { window.__dataglowReady = true; clearEngineError(); })
+    .catch(err => {
+      window.__dataglowInitError = String(err && err.message || err);
+      // A failed pre-warm means nothing downstream will work — surface it now
+      // rather than waiting for the user to click Load and get a silent no-op.
+      showEngineError(err, async () => {
+        await engine.initDuckDB();
+        window.__dataglowReady = true;
+        window.__dataglowInitError = undefined;
+      });
+    });
 
   if (new URLSearchParams(location.search).get('diag') === '1') {
     runDiagnostics();

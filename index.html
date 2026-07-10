@@ -100,6 +100,7 @@
         <button class="btn btn-ghost" id="btn-load-fhir-sample" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-fhir-sample" title="Load a synthetic FHIR Bundle sample (Patient, Condition, Observation, Encounter) flattened to tables, with planted data-quality issues. Fabricated data — never real PHI.">
           Load FHIR Bundle Sample
         </button>
+        <div id="engine-error" class="engine-error" role="alert" aria-live="assertive" style="display:none;"></div>
         <details id="databricks-connect" style="margin-top:var(--space-3);">
           <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:500;">Connect to Databricks <span class="badge badge-c" style="font-size:9px; vertical-align:middle;">POC</span></summary>
           <div style="margin-top:var(--space-2); display:flex; flex-direction:column; gap:var(--space-2);">
@@ -1044,6 +1045,30 @@
   // first-load resource fetching. Guarded so environments without SW support
   // (or file:// contexts) are unaffected.
   if ('serviceWorker' in navigator) {
+    // Once the page is genuinely cross-origin isolated, clear the one-shot
+    // reload guard so a future SW update can re-trigger the reload if needed.
+    if (window.crossOriginIsolated) {
+      try { sessionStorage.removeItem('dataglow-coi-reloaded'); } catch (e) {}
+    }
+
+    // A first visit loads the document over the network BEFORE this SW controls
+    // the page, so that first document has no COOP/COEP and is not isolated. When
+    // the freshly-installed SW takes control (controllerchange), reload ONCE so
+    // the document is re-fetched through the SW — which injects the isolation
+    // headers — making window.crossOriginIsolated true and SharedArrayBuffer
+    // (needed by DuckDB-WASM) available. The sessionStorage guard makes this at
+    // most one reload per session, so a host that ignores the headers can never
+    // cause a reload loop. Hosts that DO send real COOP/COEP headers (see
+    // _headers) are isolated on first paint and never hit this path.
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (window.crossOriginIsolated) return;
+      try {
+        if (sessionStorage.getItem('dataglow-coi-reloaded') === '1') return;
+        sessionStorage.setItem('dataglow-coi-reloaded', '1');
+      } catch (e) { /* if sessionStorage is unavailable, skip the reload entirely */ return; }
+      window.location.reload();
+    });
+
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js').catch(function (err) {
         console.warn('DATAGLOW service worker registration failed (offline support disabled):', err);
