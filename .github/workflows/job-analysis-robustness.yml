@@ -1,0 +1,28 @@
+# ============================================================
+# DATAGLOW — CI job: Analysis Robustness (sensitivity + verdict)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the browser-free unit suite for the two new Analysis-Robustness
+# capabilities that extend Devil's Advocate: the assumption-sensitivity mapper
+# (smallest row set that breaks an A-vs-B gap + the segment it concentrates in)
+# and the plain-language robustness verdict (one fixed-vocabulary object whose
+# reason is grounded in the real numbers). No DuckDB, no browser, no network.
+
+name: Analysis Robustness
+
+on:
+  workflow_call:
+
+jobs:
+  analysis-robustness:
+    name: Analysis Robustness (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:robustnessverdict

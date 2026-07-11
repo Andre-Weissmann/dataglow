@@ -137,3 +137,5 @@ jobs:
 
   trust-beam:
     uses: ./.github/workflows/job-trust-beam.yml
+  analysis-robustness:
+    uses: ./.github/workflows/job-analysis-robustness.yml

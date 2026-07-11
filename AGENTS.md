@@ -579,6 +579,31 @@ shares or applies anything without the explicit button click that triggers
 it. If you extend the BOM with a new field, keep the same discipline: only
 compose from an EXISTING computed value (or accept the field being `null` on
 failure) rather than introducing a new inference inside this module.
+### Analysis robustness — assumption sensitivity + plain-language verdict
+
+`js/analysis-robustness/robustness-verdict.js` thickens the previously
+single-module "Analysis robustness" area with two pure, browser-free,
+network-free functions that EXTEND (never replace) Devil's Advocate
+(`attackAnalysis`). `mapAssumptionSensitivity({columns, rows})` answers "which
+rows is this A-vs-B finding actually resting on": it greedily removes the row
+that most shrinks the |A−B| gap (O(n) per step via running group sums, never
+emptying a group) until the gap reverses or disappears (≤25% of original),
+returning the minimal breaking set, whether those rows concentrate in one named
+segment, and a scale-free severity (`fragile`/`moderate`/`robust`/`no-effect`).
+`robustnessVerdict(attackReport, sensitivityReport)` folds that map together with
+the bootstrap/trimmed/leave-one-out result into ONE fixed-vocabulary object
+`{verdict:'robust'|'fragile'|'inconclusive', reason, drivingFactor}` whose reason
+is one plain-English sentence GROUNDED in the real numbers — never a generic
+template, and a robust finding is told so plainly rather than only flagging
+fragile ones. Contract for anyone extending this: keep the output data-shaped
+(plain objects/strings, no DOM), because a future stakeholder-facing "Reverse
+Data Story" surface (explicitly out of scope here) will render it. It ships dark
+behind the `robustnessVerdict` flag; when on, `initDevilsAdvocate` in
+`js/app-shell/main.js` appends the verdict beneath the existing Devil's Advocate
+checks, when off the card is unchanged. Test: `npm run test:robustnessverdict`
+(`test/robustness-verdict.test.mjs`, pure Node), in the `analysis-robustness` CI
+job. Registered as `analysis-robustness-sensitivity-verdict` in
+`capability-map.manifest.json`.
 
 ### OneCanvas Phase 1 — Metric Studio, Trust Strip, Proof Drawer (Parts 3–5)
 
