@@ -10,6 +10,16 @@
       "enabled": true,
       "addedInPR": "gen40-domain-pack-plugin-architecture",
       "description": "Gen 40 domain-pack plugin architecture: assemble the active domain-pack source from self-contained plugin modules under js/packs/ via the pack registry instead of the inline DOMAIN_PACKS map. Behaviour-identical (same runtime pack objects); flip off to fall back to the legacy inline map."
+    },
+    "conversationalPackBuilder": {
+      "enabled": false,
+      "addedInPR": "gen42-conversational-pack-builder",
+      "description": "Gen 42 guided conversational pack builder: replace the blank-text-box pack authoring with a data-grounded question flow (js/agents/question-generator-agent.js), an on-device 'I don't know' resolver (js/agents/uncertainty-resolver-agent.js), a read-only peer-pack index (js/packs/local-pack-index.js), and an incremental pack builder (js/agents/pack-builder-agent.js). Agent modules ship dark; flip on to wire the flow into the Validate tab. index.html/main.js DOM wiring is a follow-up PR."
+    },
+    "conversationalPackBuilderVoice": {
+      "enabled": false,
+      "addedInPR": "gen42-conversational-pack-builder",
+      "description": "Gen 42 voice input for the conversational pack builder. The free-text answer path is fully implemented and identical to voice (voice is just transcribed text). No permissively-licensed on-device WASM/WebGPU STT model is vendored yet, so the mic is gated behind this flag with a TODO: pick a small Apache/MIT WASM speech model before promotion. When off, buildQuestionView hides the mic entirely and only the typed path shows."
     }
   }
 }

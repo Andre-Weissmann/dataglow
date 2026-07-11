@@ -109,6 +109,37 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Guided conversational pack builder (Gen 42) — confirm before writing
+
+Authoring a domain pack used to mean a blank text box. Gen 42 replaces it with a
+guided, data-grounded conversation implemented as four pure, browser-free,
+LLM-injected agent modules: `js/agents/question-generator-agent.js` turns real
+pipeline findings into plain-English questions that ALWAYS quote a real observed
+value (a generic question is refused, not degraded); `js/agents/uncertainty-resolver-agent.js`
+resolves "I don't know" on-device in a fixed A→E order (statistical check → peer
+borrow → sequential three-agent debate under a 2-second budget → one unified
+suggestion → park-and-revisit); `js/packs/local-pack-index.js` is the read-only,
+content-addressed peer index the resolver's Step B consults (fetched via an
+INJECTED fetcher so it names no network primitive); and `js/agents/pack-builder-agent.js`
+assembles the confirmed answers into a portable pack validated through the
+EXISTING `js/teaching/community-pack.js` schema and the pack no-network guard.
+
+Two rules bind anyone touching this area. First, the EMPOWERMENT CONSTRAINT: a
+rule enters a pack ONLY after the user explicitly confirms it — every module
+produces a suggestion, never a written rule, and `js/agents/pack-builder-agent.js`
+is handed answers the user already accepted. Never add a path that infers-and-writes.
+Second, reuse don't reinvent: the portable pack vocabulary is annotate-only
+(`no-merge` / `benford-exempt` / `outlier-context`); a learned numeric bound maps
+to `outlier-context` (its reason records the bound) rather than a new hard-fail
+rule kind — emitting a real bound-check kind means extending
+`js/validation/domain-physics.js` and the portable schema, which is out of scope
+here. The flow ships behind the
+`conversationalPackBuilder` flag (agents land dark; Validate-tab DOM wiring is a
+follow-up); voice is behind `conversationalPackBuilderVoice` (typed path works
+today, mic pending a vendored permissively-licensed on-device STT model). Tests:
+`npm run test:questiongen`, `npm run test:uncertainty`, `npm run test:packindex`,
+`npm run test:packbuilder` (the `conversational-pack-builder` CI job).
+
 ### Cross-origin isolation (COOP/COEP) + loud engine failures
 
 The whole app is dead without DuckDB-WASM, and DuckDB-WASM's threaded/eh build

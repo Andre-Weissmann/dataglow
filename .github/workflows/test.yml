@@ -53,6 +53,9 @@ jobs:
     uses: ./.github/workflows/job-agents-md-drift.yml
 
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
+  conversational-pack-builder:
+    uses: ./.github/workflows/job-conversational-pack-builder.yml
+
   batched-bugfixes:
     uses: ./.github/workflows/job-batched-bugfixes.yml
 
