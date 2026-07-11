@@ -233,6 +233,17 @@
       "symbols": [{ "file": "js/provenance/selective-disclosure-proof.js", "name": "SD_PROOF_KIND" }]
     },
     {
+      "id": "provenance-packet",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Provenance Packet — data blame + de-identification verifier",
+      "files": ["js/provenance/data-blame.js", "js/provenance/deidentification-verifier.js"],
+      "symbols": [
+        { "file": "js/provenance/data-blame.js", "name": "buildBlameIndex" },
+        { "file": "js/provenance/deidentification-verifier.js", "name": "HIPAA_SAFE_HARBOR" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": ["browser", "desktop"],
       "area": "Privacy & synthetic data",
