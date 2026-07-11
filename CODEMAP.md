@@ -100,6 +100,19 @@ otherwise).
   `conversationalPackBuilder` flag is on — off by default, so the feature ships
   dark and renders nothing.
 
+- **`metrics/`** — *Metric Studio (OneCanvas Phase 1).* `metric-studio.js`: define
+  a named metric in plain English tied to real dataset columns, validate it against
+  the live DuckDB schema, actually compute its value, and store it in a local-only
+  `MetricRegistry` with duplicate detection. Pure logic + a DOM `renderMetricStudio`;
+  ships dark behind the `metricStudio` flag.
+
+- **`trust/`** — *Trust Strip & Proof Drawer (OneCanvas Phase 1).* `trust-strip.js`
+  (`collectTrustSignals` builds a real-data trust bar — freshness, metric
+  certification, validation tally, anomaly, lineage) and `proof-drawer.js`
+  (`buildProofContent` renders the underlying proof for a metric, a Trust Strip
+  field, or provenance — reusing `provenance/provenance.js`'s attestation renderer).
+  Pure logic + DOM renderers; ship dark behind the `trustStripProofDrawer` flag.
+
 - **`ambient/`** — *Ambient & real-time.* `watch-folder.js` and
   `ambient-validation.worker.js` (a Web Worker — loaded via `new Worker(...)`, never
   imported on the main thread).

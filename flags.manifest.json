@@ -20,6 +20,16 @@
       "enabled": false,
       "addedInPR": "gen42-conversational-pack-builder",
       "description": "Gen 42 voice input for the conversational pack builder. The free-text answer path is fully implemented and identical to voice (voice is just transcribed text). No permissively-licensed on-device WASM/WebGPU STT model is vendored yet, so the mic is gated behind this flag with a TODO: pick a small Apache/MIT WASM speech model before promotion. When off, buildQuestionView hides the mic entirely and only the typed path shows."
+    },
+    "metricStudio": {
+      "enabled": false,
+      "addedInPR": "onecanvas-phase1-metric-studio-trust",
+      "description": "OneCanvas Phase 1 (Part 5) Metric Studio: define a named metric in plain English tied to REAL columns of the loaded dataset, compute its formula against the in-browser DuckDB engine (js/metrics/metric-studio.js), store it in a local-only in-memory + export/import JSON registry, set its status (exploratory/reviewed/certified), and get merge/keep-both prompts on >90%-similar or same-formula duplicates. Ships dark: with the flag off (default) main.js never mounts the Metric Studio panel in the Validate tab and nothing renders."
+    },
+    "trustStripProofDrawer": {
+      "enabled": false,
+      "addedInPR": "onecanvas-phase1-metric-studio-trust",
+      "description": "OneCanvas Phase 1 (Parts 3 & 4) Trust Strip + Proof Drawer: a persistent bar at the top of the Validate tab (js/trust/trust-strip.js) whose fields — freshness, metric certification counts, validation pass/fail, anomaly indicator, lineage availability, last update — all source from real computed data, and a slide-out Proof Drawer (js/trust/proof-drawer.js) that opens scoped to a clicked field or a Metric Studio metric, reusing the existing renderAttestationHTML()/renderReceiptHTML() for provenance. Ships dark: with the flag off (default) main.js never renders the strip and nothing shows."
     }
   }
 }
