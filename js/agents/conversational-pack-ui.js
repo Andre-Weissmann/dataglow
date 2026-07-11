@@ -37,6 +37,7 @@ import { PackBuilderSession } from './pack-builder-agent.js';
 import {
   detectUncertainty, resolve, buildResolutionView, ResolverSession,
 } from './uncertainty-resolver-agent.js';
+import { buildDebateDiagnostics } from './debate-diagnostics.js';
 
 /**
  * The single gate the Validate tab checks. True only when the flag is enabled AND
@@ -219,6 +220,83 @@ export function mountConversationalPackBuilder(opts = {}) {
       onclick: () => (b.id === 'accept' ? onResolutionAccept(q, resolution) : onSkip(q)),
     }, b.label))));
     host.appendChild(freeTextField(view.freeText.placeholder, (text) => onFreeText(q, text)));
+    appendReasoningDisclosure(resolution);
+  }
+
+  // Opt-in transparency: a low-emphasis "Why this suggestion?" link that reveals
+  // the Step-C debate diagnostics ON DEMAND only. It is NEVER shown for A/B (no
+  // debate to reveal), and its content is built lazily on the first expand so the
+  // default DOM never contains the debate detail — the primary flow keeps showing
+  // just the one unified suggestion.
+  function appendReasoningDisclosure(resolution) {
+    const diag = buildDebateDiagnostics(resolution);
+    if (!diag.available) return; // A/B (or a resolution with no debate): nothing to reveal.
+    let panel = null;
+    const toggle = el('button', {
+      class: 'btn btn-secondary', 'data-testid': 'pack-builder-why',
+      style: 'font-size:var(--text-xs); opacity:0.85; margin-top:var(--space-3);',
+      'aria-expanded': 'false',
+      onclick: () => {
+        if (panel) {
+          const showing = panel.style.display !== 'none';
+          panel.style.display = showing ? 'none' : '';
+          toggle.setAttribute('aria-expanded', showing ? 'false' : 'true');
+          toggle.textContent = showing ? 'Why this suggestion?' : 'Hide reasoning';
+          return;
+        }
+        panel = buildDiagnosticsPanel(diag);
+        toggle.after(panel);
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.textContent = 'Hide reasoning';
+      },
+    }, 'Why this suggestion?');
+    host.appendChild(toggle);
+  }
+
+  // Render the diagnostics view model: per-persona proposal + confidence, then the
+  // reconciliation math (per-answer summed confidence + the winning margin) — no
+  // single collapsed trust score. Surfaces a budget-skip note when it applies.
+  function buildDiagnosticsPanel(diag) {
+    const kids = [heading('How I reached this')];
+    if (diag.note) {
+      kids.push(el('p', {
+        'data-testid': 'pack-builder-budget-note',
+        style: 'margin:0 0 var(--space-2); color:var(--color-text-muted); line-height:1.5;',
+      }, diag.note));
+    }
+    if (diag.personas.length) {
+      kids.push(el('div', {
+        style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-1);',
+      }, 'Each on-device viewpoint proposed a rule and rated its own confidence:'));
+      kids.push(el('ul', {
+        'data-testid': 'pack-builder-personas',
+        style: 'margin:0 0 var(--space-2); padding-left:var(--space-4); line-height:1.6;',
+      }, diag.personas.map((p) => el('li', { 'data-testid': `pack-builder-persona-${p.role}` },
+        `${p.label} — proposed “${p.answer}” (its own confidence ${p.confidencePct}%)`))));
+    }
+    if (diag.winner) {
+      const groupMath = diag.groups
+        .map((g) => `“${g.answer}” = ${g.totalConfidence} across ${g.count}`)
+        .join('; ');
+      const marginText = diag.groups.length > 1
+        ? `, ahead of the next option by ${diag.margin} in summed confidence`
+        : ' (the only option proposed)';
+      kids.push(el('p', {
+        'data-testid': 'pack-builder-reconciliation',
+        style: 'margin:0; font-size:var(--text-sm); line-height:1.5;',
+      }, `I grouped the proposals by answer and summed each group's confidence (${groupMath}). ` +
+         `Winner: “${diag.winner.answer}”, backed by ${diag.winner.agreement} of ${diag.personas.length} ` +
+         `(mean confidence ${Math.round(diag.winner.meanConfidence * 100)}%)${marginText}.`));
+    } else if (!diag.budgetExceeded && diag.personas.length) {
+      kids.push(el('p', {
+        'data-testid': 'pack-builder-reconciliation',
+        style: 'margin:0; font-size:var(--text-sm); line-height:1.5;',
+      }, 'The viewpoints did not converge on a usable answer, so I fell back to a safe default.'));
+    }
+    return el('div', {
+      'data-testid': 'pack-builder-diagnostics',
+      style: 'margin-top:var(--space-2); padding:var(--space-3); border:1px solid var(--color-border, #ddd); border-radius:6px;',
+    }, kids);
   }
 
   function onResolutionAccept(q, resolution) {

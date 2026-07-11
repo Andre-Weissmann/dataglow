@@ -1805,6 +1805,17 @@
         { "file": "js/agents/agent-action-firewall.js", "name": "confirmAndApply" },
         { "file": "js/agents/agent-action-firewall.js", "name": "normalizeIdentity" }
       ]
+    },
+    {
+      "id": "pack-builder-debate-diagnostics",
+      "area": "Conversational pack builder",
+      "name": "Debate transparency diagnostics",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/debate-diagnostics.js"],
+      "symbols": [
+        { "file": "js/agents/debate-diagnostics.js", "name": "buildDebateDiagnostics" },
+        { "file": "js/agents/debate-diagnostics.js", "name": "PERSONA_LABELS" }
+      ]
     }
   ]
 }

@@ -219,6 +219,93 @@ async function main() {
     ok(unc.hasResolution, 'uncertainty: "not sure" routes through the resolver and shows a suggestion');
     ok(!unc.debateLeaked, 'uncertainty: the internal debate steps are never surfaced to the user');
     ok(unc.resolvedToRule, 'uncertainty: accepting the suggestion records it as a confirmed rule');
+
+    // ---------- 5. OPT-IN "Why this suggestion?" transparency disclosure ----------
+    // A Step-C (debate) resolution offers a low-emphasis disclosure that stays
+    // COLLAPSED by default and expands on demand to show per-persona confidence +
+    // the reconciliation math — never shown or leaked unless the user opts in.
+    const why = await page.evaluate(async () => {
+      const ui = await import('/js/agents/conversational-pack-ui.js');
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      // An extreme-outlier column (not percent-like, not negative) misses Steps A
+      // and B and resolves at Step C — the three-agent debate — deterministically
+      // (no LLM injected), so there is genuine debate detail to reveal.
+      const questions = [{
+        column: 'basket_value', category: 'outlier', value: 980,
+        observation: 'an extreme value of 980',
+        ruleGuess: '"basket_value" be flagged when it is that far from typical',
+        text: 'I noticed your `basket_value` column has an extreme value of 980. Is that expected?',
+      }];
+      ui.mountConversationalPackBuilder({ host, questions, domain: 'retail', onToast: () => {} });
+      const input = host.querySelector('[data-testid="pack-builder-freetext"]');
+      input.value = 'no idea';
+      host.querySelector('[data-testid="pack-builder-freetext-submit"]').click();
+      await new Promise(r => setTimeout(r, 150));
+
+      const out = {};
+      // Default (collapsed) state: link present, panel absent, no leak.
+      const toggle = host.querySelector('[data-testid="pack-builder-why"]');
+      out.hasToggle = !!toggle;
+      out.toggleLabel = toggle ? toggle.textContent : null;
+      out.panelBeforeClick = !!host.querySelector('[data-testid="pack-builder-diagnostics"]');
+      out.leakBeforeClick = /conservative|industry-norm|debate panel|reconcile/i.test(host.textContent);
+      out.expandedBefore = toggle ? toggle.getAttribute('aria-expanded') : null;
+
+      // Expand.
+      toggle.click();
+      const panel = host.querySelector('[data-testid="pack-builder-diagnostics"]');
+      out.panelAfterClick = !!panel;
+      out.expandedAfter = toggle.getAttribute('aria-expanded');
+      out.personaCount = panel ? panel.querySelectorAll('[data-testid^="pack-builder-persona-"]').length : -1;
+      out.panelText = panel ? panel.textContent : '';
+      const recon = host.querySelector('[data-testid="pack-builder-reconciliation"]');
+      out.reconText = recon ? recon.textContent : '';
+
+      // Collapse again.
+      toggle.click();
+      out.panelHiddenAfterToggle = panel && panel.style.display === 'none';
+      out.expandedAfterCollapse = toggle.getAttribute('aria-expanded');
+      return out;
+    });
+    ok(why.hasToggle, 'why: a Step-C resolution offers the opt-in "Why this suggestion?" disclosure');
+    ok(why.toggleLabel === 'Why this suggestion?', 'why: the disclosure is labelled plainly');
+    ok(why.panelBeforeClick === false, 'why: the diagnostics panel is NOT rendered by default (collapsed)');
+    ok(why.leakBeforeClick === false, 'why: no debate detail leaks into the DOM before opting in');
+    ok(why.expandedBefore === 'false', 'why: the disclosure reports itself collapsed by default');
+    ok(why.panelAfterClick === true && why.expandedAfter === 'true', 'why: clicking expands the diagnostics panel');
+    ok(why.personaCount === 3, 'why: all three persona viewpoints are shown when expanded');
+    ok(/confidence\s*\d+%/i.test(why.panelText), 'why: each persona shows its OWN confidence percentage (per-persona, not aggregate)');
+    ok(/Winner:/.test(why.reconText) && /summed each group/i.test(why.reconText),
+      'why: the reconciliation math (grouping + winner) is shown, not a single collapsed score');
+    ok(why.panelHiddenAfterToggle === true && why.expandedAfterCollapse === 'false',
+      'why: clicking again collapses the panel');
+
+    // ---------- 6. A/B resolutions must NOT fabricate a debate view ----------
+    const noDebate = await page.evaluate(async () => {
+      const ui = await import('/js/agents/conversational-pack-ui.js');
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      // A percentage-like column over 100% is mathematically impossible → Step A
+      // resolves it directly, with NO debate to reveal.
+      const questions = [{
+        column: 'discount_pct', category: 'impossible', value: 150,
+        observation: 'values up to 150%',
+        ruleGuess: '"discount_pct" never go above 100%',
+        text: 'I noticed your `discount_pct` column has values up to 150%. Is that expected?',
+      }];
+      ui.mountConversationalPackBuilder({ host, questions, domain: 'retail', onToast: () => {} });
+      const input = host.querySelector('[data-testid="pack-builder-freetext"]');
+      input.value = "i don't know";
+      host.querySelector('[data-testid="pack-builder-freetext-submit"]').click();
+      await new Promise(r => setTimeout(r, 150));
+      return {
+        hasResolution: !!host.querySelector('[data-testid="pack-builder-resolution"]'),
+        hasToggle: !!host.querySelector('[data-testid="pack-builder-why"]'),
+      };
+    });
+    ok(noDebate.hasResolution, 'no-debate: a Step-A resolution still shows the unified suggestion');
+    ok(noDebate.hasToggle === false, 'no-debate: Step A offers NO "Why" disclosure (no fabricated debate)');
   } catch (err) {
     failed++;
     console.log('\n✗ FAILED: ' + (err && err.message ? err.message : err));
