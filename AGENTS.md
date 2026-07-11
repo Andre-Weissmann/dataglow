@@ -109,6 +109,93 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Metric Contracts, Batch 3 — confirm gate (the safety-critical batch)
+
+`js/metrics/metric-contract-confirm-gate.js` is the ONLY path in this codebase
+by which an AI-agent-proposed change to a metric contract can ever reach
+`MetricContractHistory.recordVersion()`. `proposeContractChange({metricId,
+currentMetric, candidate, proposedBy, reason})` builds a plain, inert proposal
+object — pure data construction, zero side effects, nothing written anywhere;
+this is the only thing an agent caller may produce. `buildProposalDiffContent()`
+reuses Batch 2's `buildDiffViewContent` completely unmodified, so a pending
+proposal renders pixel-for-pixel identically to how a past human edit renders
+— an agent's proposed change is never given different visual treatment.
+`approve({proposal, contractRegistry, metricRegistry})` is the one and only
+function that calls `recordVersion()` with `source: 'agent-proposed'`; it also
+updates the metric's live definition in the same call so the contract history
+and the live metric never drift apart. It runs ONLY from the one Approve
+button `renderConfirmGate()`'s DOM presenter renders — there is no auto-approve
+timer, config flag, trusted-agent bypass, or any other path in. It is
+idempotent (approving an already-applied proposal twice never double-appends
+history) and refuses cleanly — without touching anything — when given no
+contract registry, no metric registry, or an already-rejected proposal.
+`reject({proposal, note})` writes nothing anywhere, ever, is likewise
+idempotent, and cannot retroactively undo an already-applied proposal.
+`renderConfirmGate()` shows the Batch 2 diff view plus two EQUAL-weight
+Approve/Reject buttons (this project's established never-nudge-toward-accept
+pattern, from the conversational pack builder) and re-renders to a static
+applied/rejected state immediately after a decision so a stale second click
+can't matter. This batch directly reaffirms and tests DATAGLOW's hard
+autonomy-safety rule — an agent may propose, a human must approve every
+mutating action individually — the concrete cautionary precedent being the
+April 2026 incident where a Cursor AI agent deleted a company's entire
+production database and its backups in 9 seconds with no confirmation prompt.
+Nothing in `js/app-shell/main.js` calls `renderConfirmGate()` yet: no AI agent
+in the running app can generate a real proposal through this gate today —
+this batch only builds and tests the gate itself. Tests:
+`npm run test:metriccontractconfirmgate` (16 cases, pure Node): propose/
+approve/reject correctness, idempotency, all four refusal paths, and an
+explicit end-to-end scenario proving repeated reads/renders of a pending
+proposal never mutate the live metric or the contract history.
+
+### Metric Contracts, Batch 2 — read-only diff view
+
+`js/metrics/metric-contract-diff-view.js` turns two of Batch 1's version
+entries into something a person can read: `buildDiffViewContent({metricName,
+before, after})` returns a normalised block model (field-by-field before/after,
+who changed it, when, why, and human-vs-`agent-proposed`) sourced ONLY from the
+real recorded version metadata — never invented, and honestly omitted (no kv
+blocks at all) when a bare snapshot with no wrapper metadata is passed.
+`buildHistoryListContent({metricName, versions})` renders the full oldest-first
+timeline. `renderDiffView()` is the DOM presenter, following
+`js/trust/proof-drawer.js`'s exact pure-content/DOM split and reusing its
+`kv`/`text`/`list` block-kind renderers (copied locally rather than imported,
+since proof-drawer doesn't export its renderer) plus one new `field-diff` kind
+(side-by-side red/green before/after) this file renders itself — so a human's
+past edit and an AI's future proposed edit will look visually IDENTICAL. This
+batch is READ-ONLY: no apply/accept button, no write path, and nothing in
+`js/app-shell/main.js` calls `renderDiffView()` yet. Batch 3 wires a confirm-gate around
+this exact same builder/renderer for AI-proposed changes — one explicit human
+click required before anything applies, nothing auto-applies, ever. Tests:
+`npm run test:metriccontractdiffview` (20 cases, pure Node), added to the
+existing `.github/workflows/job-metric-contracts.yml` CI job.
+
+### Metric Contracts, Batch 1 — versioned metric-definition data model
+
+`js/metrics/metric-contracts.js` adds an append-only version history
+(`MetricContractHistory`/`MetricContractRegistry`) that sits ALONGSIDE Metric
+Studio's `MetricRegistry`, not inside it — that registry needed zero code
+changes for this to exist. `recordVersion()` snapshots only the
+contract-relevant fields (`name`/`plainEnglish`/`expression`/`owner`/`tag`) via
+`snapshotDefinition`, deliberately excluding runtime fields
+(`computedValue`/`status`) since recomputing or recertifying a metric is not a
+definition change. Entries are immutable and append-only: there is no
+update()/remove() on `MetricContractHistory` on purpose — the array itself is
+the audit trail. `diffVersions(before, after)` is the one pure function that
+computes what changed between any two snapshots; `summarizeDiff` renders a
+one-line label. This is Batch 1 of a multi-batch build: pure logic only, no DOM
+presenter, and nothing calls `recordVersion` from anywhere in the app yet — so
+the new `metricContracts` flag (default OFF, added this PR) currently gates
+nothing observable. WHY this exists: the practitioner-confirmed #1 cause of
+dashboard distrust is conflicting metric definitions that silently drift, not
+dirty data — this is the record of who changed what, when, and why. Batch 2
+adds a diff-view UI reading this same `diffVersions` output; Batch 3 adds a
+confirm-gate so that any AI-agent-proposed change to a metric renders as this
+exact diff and requires one explicit human click before it applies — nothing
+auto-applies, ever, per this repo's hard autonomy-safety rule. Tests:
+`npm run test:metriccontracts` (21 cases, pure Node, no DuckDB), CI job
+`.github/workflows/job-metric-contracts.yml`.
+
 ### Personal Data Bill of Materials — composed export, not a new trust claim
 
 `js/provenance/data-bom.js` builds a one-click, fully offline "ingredient

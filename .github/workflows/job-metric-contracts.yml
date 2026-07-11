@@ -1,0 +1,36 @@
+# ============================================================
+# DATAGLOW — CI job: Metric Contracts (Batch 1 + Batch 2 + Batch 3)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the Metric Contracts suites as they're added, batch by batch:
+#   - test:metriccontracts — Batch 1: the append-only version history + diff
+#     logic for metric definitions.
+#   - test:metriccontractdiffview — Batch 2: the pure diff-view/history-list
+#     content-model builders (no DOM presenter test yet — nothing calls the
+#     renderer from a real page until a later batch wires it in).
+#   - test:metriccontractconfirmgate — Batch 3: the confirm gate — the ONLY
+#     path an AI-agent-proposed metric change can ever reach recordVersion()
+#     through, gated on one explicit human click (approve()). No DOM
+#     presenter test yet either, same reasoning as Batch 2.
+# Pure JS throughout, no DuckDB/browser needed.
+
+name: Metric Contracts
+
+on:
+  workflow_call:
+
+jobs:
+  metric-contracts:
+    name: Metric Contracts (versioned definitions, pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metriccontracts
+      - run: npm run test:metriccontractdiffview
+      - run: npm run test:metriccontractconfirmgate
