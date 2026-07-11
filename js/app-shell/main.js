@@ -39,8 +39,11 @@ import * as expectedRange from '../validation/expected-range.js';
 import * as ledger from '../provenance/assumption-ledger.js';
 import * as provenance from '../provenance/provenance.js';
 import * as sdProof from '../provenance/selective-disclosure-proof.js';
+import * as dataBlame from '../provenance/data-blame.js';
+import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
+import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
 // registry has dynamically imported the modules appropriate for this runtime;
@@ -96,6 +99,7 @@ const TAB_META = {
   swift: { label: 'Swift', icon: 'smartphone' },
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
+  meeting: { label: 'Meeting', icon: 'message-circle' },
 };
 
 const ICONS = {
@@ -112,6 +116,7 @@ const ICONS = {
   sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  'message-circle': '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -148,7 +153,12 @@ let activeTab = 'preflight';
 function renderTabBar() {
   const bar = $('#tabbar');
   bar.innerHTML = '';
-  state.tabOrder.forEach((tabId, idx) => {
+  // The 'meeting' tab is the meetingScribe flag's dark-by-default gate: with
+  // the flag off (its shipped default) it is simply never added to the bar,
+  // never a dead click target, and #panel-meeting stays empty and hidden
+  // (see renderMeetingScribeTab). No other tab is filtered.
+  const visibleTabOrder = state.tabOrder.filter((tabId) => tabId !== 'meeting' || isEnabled('meetingScribe'));
+  visibleTabOrder.forEach((tabId, idx) => {
     const meta = TAB_META[tabId];
     const tabEl = el('div', {
       class: `tab ${tabId === activeTab ? 'active' : ''}`,
@@ -189,6 +199,7 @@ function switchTab(tabId) {
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'twin') buildTwinControls();
+  if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'swift' && !$('#swift-input').value) {
     $('#swift-input').value = swiftPreview.SWIFT_TEMPLATE;
     $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
@@ -1063,8 +1074,10 @@ async function scanClean() {
         btn.disabled = true;
         await clean.applyFix(ds.table, issue, fixType, auditLog);
         ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`);
-        await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`, { fixType, column: issue.column });
+        await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`,
+          dataBlame.buildBlameDetail({ rule: fixType, column: issue.column, affectedCount: issue.count }));
         renderAuditLog(auditLog);
+        renderProvenanceTrail();
         toast(`Applied: ${clean.FIX_LABELS[fixType]}`, 'success');
         card.style.opacity = '0.4';
         card.style.pointerEvents = 'none';
@@ -1194,8 +1207,10 @@ async function renderFuzzyDedup(ds, auditLog) {
         await engine.runQuery(`UPDATE ${ds.table} SET ${col} = '${to}' WHERE ${col} = '${from}'`);
         auditLog.push(`[${new Date().toLocaleTimeString()}] Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
         ledger.logAssumption('Fuzzy Duplicate Radar', `Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`);
-        await provenance.recordStep(ds.table, 'merge', `Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`, { column: pair.column });
+        await provenance.recordStep(ds.table, 'merge', `Merged "${pair.valueB}" → "${pair.valueA}" in "${pair.column}".`,
+          dataBlame.buildBlameDetail({ rule: 'merge', column: pair.column, before: pair.valueB, after: pair.valueA }));
         renderAuditLog(auditLog);
+        renderProvenanceTrail();
         // Record as a manual correction; may trigger a reusable-rule suggestion.
         ruleSuggestions.recordCorrection(pair.valueB, pair.valueA, pair.column);
         await recordLearningSignal({ source: 'fuzzy_dedup', column: pair.column, categorical: true, severity: pair.similarity }, 'accept');
@@ -1425,6 +1440,25 @@ async function renderConversationalPackBuilder(ds, results) {
   });
 }
 
+// ============================================================
+// Meeting Scribe (Gen 43, Part 2) — Meeting tab wiring
+// ============================================================
+// Mounts the paste/type transcript screen (js/agents/meeting-scribe-ui.js)
+// into the Meeting tab. The tab itself only exists in the bar when the
+// meetingScribe flag is on (see renderTabBar); this function is the second,
+// inner gate matching the conversationalPackBuilder precedent exactly, and
+// also guards against a stale mount if the panel is ever revisited.
+let meetingScribeMounted = false;
+function renderMeetingScribeTab() {
+  const host = $('#meeting-scribe-body');
+  if (!host) return;
+  if (!isEnabled('meetingScribe')) { host.innerHTML = ''; meetingScribeMounted = false; return; }
+  if (!shouldOfferMeetingScribe({ enabled: true })) { host.innerHTML = ''; meetingScribeMounted = false; return; }
+  if (meetingScribeMounted) return; // already mounted this session — don't wipe typed-in progress
+  mountMeetingScribe({ host, onToast: toast });
+  meetingScribeMounted = true;
+}
+
 // The Assumption Ledger — a running, exportable log of every judgment call.
 function renderAssumptionLedger() {
   const wrap = $('#assumption-ledger-wrap');
@@ -1478,6 +1512,8 @@ function renderProvenanceTrail() {
   const ds = getActiveDataset();
   const chain = ds ? provenance.getProvenance(ds.table) : null;
   wrap.style.display = '';
+  const deidWrap = $('#deid-verifier-wrap');
+  if (deidWrap) deidWrap.style.display = ds ? '' : 'none';
   const trail = chain ? chain.getTrail() : [];
   if (!trail.length) {
     list.innerHTML = '<span style="color:var(--color-text-faint);">No provenance recorded yet — load a dataset to anchor the chain of custody.</span>';
@@ -1492,6 +1528,59 @@ function renderProvenanceTrail() {
       el('div', { class: 'mono', style: 'font-size:0.9em; color:var(--color-text-faint);' }, `hash ${e.hash.slice(0, 16)}… ← parent ${e.parentHash.slice(0, 16)}…`),
     ]));
   }
+  renderBlameColumns(trail);
+}
+
+// Cell-level Data Blame — a reader over the same provenance trail. Populate the
+// column picker with the columns some transform actually touched, then render
+// the ordered per-column history for whichever is selected.
+function renderBlameColumns(trail) {
+  const sel = $('#blame-column');
+  const history = $('#blame-history');
+  if (!sel || !history) return;
+  const idx = dataBlame.buildBlameIndex(trail || []);
+  const columns = Object.keys(idx.byColumn).sort();
+  const prev = sel.value;
+  sel.innerHTML = '';
+  if (!columns.length) {
+    sel.appendChild(el('option', { value: '' }, 'No columns changed yet'));
+    sel.disabled = true;
+    history.innerHTML = '<span style="color:var(--color-text-faint);">Apply a cleaning fix or merge to build a change history.</span>';
+    return;
+  }
+  sel.disabled = false;
+  for (const c of columns) sel.appendChild(el('option', { value: c }, `"${c}" (${idx.byColumn[c].length})`));
+  sel.value = columns.includes(prev) ? prev : columns[0];
+  renderBlameHistory(trail, sel.value);
+}
+
+function renderBlameHistory(trail, column) {
+  const history = $('#blame-history');
+  if (!history) return;
+  const entries = dataBlame.blameForColumn(trail || [], column);
+  history.innerHTML = '';
+  history.appendChild(el('div', { style: 'color:var(--color-text-muted); margin-bottom:var(--space-1);' }, dataBlame.summarizeColumnBlame(trail || [], column)));
+  for (const e of entries) {
+    const when = e.ts ? new Date(e.ts).toISOString().replace('T', ' ').slice(0, 19) : '';
+    const affected = typeof e.affectedCount === 'number' ? ` · ${e.affectedCount} cell(s)` : '';
+    const change = (e.before !== undefined || e.after !== undefined) ? ` · "${e.before ?? ''}" → "${e.after ?? ''}"` : '';
+    history.appendChild(el('div', { style: 'padding:4px 0; border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: 'color:var(--color-text-faint);' }, `#${e.index} `),
+      el('span', { style: 'font-weight:600; color:var(--color-text-muted);' }, `${e.rule || e.op}`),
+      el('span', {}, `${affected}${change}`),
+      el('div', { style: 'color:var(--color-text-faint);' }, `${when} — ${e.description}`),
+    ]));
+  }
+}
+
+function initDataBlame() {
+  const sel = $('#blame-column');
+  if (!sel) return;
+  sel.addEventListener('change', () => {
+    const ds = getActiveDataset();
+    const chain = ds ? provenance.getProvenance(ds.table) : null;
+    renderBlameHistory(chain ? chain.getTrail() : [], sel.value);
+  });
 }
 
 function initProvenance() {
@@ -1561,6 +1650,71 @@ function initProvenance() {
     });
     downloadText(`dataglow-sd-proof-${ds.table}.json`, JSON.stringify(artifact, null, 2), 'application/json');
     toast('Verifiable proof exported — share the root/claims; the dataset stays private', 'success');
+  });
+}
+
+// De-identification Verifier — one-click HIPAA Safe Harbor check + re-id risk
+// score + signed attestation. Runs entirely against the in-browser DuckDB-WASM
+// data; nothing is uploaded. Holds the last attestation so Export can sign it.
+let lastDeidAttestation = null;
+
+function renderDeidReport(report) {
+  const out = $('#deid-report');
+  if (!out) return;
+  out.innerHTML = '';
+  const verdictColor = report.verdict === 'pass' ? 'var(--color-grade-a)'
+    : report.verdict === 'review' ? 'var(--color-grade-c)' : 'var(--color-grade-d)';
+  const riskColor = report.reidentification.level === 'low' ? 'var(--color-grade-a)'
+    : report.reidentification.level === 'moderate' ? 'var(--color-grade-c)' : 'var(--color-grade-d)';
+  out.appendChild(el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center; margin-bottom:var(--space-3);' }, [
+    el('span', { style: `font-size:var(--text-xs); font-weight:600; padding:2px 10px; border-radius:8px; color:#fff; background:${verdictColor};` }, `Verdict: ${report.verdict.toUpperCase()}`),
+    el('span', { style: `font-size:var(--text-xs); font-weight:600; padding:2px 10px; border-radius:8px; color:#fff; background:${riskColor};` }, `Re-identification risk: ${report.reidentification.level} (${report.reidentification.score}/100)`),
+    el('span', { style: 'font-size:var(--text-xs); color:var(--color-text-faint);' }, `${report.safeHarbor.flaggedCount} of 18 categories flagged`),
+  ]));
+  out.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2);' }, report.reidentification.rationale));
+  const grid = el('div', { class: 'validation-grid' });
+  for (const cat of report.safeHarbor.categories) {
+    const card = el('div', { class: 'card validation-card', 'data-testid': `deid-cat-${cat.id}` });
+    card.appendChild(el('div', { class: 'validation-card-head' }, [
+      el('span', { class: 'validation-card-name' }, `${cat.n}. ${cat.label}`),
+      el('span', { class: `validation-status ${cat.status === 'flag' ? 'warn' : 'pass'}` }, [
+        el('span', { class: `status-dot ${cat.status === 'flag' ? 'warn' : 'pass'}` }),
+        cat.status === 'flag' ? 'FLAG' : 'clear',
+      ]),
+    ]));
+    if (cat.matchedColumns.length) {
+      card.appendChild(el('div', { class: 'validation-card-desc' },
+        cat.matchedColumns.map(m => `"${m.column}": ${m.reason}`).join(' · ')));
+    }
+    grid.appendChild(card);
+  }
+  out.appendChild(grid);
+}
+
+function initDeidVerifier() {
+  const runBtn = $('#btn-deid-run');
+  if (!runBtn) return;
+  runBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    runBtn.disabled = true;
+    try {
+      const { report, attestation } = await deidVerifier.runDeidentificationCheck(ds.table, ds.cols, engine);
+      lastDeidAttestation = attestation;
+      renderDeidReport(report);
+      toast(`De-identification check complete — verdict: ${report.verdict}`, report.verdict === 'pass' ? 'success' : 'warn');
+    } catch (e) {
+      toast('De-identification check failed: ' + (e && e.message || e), 'error');
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+  const exportBtn = $('#btn-deid-export');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    if (!lastDeidAttestation) { toast('Run the de-identification check first', 'error'); return; }
+    const ds = getActiveDataset();
+    downloadText(`dataglow-deid-attestation-${ds ? ds.table : 'dataset'}.json`, JSON.stringify(lastDeidAttestation, null, 2), 'application/json');
+    toast('Signed de-identification attestation exported', 'success');
   });
 }
 
@@ -3506,7 +3660,8 @@ function renderValidationResults(results) {
             ledger.logAssumption('Categorical Consistency Engine',
               `Applied merge: ${applied.merges.map(m => `"${m.from}"`).join(', ')} → "${applied.canonical}" in "${cl.column}"${edited}.`);
             await provenance.recordStep(ds.table, 'merge',
-              `Categorical merge: ${applied.merges.map(m => `"${m.from}"`).join(', ')} → "${applied.canonical}" in "${cl.column}"${edited}.`, { column: cl.column, canonical: applied.canonical, edited: applied.canonical !== cl.canonical });
+              `Categorical merge: ${applied.merges.map(m => `"${m.from}"`).join(', ')} → "${applied.canonical}" in "${cl.column}"${edited}.`,
+              dataBlame.buildBlameDetail({ rule: 'categorical_merge', column: cl.column, affectedCount: applied.merges.length, after: applied.canonical, note: edited ? 'canonical edited by user' : undefined }));
             renderAssumptionLedger();
             renderProvenanceTrail();
             // Treat an edited canonical as a stronger accept signal (the user
@@ -4603,6 +4758,8 @@ function init() {
   initExportReport();
   initLedger();
   initProvenance();
+  initDataBlame();
+  initDeidVerifier();
   initDomainPack();
   initDevilsAdvocate();
   initReceipts();

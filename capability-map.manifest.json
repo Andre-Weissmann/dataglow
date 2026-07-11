@@ -449,6 +449,17 @@
       ]
     },
     {
+      "id": "provenance-packet",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Provenance Packet — data blame + de-identification verifier",
+      "files": ["js/provenance/data-blame.js", "js/provenance/deidentification-verifier.js"],
+      "symbols": [
+        { "file": "js/provenance/data-blame.js", "name": "buildBlameIndex" },
+        { "file": "js/provenance/deidentification-verifier.js", "name": "HIPAA_SAFE_HARBOR" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",
@@ -901,6 +912,18 @@
           "file": "js/app-shell/command-deck-nav.js",
           "name": "stageForTab"
         }
+      ]
+    },
+    {
+      "id": "meeting-scribe-ui",
+      "area": "Meeting scribe",
+      "name": "Meeting scribe — Meeting-tab UI wiring",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/meeting-scribe-ui.js"],
+      "symbols": [
+        { "file": "js/agents/meeting-scribe-ui.js", "name": "shouldOfferMeetingScribe" },
+        { "file": "js/agents/meeting-scribe-ui.js", "name": "mountMeetingScribe" },
+        { "file": "js/agents/meeting-scribe-ui.js", "name": "parseTranscriptText" }
       ]
     }
   ]

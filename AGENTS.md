@@ -111,30 +111,39 @@ reusable capabilities that shape how work is done here. Newest first.
 
 ### Command Deck sidebar nav (Part 1) — decision record and safety posture
 
-`js/app-shell/command-deck-nav.js` regroups the app's 13 real tabs (read from
+`js/app-shell/command-deck-nav.js` regroups the app's real tabs (read from
 `js/app-shell/state.js`'s `tabOrder`) into 5 Trust-Tier Lifecycle Stages —
 Frame (`framer`/`preflight`/`watch`), Work (`sql`/`python`/`r`/`clean`), Trust
-(`validate`/`diff`), Generate (`twin`/`swift`), Tell (`visualize`/`story`) —
-as an ALTERNATE left-sidebar nav, not a replacement. `COMMAND_DECK_STAGES` is
-the static mapping; `buildSidebarContent({tabMeta, activeTab})` is the pure
-content-model builder (resolves each tab's real label/icon from the caller's
-`tabMeta`, marks the active tab, and reports `unassignedTabs` honestly rather
-than silently dropping any tab that isn't mapped to a stage);
-`validateStageCoverage(realTabIds)` and `stageForTab(tabId)` are pure helpers.
-Wired into `js/app-shell/main.js` as `renderCommandDeckSidebar()`, called from
-`init()` and at the end of `switchTab()`. Renders into `#command-deck-sidebar`
-in `index.html`, a new element that sits alongside — never inside — the
-existing `<nav class="tabbar">`; it does not reuse `#data-sidebar`, which is
-unrelated dataset-loading UI. Ships fully dark behind the `dataglowSidebarNav`
-flag (off by default): with the flag off, `renderCommandDeckSidebar()` hides
-the host and renders nothing, so the top tab bar remains the app's one and
-only nav, byte-for-byte unchanged. `npm run test:commanddecknav`
-(`test/command-deck-nav.test.mjs`, 14 tests) regex-extracts the real
-`TAB_META` block straight out of `js/app-shell/main.js` at test time via
-`readFileSync`, so this mapping can never silently drift out of sync with the
-app's actual tool list — the same drift-proofing pattern as the
-capability-map/AGENTS.md gates below, applied to a UI content model instead
-of a doc.
+(`validate`/`diff`), Generate (`twin`/`swift`), Tell (`visualize`/`story`/
+`meeting`) — as an ALTERNATE left-sidebar nav, not a replacement.
+`COMMAND_DECK_STAGES` is the static mapping; `buildSidebarContent({tabMeta,
+activeTab})` is the pure content-model builder (resolves each tab's real
+label/icon from the caller's `tabMeta`, marks the active tab, and reports
+`unassignedTabs` honestly rather than silently dropping any tab that isn't
+mapped to a stage); `validateStageCoverage(realTabIds)` and
+`stageForTab(tabId)` are pure helpers. Wired into `js/app-shell/main.js` as
+`renderCommandDeckSidebar()`, called from `init()` and at the end of
+`switchTab()`. Renders into `#command-deck-sidebar` in `index.html`, a new
+element that sits alongside — never inside — the existing `<nav
+class="tabbar">`; it does not reuse `#data-sidebar`, which is unrelated
+dataset-loading UI. Ships fully dark behind the `dataglowSidebarNav` flag
+(off by default): with the flag off, `renderCommandDeckSidebar()` hides the
+host and renders nothing, so the top tab bar remains the app's one and only
+nav, byte-for-byte unchanged. `npm run test:commanddecknav`
+(`test/command-deck-nav.test.mjs`) regex-extracts the real `TAB_META` block
+straight out of `js/app-shell/main.js` at test time via `readFileSync`, so
+this mapping can never silently drift out of sync with the app's actual tool
+list — the same drift-proofing pattern as the capability-map/AGENTS.md gates
+below, applied to a UI content model instead of a doc. **Correction (folded
+into this same entry, not a separate one, per the append-only convention):**
+this PR originally shipped with the Tell stage covering only
+`visualize`/`story`; after Gen 43's Meeting Scribe UI landed on `main` and
+added a real 14th tab (`meeting`), the coverage test caught it as an honest
+`unassignedTabs` entry rather than silently dropping it — `meeting` has now
+been added to the Tell stage (it matches the brainstorm report's own original
+Tell-stage draft of "Visualize, Story, Meeting" — the audience-facing/
+shareable tier), and the drift-proofing test re-confirmed against the current
+14-tab `TAB_META`.
 
 **Decision record (read before starting Command Deck Part 2 or Part 3):** the
 UI/UX brainstorm report offered three candidate navigation directions —
@@ -153,6 +162,57 @@ was answered at the level of the three TOP-LEVEL candidate directions, not as
 license to skip the internal staged risk ordering within one of them. Naming
 was kept exactly as proposed by the report: "Command Deck," stages named
 Frame/Work/Trust/Generate/Tell.
+
+### Meeting scribe — Meeting-tab UI wiring (Gen 43, Part 2)
+
+The screen Part 1 deliberately left for a follow-up now lives in
+`js/agents/meeting-scribe-ui.js`, a thin presenter mirroring
+`js/agents/conversational-pack-ui.js`'s shape: a pure gate `shouldOfferMeetingScribe({enabled})`
+(the single predicate the caller checks) and `mountMeetingScribe({host, onToast})`,
+which renders a paste/type-transcript textarea, an `[Analyze transcript]` button, and
+groups the Part 1 agent's output into Pushback moments / Data requests / a full
+tagged-line list, plus a small action-item tracker whose rows show "Open" until
+owner + due date + outcome are all filled in and saved (per Part 1's
+minimum-viable-action-item rule), then flip to "Resolved". `parseTranscriptText`
+turns pasted/typed lines into `{text, ts}` segments — a leading integer is read as an
+explicit second-based timestamp, a bare line is auto-numbered one second after the
+previous, so typing plain text works with zero setup. There is still NO audio
+capture or speech-to-text here — a person supplies the transcript text themselves;
+that capture path stays a separate, harder follow-up.
+
+`js/app-shell/main.js` adds a new `meeting` tab, but only to the RENDERED tab list —
+`renderTabBar()` filters `state.tabOrder` down with
+`tabId !== 'meeting' || isEnabled('meetingScribe')` before drawing the bar, so with the
+flag off (its shipped default) the tab is not just hidden but never added at all —
+there is no dead click target and no stale DOM. `switchTab('meeting')` lazily calls
+`renderMeetingScribeTab()`, which re-checks the flag and the gate before mounting into
+`#meeting-scribe-body`, and only mounts once per session so a person's typed-in
+progress is never wiped by revisiting the tab. New real-browser Playwright test
+`test/meeting-scribe-ui.test.mjs` (`npm run test:e2e-meetingscribe-ui`): asserts the
+gate, transcript parsing (explicit vs. auto-numbered timestamps), the full
+analyze flow (pushback + data-request detection, full tagged list, blank-input
+no-op), and the action-item open→partially-filled-stays-open→resolved flow. No flag
+flipped.
+
+### Provenance Packet (Batch 1) — cell-level blame + de-identification verifier
+
+Two browser-free, network-free capabilities that build on the existing hash-chain
+provenance ledger (`js/provenance/provenance.js`). `js/provenance/data-blame.js` is
+a pure READER over that chain — it does NOT introduce a parallel log. Transform
+call sites in `js/app-shell/main.js` now standardize each `recordStep` `detail`
+via `buildBlameDetail(...)`; the reader's `normalizeBlameEntry` still reads the
+legacy `{fixType, column}` shape, so old trails keep working. `buildBlameIndex`,
+`blameForColumn`, and `blameForCell` answer "what changed this cell and why" from
+the chain alone. `js/provenance/deidentification-verifier.js` runs the 18 HIPAA
+Safe Harbor categories (`HIPAA_SAFE_HARBOR`) against loaded columns/samples,
+scores re-identification risk from quasi-identifiers (the {date-or-age, sex, zip}
+trio drives the score up), and produces a SHA-256-signed attestation via the same
+`sha256Hex` primitive the CI ledger uses — no new crypto. Everything runs against
+in-browser DuckDB-WASM; nothing is uploaded. Tests: `npm run test:datablame`
+(`test/data-blame.test.mjs`) and `npm run test:deidverify`
+(`test/deidentification-verifier.test.mjs`), both in the `provenance-packet` CI
+job (`.github/workflows/job-provenance-packet.yml`).
+
 
 ### Local Analysis Contract — SQL-vs-schema checker, and a consolidation call
 

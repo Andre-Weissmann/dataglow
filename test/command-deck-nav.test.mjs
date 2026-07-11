@@ -5,8 +5,9 @@
 //
 // The coverage tests below read main.js's REAL TAB_META/state.js's REAL
 // tabOrder directly off disk (regex-extracted, not hand-copied) so this
-// suite can never silently drift out of sync with the actual 13 tabs the
-// way a hand-maintained duplicate list could.
+// suite can never silently drift out of sync with the actual tabs the app
+// ships (14 as of the Meeting Scribe UI merge) the way a hand-maintained
+// duplicate list could.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
