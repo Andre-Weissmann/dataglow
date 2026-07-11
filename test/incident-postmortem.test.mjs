@@ -6,7 +6,10 @@
 //       timeline entry maps 1:1 to a supplied trail entry; no step is invented,
 //   (b) works with ONLY the required `incident` field (all optionals omitted),
 //   (c) works with ALL optionals present and correctly references the
-//       fingerprint / badges / debate resolution / metric,
+//       fingerprint / badges / debate resolution / metric / de-id / data-blame,
+//   (c2) a de-id report (pass and fail) and a data-blame summary are referenced
+//       and woven into the narrative WITHOUT upgrading the claim strength, and
+//       are absent (no null placeholder) when not supplied,
 //   (d) NEVER applies anything itself — the source names no apply/network
 //       primitive and no call mutates its inputs,
 //   (e) the proposed correction carries a fix-confidence.js-style {score,label},
@@ -19,6 +22,10 @@ import {
   draftPostmortem, reconstructTimeline, proposeCorrection,
   POSTMORTEM_KIND, FINDING_ERROR_KINDS,
 } from '../js/provenance/incident-postmortem.js';
+// Real dependency modules the postmortem now optionally references. Used here to
+// produce genuine (not hand-faked) inputs, exercising the real integration shape.
+import { buildDeidReport } from '../js/provenance/deidentification-verifier.js';
+import { summarizeColumnBlame } from '../js/provenance/data-blame.js';
 import { scanSourceForNetwork } from '../js/packs/pack-network-guard.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -135,6 +142,131 @@ function main() {
   const strMetric = draftPostmortem({ incident: { description: 'x' }, metricInvolved: 'completeness_pct' });
   ok(strMetric.references.metric && strMetric.references.metric.name === 'completeness_pct',
     'optionals: metric supplied as a bare string is referenced');
+
+  // ---------- (c2) de-identification report + data-blame summary references ----------
+  // A genuinely clean dataset → 'pass'; a dataset with an SSN column → 'fail'.
+  const deidPass = buildDeidReport({
+    columns: [{ name: 'visit_count', type: 'INTEGER' }, { name: 'systolic_bp', type: 'INTEGER' }],
+    samples: { visit_count: [1, 2, 3], systolic_bp: [120, 130, 140] },
+    table: 'visits', rowCount: 500,
+  });
+  ok(deidPass.verdict === 'pass', 'c2 setup: a clean dataset yields a de-id verdict of pass');
+  const deidFail = buildDeidReport({
+    columns: [{ name: 'ssn', type: 'VARCHAR' }, { name: 'zip', type: 'VARCHAR' }],
+    samples: { ssn: ['123-45-6789', '987-65-4321'], zip: ['02139', '10001'] },
+    table: 'patients', rowCount: 500,
+  });
+  ok(deidFail.verdict === 'fail', 'c2 setup: a dataset with an SSN column yields a de-id verdict of fail');
+
+  // (1a) Passing de-id report referenced + narrated, claim never upgraded.
+  const withDeidPass = draftPostmortem({
+    incident: { description: 'x', affectedFinding: { column: 'age', kind: FINDING_ERROR_KINDS.FALSE_POSITIVE } },
+    deidReport: deidPass,
+  });
+  ok(withDeidPass.references.deidentification && withDeidPass.references.deidentification.verdict === 'pass',
+    'c2: passing de-id report is referenced with its real verdict');
+  ok(withDeidPass.references.deidentification.riskLevel === deidPass.reidentification.level,
+    'c2: de-id reference carries the report’s own re-identification risk level');
+  ok(/screening aid only, not a certification/.test(withDeidPass.rootCause.narrative),
+    'c2: narrative states the de-id screen is a screening aid, not a certification');
+  ok(!/certified|verified safe|safe to release|guaranteed/i.test(withDeidPass.rootCause.narrative),
+    'c2: narrative NEVER upgrades the de-id claim into a stronger one');
+  ok(/passed the automated HIPAA Safe Harbor de-identification screen/.test(withDeidPass.rootCause.narrative),
+    'c2: passing verdict is narrated honestly');
+
+  // (1b) Failing/risky de-id report narrated as flagged, still no upgrade.
+  const withDeidFail = draftPostmortem({
+    incident: { description: 'x', affectedFinding: { column: 'age', kind: FINDING_ERROR_KINDS.FALSE_POSITIVE } },
+    deidReport: deidFail,
+  });
+  ok(withDeidFail.references.deidentification.verdict === 'fail',
+    'c2: failing de-id report is referenced with verdict fail');
+  ok(/was flagged by the automated HIPAA Safe Harbor de-identification screen/.test(withDeidFail.rootCause.narrative),
+    'c2: failing verdict is narrated as flagged');
+  ok(!/certified|verified safe|safe to release/i.test(withDeidFail.rootCause.narrative),
+    'c2: a fail verdict is never spun into a safety claim either');
+
+  // (1c) A signed attestation-shaped input (has a digest) surfaces a digest prefix.
+  const withDeidAtt = draftPostmortem({
+    incident: { description: 'x' },
+    deidReport: { verdict: 'review', reidentification: { level: 'moderate' }, digest: { value: 'deadbeefcafef00d0123456789abcdef' } },
+  });
+  ok(withDeidAtt.references.deidentification.digest === 'deadbeefcafef00d',
+    'c2: an attestation-shaped de-id input surfaces a 16-char digest prefix');
+  ok(withDeidAtt.references.deidentification.riskLevel === 'moderate',
+    'c2: a "review" verdict with moderate risk is carried through');
+
+  // (2) No de-id report supplied → the key is ABSENT (not null).
+  const noDeid = draftPostmortem({ incident: { description: 'x' }, provenanceTrail: trail });
+  ok(!('deidentification' in noDeid.references),
+    'c2: no de-id report supplied → references has no deidentification key at all');
+  // A malformed de-id input with no verdict also adds no key.
+  const badDeid = draftPostmortem({ incident: { description: 'x' }, deidReport: { foo: 'bar' } });
+  ok(!('deidentification' in badDeid.references),
+    'c2: a de-id input with no verdict is ignored (no key), never a null placeholder');
+
+  // (3) Data-blame summary — real summary from a trail with a recorded change to
+  // the finding's column, then the no-change / no-input cases.
+  const nameBlame = summarizeColumnBlame(trail, 'name'); // sampleTrail has a clean step on "name"
+  ok(/recorded change/.test(nameBlame), 'c2 setup: summarizeColumnBlame reports the recorded change on "name"');
+  const withBlame = draftPostmortem({
+    incident: { description: 'x', affectedFinding: { column: 'name', kind: FINDING_ERROR_KINDS.FALSE_POSITIVE } },
+    blameSummary: nameBlame,
+  });
+  ok(withBlame.references.dataBlame && withBlame.references.dataBlame.summary === nameBlame,
+    'c2: a supplied data-blame summary string is referenced verbatim');
+  ok(withBlame.rootCause.narrative.includes(nameBlame),
+    'c2: the data-blame summary is woven into the narrative');
+  // Object form with a change count.
+  const withBlameObj = draftPostmortem({
+    incident: { description: 'x' },
+    blameSummary: { summary: '"age": 2 recorded changes (fill_mean → clamp).', changeCount: 2 },
+  });
+  ok(withBlameObj.references.dataBlame.changeCount === 2 && /2 recorded changes/.test(withBlameObj.references.dataBlame.summary),
+    'c2: an object-form blame summary keeps its summary text and change count');
+  // No blame supplied → no key. A "no recorded changes" line is a real summary and IS kept.
+  const noBlame = draftPostmortem({ incident: { description: 'x' } });
+  ok(!('dataBlame' in noBlame.references),
+    'c2: no blame summary supplied → references has no dataBlame key at all');
+  const emptyBlame = draftPostmortem({ incident: { description: 'x' }, blameSummary: '   ' });
+  ok(!('dataBlame' in emptyBlame.references),
+    'c2: a blank blame string is ignored (no key), never a null placeholder');
+
+  // (4) ALL SIX optional references present together, all appear correctly.
+  const allSix = draftPostmortem({
+    incident: {
+      description: 'Everything at once.', discoveredAt: DISCOVERED,
+      affectedFinding: { label: 'X', column: 'age', layer: 'physiology', kind: FINDING_ERROR_KINDS.FALSE_POSITIVE },
+    },
+    provenanceTrail: trail,
+    fingerprint: { label: 'age check', digest: { value: 'abcdef0123456789cafebabe' } },
+    badges: [{ id: 'validated', label: 'Validated' }],
+    debateResolution: { resolvedBy: 'C' },
+    metricInvolved: { name: 'max_plausible_age' },
+    deidReport: deidPass,
+    blameSummary: summarizeColumnBlame(trail, 'name'),
+  });
+  const refKeys = Object.keys(allSix.references).sort();
+  ok(['badges', 'dataBlame', 'debateResolution', 'deidentification', 'fingerprint', 'metric'].every(k => refKeys.includes(k)),
+    'c2: all six optional reference types appear together');
+  ok(refKeys.length === 6, 'c2: exactly the six supplied reference keys, no extras/placeholders');
+  ok(allSix.references.deidentification.verdict === 'pass' && allSix.references.dataBlame.summary.includes('name'),
+    'c2: the two new references carry correct values alongside the original four');
+  // C: neither new reference inflates the correction confidence (score derives
+  // only from provenance/fingerprint/debate, exactly as before this change).
+  // Control differs from `allSix` ONLY by dropping the de-id report + blame
+  // summary — every score-bearing input (provenance/fingerprint/debate) and the
+  // metricInvolved that sets the correction kind is kept identical.
+  const scoreWithout = draftPostmortem({
+    incident: { description: 'x', discoveredAt: DISCOVERED, affectedFinding: { label: 'X', column: 'age', layer: 'physiology', kind: FINDING_ERROR_KINDS.FALSE_POSITIVE } },
+    provenanceTrail: trail,
+    fingerprint: { label: 'age check', digest: { value: 'abcdef0123456789cafebabe' } },
+    badges: [{ id: 'validated', label: 'Validated' }],
+    debateResolution: { resolvedBy: 'C' },
+    metricInvolved: { name: 'max_plausible_age' },
+  }).proposedCorrection.confidence.score;
+  ok(allSix.proposedCorrection.confidence.score === scoreWithout,
+    'c2/C: adding a de-id report + blame summary does NOT change the correction confidence score');
 
   // ---------- (e) proposed correction confidence (fix-confidence pattern) ----------
   const fp = draftPostmortem({

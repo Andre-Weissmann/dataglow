@@ -39,6 +39,11 @@
 // data built only from its arguments.
 
 export const POSTMORTEM_KIND = 'dataglow-incident-postmortem';
+// Left at 1 intentionally: the `deidentification` and `dataBlame` reference keys
+// added here are purely additive and opt-in — they appear ONLY when the caller
+// supplies the matching input, so a draft produced without them is byte-identical
+// to a v1 draft. `references` has always carried a variable key set, so no
+// consumer that reads it can break. Bumping would falsely signal a breaking change.
 export const POSTMORTEM_VERSION = 1;
 
 export const POSTMORTEM_DISCLAIMER =
@@ -152,7 +157,11 @@ function normalizeFinding(f) {
 }
 
 // Optional cross-batch context, only populated from what the caller supplied.
-function buildReferences({ fingerprint, badges, debateResolution, metricInvolved }) {
+// EVERY reference type here follows one rule: this module only READS and REPORTS
+// what it was handed — it never re-runs a check, imports a dependency, or invents
+// a claim. A key appears ONLY when its input was genuinely supplied and non-empty;
+// an absent input leaves no null placeholder behind.
+function buildReferences({ fingerprint, badges, debateResolution, metricInvolved, deidReport, blameSummary }) {
   const refs = {};
   const fpValue = fingerprint && fingerprint.digest && typeof fingerprint.digest.value === 'string'
     ? fingerprint.digest.value : null;
@@ -173,6 +182,51 @@ function buildReferences({ fingerprint, badges, debateResolution, metricInvolved
       ? metricInvolved
       : (metricInvolved && (metricInvolved.name || metricInvolved.id)) || null;
     if (name) refs.metric = { name: String(name) };
+  }
+
+  // De-identification screen — a caller-supplied de-id report (buildDeidReport)
+  // or its signed attestation (buildDeidAttestation) from
+  // js/provenance/deidentification-verifier.js. We NEVER re-run the check here
+  // (it needs DuckDB sampling and lives in that module); we only surface the
+  // verdict it already produced, exactly like fingerprint/badges. HONESTY: we
+  // carry the verifier's own vocabulary ('pass'/'review'/'fail' + a low/moderate/
+  // high risk level) and never upgrade it into a stronger claim — the narrative
+  // states plainly that this is a screening aid, not a certification.
+  if (deidReport && typeof deidReport === 'object') {
+    const verdict = typeof deidReport.verdict === 'string' ? deidReport.verdict : null;
+    if (verdict) {
+      const entry = { verdict };
+      const reid = deidReport.reidentification && typeof deidReport.reidentification === 'object'
+        ? deidReport.reidentification : null;
+      if (reid && typeof reid.level === 'string') entry.riskLevel = reid.level;
+      // If an attestation (not just a report) was passed, surface its digest
+      // prefix as an integrity pointer — same 16-char convention as fingerprint.
+      const digestVal = deidReport.digest && typeof deidReport.digest.value === 'string'
+        ? deidReport.digest.value : null;
+      if (digestVal) entry.digest = digestVal.slice(0, 16);
+      refs.deidentification = entry;
+    }
+  }
+
+  // Cell-level data-blame — a plain-English one-line column history.
+  // ARCHITECTURE NOTE (judgment call): although data-blame is a PURE re-projection
+  // of the same provenanceTrail this module already accepts, we take it as a
+  // PRE-COMPUTED value (the caller runs summarizeColumnBlame in
+  // js/provenance/data-blame.js) rather than computing it inline. Reason: the
+  // module's safety contract — enforced by test/incident-postmortem.test.mjs —
+  // requires this file to import NOTHING, so it provably cannot reach an apply
+  // path. Importing data-blame.js to compute the summary would break that
+  // guarantee. Accepting the summary keeps the "caller computes, we only report"
+  // pattern identical to fingerprint/badges/deidReport above.
+  if (typeof blameSummary === 'string' && blameSummary.trim() !== '') {
+    refs.dataBlame = { summary: blameSummary.trim() };
+  } else if (blameSummary && typeof blameSummary === 'object') {
+    const s = typeof blameSummary.summary === 'string' ? blameSummary.summary.trim() : '';
+    if (s !== '') {
+      const entry = { summary: s };
+      if (typeof blameSummary.changeCount === 'number') entry.changeCount = blameSummary.changeCount;
+      refs.dataBlame = entry;
+    }
   }
   return refs;
 }
@@ -216,6 +270,21 @@ function buildNarrative(finding, timeline, references, ledgerEntries) {
   if (references.metric) {
     lines.push(`The finding involves the “${references.metric.name}” metric definition from the metrics registry.`);
   }
+  if (references.deidentification) {
+    const v = references.deidentification.verdict;
+    const risk = references.deidentification.riskLevel;
+    const verdictPhrase = v === 'pass'
+      ? 'passed the automated HIPAA Safe Harbor de-identification screen'
+      : v === 'fail'
+        ? 'was flagged by the automated HIPAA Safe Harbor de-identification screen'
+        : `was marked “${v}” by the automated HIPAA Safe Harbor de-identification screen`;
+    lines.push(
+      `This dataset ${verdictPhrase}${risk ? ` (re-identification risk: ${risk})` : ''} — `
+      + 'a screening aid only, not a certification of de-identification.');
+  }
+  if (references.dataBlame) {
+    lines.push(`The affected column’s recorded change history — ${references.dataBlame.summary}`);
+  }
   if (Array.isArray(ledgerEntries) && ledgerEntries.length) {
     lines.push(`${ledgerEntries.length} recorded judgment-call(s) from the assumption ledger are attached for context.`);
   }
@@ -258,6 +327,14 @@ export function proposeCorrection(finding, { references, timeline } = {}) {
 
   // Evidence adjusts confidence: concrete provenance, a fingerprinted result,
   // and a debate resolution each make the proposal more grounded.
+  // NOTE (judgment call): the de-identification screen and the data-blame summary
+  // deliberately DO NOT adjust this score. A de-id verdict is about privacy risk,
+  // orthogonal to whether a validation finding was a false positive/negative, so
+  // it is no evidence for the CORRECTION's confidence. The blame summary is a
+  // re-projection of the SAME provenanceTrail that already contributes the +10
+  // above — rewarding it again would double-count one piece of evidence. Both are
+  // reported for context (references + narrative) without inflating confidence,
+  // consistent with how `badges` are referenced but never scored.
   let score = base;
   if (provSteps.length) score += 10;
   if (refs.fingerprint) score += 5;
@@ -288,6 +365,8 @@ export function proposeCorrection(finding, { references, timeline } = {}) {
  * @param {Array}  [args.badges]                 computeBadges() output (Batch 3)
  * @param {object} [args.debateResolution]       a resolve() return value (Batch 2)
  * @param {*}      [args.metricInvolved]         a metrics-registry metric name/def (Batch 1)
+ * @param {object} [args.deidReport]             a buildDeidReport()/buildDeidAttestation() result (Provenance Packet) — read-only, never re-run here
+ * @param {string|object} [args.blameSummary]    a summarizeColumnBlame() one-liner (or {summary, changeCount}) — pre-computed by the caller; see buildReferences' architecture note
  * @param {object} [meta]                         { generatedAt } descriptive only
  * @returns {object} a self-describing PROPOSAL draft (applied:false)
  */
@@ -302,6 +381,8 @@ export function draftPostmortem(args = {}, meta = {}) {
     badges: args.badges,
     debateResolution: args.debateResolution,
     metricInvolved: args.metricInvolved,
+    deidReport: args.deidReport,
+    blameSummary: args.blameSummary,
   });
 
   const timeline = reconstructTimeline(args.provenanceTrail, discoveredAt);

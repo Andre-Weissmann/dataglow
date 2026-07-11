@@ -519,3 +519,47 @@ Newest entries go at the bottom of **Entries**.
 - **Severity:** low
 - **Area:** `js/agents/meeting-scribe-agent.js`, `js/agents/meeting-scribe-ui.js`
 - **Status:** open
+
+### 2026-07-11 — Incident postmortem takes its data-blame summary pre-computed because the module may import nothing
+
+- **Description:** `draftPostmortem` in `js/provenance/incident-postmortem.js`
+  now optionally surfaces a cell-level data-blame summary, but accepts it as a
+  PRE-COMPUTED `args.blameSummary` string/object rather than calling
+  `summarizeColumnBlame(args.provenanceTrail, finding.column)` inline — even
+  though data-blame is a pure re-projection of the same `provenanceTrail` the
+  module already accepts, so computing it inline would be free of new data. The
+  reason is the module's own safety contract: `test/incident-postmortem.test.mjs`
+  asserts the source contains NO `import` statement at all (so it provably cannot
+  reach an apply/mutation path), and importing `data-blame.js` would break that
+  guard. The cost is a small caller burden — every call site that wants the blame
+  line must run `summarizeColumnBlame` itself and pass the result — and a
+  theoretical drift risk if a caller passes a summary that doesn't match the trail
+  it also passes (the module can't cross-check them). Revisit only if the
+  no-imports constraint is ever deliberately relaxed (e.g. by splitting the pure
+  compute helpers into an import-free leaf module the postmortem could depend on
+  without gaining an apply path); until then, caller-computes is the correct,
+  consistent choice (it matches how fingerprint/badges/deid are all handed in).
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/incident-postmortem.js`, `js/provenance/data-blame.js`
+- **Status:** open
+
+### 2026-07-11 — Incident postmortem's six optional references are populated by the caller, not wired end-to-end from the Validate tab
+
+- **Description:** `js/provenance/incident-postmortem.js` can now reference six
+  optional artifacts (fingerprint, badges, debate resolution, metric,
+  de-identification screen, data-blame summary), but the module is pure and only
+  reports what it is handed. The one live trigger — the Report-incident path in
+  `renderValidationResults` in `js/app-shell/main.js` (documented in the
+  2026-07-11 "only annotate-only corrections apply" entry above) — does not yet
+  gather and pass the new `deidReport`/`blameSummary` inputs, so in-app drafts
+  currently omit those two references even when a de-id report or blame history
+  exists elsewhere in the session. Wiring them is additive (collect the
+  already-computed de-id report from the Provenance/Trust tab and run
+  `summarizeColumnBlame` on the finding's column before calling `draftPostmortem`);
+  deferred to keep this batch to the pure module + its unit tests, matching the
+  "one real tested path" scoping used for the earlier reference types.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/incident-postmortem.js`, `js/app-shell/main.js`
+- **Status:** open
