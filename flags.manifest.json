@@ -21,6 +21,11 @@
       "addedInPR": "gen42-conversational-pack-builder",
       "description": "Gen 42 voice input for the conversational pack builder. The free-text answer path is fully implemented and identical to voice (voice is just transcribed text). No permissively-licensed on-device WASM/WebGPU STT model is vendored yet, so the mic is gated behind this flag with a TODO: pick a small Apache/MIT WASM speech model before promotion. When off, buildQuestionView hides the mic entirely and only the typed path shows."
     },
+    "localAnalysisContract": {
+      "enabled": false,
+      "addedInPR": "feature/local-analysis-contract",
+      "description": "Local Analysis Contract (js/validation/analysis-contract.js): before/alongside running a SQL query — the user's own, or one an AI assistant wrote — checks it offline against the REAL schema of the loaded dataset and flags schema hallucination (references to columns/tables that don't exist), aggregation mismatches (COUNT without DISTINCT across a JOIN; SUM of a rate-like column), and missing guard clauses (aggregate query never excludes test/deleted/refunded rows a matching column suggests it should). Flags-only, never rewrites or blocks a query — empowerment-constraint compliant. Renders as a dismissible card in #sql-result-wrap, above the result table. When off, the SQL tab behaves exactly as before this PR."
+    },
     "meetingScribe": {
       "enabled": false,
       "addedInPR": "gen43-meeting-scribe-agent",

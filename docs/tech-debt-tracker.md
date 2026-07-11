@@ -109,3 +109,23 @@ Newest entries go at the bottom of **Entries**.
 - **Severity:** low
 - **Area:** `js/` (directory structure)
 - **Status:** open
+
+### 2026-07-11 — Local Analysis Contract's SQL tokenizer is regex-based, not a real parser
+
+- **Description:** `js/validation/analysis-contract.js` (and the schema-aware
+  upgrade to `checkSanityAnchor` in `js/ambient/ambient-validation.worker.js`)
+  extract table/column/JOIN/GROUP BY references with regex-based tokenization,
+  not a real SQL parser — this is already documented in the module's own header
+  comment. It handles the common single-statement, non-nested query shapes the
+  SQL tab is built around, but can miscount or miss references inside deeply
+  nested subqueries, CTEs with shadowed column names, or unusual quoting. Every
+  check degrades silently (no flag, not a crash) rather than guessing when the
+  tokenizer is unsure, so the failure mode is "misses a real issue," never "flags
+  a false one" — an intentional, accepted trade-off, not a correctness bug.
+  Revisit only if a real analyst query shape is found that the tokenizer
+  mishandles in practice; not worth a real parser dependency pre-emptively.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/validation/analysis-contract.js`, `js/ambient/ambient-validation.worker.js`
+- **Status:** open
+

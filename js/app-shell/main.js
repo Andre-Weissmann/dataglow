@@ -11,6 +11,7 @@ import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
 import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
 import * as validation from '../validation/validation.js';
+import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
@@ -574,6 +575,90 @@ async function runPreflight() {
 // ============================================================
 // SQL Tab
 // ============================================================
+
+// ------------------------------------------------------------
+// Local Analysis Contract wiring (feature-flagged: localAnalysisContract)
+// ------------------------------------------------------------
+// Builds the { tables: { [name]: { columns, rowCount, approxDistinct } } }
+// shape buildSchemaIndex()/runAnalysisContract() expect, from every loaded
+// dataset (not just the active one), so cross-table JOINs are checkable.
+// approxDistinct is populated lazily and only for columns actually named in
+// this query's JOIN ON / GROUP BY clauses — running approx_count_distinct
+// over every column of every loaded table on every Run would be wasteful.
+async function buildLiveSchemaForContract(sql) {
+  const tables = {};
+  for (const ds of state.datasets || []) {
+    tables[ds.table] = { columns: ds.cols, rowCount: ds.rowCount, approxDistinct: {} };
+  }
+
+  // Columns worth spending an approx_count_distinct query on: anything named
+  // in a JOIN ON clause or a GROUP BY — exactly what the fan-out/guard checks
+  // in analysis-contract.js and the ambient sanity anchor actually consult.
+  const onClauses = [...sql.matchAll(/\bjoin\b[\s\S]*?\bon\s+([\s\S]*?)(?=\bjoin\b|\bwhere\b|\bgroup\b|\border\b|\bhaving\b|\blimit\b|$)/gi)].map(m => m[1]);
+  const groupByMatch = /group\s+by\s+([\s\S]*?)(?=\border\b|\bhaving\b|\blimit\b|$)/i.exec(sql);
+  const relevantText = [...onClauses, groupByMatch ? groupByMatch[1] : ''].join(' ');
+  const relevantCols = new Set((relevantText.match(/[A-Za-z_][A-Za-z0-9_]*/g) || []).map(c => c.toLowerCase()));
+
+  const jobs = [];
+  for (const [tableName, t] of Object.entries(tables)) {
+    for (const col of t.columns || []) {
+      if (!relevantCols.has(col.name.toLowerCase())) continue;
+      jobs.push((async () => {
+        try {
+          const { rows } = await engine.runQuery(`SELECT approx_count_distinct(${JSON.stringify(col.name)}) AS n FROM ${tableName}`);
+          t.approxDistinct[col.name] = Number(rows[0]?.n);
+        } catch {
+          // A column that can't be distinct-counted (exotic type, etc.) just
+          // stays unmeasured — the checks degrade gracefully without it.
+        }
+      })());
+    }
+  }
+  await Promise.all(jobs);
+  return { tables };
+}
+
+// Renders the Analysis Contract report as a dismissible card above the SQL
+// result table. Flags-only: this never blocks, rewrites, or auto-runs
+// anything — it is purely informational, matching the empowerment
+// constraint every agent-shaped module in DATAGLOW holds itself to. Follows
+// the same status-dot + tone pattern as renderAmbientWarnings() above: only
+// pass/fail/warn exist as real CSS tones (see css/app.css), so an 'info'
+// severity flag maps to the 'warn' dot/tone, same as the ambient warnings do.
+function renderAnalysisContractCard(container, report) {
+  if (!report || report.flagCount === 0) return;
+  const toneFor = (sev) => (sev === 'fail' ? 'fail' : 'warn');
+  const outerTone = report.status === 'fail' ? 'fail' : report.status === 'pass' ? 'pass' : 'warn';
+  const card = el('div', {
+    class: 'card',
+    'data-testid': 'analysis-contract-card',
+    style: 'margin-top:var(--space-3); padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2);',
+  }, [
+    el('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:var(--space-2);' }, [
+      el('span', { class: `validation-status ${outerTone}` }, [
+        el('span', { class: `status-dot ${outerTone}` }),
+        el('span', {}, 'Local Analysis Contract'),
+      ]),
+      el('button', {
+        class: 'btn btn-secondary',
+        style: 'font-size:var(--text-xs); padding:2px 8px;',
+        'data-testid': 'analysis-contract-dismiss',
+        onclick: () => card.remove(),
+      }, 'Dismiss'),
+    ]),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, summarizeAnalysisContract(report)),
+    el('ul', { style: 'margin:0; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:6px;' },
+      report.flags.map(f => el('li', {
+        style: 'display:flex; align-items:flex-start; gap:var(--space-2); font-size:var(--text-xs);',
+      }, [
+        el('span', { class: `status-dot ${toneFor(f.severity)}`, style: 'margin-top:3px; flex:none;' }),
+        el('span', { style: 'flex:1;' }, f.message),
+      ]))
+    ),
+  ]);
+  container.prepend(card);
+}
+
 async function runSqlQuery() {
   const sql = $('#sql-input').value.trim();
   if (!sql) return;
@@ -589,6 +674,15 @@ async function runSqlQuery() {
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
     renderResultTable(resultWrap, result);
     $('#story-empty').style.display = 'none';
+    if (isEnabled('localAnalysisContract')) {
+      // Runs after the result is already shown — the contract check never
+      // gates or delays the query itself, only annotates the result with
+      // flags for the analyst to read before trusting it.
+      buildLiveSchemaForContract(sql).then(schema => {
+        const report = runAnalysisContract(sql, schema);
+        renderAnalysisContractCard(resultWrap, report);
+      }).catch(() => { /* contract check is best-effort; never break the SQL tab */ });
+    }
   } catch (err) {
     statusEl.textContent = '';
     resultWrap.innerHTML = `<div class="card" data-testid="sql-error" style="padding:var(--space-4); border-color:var(--color-error);">${renderSqlErrorHtml(err)}</div>`;

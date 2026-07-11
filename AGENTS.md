@@ -140,6 +140,51 @@ analyze flow (pushback + data-request detection, full tagged list, blank-input
 no-op), and the action-item open→partially-filled-stays-open→resolved flow. No flag
 flipped.
 
+### Local Analysis Contract — SQL-vs-schema checker, and a consolidation call
+
+`js/validation/analysis-contract.js` checks a SQL query against the REAL schema
+of the dataset(s) already loaded in DuckDB, entirely offline, and flags three
+failure classes: **schema hallucination** (a referenced column/table doesn't
+exist — Levenshtein near-miss suggestion when one is close), **aggregation
+mismatches** (`COUNT` across a JOIN without `DISTINCT` when duplication is
+plausible; `SUM()` of a column that already looks like a rate/ratio/average),
+and **missing guard clauses** (an aggregate query never references a column
+that looks like it excludes test/demo/deleted/refunded/cancelled rows). Pure,
+DB-free, browser-free, network-free — `npm run test:analysiscontract`
+(`test/analysis-contract.test.mjs`, 29 tests). Wired into the SQL tab behind
+the `localAnalysisContract` flag (off by default): `runSqlQuery()` in
+`js/app-shell/main.js` runs the check AFTER the result table is already
+rendered — it never gates, delays, or blocks query execution — using a live
+schema built from every loaded dataset plus lazily-fetched
+`approx_count_distinct` stats for columns actually named in that query's
+JOIN/GROUP BY clauses, and renders a dismissible card listing every flag.
+EMPOWERMENT CONSTRAINT compliant: flags only, never rewrites, blocks, or
+auto-fixes a query. Graceful-degradation guarantee: every check and the schema
+builder are wrapped so an unreadable/malformed schema, an uncountable column,
+or a tokenizer surprise degrades that one check silently rather than throwing
+— the SQL tab keeps working even if the contract check can't run.
+
+**Consolidation call (read before adding a fourth join-fanout checker):** this
+module's join-fan-out logic was written, tested, and then deliberately
+REMOVED once it became clear it duplicated the ambient `checkSanityAnchor`
+(`js/ambient/ambient-validation.worker.js`), which already flagged "join +
+aggregate without DISTINCT" during live typing. Rather than ship two
+competing join-fanout checkers with two different notions of "risky," this
+PR upgraded `checkSanityAnchor` itself to optionally accept a schema with
+row-count/distinct-count stats (`options.schema`) and, when present, name the
+actual low-uniqueness join column and its real uniqueness percentage instead
+of a generic flag — while staying silent when the query's own `GROUP BY`
+already matches the many-side table's grain (a legitimate 1:many join, not a
+fan-out bug) — falling all the way back to the original blunt check when no
+schema/stats are supplied, so ambient checks before a dataset loads (or during
+keystroke-level live typing, which does not yet pass a schema — a documented,
+deliberate scope cut, not an oversight) are unaffected. `npm run test:ambient`
+(`test/ambient-validation.test.mjs`, 26 tests: all pre-existing cases pass
+unmodified plus 4 new stats-aware cases). Join-fan-out risk therefore has
+exactly ONE owner (`checkSanityAnchor`); `js/validation/analysis-contract.js`'s own header
+comment says so explicitly — if you're tempted to re-add fan-out detection to
+`js/validation/analysis-contract.js`, feed it a schema through `checkSanityAnchor` instead.
+
 ### Meeting scribe agent (Gen 43, Part 1) — pure grounding logic only, no capture yet
 
 `js/agents/meeting-scribe-agent.js` is the first, deliberately narrow piece of a
