@@ -154,6 +154,31 @@ exactly ONE owner (`checkSanityAnchor`); `js/validation/analysis-contract.js`'s 
 comment says so explicitly — if you're tempted to re-add fan-out detection to
 `js/validation/analysis-contract.js`, feed it a schema through `checkSanityAnchor` instead.
 
+### Meeting scribe agent (Gen 43, Part 1) — pure grounding logic only, no capture yet
+
+`js/agents/meeting-scribe-agent.js` is the first, deliberately narrow piece of a
+larger "analyst team goes to the meeting" idea. It does NOT capture audio and does
+NOT run speech-to-text — both are separate, browser-API-heavy follow-ups
+(`getDisplayMedia` + an on-device WebGPU transcription model) left out on purpose so
+this piece could ship small and fully unit-tested without a browser or a GPU. Given
+transcript segments (`{text, ts}`) and a context timeline the app already knows
+(`{ts, chart, queryLabel}`, emitted whenever the analyst switches views),
+`tagSegmentsWithContext` tags each segment with whichever context event was active at
+its timestamp (segments before the first event are tagged `null`, never guessed).
+`detectPushback`/`detectDataRequest` flag stakeholder phrasing — pushback ("why did
+this drop", "are you sure") is flagged so a caller can trigger the EXISTING
+uncertainty-resolver's re-run rather than a prose reply, honouring the same rule Gen 42
+established: a critique-style check must re-run its own query, never argue in text.
+`buildActionItem`/`isActionItemResolved`/`resolveActionItem` enforce the
+minimum-viable-action-item rule — an item resolves ONLY once it carries an owner, a due
+date, AND an outcome; a bare "will follow up" note stays open. `buildMeetingNote`
+assembles a plain, JSON-safe ledger entry; signing/appending it to a portable export
+file is the export layer's job, not this module's. EMPOWERMENT CONSTRAINT (same as
+Gen 42): nothing here writes to a pack, rule, or chart — it only produces a note object
+for the analyst to review. Ships behind the `meetingScribe` flag, but the flag is
+currently decorative: there is no UI, capture path, or call site anywhere in the app
+yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
+(`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
 
 ### Conversational pack builder — Validate-tab UI wiring (Gen 42 follow-up)
 

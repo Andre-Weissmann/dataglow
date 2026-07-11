@@ -25,6 +25,11 @@
       "enabled": false,
       "addedInPR": "feature/local-analysis-contract",
       "description": "Local Analysis Contract (js/validation/analysis-contract.js): before/alongside running a SQL query — the user's own, or one an AI assistant wrote — checks it offline against the REAL schema of the loaded dataset and flags schema hallucination (references to columns/tables that don't exist), aggregation mismatches (COUNT without DISTINCT across a JOIN; SUM of a rate-like column), and missing guard clauses (aggregate query never excludes test/deleted/refunded rows a matching column suggests it should). Flags-only, never rewrites or blocks a query — empowerment-constraint compliant. Renders as a dismissible card in #sql-result-wrap, above the result table. When off, the SQL tab behaves exactly as before this PR."
+    },
+    "meetingScribe": {
+      "enabled": false,
+      "addedInPR": "gen43-meeting-scribe-agent",
+      "description": "Gen 43 meeting scribe agent (js/agents/meeting-scribe-agent.js): pure, browser-free logic that tags a transcript's segments to whichever chart/query was on screen, flags stakeholder pushback for the existing uncertainty resolver, queues new data requests, and enforces the owner+dueDate+outcome rule before an action item counts as resolved. This flag exists for the promote-or-delete clock even though no UI reads it yet — there is no audio capture, transcription, or Validate/Visualize-tab wiring in this PR (deliberately out of scope, follow-up work). Ships fully dark: no code path is reachable from the app today regardless of this flag's value."
     }
   }
 }

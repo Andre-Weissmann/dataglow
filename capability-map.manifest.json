@@ -846,6 +846,18 @@
           "name": "summarizeAnalysisContract"
         }
       ]
+    },
+    {
+      "id": "meeting-scribe-agent",
+      "area": "Meeting scribe",
+      "name": "Meeting note grounding agent",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/meeting-scribe-agent.js"],
+      "symbols": [
+        { "file": "js/agents/meeting-scribe-agent.js", "name": "tagSegmentsWithContext" },
+        { "file": "js/agents/meeting-scribe-agent.js", "name": "detectPushback" },
+        { "file": "js/agents/meeting-scribe-agent.js", "name": "buildMeetingNote" }
+      ]
     }
   ]
 }
