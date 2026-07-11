@@ -198,6 +198,20 @@ here.)
   `js/provenance/provenance.js` and `js/provenance/validation-receipt.js` rather than
   duplicating that rendering. `openProofDrawer` paints it). Same `trustStripProofDrawer`
   flag; no SQL knowledge is required to read the default view.
+- **Metric Contracts (Batch 1: versioned data model)** — `js/metrics/metric-contracts.js`
+  (a SEPARATE append-only version history sitting alongside — not inside — the Metric
+  Studio `MetricRegistry` above, so that registry needed zero code changes. `snapshotDefinition`
+  captures only the contract-relevant fields — `name`/`plainEnglish`/`expression`/`owner`/`tag` —
+  deliberately excluding runtime fields like `computedValue`/`status` (recomputing or
+  recertifying a metric is not a definition change). `MetricContractHistory.recordVersion`
+  appends an immutable, timestamped snapshot; nothing already recorded is ever edited or
+  removed. `MetricContractRegistry` keys one history per metric id. `diffVersions` compares
+  any two snapshots field-by-field and `summarizeDiff` gives a one-line label. This batch is
+  pure logic only — no DOM presenter, no caller wired into `main.js` yet, and no AI-agent
+  write path exists through this module. Gated behind the `metricContracts` flag (ships OFF,
+  currently gates nothing observable since there is no UI yet); later batches add a diff view
+  and a confirm-gate so any AI-agent-proposed metric change renders as an exact diff requiring
+  one explicit human click before it applies.
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
