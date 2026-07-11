@@ -45,6 +45,7 @@ import * as sdProof from '../provenance/selective-disclosure-proof.js';
 import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import * as dataBom from '../provenance/data-bom.js';
+import { buildDataNutritionLabel, renderLabelSummaryLines, exportLabelAsJSON } from '../provenance/data-nutrition-label.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
@@ -3688,6 +3689,21 @@ function collectValidationSummary() {
   return { validation: summary, grades };
 }
 
+// Build the opt-in Data Nutrition Label for the active dataset from what app
+// state already holds — the chain-of-custody trail, the Assumption Ledger, and
+// the last validation run. Returns null if the manifest module or dataset is
+// unavailable. Pure aggregation; no network. Gated by both the flag and the
+// human ticking the checkbox (see runExport) — never built silently.
+function buildActiveNutritionLabel(ds, valSummary) {
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  return buildDataNutritionLabel({
+    dataset: ds,
+    custody: chain,
+    assumptions: ledger.getLedgerEntries(),
+    checks: valSummary,
+  });
+}
+
 async function runExport(format, noteEl) {
   if (!exportReport) { toast('Export module unavailable on this runtime', 'error'); return; }
   const ds = getActiveDataset();
@@ -3696,17 +3712,46 @@ async function runExport(format, noteEl) {
     const { columns, rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
     const { validation: valSummary, grades } = collectValidationSummary();
     const platform = (window.__dataglowRegistry && window.__dataglowRegistry.platform) || 'browser';
+
+    // Opt-in Data Nutrition Label: only when the flag is on AND the human ticked
+    // the checkbox. Never auto-attached (empowerment constraint).
+    const labelBox = $('#export-include-label');
+    const includeLabel = isEnabled('dataNutritionLabel') && labelBox && labelBox.checked;
+    let label = null;
+    let nutritionLabelLines = null;
+    if (includeLabel) {
+      label = buildActiveNutritionLabel(ds, valSummary);
+      nutritionLabelLines = renderLabelSummaryLines(label);
+    }
+
     const { delivery } = await exportReport.exportDataset({
       format, dataset: ds, columns, rows,
       validation: valSummary, grades, platform, win: window,
+      nutritionLabelLines,
     });
     if (delivery && delivery.cancelled) {
       if (noteEl) noteEl.textContent = 'Export cancelled.';
       return;
     }
+
+    // When opted in, also deliver the machine-readable manifest as a separate
+    // .json file alongside the primary export (client-side Blob download, no
+    // network) so a recipient can inspect/re-verify it without DATAGLOW.
+    if (label) {
+      const json = exportLabelAsJSON(label);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dataglow-${ds.table}-nutrition-label.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     if (noteEl) {
       noteEl.textContent = `Exported ${rows.length} row(s) to ${format.toUpperCase()}`
-        + (valSummary.length ? ` with a ${valSummary.length}-layer validation summary.` : '.');
+        + (valSummary.length ? ` with a ${valSummary.length}-layer validation summary` : '')
+        + (label ? ', plus a Data Nutrition Label (summary + .json manifest).' : '.');
     }
     toast(`${format.toUpperCase()} export ready`, 'success');
   } catch (e) {
@@ -3720,6 +3765,10 @@ function initExportReport() {
   const pdfBtn = $('#btn-export-pdf');
   if (xlsxBtn) xlsxBtn.addEventListener('click', () => runExport('xlsx', noteEl));
   if (pdfBtn) pdfBtn.addEventListener('click', () => runExport('pdf', noteEl));
+  // Reveal the opt-in Data Nutrition Label checkbox only when the flag is on;
+  // otherwise it stays hidden and the export flow is unchanged.
+  const labelWrap = $('#export-label-optin');
+  if (labelWrap && isEnabled('dataNutritionLabel')) labelWrap.style.display = '';
 }
 
 // Render the Forecast-Based Drift Alerting block shown inside the Distributional

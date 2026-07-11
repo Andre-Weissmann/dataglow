@@ -152,6 +152,32 @@ is touched; their panels render exactly as before once the disclosure they
 live inside is open. Tests: `npm run test:tabgroups`
 (`test/tab-groups.test.mjs`) and `npm run test:validatefocus`
 (`test/validate-focus.test.mjs`).
+
+### Data Nutrition Label (Trust Passport, Batch 2)
+
+`js/provenance/data-nutrition-label.js` is a pure, browser-free, network-free
+aggregator that ASSEMBLES a portable JSON provenance manifest from the data the
+app already tracks — the tamper-evident chain of custody (`js/provenance/`), the
+Assumption Ledger, and validation results — without duplicating any of it.
+`buildDataNutritionLabel(ctx)` returns a self-describing manifest carrying
+`kind`, an integer `schemaVersion` (currently `1`), `generatedAt`, dataset
+shape, `checksRun`, `findingsSummary`, a derived `transformations` projection,
+`assumptions`, `isSynthetic`, a `custodyChain` OBJECT (whose top-level
+`finalHash` is the anchor point later batches build on), and a `disclaimer`;
+`renderLabelSummary`/`renderLabelSummaryLines` and `exportLabelAsJSON` render it
+for humans and for export. It is the shared shape Batch 3 (selective-disclosure
+proofs) and Batch 4 (synthetic-data metadata) extend, so keep it simple,
+versioned, and honest. HONEST NAMING is a hard rule for this surface: it is a
+manifest/summary, NOT a certification — never describe it as "blockchain",
+"certified", or "verified", and claim no cryptographic guarantee beyond the
+SHA-256 chain the app already computes. It ships behind the OFF-by-default
+`dataNutritionLabel` flag and is strictly OPT-IN in the export flow (a person
+ticks `#export-include-label`; it is never auto-attached), and the export
+module (`js/export/export-report.js`) stays decoupled — `js/app-shell/main.js`
+renders the label lines and passes them in, so with the flag off or the box
+unticked export output is byte-for-byte unchanged. Tests:
+`npm run test:nutritionlabel`.
+
 ### Semantic / Metrics Layer (Trust Passport, batch 1)
 
 `js/validation/semantic-layer.js` is a pure, browser-free, network-free module: an

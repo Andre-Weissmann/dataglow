@@ -80,6 +80,11 @@
       "enabled": false,
       "addedInPR": "feature/ux-navigation-and-validate-declutter",
       "description": "Declutters the Validate tab down to one primary action (Run All 20 Layers) by wrapping its secondary controls (context input, domain pack picker, level picker, export/import/receipt buttons) plus the AI Synthesis and Peer Review Mode cards in <details> disclosures, closed by default. js/app-shell/validate-focus.js's pure shouldExpandAdvanced({hasRunOnce, wasManuallyExpanded}) and createValidateFocusStore() decide open/closed state per dataset, in memory only \u2014 never persisted. A dataset's Advanced options auto-open the first time validation is run on it, or if the user manually opens any one of the three (they then track together). When off (default), applyValidateFocusMode() forces every one of these <details> open on every render \u2014 identical to the pre-PR fully-expanded layout, nothing removed or relabeled."
+    },
+    "dataNutritionLabel": {
+      "enabled": false,
+      "addedInPR": "feature/data-nutrition-label",
+      "description": "Trust Passport (Batch 2) Data Nutrition Label: a portable provenance manifest (js/provenance/data-nutrition-label.js) that knits the existing chain-of-custody trail, Assumption Ledger, and per-layer validation results into ONE self-describing summary \u2014 what was checked, what passed/failed, what transformations were recorded, any assumptions, whether the data is synthetic, and the chain of custody \u2014 that a recipient can inspect without running DATAGLOW. It is a summary/manifest only, NOT a certification or verification. Opt-in only: with the flag on, the Export card on the Visualize tab shows a 'Include Data Nutrition Label' checkbox; only when a human ticks it does the export append a human-readable label section (PDF/Excel) and download the machine-readable .json manifest alongside the existing export. When this flag is off (its shipped default), the checkbox is hidden and the export flow is byte-for-byte unchanged."
     }
   }
 }

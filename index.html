@@ -753,6 +753,10 @@
             <button class="btn btn-secondary" id="btn-export-xlsx" data-testid="button-export-xlsx">Export Excel (.xlsx)</button>
             <button class="btn btn-secondary" id="btn-export-pdf" data-testid="button-export-pdf">Export PDF report</button>
           </div>
+          <label id="export-label-optin" style="display:none; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2); cursor:pointer;" title="A portable summary manifest — what was checked, what passed/failed, transformations, assumptions, and the chain of custody. A summary only, not a certification. Nothing is attached unless you tick this box.">
+            <input type="checkbox" id="export-include-label" data-testid="checkbox-include-label">
+            Include a Data Nutrition Label (summary manifest + .json) with this export
+          </label>
           <div id="export-note" style="font-size:var(--text-xs); color:var(--color-text-faint);"></div>
         </div>
         <div id="viz-chart" class="card" style="padding:var(--space-4); min-height:420px;"></div>

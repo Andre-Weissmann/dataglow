@@ -45,10 +45,15 @@ import { deliverBlob } from './export-delivery.js';
  * @param {Array<{layer:string,name?:string,status?:string,summary?:string}>} [opts.validation]
  *        Per-layer validation summary, if a validation run is available.
  * @param {object} [opts.grades]    Optional calibrated-grade roll-up { overall, integrity, plausibility }.
+ * @param {string[]} [opts.nutritionLabelLines] Optional pre-rendered Data Nutrition Label summary
+ *        lines (js/provenance/data-nutrition-label.js). Present ONLY when the human opted in; when
+ *        absent the export is byte-for-byte unchanged. This module stays decoupled from the label
+ *        module — it just appends the already-rendered lines.
  * @param {Date}   [opts.generatedAt] Override the generation timestamp (tests).
  * @returns {{title:string, datasetName:string, tableName:string, generatedAt:string,
  *   columns:string[], rows:Array<object>, rowCount:number, columnCount:number,
- *   validation:Array<object>, grades:(object|null), loadedAt:(string|null)}}
+ *   validation:Array<object>, grades:(object|null), loadedAt:(string|null),
+ *   nutritionLabelLines:(string[]|null)}}
  */
 export function buildDatasetView(opts = {}) {
   const ds = opts.dataset || null;
@@ -73,6 +78,7 @@ export function buildDatasetView(opts = {}) {
     validation,
     grades: opts.grades || null,
     loadedAt: ds && ds.loadedAt ? new Date(ds.loadedAt).toISOString() : null,
+    nutritionLabelLines: Array.isArray(opts.nutritionLabelLines) ? opts.nutritionLabelLines.slice() : null,
   };
 }
 
@@ -147,6 +153,14 @@ export function buildWorkbookBlob(view, opts = {}) {
     }
     const vSheet = XLSX.utils.aoa_to_sheet(vAoa);
     XLSX.utils.book_append_sheet(wb, vSheet, 'Validation Summary');
+  }
+
+  // Opt-in Data Nutrition Label sheet — present only when the human opted in
+  // (the caller passed pre-rendered lines). Absent otherwise, so the workbook
+  // is unchanged when the feature is off.
+  if (view.nutritionLabelLines && view.nutritionLabelLines.length) {
+    const labelSheet = XLSX.utils.aoa_to_sheet(view.nutritionLabelLines.map((l) => [l]));
+    XLSX.utils.book_append_sheet(wb, labelSheet, 'Data Nutrition Label');
   }
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -243,6 +257,11 @@ export function buildReportLines(view) {
   } else {
     lines.push('');
     lines.push('Validation summary: not available (run the Validate tab to include one).');
+  }
+  if (view.nutritionLabelLines && view.nutritionLabelLines.length) {
+    lines.push('');
+    lines.push('----------------------------------------');
+    for (const l of view.nutritionLabelLines) lines.push(l);
   }
   lines.push('');
   lines.push('Generated locally by DATAGLOW — your data never left this device.');
