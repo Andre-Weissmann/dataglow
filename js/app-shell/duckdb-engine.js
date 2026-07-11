@@ -84,9 +84,23 @@ export async function runQuery(sql) {
   return { columns, rows, elapsedMs, rowCount: rows.length, dateColumns: [...dateCols] };
 }
 
+// Build the Uint8Array handed to DuckDB-WASM from an INDEPENDENT copy of the
+// caller's bytes. db.registerFileBuffer() transfers the array's underlying
+// buffer to the DuckDB worker, which DETACHES it — so if we passed a view over
+// the caller's ArrayBuffer, that original buffer would be silently invalidated
+// the moment we register it. The file-load path also hashes those same raw
+// bytes for the provenance chain of custody; a detached buffer there means the
+// audit trail silently records nothing. Copying decouples the two: the engine
+// gets its own transferable buffer and the caller's bytes stay valid for
+// hashing (and any retry/re-read) no matter the call order.
+export function duckdbBytes(source) {
+  const view = source instanceof ArrayBuffer ? new Uint8Array(source) : source;
+  return view.slice(); // fresh Uint8Array backed by its own buffer
+}
+
 export async function registerFileBuffer(fileName, arrayBuffer) {
   const db = state.duckdb.db;
-  await db.registerFileBuffer(fileName, new Uint8Array(arrayBuffer));
+  await db.registerFileBuffer(fileName, duckdbBytes(arrayBuffer));
 }
 
 export async function listTables() {

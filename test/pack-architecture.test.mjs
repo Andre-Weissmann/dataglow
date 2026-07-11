@@ -274,22 +274,34 @@ function main() {
   ok(Object.keys(DOMAIN_PACKS).every(k => packMap[k] === DOMAIN_PACKS[k]),
     'identical: plugin map reuses the SAME runtime pack objects (byte-for-byte)');
 
-  for (const sc of scenarios()) {
-    // Legacy source (default).
-    resetPackSource();
-    const legacyIn = sc.make();
-    const legacySummary = applyDomainPack(legacyIn.layerResults, sc.pack, { columns: legacyIn.columns });
+  // summarizeUnitTests() stamps its output with Date.now(). The legacy and
+  // plugin runs below execute a few milliseconds apart, so a free-running clock
+  // makes their timestamps differ and the byte-for-byte comparison flakes (the
+  // healthcare de-id rule is worst-affected — it re-summarizes, so it carries a
+  // second, later stamp). Freeze the clock across both runs so the comparison
+  // reflects pack behaviour, not wall-clock skew.
+  const realNow = Date.now;
+  Date.now = () => 1_700_000_000_000;
+  try {
+    for (const sc of scenarios()) {
+      // Legacy source (default).
+      resetPackSource();
+      const legacyIn = sc.make();
+      const legacySummary = applyDomainPack(legacyIn.layerResults, sc.pack, { columns: legacyIn.columns });
 
-    // Plugin source.
-    setPackSource(packMap);
-    const pluginIn = sc.make();
-    const pluginSummary = applyDomainPack(pluginIn.layerResults, sc.pack, { columns: pluginIn.columns });
-    resetPackSource();
+      // Plugin source.
+      setPackSource(packMap);
+      const pluginIn = sc.make();
+      const pluginSummary = applyDomainPack(pluginIn.layerResults, sc.pack, { columns: pluginIn.columns });
+      resetPackSource();
 
-    ok(deepEqual(legacyIn.layerResults, pluginIn.layerResults),
-      `identical[${sc.pack}]: ${sc.label} — mutated layer output matches`);
-    ok(deepEqual(legacySummary, pluginSummary),
-      `identical[${sc.pack}]: ${sc.label} — pack summary/annotations match`);
+      ok(deepEqual(legacyIn.layerResults, pluginIn.layerResults),
+        `identical[${sc.pack}]: ${sc.label} — mutated layer output matches`);
+      ok(deepEqual(legacySummary, pluginSummary),
+        `identical[${sc.pack}]: ${sc.label} — pack summary/annotations match`);
+    }
+  } finally {
+    Date.now = realNow;
   }
 
   // ============================================================

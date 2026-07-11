@@ -365,9 +365,20 @@ export async function checkNarrativeConsistency(storyText, queryResult) {
       const nums = rows.map(r => r[c]).filter(v => typeof v === 'number' && !Number.isNaN(v));
       if (nums.length) {
         // Column average, min, max — as stated by the numeric_mean claim.
-        addNumber(nums.reduce((a, b) => a + b, 0) / nums.length);
+        const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+        addNumber(mean);
         addNumber(Math.min(...nums));
         addNumber(Math.max(...nums));
+        // Proportion columns (every value in [0,1] — the shape of a 0/1 flag
+        // like has_diabetes, or an already-normalised rate) are narrated as a
+        // PERCENTAGE, e.g. "30% of patients have diabetes" for a mean of 0.30.
+        // Without also offering mean*100 the correctly-rounded percentage never
+        // matches the raw mean and every such claim is a false mismatch.
+        if (nums.every(v => v >= 0 && v <= 1)) {
+          addNumber(mean * 100);
+          addNumber(Math.min(...nums) * 100);
+          addNumber(Math.max(...nums) * 100);
+        }
       } else {
         // Categorical: percentage of rows equal to the modal value, matching
         // category_share's ((topCount / rows.length) * 100) computation.
@@ -584,10 +595,24 @@ async function benfordEligibility(table, c) {
   const { rows } = await engine.runQuery(`
     SELECT COUNT(*) FILTER (WHERE ${col} IS NOT NULL AND ABS(${col}) >= 1) AS n,
            COUNT(DISTINCT CASE WHEN ${col} IS NOT NULL AND ABS(${col}) >= 1
-                               THEN FLOOR(LOG10(ABS(${col}))) END) AS orders
+                               THEN FLOOR(LOG10(ABS(${col}))) END) AS orders,
+           COUNT(*) FILTER (WHERE ${col} IS NOT NULL) AS nonnull,
+           COUNT(*) FILTER (WHERE ${col} IS NOT NULL AND ${col} <> 0 AND ${col} <> 1) AS non_binary
     FROM ${table}`);
   const n = Number(rows[0].n) || 0;
   const orders = Number(rows[0].orders) || 0;
+  const nonnull = Number(rows[0].nonnull) || 0;
+  const nonBinary = Number(rows[0].non_binary) || 0;
+  // Binary 0/1 flag columns (common healthcare booleans like has_diabetes,
+  // mortality_flag) have at most two leading digits by definition, so a
+  // leading-digit distribution test has nothing to measure — and any value of
+  // 0 makes Benford mathematically undefined (log10(0)). Recognise them in the
+  // CORE eligibility gate itself, not only when a domain pack happens to be
+  // active, so the skip is labelled as the deliberate binary-flag exemption
+  // (benfordSkipCause -> 'binary_flag') no matter which pack (or none) is loaded.
+  if (nonnull > 0 && nonBinary === 0) {
+    return { eligible: false, reason: `"${c.name}" skipped — binary 0/1 flag column, exempt from Benford's Law (which applies only to multi-order-of-magnitude quantities).` };
+  }
   if (n < 50) {
     return { eligible: false, reason: `"${c.name}" skipped — only ${n} usable value(s); too few for a meaningful Benford test.` };
   }

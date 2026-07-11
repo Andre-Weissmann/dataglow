@@ -24,10 +24,11 @@ export async function loadFile(file) {
   // overwrite each other's data via CREATE OR REPLACE TABLE. Disambiguate up front.
   const tableName = uniqueTableName(sanitizeTableName(file.name));
   const arrayBuffer = await file.arrayBuffer();
-  // Hash the raw bytes NOW, before handing the buffer to the DuckDB engine.
-  // db.registerFileBuffer() transfers/detaches the underlying ArrayBuffer as an
-  // optimization, so any later read (e.g. hashBytes) would throw on a detached
-  // buffer and provenance would silently never be recorded.
+  // Anchor the provenance chain of custody to the raw file bytes. We hash BEFORE
+  // registering (belt) and engine.registerFileBuffer now hands DuckDB-WASM an
+  // independent copy so it can no longer detach this buffer (suspenders): a
+  // detached buffer here would make hashBytes throw and the audit trail would
+  // silently record nothing — worse than having no audit trail at all.
   const rawHash = await hashBytes(arrayBuffer);
 
   let droppedRows = 0;

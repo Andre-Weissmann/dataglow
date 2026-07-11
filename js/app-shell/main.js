@@ -9,6 +9,7 @@ import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
+import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
 import * as validation from '../validation/validation.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
@@ -579,8 +580,19 @@ async function runSqlQuery() {
     $('#story-empty').style.display = 'none';
   } catch (err) {
     statusEl.textContent = '';
-    resultWrap.innerHTML = `<div class="card" style="padding:var(--space-4); border-color:var(--color-error); color:var(--color-error); font-size:var(--text-sm);" class="mono">${escapeHtml(err.message)}</div>`;
+    resultWrap.innerHTML = `<div class="card" data-testid="sql-error" style="padding:var(--space-4); border-color:var(--color-error);">${renderSqlErrorHtml(err)}</div>`;
   }
+}
+
+// Repaint the highlight overlay from the textarea's current value and keep its
+// scroll position locked to the textarea so glyphs stay aligned while typing.
+function syncSqlHighlight() {
+  const input = $('#sql-input');
+  const overlay = $('#sql-highlight');
+  if (!input || !overlay) return;
+  overlay.innerHTML = highlightSql(input.value);
+  overlay.scrollTop = input.scrollTop;
+  overlay.scrollLeft = input.scrollLeft;
 }
 
 function renderResultTable(container, result) {
@@ -598,11 +610,19 @@ function initSqlTab() {
   $('#btn-sql-format').addEventListener('click', () => {
     const el = $('#sql-input');
     el.value = el.value.replace(/\s+/g, ' ').replace(/\bSELECT\b/gi, '\nSELECT').replace(/\bFROM\b/gi, '\nFROM').replace(/\bWHERE\b/gi, '\nWHERE').replace(/\bGROUP BY\b/gi, '\nGROUP BY').replace(/\bORDER BY\b/gi, '\nORDER BY').trim();
+    syncSqlHighlight();
     scheduleAmbientCheck();
   });
-  $('#sql-input').addEventListener('keydown', (e) => {
+  const input = $('#sql-input');
+  input.addEventListener('input', syncSqlHighlight);
+  input.addEventListener('scroll', () => {
+    const overlay = $('#sql-highlight');
+    if (overlay) { overlay.scrollTop = input.scrollTop; overlay.scrollLeft = input.scrollLeft; }
+  });
+  input.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runSqlQuery(); }
   });
+  syncSqlHighlight();
   initAmbientValidation();
 }
 

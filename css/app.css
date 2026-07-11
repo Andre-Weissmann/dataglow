@@ -184,6 +184,73 @@
 }
 .sql-textarea:focus { border-color: var(--color-primary); }
 
+/* ---- SQL syntax-highlight overlay ----
+   A highlighted <pre> sits behind a transparent-text <textarea>; both share
+   identical box metrics so glyphs line up exactly. The textarea keeps the
+   real caret + selection; the <pre> paints the colors. */
+.sql-highlight-wrap { position: relative; }
+.sql-highlight-overlay,
+.sql-textarea-code {
+  margin: 0;
+  min-height: 140px;
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  letter-spacing: normal;
+  tab-size: 2;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.sql-highlight-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: auto;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.sql-textarea-code {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  resize: vertical;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--color-text);
+}
+.sql-textarea-code::selection { background: var(--color-primary-highlight); }
+
+/* Token colors — reuse grade/brand tokens so they adapt to light & dark. */
+.tok-keyword    { color: var(--color-primary); font-weight: 600; }
+.tok-string     { color: var(--color-grade-a); }
+.tok-number     { color: var(--color-grade-b); }
+.tok-comment    { color: var(--color-text-faint); font-style: italic; }
+.tok-function   { color: var(--color-grade-c); }
+.tok-operator   { color: var(--color-text-muted); }
+.tok-identifier { color: var(--color-text); }
+.tok-punct      { color: var(--color-text-muted); }
+
+/* ---- Formatted SQL error card ---- */
+.sql-error-kind {
+  font-weight: 700; font-size: var(--text-sm);
+  color: var(--color-error); margin-bottom: var(--space-2);
+}
+.sql-error-detail {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--color-text); white-space: pre-wrap; word-break: break-word;
+  margin: 0;
+}
+.sql-error-hint {
+  margin-top: var(--space-3); padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--text-xs); color: var(--color-text-muted);
+}
+
 .result-table-wrap { overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 480px; }
 .result-table { font-size: var(--text-sm); }
 .result-table th {

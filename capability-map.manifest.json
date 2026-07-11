@@ -36,6 +36,14 @@
       "files": ["js/app-shell/loaders.js"]
     },
     {
+      "id": "app-shell-sql-highlight",
+      "platforms": ["browser", "desktop"],
+      "area": "App shell & data engine",
+      "name": "SQL editor highlighting",
+      "files": ["js/app-shell/sql-highlight.js"],
+      "symbols": [{ "file": "js/app-shell/sql-highlight.js", "name": "highlightSql" }]
+    },
+    {
       "id": "app-shell-warehouse",
       "platforms": ["browser", "desktop"],
       "area": "App shell & data engine",
