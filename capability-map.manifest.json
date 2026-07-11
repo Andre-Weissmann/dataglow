@@ -1048,6 +1048,17 @@
       ]
     },
     {
+      "id": "provenance-packet-format",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Provenance Packet (Batch 3) — portable signed .dataglow packet format (export/import)",
+      "files": ["js/provenance/provenance-packet.js"],
+      "symbols": [
+        { "file": "js/provenance/provenance-packet.js", "name": "buildPacket" },
+        { "file": "js/provenance/provenance-packet.js", "name": "verifyPacket" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",

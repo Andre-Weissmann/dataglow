@@ -151,6 +151,37 @@ human-reviews-and-clicks-merge rule this whole project is built around is comple
 unchanged. Opt-in via the `auto-resync` label (not automatic for every PR) so it can
 never silently touch a branch nobody asked it to touch.
 
+### Provenance Packet — the portable, signed dataglow file format (Batch 3)
+
+`js/provenance/provenance-packet.js` is the synthesis point of the Provenance
+Packet feature: one portable, SHA-256-signed document (the "dataglow.json"
+extension) — a "signed passport for the dataset" — that bundles the provenance
+artifacts other modules produce so a dataset's properties can be shared and
+re-checked on a machine that never loaded the source rows. It bundles four
+OPTIONAL sections: cell-level data blame (batch 1's data-blame module), the
+de-identification attestation (batch 1's de-identification verifier), the
+denial-risk profile (batch 2's denial-root-cause profiler), and the
+cost-of-bad-data estimate (batch 2's cost quantifier). Two rules bind anyone
+touching it. First, it is a PURE, dependency-light module: it imports ONLY
+`sha256Hex` from `js/provenance/provenance.js` and NEVER hard-imports the four
+section producers — it receives their output shapes as plain data and embeds them
+verbatim under a fixed, versioned section envelope (`{present, sectionVersion,
+generatedAt, data}`), so the format is stable regardless of how a producer
+evolves and the module builds/tests before those producers are even merged.
+Second, tamper detection is the whole point: the top-level `signature` is
+`sha256Hex` over the entire canonical core (format version + ISO timestamp +
+producer + dataset + every section, including each nested attestation's own
+digest), so `verifyPacket` catches ANY post-export edit and refuses the packet
+loudly — never silently accept a mismatched, unsigned, or wrong-version packet.
+Sections are omitted, never faked, when a producer hasn't run; an empty packet
+still signs and verifies. `summarizePacket` renders a packet with NO original
+dataset and NO producer module present. Export/Import Packet UI lives in the
+Trust tab's provenance card and ships behind the `provenancePacket` flag (default
+off) until the producer PRs (#97, #100) land. Test: `npm run test:provpacket`
+(`test/provenance-packet.test.mjs`), pure JS — no DuckDB, DOM, or network.
+Registered as the `provenance-packet-format` capability; CI job
+`provenance-packet-batch-3`.
+
 ### Source Convergence (Truth Network, Batch 3 of 3, final) — the Convergence tab UI
 
 The first VISIBLE surface for the Truth Network: a flag-gated "Convergence" tab

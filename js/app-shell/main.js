@@ -57,6 +57,7 @@ import { buildDataNutritionLabel, renderLabelSummaryLines, exportLabelAsJSON } f
 import { buildSyntheticDataPassport, sealSyntheticPassport, renderPassportSummaryLines, exportPassportAsJSON } from '../privacy/synthetic-data-passport.js';
 import * as denialProfiler from '../provenance/denial-root-cause.js';
 import * as costOfBadData from '../provenance/cost-of-bad-data.js';
+import * as provPacket from '../provenance/provenance-packet.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
@@ -3686,6 +3687,141 @@ function initDenialProfiler() {
   });
 }
 
+// Gather whatever Provenance-Packet sections have been produced for the loaded
+// dataset. The four section producers ship on separate branches (PR #97 / #100)
+// and may not be present on `main`, so each is DYNAMICALLY imported inside its
+// own try/catch: a missing or failing producer simply omits that section — the
+// packet gracefully bundles what exists rather than requiring all four. The
+// producers each take (table, cols, engine) exposing async runQuery+getRowCount,
+// which the app's `engine` module satisfies.
+async function gatherPacketSections(ds) {
+  const sections = { blame: null, deidentification: null, denial: null };
+  try {
+    const chain = provenance.getProvenance(ds.table);
+    if (chain && chain.length) {
+      const blameMod = await import('../provenance/data-blame.js');
+      sections.blame = blameMod.buildBlameIndex(chain.getTrail());
+    }
+  } catch { /* data-blame producer absent — omit the section */ }
+  try {
+    const deidMod = await import('../provenance/deidentification-verifier.js');
+    const { attestation } = await deidMod.runDeidentificationCheck(ds.table, ds.cols, engine);
+    sections.deidentification = attestation;
+  } catch { /* de-id producer absent — omit the section */ }
+  try {
+    const denialMod = await import('../provenance/denial-root-cause.js');
+    const { attestation } = await denialMod.runDenialProfile(ds.table, ds.cols, engine);
+    sections.denial = attestation; // its embedded `.cost` populates the cost section
+  } catch { /* denial producer absent — omit the section */ }
+  return sections;
+}
+
+function renderPacketSummary(summary, verify) {
+  const view = $('#packet-import-view');
+  if (!view) return;
+  view.innerHTML = '';
+  view.style.display = '';
+
+  // Loud, unambiguous tamper banner when the signature does not verify.
+  const banner = el('div', {
+    style: `padding:10px 12px; border-radius:6px; margin-bottom:var(--space-3); font-size:var(--text-xs); font-weight:600; `
+      + (verify.valid
+        ? 'background:var(--color-grade-a-bg, rgba(0,150,0,0.08)); color:var(--color-grade-a);'
+        : 'background:var(--color-grade-d-bg, rgba(200,0,0,0.10)); color:var(--color-grade-d);'),
+  }, verify.valid
+    ? '✓ Signature verified — this packet has not been altered since it was exported.'
+    : '⚠ SIGNATURE MISMATCH — this packet was modified after signing. Its contents are NOT trustworthy.');
+  view.appendChild(banner);
+
+  const meta = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-2);' },
+    `Packet ${summary.kind} v${summary.formatVersion} · generated ${summary.generatedAt || '—'} · dataset "${(summary.dataset && summary.dataset.table) || '—'}" (${(summary.dataset && summary.dataset.rowCount) ?? '—'} rows) · ${summary.presentSections.length} section(s) present.`);
+  view.appendChild(meta);
+
+  const s = summary.sections;
+  const line = (label, body) => el('div', { style: 'padding:5px 0; border-top:1px solid var(--color-divider); font-size:var(--text-xs);' }, [
+    el('span', { style: 'font-weight:600; color:var(--color-text-muted);' }, `${label}: `),
+    el('span', {}, body),
+  ]);
+
+  view.appendChild(line('Transform history / data blame', s.dataBlame.present
+    ? `${s.dataBlame.changeCount} recorded change(s); columns touched: ${s.dataBlame.columnsTouched.join(', ') || '(none)'}.`
+    : 'not included.'));
+  view.appendChild(line('De-identification', s.deidentification.present
+    ? `verdict "${s.deidentification.verdict}"; ${s.deidentification.flaggedCategories ?? '?'} Safe Harbor categor(ies) flagged; re-identification risk ${s.deidentification.reidentificationLevel} (score ${s.deidentification.reidentificationScore ?? '?'}).`
+    : 'not included.'));
+  view.appendChild(line('Denial risk', s.denialRisk.present
+    ? `${s.denialRisk.totalFlaggedRows ?? '?'} row(s) flagged (${s.denialRisk.totalFlaggedPct ?? '?'}%) across ${s.denialRisk.categories.length} categor(ies).`
+    : 'not included.'));
+  view.appendChild(line('Cost of bad data', s.costOfBadData.present
+    ? `${s.costOfBadData.label || s.costOfBadData.formatted || '—'}${s.costOfBadData.isDefaultCost ? ' (default per-error assumption).' : '.'}`
+    : 'not included.'));
+}
+
+// Export Packet / Import Packet — the portable, signed .dataglow packet format.
+// Gated behind the `provenancePacket` flag until the section producers merge.
+function initProvenancePacket() {
+  if (!isEnabled('provenancePacket')) return;
+  const exportBtn = $('#btn-packet-export');
+  const importBtn = $('#btn-packet-import');
+  const fileInput = $('#packet-import-file');
+  if (exportBtn) exportBtn.style.display = '';
+  if (importBtn) importBtn.style.display = '';
+
+  if (exportBtn) exportBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    exportBtn.disabled = true;
+    try {
+      const { blame, deidentification, denial } = await gatherPacketSections(ds);
+      const packet = await provPacket.buildPacket({
+        dataset: {
+          table: ds.table,
+          rowCount: ds.rowCount,
+          columns: Array.isArray(ds.cols) ? ds.cols.map(c => ({ name: c.name, type: c.type })) : [],
+        },
+        blame, deidentification, denial,
+        producer: { app: 'DATAGLOW', version: '1.0.0', build: 'provenance-packet-batch-3' },
+      });
+      const present = provPacket.summarizePacket(packet).presentSections.length;
+      downloadText(provPacket.packetFilename(packet), provPacket.serializePacket(packet), 'application/json');
+      toast(present
+        ? `Provenance Packet exported (${present} section(s), signed)`
+        : 'Provenance Packet exported (no sections produced yet — run the checks first)', present ? 'success' : 'info');
+    } catch (e) {
+      toast('Packet export failed: ' + e.message, 'error');
+    } finally {
+      exportBtn.disabled = false;
+    }
+  });
+
+  if (importBtn && fileInput) {
+    importBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const packet = provPacket.parsePacket(text);
+        const verify = await provPacket.verifyPacket(packet);
+        renderPacketSummary(provPacket.summarizePacket(packet), verify);
+        toast(verify.valid ? 'Packet verified and loaded' : 'Packet loaded but SIGNATURE FAILED — do not trust it', verify.valid ? 'success' : 'error');
+      } catch (e) {
+        const view = $('#packet-import-view');
+        if (view) {
+          view.style.display = '';
+          view.innerHTML = '';
+          view.appendChild(el('div', {
+            style: 'padding:10px 12px; border-radius:6px; font-size:var(--text-xs); font-weight:600; background:var(--color-grade-d-bg, rgba(200,0,0,0.10)); color:var(--color-grade-d);',
+          }, `⚠ Could not import packet: ${e.message}`));
+        }
+        toast('Packet import failed: ' + e.message, 'error');
+      } finally {
+        fileInput.value = '';
+      }
+    });
+  }
+}
+
 // Populate the Domain Physics pack selector and re-run validation on change so
 // switching packs (or turning reinterpretation off with "None") updates results.
 // Also wires the optional Context Card: typing what the data is for re-orders
@@ -7230,6 +7366,7 @@ function init() {
   initOwnershipLedger();
   initDeidVerifier();
   initDenialProfiler();
+  initProvenancePacket();
   initDomainPack();
   initDevilsAdvocate();
   initReceipts();
