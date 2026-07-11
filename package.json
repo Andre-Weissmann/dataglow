@@ -54,6 +54,7 @@
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
     "test:meetingscribe": "node test/meeting-scribe.test.mjs",
     "test:decisionledger": "node test/meeting-decision-ledger.test.mjs",
+    "test:commanddecknav": "node --test test/command-deck-nav.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
     "test:export": "node test/export-report.test.mjs",

@@ -57,6 +57,8 @@ jobs:
     uses: ./.github/workflows/job-onecanvas-phase1.yml
   provenance-packet:
     uses: ./.github/workflows/job-provenance-packet.yml
+  command-deck:
+    uses: ./.github/workflows/job-command-deck.yml
 
   conversational-pack-builder:
     uses: ./.github/workflows/job-conversational-pack-builder.yml
