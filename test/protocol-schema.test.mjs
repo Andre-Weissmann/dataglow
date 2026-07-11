@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { validate, buildRegistry } from '../protocol/validator.mjs';
 import { createProvenanceChain } from '../js/provenance/provenance.js';
+import { buildPersonalDataBom } from '../js/provenance/data-bom.js';
 import { computeCalibratedGrades } from '../js/grades/calibrated-grades.js';
 import { buildStoryClaims } from '../js/narrative/story.js';
 import { toValidationRun, toStoryOutput, toDataset } from '../js/protocol/protocol-conformance.js';
@@ -39,7 +40,7 @@ const registry = buildRegistry(schemas);
 const byName = Object.fromEntries(schemas.map(s => [s.$id.split('/').pop(), s]));
 
 console.log('\nSchema metadata');
-ok('exactly the 5 core schemas are present', schemaFiles.length === 5, `found ${schemaFiles.length}: ${schemaFiles.join(', ')}`);
+ok('exactly the 6 core schemas are present', schemaFiles.length === 6, `found ${schemaFiles.length}: ${schemaFiles.join(', ')}`);
 for (const s of schemas) {
   ok(`${s.title}: has $id, title, version 1.0.0`,
     !!s.$id && !!s.title && s.version === '1.0.0',
@@ -92,6 +93,26 @@ expectInvalid('attestation with malformed hash is rejected', badHash, byName['pr
 const missingDigest = JSON.parse(JSON.stringify(att));
 delete missingDigest.digest;
 expectInvalid('attestation missing digest is rejected', missingDigest, byName['provenance-attestation.schema.json']);
+
+// ============================================================
+// PersonalDataBillOfMaterials — real object from buildPersonalDataBom
+// ============================================================
+console.log('\nPersonalDataBillOfMaterials (real runtime object)');
+const bomChain = createProvenanceChain();
+await bomChain.append('load', 'Loaded raw file "claims.csv" (1200 rows, CSV)', { file: 'claims.csv', rows: 1200 }, 'cd'.repeat(32));
+const bomDataset = { table: 'claims', name: 'claims.csv', rowCount: 1200, cols: [{ name: 'claim_id', type: 'BIGINT' }, { name: 'amount', type: 'DOUBLE' }], loadedAt: Date.now(), sizeBytes: 12345 };
+const bom = await buildPersonalDataBom({ dataset: bomDataset, trail: bomChain.getTrail() });
+expectValid('real Personal Data BOM validates', bom, byName['personal-data-bom.schema.json']);
+// Tamper: break the "kind" discriminator → must fail.
+expectInvalid('BOM with wrong kind is rejected', { ...bom, kind: 'not-a-dataglow-bom' }, byName['personal-data-bom.schema.json']);
+// Tamper: a non-hex digest → must fail (pattern has teeth, same as the attestation schema).
+const badBomDigest = JSON.parse(JSON.stringify(bom));
+badBomDigest.digest.value = 'NOT_A_HEX_DIGEST';
+expectInvalid('BOM with malformed digest is rejected', badBomDigest, byName['personal-data-bom.schema.json']);
+// Tamper: drop the nested attestation → must fail (it's required, not optional).
+const missingAttestation = JSON.parse(JSON.stringify(bom));
+delete missingAttestation.attestation;
+expectInvalid('BOM missing nested attestation is rejected', missingAttestation, byName['personal-data-bom.schema.json']);
 
 // ============================================================
 // GradeResult — real object from computeCalibratedGrades

@@ -109,6 +109,51 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Personal Data Bill of Materials — composed export, not a new trust claim
+
+`js/provenance/data-bom.js` builds a one-click, fully offline "ingredient
+label" for a dataset: **source** (name/table + caller-supplied description),
+**schema** (`schemaSignature`/`schemaVersionHash` — a deterministic sorted
+`[name,type]` fingerprint; intentionally re-implemented rather than imported
+from `js/validation/validation.js`'s own `schemaSignature`, keeping this
+module pure and DB-free on its own), **distribution** (the EXISTING
+`computeDistributionFingerprint` column-stats snapshot, wrapped in try/catch
+and set to `null` on failure — a stats miss degrades that one field, never
+the whole BOM build), **localModel** (id/label/`used` flag of the on-device
+LLM via `buildLocalModelRecord`, gated on `ondeviceLLM.isModelLoaded()` at
+build time — never assumed true), and the dataset's full EXISTING provenance
+**attestation**, reusing `js/provenance/provenance.js`'s `buildAttestation`/
+`computeAttestationDigest` verbatim rather than deriving a second hash chain.
+The whole BOM carries its own outer SHA-256 digest (`verifyPersonalDataBom`
+recomputes and compares) and the SAME honest-labelling notarization
+convention as the existing attestation — `{status:
+'digest-ready-for-notarization', notarized: false}` — never a claim of
+third-party signing. `npm run test:databom` (`test/data-bom.test.mjs`, 44
+tests) covers shape, digest verification, tamper detection across three
+separate fields, graceful degradation (missing distribution/localModel/empty
+provenance chain), honest-labelling, determinism, and HTML-escape safety on
+the companion `renderPersonalDataBomHTML` certificate renderer. New
+`protocol/schema/personal-data-bom.schema.json` (`$ref`-linked to the
+existing `protocol/schema/provenance-attestation.schema.json`) registered in
+`js/protocol/protocol-conformance.js`'s `SCHEMA_FILES` map — core schema
+count is now 6, not 5; a hardcoded schema-count assertion in
+`test/protocol-schema.test.mjs` was bumped accordingly, so if you add a 7th
+core schema, bump that count again rather than being surprised the test
+fails.
+
+Wired into the Provenance panel behind a new `personalDataBom` flag (off by
+default, land-dark pattern): two buttons in `index.html`
+(`#btn-databom-export` / `#btn-databom-html`, `display:none` by default) are
+un-hidden only when `isEnabled('personalDataBom')` is true, wired in
+`js/app-shell/main.js` via `buildBomForActiveDataset()`. EMPOWERMENT
+CONSTRAINT compliant: this is a read-only export of state the app already
+computed for the active dataset — it never mutates the dataset, never runs a
+new inference beyond the existing distribution-fingerprint call, and never
+shares or applies anything without the explicit button click that triggers
+it. If you extend the BOM with a new field, keep the same discipline: only
+compose from an EXISTING computed value (or accept the field being `null` on
+failure) rather than introducing a new inference inside this module.
+
 ### OneCanvas Phase 1 — Metric Studio, Trust Strip, Proof Drawer (Parts 3–5)
 
 Three new capabilities under `js/metrics/` and `js/trust/`, all shipping dark

@@ -439,12 +439,17 @@
         "js/provenance/validation-receipt.js",
         "js/provenance/selective-disclosure-proof.js",
         "js/provenance/irb-mode.js",
-        "js/provenance/peer-review.js"
+        "js/provenance/peer-review.js",
+        "js/provenance/data-bom.js"
       ],
       "symbols": [
         {
           "file": "js/provenance/selective-disclosure-proof.js",
           "name": "SD_PROOF_KIND"
+        },
+        {
+          "file": "js/provenance/data-bom.js",
+          "name": "buildPersonalDataBom"
         }
       ]
     },

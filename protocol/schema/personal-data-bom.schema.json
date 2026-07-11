@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataglow.app/protocol/1.0.0/personal-data-bom.schema.json",
+  "title": "PersonalDataBillOfMaterials",
+  "version": "1.0.0",
+  "description": "A one-click, offline 'ingredient label' for a single dataset/analysis: source, schema signature, column-distribution snapshot, and (if used) local-LLM model identity, wrapped around an existing ProvenanceAttestation. Mirrors EXACTLY the object produced by buildPersonalDataBom() in js/provenance/data-bom.js. This is a self-computed SHA-256 digest only — NOT a third-party notarization, and NOT a legal, clinical, or regulatory determination.",
+  "type": "object",
+  "required": ["kind", "version", "generatedAt", "source", "schema", "distribution", "localModel", "attestation", "digest", "notarization"],
+  "properties": {
+    "kind": {
+      "const": "dataglow-personal-data-bom",
+      "description": "Discriminator identifying this document as a DATAGLOW Personal Data Bill of Materials."
+    },
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "BOM document format version."
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "required": ["description", "table", "sizeBytes", "ingestedAt"],
+      "properties": {
+        "description": { "type": "string" },
+        "table": { "type": ["string", "null"] },
+        "sizeBytes": { "type": ["integer", "null"] },
+        "ingestedAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
+      }
+    },
+    "schema": {
+      "type": "object",
+      "required": ["columnCount", "columns", "signature", "signatureHash"],
+      "properties": {
+        "columnCount": { "type": "integer", "minimum": 0 },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": { "name": { "type": "string" }, "type": { "type": ["string", "null"] } }
+          }
+        },
+        "signature": { "type": "string", "description": "Stable [name,type] sorted-pair signature string; identical for two datasets of the same shape." },
+        "signatureHash": { "$ref": "#/$defs/sha256hex" }
+      }
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["computed"],
+      "properties": {
+        "computed": { "type": "boolean" },
+        "snapshot": { "description": "Per-column distribution stats (see validation.js computeDistributionFingerprint), or null if not computed.", "type": ["object", "null"] },
+        "note": { "type": "string" }
+      }
+    },
+    "localModel": {
+      "type": "object",
+      "required": ["used", "modelId", "modelLabel", "note"],
+      "properties": {
+        "used": { "type": "boolean" },
+        "modelId": { "type": ["string", "null"] },
+        "modelLabel": { "type": ["string", "null"] },
+        "note": { "type": "string" }
+      }
+    },
+    "attestation": { "$ref": "https://dataglow.app/protocol/1.0.0/provenance-attestation.schema.json" },
+    "digest": {
+      "type": "object",
+      "required": ["algorithm", "value", "covers"],
+      "properties": {
+        "algorithm": { "type": "string", "const": "SHA-256" },
+        "value": { "$ref": "#/$defs/sha256hex" },
+        "covers": { "type": "string" }
+      }
+    },
+    "notarization": {
+      "type": "object",
+      "required": ["status", "notarized", "utcTime", "note"],
+      "properties": {
+        "status": { "type": "string", "description": "Honest status label, e.g. \"digest-ready-for-notarization\". Never claims \"notarized\" unless independently notarized." },
+        "notarized": { "type": "boolean" },
+        "utcTime": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" },
+        "howToNotarize": { "type": "array", "items": { "type": "string" } },
+        "verifyIndependently": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 digest (64 chars)."
+    }
+  }
+}
