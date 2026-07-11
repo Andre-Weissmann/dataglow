@@ -109,6 +109,32 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Metric Contracts, Batch 1 — versioned metric-definition data model
+
+`js/metrics/metric-contracts.js` adds an append-only version history
+(`MetricContractHistory`/`MetricContractRegistry`) that sits ALONGSIDE Metric
+Studio's `MetricRegistry`, not inside it — that registry needed zero code
+changes for this to exist. `recordVersion()` snapshots only the
+contract-relevant fields (`name`/`plainEnglish`/`expression`/`owner`/`tag`) via
+`snapshotDefinition`, deliberately excluding runtime fields
+(`computedValue`/`status`) since recomputing or recertifying a metric is not a
+definition change. Entries are immutable and append-only: there is no
+update()/remove() on `MetricContractHistory` on purpose — the array itself is
+the audit trail. `diffVersions(before, after)` is the one pure function that
+computes what changed between any two snapshots; `summarizeDiff` renders a
+one-line label. This is Batch 1 of a multi-batch build: pure logic only, no DOM
+presenter, and nothing calls `recordVersion` from anywhere in the app yet — so
+the new `metricContracts` flag (default OFF, added this PR) currently gates
+nothing observable. WHY this exists: the practitioner-confirmed #1 cause of
+dashboard distrust is conflicting metric definitions that silently drift, not
+dirty data — this is the record of who changed what, when, and why. Batch 2
+adds a diff-view UI reading this same `diffVersions` output; Batch 3 adds a
+confirm-gate so that any AI-agent-proposed change to a metric renders as this
+exact diff and requires one explicit human click before it applies — nothing
+auto-applies, ever, per this repo's hard autonomy-safety rule. Tests:
+`npm run test:metriccontracts` (21 cases, pure Node, no DuckDB), CI job
+`.github/workflows/job-metric-contracts.yml`.
+
 ### OneCanvas Phase 1 — Metric Studio, Trust Strip, Proof Drawer (Parts 3–5)
 
 Three new capabilities under `js/metrics/` and `js/trust/`, all shipping dark

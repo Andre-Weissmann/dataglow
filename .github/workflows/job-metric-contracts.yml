@@ -1,0 +1,25 @@
+# ============================================================
+# DATAGLOW — CI job: Metric Contracts (Batch 1: versioned data model)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs test:metriccontracts — the append-only version history + diff logic for
+# metric definitions. Pure JS, no DuckDB/browser needed.
+
+name: Metric Contracts
+
+on:
+  workflow_call:
+
+jobs:
+  metric-contracts:
+    name: Metric Contracts (versioned definitions, pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metriccontracts
