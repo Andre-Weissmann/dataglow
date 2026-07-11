@@ -862,24 +862,116 @@
       "id": "meeting-scribe-agent",
       "area": "Meeting scribe",
       "name": "Meeting note grounding agent",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/meeting-scribe-agent.js"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/meeting-scribe-agent.js"
+      ],
       "symbols": [
-        { "file": "js/agents/meeting-scribe-agent.js", "name": "tagSegmentsWithContext" },
-        { "file": "js/agents/meeting-scribe-agent.js", "name": "detectPushback" },
-        { "file": "js/agents/meeting-scribe-agent.js", "name": "buildMeetingNote" }
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "tagSegmentsWithContext"
+        },
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "detectPushback"
+        },
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "buildMeetingNote"
+        }
       ]
     },
     {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
-      "name": "Meeting scribe — Meeting-tab UI wiring",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/meeting-scribe-ui.js"],
+      "name": "Meeting scribe \u2014 Meeting-tab UI wiring",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/meeting-scribe-ui.js"
+      ],
       "symbols": [
-        { "file": "js/agents/meeting-scribe-ui.js", "name": "shouldOfferMeetingScribe" },
-        { "file": "js/agents/meeting-scribe-ui.js", "name": "mountMeetingScribe" },
-        { "file": "js/agents/meeting-scribe-ui.js", "name": "parseTranscriptText" }
+        {
+          "file": "js/agents/meeting-scribe-ui.js",
+          "name": "shouldOfferMeetingScribe"
+        },
+        {
+          "file": "js/agents/meeting-scribe-ui.js",
+          "name": "mountMeetingScribe"
+        },
+        {
+          "file": "js/agents/meeting-scribe-ui.js",
+          "name": "parseTranscriptText"
+        }
+      ]
+    },
+    {
+      "id": "meeting-decision-ledger",
+      "area": "Meeting scribe",
+      "name": "Chart-anchored meeting decision ledger (pure logic)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/meeting-decision-ledger.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "buildLedgerEntry"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "buildLedgerEntriesFromMeeting"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "saveLedgerEntries"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "loadLedgerEntries"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "filterLedgerEntries"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "chartsReferencedIn"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger.js",
+          "name": "exportLedgerEntries"
+        }
+      ]
+    },
+    {
+      "id": "meeting-decision-ledger-ui",
+      "area": "Meeting scribe",
+      "name": "Meeting decision ledger \u2014 Meeting-tab browse/save UI wiring",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/meeting-decision-ledger-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/agents/meeting-decision-ledger-ui.js",
+          "name": "shouldOfferDecisionLedger"
+        },
+        {
+          "file": "js/agents/meeting-decision-ledger-ui.js",
+          "name": "mountDecisionLedger"
+        }
       ]
     }
   ]

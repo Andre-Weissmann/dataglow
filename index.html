@@ -826,7 +826,13 @@
          the tab bar entirely by default. The presenter
          (js/agents/meeting-scribe-ui.js) fills #meeting-scribe-body only;
          flag ships OFF, so this panel stays empty and unreachable in
-         production. -->
+         production.
+
+         #meeting-decision-ledger-body (Gen 43, Part 3) is a SEPARATE host
+         gated by its OWN flag, meetingDecisionLedger (js/agents/
+         meeting-decision-ledger-ui.js). It ships OFF independently of
+         meetingScribe's own flag state, so it stays empty even if a build
+         ever ships meetingScribe on before this piece is ready. -->
     <section class="panel" id="panel-meeting" data-panel="meeting">
       <div class="panel-header">
         <div>
@@ -835,6 +841,7 @@
         </div>
       </div>
       <div id="meeting-scribe-body" data-testid="meeting-scribe-body"></div>
+      <div id="meeting-decision-ledger-body" data-testid="meeting-decision-ledger-body"></div>
     </section>
 
   </div>

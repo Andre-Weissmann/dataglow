@@ -109,6 +109,61 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Meeting decision ledger (Gen 43, Part 3) — chart-anchored, append-only, opt-in
+
+The first piece of the "Meeting-to-Metric Provenance" concept: a permanent,
+on-device record of a meeting's pushback moments, data requests, and action
+items, so nothing noteworthy is lost the moment someone leaves the Meeting tab
+or clicks Clear. Pure logic lives in `js/agents/meeting-decision-ledger.js` —
+`buildLedgerEntriesFromMeeting` takes Part 1's already-tagged segments and
+action items and keeps only the noteworthy ones (never every line, unless a
+caller opts into `includeAllLines`); every entry keeps whatever chart
+`context` Part 1 attached, or `null` if none was available — nothing here
+ever invents a chart reference. `saveLedgerEntries`/`loadLedgerEntries` talk
+only to an injected `store` adapter (mirroring `js/learning/memory-store.js`'s
+`appendLedgerEntries`/`getLedgerEntries` contract, the same injection pattern
+`js/learning/self-learning-rules.js` already uses), so the pure module has no
+hardcoded storage import and is fully testable with an in-memory fake — see
+`test/meeting-decision-ledger.test.mjs` (`npm run test:decisionledger`), 32
+assertions covering entry construction, meeting-to-entries conversion,
+persistence via the fake store, filtering/summarizing, export formatting, and
+a source-scan proving the file names no network primitive in actual code.
+
+Append-only by design: resolving an action item later writes a NEW ledger
+entry rather than editing the old one in place, so the history of "was this
+ever open" can never be silently rewritten. Persistence itself is a new
+`meetingDecisionLedger` object store added to the existing shared
+`dataglow_memory` IndexedDB in `js/learning/memory-store.js` (bumped to
+`DB_VERSION = 4`; capped at 5,000 entries, oldest evicted first;
+`clearLedgerEntries` wipes only this store, same pattern as `clearBaselines`).
+
+The UI half, `js/agents/meeting-decision-ledger-ui.js`, is a SEPARATE section
+mounted into a SEPARATE host (`#meeting-decision-ledger-body` in
+`index.html`) underneath the existing Meeting Scribe screen, gated by its OWN
+flag `meetingDecisionLedger` (not `meetingScribe`) so it ships dark
+independently of that flag's state. `shouldOfferDecisionLedger({enabled})` is
+the pure gate; `mountDecisionLedger({host, store, getCurrentMeeting, onToast})`
+renders a `[Save this meeting to ledger]` button that reads the sibling
+screen's current state ONLY on click — nothing here auto-saves anything, the
+same EMPOWERMENT CONSTRAINT documented in `js/agents/meeting-scribe-agent.js` —
+plus a browse list filterable by chart/type, an `[Export ledger (.json)]`
+button (a client-side Blob/anchor-click download, no network call), and a
+`[Clear ledger]` button that confirms first. To make this possible without
+breaking Part 2's encapsulation, `mountMeetingScribe`'s return value in
+`js/agents/meeting-scribe-ui.js` gained one new key, `getState()` — a
+read-only snapshot of `{meetingId, taggedSegments, actionItems}` — alongside
+the existing `destroy`; this is additive only and changes no existing
+behavior for callers (including Part 2's own tests) that only use `destroy`.
+`js/app-shell/main.js`'s `renderMeetingScribeTab()` now also calls a new
+`renderDecisionLedgerSection()`, which independently checks
+`isEnabled('meetingDecisionLedger')` before mounting into
+`#meeting-decision-ledger-body`, wiring `memoryStore` in as the store adapter.
+New real-browser Playwright test `test/meeting-decision-ledger-ui.test.mjs`
+(`npm run test:e2e-decisionledger-ui`), 14 assertions covering the gate,
+analyze→save→browse flow, empty-save no-op, chart filtering, and clear — all
+against an in-memory fake store, no real IndexedDB dependency in CI. No flag
+flipped; both `meetingScribe` and `meetingDecisionLedger` ship OFF.
+
 ### Meeting scribe — Meeting-tab UI wiring (Gen 43, Part 2)
 
 The screen Part 1 deliberately left for a follow-up now lives in
