@@ -82,6 +82,7 @@ const SCHEMA_FILES = {
   'validation-run': 'validation-run.schema.json',
   'provenance-attestation': 'provenance-attestation.schema.json',
   'story-output': 'story-output.schema.json',
+  'personal-data-bom': 'personal-data-bom.schema.json',
 };
 
 let _registryPromise = null;

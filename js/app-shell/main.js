@@ -40,6 +40,7 @@ import * as provenance from '../provenance/provenance.js';
 import * as sdProof from '../provenance/selective-disclosure-proof.js';
 import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
+import * as dataBom from '../provenance/data-bom.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
@@ -1710,6 +1711,53 @@ function initProvenance() {
     });
     downloadText(`dataglow-sd-proof-${ds.table}.json`, JSON.stringify(artifact, null, 2), 'application/json');
     toast('Verifiable proof exported — share the root/claims; the dataset stays private', 'success');
+  });
+
+  // Personal Data Bill of Materials — one-click, fully offline "ingredient
+  // label" export. Land-dark behind the personalDataBom flag: with it off
+  // (the default) the buttons stay hidden and every other export is unaffected.
+  // Only ever READS what the user already has loaded (dataset, provenance
+  // chain, whether they chose to load the on-device model) and hands them a
+  // file to review — no data leaves the browser, nothing is auto-applied.
+  const bomBtn = $('#btn-databom-export');
+  const bomHtmlBtn = $('#btn-databom-html');
+  if (isEnabled('personalDataBom') && bomBtn) bomBtn.style.display = '';
+  if (isEnabled('personalDataBom') && bomHtmlBtn) bomHtmlBtn.style.display = '';
+  const buildBomForActiveDataset = async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return null; }
+    const chain = provenance.getProvenance(ds.table);
+    const trail = chain ? chain.getTrail() : [];
+    // Best-effort distribution snapshot: reuses the exact same function the
+    // Validate tab's drift/conversational-builder paths already call. If the
+    // engine can't compute it (e.g. an odd column type), degrade gracefully
+    // to "not computed" rather than failing the whole export — the BOM module
+    // itself already handles distribution:null cleanly.
+    let distribution = null;
+    try { distribution = await validation.computeDistributionFingerprint(ds.table, ds.cols); } catch { /* leave null */ }
+    // Only ever claim the local model was "used" if the user actually loaded
+    // it this session (ondeviceLLM.isModelLoaded()) — never assume.
+    const localModel = {
+      modelId: ondeviceLLM.MODEL_ID,
+      modelLabel: ondeviceLLM.MODEL_LABEL,
+      used: ondeviceLLM.isModelLoaded(),
+    };
+    return dataBom.buildPersonalDataBom({
+      dataset: ds, trail, distribution, localModel,
+      sourceDescription: `Uploaded file: ${ds.name || ds.table}`,
+    });
+  };
+  if (bomBtn) bomBtn.addEventListener('click', async () => {
+    const bom = await buildBomForActiveDataset();
+    if (!bom) return;
+    downloadText(`dataglow-personal-data-bom-${bom.source.table}.json`, JSON.stringify(bom, null, 2), 'application/json');
+    toast('Personal Data BOM exported — digest ready for optional third-party notarization', 'success');
+  });
+  if (bomHtmlBtn) bomHtmlBtn.addEventListener('click', async () => {
+    const bom = await buildBomForActiveDataset();
+    if (!bom) return;
+    downloadText(`dataglow-personal-data-bom-${bom.source.table}.html`, dataBom.renderPersonalDataBomHTML(bom), 'text/html');
+    toast('Personal Data BOM HTML exported (printable / PDF-friendly)', 'success');
   });
 }
 

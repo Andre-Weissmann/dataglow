@@ -45,6 +45,11 @@
       "enabled": false,
       "addedInPR": "gen43-meeting-decision-ledger",
       "description": "Gen 43 meeting decision ledger: a permanent, append-only, chart-anchored local record of pushback moments, data requests, and action items surfaced by the meeting scribe (js/agents/meeting-decision-ledger.js pure logic, persisted via js/learning/memory-store.js's new meetingDecisionLedger IndexedDB object store, presented by js/agents/meeting-decision-ledger-ui.js). A separate flag from meetingScribe so this piece can ship dark independently of that flag's state. Nothing is saved automatically \u2014 the analyst must click 'Save this meeting to ledger' for anything to be written; browsing, filtering by chart/type, exporting to a local .json file, and clearing the ledger are all explicit, on-device actions with no network call anywhere in this feature. When this flag is off (its shipped default), #meeting-decision-ledger-body stays empty and the section is never mounted."
+    },
+    "personalDataBom": {
+      "enabled": false,
+      "addedInPR": "feature/personal-data-bom",
+      "description": "Personal Data Bill of Materials (js/provenance/data-bom.js): a one-click, fully offline 'ingredient label' for the active dataset — composes the existing provenance attestation (js/provenance/provenance.js, unmodified) with a schema-shape signature, the column-distribution snapshot already computed for drift/validation (if one has been run), and — only when the user has explicitly loaded it — the local on-device AI model's exact id/quantization. Exports as signed-digest JSON or a printable HTML certificate via the same Export/Attestation card and download path the existing Export Attestation button uses. Same honest-labelling convention as provenance.js: a self-computed SHA-256 digest, never a claimed third-party notarization/signature. Empowerment-constraint compliant — this is a read-only export of what the user already has loaded; it never modifies data or triggers any automated action."
     }
   }
 }
