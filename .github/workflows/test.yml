@@ -92,6 +92,8 @@ jobs:
     uses: ./.github/workflows/job-command-deck.yml
   provenance-packet-batch-2:
     uses: ./.github/workflows/job-provenance-packet-batch-2.yml
+  metrics-registry:
+    uses: ./.github/workflows/job-metrics-registry.yml
 
   conversational-pack-builder:
     uses: ./.github/workflows/job-conversational-pack-builder.yml

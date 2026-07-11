@@ -1131,6 +1131,17 @@
       ]
     },
     {
+      "id": "app-shell-metrics-registry",
+      "area": "App shell & data engine",
+      "name": "Shared metrics registry",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/app-shell/metrics-registry.js"],
+      "symbols": [
+        { "file": "js/app-shell/metrics-registry.js", "name": "createMetricsRegistry" },
+        { "file": "js/app-shell/metrics-registry.js", "name": "expandMetricReferences" }
+      ]
+    },
+    {
       "id": "export-reporting",
       "area": "Export & reporting",
       "name": "Universal export (Excel + PDF)",

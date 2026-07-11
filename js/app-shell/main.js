@@ -2,7 +2,8 @@
 // DATAGLOW — Main Application Controller
 // ============================================================
 
-import { state, getActiveDataset, addDataset, setActiveDataset } from './state.js';
+import { state, getActiveDataset, addDataset, setActiveDataset, getActiveMetricsRegistry } from './state.js';
+import { expandMetricReferences, MetricError } from './metrics-registry.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import { loadRegistry } from './capability-registry.js';
 import { buildSidebarContent } from './command-deck-nav.js';
@@ -291,6 +292,7 @@ function switchTab(tabId) {
   // Leaving the SQL tab: terminate the ambient-validation worker so it never
   // lingers in the background (recreated lazily on the next keystroke).
   if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
+  if (tabId === 'sql') renderSavedMetrics();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'validate') renderOneCanvasPhase1();
@@ -380,7 +382,7 @@ function renderSidebar() {
   } else {
     list.innerHTML = '';
     state.datasets.forEach(ds => {
-      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); renderOneCanvasPhase1(); } }, [
+      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); renderOneCanvasPhase1(); renderSavedMetrics(); } }, [
         el('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', html: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' }),
         el('span', { style: 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, ds.name),
       ]);
@@ -1013,7 +1015,11 @@ async function runSqlQuery() {
   statusEl.textContent = 'Running…';
   resultWrap.innerHTML = '<div class="skeleton" style="height:200px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
   try {
-    const result = await engine.runQuery(sql);
+    // Expand any @metric references against this dataset's shared registry so a
+    // business term defined once resolves the same way here as on every other
+    // surface. No @metric in the query → runs byte-identical to before.
+    const { sql: execSql } = expandMetricReferences(sql, getActiveMetricsRegistry());
+    const result = await engine.runQuery(execSql);
     state.lastQuery = sql;
     state.lastQueryResult = result;
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
@@ -1462,8 +1468,90 @@ function renderObjectSpacePanel() {
   }).join('');
 }
 
+// ---- Saved Metrics (shared metrics registry, SQL-tab surface) ----
+// Render the active dataset's defined metrics with an explicit Insert action.
+// Inserting is always a user click — nothing propagates a metric silently.
+function renderSavedMetrics() {
+  const listEl = $('#sql-metrics-list');
+  if (!listEl) return;
+  const registry = getActiveMetricsRegistry();
+  const metrics = registry ? registry.listMetrics() : [];
+  if (!registry) {
+    listEl.innerHTML = '<div style="font-size:var(--text-xs); color:var(--color-text-faint);">Load a dataset to define metrics for it.</div>';
+    return;
+  }
+  if (metrics.length === 0) {
+    listEl.innerHTML = '<div style="font-size:var(--text-xs); color:var(--color-text-faint);">No metrics defined yet for this dataset.</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  for (const m of metrics) {
+    const row = el('div', { class: 'card', style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); margin-bottom:var(--space-2);' }, [
+      el('div', { style: 'flex:1 1 auto; min-width:0;' }, [
+        el('div', { style: 'font-weight:600;' }, [
+          el('span', {}, m.name),
+          m.unit ? el('span', { style: 'font-weight:400; color:var(--color-text-faint); margin-left:var(--space-2);' }, `(${m.unit})`) : '',
+        ]),
+        el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' }, m.sqlExpression),
+        m.description ? el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint);' }, m.description) : '',
+      ]),
+      el('button', { class: 'btn btn-secondary', 'data-testid': `button-insert-metric-${m.name}`, onclick: () => insertMetricIntoEditor(m.name) }, 'Insert'),
+    ]);
+    listEl.appendChild(row);
+  }
+}
+
+// Splice a metric's compiled SQL (aliased to its name) into the SQL editor at
+// the caret. Explicit, user-initiated — this is the "adopt this metric" click.
+function insertMetricIntoEditor(name) {
+  const registry = getActiveMetricsRegistry();
+  const input = $('#sql-input');
+  if (!registry || !input) return;
+  let fragment;
+  try {
+    fragment = registry.resolveMetricSql(name, { alias: true });
+  } catch { return; }
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  input.value = input.value.slice(0, start) + fragment + input.value.slice(end);
+  const caret = start + fragment.length;
+  input.selectionStart = input.selectionEnd = caret;
+  input.focus();
+  syncSqlHighlight();
+}
+
+function defineMetricFromForm() {
+  const statusEl = $('#metric-define-status');
+  const registry = getActiveMetricsRegistry();
+  if (!registry) {
+    if (statusEl) statusEl.textContent = 'Load a dataset first — metrics are scoped to the active dataset.';
+    return;
+  }
+  const name = $('#metric-name').value.trim();
+  const sqlExpression = $('#metric-expr').value.trim();
+  const unit = $('#metric-unit').value.trim() || null;
+  const description = $('#metric-desc').value.trim() || null;
+  try {
+    // Overwrite when the name already exists: redefining is an explicit user act
+    // (they re-typed the name), and the registry bumps the metric's version.
+    const overwrite = registry.hasMetric(name);
+    const m = registry.defineMetric({ name, sqlExpression, unit, description }, { overwrite });
+    if (statusEl) statusEl.textContent = `Saved metric "${m.name}"${m.version > 1 ? ` (v${m.version})` : ''}. Reference it as @${m.name} in a query.`;
+    $('#metric-name').value = '';
+    $('#metric-expr').value = '';
+    $('#metric-unit').value = '';
+    $('#metric-desc').value = '';
+    renderSavedMetrics();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = err instanceof MetricError ? err.message : `Could not define metric: ${err.message}`;
+  }
+}
+
 function initSqlTab() {
   $('#btn-sql-run').addEventListener('click', runSqlQuery);
+  const defineBtn = $('#btn-save-metric');
+  if (defineBtn) defineBtn.addEventListener('click', defineMetricFromForm);
+  renderSavedMetrics();
   $('#btn-sql-format').addEventListener('click', () => {
     const el = $('#sql-input');
     el.value = el.value.replace(/\s+/g, ' ').replace(/\bSELECT\b/gi, '\nSELECT').replace(/\bFROM\b/gi, '\nFROM').replace(/\bWHERE\b/gi, '\nWHERE').replace(/\bGROUP BY\b/gi, '\nGROUP BY').replace(/\bORDER BY\b/gi, '\nORDER BY').trim();

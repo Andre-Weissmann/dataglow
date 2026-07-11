@@ -839,6 +839,38 @@ for the analyst to review. Ships behind the `meetingScribe` flag, but the flag i
 currently decorative: there is no UI, capture path, or call site anywhere in the app
 yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
 (`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
+
+### Shared metrics registry — one "define once" source of truth per session
+
+`js/app-shell/metrics-registry.js` is the in-session shared registry of named
+metric definitions (e.g. `revenue` → `SUM(amount)`), so the SQL / Python / R /
+Visualize / Story surfaces never silently compute the same business term two
+different ways within one session. It is deliberately scoped to ONE browser
+session / dataset — NOT a multi-user/org semantic layer. A metric only NAMES a
+read-only SQL expression evaluated over the active dataset's DuckDB table: the
+module never runs SQL and never mutates data, so **DuckDB stays the sole compute
+engine — do not build a second one here**. `createMetricsRegistry()` is pure and
+dependency-free (mirrors `js/learning/signal-store.js`): `defineMetric` /
+`getMetric` / `hasMetric` / `listMetrics` / `removeMetric` /
+`resolveMetricSql(name, {alias})` / async `fingerprint(name)` (which reuses
+`sha256Hex` from `js/provenance/provenance.js` via a LAZY dynamic import — don't
+add a second hash), plus the standalone `expandMetricReferences(sql, registry)`
+that rewrites `@name` tokens into compiled fragments. Registries are keyed per
+dataset table name in `js/app-shell/state.js` (`getMetricsRegistry` /
+`getActiveMetricsRegistry`), exactly like the per-table provenance chains, so
+switching datasets yields a fresh isolated registry. Two rules bind anyone
+extending this: (1) **defining is safe, adopting is a click** — defining a
+metric only names a read-only expression, but any UI that propagates a metric
+into a query/surface must stay an EXPLICIT user action, never silent
+propagation (the SQL tab's "Saved Metrics" Insert button and `@metric`
+expansion in `runSqlQuery` are the reference wiring). (2) Validation is
+engine-free and fails loud at define-time (bad name, empty/non-string
+expression, `;`, full statement, unbalanced parens, unterminated string) — it is
+NOT a second SQL parser, so don't grow it into one. Only the SQL tab is wired so
+far; the other four surfaces are tracked in `docs/tech-debt-tracker.md`. Test:
+`npm run test:metricsregistry` (`test/metrics-registry.test.mjs`, the
+`metrics-registry` CI job) — engine-free.
+
 ### Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier
 
 Two client-side capabilities under `js/provenance/`, one module per feature,

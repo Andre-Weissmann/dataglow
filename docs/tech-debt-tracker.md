@@ -415,3 +415,21 @@ Newest entries go at the bottom of **Entries**.
   just after failures) and again right after a rebase completes, confirming it
   matches the PR's `head.ref` from `gh api repos/.../pulls/<n>`, before doing any
   conflict resolution work or push.
+### 2026-07-11 — Shared metrics registry wired only into the SQL tab
+
+- **Description:** The in-session shared metrics registry
+  (`js/app-shell/metrics-registry.js`, keyed per-dataset in `js/app-shell/state.js`)
+  is designed so all five consuming surfaces — SQL, Python, R, Visualize, and
+  Story/narrative tabs — read metric definitions from one source of truth. This
+  batch wired only the SQL tab end-to-end (the "Saved Metrics" card plus `@metric`
+  expansion in `runSqlQuery`) as the proof path. The Python (`js/runtimes-viz/python-runtime.js`),
+  R (`js/runtimes-viz/r-runtime.js`), Visualize (`js/runtimes-viz/visualize.js`),
+  and Story (`js/narrative/story.js`) tabs do NOT yet reference the registry, so a
+  metric defined once is currently honored only in SQL. Deferred deliberately to
+  keep this batch to one real, tested path rather than five shallow ones; the
+  registry API (`resolveMetricSql`, `expandMetricReferences`, `getActiveMetricsRegistry`)
+  is already surface-agnostic, so wiring each remaining tab is additive.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/app-shell/metrics-registry.js`, `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/visualize.js`, `js/narrative/story.js`
+- **Status:** open
