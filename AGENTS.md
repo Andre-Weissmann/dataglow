@@ -150,9 +150,9 @@ keystroke-level live typing, which does not yet pass a schema — a documented,
 deliberate scope cut, not an oversight) are unaffected. `npm run test:ambient`
 (`test/ambient-validation.test.mjs`, 26 tests: all pre-existing cases pass
 unmodified plus 4 new stats-aware cases). Join-fan-out risk therefore has
-exactly ONE owner (`checkSanityAnchor`); `analysis-contract.js`'s own header
+exactly ONE owner (`checkSanityAnchor`); `js/validation/analysis-contract.js`'s own header
 comment says so explicitly — if you're tempted to re-add fan-out detection to
-`analysis-contract.js`, feed it a schema through `checkSanityAnchor` instead.
+`js/validation/analysis-contract.js`, feed it a schema through `checkSanityAnchor` instead.
 
 
 ### Conversational pack builder — Validate-tab UI wiring (Gen 42 follow-up)
