@@ -109,6 +109,28 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Metric Contracts, Batch 2 — read-only diff view
+
+`js/metrics/metric-contract-diff-view.js` turns two of Batch 1's version
+entries into something a person can read: `buildDiffViewContent({metricName,
+before, after})` returns a normalised block model (field-by-field before/after,
+who changed it, when, why, and human-vs-`agent-proposed`) sourced ONLY from the
+real recorded version metadata — never invented, and honestly omitted (no kv
+blocks at all) when a bare snapshot with no wrapper metadata is passed.
+`buildHistoryListContent({metricName, versions})` renders the full oldest-first
+timeline. `renderDiffView()` is the DOM presenter, following
+`js/trust/proof-drawer.js`'s exact pure-content/DOM split and reusing its
+`kv`/`text`/`list` block-kind renderers (copied locally rather than imported,
+since proof-drawer doesn't export its renderer) plus one new `field-diff` kind
+(side-by-side red/green before/after) this file renders itself — so a human's
+past edit and an AI's future proposed edit will look visually IDENTICAL. This
+batch is READ-ONLY: no apply/accept button, no write path, and nothing in
+`js/app-shell/main.js` calls `renderDiffView()` yet. Batch 3 wires a confirm-gate around
+this exact same builder/renderer for AI-proposed changes — one explicit human
+click required before anything applies, nothing auto-applies, ever. Tests:
+`npm run test:metriccontractdiffview` (20 cases, pure Node), added to the
+existing `.github/workflows/job-metric-contracts.yml` CI job.
+
 ### Metric Contracts, Batch 1 — versioned metric-definition data model
 
 `js/metrics/metric-contracts.js` adds an append-only version history
