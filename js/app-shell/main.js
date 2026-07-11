@@ -13,6 +13,8 @@ import * as loaders from './loaders.js';
 import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
 import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
+import { getRegisteredMetrics } from '../validation/semantic-layer.js';
+import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
@@ -747,8 +749,15 @@ async function runSqlQuery() {
       // Runs after the result is already shown — the contract check never
       // gates or delays the query itself, only annotates the result with
       // flags for the analyst to read before trusting it.
+      // The metric-definition check (4th finding class) runs only when the
+      // semanticMetricsLayer flag is on AND at least one metric is defined —
+      // otherwise no metrics option is passed and the Contract runs exactly its
+      // original three checks (byte-for-byte unchanged).
+      const contractOptions = isEnabled('semanticMetricsLayer')
+        ? { metrics: getRegisteredMetrics() }
+        : {};
       buildLiveSchemaForContract(sql).then(schema => {
-        const report = runAnalysisContract(sql, schema);
+        const report = runAnalysisContract(sql, schema, contractOptions);
         renderAnalysisContractCard(resultWrap, report);
       }).catch(() => { /* contract check is best-effort; never break the SQL tab */ });
     }
@@ -798,6 +807,27 @@ function initSqlTab() {
   });
   syncSqlHighlight();
   initAmbientValidation();
+  initMetricDefiner();
+}
+
+// "Define a metric" affordance (semanticMetricsLayer flag, off by default).
+// When the flag is off the trigger button stays hidden and the host stays
+// empty, so the feature ships dark — the SQL tab is unchanged. When on, the
+// button toggles a small human-authored metric-definition form.
+function initMetricDefiner() {
+  const btn = $('#btn-define-metric');
+  const host = $('#metric-definer-wrap');
+  if (!btn || !host) return;
+  if (!shouldOfferMetricDefiner({ enabled: isEnabled('semanticMetricsLayer') })) {
+    btn.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  btn.style.display = '';
+  btn.addEventListener('click', () => {
+    if (host.childElementCount > 0) { host.innerHTML = ''; return; } // toggle off
+    mountMetricDefiner({ host, onToast: toast });
+  });
 }
 
 // ============================================================

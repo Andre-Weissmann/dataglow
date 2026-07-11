@@ -906,6 +906,41 @@
       ]
     },
     {
+      "id": "semantic-metrics-layer",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "Semantic / Metrics Layer",
+      "files": [
+        "js/validation/semantic-layer.js",
+        "js/validation/semantic-layer-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/semantic-layer.js",
+          "name": "registerMetric"
+        },
+        {
+          "file": "js/validation/semantic-layer.js",
+          "name": "getRegisteredMetrics"
+        },
+        {
+          "file": "js/validation/semantic-layer.js",
+          "name": "checkQueryAgainstMetrics"
+        },
+        {
+          "file": "js/validation/semantic-layer-ui.js",
+          "name": "shouldOfferMetricDefiner"
+        },
+        {
+          "file": "js/validation/semantic-layer-ui.js",
+          "name": "mountMetricDefiner"
+        }
+      ]
+    },
+    {
       "id": "meeting-scribe-agent",
       "area": "Meeting scribe",
       "name": "Meeting note grounding agent",
