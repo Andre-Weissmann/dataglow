@@ -1,0 +1,34 @@
+# ============================================================
+# DATAGLOW — CI job: Command Deck adaptive next-step rail
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Command Deck, Part 3 (adaptive next-step rail): pure rules-based (no AI
+# required) suggestion logic (computeNextSteps/emptyProgress) that reads a
+# progress snapshot and highlights the 1-2 tools most relevant to do next in
+# the app's real Frame->Work->Trust->Tell workflow. Ships dark behind the
+# `dataglowNextStepRail` flag (off by default) — this job only proves the
+# pure logic is correct and stays in sync with the real TAB_META in
+# js/app-shell/main.js; it does not exercise any live browser rendering (no
+# DOM caller test yet for this batch, same as Parts 1 and 2).
+
+name: Command Deck adaptive next-step rail
+
+on:
+  workflow_call:
+
+jobs:
+  next-step-rail:
+    name: Command Deck adaptive next-step rail
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Part 3: rules-engine suggestion logic, drift-checked against the
+      # real TAB_META in js/app-shell/main.js so this can never silently
+      # fall out of sync with the app's actual tools.
+      - run: npm run test:nextsteprail

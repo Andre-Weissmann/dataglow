@@ -52,6 +52,21 @@ export const state = {
   // main.js renderTabBar, which filters it out by default) — listed here so
   // drag-to-reorder has a stable slot for it once visible.
   tabOrder: ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch', 'meeting'],
+  // Command Deck, Part 3 (Adaptive Next-Step Rail). Purely additive progress
+  // tracking set at the real completion point of each existing action below
+  // (see main.js) -- never inferred from guesses, never affects any existing
+  // behavior on its own. Read by js/app-shell/next-step-rail.js's pure
+  // computeNextSteps() only when the dataglowNextStepRail flag is on. Shape
+  // mirrors next-step-rail.js's emptyProgress() -- keep both in sync.
+  progress: {
+    preflightRun: false,
+    cleanIssuesFound: false,
+    cleanResolved: false,
+    queryRun: false,
+    validationRun: false,
+    chartBuilt: false,
+    storyBuilt: false,
+  },
 };
 
 export function setActiveDataset(name) {

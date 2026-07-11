@@ -109,6 +109,80 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Command Deck adaptive next-step rail (Part 3) — decision record and safety posture
+
+`js/app-shell/next-step-rail.js` is pure logic, no DOM: `NEXT_STEP_RULES` is a
+fixed-order, rules-based (no AI required to start) rulebook of 8 rules
+covering the app's real Frame→Work→Trust→Tell workflow — load a dataset, run
+preflight, resolve cleaning issues (only offered if a scan actually found
+any), run a query, validate it, visualize it, tell the story, or, once every
+stage is complete for the loaded dataset, a terminal "all done" rule with a
+null `tabId` and nothing to click. `computeNextSteps({progress, tabMeta,
+limit=2})` walks the rules in order and returns the first `limit` whose
+`when(progress)` is true, silently skipping (never guessing at) any rule
+whose `tabId` doesn't resolve in the caller's real `tabMeta` — same
+drift-proofing posture as Parts 1 and 2, applied to a suggestion list instead
+of a nav list. `emptyProgress()` returns the all-false default snapshot; its
+shape must stay in sync with `state.progress` in `js/app-shell/state.js`.
+
+Progress tracking is a small, purely additive `state.progress` object added
+to `js/app-shell/state.js` (`preflightRun`, `cleanIssuesFound`,
+`cleanResolved`, `queryRun`, `validationRun`, `chartBuilt`, `storyBuilt` —
+`hasDataset` is deliberately NOT stored, it is derived live from
+`getActiveDataset() !== null` at render time so it can never go stale), set
+at the real completion point of each existing action already in
+`js/app-shell/main.js`: the end of `runPreflight()`, both branches of
+`scanClean()`'s issue scan (found vs. none found), the per-issue fix-applied
+click handler, the success path inside `runSqlQuery()`'s try block, the end
+of `runValidation()`, the success path inside the Visualize tab's
+chart-generate click handler, and the Story tab's generate handler
+immediately after `state.lastStory` is set. Every one of these is a pure
+additive read/write dropped next to existing control flow — none of them
+introduce new gating, none of them can change what the underlying action
+itself does, and none of them touch or clean any data (satisfying the
+repo-wide hard safety rule that nothing here spawns autonomous
+data-modifying behavior without a human in the loop; the rail only ever
+suggests where a person might click next).
+
+Wired into `js/app-shell/main.js` as `renderNextStepRail()`, rendering into
+the new `#next-step-rail` host added in `index.html` (sits at the top of the
+workspace content column, above every panel, so it is visible regardless of
+the active tab; styled with `.next-step-rail*` classes in `css/app.css`).
+Called after every `state.progress.*` write, plus from `switchTab()` (so the
+active-tab-driven parts of the rail's suggestion set stay current) and from
+`renderSidebar()` (so `hasDataset` becomes true the moment the first dataset
+finishes loading, without waiting for a tab switch). Clicking a suggestion
+calls `switchTab(tabId)`; the terminal "all done" suggestion has no `tabId`
+and renders as plain text, not a clickable row. Ships fully dark behind the
+new `dataglowNextStepRail` flag (off by default): with the flag off,
+`renderNextStepRail()` hides the host and renders nothing, and none of the
+new `state.progress.*` writes changes any existing behavior on their own —
+they are inert bookkeeping until the flag is on. Independent of Part 1's
+`dataglowSidebarNav` flag and Part 2's `dataglowCommandPalette` flag — any of
+the three can be toggled without affecting the others.
+
+`npm run test:nextsteprail` (`test/next-step-rail.test.mjs`) regex-extracts
+the real `TAB_META` straight out of `js/app-shell/main.js` at test time, so
+the rail's tab-pointing suggestions can never silently drift out of sync
+with the app's actual tool list, the same discipline as Parts 1 and 2. Also
+covers rule ordering end-to-end (each stage of the workflow, one at a time),
+the `limit` parameter, the unknown/renamed-tab skip guard, non-mutation of
+the caller's `progress` object, and the terminal all-done state. Per repo
+precedent (DOM presenters get pure-logic tests only until wired with a real
+caller, and a live-browser/e2e test is added only once there is a real page
+context worth exercising — see Part 1's `renderCommandDeckSidebar()` and
+Part 2's `openCommandPalette()`, both wired and still only pure-logic
+tested), no e2e test was added for this batch.
+
+Direction (adaptive next-step rail, the third and final of the three
+Command Deck parts), scope, and naming were decided by the agent against the
+UI/UX brainstorm report per the user's "build all, safely and smartly"
+instruction and an explicit "Start :)" go-ahead for this specific part, with
+the rationale recorded as code comments at the top of
+`js/app-shell/next-step-rail.js`. This is the last of the three Command Deck
+parts named in the brainstorm report; no further Command Deck work is
+planned unless explicitly requested.
+
 ### Command Deck command palette (Part 2) — decision record and safety posture
 
 `js/app-shell/command-palette.js` is pure logic, no DOM: `COMMAND_ACTIONS` is

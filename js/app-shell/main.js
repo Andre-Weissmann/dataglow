@@ -7,6 +7,7 @@ import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from '.
 import { loadRegistry } from './capability-registry.js';
 import { buildSidebarContent } from './command-deck-nav.js';
 import { buildCommandList, filterCommands } from './command-palette.js';
+import { computeNextSteps } from './next-step-rail.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
@@ -206,6 +207,7 @@ function switchTab(tabId) {
     $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
   }
   renderCommandDeckSidebar();
+  renderNextStepRail();
 }
 
 // ============================================================
@@ -262,6 +264,56 @@ function renderCommandDeckSidebar() {
     stageEl.appendChild(tabsWrap);
 
     host.appendChild(stageEl);
+  });
+}
+
+// ============================================================
+// Adaptive Next-Step Rail (Gen 44, Part 3 -- ships dark)
+// ============================================================
+// Rules-based (no AI required) suggestion strip at the top of the workspace,
+// reading real progress signals set at the real completion point of each
+// existing action (see state.progress and the state.progress.* writes next
+// to runPreflight/scanClean/applyFix click handler/runSqlQuery/runValidation/
+// viz.renderChart caller/story generate handler above). Pure decision logic
+// lives in js/app-shell/next-step-rail.js (computeNextSteps) -- this function
+// is only the DOM presenter: build a live progress snapshot, ask the pure
+// function what to suggest, render it, wire click-to-jump. Hidden entirely
+// when dataglowNextStepRail is off (default).
+function renderNextStepRail() {
+  const host = document.getElementById('next-step-rail');
+  if (!host) return;
+  if (!isEnabled('dataglowNextStepRail')) { host.style.display = 'none'; host.innerHTML = ''; return; }
+
+  const progress = {
+    hasDataset: getActiveDataset() !== null,
+    ...state.progress,
+  };
+  const steps = computeNextSteps({ progress, tabMeta: TAB_META, limit: 2 });
+
+  host.innerHTML = '';
+  if (steps.length === 0) { host.style.display = 'none'; return; }
+  host.style.display = 'flex';
+
+  steps.forEach((s) => {
+    if (s.tabId === null) {
+      // Terminal "all done" rule -- informational only, nothing to click.
+      host.appendChild(el('div', { class: 'next-step-rail-done', 'data-testid': 'next-step-rail-done' }, [
+        el('span', { html: iconSvg('check-circle', 15) }),
+        el('span', {}, s.reason),
+      ]));
+      return;
+    }
+    const meta = TAB_META[s.tabId];
+    host.appendChild(el('div', {
+      class: 'next-step-rail-suggestion',
+      'data-testid': `next-step-rail-${s.id}`,
+      title: s.reason,
+      onclick: () => switchTab(s.tabId),
+    }, [
+      el('span', { html: iconSvg(meta.icon, 15) }),
+      el('span', { class: 'next-step-rail-suggestion-label' }, s.label),
+      el('span', { class: 'next-step-rail-suggestion-reason' }, s.reason),
+    ]));
   });
 }
 
@@ -418,6 +470,10 @@ function renderSidebar() {
     }).join('');
   }
   refreshFreshnessBadge();
+  // Command Deck, Part 3: dataset load/switch changes hasDataset, which the
+  // rail reads live -- refresh it here too, not just on tab switch, so it
+  // updates the moment a first dataset finishes loading.
+  renderNextStepRail();
 }
 
 function refreshFreshnessBadge() {
@@ -758,6 +814,12 @@ async function runPreflight() {
     ]),
   ]);
   resultsEl.appendChild(colsCard);
+  // Command Deck, Part 3: real completion signal for the Adaptive Next-Step
+  // Rail -- set unconditionally once preflight has actually finished
+  // rendering, regardless of pass/warn/fail, since the rail's job is to
+  // suggest what to do NEXT, not to gate on a clean result.
+  state.progress.preflightRun = true;
+  renderNextStepRail();
 }
 
 // ============================================================
@@ -859,6 +921,9 @@ async function runSqlQuery() {
     const result = await engine.runQuery(sql);
     state.lastQuery = sql;
     state.lastQueryResult = result;
+    // Command Deck, Part 3: a real query just ran successfully.
+    state.progress.queryRun = true;
+    renderNextStepRail();
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
     renderResultTable(resultWrap, result);
     $('#story-empty').style.display = 'none';
@@ -1179,8 +1244,20 @@ async function scanClean() {
 
   if (issues.length === 0) {
     resultsEl.innerHTML = '<div class="card" style="padding:var(--space-6); text-align:center;"><div style="font-size:var(--text-lg); font-weight:600; color:var(--color-grade-a); margin-bottom:4px;">No issues found</div><div style="color:var(--color-text-muted); font-size:var(--text-sm);">This dataset looks clean.</div></div>';
+    // Command Deck, Part 3: a real, clean scan found nothing to fix, so the
+    // rail should not suggest the Clean tab -- record that issues were NOT
+    // found (as opposed to "found but not yet resolved"), a distinct state
+    // from the default/never-scanned false.
+    state.progress.cleanIssuesFound = false;
+    renderNextStepRail();
     return;
   }
+
+  // Command Deck, Part 3: a real scan just found real issues -- record it
+  // before any fix is applied, so the rail can suggest the Clean tab.
+  state.progress.cleanIssuesFound = true;
+  state.progress.cleanResolved = false;
+  renderNextStepRail();
 
   resultsEl.innerHTML = '';
   const grid = el('div', { class: 'validation-grid' });
@@ -1209,6 +1286,11 @@ async function scanClean() {
         card.style.pointerEvents = 'none';
         ds.rowCount = await engine.getRowCount(ds.table);
         renderSidebar();
+        // Command Deck, Part 3: a real fix was just applied -- the rail
+        // should stop suggesting the Clean tab once the person has started
+        // actively resolving what the scan found.
+        state.progress.cleanResolved = true;
+        renderNextStepRail();
       });
       wrap.appendChild(btn);
       wrap.appendChild(el('span', { style: `font-size:10px; color:${confColor};` }, conf.label));
@@ -1494,6 +1576,10 @@ async function runValidation() {
   renderAssumptionLedger();
   renderProvenanceTrail();
   await renderConversationalPackBuilder(ds, results);
+  // Command Deck, Part 3: real completion signal -- validation just finished
+  // running (all 20 layers), regardless of how many passed/warned/failed.
+  state.progress.validationRun = true;
+  renderNextStepRail();
 }
 
 // ============================================================
@@ -4118,6 +4204,9 @@ function initVisualizeTab() {
     const y = $('#viz-y').value;
     try {
       await viz.renderChart('viz-chart', ds.table, type, x, y);
+      // Command Deck, Part 3: a real chart just rendered successfully.
+      state.progress.chartBuilt = true;
+      renderNextStepRail();
     } catch (err) {
       toast('Chart error: ' + err.message, 'error');
     }
@@ -4246,6 +4335,9 @@ function initStoryTab() {
         { ondeviceGenerate: ondeviceGenerateStory },
       );
       state.lastStory = text.replace(/<[^>]+>/g, ''); // plain text kept for consistency checker
+      // Command Deck, Part 3: a real story just generated successfully.
+      state.progress.storyBuilt = true;
+      renderNextStepRail();
       $('#story-empty').style.display = 'none';
       $('#story-content-wrap').style.display = '';
       // Local stories are built from hardcoded-safe markup wrapping escapeHtml()'d

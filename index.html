@@ -149,6 +149,13 @@
       </div>
     </aside>
 
+    <!-- Command Deck, Part 3: Adaptive Next-Step Rail. Sits at the top of the
+         workspace content column, above every panel, so it is visible no
+         matter which tab is active. Ships dark behind the
+         dataglowNextStepRail flag -- renderNextStepRail() in main.js keeps
+         this hidden and empty when the flag is off. -->
+    <div class="next-step-rail" id="next-step-rail" style="display:none;" aria-label="Suggested next steps"></div>
+
     <!-- ============ PROBLEM FRAMER TAB ============ -->
     <section class="panel" id="panel-framer" data-panel="framer">
       <div class="panel-header">

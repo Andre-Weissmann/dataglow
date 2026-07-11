@@ -957,6 +957,32 @@
       ]
     },
     {
+      "id": "next-step-rail",
+      "area": "App shell / navigation",
+      "name": "Command Deck adaptive next-step rail (Part 3)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/app-shell/next-step-rail.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/next-step-rail.js",
+          "name": "NEXT_STEP_RULES"
+        },
+        {
+          "file": "js/app-shell/next-step-rail.js",
+          "name": "computeNextSteps"
+        },
+        {
+          "file": "js/app-shell/next-step-rail.js",
+          "name": "emptyProgress"
+        }
+      ]
+    },
+    {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
       "name": "Meeting scribe — Meeting-tab UI wiring",
