@@ -87,6 +87,17 @@
          bar above stays the default until this is reviewed live). -->
     <aside class="command-deck-sidebar" id="command-deck-sidebar" aria-label="DATAGLOW Command Deck" style="display:none;"></aside>
 
+    <!-- Command Deck, Part 2: global command palette (Ctrl/Cmd+K). Hidden overlay,
+         mounted at the body level so it can sit above every tab/panel. Ships dark
+         behind the dataglowCommandPalette flag -- renderCommandPalette() in main.js
+         keeps this hidden and empty when the flag is off. -->
+    <div class="command-palette-overlay" id="command-palette-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="command-palette-modal" id="command-palette-modal">
+        <input type="text" class="command-palette-input" id="command-palette-input" placeholder="Type a command or jump to a tool..." autocomplete="off" spellcheck="false">
+        <div class="command-palette-results" id="command-palette-results"></div>
+      </div>
+    </div>
+
     <!-- Dataset sidebar -->
     <aside class="data-sidebar" id="data-sidebar">
       <div class="sidebar-section">

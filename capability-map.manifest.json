@@ -1,6 +1,6 @@
 {
-  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and \u2014 for the identity-defining modules \u2014 a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list \u2014 a subset of [\"browser\",\"desktop\",\"mobile\"] \u2014 read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API \u2014 see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
+  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -450,13 +450,25 @@
     },
     {
       "id": "provenance-packet",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Provenance Packet — data blame + de-identification verifier",
-      "files": ["js/provenance/data-blame.js", "js/provenance/deidentification-verifier.js"],
+      "files": [
+        "js/provenance/data-blame.js",
+        "js/provenance/deidentification-verifier.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/data-blame.js", "name": "buildBlameIndex" },
-        { "file": "js/provenance/deidentification-verifier.js", "name": "HIPAA_SAFE_HARBOR" }
+        {
+          "file": "js/provenance/data-blame.js",
+          "name": "buildBlameIndex"
+        },
+        {
+          "file": "js/provenance/deidentification-verifier.js",
+          "name": "HIPAA_SAFE_HARBOR"
+        }
       ]
     },
     {
@@ -801,7 +813,7 @@
     {
       "id": "pack-builder-ui",
       "area": "Conversational pack builder",
-      "name": "Guided pack builder \u2014 Validate-tab UI wiring",
+      "name": "Guided pack builder — Validate-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -915,15 +927,59 @@
       ]
     },
     {
+      "id": "command-palette",
+      "area": "App shell / navigation",
+      "name": "Command Deck command palette (Part 2)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/app-shell/command-palette.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "COMMAND_ACTIONS"
+        },
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "buildCommandList"
+        },
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "scoreCommand"
+        },
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "filterCommands"
+        }
+      ]
+    },
+    {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
       "name": "Meeting scribe — Meeting-tab UI wiring",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/meeting-scribe-ui.js"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/meeting-scribe-ui.js"
+      ],
       "symbols": [
-        { "file": "js/agents/meeting-scribe-ui.js", "name": "shouldOfferMeetingScribe" },
-        { "file": "js/agents/meeting-scribe-ui.js", "name": "mountMeetingScribe" },
-        { "file": "js/agents/meeting-scribe-ui.js", "name": "parseTranscriptText" }
+        {
+          "file": "js/agents/meeting-scribe-ui.js",
+          "name": "shouldOfferMeetingScribe"
+        },
+        {
+          "file": "js/agents/meeting-scribe-ui.js",
+          "name": "mountMeetingScribe"
+        },
+        {
+          "file": "js/agents/meeting-scribe-ui.js",
+          "name": "parseTranscriptText"
+        }
       ]
     }
   ]

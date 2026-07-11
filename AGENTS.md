@@ -109,6 +109,57 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Command Deck command palette (Part 2) — decision record and safety posture
+
+`js/app-shell/command-palette.js` is pure logic, no DOM: `COMMAND_ACTIONS` is
+a small static registry of common in-tool actions (run query, run
+validation, scan for cleaning issues, run preflight, run diagnostics, export
+as an Excel workbook), each naming a stable `run` id the caller dispatches to
+a real function — this module never calls anything itself.
+`buildCommandList({tabMeta, tabOrder, activeTab})` emits one "tab" command
+per real tab (resolved from the caller's real `tabMeta`/`tabOrder`, same
+drift-proofing posture as Part 1's `buildSidebarContent`) plus every action
+command whose optional `whenTab` matches the current tab (actions with no
+`whenTab` are always offered). `scoreCommand(command, query)` and
+`filterCommands(commands, query, limit)` rank matches best-first: exact
+match, then prefix, then substring, then keyword, then fuzzy subsequence;
+an empty query weakly matches everything so the palette can show a default
+list before the user types.
+
+Wired into `js/app-shell/main.js` as a global Ctrl/Cmd+K keydown listener
+(`initCommandPalette()`, called from `init()`) that opens a modal
+(`#command-palette-overlay`/`#command-palette-input`/`#command-palette-results`
+in `index.html`, styled with `.command-palette-*` classes in `css/app.css`)
+with live filtering as the user types, arrow-key navigation, Enter to choose
+the highlighted command, and Escape or a click outside the modal to close.
+Choosing a "tab" command calls `switchTab()`; choosing an "action" command
+calls the matching real function through `runPaletteAction()`, a small
+dispatch table that is the only place in `js/app-shell/main.js` where a palette command
+id is mapped to a real side effect. Ships fully dark behind the
+`dataglowCommandPalette` flag (off by default): with the flag off,
+`openCommandPalette()` no-ops, so nothing about the app's existing behavior
+changes. Independent of Part 1's `dataglowSidebarNav` flag — either can be
+toggled without affecting the other.
+
+`npm run test:commandpalette` (`test/command-palette.test.mjs`)
+regex-extracts the real `TAB_META`/`tabOrder` straight out of
+`js/app-shell/main.js`/`js/app-shell/state.js` at test time, so this mapping
+can never silently drift out of sync with the app's actual tool list, the
+same discipline as Part 1's `test/command-deck-nav.test.mjs`. Per repo
+precedent (DOM presenters get pure-logic tests only until wired into
+`js/app-shell/main.js` with a real caller, and a live-browser/e2e test is added only once
+there is a real page context worth exercising — see Part 1's
+`renderCommandDeckSidebar()`, which is wired and still only pure-logic
+tested), no e2e test was added for this batch; one may be added in a future
+batch if the palette grows real-browser-only behavior worth covering.
+
+Direction (command palette, the second of the three Command Deck parts),
+scope (Part 2 only — Part 3's adaptive next-step rail remains a separate
+future batch), and naming were decided by the agent against the UI/UX
+brainstorm report per the user's "build all, safely and smartly"
+instruction, with the rationale recorded as code comments at the top of
+`js/app-shell/command-palette.js`.
+
 ### Command Deck sidebar nav (Part 1) — decision record and safety posture
 
 `js/app-shell/command-deck-nav.js` regroups the app's real tabs (read from

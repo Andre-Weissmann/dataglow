@@ -56,6 +56,9 @@ jobs:
   command-deck:
     uses: ./.github/workflows/job-command-deck.yml
 
+  command-palette:
+    uses: ./.github/workflows/job-command-palette.yml
+
   provenance-packet:
     uses: ./.github/workflows/job-provenance-packet.yml
 

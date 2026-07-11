@@ -6,6 +6,7 @@ import { state, getActiveDataset, addDataset, setActiveDataset } from './state.j
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import { loadRegistry } from './capability-registry.js';
 import { buildSidebarContent } from './command-deck-nav.js';
+import { buildCommandList, filterCommands } from './command-palette.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
@@ -212,7 +213,7 @@ function switchTab(tabId) {
 // ============================================================
 // Alternate nav sitting alongside the existing top tab bar. The top tab bar
 // stays the default/fallback; this only appears when dataglowSidebarNav is
-// enabled (off by default). Pure reorganization of the existing 13 tabs --
+// enabled (off by default). Pure reorganization of the existing tabs --
 // zero new logic, zero new panels. See js/app-shell/command-deck-nav.js for
 // the pure stage-grouping model and docs/capability-map.md for the decision
 // record (direction / scope / naming), all resolved by the agent per the
@@ -261,6 +262,131 @@ function renderCommandDeckSidebar() {
     stageEl.appendChild(tabsWrap);
 
     host.appendChild(stageEl);
+  });
+}
+
+// ============================================================
+// Command palette (Gen 44, Part 2 -- ships dark)
+// ============================================================
+// Global Ctrl/Cmd+K palette: jump to any real tab, or run a small static
+// registry of common in-tool actions. Pure ranking/matching logic lives in
+// js/app-shell/command-palette.js; everything below is DOM presentation and
+// the action-id -> real-function dispatch table. Independent of the Part 1
+// sidebar -- this reads TAB_META/state.tabOrder directly, same drift-proof
+// pattern, but does not depend on the sidebar being enabled or rendered.
+let paletteSelectedIndex = 0;
+let paletteVisibleCommands = [];
+
+// Maps each COMMAND_ACTIONS `run` id to the real function it triggers.
+// Kept as one small table so a reviewer can see every palette side effect
+// in one place; command-palette.js itself never calls these directly.
+function runPaletteAction(runId) {
+  if (runId === 'runSqlQuery') { runSqlQuery(); return; }
+  if (runId === 'runValidation') { runValidation(); return; }
+  if (runId === 'scanClean') { scanClean(); return; }
+  if (runId === 'runPreflight') { runPreflight(); return; }
+  if (runId === 'runDiagnostics') { runDiagnostics(); return; }
+  if (runId === 'exportXlsx') { runExport('xlsx', $('#export-note')); return; }
+}
+
+function isCommandPaletteOpen() {
+  const overlay = document.getElementById('command-palette-overlay');
+  return !!overlay && overlay.classList.contains('open');
+}
+
+function openCommandPalette() {
+  if (!isEnabled('dataglowCommandPalette')) return;
+  const overlay = document.getElementById('command-palette-overlay');
+  const input = document.getElementById('command-palette-input');
+  if (!overlay || !input) return;
+  overlay.classList.add('open');
+  input.value = '';
+  paletteSelectedIndex = 0;
+  renderCommandPaletteResults('');
+  input.focus();
+}
+
+function closeCommandPalette() {
+  const overlay = document.getElementById('command-palette-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+}
+
+function chooseCommand(cmd) {
+  if (!cmd) return;
+  closeCommandPalette();
+  if (cmd.type === 'tab') switchTab(cmd.tabId);
+  else if (cmd.type === 'action') runPaletteAction(cmd.run);
+}
+
+function renderCommandPaletteResults(query) {
+  const resultsEl = document.getElementById('command-palette-results');
+  if (!resultsEl) return;
+  resultsEl.innerHTML = '';
+
+  const all = buildCommandList({ tabMeta: TAB_META, tabOrder: state.tabOrder, activeTab });
+  paletteVisibleCommands = filterCommands(all, query, 30);
+  if (paletteSelectedIndex >= paletteVisibleCommands.length) paletteSelectedIndex = 0;
+
+  if (paletteVisibleCommands.length === 0) {
+    resultsEl.appendChild(el('div', { class: 'command-palette-empty' }, 'No matching commands'));
+    return;
+  }
+
+  paletteVisibleCommands.forEach((cmd, idx) => {
+    const item = el('div', {
+      class: `command-palette-item ${idx === paletteSelectedIndex ? 'selected' : ''}`,
+      'data-testid': `command-palette-item-${cmd.id}`,
+      onclick: () => chooseCommand(cmd),
+    }, [
+      el('span', { html: cmd.icon ? iconSvg(cmd.icon) : '' }),
+      el('span', {}, cmd.label),
+      el('span', { class: 'command-palette-item-type' }, cmd.type === 'tab' ? 'Go to' : 'Action'),
+    ]);
+    resultsEl.appendChild(item);
+  });
+}
+
+function initCommandPalette() {
+  const overlay = document.getElementById('command-palette-overlay');
+  const input = document.getElementById('command-palette-input');
+  if (!overlay || !input) return;
+
+  document.addEventListener('keydown', (e) => {
+    const meta = e.metaKey || e.ctrlKey;
+    if (meta && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (isCommandPaletteOpen()) closeCommandPalette();
+      else openCommandPalette();
+      return;
+    }
+    if (!isCommandPaletteOpen()) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeCommandPalette(); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      paletteSelectedIndex = Math.min(paletteSelectedIndex + 1, paletteVisibleCommands.length - 1);
+      renderCommandPaletteResults(input.value);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      paletteSelectedIndex = Math.max(paletteSelectedIndex - 1, 0);
+      renderCommandPaletteResults(input.value);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      chooseCommand(paletteVisibleCommands[paletteSelectedIndex]);
+    }
+  });
+
+  input.addEventListener('input', () => {
+    paletteSelectedIndex = 0;
+    renderCommandPaletteResults(input.value);
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeCommandPalette();
   });
 }
 
@@ -4774,6 +4900,7 @@ function init() {
   initWatchFolder();
   initProblemFramer();
   initCommunityPack();
+  initCommandPalette();
 
   $('#btn-run-preflight').addEventListener('click', runPreflight);
   $('#btn-clean-scan').addEventListener('click', scanClean);

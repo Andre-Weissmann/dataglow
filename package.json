@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DATAGLOW — browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
+  "description": "DATAGLOW \u2014 browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
   "scripts": {
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:layers": "node --import ./test/duckdb-loader-hook.mjs test/validation-layers.test.mjs",
@@ -52,6 +52,7 @@
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
     "test:meetingscribe": "node test/meeting-scribe.test.mjs",
     "test:commanddecknav": "node --test test/command-deck-nav.test.mjs",
+    "test:commandpalette": "node --test test/command-palette.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
     "test:export": "node test/export-report.test.mjs",
