@@ -109,6 +109,46 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Verifiable Check Seal (Trust Passport, Batch 3) — apply the existing proof primitive, do not invent crypto
+
+`js/provenance/verifiable-check-seal.js` seals a validation check result (e.g. a
+Local Analysis Contract run) into a portable artifact that proves "a check with
+these parameters ran against data matching this SHA-256 fingerprint and produced
+this result" WITHOUT revealing the data. The hard rule for anyone extending it:
+it does NOT contain its own cryptography — it APPLIES the Merkle-tree (SHA-256)
+commitment already in `js/provenance/selective-disclosure-proof.js`, importing
+`hashLeaf`/`buildMerkleTree`/`merkleProof`/`rootFromProof` over the shared
+`sha256Hex` from `js/provenance/provenance.js`. If you need a new commitment
+behaviour, extend the primitive, don't fork a second hashing scheme here.
+`sealCheckResult(result, context)` commits check name/kind, a params fingerprint,
+the data fingerprint (the ONLY thing about the raw data that ever enters the
+artifact), dataset identity/columns, and the result — and REFUSES to mint a seal
+with no data binding (pass `context.data` to fingerprint here, or
+`context.dataFingerprint` precomputed for a large table). `verifySeal(seal, data)`
+is genuinely two-layer: it re-folds every disclosed claim to the committed
+Merkle root (any altered value fails), and — only when data is supplied —
+re-fingerprints it so modified data fails to match (`dataMatch:false`); with no
+data it reports `dataMatch:null`, never a silent pass. `attachSealToLabel(label,
+seal)` is ADDITIVE: it returns a NEW batch-2 Data Nutrition Label with the seal in
+a new `custodyChain.seals` array (anchored to `custodyChain.finalHash`) and every
+existing custodyChain field preserved — never reshape batch 2's manifest.
+
+HONEST NAMING is the load-bearing constraint here and it matches the register
+`js/provenance/selective-disclosure-proof.js` set: this is NOT a zero-knowledge proof (params,
+result, and fingerprints are cleartext; only the raw data stays private), NOT a
+certification, NOT "blockchain", and never "certified". A source-guard test
+enforces that any line mentioning a forbidden term also carries a negation, so
+the file can only ever disclaim those words, never self-describe with them. The
+seal is always minted by an explicit human action (a "Seal this result" button in
+the SQL tab's Analysis Contract flow) — nothing seals automatically. Ships behind
+`verifiableCheckSeal` in `flags.manifest.json` (OFF by default; the SQL-tab
+affordance additionally requires `localAnalysisContract`), so with the flag off
+nothing renders. Test: `npm run test:checkseal`
+(`test/verifiable-check-seal.test.mjs`, pure Node — no DOM, DuckDB, or network),
+in the `verifiable-check-seal` CI job
+(`.github/workflows/job-verifiable-check-seal.yml`). Registered as the
+`provenance-check-seal` capability.
+
 ### Data Nutrition Label (Trust Passport, Batch 2)
 
 `js/provenance/data-nutrition-label.js` is a pure, browser-free, network-free
