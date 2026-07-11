@@ -413,6 +413,18 @@
         { "file": "js/agents/meeting-scribe-agent.js", "name": "detectPushback" },
         { "file": "js/agents/meeting-scribe-agent.js", "name": "buildMeetingNote" }
       ]
+    },
+    {
+      "id": "meeting-scribe-ui",
+      "area": "Meeting scribe",
+      "name": "Meeting scribe — Meeting-tab UI wiring",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/meeting-scribe-ui.js"],
+      "symbols": [
+        { "file": "js/agents/meeting-scribe-ui.js", "name": "shouldOfferMeetingScribe" },
+        { "file": "js/agents/meeting-scribe-ui.js", "name": "mountMeetingScribe" },
+        { "file": "js/agents/meeting-scribe-ui.js", "name": "parseTranscriptText" }
+      ]
     }
   ]
 }

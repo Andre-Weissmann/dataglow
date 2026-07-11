@@ -793,6 +793,23 @@
       <div id="watch-status" data-testid="watch-status" style="font-size:var(--text-sm); color:var(--color-text-faint);">Not watching any folder yet.</div>
     </section>
 
+    <!-- ============ MEETING TAB (Gen 43) ============ -->
+    <!-- Only ever reachable when the meetingScribe flag is on — see
+         js/app-shell/main.js renderTabBar(), which leaves 'meeting' out of
+         the tab bar entirely by default. The presenter
+         (js/agents/meeting-scribe-ui.js) fills #meeting-scribe-body only;
+         flag ships OFF, so this panel stays empty and unreachable in
+         production. -->
+    <section class="panel" id="panel-meeting" data-panel="meeting">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Meeting</div>
+          <div class="panel-subtitle">Paste or type what was said in a meeting to tag pushback, data requests, and action items — no audio, nothing leaves your device.</div>
+        </div>
+      </div>
+      <div id="meeting-scribe-body" data-testid="meeting-scribe-body"></div>
+    </section>
+
   </div>
 </div>
 

@@ -24,7 +24,7 @@
     "meetingScribe": {
       "enabled": false,
       "addedInPR": "gen43-meeting-scribe-agent",
-      "description": "Gen 43 meeting scribe agent (js/agents/meeting-scribe-agent.js): pure, browser-free logic that tags a transcript's segments to whichever chart/query was on screen, flags stakeholder pushback for the existing uncertainty resolver, queues new data requests, and enforces the owner+dueDate+outcome rule before an action item counts as resolved. This flag exists for the promote-or-delete clock even though no UI reads it yet — there is no audio capture, transcription, or Validate/Visualize-tab wiring in this PR (deliberately out of scope, follow-up work). Ships fully dark: no code path is reachable from the app today regardless of this flag's value."
+      "description": "Gen 43 meeting scribe: pure grounding/tagging logic (js/agents/meeting-scribe-agent.js, PR gen43-meeting-scribe-agent) plus a Meeting tab presenter (js/agents/meeting-scribe-ui.js, PR gen43-meeting-scribe-ui) where a person pastes or types a transcript to see pushback moments, data requests, and an action-item tracker enforcing the owner+dueDate+outcome rule. Still no audio capture or speech-to-text — those stay separate follow-up work. When this flag is off (its shipped default), renderTabBar() leaves the 'meeting' entry out of state.tabOrder entirely, so the tab is not just hidden but never added to the bar or reachable by any click path; #panel-meeting stays empty."
     }
   }
 }
