@@ -16,6 +16,9 @@
 //      impossible rows (an end/max compared below its own start/min).
 //   3. Sanity Anchor — aggregating across a JOIN without DISTINCT can inflate
 //      SUM/COUNT by fan-out; suggest cross-checking with an independent path.
+//      When a schema with row-count/distinct-count stats is supplied (see
+//      options.schema), this check uses real join-key uniqueness instead of
+//      a blunt "any join + any aggregate" heuristic — see checkSanityAnchor.
 //
 // The check functions are pure and exported so they can be unit-tested in Node
 // directly, without spinning up an actual Worker. The `self.onmessage` wiring
@@ -187,18 +190,129 @@ export function checkCrossColumnLogic(sql) {
 // Summing/counting across a JOIN without DISTINCT can silently double-count via
 // row fan-out. Cheap to detect statically; the fix is to verify the total with
 // an independent path (exactly what the full Sanity Anchor layer does).
-export function checkSanityAnchor(sql) {
+//
+// Precision upgrade: when the caller passes `options.schema` (the same
+// { tables: { [name]: { columns, rowCount, approxDistinct } } } shape the
+// Local Analysis Contract's buildSchemaIndex consumes — see
+// js/validation/analysis-contract.js), this check goes beyond "any join +
+// any aggregate" and looks at the ACTUAL uniqueness of the join key on each
+// side. That lets it: (a) name the real culprit column/table and its
+// uniqueness percentage instead of a generic warning, and (b) stay silent
+// when the query's own GROUP BY is already at the many-side table's grain,
+// where repeating the joined value per row is correct, not a fan-out bug.
+// Without a schema (or without distinct-count stats in it), this falls all
+// the way back to the original blunt "join + aggregate, no DISTINCT" flag,
+// so ambient typing checks that arrive before a dataset has loaded still work.
+const JOIN_ON_RE = /\bjoin\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)?\s*on\s+(.+?)(?=\bjoin\b|\bwhere\b|\bgroup\b|\border\b|\bhaving\b|\blimit\b|$)/gis;
+
+function extractJoinOnClauses(clean) {
+  const joins = [];
+  let m;
+  const re = new RegExp(JOIN_ON_RE);
+  while ((m = re.exec(clean)) !== null) {
+    joins.push({ table: m[1], onClause: m[3].trim() });
+  }
+  return joins;
+}
+
+function extractGroupByBareColumns(clean) {
+  const m = /\bgroup\s+by\b([\s\S]*?)(\border\s+by\b|\bhaving\b|\blimit\b|;|$)/i.exec(clean);
+  if (!m) return new Set();
+  const cols = new Set();
+  for (const part of m[1].split(',')) {
+    const seg = part.trim().split(/\s+/)[0];
+    if (!seg) continue;
+    const last = stripQuotes(seg.split('.').pop());
+    if (last) cols.add(last.toLowerCase());
+  }
+  return cols;
+}
+
+// Builds a lowercase-column-name -> [{table, name}] index from the schema
+// shape shared with the Local Analysis Contract, without importing that
+// module (keeps this worker dependency-light and independently testable).
+function indexSchemaColumns(schema) {
+  const index = new Map();
+  for (const [tableName, t] of Object.entries((schema && schema.tables) || {})) {
+    for (const col of t.columns || []) {
+      const key = (typeof col === 'string' ? col : col.name).toLowerCase();
+      if (!index.has(key)) index.set(key, []);
+      index.get(key).push(tableName);
+    }
+  }
+  return index;
+}
+
+function statsAwareSanityAnchor(clean, aggMatch, schema) {
+  const columnIndex = indexSchemaColumns(schema);
+  const groupByCols = extractGroupByBareColumns(clean);
+  const joins = extractJoinOnClauses(clean);
+  const warnings = [];
+  let sawAnyStats = false;
+
+  for (const join of joins) {
+    const onIdents = (join.onClause.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [])
+      .map(stripQuotes)
+      .filter(t => t && !/^(and|or|is|null)$/i.test(t));
+    const relevantCol = onIdents.find(c => columnIndex.has(c.toLowerCase()));
+    if (!relevantCol) continue;
+
+    const candidateTables = columnIndex.get(relevantCol.toLowerCase()) || [];
+    let riskiest = null;
+    for (const tableName of candidateTables) {
+      const t = schema.tables[tableName];
+      if (!t || !t.rowCount || !t.approxDistinct || t.approxDistinct[relevantCol] == null) continue;
+      sawAnyStats = true;
+      const uniqueness = t.approxDistinct[relevantCol] / t.rowCount;
+      if (uniqueness >= 0.9) continue; // essentially unique on this side — not the risky side
+
+      // If GROUP BY already lands on a column that is itself ~unique for this
+      // same table, the query's output grain already matches the many side —
+      // repeating the joined value per row here is intended, not a bug.
+      const groupedAtThisGrain = Array.from(groupByCols).some(gb => {
+        const gbTables = columnIndex.get(gb) || [];
+        return gbTables.includes(tableName) && t.approxDistinct[gb] != null && (t.approxDistinct[gb] / t.rowCount) >= 0.9;
+      });
+      if (groupedAtThisGrain) continue;
+
+      if (!riskiest || uniqueness < riskiest.uniqueness) {
+        riskiest = { table: tableName, column: relevantCol, uniqueness, rowCount: t.rowCount, distinct: t.approxDistinct[relevantCol] };
+      }
+    }
+
+    if (riskiest) {
+      warnings.push({
+        id: 'sanity_anchor',
+        severity: riskiest.uniqueness < 0.5 ? 'warning' : 'info',
+        column: riskiest.column,
+        message: `Joining on "${riskiest.column}" in "${riskiest.table}" is only ~${Math.round(riskiest.uniqueness * 100)}% unique (${riskiest.distinct.toLocaleString()} distinct of ${riskiest.rowCount.toLocaleString()} rows). ${aggMatch[1].toUpperCase()} across this JOIN can be inflated by fan-out — confirm that's intended, or cross-check with an independent calculation path (Sanity Anchor).`,
+      });
+    }
+  }
+
+  return sawAnyStats ? warnings : null; // null signals "no usable stats, fall back"
+}
+
+export function checkSanityAnchor(sql, options = {}) {
   const warnings = [];
   const clean = stripLiteralsAndComments(sql);
   const hasJoin = /\bjoin\b/i.test(clean);
   const aggMatch = /\b(sum|count|avg|total)\s*\(/i.exec(clean);
-  if (hasJoin && aggMatch && !/\b(count|sum|avg)\s*\(\s*distinct\b/i.test(clean)) {
-    warnings.push({
-      id: 'sanity_anchor',
-      severity: 'info',
-      message: `This query aggregates (${aggMatch[1].toUpperCase()}) across a JOIN without DISTINCT — a one-to-many join can inflate the total by fan-out. Cross-check the figure with an independent calculation path (Sanity Anchor).`,
-    });
+  const hasDistinct = /\b(count|sum|avg)\s*\(\s*distinct\b/i.test(clean);
+  if (!hasJoin || !aggMatch || hasDistinct) return warnings;
+
+  if (options.schema && options.schema.tables) {
+    const statsAware = statsAwareSanityAnchor(clean, aggMatch, options.schema);
+    if (statsAware !== null) return statsAware; // schema had usable stats — use the precise result (may be empty)
   }
+
+  // Fallback: no schema, or schema had no usable distinct-count stats for any
+  // join key in this query — same blunt behaviour as before the upgrade.
+  warnings.push({
+    id: 'sanity_anchor',
+    severity: 'info',
+    message: `This query aggregates (${aggMatch[1].toUpperCase()}) across a JOIN without DISTINCT — a one-to-many join can inflate the total by fan-out. Cross-check the figure with an independent calculation path (Sanity Anchor).`,
+  });
   return warnings;
 }
 
@@ -209,7 +323,7 @@ export function runAmbientChecks(sql, options = {}) {
   const all = [
     ...checkSensitiveGrouping(text, options),
     ...checkCrossColumnLogic(text),
-    ...checkSanityAnchor(text),
+    ...checkSanityAnchor(text, options),
   ];
   // De-dupe by (id + column + message) so repeated clauses don't stack.
   const seen = new Set();
@@ -228,10 +342,10 @@ export function runAmbientChecks(sql, options = {}) {
 // only the pure functions above are exercised.
 if (typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
   self.onmessage = (e) => {
-    const { requestId, sql, columns } = e.data || {};
+    const { requestId, sql, columns, schema } = e.data || {};
     let warnings = [];
     try {
-      warnings = runAmbientChecks(sql, { columns });
+      warnings = runAmbientChecks(sql, { columns, schema });
     } catch (err) {
       // A parsing edge case must never take the worker (or the editor) down.
       warnings = [];
