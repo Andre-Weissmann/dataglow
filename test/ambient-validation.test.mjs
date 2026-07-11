@@ -100,6 +100,56 @@ ok(extractGroupByColumns('SELECT * FROM t WHERE x=1').length === 0,
   ok(ws.length === 0, 'sanity anchor: COUNT(DISTINCT ...) across a JOIN is not flagged');
 }
 
+// ---------- Check 3 upgrade: stats-aware sanity anchor ----------
+// orders: 10,000 rows, order_id fully unique.
+// line_items: 40,000 rows, only 10,000 distinct order_id (4 items/order avg).
+const fanoutSchema = {
+  tables: {
+    orders: {
+      columns: [{ name: 'order_id' }, { name: 'total_amount' }],
+      rowCount: 10000,
+      approxDistinct: { order_id: 10000 },
+    },
+    line_items: {
+      columns: [{ name: 'line_item_id' }, { name: 'order_id' }, { name: 'quantity' }],
+      rowCount: 40000,
+      approxDistinct: { line_item_id: 40000, order_id: 10000 },
+    },
+  },
+};
+{
+  // order_id is only 25% unique on the line_items side — genuine fan-out risk
+  // for a per-customer/per-order total that isn't already grouped that fine.
+  const sql = `SELECT SUM(li.quantity) AS total_qty
+               FROM orders o JOIN line_items li ON o.order_id = li.order_id`;
+  const ws = checkSanityAnchor(sql, { schema: fanoutSchema });
+  const flag = ws.find(w => w.id === 'sanity_anchor');
+  ok(flag && flag.column === 'order_id', 'sanity anchor (stats-aware): names the actual low-uniqueness join column');
+  ok(flag && /25%/.test(flag.message), 'sanity anchor (stats-aware): message states the real uniqueness percentage');
+}
+{
+  // Already grouped at line_items' own grain (line_item_id, ~100% unique) —
+  // repeating the joined order total per line item is intended, not fan-out.
+  const sql = `SELECT li.line_item_id, SUM(o.total_amount) AS total
+               FROM line_items li JOIN orders o ON li.order_id = o.order_id
+               GROUP BY li.line_item_id`;
+  const ws = checkSanityAnchor(sql, { schema: fanoutSchema });
+  ok(!ws.some(w => w.id === 'sanity_anchor'), 'sanity anchor (stats-aware): silent when GROUP BY already matches the many-side grain');
+}
+{
+  // Schema provided but with no rowCount/approxDistinct at all for the
+  // relevant table — no usable stats, so it must fall back to the blunt flag
+  // rather than silently passing (silence would be a false "all clear").
+  const noStatsSchema = { tables: { orders: { columns: [{ name: 'order_id' }] }, items: { columns: [{ name: 'order_id' }] } } };
+  const ws = checkSanityAnchor('SELECT SUM(amount) FROM orders o JOIN items i ON o.order_id=i.order_id', { schema: noStatsSchema });
+  ok(hasId(ws, 'sanity_anchor'), 'sanity anchor (stats-aware): falls back to the blunt flag when schema has no usable distinct-count stats');
+}
+{
+  // No schema at all (the original call signature/behaviour) still works.
+  const ws = checkSanityAnchor('SELECT SUM(amount) FROM orders o JOIN items i ON o.id=i.order_id');
+  ok(hasId(ws, 'sanity_anchor'), 'sanity anchor: backward compatible when called with no options at all');
+}
+
 // ---------- Robustness: literals & comments must not create false hits ----------
 {
   const ws = runAmbientChecks("SELECT 'group by race' AS label FROM t -- group by race\n WHERE x=1");
