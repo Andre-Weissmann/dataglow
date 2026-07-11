@@ -890,6 +890,22 @@
       ]
     },
     {
+      "id": "provenance-analysis-fingerprint",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Analysis fingerprint & nutrition label",
+      "files": [
+        "js/provenance/analysis-fingerprint.js",
+        "js/provenance/nutrition-badges.js"
+      ],
+      "symbols": [
+        { "file": "js/provenance/analysis-fingerprint.js", "name": "computeAnalysisFingerprint" },
+        { "file": "js/provenance/analysis-fingerprint.js", "name": "verifyAnalysisFingerprint" },
+        { "file": "js/provenance/nutrition-badges.js", "name": "computeBadges" },
+        { "file": "js/provenance/nutrition-badges.js", "name": "BADGE_CATALOG" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",

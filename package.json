@@ -37,6 +37,8 @@
     "test:databom": "node test/data-bom.test.mjs",
     "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/synthetic-twin-time-machine-suite.test.mjs",
     "test:sd-proof": "node test/selective-disclosure-proof.test.mjs",
+    "test:fingerprint": "node test/analysis-fingerprint.test.mjs",
+    "test:badges": "node test/nutrition-badges.test.mjs",
     "test:sd-verify": "node test/verify-proof.mjs",
     "test:ambient": "node test/ambient-validation.test.mjs",
     "test:analysiscontract": "node test/analysis-contract.test.mjs",

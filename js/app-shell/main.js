@@ -4205,6 +4205,12 @@ async function renderDataHealth(ds, results) {
   // the plain-English reason.
   renderCalibratedGrades(results && results.calibratedGrades);
 
+  // Dataset Nutrition Label — scannable provenance/quality badges, each backed
+  // by a REAL signal from the validation run. We also fingerprint this run (a
+  // fast, tamper-evident SHA-256 content hash, NOT a signature/notarization) and
+  // surface a "Fingerprinted" badge, tying the visual label to the crypto record.
+  await renderNutritionLabel(ds, results).catch(() => {});
+
   // Golden Signals (Google SRE-inspired, mapped to data quality).
   const gs = await goldenSignals.computeGoldenSignals(ds, results).catch(() => null);
   const gsEl = $('#golden-signals');
@@ -4235,6 +4241,93 @@ async function renderDataHealth(ds, results) {
 
   // Per-entity baselines (UEBA) if an ID-like + numeric column pair exists.
   await renderEntityBaselines(ds);
+}
+
+// Dataset Nutrition Label + Analysis Fingerprint for the current validation run.
+// Lazy-imports the two pure provenance modules (no top-level cost when the tab is
+// never opened) and renders a small, idempotent badge strip above the calibrated
+// grades. Every badge here is earned from a real signal; the fingerprint commits
+// to the validation result plus the inputs that produced it.
+async function renderNutritionLabel(ds, results) {
+  const [{ computeAnalysisFingerprint }, { computeBadges }] = await Promise.all([
+    import('../provenance/analysis-fingerprint.js'),
+    import('../provenance/nutrition-badges.js'),
+  ]);
+
+  // Canonical, stable representation of the validation result the fingerprint
+  // commits to: row count, the calibrated grades, and each layer's status.
+  const layerStatuses = {};
+  if (results) {
+    for (const id of Object.keys(results).sort()) {
+      const r = results[id];
+      if (r && typeof r === 'object' && typeof r.status === 'string') layerStatuses[id] = r.status;
+    }
+  }
+  const grades = results && results.calibratedGrades
+    ? {
+        integrity: results.calibratedGrades.integrity && results.calibratedGrades.integrity.grade,
+        plausibility: results.calibratedGrades.plausibility && results.calibratedGrades.plausibility.grade,
+        overall: results.calibratedGrades.overall && results.calibratedGrades.overall.grade,
+      }
+    : null;
+
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  const trail = chain ? chain.getTrail() : [];
+  const datasetProvenanceHash = trail.length ? trail[trail.length - 1].hash : null;
+  // Commit to how many metrics the session has defined (a real, reproducible
+  // marker of registry state) so the fingerprint moves if the semantic layer did.
+  const registry = getActiveMetricsRegistry();
+  const metricsRegistryVersion = registry ? registry.listMetrics().length : null;
+
+  let fingerprint = null;
+  try {
+    fingerprint = await computeAnalysisFingerprint(
+      {
+        resultData: { rowCount: ds ? ds.rowCount : null, grades, layerStatuses },
+        sqlOrPipelineDescription: 'DATAGLOW validation run (all layers)',
+        parameters: { table: ds ? ds.table : null },
+        metricsRegistryVersion,
+        datasetProvenanceHash,
+      },
+      { label: 'validation-run' }
+    );
+  } catch { fingerprint = null; }
+
+  const badges = computeBadges({
+    results,
+    rowCount: ds ? ds.rowCount : undefined,
+    fingerprint,
+  });
+
+  // Idempotent container, inserted once directly above the calibrated grades.
+  let host = $('#nutrition-label');
+  if (!host) {
+    host = el('div', { id: 'nutrition-label', 'data-testid': 'nutrition-label', style: 'margin:var(--space-3) 0;' });
+    const gradesBox = $('#calibrated-grades');
+    const headline = $('#overall-headline');
+    const anchor = headline || gradesBox;
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(host, anchor);
+    else $('#data-health-wrap').appendChild(host);
+  }
+  host.innerHTML = '';
+  if (!badges.length) { host.style.display = 'none'; return; }
+  host.style.display = '';
+
+  host.appendChild(el('div', {
+    style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-1); font-weight:600;',
+  }, 'Dataset nutrition label'));
+  const strip = el('div', { style: 'display:flex; flex-wrap:wrap; gap:var(--space-2);' });
+  for (const b of badges) {
+    strip.appendChild(el('span', {
+      'data-testid': `nutrition-badge-${b.id}`,
+      title: b.meaning,
+      style: 'display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--color-divider); border-radius:999px; font-size:var(--text-xs); background:var(--color-surface-offset,transparent); cursor:help;',
+    }, [
+      el('span', { 'aria-hidden': 'true', style: 'font-size:var(--text-sm);' }, b.glyph),
+      el('span', {}, b.label),
+    ]));
+  }
+  host.appendChild(strip);
 }
 
 // Render the two-axis Confidence-Calibrated Grades with an explicit visual

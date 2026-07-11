@@ -1,0 +1,33 @@
+# ============================================================
+# DATAGLOW — CI job: Analysis fingerprint & nutrition label
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the two coupled provenance modules:
+#   • js/provenance/analysis-fingerprint.js — tamper-evident SHA-256 content
+#     fingerprint of a computed result + its inputs (reproducible, per-input
+#     sensitive, pure recompute-and-compare verifier, honestly labelled as NOT a
+#     signature/notarization). See test/analysis-fingerprint.test.mjs.
+#   • js/provenance/nutrition-badges.js — fixed catalog of scannable
+#     provenance/quality badges, each gated by a real computed signal so a badge
+#     can never fire without its evidence. See test/nutrition-badges.test.mjs.
+# Pure crypto/logic (SHA-256 via crypto.subtle) — no browser, no DuckDB, no network.
+
+name: Analysis fingerprint & nutrition label
+
+on:
+  workflow_call:
+
+jobs:
+  analysis-fingerprint:
+    name: Analysis fingerprint & nutrition label
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:fingerprint
+      - run: npm run test:badges

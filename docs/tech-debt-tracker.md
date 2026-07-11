@@ -433,3 +433,25 @@ Newest entries go at the bottom of **Entries**.
 - **Severity:** low
 - **Area:** `js/app-shell/metrics-registry.js`, `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/visualize.js`, `js/narrative/story.js`
 - **Status:** open
+
+### 2026-07-11 — "Truncated Axis" nutrition badge not shippable; nutrition label wired to one surface
+
+- **Description:** The Dataset Nutrition Label
+  (`js/provenance/nutrition-badges.js`) ships six badges, each backed by a real
+  computed signal. A seventh candidate — "Truncated Axis" (warn when a chart's
+  y-axis does not start at zero / is visually truncated) — was deliberately NOT
+  shipped: `js/runtimes-viz/visualize.js` only carries axis *title* configuration
+  and exposes no truncated / zero-baseline signal to compute the badge honestly,
+  and the "no decorative badges" rule forbids faking it. Shipping it needs
+  `visualize.js` to surface a real per-chart axis-range/zero-baseline fact for
+  `computeBadges` to read. Separately, the label + Analysis Fingerprint
+  (`js/provenance/analysis-fingerprint.js`) are wired end-to-end on ONE surface
+  only — `renderDataHealth` (the Validate-tab Data Health dashboard) in
+  `js/app-shell/main.js`; the SQL result grid and Visualize/chart exports are not
+  yet badged or fingerprinted. Deferred to keep this batch to one real, tested
+  rendering path; both modules are pure and surface-agnostic, so extending them is
+  additive.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/nutrition-badges.js`, `js/runtimes-viz/visualize.js`, `js/provenance/analysis-fingerprint.js`, `js/app-shell/main.js`
+- **Status:** open

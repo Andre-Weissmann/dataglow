@@ -840,6 +840,40 @@ currently decorative: there is no UI, capture path, or call site anywhere in the
 yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
 (`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
 
+### Analysis fingerprint + nutrition label — make a result checkable at a glance AND cryptographically
+
+Two coupled, pure modules give a computed result two independent trust checks a
+non-expert can act on. `js/provenance/analysis-fingerprint.js` is the crypto
+half: `computeAnalysisFingerprint({resultData, sqlOrPipelineDescription,
+parameters, metricsRegistryVersion, datasetProvenanceHash}, {label})` returns a
+self-describing record whose `digest` is a SHA-256 over a canonical JSON payload
+of the result plus the inputs that produced it, and `verifyAnalysisFingerprint(record,
+recomputedInputs)` is a pure recompute-and-compare that needs only the record +
+an independent recomputation (no app state). It REUSES `sha256Hex` from
+`js/provenance/provenance.js` via `crypto.subtle` — do NOT add a second hash, an
+external crypto library, or any zero-knowledge machinery. HONEST LABELLING is a
+hard rule here, matching the attestation module's discipline: this is a
+"tamper-evident content fingerprint" that proves integrity, NOT authorship or
+existence-at-a-time — there is no signing key or timestamp authority, so never
+describe it as signed, notarized, or certified, and never fake a signature claim.
+`js/provenance/nutrition-badges.js` is the visual half: a frozen `BADGE_CATALOG`
+(text/unicode glyphs only — no image assets, no icon library) plus pure
+`computeBadges(context)`. The binding rule is **no decorative badges** — every
+catalog entry carries a `check(context)` that returns backing detail only when a
+REAL signal is present (calibrated grades, missingness findings, row count below
+`SMALL_SAMPLE_THRESHOLD`, outlier-layer status, a fingerprint record, a Step-C
+`resolvedBy==='C'` debate resolution), so a badge can never be emitted without its
+evidence; a candidate badge that can't be honestly computed (e.g. "Truncated
+Axis", which has no signal in `js/runtimes-viz/visualize.js`) is recorded in
+`docs/tech-debt-tracker.md`, not faked. Both are wired end-to-end on ONE surface
+so far — `renderDataHealth` in `js/app-shell/main.js` (the Validate-tab Data
+Health dashboard) — deliberately lazy-imported and idempotent; other surfaces are
+tracked as tech debt. Registered as the `provenance-analysis-fingerprint`
+capability (`platforms: ["browser","desktop"]`). Tests: `npm run test:fingerprint`
+(`test/analysis-fingerprint.test.mjs`) and `npm run test:badges`
+(`test/nutrition-badges.test.mjs`), the `analysis-fingerprint` CI job — both pure
+Node, no browser/DuckDB/network.
+
 ### Shared metrics registry — one "define once" source of truth per session
 
 `js/app-shell/metrics-registry.js` is the in-session shared registry of named
