@@ -109,6 +109,50 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### UX navigation & Validate declutter — grouped tab bar and focus-mode disclosure
+
+Two presentation-only, disabled-by-default flags applying a "decide for the
+user, hide complexity until earned" pass to the two biggest first-impression
+friction points found by walking the running app screen-by-screen: a flat
+13(+1)-tab bar with no hierarchy, and a Validate tab that dumps every control
+(context input, domain pack, level, 5 export/run buttons, then the AI
+Synthesis and Peer Review Mode cards) onto the screen at once.
+
+`groupedNavigation` (`js/app-shell/tab-groups.js`): a pure reducer,
+`buildTabGroups(tabOrder)` clusters the SAME tab ids `renderTabBar()` already
+renders into 5 named modes — Explore (Problem Framer, Preflight), Validate &
+Trust (Validate, Clean, Diff), Analyze (SQL, Python, R), Visualize & Share
+(Visualize, Story, Swift), Automate (Digital Twin, Watch Folder, Meeting).
+`groupForTab(tabId)` is the inverse lookup, used to highlight the active
+tab's mode header. Neither function touches the DOM, `state.tabOrder`,
+`switchTab()`, drag-reorder handlers, or any other tab's individual flag
+gate — with the flag off, `renderTabBar()` renders the exact original flat
+single-row bar. With it on, the same `.tab` elements (identical markup,
+click handlers, `data-testid`s, drag/drop wiring) are grouped under
+`.tab-group` headers instead.
+
+`validateFocusMode` (`js/app-shell/validate-focus.js`): pure disclosure-state
+logic, `shouldExpandAdvanced({hasRunOnce, wasManuallyExpanded})`, wraps the
+Validate tab's secondary controls (now in a `<details id="validate-advanced-options">`)
+and the AI Synthesis / Peer Review Mode cards (each in their own `<details>`)
+under an "Advanced options" disclosure that starts collapsed until the
+analyst runs validation once on the active dataset (`runValidation()` calls
+`validateFocusStore.markRunOnce(ds.name)`) or manually opens any one of the
+three disclosures (all three track together — one conceptual surface split
+across the DOM only because the underlying cards are far apart). Per-dataset,
+not global: switching datasets starts each one collapsed again via
+`createValidateFocusStore()`'s in-memory `Set`s (never persisted, never
+networked). `applyValidateFocusMode()` in `js/app-shell/main.js` is the only
+DOM wiring; with the flag off it forces every `<details>` `open = true` on
+every render, so nothing inside is removed, relabeled, or gated any
+differently than before this PR — only the default open/closed state
+changes, and only once the flag is on. No other existing flag
+(`metricStudio`, `trustStripProofDrawer`, `conversationalPackBuilder`, etc.)
+is touched; their panels render exactly as before once the disclosure they
+live inside is open. Tests: `npm run test:tabgroups`
+(`test/tab-groups.test.mjs`) and `npm run test:validatefocus`
+(`test/validate-focus.test.mjs`).
+
 ### Semantic drift watchdog — de-duplicated drift alerts for Watch Folder
 
 `js/ambient/drift-watchdog.js` is a pure, dependency-free, Node-testable

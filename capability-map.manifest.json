@@ -546,6 +546,54 @@
       ]
     },
     {
+      "id": "grouped-tab-navigation",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "Grouped tab navigation",
+      "files": [
+        "js/app-shell/tab-groups.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/tab-groups.js",
+          "name": "buildTabGroups"
+        },
+        {
+          "file": "js/app-shell/tab-groups.js",
+          "name": "groupForTab"
+        },
+        {
+          "file": "js/app-shell/tab-groups.js",
+          "name": "TAB_GROUP_ORDER"
+        }
+      ]
+    },
+    {
+      "id": "validate-focus-mode",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "Validate tab focus mode",
+      "files": [
+        "js/app-shell/validate-focus.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/validate-focus.js",
+          "name": "shouldExpandAdvanced"
+        },
+        {
+          "file": "js/app-shell/validate-focus.js",
+          "name": "createValidateFocusStore"
+        }
+      ]
+    },
+    {
       "id": "semantic-drift-watchdog",
       "platforms": [
         "browser",
