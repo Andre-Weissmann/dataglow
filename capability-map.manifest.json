@@ -2051,6 +2051,16 @@
           "name": "classifySensitiveColumns"
         }
       ]
+    },
+    {
+      "id": "open-floor-sandbox-twin",
+      "area": "Open Floor",
+      "name": "Open Floor Sandbox Twin — forkable disposable dataset copy; every mutation & promote firewall-gated",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/simulation/sandbox-twin.js"],
+      "symbols": [
+        { "file": "js/simulation/sandbox-twin.js", "name": "createSandboxTwin" }
+      ]
     }
   ]
 }

@@ -158,3 +158,6 @@ jobs:
     uses: ./.github/workflows/job-ownership-ledger.yml
   crucible:
     uses: ./.github/workflows/job-crucible.yml
+
+  open-floor-sandbox-twin:
+    uses: ./.github/workflows/job-open-floor-sandbox-twin.yml

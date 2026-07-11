@@ -171,6 +171,7 @@ generation.
 ## Simulation & time travel
 Sandboxes and historical comparisons that never touch the live data.
 - **What-if & history** — `js/simulation/digital-twin.js` (in-memory what-if simulator), `js/simulation/time-travel-diff.js` (diff two dataset versions), `js/simulation/time-machine.js` (persistent snapshot ledger in IndexedDB).
+- **Open Floor Sandbox Twin** — `js/simulation/sandbox-twin.js` (`createSandboxTwin` forks a disposable, deep-copied twin of an already-loaded dataset that an agent can propose destructive ops against FREELY; every mutation of the twin AND every promote of a twin result back into the real dataset routes through the Agent Action Firewall's per-action human-confirmation gate — reuses `perturbRows` from `digital-twin.js` and `diffRows`/`detectKeyColumn` from `time-travel-diff.js`, owns no diffing logic, and degrades to a disabled/fail-closed state if the firewall module is unavailable). Behind the `openFloorSandboxTwin` flag (ships OFF).
 
 ## Narrative & language models
 Turns structured validation output into plain-English narrative, with a fully on-device

@@ -87,6 +87,7 @@
     "test:firewall": "node test/agent-action-firewall.test.mjs",
     "test:commandpalette": "node --test test/command-palette.test.mjs",
     "test:openfloor": "node test/open-floor-kernel.test.mjs",
+    "test:sandboxtwin": "node test/sandbox-twin.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
     "test:export": "node test/export-report.test.mjs",
