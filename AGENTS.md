@@ -131,6 +131,181 @@ backing data is absent; and the Proof Drawer's provenance view REUSES
 the attestation renderer. Tests: `npm run test:metricstudio` (native DuckDB) and
 `npm run test:truststrip` (pure). Wired in `js/app-shell/main.js` behind the two
 flags; with both off nothing renders (regression-guarded in the truststrip test).
+### Meeting decision ledger (Gen 43, Part 3) — chart-anchored, append-only, opt-in
+
+The first piece of the "Meeting-to-Metric Provenance" concept: a permanent,
+on-device record of a meeting's pushback moments, data requests, and action
+items, so nothing noteworthy is lost the moment someone leaves the Meeting tab
+or clicks Clear. Pure logic lives in `js/agents/meeting-decision-ledger.js` —
+`buildLedgerEntriesFromMeeting` takes Part 1's already-tagged segments and
+action items and keeps only the noteworthy ones (never every line, unless a
+caller opts into `includeAllLines`); every entry keeps whatever chart
+`context` Part 1 attached, or `null` if none was available — nothing here
+ever invents a chart reference. `saveLedgerEntries`/`loadLedgerEntries` talk
+only to an injected `store` adapter (mirroring `js/learning/memory-store.js`'s
+`appendLedgerEntries`/`getLedgerEntries` contract, the same injection pattern
+`js/learning/self-learning-rules.js` already uses), so the pure module has no
+hardcoded storage import and is fully testable with an in-memory fake — see
+`test/meeting-decision-ledger.test.mjs` (`npm run test:decisionledger`), 32
+assertions covering entry construction, meeting-to-entries conversion,
+persistence via the fake store, filtering/summarizing, export formatting, and
+a source-scan proving the file names no network primitive in actual code.
+
+Append-only by design: resolving an action item later writes a NEW ledger
+entry rather than editing the old one in place, so the history of "was this
+ever open" can never be silently rewritten. Persistence itself is a new
+`meetingDecisionLedger` object store added to the existing shared
+`dataglow_memory` IndexedDB in `js/learning/memory-store.js` (bumped to
+`DB_VERSION = 4`; capped at 5,000 entries, oldest evicted first;
+`clearLedgerEntries` wipes only this store, same pattern as `clearBaselines`).
+
+The UI half, `js/agents/meeting-decision-ledger-ui.js`, is a SEPARATE section
+mounted into a SEPARATE host (`#meeting-decision-ledger-body` in
+`index.html`) underneath the existing Meeting Scribe screen, gated by its OWN
+flag `meetingDecisionLedger` (not `meetingScribe`) so it ships dark
+independently of that flag's state. `shouldOfferDecisionLedger({enabled})` is
+the pure gate; `mountDecisionLedger({host, store, getCurrentMeeting, onToast})`
+renders a `[Save this meeting to ledger]` button that reads the sibling
+screen's current state ONLY on click — nothing here auto-saves anything, the
+same EMPOWERMENT CONSTRAINT documented in `js/agents/meeting-scribe-agent.js` —
+plus a browse list filterable by chart/type, an `[Export ledger (.json)]`
+button (a client-side Blob/anchor-click download, no network call), and a
+`[Clear ledger]` button that confirms first. To make this possible without
+breaking Part 2's encapsulation, `mountMeetingScribe`'s return value in
+`js/agents/meeting-scribe-ui.js` gained one new key, `getState()` — a
+read-only snapshot of `{meetingId, taggedSegments, actionItems}` — alongside
+the existing `destroy`; this is additive only and changes no existing
+behavior for callers (including Part 2's own tests) that only use `destroy`.
+`js/app-shell/main.js`'s `renderMeetingScribeTab()` now also calls a new
+`renderDecisionLedgerSection()`, which independently checks
+`isEnabled('meetingDecisionLedger')` before mounting into
+`#meeting-decision-ledger-body`, wiring `memoryStore` in as the store adapter.
+New real-browser Playwright test `test/meeting-decision-ledger-ui.test.mjs`
+(`npm run test:e2e-decisionledger-ui`), 14 assertions covering the gate,
+analyze→save→browse flow, empty-save no-op, chart filtering, and clear — all
+against an in-memory fake store, no real IndexedDB dependency in CI. No flag
+flipped; both `meetingScribe` and `meetingDecisionLedger` ship OFF.
+
+### Meeting scribe — Meeting-tab UI wiring (Gen 43, Part 2)
+
+The screen Part 1 deliberately left for a follow-up now lives in
+`js/agents/meeting-scribe-ui.js`, a thin presenter mirroring
+`js/agents/conversational-pack-ui.js`'s shape: a pure gate `shouldOfferMeetingScribe({enabled})`
+(the single predicate the caller checks) and `mountMeetingScribe({host, onToast})`,
+which renders a paste/type-transcript textarea, an `[Analyze transcript]` button, and
+groups the Part 1 agent's output into Pushback moments / Data requests / a full
+tagged-line list, plus a small action-item tracker whose rows show "Open" until
+owner + due date + outcome are all filled in and saved (per Part 1's
+minimum-viable-action-item rule), then flip to "Resolved". `parseTranscriptText`
+turns pasted/typed lines into `{text, ts}` segments — a leading integer is read as an
+explicit second-based timestamp, a bare line is auto-numbered one second after the
+previous, so typing plain text works with zero setup. There is still NO audio
+capture or speech-to-text here — a person supplies the transcript text themselves;
+that capture path stays a separate, harder follow-up.
+
+`js/app-shell/main.js` adds a new `meeting` tab, but only to the RENDERED tab list —
+`renderTabBar()` filters `state.tabOrder` down with
+`tabId !== 'meeting' || isEnabled('meetingScribe')` before drawing the bar, so with the
+flag off (its shipped default) the tab is not just hidden but never added at all —
+there is no dead click target and no stale DOM. `switchTab('meeting')` lazily calls
+`renderMeetingScribeTab()`, which re-checks the flag and the gate before mounting into
+`#meeting-scribe-body`, and only mounts once per session so a person's typed-in
+progress is never wiped by revisiting the tab. New real-browser Playwright test
+`test/meeting-scribe-ui.test.mjs` (`npm run test:e2e-meetingscribe-ui`): asserts the
+gate, transcript parsing (explicit vs. auto-numbered timestamps), the full
+analyze flow (pushback + data-request detection, full tagged list, blank-input
+no-op), and the action-item open→partially-filled-stays-open→resolved flow. No flag
+flipped.
+
+### Provenance Packet (Batch 1) — cell-level blame + de-identification verifier
+
+Two browser-free, network-free capabilities that build on the existing hash-chain
+provenance ledger (`js/provenance/provenance.js`). `js/provenance/data-blame.js` is
+a pure READER over that chain — it does NOT introduce a parallel log. Transform
+call sites in `js/app-shell/main.js` now standardize each `recordStep` `detail`
+via `buildBlameDetail(...)`; the reader's `normalizeBlameEntry` still reads the
+legacy `{fixType, column}` shape, so old trails keep working. `buildBlameIndex`,
+`blameForColumn`, and `blameForCell` answer "what changed this cell and why" from
+the chain alone. `js/provenance/deidentification-verifier.js` runs the 18 HIPAA
+Safe Harbor categories (`HIPAA_SAFE_HARBOR`) against loaded columns/samples,
+scores re-identification risk from quasi-identifiers (the {date-or-age, sex, zip}
+trio drives the score up), and produces a SHA-256-signed attestation via the same
+`sha256Hex` primitive the CI ledger uses — no new crypto. Everything runs against
+in-browser DuckDB-WASM; nothing is uploaded. Tests: `npm run test:datablame`
+(`test/data-blame.test.mjs`) and `npm run test:deidverify`
+(`test/deidentification-verifier.test.mjs`), both in the `provenance-packet` CI
+job (`.github/workflows/job-provenance-packet.yml`).
+
+### Local Analysis Contract — SQL-vs-schema checker, and a consolidation call
+
+`js/validation/analysis-contract.js` checks a SQL query against the REAL schema
+of the dataset(s) already loaded in DuckDB, entirely offline, and flags three
+failure classes: **schema hallucination** (a referenced column/table doesn't
+exist — Levenshtein near-miss suggestion when one is close), **aggregation
+mismatches** (`COUNT` across a JOIN without `DISTINCT` when duplication is
+plausible; `SUM()` of a column that already looks like a rate/ratio/average),
+and **missing guard clauses** (an aggregate query never references a column
+that looks like it excludes test/demo/deleted/refunded/cancelled rows). Pure,
+DB-free, browser-free, network-free — `npm run test:analysiscontract`
+(`test/analysis-contract.test.mjs`, 29 tests). Wired into the SQL tab behind
+the `localAnalysisContract` flag (off by default): `runSqlQuery()` in
+`js/app-shell/main.js` runs the check AFTER the result table is already
+rendered — it never gates, delays, or blocks query execution — using a live
+schema built from every loaded dataset plus lazily-fetched
+`approx_count_distinct` stats for columns actually named in that query's
+JOIN/GROUP BY clauses, and renders a dismissible card listing every flag.
+EMPOWERMENT CONSTRAINT compliant: flags only, never rewrites, blocks, or
+auto-fixes a query. Graceful-degradation guarantee: every check and the schema
+builder are wrapped so an unreadable/malformed schema, an uncountable column,
+or a tokenizer surprise degrades that one check silently rather than throwing
+— the SQL tab keeps working even if the contract check can't run.
+
+**Consolidation call (read before adding a fourth join-fanout checker):** this
+module's join-fan-out logic was written, tested, and then deliberately
+REMOVED once it became clear it duplicated the ambient `checkSanityAnchor`
+(`js/ambient/ambient-validation.worker.js`), which already flagged "join +
+aggregate without DISTINCT" during live typing. Rather than ship two
+competing join-fanout checkers with two different notions of "risky," this
+PR upgraded `checkSanityAnchor` itself to optionally accept a schema with
+row-count/distinct-count stats (`options.schema`) and, when present, name the
+actual low-uniqueness join column and its real uniqueness percentage instead
+of a generic flag — while staying silent when the query's own `GROUP BY`
+already matches the many-side table's grain (a legitimate 1:many join, not a
+fan-out bug) — falling all the way back to the original blunt check when no
+schema/stats are supplied, so ambient checks before a dataset loads (or during
+keystroke-level live typing, which does not yet pass a schema — a documented,
+deliberate scope cut, not an oversight) are unaffected. `npm run test:ambient`
+(`test/ambient-validation.test.mjs`, 26 tests: all pre-existing cases pass
+unmodified plus 4 new stats-aware cases). Join-fan-out risk therefore has
+exactly ONE owner (`checkSanityAnchor`); `js/validation/analysis-contract.js`'s own header
+comment says so explicitly — if you're tempted to re-add fan-out detection to
+`js/validation/analysis-contract.js`, feed it a schema through `checkSanityAnchor` instead.
+
+### Meeting scribe agent (Gen 43, Part 1) — pure grounding logic only, no capture yet
+
+`js/agents/meeting-scribe-agent.js` is the first, deliberately narrow piece of a
+larger "analyst team goes to the meeting" idea. It does NOT capture audio and does
+NOT run speech-to-text — both are separate, browser-API-heavy follow-ups
+(`getDisplayMedia` + an on-device WebGPU transcription model) left out on purpose so
+this piece could ship small and fully unit-tested without a browser or a GPU. Given
+transcript segments (`{text, ts}`) and a context timeline the app already knows
+(`{ts, chart, queryLabel}`, emitted whenever the analyst switches views),
+`tagSegmentsWithContext` tags each segment with whichever context event was active at
+its timestamp (segments before the first event are tagged `null`, never guessed).
+`detectPushback`/`detectDataRequest` flag stakeholder phrasing — pushback ("why did
+this drop", "are you sure") is flagged so a caller can trigger the EXISTING
+uncertainty-resolver's re-run rather than a prose reply, honouring the same rule Gen 42
+established: a critique-style check must re-run its own query, never argue in text.
+`buildActionItem`/`isActionItemResolved`/`resolveActionItem` enforce the
+minimum-viable-action-item rule — an item resolves ONLY once it carries an owner, a due
+date, AND an outcome; a bare "will follow up" note stays open. `buildMeetingNote`
+assembles a plain, JSON-safe ledger entry; signing/appending it to a portable export
+file is the export layer's job, not this module's. EMPOWERMENT CONSTRAINT (same as
+Gen 42): nothing here writes to a pack, rule, or chart — it only produces a note object
+for the analyst to review. Ships behind the `meetingScribe` flag, but the flag is
+currently decorative: there is no UI, capture path, or call site anywhere in the app
+yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
+(`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
 
 ### Conversational pack builder — Validate-tab UI wiring (Gen 42 follow-up)
 

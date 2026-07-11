@@ -66,6 +66,23 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-packbuilder-ui
+      # Gen 43 Part 2: meeting scribe Meeting-tab UI wiring. Same engine-independent
+      # detached-host approach (no DuckDB). Asserts the 'meeting' tab stays out of
+      # the rendered tab list with the flag off and, with it on, the paste-transcript
+      # → analyze → pushback/data-request grouping → action-item resolve flow.
+      - name: Run meeting scribe UI test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-meetingscribe-ui
+      # Gen 43 Part 3: meeting decision ledger UI wiring. Same engine-independent
+      # detached-host approach, with a tiny in-memory fake store standing in for
+      # IndexedDB (no real browser storage engine needed in CI). Asserts the
+      # ledger stays dark with its own flag off and, with it on, the save →
+      # browse → filter-by-chart → export → clear flow.
+      - name: Run meeting decision ledger UI test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-decisionledger-ui
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
