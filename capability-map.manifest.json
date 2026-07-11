@@ -1087,6 +1087,36 @@
           "name": "renderDiffView"
         }
       ]
+    },
+    {
+      "id": "metric-contract-confirm-gate",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Metric Contracts (Batch 3: confirm gate)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/metrics/metric-contract-confirm-gate.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/metrics/metric-contract-confirm-gate.js",
+          "name": "proposeContractChange"
+        },
+        {
+          "file": "js/metrics/metric-contract-confirm-gate.js",
+          "name": "approve"
+        },
+        {
+          "file": "js/metrics/metric-contract-confirm-gate.js",
+          "name": "reject"
+        },
+        {
+          "file": "js/metrics/metric-contract-confirm-gate.js",
+          "name": "renderConfirmGate"
+        }
+      ]
     }
   ]
 }

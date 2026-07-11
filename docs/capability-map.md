@@ -229,10 +229,24 @@ to be CORRECT.
   following `js/trust/proof-drawer.js`'s exact pure-content/DOM split and reusing its `kv`/`text`/`list`
   block kinds plus one new `field-diff` kind (side-by-side before/after) so both panels look and behave
   consistently. READ-ONLY: no apply/accept button, no write path; nothing in `main.js` calls
-  `renderDiffView` yet.) Both batches gated behind the `metricContracts` flag (ships OFF, still
-  currently gates nothing observable since there is no UI wiring yet); Batch 3 adds a confirm-gate
-  reusing this same builder/renderer so any AI-agent-proposed metric change renders as this exact diff
-  and requires one explicit human click before it applies.
+  `renderDiffView` yet.)
+- **Metric Contracts (Batch 3: confirm gate)** — `js/metrics/metric-contract-confirm-gate.js`
+  (the safety-critical piece. `proposeContractChange` builds a plain, inert PROPOSAL object — pure
+  data, zero side effects — the only thing an AI-agent caller can produce with respect to a metric
+  contract. `buildProposalDiffContent` reuses Batch 2's `buildDiffViewContent` unmodified so a pending
+  proposal renders identically to a past human edit. `approve(proposal, contractRegistry,
+  metricRegistry)` is the ONLY function in the codebase that can call `recordVersion()` with
+  `source: 'agent-proposed'` — it also applies the same change to the metric's live definition, and
+  only ever runs from the one Approve button `renderConfirmGate`'s DOM presenter renders; no
+  auto-approve path exists. Idempotent on double-approve; refuses cleanly without either registry or
+  on an already-decided proposal. `reject` writes nothing anywhere, ever. Reaffirms and tests
+  DATAGLOW's hard autonomy-safety rule: an agent may propose, a human must approve every mutating
+  action individually. Two EQUAL-weight Approve/Reject buttons — never nudges toward "accept."
+  Nothing in `main.js` calls `renderConfirmGate` yet — no agent in the running app can generate a
+  real proposal through this gate today.)
+
+All three batches gated behind the `metricContracts` flag (ships OFF, still currently gates nothing
+observable since none of the three is wired into `main.js` yet).
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.

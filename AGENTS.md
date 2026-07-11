@@ -109,6 +109,45 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Metric Contracts, Batch 3 — confirm gate (the safety-critical batch)
+
+`js/metrics/metric-contract-confirm-gate.js` is the ONLY path in this codebase
+by which an AI-agent-proposed change to a metric contract can ever reach
+`MetricContractHistory.recordVersion()`. `proposeContractChange({metricId,
+currentMetric, candidate, proposedBy, reason})` builds a plain, inert proposal
+object — pure data construction, zero side effects, nothing written anywhere;
+this is the only thing an agent caller may produce. `buildProposalDiffContent()`
+reuses Batch 2's `buildDiffViewContent` completely unmodified, so a pending
+proposal renders pixel-for-pixel identically to how a past human edit renders
+— an agent's proposed change is never given different visual treatment.
+`approve({proposal, contractRegistry, metricRegistry})` is the one and only
+function that calls `recordVersion()` with `source: 'agent-proposed'`; it also
+updates the metric's live definition in the same call so the contract history
+and the live metric never drift apart. It runs ONLY from the one Approve
+button `renderConfirmGate()`'s DOM presenter renders — there is no auto-approve
+timer, config flag, trusted-agent bypass, or any other path in. It is
+idempotent (approving an already-applied proposal twice never double-appends
+history) and refuses cleanly — without touching anything — when given no
+contract registry, no metric registry, or an already-rejected proposal.
+`reject({proposal, note})` writes nothing anywhere, ever, is likewise
+idempotent, and cannot retroactively undo an already-applied proposal.
+`renderConfirmGate()` shows the Batch 2 diff view plus two EQUAL-weight
+Approve/Reject buttons (this project's established never-nudge-toward-accept
+pattern, from the conversational pack builder) and re-renders to a static
+applied/rejected state immediately after a decision so a stale second click
+can't matter. This batch directly reaffirms and tests DATAGLOW's hard
+autonomy-safety rule — an agent may propose, a human must approve every
+mutating action individually — the concrete cautionary precedent being the
+April 2026 incident where a Cursor AI agent deleted a company's entire
+production database and its backups in 9 seconds with no confirmation prompt.
+Nothing in `js/app-shell/main.js` calls `renderConfirmGate()` yet: no AI agent
+in the running app can generate a real proposal through this gate today —
+this batch only builds and tests the gate itself. Tests:
+`npm run test:metriccontractconfirmgate` (16 cases, pure Node): propose/
+approve/reject correctness, idempotency, all four refusal paths, and an
+explicit end-to-end scenario proving repeated reads/renders of a pending
+proposal never mutate the live metric or the contract history.
+
 ### Metric Contracts, Batch 2 — read-only diff view
 
 `js/metrics/metric-contract-diff-view.js` turns two of Batch 1's version
