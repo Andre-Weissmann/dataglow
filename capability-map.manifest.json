@@ -344,6 +344,52 @@
         { "file": "js/teaching/community-pack.js", "name": "importPack" },
         { "file": "js/teaching/community-pack.js", "name": "exportPack" }
       ]
+    },
+    {
+      "id": "pack-builder-question-generator",
+      "area": "Conversational pack builder",
+      "name": "Data-grounded question generator",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/question-generator-agent.js"],
+      "symbols": [
+        { "file": "js/agents/question-generator-agent.js", "name": "generateQuestions" },
+        { "file": "js/agents/question-generator-agent.js", "name": "scanForAskableAnomalies" },
+        { "file": "js/agents/question-generator-agent.js", "name": "buildQuestionView" }
+      ]
+    },
+    {
+      "id": "pack-builder-uncertainty-resolver",
+      "area": "Conversational pack builder",
+      "name": "\"I don't know\" resolution engine",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/uncertainty-resolver-agent.js"],
+      "symbols": [
+        { "file": "js/agents/uncertainty-resolver-agent.js", "name": "resolve" },
+        { "file": "js/agents/uncertainty-resolver-agent.js", "name": "runDebate" },
+        { "file": "js/agents/uncertainty-resolver-agent.js", "name": "ResolverSession" }
+      ]
+    },
+    {
+      "id": "pack-builder-local-pack-index",
+      "area": "Conversational pack builder",
+      "name": "Local peer-sourced pack index",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/packs/local-pack-index.js"],
+      "symbols": [
+        { "file": "js/packs/local-pack-index.js", "name": "LocalPackIndex" },
+        { "file": "js/packs/local-pack-index.js", "name": "loadIndex" }
+      ]
+    },
+    {
+      "id": "pack-builder-agent",
+      "area": "Conversational pack builder",
+      "name": "Guided pack builder",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/pack-builder-agent.js"],
+      "symbols": [
+        { "file": "js/agents/pack-builder-agent.js", "name": "PackBuilderSession" },
+        { "file": "js/agents/pack-builder-agent.js", "name": "interpretAnswer" }
+      ]
     }
   ]
 }

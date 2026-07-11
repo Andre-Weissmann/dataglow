@@ -87,6 +87,14 @@ otherwise).
 
 - **`teaching/`** — *Teaching & context.* `micro-lessons.js`, `community-pack.js`.
 
+- **`agents/`** — *Conversational pack builder (Gen 42).* The guided, data-grounded
+  flow for teaching validation rules without code: `question-generator-agent.js`
+  (turns pipeline findings into grounded plain-English questions),
+  `uncertainty-resolver-agent.js` (on-device A→E "I don't know" resolution), and
+  `pack-builder-agent.js` (assembles CONFIRMED answers into a portable pack via
+  `teaching/community-pack.js`). Its read-only peer index lives in
+  `packs/local-pack-index.js`. All pure, browser-free, and network-clean.
+
 - **`ambient/`** — *Ambient & real-time.* `watch-folder.js` and
   `ambient-validation.worker.js` (a Web Worker — loaded via `new Worker(...)`, never
   imported on the main thread).
