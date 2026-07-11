@@ -455,3 +455,28 @@ Newest entries go at the bottom of **Entries**.
 - **Severity:** low
 - **Area:** `js/provenance/nutrition-badges.js`, `js/runtimes-viz/visualize.js`, `js/provenance/analysis-fingerprint.js`, `js/app-shell/main.js`
 - **Status:** open
+
+### 2026-07-11 — Incident postmortem: only annotate-only corrections apply; wired to one finding type
+
+- **Description:** The blameless incident postmortem
+  (`js/provenance/incident-postmortem.js`) proposes four correction kinds
+  (`add-outlier-context`, `tighten-validation-rule`, `revise-metric`,
+  `review-finding`), but only `add-outlier-context` maps onto an existing portable
+  domain-pack rule kind (`outlier-context`), so it is the only one the Accept
+  handler in `js/app-shell/main.js` can route through the existing confirm-gated
+  `communityPack.importPack` → `domainPhysics.registerRuntimePack` path. The other
+  three (tightening a rule, revising a metric) are — correctly — NOT auto-applied:
+  Accept records them to the assumption ledger for manual follow-up. A real
+  "tighten a validation rule" or "revise a metrics-registry definition" apply path
+  would need a hard-fail-capable rule kind in `js/validation/domain-physics.js` +
+  the portable schema (deliberately out of scope; the annotate-only sandbox is a
+  safety rail) or a confirm-gated metrics-registry edit surface. Separately, the
+  "Report incident" trigger is wired to ONE finding type — Upper-Bound Sanity
+  findings (the canonical false-positive case) in `renderValidationResults`; other
+  layers' findings are not yet reportable. Deferred to keep this batch to one real,
+  tested apply path; the pure module is surface- and finding-agnostic, so extending
+  the trigger to more layers is additive.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/incident-postmortem.js`, `js/app-shell/main.js`, `js/validation/domain-physics.js`
+- **Status:** open

@@ -840,6 +840,37 @@ currently decorative: there is no UI, capture path, or call site anywhere in the
 yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
 (`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
 
+### Propose a correction from the audit trail — draft, never auto-apply
+
+A recurring, surface-agnostic pattern for turning DATAGLOW's own recorded audit
+data into a corrective proposal WITHOUT ever crossing the no-auto-apply line.
+`js/provenance/incident-postmortem.js` is the reference: `draftPostmortem({incident,
+provenanceTrail, assumptionLedger?, fingerprint?, badges?, debateResolution?,
+metricInvolved?})` reconstructs a timeline **1:1 from the supplied provenance
+trail** (`js/provenance/provenance.js` `getTrail()`) — it invents no step and adds
+no logging system; the sole non-provenance marker is the incident-discovery
+moment, taken straight from `incident.discoveredAt` and tagged `source:'incident'`
+— then writes a deterministic, template-based root-cause narrative (no LLM call,
+in the spirit of `js/agents/question-generator-agent.js`) and a PROPOSED
+correction carrying a `{score,label}` safety score in the exact vocabulary and
+thresholds of `js/cleaning/fix-confidence.js`.
+
+The load-bearing rule: **the module applies nothing.** It has no imports, mutates
+none of its inputs, names no apply/mutation/network primitive, and labels every
+draft `isProposal:true`/`applied:false`. Applying a proposal is a SEPARATE,
+explicit, human-confirmed action wired in `js/app-shell/main.js` — the "Report
+incident" action on a Validate-tab finding renders the draft with Accept/Dismiss,
+and Accept routes an annotate-only correction through the SAME confirm-gated
+domain-pack path a hand-authored rule uses (`communityPack.importPack` →
+`domainPhysics.registerRuntimePack`, behind an explicit `confirm()`), while
+Dismiss discards with zero side effects. This is the confirm-gated discipline
+(pure module PROPOSES; only a main.js click handler APPLIES) generalised from
+cleaning fixes to audit-trail-driven rule/metric corrections: any future feature
+that "suggests a fix from what we recorded" should draft a labelled proposal and
+hand the apply to an existing confirm-gated path, never invent a new one. The
+optional cross-batch inputs (fingerprint/badges/debate/metric) are referenced
+when supplied but never required — a postmortem works from `incident` alone.
+
 ### Analysis fingerprint + nutrition label — make a result checkable at a glance AND cryptographically
 
 Two coupled, pure modules give a computed result two independent trust checks a

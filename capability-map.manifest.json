@@ -906,6 +906,20 @@
       ]
     },
     {
+      "id": "provenance-incident-postmortem",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Blameless incident postmortem",
+      "files": [
+        "js/provenance/incident-postmortem.js"
+      ],
+      "symbols": [
+        { "file": "js/provenance/incident-postmortem.js", "name": "draftPostmortem" },
+        { "file": "js/provenance/incident-postmortem.js", "name": "reconstructTimeline" },
+        { "file": "js/provenance/incident-postmortem.js", "name": "proposeCorrection" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",

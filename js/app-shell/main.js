@@ -5689,11 +5689,18 @@ function renderValidationResults(results) {
             el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;' }, [
               el('span', { style: 'font-size:var(--text-xs); font-weight:600; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-grade-c);' }, `${f.category} ${f.low}–${f.high}`),
               el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, `"${f.column}"`),
-              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px; margin-left:auto;', 'data-testid': `button-upperbound-dismiss-${f.column}` }, 'Dismiss'),
+              // "This finding was wrong" — draft a blameless postmortem from the
+              // recorded provenance trail. Rendering only; nothing is applied here.
+              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px; margin-left:auto;', 'data-testid': `button-upperbound-incident-${f.column}` }, 'Report incident'),
+              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px;', 'data-testid': `button-upperbound-dismiss-${f.column}` }, 'Dismiss'),
             ]),
             el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);' }, f.explanation),
           ]);
-          const dismissBtn = fRow.querySelector('button');
+          const dismissBtn = fRow.querySelector(`[data-testid="button-upperbound-dismiss-${f.column}"]`);
+          const incidentBtn = fRow.querySelector(`[data-testid="button-upperbound-incident-${f.column}"]`);
+          incidentBtn.addEventListener('click', () => openIncidentPostmortem(fRow, {
+            label: `${f.category} ${f.low}–${f.high}`, column: f.column, layer: 'upper_bound_sanity', kind: 'false-positive',
+          }, `A value in "${f.column}" was flagged out of bounds (${f.category} ${f.low}–${f.high}) but is legitimate.`));
           dismissBtn.addEventListener('click', async () => {
             ledger.logAssumption('Upper-Bound Sanity Anchor',
               `Analyst dismissed ${f.count} out-of-bound value(s) in "${f.column}" (${f.category} ${f.low}–${f.high}) — accepted as valid.`,
@@ -5760,6 +5767,120 @@ function renderValidationResults(results) {
     if (lesson) card.appendChild(lesson);
     grid.appendChild(card);
   }
+}
+
+// Blameless Incident Postmortem (Batch 4). From a validation finding the analyst
+// reports was WRONG, draft — from the SUPPLIED provenance trail only — a
+// timeline + root-cause narrative + a PROPOSED corrective rule. This function
+// only renders the draft; the pure module (js/provenance/incident-postmortem.js)
+// applies nothing. Accept routes the correction through the SAME confirm-gated
+// community-pack import path a hand-authored domain-pack rule uses (mirrors
+// initCommunityPack: importPack → registerRuntimePack), behind an explicit
+// per-action confirm(). Dismiss discards the draft with zero side effects.
+async function openIncidentPostmortem(mountAfter, finding, description) {
+  const ds = getActiveDataset();
+  const prev = mountAfter.nextElementSibling;
+  if (prev && prev.getAttribute && prev.getAttribute('data-postmortem') === '1') prev.remove();
+
+  let postmortem;
+  try { postmortem = await import('../provenance/incident-postmortem.js'); }
+  catch { toast('Postmortem module unavailable on this runtime', 'error'); return; }
+
+  const chain = ds && provenance.getProvenance(ds.table);
+  const provenanceTrail = chain ? chain.getTrail() : [];
+  const draft = postmortem.draftPostmortem({
+    incident: { description, discoveredAt: Date.now(), affectedFinding: finding },
+    provenanceTrail,
+    assumptionLedger: ledger.getLedgerEntries ? ledger.getLedgerEntries() : undefined,
+  });
+  const corr = draft.proposedCorrection;
+
+  const timelineItems = draft.timeline.map(e => el('li', {
+    style: `font-size:var(--text-xs); color:var(--color-text-muted); margin:2px 0;${e.source === 'incident' ? 'font-weight:600;color:var(--color-text);' : ''}`,
+  }, `${e.iso ? e.iso.replace('T', ' ').slice(0, 19) + ' — ' : ''}${e.source === 'incident' ? 'Incident discovered' : `${e.op || 'step'}: ${e.description || ''}`}`));
+
+  const acceptBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:4px 12px;', 'data-testid': `button-postmortem-accept-${finding.column}` }, 'Accept correction');
+  const dismissBtn = el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 12px;', 'data-testid': `button-postmortem-dismiss-${finding.column}` }, 'Dismiss');
+
+  const panel = el('div', {
+    'data-postmortem': '1', 'data-testid': `postmortem-${finding.column}`,
+    style: 'margin-top:var(--space-2); padding:var(--space-3); border:1px solid var(--color-divider); border-left:3px solid var(--color-grade-b); border-radius:8px; background:rgba(80,140,220,0.05);',
+  }, [
+    el('div', { style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:var(--space-1);' }, 'Blameless postmortem (DRAFT — proposal only)'),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2);' }, draft.rootCause.narrative),
+    el('div', { style: 'font-size:var(--text-xs); font-weight:600; margin-bottom:2px;' }, `Timeline (${draft.timeline.length} event${draft.timeline.length === 1 ? '' : 's'}, from the recorded provenance trail)`),
+    el('ul', { style: 'margin:0 0 var(--space-2); padding-left:18px;' }, timelineItems.length ? timelineItems : [el('li', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, 'No provenance steps were recorded for this dataset.')]),
+    el('div', { style: 'font-size:var(--text-xs); margin-bottom:var(--space-2);' }, [
+      el('span', { style: 'font-weight:600;' }, 'Proposed correction: '),
+      el('span', {}, corr.summary + ' '),
+      el('span', { style: 'font-weight:600; padding:1px 6px; border-radius:5px; background:var(--color-surface-2); color:var(--color-text-muted);', 'data-testid': `postmortem-confidence-${finding.column}` }, `${corr.confidence.label} (${corr.confidence.score})`),
+    ]),
+    el('div', { style: 'font-size:11px; color:var(--color-text-muted); margin-bottom:var(--space-2); font-style:italic;' }, draft.disclaimer),
+    el('div', { style: 'display:flex; gap:var(--space-2);' }, [acceptBtn, dismissBtn]),
+  ]);
+  mountAfter.insertAdjacentElement('afterend', panel);
+
+  // Dismiss: discard the draft with ZERO side effects.
+  dismissBtn.addEventListener('click', () => { panel.remove(); });
+
+  // Accept: stage the correction through the EXISTING confirm-gated apply path.
+  acceptBtn.addEventListener('click', async () => {
+    if (!communityPack || !domainPhysics) { toast('The domain-pack apply path is unavailable on this runtime', 'error'); return; }
+    // Only the annotate-only outlier-context correction maps onto an existing
+    // portable rule kind. Anything else is recorded for manual follow-up rather
+    // than applied — the module never invents a new apply path.
+    if (corr.applyVia !== 'domain-pack-rule' || corr.kind !== 'add-outlier-context') {
+      ledger.logAssumption('Incident Postmortem',
+        `Accepted a PROPOSED correction for "${finding.column}" (${corr.kind}) — recorded for manual review; nothing was applied automatically.`,
+        { column: finding.column, kind: corr.kind, staged: true });
+      renderAssumptionLedger();
+      acceptBtn.disabled = true; acceptBtn.textContent = 'Recorded for review';
+      toast('This correction type needs manual review — recorded in the audit trail, not auto-applied', 'success');
+      return;
+    }
+    // Explicit, per-action human confirmation BEFORE anything is applied.
+    const confirmed = window.confirm(
+      `Add an annotate-only context rule for "${finding.column}" so legitimate values like this are no longer flagged?\n\n`
+      + 'This routes through the same domain-pack import path as a hand-authored rule. It never hard-fails or edits your data.');
+    if (!confirmed) return;
+
+    const fullCol = String(finding.column || '');
+    const shortCol = fullCol.slice(0, 24).replace(/[^a-z0-9_-]/gi, '-') || 'column';
+    const pattern = `^${fullCol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+    const envelope = {
+      kind: communityPack.PACK_KIND,
+      schemaVersion: communityPack.PACK_SCHEMA_VERSION,
+      pack: {
+        name: `postmortem-${shortCol}`.slice(0, 60),
+        label: `Postmortem: ${shortCol}`.slice(0, 60),
+        description: `Annotate-only outlier context proposed by a blameless incident postmortem for "${fullCol}".`,
+        rules: [{
+          kind: 'outlier-context',
+          id: `pm-ctx-${shortCol}`.slice(0, 60),
+          description: corr.summary,
+          match: { pattern },
+          packLabel: 'Postmortem',
+          reason: description,
+        }],
+      },
+    };
+    const res = communityPack.importPack(envelope);
+    if (!res.ok) { toast('Could not stage the correction: ' + res.errors.slice(0, 2).join('; '), 'error'); return; }
+    domainPhysics.registerRuntimePack(res.pack);
+    const sel = $('#domain-pack-select');
+    if (sel && !Array.from(sel.options).some(o => o.value === res.pack.name)) {
+      sel.appendChild(el('option', { value: res.pack.name, title: res.pack.description }, `${res.pack.label} (postmortem)`));
+    }
+    ledger.logAssumption('Incident Postmortem',
+      `Applied a PROPOSED annotate-only context rule for "${fullCol}" via the domain-pack import path, after explicit confirmation.`,
+      { column: fullCol, packName: res.pack.name });
+    if (ds) await provenance.recordStep(ds.table, 'validate',
+      `Accepted postmortem correction: annotate-only context for "${fullCol}".`, { column: fullCol, packName: res.pack.name });
+    renderAssumptionLedger(); renderProvenanceTrail();
+    acceptBtn.disabled = true; acceptBtn.textContent = 'Applied'; dismissBtn.textContent = 'Close';
+    toast('Correction staged and applied through the domain-pack path', 'success');
+    if (ds) runValidation();
+  });
 }
 
 function renderConfidenceSummary(c) {

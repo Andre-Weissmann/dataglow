@@ -1,0 +1,33 @@
+# ============================================================
+# DATAGLOW — CI job: Blameless Incident Postmortem
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the blameless-postmortem draft generator:
+#   • js/provenance/incident-postmortem.js — when a validation finding is later
+#     confirmed wrong, drafts a timeline (reconstructed 1:1 from the SUPPLIED
+#     provenance trail — never fabricated), a deterministic template-based
+#     root-cause narrative, and a PROPOSED corrective rule carrying a
+#     fix-confidence-style safety score. It is a PROPOSAL generator only: it
+#     mutates no data, writes no rule, and reaches no network — applying a
+#     correction is a separate, explicit, human-confirmed action in main.js.
+#     See test/incident-postmortem.test.mjs.
+# Pure logic — no browser, no DuckDB, no network.
+
+name: Blameless Incident Postmortem
+
+on:
+  workflow_call:
+
+jobs:
+  incident-postmortem:
+    name: Blameless Incident Postmortem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:postmortem
