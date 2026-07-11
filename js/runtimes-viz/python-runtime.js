@@ -7,6 +7,22 @@ import * as engine from '../app-shell/duckdb-engine.js';
 
 const PYODIDE_CDN_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/';
 
+// Each Python cell run re-serializes every loaded DuckDB table to JSON and
+// rebuilds it as a pandas DataFrame. That round-trip is O(rows), so very large
+// tables are capped at this many rows for the Python bridge specifically — a
+// deliberate technical limit to keep the browser tab responsive. The cap used
+// to be silent; it is now surfaced to the user (see computeBridgeTruncation).
+export const PY_BRIDGE_ROW_LIMIT = 200000;
+
+// Given the loaded datasets, return a descriptor for each one whose row count
+// exceeds the Python-bridge limit, so the UI can warn that Python sees a
+// truncated view. Pure function — no DOM, no engine — so it is unit-testable.
+export function computeBridgeTruncation(datasets, limit = PY_BRIDGE_ROW_LIMIT) {
+  return (datasets || [])
+    .filter(ds => Number(ds?.rowCount ?? 0) > limit)
+    .map(ds => ({ table: ds.table, name: ds.name || ds.table, rowCount: Number(ds.rowCount), limit }));
+}
+
 let loadPromise = null;
 let loaderScriptPromise = null;
 
@@ -64,8 +80,9 @@ export async function runPython(code, activeTableName) {
   if (!pyodide) throw new Error('Python runtime not ready yet.');
 
   // Push all loaded datasets into the bridge so `dataglow.get_df(name)` works for any of them
+  const truncated = computeBridgeTruncation(state.datasets);
   for (const ds of state.datasets) {
-    const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 200000`);
+    const { rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT ${PY_BRIDGE_ROW_LIMIT}`);
     const jsonStr = JSON.stringify(rows);
     pyodide.globals.set('_tmp_json', jsonStr);
     pyodide.globals.set('_tmp_name', ds.table);
@@ -83,8 +100,8 @@ export async function runPython(code, activeTableName) {
     if (result !== undefined && result !== null) {
       try { resultStr = result.toString(); } catch (e) { /* ignore */ }
     }
-    return { stdout: stdout.join(''), result: resultStr, error: null };
+    return { stdout: stdout.join(''), result: resultStr, error: null, truncated };
   } catch (err) {
-    return { stdout: stdout.join(''), result: null, error: err.message };
+    return { stdout: stdout.join(''), result: null, error: err.message, truncated };
   }
 }

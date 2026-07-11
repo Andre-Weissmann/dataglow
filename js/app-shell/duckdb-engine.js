@@ -104,8 +104,35 @@ export async function getRowCount(tableName) {
   return rows[0].n;
 }
 
+// SQL builders for the CSV ingest path, kept as pure string builders so both
+// the browser engine (below) and the Node test engine drive byte-identical SQL.
+// We still IGNORE_ERRORS so a few malformed rows don't abort the whole load, but
+// STORE_REJECTS captures every skipped row in a rejects table so the count can
+// be surfaced instead of silently swallowed.
+export function buildCsvLoadSQL(tableName, fileName, rejectsTable, rejectsScan) {
+  return `CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv_auto('${fileName}', `
+    + `SAMPLE_SIZE=-1, ALL_VARCHAR=FALSE, ignore_errors=true, store_rejects=true, `
+    + `rejects_table='${rejectsTable}', rejects_scan='${rejectsScan}')`;
+}
+export function buildCsvRejectCountSQL(rejectsTable) {
+  // One rejected input line can raise several column errors; count distinct
+  // source lines so the number matches "rows the user would have expected".
+  return `SELECT COUNT(DISTINCT line) AS dropped FROM ${rejectsTable}`;
+}
+
 export async function createTableFromCSV(tableName, fileName) {
-  await runQuery(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv_auto('${fileName}', SAMPLE_SIZE=-1, ALL_VARCHAR=FALSE, IGNORE_ERRORS=TRUE)`);
+  const suffix = Math.random().toString(36).slice(2, 10);
+  const rejectsTable = `_dg_csv_rejects_${suffix}`;
+  const rejectsScan = `_dg_csv_scans_${suffix}`;
+  await runQuery(buildCsvLoadSQL(tableName, fileName, rejectsTable, rejectsScan));
+  let droppedRows = 0;
+  try {
+    const { rows } = await runQuery(buildCsvRejectCountSQL(rejectsTable));
+    droppedRows = Number(rows[0]?.dropped ?? 0);
+  } catch { /* no rejects table means nothing was skipped */ }
+  await runQuery(`DROP TABLE IF EXISTS ${rejectsTable}`).catch(() => {});
+  await runQuery(`DROP TABLE IF EXISTS ${rejectsScan}`).catch(() => {});
+  return { droppedRows };
 }
 
 export async function createTableFromJSON(tableName, fileName) {

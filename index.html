@@ -88,8 +88,8 @@
         <div class="dropzone" id="dropzone" data-testid="dropzone-upload">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <div style="font-size:var(--text-sm); font-weight:500;">Drop a file</div>
-          <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">CSV, JSON, Excel, Parquet, SQLite…</div>
-          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather,.sqlite,.db" multiple>
+          <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">CSV, JSON, Excel, Parquet…</div>
+          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather" multiple>
         </div>
         <button class="btn btn-ghost" id="btn-load-golden" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-golden">
           Load Golden Test Dataset
@@ -217,6 +217,7 @@
       <div class="sql-editor-wrap">
         <textarea class="sql-textarea mono" id="py-input" spellcheck="false" placeholder="import pandas as pd&#10;df = dataglow.get_df('dataset')&#10;df.describe()" data-testid="input-python"></textarea>
         <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow.get_df('table_name')</span> to load a loaded table as a pandas DataFrame. Libraries: pandas, numpy. Others load on demand (may take a moment).</div>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">⚠ The Pyodide runtime downloads from a public CDN the first time you run Python — a one-time internet download, then cached for offline reuse. Not available fully air-gapped until that first fetch. (SQL, Clean, Validate and Visualize work offline from first load.)</div>
         <div id="py-output-wrap"></div>
       </div>
     </section>
@@ -236,6 +237,7 @@
       <div class="sql-editor-wrap">
         <textarea class="sql-textarea mono" id="r-input" spellcheck="false" placeholder="df <- dataglow_get_df('dataset')&#10;summary(df)" data-testid="input-r"></textarea>
         <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow_get_df('table_name')</span> to pull a loaded table into an R data.frame.</div>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">⚠ The WebR runtime downloads from a public CDN the first time you run R — a one-time internet download, then cached for offline reuse. Not available fully air-gapped until that first fetch. (SQL, Clean, Validate and Visualize work offline from first load.)</div>
         <div id="r-output-wrap"></div>
       </div>
     </section>
@@ -952,6 +954,15 @@
         <strong>Provided AS-IS, without warranty of any kind.</strong> DATAGLOW runs entirely in your browser
         and makes no guarantee of correctness, fitness for a particular purpose, or non-infringement. All
         statistical and machine-learning output is approximate and should be independently verified before use.
+      </p>
+      <p style="margin-bottom:var(--space-2);" data-testid="offline-capability-note">
+        <strong>Offline capability.</strong> The core — loading files, SQL (DuckDB-WASM), cleaning, validation, and
+        Plotly visualization — is fully self-hosted and works with <strong>no internet connection from the first
+        load</strong>. The optional <strong>Python (Pyodide)</strong>, <strong>R (WebR)</strong>, and in-browser
+        <strong>Story model (WebLLM)</strong> runtimes are large, so they download once from a public CDN the first
+        time you open their tab, then are cached for offline reuse — the app is not fully air-gapped for those three
+        engines until that one-time download completes. In every case only the library runtime is fetched; no dataset,
+        row, or cell ever leaves your browser.
       </p>
       <p style="margin-bottom:var(--space-2);">Third-party libraries:</p>
       <ul style="margin:0 0 var(--space-2) var(--space-4); padding:0;">

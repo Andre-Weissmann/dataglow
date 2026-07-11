@@ -208,7 +208,13 @@ function renderSidebar() {
       ]);
       list.appendChild(item);
     });
-    tableList.innerHTML = state.datasets.map(ds => `<div class="mono" style="padding:4px 0;">${escapeHtml(ds.table)} <span style="color:var(--color-text-faint);">(${ds.rowCount.toLocaleString()})</span></div>`).join('');
+    tableList.innerHTML = state.datasets.map(ds => {
+      const dropped = Number(ds.droppedRows || 0);
+      const warn = dropped > 0
+        ? ` <span data-testid="dataset-dropped-badge" title="${dropped.toLocaleString()} row(s) were skipped due to CSV parsing errors when this file loaded" style="color:var(--color-warn, #C9A227); cursor:help;">⚠ ${dropped.toLocaleString()} skipped</span>`
+        : '';
+      return `<div class="mono" style="padding:4px 0;">${escapeHtml(ds.table)} <span style="color:var(--color-text-faint);">(${ds.rowCount.toLocaleString()})</span>${warn}</div>`;
+    }).join('');
   }
   refreshFreshnessBadge();
 }
@@ -777,8 +783,20 @@ function initPythonTab() {
     const outWrap = $('#py-output-wrap');
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
-      const { stdout, result, error } = await pyRuntime.runPython(code, getActiveDataset()?.table);
-      let html = '<div class="console-log" style="margin-top:var(--space-3);">';
+      const { stdout, result, error, truncated } = await pyRuntime.runPython(code, getActiveDataset()?.table);
+      let html = '';
+      if (truncated && truncated.length) {
+        const items = truncated
+          .map(t => `<strong>${escapeHtml(t.name)}</strong> (${t.rowCount.toLocaleString()} rows → ${t.limit.toLocaleString()})`)
+          .join(', ');
+        html += `<div class="py-truncation-warning" data-testid="py-truncation-warning" role="alert" style="margin-top:var(--space-3); padding:var(--space-3); border:1px solid var(--color-warn, #C9A227); border-radius:var(--radius-md); background:rgba(201,162,39,0.08); display:flex; gap:var(--space-2); align-items:flex-start;">`
+          + `<span style="flex:1; font-size:var(--text-sm);">⚠️ Python sees a <strong>truncated</strong> view of your data: ${items} row(s). `
+          + `Only the first ${truncated[0].limit.toLocaleString()} rows of each large table are passed to Python to keep the tab responsive. `
+          + `SQL, Clean and Validate still operate on the full dataset.</span>`
+          + `<button type="button" class="btn btn-ghost" data-testid="py-truncation-dismiss" style="padding:2px 8px; font-size:var(--text-xs);" onclick="this.parentElement.remove()">Dismiss</button>`
+          + `</div>`;
+      }
+      html += '<div class="console-log" style="margin-top:var(--space-3);">';
       if (stdout) html += escapeHtml(stdout);
       if (result) html += (stdout ? '\n' : '') + `<span class="ok">${escapeHtml(result)}</span>`;
       if (error) html += `<span class="err">${escapeHtml(error)}</span>`;
