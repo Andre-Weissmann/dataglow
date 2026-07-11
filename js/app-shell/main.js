@@ -40,6 +40,7 @@ import * as sdProof from '../provenance/selective-disclosure-proof.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
+import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
 // registry has dynamically imported the modules appropriate for this runtime;
@@ -1289,14 +1290,41 @@ async function renderConversationalPackBuilder(ds, results) {
 // inner gate matching the conversationalPackBuilder precedent exactly, and
 // also guards against a stale mount if the panel is ever revisited.
 let meetingScribeMounted = false;
+let meetingScribeHandle = null;
 function renderMeetingScribeTab() {
   const host = $('#meeting-scribe-body');
   if (!host) return;
-  if (!isEnabled('meetingScribe')) { host.innerHTML = ''; meetingScribeMounted = false; return; }
-  if (!shouldOfferMeetingScribe({ enabled: true })) { host.innerHTML = ''; meetingScribeMounted = false; return; }
-  if (meetingScribeMounted) return; // already mounted this session — don't wipe typed-in progress
-  mountMeetingScribe({ host, onToast: toast });
-  meetingScribeMounted = true;
+  if (!isEnabled('meetingScribe')) { host.innerHTML = ''; meetingScribeMounted = false; meetingScribeHandle = null; return; }
+  if (!shouldOfferMeetingScribe({ enabled: true })) { host.innerHTML = ''; meetingScribeMounted = false; meetingScribeHandle = null; return; }
+  if (!meetingScribeMounted) {
+    meetingScribeHandle = mountMeetingScribe({ host, onToast: toast });
+    meetingScribeMounted = true;
+  }
+  renderDecisionLedgerSection();
+}
+
+// ============================================================
+// Meeting Decision Ledger (Gen 43, Part 3) — separate flag, separate host
+// ============================================================
+// Mounted underneath the Meeting Scribe screen inside the same panel, but
+// gated by its OWN flag (meetingDecisionLedger) so it can ship dark
+// independently of meetingScribe's flag state. Reads the in-progress
+// meeting from meetingScribeHandle.getState() only when the analyst clicks
+// Save — nothing here auto-saves anything.
+let decisionLedgerMounted = false;
+function renderDecisionLedgerSection() {
+  const host = $('#meeting-decision-ledger-body');
+  if (!host) return;
+  if (!isEnabled('meetingDecisionLedger')) { host.innerHTML = ''; decisionLedgerMounted = false; return; }
+  if (!shouldOfferDecisionLedger({ enabled: true })) { host.innerHTML = ''; decisionLedgerMounted = false; return; }
+  if (decisionLedgerMounted) return; // already mounted this session
+  mountDecisionLedger({
+    host,
+    store: memoryStore,
+    getCurrentMeeting: () => (meetingScribeHandle && meetingScribeHandle.getState ? meetingScribeHandle.getState() : null),
+    onToast: toast,
+  });
+  decisionLedgerMounted = true;
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.

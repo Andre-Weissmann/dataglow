@@ -5,12 +5,18 @@
 // ============================================================
 
 const DB_NAME = 'dataglow_memory';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_PROFILES = 'columnProfiles';
 const STORE_RULES = 'approvedRules';
 const STORE_BASELINES = 'datasetBaselines';
 const STORE_LEARNED = 'learnedCorrections';
 const STORE_FP_HISTORY = 'fingerprintHistory';
+const STORE_LEDGER = 'meetingDecisionLedger';
+
+// Ledger entries are append-only and can accumulate across many meetings;
+// cap so an unbounded history can't grow the local database without limit.
+// Oldest entries (by recordedAt) are evicted first once over the cap.
+const LEDGER_CAP = 5000;
 
 const PROFILE_CAP = 200; // hard cap; evict least-recently-used beyond this
 // Bounded per-schema history depth for Forecast-Based Drift Alerting — mirrors
@@ -61,6 +67,16 @@ export function initMemoryStore() {
       }
       if (!db.objectStoreNames.contains(STORE_FP_HISTORY)) {
         db.createObjectStore(STORE_FP_HISTORY, { keyPath: 'fingerprintHash' });
+      }
+      if (!db.objectStoreNames.contains(STORE_LEDGER)) {
+        // sourceKey is stable per spoken moment / action item (see
+        // js/agents/meeting-decision-ledger.js), but is NOT declared unique
+        // here — resolving an action item later appends a new entry with the
+        // same sourceKey rather than overwriting, so history is never lost.
+        // autoIncrement keyPath keeps every append distinct.
+        const ledgerStore = db.createObjectStore(STORE_LEDGER, { keyPath: '_id', autoIncrement: true });
+        ledgerStore.createIndex('sourceKey', 'sourceKey', { unique: false });
+        ledgerStore.createIndex('meetingId', 'meetingId', { unique: false });
       }
     };
     open.onsuccess = () => resolve(open.result);
@@ -232,6 +248,53 @@ export async function clearFingerprintHistory() {
   const db = await initMemoryStore();
   const tx = db.transaction(STORE_FP_HISTORY, 'readwrite');
   tx.objectStore(STORE_FP_HISTORY).clear();
+  await txDone(tx);
+}
+
+// ---------- meetingDecisionLedger (Chart-Anchored Decision Ledger, Gen 43 Part 3) ----------
+// Append-only log of pushback moments, data requests, and action items from
+// the Meeting tab (js/agents/meeting-decision-ledger.js supplies the pure
+// entry-building logic; this file only knows how to store/retrieve/clear the
+// resulting plain objects). Nothing here decides WHAT gets logged or WHEN —
+// that stays the analyst's action via the UI, matching the same
+// human-in-the-loop principle as saveApprovedRule above.
+
+export async function appendLedgerEntries(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (list.length === 0) return 0;
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEDGER, 'readwrite');
+  const store = tx.objectStore(STORE_LEDGER);
+  for (const entry of list) store.put(entry);
+  // Cap: if over the limit, evict the oldest-recorded entries first.
+  const all = await req(store.getAll());
+  if (all.length > LEDGER_CAP) {
+    all.sort((a, b) => (a.recordedAt || 0) - (b.recordedAt || 0));
+    const toEvict = all.slice(0, all.length - LEDGER_CAP);
+    for (const rec of toEvict) store.delete(rec._id);
+  }
+  await txDone(tx);
+  return list.length;
+}
+
+export async function getLedgerEntries() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEDGER, 'readonly');
+  return req(tx.objectStore(STORE_LEDGER).getAll());
+}
+
+export async function countLedgerEntries() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEDGER, 'readonly');
+  return req(tx.objectStore(STORE_LEDGER).count());
+}
+
+// Clear ONLY the decision ledger, leaving every other store intact. Backs a
+// "Clear meeting ledger" consent control, same pattern as clearBaselines().
+export async function clearLedgerEntries() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_LEDGER, 'readwrite');
+  tx.objectStore(STORE_LEDGER).clear();
   await txDone(tx);
 }
 

@@ -24,7 +24,12 @@
     "meetingScribe": {
       "enabled": false,
       "addedInPR": "gen43-meeting-scribe-agent",
-      "description": "Gen 43 meeting scribe: pure grounding/tagging logic (js/agents/meeting-scribe-agent.js, PR gen43-meeting-scribe-agent) plus a Meeting tab presenter (js/agents/meeting-scribe-ui.js, PR gen43-meeting-scribe-ui) where a person pastes or types a transcript to see pushback moments, data requests, and an action-item tracker enforcing the owner+dueDate+outcome rule. Still no audio capture or speech-to-text — those stay separate follow-up work. When this flag is off (its shipped default), renderTabBar() leaves the 'meeting' entry out of state.tabOrder entirely, so the tab is not just hidden but never added to the bar or reachable by any click path; #panel-meeting stays empty."
+      "description": "Gen 43 meeting scribe: pure grounding/tagging logic (js/agents/meeting-scribe-agent.js, PR gen43-meeting-scribe-agent) plus a Meeting tab presenter (js/agents/meeting-scribe-ui.js, PR gen43-meeting-scribe-ui) where a person pastes or types a transcript to see pushback moments, data requests, and an action-item tracker enforcing the owner+dueDate+outcome rule. Still no audio capture or speech-to-text \u2014 those stay separate follow-up work. When this flag is off (its shipped default), renderTabBar() leaves the 'meeting' entry out of state.tabOrder entirely, so the tab is not just hidden but never added to the bar or reachable by any click path; #panel-meeting stays empty."
+    },
+    "meetingDecisionLedger": {
+      "enabled": false,
+      "addedInPR": "gen43-meeting-decision-ledger",
+      "description": "Gen 43 meeting decision ledger: a permanent, append-only, chart-anchored local record of pushback moments, data requests, and action items surfaced by the meeting scribe (js/agents/meeting-decision-ledger.js pure logic, persisted via js/learning/memory-store.js's new meetingDecisionLedger IndexedDB object store, presented by js/agents/meeting-decision-ledger-ui.js). A separate flag from meetingScribe so this piece can ship dark independently of that flag's state. Nothing is saved automatically \u2014 the analyst must click 'Save this meeting to ledger' for anything to be written; browsing, filtering by chart/type, exporting to a local .json file, and clearing the ledger are all explicit, on-device actions with no network call anywhere in this feature. When this flag is off (its shipped default), #meeting-decision-ledger-body stays empty and the section is never mounted."
     }
   }
 }

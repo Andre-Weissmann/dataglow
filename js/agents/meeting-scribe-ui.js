@@ -245,5 +245,14 @@ export function mountMeetingScribe(opts = {}) {
   }
 
   render();
-  return { destroy: () => clear() };
+  // getState() is an addition for Gen 43 Part 3 (the Decision Ledger): a
+  // read-only snapshot of this screen's current in-progress meeting, so a
+  // sibling module can offer to save it without this module importing or
+  // knowing anything about a ledger. Returns null fields safely even before
+  // any analysis has run — never throws. This does not change any existing
+  // behavior for callers that only use `destroy` (e.g. Part 2's own tests).
+  return {
+    destroy: () => clear(),
+    getState: () => ({ meetingId, taggedSegments, actionItems }),
+  };
 }

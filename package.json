@@ -50,6 +50,7 @@
     "test:packindex": "node test/local-pack-index.test.mjs",
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
     "test:meetingscribe": "node test/meeting-scribe.test.mjs",
+    "test:decisionledger": "node test/meeting-decision-ledger.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
     "test:export": "node test/export-report.test.mjs",
@@ -79,6 +80,7 @@
     "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
     "test:e2e-packbuilder-ui": "node test/pack-builder-ui.test.mjs",
     "test:e2e-meetingscribe-ui": "node test/meeting-scribe-ui.test.mjs",
+    "test:e2e-decisionledger-ui": "node test/meeting-decision-ledger-ui.test.mjs",
     "screenshot:grades": "node test/_screenshot-grades.mjs",
     "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
     "screenshot:missingness": "node test/_screenshot-missingness.mjs"
