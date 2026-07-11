@@ -1,0 +1,31 @@
+# ============================================================
+# DATAGLOW — CI job: Semantic / Metrics Layer
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the browser-free, DuckDB-free unit suite for the Semantic / Metrics
+# Layer's pure logic: registering a metric (required fields, column derivation,
+# provenance), the registry accessors, matching a query's aliased SELECT/comment
+# against a definition, the metric_definition_mismatch flag classes (warn/info),
+# the empty-registry passthrough, and the opt-in wiring into runAnalysisContract
+# (including the guarantee that with NO metrics option the Contract is
+# byte-for-byte the original three finding classes). No DuckDB, no browser,
+# no network.
+
+name: Semantic / Metrics Layer
+
+on:
+  workflow_call:
+
+jobs:
+  semantic-layer:
+    name: Semantic / Metrics Layer (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:semanticlayer

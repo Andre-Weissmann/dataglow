@@ -109,6 +109,37 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Semantic / Metrics Layer (Trust Passport, batch 1)
+
+`js/validation/semantic-layer.js` is a pure, browser-free, network-free module: an
+in-memory registry of canonical metric definitions (name + SQL expression +
+description; `requiredColumns` are *derived* from the expression, never invented,
+plus owner/createdAt provenance) and a comparator `checkQueryAgainstMetrics(sql,
+registry)` that pattern-matches a query's aliased `SELECT` items and its `--` /
+`/* */` comments against the registry. When a query aliases a registered metric's
+name over a non-canonical expression it raises a fourth Local Analysis Contract
+finding class, `metric_definition_mismatch` (`warn`, naming the missing term); a
+comment-only claim is `info`. It is **flags-only** — like the rest of the Contract it
+never rewrites, blocks, or auto-corrects (empowerment constraint). The name is
+honest: this is a pattern-matched registry + string comparator, not an AST or an
+"AI" — see the tech-debt note on its false-negative envelope. The registry lives in
+memory only (no localStorage / cookies / network), consistent with the flag-manifest
+runtime; a portable export is a later batch. Stable exported API relied on by later
+batches: `registerMetric(def)`, `getRegisteredMetrics()`, `getMetric(name)`,
+`checkQueryAgainstMetrics(sql, registry)` (plus `unregisterMetric`, `clearMetrics`,
+`deriveColumnsFromExpression`).
+
+Wiring stays pure: `runAnalysisContract(sql, schema, options)` gained an opt-in
+`options.metrics` registry and reads **no flags itself**, so with the registry absent
+the Contract is byte-for-byte the original three finding classes (the existing suite
+is unregressed). Only `js/app-shell/main.js` consults the flag — it supplies the
+registry, and mounts the human-authored "Define a metric" affordance
+(`js/validation/semantic-layer-ui.js`, gate `shouldOfferMetricDefiner({enabled})` +
+`mountMetricDefiner({host, onRegister, onToast})`), when and only when
+`isEnabled('semanticMetricsLayer')`. That flag is new and ships **OFF**; it is
+deliberately distinct from `localAnalysisContract`. Tests: `test/semantic-layer.test.mjs`
+(`npm run test:semanticlayer`, the `semantic-layer` CI job).
+
 ### Semantic drift watchdog — de-duplicated drift alerts for Watch Folder
 
 `js/ambient/drift-watchdog.js` is a pure, dependency-free, Node-testable
