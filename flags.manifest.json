@@ -21,6 +21,11 @@
       "addedInPR": "gen42-conversational-pack-builder",
       "description": "Gen 42 voice input for the conversational pack builder. The free-text answer path is fully implemented and identical to voice (voice is just transcribed text). No permissively-licensed on-device WASM/WebGPU STT model is vendored yet, so the mic is gated behind this flag with a TODO: pick a small Apache/MIT WASM speech model before promotion. When off, buildQuestionView hides the mic entirely and only the typed path shows."
     },
+    "metricContracts": {
+      "enabled": false,
+      "addedInPR": "gen44-metric-contracts-confirm-gate",
+      "description": "Gen 44 Metric Contracts: an append-only version history for each Metric Studio definition (js/metrics/metric-contracts.js) plus a diff view (js/metrics/metric-contract-diff-view.js) and, in a later batch, a confirm-gate so any AI-agent-proposed change to a metric's formula/name/owner/filters renders as an exact diff and requires one explicit human click before it applies — nothing auto-applies, ever. Batch 1 shipped the pure versioned data model (MetricContractHistory/MetricContractRegistry + diffVersions). Batch 2 added the read-only diff-view/history-list content builders + DOM presenter (buildDiffViewContent/buildHistoryListContent/renderDiffView). Batch 3 (this PR) adds the confirm gate (js/metrics/metric-contract-confirm-gate.js) — proposeContractChange/approve/reject/renderConfirmGate — the ONLY path by which an AI-agent-proposed change can ever reach recordVersion(), gated on one explicit human click; still no caller wired into main.js, so this flag still currently gates nothing observable. It exists now so all batches in this generation share one flag from the start instead of adding a new one mid-stream."
+    },
     "metricStudio": {
       "enabled": false,
       "addedInPR": "onecanvas-phase1-metric-studio-trust",

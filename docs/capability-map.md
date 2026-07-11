@@ -211,6 +211,43 @@ to be CORRECT.
 - **Meeting scribe — Meeting-tab UI wiring** — `js/agents/meeting-scribe-ui.js` (`shouldOfferMeetingScribe` is the pure flag gate main.js checks before adding the "Meeting" tab to the tab bar at all — with `meetingScribe` off, the tab is not just hidden but never added to `state.tabOrder`'s rendered list, so there is no dead click target; `mountMeetingScribe` renders a paste/type-transcript textarea, an [Analyze transcript] button that runs the text through the Part 1 agent above and groups the results into Pushback moments / Data requests / a full tagged-line list, and a small action-item tracker whose rows show "Open" until owner + due date + outcome are all filled in and saved, then flip to "Resolved"; `parseTranscriptText` turns pasted/typed lines into `{text, ts}` segments, reading a leading integer as an explicit second-based timestamp or auto-numbering a bare line one second after the previous). Still no audio capture or speech-to-text — a person supplies the transcript text themselves; nothing here reads a microphone or the network. `mountMeetingScribe`'s return value now also exposes `getState()` (added for Part 3 below) — a read-only snapshot of the in-progress meeting's tagged segments and action items, for the sibling decision-ledger module to read only when the analyst explicitly clicks Save.
 - **Chart-anchored meeting decision ledger (pure logic)** — `js/agents/meeting-decision-ledger.js` (`buildLedgerEntry`/`buildLedgerEntriesFromMeeting` turn Part 1's already-tagged segments and action items into small, permanent, JSON-safe entries — only the noteworthy ones (pushback, data request, action item), never every transcript line, unless a caller opts into `includeAllLines`; each entry keeps whatever chart `context` Part 1 attached, or `null` if none was available, never inventing one; `saveLedgerEntries`/`loadLedgerEntries` talk only to an injected `store` adapter — mirroring `js/learning/memory-store.js`'s `appendLedgerEntries`/`getLedgerEntries` contract — so this module has no hardcoded storage import and is fully testable with an in-memory fake; `filterLedgerEntries`/`chartsReferencedIn` support browsing by chart/kind; `exportLedgerEntries` only formats a JSON string, no network primitive anywhere in the file). Append-only by design: resolving an action item later writes a NEW entry rather than editing the old one, so the history of "was this ever open" is never erased. Persisted via a new `meetingDecisionLedger` object store added to the existing shared `dataglow_memory` IndexedDB in `js/learning/memory-store.js` (capped at 5,000 entries, oldest evicted first).
 - **Meeting decision ledger — Meeting-tab browse/save UI wiring** — `js/agents/meeting-decision-ledger-ui.js` (`shouldOfferDecisionLedger` is the pure flag gate for this section, separate from `meetingScribe`'s own flag, so it ships dark independently; `mountDecisionLedger` renders a [Save this meeting to ledger] button that reads the sibling Meeting Scribe screen's current state ONLY on click — nothing auto-saves — plus a filterable browse list (by chart, by type), an [Export ledger (.json)] button that triggers a client-side Blob/anchor-click download, and a [Clear ledger] button that asks to confirm first). Gated behind the `meetingDecisionLedger` flag (ships OFF); with it off, `#meeting-decision-ledger-body` stays empty and unmounted.
+- **Metric Contracts (Batch 1: versioned data model)** — `js/metrics/metric-contracts.js`
+  (a SEPARATE append-only version history sitting alongside — not inside — the Metric
+  Studio `MetricRegistry` above, so that registry needed zero code changes. `snapshotDefinition`
+  captures only the contract-relevant fields — `name`/`plainEnglish`/`expression`/`owner`/`tag` —
+  deliberately excluding runtime fields like `computedValue`/`status` (recomputing or
+  recertifying a metric is not a definition change). `MetricContractHistory.recordVersion`
+  appends an immutable, timestamped snapshot; nothing already recorded is ever edited or
+  removed. `MetricContractRegistry` keys one history per metric id. `diffVersions` compares
+  any two snapshots field-by-field and `summarizeDiff` gives a one-line label. This batch is
+  pure logic only — no DOM presenter, no caller wired into `main.js` yet, and no AI-agent
+  write path exists through this module.
+- **Metric Contracts (Batch 2: diff view, read-only)** — `js/metrics/metric-contract-diff-view.js`
+  (turns two of Batch 1's version entries into a normalised block model via pure
+  `buildDiffViewContent` — field-by-field before/after, who/when/why/human-vs-agent-proposed,
+  all sourced only from the real recorded version metadata, never invented; `buildHistoryListContent`
+  renders a metric's full oldest-first version timeline. `renderDiffView` is the DOM presenter,
+  following `js/trust/proof-drawer.js`'s exact pure-content/DOM split and reusing its `kv`/`text`/`list`
+  block kinds plus one new `field-diff` kind (side-by-side before/after) so both panels look and behave
+  consistently. READ-ONLY: no apply/accept button, no write path; nothing in `main.js` calls
+  `renderDiffView` yet.)
+- **Metric Contracts (Batch 3: confirm gate)** — `js/metrics/metric-contract-confirm-gate.js`
+  (the safety-critical piece. `proposeContractChange` builds a plain, inert PROPOSAL object — pure
+  data, zero side effects — the only thing an AI-agent caller can produce with respect to a metric
+  contract. `buildProposalDiffContent` reuses Batch 2's `buildDiffViewContent` unmodified so a pending
+  proposal renders identically to a past human edit. `approve(proposal, contractRegistry,
+  metricRegistry)` is the ONLY function in the codebase that can call `recordVersion()` with
+  `source: 'agent-proposed'` — it also applies the same change to the metric's live definition, and
+  only ever runs from the one Approve button `renderConfirmGate`'s DOM presenter renders; no
+  auto-approve path exists. Idempotent on double-approve; refuses cleanly without either registry or
+  on an already-decided proposal. `reject` writes nothing anywhere, ever. Reaffirms and tests
+  DATAGLOW's hard autonomy-safety rule: an agent may propose, a human must approve every mutating
+  action individually. Two EQUAL-weight Approve/Reject buttons — never nudges toward "accept."
+  Nothing in `main.js` calls `renderConfirmGate` yet — no agent in the running app can generate a
+  real proposal through this gate today.)
+
+All three batches gated behind the `metricContracts` flag (ships OFF, still currently gates nothing
+observable since none of the three is wired into `main.js` yet).
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
