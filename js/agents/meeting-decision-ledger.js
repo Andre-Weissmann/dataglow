@@ -56,11 +56,16 @@
  * @param {string} [opts.matched]      the matched phrase, for pushback/dataRequest
  * @param {string} [opts.status]      for actionItem entries: 'open'|'resolved'
  * @param {{owner:?string, dueDate:?string, outcome:?string}} [opts.actionFields]
+ * @param {{resolvedBy:?string, suggestion:?string, reasoning:?string, confidence:?number}} [opts.recheckResolution]
+ *        For pushback entries only: a small PLAIN summary of an on-device
+ *        re-check (see meeting-scribe-ui.js `onRecheck`). Defensively
+ *        sanitized here — arbitrary objects are discarded, never stored.
  * @returns {object} a plain, JSON-safe ledger entry
  */
 export function buildLedgerEntry(opts = {}) {
   const {
     kind, meetingId, text, ts, context = null, matched = null, status = null, actionFields = null,
+    recheckResolution = null,
   } = opts;
   const validKinds = ['pushback', 'dataRequest', 'actionItem', 'note'];
   const safeKind = validKinds.includes(kind) ? kind : 'note';
@@ -71,7 +76,7 @@ export function buildLedgerEntry(opts = {}) {
     ? { chart: context.chart, queryLabel: context.queryLabel || null }
     : null;
 
-  return {
+  const entry = {
     // sourceKey identifies WHICH spoken moment or action item this entry is
     // about, so a caller can later find "every entry about this one line"
     // without this module needing to know anything about storage.
@@ -92,6 +97,30 @@ export function buildLedgerEntry(opts = {}) {
     // relative moment) — this is what makes the ledger genuinely tamper-
     // evident-in-spirit: entries append in real recorded order.
     recordedAt: Date.now(),
+  };
+
+  // recheckResolution is added ONLY when a genuine one was supplied — a draft
+  // built without it is byte-identical to before (no null key), so existing
+  // callers are unaffected. Sanitized field-by-field: we copy only the four
+  // known scalars, coerce the strings, clamp confidence to 0-1, and drop
+  // anything else — an arbitrary object is never stored verbatim.
+  const safeRecheck = sanitizeRecheckResolution(recheckResolution);
+  if (safeRecheck) entry.recheckResolution = safeRecheck;
+
+  return entry;
+}
+
+// Defensive sanitizer: returns a plain 4-field object or null. Never returns
+// a partially-populated object with a missing scalar as `undefined` — absent
+// scalars become null so the shape is stable and JSON-safe.
+function sanitizeRecheckResolution(r) {
+  if (!r || typeof r !== 'object') return null;
+  const conf = Number(r.confidence);
+  return {
+    resolvedBy: r.resolvedBy != null ? String(r.resolvedBy) : null,
+    suggestion: r.suggestion != null ? String(r.suggestion) : null,
+    reasoning: r.reasoning != null ? String(r.reasoning) : null,
+    confidence: Number.isFinite(conf) ? Math.max(0, Math.min(1, conf)) : null,
   };
 }
 
@@ -117,6 +146,10 @@ export function buildLedgerEntriesFromMeeting(opts = {}) {
     if (s.pushback && s.pushback.isPushback) {
       entries.push(buildLedgerEntry({
         kind: 'pushback', meetingId, text: s.text, ts: s.ts, context: s.context, matched: s.pushback.matched,
+        // Pass through the on-device re-check summary if meeting-scribe-ui.js
+        // attached one to this segment; absent → buildLedgerEntry omits the
+        // key entirely, so an un-rechecked pushback entry is unchanged.
+        recheckResolution: s.recheckResolution,
       }));
     } else if (s.dataRequest && s.dataRequest.isDataRequest) {
       entries.push(buildLedgerEntry({

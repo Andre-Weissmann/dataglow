@@ -132,6 +132,74 @@ async function main() {
   ok(charts.includes('revenue-trend') && charts.length === 1, 'chartsReferencedIn: lists every distinct chart actually referenced (refund-rate only appears on the unflagged final line, which the ledger correctly excludes)');
   ok(chartsReferencedIn([]).length === 0, 'chartsReferencedIn: empty input degrades to an empty array, no throw');
 
+  // ---------- 4b. recheckResolution: optional, sanitized, opt-in ----------
+  // A pushback entry can optionally carry a small PLAIN summary of an on-device
+  // re-check (see js/agents/meeting-scribe-ui.js onRecheck). It must be
+  // sanitized field-by-field and only present when genuinely supplied.
+  const eRecheck = buildLedgerEntry({
+    kind: 'pushback', meetingId: 'mtg-1', text: 'Are you sure?', ts: 50, matched: 'are you sure',
+    recheckResolution: {
+      resolvedBy: 'C', suggestion: 'The March figure looks right', reasoning: 'Two personas agreed', confidence: 0.82,
+    },
+  });
+  ok(eRecheck.recheckResolution && eRecheck.recheckResolution.suggestion === 'The March figure looks right',
+    'buildLedgerEntry: recheckResolution suggestion carried through when present');
+  ok(eRecheck.recheckResolution.resolvedBy === 'C' && eRecheck.recheckResolution.reasoning === 'Two personas agreed',
+    'buildLedgerEntry: recheckResolution resolvedBy + reasoning carried through');
+  ok(eRecheck.recheckResolution.confidence === 0.82, 'buildLedgerEntry: recheckResolution confidence carried through');
+  ok(Object.keys(eRecheck.recheckResolution).length === 4,
+    'buildLedgerEntry: recheckResolution carries ONLY the four known fields');
+
+  const eClamp = buildLedgerEntry({
+    kind: 'pushback', meetingId: 'm', text: 't', ts: 1,
+    recheckResolution: { suggestion: 's', confidence: 4.5 },
+  });
+  ok(eClamp.recheckResolution.confidence === 1, 'buildLedgerEntry: recheckResolution confidence clamped to <= 1');
+  const eClampLow = buildLedgerEntry({
+    kind: 'pushback', meetingId: 'm', text: 't', ts: 1,
+    recheckResolution: { suggestion: 's', confidence: -3 },
+  });
+  ok(eClampLow.recheckResolution.confidence === 0, 'buildLedgerEntry: recheckResolution confidence clamped to >= 0');
+
+  const eGarbage = buildLedgerEntry({
+    kind: 'pushback', meetingId: 'm', text: 't', ts: 1,
+    recheckResolution: { suggestion: 's', confidence: 'not-a-number', evil: { nested: 'object' }, applyFix: true },
+  });
+  ok(eGarbage.recheckResolution.confidence === null, 'buildLedgerEntry: non-finite recheck confidence becomes null, never NaN');
+  ok(!('evil' in eGarbage.recheckResolution) && !('applyFix' in eGarbage.recheckResolution),
+    'buildLedgerEntry: arbitrary extra recheck fields are discarded, never stored verbatim');
+
+  const eNotObject = buildLedgerEntry({
+    kind: 'pushback', meetingId: 'm', text: 't', ts: 1, recheckResolution: 'just a string',
+  });
+  ok(!('recheckResolution' in eNotObject), 'buildLedgerEntry: a non-object recheckResolution is dropped (no key)');
+  const eNoRecheck = buildLedgerEntry({ kind: 'pushback', meetingId: 'm', text: 't', ts: 1 });
+  ok(!('recheckResolution' in eNoRecheck), 'buildLedgerEntry: absent recheckResolution → no key at all (byte-identical to before)');
+
+  // End-to-end: a tagged pushback segment carrying .recheckResolution flows
+  // through buildLedgerEntriesFromMeeting into an entry with a sanitized copy,
+  // while an un-rechecked pushback stays key-free (regression safety).
+  const e2eSegments = tagSegmentsWithContext([
+    { text: 'Why did this drop in March?', ts: 500 },
+    { text: 'Are you sure about that Q2 number?', ts: 800 },
+  ], []);
+  const pushbacks = e2eSegments.filter((s) => s.pushback && s.pushback.isPushback);
+  ok(pushbacks.length >= 2, 'e2e setup: both challenge lines tagged as pushback');
+  // Attach a re-check to the FIRST pushback only (with a junk extra field to
+  // prove the sanitizer runs on the through-path, not just direct calls).
+  pushbacks[0].recheckResolution = {
+    resolvedBy: 'C', suggestion: 'March figure is correct', reasoning: 'debate agreed', confidence: 0.9, applyFix: 'SHOULD_BE_DROPPED',
+  };
+  const e2eEntries = buildLedgerEntriesFromMeeting({ meetingId: 'mtg-e2e', taggedSegments: e2eSegments });
+  const rechecked = e2eEntries.find((e) => e.kind === 'pushback' && e.recheckResolution);
+  const notRechecked = e2eEntries.find((e) => e.kind === 'pushback' && !e.recheckResolution);
+  ok(rechecked && rechecked.recheckResolution.suggestion === 'March figure is correct',
+    'buildLedgerEntriesFromMeeting: a segment\'s recheckResolution flows end-to-end into its entry');
+  ok(rechecked && !('applyFix' in rechecked.recheckResolution),
+    'buildLedgerEntriesFromMeeting: the through-path sanitizes too — junk fields never reach the entry');
+  ok(notRechecked && !('recheckResolution' in notRechecked),
+    'buildLedgerEntriesFromMeeting: an un-rechecked pushback entry carries no recheckResolution key (regression safety)');
+
   // ---------- 5. Export (formatting only, no network) ----------
   const exported = exportLedgerEntries(loaded);
   const parsed = JSON.parse(exported);

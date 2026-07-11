@@ -151,11 +151,21 @@ export function mountDecisionLedger(opts = {}) {
     listHost.appendChild(el('ul', {
       style: 'margin:0; padding-left:var(--space-4); line-height:1.7; max-height:280px; overflow:auto;',
       'data-testid': 'decision-ledger-entries',
-    }, filtered.slice().reverse().map((e) => el('li', {}, [
+    }, filtered.slice().reverse().map((e) => el('li', { 'data-testid': `decision-ledger-entry-${e.kind}` }, [
       el('span', { style: 'font-weight:600;' }, `[${e.kind}] `),
       `"${e.text}"`,
       e.context ? ` \u2014 while viewing "${e.context.chart}"` : '',
       e.kind === 'actionItem' ? ` \u2014 ${e.status}` : '',
+      // A pushback entry may carry a small on-device re-check summary (see
+      // meeting-scribe-ui.js). Render it as a low-emphasis second line, honest
+      // about it being a re-check suggestion, never presented as a correction
+      // that was applied. Only shown when a suggestion string is actually present.
+      e.recheckResolution && e.recheckResolution.suggestion
+        ? el('div', {
+            style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:2px;',
+            'data-testid': 'decision-ledger-recheck',
+          }, `Re-checked: ${e.recheckResolution.suggestion}${typeof e.recheckResolution.confidence === 'number' ? ` (${Math.round(e.recheckResolution.confidence * 100)}% confidence)` : ''}`)
+        : '',
     ]))));
   }
 

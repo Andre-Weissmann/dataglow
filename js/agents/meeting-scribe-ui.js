@@ -170,8 +170,14 @@ export function mountMeetingScribe(opts = {}) {
     if (note.pushbackMoments.length === 0) {
       container.appendChild(el('p', { style: 'color:var(--color-text-faint); font-size:var(--text-sm);' }, 'None detected.'));
     } else {
+      // Iterate the REAL taggedSegments (not note.pushbackMoments, which are
+      // fresh copies from buildMeetingNote) so a re-check can attach its result
+      // onto the SAME object getState() exposes to the Decision Ledger — see
+      // onRecheck. buildMeetingNote's pushbackMoments filter is identical, so
+      // this is the same set in the same order, just by reference.
+      const pushbackSegments = taggedSegments.filter((s) => s.pushback && s.pushback.isPushback);
       container.appendChild(el('ul', { style: 'margin:0; padding-left:var(--space-4); line-height:1.6;' },
-        note.pushbackMoments.map((s, idx) => renderPushbackItem(s, idx))));
+        pushbackSegments.map((s, idx) => renderPushbackItem(s, idx))));
     }
 
     container.appendChild(sectionLabel(`Data requests (${note.dataRequests.length})`));
@@ -275,7 +281,7 @@ export function mountMeetingScribe(opts = {}) {
       onclick: () => onRecheck(s, resultHost, recheckBtn),
     }, 'Re-check this number');
     return el('li', { 'data-testid': `meeting-scribe-pushback-${idx}` }, [
-      el('span', {}, `"${s.text}" — matched "${s.matched}"`),
+      el('span', {}, `"${s.text}" — matched "${s.pushback.matched}"`),
       recheckBtn,
       resultHost,
     ]);
@@ -303,6 +309,20 @@ export function mountMeetingScribe(opts = {}) {
       return;
     }
     btn.disabled = false;
+    // Attach a small PLAIN summary of the resolution onto the same tagged
+    // segment object getState() exposes, so the Decision Ledger can pick it up
+    // with zero new plumbing (see buildLedgerEntriesFromMeeting). We keep only
+    // the four flat fields the ledger needs — NOT the full debate transcript.
+    // `segment` is the real taggedSegments element (renderResultsInto iterates
+    // the live refs, not buildMeetingNote's copies), so this mutation is visible
+    // to getState(). Read-only w.r.t. the dataset: this writes nothing to a
+    // pack, rule, or ledger store here — it only annotates the in-memory segment.
+    segment.recheckResolution = {
+      resolvedBy: resolution.resolvedBy,
+      suggestion: resolution.suggestion,
+      reasoning: resolution.reasoning,
+      confidence: resolution.confidence,
+    };
     renderRecheckResult(resolution, resultHost);
   }
 
