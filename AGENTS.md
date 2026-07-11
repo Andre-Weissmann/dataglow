@@ -109,6 +109,50 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Agent Action Firewall (DataGlow Passport, Batch A) — the safety gate every agent action passes through
+
+`js/agents/agent-firewall.js` + `js/agents/agent-confirm-gate.js` turn DATAGLOW's
+oldest hard rule — never let an LLM/agent modify, clean, or delete the loaded dataset
+without an explicit per-action confirmation — from an implicit convention scattered
+across call sites into a first-class, auditable, reversible capability. It was
+reinforced by the April 2026 incident where a coding agent deleted a production
+database and its backups with no confirmation gate: a destructive agent action must be
+classified, gated, logged, AND reversible. The design deliberately mirrors the existing
+module boundaries and REUSES, rather than reinvents, three primitives. (1) Pure policy:
+`evaluateAction({kind, source, payload})` is a pure function — no DOM, no network, no
+side effects — returning a decision + reason. Action kinds are grounded in what an agent
+can already trigger in this codebase (duckdb-engine `runQuery`, clean.js `applyFix`'s
+DELETE/UPDATE/CREATE-OR-REPLACE-DISTINCT, export-report `exportDataset`), NOT invented:
+read/run-query/suggest-edit auto-allow, apply-edit/delete-rows/delete-column/export
+confirm-required, `run-query` refined by scanning `payload.sql` for write DML (a SELECT
+stays auto-allow; a DELETE/UPDATE/DROP escalates), and unknown/missing kinds fail CLOSED
+to deny so an unrecognised capability can never slip through as allowed. (2) Auditable:
+`recordAction` appends to a hash-chained action log using the SAME `sha256Hex` +
+`GENESIS_PARENT` helper as `js/provenance/provenance.js` — it does not reinvent hashing —
+and `verifyLog` recomputes every hash so altering any earlier entry is detected. (3)
+Reversible: before a confirm-required destructive action is applied, `captureSnapshot`
+takes an INDEPENDENT tombstone via the time-machine `buildSnapshot` primitive (a
+defensive row copy, so a later in-place mutation cannot corrupt what undo restores) and
+`undoLastAgentAction` hands the caller the before-state to restore, recording the
+reversal as its own auditable log entry. The confirm-gate splits pure logic from DOM the
+same way the rest of the codebase does: `needsConfirmation`/`runGuardedAction` are pure
+and Node-testable via an injected `confirmFn` (auto-allow proceeds silently;
+confirm-required awaits confirmation and blocks if the prompt throws or is absent; deny
+never proceeds), while `mountConfirmGate` is the browser-only presenter reusing the app's
+`.modal.open` overlay with Cancel as the safe default focus. FINDING: story.js and
+ondevice-llm.js were reviewed and are read-only narrative generators — they consume query
+results and emit prose, and neither suggests nor applies any edit/delete/export against
+the dataset — so they are deliberately NOT wired to the gate (documenting the read-only
+finding rather than forcing a fake write path). ZERO NETWORK: both modules name no
+network primitive, so they pass the same static source scan
+(`js/packs/pack-network-guard.js` `scanSourceForNetwork`) that domain packs must pass,
+enforced by a source guard in the test suite. Ships ENABLED behind the
+`agentActionFirewall` flag — unlike a dark-launched feature, a safety layer off by
+default protects nothing. Test: `npm run test:agentfirewall`
+(`test/agent-firewall.test.mjs`), pure JS — no DuckDB, DOM, or network. Later DataGlow
+Passport batches (Portable Receipts, Metric Contract Registry, Ownership Ledger) are out
+of scope.
+
 ### Meeting scribe agent (Gen 43, Part 1) — pure grounding logic only, no capture yet
 
 `js/agents/meeting-scribe-agent.js` is the first, deliberately narrow piece of a

@@ -168,6 +168,15 @@ only — no LLM, no DOM, no network primitive — so it needs a browser to be US
 to be CORRECT.
 - **Meeting note grounding agent** — `js/agents/meeting-scribe-agent.js` (`tagSegmentsWithContext` tags each transcript segment with whichever chart/query-change event from a caller-supplied timeline was active at its timestamp, leaving pre-first-event segments untagged rather than guessing; `detectPushback`/`detectDataRequest` flag stakeholder pushback phrases — e.g. "why did this drop", "are you sure" — that should trigger the EXISTING uncertainty resolver's re-run rather than a prose reply, and new-data-request phrases into a lightweight queue; `buildActionItem`/`isActionItemResolved`/`resolveActionItem` enforce that an action item only counts resolved once it carries an owner, a due date, AND an outcome — a bare "will follow up" stays open; `buildMeetingNote` assembles the plain, JSON-safe ledger entry). Ships no UI and no capture path yet — this is the pure grounding/tagging logic only; wiring it to a live transcript and the export ledger is a follow-up.
 
+## Agent safety
+DATAGLOW's hard rule — never let an LLM/agent modify, clean, or delete the loaded
+dataset without an explicit per-action confirmation — made first-class, auditable, and
+reversible. Every agent-originated action passes through one policy gate before it can
+touch data. Pure logic (no DOM, no network primitive), so it is CORRECT without a
+browser and only needs one to be USED. Reinforced by the April 2026 incident where a
+coding agent deleted a production database and its backups with no confirmation gate.
+- **Agent Action Firewall** — `js/agents/agent-firewall.js` (`evaluateAction` is the pure classifier: read/run-query/suggest-edit auto-allow, apply-edit/delete-rows/delete-column/export confirm-required, run-query refined by scanning its `payload.sql` for write DML, and unknown/missing kinds failing CLOSED to deny; `createAgentFirewall`/`getAgentFirewall` own a hash-chained action log built with the SAME `sha256Hex`+`GENESIS_PARENT` helper as the provenance chain — `recordAction` appends, `verifyLog` recomputes every hash so tampering with any earlier entry is detected; `captureSnapshot` takes an independent tombstone via the time-machine `buildSnapshot` primitive and `undoLastAgentAction` reverses an applied destructive action from it, recording the reversal as its own auditable entry) and `js/agents/agent-confirm-gate.js` (`needsConfirmation`/`runGuardedAction` are the pure, Node-testable decision plumbing — auto-allow proceeds without a prompt, confirm-required awaits an injected `confirmFn` and blocks if it throws or is absent, deny never proceeds; `mountConfirmGate`/`browserConfirmFn` are the browser-only presenter reusing the app's `.modal.open` overlay, with Cancel as the safe default focus). story.js and ondevice-llm.js were reviewed and are read-only narrative generators with no write path, so they are deliberately not wired to the gate.
+
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
 Built on a Universal Export Contract: one byte-builder per format, decoupled from a

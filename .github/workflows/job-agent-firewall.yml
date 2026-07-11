@@ -1,0 +1,30 @@
+# ============================================================
+# DATAGLOW — CI job: Agent Action Firewall
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the browser-free unit suite for the Agent Action Firewall: the pure
+# evaluateAction policy engine (every action kind × decision path, run-query
+# refined by its SQL, unknown kinds failing closed to deny), the hash-chained
+# action log's verify + tamper-detection, the no-network source guard over both
+# agent modules, and the confirm-gate integration (a confirm-required action is
+# not applied until confirmed, and is undoable afterwards). No DuckDB, no
+# browser, no network.
+
+name: Agent Action Firewall
+
+on:
+  workflow_call:
+
+jobs:
+  agent-firewall:
+    name: Agent Action Firewall (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:agentfirewall

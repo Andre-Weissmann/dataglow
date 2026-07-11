@@ -413,6 +413,19 @@
         { "file": "js/agents/meeting-scribe-agent.js", "name": "detectPushback" },
         { "file": "js/agents/meeting-scribe-agent.js", "name": "buildMeetingNote" }
       ]
+    },
+    {
+      "id": "agent-action-firewall",
+      "area": "Agent safety",
+      "name": "Agent Action Firewall",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/agent-firewall.js", "js/agents/agent-confirm-gate.js"],
+      "symbols": [
+        { "file": "js/agents/agent-firewall.js", "name": "evaluateAction" },
+        { "file": "js/agents/agent-firewall.js", "name": "createAgentFirewall" },
+        { "file": "js/agents/agent-confirm-gate.js", "name": "needsConfirmation" },
+        { "file": "js/agents/agent-confirm-gate.js", "name": "runGuardedAction" }
+      ]
     }
   ]
 }

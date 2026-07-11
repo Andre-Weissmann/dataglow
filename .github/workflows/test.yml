@@ -85,3 +85,6 @@ jobs:
 
   context-engine:
     uses: ./.github/workflows/job-context-engine.yml
+
+  agent-firewall:
+    uses: ./.github/workflows/job-agent-firewall.yml

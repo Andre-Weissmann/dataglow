@@ -25,6 +25,11 @@
       "enabled": false,
       "addedInPR": "gen43-meeting-scribe-agent",
       "description": "Gen 43 meeting scribe agent (js/agents/meeting-scribe-agent.js): pure, browser-free logic that tags a transcript's segments to whichever chart/query was on screen, flags stakeholder pushback for the existing uncertainty resolver, queues new data requests, and enforces the owner+dueDate+outcome rule before an action item counts as resolved. This flag exists for the promote-or-delete clock even though no UI reads it yet — there is no audio capture, transcription, or Validate/Visualize-tab wiring in this PR (deliberately out of scope, follow-up work). Ships fully dark: no code path is reachable from the app today regardless of this flag's value."
+    },
+    "agentActionFirewall": {
+      "enabled": true,
+      "addedInPR": "dataglow-passport-batch-a-agent-action-firewall",
+      "description": "DataGlow Passport Batch A Agent Action Firewall (js/agents/agent-firewall.js + js/agents/agent-confirm-gate.js): the hard, auditable, reversible safety gate every agent-originated action against the loaded dataset passes through. evaluateAction classifies each action kind (read/run-query/suggest-edit auto-allow; apply-edit/delete-rows/delete-column/export confirm-required; run-query refined by its SQL; unknown kinds fail closed to deny), recordAction appends to a provenance-style hash-chained action log, and undoLastAgentAction reverses an applied destructive action from a captured tombstone. Ships ENABLED, not dark: a safety layer that is off by default provides no protection, and the whole point is to close the no-confirmation-gate hole behind the April 2026 agent-deleted-prod-database incident. Flip off only to fall back to the pre-firewall (unguarded) behaviour."
     }
   }
 }
