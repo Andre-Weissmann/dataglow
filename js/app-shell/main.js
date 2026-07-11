@@ -15,6 +15,7 @@ import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
+import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
@@ -765,6 +766,79 @@ function renderAnalysisContractCard(container, report) {
   container.prepend(card);
 }
 
+// Verifiable Check Seal opt-in affordance (feature-flagged: verifiableCheckSeal).
+// ------------------------------------------------------------
+// Renders a small card offering to SEAL the Analysis Contract result for this
+// query. Sealing is ALWAYS an explicit human action (the button click) — nothing
+// here seals automatically, matching the empowerment constraint. The seal binds
+// the check parameters (the SQL text) and the query RESULT's SHA-256 fingerprint
+// to the produced status; verifySeal re-checks it on the spot and offers the
+// portable .json artifact as a client-side download (no network). Honest naming:
+// the copy never claims certification, zero-knowledge, or blockchain.
+function renderCheckSealAffordance(container, report, sql, result) {
+  if (!isEnabled('verifiableCheckSeal')) return;
+  const ds = getActiveDataset();
+  const card = el('div', {
+    class: 'card',
+    'data-testid': 'check-seal-card',
+    style: 'margin-top:var(--space-3); padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2);',
+  });
+  const header = el('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:var(--space-2);' }, [
+    el('span', { class: 'validation-status pass' }, [
+      el('span', { class: 'status-dot pass' }),
+      el('span', {}, 'Verifiable Check Seal'),
+    ]),
+    el('button', {
+      class: 'btn btn-primary',
+      style: 'font-size:var(--text-xs); padding:2px 8px;',
+      'data-testid': 'check-seal-create',
+      onclick: async () => {
+        try {
+          const seal = await sealCheckResult(report, {
+            check: { name: 'Local Analysis Contract', kind: 'local-analysis-contract' },
+            params: sql,
+            dataset: {
+              name: ds ? ds.name : 'query result',
+              rowCount: result ? result.rowCount : null,
+              columnNames: result ? result.columns : [],
+            },
+            // Fingerprint the query RESULT rows — the concrete data in hand. The
+            // seal therefore binds to this query's output, not the whole source
+            // table (stated in the seal's own disclaimer + the tech-debt note).
+            data: result ? result.rows : null,
+            dataglow: { version: (window.__dataglowVersion || null), build: null },
+          });
+          const check = await verifySeal(seal, result ? result.rows : undefined);
+          detail.innerHTML = '';
+          for (const line of renderSealSummaryLines(seal)) {
+            detail.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); white-space:pre;' }, line));
+          }
+          detail.appendChild(el('div', {
+            style: `font-size:var(--text-xs); margin-top:6px; color:var(--color-${check.valid ? 'success' : 'error'});`,
+          }, check.valid ? '✓ Re-verified locally: ' + check.reason : '✗ ' + check.reason));
+          const dl = el('button', {
+            class: 'btn btn-secondary',
+            style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
+            'data-testid': 'check-seal-download',
+            onclick: () => downloadText('dataglow-check-seal.json', exportSealAsJSON(seal), 'application/json'),
+          }, 'Download seal (.json)');
+          detail.appendChild(dl);
+          toast('Check result sealed and re-verified locally', 'success');
+        } catch (e) {
+          toast('Could not seal this result: ' + e.message, 'error');
+        }
+      },
+    }, 'Seal this result'),
+  ]);
+  const detail = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' },
+    'Optionally seal this check result into a portable proof that it ran against '
+    + 'data matching a fingerprint and produced this status — verifiable by anyone '
+    + 'with only the artifact, no data. Not a certification and not zero-knowledge.');
+  card.appendChild(header);
+  card.appendChild(detail);
+  container.prepend(card);
+}
+
 async function runSqlQuery() {
   const sql = $('#sql-input').value.trim();
   if (!sql) return;
@@ -794,6 +868,9 @@ async function runSqlQuery() {
       buildLiveSchemaForContract(sql).then(schema => {
         const report = runAnalysisContract(sql, schema, contractOptions);
         renderAnalysisContractCard(resultWrap, report);
+        // Opt-in seal affordance (no-op unless verifiableCheckSeal is on). Never
+        // seals automatically — it only renders a button the analyst may click.
+        renderCheckSealAffordance(resultWrap, report, sql, result);
       }).catch(() => { /* contract check is best-effort; never break the SQL tab */ });
     }
   } catch (err) {

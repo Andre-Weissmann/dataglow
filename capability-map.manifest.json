@@ -487,6 +487,16 @@
       ]
     },
     {
+      "id": "provenance-check-seal",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Verifiable Check Seal (Trust Passport, Batch 3)",
+      "files": ["js/provenance/verifiable-check-seal.js"],
+      "symbols": [
+        { "file": "js/provenance/verifiable-check-seal.js", "name": "sealCheckResult" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",

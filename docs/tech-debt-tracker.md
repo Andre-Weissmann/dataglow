@@ -45,6 +45,34 @@ Newest entries go at the bottom of **Entries**.
 
 ## Entries
 
+### 2026-07-11 — Verifiable Check Seal binds to the query result, and fingerprints are unbounded
+
+- **Description:** The Verifiable Check Seal (`js/provenance/verifiable-check-seal.js`,
+  Trust Passport Batch 3) is honest about *what* it fingerprints, but two limits
+  are worth naming so a future session doesn't mistake the seal for more than it
+  is. (1) **Scope of the data fingerprint.** The SQL-tab affordance
+  (`renderCheckSealAffordance` in `js/app-shell/main.js`) fingerprints the query
+  RESULT rows — the concrete data in hand — so the seal binds to *that query's
+  output*, not the whole source table. Sealing "the dataset" would need a stable,
+  agreed fingerprint of the loaded DuckDB table(s) (row order, type coercion, and
+  NULL rendering all affect the hash), which is a bigger design question deferred
+  to Batch 4. The seal's own `disclaimer` and the `dataSource` field state what
+  was fingerprinted, so the artifact never over-claims — but the UI copy only says
+  "data matching a fingerprint", not which slice. (2) **Unbounded fingerprint
+  input.** `fingerprintData` canonicalizes and hashes the entire value it is
+  given; a very large result set is serialized in full in memory. Fine for the
+  typical analyst query; a caller sealing millions of rows should pass a
+  precomputed `dataFingerprint` (e.g. a streamed/DuckDB-side hash) instead. No
+  size guard exists today. (3) **Row-order sensitivity.** The fingerprint is
+  order-sensitive by design (documented + tested); callers wanting
+  order-independence must sort first. Cleaner options if next touched: a
+  DuckDB-side content hash for whole-table sealing, and a documented size ceiling
+  or streaming path in `fingerprintData`.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/verifiable-check-seal.js`, `js/app-shell/main.js` (SQL tab seal affordance)
+- **Status:** open
+
 ### 2026-07-08 — Tauri desktop shell stages web assets via a hand-maintained allowlist
 
 - **Description:** Tauri v1 refuses a `distDir` that contains `node_modules` or
