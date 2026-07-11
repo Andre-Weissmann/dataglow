@@ -52,6 +52,7 @@ import * as portableReceipt from '../provenance/portable-receipt.js';
 import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import * as dataBom from '../provenance/data-bom.js';
+import * as ownership from '../provenance/ownership-ledger.js';
 import { buildDataNutritionLabel, renderLabelSummaryLines, exportLabelAsJSON } from '../provenance/data-nutrition-label.js';
 import { buildSyntheticDataPassport, sealSyntheticPassport, renderPassportSummaryLines, exportPassportAsJSON } from '../privacy/synthetic-data-passport.js';
 import * as denialProfiler from '../provenance/denial-root-cause.js';
@@ -3167,6 +3168,7 @@ function renderProvenanceTrail() {
   if (deidWrap) deidWrap.style.display = ds ? '' : 'none';
   const denialWrap = $('#denial-profiler-wrap');
   if (denialWrap) denialWrap.style.display = ds ? '' : 'none';
+  renderOwnershipLedger(ds);
   const trail = chain ? chain.getTrail() : [];
   if (!trail.length) {
     list.innerHTML = '<span style="color:var(--color-text-faint);">No provenance recorded yet — load a dataset to anchor the chain of custody.</span>';
@@ -3182,6 +3184,74 @@ function renderProvenanceTrail() {
     ]));
   }
   renderBlameColumns(trail);
+}
+
+// Ownership Ledger — INFERS who is/was responsible for a dataset by reading the
+// identities attached to the existing provenance + assumption trails (distinct
+// from the chain of custody, which tracks WHAT changed). Read-only inference
+// plus one opt-in, append-only explicit claim path. Flag-gated (dark by default).
+// Explicit claims are held in-memory, keyed by dataset table name.
+const ownershipClaims = new Map();
+
+function renderOwnershipLedger(ds) {
+  const wrap = $('#ownership-wrap');
+  if (!wrap) return;
+  if (!isEnabled('ownershipLedger')) { wrap.style.display = 'none'; return; }
+  wrap.style.display = ds ? '' : 'none';
+  if (!ds) return;
+  const summaryEl = $('#ownership-summary');
+  const timelineEl = $('#ownership-timeline');
+  if (!summaryEl || !timelineEl) return;
+
+  const chain = provenance.getProvenance(ds.table);
+  const events = ownership.deriveOwnershipEvents({
+    provenanceTrail: chain ? chain.getTrail() : [],
+    assumptionEntries: ledger.getLedgerEntries(),
+  });
+  const claims = ownershipClaims.get(ds.table) || [];
+  const content = ownership.buildOwnershipTimelineContent(events, claims);
+
+  const confColor = content.summary.confidence === 'none' ? 'var(--color-text-faint)' : 'var(--color-text-muted)';
+  summaryEl.innerHTML = '';
+  summaryEl.appendChild(el('div', { style: `font-weight:600; color:${confColor};` }, content.summary.label));
+  summaryEl.appendChild(el('div', { style: 'color:var(--color-text-faint);' }, `${content.summary.basis} (confidence: ${content.summary.confidence})`));
+
+  timelineEl.innerHTML = '';
+  if (!content.rows.length) {
+    timelineEl.innerHTML = '<span style="color:var(--color-text-faint);">No ownership-relevant events yet — load a dataset and run validation to build the trail.</span>';
+    return;
+  }
+  for (const r of content.rows) {
+    const isClaim = r.kind === 'claim';
+    const tag = isClaim ? 'CLAIM' : (r.identityKnown ? r.type.toUpperCase() : 'UNATTRIBUTED');
+    const tagColor = isClaim ? 'var(--color-grade-a)' : (r.identityKnown ? 'var(--color-text-muted)' : 'var(--color-text-faint)');
+    timelineEl.appendChild(el('div', { style: 'padding:5px 0; border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: `font-weight:600; color:${tagColor};` }, `[${tag}] `),
+      el('span', {}, `${r.who} — ${r.what}`),
+      el('div', { style: 'font-size:0.9em; color:var(--color-text-faint);' }, r.when),
+    ]));
+  }
+}
+
+function initOwnershipLedger() {
+  const btn = $('#btn-ownership-claim');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    const identity = (window.prompt('Your name or identifier to record as the owner of this dataset (append-only, human-asserted — not independently verified):') || '').trim();
+    if (!identity) { toast('Ownership claim needs a non-empty identity', 'error'); return; }
+    const note = (window.prompt('Optional note (e.g. "took over Q3 2026") — leave blank to skip:') || '').trim();
+    try {
+      const prior = ownershipClaims.get(ds.table) || [];
+      const next = ownership.claimOwnership({ datasetId: ds.table, identity, note: note || undefined }, prior);
+      ownershipClaims.set(ds.table, next);
+      renderOwnershipLedger(ds);
+      toast('Ownership claim recorded (append-only, local only)', 'success');
+    } catch (err) {
+      toast(err.message || 'Could not record ownership claim', 'error');
+    }
+  });
 }
 
 // Cell-level Data Blame — a reader over the same provenance trail. Populate the
@@ -7090,6 +7160,7 @@ function init() {
   if (isEnabled('aiTouchLedger')) initAiTouchLedgerPanel();
   initProvenance();
   initDataBlame();
+  initOwnershipLedger();
   initDeidVerifier();
   initDenialProfiler();
   initDomainPack();

@@ -626,6 +626,20 @@
         </div>
       </div>
 
+      <div id="ownership-wrap" style="display:none; margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <div class="sidebar-heading">Ownership Ledger (who's responsible)</div>
+            <button class="btn btn-secondary" id="btn-ownership-claim" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-ownership-claim" title="Optionally assert that you are the owner/steward of this dataset. Append-only and human-asserted — recorded as an explicit claim, never overwriting prior claims.">Claim ownership</button>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Distinct from the chain of custody above (which tracks WHAT changed): this INFERS WHO is / was responsible by reading the identities attached to the provenance and assumption trails. Ownership is inferred, not verified — when no action carries an identity it honestly reports "unknown" rather than guessing. Fully offline; nothing leaves your browser.
+          </p>
+          <div id="ownership-summary" style="font-size:var(--text-xs); margin-bottom:var(--space-2);"></div>
+          <div id="ownership-timeline" style="font-size:var(--text-xs); max-height:280px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
       <div id="deid-verifier-wrap" style="display:none; margin-top:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
