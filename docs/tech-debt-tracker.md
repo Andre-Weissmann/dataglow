@@ -160,3 +160,26 @@ Newest entries go at the bottom of **Entries**.
 - **Area:** `js/validation/analysis-contract.js`, `js/ambient/ambient-validation.worker.js`
 - **Status:** open
 
+### 2026-07-11 — Semantic / Metrics Layer matches expressions by normalized string, not AST
+
+- **Description:** `js/validation/semantic-layer.js` decides whether a query's
+  aliased `SELECT` item matches a registered metric by *normalizing* both
+  expression strings (strip table qualifiers/quotes/whitespace, lowercase) and
+  comparing plus checking that every derived required column is present — it is
+  not a semantic/AST equivalence check. So a query that computes the canonical
+  metric a different-but-equivalent way (`SUM(amount - refund_amount)` vs the
+  registered `SUM(amount) - SUM(refund_amount)`, reordered terms, an intermediate
+  CTE, a column aliased upstream) will not match and therefore will *not* be
+  flagged. Like the rest of the Contract this is deliberately biased toward "miss
+  a real mismatch" over "cry wolf": a false negative is silent, a false positive
+  would erode trust in a flags-only advisory. Comment-based detection is softer
+  still (`info`). Revisit only if analysts define metrics whose canonical form is
+  routinely written multiple equivalent ways in practice; not worth a SQL-AST
+  dependency pre-emptively. Also in scope for a later batch: the registry is
+  in-memory only (resets on reload), so there is no portable/exportable metric
+  catalog yet.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/validation/semantic-layer.js`
+- **Status:** open
+

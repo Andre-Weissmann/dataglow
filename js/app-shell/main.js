@@ -5,6 +5,7 @@
 import { state, getActiveDataset, addDataset, setActiveDataset } from './state.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import { loadRegistry } from './capability-registry.js';
+import { buildSidebarContent } from './command-deck-nav.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
@@ -12,6 +13,8 @@ import * as loaders from './loaders.js';
 import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
 import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
+import { getRegisteredMetrics } from '../validation/semantic-layer.js';
+import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
@@ -244,7 +247,66 @@ function switchTab(tabId) {
     $('#swift-input').value = swiftPreview.SWIFT_TEMPLATE;
     $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
   }
+  renderCommandDeckSidebar();
 }
+
+// ============================================================
+// Command Deck sidebar (Gen 44, Part 1 -- ships dark)
+// ============================================================
+// Alternate nav sitting alongside the existing top tab bar. The top tab bar
+// stays the default/fallback; this only appears when dataglowSidebarNav is
+// enabled (off by default). Pure reorganization of the existing 13 tabs --
+// zero new logic, zero new panels. See js/app-shell/command-deck-nav.js for
+// the pure stage-grouping model and docs/capability-map.md for the decision
+// record (direction / scope / naming), all resolved by the agent per the
+// user's "build all, safely and smartly" instruction.
+const collapsedStages = new Set();
+
+function renderCommandDeckSidebar() {
+  const host = document.getElementById('command-deck-sidebar');
+  if (!host) return;
+  if (!isEnabled('dataglowSidebarNav')) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  host.style.display = '';
+  host.innerHTML = '';
+
+  const { stages } = buildSidebarContent({ tabMeta: TAB_META, activeTab });
+
+  stages.forEach((stage) => {
+    const collapsed = collapsedStages.has(stage.id);
+    const stageEl = el('div', { class: `cd-stage ${collapsed ? 'collapsed' : ''}`, 'data-testid': `cd-stage-${stage.id}` });
+
+    const header = el('div', {
+      class: `cd-stage-header ${stage.containsActive ? 'contains-active' : ''}`,
+      title: stage.description,
+      onclick: () => {
+        if (collapsedStages.has(stage.id)) collapsedStages.delete(stage.id);
+        else collapsedStages.add(stage.id);
+        renderCommandDeckSidebar();
+      },
+    }, [
+      el('span', {}, stage.label),
+      el('svg', { class: 'cd-stage-chevron', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', html: '<polyline points="6 9 12 15 18 9"/>' }),
+    ]);
+    stageEl.appendChild(header);
+
+    const tabsWrap = el('div', { class: 'cd-stage-tabs' });
+    stage.tabs.forEach((t) => {
+      const tabEl = el('div', {
+        class: `cd-tab ${t.active ? 'active' : ''}`,
+        'data-testid': `cd-tab-${t.id}`,
+        onclick: () => switchTab(t.id),
+      }, [
+        el('span', { html: iconSvg(t.icon) }),
+        el('span', {}, t.label),
+      ]);
+      tabsWrap.appendChild(tabEl);
+    });
+    stageEl.appendChild(tabsWrap);
+
+    host.appendChild(stageEl);
+  });
+}
+
 
 // ============================================================
 // Dataset Sidebar
@@ -721,8 +783,15 @@ async function runSqlQuery() {
       // Runs after the result is already shown — the contract check never
       // gates or delays the query itself, only annotates the result with
       // flags for the analyst to read before trusting it.
+      // The metric-definition check (4th finding class) runs only when the
+      // semanticMetricsLayer flag is on AND at least one metric is defined —
+      // otherwise no metrics option is passed and the Contract runs exactly its
+      // original three checks (byte-for-byte unchanged).
+      const contractOptions = isEnabled('semanticMetricsLayer')
+        ? { metrics: getRegisteredMetrics() }
+        : {};
       buildLiveSchemaForContract(sql).then(schema => {
-        const report = runAnalysisContract(sql, schema);
+        const report = runAnalysisContract(sql, schema, contractOptions);
         renderAnalysisContractCard(resultWrap, report);
       }).catch(() => { /* contract check is best-effort; never break the SQL tab */ });
     }
@@ -772,6 +841,27 @@ function initSqlTab() {
   });
   syncSqlHighlight();
   initAmbientValidation();
+  initMetricDefiner();
+}
+
+// "Define a metric" affordance (semanticMetricsLayer flag, off by default).
+// When the flag is off the trigger button stays hidden and the host stays
+// empty, so the feature ships dark — the SQL tab is unchanged. When on, the
+// button toggles a small human-authored metric-definition form.
+function initMetricDefiner() {
+  const btn = $('#btn-define-metric');
+  const host = $('#metric-definer-wrap');
+  if (!btn || !host) return;
+  if (!shouldOfferMetricDefiner({ enabled: isEnabled('semanticMetricsLayer') })) {
+    btn.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  btn.style.display = '';
+  btn.addEventListener('click', () => {
+    if (host.childElementCount > 0) { host.innerHTML = ''; return; } // toggle off
+    mountMetricDefiner({ host, onToast: toast });
+  });
 }
 
 // ============================================================
@@ -4960,6 +5050,7 @@ function initProblemFramer() {
 // ============================================================
 function init() {
   renderTabBar();
+  renderCommandDeckSidebar();
   switchTab('preflight');
   initTheme();
   initFileLoading();

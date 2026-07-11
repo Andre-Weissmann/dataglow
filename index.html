@@ -81,6 +81,12 @@
   <!-- ============ MAIN AREA ============ -->
   <div class="main-area">
 
+    <!-- Command Deck sidebar nav (Part 1 — alternate nav, ships dark behind
+         the dataglowSidebarNav flag; hidden via inline display:none set by
+         main.js at boot so a flag-off session never shows it, the top tab
+         bar above stays the default until this is reviewed live). -->
+    <aside class="command-deck-sidebar" id="command-deck-sidebar" aria-label="DATAGLOW Command Deck" style="display:none;"></aside>
+
     <!-- Dataset sidebar -->
     <aside class="data-sidebar" id="data-sidebar">
       <div class="sidebar-section">
@@ -188,6 +194,7 @@
         </div>
         <div style="display:flex; gap:var(--space-2);">
           <button class="btn btn-secondary" id="btn-attack-analysis" data-testid="button-attack-analysis" title="Run an adversarial robustness pass on the current query result">Attack My Analysis</button>
+          <button class="btn btn-secondary" id="btn-define-metric" data-testid="button-define-metric" style="display:none;" title="Define what a metric means so queries computing it differently get flagged">Define a metric</button>
           <button class="btn btn-secondary" id="btn-sql-format" data-testid="button-sql-format">Format</button>
           <button class="btn btn-primary" id="btn-sql-run" data-testid="button-sql-run">▶ Run (⌘⏎)</button>
         </div>
@@ -197,6 +204,7 @@
           <pre class="sql-highlight-overlay mono" id="sql-highlight" aria-hidden="true"></pre>
           <textarea class="sql-textarea sql-textarea-code mono" id="sql-input" spellcheck="false" placeholder="SELECT * FROM dataset LIMIT 100;" data-testid="input-sql"></textarea>
         </div>
+        <div id="metric-definer-wrap" data-testid="metric-definer-wrap"></div>
         <div id="ambient-warnings" data-testid="ambient-warnings" style="display:none; margin-top:var(--space-2); flex-direction:column; gap:var(--space-2);"></div>
         <div id="sql-autocomplete-hint" style="font-size:var(--text-xs); color:var(--color-text-faint);">Tip: type a table name, then <span class="mono">.</span> for column suggestions. ⌘/Ctrl+Enter to run. Live data-quality checks run as you type.</div>
         <div id="sql-status" style="font-size:var(--text-xs); color:var(--color-text-muted);"></div>

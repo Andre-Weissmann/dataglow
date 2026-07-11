@@ -114,6 +114,45 @@
 .panel-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text); }
 .panel-subtitle { font-size: var(--text-sm); color: var(--color-text-muted); margin-top: 2px; }
 
+/* ---- Command Deck sidebar nav (Gen 44, Part 1 — ships dark) ---- */
+.command-deck-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-2);
+}
+.cd-stage { margin-bottom: var(--space-2); }
+.cd-stage-header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--color-text-faint);
+  cursor: pointer; border-radius: var(--radius-md);
+  user-select: none;
+}
+.cd-stage-header:hover { background: var(--color-surface-2); }
+.cd-stage-header.contains-active { color: var(--color-primary); }
+.cd-stage-chevron { transition: transform var(--transition-interactive); width: 12px; height: 12px; flex-shrink: 0; }
+.cd-stage.collapsed .cd-stage-chevron { transform: rotate(-90deg); }
+.cd-stage.collapsed .cd-stage-tabs { display: none; }
+.cd-stage-tabs { display: flex; flex-direction: column; gap: 1px; }
+.cd-tab {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+  font-size: var(--text-sm); font-weight: 500;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-interactive);
+  user-select: none;
+}
+.cd-tab:hover { color: var(--color-text); background: var(--color-surface-2); }
+.cd-tab.active { color: var(--color-primary); background: var(--color-primary-highlight); font-weight: 600; }
+.cd-tab svg { width: 14px; height: 14px; flex-shrink: 0; }
+
 /* ---- Sidebar (dataset panel) ---- */
 .data-sidebar {
   width: var(--sidebar-w);

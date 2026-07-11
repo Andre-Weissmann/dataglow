@@ -55,8 +55,13 @@ jobs:
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
   onecanvas-phase1:
     uses: ./.github/workflows/job-onecanvas-phase1.yml
+  semantic-layer:
+    uses: ./.github/workflows/job-semantic-layer.yml
+
   provenance-packet:
     uses: ./.github/workflows/job-provenance-packet.yml
+  command-deck:
+    uses: ./.github/workflows/job-command-deck.yml
 
   conversational-pack-builder:
     uses: ./.github/workflows/job-conversational-pack-builder.yml

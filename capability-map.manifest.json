@@ -1,6 +1,6 @@
 {
-  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and \u2014 for the identity-defining modules \u2014 a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list \u2014 a subset of [\"browser\",\"desktop\",\"mobile\"] \u2014 read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API \u2014 see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
+  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -455,13 +455,25 @@
     },
     {
       "id": "provenance-packet",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Provenance Packet — data blame + de-identification verifier",
-      "files": ["js/provenance/data-blame.js", "js/provenance/deidentification-verifier.js"],
+      "files": [
+        "js/provenance/data-blame.js",
+        "js/provenance/deidentification-verifier.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/data-blame.js", "name": "buildBlameIndex" },
-        { "file": "js/provenance/deidentification-verifier.js", "name": "HIPAA_SAFE_HARBOR" }
+        {
+          "file": "js/provenance/data-blame.js",
+          "name": "buildBlameIndex"
+        },
+        {
+          "file": "js/provenance/deidentification-verifier.js",
+          "name": "HIPAA_SAFE_HARBOR"
+        }
       ]
     },
     {
@@ -884,7 +896,7 @@
     {
       "id": "pack-builder-ui",
       "area": "Conversational pack builder",
-      "name": "Guided pack builder \u2014 Validate-tab UI wiring",
+      "name": "Guided pack builder — Validate-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -942,6 +954,41 @@
       ]
     },
     {
+      "id": "semantic-metrics-layer",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "Semantic / Metrics Layer",
+      "files": [
+        "js/validation/semantic-layer.js",
+        "js/validation/semantic-layer-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/semantic-layer.js",
+          "name": "registerMetric"
+        },
+        {
+          "file": "js/validation/semantic-layer.js",
+          "name": "getRegisteredMetrics"
+        },
+        {
+          "file": "js/validation/semantic-layer.js",
+          "name": "checkQueryAgainstMetrics"
+        },
+        {
+          "file": "js/validation/semantic-layer-ui.js",
+          "name": "shouldOfferMetricDefiner"
+        },
+        {
+          "file": "js/validation/semantic-layer-ui.js",
+          "name": "mountMetricDefiner"
+        }
+      ]
+    },
+    {
       "id": "meeting-scribe-agent",
       "area": "Meeting scribe",
       "name": "Meeting note grounding agent",
@@ -970,7 +1017,7 @@
     {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
-      "name": "Meeting scribe \u2014 Meeting-tab UI wiring",
+      "name": "Meeting scribe — Meeting-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -1038,7 +1085,7 @@
     {
       "id": "meeting-decision-ledger-ui",
       "area": "Meeting scribe",
-      "name": "Meeting decision ledger \u2014 Meeting-tab browse/save UI wiring",
+      "name": "Meeting decision ledger — Meeting-tab browse/save UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -1198,6 +1245,36 @@
         {
           "file": "js/metrics/metric-contract-confirm-gate.js",
           "name": "renderConfirmGate"
+        }
+      ]
+    },
+    {
+      "id": "command-deck-nav",
+      "area": "App shell / navigation",
+      "name": "Command Deck sidebar nav (Part 1)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/app-shell/command-deck-nav.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "COMMAND_DECK_STAGES"
+        },
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "buildSidebarContent"
+        },
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "validateStageCoverage"
+        },
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "stageForTab"
         }
       ]
     }

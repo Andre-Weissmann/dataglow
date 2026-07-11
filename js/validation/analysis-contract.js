@@ -40,6 +40,15 @@
 // semantic analyzer. It is deliberately conservative about false positives
 // (see the guard-clause heuristic's column-name allowlist) because a tool
 // that cries wolf gets ignored.
+//
+// A fourth, OPT-IN check — metric definition mismatch — lives in
+// js/validation/semantic-layer.js and runs only when the caller passes a
+// non-empty metric registry via runAnalysisContract(sql, schema, { metrics }).
+// It is gated at the call site behind its own `semanticMetricsLayer` flag
+// (OFF by default), so with no metrics supplied this module behaves exactly as
+// it did before that feature existed: the same three finding classes, unchanged.
+
+import { checkQueryAgainstMetrics } from './semantic-layer.js';
 
 // ------------------------------------------------------------
 // Tiny, dependency-free SQL tokenizer.
@@ -299,14 +308,19 @@ export function checkMissingGuardClauses(sql, schemaIndex) {
 }
 
 // ------------------------------------------------------------
-// Top-level entry point — runs all four checks and returns one report.
-// Never throws on a query it can't fully parse; a check that can't extract
-// what it needs simply contributes no flags for that check, rather than
-// failing the whole contract (graceful degradation, matching the rest of
-// this codebase's convention for optional/best-effort analysis).
+// Top-level entry point — runs the three schema/aggregation/guard checks and,
+// when a metric registry is supplied, the opt-in metric-definition check, then
+// returns one report. Never throws on a query it can't fully parse; a check
+// that can't extract what it needs simply contributes no flags for that check,
+// rather than failing the whole contract (graceful degradation, matching the
+// rest of this codebase's convention for optional/best-effort analysis).
+//
+// `options.metrics` is the ONLY way the fourth (metric-definition-mismatch)
+// check runs. When it is absent or empty, this function's output is identical
+// to before the semantic layer existed — three finding classes, byte-for-byte.
 // ------------------------------------------------------------
 
-export function runAnalysisContract(sql, schema) {
+export function runAnalysisContract(sql, schema, options = {}) {
   const schemaIndex = buildSchemaIndex(schema);
   const checks = [
     ['schema_hallucination', checkSchemaHallucination],
@@ -322,6 +336,16 @@ export function runAnalysisContract(sql, schema) {
     } catch {
       // A single check's inability to parse this query never blocks the
       // others or the caller — see module header on graceful degradation.
+    }
+  }
+
+  // Fourth check — opt-in, gated by the caller supplying a metric registry.
+  const metrics = options && Array.isArray(options.metrics) ? options.metrics : null;
+  if (metrics && metrics.length) {
+    try {
+      flags.push(...checkQueryAgainstMetrics(sql, metrics));
+    } catch {
+      // Same graceful-degradation contract as the other checks.
     }
   }
 
