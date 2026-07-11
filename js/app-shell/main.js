@@ -34,6 +34,7 @@ import * as entityBaseline from '../anomaly/entity-baseline.js';
 import * as privacyBudget from '../privacy/privacy-budget.js';
 import * as memoryStore from '../learning/memory-store.js';
 import * as driftForecast from '../drift/drift-forecast.js';
+import { DriftWatchdog, formatWatchdogAlert } from '../ambient/drift-watchdog.js';
 import * as expectedRange from '../validation/expected-range.js';
 import * as ledger from '../provenance/assumption-ledger.js';
 import * as provenance from '../provenance/provenance.js';
@@ -4587,7 +4588,16 @@ function initDigitalTwin() {
 // for new/changed files, running each through the SAME loaders.loadFile +
 // runAllLayers path as a manual upload. Zero network I/O. See js/watch-folder.js.
 let watchController = null;
-const watchStatuses = new Map(); // name -> { name, ok, grade, detail, ts }
+const watchStatuses = new Map(); // name -> { name, ok, grade, detail, ts, driftAlert? }
+
+// Semantic Drift Watchdog (feature-flagged: semanticDriftWatchdog). Computes no
+// new statistics of its own — it de-duplicates alerts built from the
+// distribution_drift layer runAllLayers() already returns on every re-check, so
+// the Watch Folder poll loop (which re-validates a changed file automatically,
+// with no manual click) doesn't re-show the SAME drift finding on every poll.
+// One watchdog instance per session, matching watchStatuses' lifetime — both
+// reset together whenever the user connects a (possibly different) folder.
+let driftWatchdog = new DriftWatchdog();
 
 function gradeFromResults(results) {
   if (results && results.calibratedGrades && results.calibratedGrades.integrity) {
@@ -4610,18 +4620,28 @@ function renderWatchStatus(headline) {
     return;
   }
   for (const s of items) {
-    host.appendChild(el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider); font-size:var(--text-sm);', 'data-testid': `watch-file-${s.name}` }, [
-      el('span', { class: `status-dot ${s.ok ? 'pass' : 'fail'}` }),
-      el('span', { class: 'mono', style: 'flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, s.name),
-      el('span', { style: 'font-weight:700;' }, s.ok ? `Grade ${s.grade}` : 'Error'),
-      el('span', { style: 'color:var(--color-text-faint); font-size:var(--text-xs);' }, new Date(s.ts).toLocaleTimeString()),
+    host.appendChild(el('div', { style: 'display:flex; flex-direction:column; gap:4px; padding:var(--space-2) 0; border-bottom:1px solid var(--color-divider);', 'data-testid': `watch-file-${s.name}` }, [
+      el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm);' }, [
+        el('span', { class: `status-dot ${s.ok ? 'pass' : 'fail'}` }),
+        el('span', { class: 'mono', style: 'flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, s.name),
+        el('span', { style: 'font-weight:700;' }, s.ok ? `Grade ${s.grade}` : 'Error'),
+        el('span', { style: 'color:var(--color-text-faint); font-size:var(--text-xs);' }, new Date(s.ts).toLocaleTimeString()),
+      ]),
+      s.driftAlert ? el('div', {
+        class: `validation-status ${s.driftAlert.severity}`,
+        style: 'font-size:var(--text-xs); padding-left:16px;',
+        'data-testid': `watch-drift-${s.name}`,
+      }, [
+        el('span', { class: `status-dot ${s.driftAlert.severity}` }),
+        el('span', {}, s.driftAlert.headline),
+      ]) : null,
     ]));
   }
 }
 
 // The shared ingest path — deliberately the SAME functions the manual upload
 // button uses (loaders.loadFile + validation.runAllLayers), not a copy.
-async function watchIngestAndValidate(file /*, entry */) {
+async function watchIngestAndValidate(file, entry) {
   await ensureDuckDB();
   const ds = await loaders.loadFile(file);
   renderSidebar();
@@ -4629,7 +4649,21 @@ async function watchIngestAndValidate(file /*, entry */) {
   const results = await validation.runAllLayers(ds, {
     freshnessThresholdHours: state.settings.freshnessThresholdHours, pack: selectedPack(),
   });
-  return { ds, results, grade: gradeFromResults(results) };
+  let driftAlert = null;
+  if (isEnabled('semanticDriftWatchdog')) {
+    // Never let the watchdog's own de-duplication logic be the reason an
+    // automatic re-check fails — same defensive stance as every other
+    // ambient module here (e.g. the Analysis Contract card, ambient warnings).
+    try {
+      const fileName = (entry && entry.name) || file.name;
+      const decision = driftWatchdog.observe(fileName, results.distribution_drift);
+      if (decision.shouldNotify) {
+        driftAlert = decision.summary;
+        console.info('[semantic-drift-watchdog]', formatWatchdogAlert(fileName, decision));
+      }
+    } catch (e) { /* watchdog is informational only; never blocks ingest */ }
+  }
+  return { ds, results, grade: gradeFromResults(results), driftAlert };
 }
 
 function initWatchFolder() {
@@ -4672,6 +4706,7 @@ function initWatchFolder() {
       name, ok, ts,
       grade: ok && result ? result.grade : null,
       detail: ok ? '' : (error && error.message || String(error)),
+      driftAlert: ok && result ? result.driftAlert : null,
     });
     renderWatchStatus('Watching folder — files auto-validate on drop or change.');
   };
@@ -4690,6 +4725,7 @@ function initWatchFolder() {
     }
     await ensureDuckDB();
     watchStatuses.clear();
+    driftWatchdog.clearAll(); // fresh folder — start the watchdog's memory clean
     await watchController.start(dirHandle);
     connectBtn.style.display = 'none';
     stopBtn.style.display = '';
@@ -4713,6 +4749,7 @@ function initWatchFolder() {
   // needs a user gesture and can't run headless). Not used in normal operation.
   window.__dataglowStartWatch = async (mockHandle) => {
     watchStatuses.clear();
+    driftWatchdog.clearAll();
     await watchController.start(mockHandle);
     connectBtn.style.display = 'none';
     stopBtn.style.display = '';

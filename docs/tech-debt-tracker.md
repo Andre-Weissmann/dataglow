@@ -97,6 +97,37 @@ Newest entries go at the bottom of **Entries**.
 - **Area:** `js/validation/missingness.js`, `js/validation/missingness-detective.js`
 - **Status:** open
 
+### 2026-07-11 — Native (Tauri/Rust) file-watch trigger for the Semantic Drift Watchdog is deferred, not built
+
+- **Description:** `js/ambient/drift-watchdog.js` (the de-duplication/notification-
+  worthiness layer added in this PR) is deliberately trigger-agnostic — it only
+  consumes an already-computed `distribution_drift` result and a file name, and
+  has zero knowledge of *how* a file change was detected. Today the only trigger
+  wired up is the existing browser-only `js/ambient/watch-folder.js` poll loop
+  (File System Access API), because that is the only file-watching mechanism
+  this codebase has. A native, OS-level file-watch trigger for the Tauri desktop
+  shell (e.g. via the Rust `notify` crate, exposed as a Tauri command) was
+  explicitly scoped OUT of this PR: `src-tauri/` is a bare/vanilla shell with
+  zero custom Rust commands today, and the sandbox this PR was built in has no
+  Rust toolchain at all (`cargo`/`rustc` not found), so any native code written
+  here could not be compiled or verified before shipping — violating this
+  project's "no unverified code" bar. Desktop builds currently have **no file-
+  watching of any kind** (confirmed: `initWatchFolder()` in `main.js` explicitly
+  disables the Watch Folder UI on desktop with "available in the browser build
+  only"), so this is a pre-existing gap, not a regression introduced here.
+- **Recommendation:** A follow-up PR, built and verified in an environment with
+  a working Rust toolchain (ideally locally by a maintainer, or once sandbox
+  Rust support exists), should add a minimal Tauri command wrapping the
+  `notify` crate, emit a JS-side event on file change, and feed it into the
+  SAME `DriftWatchdog.observe()` / `distribution_drift` pipeline this PR wires
+  up for the browser path — no changes to `drift-watchdog.js` should be needed,
+  since it was designed to be agnostic to what triggers `.observe()`. That PR
+  should also lift the desktop Watch Folder restriction accordingly.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `src-tauri/` (desktop shell), `js/ambient/drift-watchdog.js`, `js/ambient/watch-folder.js`
+- **Status:** open
+
 ### 2026-07-08 — Flat `js/` directory has grown to ~60 top-level modules
 
 - **Description:** All application modules live directly under `js/` with no

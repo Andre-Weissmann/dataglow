@@ -125,6 +125,7 @@ model option.
 ## Ambient & real-time
 Runs validation without a manual upload click, off the main thread.
 - **Live validation** — `js/ambient/ambient-validation.worker.js` (cheap syntactic checks as the user types SQL), `js/ambient/watch-folder.js` (File System Access polling that auto-validates dropped files).
+- **Semantic drift watchdog** — `js/ambient/drift-watchdog.js` (flag: `semanticDriftWatchdog`, disabled by default): de-duplicates the existing distribution-drift validation result so Watch Folder's automatic re-checks surface a new drift finding once instead of re-nagging on every unchanged poll. Adds no new statistics of its own; trigger-agnostic by design so a future native (Tauri/Rust) file-watch trigger can reuse it unchanged.
 
 ## Language runtimes & visualization
 In-browser second-language tabs and charting.

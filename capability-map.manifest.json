@@ -546,6 +546,36 @@
       ]
     },
     {
+      "id": "semantic-drift-watchdog",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Ambient & real-time",
+      "name": "Semantic drift watchdog",
+      "files": [
+        "js/ambient/drift-watchdog.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ambient/drift-watchdog.js",
+          "name": "summarizeDriftEvent"
+        },
+        {
+          "file": "js/ambient/drift-watchdog.js",
+          "name": "alertFingerprint"
+        },
+        {
+          "file": "js/ambient/drift-watchdog.js",
+          "name": "DriftWatchdog"
+        },
+        {
+          "file": "js/ambient/drift-watchdog.js",
+          "name": "formatWatchdogAlert"
+        }
+      ]
+    },
+    {
       "id": "runtimes-viz",
       "platforms": [
         "browser",

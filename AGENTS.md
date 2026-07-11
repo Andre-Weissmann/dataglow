@@ -109,6 +109,42 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Semantic drift watchdog — de-duplicated drift alerts for Watch Folder
+
+`js/ambient/drift-watchdog.js` is a pure, dependency-free, Node-testable
+presentation/de-duplication layer over the distribution-drift validation
+result `js/validation/validation.js`'s `runAllLayers` already computes (`results.distribution_drift`,
+including its Holt-forecast alerting from `js/drift/drift-forecast.js`). It
+adds ZERO new statistical detection — its only job is deciding whether an
+already-computed drift finding is worth surfacing again, so the Watch Folder
+poll loop (which automatically re-validates a changed file with no manual
+click) doesn't re-show the SAME finding on every unchanged re-check and train
+users to ignore the alert. `summarizeDriftEvent(drift)` normalizes the layer
+result into `{severity, headline, lines}`, degrading to a silent pass on
+missing/malformed input rather than throwing — this module must never be the
+reason an automatic background re-check fails. `alertFingerprint(summary)` is
+a stable, line-order-independent content hash. The `DriftWatchdog` class
+tracks one fingerprint per file name (`.observe(fileName, drift)` →
+`{summary, isNew, shouldNotify}`; `shouldNotify` is true only when the
+severity isn't `pass` AND the fingerprint changed since that file's last
+observation), with `.clear`/`.clearAll` to explicitly re-arm. Wired into
+`js/app-shell/main.js`'s `watchIngestAndValidate` behind a new, disabled-by-default
+`semanticDriftWatchdog` flag (land dark, same pattern as `conversationalPackBuilder`);
+when on, a new drift finding renders as a `validation-status` line beneath the
+file's row in the Watch Folder status list, reusing the existing `pass`/`warn`/`fail`
+tones (`css/app.css` has no other tone — do not invent one). Empowerment
+constraint compliance: this module only decides what to SURFACE for the user
+to read; it never modifies, cleans, or discards data itself. A native,
+OS-level (Tauri/Rust `notify` crate) file-watch trigger for the desktop shell
+was deliberately scoped OUT of this PR — this sandbox has no Rust toolchain to
+compile/verify one, and Watch Folder itself is browser-only today (see
+`docs/tech-debt-tracker.md`, 2026-07-11 entry) — `js/ambient/drift-watchdog.js` was
+designed trigger-agnostic specifically so that follow-up can reuse it
+unchanged once it exists. Test: `npm run test:driftwatchdog`
+(`test/drift-watchdog.test.mjs`, 32 tests: summarization incl. malformed-input
+safety, fingerprint stability/order-independence, per-file de-duplication incl.
+pass→fail and fail→different-fail transitions, `.clear`/`.clearAll` re-arming).
+
 ### Metric Contracts, Batch 3 — confirm gate (the safety-critical batch)
 
 `js/metrics/metric-contract-confirm-gate.js` is the ONLY path in this codebase
