@@ -390,6 +390,17 @@
         { "file": "js/agents/pack-builder-agent.js", "name": "PackBuilderSession" },
         { "file": "js/agents/pack-builder-agent.js", "name": "interpretAnswer" }
       ]
+    },
+    {
+      "id": "pack-builder-ui",
+      "area": "Conversational pack builder",
+      "name": "Guided pack builder — Validate-tab UI wiring",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/conversational-pack-ui.js"],
+      "symbols": [
+        { "file": "js/agents/conversational-pack-ui.js", "name": "shouldOfferPackBuilder" },
+        { "file": "js/agents/conversational-pack-ui.js", "name": "mountConversationalPackBuilder" }
+      ]
     }
   ]
 }

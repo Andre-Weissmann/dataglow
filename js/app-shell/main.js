@@ -37,6 +37,8 @@ import * as expectedRange from '../validation/expected-range.js';
 import * as ledger from '../provenance/assumption-ledger.js';
 import * as provenance from '../provenance/provenance.js';
 import * as sdProof from '../provenance/selective-disclosure-proof.js';
+import { generateQuestions } from '../agents/question-generator-agent.js';
+import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
 // registry has dynamically imported the modules appropriate for this runtime;
@@ -1196,6 +1198,77 @@ async function runValidation() {
   await persistColumnProfiles(ds, results);
   renderAssumptionLedger();
   renderProvenanceTrail();
+  await renderConversationalPackBuilder(ds, results);
+}
+
+// ============================================================
+// Guided Conversational Pack Builder (Gen 42) — Validate-tab wiring
+// ============================================================
+// Turns the validation findings just produced into data-grounded questions and,
+// ONLY when the `conversationalPackBuilder` flag is on, mounts the in-page
+// one-question-at-a-time flow into the Validate header area. Ships dark: with the
+// flag off (its default) the host is emptied and hidden, so nothing renders.
+
+// Assemble the question-generator context from pipeline output already computed:
+// per-column stats (impossible values + outliers) from the distribution
+// fingerprint, plus the Missingness Detective's classified clusters.
+async function buildConversationalContext(ds, results) {
+  let columnStats = [];
+  try {
+    const fp = await validation.computeDistributionFingerprint(ds.table, ds.cols);
+    columnStats = Object.entries(fp).map(([column, s]) => ({ column, ...s }));
+  } catch { /* degrade gracefully to no stats — generator still runs on missingness */ }
+  const missingness = (results && results.missingness_detective && Array.isArray(results.missingness_detective.findings))
+    ? results.missingness_detective.findings
+    : [];
+  return { columnStats, missingness };
+}
+
+async function renderConversationalPackBuilder(ds, results) {
+  const wrap = $('#pack-builder-wrap');
+  const host = $('#pack-builder-body');
+  if (!wrap || !host) return;
+
+  // Flag off (default) → render nothing and leave no stale DOM behind.
+  if (!isEnabled('conversationalPackBuilder')) {
+    host.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+
+  let questions = [];
+  try {
+    const ctx = await buildConversationalContext(ds, results);
+    questions = generateQuestions(ctx, { max: 5 });
+  } catch (e) {
+    console.warn('[conversationalPackBuilder] question generation failed:', e);
+  }
+
+  if (!shouldOfferPackBuilder({ enabled: true, questions })) {
+    host.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = '';
+  mountConversationalPackBuilder({
+    host,
+    questions,
+    domain: (results && results.domainPack && results.domainPack.name) || '',
+    voiceEnabled: isEnabled('conversationalPackBuilderVoice'),
+    onDownload: downloadText,
+    onSaveLocal: (pack) => {
+      // Reuse the exact import/register path the Import Pack button uses: register
+      // the compiled runtime pack for this session and surface it in the selector.
+      domainPhysics.registerRuntimePack(pack);
+      const sel = $('#domain-pack-select');
+      if (sel && !Array.from(sel.options).some(o => o.value === pack.name)) {
+        sel.appendChild(el('option', { value: pack.name, title: pack.description }, `${pack.label} (yours)`));
+      }
+      if (sel) sel.value = pack.name;
+    },
+    onToast: toast,
+  });
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.
