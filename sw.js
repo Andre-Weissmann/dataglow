@@ -20,9 +20,39 @@
 //
 // The cache name is versioned; bump CACHE_VERSION on deploy so stale JS is not
 // served forever — old caches are deleted on activate.
+//
+// Cross-origin isolation: this worker also injects the COOP/COEP headers that
+// make `window.crossOriginIsolated` true (and thus SharedArrayBuffer — needed by
+// DuckDB-WASM's threaded/eh build — available), for hosts that don't set these
+// as real HTTP headers themselves. See the `_headers` file for the host-level
+// equivalent and index.html for the one-time reload that lets a first visit pick
+// up isolation once this worker is in control. COEP is `credentialless` so the
+// opt-in cross-origin CDN runtimes (Pyodide/WebR/WebLLM) and Google Fonts still
+// load without needing per-asset CORP/CORS headers.
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `dataglow-shell-${CACHE_VERSION}`;
+
+const COOP = 'same-origin';
+const COEP = 'credentialless';
+
+// Return a copy of `response` with the cross-origin isolation headers set.
+// Opaque / error (status 0) responses cannot be reconstructed with a body and
+// are passed through unchanged — only same-origin responses flow through here.
+function withCrossOriginIsolation(response) {
+  if (!response || response.status === 0 || response.type === 'opaque' || response.type === 'opaqueredirect') {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set('Cross-Origin-Opener-Policy', COOP);
+  headers.set('Cross-Origin-Embedder-Policy', COEP);
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 // Core shell: small, always-needed, stable. Kept intentionally short — the rest
 // is filled in at runtime by the stale-while-revalidate handler below.
@@ -88,6 +118,8 @@ self.addEventListener('fetch', (event) => {
           return res;
         })
         .catch(() => caches.match(request).then((c) => c || caches.match('./index.html')))
+        // The document response carries the COOP/COEP that grant isolation.
+        .then(withCrossOriginIsolation)
     );
     return;
   }
@@ -103,7 +135,9 @@ self.addEventListener('fetch', (event) => {
             return res;
           })
           .catch(() => cached);
-        return cached || network;
+        // Subresources (the vendored DuckDB-WASM bundle, workers, JS modules)
+        // also get the isolation headers so nothing downgrades the document.
+        return Promise.resolve(cached || network).then(withCrossOriginIsolation);
       })
     )
   );
