@@ -1,0 +1,35 @@
+# ============================================================
+# DATAGLOW — CI job: Command Deck command palette
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Command Deck, Part 2 (command palette): pure fuzzy-match + ranking logic
+# (buildCommandList/scoreCommand/filterCommands) for a global Ctrl/Cmd+K
+# palette that jumps to any real tab or triggers a small static registry of
+# common in-tool actions. Ships dark behind the `dataglowCommandPalette`
+# flag (off by default) — this job only proves the pure logic is correct
+# and stays in sync with the real TAB_META/tabOrder in js/app-shell/main.js
+# and js/app-shell/state.js; it does not exercise any live browser
+# rendering (no DOM caller test yet for this batch, same as Part 1).
+
+name: Command Deck command palette
+
+on:
+  workflow_call:
+
+jobs:
+  command-palette:
+    name: Command Deck command palette
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Part 2: fuzzy-match/ranking + tab-command-list logic, drift-checked
+      # against the real TAB_META/tabOrder in js/app-shell/main.js and
+      # js/app-shell/state.js so this can never silently fall out of sync
+      # with the app's actual tools.
+      - run: npm run test:commandpalette

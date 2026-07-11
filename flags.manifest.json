@@ -224,6 +224,11 @@
       "enabled": false,
       "addedInPR": "feature/analysis-robustness-sensitivity-verdict",
       "description": "Analysis-robustness thickening (js/analysis-robustness/robustness-verdict.js): two pure functions that EXTEND Devil's Advocate. mapAssumptionSensitivity finds the smallest set of rows whose removal makes an A-vs-B gap disappear/reverse and names the segment they concentrate in; robustnessVerdict folds attackAnalysis + that sensitivity map into ONE fixed-vocabulary object {verdict:'robust'|'fragile'|'inconclusive', reason, drivingFactor} with a plain-English, number-grounded one-sentence reason. When on, the existing Devil's Advocate card in the SQL tab appends the plain verdict line + the driving-segment sensitivity summary beneath its existing checks. Ships dark: with the flag off (default) initDevilsAdvocate renders exactly as before and the new functions never run. Pure logic only \u2014 the future stakeholder-facing 'Reverse Data Story' surface is explicitly out of scope."
+    },
+    "dataglowCommandPalette": {
+      "enabled": false,
+      "addedInPR": "gen44-command-deck-part2-command-palette",
+      "description": "Command Deck, Part 2: a global command palette (Ctrl/Cmd+K) built on js/app-shell/command-palette.js -- pure fuzzy-match + ranking logic (buildCommandList/scoreCommand/filterCommands) with zero DOM/runtime dependencies, wired into a modal in main.js. Lets a person jump to any real tab or trigger a small static registry of common in-tool actions (run query, run validation, scan for cleaning issues, run preflight, run diagnostics, export as an Excel workbook) without leaving the keyboard. Tab commands are built from the real TAB_META/tabOrder at call time, so the palette can never silently drift out of sync with the app's actual tool list. Action commands with a `whenTab` are only offered while that tab is active (e.g. 'Run SQL query' only appears on the SQL tab); actions with no `whenTab` are always offered. Ships dark: with the flag off (default) no keyboard listener is attached and no modal exists in the DOM. Independent of dataglowSidebarNav (Part 1) -- either flag can be on/off without affecting the other."
     }
   }
 }
