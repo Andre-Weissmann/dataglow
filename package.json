@@ -49,6 +49,7 @@
     "test:uncertainty": "node test/uncertainty-resolver.test.mjs",
     "test:packindex": "node test/local-pack-index.test.mjs",
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
+    "test:meetingscribe": "node test/meeting-scribe.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
     "test:export": "node test/export-report.test.mjs",

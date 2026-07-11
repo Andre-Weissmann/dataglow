@@ -401,6 +401,18 @@
         { "file": "js/agents/conversational-pack-ui.js", "name": "shouldOfferPackBuilder" },
         { "file": "js/agents/conversational-pack-ui.js", "name": "mountConversationalPackBuilder" }
       ]
+    },
+    {
+      "id": "meeting-scribe-agent",
+      "area": "Meeting scribe",
+      "name": "Meeting note grounding agent",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/meeting-scribe-agent.js"],
+      "symbols": [
+        { "file": "js/agents/meeting-scribe-agent.js", "name": "tagSegmentsWithContext" },
+        { "file": "js/agents/meeting-scribe-agent.js", "name": "detectPushback" },
+        { "file": "js/agents/meeting-scribe-agent.js", "name": "buildMeetingNote" }
+      ]
     }
   ]
 }
