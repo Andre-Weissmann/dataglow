@@ -61,6 +61,7 @@
     "test:export": "node test/export-report.test.mjs",
     "test:datablame": "node test/data-blame.test.mjs",
     "test:deidverify": "node test/deidentification-verifier.test.mjs",
+    "test:nutritionlabel": "node test/data-nutrition-label.test.mjs",
     "test:living-manifest": "node test/living-manifest.test.mjs",
     "test:agentsdrift": "node test/agents-md-drift.test.mjs",
     "test:pytruncation": "node --import ./test/duckdb-loader-hook.mjs test/python-bridge-truncation.test.mjs",

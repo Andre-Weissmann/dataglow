@@ -1,0 +1,29 @@
+# ============================================================
+# DATAGLOW — CI job: Data Nutrition Label (Trust Passport, Batch 2)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the portable provenance manifest
+# (js/provenance/data-nutrition-label.js) — pure Node, no browser, no DuckDB, no
+# network: it assembles the manifest from the existing chain-of-custody trail,
+# Assumption Ledger, and validation results, renders the human-readable summary,
+# round-trips JSON, and confirms the export flow is byte-for-byte unchanged when
+# the label is not opted in. See test/data-nutrition-label.test.mjs.
+
+name: Data Nutrition Label
+
+on:
+  workflow_call:
+
+jobs:
+  data-nutrition-label:
+    name: Data Nutrition Label
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:nutritionlabel
