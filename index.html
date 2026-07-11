@@ -316,6 +316,15 @@
         </details>
       </div>
 
+      <!-- Guided Conversational Pack Builder (Gen 42). Hidden by default; the
+           presenter (js/agents/conversational-pack-ui.js) only fills #pack-builder-body
+           and shows this wrap when the conversationalPackBuilder flag is ON and the
+           validation run produced askable findings. Flag ships OFF, so this stays
+           empty and hidden in production. -->
+      <div id="pack-builder-wrap" style="display:none; margin-bottom:var(--space-6);" class="card" data-testid="pack-builder-wrap">
+        <div style="padding:var(--space-4);" id="pack-builder-body"></div>
+      </div>
+
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Top 5 Problems — Pre-Analysis Checklist</div>

@@ -109,6 +109,28 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Conversational pack builder — Validate-tab UI wiring (Gen 42 follow-up)
+
+The DOM wiring the Gen 42 agent PR deferred now lives in `js/agents/conversational-pack-ui.js`,
+a THIN presenter: it owns only presentation + flow state and delegates every
+rule/interpretation/resolution decision to the four agent modules above. It
+exports a pure gate `shouldOfferPackBuilder({enabled, questions})` (the single
+predicate the caller checks) and `mountConversationalPackBuilder(...)`, which
+renders a one-question-at-a-time card into `#pack-builder-wrap` in the Validate
+tab HEADER AREA — never a modal — using existing CSS classes. `js/app-shell/main.js`'s
+`renderConversationalPackBuilder(ds, results)` (called at the end of `runValidation`)
+mounts it ONLY when `isEnabled('conversationalPackBuilder')`; with the flag off
+(shipped default) it empties the host and hides it, so the feature ships DARK.
+Contract for anyone touching this: the two response buttons stay EQUAL-weight
+(both `btn btn-primary`) so the UI never nudges toward "accept"; the free-text
+field is the lower-emphasis fallback; the mic renders only when
+`conversationalPackBuilderVoice` is on. This module names NO network primitive —
+finalize runs inside the pack builder's `runWithNetworkDenied`, and save/export
+reuse the existing community-pack register + browser-download paths. Test:
+`npm run test:e2e-packbuilder-ui` (`test/pack-builder-ui.test.mjs`, in the
+`e2e-smoke` CI job) — engine-independent, asserts the gate, the flag-off
+mount-nothing regression guard, and the full flag-on flow.
+
 ### Guided conversational pack builder (Gen 42) — confirm before writing
 
 Authoring a domain pack used to mean a blank text box. Gen 42 replaces it with a

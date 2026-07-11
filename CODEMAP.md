@@ -93,7 +93,12 @@ otherwise).
   `uncertainty-resolver-agent.js` (on-device A→E "I don't know" resolution), and
   `pack-builder-agent.js` (assembles CONFIRMED answers into a portable pack via
   `teaching/community-pack.js`). Its read-only peer index lives in
-  `packs/local-pack-index.js`. All pure, browser-free, and network-clean.
+  `packs/local-pack-index.js`. All pure, browser-free, and network-clean. The
+  thin Validate-tab presenter `conversational-pack-ui.js`
+  (`shouldOfferPackBuilder` gate + `mountConversationalPackBuilder`) drives those
+  agents as an in-page card, mounted by `app-shell/main.js` only when the
+  `conversationalPackBuilder` flag is on — off by default, so the feature ships
+  dark and renders nothing.
 
 - **`ambient/`** — *Ambient & real-time.* `watch-folder.js` and
   `ambient-validation.worker.js` (a Web Worker — loaded via `new Worker(...)`, never

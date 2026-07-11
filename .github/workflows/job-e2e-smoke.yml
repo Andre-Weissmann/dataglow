@@ -58,6 +58,14 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-coi-race
+      # Gen 42: conversational pack-builder UI wiring. Engine-independent (imports
+      # the presenter on a served origin and drives it on a detached host div, no
+      # DuckDB), so it's robust in headless CI. Asserts the feature stays dark with
+      # the flag off and, with it on, the question→confirm→summary→finalize flow.
+      - name: Run conversational pack-builder UI test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-packbuilder-ui
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
