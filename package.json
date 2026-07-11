@@ -63,6 +63,8 @@
     "test:csvrejects": "node test/csv-ignore-errors.test.mjs",
     "test:uploadformats": "node test/upload-formats.test.mjs",
     "test:offlineclaims": "node test/offline-claims.test.mjs",
+    "test:metricstudio": "node --import ./test/duckdb-loader-hook.mjs test/metric-studio.test.mjs",
+    "test:truststrip": "node test/trust-strip-proof-drawer.test.mjs",
     "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:deps-freshness": "node .github/scripts/dependency-freshness.mjs",

@@ -281,6 +281,10 @@
 
     <!-- ============ VALIDATE TAB ============ -->
     <section class="panel" id="panel-validate" data-panel="validate">
+      <!-- Trust Strip (OneCanvas Phase 1, Part 3). Hidden by default; rendered by
+           js/trust/trust-strip.js only when the trustStripProofDrawer flag is ON.
+           Flag ships OFF, so this stays empty and hidden in production. -->
+      <div id="trust-strip-host" data-testid="trust-strip-host"></div>
       <div class="panel-header">
         <div>
           <div class="panel-title">Validate</div>
@@ -323,6 +327,16 @@
            empty and hidden in production. -->
       <div id="pack-builder-wrap" style="display:none; margin-bottom:var(--space-6);" class="card" data-testid="pack-builder-wrap">
         <div style="padding:var(--space-4);" id="pack-builder-body"></div>
+      </div>
+
+      <!-- Metric Studio (OneCanvas Phase 1, Part 5). Hidden by default; the panel
+           is filled by js/metrics/metric-studio.js only when the metricStudio flag
+           is ON. Flag ships OFF, so this stays empty and hidden in production. -->
+      <div id="metric-studio-wrap" style="display:none; margin-bottom:var(--space-6);" class="card" data-testid="metric-studio-wrap">
+        <div style="padding:var(--space-4);">
+          <div style="font-weight:600; margin-bottom:var(--space-2);">Metric Studio</div>
+          <div id="metric-studio-body"></div>
+        </div>
       </div>
 
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">

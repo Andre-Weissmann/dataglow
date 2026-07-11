@@ -42,6 +42,9 @@ import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
+import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
+import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
+import { openProofDrawer } from '../trust/proof-drawer.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -198,6 +201,7 @@ function switchTab(tabId) {
   if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
+  if (tabId === 'validate') renderOneCanvasPhase1();
   if (tabId === 'twin') buildTwinControls();
   if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'swift' && !$('#swift-input').value) {
@@ -218,7 +222,7 @@ function renderSidebar() {
   } else {
     list.innerHTML = '';
     state.datasets.forEach(ds => {
-      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); } }, [
+      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); renderOneCanvasPhase1(); } }, [
         el('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', html: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' }),
         el('span', { style: 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, ds.name),
       ]);
@@ -1309,6 +1313,9 @@ async function runValidation() {
   renderAssumptionLedger();
   renderProvenanceTrail();
   await renderConversationalPackBuilder(ds, results);
+  // OneCanvas Phase 1: refresh the Trust Strip (now with real validation
+  // results) and the Metric Studio panel. Both no-op when their flags are off.
+  renderOneCanvasPhase1();
 }
 
 // ============================================================
@@ -1379,6 +1386,91 @@ async function renderConversationalPackBuilder(ds, results) {
     },
     onToast: toast,
   });
+}
+
+// ============================================================
+// OneCanvas Phase 1 — Trust Strip + Proof Drawer + Metric Studio (Validate tab)
+// ============================================================
+// All three ship dark behind their flags: with metricStudio and
+// trustStripProofDrawer both OFF (their defaults), nothing here renders. Every
+// value shown traces to real computed data — the loaded dataset's load time, the
+// real validation results, the provenance chain, and the local Metric Studio
+// registry — never a hardcoded placeholder.
+
+// Local-only metric registry (in-memory; export/import JSON is user-driven).
+const metricRegistry = new MetricRegistry();
+
+// Open the Proof Drawer scoped to a Metric Studio metric.
+function openMetricProof(metric) {
+  openProofDrawer({ trigger: { type: 'metric', metric } });
+}
+
+// Open the Proof Drawer scoped to a clicked Trust Strip field, handing it the
+// real underlying data for that field.
+function openTrustFieldProof(field) {
+  const ds = getActiveDataset();
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  const trigger = {
+    type: 'trust-field',
+    field,
+    validationResults: state.validationResults,
+    metrics: metricRegistry.list(),
+  };
+  // Lineage fields render the existing attestation view; build it from the chain.
+  if (field.key === 'lineage' && chain && chain.length > 0) {
+    trigger.attestation = null; // async build below
+    provenance.buildAttestation(chain.getTrail(), {
+      table: ds.table, rowCount: ds.rowCount, colCount: ds.cols ? ds.cols.length : null,
+      loadedAt: ds.loadedAt ? new Date(ds.loadedAt).toISOString() : null,
+    }).then(att => openProofDrawer({ trigger: { ...trigger, attestation: att } }))
+      .catch(() => openProofDrawer({ trigger }));
+    return;
+  }
+  openProofDrawer({ trigger });
+}
+
+// Render the Trust Strip from real signals (or a clean empty state).
+function renderTrustStripPanel() {
+  const host = $('#trust-strip-host');
+  if (!host) return;
+  if (!isEnabled('trustStripProofDrawer')) { host.innerHTML = ''; return; }
+  const ds = getActiveDataset();
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  const signals = collectTrustSignals({
+    dataset: ds,
+    validationResults: state.validationResults,
+    metricCounts: metricRegistry.statusCounts(),
+    provenanceChain: chain,
+    anomalyResult: null, // honest "not checked" until anomaly detection runs
+  });
+  renderTrustStrip({ host, signals, onFieldClick: openTrustFieldProof });
+}
+
+// Render the Metric Studio panel (create form + saved list + duplicate prompt).
+function renderMetricStudioPanel() {
+  const wrap = $('#metric-studio-wrap');
+  const host = $('#metric-studio-body');
+  if (!wrap || !host) return;
+  if (!isEnabled('metricStudio')) { host.innerHTML = ''; wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const ds = getActiveDataset();
+  renderMetricStudio({
+    host,
+    registry: metricRegistry,
+    schemaCols: ds ? ds.cols : [],
+    table: ds ? ds.table : null,
+    engine,
+    onOpenProof: openMetricProof,
+    onToast: toast,
+    onChange: renderTrustStripPanel, // certification counts feed the Trust Strip
+  });
+}
+
+// Single entry point: refresh both flag-gated surfaces. Safe to call with no
+// dataset loaded and before any validation run.
+function renderOneCanvasPhase1() {
+  renderTrustStripPanel();
+  renderMetricStudioPanel();
 }
 
 // ============================================================

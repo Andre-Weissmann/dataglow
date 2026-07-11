@@ -973,6 +973,39 @@
           "name": "mountDecisionLedger"
         }
       ]
+    },
+    {
+      "id": "metric-studio",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Metric Studio",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/metrics/metric-studio.js"],
+      "symbols": [
+        { "file": "js/metrics/metric-studio.js", "name": "MetricRegistry" },
+        { "file": "js/metrics/metric-studio.js", "name": "computeMetricValue" }
+      ]
+    },
+    {
+      "id": "trust-strip",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Trust Strip",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/trust/trust-strip.js"],
+      "symbols": [
+        { "file": "js/trust/trust-strip.js", "name": "collectTrustSignals" },
+        { "file": "js/trust/trust-strip.js", "name": "renderTrustStrip" }
+      ]
+    },
+    {
+      "id": "proof-drawer",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Proof Drawer",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/trust/proof-drawer.js"],
+      "symbols": [
+        { "file": "js/trust/proof-drawer.js", "name": "buildProofContent" },
+        { "file": "js/trust/proof-drawer.js", "name": "openProofDrawer" }
+      ]
     }
   ]
 }

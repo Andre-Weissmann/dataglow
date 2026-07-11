@@ -1,0 +1,30 @@
+# ============================================================
+# DATAGLOW — CI job: OneCanvas Phase 1 (Metric Studio, Trust Strip, Proof Drawer)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the two suites for OneCanvas Phase 1 (Parts 3–5):
+#   - test:metricstudio — Metric Studio registry + real (native) DuckDB compute,
+#     undefined-column rejection, duplicate detection, suggestion, JSON round-trip.
+#   - test:truststrip — Trust Strip real-data collectors + Proof Drawer content
+#     builders (per trigger type, provenance via the existing attestation
+#     renderer) + the flag-off regression guard. Pure JS, no DuckDB/browser.
+
+name: OneCanvas Phase 1
+
+on:
+  workflow_call:
+
+jobs:
+  onecanvas-phase1:
+    name: OneCanvas Phase 1 (Metric Studio + Trust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metricstudio
+      - run: npm run test:truststrip

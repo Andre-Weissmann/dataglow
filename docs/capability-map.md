@@ -162,6 +162,44 @@ network primitive.
 - **Guided pack builder** — `js/agents/pack-builder-agent.js` (consumes CONFIRMED answers however they arrived — button, typed, on-device voice transcription, or a resolver acceptance — and incrementally assembles a valid portable pack; `interpretAnswer` turns one confirmed answer into a learned rule and `PackBuilderSession` accumulates them, shows the running summary, and `finalize` builds the envelope, validates it through `community-pack.js`, and proves it carries no network code via the pack no-network guard). Reuses the existing portable-pack schema + no-network guard rather than inventing a second pack format.
 - **Validate-tab UI wiring** — `js/agents/conversational-pack-ui.js` (the DOM presenter that drives the four agents above as an in-page, one-question-at-a-time card in the Validate tab header — never a modal; `shouldOfferPackBuilder` is the single pure gate the caller checks and `mountConversationalPackBuilder` runs the question → "✅ Got it" confirmation → running summary → finalize → [Save locally]/[Export to share] flow, routing "I don't know" through the resolver's single Step-D suggestion). Gated behind the `conversationalPackBuilder` flag (ships OFF), so with the flag off the host in `index.html` is left empty and hidden and nothing renders; `js/app-shell/main.js` builds the question context from the fingerprint + Missingness Detective findings and mounts it after a validation run. Save/Export reuse the existing community-pack register/download path. Voice/mic stays behind the separate `conversationalPackBuilderVoice` flag (off).
 
+## Trust & metrics (OneCanvas Phase 1)
+Parts 3–5 of the OneCanvas product spec: a place to define trustworthy metrics and a
+compact, always-honest surface for whether the loaded data can be trusted. Every value
+shown traces to real computed data — the loaded dataset's load time, the real 20-layer
+validation results, the provenance chain, and the local Metric Studio registry — never a
+hardcoded placeholder. Both surfaces ship dark behind their own feature flags. (The wider
+OneCanvas shell, Dashboard Central, and Story Mode are later phases and are NOT built
+here.)
+- **Metric Studio** — `js/metrics/metric-studio.js` (a local-only registry, following the
+  `js/packs/pack-registry.js` named-thing pattern, for user-defined metrics: a name + a
+  plain-English definition + a DuckDB formula whose referenced columns are validated
+  against the loaded dataset's REAL schema — undefined columns are rejected with a clear
+  error — and whose value is actually computed against the in-browser engine via the
+  injected `computeMetricValue`, storing the computed number + timestamp, never a
+  placeholder. `MetricRegistry` holds metrics in-memory with `toJSON`/`fromJSON` export
+  and import, `validateMetricDefinition` + `referencedIdentifiers` guard the schema,
+  `suggestExpression` offers an editable formula from plain English, and `findDuplicates`
+  flags same-formula or >90%-similar-text metrics so the UI can prompt merge/keep-both.
+  Each metric carries a status (exploratory/reviewed/certified) plus owner/tag. Gated
+  behind the `metricStudio` flag (ships OFF); `js/app-shell/main.js` mounts the create
+  form + saved list + duplicate prompt into the Validate tab only when it is on.
+- **Trust Strip** — `js/trust/trust-strip.js` (a compact, persistent bar of trust signals
+  whose pure `collectTrustSignals` collector reads real sources — dataset `loadedAt` for
+  freshness/last-update, the Metric Studio certification counts, the real validation
+  pass/warn/fail tally, an anomaly indicator, and provenance-chain availability — and
+  renders sensibly with zero data loaded via `renderTrustStrip`. Clicking any field opens
+  the Proof Drawer scoped to that field's underlying data). Gated behind the
+  `trustStripProofDrawer` flag (ships OFF); mounted at the top of the Validate tab by
+  `js/app-shell/main.js` only when on.
+- **Proof Drawer** — `js/trust/proof-drawer.js` (a slide-out panel opened from a Metric
+  Studio metric, a Trust Strip field, or a provenance view; its pure `buildProofContent`
+  assembles the real explanation for each trigger — a metric's definition, computed value,
+  source columns, and opt-in "Show the math" raw expression/query; a Trust Strip field's
+  underlying data such as the per-layer validation list — and for provenance/lineage it
+  REUSES the existing `renderAttestationHTML()`/`renderReceiptHTML()` from
+  `js/provenance/provenance.js` and `js/provenance/validation-receipt.js` rather than
+  duplicating that rendering. `openProofDrawer` paints it). Same `trustStripProofDrawer`
+  flag; no SQL knowledge is required to read the default view.
 ## Meeting scribe
 Grounds a stakeholder meeting's transcript to whichever chart/query was on screen at
 each moment, without capturing audio or running speech-to-text itself (that capture

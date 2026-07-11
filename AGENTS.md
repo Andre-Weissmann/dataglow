@@ -109,6 +109,28 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### OneCanvas Phase 1 — Metric Studio, Trust Strip, Proof Drawer (Parts 3–5)
+
+Three new capabilities under `js/metrics/` and `js/trust/`, all shipping dark
+behind `metricStudio` and `trustStripProofDrawer` in `flags.manifest.json`
+(both default OFF). Each follows the repo's pure-logic-vs-DOM split so the value
+logic is Node-testable without a DOM: `js/metrics/metric-studio.js` exports the
+pure `validateMetricDefinition`/`computeMetricValue`/`findDuplicates`/
+`suggestExpression`/`textSimilarity`/`referencedIdentifiers` plus the local-only
+`MetricRegistry` (in-memory + JSON export/import, mirroring
+`js/packs/pack-registry.js`) and the DOM `renderMetricStudio`;
+`js/trust/trust-strip.js` exports the pure `collectTrustSignals` + DOM
+`renderTrustStrip`; `js/trust/proof-drawer.js` exports the pure
+`buildProofContent` + DOM `openProofDrawer`. HONESTY CONTRACT for anyone
+touching these: every number/status shown MUST trace to real computed data —
+`computeMetricValue` runs the formula against the loaded DuckDB table and stores
+the true value or the error (never a placeholder); `collectTrustSignals` reports
+"not yet validated"/"not checked"/0-0-0 rather than faking a signal when the
+backing data is absent; and the Proof Drawer's provenance view REUSES
+`renderAttestationHTML()` from `js/provenance/provenance.js` — do not duplicate
+the attestation renderer. Tests: `npm run test:metricstudio` (native DuckDB) and
+`npm run test:truststrip` (pure). Wired in `js/app-shell/main.js` behind the two
+flags; with both off nothing renders (regression-guarded in the truststrip test).
 ### Meeting decision ledger (Gen 43, Part 3) — chart-anchored, append-only, opt-in
 
 The first piece of the "Meeting-to-Metric Provenance" concept: a permanent,
