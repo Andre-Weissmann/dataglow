@@ -18,6 +18,11 @@
 # hook; the "editor" suite runs under plain Node because it imports the real
 # browser duckdb-engine.js module to exercise duckdbBytes (the hook would
 # otherwise redirect that import to the native engine).
+#
+# The "protocol" suite (plain Node) also carries a regression guard for a later
+# batch: the protocol-conformance loader must fetch schemas from repo-root
+# ../../protocol/schema (a pre-fix off-by-one 404-ed every dev conformance
+# check). It previously ran in no CI job at all.
 
 name: Batched bug-fix regression
 
@@ -37,3 +42,4 @@ jobs:
       - run: npm ci
       - run: npm run test:bugfixes-layers
       - run: npm run test:bugfixes-editor
+      - run: npm run test:protocol

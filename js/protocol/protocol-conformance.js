@@ -103,7 +103,7 @@ async function loadRegistry() {
   _registryPromise = (async () => {
     const schemas = await Promise.all(
       Object.values(SCHEMA_FILES).map(async (file) => {
-        const url = new URL(`../protocol/schema/${file}`, import.meta.url);
+        const url = new URL(`../../protocol/schema/${file}`, import.meta.url);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Failed to load schema ${file}: ${res.status}`);
         return res.json();

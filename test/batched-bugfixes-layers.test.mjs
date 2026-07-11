@@ -85,6 +85,29 @@ async function main() {
   ok(badChk.status === 'fail' && badChk.mismatches.includes('72.0%'),
     'bug3: a mathematically wrong percentage (72.0%) is still caught as a mismatch');
 
+  // Bug 3b — a large mean formatted with thousands separators (the Story tab
+  // uses toLocaleString) must not be split into false-mismatch fragments, and
+  // the per-claim confidence badge's "n=" / "% missing" metadata (which
+  // survives tag-stripping into lastStory) must be recognised.
+  const bigRows = [];
+  for (let i = 0; i < 12; i++) bigRows.push({ amount: i < 11 ? 1000000 + i * 100 : null }); // 11 non-null, 1 null
+  const bigResult = { columns: ['amount'], rows: bigRows, rowCount: bigRows.length };
+  const bigNums = bigRows.map(r => r.amount).filter(v => typeof v === 'number');
+  const bigMean = bigNums.reduce((a, b) => a + b, 0) / bigNums.length;
+  const fmt = (v) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const bigMissingPct = (((bigRows.length - bigNums.length) / bigRows.length) * 100).toFixed(1);
+  const bigStory = `Looking at amount, values range from ${fmt(Math.min(...bigNums))} to ${fmt(Math.max(...bigNums))}, `
+    + `averaging ${fmt(bigMean)}. Confidence: A · n=${bigNums.length} · ${bigMissingPct}% missing`;
+  const bigChk = await checkNarrativeConsistency(bigStory, bigResult);
+  ok(bigChk.status === 'pass',
+    `bug3: thousands-separated figures + badge metadata pass (status=${bigChk.status}, mismatches=${JSON.stringify(bigChk.mismatches)})`);
+
+  // Negative control — a genuinely wrong grouped figure must still be caught,
+  // proving the comma-stripping does not blind the checker.
+  const wrongBigChk = await checkNarrativeConsistency('Looking at amount, values average 7,777,777.', bigResult);
+  ok(wrongBigChk.status === 'fail' && wrongBigChk.mismatches.includes('7777777'),
+    'bug3: a wrong thousands-separated figure (7,777,777) is still caught as a mismatch');
+
   await closeConnection();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
