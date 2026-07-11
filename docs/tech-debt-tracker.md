@@ -160,6 +160,27 @@ Newest entries go at the bottom of **Entries**.
 - **Area:** `js/validation/analysis-contract.js`, `js/ambient/ambient-validation.worker.js`
 - **Status:** open
 
+### 2026-07-11 — Data Nutrition Label schema versioning is provisional and manifest is a separate download
+
+- **Description:** `js/provenance/data-nutrition-label.js` stamps each manifest
+  with an integer `schemaVersion` (currently `1`), chosen to match the sibling
+  provenance modules' `version: 1` convention rather than the semver used under
+  `protocol/`. There is no schema registry, migration path, or validator for the
+  label shape yet — Batches 3 (selective-disclosure proofs) and 4 (synthetic-data
+  metadata) will extend the same shape, and when they do the versioning story
+  should be made deliberate (a documented bump rule, and ideally a `protocol/`
+  schema so the drift/conformance tooling can check it). Separately, the opt-in
+  label is delivered to the user as its own `.json` Blob download alongside the
+  workbook/PDF, not embedded inside the exported artifact; a single self-contained
+  export (e.g. the manifest carried inside the workbook, or a bundled archive)
+  would be tidier but was out of scope for Batch 2. Neither is a correctness
+  issue — the manifest is honest and self-describing today — just two decisions to
+  revisit when the later batches touch this surface.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/data-nutrition-label.js`, `js/export/export-report.js`
+- **Status:** open
+
 ### 2026-07-11 — Semantic / Metrics Layer matches expressions by normalized string, not AST
 
 - **Description:** `js/validation/semantic-layer.js` decides whether a query's

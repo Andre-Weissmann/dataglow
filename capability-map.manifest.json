@@ -477,6 +477,16 @@
       ]
     },
     {
+      "id": "provenance-nutrition-label",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Data Nutrition Label (Trust Passport, Batch 2)",
+      "files": ["js/provenance/data-nutrition-label.js"],
+      "symbols": [
+        { "file": "js/provenance/data-nutrition-label.js", "name": "buildDataNutritionLabel" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",
