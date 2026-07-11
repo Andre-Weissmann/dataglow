@@ -48,6 +48,7 @@ import * as ledger from '../provenance/assumption-ledger.js';
 import { createTouchLedger, summarizeTouchLedger, exportTouchLedger } from '../provenance/ai-touch-ledger.js';
 import * as provenance from '../provenance/provenance.js';
 import * as sdProof from '../provenance/selective-disclosure-proof.js';
+import * as portableReceipt from '../provenance/portable-receipt.js';
 import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import * as dataBom from '../provenance/data-bom.js';
@@ -5454,12 +5455,39 @@ function buildActiveNutritionLabel(ds, valSummary) {
   });
 }
 
+// Download a Portable Receipt as a standalone .receipt.html file (browser). It
+// rides the same object-URL download path as the other client-side exports, so
+// nothing is uploaded — the receipt verifies itself offline.
+function downloadReceiptFile(model, stem) {
+  const desc = portableReceipt.receiptBlob(model, stem);
+  const blob = new Blob([desc.data], { type: desc.mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = desc.filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Fold the current validation run into the compact grade+summary the receipt
+// commits to as its "validation state at compute time".
+function receiptValidationState(valSummary, grades) {
+  if (!valSummary.length && !grades) return null;
+  const passed = valSummary.filter(v => v.status === 'pass').length;
+  const summary = valSummary.length
+    ? `${passed} of ${valSummary.length} validation layer(s) passed.`
+    : 'No validation layers were run.';
+  const grade = grades ? (grades.overall || grades.integrity || grades.plausibility || null) : null;
+  return { grade, summary };
+}
+
 async function runExport(format, noteEl) {
   if (!exportReport) { toast('Export module unavailable on this runtime', 'error'); return; }
   const ds = getActiveDataset();
   if (!ds) { toast('Load a dataset first', 'error'); return; }
   try {
-    const { columns, rows } = await engine.runQuery(`SELECT * FROM ${ds.table} LIMIT 100000`);
+    const query = `SELECT * FROM ${ds.table} LIMIT 100000`;
+    const { columns, rows } = await engine.runQuery(query);
     const { validation: valSummary, grades } = collectValidationSummary();
     const platform = (window.__dataglowRegistry && window.__dataglowRegistry.platform) || 'browser';
 
@@ -5503,6 +5531,28 @@ async function runExport(format, noteEl) {
         + (valSummary.length ? ` with a ${valSummary.length}-layer validation summary` : '')
         + (label ? ', plus a Data Nutrition Label (summary + .json manifest).' : '.');
     }
+
+    // Opt-in, never silent: only attach a Portable Receipt when the flag is on
+    // AND the analyst explicitly ticked the box.
+    const attachEl = document.getElementById('export-attach-receipt');
+    if (isEnabled('portableReceipts') && attachEl && attachEl.checked) {
+      const fingerprint = await provenance.sha256Hex(JSON.stringify({ table: ds.table, columns, rowCount: rows.length }));
+      const receipt = await portableReceipt.attachPortableReceiptIfRequested(attachEl.checked, {
+        claim: {
+          label: `${ds.table} — ${format.toUpperCase()} export`,
+          value: `${rows.length} rows × ${columns.length} cols`,
+          statement: `DATAGLOW ${format.toUpperCase()} export of "${ds.table}" (${rows.length} rows × ${columns.length} columns).`,
+        },
+        queryOrTransformChain: [{ op: 'query', detail: query }, { op: 'export', detail: format }],
+        validationStateAtCompute: receiptValidationState(valSummary, grades),
+        datasetFingerprint: fingerprint,
+      });
+      if (receipt) {
+        downloadReceiptFile(receipt, `dataglow-${ds.table}`);
+        if (noteEl) noteEl.textContent += ` Portable Receipt attached (fingerprint ${receipt.shortCode}).`;
+      }
+    }
+
     toast(`${format.toUpperCase()} export ready`, 'success');
   } catch (e) {
     toast('Export failed: ' + e.message, 'error');
@@ -6193,7 +6243,46 @@ function initVisualizeTab() {
       toast('Chart error: ' + err.message, 'error');
     }
   });
-  $('#btn-viz-export').addEventListener('click', () => viz.exportChartPNG('viz-chart', `dataglow-${getActiveDataset()?.table || 'chart'}`));
+  // Reveal the opt-in Portable Receipt checkboxes only when the flag is on.
+  if (isEnabled('portableReceipts')) {
+    const vizWrap = document.getElementById('viz-attach-receipt-wrap');
+    const expWrap = document.getElementById('export-attach-receipt-wrap');
+    if (vizWrap) vizWrap.style.display = 'flex';
+    if (expWrap) expWrap.style.display = 'flex';
+  }
+
+  $('#btn-viz-export').addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    const stem = `dataglow-${ds?.table || 'chart'}`;
+    viz.exportChartPNG('viz-chart', stem);
+
+    const attachEl = document.getElementById('viz-attach-receipt');
+    if (!ds || !isEnabled('portableReceipts') || !attachEl || !attachEl.checked) return;
+    try {
+      const type = $('#viz-chart-type').value;
+      const x = $('#viz-x').value;
+      const y = $('#viz-y').value;
+      const yPart = ['pie', 'histogram', 'box'].includes(type) ? '' : ` by ${y}`;
+      const { validation: valSummary, grades } = collectValidationSummary();
+      const fingerprint = await provenance.sha256Hex(JSON.stringify({ table: ds.table, type, x, y }));
+      const receipt = await portableReceipt.attachPortableReceiptIfRequested(attachEl.checked, {
+        claim: {
+          label: `${type} chart of "${ds.table}"`,
+          value: `${x}${yPart}`,
+          statement: `DATAGLOW ${type} chart of "${ds.table}": ${x}${yPart}.`,
+        },
+        queryOrTransformChain: [{ op: 'source', detail: ds.table }, { op: 'chart', detail: `${type} (x=${x}, y=${y})` }],
+        validationStateAtCompute: receiptValidationState(valSummary, grades),
+        datasetFingerprint: fingerprint,
+      });
+      if (receipt) {
+        downloadReceiptFile(receipt, stem);
+        toast(`Portable Receipt attached (fingerprint ${receipt.shortCode})`, 'success');
+      }
+    } catch (e) {
+      toast('Receipt failed: ' + e.message, 'error');
+    }
+  });
 }
 
 // ============================================================

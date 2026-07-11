@@ -837,6 +837,23 @@
       ]
     },
     {
+      "id": "portable-receipts",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Portable Receipts — per-artifact lineage stamp",
+      "files": [
+        "js/provenance/portable-receipt.js"
+      ],
+      "symbols": [
+        { "file": "js/provenance/portable-receipt.js", "name": "PORTABLE_RECEIPT_KIND" },
+        { "file": "js/provenance/portable-receipt.js", "name": "buildClaimReceipt" },
+        { "file": "js/provenance/portable-receipt.js", "name": "verifyClaimReceipt" }
+      ]
+    },
+    {
       "id": "provenance-packet",
       "platforms": [
         "browser",

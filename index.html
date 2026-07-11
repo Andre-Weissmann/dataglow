@@ -804,6 +804,10 @@
           </div>
           <button class="btn btn-primary" id="btn-viz-generate" data-testid="button-viz-generate">Generate Chart</button>
           <button class="btn btn-secondary" id="btn-viz-export" data-testid="button-viz-export">Export PNG</button>
+          <label id="viz-attach-receipt-wrap" style="display:none; align-items:center; gap:var(--space-2); font-size:var(--text-sm);"
+            title="Also download a self-contained, offline-verifiable Portable Receipt (.receipt.html) stamping this chart's claim, query/transform chain hash, validation state, and timestamp.">
+            <input type="checkbox" id="viz-attach-receipt" data-testid="toggle-viz-receipt"> Attach Portable Receipt
+          </label>
         </div>
         <div class="card" style="padding:var(--space-4); margin-bottom:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Anonymized Export (Differential Privacy)</div>
@@ -833,6 +837,10 @@
           <div style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
             <button class="btn btn-secondary" id="btn-export-xlsx" data-testid="button-export-xlsx">Export Excel (.xlsx)</button>
             <button class="btn btn-secondary" id="btn-export-pdf" data-testid="button-export-pdf">Export PDF report</button>
+            <label id="export-attach-receipt-wrap" style="display:none; align-items:center; gap:var(--space-2); font-size:var(--text-sm);"
+              title="Also download a self-contained, offline-verifiable Portable Receipt (.receipt.html) stamping this export's claim, query/transform chain hash, validation state, and timestamp.">
+              <input type="checkbox" id="export-attach-receipt" data-testid="toggle-export-receipt"> Attach Portable Receipt
+            </label>
           </div>
           <label id="export-label-optin" style="display:none; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2); cursor:pointer;" title="A portable summary manifest — what was checked, what passed/failed, transformations, assumptions, and the chain of custody. A summary only, not a certification. Nothing is attached unless you tick this box.">
             <input type="checkbox" id="export-include-label" data-testid="checkbox-include-label">
