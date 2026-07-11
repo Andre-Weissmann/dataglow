@@ -881,6 +881,19 @@
         { "file": "js/agents/meeting-scribe-ui.js", "name": "mountMeetingScribe" },
         { "file": "js/agents/meeting-scribe-ui.js", "name": "parseTranscriptText" }
       ]
+    },
+    {
+      "id": "agent-action-firewall",
+      "area": "Provenance, audit & trust",
+      "name": "Agent Action Firewall — human-confirmation gate for data mutations",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/agent-action-firewall.js"],
+      "symbols": [
+        { "file": "js/agents/agent-action-firewall.js", "name": "classifyAction" },
+        { "file": "js/agents/agent-action-firewall.js", "name": "proposeAction" },
+        { "file": "js/agents/agent-action-firewall.js", "name": "confirmAndApply" },
+        { "file": "js/agents/agent-action-firewall.js", "name": "normalizeIdentity" }
+      ]
     }
   ]
 }

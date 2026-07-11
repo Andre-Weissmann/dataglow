@@ -53,6 +53,9 @@ jobs:
     uses: ./.github/workflows/job-agents-md-drift.yml
 
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
+  agent-action-firewall:
+    uses: ./.github/workflows/job-agent-action-firewall.yml
+
   provenance-packet:
     uses: ./.github/workflows/job-provenance-packet.yml
 

@@ -109,6 +109,52 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Agent Action Firewall (DataGlow Passport, Batch 1) — the human-confirmation gate for data mutations
+
+`js/agents/agent-action-firewall.js` is the single, central checkpoint every
+data-MUTATING code path must pass through. It is pure, dependency-free, and
+browser-free (imports nothing; names no network primitive), following the shape
+of `js/packs/pack-network-guard.js` and `js/validation/analysis-contract.js`. Its
+one job is to make a hard, non-negotiable rule structurally true: no autonomous
+agent, suggestion engine, or AI-generated proposal may modify/clean/delete/mutate
+loaded data without an explicit, per-action human confirmation — and there is NO
+trusted-mode / force / auto / bypass parameter anywhere that skips the gate (a
+red-team suite proves those flags are inert). It is the coded lesson of the April
+2026 incident where an AI agent with unrestricted permissions deleted a
+production database and all backups in nine seconds with no confirmation step.
+
+The gate is a two-phase handshake and FAILS CLOSED. `proposeAction()` classifies
+risk/reversibility via `classifyAction` (destructive `delete-rows`/`drop-table` →
+CRITICAL+irreversible; in-place `impute`/`update-values` → MODERATE; additive
+`annotate` → LOW; any *unrecognized* kind → CRITICAL+irreversible, so unknowns
+fail safe not open) and mints a single-use per-proposal nonce, executing nothing.
+`confirmAndApply()` runs the caller's executor ONLY after verifying the
+confirmation is `confirmed === true` (strict — truthy `"true"`/`1` is rejected),
+echoes the proposal's exact nonce (a confirmation for one action can't be
+replayed onto another, and a nonce is single-use), carries an authenticated
+identity, and supplies an executor; any missing/invalid piece throws
+`AgentActionBlocked` and the executor is never called. THE IDENTITY RIDER: the
+confirmation must carry a minimal LOCAL human identity (`normalizeIdentity` — a
+locally-set display name and/or per-session/device id; never a network account,
+never uploaded), captured at the moment of confirmation and folded into the
+assumption ledger + the hash-chained provenance step so the trail names *who*
+authorized each mutation. Provenance/ledger writing is done through an INJECTED
+`recordAudit` recorder (best-effort — called before the executor, never blocks a
+confirmed mutation) so the module stays browser-free.
+
+Wired ADDITIVELY and DARK behind the `agentActionFirewall` flag (off by default).
+With the flag off, `js/app-shell/main.js`'s Clean-tab fix handler calls
+`clean.applyFix` exactly as before (zero runtime change); with it on, the same
+fix-button click (which IS the per-action human confirmation) routes through
+`firewall.guardMutation`. The pre-existing gate lived only in that UI click
+handler while `clean.applyFix` itself was ungated — the firewall centralizes and
+hardens the gate so a direct call path can no longer bypass it. Test:
+`npm run test:firewall` (`test/agent-action-firewall.test.mjs`, 61 red-team
+cases), CI job `.github/workflows/job-agent-action-firewall.yml`. Registered as
+capability `agent-action-firewall` in `capability-map.manifest.json`. Out of
+scope here (later Passport batches): Sandbox Twin, Open Floor, and routing the
+self-learning / pack-builder / meeting-scribe write paths through the gate.
+
 ### Meeting scribe — Meeting-tab UI wiring (Gen 43, Part 2)
 
 The screen Part 1 deliberately left for a follow-up now lives in

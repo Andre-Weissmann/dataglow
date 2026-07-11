@@ -43,6 +43,7 @@ import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
+import * as firewall from '../agents/agent-action-firewall.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
 // registry has dynamically imported the modules appropriate for this runtime;
@@ -979,6 +980,35 @@ function initRTab() {
 // ============================================================
 // Clean Tab
 // ============================================================
+
+// Agent Action Firewall (agentActionFirewall flag) — map a Clean-tab fix to the
+// firewall's action taxonomy so a confirmed fix is classified/recorded honestly.
+const FIREWALL_FIX_KIND = {
+  drop_rows: 'delete-rows',
+  dedupe: 'dedupe',
+  fill_zero: 'impute',
+  fill_mean: 'impute',
+  fill_mode: 'impute',
+  trim: 'transform-column',
+  abs_value: 'transform-column',
+  null_out: 'update-values',
+};
+
+// The authenticated LOCAL human identity captured at confirm time (the firewall
+// audit rider). Minimal + local-first: a locally-set analyst display name if the
+// person set one, plus a per-tab session id — never a network account, never
+// uploaded. Falls back to the session id alone so a confirmation always carries
+// at least one real local identifier.
+let _dataglowSessionId = null;
+function getLocalHumanIdentity() {
+  if (!_dataglowSessionId) {
+    _dataglowSessionId = `session-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+  }
+  let displayName = null;
+  try { displayName = localStorage.getItem('dataglow-analyst-name'); } catch { /* storage may be unavailable */ }
+  return { displayName: displayName || null, sessionId: _dataglowSessionId, source: 'local-device' };
+}
+
 async function scanClean() {
   const ds = getActiveDataset();
   if (!ds) { toast('Load a dataset first', 'error'); return; }
@@ -1012,10 +1042,44 @@ async function scanClean() {
       btn.appendChild(el('span', { style: `margin-left:6px; font-size:10px; padding:1px 5px; border-radius:8px; background:${confColor}; color:#fff;`, title: conf.label }, `${conf.score}`));
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        await clean.applyFix(ds.table, issue, fixType, auditLog);
-        ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`);
-        await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.`,
-          dataBlame.buildBlameDetail({ rule: fixType, column: issue.column, affectedCount: issue.count }));
+        // The apply + audit-write path, shared by both branches so the on/off
+        // flag paths stay behaviour-identical apart from the gate itself.
+        const applyAndRecord = async (identity) => {
+          await clean.applyFix(ds.table, issue, fixType, auditLog);
+          // The identity rider: when the firewall gated this mutation, the human
+          // authorizer is folded into BOTH audit trails — the assumption ledger
+          // line and the hash-chained provenance step description — so the record
+          // names who authorized it, not just that it happened.
+          const who = identity ? ` [authorized by ${identity.label}]` : '';
+          ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`);
+          await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`,
+            dataBlame.buildBlameDetail({ rule: fixType, column: issue.column, affectedCount: issue.count }));
+        };
+        try {
+          if (isEnabled('agentActionFirewall')) {
+            // A human just clicked this specific fix button: that click IS the
+            // per-action confirmation. Route it through the central gate, which
+            // fails closed without a valid confirmation + local identity and
+            // records who authorized the mutation into the chain of custody.
+            await firewall.guardMutation(
+              {
+                kind: FIREWALL_FIX_KIND[fixType] || fixType,
+                table: ds.table,
+                column: issue.column,
+                description: `${clean.FIX_LABELS[fixType]} — ${issue.label}.`,
+                affectedCount: issue.count,
+              },
+              { confirmed: true, identity: getLocalHumanIdentity() },
+              () => applyAndRecord(firewall.normalizeIdentity(getLocalHumanIdentity())),
+            );
+          } else {
+            await applyAndRecord(null);
+          }
+        } catch (err) {
+          btn.disabled = false;
+          toast(err && err.blockedByFirewall ? `Blocked: ${err.message}` : `Fix failed: ${err.message}`, 'error');
+          return;
+        }
         renderAuditLog(auditLog);
         renderProvenanceTrail();
         toast(`Applied: ${clean.FIX_LABELS[fixType]}`, 'success');

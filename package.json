@@ -51,6 +51,7 @@
     "test:packindex": "node test/local-pack-index.test.mjs",
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
     "test:meetingscribe": "node test/meeting-scribe.test.mjs",
+    "test:firewall": "node test/agent-action-firewall.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",
     "test:capregistry": "node test/capability-registry.test.mjs",
     "test:export": "node test/export-report.test.mjs",

@@ -30,6 +30,11 @@
       "enabled": false,
       "addedInPR": "gen43-meeting-scribe-agent",
       "description": "Gen 43 meeting scribe: pure grounding/tagging logic (js/agents/meeting-scribe-agent.js, PR gen43-meeting-scribe-agent) plus a Meeting tab presenter (js/agents/meeting-scribe-ui.js, PR gen43-meeting-scribe-ui) where a person pastes or types a transcript to see pushback moments, data requests, and an action-item tracker enforcing the owner+dueDate+outcome rule. Still no audio capture or speech-to-text — those stay separate follow-up work. When this flag is off (its shipped default), renderTabBar() leaves the 'meeting' entry out of state.tabOrder entirely, so the tab is not just hidden but never added to the bar or reachable by any click path; #panel-meeting stays empty."
+    },
+    "agentActionFirewall": {
+      "enabled": false,
+      "addedInPR": "gen44-agent-action-firewall",
+      "description": "DataGlow Passport (Batch 1) Agent Action Firewall (js/agents/agent-action-firewall.js): the single central gate every data-MUTATING code path must pass through. It classifies an action's risk/reversibility and FAILS CLOSED — a mutation runs only after an explicit per-action human confirmation that also carries an authenticated local human identity (the audit rider); there is no trusted-mode/force/auto bypass parameter anywhere. When this flag is OFF (its shipped default), main.js's Clean-tab fix handler calls clean.applyFix directly exactly as before, so runtime behaviour is unchanged; when ON, the same click routes the fix through the firewall and records who authorized it into the provenance chain. Direct regression for the April 2026 'AI agent deleted the prod DB in 9 seconds with no confirmation' incident (test/agent-action-firewall.test.mjs)."
     }
   }
 }

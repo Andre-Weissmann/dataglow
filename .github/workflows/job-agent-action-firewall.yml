@@ -1,0 +1,32 @@
+# ============================================================
+# DATAGLOW — CI job: Agent Action Firewall (DataGlow Passport, Batch 1)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the RED-TEAM regression suite for the Agent Action Firewall
+# (js/agents/agent-action-firewall.js) — the central gate every data-mutating
+# code path must pass through. The suite plays the attacker and asserts that
+# every attempt to apply a destructive/mutating action WITHOUT a valid
+# per-action human confirmation (plus an authenticated local identity) fails
+# closed and never runs the mutation. This is the direct regression test for the
+# April 2026 "AI agent deleted the prod DB in nine seconds with no confirmation"
+# incident. Pure Node — no browser, no DuckDB, no network.
+# See test/agent-action-firewall.test.mjs.
+
+name: Agent Action Firewall
+
+on:
+  workflow_call:
+
+jobs:
+  agent-action-firewall:
+    name: Agent Action Firewall
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:firewall
