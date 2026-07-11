@@ -313,6 +313,22 @@
 .toast.warn { border-left: 3px solid var(--color-grade-c); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ---- Engine (DuckDB-WASM) failure banner ---- */
+.engine-error {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-grade-d);
+  border-left: 3px solid var(--color-grade-d);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-grade-d) 8%, transparent);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+.engine-error .engine-error-title { font-weight: 700; color: var(--color-grade-d); margin-bottom: 4px; }
+.engine-error .engine-error-detail { color: var(--color-text-muted); word-break: break-word; margin-bottom: var(--space-2); }
+.engine-error .engine-error-hint { color: var(--color-text-faint); margin-bottom: var(--space-2); }
+.engine-error .btn { width: 100%; justify-content: center; }
+
 /* ---- Story tab ---- */
 .story-content {
   max-width: 68ch; font-size: var(--text-base); line-height: 1.7;

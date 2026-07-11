@@ -1,0 +1,29 @@
+# ============================================================
+# DATAGLOW — static-host response headers
+# ============================================================
+# Netlify / Cloudflare Pages "_headers" format. Hosts that read this file will
+# apply these real HTTP response headers; sw.js injects the same cross-origin
+# isolation headers as a host-agnostic fallback for hosts that ignore it.
+#
+# WHY these headers: DuckDB-WASM's threaded / exception-handling build wants
+# `SharedArrayBuffer`, which the browser only exposes when the page is
+# cross-origin isolated. Isolation requires BOTH a Cross-Origin-Opener-Policy
+# and a Cross-Origin-Embedder-Policy header on the top-level document. They MUST
+# be sent as HTTP headers — <meta http-equiv> does not work for COOP/COEP.
+#
+# WHY COEP=credentialless (not require-corp): the app self-hosts everything it
+# needs on a normal page load, but the opt-in Python/R/Story tabs pull Pyodide,
+# WebR and WebLLM from public CDNs, and fonts load from Google Fonts. Under
+# `require-corp` every such cross-origin response would need its own CORP/CORS
+# header or it is blocked; `credentialless` keeps isolation on while letting
+# those no-credentials cross-origin fetches through, so the opt-in runtimes keep
+# working without routing any user data off the machine.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+
+# Serve the DuckDB-WASM binaries as application/wasm so the browser can use
+# streaming compilation (WebAssembly.instantiateStreaming). A wrong content type
+# here is one way a host ends up rejecting or mis-serving the .wasm asset.
+/assets/duckdb/*.wasm
+  Content-Type: application/wasm

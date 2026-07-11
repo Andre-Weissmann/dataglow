@@ -31,10 +31,11 @@ export async function loadFile(file) {
   // silently record nothing — worse than having no audit trail at all.
   const rawHash = await hashBytes(arrayBuffer);
 
+  let droppedRows = 0;
   try {
     if (['csv', 'tsv'].includes(ext)) {
       await engine.registerFileBuffer(file.name, arrayBuffer);
-      await engine.createTableFromCSV(tableName, file.name);
+      ({ droppedRows = 0 } = await engine.createTableFromCSV(tableName, file.name) || {});
     } else if (['json', 'ndjson'].includes(ext)) {
       await engine.registerFileBuffer(file.name, arrayBuffer);
       await engine.createTableFromJSON(tableName, file.name);
@@ -44,7 +45,10 @@ export async function loadFile(file) {
     } else if (['xlsx', 'xls'].includes(ext)) {
       await loadExcel(arrayBuffer, tableName);
     } else if (['sqlite', 'db'].includes(ext)) {
-      throw new Error('SQLite file support requires the DuckDB sqlite extension — try exporting to CSV/Parquet for now.');
+      // SQLite is intentionally NOT in the advertised upload formats (it needs
+      // the DuckDB sqlite extension, which isn't loaded in this build); it's on
+      // the roadmap. Keep a clear message in case a user drags one in anyway.
+      throw new Error('SQLite files are not supported yet (on the roadmap) — export to CSV or Parquet for now.');
     } else if (['arrow', 'feather'].includes(ext)) {
       await engine.registerFileBuffer(file.name, arrayBuffer);
       await engine.runQuery(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_parquet('${file.name}')`).catch(async () => {
@@ -63,13 +67,23 @@ export async function loadFile(file) {
       cols: schema.map(s => ({ name: s.column_name, type: s.column_type })),
       loadedAt: Date.now(),
       sizeBytes: file.size,
+      droppedRows,
     };
     addDataset(ds);
     // Anchor the Chain of Custody to the raw bytes the analyst started from
     // (hashed above, before the engine detached the buffer).
     const chain = startProvenance(tableName);
-    await chain.append('load', `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`, { file: file.name, rows: rowCount, sizeBytes: file.size }, rawHash);
-    toast(`Loaded ${file.name} — ${rowCount.toLocaleString()} rows`, 'success');
+    await chain.append('load', `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`, { file: file.name, rows: rowCount, sizeBytes: file.size, droppedRows }, rawHash);
+    if (droppedRows > 0) {
+      const total = rowCount + droppedRows;
+      // A silent IGNORE_ERRORS drop would leave the analyst none the wiser that
+      // rows vanished; make it loud, record it in the audit trail, and keep it
+      // on the dataset so downstream UI can show it.
+      await chain.append('warn', `${droppedRows.toLocaleString()} of ${total.toLocaleString()} rows were skipped due to CSV parsing errors`, { droppedRows, keptRows: rowCount, totalRows: total });
+      toast(`Loaded ${rowCount.toLocaleString()} of ${total.toLocaleString()} rows — ${droppedRows.toLocaleString()} skipped due to parsing errors`, 'warn');
+    } else {
+      toast(`Loaded ${file.name} — ${rowCount.toLocaleString()} rows`, 'success');
+    }
     return ds;
   } catch (err) {
     console.error(err);

@@ -56,6 +56,12 @@ jobs:
   batched-bugfixes:
     uses: ./.github/workflows/job-batched-bugfixes.yml
 
+  shipped-bug-regressions:
+    uses: ./.github/workflows/job-shipped-bug-regressions.yml
+
+  coi-headers:
+    uses: ./.github/workflows/job-coi-headers.yml
+
   pack-architecture:
     uses: ./.github/workflows/job-pack-architecture.yml
 

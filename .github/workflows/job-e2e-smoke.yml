@@ -51,6 +51,13 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-watch-twin
+      # Regression guard for the cross-origin-isolation load race: on a host that
+      # sends no COOP/COEP headers, a fast click during the pre-isolation window
+      # (before the one-time SW reload) must be queued + replayed, never dropped.
+      - name: Run COI load-race regression test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-coi-race
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4

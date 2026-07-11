@@ -88,8 +88,8 @@
         <div class="dropzone" id="dropzone" data-testid="dropzone-upload">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <div style="font-size:var(--text-sm); font-weight:500;">Drop a file</div>
-          <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">CSV, JSON, Excel, Parquet, SQLite…</div>
-          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather,.sqlite,.db" multiple>
+          <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">CSV, JSON, Excel, Parquet…</div>
+          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather" multiple>
         </div>
         <button class="btn btn-ghost" id="btn-load-golden" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-golden">
           Load Golden Test Dataset
@@ -100,6 +100,7 @@
         <button class="btn btn-ghost" id="btn-load-fhir-sample" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-fhir-sample" title="Load a synthetic FHIR Bundle sample (Patient, Condition, Observation, Encounter) flattened to tables, with planted data-quality issues. Fabricated data — never real PHI.">
           Load FHIR Bundle Sample
         </button>
+        <div id="engine-error" class="engine-error" role="alert" aria-live="assertive" style="display:none;"></div>
         <details id="databricks-connect" style="margin-top:var(--space-3);">
           <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:500;">Connect to Databricks <span class="badge badge-c" style="font-size:9px; vertical-align:middle;">POC</span></summary>
           <div style="margin-top:var(--space-2); display:flex; flex-direction:column; gap:var(--space-2);">
@@ -219,6 +220,7 @@
       <div class="sql-editor-wrap">
         <textarea class="sql-textarea mono" id="py-input" spellcheck="false" placeholder="import pandas as pd&#10;df = dataglow.get_df('dataset')&#10;df.describe()" data-testid="input-python"></textarea>
         <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow.get_df('table_name')</span> to load a loaded table as a pandas DataFrame. Libraries: pandas, numpy. Others load on demand (may take a moment).</div>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">⚠ The Pyodide runtime downloads from a public CDN the first time you run Python — a one-time internet download, then cached for offline reuse. Not available fully air-gapped until that first fetch. (SQL, Clean, Validate and Visualize work offline from first load.)</div>
         <div id="py-output-wrap"></div>
       </div>
     </section>
@@ -238,6 +240,7 @@
       <div class="sql-editor-wrap">
         <textarea class="sql-textarea mono" id="r-input" spellcheck="false" placeholder="df <- dataglow_get_df('dataset')&#10;summary(df)" data-testid="input-r"></textarea>
         <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow_get_df('table_name')</span> to pull a loaded table into an R data.frame.</div>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">⚠ The WebR runtime downloads from a public CDN the first time you run R — a one-time internet download, then cached for offline reuse. Not available fully air-gapped until that first fetch. (SQL, Clean, Validate and Visualize work offline from first load.)</div>
         <div id="r-output-wrap"></div>
       </div>
     </section>
@@ -955,6 +958,15 @@
         and makes no guarantee of correctness, fitness for a particular purpose, or non-infringement. All
         statistical and machine-learning output is approximate and should be independently verified before use.
       </p>
+      <p style="margin-bottom:var(--space-2);" data-testid="offline-capability-note">
+        <strong>Offline capability.</strong> The core — loading files, SQL (DuckDB-WASM), cleaning, validation, and
+        Plotly visualization — is fully self-hosted and works with <strong>no internet connection from the first
+        load</strong>. The optional <strong>Python (Pyodide)</strong>, <strong>R (WebR)</strong>, and in-browser
+        <strong>Story model (WebLLM)</strong> runtimes are large, so they download once from a public CDN the first
+        time you open their tab, then are cached for offline reuse — the app is not fully air-gapped for those three
+        engines until that one-time download completes. In every case only the library runtime is fetched; no dataset,
+        row, or cell ever leaves your browser.
+      </p>
       <p style="margin-bottom:var(--space-2);">Third-party libraries:</p>
       <ul style="margin:0 0 var(--space-2) var(--space-4); padding:0;">
         <li><a href="https://github.com/duckdb/duckdb-wasm" target="_blank" rel="noopener">DuckDB-WASM</a> — MIT License</li>
@@ -1046,7 +1058,55 @@
   // Register the service worker on load so it never competes with the app's
   // first-load resource fetching. Guarded so environments without SW support
   // (or file:// contexts) are unaffected.
+  // Classify the page's cross-origin isolation state up front so the app shell
+  // (js/app-shell/main.js, which runs after this inline script) can decide
+  // whether a dataset load may run now or must be queued across the one-time
+  // reload below. Values:
+  //   isolated    — SharedArrayBuffer is available; loads run immediately.
+  //   pending     — not isolated yet, but the SW is expected to reload this page
+  //                 into an isolated context; a load started now would be torn
+  //                 down mid-flight by that reload, so it must be queued and
+  //                 replayed on the isolated page instead of failing silently.
+  //   failed      — already reloaded once and STILL not isolated; loads run and
+  //                 the engine's loud-failure UX surfaces the real reason.
+  //   unsupported — no service worker; loads run and surface any loud error.
+  (function () {
+    var reloadedOnce = false;
+    try { reloadedOnce = sessionStorage.getItem('dataglow-coi-reloaded') === '1'; } catch (e) {}
+    if (window.crossOriginIsolated) {
+      window.__dataglowIsolation = 'isolated';
+    } else if (!('serviceWorker' in navigator)) {
+      window.__dataglowIsolation = 'unsupported';
+    } else {
+      window.__dataglowIsolation = reloadedOnce ? 'failed' : 'pending';
+    }
+  })();
+
   if ('serviceWorker' in navigator) {
+    // Once the page is genuinely cross-origin isolated, clear the one-shot
+    // reload guard so a future SW update can re-trigger the reload if needed.
+    if (window.crossOriginIsolated) {
+      try { sessionStorage.removeItem('dataglow-coi-reloaded'); } catch (e) {}
+    }
+
+    // A first visit loads the document over the network BEFORE this SW controls
+    // the page, so that first document has no COOP/COEP and is not isolated. When
+    // the freshly-installed SW takes control (controllerchange), reload ONCE so
+    // the document is re-fetched through the SW — which injects the isolation
+    // headers — making window.crossOriginIsolated true and SharedArrayBuffer
+    // (needed by DuckDB-WASM) available. The sessionStorage guard makes this at
+    // most one reload per session, so a host that ignores the headers can never
+    // cause a reload loop. Hosts that DO send real COOP/COEP headers (see
+    // _headers) are isolated on first paint and never hit this path.
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (window.crossOriginIsolated) return;
+      try {
+        if (sessionStorage.getItem('dataglow-coi-reloaded') === '1') return;
+        sessionStorage.setItem('dataglow-coi-reloaded', '1');
+      } catch (e) { /* if sessionStorage is unavailable, skip the reload entirely */ return; }
+      window.location.reload();
+    });
+
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js').catch(function (err) {
         console.warn('DATAGLOW service worker registration failed (offline support disabled):', err);
