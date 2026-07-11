@@ -1065,6 +1065,28 @@
           "name": "diffVersions"
         }
       ]
+    },
+    {
+      "id": "metric-contract-diff-view",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Metric Contracts (Batch 2: diff view, read-only)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/metrics/metric-contract-diff-view.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/metrics/metric-contract-diff-view.js",
+          "name": "buildDiffViewContent"
+        },
+        {
+          "file": "js/metrics/metric-contract-diff-view.js",
+          "name": "renderDiffView"
+        }
+      ]
     }
   ]
 }

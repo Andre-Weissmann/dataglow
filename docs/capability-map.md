@@ -220,10 +220,19 @@ to be CORRECT.
   removed. `MetricContractRegistry` keys one history per metric id. `diffVersions` compares
   any two snapshots field-by-field and `summarizeDiff` gives a one-line label. This batch is
   pure logic only — no DOM presenter, no caller wired into `main.js` yet, and no AI-agent
-  write path exists through this module. Gated behind the `metricContracts` flag (ships OFF,
-  currently gates nothing observable since there is no UI yet); later batches add a diff view
-  and a confirm-gate so any AI-agent-proposed metric change renders as an exact diff requiring
-  one explicit human click before it applies.
+  write path exists through this module.
+- **Metric Contracts (Batch 2: diff view, read-only)** — `js/metrics/metric-contract-diff-view.js`
+  (turns two of Batch 1's version entries into a normalised block model via pure
+  `buildDiffViewContent` — field-by-field before/after, who/when/why/human-vs-agent-proposed,
+  all sourced only from the real recorded version metadata, never invented; `buildHistoryListContent`
+  renders a metric's full oldest-first version timeline. `renderDiffView` is the DOM presenter,
+  following `js/trust/proof-drawer.js`'s exact pure-content/DOM split and reusing its `kv`/`text`/`list`
+  block kinds plus one new `field-diff` kind (side-by-side before/after) so both panels look and behave
+  consistently. READ-ONLY: no apply/accept button, no write path; nothing in `main.js` calls
+  `renderDiffView` yet.) Both batches gated behind the `metricContracts` flag (ships OFF, still
+  currently gates nothing observable since there is no UI wiring yet); Batch 3 adds a confirm-gate
+  reusing this same builder/renderer so any AI-agent-proposed metric change renders as this exact diff
+  and requires one explicit human click before it applies.
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
