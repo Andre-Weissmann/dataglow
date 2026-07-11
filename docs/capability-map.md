@@ -37,6 +37,7 @@ helpers, the in-browser query engine, and file ingestion.
 - **State & helpers** — `js/app-shell/state.js` (central mutable app state), `js/app-shell/utils.js` (shared DOM, formatting, and hashing helpers).
 - **Query engine** — `js/app-shell/duckdb-engine.js` (DuckDB-WASM engine; all SQL runs here, in-browser, zero upload).
 - **File loading** — `js/app-shell/loaders.js` (CSV/TSV, JSON/NDJSON, Parquet, Excel, SQLite ingestion into DuckDB; also `loadRowsAsDataset` for in-memory result sets).
+- **SQL editor highlighting** — `js/app-shell/sql-highlight.js` (dependency-free, zero-network SQL tokenizer/highlighter powering the SQL tab's overlay, plus structured DuckDB error formatting; pure, Node-testable functions).
 - **Warehouse import** — `js/app-shell/databricks-connect.js` (proof-of-concept BYO-token, browser-direct read-only pull from a user's own Databricks SQL warehouse into DuckDB; see [`databricks-connect.md`](./databricks-connect.md)).
 - **Capability registry** — `js/app-shell/capability-registry.js` (platform-aware module loader; reads each capability's `platforms` field from [`capability-map.manifest.json`](../capability-map.manifest.json), detects browser vs. Tauri desktop at runtime, and dynamically `import()`s only the modules meant for that runtime so `js/app-shell/main.js` no longer statically imports every feature).
 

@@ -192,7 +192,10 @@
         </div>
       </div>
       <div class="sql-editor-wrap">
-        <textarea class="sql-textarea mono" id="sql-input" spellcheck="false" placeholder="SELECT * FROM dataset LIMIT 100;" data-testid="input-sql"></textarea>
+        <div class="sql-highlight-wrap">
+          <pre class="sql-highlight-overlay mono" id="sql-highlight" aria-hidden="true"></pre>
+          <textarea class="sql-textarea sql-textarea-code mono" id="sql-input" spellcheck="false" placeholder="SELECT * FROM dataset LIMIT 100;" data-testid="input-sql"></textarea>
+        </div>
         <div id="ambient-warnings" data-testid="ambient-warnings" style="display:none; margin-top:var(--space-2); flex-direction:column; gap:var(--space-2);"></div>
         <div id="sql-autocomplete-hint" style="font-size:var(--text-xs); color:var(--color-text-faint);">Tip: type a table name, then <span class="mono">.</span> for column suggestions. ⌘/Ctrl+Enter to run. Live data-quality checks run as you type.</div>
         <div id="sql-status" style="font-size:var(--text-xs); color:var(--color-text-muted);"></div>
