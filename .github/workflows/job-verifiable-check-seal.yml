@@ -1,0 +1,31 @@
+# ============================================================
+# DATAGLOW — CI job: Verifiable Check Seal (Trust Passport, Batch 3)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the "Proof-of-Clean" sealing module
+# (js/provenance/verifiable-check-seal.js) — pure Node, no browser, no DuckDB, no
+# network: it seals a real Local Analysis Contract result into a Merkle-tree
+# (SHA-256) commitment reused from js/provenance/selective-disclosure-proof.js,
+# re-verifies the commitment, confirms a matching-data check passes and a
+# TAMPERED-data check FAILS (genuine tamper detection), tampers with the seal
+# artifact itself, and attaches a seal additively to a batch-2 Data Nutrition
+# Label. See test/verifiable-check-seal.test.mjs.
+
+name: Verifiable Check Seal
+
+on:
+  workflow_call:
+
+jobs:
+  verifiable-check-seal:
+    name: Verifiable Check Seal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:checkseal
