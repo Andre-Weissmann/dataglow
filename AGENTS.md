@@ -868,6 +868,48 @@ a silent default. Ships behind the `portableReceipts` flag (dark) — a
 user-facing export option, land-dark until verified live, distinct from a safety
 layer that would ship enabled. Tests: `npm run test:portablereceipt`
 (`portable-receipt` CI job), pure JS, no DuckDB/DOM/network.
+### DataGlow Open Floor (Batch A) — read-only room kernel + PHI prompt guard
+
+The first two primitives of the "DataGlow Open Floor" (a stakeholder-facing,
+server-less exploration surface shipped in small, independently-flagged batches).
+Both are pure, browser-free, network-free, and land dark behind the
+`openFloorKernel` flag.
+
+`js/agents/open-floor-room.js` is the **read-only room kernel**.
+`createReadOnlyRoom({dataset, read, validation, metrics})` wraps an
+already-loaded dataset and its governed validation/metric state in a FROZEN
+facade that is read-only BY CONSTRUCTION, not by convention: there is no
+`.update`/`.delete`/`.insert`/`.applyFix`/`.mutate`/`.drop` method anywhere on
+the surface, and `Object.freeze` prevents a caller (or an agent handed the room)
+attaching one — the capability to mutate is simply absent from the type. It does
+NOT own or duplicate the query engine: reads delegate to an INJECTED `read(sql)`
+reader (browser: `js/app-shell/duckdb-engine.js` `runQuery`; tests: a fake), the
+same injected-dependency pattern the pack builder and firewall use. The single
+guarded `query()` path first runs the exported pure `classifyReadOnlySql`, which
+FAILS CLOSED — DDL/DML keywords, statement chaining (`SELECT 1; DROP …`), and any
+unrecognized leader are all refused before they can reach the reader, so the read
+path can never be smuggled into a write. Governed-state getters return
+deep-frozen copies, never live references.
+
+`js/agents/phi-prompt-guard.js` is the **pre-submit PHI/sensitive-field prompt
+guard**: the last checkpoint before any text is handed to an LLM path — the
+WebLLM narrative/story engines (`js/narrative/ondevice-llm.js`,
+`js/narrative/story.js`) today, a future natural-language-to-SQL path tomorrow.
+`guardPromptPayload({text, rows, columns})` REUSES the existing domain-pack
+sensitive-category classifier — `isSensitiveCategory` in
+`js/validation/categorical-consistency.js`, the same predicate the healthcare
+pack's protected-category merge guard (`js/packs/builtin/healthcare.pack.js`)
+relies on — to drop protected columns, and ALSO runs a minimal always-on
+value-pattern scan (SSN/MRN/email/long-id shapes) so it protects even with NO
+domain pack active: the classifier is a name-shape predicate and the value scan
+is unconditional, so neither depends on a healthcare pack being selected. It never
+mutates its inputs; it returns the redacted payload plus a findings list so the
+caller can warn the user. It only ever REMOVES sensitive content — never adds,
+rewrites for meaning, or blocks a legitimate non-sensitive prompt. Tests:
+`npm run test:openfloor` (`test/open-floor-kernel.test.mjs`, 49 assertions, pure
+JS), the `open-floor-kernel` CI job. Registered as the `open-floor-kernel`
+capability in `capability-map.manifest.json`. No flag flipped — `openFloorKernel`
+ships OFF, and there is no UI or call site yet, so runtime behaviour is unchanged.
 
 ### Meeting decision ledger (Gen 43, Part 3) — chart-anchored, append-only, opt-in
 
