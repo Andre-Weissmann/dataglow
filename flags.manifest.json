@@ -26,6 +26,11 @@
       "addedInPR": "gen44-metric-contracts-confirm-gate",
       "description": "Gen 44 Metric Contracts: an append-only version history for each Metric Studio definition (js/metrics/metric-contracts.js) plus a diff view (js/metrics/metric-contract-diff-view.js) and, in a later batch, a confirm-gate so any AI-agent-proposed change to a metric's formula/name/owner/filters renders as an exact diff and requires one explicit human click before it applies — nothing auto-applies, ever. Batch 1 shipped the pure versioned data model (MetricContractHistory/MetricContractRegistry + diffVersions). Batch 2 (this PR) adds the read-only diff-view/history-list content builders + DOM presenter (buildDiffViewContent/buildHistoryListContent/renderDiffView) — still no caller wired into main.js, so this flag still currently gates nothing observable. It exists now so all batches in this generation share one flag from the start instead of adding a new one mid-stream."
     },
+    "metricContractsConfirmGate": {
+      "enabled": false,
+      "addedInPR": "gen44-metric-contracts-confirm-gate",
+      "description": "Gen 44 Metric Contracts Batch 3: the confirm-gate (js/metrics/metric-contract-confirm-gate.js). Enforces DATAGLOW's hard autonomy-safety rule for metric definitions — no AI agent may auto-apply or modify a metric's definition without explicit per-action human confirmation. prepareProposedChange() builds an inert pending-change and reuses Batch 2's buildDiffViewContent() so an AI-proposed change renders visually IDENTICAL to a human's past change; confirmProposedChange() is the ONLY function handed a registry and thus the ONLY path that can call recordVersion(), meant to run behind a real human click and nowhere else (never on load, a timer, or an agent path); rejectProposedChange() persists nothing. renderConfirmGate() shows the diff with an 'AI-suggested' badge and explicit Confirm/Reject buttons. Ships dark: with the flag OFF (default) main.js mounts nothing. A full 'propose a change' authoring UI is a later batch; this batch ships the confirm-gate primitive plus a minimal manual-demo hook."
+    },
     "metricStudio": {
       "enabled": false,
       "addedInPR": "onecanvas-phase1-metric-studio-trust",

@@ -221,6 +221,17 @@ here.)
   currently gates nothing observable since there is no UI wiring yet); Batch 3 adds a confirm-gate
   reusing this same builder/renderer so any AI-agent-proposed metric change renders as this exact diff
   and requires one explicit human click before it applies.
+- **Metric Contracts (Batch 3: confirm-gate)** — `js/metrics/metric-contract-confirm-gate.js`
+  (the enforcement point for DATAGLOW's hard autonomy-safety rule: no AI agent may auto-apply a
+  metric-definition change without explicit per-action human confirmation. `prepareProposedChange`
+  builds an inert pending-change object and reuses Batch 2's `buildDiffViewContent` so an AI-proposed
+  change renders visually IDENTICAL to a human's past change; `buildConfirmGateContent`/`renderConfirmGate`
+  add an "AI-suggested" badge and explicit Confirm/Reject controls (reusing `renderDiffView`).
+  `confirmProposedChange` is the ONLY function handed a `MetricContractRegistry` and thus the ONLY
+  path that can call `recordVersion()` — meant to run behind a real human click, never on load, a
+  timer, or an agent path; `rejectProposedChange` persists nothing.) Ships behind the new
+  `metricContractsConfirmGate` flag (default OFF); `main.js` mounts a minimal manual-test hook only
+  when the flag is ON — a full "propose a change" authoring UI is a later batch.
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.

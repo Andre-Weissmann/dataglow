@@ -339,6 +339,17 @@
         </div>
       </div>
 
+      <!-- Metric Contracts Batch 3 confirm-gate host. Filled by
+           js/metrics/metric-contract-confirm-gate.js (via main.js) only when the
+           metricContractsConfirmGate flag is ON. Flag ships OFF, so this stays
+           empty and hidden in production. -->
+      <div id="metric-contract-confirm-gate-wrap" style="display:none; margin-bottom:var(--space-6);" class="card" data-testid="metric-contract-confirm-gate-wrap">
+        <div style="padding:var(--space-4);">
+          <div style="font-weight:600; margin-bottom:var(--space-2);">Metric Change — confirm required</div>
+          <div id="metric-contract-confirm-gate-body"></div>
+        </div>
+      </div>
+
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Top 5 Problems — Pre-Analysis Checklist</div>

@@ -42,6 +42,8 @@ import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agent
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
 import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
 import { openProofDrawer } from '../trust/proof-drawer.js';
+import { MetricContractRegistry } from '../metrics/metric-contracts.js';
+import { prepareProposedChange, confirmProposedChange, rejectProposedChange, renderConfirmGate } from '../metrics/metric-contract-confirm-gate.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
 // registry has dynamically imported the modules appropriate for this runtime;
@@ -1356,11 +1358,54 @@ function renderMetricStudioPanel() {
   });
 }
 
-// Single entry point: refresh both flag-gated surfaces. Safe to call with no
+// Local-only append-only contract history for confirmed metric-definition
+// changes (Batch 3). Only confirmProposedChange() ever writes to it.
+const metricContractRegistry = new MetricContractRegistry();
+
+// Metric Contracts, Batch 3 — the confirm-gate. Ships DARK behind
+// `metricContractsConfirmGate` (default OFF): with the flag off this mounts
+// nothing. This is the MINIMAL manual-test hook for the confirm flow, not a
+// full "propose a change" authoring UI (a later batch). It stages one sample
+// agent-proposed change so the gate — diff + "AI-suggested" badge + explicit
+// Confirm/Reject — can be exercised by hand; nothing is ever recorded until the
+// Confirm button is clicked (confirmProposedChange is the sole write path).
+function renderMetricContractConfirmGate() {
+  const wrap = $('#metric-contract-confirm-gate-wrap');
+  const host = $('#metric-contract-confirm-gate-body');
+  if (!wrap || !host) return;
+  if (!isEnabled('metricContractsConfirmGate')) { host.innerHTML = ''; wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const current = {
+    id: 'demo-readmission-rate', name: 'Readmission Rate', plainEnglish: 'readmissions / discharges',
+    expression: 'SUM(readmissions) / NULLIF(SUM(discharges), 0)', owner: 'andre', tag: 'quality',
+  };
+  const proposed = { ...current, expression: 'SUM(readmissions) / NULLIF(SUM(total_discharges), 0)', owner: 'priya' };
+  const pending = prepareProposedChange({
+    metricId: current.id, metricName: current.name, current, proposed,
+    source: 'agent-proposed', changedBy: 'metric-copilot',
+    reason: 'proposed: fix column name + reassign owner',
+  });
+  renderConfirmGate({
+    host, pending,
+    onConfirm: (p) => {
+      const entry = confirmProposedChange({ pending: p, registry: metricContractRegistry });
+      toast(`Change confirmed and recorded as version ${entry.version}.`);
+      renderMetricContractConfirmGate();
+    },
+    onReject: (p) => {
+      rejectProposedChange(p);
+      toast('Proposed change rejected — nothing was recorded.');
+      renderMetricContractConfirmGate();
+    },
+  });
+}
+
+// Single entry point: refresh the flag-gated surfaces. Safe to call with no
 // dataset loaded and before any validation run.
 function renderOneCanvasPhase1() {
   renderTrustStripPanel();
   renderMetricStudioPanel();
+  renderMetricContractConfirmGate();
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.

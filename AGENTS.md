@@ -109,6 +109,37 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Metric Contracts, Batch 3 — the confirm-gate
+
+`js/metrics/metric-contract-confirm-gate.js` is the enforcement point for
+DATAGLOW's hard autonomy-safety rule as it applies to metric definitions: **no
+AI agent may auto-apply or modify a metric's definition without explicit
+per-action human confirmation.** Batch 1 said plainly it had "no AI-agent write
+path yet (Batch 3: confirm gate)"; this is that gate. `prepareProposedChange({
+metricId, metricName, current, proposed, source, changedBy, reason})` builds an
+inert pending-change object and REUSES Batch 2's `buildDiffViewContent()` so an
+AI-proposed change renders visually IDENTICAL to a human's past change — the only
+difference is the confirm step this file adds. `buildConfirmGateContent()` adds
+one honest source badge ("AI-suggested" vs "Human edit", via the shared
+`sourceLabel()` that matches Batch 2's `agent-proposed ? 'AI-agent proposed' :
+'Human edit'` wording) and `renderConfirmGate()` shows the diff + badge + explicit
+Confirm/Reject buttons (reusing `renderDiffView()`). THE GUARANTEE IS STRUCTURAL,
+not merely documented: `confirmProposedChange({pending, registry})` is the ONLY
+exported function handed a `MetricContractRegistry`, so it is the ONLY code path
+that can call `recordVersion()` — it is meant to run behind a real human click and
+nowhere else (never on page load, never on a timer, never from an agent path).
+Every other exported function (`prepareProposedChange`, `buildConfirmGateContent`,
+`renderConfirmGate`, `rejectProposedChange`) has no registry to write with, so it
+cannot persist even by mistake. When you touch this module, keep that shape: never
+thread a registry into anything but the explicit confirm path, and never add an
+auto-apply branch. Ships behind the `metricContractsConfirmGate` flag (default
+OFF); `js/app-shell/main.js` mounts only a MINIMAL manual-test hook when the flag
+is on — a full "propose a change" authoring UI is a later batch. Tests:
+`npm run test:metriccontractconfirmgate` (23 cases, pure Node — including a
+spy-registry assertion that no exported function persists without an explicit
+confirm), added to the existing `.github/workflows/job-metric-contracts.yml` CI
+job.
+
 ### Metric Contracts, Batch 2 — read-only diff view
 
 `js/metrics/metric-contract-diff-view.js` turns two of Batch 1's version
