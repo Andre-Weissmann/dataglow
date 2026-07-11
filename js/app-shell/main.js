@@ -47,6 +47,7 @@ import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import * as dataBom from '../provenance/data-bom.js';
 import { buildDataNutritionLabel, renderLabelSummaryLines, exportLabelAsJSON } from '../provenance/data-nutrition-label.js';
+import { buildSyntheticDataPassport, sealSyntheticPassport, renderPassportSummaryLines, exportPassportAsJSON } from '../privacy/synthetic-data-passport.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
@@ -2382,12 +2383,94 @@ function renderDiffResults(out, { keyCol, rowDiff, distDiff, flips }) {
 // ============================================================
 // Feature 6 — Synthetic Adversarial Twin (DP synthetic dataset)
 // ============================================================
+// Build a Governed Synthetic Data Passport (Trust Passport Batch 4) for a
+// freshly-generated Synthetic Twin. Composes batch 2 (Data Nutrition Label) and,
+// on demand, batch 3 (Verifiable Check Seal). The custody/assumptions/source
+// checks describe the SOURCE dataset (the batch-1 Semantic/Metrics Layer results
+// travel here via collectValidationSummary); the `generation` block honestly
+// reflects the twin's real Laplace-DP mechanism and ε. Never built silently —
+// only when the flag is on AND the human ticked the checkbox (see genBtn below).
+function buildTwinPassport(ds, twin) {
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  const { validation: valSummary } = collectValidationSummary();
+  return buildSyntheticDataPassport({
+    generation: twin,
+    dataset: {
+      name: `${ds ? ds.name : 'dataset'} (synthetic)`,
+      table: ds ? ds.table : null,
+      rowCount: twin.rows.length,
+      columnNames: twin.columns,
+      columnCount: twin.columns.length,
+    },
+    custody: chain,
+    assumptions: ledger.getLedgerEntries(),
+    checks: valSummary,
+  });
+}
+
 function initSyntheticTwin() {
   const slider = $('#twin-epsilon-slider');
   const genBtn = $('#btn-twin-generate');
   const dlBtn = $('#btn-twin-download');
   if (!slider || !genBtn) return;
   let lastTwin = null;
+
+  // Reveal the opt-in Governance Passport controls only when the flag is on;
+  // otherwise they stay hidden and the twin flow is byte-for-byte unchanged.
+  const passportOptin = $('#twin-passport-optin');
+  const passportBox = $('#twin-include-passport');
+  const passportActions = $('#twin-passport-actions');
+  const passportEnabled = isEnabled('syntheticDataPassport');
+  if (passportOptin && passportEnabled) passportOptin.style.display = '';
+
+  // Render the passport affordance for the current twin: a summary plus explicit
+  // Download / Seal+download buttons. Nothing here runs without a click.
+  const renderPassportActions = () => {
+    if (!passportActions) return;
+    passportActions.innerHTML = '';
+    if (!passportEnabled || !passportBox || !passportBox.checked || !lastTwin) {
+      passportActions.style.display = 'none';
+      return;
+    }
+    const ds = getActiveDataset();
+    passportActions.style.display = 'flex';
+    const dlPassport = el('button', {
+      class: 'btn btn-secondary',
+      style: 'font-size:var(--text-xs); padding:2px 8px;',
+      'data-testid': 'button-twin-passport-download',
+      onclick: () => {
+        const passport = buildTwinPassport(ds, lastTwin);
+        downloadText(`dataglow-synthetic-${ds ? ds.table : 'twin'}-passport.json`,
+          exportPassportAsJSON(passport), 'application/json');
+        toast('Governance passport downloaded', 'success');
+      },
+    }, 'Download Passport (.json)');
+    const sealPassport = el('button', {
+      class: 'btn btn-secondary',
+      style: 'font-size:var(--text-xs); padding:2px 8px;',
+      'data-testid': 'button-twin-passport-seal',
+      onclick: async () => {
+        try {
+          const passport = buildTwinPassport(ds, lastTwin);
+          // Seal binds the exact generation parameters to a fingerprint of the
+          // synthetic OUTPUT actually being shipped (the twin's CSV).
+          const csv = syntheticTwin.toCSV(lastTwin.columns, lastTwin.rows);
+          const sealed = await sealSyntheticPassport(passport, {
+            data: csv,
+            dataglow: { version: (window.__dataglowVersion || null), build: null },
+          });
+          downloadText(`dataglow-synthetic-${ds ? ds.table : 'twin'}-passport-sealed.json`,
+            exportPassportAsJSON(sealed), 'application/json');
+          toast('Passport sealed and downloaded', 'success');
+        } catch (e) {
+          toast('Could not seal passport: ' + e.message, 'error');
+        }
+      },
+    }, 'Seal + download');
+    passportActions.appendChild(dlPassport);
+    passportActions.appendChild(sealPassport);
+  };
+  if (passportBox) passportBox.addEventListener('change', renderPassportActions);
 
   const refreshNote = () => {
     const eps = parseFloat(slider.value);
@@ -2424,6 +2507,7 @@ function initSyntheticTwin() {
         }
         out.appendChild(el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); padding:2px 0;', 'data-testid': `twin-cmp-${c.column}` }, line));
       });
+      renderPassportActions();
       toast('Synthetic twin generated', 'success');
     } catch (err) {
       out.innerHTML = '';

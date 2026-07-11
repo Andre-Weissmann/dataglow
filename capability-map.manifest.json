@@ -511,6 +511,16 @@
       ]
     },
     {
+      "id": "privacy-synthetic-passport",
+      "platforms": ["browser", "desktop"],
+      "area": "Privacy & synthetic data",
+      "name": "Governed Synthetic Data Passport (Trust Passport, Batch 4)",
+      "files": ["js/privacy/synthetic-data-passport.js"],
+      "symbols": [
+        { "file": "js/privacy/synthetic-data-passport.js", "name": "buildSyntheticDataPassport" }
+      ]
+    },
+    {
       "id": "simulation-history",
       "platforms": [
         "browser",

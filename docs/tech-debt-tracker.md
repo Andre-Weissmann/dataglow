@@ -45,6 +45,32 @@ Newest entries go at the bottom of **Entries**.
 
 ## Entries
 
+### 2026-07-11 — Synthetic Data Passport: provisional schemaVersion, seals the OUTPUT (not the source), and adversarial is caller-supplied
+
+- **Description:** The Governed Synthetic Data Passport
+  (`js/privacy/synthetic-data-passport.js`, Trust Passport Batch 4) is honest
+  about what it records, but three limits are worth naming so a future session
+  doesn't mistake the passport for more than it is. (1) **Provisional schema.**
+  `SYNTHETIC_PASSPORT_SCHEMA_VERSION` is `1` and there is no migration/validation
+  path yet; the embedded Batch-2 label and Batch-3 seal carry their own versions,
+  so a reader must check all three if the shapes ever diverge. (2) **The seal
+  binds the synthetic OUTPUT, not the source.** `sealSyntheticPassport`
+  fingerprints the synthetic rows/CSV the caller is shipping (inheriting Batch 3's
+  fingerprint-scope caveat above), which is the right thing to make tamper-evident
+  for a recipient — but it means the seal proves nothing about the SOURCE data the
+  twin was trained on; that lineage lives only in the (unsealed-by-default) label
+  custody chain. (3) **`adversarial` is deliberately not auto-derived.**
+  `js/privacy/synthetic-adversarial.js` produces adversarial TEST FIXTURES
+  (planted-issue datasets), not robustness SCORES of a synthetic output, so the
+  passport's `synthetic.adversarial` field stays `null` unless a caller passes a
+  real robustness summary. Auto-filling it from the fixtures generator would be an
+  honest-naming violation (claiming a robustness result that was never computed).
+- **Severity:** low
+- **Area:** `js/privacy/synthetic-data-passport.js`
+- **Status:** open — accepted as scoped for Batch 4. A future "seal the whole
+  synthetic dataset + its source lineage" design would supersede limits (1) and (2)
+  together; (3) is a wontfix by design (never invent a robustness score).
+
 ### 2026-07-11 — Verifiable Check Seal binds to the query result, and fingerprints are unbounded
 
 - **Description:** The Verifiable Check Seal (`js/provenance/verifiable-check-seal.js`,
