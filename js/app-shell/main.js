@@ -42,6 +42,7 @@ import * as dataBlame from '../provenance/data-blame.js';
 import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
+import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
 // registry has dynamically imported the modules appropriate for this runtime;
@@ -97,6 +98,7 @@ const TAB_META = {
   swift: { label: 'Swift', icon: 'smartphone' },
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
+  meeting: { label: 'Meeting', icon: 'message-circle' },
 };
 
 const ICONS = {
@@ -113,6 +115,7 @@ const ICONS = {
   sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  'message-circle': '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -149,7 +152,12 @@ let activeTab = 'preflight';
 function renderTabBar() {
   const bar = $('#tabbar');
   bar.innerHTML = '';
-  state.tabOrder.forEach((tabId, idx) => {
+  // The 'meeting' tab is the meetingScribe flag's dark-by-default gate: with
+  // the flag off (its shipped default) it is simply never added to the bar,
+  // never a dead click target, and #panel-meeting stays empty and hidden
+  // (see renderMeetingScribeTab). No other tab is filtered.
+  const visibleTabOrder = state.tabOrder.filter((tabId) => tabId !== 'meeting' || isEnabled('meetingScribe'));
+  visibleTabOrder.forEach((tabId, idx) => {
     const meta = TAB_META[tabId];
     const tabEl = el('div', {
       class: `tab ${tabId === activeTab ? 'active' : ''}`,
@@ -190,6 +198,7 @@ function switchTab(tabId) {
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'twin') buildTwinControls();
+  if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'swift' && !$('#swift-input').value) {
     $('#swift-input').value = swiftPreview.SWIFT_TEMPLATE;
     $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
@@ -1369,6 +1378,25 @@ async function renderConversationalPackBuilder(ds, results) {
     },
     onToast: toast,
   });
+}
+
+// ============================================================
+// Meeting Scribe (Gen 43, Part 2) — Meeting tab wiring
+// ============================================================
+// Mounts the paste/type transcript screen (js/agents/meeting-scribe-ui.js)
+// into the Meeting tab. The tab itself only exists in the bar when the
+// meetingScribe flag is on (see renderTabBar); this function is the second,
+// inner gate matching the conversationalPackBuilder precedent exactly, and
+// also guards against a stale mount if the panel is ever revisited.
+let meetingScribeMounted = false;
+function renderMeetingScribeTab() {
+  const host = $('#meeting-scribe-body');
+  if (!host) return;
+  if (!isEnabled('meetingScribe')) { host.innerHTML = ''; meetingScribeMounted = false; return; }
+  if (!shouldOfferMeetingScribe({ enabled: true })) { host.innerHTML = ''; meetingScribeMounted = false; return; }
+  if (meetingScribeMounted) return; // already mounted this session — don't wipe typed-in progress
+  mountMeetingScribe({ host, onToast: toast });
+  meetingScribeMounted = true;
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.

@@ -81,6 +81,7 @@
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs",
     "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
     "test:e2e-packbuilder-ui": "node test/pack-builder-ui.test.mjs",
+    "test:e2e-meetingscribe-ui": "node test/meeting-scribe-ui.test.mjs",
     "screenshot:grades": "node test/_screenshot-grades.mjs",
     "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
     "screenshot:missingness": "node test/_screenshot-missingness.mjs"

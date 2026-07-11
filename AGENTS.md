@@ -109,6 +109,37 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Meeting scribe — Meeting-tab UI wiring (Gen 43, Part 2)
+
+The screen Part 1 deliberately left for a follow-up now lives in
+`js/agents/meeting-scribe-ui.js`, a thin presenter mirroring
+`js/agents/conversational-pack-ui.js`'s shape: a pure gate `shouldOfferMeetingScribe({enabled})`
+(the single predicate the caller checks) and `mountMeetingScribe({host, onToast})`,
+which renders a paste/type-transcript textarea, an `[Analyze transcript]` button, and
+groups the Part 1 agent's output into Pushback moments / Data requests / a full
+tagged-line list, plus a small action-item tracker whose rows show "Open" until
+owner + due date + outcome are all filled in and saved (per Part 1's
+minimum-viable-action-item rule), then flip to "Resolved". `parseTranscriptText`
+turns pasted/typed lines into `{text, ts}` segments — a leading integer is read as an
+explicit second-based timestamp, a bare line is auto-numbered one second after the
+previous, so typing plain text works with zero setup. There is still NO audio
+capture or speech-to-text here — a person supplies the transcript text themselves;
+that capture path stays a separate, harder follow-up.
+
+`js/app-shell/main.js` adds a new `meeting` tab, but only to the RENDERED tab list —
+`renderTabBar()` filters `state.tabOrder` down with
+`tabId !== 'meeting' || isEnabled('meetingScribe')` before drawing the bar, so with the
+flag off (its shipped default) the tab is not just hidden but never added at all —
+there is no dead click target and no stale DOM. `switchTab('meeting')` lazily calls
+`renderMeetingScribeTab()`, which re-checks the flag and the gate before mounting into
+`#meeting-scribe-body`, and only mounts once per session so a person's typed-in
+progress is never wiped by revisiting the tab. New real-browser Playwright test
+`test/meeting-scribe-ui.test.mjs` (`npm run test:e2e-meetingscribe-ui`): asserts the
+gate, transcript parsing (explicit vs. auto-numbered timestamps), the full
+analyze flow (pushback + data-request detection, full tagged list, blank-input
+no-op), and the action-item open→partially-filled-stays-open→resolved flow. No flag
+flipped.
+
 ### Provenance Packet (Batch 1) — cell-level blame + de-identification verifier
 
 Two browser-free, network-free capabilities that build on the existing hash-chain
