@@ -1,0 +1,33 @@
+# ============================================================
+# DATAGLOW — CI job: Provenance Packet (Batch 2)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the two Batch 2 Provenance Packet features, both pure Node (no
+# browser, no DuckDB, no network):
+#   - Denial Root-Cause Profiler (js/provenance/denial-root-cause.js) — the
+#     schema-tolerant claims-denial risk bucketer + its SHA-256-signed
+#     attestation (exercised end-to-end via the DuckDB wrapper against a fake
+#     engine).
+#   - Cost-of-bad-data quantifier (js/provenance/cost-of-bad-data.js) — the
+#     transparent flagged-rows × editable per-error-cost estimate.
+# See test/denial-root-cause.test.mjs and test/cost-of-bad-data.test.mjs.
+
+name: Provenance Packet Batch 2
+
+on:
+  workflow_call:
+
+jobs:
+  provenance-packet-batch-2:
+    name: Provenance Packet Batch 2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:denialprofile
+      - run: npm run test:costofbaddata

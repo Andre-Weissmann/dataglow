@@ -777,6 +777,34 @@ for the analyst to review. Ships behind the `meetingScribe` flag, but the flag i
 currently decorative: there is no UI, capture path, or call site anywhere in the app
 yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
 (`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
+### Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier
+
+Two client-side capabilities under `js/provenance/`, one module per feature,
+following the same layout + signed-attestation pattern as the Batch 1 packet.
+`js/provenance/denial-root-cause.js` is a SCHEMA-TOLERANT healthcare-claims
+denial-risk profiler: `detectClaimColumns` maps whatever columns are loaded to
+claim roles by NAME (never a fixed schema), then `buildDenialReport` grades five
+canonical buckets — eligibility/registration, coding, duplicate/near-duplicate,
+provider/NPI, coordination-of-benefits — and reports count/% flagged per bucket
+with example rows. The binding rule: grade only what is present; any bucket whose
+required column is absent is returned `applicable: false` with a plain reason and
+listed under `notCheckable`, so a missing column can NEVER read as a clean pass.
+It is heuristic triage, not payer adjudication — clinical CPT↔diagnosis
+appropriateness is deliberately NOT checked (no bundled crosswalk) and is
+reported as unchecked; modifier completeness is informational, not a flag.
+`runDenialProfile(table, cols, engine)` runs one bounded `SELECT *` against the
+in-browser DuckDB-WASM data (no upload, no ML) and buckets in pure JS;
+`buildDenialAttestation`/`verifyDenialAttestation` sign and re-verify the report
+with the SAME `sha256Hex` primitive from `js/provenance/provenance.js` — no new
+crypto. `js/provenance/cost-of-bad-data.js` (`estimateCostOfBadData`) is a
+transparent flagged-rows × per-error-cost multiplication with default
+`DEFAULT_PER_ERROR_COST` = $118 — a placeholder from published claims-rework
+research, clearly labelled as a USER-ADJUSTABLE ASSUMPTION, not a DATAGLOW
+guarantee; all wording is "estimated risk", never a bare "cost", and there is no
+network or model call. Both are surfaced in the Provenance/Trust tab in
+`js/app-shell/main.js`. Tests: `npm run test:denialprofile`
+(`test/denial-root-cause.test.mjs`) and `npm run test:costofbaddata`
+(`test/cost-of-bad-data.test.mjs`), in the `provenance-packet-batch-2` CI job.
 
 ### Conversational pack builder — Validate-tab UI wiring (Gen 42 follow-up)
 

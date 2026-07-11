@@ -51,6 +51,8 @@ import * as deidVerifier from '../provenance/deidentification-verifier.js';
 import * as dataBom from '../provenance/data-bom.js';
 import { buildDataNutritionLabel, renderLabelSummaryLines, exportLabelAsJSON } from '../provenance/data-nutrition-label.js';
 import { buildSyntheticDataPassport, sealSyntheticPassport, renderPassportSummaryLines, exportPassportAsJSON } from '../privacy/synthetic-data-passport.js';
+import * as denialProfiler from '../provenance/denial-root-cause.js';
+import * as costOfBadData from '../provenance/cost-of-bad-data.js';
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
@@ -2883,6 +2885,8 @@ function renderProvenanceTrail() {
   wrap.style.display = '';
   const deidWrap = $('#deid-verifier-wrap');
   if (deidWrap) deidWrap.style.display = ds ? '' : 'none';
+  const denialWrap = $('#denial-profiler-wrap');
+  if (denialWrap) denialWrap.style.display = ds ? '' : 'none';
   const trail = chain ? chain.getTrail() : [];
   if (!trail.length) {
     list.innerHTML = '<span style="color:var(--color-text-faint);">No provenance recorded yet — load a dataset to anchor the chain of custody.</span>';
@@ -3175,6 +3179,93 @@ function initDeidVerifier() {
     const ds = getActiveDataset();
     downloadText(`dataglow-deid-attestation-${ds ? ds.table : 'dataset'}.json`, JSON.stringify(lastDeidAttestation, null, 2), 'application/json');
     toast('Signed de-identification attestation exported', 'success');
+  });
+}
+
+// Denial Root-Cause Profiler — schema-tolerant claims-denial risk buckets + a
+// live "$ estimated at risk" quantifier + a signed attestation. Runs entirely
+// against the in-browser DuckDB-WASM data; nothing is uploaded. Holds the last
+// attestation so Export can save it.
+let lastDenialAttestation = null;
+
+function renderCostEstimate(cost) {
+  const out = $('#denial-cost-estimate');
+  if (!out) return;
+  out.innerHTML = '';
+  if (!cost) return;
+  out.appendChild(el('div', { class: 'card', style: 'padding:var(--space-3); background:var(--color-surface-alt, var(--color-surface));', 'data-testid': 'denial-cost-estimate' }, [
+    el('div', { style: 'font-size:var(--text-sm); font-weight:600; color:var(--color-text);' }, cost.label),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-1);' }, cost.disclaimer),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;' }, cost.sourceNote),
+  ]));
+}
+
+function renderDenialReport(report) {
+  const out = $('#denial-report');
+  if (!out) return;
+  out.innerHTML = '';
+  out.appendChild(el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);' },
+    `${report.totalFlaggedRows.toLocaleString()} of ${report.dataset.rowCount.toLocaleString()} row(s) flagged across all buckets (${report.totalFlaggedPct}%). Scanned ${report.dataset.scannedRows.toLocaleString()} row(s)${report.dataset.truncated ? ' (truncated)' : ''}.`));
+  const grid = el('div', { class: 'validation-grid' });
+  for (const cat of report.categories) {
+    const status = !cat.applicable ? 'idle' : cat.flaggedCount > 0 ? 'warn' : 'pass';
+    const statusLabel = !cat.applicable ? 'n/a' : cat.flaggedCount > 0 ? 'FLAG' : 'clear';
+    const card = el('div', { class: 'card validation-card', 'data-testid': `denial-cat-${cat.id}` }, [
+      el('div', { class: 'validation-card-head' }, [
+        el('span', { class: 'validation-card-name' }, cat.label),
+        el('span', { class: `validation-status ${status}` }, [el('span', { class: `status-dot ${status}` }), statusLabel]),
+      ]),
+    ]);
+    if (cat.applicable) {
+      card.appendChild(el('div', { class: 'validation-card-desc' }, `${cat.flaggedCount.toLocaleString()} row(s) flagged (${cat.pct}%)`));
+      for (const ex of cat.examples) {
+        card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:2px;' }, `${ex.claim}: ${ex.reason}`));
+      }
+    } else {
+      card.appendChild(el('div', { class: 'validation-card-desc', style: 'color:var(--color-text-faint);' }, `Not checked — ${cat.notes[0] || 'required column absent'}`));
+    }
+    for (const note of cat.notes.slice(cat.applicable ? 0 : 1)) {
+      card.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;' }, note));
+    }
+    grid.appendChild(card);
+  }
+  out.appendChild(grid);
+  out.appendChild(el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-3);' }, report.disclaimer));
+}
+
+function initDenialProfiler() {
+  const runBtn = $('#btn-denial-run');
+  if (!runBtn) return;
+  const costInput = $('#denial-cost-input');
+  runBtn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load a dataset first', 'error'); return; }
+    runBtn.disabled = true;
+    try {
+      const perErrorCost = costInput ? Number(costInput.value) : costOfBadData.DEFAULT_PER_ERROR_COST;
+      const { report, attestation } = await denialProfiler.runDenialProfile(ds.table, ds.cols, engine, { perErrorCost });
+      lastDenialAttestation = attestation;
+      renderCostEstimate(report.cost);
+      renderDenialReport(report);
+      toast(`Denial profiler complete — ${report.totalFlaggedRows} row(s) flagged`, report.totalFlaggedRows ? 'warn' : 'success');
+    } catch (e) {
+      toast('Denial profiler failed: ' + (e && e.message || e), 'error');
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+  // Re-price the last run instantly when the editable per-error cost changes.
+  if (costInput) costInput.addEventListener('change', () => {
+    if (!lastDenialAttestation) return;
+    const perErrorCost = Number(costInput.value);
+    renderCostEstimate(costOfBadData.estimateCostOfBadData({ flaggedCount: lastDenialAttestation.totalFlaggedRows, perErrorCost }));
+  });
+  const exportBtn = $('#btn-denial-export');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    if (!lastDenialAttestation) { toast('Run the denial profiler first', 'error'); return; }
+    const ds = getActiveDataset();
+    downloadText(`dataglow-denial-attestation-${ds ? ds.table : 'dataset'}.json`, JSON.stringify(lastDenialAttestation, null, 2), 'application/json');
+    toast('Signed denial-profile attestation exported', 'success');
   });
 }
 
@@ -6396,6 +6487,7 @@ function init() {
   initProvenance();
   initDataBlame();
   initDeidVerifier();
+  initDenialProfiler();
   initDomainPack();
   initDevilsAdvocate();
   initReceipts();
