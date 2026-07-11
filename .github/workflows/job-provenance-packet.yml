@@ -1,0 +1,33 @@
+# ============================================================
+# DATAGLOW — CI job: Provenance Packet (Batch 1)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the two Provenance Packet features, both pure Node (no browser, no
+# DuckDB, no network):
+#   - Cell-level Data Blame (js/provenance/data-blame.js) — the per-column /
+#     per-cell transform-history reader over the existing chain-of-custody trail.
+#   - De-identification Verifier (js/provenance/deidentification-verifier.js) —
+#     the 18 HIPAA Safe Harbor categories, the re-identification risk score, and
+#     the SHA-256-signed attestation + its verifier (exercised end-to-end via the
+#     DuckDB wrapper against a fake engine).
+# See test/data-blame.test.mjs and test/deidentification-verifier.test.mjs.
+
+name: Provenance Packet
+
+on:
+  workflow_call:
+
+jobs:
+  provenance-packet:
+    name: Provenance Packet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:datablame
+      - run: npm run test:deidverify

@@ -140,6 +140,25 @@ analyze flow (pushback + data-request detection, full tagged list, blank-input
 no-op), and the action-item open→partially-filled-stays-open→resolved flow. No flag
 flipped.
 
+### Provenance Packet (Batch 1) — cell-level blame + de-identification verifier
+
+Two browser-free, network-free capabilities that build on the existing hash-chain
+provenance ledger (`js/provenance/provenance.js`). `js/provenance/data-blame.js` is
+a pure READER over that chain — it does NOT introduce a parallel log. Transform
+call sites in `js/app-shell/main.js` now standardize each `recordStep` `detail`
+via `buildBlameDetail(...)`; the reader's `normalizeBlameEntry` still reads the
+legacy `{fixType, column}` shape, so old trails keep working. `buildBlameIndex`,
+`blameForColumn`, and `blameForCell` answer "what changed this cell and why" from
+the chain alone. `js/provenance/deidentification-verifier.js` runs the 18 HIPAA
+Safe Harbor categories (`HIPAA_SAFE_HARBOR`) against loaded columns/samples,
+scores re-identification risk from quasi-identifiers (the {date-or-age, sex, zip}
+trio drives the score up), and produces a SHA-256-signed attestation via the same
+`sha256Hex` primitive the CI ledger uses — no new crypto. Everything runs against
+in-browser DuckDB-WASM; nothing is uploaded. Tests: `npm run test:datablame`
+(`test/data-blame.test.mjs`) and `npm run test:deidverify`
+(`test/deidentification-verifier.test.mjs`), both in the `provenance-packet` CI
+job (`.github/workflows/job-provenance-packet.yml`).
+
 ### Local Analysis Contract — SQL-vs-schema checker, and a consolidation call
 
 `js/validation/analysis-contract.js` checks a SQL query against the REAL schema
