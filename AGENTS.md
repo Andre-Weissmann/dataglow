@@ -153,6 +153,38 @@ live inside is open. Tests: `npm run test:tabgroups`
 (`test/tab-groups.test.mjs`) and `npm run test:validatefocus`
 (`test/validate-focus.test.mjs`).
 
+### Governed Synthetic Data Passport (Trust Passport, Batch 4) — compose the prior batches, never upgrade a privacy claim
+
+`js/privacy/synthetic-data-passport.js` is the finale of the four-batch Trust
+Passport concept: it lets a SYNTHETIC export carry a governance record instead
+of naked numbers. It COMPOSES the earlier batches and adds nothing to their
+crypto or shapes — Batch 2 (`buildDataNutritionLabel`, called with
+`isSynthetic:true`) is the container; the Batch 1 source-data Semantic/Metrics
+Layer checks/custody/assumptions ride through that label unchanged; Batch 3
+(`sealCheckResult`/`attachSealToLabel`) is optional tamper-evidence. The ONE new
+thing it adds is a `synthetic` block describing HOW the data was generated and
+WHAT privacy guarantee (if any) applies.
+
+The hard rule for anyone extending it is HONEST NAMING, most acute in this batch:
+assert a formal differential-privacy guarantee (a mechanism plus a specific ε)
+ONLY when the generation context genuinely establishes one — a recognized
+`dataglow-synthetic-twin` kind, or a Laplace/DP mechanism string, each with a
+positive ε, or an explicit caller `formalDifferentialPrivacy:true` accompanied by
+a positive ε. A bare ε, a heuristic generator, or an explicit
+`formalDifferentialPrivacy:false` MUST yield "no formal guarantee — treat as
+potentially re-identifiable". NEVER upgrade a DP budget to "anonymized", a HIPAA
+Safe Harbor, an Expert Determination, or any legal/clinical determination; carry
+the generator's own disclaimer verbatim; and never raise a claim's confidence
+above what the source module established. Both `buildSyntheticDataPassport` and
+`sealSyntheticPassport` are explicit opt-in caller actions (nothing generates or
+seals on its own — the empowerment constraint), the module is pure/browser-free/
+network-free, and it is additive only: it does NOT modify the Batch 1–3 modules.
+Surfaced OFF-by-default behind the `syntheticDataPassport` flag. See
+`test/synthetic-data-passport.test.mjs`, whose source guard enforces both the
+zero-upload rule (no network primitive) and honest naming (any line mentioning
+`anonymized`/`HIPAA`/`certification`/`certified` must also negate it).
+
+
 ### Verifiable Check Seal (Trust Passport, Batch 3) — apply the existing proof primitive, do not invent crypto
 
 `js/provenance/verifiable-check-seal.js` seals a validation check result (e.g. a

@@ -53,6 +53,8 @@ jobs:
     uses: ./.github/workflows/job-agents-md-drift.yml
 
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
+  synthetic-data-passport:
+    uses: ./.github/workflows/job-synthetic-data-passport.yml
   verifiable-check-seal:
     uses: ./.github/workflows/job-verifiable-check-seal.yml
   data-nutrition-label:
