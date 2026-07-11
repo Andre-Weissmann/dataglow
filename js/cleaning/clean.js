@@ -5,6 +5,8 @@
 
 import * as engine from '../app-shell/duckdb-engine.js';
 
+const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT', 'DECIMAL', 'REAL'];
+
 export async function scanForIssues(table, cols) {
   const issues = [];
   const rowCount = await engine.getRowCount(table);
@@ -13,6 +15,10 @@ export async function scanForIssues(table, cols) {
   for (const c of cols) {
     const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${c.name}" IS NULL`);
     if (rows[0].n > 0) {
+      // fill_zero / fill_mean are numeric-only: AVG(VARCHAR) is a binder error
+      // and writing 0 into a text column is nonsensical. Offer them only for
+      // numeric columns; text columns get drop_rows + fill_mode (both type-safe).
+      const isNumeric = NUMERIC_TYPES.includes(c.type);
       issues.push({
         id: `null_${c.name}`,
         type: 'nulls',
@@ -20,7 +26,7 @@ export async function scanForIssues(table, cols) {
         count: rows[0].n,
         pct: ((rows[0].n / rowCount) * 100).toFixed(1),
         label: `${rows[0].n} null value(s) in "${c.name}"`,
-        fixes: ['drop_rows', 'fill_zero', 'fill_mean', 'fill_mode'],
+        fixes: isNumeric ? ['drop_rows', 'fill_zero', 'fill_mean', 'fill_mode'] : ['drop_rows', 'fill_mode'],
       });
     }
   }

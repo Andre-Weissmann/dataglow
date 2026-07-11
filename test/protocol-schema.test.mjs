@@ -49,6 +49,18 @@ for (const s of schemas) {
 const versionFile = readFileSync(join(here, '..', 'protocol', 'VERSION'), 'utf8').trim();
 ok('protocol/VERSION is 1.0.0', versionFile === '1.0.0', `got "${versionFile}"`);
 
+// Regression: js/protocol/protocol-conformance.js must fetch schemas from the
+// repo-root protocol/schema/ dir. From js/protocol/ that is "../../protocol/…",
+// matching the "../../protocol/validator.mjs" import. A pre-fix off-by-one
+// ("../protocol/schema/") resolved to the non-existent js/protocol/schema/ and
+// 404-ed every dev conformance check. Guard the URL depth at the source level
+// (the browser fetch path is never exercised by this Node test).
+const confSrc = readFileSync(join(here, '..', 'js', 'protocol', 'protocol-conformance.js'), 'utf8');
+ok('conformance fetches schemas from repo-root ../../protocol/schema',
+  /new URL\(`\.\.\/\.\.\/protocol\/schema\//.test(confSrc)
+  && !/new URL\(`\.\.\/protocol\/schema\//.test(confSrc),
+  'schema fetch URL depth must match the ../../protocol/validator.mjs import');
+
 // ---- Helper ----
 function expectValid(label, obj, schema) {
   const { valid, errors } = validate(obj, schema, registry);

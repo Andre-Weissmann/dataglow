@@ -330,7 +330,11 @@ async function runCorrelationWatchdog(table, cols) {
 // ---------- 9. Narrative Consistency Checker ----------
 export async function checkNarrativeConsistency(storyText, queryResult) {
   if (!queryResult) return { status: 'idle', mismatches: [] };
-  const numbersInText = [...storyText.matchAll(/-?\d+(?:\.\d+)?%?/g)].map(m => m[0]);
+  // Grouping-aware: the Story tab formats figures with toLocaleString (e.g.
+  // "1,000,062.09"), so match runs of digits-and-commas and strip separators
+  // before comparison — otherwise "1,000,062.09" splits into 1 / 000 / 062.09
+  // and each fragment is a false mismatch.
+  const numbersInText = [...storyText.matchAll(/-?\d[\d,]*(?:\.\d+)?%?/g)].map(m => m[0].replace(/,/g, ''));
   const actualNumbers = new Set();
   const addNumber = (v) => {
     if (typeof v !== 'number' || Number.isNaN(v)) return;
@@ -362,6 +366,15 @@ export async function checkNarrativeConsistency(storyText, queryResult) {
     : (rows.length ? Object.keys(rows[0]) : []);
   if (rows.length) {
     for (const c of columns) {
+      // Each Story claim carries a confidence badge reading
+      // "n=<non-null count> · <missing%> missing" (confidenceBadgeHTML in
+      // story.js). That text survives tag-stripping into lastStory, so register
+      // the per-column non-null count and missing-rate percentage or every
+      // badge is flagged as a false mismatch.
+      const colNonNull = rows.reduce((k, r) => k + (r[c] != null ? 1 : 0), 0);
+      addNumber(colNonNull);
+      addNumber(((rows.length - colNonNull) / rows.length) * 100);
+
       const nums = rows.map(r => r[c]).filter(v => typeof v === 'number' && !Number.isNaN(v));
       if (nums.length) {
         // Column average, min, max — as stated by the numeric_mean claim.
