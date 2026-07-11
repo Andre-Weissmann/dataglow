@@ -50,6 +50,11 @@
       "enabled": false,
       "addedInPR": "feature/personal-data-bom",
       "description": "Personal Data Bill of Materials (js/provenance/data-bom.js): a one-click, fully offline 'ingredient label' for the active dataset — composes the existing provenance attestation (js/provenance/provenance.js, unmodified) with a schema-shape signature, the column-distribution snapshot already computed for drift/validation (if one has been run), and — only when the user has explicitly loaded it — the local on-device AI model's exact id/quantization. Exports as signed-digest JSON or a printable HTML certificate via the same Export/Attestation card and download path the existing Export Attestation button uses. Same honest-labelling convention as provenance.js: a self-computed SHA-256 digest, never a claimed third-party notarization/signature. Empowerment-constraint compliant — this is a read-only export of what the user already has loaded; it never modifies data or triggers any automated action."
+    },
+    "semanticDriftWatchdog": {
+      "enabled": false,
+      "addedInPR": "feature/semantic-drift-watchdog",
+      "description": "Turns the existing distribution_drift validation layer result into de-duplicated, non-spammy drift alerts on the Watch Folder panel, so an automatically re-validated file surfaces a NEW drift finding once instead of re-showing the same alert on every poll. Computes no new statistics of its own \u2014 js/ambient/drift-watchdog.js is a pure presentation + de-duplication layer over results validation.js's distribution_drift layer (and its forecast-based drift alerting) already produces on every run. A native (Tauri/Rust, OS-level file-event) trigger for the desktop shell is a deliberate, tracked follow-up \u2014 see docs/tech-debt-tracker.md \u2014 not part of this flag; today this only activates the browser-only Watch Folder poll path."
     }
   }
 }

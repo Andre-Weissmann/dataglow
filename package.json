@@ -39,6 +39,7 @@
     "test:story-xss": "node test/story-xss.test.mjs",
     "test:twin": "node --import ./test/duckdb-loader-hook.mjs test/digital-twin.test.mjs",
     "test:watch": "node test/watch-folder.test.mjs",
+    "test:driftwatchdog": "node test/drift-watchdog.test.mjs",
     "test:databricks": "node test/databricks-connect.test.mjs",
     "test:protocol": "node test/protocol-schema.test.mjs",
     "test:pwa": "node test/pwa-manifest.test.mjs",
