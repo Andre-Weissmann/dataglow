@@ -851,12 +851,56 @@
       "id": "meeting-scribe-agent",
       "area": "Meeting scribe",
       "name": "Meeting note grounding agent",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/meeting-scribe-agent.js"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/meeting-scribe-agent.js"
+      ],
       "symbols": [
-        { "file": "js/agents/meeting-scribe-agent.js", "name": "tagSegmentsWithContext" },
-        { "file": "js/agents/meeting-scribe-agent.js", "name": "detectPushback" },
-        { "file": "js/agents/meeting-scribe-agent.js", "name": "buildMeetingNote" }
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "tagSegmentsWithContext"
+        },
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "detectPushback"
+        },
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "buildMeetingNote"
+        }
+      ]
+    },
+    {
+      "id": "command-deck-nav",
+      "area": "App shell / navigation",
+      "name": "Command Deck sidebar nav (Part 1)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/app-shell/command-deck-nav.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "COMMAND_DECK_STAGES"
+        },
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "buildSidebarContent"
+        },
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "validateStageCoverage"
+        },
+        {
+          "file": "js/app-shell/command-deck-nav.js",
+          "name": "stageForTab"
+        }
       ]
     }
   ]

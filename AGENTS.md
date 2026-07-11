@@ -109,6 +109,51 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Command Deck sidebar nav (Part 1) — decision record and safety posture
+
+`js/app-shell/command-deck-nav.js` regroups the app's 13 real tabs (read from
+`js/app-shell/state.js`'s `tabOrder`) into 5 Trust-Tier Lifecycle Stages —
+Frame (`framer`/`preflight`/`watch`), Work (`sql`/`python`/`r`/`clean`), Trust
+(`validate`/`diff`), Generate (`twin`/`swift`), Tell (`visualize`/`story`) —
+as an ALTERNATE left-sidebar nav, not a replacement. `COMMAND_DECK_STAGES` is
+the static mapping; `buildSidebarContent({tabMeta, activeTab})` is the pure
+content-model builder (resolves each tab's real label/icon from the caller's
+`tabMeta`, marks the active tab, and reports `unassignedTabs` honestly rather
+than silently dropping any tab that isn't mapped to a stage);
+`validateStageCoverage(realTabIds)` and `stageForTab(tabId)` are pure helpers.
+Wired into `js/app-shell/main.js` as `renderCommandDeckSidebar()`, called from
+`init()` and at the end of `switchTab()`. Renders into `#command-deck-sidebar`
+in `index.html`, a new element that sits alongside — never inside — the
+existing `<nav class="tabbar">`; it does not reuse `#data-sidebar`, which is
+unrelated dataset-loading UI. Ships fully dark behind the `dataglowSidebarNav`
+flag (off by default): with the flag off, `renderCommandDeckSidebar()` hides
+the host and renders nothing, so the top tab bar remains the app's one and
+only nav, byte-for-byte unchanged. `npm run test:commanddecknav`
+(`test/command-deck-nav.test.mjs`, 14 tests) regex-extracts the real
+`TAB_META` block straight out of `js/app-shell/main.js` at test time via
+`readFileSync`, so this mapping can never silently drift out of sync with the
+app's actual tool list — the same drift-proofing pattern as the
+capability-map/AGENTS.md gates below, applied to a UI content model instead
+of a doc.
+
+**Decision record (read before starting Command Deck Part 2 or Part 3):** the
+UI/UX brainstorm report offered three candidate navigation directions —
+Command Deck (Trust-Tier stages + palette + next-step rail), Conversational
+Front Door, and Lifecycle Canvas. Command Deck was chosen because it is the
+most evidence-based (it directly answers the report's measured "13 flat tabs"
+usability problem, cross-checked against real products the report studied —
+Databricks, ThoughtSpot) and lowest-risk; the report itself flagged the bolder
+ideas as better attempted only after this foundational piece is live and
+reviewed. Within Command Deck, only Part 1 (this sidebar regroup) is built
+here — Part 2 (command palette, future `dataglowCommandPalette` flag) and
+Part 3 (adaptive next-step rail, future `dataglowNextStepRail` flag) are
+deliberately deferred to their own future batches, honoring the standing
+"build piece by piece" convention even under a "build all" instruction that
+was answered at the level of the three TOP-LEVEL candidate directions, not as
+license to skip the internal staged risk ordering within one of them. Naming
+was kept exactly as proposed by the report: "Command Deck," stages named
+Frame/Work/Trust/Generate/Tell.
+
 ### Local Analysis Contract — SQL-vs-schema checker, and a consolidation call
 
 `js/validation/analysis-contract.js` checks a SQL query against the REAL schema

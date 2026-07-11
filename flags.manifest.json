@@ -30,6 +30,11 @@
       "enabled": false,
       "addedInPR": "gen43-meeting-scribe-agent",
       "description": "Gen 43 meeting scribe agent (js/agents/meeting-scribe-agent.js): pure, browser-free logic that tags a transcript's segments to whichever chart/query was on screen, flags stakeholder pushback for the existing uncertainty resolver, queues new data requests, and enforces the owner+dueDate+outcome rule before an action item counts as resolved. This flag exists for the promote-or-delete clock even though no UI reads it yet — there is no audio capture, transcription, or Validate/Visualize-tab wiring in this PR (deliberately out of scope, follow-up work). Ships fully dark: no code path is reachable from the app today regardless of this flag's value."
+    },
+    "dataglowSidebarNav": {
+      "enabled": false,
+      "addedInPR": "gen44-command-deck-part1-sidebar-nav",
+      "description": "Command Deck, Part 1: an alternate left-sidebar nav (#command-deck-sidebar, js/app-shell/command-deck-nav.js) that regroups the existing 13 tabs into 5 Trust-Tier Lifecycle Stages (Frame/Work/Trust/Generate/Tell) with collapsible stage headers, instead of the flat top tab bar. Pure reorganization of existing tabs -- zero new logic, zero new panels; every tab id is checked at test time against the real TAB_META in main.js so this can never silently drift out of sync with the app's actual 13 tools. Ships dark: with the flag off (default) the sidebar host stays hidden and the existing top tab bar remains the one and only nav, unchanged. Command Deck decision (direction / scope / naming) resolved by the agent per the user's 'build all, safely and smartly' instruction -- see docs/capability-map.md and AGENTS.md for the full stated rationale. Part 2 (command palette) and Part 3 (adaptive next-step rail) are follow-on batches, not included here."
     }
   }
 }

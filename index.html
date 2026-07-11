@@ -81,6 +81,12 @@
   <!-- ============ MAIN AREA ============ -->
   <div class="main-area">
 
+    <!-- Command Deck sidebar nav (Part 1 — alternate nav, ships dark behind
+         the dataglowSidebarNav flag; hidden via inline display:none set by
+         main.js at boot so a flag-off session never shows it, the top tab
+         bar above stays the default until this is reviewed live). -->
+    <aside class="command-deck-sidebar" id="command-deck-sidebar" aria-label="DATAGLOW Command Deck" style="display:none;"></aside>
+
     <!-- Dataset sidebar -->
     <aside class="data-sidebar" id="data-sidebar">
       <div class="sidebar-section">
