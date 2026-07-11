@@ -1474,6 +1474,10 @@
         {
           "file": "js/agents/meeting-scribe-agent.js",
           "name": "buildMeetingNote"
+        },
+        {
+          "file": "js/agents/meeting-scribe-agent.js",
+          "name": "buildPushbackCandidate"
         }
       ]
     },

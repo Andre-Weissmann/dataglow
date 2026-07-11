@@ -22,7 +22,18 @@ import {
   PUSHBACK_PHRASES, DATA_REQUEST_PHRASES,
   detectPushback, detectDataRequest, tagSegmentsWithContext,
   buildActionItem, isActionItemResolved, resolveActionItem, buildMeetingNote,
+  buildPushbackCandidate, MEETING_PUSHBACK_CATEGORY,
 } from '../js/agents/meeting-scribe-agent.js';
+import { resolve } from '../js/agents/uncertainty-resolver-agent.js';
+import { buildDebateDiagnostics } from '../js/agents/debate-diagnostics.js';
+import { scanSourceForNetwork } from '../js/packs/pack-network-guard.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const AGENT_SRC = readFileSync(join(HERE, '../js/agents/meeting-scribe-agent.js'), 'utf8');
+const UI_SRC = readFileSync(join(HERE, '../js/agents/meeting-scribe-ui.js'), 'utf8');
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;
@@ -32,7 +43,7 @@ function ok(cond, msg) {
   else { failed++; console.log(`\u2717 FAILED: ${msg}`); }
 }
 
-function main() {
+async function main() {
   // ---------- 1. Pushback detection ----------
   ok(detectPushback('Why did this drop last week?').isPushback, 'pushback: "why did this drop" is detected');
   ok(detectPushback('Are you sure about that number?').isPushback, 'pushback: "are you sure" is detected');
@@ -107,8 +118,64 @@ function main() {
   const emptyNote = buildMeetingNote({});
   ok(emptyNote.quoteCount === 0 && Array.isArray(emptyNote.chartsDiscussed), 'buildMeetingNote: empty input degrades to a well-shaped empty note, no throw');
 
+  // ---------- 7. Pushback → resolver candidate (pure, honest) ----------
+  const withContext = buildPushbackCandidate({
+    text: 'Why did this drop in March?', matched: 'why did this drop', ts: 500,
+    context: { chart: 'revenue-trend', queryLabel: 'monthly_revenue' },
+  });
+  ok(withContext.category === MEETING_PUSHBACK_CATEGORY, 'candidate: uses the NEW meeting-pushback category (not impossible/outlier)');
+  ok(withContext.column === 'revenue-trend', 'candidate: column comes from the tagged chart context');
+  ok(withContext.observation.includes('Why did this drop in March?'), 'candidate: observation quotes the actual transcript text verbatim');
+  ok(withContext.ruleGuess === 'treat this as worth a second look', 'candidate: ruleGuess is a generic placeholder, not a fabricated specific rule');
+
+  const noContext = buildPushbackCandidate({ text: 'Are you sure about that number?', matched: 'are you sure', ts: 12, context: null });
+  ok(noContext.column === 'the number under discussion', 'candidate: null context yields a neutral placeholder column, never a guessed one');
+  ok(noContext.observation.includes('Are you sure about that number?'), 'candidate: observation still quotes the text with no context');
+
+  // HONESTY: the candidate never fabricates a statistic or hard-constraint claim.
+  const honest = buildPushbackCandidate({ text: 'That seems off to me', matched: 'that seems off', ts: 3, context: null });
+  const blob = JSON.stringify(honest).toLowerCase();
+  ok(!/\bstd\b|standard deviation|z-?score|percentile|\d+\s*sd|hardconstraint|impossible/.test(blob),
+    'candidate: names no fabricated statistic or hard-constraint — it only quotes what was said');
+  ok(honest.stat === undefined && honest.severity === undefined,
+    'candidate: sets no stat/severity, so resolve() cannot take Step A’s hard-constraint fast path');
+
+  // Malformed / empty input degrades gracefully.
+  const emptyCand = buildPushbackCandidate(null);
+  ok(emptyCand.category === MEETING_PUSHBACK_CATEGORY && typeof emptyCand.observation === 'string',
+    'candidate: null input degrades to a well-shaped candidate, no throw');
+
+  // Does not mutate its input.
+  const input = Object.freeze({ text: 'is that right?', matched: 'is that right', ts: 1, context: null });
+  buildPushbackCandidate(input);
+  ok(input.text === 'is that right?', 'candidate: never mutates its input segment');
+
+  // ---------- 8. The candidate really routes through resolve() to the debate ----------
+  // No LLM injected → the resolver falls back to its deterministic Step-C debate,
+  // so a meeting-pushback candidate resolves at Step C with revealable diagnostics
+  // rather than Step A's hard-constraint fast path.
+  const resolution = await resolve(withContext);
+  ok(resolution.resolvedBy === 'C', 'resolve(candidate): a meeting-pushback candidate routes to Step C (the debate), not Step A/B');
+  ok(typeof resolution.suggestion === 'string' && typeof resolution.confidence === 'number', 'resolve(candidate): yields a suggestion + numeric confidence');
+  ok(buildDebateDiagnostics(resolution).available === true, 'resolve(candidate): the Step-C resolution exposes revealable debate diagnostics');
+
+  // ---------- 9. SAFETY: the re-check path is READ-ONLY (no apply/mutation/network) ----------
+  // The whole feature only DISPLAYS a re-check result. It must never auto-apply
+  // anything: it names no primitive that writes to a pack, rule, dataset, metrics
+  // registry, decision ledger, or persistent storage, and no network primitive.
+  ok(scanSourceForNetwork(AGENT_SRC).length === 0, 'safety: meeting-scribe-agent.js names no network primitive');
+  ok(scanSourceForNetwork(UI_SRC).length === 0, 'safety: meeting-scribe-ui.js names no network primitive');
+  const APPLY_TOKENS = [
+    'importPack(', 'registerRuntimePack(', 'applyFix(', 'recordStep(', 'defineMetric(',
+    'appendLedgerEntries(', 'saveLedgerEntries(', 'clearLedgerEntries(', 'localStorage',
+  ];
+  for (const tok of APPLY_TOKENS) {
+    ok(!AGENT_SRC.includes(tok), `safety: meeting-scribe-agent.js names no apply/mutation primitive (${tok})`);
+    ok(!UI_SRC.includes(tok), `safety: meeting-scribe-ui.js names no apply/mutation primitive (${tok})`);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
 
-main();
+main().catch((e) => { console.error(e); process.exit(1); });

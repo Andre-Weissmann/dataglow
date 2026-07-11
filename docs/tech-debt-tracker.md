@@ -480,3 +480,42 @@ Newest entries go at the bottom of **Entries**.
 - **Severity:** low
 - **Area:** `js/provenance/incident-postmortem.js`, `js/app-shell/main.js`, `js/validation/domain-physics.js`
 - **Status:** open
+
+### 2026-07-11 — Meeting Scribe re-check duplicates the debate-diagnostics disclosure instead of sharing it
+
+- **Description:** `js/agents/meeting-scribe-ui.js`'s "Re-check this number"
+  result renders the same opt-in "Why this suggestion?" disclosure + diagnostics
+  panel (per-persona confidence + reconciliation math) that
+  `js/agents/conversational-pack-ui.js` already renders — `appendReasoningDisclosure`
+  and `buildDiagnosticsPanel` are near-identical between the two files. They were
+  minimally duplicated rather than extracted into a shared helper module because a
+  clean extraction would mean editing `conversational-pack-ui.js`, which was
+  treated as read-only for this batch. Both copies build lazily on first expand
+  and are gated on `buildDebateDiagnostics(resolution).available`, so behaviour is
+  identical; the debt is only the duplication. Resolve by extracting a small shared
+  `debate-disclosure` UI helper both presenters import, in a batch that is free to
+  touch the pack-builder file. Low severity — the shared source of truth for the
+  numbers themselves is already `js/agents/debate-diagnostics.js`; only the DOM
+  rendering is duplicated.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/agents/meeting-scribe-ui.js`, `js/agents/conversational-pack-ui.js`
+- **Status:** open
+
+### 2026-07-11 — Meeting Scribe re-check has no live chart-context timeline, so `column` is always a placeholder
+
+- **Description:** `buildPushbackCandidate` in `js/agents/meeting-scribe-agent.js`
+  derives the candidate's `column` from whatever chart/query context Part 1 tagged
+  the segment against. But nothing in the app currently emits a live "chart
+  changed" event stream to feed `tagSegmentsWithContext`, so every segment is
+  tagged `context: null` (the agent's own documented graceful-degradation path),
+  which means a re-checked pushback always resolves against the neutral placeholder
+  `'the number under discussion'` rather than the actual chart the stakeholder was
+  looking at. The re-check still works and stays honest (it never guesses a chart),
+  it is just less specific than it could be. Resolve by wiring the app's
+  view-switch events into a context timeline passed to `tagSegmentsWithContext`,
+  which is a natural next piece now that the Meeting tab exists to show it.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/agents/meeting-scribe-agent.js`, `js/agents/meeting-scribe-ui.js`
+- **Status:** open

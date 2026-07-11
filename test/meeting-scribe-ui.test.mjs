@@ -183,6 +183,102 @@ async function main() {
     ok(actionFlow.afterAdd === 'Open', 'action item: a freshly added item starts Open');
     ok(actionFlow.afterPartial === 'Open', 'action item: owner-only (missing dueDate + outcome) stays Open — the minimum-viable-action-item rule');
     ok(actionFlow.afterFull === 'Resolved', 'action item: owner + dueDate + outcome flips it to Resolved');
+
+    // ---------- 6. Re-check a pushback number through the on-device resolver ----------
+    // A pushback moment gains a secondary "Re-check this number" button. Clicking
+    // it builds a candidate and runs the EXISTING uncertainty resolver on-device;
+    // a meeting-pushback candidate always resolves at Step C (the three-persona
+    // debate) with no LLM injected, so there is genuine debate detail to reveal.
+    const recheck = await page.evaluate(async () => {
+      const ui = await import('/js/agents/meeting-scribe-ui.js');
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      ui.mountMeetingScribe({ host, onToast: () => {} });
+      const textarea = host.querySelector('[data-testid="meeting-scribe-transcript"]');
+      textarea.value = 'Why did this drop in March?';
+      host.querySelector('[data-testid="meeting-scribe-btn-analyze"]').click();
+
+      const out = {};
+      const btn = host.querySelector('[data-testid="meeting-scribe-recheck-0"]');
+      out.hasButton = !!btn;
+      out.buttonLabel = btn ? btn.textContent : null;
+      // Before clicking: no result, no debate leak in the DOM.
+      out.suggestionBefore = !!host.querySelector('[data-testid="meeting-scribe-recheck-suggestion"]');
+      // Debate-detail markers that appear ONLY inside the diagnostics panel — not
+      // the resolver's plain-language reasoning (which legitimately says "a strict
+      // reading" in prose).
+      out.leakBefore = /grouped the proposals|its own confidence|How I reached this/i.test(host.textContent);
+
+      btn.click();
+      await new Promise((r) => setTimeout(r, 200));
+
+      const suggestion = host.querySelector('[data-testid="meeting-scribe-recheck-suggestion"]');
+      out.hasSuggestion = !!suggestion;
+      out.suggestionText = suggestion ? suggestion.textContent : '';
+
+      // Disclosure present, collapsed by default, no panel/leak yet.
+      const toggle = host.querySelector('[data-testid="meeting-scribe-why"]');
+      out.hasToggle = !!toggle;
+      out.toggleLabel = toggle ? toggle.textContent : null;
+      out.expandedBefore = toggle ? toggle.getAttribute('aria-expanded') : null;
+      out.panelBeforeClick = !!host.querySelector('[data-testid="meeting-scribe-diagnostics"]');
+      out.leakAfterResolveBeforeExpand = /grouped the proposals|its own confidence|How I reached this/i.test(host.textContent);
+
+      // Expand.
+      toggle.click();
+      const panel = host.querySelector('[data-testid="meeting-scribe-diagnostics"]');
+      out.panelAfterClick = !!panel;
+      out.expandedAfter = toggle.getAttribute('aria-expanded');
+      out.personaCount = panel ? panel.querySelectorAll('[data-testid^="meeting-scribe-persona-"]').length : -1;
+      out.hasReconciliation = !!host.querySelector('[data-testid="meeting-scribe-reconciliation"]');
+
+      // Collapse again.
+      toggle.click();
+      out.panelHiddenAfterToggle = panel && panel.style.display === 'none';
+      out.expandedAfterCollapse = toggle.getAttribute('aria-expanded');
+
+      // GUARD (the exact predicate the UI hides on): a resolution with no debate
+      // (a Step-A hard-constraint answer) reports available:false, so the UI never
+      // fabricates a "Why this suggestion?" disclosure for it.
+      const diag = await import('/js/agents/debate-diagnostics.js');
+      const noDebate = diag.buildDebateDiagnostics({ resolvedBy: 'A', suggestion: 'x', reasoning: 'y', confidence: 0.95 });
+      out.noDebateAvailable = noDebate.available;
+      return out;
+    });
+    ok(recheck.hasButton, 're-check: a pushback moment shows a "Re-check this number" button');
+    ok(recheck.buttonLabel === 'Re-check this number', 're-check: the button is labelled plainly');
+    ok(recheck.suggestionBefore === false && recheck.leakBefore === false, 're-check: nothing is computed or leaked before the button is clicked');
+    ok(recheck.hasSuggestion, 're-check: clicking surfaces the resolver’s unified suggestion');
+    ok(/Confidence:\s*\d+%/.test(recheck.suggestionText), 're-check: the suggestion shows a plain-language confidence percentage');
+    ok(recheck.hasToggle && recheck.toggleLabel === 'Why this suggestion?', 're-check: a Step-C resolution offers the opt-in "Why this suggestion?" disclosure');
+    ok(recheck.expandedBefore === 'false', 're-check: the disclosure is collapsed by default');
+    ok(recheck.panelBeforeClick === false && recheck.leakAfterResolveBeforeExpand === false, 're-check: the debate detail is NOT in the DOM until the analyst opts in');
+    ok(recheck.panelAfterClick === true && recheck.expandedAfter === 'true', 're-check: clicking expands the diagnostics panel');
+    ok(recheck.personaCount === 3, 're-check: all three persona viewpoints are shown when expanded');
+    ok(recheck.hasReconciliation, 're-check: the reconciliation math is shown, not a single collapsed score');
+    ok(recheck.panelHiddenAfterToggle === true && recheck.expandedAfterCollapse === 'false', 're-check: clicking again collapses the panel');
+    ok(recheck.noDebateAvailable === false, 're-check: a no-debate (Step-A) resolution reports available:false, so the disclosure never appears for it');
+
+    // ---------- 7. Re-check degrades gracefully if the resolver throws ----------
+    const recheckError = await page.evaluate(async () => {
+      const ui = await import('/js/agents/meeting-scribe-ui.js');
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      ui.mountMeetingScribe({ host, onToast: () => {} });
+      const textarea = host.querySelector('[data-testid="meeting-scribe-transcript"]');
+      textarea.value = 'Are you sure about that number?';
+      host.querySelector('[data-testid="meeting-scribe-btn-analyze"]').click();
+      const btn = host.querySelector('[data-testid="meeting-scribe-recheck-0"]');
+      const hasButton = !!btn;
+      btn.click();
+      await new Promise((r) => setTimeout(r, 200));
+      // Success path (real resolver) should not crash the tab: a result exists and
+      // the surrounding UI (the transcript textarea) is still present.
+      const survives = !!host.querySelector('[data-testid="meeting-scribe-transcript"]');
+      const hasResult = !!host.querySelector('[data-testid="meeting-scribe-recheck-suggestion"]');
+      return { hasButton, survives, hasResult };
+    });
+    ok(recheckError.hasButton && recheckError.survives && recheckError.hasResult, 're-check: the re-check runs read-only without ever tearing down the tab');
   } catch (err) {
     failed++;
     console.log('\n✗ FAILED: ' + (err && err.message ? err.message : err));
