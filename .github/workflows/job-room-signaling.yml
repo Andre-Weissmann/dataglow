@@ -1,0 +1,32 @@
+# ============================================================
+# DATAGLOW — CI job: Room Signaling (DataGlow Rooms, Batch 1)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the pure-logic suite behind DataGlow Rooms' room-code generation and
+# peer-discovery/signaling contract (js/rooms/room-signaling.js):
+#   - isRoomsSupported() graceful WebRTC capability check (never throws),
+#   - generateRoomCode() / normalizeRoomCode() / isValidRoomCode(),
+#   - RoomSignalingCoordinator.join()/listPeers()/leave() against an injected
+#     fake signaling adapter (mirrors FederatedCoordinator's own test style).
+# The module is pure JS with dependency-injected adapters (no real WebRTC/
+# network exercised in CI, same as federated-learning.test.mjs), so plain
+# `node` runs the suite — no DuckDB, DOM, or browser needed.
+
+name: Room Signaling (Rooms B1)
+
+on:
+  workflow_call:
+
+jobs:
+  room-signaling:
+    name: Room Signaling (room codes + peer discovery contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:roomsignaling

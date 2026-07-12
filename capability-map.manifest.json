@@ -528,6 +528,24 @@
       ]
     },
     {
+      "id": "rooms-signaling",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "DataGlow Rooms",
+      "name": "Room signaling / peer discovery (Batch 1 of 4)",
+      "files": [
+        "js/rooms/room-signaling.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rooms/room-signaling.js",
+          "name": "RoomSignalingCoordinator"
+        }
+      ]
+    },
+    {
       "id": "data-diplomacy-claim",
       "platforms": [
         "browser",

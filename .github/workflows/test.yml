@@ -53,6 +53,8 @@ jobs:
     uses: ./.github/workflows/job-agents-md-drift.yml
 
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
+  room-signaling:
+    uses: ./.github/workflows/job-room-signaling.yml
   query-memory:
     uses: ./.github/workflows/job-query-memory.yml
   live-transcript-capture:

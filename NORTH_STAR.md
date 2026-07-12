@@ -89,6 +89,67 @@ forking the agent.
 
 ---
 
+## Concept in progress: DataGlow Rooms
+
+**One sentence:** turn any DataGlow session into a shared room — an analyst, a data scientist,
+and a data engineer open the same dataset from their own browsers, each working in their own
+preferred mode (drag-and-drop, SQL, Python, R), and see each other's queries, charts, and
+validation findings update live on their own screen, peer-to-peer, with zero server and zero
+upload — the same privacy guarantee as every other DataGlow feature, extended for the first
+time to more than one person at once.
+
+**Where this came from:** brainstorm round 5 (2026-07-12), run against the full
+revolutionary/flip-the-script/tear-down-walls lens with the user's explicit ask for "any data
+role, any experience level... team members using it... video conferencing... note taking." A
+dedicated research pass that same day (`research_agentic_collaboration_2026-07-12.md`) found
+this is the single loudest unmet need in the market: dbt Labs' 2026 State of Analytics
+Engineering report shows a 48-point gap between AI-coding adoption (72%) and AI-validation
+investment (24%), and no named 2026 competitor (Snowflake CoCo, Databricks Genie, Tableau
+Agent, Deepnote) lets mixed skill levels work one live dataset together without cloud sync —
+every one of them assumes cloud-resident data by construction. DataGlow already had three of
+the four load-bearing primitives sitting half-wired: Object Space (cross-language shared
+object registry, currently passive-only), the Polyglot Workbench's multi-language views, and —
+crucially — real, tested, peer-to-peer WebRTC transport in `js/federated/federated-transport.js`
+(built for Federated Learning, never yet used for anything else). Rooms is the connective
+tissue wiring those three together, and it also completes two backlog items that were already
+queued but stalled: Live Rooms' own Batch 2 (WebRTC mirrored view) and Polyglot Workbench's
+Batch C (cross-language query-time resolution).
+
+**Why this fits DataGlow:** it is the first capability where more than one person's live
+session touches the same in-browser DuckDB state, but it inherits every existing privacy
+discipline rather than inventing new ones — no recording, no persistence beyond the session,
+no server relay, and a `NULL_ROOM_SIGNALING` no-op adapter (identical philosophy to
+Federated Learning's `NULL_SIGNALING`) that makes an unreachable coordination channel a
+first-class, never-thrown state instead of a broken feature.
+
+**Build batches (in order, each its own PR, each its own default-OFF flag — per the
+standing rule that enabling any flag is always a separate, explicitly confirmed action from
+building/merging it):**
+1. **Batch 1 — room signaling + peer discovery.** (DONE — see
+   [PR #188](https://github.com/Andre-Weissmann/dataglow/pull/188) — new pure, Node-testable module `js/rooms/room-signaling.js`:
+   `generateRoomCode()`/`normalizeRoomCode()`/`isValidRoomCode()` for short, human-shareable,
+   collision-tolerant room codes (visually-ambiguous characters excluded); `isRoomsSupported()`
+   reusing `isWebRTCSupported()` from `federated-learning.js`; `RoomSignalingCoordinator`
+   (`join()`/`listPeers()`/`leave()`) built with the exact dependency-injection pattern
+   `FederatedCoordinator` already proved. NO UI, NO Object Space broadcasting yet. Verified in
+   `test/room-signaling.test.mjs` (`npm run test:roomsignaling`), 29/0 passing, new
+   `job-room-signaling.yml` CI job. Ships DARK behind `roomsSignaling` (default OFF,
+   intentionally dark per this batching plan): when off, nothing in the app imports or calls
+   into this module and every existing path is byte-for-byte unchanged.)
+2. **Batch 2 — Object Space broadcast wiring.** NOT STARTED. When a Room is active, broadcast
+   new/updated Object Space entries to peers over the WebRTC data channel Batch 1 opens; render
+   read-only "who's viewing" tags. This is the core value but still additive — every existing
+   single-user code path stays byte-for-byte unchanged when no Room is open.
+3. **Batch 3 — UI: Room pill, avatar presence, live-update toasts.** NOT STARTED. The visual
+   layer demonstrated in the 2026-07-12 live desktop + mobile preview mockup
+   (`dataglow-rooms-preview` app asset).
+4. **Batch 4 (stretch, optional) — cross-language live resolution.** NOT STARTED. Let a
+   Python/R view actually re-render from a peer's live SQL result, not just display it — this
+   is also Polyglot Workbench's own already-planned "Batch C," so building it here retires that
+   backlog item too.
+
+---
+
 ## Concept in progress: Polyglot Workbench
 
 **One sentence:** SQL, Python, and R stop being three separate sandboxes that only talk
