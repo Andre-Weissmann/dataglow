@@ -29,6 +29,14 @@ use dev dependencies freely.
 Before editing for a new feature or a fix, spend a moment getting the lay of the
 land — it consistently saves more time than it costs:
 
+0. **Check for overlap first.** Before anything else, run the
+   [`preflight-overlap-check`](./.claude/skills/preflight-overlap-check/SKILL.md)
+   skill — it searches open PRs, the capability map, and the codebase together
+   for existing or in-flight work on the same thing, and routes you to extend
+   an existing PR instead of silently duplicating it. This repo has already
+   shipped two independent implementations of the same capability once (PR
+   #108 and #114, both an "Agent Action Firewall"); this step exists so that
+   doesn't happen again. Skip only for genuinely trivial one-line fixes.
 1. **Find the right files.** Start from [`docs/capability-map.md`](./docs/capability-map.md).
    It maps every `js/` module to a feature area, so you can jump straight to the
    two or three files that matter instead of scanning all ~60. Open the area's
