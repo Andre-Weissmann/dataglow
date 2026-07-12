@@ -66,16 +66,6 @@ These lost the "combine into one" round but remain valid; pull the next one when
 7. Governance-as-living-layer: one queryable interface for humans and agents (Gartner's "context as
    infrastructure" framing) — partially achieved once the Gate ships.
 
-## Efficiency note for future sessions
-
-The user has explicitly said repeating the full ritual "round after round" without shipping/testing
-anything is unproductive. Default behavior going forward:
-- Read this file first.
-- If the user says "brainstorm" / "what's next" without new context, propose the next backlog item
-  or a genuine improvement to it — do not restart from zero research.
-- Only run a full new deep-research pass if the user explicitly asks, or it's been a long time
-  (e.g. 1+ months) since the last pass.
-
 ## Lessons learned
 
 - **Flip (or explicitly flag as still-dark) the visibility flag before reporting a batch done.** Batch 2
@@ -85,6 +75,16 @@ anything is unproductive. Default behavior going forward:
   next PR, and when it is meant to stay dark, say so explicitly in the done report. (Fixed for the badge in
   `sync-northstar-badge-and-batch3`: badge flag promoted to ON; batch-3 enforcement intentionally stays OFF
   and is reported as such.)
+
+## Efficiency note for future sessions
+
+The user has explicitly said repeating the full ritual "round after round" without shipping/testing
+anything is unproductive. Default behavior going forward:
+- Read this file first.
+- If the user says "brainstorm" / "what's next" without new context, propose the next backlog item
+  or a genuine improvement to it — do not restart from zero research.
+- Only run a full new deep-research pass if the user explicitly asks, or it's been a long time
+  (e.g. 1+ months) since the last pass.
 
 ## Standing brainstorm process (permanent — do not ask the user to re-paste the ritual)
 
@@ -105,12 +105,21 @@ applied automatically every time, at whatever scale the request calls for:
 5. Rank them honestly by real value, buildability, and fit with DataGlow's existing philosophy.
 6. Combine the strongest ideas into ONE concept — never present a menu.
 7. Check the concept against existing capabilities/modules for duplication.
-8. Present the one concept with reasoning, and end with ONE concrete build-order fork (2 options max)
-   — not an open-ended question.
-9. Build it as a small, tested, isolated batch — real PR, real CI, ship dark behind a flag if it
-   changes visible/human-facing behavior.
-10. Report the real, concrete result once merged/tested — update this file's backlog and "current
+8. Present the one concept with reasoning.
+8b. **Live desktop + mobile preview (mandatory, added 2026-07-11):** build a visual mockup of the
+    concept rendered inside DataGlow's actual UI shell (reuse real CSS/theme/layout, not a generic
+    wireframe), deploy it to a live link at BOTH a desktop viewport and a mobile viewport, and share
+    both links so the user can see how it actually looks before deciding anything. Never substitute
+    a written description for this step. This is a look-and-feel mockup only, built as a standalone
+    deployed copy — never touch the production repo/main branch just to produce a preview.
+9. After the live preview is shown, end with ONE concrete build-order fork (2 options max) — not an
+   open-ended question.
+10. Build it as a small, tested, isolated batch — real PR, real CI, ship dark behind a flag if it
+    changes visible/human-facing behavior.
+11. Report the real, concrete result once merged/tested — update this file's backlog and "current
     concept" section so nothing is lost and the next round starts from here, not from zero.
 
 Do not ask the user whether to apply "the creative lens" — always apply it. Do not ask the user to
-confirm this process again in future sessions unless they explicitly want to change it.
+confirm this process again in future sessions unless they explicitly want to change it. Do not skip
+the live desktop + mobile preview step (8b) — it was explicitly requested by the user on 2026-07-11
+so they can actually see, not just read about, how a brainstormed idea would look in DataGlow.
