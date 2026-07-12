@@ -161,8 +161,15 @@ export async function createTableFromRows(tableName, columns, rows) {
   // Fallback path: build table from JS objects (used for Excel/SQLite parsed data & golden dataset)
   const conn = state.duckdb.conn;
   const colDefs = columns.map(c => `"${c}" VARCHAR`).join(', ');
-  await runQuery(`DROP TABLE IF EXISTS ${tableName}`);
-  await runQuery(`CREATE TABLE ${tableName} (${colDefs})`);
+  // CREATE OR REPLACE is one atomic statement (unlike a separate DROP IF
+  // EXISTS + CREATE), so two overlapping calls for the same table name can no
+  // longer interleave into a "table already exists" catalog error. This is a
+  // second, independent layer of defense underneath runDatasetLoad()'s
+  // in-flight guard in main.js (docs/tech-debt-tracker.md, 2026-07-12 entry) —
+  // that guard already prevents the overlap in practice, but this removes the
+  // race window structurally so any other caller of createTableFromRows that
+  // doesn't go through runDatasetLoad is covered too.
+  await runQuery(`CREATE OR REPLACE TABLE ${tableName} (${colDefs})`);
   if (rows.length === 0) return;
   const placeholders = columns.map(() => '?').join(',');
   const stmt = await conn.prepare(`INSERT INTO ${tableName} VALUES (${placeholders})`);

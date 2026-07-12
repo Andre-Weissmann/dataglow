@@ -280,6 +280,31 @@ Newest entries go at the bottom of **Entries**.
   source-asserts the guard can't be silently deleted and proves the concurrency
   semantics. Fixed in PR `feature/proof-room-batch2-flags-and-bugfix`.
 
+### 2026-07-12 — Golden-dataset race fix (above) only guarded the caller, not `createTableFromRows` itself
+
+- **Description:** Debug-log-tree check on stale PR #167 ("Fix golden-dataset
+  load race condition") found it re-proposed the exact `datasetLoadInFlight`
+  guard already fixed above (near-verbatim duplicate) — but it also carried
+  one genuinely new, non-duplicate fix: `createTableFromRows()` in
+  `js/app-shell/duckdb-engine.js` still ran the race-prone two-step
+  `DROP TABLE IF EXISTS` + `CREATE TABLE` even after the `runDatasetLoad()`
+  guard shipped. The guard protects every caller that goes through
+  `runDatasetLoad()`, but three call sites in `js/app-shell/main.js`
+  (Digital Twin snapshot restore, replay/generated-data load, twin table
+  creation) call `engine.createTableFromRows()` directly and were never
+  covered by that guard.
+- **Date:** 2026-07-12
+- **Severity:** low
+- **Area:** `js/app-shell/duckdb-engine.js` (`createTableFromRows`)
+- **Status:** fixed
+- **Resolution:** Collapsed the two-step DROP + CREATE into a single atomic
+  `CREATE OR REPLACE TABLE` statement, removing the race window structurally
+  instead of relying only on a caller-side guard. Extracted from stale PR #167
+  as a small standalone fix (the duplicate `runDatasetLoad` guard portion of
+  #167 was left out and #167 closed as superseded). Verified against
+  `npm run test:goldenloadrace` (4/4), `test:twin` (17/17), `test:metricstudio`
+  (20/20), `test:e2e`, and `test:e2e-coi-race` — all clean.
+
 ### 2026-07-12 — Unit Test Layer: duplicate check is byte-identical-only; referential-integrity check only tests FK non-nullness
 
 - **Description:** Two scope gaps in `runUnitTests()`
