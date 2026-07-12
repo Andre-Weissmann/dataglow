@@ -359,3 +359,51 @@ Newest entries go at the bottom of **Entries**.
   diff suspicious hunk boundaries against `git show HEAD:<path>`; after
   resolving any `.html` file, scan for duplicate `id=` attributes with a
   properly anchored pattern, never a bare `id="\K[^"]+"`.
+### 2026-07-12 — Rebase gotcha: in-place doc-bullet edits can land as stale-duplicate-plus-new across multi-commit rebases
+
+- **Description:** When rebasing a multi-commit branch through append-only docs
+  (`docs/CHANGELOG.md`, `AGENTS.md`, `flags.manifest.json`), a conflict that looks
+  like a pure append can actually hide a case where one commit's real intended
+  diff was an in-place *edit* of an existing bullet/field (not a fresh addition).
+  If each commit's conflict is resolved independently without checking the
+  commit's own diff (`git show <sha> -- <path>`), the naive "keep both sides"
+  append resolution can leave the pre-edit (stale) version of that bullet sitting
+  alongside the post-edit version — a silent duplicate that reads as two
+  plausible entries instead of one corrected one.
+- **Date:** 2026-07-12
+- **Severity:** low (process gotcha, not a shipped defect — caught during backlog
+  PR rebase triage before merge)
+- **Area:** rebase/merge-conflict workflow for append-only doc files during
+  multi-commit branch rebases
+- **Status:** mitigated by process — established rule: after resolving any
+  append-only-looking conflict, verify with `grep -c` for duplicate
+  section/entry headers, and when in doubt, check `git show <commit-sha> -- <path>`
+  to confirm which side is the commit's real intended diff before finalizing.
+  No code/doc content fix needed; this entry exists so future sessions apply the
+  check proactively instead of rediscovering it.
+
+### 2026-07-12 — Rebase gotcha: reusing a stale local branch name across PRs silently rebases the wrong branch
+
+- **Description:** While triaging PR #123 (`feature/analysis-robustness-sensitivity-verdict`)
+  immediately after finishing PR #124 (`feature/meeting-provenance-bridge`), an
+  earlier `git checkout` of the PR #123 branch failed silently (local changes
+  would have been overwritten) and was not re-verified before running
+  `git rebase origin/main`. The rebase and its conflict resolutions were
+  therefore applied to the still-checked-out `feature/meeting-provenance-bridge`
+  branch instead — a branch already pushed and merged-pending for a different
+  PR. Caught before any push because `git branch --show-current` was checked
+  immediately after the rebase completed and didn't match the PR being worked
+  on; the local branch was reset with
+  `git reset --hard origin/<branch>` and the correct branch was freshly fetched
+  and checked out (`git checkout -B <branch> origin/<branch>`) before redoing
+  the rebase. No remote state was ever affected.
+- **Date:** 2026-07-12
+- **Severity:** medium (could have force-pushed unrelated commits onto a
+  different PR's branch if not caught pre-push)
+- **Area:** rebase/merge-conflict workflow, branch-checkout discipline during
+  sequential backlog PR triage
+- **Status:** mitigated by process — established rule: always run
+  `git branch --show-current` immediately after `git checkout` succeeds (not
+  just after failures) and again right after a rebase completes, confirming it
+  matches the PR's `head.ref` from `gh api repos/.../pulls/<n>`, before doing any
+  conflict resolution work or push.
