@@ -126,7 +126,7 @@ first-class, never-thrown state instead of a broken feature.
 standing rule that enabling any flag is always a separate, explicitly confirmed action from
 building/merging it):**
 1. **Batch 1 — room signaling + peer discovery.** (DONE — see
-   [PR TBD] — new pure, Node-testable module `js/rooms/room-signaling.js`:
+   [PR #188](https://github.com/Andre-Weissmann/dataglow/pull/188) — new pure, Node-testable module `js/rooms/room-signaling.js`:
    `generateRoomCode()`/`normalizeRoomCode()`/`isValidRoomCode()` for short, human-shareable,
    collision-tolerant room codes (visually-ambiguous characters excluded); `isRoomsSupported()`
    reusing `isWebRTCSupported()` from `federated-learning.js`; `RoomSignalingCoordinator`
