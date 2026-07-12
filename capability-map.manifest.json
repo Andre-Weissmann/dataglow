@@ -152,6 +152,24 @@
       ]
     },
     {
+      "id": "glow-signal-aggregator",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "The Glow signal aggregator (Batch 1)",
+      "files": [
+        "js/glow/glow-signal.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/glow/glow-signal.js",
+          "name": "computeGlowSignal"
+        }
+      ]
+    },
+    {
       "id": "validation-orchestrator",
       "platforms": [
         "browser",
