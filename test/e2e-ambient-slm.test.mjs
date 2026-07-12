@@ -100,6 +100,16 @@ async function main() {
 
     // -------- (B) SLM graceful degradation (WebGPU forced off) --------
     await page.click('[data-testid="tab-validate"]');
+    // With validateFocusMode ON (its promoted default), the "Advanced options —
+    // AI Synthesis" <details> starts collapsed on a fresh, not-yet-validated
+    // dataset (applyValidateFocusMode force-closes it). #slm-status lives inside
+    // it, so a real user expands that section to reach the SLM controls — mirror
+    // that here (same summary-click expand pattern as e2e-smoke's Advanced/Legacy)
+    // before waiting for slm-status to become visible.
+    const aiSynthDetails = page.locator('[data-testid="validate-advanced-ai-synthesis"]');
+    if ((await aiSynthDetails.getAttribute('open')) === null) {
+      await page.click('[data-testid="validate-advanced-ai-synthesis"] > summary');
+    }
     await page.waitForSelector('[data-testid="slm-status"]', { timeout: 10000 });
     const slmState = await page.getAttribute('[data-testid="slm-status"]', 'data-slm-state');
     ok(slmState === 'no-webgpu', `SLM: degradation state is "no-webgpu" (got "${slmState}")`);
