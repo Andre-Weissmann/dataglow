@@ -51,3 +51,15 @@ those are the ones the index calls out as "standalone layer modules."
   fuller Missingness Detective layer above.
 - `js/validation/expected-range.js` — informational numeric trend bands that sit alongside
   the drift layer but change no status and raise no alert.
+- `js/validation/cross-table-rules.js` — Cross-Table Relational Rules (Truth Network, Batch 1
+  of 3). The one validation module that reasons ACROSS two loaded tables rather than within a
+  single one, closing the gap NORTH_STAR.md's run-4 P1 finding flagged (a claim dated after a
+  patient's recorded death date, or a claims total that disagrees between two datasets, is
+  invisible to every single-table layer, Cross-Column Logical Consistency included).
+  `checkCrossTableRule({ tableA, tableB, joinKeyA, joinKeyB, rule })` joins two arrays-of-row-
+  objects (or accepts pre-joined pairs) on a key and evaluates a small fixed rule vocabulary —
+  `date_after` (death-date washout, with a `maxDaysAfter` grace window) and `set_difference`
+  (claims-total mismatch) — and `summarizeCrossTableCheck` renders the verdict in one plain-
+  language line. Pure, DOM-free, DuckDB-free, and never-throwing. Batch 1 is pure logic only:
+  it is NOT one of the 21 `LAYER_DEFS` entries and is wired into no UI, shipping dark behind
+  the `crossTableRules` flag until Batch 2/3 add the Validate-suite wiring.
