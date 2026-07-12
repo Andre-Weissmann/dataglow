@@ -237,24 +237,6 @@
       ]
     },
     {
-      "id": "cross-table-rules",
-      "platforms": [
-        "browser",
-        "desktop"
-      ],
-      "area": "Validation layers",
-      "name": "Cross-Table Relational Rules (Truth Network, Batch 1 of 3)",
-      "files": [
-        "js/validation/cross-table-rules.js"
-      ],
-      "symbols": [
-        {
-          "file": "js/validation/cross-table-rules.js",
-          "name": "checkCrossTableRule"
-        }
-      ]
-    },
-    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",
