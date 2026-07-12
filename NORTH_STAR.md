@@ -327,9 +327,15 @@ for the auditor/partner-org/regulator persona the whole Trust Passport was built
    HAPPENS to hold the data drop a file into `verify-beam.html` to run the seal's optional
    layer-2 data-fingerprint match locally (still zero-upload); today the standalone page does
    the commitment/integrity layer only, which is all a recipient-without-data can check.
-3. **Batch 3 — promote `trustBeam` to ON** once the verifier has been dogfooded, following
+3. **Batch 3 — promote `trustBeam` to ON.** (SHIPPED, [#164](https://github.com/Andre-Weissmann/dataglow/pull/164) —
+   promoted alongside the rest of the Trust Passport chain (`verifiableCheckSeal`,
+   `dataNutritionLabel`, `syntheticDataPassport`) after the verifier was dogfooded, following
    the same visibility-flag discipline as the Readiness Gate badge promotion (see Lessons
-   learned — landing dark is not the same as shipped/visible).
+   learned — landing dark is not the same as shipped/visible). The "Beam it" button now
+   renders next to "Seal this result" in the SQL tab; the standalone `verify-beam.html` and
+   the seal/Merkle logic are unchanged. Turning `trustBeam` back off fully restores the
+   byte-for-byte prior behavior — and because the button is only reachable through the seal
+   card, it is inert unless `verifiableCheckSeal` is also on.)
 
 **Explicitly out of scope:** QR code rendering. Considered during Batch 1 and intentionally
 rejected, not deferred — the copyable link is sufficient and no QR encoder should be vendored
