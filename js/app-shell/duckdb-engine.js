@@ -161,8 +161,11 @@ export async function createTableFromRows(tableName, columns, rows) {
   // Fallback path: build table from JS objects (used for Excel/SQLite parsed data & golden dataset)
   const conn = state.duckdb.conn;
   const colDefs = columns.map(c => `"${c}" VARCHAR`).join(', ');
-  await runQuery(`DROP TABLE IF EXISTS ${tableName}`);
-  await runQuery(`CREATE TABLE ${tableName} (${colDefs})`);
+  // CREATE OR REPLACE is one atomic statement (unlike a separate DROP IF EXISTS
+  // + CREATE), so two overlapping calls for the same table name — e.g. a
+  // double-click on a sample-dataset load button before the first call
+  // resolves — can no longer interleave into a "table already exists" error.
+  await runQuery(`CREATE OR REPLACE TABLE ${tableName} (${colDefs})`);
   if (rows.length === 0) return;
   const placeholders = columns.map(() => '?').join(',');
   const stmt = await conn.prepare(`INSERT INTO ${tableName} VALUES (${placeholders})`);

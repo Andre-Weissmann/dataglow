@@ -629,13 +629,25 @@ function showEngineInitializing() {
 // Run a dataset-loading action, surfacing any engine/load failure as a visible,
 // retryable banner instead of letting the click handler's promise reject
 // silently. The Retry button re-runs the exact same action.
+//
+// Guarded against overlapping calls: a fast double-click on a sample-dataset
+// button (or a click landing while a drag-and-drop load is still in flight)
+// used to be able to fire two concurrent loads racing over the same DuckDB
+// table, surfacing as a "table already exists" error. While one load is
+// running, any further call is a silent no-op — nothing queues, nothing
+// errors, the in-flight load simply finishes on its own.
+let datasetLoadInFlight = false;
 async function runDatasetLoad(action) {
+  if (datasetLoadInFlight) return;
+  datasetLoadInFlight = true;
   clearEngineError();
   try {
     await action();
   } catch (err) {
     console.error('DATAGLOW dataset load failed:', err);
     showEngineError(err, () => runDatasetLoad(action));
+  } finally {
+    datasetLoadInFlight = false;
   }
 }
 
