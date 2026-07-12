@@ -110,3 +110,6 @@ jobs:
 
   dialect-adapter:
     uses: ./.github/workflows/job-dialect-adapter.yml
+
+  trust-beam:
+    uses: ./.github/workflows/job-trust-beam.yml

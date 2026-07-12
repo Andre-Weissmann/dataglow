@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify a DATAGLOW Trust Beam</title>
+<meta name="description" content="Re-verify a DATAGLOW Verifiable Check Seal shared as a Trust Beam link — entirely in your browser, with no server, no upload, and no DataGlow install.">
+<!-- Trust Beam standalone verifier.
+     Opened by someone who may have never used DATAGLOW. It reads the seal from
+     the URL FRAGMENT (after '#') — which the browser never sends to a server —
+     decodes it (js/provenance/trust-beam.js), and re-runs the EXISTING
+     verifySeal() (js/provenance/verifiable-check-seal.js) fully client-side.
+     No server, no app shell, no login, nothing uploaded. Reuses the app's real
+     design tokens (css/base.css, css/app.css); it invents no new colors. -->
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/app.css">
+<script>
+  // Match the OS colour scheme with the app's existing [data-theme='dark'] tokens.
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  } catch (_) { /* default light theme */ }
+</script>
+<style>
+  /* Page-level layout only — every colour/spacing value comes from the shared
+     tokens in css/base.css, none invented here. */
+  .beam-page { max-width: 720px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
+  .beam-title { font-family: var(--font-display); font-size: var(--text-xl); margin: 0 0 var(--space-2); }
+  .beam-sub { color: var(--color-text-muted); font-size: var(--text-sm); margin: 0 0 var(--space-6); }
+  .beam-verdict {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-4); border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border); background: var(--color-surface);
+    margin-bottom: var(--space-5);
+  }
+  .beam-verdict .beam-dot { width: 14px; height: 14px; border-radius: var(--radius-full); flex: none; }
+  .beam-verdict.ok { border-color: var(--color-success); }
+  .beam-verdict.ok .beam-dot { background: var(--color-success); }
+  .beam-verdict.bad { border-color: var(--color-error); }
+  .beam-verdict.bad .beam-dot { background: var(--color-error); }
+  .beam-verdict.wait .beam-dot { background: var(--color-warning); }
+  .beam-verdict-head { font-family: var(--font-display); font-size: var(--text-lg); }
+  .beam-verdict-reason { color: var(--color-text-muted); font-size: var(--text-sm); margin-top: 2px; }
+  .beam-section { margin-bottom: var(--space-5); }
+  .beam-section h2 { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); margin: 0 0 var(--space-2); }
+  .beam-claim { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--text-sm); padding: 2px 0; }
+  .beam-claim .status-dot { margin-top: 5px; flex: none; }
+  .beam-kv { font-size: var(--text-sm); color: var(--color-text); margin: 2px 0; }
+  .beam-kv .k { color: var(--color-text-muted); }
+  .beam-mono { font-family: var(--font-mono); font-size: var(--text-xs); word-break: break-all; }
+  .beam-disclaimer {
+    font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.5;
+    border-top: 1px solid var(--color-border); padding-top: var(--space-4); margin-top: var(--space-6);
+  }
+  .beam-brand { font-family: var(--font-display); font-weight: 600; color: var(--color-text); }
+</style>
+</head>
+<body>
+  <main class="beam-page">
+    <div class="beam-brand">DATAGLOW</div>
+    <h1 class="beam-title">Trust Beam verification</h1>
+    <p class="beam-sub">
+      This page re-checks a shared DATAGLOW check seal entirely inside your browser.
+      Nothing is uploaded, no account is needed, and no DATAGLOW install is required —
+      the seal travels inside this page's URL, which your browser never sends to a server.
+    </p>
+
+    <div id="beam-verdict" class="beam-verdict wait" data-testid="beam-verdict">
+      <span class="beam-dot"></span>
+      <div>
+        <div id="beam-verdict-head" class="beam-verdict-head">Checking…</div>
+        <div id="beam-verdict-reason" class="beam-verdict-reason">Reading the seal from this link.</div>
+      </div>
+    </div>
+
+    <div id="beam-details"></div>
+
+    <div class="beam-disclaimer" id="beam-disclaimer"></div>
+  </main>
+
+  <script type="module">
+    import { readBeamPayloadFromFragment, decodeBeam, BEAM_DISCLAIMER } from './js/provenance/trust-beam.js';
+    import { verifySeal, renderSealSummaryLines } from './js/provenance/verifiable-check-seal.js';
+
+    const verdictEl = document.getElementById('beam-verdict');
+    const headEl = document.getElementById('beam-verdict-head');
+    const reasonEl = document.getElementById('beam-verdict-reason');
+    const detailsEl = document.getElementById('beam-details');
+    const disclaimerEl = document.getElementById('beam-disclaimer');
+
+    disclaimerEl.textContent = BEAM_DISCLAIMER;
+
+    function setVerdict(state, head, reason) {
+      verdictEl.className = 'beam-verdict ' + state;
+      headEl.textContent = head;
+      reasonEl.textContent = reason;
+    }
+
+    function el(tag, attrs, children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs || {})) {
+        if (k === 'class') node.className = v; else node.setAttribute(k, v);
+      }
+      for (const c of [].concat(children || [])) {
+        node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+      }
+      return node;
+    }
+
+    function shortHash(h) { return h ? String(h).slice(0, 24) + '…' : '(none)'; }
+
+    async function run() {
+      const payload = readBeamPayloadFromFragment(window.location.hash);
+      if (!payload) {
+        setVerdict('bad', 'No seal found in this link',
+          'This page needs a Trust Beam link — the seal lives after the "#" in the URL. '
+          + 'Open the full link you were given.');
+        return;
+      }
+
+      let seal;
+      try {
+        seal = decodeBeam(payload);
+      } catch (e) {
+        setVerdict('bad', 'This link could not be read',
+          'The Trust Beam payload is malformed or truncated: ' + e.message);
+        return;
+      }
+
+      let result;
+      try {
+        // No data is supplied here — the recipient holds only the artifact — so
+        // this is the commitment/integrity layer: every sealed claim is re-folded
+        // to the committed Merkle root. Any altered value breaks it. This is the
+        // EXISTING verifySeal(); this page does not reimplement verification.
+        result = await verifySeal(seal);
+      } catch (e) {
+        setVerdict('bad', 'Verification failed to run', e.message);
+        return;
+      }
+
+      if (result.valid && result.commitmentValid) {
+        setVerdict('ok', 'Verified',
+          'Every sealed claim folds back to the committed cryptographic root — this seal '
+          + 'has not been altered since it was created.');
+      } else {
+        setVerdict('bad', 'Tampered or invalid',
+          result.reason || 'This seal did not verify — a sealed value was altered or the artifact is inconsistent.');
+      }
+
+      // What the seal actually says, in plain language (reuse the app's own summary).
+      const summary = renderSealSummaryLines(seal);
+      const summarySection = el('div', { class: 'beam-section' }, [
+        el('h2', {}, 'What this seal records'),
+      ]);
+      for (const line of summary) {
+        summarySection.appendChild(el('div', { class: 'beam-kv beam-mono' }, line));
+      }
+      detailsEl.appendChild(summarySection);
+
+      // Per-claim membership results.
+      const claimsSection = el('div', { class: 'beam-section', 'data-testid': 'beam-claims' }, [
+        el('h2', {}, `Sealed claims (${result.claims.length})`),
+      ]);
+      for (const c of result.claims) {
+        claimsSection.appendChild(el('div', { class: 'beam-claim' }, [
+          el('span', { class: 'status-dot ' + (c.valid ? 'pass' : 'fail') }, []),
+          el('span', {}, c.statement || c.type),
+        ]));
+      }
+      detailsEl.appendChild(claimsSection);
+
+      // Key fingerprints so a technically-minded recipient can eyeball them.
+      const fp = seal.fingerprints || {};
+      const root = (seal.commitment && seal.commitment.merkleRoot) || null;
+      const fpSection = el('div', { class: 'beam-section' }, [ el('h2', {}, 'Fingerprints') ]);
+      fpSection.appendChild(el('div', { class: 'beam-kv' }, [
+        el('span', { class: 'k' }, 'Committed Merkle root: '),
+        el('span', { class: 'beam-mono' }, shortHash(root)),
+      ]));
+      fpSection.appendChild(el('div', { class: 'beam-kv' }, [
+        el('span', { class: 'k' }, 'Data fingerprint: '),
+        el('span', { class: 'beam-mono' }, shortHash(fp.data)),
+      ]));
+      detailsEl.appendChild(fpSection);
+    }
+
+    run().catch((e) => setVerdict('bad', 'Something went wrong', e.message));
+  </script>
+</body>
+</html>

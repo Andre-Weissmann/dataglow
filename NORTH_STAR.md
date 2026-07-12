@@ -140,6 +140,51 @@ Groups / Validate Focus Mode already own that question) — Glow Path answers a 
 
 ---
 
+## Concept in progress: Trust Beam
+
+**One sentence:** turn an existing sealed check result into a self-contained, shareable
+link (later a QR code) that a recipient with ZERO DataGlow install can open in any
+browser and have the seal re-verified live, client-side, with no server and nothing
+uploaded anywhere.
+
+**Why it fits DataGlow:** it is the natural "last mile" of the Trust Passport line —
+the Verifiable Check Seal (Batch 3) already produces a portable, offline-re-verifiable
+artifact, but sharing it today means handing someone a `.json` file and asking them to
+trust a verifier. Trust Beam keeps the exact same seal/Merkle logic UNCHANGED and only
+adds a transport wrapper: the whole seal rides inside a URL fragment (which the browser
+never sends to a server), so the privacy/offline guarantee is preserved end-to-end and
+the recipient needs no install, no login, and no upload. It composes existing code
+(no new crypto), mirrors the suite's honest-naming discipline (still not a
+zero-knowledge proof, not a certification, not "blockchain"), and lowers the on-ramp
+for the auditor/partner-org/regulator persona the whole Trust Passport was built for.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — pure serializer + standalone verifier page + UI affordance, behind a
+   flag.** (DONE — [#151](https://github.com/Andre-Weissmann/dataglow/pull/151) —
+   `js/provenance/trust-beam.js`: `encodeBeam`/`decodeBeam` (lossless base64url round-trip
+   of the seal inside a versioned envelope), `buildBeamUrl` (payload in the URL fragment,
+   never sent to a server), `readBeamPayloadFromFragment`; a standalone `verify-beam.html`
+   at the repo root that reads the fragment, calls `decodeBeam` then the EXISTING
+   `verifySeal()`, and renders a plain-language Verified/Tampered verdict client-side with
+   zero install/server/upload; and a "Beam it" button next to the existing "Seal this
+   result" button in `js/app-shell/main.js`. Real tamper detection verified in
+   `test/trust-beam.test.mjs` (40/0 passing). Ships DARK behind `trustBeam` (default OFF);
+   with the flag off the app is byte-for-byte unchanged.)
+2. **Batch 2 — QR code rendering.** NOT STARTED. Once a permissively-licensed (Apache/MIT)
+   QR encoder is vendored under `assets/`, draw `buildBeamUrl`'s output into a scannable QR
+   image next to the copyable link. No change to the serializer is needed — the link is
+   already exactly what would be encoded. Deferred here only because no QR library is
+   vendored yet (same discipline as the pack-builder voice STT flag).
+3. **Batch 3 — optional data-match hint in the verifier.** NOT STARTED. Let a recipient who
+   HAPPENS to hold the data drop a file into `verify-beam.html` to run the seal's optional
+   layer-2 data-fingerprint match locally (still zero-upload); today the standalone page does
+   the commitment/integrity layer only, which is all a recipient-without-data can check.
+4. **Batch 4 — promote `trustBeam` to ON** once the verifier has been dogfooded and (ideally)
+   Batch 2's QR lands, following the same visibility-flag discipline as the Readiness Gate
+   badge promotion (see Lessons learned — landing dark is not the same as shipped/visible).
+
+---
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
