@@ -12,9 +12,9 @@
 # be sent as HTTP headers — <meta http-equiv> does not work for COOP/COEP.
 #
 # WHY COEP=credentialless (not require-corp): the app self-hosts everything it
-# needs on a normal page load, but the opt-in Python/R/Story tabs pull Pyodide,
-# WebR and WebLLM from public CDNs, and fonts load from Google Fonts. Under
-# `require-corp` every such cross-origin response would need its own CORP/CORS
+# needs on a normal page load (fonts included, self-hosted under assets/fonts/),
+# but the opt-in Python/R/Story tabs pull Pyodide, WebR and WebLLM from public
+# CDNs. Under `require-corp` every such cross-origin response would need its own CORP/CORS
 # header or it is blocked; `credentialless` keeps isolation on while letting
 # those no-credentials cross-origin fetches through, so the opt-in runtimes keep
 # working without routing any user data off the machine.

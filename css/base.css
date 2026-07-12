@@ -3,6 +3,50 @@
    "Your data, glowing."
    ============================================================ */
 
+/* ============================================================
+   Self-hosted fonts (vendored under assets/fonts/, SIL OFL 1.1).
+   Latin-subset WOFF2 files pulled from Google Fonts and served
+   locally so a cold page load fetches nothing from a third party
+   — same self-hosting stance as DuckDB-WASM/Plotly/SheetJS under
+   assets/. Inter and JetBrains Mono ship as single variable-weight
+   files; Poppins ships as three static weights (500/600/700).
+   ============================================================ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-variable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../assets/fonts/jetbrains-mono-latin-variable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/poppins-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/poppins-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../assets/fonts/poppins-700.woff2') format('woff2');
+}
+
 :root {
   /* ---- Brand palette (from vision doc) ---- */
   --charcoal: #2D2D2D;

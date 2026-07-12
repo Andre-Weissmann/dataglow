@@ -1009,20 +1009,45 @@ is smoke-tested in CI by `.github/workflows/job-tauri-smoke.yml` on `ubuntu-22.0
 notes (macOS notarization needs the ~US$99/yr Apple Developer Program; unsigned
 Windows binaries trip SmartScreen). Do not describe the artifacts as signed.
 
-### Vendored page-load libraries (Plotly + SheetJS)
+### Vendored page-load libraries (Plotly + SheetJS + fonts)
 
 Everything the app needs on a normal page load is now self-hosted under `assets/`,
 so a cold load fetches nothing from a third party. Alongside the pre-existing
 DuckDB-WASM bundle, Plotly.js (`assets/plotly/`, MIT) and SheetJS/xlsx
 (`assets/xlsx/`, Apache-2.0) are vendored and referenced by local path in
-`index.html`; their upstream licenses ship next to them. The only remaining
-third-party fetches are the three large opt-in runtimes — Pyodide, WebR and
-WebLLM — which load from public CDNs on demand when their tabs are first opened
-(`js/runtimes-viz/python-runtime.js` injects the Pyodide loader lazily; `js/runtimes-viz/r-runtime.js` and
-`js/narrative/ondevice-llm.js` dynamically `import()` theirs). When you touch prose about
-what loads from where, keep this vendored-vs-on-demand split accurate — the
-AGENTS.md context-rot detector only checks that paths resolve, not that claims
-are true, so the honesty here is on you.
+`index.html`; their upstream licenses ship next to them. The web fonts are
+vendored the same way: latin-subset WOFF2 files for Inter, Poppins and JetBrains
+Mono (all SIL OFL 1.1) live under `assets/fonts/` and are declared via
+`@font-face` in `css/base.css`, so the cold load no longer touches
+fonts.googleapis.com / fonts.gstatic.com. `assets/fonts/FONTS-LICENSE` ships the
+OFL text next to them.
+
+The cold load therefore makes **zero** third-party fetches. Every remaining
+off-machine network call is explicitly opt-in and only fires after the user takes
+an action — never on page load:
+
+- **Large optional runtimes (no credentials, on-demand).** Pyodide, WebR and
+  WebLLM load from public CDNs when their tabs are first opened
+  (`js/runtimes-viz/python-runtime.js` injects the Pyodide loader lazily;
+  `js/runtimes-viz/r-runtime.js` and `js/narrative/ondevice-llm.js` dynamically
+  `import()` theirs).
+- **Bring-your-own-key Story narrative providers (user-keyed).** In
+  `js/narrative/story.js` the Story tab defaults to the in-browser/rule-based
+  providers (no key, no network); the cloud providers Perplexity, OpenAI,
+  Anthropic and Google are all `requiresKey: true` and only `fetch()` their
+  endpoints once the user pastes their own API key (`produceStory()` short-circuits
+  to the local path when no `apiKey` is supplied). The key lives in memory and no
+  DATAGLOW server sits in the middle — it is a direct browser → provider call.
+- **Experimental Databricks connector (user-keyed).** In
+  `js/app-shell/databricks-connect.js` (wired via `initDatabricksConnect()` in
+  `js/app-shell/main.js`) a read-only SQL result is pulled directly browser →
+  the user's OWN Databricks workspace host over `fetch()`, authenticated with a
+  personal access token the user supplies. The token is used only for that query
+  and never stored; nothing routes through a DATAGLOW server.
+
+When you touch prose about what loads from where, keep this cold-load-vs-opt-in
+split accurate — the AGENTS.md context-rot detector only checks that paths
+resolve, not that claims are true, so the honesty here is on you.
 
 ### Append-only zones + per-job reusable CI workflows
 

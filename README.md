@@ -46,6 +46,7 @@ Additional formats (ORC, Avro, HDF5, Delta Lake, FHIR, DICOM, EDI, PDF tables, G
 - [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) for in-browser SQL
 - [Plotly.js](https://plotly.com/javascript/) (MIT) for visualization
 - [SheetJS (xlsx)](https://sheetjs.com/) (Apache-2.0) for Excel parsing
+- Fonts — [Inter](https://github.com/rsms/inter), [Poppins](https://fonts.google.com/specimen/Poppins) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (all SIL OFL 1.1), latin-subset WOFF2 vendored under `assets/fonts/` and declared via `@font-face` in `css/base.css` (no fonts.googleapis.com / fonts.gstatic.com fetch)
 
 **Loaded from public CDNs on demand, only when you first open these optional tabs** (their multi-hundred-megabyte runtimes aren't practical to vendor into every page load):
 
