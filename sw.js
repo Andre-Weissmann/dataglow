@@ -14,7 +14,7 @@
 //     Plotly and SheetJS are vendored under assets/ too, so they are same-origin
 //     and cached the same way.
 //   - Cross-origin requests (the on-demand CDN runtimes Pyodide, webR and WebLLM,
-//     Google Fonts, and any optional cloud-LLM calls) are deliberately NOT
+//     and any optional cloud-LLM calls) are deliberately NOT
 //     intercepted: they fall through to the network and degrade gracefully
 //     offline instead of breaking the page.
 //
@@ -27,8 +27,8 @@
 // as real HTTP headers themselves. See the `_headers` file for the host-level
 // equivalent and index.html for the one-time reload that lets a first visit pick
 // up isolation once this worker is in control. COEP is `credentialless` so the
-// opt-in cross-origin CDN runtimes (Pyodide/WebR/WebLLM) and Google Fonts still
-// load without needing per-asset CORP/CORS headers.
+// opt-in cross-origin CDN runtimes (Pyodide/WebR/WebLLM) still load without
+// needing per-asset CORP/CORS headers.
 
 const CACHE_VERSION = 'v2';
 const CACHE_NAME = `dataglow-shell-${CACHE_VERSION}`;
@@ -103,7 +103,7 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Only handle same-origin requests. Cross-origin (CDNs, fonts, cloud LLMs)
+  // Only handle same-origin requests. Cross-origin (CDNs, cloud LLMs)
   // are left to the network so offline degrades gracefully rather than breaking.
   if (url.origin !== self.location.origin) return;
 

@@ -12,7 +12,8 @@
      verifySeal() (js/provenance/verifiable-check-seal.js) fully client-side.
      No server, no app shell, no login, nothing uploaded. Reuses the app's real
      design tokens (css/base.css, css/app.css); it invents no new colors. -->
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Fonts are self-hosted (assets/fonts/, declared in css/base.css) so this
+     standalone verifier fetches nothing from a third party either. -->
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/app.css">
 <script>
