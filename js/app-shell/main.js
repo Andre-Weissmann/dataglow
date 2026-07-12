@@ -53,6 +53,8 @@ import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agent
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
 import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
 import { openProofDrawer } from '../trust/proof-drawer.js';
+import { computeReadinessGate } from '../gate/readiness-gate.js';
+import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -849,6 +851,11 @@ async function runSqlQuery() {
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
     renderResultTable(resultWrap, result);
     $('#story-empty').style.display = 'none';
+    // AI Readiness Gate (batch 2): an informational badge near the result that
+    // composes the LAST real validation run for the active dataset into a single
+    // agent-consumability verdict. It never re-runs validation, never blocks the
+    // query, and shows an honest "not evaluated" state until validation has run.
+    renderReadinessGateBadge(resultWrap);
     if (isEnabled('localAnalysisContract')) {
       // Runs after the result is already shown — the contract check never
       // gates or delays the query itself, only annotates the result with
@@ -893,6 +900,26 @@ function renderResultTable(container, result) {
   const head = `<thead><tr>${result.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>`;
   const body = `<tbody>${result.rows.slice(0, 500).map(r => `<tr>${result.columns.map(c => `<td>${escapeHtml(formatNumber(r[c]))}</td>`).join('')}</tr>`).join('')}</tbody>`;
   container.innerHTML = `<div class="result-table-wrap" style="margin-top:var(--space-3);"><table class="result-table">${head}${body}</table></div>`;
+}
+
+// AI Readiness Gate (batch 2) — SQL-tab badge presenter.
+// Ships dark behind `aiReadinessGateBadge`. Purely informational: it composes
+// the last real validation run (state.validationResults) for the active dataset
+// via the pure computeReadinessGate() and renders the batch-2 badge into a host
+// appended below the result. It NEVER re-runs validation and NEVER blocks the
+// query — agent hard-blocking is batch 3 (js/agents/*), not wired here.
+function renderReadinessGateBadge(resultWrap) {
+  if (!resultWrap || !isEnabled('aiReadinessGateBadge')) return;
+  let host = resultWrap.querySelector('#readiness-gate-host');
+  if (!host) {
+    host = el('div', { id: 'readiness-gate-host' });
+    resultWrap.appendChild(host);
+  }
+  // Metric-contract status is not established in the SQL-query context yet, so it
+  // is left undefined here (does not block) — Python/R/Metric Studio wiring and a
+  // real per-query contract status are a documented batch-2 follow-up.
+  const gateResult = computeReadinessGate(state.validationResults);
+  renderReadinessBadge({ host, gateResult });
 }
 
 function initSqlTab() {

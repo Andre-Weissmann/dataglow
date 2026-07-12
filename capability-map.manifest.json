@@ -1280,13 +1280,14 @@
     {
       "id": "ai-readiness-gate",
       "area": "Trust & metrics (OneCanvas Phase 1)",
-      "name": "AI Readiness Gate (pure scoring, batch 1 of 4)",
+      "name": "AI Readiness Gate (pure scoring + UI badge, batches 1-2 of 4)",
       "platforms": [
         "browser",
         "desktop"
       ],
       "files": [
-        "js/gate/readiness-gate.js"
+        "js/gate/readiness-gate.js",
+        "js/gate/readiness-gate-ui.js"
       ],
       "symbols": [
         {
@@ -1296,6 +1297,14 @@
         {
           "file": "js/gate/readiness-gate.js",
           "name": "explainGateReasons"
+        },
+        {
+          "file": "js/gate/readiness-gate-ui.js",
+          "name": "buildReadinessBadgeModel"
+        },
+        {
+          "file": "js/gate/readiness-gate-ui.js",
+          "name": "renderReadinessBadge"
         }
       ]
     },

@@ -35,9 +35,11 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
    "bad data ruined my AI" hand-waving — a direct wish-list item from the research).
 
 **Build batches (in order, each its own PR):**
-1. **Pure scoring/gate module + tests only.** No UI, no agent wiring. (IN PROGRESS)
-2. UI badge (pass/fail + reasons) surfaced near query/metric results.
-3. Wire the gate into `js/agents/*` modules as a hard block.
+1. **Pure scoring/gate module + tests only.** No UI, no agent wiring. (DONE — `js/gate/readiness-gate.js`)
+2. **UI badge (pass/fail + reasons) surfaced near query/metric results.** (DONE — `js/gate/readiness-gate-ui.js`,
+   wired into the SQL tab behind the `aiReadinessGateBadge` flag; purely informational, no blocking.
+   Python/R/Metric Studio wiring + a real per-query metric-contract status are a follow-up.)
+3. Wire the gate into `js/agents/*` modules as a hard block. (NEXT)
 4. (Stretch) Expose the gate via any future MCP interface so external agents respect it too.
 
 ---
