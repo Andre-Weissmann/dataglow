@@ -347,7 +347,7 @@ for this feature.
 
 ---
 
-## Concept in progress: The Proof Room
+## Shipped: The Proof Room
 
 **One sentence:** one assembled "show your work" screen that composes DataGlow's five
 existing, independently-shipped trust surfaces — Metric Studio, Trust Strip, Data Nutrition
@@ -403,10 +403,18 @@ repo changes — [https://www.perplexity.ai/computer/a/dataglow-proof-room-conce
    in the Validate tab by default — the Proof Room's first two composed steps are no longer
    placeholders for anyone with the tab flag on.)
 
-**Still dark:** the `proofRoom` umbrella flag itself remains `enabled:false` — the composed tab
-is fully built and tested but not yet visible to any user. Promoting it is a follow-up, not part
-of either shipped batch (per the Lessons-learned discipline below: landing dark is not the same
-as shipped/visible — call this out explicitly rather than let it be assumed).
+3. **Batch 3 — promote `proofRoom` to ON.** (DONE —
+   [#173](https://github.com/Andre-Weissmann/dataglow/pull/173) — with all five composed
+   modules confirmed ON, flipping the umbrella flag was a pure visibility promotion: no code
+   change needed beyond the flag flip itself (`renderTabBar()`'s sole gate is
+   `isEnabled('proofRoom')`; `renderProofRoomTab()` already assembles all five steps once a
+   dataset is loaded). Full suite: 95/95, identical before and after. The Proof Room tab is now
+   live in the tab bar by default for every user with a dataset loaded. Turning `proofRoom`
+   back off fully restores prior behavior (tab disappears from `state.tabOrder`,
+   `#panel-proofroom` stays empty) as a safe kill-switch.)
+
+**Shipped, live by default.** All three batches are done and the `proofRoom` flag is
+`enabled:true` — this concept is no longer "in progress."
 
 ---
 
