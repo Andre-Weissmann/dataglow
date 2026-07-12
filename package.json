@@ -77,6 +77,7 @@
     "test:metriccontracts": "node test/metric-contracts.test.mjs",
     "test:metriccontractdiffview": "node test/metric-contract-diff-view.test.mjs",
     "test:metriccontractconfirmgate": "node test/metric-contract-confirm-gate.test.mjs",
+    "test:readinessgate": "node test/readiness-gate.test.mjs",
     "test:truststrip": "node test/trust-strip-proof-drawer.test.mjs",
     "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",

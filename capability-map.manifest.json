@@ -1278,6 +1278,28 @@
       ]
     },
     {
+      "id": "ai-readiness-gate",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "AI Readiness Gate (pure scoring, batch 1 of 4)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/gate/readiness-gate.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/gate/readiness-gate.js",
+          "name": "computeReadinessGate"
+        },
+        {
+          "file": "js/gate/readiness-gate.js",
+          "name": "explainGateReasons"
+        }
+      ]
+    },
+    {
       "id": "command-deck-nav",
       "area": "App shell / navigation",
       "name": "Command Deck sidebar nav (Part 1)",

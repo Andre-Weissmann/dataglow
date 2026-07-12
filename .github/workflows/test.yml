@@ -102,5 +102,8 @@ jobs:
   export-reporting:
     uses: ./.github/workflows/job-export-reporting.yml
 
+  readiness-gate:
+    uses: ./.github/workflows/job-readiness-gate.yml
+
   context-engine:
     uses: ./.github/workflows/job-context-engine.yml
