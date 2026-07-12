@@ -347,6 +347,69 @@ for this feature.
 
 ---
 
+## Concept in progress: The Proof Room
+
+**One sentence:** one assembled "show your work" screen that composes DataGlow's five
+existing, independently-shipped trust surfaces — Metric Studio, Trust Strip, Data Nutrition
+Label, Verifiable Check Seal, and Trust Beam — top to bottom in a fixed order, so an analyst
+can hand a single link/screen to a skeptical stakeholder instead of hunting across five tabs.
+
+**Why it fits DataGlow:** pure composition, zero new trust surface. Every one of the five
+modules it assembles already exists, is already tested, and already carries its own honest
+naming discipline (not a certification, not blockchain, not a zero-knowledge proof) — the
+Proof Room adds no new crypto, validation, backend, or AI model, only a presenter that calls
+each module's existing render/build function verbatim, in order. It directly answers the
+research's repeated "trust is scattered across tools" complaint by giving the assembled-proof
+view its own front door instead of asking a stakeholder to piece it together tab by tab.
+
+**Preview:** a live desktop + mobile mockup was built, deployed, and approved before any real
+repo changes — [https://www.perplexity.ai/computer/a/dataglow-proof-room-concept-Y4RLRbasQN.x_xGunJmdSA](https://www.perplexity.ai/computer/a/dataglow-proof-room-concept-Y4RLRbasQN.x_xGunJmdSA)
+(sandbox-only artifact, never touched `main`).
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — new tab, dark behind a new umbrella flag.** (DONE —
+   [#168](https://github.com/Andre-Weissmann/dataglow/pull/168) — new
+   `js/provenance/proof-room.js` holds a pure, never-throwing step-order/readiness aggregator
+   (`buildProofRoomPlan`) plus a thin DOM presenter (`renderProofRoom`); wired into
+   `js/app-shell/main.js` as `renderProofRoomTab`, gated behind a single new umbrella flag
+   `proofRoom` (ships dark, `enabled:false`) that gates ONLY this composed tab's visibility —
+   the five underlying modules' own flags are untouched, and each module's render function is
+   called directly since none of them gate on their own flag internally. Added the `proofroom`
+   tab to `TAB_META`, the trust stage in Command Deck nav, tab-groups, and `state.tabOrder`,
+   mirroring the exact `meeting`/`meetingScribe` and `diplomacy`/`dataDiplomacy` conditional-
+   filter pattern. `test/proof-room.test.mjs` — 30/0 passing. While this PR was in flight, ten
+   unrelated PRs landed on `main` promoting `dataNutritionLabel`, `verifiableCheckSeal`,
+   `trustBeam`, `syntheticDataPassport`, `groupedNavigation`, `validateFocusMode`,
+   `dataDiplomacy`, and the Meeting/SQL-analysis flags to ON — the branch was rebased onto the
+   new `main`, all conflicts resolved preserving both sides, full suite re-verified green
+   (94/0), and merged squash.)
+2. **Batch 2 — promote the two remaining underlying flags + fix an unrelated race bug found
+   during the audit.** (DONE — [#170](https://github.com/Andre-Weissmann/dataglow/pull/170) —
+   originally scoped to promote all five underlying flags, narrowed to just `metricStudio` and
+   `trustStripProofDrawer` since the other three were already promoted by the parallel PRs
+   above. Both flags flipped to `enabled:true` with `promotedInPR` recorded; no open
+   tech-debt-tracker item referenced either module, so nothing blocked promotion. Also fixed
+   the golden-test-dataset race bug identified during Phase 1 audit: `runDatasetLoad()` in
+   `js/app-shell/main.js` had no reentrancy guard, so two overlapping calls (e.g. a fast
+   double-click on "Load Golden Test Dataset", or the Red Team Mode button firing the same
+   path) could race through `createTableFromRows()`'s `DROP TABLE IF EXISTS`/`CREATE TABLE`
+   pair in `js/app-shell/duckdb-engine.js` and throw "Catalog Error: Table ... already exists."
+   Added a module-level `datasetLoadInFlight` guard — a call while a load is already in flight
+   is now a safe no-op instead of racing, with a `finally` reset so Retry and later sequential
+   loads still work. New `test/golden-dataset-load-race.test.mjs` (4/4) source-asserts the guard
+   and proves the concurrency semantics via a lockstep runner, since `main.js` isn't headless-
+   importable in this repo's test setup. Full suite: 95/0 passing after the fix, up from 94/0
+   before. With both flags now ON, Metric Studio and the Trust Strip/proof drawer render live
+   in the Validate tab by default — the Proof Room's first two composed steps are no longer
+   placeholders for anyone with the tab flag on.)
+
+**Still dark:** the `proofRoom` umbrella flag itself remains `enabled:false` — the composed tab
+is fully built and tested but not yet visible to any user. Promoting it is a follow-up, not part
+of either shipped batch (per the Lessons-learned discipline below: landing dark is not the same
+as shipped/visible — call this out explicitly rather than let it be assumed).
+
+---
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
