@@ -674,6 +674,17 @@
       ]
     },
     {
+      "id": "provenance-proof-room",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Proof Room (Trust Passport, composition batch 1)",
+      "files": ["js/provenance/proof-room.js"],
+      "symbols": [
+        { "file": "js/provenance/proof-room.js", "name": "buildProofRoomPlan" },
+        { "file": "js/provenance/proof-room.js", "name": "renderProofRoom" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",
