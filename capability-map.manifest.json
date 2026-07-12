@@ -574,6 +574,16 @@
       ]
     },
     {
+      "id": "provenance-trust-beam",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Trust Beam (shareable seal link)",
+      "files": ["js/provenance/trust-beam.js"],
+      "symbols": [
+        { "file": "js/provenance/trust-beam.js", "name": "buildBeamUrl" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",

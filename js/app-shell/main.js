@@ -17,6 +17,7 @@ import { runAnalysisContract, summarizeAnalysisContract } from '../validation/an
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
+import { buildBeamUrl } from '../provenance/trust-beam.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
@@ -828,6 +829,14 @@ function renderCheckSealAffordance(container, report, sql, result) {
             onclick: () => downloadText('dataglow-check-seal.json', exportSealAsJSON(seal), 'application/json'),
           }, 'Download seal (.json)');
           detail.appendChild(dl);
+          // Trust Beam opt-in affordance (feature-flagged: trustBeam). Turns this
+          // just-created seal into a self-contained shareable link whose payload
+          // lives in the URL fragment (after '#') so nothing is ever uploaded —
+          // a recipient with zero DataGlow install opens verify-beam.html and it
+          // re-verifies the seal client-side. No-op when the flag is off. QR image
+          // generation is a documented follow-up (no QR library is vendored yet);
+          // the copyable link IS the beam artifact for this batch.
+          renderBeamAffordance(detail, seal);
           toast('Check result sealed and re-verified locally', 'success');
         } catch (e) {
           toast('Could not seal this result: ' + e.message, 'error');
@@ -842,6 +851,61 @@ function renderCheckSealAffordance(container, report, sql, result) {
   card.appendChild(header);
   card.appendChild(detail);
   container.prepend(card);
+}
+
+// Trust Beam opt-in affordance (feature-flagged: trustBeam).
+// ------------------------------------------------------------
+// Given an already-created Verifiable Check Seal, renders a "Beam it" button that
+// composes a self-contained shareable link (js/provenance/trust-beam.js's
+// buildBeamUrl) carrying the whole seal in the URL FRAGMENT — never sent to any
+// server — plus a copy-to-clipboard action. A recipient opens the link in any
+// browser (verify-beam.html) and the seal is re-verified client-side with zero
+// DataGlow install and nothing uploaded. When the flag is off, nothing renders.
+// QR-image generation is a documented follow-up: no QR library is vendored yet,
+// so the copyable link is the beam artifact for this batch.
+function renderBeamAffordance(detail, seal) {
+  if (!isEnabled('trustBeam')) return;
+  const beamBtn = el('button', {
+    class: 'btn btn-secondary',
+    style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
+    'data-testid': 'trust-beam-create',
+    onclick: async () => {
+      try {
+        // verify-beam.html sits at the app root alongside index.html; derive its
+        // URL from the current location so a beam works from any deployment host.
+        const baseUrl = new URL('verify-beam.html', window.location.href).href;
+        const url = buildBeamUrl(seal, baseUrl);
+        let field = detail.querySelector('[data-testid="trust-beam-link"]');
+        if (!field) {
+          field = el('input', {
+            type: 'text',
+            readonly: 'readonly',
+            'data-testid': 'trust-beam-link',
+            style: 'width:100%; margin-top:6px; font-family:var(--font-mono); font-size:var(--text-xs); '
+              + 'padding:4px 6px; border:1px solid var(--color-border); border-radius:var(--radius-sm); '
+              + 'background:var(--color-surface-2); color:var(--color-text);',
+            onclick: (e) => e.target.select(),
+          });
+          detail.appendChild(field);
+          const copyBtn = el('button', {
+            class: 'btn btn-secondary',
+            style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
+            'data-testid': 'trust-beam-copy',
+            onclick: async () => {
+              try { await navigator.clipboard.writeText(field.value); toast('Trust Beam link copied', 'success'); }
+              catch { field.select(); toast('Select the link and copy it', 'info'); }
+            },
+          }, 'Copy link');
+          detail.appendChild(copyBtn);
+        }
+        field.value = url;
+        toast('Trust Beam link ready — share it to re-verify anywhere, no upload', 'success');
+      } catch (e) {
+        toast('Could not build a Trust Beam link: ' + e.message, 'error');
+      }
+    },
+  }, 'Beam it');
+  detail.appendChild(beamBtn);
 }
 
 // Polyglot Workbench (Batch A) — selected source dialect for the SQL tab. Kept
