@@ -77,6 +77,7 @@ export function mountConversationalPackBuilder(opts = {}) {
     domain = '',
     index = null,
     voiceEnabled = false,
+    readiness = undefined,
     onDownload = () => {},
     onSaveLocal = () => {},
     onToast = () => {},
@@ -188,9 +189,17 @@ export function mountConversationalPackBuilder(opts = {}) {
       'Thinking it through on your device…'));
     let resolution;
     try {
-      resolution = await resolve(q, { domain, index, voiceEnabled });
+      resolution = await resolve(q, { domain, index, voiceEnabled, readiness });
     } catch (e) {
       onToast('Could not resolve that: ' + e.message, 'error');
+      advance();
+      return;
+    }
+    // AI Readiness Gate refusal (batch 3): if enforcement blocked the resolver,
+    // don't surface a suggestion — advance gracefully. Only reachable when the
+    // aiReadinessGateEnforcement flag threaded a readiness context in.
+    if (resolution && resolution.blocked === true) {
+      onToast('The data isn’t agent-ready, so I can’t suggest a rule for that yet.', 'info');
       advance();
       return;
     }

@@ -24,6 +24,11 @@
 // truth, so on a low-end device without WebGPU the flow is identical minus the
 // cosmetic rephrase. This module names no network primitive and no browser global.
 
+// AI Readiness Gate (batch 3) — the pure agent hard-block helper. Imported here
+// only for the OPTIONAL gate consulted when a caller threads opts.readiness (see
+// generateQuestions below). Pure logic, names no network primitive/browser global.
+import { evaluateAgentReadiness, buildAgentRefusal } from '../gate/agent-gate.js';
+
 // Category → base priority weight. Higher wins; ties broken by the candidate's
 // own `severity` (0..1) then stable input order.
 export const CATEGORY_WEIGHT = Object.freeze({
@@ -303,8 +308,22 @@ function humanCol(name) {
  * One-call extractor: assemble grounded candidates from whatever pipeline output
  * is available, then rank. `ctx` may carry any subset of
  * { columnStats, missingness, formatDrift } — each optional.
+ *
+ * AI READINESS GATE (batch 3): when — and ONLY when — the caller threads
+ * `opts.readiness` ({ layerResults, metricContractStatus, options }), this agent
+ * first asks the gate whether the underlying data is agent-consumable. If not, it
+ * returns a graceful refusal object ({ blocked:true, ... }) INSTEAD of questions,
+ * so an agent never authors output from ungoverned data. With no `opts.readiness`
+ * (the default for every existing caller and test) the gate is not consulted and
+ * behaviour is unchanged. This gates the AGENT only — humans are never affected.
  */
 export function generateQuestions(ctx = {}, opts = {}) {
+  if (opts.readiness) {
+    const evalResult = evaluateAgentReadiness(opts.readiness);
+    if (evalResult.blocked) {
+      return buildAgentRefusal('question-generator-agent', evalResult);
+    }
+  }
   const candidates = [
     ...heuristicCandidatesFromStats(ctx.columnStats),
     ...candidatesFromMissingness(ctx.missingness),

@@ -31,6 +31,11 @@
 // This module names no network primitive; the peer-index read can be run inside
 // runWithNetworkDenied() from js/packs/pack-network-guard.js as defence in depth.
 
+// AI Readiness Gate (batch 3) — pure agent hard-block helper, consulted ONLY when
+// a caller threads opts.readiness into resolve() (see below). Pure logic; names no
+// network primitive, so the module's no-network source scan still passes.
+import { evaluateAgentReadiness, buildAgentRefusal } from '../gate/agent-gate.js';
+
 // Phrases that signal uncertainty in a free-text / voice answer.
 export const UNCERTAINTY_PHRASES = Object.freeze([
   "i don't know", 'i dont know', 'idk', 'not sure', 'no idea', 'unsure',
@@ -192,6 +197,18 @@ export const DEFAULT_TIME_BUDGET_MS = 2000;
  * only Step D's unified suggestion is (see buildResolutionView).
  */
 export async function resolve(candidate, opts = {}) {
+  // AI Readiness Gate (batch 3), defence-in-depth. Only when the caller threads
+  // opts.readiness does this agent consult the gate; if the underlying data is
+  // not agent-consumable it refuses gracefully instead of resolving. With no
+  // opts.readiness (the default for every existing caller/test) the gate is not
+  // consulted and behaviour is unchanged. Gates the AGENT only, never a human.
+  if (opts.readiness) {
+    const evalResult = evaluateAgentReadiness(opts.readiness);
+    if (evalResult.blocked) {
+      return buildAgentRefusal('uncertainty-resolver-agent', evalResult);
+    }
+  }
+
   const stepsAttempted = [];
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
   const startedAt = now();

@@ -15,7 +15,7 @@
 //                                    NOT a red failure
 //   - null/undefined verdict      -> safe idle model, no throw
 //   - reasons text comes from explainGateReasons()
-//   - flag-off regression guard: aiReadinessGateBadge ships OFF
+//   - flag-state guard: aiReadinessGateBadge is ON (promoted; informational only)
 //
 // Pure JS — no DuckDB, no DOM. RUN WITH:
 //   node test/readiness-gate-ui.test.mjs
@@ -111,11 +111,13 @@ function main() {
     ok(m.title === gate.passingSummary, 'title: uses the gate passingSummary one-liner');
   }
 
-  // --- flag-off regression guard (ships dark) ---
+  // --- flag-state guard: the badge was PROMOTED (flipped on) in
+  // sync-northstar-badge-and-batch3. It is purely informational — never blocks a
+  // human — so shipping it on renders the badge by default in the SQL tab. ---
   {
     const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'flags.manifest.json'), 'utf8'));
     configureFlags(manifest);
-    ok(isEnabled('aiReadinessGateBadge') === false, 'flags: aiReadinessGateBadge ships OFF (no badge renders by default)');
+    ok(isEnabled('aiReadinessGateBadge') === true, 'flags: aiReadinessGateBadge is ON (informational badge renders by default in the SQL tab)');
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

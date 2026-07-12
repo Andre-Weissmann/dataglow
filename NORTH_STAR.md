@@ -37,10 +37,13 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
 **Build batches (in order, each its own PR):**
 1. **Pure scoring/gate module + tests only.** No UI, no agent wiring. (DONE — `js/gate/readiness-gate.js`)
 2. **UI badge (pass/fail + reasons) surfaced near query/metric results.** (DONE — `js/gate/readiness-gate-ui.js`,
-   wired into the SQL tab behind the `aiReadinessGateBadge` flag; purely informational, no blocking.
-   Python/R/Metric Studio wiring + a real per-query metric-contract status are a follow-up.)
-3. Wire the gate into `js/agents/*` modules as a hard block. (NEXT)
-4. (Stretch) Expose the gate via any future MCP interface so external agents respect it too.
+   wired into the SQL tab; `aiReadinessGateBadge` flag PROMOTED to ON — purely informational, never blocks a human.
+   Python/R/Metric Studio wiring + a real per-query metric-contract status remain a follow-up.)
+3. **Wire the gate into `js/agents/*` modules as a hard block.** (DONE — `js/gate/agent-gate.js` +
+   `generateQuestions`/`resolve` gated behind an optional `readiness` context; `main.js` threads it only when
+   the `aiReadinessGateEnforcement` flag is on. Ships DARK: flag default OFF. Blocks ONLY js/agents/* output —
+   human-facing SQL/Python/R/Metric Studio workflows are entirely unaffected in both flag states.)
+4. (Stretch) Expose the gate via any future MCP interface so external agents respect it too. (NEXT)
 
 ---
 
@@ -72,3 +75,42 @@ anything is unproductive. Default behavior going forward:
   or a genuine improvement to it — do not restart from zero research.
 - Only run a full new deep-research pass if the user explicitly asks, or it's been a long time
   (e.g. 1+ months) since the last pass.
+
+## Lessons learned
+
+- **Flip (or explicitly flag as still-dark) the visibility flag before reporting a batch done.** Batch 2
+  shipped the readiness badge behind `aiReadinessGateBadge` default-OFF and was reported "done" while the
+  feature was actually invisible to every user. "Landed dark" is not the same as "shipped/visible" — when a
+  batch is meant to be seen, promote its flag (and update the flag-state guard test) in the SAME or the very
+  next PR, and when it is meant to stay dark, say so explicitly in the done report. (Fixed for the badge in
+  `sync-northstar-badge-and-batch3`: badge flag promoted to ON; batch-3 enforcement intentionally stays OFF
+  and is reported as such.)
+
+## Standing brainstorm process (permanent — do not ask the user to re-paste the ritual)
+
+As of 2026-07-11, the user confirmed this 10-step process is the permanent default for ANY
+"brainstorm ideas for X in DataGlow" request, whether X is a whole infrastructure area or a single
+small widget. The user should never need to re-type the long "think creatively / revolutionary /
+sci-fi / tear down walls" ritual again — that mindset is now permanently baked into steps 3-5 below,
+applied automatically every time, at whatever scale the request calls for:
+
+1. Read this file (`NORTH_STAR.md`) — what's shipped, mid-flight, and already ranked in the backlog.
+2. Read the actual relevant code for the area in question — ground ideas in what's real, not assumed.
+3. Research only if genuinely new ground (not a repeat of a prior pass). When researching, or even
+   when just reasoning from existing knowledge, permanently apply this lens: think revolutionary,
+   flip the script, think privacy/safety/governance, tear down walls between roles/tools/orgs,
+   think sci-fi-but-buildable, think like no one else in the industry is thinking, think ROI and
+   real business value, think about what people wish already existed.
+4. Brainstorm candidate ideas through that same lens — bold, inventive, solving a real problem.
+5. Rank them honestly by real value, buildability, and fit with DataGlow's existing philosophy.
+6. Combine the strongest ideas into ONE concept — never present a menu.
+7. Check the concept against existing capabilities/modules for duplication.
+8. Present the one concept with reasoning, and end with ONE concrete build-order fork (2 options max)
+   — not an open-ended question.
+9. Build it as a small, tested, isolated batch — real PR, real CI, ship dark behind a flag if it
+   changes visible/human-facing behavior.
+10. Report the real, concrete result once merged/tested — update this file's backlog and "current
+    concept" section so nothing is lost and the next round starts from here, not from zero.
+
+Do not ask the user whether to apply "the creative lens" — always apply it. Do not ask the user to
+confirm this process again in future sessions unless they explicitly want to change it.
