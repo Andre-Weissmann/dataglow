@@ -570,6 +570,92 @@ means it may not have actually checked for near-duplicates/missingness/formattin
 high-cardinality domain-pack no-merge protection until P1 ships. Neither gap produces a silently wrong
 answer — both are "didn't show you something it could have," not "showed you something incorrect."
 
+## Test findings (2026-07-12 run 4 — remaining healthcare rubric items)
+
+A fourth pass of the "Test DataGlow Platform" program, closing out the hardest remaining items from the
+original 37-item healthcare rubric: cross-table temporal plausibility (death-date washout), OMOP
+clinical concept-domain checks, AHIMA's two toughest patient-matching failure patterns (name-order swap,
+SSN transposition), NCCI/timely-filing claims rules, and UX/positioning checks (Metric Studio, sniff
+test, Context Card reordering). Fresh seed=77 fixture set, independent from Run 1's seed=42 data. Full
+write-up: workspace `dataglow_test_data/dataglow_test_results_2026-07-12_run4.md`. Web-only this round
+(desktop/mobile parity not re-verified). Top items, ranked:
+
+1. **P0 (NEW, highest priority — elevated from a single-dataset observation to a confirmed cross-cutting
+   bug) — Categorical Consistency Engine proposes destructive merges on high-cardinality unique-ID
+   columns.** Independently reproduced on two unrelated datasets this run: `patient_id` in a vitals
+   fixture (~150 distinct single-occurrence IDs proposed for merge into one canonical value) and
+   `claim_id` in Run 1's original claims data (~40+ pairwise 98%-confidence merge suggestions based on
+   pure digit-permutation string similarity, e.g. `"CLM100001" ≈ "CLM100010"`). If a user clicks "Apply
+   Merge" on either, it silently destroys record-level identity across the dataset. Proposed fix:
+   exclude columns that are >95% unique-valued (or explicitly flagged as primary/foreign keys) from
+   automated merge-proposal eligibility; allow them to still surface as a lower-severity informational
+   note if desired, but never as an auto-actionable "Apply Merge" button.
+2. **P1 — No cross-table temporal/relational plausibility checking exists at all, even when multiple
+   related tables are loaded in the same session.** Verified via SQL ground truth (cross-checked against
+   an independent Python calculation) that 11 claims fall beyond a 60-day post-death washout window —
+   zero validation layers reference death dates anywhere in the Validate output; Cross-Column Logical
+   Consistency is confirmed scoped only to single-table checks. Same root cause likely explains why NCCI
+   same-day conflicting-procedure pairs (3.3) and CMS timely-filing violations (3.5) are also both fully
+   unimplemented — none of these are single-table statistical checks, they all require joining or
+   cross-referencing two columns/tables with domain-specific logic. Suggested roadmap direction: a new
+   "Cross-Table Relational Rules" layer (or an extension of Cross-Column Logical Consistency) that
+   accepts a second table + join key + comparison rule, starting with the death-date washout case since
+   it's the most clinically consequential.
+3. **P1 — AHIMA's two dominant patient-matching failure patterns (name-order swap, SSN transposition) are
+   both completely uncaught by the current fuzzy-dedup.** Built clean, unambiguous test fixtures (6 pairs
+   each) for both patterns; Clean's "Scan for Issues" reported "No issues found" on every one. Root
+   cause: the matcher appears to compare name-field strings directly (Levenshtein/Jaro-Winkler), and a
+   full first/last swap produces two tokens with near-zero string similarity to each other despite being
+   an obvious match once DOB+SSN are considered. This is a materially different, and per AHIMA's own
+   research non-interchangeable, failure mode from the nickname/typo/suffix patterns that already pass
+   (per Run 1). Suggested fix: add a DOB+SSN(-last4) exact-match pre-filter that, on a hit, checks
+   name fields for a *token-set* match (order-independent) in addition to the existing character-level
+   similarity — this would catch swaps without needing a fundamentally new matching algorithm.
+4. **P2 — OMOP domain pack is shape-aware but not clinically-aware; FHIR domain pack is more mature by
+   comparison.** Loading the built-in OMOP CDM Sample and injecting a gender-discordant clinical concept
+   produced no flag anywhere (`gender_concept_id` is tracked statistically — correlation baselines,
+   Benford eligibility — but never cross-checked against condition/measurement concept domains). This
+   contrasts with Run 1's finding that the FHIR pack does implement real structural/binding/reference
+   checks matching its disclosed scope. Suggested roadmap direction: bring OMOP pack depth up to FHIR
+   pack parity, starting with `plausibleGenderUseDescendants`-style concept-domain checks since OHDSI's
+   own DQD already publishes the reference check-type definitions to implement against.
+5. **P3 — Visualize's sniff-test hygiene has three straightforward, low-effort fixes available.** Source
+   inspection of `js/runtimes-viz/visualize.js` confirms: no forced y-axis zero-start (Plotly default
+   auto-scale, a real exaggeration risk), no visible source/dataset attribution baked into exported PNG
+   images (only in the filename), and no chart title set at all (axis labels only). All three are small,
+   mechanical additions (a `layout.title` default of `"${yCol} by ${xCol} — ${table}"`, an optional
+   forced-zero-start toggle, and a text annotation or corner watermark on export) rather than new
+   capabilities — good near-term wins for the sniff-test rubric category.
+6. **P3 — "Metric Studio" / metric-contract scaffolding exists but is feature-flagged off by default.**
+   The UI, tooltip copy ("Define what a metric means so queries computing it differently get flagged"),
+   and exploratory/reviewed/certified status vocabulary all directly match the metric-definition-drift
+   rubric scenario's intent — but `#btn-define-metric` ships with `display:none` in the current build.
+   Worth flipping on and finishing once a maintainer confirms it's ready, since the design groundwork is
+   already sound.
+7. **What worked and should be protected (corroborated a fourth time):** Context Card's reordering claim
+   is real and empirically verified (supplying "for billing accuracy" measurably changed which findings
+   surfaced first, while all 20 layers still ran in both cases, matching the UI's own disclosed scope);
+   zero unqualified "AI-powered" marketing claims and zero signup/paywall friction found anywhere in the
+   product, continuing a clean streak across all four runs; every ML-adjacent feature continues to cite
+   its actual method and source paper in-UI rather than making vague AI claims; Watch Folder/Digital
+   Twin/Metric Studio all have real shipped code + dedicated test files, not just roadmap copy.
+8. **Untested follow-ups still open:** live functional testing of Watch Folder/Digital Twin (source +
+   test-file existence confirmed, live interaction not yet exercised this run), Metric Studio's actual
+   click-through behavior once un-flagged, Desktop/Tauri and Mobile/PWA re-verification of all Run 4
+   findings (Run 4 was web-only), and confirming whether fixing the P0 ID-column merge bug introduces any
+   regression on the legitimate near-duplicate cases that already pass today.
+
+**Practical readiness verdict (asked directly this run):** Run 4 deliberately targeted the hardest,
+most cross-table and clinically-specific remaining items in the healthcare rubric — this was a stress
+test of DataGlow's most demanding domain claims, not a representative sample, and the section scores
+reflect that (Section 3 in particular scored 0 Pass this run). Read alongside Runs 1-3, the pattern is
+consistent: DataGlow's single-table, generic-statistical validation layers are mature and reliable, but
+its cross-table and clinically-specific reasoning (death-date washout, NCCI, OMOP concept-domain checks,
+two of three AHIMA name-matching patterns) is largely unimplemented today. None of these gaps produce a
+silently wrong answer — they are "didn't check for this at all," not "checked and got it wrong" — but
+they are real gaps between the healthcare-domain-pack marketing framing and current behavior, and P0-P2
+above are now the highest-value next healthcare-domain build targets.
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
