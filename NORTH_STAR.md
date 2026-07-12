@@ -240,10 +240,9 @@ than inventing new logic.
    synchronously — documented follow-up, not a fabricated stand-in. `glowOrb` stays OFF —
    ships dark for a dogfood period before promotion, same discipline as the Readiness Gate
    badge and Trust Strip.)
-3. **Batch 3 — promote `glowOrb` to ON** once dogfooded. NOT STARTED. Follow the Lessons
-   Learned discipline already logged below: flip the flag (and any flag-state guard test)
-   in the same or the very next PR, and say so explicitly rather than reporting "done"
-   while the feature stays invisible.
+3. **Batch 3 — promote `glowOrb` to ON.** (SHIPPED, merged in
+   [#159](https://github.com/Andre-Weissmann/dataglow/pull/159) — flag flipped from `false`
+   to `true` in `flags.manifest.json`; the orb is now LIVE for every user by default.)
 4. **Batch 4 (stretch) — hold-to-unfold gesture.** NOT STARTED. Holding the orb down would
    fan DataGlow's core surfaces (Validate, Clean, Export) out as cards from the same point.
    Pure animation/interaction layer, no new data — safe to defer indefinitely without
