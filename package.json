@@ -61,6 +61,7 @@
     "test:livecapture": "node test/live-transcript-capture.test.mjs",
     "test:roomsignaling": "node test/room-signaling.test.mjs",
     "test:roomsbroadcast": "node test/room-broadcast.test.mjs",
+    "test:roomsui": "node test/room-ui.test.mjs",
     "test:decisionledger": "node test/meeting-decision-ledger.test.mjs",
     "test:commanddecknav": "node --test test/command-deck-nav.test.mjs",
     "test:capdrift": "node test/capability-drift.test.mjs",

@@ -153,9 +153,28 @@ building/merging it):**
    wiring into the SQL/Python/R tabs — so with the flag off nothing constructs a coordinator,
    broadcasting only ever happens once a Room is joined, and every existing single-user Object
    Space code path is byte-for-byte unchanged.)
-3. **Batch 3 — UI: Room pill, avatar presence, live-update toasts.** NOT STARTED. The visual
-   layer demonstrated in the 2026-07-12 live desktop + mobile preview mockup
-   (`dataglow-rooms-preview` app asset).
+3. **Batch 3 — UI: Room pill, avatar presence, live-update toasts.** (DONE — the first
+   VISIBLE Rooms surface: `js/rooms/room-ui.js`, a thin, DOM-mounting presentation layer that
+   surfaces exactly what Batches 1 & 2 already return, inventing no new Room concept, signaling,
+   or broadcast payload and moving no byte of anyone's data. PURE, Node-testable view-model
+   builders — `buildRoomPillModel()` (a compact topbar "Room pill": the room code when a Room is
+   open, a "Start a Room" affordance when not, an honest "Rooms unavailable" state when WebRTC is
+   unsupported), `buildPresenceModel()` (avatar/initials badges for the OTHER peers, composing
+   Batch 1's `listPeers()` with Batch 2's `viewingSnapshot()` who's-viewing map; `peerInitials()`/
+   `avatarColor()` give each peer stable initials + a palette color), and `buildRemoteEntryToast()`/
+   `notifyRemoteEntry()` (a live-update toast when a peer's Object Space entry arrives via Batch 2's
+   `receive()`→`onRemoteEntry`, reusing the existing `toast()` primitive) — plus the thin DOM
+   renderer `renderRoomUi()` left to the browser/e2e path, the exact identity split `glow-orb-ui.js`
+   uses. Wired into the topbar (`#room-ui-host`) by `js/app-shell/main.js`'s `renderRoomUiWidget()`
+   (`startRoom()`/`leaveRoom()`/`copyRoomCode()`/`refreshRoomPeers()`), which owns the Room
+   lifecycle and the flag check. Verified in `test/room-ui.test.mjs` (`npm run test:roomsui`),
+   26/0 passing, new `job-room-ui.yml` CI job. Ships DARK behind `roomsUi` (default OFF,
+   intentionally dark per this batching plan): no real signaling/data-channel adapter is injected
+   yet, so with the flag ON a started Room is local-only and no remote peers/entries arrive until a
+   real adapter is wired — an honest, never-thrown dark state; with the flag OFF
+   `renderRoomUiWidget()` hides `#room-ui-host`, tears down any coordinator, and the topbar and
+   whole app shell are byte-for-byte unchanged. The visual layer follows the 2026-07-12 live
+   desktop + mobile preview mockup (`dataglow-rooms-preview` app asset).)
 4. **Batch 4 (stretch, optional) — cross-language live resolution.** NOT STARTED. Let a
    Python/R view actually re-render from a peer's live SQL result, not just display it — this
    is also Polyglot Workbench's own already-planned "Batch C," so building it here retires that

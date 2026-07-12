@@ -66,6 +66,9 @@ import { computeGlowPathState } from './glow-path.js';
 import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
 import { computeGlowSignal } from '../glow/glow-signal.js';
 import { renderGlowOrb } from '../glow/glow-orb-ui.js';
+import { generateRoomCode, isRoomsSupported, RoomSignalingCoordinator } from '../rooms/room-signaling.js';
+import { RoomBroadcastCoordinator } from '../rooms/room-broadcast.js';
+import { buildRoomPillModel, buildPresenceModel, renderRoomUi, notifyRemoteEntry } from '../rooms/room-ui.js';
 import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { sealClaim } from '../diplomacy/diplomacy-claim.js';
@@ -285,6 +288,9 @@ function switchTab(tabId) {
   renderGlowPathRail();
   // The Glow (Batch 2): refresh the topbar orb verdict. No-op when glowOrb off.
   renderGlowOrbWidget();
+  // DataGlow Rooms (Batch 3): keep the topbar Room pill/presence in sync. No-op
+  // when the roomsUi flag is off.
+  renderRoomUiWidget();
 }
 
 // ============================================================
@@ -1183,6 +1189,112 @@ function renderGlowOrbWidget() {
     // goldenSignals / catScorecard: async + not on state — see header note.
   });
   renderGlowOrb({ host, glowResult });
+}
+
+// ============================================================
+// DataGlow Rooms (Batch 3 of 4): topbar Room pill + presence + live-update toasts
+// ============================================================
+// The thin UI surface for the Batch-1 signaling coordinator and Batch-2 broadcast
+// coordinator. main.js owns the Room lifecycle here (start/leave, the coordinator
+// objects, the cached peer list); js/rooms/room-ui.js only PRESENTS the state it
+// is handed. Ships dark behind the `roomsUi` flag: with the flag off,
+// renderRoomUiWidget() hides #room-ui-host, tears down any coordinator, and the
+// topbar is byte-for-byte unchanged. No real signaling/data-channel adapter is
+// injected yet (Batches 1 & 2 shipped only the pure modules + NULL no-op
+// adapters), so a started Room stays local-only and no remote peers/entries
+// arrive until a real adapter is wired — an honest, never-thrown dark state, not
+// a broken feature. Everything below only ever runs once the flag is flipped on.
+let roomSignaling = null;   // RoomSignalingCoordinator | null — non-null once a Room is open
+let roomBroadcast = null;   // RoomBroadcastCoordinator | null — composes roomSignaling
+let roomPeers = [];         // cached listPeers() result (the read-only presence list)
+
+function renderRoomUiWidget() {
+  const host = document.getElementById('room-ui-host');
+  if (!host) return;
+  if (!isEnabled('roomsUi')) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    roomSignaling = null;
+    roomBroadcast = null;
+    roomPeers = [];
+    return;
+  }
+  host.style.display = '';
+  const supported = isRoomsSupported();
+  const pillModel = buildRoomPillModel({
+    roomCode: roomSignaling ? roomSignaling.roomCode : null,
+    joined: !!roomSignaling, // a Room is "open" from the moment the human starts it
+    supported,
+  });
+  const presenceModel = buildPresenceModel({
+    peers: roomPeers,
+    viewingSnapshot: roomBroadcast ? roomBroadcast.viewingSnapshot() : {},
+  });
+  renderRoomUi({
+    host,
+    pillModel,
+    presenceModel,
+    onStart: startRoom,
+    onLeave: leaveRoom,
+    onCopy: copyRoomCode,
+  });
+}
+
+// Open a fresh Room: generate a shareable code, stand up the Batch-1 signaling
+// coordinator (with its default NULL no-op adapter until a real one is injected)
+// and the Batch-2 broadcast coordinator composed on top of it, wiring a remote
+// Object Space entry to a live-update toast and a viewing change to a re-render.
+// Best-effort: join() is attempted but never blocks the UI from showing the code.
+async function startRoom() {
+  try {
+    const roomCode = generateRoomCode();
+    roomSignaling = new RoomSignalingCoordinator({ roomCode });
+    roomBroadcast = new RoomBroadcastCoordinator({
+      room: roomSignaling,
+      onRemoteEntry: (entry, m) => notifyRemoteEntry({ entry, from: m && m.from, peers: roomPeers, toast }),
+      onViewersChanged: () => renderRoomUiWidget(),
+    });
+    renderRoomUiWidget();
+    try { await roomSignaling.join(); } catch (e) { /* unreachable signaling is a first-class state */ }
+    await refreshRoomPeers();
+  } catch (e) {
+    // A Room failing to open must never break the topbar.
+    roomSignaling = null;
+    roomBroadcast = null;
+    renderRoomUiWidget();
+  }
+}
+
+// Leave the current Room (best-effort) and return the pill to its idle state.
+async function leaveRoom() {
+  const coord = roomSignaling;
+  roomSignaling = null;
+  roomBroadcast = null;
+  roomPeers = [];
+  renderRoomUiWidget();
+  if (coord) { try { await coord.leave(); } catch (e) { /* never throws */ } }
+}
+
+// Copy the current room code to the clipboard so the human can share it.
+function copyRoomCode(code) {
+  const value = code || (roomSignaling ? roomSignaling.roomCode : null);
+  if (!value) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(
+        () => toast(`Room code ${value} copied`, 'success'),
+        () => toast('Could not copy the room code', 'warn'),
+      );
+    }
+  } catch (e) { /* clipboard unavailable — non-fatal */ }
+}
+
+// Refresh the cached presence list from the signaling coordinator and re-render.
+// Never throws; unreachable signaling yields an empty peer list.
+async function refreshRoomPeers() {
+  if (!roomSignaling) { roomPeers = []; return; }
+  try { roomPeers = await roomSignaling.listPeers(); } catch (e) { roomPeers = []; }
+  renderRoomUiWidget();
 }
 
 // Map a symbolic Glow Path CTA action to a real, human-initiated navigation. Each
@@ -6050,6 +6162,7 @@ function initProblemFramer() {
 function init() {
   renderTabBar();
   renderCommandDeckSidebar();
+  renderRoomUiWidget();
   switchTab('preflight');
   initTheme();
   initFileLoading();
