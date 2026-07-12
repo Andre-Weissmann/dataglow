@@ -256,20 +256,30 @@ to be CORRECT.
 All three batches gated behind the `metricContracts` flag (ships OFF, still currently gates nothing
 observable since none of the three is wired into `main.js` yet).
 
-- **AI Readiness Gate (pure scoring, batch 1 of 4)** — `js/gate/readiness-gate.js` (a PURE aggregator
-  that composes the OUTPUT of validation's `runAllLayers()` — never re-running it — plus an optional
-  metric-contract status into a single agent-consumability verdict. `computeReadinessGate(layerResults,
+- **AI Readiness Gate (pure scoring + UI badge, batches 1-2 of 4)** — `js/gate/readiness-gate.js` (a PURE
+  aggregator that composes the OUTPUT of validation's `runAllLayers()` — never re-running it — plus an
+  optional metric-contract status into a single agent-consumability verdict. `computeReadinessGate(layerResults,
   metricContractStatus, options)` returns a well-formed `{ agentConsumable, score, threshold,
   failingLayers, passingSummary, blockedByContract, evaluatedLayerCount }` object: it reuses validation's
   existing `pass`/`warn`/`fail`/`idle` status vocabulary verbatim (inventing no new severity levels),
   excludes `idle` layers from scoring, half-weights `warn`, and treats a broken/invalid metric contract
   as a stand-alone hard block regardless of layer results. Never throws — empty/undefined/null input
   yields a safe not-consumable verdict. `explainGateReasons(gateResult)` renders that verdict as a
-  human-readable multi-line string for a future batch-2 UI. Answers the project's North Star finding
-  (see [`../NORTH_STAR.md`](../NORTH_STAR.md)) that ungoverned data handed to AI agents drives the
-  60-84% AI-initiative failure rate. This batch is pure logic + tests ONLY: the UI badge (batch 2),
-  agent-module wiring (batch 3), and MCP exposure (batch 4) are deferred. Nothing in the app calls it
-  yet.)
+  human-readable multi-line string.) **Batch 2 (UI badge)** — `js/gate/readiness-gate-ui.js`
+  (`buildReadinessBadgeModel(gateResult)` is a PURE, DOM-free builder turning that verdict into a badge
+  view model — a green `Agent-ready` / amber-or-red `Not agent-ready` pill reusing the existing
+  `css/base.css` `.badge` + grade-color classes, the 0-100 score, and the `explainGateReasons()` text;
+  a run with no validation evidence yet is shown as a neutral honest "Readiness not evaluated", never a
+  red failure. `renderReadinessBadge({host, gateResult})` is the thin DOM presenter — a click-to-expand
+  reasons panel mirroring the Proof Drawer's "Show the math" toggle. Wired into `js/app-shell/main.js`'s
+  SQL tab only: after a query runs, `renderReadinessGateBadge()` composes the last real validation run
+  (`state.validationResults`) and renders the badge below the result in `#sql-result-wrap`. It is purely
+  INFORMATIONAL — it never re-runs validation and never blocks or delays a human's query.) Answers the
+  project's North Star finding (see [`../NORTH_STAR.md`](../NORTH_STAR.md)) that ungoverned data handed
+  to AI agents drives the 60-84% AI-initiative failure rate. Batch 2 ships dark behind the
+  `aiReadinessGateBadge` flag (default OFF). Deferred: agent-module hard-block wiring (batch 3,
+  `js/agents/*`) and MCP exposure (batch 4); Python/R/Metric Studio badge wiring and a real per-query
+  metric-contract status are a batch-2 follow-up.
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
