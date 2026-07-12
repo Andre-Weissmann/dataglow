@@ -93,6 +93,50 @@ the privacy/offline guarantees.
 
 ---
 
+## Concept in progress: Glow Path
+
+**One sentence:** a single, persistent, honest rail — not a new nav system, not a new tab —
+that sits beside DataGlow's existing tabs/sidebar and always answers one question in plain
+English, "here's the next right thing to do," while its own density (how much detail/jargon
+it shows) silently steps up as it observes real usage — never gated behind a role picker,
+never asked as a setup question.
+
+**Why it fits DataGlow:** channels the "it just works" / Steve-Jobs-empower-the-user lens
+(brainstormed 2026-07-11) — any data role (analyst, scientist, engineer, or a role that
+doesn't exist yet) should be able to sit down and immediately know what to do next, with zero
+onboarding. Reuses only real existing signals (AI Readiness Gate verdict, validation results,
+query history) and never fabricates a suggestion — mirrors the Readiness Gate's/Trust Strip's
+"never fabricate a value" discipline. Does not touch tab organization (Command Deck / Tab
+Groups / Validate Focus Mode already own that question) — Glow Path answers a different one.
+
+**Build batches (in order, each its own PR):**
+1. **Batch B — session-scoped proficiency signal.** (SHIPPED, merged in
+   [#144](https://github.com/Andre-Weissmann/dataglow/pull/144) —
+   `js/learning/proficiency-signal.js`: pure, in-memory, dependency-free per-tab action tally
+   classified into `'low'/'mid'/'high'` via `classifyDensity()`/`createProficiencyTracker()`.
+   No IndexedDB, no persistence, no UI, no wiring yet — 38/0 passing in
+   `test/proficiency-signal.test.mjs`. Cross-session persistence explicitly deferred to a
+   future batch.)
+2. **Batch A — the rail itself.** (SHIPPED, merged in
+   [#145](https://github.com/Andre-Weissmann/dataglow/pull/145) —
+   `js/app-shell/glow-path.js` (pure `computeGlowPathState(ctx)`, 6-priority first-match-wins
+   decision list, never throws) + `js/app-shell/glow-path-ui.js` (pure badge-model builder +
+   thin DOM presenter + in-memory per-dataset dismissal store), wired into `main.js` after
+   query runs, after validation, and on tab switch. Ships DARK behind `glowPathRail` (default
+   OFF); with the flag off the app is byte-for-byte unchanged. `densityLevel` defaults to
+   `'low'` and has zero import-time dependency on Batch B — the two batches were built and
+   merged independently, in either order. 55/0 passing in `test/glow-path.test.mjs`.)
+3. **Batch C — wire `densityLevel` from the real proficiency signal.** NOT STARTED. Today
+   Batch A always defaults to `'low'` since it doesn't import Batch B yet. This batch is the
+   thin glue: instantiate `createProficiencyTracker()` in `main.js`, call `recordAction(tabId)`
+   on real query/run events, and pass `getDensityLevel()` into `computeGlowPathState(ctx)`.
+   Small and low-risk since both sides are already tested in isolation.
+4. **Batch D — promote `glowPathRail` to ON** once Batch C lands and the rail has been
+   dogfooded, following the same visibility-flag discipline as the Readiness Gate badge
+   promotion (see Lessons learned below — landing dark is not the same as shipped/visible).
+
+---
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
