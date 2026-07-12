@@ -24,6 +24,56 @@ export function isSensitiveCategory(columnName) {
   return SENSITIVE_CATEGORY_NAME.test(String(columnName ?? ''));
 }
 
+// ------------------------------------------------------------
+// P0 safety guard — unique-identifier columns must never be fuzzy-merged.
+//
+// Bug this fixes: this engine's clustering (below) judges values by pure
+// string similarity (Levenshtein/Jaro-Winkler) with no awareness of column
+// semantics. On a business-key column such as patient_id or claim_id, two
+// unrelated identifiers can be textually "close" (e.g. "PT-10234" vs
+// "PT-10235", or two claim numbers differing by one digit) purely by chance,
+// especially on small/filtered datasets where a column's distinct-value
+// count sits comfortably under this file's own MAX_DISTINCT clustering cap.
+// Because the UI's "Apply Merge" action runs a real UPDATE that rewrites
+// every matched row to the chosen canonical value, a false-positive cluster
+// on a unique-ID column is not a cosmetic mistake — it silently collapses
+// two distinct patients' or claims' records onto the same key, which is a
+// data-corruption / patient-safety issue, not just a wrong suggestion.
+//
+// Guarded by two independent, already-established DataGlow heuristics so
+// neither has to be perfectly tuned alone:
+//   1. Name pattern — the exact identifier-suffix convention already used by
+//      validation.js's BUSINESS_KEY_RE / detectBusinessKeyColumns (bare id/
+//      key/code, or a _id/_key/_code/_no/_num/_number suffix). Duplicated
+//      here (not imported) to avoid a circular import, since validation.js
+//      already imports from this file.
+//   2. Cardinality — the same near-unique-ratio signal already used by
+//      predictive-anomaly.js and ondevice-ml.js to exclude identifier-like
+//      categoricals from feature selection: if the count of distinct values
+//      is within `uniqueRatio` of the count of non-null rows, the column is
+//      behaving like a unique key regardless of what it's named.
+// A column trips the guard if EITHER signal fires — conservative on purpose,
+// since the cost of missing a real spelling-variant cluster is minor (an
+// analyst does one merge manually) while the cost of allowing a merge on a
+// true identifier column is severe and silent.
+const IDENTIFIER_COLUMN_NAME = /^(id|key|code)$|(_id|_key|_code|_no|_num|_number)$/i;
+
+export function isLikelyIdentifierColumn(columnName) {
+  return IDENTIFIER_COLUMN_NAME.test(String(columnName ?? ''));
+}
+
+// distinctCount / nonNullCount close to 1 means "almost every row has its own
+// value" — the signature of a unique key, not a bounded category vocabulary.
+// 0.9 is deliberately conservative (a real categorical column with genuine
+// spelling variants will have nowhere near this ratio; a unique-ID column
+// with a handful of accidental exact duplicates will still clear it easily).
+const IDENTIFIER_UNIQUE_RATIO = 0.9;
+
+export function isNearUniqueColumn(distinctCount, nonNullCount, ratio = IDENTIFIER_UNIQUE_RATIO) {
+  if (!nonNullCount || nonNullCount <= 0) return false;
+  return (distinctCount / nonNullCount) >= ratio;
+}
+
 // Render a cluster's one-line finding string. Shared by the Categorical
 // Consistency Engine (validation.js) and the Domain Physics Engine so that
 // flipping a cluster to "sensitive" produces the identical text either place.
@@ -150,7 +200,17 @@ export function withCanonical(cluster, canonical) {
 }
 
 // Query distinct value frequencies for one column and cluster them.
+//
+// P0 fix: unique-identifier columns (patient_id, claim_id, ...) must never
+// reach clustering at all, regardless of how few distinct values they have.
+// The old high-cardinality skip (`valueFreqs.length > 200`) does NOT catch
+// this — a small dataset or a per-facility slice can easily have well under
+// 200 distinct IDs while every one of them is still a unique key. The two
+// guards below (name pattern, then measured cardinality ratio) run BEFORE
+// any similarity comparison, so a true identifier column can never produce
+// a cluster or reach the UI's "Apply Merge" action in the first place.
 export async function detectColumnClusters(table, column, engine, options = {}) {
+  if (!options.skipIdentifierGuard && isLikelyIdentifierColumn(column)) return [];
   const { rows } = await engine.runQuery(
     `SELECT "${column}" AS v, COUNT(*) AS n
      FROM ${table}
@@ -162,5 +222,13 @@ export async function detectColumnClusters(table, column, engine, options = {}) 
   const valueFreqs = rows.map(r => ({ value: String(r.v), n: Number(r.n) }));
   // Skip high-cardinality free-text columns — clustering names/notes/ids is noise.
   if (valueFreqs.length < 2 || valueFreqs.length > 200) return [];
+  // Measured near-unique check: even when the name doesn't match the
+  // identifier pattern, a column whose distinct-value count sits within
+  // IDENTIFIER_UNIQUE_RATIO of its non-null row count is behaving like a
+  // unique key and must not be merge-clustered.
+  if (!options.skipIdentifierGuard) {
+    const nonNullCount = valueFreqs.reduce((sum, v) => sum + v.n, 0);
+    if (isNearUniqueColumn(valueFreqs.length, nonNullCount, options.identifierUniqueRatio)) return [];
+  }
   return clusterValues(valueFreqs, options.threshold);
 }

@@ -49,6 +49,13 @@ jobs:
       # Fuzzy Duplicate Radar: catch-rate benchmark against a seeded patients
       # dataset (12 known near-duplicate records) + false-positive guard.
       - run: npm run test:fuzzydedup
+      # Categorical Consistency Engine — P0 identifier guard: unique-ID columns
+      # (patient_id, claim_id, and any column matching the business-key naming
+      # convention or measured near-unique cardinality) must never be offered a
+      # fuzzy "Apply Merge" — proven both by the pure guard functions and by a
+      # real DuckDB-backed detectColumnClusters() call, alongside a check that
+      # genuine categorical spelling-variant columns are unaffected.
+      - run: npm run test:catidguard
       # Predictive Anomaly Scoring: holistic kNN/Gower mixed-type outlier score,
       # feature attribution, feature selection, and the size-guard/sampling path.
       - run: npm run test:predanomaly
