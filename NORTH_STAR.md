@@ -327,7 +327,7 @@ for the auditor/partner-org/regulator persona the whole Trust Passport was built
    HAPPENS to hold the data drop a file into `verify-beam.html` to run the seal's optional
    layer-2 data-fingerprint match locally (still zero-upload); today the standalone page does
    the commitment/integrity layer only, which is all a recipient-without-data can check.
-3. **Batch 3 — promote `trustBeam` to ON.** (SHIPPED, [#PR_PLACEHOLDER](https://github.com/Andre-Weissmann/dataglow/pull/PR_PLACEHOLDER) —
+3. **Batch 3 — promote `trustBeam` to ON.** (SHIPPED, [#164](https://github.com/Andre-Weissmann/dataglow/pull/164) —
    promoted alongside the rest of the Trust Passport chain (`verifiableCheckSeal`,
    `dataNutritionLabel`, `syntheticDataPassport`) after the verifier was dogfooded, following
    the same visibility-flag discipline as the Readiness Gate badge promotion (see Lessons
