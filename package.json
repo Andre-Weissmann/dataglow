@@ -68,6 +68,7 @@
     "test:nutritionlabel": "node test/data-nutrition-label.test.mjs",
     "test:checkseal": "node test/verifiable-check-seal.test.mjs",
     "test:trustbeam": "node test/trust-beam.test.mjs",
+    "test:proofroom": "node test/proof-room.test.mjs",
     "test:synthpassport": "node test/synthetic-data-passport.test.mjs",
     "test:living-manifest": "node test/living-manifest.test.mjs",
     "test:agentsdrift": "node test/agents-md-drift.test.mjs",
