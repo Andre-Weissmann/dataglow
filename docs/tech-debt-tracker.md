@@ -303,3 +303,28 @@ Newest entries go at the bottom of **Entries**.
   "KNOWN GAP" assertions must be flipped intentionally so the change is reviewed,
   not silent.
 
+
+### 2026-07-12 — Rebase gotcha: a conflict side can carry an in-place edit to an EXISTING entry bundled with its append, not just a stale fragment
+
+- **Description:** Backlog PR triage (PR #115, Command Deck Part 2) hit a
+  `flags.manifest.json` conflict that looked at first glance like the familiar
+  "ours has the full flag chain, theirs has a stale fragment + one new flag"
+  pattern already solved for PRs #123/#118/#117. It was NOT that pattern: this
+  PR's own commit both (a) corrected the EXISTING `dataglowSidebarNav` flag's
+  description in place (dropped a stale "13 tabs" reference, added a note about
+  the 14th "meeting" tab) AND (b) appended the new `dataglowCommandPalette` flag
+  — two changes bundled in one diff hunk. A resolution that only kept "ours"
+  and appended "theirs'" new flag (the usual pattern) would have silently
+  dropped the in-place correction to `dataglowSidebarNav`, since main's copy of
+  that flag still had the old "13 tabs" wording.
+- **Date:** 2026-07-12
+- **Severity:** medium
+- **Area:** rebase conflict resolution process (`flags.manifest.json`, `capability-map.manifest.json`, any append-only JSON manifest)
+- **Status:** resolved this PR — before assuming a flags/capability-map conflict
+  is the standard "complete chain vs. stale fragment + new entry" shape, run
+  `git show <commit-sha> -- <path>` on the branch's own commit FIRST and read
+  its actual diff hunks. If the commit's diff touches an existing key's value
+  (not just adds a new key), the correct resolution applies that in-place edit
+  on top of the current main-side value, THEN appends the new entry — simply
+  picking one full side and bolting on the other side's new block is not
+  sufficient when a hunk modifies shared content instead of only adding to it.
