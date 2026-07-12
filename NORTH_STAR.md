@@ -140,6 +140,50 @@ Groups / Validate Focus Mode already own that question) — Glow Path answers a 
 
 ---
 
+## Concept in progress: Data Diplomacy
+
+**One sentence:** Data Diplomacy is DataGlow's first capability built around disagreement
+BETWEEN two parties about the same entity — reconciling conflicting claims from two sources
+about one real-world thing — rather than validation WITHIN one dataset or by one user.
+
+**Why it fits DataGlow:** it reuses ~90% of existing infrastructure instead of inventing new
+machinery — the federated transport pattern from `js/federated/`, the sealing discipline of
+`js/provenance/selective-disclosure-proof.js`, the sequential-debate reasoning style of
+`js/agents/uncertainty-resolver-agent.js`, and the propose/approve/reject two-key UX of
+`js/metrics/metric-contract-confirm-gate.js`. It is healthcare-native by construction (e.g.
+two hospitals disagreeing on a single patient's admission date, each holding a differently
+sourced record), which is DataGlow's anchor domain. It extends backlog item #5 (cross-org
+clean-room-style privacy-preserving joins) from merely *joining* data into *reconciling
+disagreement* about data — the harder, more valuable half of cross-org collaboration. The
+concept was born from a dedicated "brainstorm time" session and passed the capability-map
+duplication check: nothing else in the 24-area map does cross-party claim reconciliation, so
+it is genuinely new surface, not a rename of an existing module.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — pure Reconciliation Engine + claim-sealing, no UI.** (SHIPPED, merged in
+   [#146](https://github.com/Andre-Weissmann/dataglow/pull/146) — `js/diplomacy/diplomacy-claim.js`
+   (a sealed, tamper-evident claim from one party about one entity), `reconciliation-engine.js`
+   (pure comparison of two claims → agreement/disagreement verdict with per-field reasons), and
+   `diplomacy-approval-gate.js` (the two-key propose/approve/reject state machine). 31/31 tests
+   passing. Ships DARK behind the `dataDiplomacy` flag (default OFF).)
+2. **Batch 2 — thin two-key approval UI wired to the engine.** (SHIPPED, merged in
+   [#148](https://github.com/Andre-Weissmann/dataglow/pull/148) — `js/diplomacy/diplomacy-ui.js`:
+   a gated "Diplomacy" tab driving Batch 1's engine through a hardcoded demo scenario (the two
+   hospitals / one admission-date example), reusing the metric-contract confirm-gate UX. 44/44
+   tests passing (full suite after rebase onto #146). Ships DARK behind the SAME `dataDiplomacy`
+   flag — which is STILL OFF, so the Diplomacy tab is not visible to any real user yet even though
+   the code is merged into main. Landed dark ≠ shipped/visible: both Batch 1 and Batch 2 are MERGED
+   but the feature is NOT yet visible to end users. This is not "done".)
+3. **Batch 3 — generalize beyond the hardcoded demo.** NOT STARTED. Replace the two-claim example
+   scenario with a real data-loading UI so users can construct claims from their own loaded
+   datasets, not just the built-in demo pair.
+4. **Batch 4 — real peer-to-peer / cross-org transport.** NOT STARTED. Batch 1 currently borrows
+   the federated-transport pattern only as a reference shape, not as real wiring; this batch would
+   make two actual parties in two actual browsers exchange sealed claims, closing the loop on the
+   cross-org promise.
+
+---
+
 ## Concept in progress: Trust Beam
 
 **One sentence:** turn an existing sealed check result into a self-contained, shareable
