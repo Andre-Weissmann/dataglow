@@ -97,6 +97,7 @@
     "test:diplomacytab": "node test/diplomacy-tab-gating.test.mjs",
     "test:glowsignal": "node test/glow-signal.test.mjs",
     "test:gloworbui": "node test/glow-orb-ui.test.mjs",
+    "test:querymemory": "node test/query-memory.test.mjs",
     "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:deps-freshness": "node .github/scripts/dependency-freshness.mjs",

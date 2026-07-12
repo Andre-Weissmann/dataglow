@@ -5,18 +5,26 @@
 // ============================================================
 
 const DB_NAME = 'dataglow_memory';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE_PROFILES = 'columnProfiles';
 const STORE_RULES = 'approvedRules';
 const STORE_BASELINES = 'datasetBaselines';
 const STORE_LEARNED = 'learnedCorrections';
 const STORE_FP_HISTORY = 'fingerprintHistory';
 const STORE_LEDGER = 'meetingDecisionLedger';
+const STORE_QUERY_MEMORY = 'queryMemoryLog';
 
 // Ledger entries are append-only and can accumulate across many meetings;
 // cap so an unbounded history can't grow the local database without limit.
 // Oldest entries (by recordedAt) are evicted first once over the cap.
 const LEDGER_CAP = 5000;
+
+// Query Memory entries are append-only (one per run) and could accumulate over a
+// long working session; cap so the local log can't grow unbounded. Oldest
+// entries (by ts) are evicted first once over the cap — same discipline as the
+// ledger above. Keyed by the run fingerprint, not unique: the SAME query run
+// again appends a NEW entry so the count/history is preserved.
+const QUERY_MEMORY_CAP = 10000;
 
 const PROFILE_CAP = 200; // hard cap; evict least-recently-used beyond this
 // Bounded per-schema history depth for Forecast-Based Drift Alerting — mirrors
@@ -77,6 +85,16 @@ export function initMemoryStore() {
         const ledgerStore = db.createObjectStore(STORE_LEDGER, { keyPath: '_id', autoIncrement: true });
         ledgerStore.createIndex('sourceKey', 'sourceKey', { unique: false });
         ledgerStore.createIndex('meetingId', 'meetingId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_QUERY_MEMORY)) {
+        // Query Memory log (js/provenance/query-memory.js supplies the pure
+        // fingerprint + entry-building logic; this file only stores/retrieves the
+        // resulting plain objects). autoIncrement keyPath keeps every append
+        // distinct; the `fingerprint` index is NON-unique so the same query run
+        // again appends a new entry (preserving count/history) rather than
+        // overwriting — the read path filters by fingerprint for a fast lookup.
+        const queryMemoryStore = db.createObjectStore(STORE_QUERY_MEMORY, { keyPath: '_id', autoIncrement: true });
+        queryMemoryStore.createIndex('fingerprint', 'fingerprint', { unique: false });
       }
     };
     open.onsuccess = () => resolve(open.result);
@@ -339,5 +357,61 @@ export async function clearLearnedModels() {
   const db = await initMemoryStore();
   const tx = db.transaction(STORE_LEARNED, 'readwrite');
   tx.objectStore(STORE_LEARNED).clear();
+  await txDone(tx);
+}
+
+// ---------- queryMemoryLog (Query Memory, opt-in, capped append-only) ----------
+// Append-only fingerprint log of SQL/Python/R/Metric runs. The pure logic (how a
+// run is fingerprinted and what an entry looks like) lives in
+// js/provenance/query-memory.js; this file only knows how to store/retrieve/clear
+// the resulting plain objects, exactly like the meeting decision ledger above.
+// Written only when the user has opted into Query Memory (the OFF-by-default
+// `queryMemory` flag gates the future caller — nothing writes here today).
+
+export async function appendQueryMemory(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (list.length === 0) return 0;
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_QUERY_MEMORY, 'readwrite');
+  const store = tx.objectStore(STORE_QUERY_MEMORY);
+  for (const entry of list) store.put(entry);
+  // Cap: if over the limit, evict the oldest-recorded entries (by ts) first.
+  const all = await req(store.getAll());
+  if (all.length > QUERY_MEMORY_CAP) {
+    all.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const toEvict = all.slice(0, all.length - QUERY_MEMORY_CAP);
+    for (const rec of toEvict) store.delete(rec._id);
+  }
+  await txDone(tx);
+  return list.length;
+}
+
+export async function getQueryMemory() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_QUERY_MEMORY, 'readonly');
+  return req(tx.objectStore(STORE_QUERY_MEMORY).getAll());
+}
+
+// Fast lookup of all log entries for a single run fingerprint, via the
+// non-unique `fingerprint` index — backs Query Memory's "seen before?" check.
+export async function getQueryMemoryByFingerprint(fingerprint) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_QUERY_MEMORY, 'readonly');
+  const index = tx.objectStore(STORE_QUERY_MEMORY).index('fingerprint');
+  return req(index.getAll(fingerprint));
+}
+
+export async function countQueryMemory() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_QUERY_MEMORY, 'readonly');
+  return req(tx.objectStore(STORE_QUERY_MEMORY).count());
+}
+
+// Clear ONLY the Query Memory log, leaving every other store intact. Backs a
+// "Clear query memory" consent control, same pattern as clearLedgerEntries().
+export async function clearQueryMemory() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_QUERY_MEMORY, 'readwrite');
+  tx.objectStore(STORE_QUERY_MEMORY).clear();
   await txDone(tx);
 }
