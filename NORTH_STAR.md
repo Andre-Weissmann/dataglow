@@ -391,7 +391,7 @@ it is genuinely new surface, not a rename of an existing module.
 
 ---
 
-## Concept in progress: Source Convergence (Truth Network)
+## Concept in progress: Source Convergence
 
 **One sentence:** Source Convergence is DataGlow's first capability that reasons ACROSS N
 loaded sources at once — working out which sources describe the same real-world entity, how
@@ -412,6 +412,13 @@ also follows TRANSITIVE joins (A joins B, B joins C ⇒ A and C converge through
 shared key). It reuses the trust-margin / honest-refusal discipline already proven in
 `js/diplomacy/reconciliation-engine.js` rather than inventing new resolution machinery, and it is
 the analytic engine that Data Diplomacy's two-key approval UX could later sit on top of.
+
+**Live preview (step 8b):** desktop + mobile mockup deployed 2026-07-12
+(`/home/user/workspace/source_convergence_preview/`), rendered inside DataGlow's real CSS/font/theme
+shell. Shows 6 mixed-format sources (2 CSVs, 2 Excel tabs, 1 API pull, 1 site export) each with its own
+trust weight, a 7-column coverage matrix across all 6, and a verdict panel matching the summary format
+above. Verified clean at both viewports (desktop source-rail grid fixed from an original overflow at 6
+cards; a swipe hint was added for the wide coverage table on mobile).
 
 **Build batches (in order, each its own PR):**
 1. **Batch 1 — pure convergence engine, no UI, no ingestion wiring.** (THIS PR —
@@ -868,50 +875,3 @@ Do not ask the user whether to apply "the creative lens" — always apply it. Do
 confirm this process again in future sessions unless they explicitly want to change it. Do not skip
 the live desktop + mobile preview step (8b) — it was explicitly requested by the user on 2026-07-11
 so they can actually see, not just read about, how a brainstormed idea would look in DataGlow.
-
-## Concept in progress: Source Convergence
-
-**Brainstormed:** 2026-07-12. **Supersedes:** an earlier, narrower concept ("Verified Cross-Org Truth
-Network," a strict two-party/two-table reconciliation design). That design's Batch 1 (a pairwise
-`js/validation/cross-table-rules.js` engine, PR #197) was merged, then explicitly reverted (PR #200)
-after the user rejected the two-table framing as too narrow and asked for something that scales to
-any number of sources — files, Excel workbooks (multiple tabs), API pulls, and site exports — not
-just two parties comparing one pair of tables. Both the two-table code and its NORTH_STAR.md entry
-were cleanly removed; `test:capdrift` and `test:catidguard` verified no drift or regressions from the
-revert.
-
-**Concept:** load any number of sources describing overlapping entities — CSVs, individual Excel tabs,
-live API pulls, site exports — and Convergence builds a join graph across all of them (sources join on
-whatever keys they actually share, directly or transitively through an intermediate source, not one
-fixed key between exactly two tables). For every row/entity, it computes a coverage pattern (which
-sources have it, which don't) and, where values disagree across sources, resolves using a per-source
-trust weight instead of requiring unanimous human approval. Only genuine ambiguity — conflicting
-high-trust sources, or no clear trust-weight winner — gets escalated to a human; everything else
-auto-resolves with a visible confidence/trust trail. Stays zero-upload/local-first: files and Excel
-tabs are parsed client-side, API/site pulls are fetched client-side, nothing but the final summary
-ever needs to leave the device.
-
-**Live preview (step 8b):** desktop + mobile mockup deployed 2026-07-12
-(`/home/user/workspace/source_convergence_preview/`), rendered inside DataGlow's real CSS/font/theme
-shell. Shows 6 mixed-format sources (2 CSVs, 2 Excel tabs, 1 API pull, 1 site export) each with its own
-trust weight, a 7-column coverage matrix across all 6, and a verdict panel showing 41 of 2,987 joined
-clusters needing human review vs. 2,946 auto-resolved by trust weight. Verified no overflow/wrapping
-issues at either viewport (desktop source-rail grid was originally overflowing off-screen at 6 cards
-and was fixed to a responsive grid; a swipe hint was added for the wide coverage table on mobile).
-
-**Batching (safety assessment, 2026-07-12):** this is a bigger build than the reverted two-table
-version, so it needs 3 batches, not fewer:
-
-1. **Batch 1 — Coverage-graph engine (pure logic + tests).** The join graph across N sources, per-
-   cluster coverage computation, and the trust-weighted auto-resolve threshold. Highest value,
-   isolated, zero UI — same discipline as the original (reverted) Batch 1: pure, DOM-free, never-
-   throwing. Ships behind a new `sourceConvergence` flag, default `false`.
-2. **Batch 2 — Ingestion adapters (Excel multi-tab, API/site pull parsing).** Genuinely new surface
-   area — higher risk than Batch 1 since it touches file and network parsing, not just pure logic.
-   Its own PR, its own flag (`sourceConvergenceIngestion`), reviewed independently.
-3. **Batch 3 — UI wiring (coverage matrix, source rail, escalation review).** Cosmetic-plus-
-   interactive, last, only after Batches 1 and 2 are proven and tested.
-
-**Enable is always separate from build/merge.** Each flag ships dark; flipping any of them to `true`
-requires its own later `confirm_action` naming the exact flag, on its own one-line commit — never
-bundled with any batch's build/merge step, per this repo's standing rule.
