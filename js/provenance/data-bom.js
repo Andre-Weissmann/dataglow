@@ -237,6 +237,38 @@ export async function verifyPersonalDataBom(bom) {
   };
 }
 
+// Turn a verifyPersonalDataBom() result into a small, plain-language,
+// UI-agnostic description a non-engineer can act on. Pure (no DOM, no I/O) so
+// it is unit-testable and reusable; the caller decides how to render the
+// returned strings. `headline` is a one-line verdict; `details` names which
+// part changed (source/schema/distribution vs. the chain of custody), falling
+// back to the verifier's own reason string when no finer breakdown is present.
+export function describeBomVerification(res) {
+  if (!res || typeof res !== 'object') {
+    return { ok: false, headline: 'Could not verify this Data BOM — it may be malformed.', details: [] };
+  }
+  if (res.valid) {
+    return {
+      ok: true,
+      headline: '✓ Verified — this Data BOM has not been tampered with.',
+      details: ['The overall SHA-256 digest and the nested provenance chain both match what was recorded.'],
+    };
+  }
+  const details = [];
+  if (res.outer && res.outer.valid === false) {
+    details.push('The source, schema, or column-distribution section was changed after the BOM was generated (overall digest mismatch).');
+  }
+  if (res.attestation && res.attestation.valid === false) {
+    details.push('The provenance chain of custody was altered (nested attestation digest mismatch).');
+  }
+  if (!details.length) details.push(res.reason || 'The BOM could not be verified.');
+  return {
+    ok: false,
+    headline: '✗ Verification failed — this Data BOM does not match its recorded fingerprint.',
+    details,
+  };
+}
+
 // ------------------------------------------------------------
 // Self-contained, inline-styled HTML renderer — a printable/PDF-friendly
 // "ingredient label" certificate. Deliberately styled to echo the visual
