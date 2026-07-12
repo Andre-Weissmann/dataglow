@@ -134,9 +134,16 @@ Groups / Validate Focus Mode already own that question) — Glow Path answers a 
    of the implicit `'low'`. In-memory only, no persistence. `glow-path.js`, `glow-path-ui.js`,
    `proficiency-signal.js` and the `glowPathRail` flag default (OFF) are all unchanged; full
    `test:*` suite 94/0.)
-4. **Batch D — promote `glowPathRail` to ON** once Batch C lands and the rail has been
-   dogfooded, following the same visibility-flag discipline as the Readiness Gate badge
-   promotion (see Lessons learned below — landing dark is not the same as shipped/visible).
+4. **Batch D — promote `glowPathRail` to ON.** (SHIPPED, merged in
+   [#152](https://github.com/Andre-Weissmann/dataglow/pull/152) — flag flipped from `false` to
+   `true` in `flags.manifest.json`; the rail is now LIVE for every user by default. Verified
+   with the flag on before merging: `test:glowpath` 55/0, `test:proficiencysignal` 38/0,
+   `test:capdrift` 24/0, `test:living-manifest` 29/0, and a real-Chrome `test:e2e` full smoke
+   run (golden dataset load → validate → grade → export → time-machine → synthetic-twin) —
+   all passed with the flag live, zero regressions. Rollback is a one-line flip back to
+   `false` if ever needed; the rail's own code guarantees byte-for-byte-unchanged output when
+   off, verified across Batches A–C. Glow Path is now fully shipped end-to-end: Batches A, B,
+   C, D all merged, nothing left dark.)
 
 ---
 
