@@ -59,6 +59,7 @@ import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
 import { registerObject, listObjectSpace } from './object-space.js';
 import { computeGlowPathState } from './glow-path.js';
 import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
+import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -878,6 +879,8 @@ async function runSqlQuery() {
     // DuckDB tables as SQL-origin objects in the shared registry so the live
     // cross-language strip stays in sync. Flag-gated — no-op when off.
     registerSqlObjects();
+    // Glow Path (Batch C): a real SQL run raises the session proficiency signal.
+    proficiencyTracker.recordAction('sql');
     // Glow Path (Batch A): refresh the next-action rail from the new state.
     // No-op when the glowPathRail flag is off.
     renderGlowPathRail();
@@ -959,10 +962,15 @@ function renderReadinessGateBadge(resultWrap) {
 // It COMPOSES state DATAGLOW already has — it never re-runs validation. The
 // readiness gate result it consults is a pure aggregation over the ALREADY-computed
 // state.validationResults (the same cheap computeReadinessGate() the badge uses),
-// not a fresh validation run. densityLevel is left at its 'low' default; the
-// proficiency signal that would raise it is a separate parallel batch (Batch B)
-// this wiring has no dependency on.
+// not a fresh validation run. densityLevel comes from the session proficiency
+// signal (Batch B/C): one shared in-memory tracker below, fed by real per-tab
+// run events, classified into 'low'/'mid'/'high'. It is session-scoped only —
+// never persisted (cross-session persistence is out of scope, see Batch B).
 const glowPathDismissalStore = createGlowPathDismissalStore();
+
+// One shared session proficiency tracker (Batch C). Fed by real per-tab run
+// events (SQL/Python/R/Validate) and read by renderGlowPathRail() for density.
+const proficiencyTracker = createProficiencyTracker();
 
 // Count pass/warn/fail across the last validation run. Mirrors the gate's own
 // tolerance: only entries carrying a string `status` are layers; aggregate keys
@@ -999,8 +1007,11 @@ function renderGlowPathRail() {
     // Reuse the pure gate aggregation over already-computed results (no re-run of
     // validation); only meaningful once validation has produced evidence.
     readinessGateResult: hasValidated ? computeReadinessGate(state.validationResults) : undefined,
-    // densityLevel omitted → defaults to 'low'; lastQueryRepeatCount omitted (not
-    // derivable — queryHistory is not populated), so the save-query nudge stays off.
+    // densityLevel from the real session proficiency signal (Batch C); starts
+    // 'low' and steps up to 'mid'/'high' as run events accrue. lastQueryRepeatCount
+    // omitted (not derivable — queryHistory is not populated), so the save-query
+    // nudge stays off.
+    densityLevel: proficiencyTracker.getDensityLevel(),
   };
 
   renderGlowPath({
@@ -1346,6 +1357,8 @@ function initPythonTab() {
       // Object Space (Batch B): the datasets pushed into the pandas bridge are
       // now live Python objects — register them (flag-gated, no-op when off).
       registerRuntimeObjects('python');
+      // Glow Path (Batch C): a real Python run raises the session proficiency signal.
+      proficiencyTracker.recordAction('python');
       let html = '';
       if (truncated && truncated.length) {
         const items = truncated
@@ -1406,6 +1419,8 @@ function initRTab() {
       // Object Space (Batch B): the datasets bridged into R are now live R
       // data.frames — register them (flag-gated, no-op when off).
       registerRuntimeObjects('r');
+      // Glow Path (Batch C): a real R run raises the session proficiency signal.
+      proficiencyTracker.recordAction('r');
       let html = '';
       for (const notice of rRuntime.buildRBridgeNotices({ graphicsAvailable, hasJsonlite })) {
         html += `<div class="runtime-notice" role="note" style="margin-top:var(--space-3); padding:var(--space-2) var(--space-3); border:1px solid var(--color-warn, #C9A227); border-radius:var(--radius-md); background:rgba(201,162,39,0.08); font-size:var(--text-sm);">${escapeHtml(notice)}</div>`;
@@ -1763,6 +1778,8 @@ async function runValidation() {
   // OneCanvas Phase 1: refresh the Trust Strip (now with real validation
   // results) and the Metric Studio panel. Both no-op when their flags are off.
   renderOneCanvasPhase1();
+  // Glow Path (Batch C): a real Validate run raises the session proficiency signal.
+  proficiencyTracker.recordAction('validate');
   // Glow Path (Batch A): validation just changed what the best next action is
   // (warnings to review, an agent-readiness block, or a clean pass). No-op when
   // the glowPathRail flag is off.
