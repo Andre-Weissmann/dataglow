@@ -1229,6 +1229,36 @@
       ]
     },
     {
+      "id": "live-transcript-capture",
+      "area": "Meeting scribe",
+      "name": "Live transcript capture (on-device speech-to-text input)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/live-transcript-capture.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/agents/live-transcript-capture.js",
+          "name": "isSpeechCaptureAvailable"
+        },
+        {
+          "file": "js/agents/live-transcript-capture.js",
+          "name": "assembleSegments"
+        },
+        {
+          "file": "js/agents/live-transcript-capture.js",
+          "name": "createTranscriptAssembler"
+        },
+        {
+          "file": "js/agents/live-transcript-capture.js",
+          "name": "startLiveCapture"
+        }
+      ]
+    },
+    {
       "id": "meeting-decision-ledger",
       "area": "Meeting scribe",
       "name": "Chart-anchored meeting decision ledger (pure logic)",

@@ -2093,7 +2093,7 @@ function renderMeetingScribeTab() {
   if (!isEnabled('meetingScribe')) { host.innerHTML = ''; meetingScribeMounted = false; meetingScribeHandle = null; return; }
   if (!shouldOfferMeetingScribe({ enabled: true })) { host.innerHTML = ''; meetingScribeMounted = false; meetingScribeHandle = null; return; }
   if (!meetingScribeMounted) {
-    meetingScribeHandle = mountMeetingScribe({ host, onToast: toast });
+    meetingScribeHandle = mountMeetingScribe({ host, onToast: toast, liveCapture: isEnabled('meetingScribeLiveCapture') });
     meetingScribeMounted = true;
   }
   renderDecisionLedgerSection();
