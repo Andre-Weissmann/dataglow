@@ -507,6 +507,69 @@ items to pull next, ranked:
    R9's exact-count discrepancy in this run (31 observed vs. 15 seeded — flagged as an inconclusive
    test-tolerance issue pending hand-reconciliation, not attributed to DataGlow).
 
+## Test findings (2026-07-12 run 3 — Finance pack + Desktop + Mobile)
+
+A third pass of the "Test DataGlow Platform" program, closing out everything deferred across Run 1 and
+Run 2: the Finance domain pack's architecture-unreachability hypothesis, Desktop (Tauri) testing, and
+Mobile (PWA) testing. Full write-up: workspace `dataglow_test_data_finance/dataglow_roadmap_2026-07-12_run3.md`
+(also: `dataglow_test_data_finance/dataglow_test_results_2026-07-12_run3_finance.md`, `answer_key.md`).
+Top items to pull next, ranked:
+
+1. **P0 (NEW, highest priority across all 3 runs) — Clean tab's "Scan for Issues" early return can hide
+   Fuzzy Dedup/Missingness/Format panels for ANY dataset, not just a specific domain pack.**
+   `scanClean()` in `js/app-shell/main.js` calls `clean.scanForIssues()`, which checks only 4 narrow
+   things (nulls, exact-duplicate rows, whitespace, negative "amount"-named columns). If none of those 4
+   are present, the function renders "No issues found" and returns early — before `renderFuzzyDedup`,
+   `renderMissingness`, and `renderFormatIssues` ever run. Confirmed on a finance ledger-accounts table
+   with zero qualifying issues by those 4 measures: direct module testing found 1,273 real near-duplicate
+   pairs (including all 6 seeded near-dup account-name pairs at 0.983-0.993 similarity) that the UI never
+   surfaced. This is dataset-shape-dependent, not pack-dependent — it can hide real defects in any CSV
+   (healthcare, retail, finance, or otherwise) that happens to be clean by those 4 narrow measures.
+   Suggested fix: decouple the three deeper panel-rendering calls from the early return so they always
+   run, independent of whether `scanForIssues`'s narrower checklist found anything.
+2. **P1 — `finance-ledger-account-no-merge` reproduces the identical architecture-unreachability bug as
+   `retail-sku-no-merge` (Run 2), confirming this is a structural pattern, not a one-off.** 272 distinct
+   `gl_account_code` values / 278 rows never appeared anywhere in the Categorical Consistency Engine's
+   output (200-distinct cap in `categorical-consistency.js:164`), exactly like retail SKU. Two domain
+   packs in a row hit the identical wall on their own signature no-merge rule. Fixes proposed in Run 2
+   still apply; note fixing P0 above does not automatically fix this too, since `fuzzy-dedup.js`'s column
+   auto-pick regex still wouldn't match `gl_account_code`-shaped names — both fixes are needed together.
+3. **P2 (NEW, mobile) — the mobile tab bar has no visible scroll affordance.** `nav.tabbar.tabbar-grouped`
+   is 1,370px of tabs (13 tabs, 5 groups) packed into a ~412px mobile viewport and is genuinely
+   scrollable (`overflow-x: auto`), but has no scrollbar, arrow, or edge-fade hint, and doesn't
+   auto-scroll the active tab into view. Confirmed identically on Pixel 7 and iPhone 14 emulation
+   profiles — everything past the first 4-5 tabs (Clean, Validate, Diff, Diplomacy, Proof Room, SQL,
+   Python, R, Visualize, Story, Digital Twin, Watch Folder, Meeting) is effectively undiscoverable on a
+   phone without already knowing to swipe the header. All underlying features work correctly once
+   reached — this is a discoverability gap, not a logic bug.
+4. **P3 — Desktop (Tauri) functional automation still blocked by environment, not by DataGlow.** This
+   round's sandbox (Ubuntu 26.04) can't compile the Tauri v1 shell locally — only ships
+   `libwebkit2gtk-4.1-dev`, not the `4.0` series Tauri v1 needs, the same version ceiling the project's
+   own CI comments already document (`ubuntu-22.04` pinned for this exact reason). The compile-gate
+   signal itself is solid (`tauri-smoke` has passed twice now, PR #178 and PR #180). Functional
+   automation via `tauri-driver`/WebdriverIO still needs either a real Ubuntu 22.04 box or a dedicated
+   CI job — proposed as a new opt-in (non-blocking) workflow, since it would be the only test surface
+   that can catch native-webview-specific bugs (CSP/allowlist, IPC timing) that the byte-identical-assets
+   browser tests structurally cannot.
+5. **What worked and should be protected (corroborated a third time):** zero-upload architecture now
+   confirmed on mobile viewport too (service worker reaches `active`, full offline reload renders the
+   complete UI shell with zero errors); the proactive anomaly-to-rule-teaching UX pattern (Validate
+   surfacing a negative `debit_amount` minimum with actionable "teach DataGlow a rule" buttons) is a
+   genuine, repeatable strength.
+6. **Untested follow-ups still open:** Tauri functional automation (item 4), real-device (not emulated)
+   WebGPU check, remaining ~26 of 37 healthcare rubric items from Run 1, Run 2's R9 count discrepancy and
+   P2 (retail-seasonal-outlier row-level UI confirmation), and whether the P0 Clean-tab bug reproduces
+   identically at mobile viewport (logically expected, same code path, not independently re-verified).
+
+**Practical readiness verdict (asked directly this run):** DataGlow's core data-quality logic (Preflight,
+the 20-layer Validate report, SQL cross-checks) has now matched hand-built ground truth almost exactly
+across three different domains (healthcare, retail, finance) with pre-known answer keys, and the
+zero-upload claim has held up under direct network monitoring three times running. Safe to use for real
+work today, with two informed caveats: don't treat a Clean-tab "No issues found" as conclusive (P0 above
+means it may not have actually checked for near-duplicates/missingness/formatting), and don't rely on
+high-cardinality domain-pack no-merge protection until P1 ships. Neither gap produces a silently wrong
+answer — both are "didn't show you something it could have," not "showed you something incorrect."
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
