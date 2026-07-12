@@ -83,9 +83,20 @@ async function main() {
 
   try {
     await page.goto(baseUrl + '/', { waitUntil: 'domcontentloaded' });
-    // Wait for the synchronous app init — independent of the DuckDB engine.
-    await page.waitForFunction(() => window.__dataglowInit === true, { timeout: INIT_TIMEOUT_MS, polling: 250 });
-    console.log('✓ app initialized (engine-independent)');
+    // Wait for the synchronous app init — independent of the DuckDB engine —
+    // AND for the cross-origin-isolation bootstrap to settle. On a host that
+    // sends no COOP/COEP (this test's static server), sw.js injects those
+    // headers and triggers a ONE-TIME window.location.reload() to become
+    // isolated (see test/coi-race.e2e.test.mjs). __dataglowInit is set on BOTH
+    // the pre- and post-reload pages, so gating on it alone can bind to the
+    // pre-reload page, which the imminent reload tears down mid-interaction
+    // (re-running init() → switchTab('preflight'), hiding panel-sql). Also
+    // requiring isolation !== 'pending' waits out the transient pre-reload
+    // state so we only drive the settled page.
+    await page.waitForFunction(
+      () => window.__dataglowInit === true && window.__dataglowIsolation !== 'pending',
+      { timeout: INIT_TIMEOUT_MS, polling: 250 });
+    console.log('✓ app initialized (engine-independent, isolation settled)');
 
     // -------- (B) SLM graceful degradation (WebGPU forced off) --------
     await page.click('[data-testid="tab-validate"]');
