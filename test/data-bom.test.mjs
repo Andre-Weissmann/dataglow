@@ -26,6 +26,7 @@
 import { createProvenanceChain } from '../js/provenance/provenance.js';
 import {
   buildPersonalDataBom, verifyPersonalDataBom, renderPersonalDataBomHTML,
+  describeBomVerification,
   schemaSignature, schemaVersionHash, buildLocalModelRecord, BOM_KIND, BOM_VERSION,
 } from '../js/provenance/data-bom.js';
 
@@ -206,6 +207,44 @@ async function main() {
     const evilBom = await buildPersonalDataBom({ dataset: evilDataset, trail: chain.getTrail() });
     const evilHtml = renderPersonalDataBomHTML(evilBom);
     ok(!evilHtml.includes('<img src=x onerror=alert(1)>'), 'html: a malicious column name is HTML-escaped, not rendered as a live tag');
+  }
+
+  // ============================================================
+  // (9) describeBomVerification — the plain-language mapping the "Verify Data
+  //     BOM" button renders. Pure, DOM-free; it turns a verify result into a
+  //     verdict + which-part-failed detail lines for a non-engineer analyst.
+  //     Exercised here against REAL verify results (valid + each tamper class)
+  //     so the UI text stays coupled to the verifier's actual output shape.
+  // ============================================================
+  {
+    const { chain, dataset, distribution } = await claimsFixture();
+    const bom = await buildPersonalDataBom({ dataset, trail: chain.getTrail(), distribution });
+
+    const validDesc = describeBomVerification(await verifyPersonalDataBom(bom));
+    ok(validDesc.ok === true, 'describe: a valid BOM maps to ok:true');
+    ok(/has not been tampered with/i.test(validDesc.headline), 'describe: valid headline says the BOM was not tampered with');
+
+    const tamperedSource = JSON.parse(JSON.stringify(bom));
+    tamperedSource.source.description = 'a completely different dataset';
+    const srcDesc = describeBomVerification(await verifyPersonalDataBom(tamperedSource));
+    ok(srcDesc.ok === false, 'describe: an outer-tampered BOM maps to ok:false');
+    ok(srcDesc.details.some(d => /source, schema, or column-distribution/i.test(d)),
+      'describe: outer tamper is explained as a source/schema/distribution change, not jargon');
+    ok(!srcDesc.details.some(d => /chain of custody/i.test(d)),
+      'describe: an intact chain is NOT falsely reported as altered when only the outer digest failed');
+
+    const tamperedChain = JSON.parse(JSON.stringify(bom));
+    tamperedChain.attestation.chain.steps[0].description = 'a forged step description';
+    const chainDesc = describeBomVerification(await verifyPersonalDataBom(tamperedChain));
+    ok(chainDesc.ok === false, 'describe: a chain-tampered BOM maps to ok:false');
+    ok(chainDesc.details.some(d => /chain of custody/i.test(d)),
+      'describe: chain tamper is explained as a chain-of-custody alteration');
+
+    // Robustness: a null/failed verify (e.g. verifyPersonalDataBom threw in the
+    // caller) still produces a safe, non-throwing verdict rather than crashing.
+    const nullDesc = describeBomVerification(null);
+    ok(nullDesc.ok === false && Array.isArray(nullDesc.details),
+      'describe: a null verify result degrades to a safe ok:false verdict, never throws');
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

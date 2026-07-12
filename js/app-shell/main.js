@@ -2645,8 +2645,15 @@ function initProvenance() {
   // file to review — no data leaves the browser, nothing is auto-applied.
   const bomBtn = $('#btn-databom-export');
   const bomHtmlBtn = $('#btn-databom-html');
+  const bomVerifyBtn = $('#btn-databom-verify');
   if (isEnabled('personalDataBom') && bomBtn) bomBtn.style.display = '';
   if (isEnabled('personalDataBom') && bomHtmlBtn) bomHtmlBtn.style.display = '';
+  if (isEnabled('personalDataBom') && bomVerifyBtn) bomVerifyBtn.style.display = '';
+  // The most recently generated BOM this session — the Verify button re-checks
+  // THIS object rather than rebuilding, so the user verifies exactly what they
+  // just exported. Null until an export happens; the Verify button handles that
+  // state gracefully instead of throwing.
+  let lastBom = null;
   const buildBomForActiveDataset = async () => {
     const ds = getActiveDataset();
     if (!ds) { toast('Load a dataset first', 'error'); return null; }
@@ -2674,14 +2681,51 @@ function initProvenance() {
   if (bomBtn) bomBtn.addEventListener('click', async () => {
     const bom = await buildBomForActiveDataset();
     if (!bom) return;
+    lastBom = bom;
     downloadText(`dataglow-personal-data-bom-${bom.source.table}.json`, JSON.stringify(bom, null, 2), 'application/json');
     toast('Personal Data BOM exported — digest ready for optional third-party notarization', 'success');
   });
   if (bomHtmlBtn) bomHtmlBtn.addEventListener('click', async () => {
     const bom = await buildBomForActiveDataset();
     if (!bom) return;
+    lastBom = bom;
     downloadText(`dataglow-personal-data-bom-${bom.source.table}.html`, dataBom.renderPersonalDataBomHTML(bom), 'text/html');
     toast('Personal Data BOM HTML exported (printable / PDF-friendly)', 'success');
+  });
+  // Verify the most recently generated Data BOM: recompute its SHA-256 digest
+  // and re-check the nested provenance attestation, fully offline. Renders a
+  // plain-language result for the (non-engineer) analyst. All DOM built with
+  // el()/createTextNode — no innerHTML with interpolated data — so a hostile
+  // column name or source string can never inject markup.
+  if (bomVerifyBtn) bomVerifyBtn.addEventListener('click', async () => {
+    const out = $('#databom-verify-result');
+    if (out) out.replaceChildren();
+    if (!lastBom) {
+      if (out) out.appendChild(el('div', { style: 'color:var(--color-text-faint);' },
+        'No Data BOM to verify yet — click "Export Data BOM" (or "Data BOM HTML") first, then verify it.'));
+      toast('Build a Data BOM first, then verify it', 'warn');
+      return;
+    }
+    let res;
+    try {
+      res = await dataBom.verifyPersonalDataBom(lastBom);
+    } catch {
+      res = null;
+    }
+    if (!out) return;
+    const desc = dataBom.describeBomVerification(res);
+    out.appendChild(el('div', {
+      style: `font-weight:600; color:${desc.ok ? 'var(--color-grade-a)' : 'var(--color-grade-d)'};`,
+    }, desc.headline));
+    if (desc.details.length) {
+      out.appendChild(el('ul',
+        { style: 'margin:4px 0 0 16px; color:var(--color-text-faint);' },
+        desc.details.map((d) => el('li', {}, d))));
+    }
+    toast(
+      desc.ok ? 'Data BOM verified — nothing tampered with' : 'Data BOM verification failed — see details',
+      desc.ok ? 'success' : 'error',
+    );
   });
 }
 
