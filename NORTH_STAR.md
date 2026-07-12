@@ -94,6 +94,19 @@ These lost the "combine into one" round but remain valid; pull the next one when
 7. Governance-as-living-layer: one queryable interface for humans and agents (Gartner's "context as
    infrastructure" framing) — partially achieved once the Gate ships.
 
+## Polyglot Workbench (parallel track)
+
+A separate exploratory track (not from the ranked backlog above) making SQL/Python/R feel like one
+workbench instead of three siloed runtimes. Shipped as small additive batches, each its own PR:
+- **Batch A — Multi-dialect SQL adapter** (`js/app-shell/sql-dialect-adapter.js`, flag `multiDialectSql`):
+  separate PR, owned by another track. Not a dependency of Batch B.
+- **Batch B — Object Space registry** (`js/app-shell/object-space.js`, flag `objectSpaceRegistry`,
+  default OFF): in-PR. A passive, in-memory single source of truth for named cross-language objects
+  (name, originLanguage, kind, schema, rowCount, provenance pointer). Sits ALONGSIDE the existing
+  per-language JSON bridges — does NOT replace transfer mechanics and does NOT do query-time
+  cross-language resolution (`FROM py.name` is a deliberate future batch). Read-only UI strip in the
+  data sidebar. Ships dark; zero behavior change when the flag is off.
+
 ## Lessons learned
 
 - **Flip (or explicitly flag as still-dark) the visibility flag before reporting a batch done.** Batch 2
