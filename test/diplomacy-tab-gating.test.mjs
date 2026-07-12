@@ -33,16 +33,23 @@ test('the diplomacy tab id exists in the app\'s real tab order', () => {
   assert.ok(state.tabOrder.includes('diplomacy'), 'diplomacy must be a slot in state.tabOrder');
 });
 
-test('shipped default: dataDiplomacy is OFF, so the diplomacy tab is absent from the rendered bar', () => {
+test('shipped default: dataDiplomacy is ON, so the diplomacy tab is present in the rendered bar', () => {
   configureFlags(manifest); // load the REAL manifest as shipped
-  assert.equal(isEnabled('dataDiplomacy'), false, 'dataDiplomacy must ship dark (OFF)');
+  assert.equal(isEnabled('dataDiplomacy'), true, 'dataDiplomacy now ships ON (Diplomacy tab live)');
   const visible = visibleTabOrder();
-  assert.ok(!visible.includes('diplomacy'), 'flag OFF → diplomacy must NOT be in the rendered tab list');
-  // The gate must not disturb any other tab: everything except diplomacy is still there.
+  assert.ok(visible.includes('diplomacy'), 'flag ON → diplomacy must be in the rendered tab list');
+  // The gate must not disturb any other tab: everything is still there.
   for (const tabId of state.tabOrder) {
-    if (tabId === 'diplomacy' || tabId === 'meeting') continue;
+    if (tabId === 'meeting') continue;
     assert.ok(visible.includes(tabId), `unrelated tab "${tabId}" must be unaffected by the diplomacy gate`);
   }
+});
+
+test('gate mechanics: forcing dataDiplomacy OFF still removes the diplomacy tab', () => {
+  configureFlags({ flags: { dataDiplomacy: { enabled: false } } });
+  assert.equal(isEnabled('dataDiplomacy'), false);
+  assert.ok(!visibleTabOrder().includes('diplomacy'), 'flag OFF → diplomacy must NOT be in the rendered tab list');
+  resetFlags();
 });
 
 test('flag ON: the diplomacy tab appears in the rendered bar', () => {
