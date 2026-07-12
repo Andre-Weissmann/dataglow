@@ -65,7 +65,7 @@ forking the agent.
 
 **Build batches (in order, each its own PR):**
 1. **Batch 1 — live audio capture + on-device STT input path.** (DONE — see
-   [PR (this branch)](https://github.com/Andre-Weissmann/dataglow/pulls) — new pure,
+   [#155](https://github.com/Andre-Weissmann/dataglow/pull/155) — new pure,
    Node-testable module `js/agents/live-transcript-capture.js`: `isSpeechCaptureAvailable()`
    graceful capability check plus `assembleSegments()`/`createTranscriptAssembler()` turning
    raw STT chunks into the SAME `{text, ts}` shape `parseTranscriptText` produces, feeding
