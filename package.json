@@ -60,6 +60,7 @@
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
     "test:meetingscribe": "node test/meeting-scribe.test.mjs",
     "test:livecapture": "node test/live-transcript-capture.test.mjs",
+    "test:sourceconvergence": "node test/source-convergence.test.mjs",
     "test:roomsignaling": "node test/room-signaling.test.mjs",
     "test:roomsbroadcast": "node test/room-broadcast.test.mjs",
     "test:roomsui": "node test/room-ui.test.mjs",
