@@ -458,6 +458,55 @@ senior-analyst/engineer/scientist rubric. Full write-up: workspace `dataglow_tes
    specifically, Tauri-build offline verification, and re-running Clean/fuzzy-dedup against the patient
    file specifically.
 
+## Test findings (2026-07-12 run 2 — cross-industry / retail domain-pack audit)
+
+A second pass of the "Test DataGlow Platform" program, this time targeting cross-industry versatility:
+a new synthetic retail/e-commerce dataset (411 products, 1,535 orders, known answer key) built
+specifically to exercise all three rules of the existing, already-shipped `RETAIL_PACK_DESCRIPTOR`
+(`js/validation/domain-physics.js`) with both true-positive and adjacent trap cases. Full write-up:
+workspace `dataglow_test_data_retail/dataglow_roadmap_2026-07-12_run2.md` (also:
+`dataglow_test_data_retail/dataglow_test_results_2026-07-12_run2.md`, `answer_key.md`). Platform tested:
+web only (desktop/mobile and the remaining healthcare rubric items are still open from Run 1). Top
+items to pull next, ranked:
+
+1. **P0 — `retail-sku-no-merge` is architecturally unreachable for its stated purpose.** The rule
+   itself is correctly implemented (marks matched columns `sensitive: true` in the Categorical
+   Consistency Engine), but neither feature that could act on a merge suggestion ever gives it a
+   chance to fire for a realistic SKU column: `detectColumnClusters()` hard-skips any column with
+   >200 distinct values (a real SKU column is near-unique by definition — 408 distinct in our
+   411-row test), and the Clean tab's separate Fuzzy Duplicate Radar (`js/cleaning/fuzzy-dedup.js`)
+   only ever scans one auto-picked column per table via a name regex that doesn't match `sku` at all
+   and has zero domain-pack awareness anywhere in the file. A user trusting the pack's own
+   description gets no actual protection on the column it's named for, with no visible error or
+   "skipped" signal. Two independent fixes proposed: (a) exempt pack-matched `no-merge` columns from
+   the 200-distinct cap, and/or (b) give `fuzzy-dedup.js` domain-pack awareness directly, since that's
+   the module analysts are more likely to actually act on.
+2. **P1 — SQL tool: `CAST(col AS DOUBLE)` throws a hard error on empty-string values instead of
+   treating `''` as NULL.** Blocked 2 of 12 ground-truth checks this run (`Conversion Error: Could not
+   convert string '' to DOUBLE`). Real, reproducible friction for a common real-world data shape (blank
+   strings, not true NULLs). Suggested fix: pre-clean blanks to NULL before numeric CASTs, or catch
+   this error class and surface an actionable message instead of a raw DuckDB error string.
+3. **P2 — Confirm `retail-seasonal-outlier`'s R7-vs-R8 distinction at the Validate-UI level, not just
+   SQL.** The rule is genuinely wired into `applyDomainPack()` and did reinterpret `unit_price`
+   outliers as "expected retail variation" — confirmed working, unlike item 1. Not yet confirmed: does
+   the underlying MAD/IQR detail list still individually flag the 5 true-error rows after the
+   column-level reinterpretation note is applied, or does the leniency note mask them from the human
+   view too? SQL-level data is intact (5/5 match) but the Validate UI's row-level behavior wasn't
+   independently checked this run.
+4. **P3 — Test the Finance pack next.** `finance-ledger-account-no-merge` almost certainly has the
+   identical structural gap as item 1, since GL/ledger codes are the same "near-unique identifier
+   column" shape. Cheap to check: a small targeted fixture, not a full new dataset.
+5. **What worked and should be protected (corroborated across two independent domains now):**
+   zero-upload architecture (confirmed again via full network capture on the retail dataset — no
+   dataset content left the browser); Story's honest low-confidence self-flagging (correctly caveated
+   a 4-row query result as "Confidence: D" and noted it reflects only the current query); and the
+   generic (non-pack) validation layers' correctness generalized cleanly to an entirely new domain —
+   every SQL ground-truth check that didn't hit the CAST bug matched the seeded defect exactly.
+6. **Untested follow-ups still open:** Tauri desktop and mobile/PWA testing (never run across either
+   pass), remaining ~26 of 37 healthcare rubric items from Run 1, Finance pack audit (item 3 above),
+   R9's exact-count discrepancy in this run (31 observed vs. 15 seeded — flagged as an inconclusive
+   test-tolerance issue pending hand-reconciliation, not attributed to DataGlow).
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
