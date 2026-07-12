@@ -1,0 +1,30 @@
+# ============================================================
+# DATAGLOW — CI job: AI Touch Ledger (Batch 1)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the pure-logic suite behind the AI Touch Ledger
+# (js/provenance/ai-touch-ledger.js): createTouchLedger()'s hash-chain
+# integrity (genesis anchor, chaining, tamper/delete/reorder detection),
+# validateTouch()'s never-throws contract on malformed input, and the
+# summarize/export helpers. The module is pure JS + Web Crypto with no
+# DOM/DuckDB/network, so plain `node` runs the suite — same shape as the
+# Cross-Table Relational Rules (Truth Network B1) job.
+
+name: AI Touch Ledger (Batch 1)
+
+on:
+  workflow_call:
+
+jobs:
+  ai-touch-ledger:
+    name: AI Touch Ledger (hash-chain integrity + never-throws contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:aitouchledger

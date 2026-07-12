@@ -57,6 +57,8 @@ jobs:
     uses: ./.github/workflows/job-source-convergence-ingestion.yml
   source-convergence:
     uses: ./.github/workflows/job-source-convergence.yml
+  ai-touch-ledger:
+    uses: ./.github/workflows/job-ai-touch-ledger.yml
   room-broadcast:
     uses: ./.github/workflows/job-room-broadcast.yml
   room-signaling:
