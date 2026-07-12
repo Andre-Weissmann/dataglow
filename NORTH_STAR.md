@@ -110,18 +110,22 @@ the privacy/offline guarantees.
    (SHIPPED, merged in [#142](https://github.com/Andre-Weissmann/dataglow/pull/142) —
    `js/app-shell/sql-dialect-adapter.js`: `translateDialectSql(sql, dialect)` +
    `SUPPORTED_DIALECTS`; real per-dialect syntax translation verified against a live DuckDB
-   engine in `test/sql-dialect-adapter.test.mjs`, 43/0 passing. Ships DARK behind
-   `multiDialectSql` (default OFF): when on, the SQL tab shows a dialect-picker chip row
-   and transpiles the user's SQL before `runQuery`; when off, the SQL tab is byte-for-byte
-   unchanged and the default 'duckdb' selection is a no-op passthrough.)
+   engine in `test/sql-dialect-adapter.test.mjs`, 43/0 passing. PROMOTED to ON in
+   [#165](https://github.com/Andre-Weissmann/dataglow/pull/165):
+   the dialect-picker chip row now renders by default and transpiles the user's SQL before
+   `runQuery`; the default 'duckdb' selection is a no-op passthrough, and turning
+   `multiDialectSql` back off restores the byte-for-byte prior SQL tab.)
 2. **Batch B — Object Space registry.** (SHIPPED, merged in
    [#141](https://github.com/Andre-Weissmann/dataglow/pull/141) —
    `js/app-shell/object-space.js`: a passive, in-memory single source of truth for named
    cross-language objects (name, originLanguage, kind, schema, rowCount, provenance
    pointer), verified in `test/object-space.test.mjs`, 32/0 passing. Sits ALONGSIDE the
    existing per-language JSON bridges — does NOT replace transfer mechanics. Read-only
-   "Object Space" strip in the data sidebar. Ships DARK behind `objectSpaceRegistry`
-   (default OFF); zero behavior change when off.)
+   "Object Space" strip in the data sidebar. PROMOTED to ON in
+   [#165](https://github.com/Andre-Weissmann/dataglow/pull/165):
+   the passive registry now populates and the Object Space strip renders by default;
+   turning `objectSpaceRegistry` back off restores zero behavior change. Batch C (query-time
+   resolution) remains the next batch that makes the registry load-bearing.)
 3. **Batch C — cross-language query-time resolution (`FROM py.name` / `dataglow.get_df('sql_result')`
    actually reading the SAME registered object).** NOT STARTED. This is what makes the
    registry load-bearing instead of just a display strip — the real "three views into one
