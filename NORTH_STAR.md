@@ -157,7 +157,7 @@ for the auditor/partner-org/regulator persona the whole Trust Passport was built
 
 **Build batches (in order, each its own PR):**
 1. **Batch 1 — pure serializer + standalone verifier page + UI affordance, behind a
-   flag.** (DONE — merged in [#PR_NUMBER](https://github.com/Andre-Weissmann/dataglow/pull/PR_NUMBER) —
+   flag.** (DONE — [#151](https://github.com/Andre-Weissmann/dataglow/pull/151) —
    `js/provenance/trust-beam.js`: `encodeBeam`/`decodeBeam` (lossless base64url round-trip
    of the seal inside a versioned envelope), `buildBeamUrl` (payload in the URL fragment,
    never sent to a server), `readBeamPayloadFromFragment`; a standalone `verify-beam.html`
