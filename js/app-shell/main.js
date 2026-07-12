@@ -57,6 +57,8 @@ import { openProofDrawer } from '../trust/proof-drawer.js';
 import { computeReadinessGate } from '../gate/readiness-gate.js';
 import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
 import { registerObject, listObjectSpace } from './object-space.js';
+import { computeGlowPathState } from './glow-path.js';
+import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -249,6 +251,9 @@ function switchTab(tabId) {
   if (tabId === 'twin') buildTwinControls();
   if (tabId === 'meeting') renderMeetingScribeTab();
   renderCommandDeckSidebar();
+  // Glow Path (Batch A): keep the next-action rail in sync as the user moves
+  // between tools. No-op when the glowPathRail flag is off.
+  renderGlowPathRail();
 }
 
 // ============================================================
@@ -873,6 +878,9 @@ async function runSqlQuery() {
     // DuckDB tables as SQL-origin objects in the shared registry so the live
     // cross-language strip stays in sync. Flag-gated — no-op when off.
     registerSqlObjects();
+    // Glow Path (Batch A): refresh the next-action rail from the new state.
+    // No-op when the glowPathRail flag is off.
+    renderGlowPathRail();
     if (isEnabled('localAnalysisContract')) {
       // Runs after the result is already shown — the contract check never
       // gates or delays the query itself, only annotates the result with
@@ -937,6 +945,80 @@ function renderReadinessGateBadge(resultWrap) {
   // real per-query contract status are a documented batch-2 follow-up.
   const gateResult = computeReadinessGate(state.validationResults);
   renderReadinessBadge({ host, gateResult });
+}
+
+// ============================================================
+// Glow Path rail (Batch A — adaptive next-action rail, ships dark)
+// ============================================================
+// A single honest "what should I do next?" suggestion rendered into
+// #glow-path-host. ALL wiring below is gated behind the glowPathRail flag — with
+// the flag off, renderGlowPathRail() returns immediately, the host stays empty,
+// and behavior is byte-for-byte unchanged. The rail is purely a suggestion: it
+// never blocks or delays anything for a human.
+//
+// It COMPOSES state DATAGLOW already has — it never re-runs validation. The
+// readiness gate result it consults is a pure aggregation over the ALREADY-computed
+// state.validationResults (the same cheap computeReadinessGate() the badge uses),
+// not a fresh validation run. densityLevel is left at its 'low' default; the
+// proficiency signal that would raise it is a separate parallel batch (Batch B)
+// this wiring has no dependency on.
+const glowPathDismissalStore = createGlowPathDismissalStore();
+
+// Count pass/warn/fail across the last validation run. Mirrors the gate's own
+// tolerance: only entries carrying a string `status` are layers; aggregate keys
+// the orchestrator mixes in (domainPack, calibratedGrades…) are skipped.
+function summarizeValidationForGlowPath(results) {
+  const summary = { pass: 0, warn: 0, fail: 0 };
+  if (!results || typeof results !== 'object') return summary;
+  for (const r of Object.values(results)) {
+    if (!r || typeof r.status !== 'string') continue;
+    if (r.status === 'pass') summary.pass++;
+    else if (r.status === 'warn') summary.warn++;
+    else if (r.status === 'fail') summary.fail++;
+  }
+  return summary;
+}
+
+// Assemble the pure decision ctx from real state, ask glow-path.js what to
+// suggest, and present it. Per-dataset dismissal is honored in memory only.
+function renderGlowPathRail() {
+  const host = document.getElementById('glow-path-host');
+  if (!host) return;
+  if (!isEnabled('glowPathRail')) { host.innerHTML = ''; return; }
+
+  const ds = getActiveDataset();
+  const dismissKey = ds && ds.name ? ds.name : '__no-dataset__';
+  if (glowPathDismissalStore.isDismissed(dismissKey)) { host.innerHTML = ''; return; }
+
+  const hasValidated = Object.keys(state.validationResults || {}).length > 0;
+  const ctx = {
+    datasetLoaded: !!ds,
+    datasetLoadedAt: ds ? ds.loadedAt : undefined,
+    hasValidated,
+    validationSummary: summarizeValidationForGlowPath(state.validationResults),
+    // Reuse the pure gate aggregation over already-computed results (no re-run of
+    // validation); only meaningful once validation has produced evidence.
+    readinessGateResult: hasValidated ? computeReadinessGate(state.validationResults) : undefined,
+    // densityLevel omitted → defaults to 'low'; lastQueryRepeatCount omitted (not
+    // derivable — queryHistory is not populated), so the save-query nudge stays off.
+  };
+
+  renderGlowPath({
+    host,
+    glowPathState: computeGlowPathState(ctx),
+    onCtaClick: onGlowPathCta,
+    onDismiss: () => { glowPathDismissalStore.markDismissed(dismissKey); host.innerHTML = ''; },
+  });
+}
+
+// Map a symbolic Glow Path CTA action to a real, human-initiated navigation. Each
+// action only ever moves the analyst toward the suggested step — it never runs an
+// agent path or blocks anything.
+function onGlowPathCta(action) {
+  if (action === 'load-data') { const fi = $('#file-input'); if (fi) fi.click(); return; }
+  if (action === 'run-validate') { switchTab('validate'); runValidation(); return; }
+  if (action === 'review-warnings' || action === 'see-failing-layers') { switchTab('validate'); return; }
+  // 'save-query'/'none' carry no live navigation in Batch A.
 }
 
 // ============================================================
@@ -1681,6 +1763,10 @@ async function runValidation() {
   // OneCanvas Phase 1: refresh the Trust Strip (now with real validation
   // results) and the Metric Studio panel. Both no-op when their flags are off.
   renderOneCanvasPhase1();
+  // Glow Path (Batch A): validation just changed what the best next action is
+  // (warnings to review, an agent-readiness block, or a clean pass). No-op when
+  // the glowPathRail flag is off.
+  renderGlowPathRail();
 }
 
 // ============================================================

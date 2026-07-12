@@ -129,6 +129,29 @@
       ]
     },
     {
+      "id": "app-shell-glow-path",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "Glow Path adaptive next-action rail (Batch A)",
+      "files": [
+        "js/app-shell/glow-path.js",
+        "js/app-shell/glow-path-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/glow-path.js",
+          "name": "computeGlowPathState"
+        },
+        {
+          "file": "js/app-shell/glow-path-ui.js",
+          "name": "renderGlowPath"
+        }
+      ]
+    },
+    {
       "id": "validation-orchestrator",
       "platforms": [
         "browser",
