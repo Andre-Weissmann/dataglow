@@ -88,6 +88,8 @@
     "test:objectspace": "node test/object-space.test.mjs",
     "test:proficiencysignal": "node test/proficiency-signal.test.mjs",
     "test:glowpath": "node test/glow-path.test.mjs",
+    "test:diplomacyui": "node test/diplomacy-ui.test.mjs",
+    "test:diplomacytab": "node test/diplomacy-tab-gating.test.mjs",
     "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:deps-freshness": "node .github/scripts/dependency-freshness.mjs",
