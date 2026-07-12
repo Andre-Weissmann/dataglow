@@ -572,3 +572,16 @@
   .glow-path { flex-wrap: wrap; margin: var(--space-2); padding: var(--space-3); }
   .glow-path-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* ============================================================
+   The Glow — topbar orb (Batch 2, ships dark)
+   Scoped, additive styles on the existing design tokens. Renders only when the
+   glowOrb flag is on; #glow-orb-host stays empty otherwise. The orb's colored
+   dot/ring is applied inline by the renderer from the shared Trust Strip state
+   colors — no new colors are introduced here.
+   ============================================================ */
+.glow-orb-host { display: inline-flex; align-items: center; }
+.glow-orb-host:empty { display: none; }
+.glow-orb { transition: var(--transition-interactive); }
+.glow-orb:hover { filter: brightness(1.08); }
+.glow-orb:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
