@@ -126,11 +126,14 @@ Groups / Validate Focus Mode already own that question) — Glow Path answers a 
    OFF); with the flag off the app is byte-for-byte unchanged. `densityLevel` defaults to
    `'low'` and has zero import-time dependency on Batch B — the two batches were built and
    merged independently, in either order. 55/0 passing in `test/glow-path.test.mjs`.)
-3. **Batch C — wire `densityLevel` from the real proficiency signal.** NOT STARTED. Today
-   Batch A always defaults to `'low'` since it doesn't import Batch B yet. This batch is the
-   thin glue: instantiate `createProficiencyTracker()` in `main.js`, call `recordAction(tabId)`
-   on real query/run events, and pass `getDensityLevel()` into `computeGlowPathState(ctx)`.
-   Small and low-risk since both sides are already tested in isolation.
+3. **Batch C — wire `densityLevel` from the real proficiency signal.** (SHIPPED, merged in
+   [#150](https://github.com/Andre-Weissmann/dataglow/pull/150) — thin glue in `main.js`: one
+   shared session-scoped `createProficiencyTracker()` fed `recordAction()` from the real run
+   events of four tabs (`sql`, `python`, `r`, `validate`) at their central success paths, and
+   `renderGlowPathRail()` now passes `tracker.getDensityLevel()` as `ctx.densityLevel` instead
+   of the implicit `'low'`. In-memory only, no persistence. `glow-path.js`, `glow-path-ui.js`,
+   `proficiency-signal.js` and the `glowPathRail` flag default (OFF) are all unchanged; full
+   `test:*` suite 94/0.)
 4. **Batch D — promote `glowPathRail` to ON** once Batch C lands and the rail has been
    dogfooded, following the same visibility-flag discipline as the Readiness Gate badge
    promotion (see Lessons learned below — landing dark is not the same as shipped/visible).
