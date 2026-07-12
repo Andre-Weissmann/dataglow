@@ -23,8 +23,19 @@ export function computeBridgeTruncation(datasets, limit = PY_BRIDGE_ROW_LIMIT) {
     .map(ds => ({ table: ds.table, name: ds.name || ds.table, rowCount: Number(ds.rowCount), limit }));
 }
 
+// Keep only valid PNG data-URL strings from a runPython result's `images` field,
+// so the UI can render exactly the figures matplotlib produced and nothing else.
+// Pure function — no DOM — so it is unit-testable, matching the R side's shape.
+export function extractImageDataUrls(images) {
+  if (!Array.isArray(images)) return [];
+  return images.filter(s => typeof s === 'string' && s.startsWith('data:image/'));
+}
+
 let loadPromise = null;
 let loaderScriptPromise = null;
+// Whether matplotlib loaded successfully this session. Defaults false so a
+// failed/absent matplotlib load leaves Python fully working as text-only.
+let matplotlibReady = false;
 
 // Pyodide is a large runtime, so its loader is fetched from the CDN on demand —
 // only when the Python tab is first opened — rather than on every page load.
@@ -47,8 +58,37 @@ export function initPyodideRuntime(onStatus) {
     onStatus?.('Downloading Python runtime…');
     await loadPyodideScript();
     const pyodide = await loadPyodide({ indexURL: PYODIDE_CDN_BASE });
-    onStatus?.('Loading pandas & numpy…');
+    onStatus?.('Loading pandas, numpy & matplotlib…');
     await pyodide.loadPackage(['pandas', 'numpy']);
+    // matplotlib is loaded lazily here — on first Python-tab use, alongside
+    // pandas/numpy — so charting works without slowing the core app load. It
+    // uses the headless 'AGG' backend so figures render to an in-memory buffer
+    // (no display), the documented Pyodide-in-browser capture pattern. If the
+    // package fails to load, Python degrades cleanly to text-only.
+    try {
+      await pyodide.loadPackage(['matplotlib']);
+      await pyodide.runPythonAsync(`
+import matplotlib
+matplotlib.use('AGG')
+import matplotlib.pyplot as plt
+import io as _dg_io, base64 as _dg_base64
+
+def _dataglow_capture_figures():
+    imgs = []
+    for num in plt.get_fignums():
+        fig = plt.figure(num)
+        buf = _dg_io.BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+        buf.seek(0)
+        imgs.append('data:image/png;base64,' + _dg_base64.b64encode(buf.read()).decode('ascii'))
+    plt.close('all')
+    return imgs
+`);
+      matplotlibReady = true;
+    } catch (e) {
+      console.warn('Could not load matplotlib in Pyodide; Python stays text-only:', e);
+      matplotlibReady = false;
+    }
     // Bridge object: dataglow.get_df('table') pulls DuckDB table into pandas via JSON
     await pyodide.runPythonAsync(`
 import pandas as pd
@@ -73,6 +113,22 @@ dataglow = _DataglowBridge()
     return pyodide;
   })();
   return loadPromise;
+}
+
+// Render any matplotlib figures the just-run code created into base64 PNG data
+// URLs, then close them so repeated runs never leak or duplicate figures.
+// Returns [] when matplotlib is unavailable or nothing was plotted.
+async function capturePyFigures(pyodide) {
+  if (!matplotlibReady) return [];
+  try {
+    const proxy = await pyodide.runPythonAsync('_dataglow_capture_figures()');
+    if (!proxy) return [];
+    const arr = typeof proxy.toJs === 'function' ? proxy.toJs() : Array.from(proxy);
+    if (typeof proxy.destroy === 'function') proxy.destroy();
+    return extractImageDataUrls(arr);
+  } catch (e) {
+    return [];
+  }
 }
 
 export async function runPython(code, activeTableName) {
@@ -100,8 +156,11 @@ export async function runPython(code, activeTableName) {
     if (result !== undefined && result !== null) {
       try { resultStr = result.toString(); } catch (e) { /* ignore */ }
     }
-    return { stdout: stdout.join(''), result: resultStr, error: null, truncated };
+    const images = await capturePyFigures(pyodide);
+    return { stdout: stdout.join(''), result: resultStr, error: null, truncated, images };
   } catch (err) {
-    return { stdout: stdout.join(''), result: null, error: err.message, truncated };
+    // Capture any figures drawn before the error too, so a partial plot still shows.
+    const images = await capturePyFigures(pyodide);
+    return { stdout: stdout.join(''), result: null, error: err.message, truncated, images };
   }
 }

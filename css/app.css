@@ -330,6 +330,11 @@
 [data-theme='dark'] .console-log { background: #061119; }
 .console-log .err { color: #FF8A8A; }
 .console-log .ok { color: #6BE0C0; }
+.runtime-chart {
+  display: block; max-width: 100%; height: auto;
+  margin-top: var(--space-3); border-radius: var(--radius-md);
+  border: 1px solid var(--color-border, #d8dee4); background: #fff;
+}
 
 /* ---- Empty state ---- */
 .empty-state {
