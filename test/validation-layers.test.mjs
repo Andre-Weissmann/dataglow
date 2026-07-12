@@ -196,6 +196,107 @@ async function main() {
   ok(results.unit_tests.status === 'fail', `unit_tests: still fails on seeded issues (status=${results.unit_tests.status})`);
   ok(results.semantic_drift.status === 'fail', `semantic_drift: still catches age=999 (status=${results.semantic_drift.status})`);
 
+  // ---------------------------------------------------------------
+  // Unit Test Layer — PER-FINDING assertions (silent-regression guard)
+  // ---------------------------------------------------------------
+  // The coarse `status === 'fail'` check above passes as long as ANY of the
+  // several independently-seeded issues (negatives, future dates, duplicates)
+  // still fires — so the duplicate detector or the referential-integrity check
+  // could be silently removed and that assertion would stay green. These checks
+  // inspect the structured `findings` array by `kind` so each detector is
+  // individually pinned. The finding kinds are produced by runUnitTests() in
+  // js/validation/validation.js: 'negative' | 'future_date' | 'blank_key' |
+  // 'duplicate' | 'null_ref'.
+  const unitFindings = res => (res && Array.isArray(res.findings)) ? res.findings : [];
+  const ofKind = (res, kind) => unitFindings(res).filter(f => f.kind === kind);
+
+  const gf = unitFindings(results.unit_tests);
+  ok(gf.length > 0, `unit_tests: exposes a structured findings array (got ${gf.length})`);
+  // Each seeded issue must surface as its OWN finding kind — not just "some fail".
+  ok(ofKind(results.unit_tests, 'negative').length >= 1,
+    `unit_tests: seeded negative value(s) surface a 'negative' finding (got ${ofKind(results.unit_tests, 'negative').length})`);
+  ok(ofKind(results.unit_tests, 'future_date').length >= 1,
+    `unit_tests: seeded future date(s) surface a 'future_date' finding (got ${ofKind(results.unit_tests, 'future_date').length})`);
+  // Duplicate detector pinned SPECIFICALLY: exactly one duplicate finding, and it
+  // reports the 10 seeded exact-duplicate rows. If the duplicate GROUP BY were
+  // removed, this fails even though other seeded issues keep overall status=fail.
+  const goldenDup = ofKind(results.unit_tests, 'duplicate');
+  ok(goldenDup.length === 1,
+    `unit_tests: duplicate detector fires exactly once on the golden fixture (got ${goldenDup.length})`);
+  ok(goldenDup[0] && /10 duplicate row\(s\)/.test(goldenDup[0].text || ''),
+    `unit_tests: duplicate finding counts the 10 seeded exact duplicates (text="${goldenDup[0] && goldenDup[0].text}")`);
+  // The golden fixture has NO non-key *_id column, so it never exercises the
+  // referential-integrity check at all — asserting zero here documents that the
+  // golden run alone gives that detector no coverage (see dedicated fixtures below).
+  ok(ofKind(results.unit_tests, 'null_ref').length === 0,
+    `unit_tests: golden fixture contains no FK column, so no 'null_ref' finding is expected (got ${ofKind(results.unit_tests, 'null_ref').length})`);
+
+  // ---------------------------------------------------------------
+  // Referential integrity — TRUE ORPHAN FK (non-null, non-existent parent)
+  // ---------------------------------------------------------------
+  // GAP UNDER TEST: runUnitTests()'s referential-integrity check only asserts a
+  // *_id foreign-key column is non-NULL; it never verifies the referenced value
+  // exists in a parent table. So a non-null-but-nonexistent (orphan) FK is NOT
+  // caught. `hospital_id` below is fully populated but points at hospitals that
+  // exist in no parent table. This asserts the CURRENT (buggy) behavior — the
+  // orphan is missed — so the gap is visible and a future detection-logic fix
+  // will have to flip this assertion intentionally. (Tracked in
+  // docs/tech-debt-tracker.md.)
+  const orphanRows = Array.from({ length: 6 }, (_, i) => ({
+    patient_id: i + 1,          // key column (cols[0]) — always present
+    hospital_id: 900 + i,       // FK: non-null everywhere, but no parent row exists
+    age: 30 + i,
+  }));
+  const orphanDs = await makeDataset('orphan_fk_dataset', orphanRows);
+  const orphanRes = await runAllLayers(orphanDs);
+  ok(ofKind(orphanRes.unit_tests, 'null_ref').length === 0,
+    `unit_tests: KNOWN GAP — orphan FK (non-null, non-existent parent) is currently NOT caught (null_ref count=${ofKind(orphanRes.unit_tests, 'null_ref').length})`);
+
+  // Positive control: a *_id FK column that IS null must still trip 'null_ref',
+  // proving the detector genuinely fires on what it does check (null FKs) and the
+  // orphan miss above is a real coverage gap, not a broken harness.
+  const nullFkRows = Array.from({ length: 6 }, (_, i) => ({
+    patient_id: i + 1,
+    hospital_id: i < 3 ? null : 100 + i, // 3 null FKs
+    age: 30 + i,
+  }));
+  const nullFkDs = await makeDataset('null_fk_dataset', nullFkRows);
+  const nullFkRes = await runAllLayers(nullFkDs);
+  const nullRef = ofKind(nullFkRes.unit_tests, 'null_ref');
+  ok(nullRef.length === 1 && /3 null reference\(s\)/.test(nullRef[0].text || ''),
+    `unit_tests: control — null FK values DO surface a 'null_ref' finding (count=${nullRef.length}, text="${nullRef[0] && nullRef[0].text}")`);
+
+  // ---------------------------------------------------------------
+  // Duplicate detection — BUSINESS-KEY duplicate (byte-identical-only gap)
+  // ---------------------------------------------------------------
+  // GAP UNDER TEST: the duplicate check is `GROUP BY <every column>`, so it only
+  // catches byte-identical rows. Two rows sharing the same real-world business
+  // key (patient_id) but differing in one incidental column (an event timestamp)
+  // are a logical duplicate the check misses. This asserts the CURRENT behavior
+  // (missed) so the gap is visible. (Tracked in docs/tech-debt-tracker.md.)
+  const bizKeyRows = [
+    { patient_id: 1, amount: 100, event_ts: '2026-01-01T00:00:00' },
+    { patient_id: 1, amount: 100, event_ts: '2026-01-01T00:05:00' }, // same key, differs only in timestamp
+    { patient_id: 2, amount: 200, event_ts: '2026-01-02T00:00:00' },
+  ];
+  const bizKeyDs = await makeDataset('bizkey_dup_dataset', bizKeyRows);
+  const bizKeyRes = await runAllLayers(bizKeyDs);
+  ok(ofKind(bizKeyRes.unit_tests, 'duplicate').length === 0,
+    `unit_tests: KNOWN GAP — business-key duplicate differing only by timestamp is NOT caught by the byte-identical check (duplicate count=${ofKind(bizKeyRes.unit_tests, 'duplicate').length})`);
+
+  // Positive control: two genuinely byte-identical rows MUST trip 'duplicate',
+  // proving the detector fires on exact dupes and the business-key miss above is
+  // a real scope gap, not a broken harness.
+  const identRows = [
+    { patient_id: 1, amount: 100 },
+    { patient_id: 1, amount: 100 }, // byte-identical
+    { patient_id: 2, amount: 200 },
+  ];
+  const identDs = await makeDataset('identical_dup_dataset', identRows);
+  const identRes = await runAllLayers(identDs);
+  ok(ofKind(identRes.unit_tests, 'duplicate').length === 1,
+    `unit_tests: control — byte-identical rows DO surface a 'duplicate' finding (count=${ofKind(identRes.unit_tests, 'duplicate').length})`);
+
   // Layer 18 — Distributional Fingerprint Drift: baseline on first load
   const dd1 = results.distribution_drift;
   ok(dd1 && dd1.status === 'pass' && /baseline/i.test(dd1.summary),
