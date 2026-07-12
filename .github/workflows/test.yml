@@ -55,6 +55,8 @@ jobs:
   # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
   source-convergence:
     uses: ./.github/workflows/job-source-convergence.yml
+  ai-touch-ledger:
+    uses: ./.github/workflows/job-ai-touch-ledger.yml
   room-broadcast:
     uses: ./.github/workflows/job-room-broadcast.yml
   room-signaling:

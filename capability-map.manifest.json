@@ -671,6 +671,28 @@
       ]
     },
     {
+      "id": "provenance-ai-touch-ledger",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "AI Touch Ledger (Batch 1)",
+      "files": [
+        "js/provenance/ai-touch-ledger.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/ai-touch-ledger.js",
+          "name": "createTouchLedger"
+        },
+        {
+          "file": "js/provenance/ai-touch-ledger.js",
+          "name": "verifyTouchLedger"
+        }
+      ]
+    },
+    {
       "id": "provenance-query-memory",
       "platforms": [
         "browser",
