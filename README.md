@@ -8,7 +8,7 @@
 
 ## What is DATAGLOW?
 
-DATAGLOW is a personal data cleaning, validation, and analysis workbench that runs entirely in your browser. Upload a file and move through preflight checks, SQL querying, automated cleaning, a 20-layer data validation suite, drag-and-drop visualization, AI-assisted narrative summaries, and even live Python / R / structural-Swift notebooks — all client-side.
+DATAGLOW is a personal data cleaning, validation, and analysis workbench that runs entirely in your browser. Upload a file and move through preflight checks, SQL querying, automated cleaning, a 20-layer data validation suite, drag-and-drop visualization, AI-assisted narrative summaries, and even live Python / R notebooks — all client-side.
 
 Everything runs on WebAssembly and vanilla JS. Your data never leaves your machine.
 
@@ -23,7 +23,6 @@ Everything runs on WebAssembly and vanilla JS. Your data never leaves your machi
 - **Story** — AI-generated plain-language narrative summaries of your dataset, with three interchangeable engines you pick in Settings: (1) **In-browser AI** (default, recommended) runs a small open-weight language model — **Qwen2.5-1.5B-Instruct**, 4-bit quantized (~1.1 GB), Apache-2.0 licensed — **100% on your device via WebGPU/WebLLM**, so no API key is needed and your data never leaves the browser; the weights download once and are cached for offline reuse. (2) **Bring your own API key** (Perplexity, Claude, Gemini, OpenAI). (3) An honest **rule-based** offline summary with no AI. The in-browser option needs a WebGPU-capable browser (recent Chrome, Edge, or Chrome on Android; Safari 18+) and gracefully falls back to the rule-based summary where WebGPU is unavailable
 - **Python** — in-browser notebook via Pyodide
 - **R** — in-browser notebook via WebR
-- **Swift** — structural SwiftUI-syntax preview (renders Text/VStack/HStack/Button/Divider live); full SwiftWasm compilation is planned for a future generation
 - **Red Team Mode** — a built-in self-test that runs a golden dataset with known injected defects (nulls, negatives, an outlier, duplicate rows) through every validation layer and checks that DATAGLOW actually catches them
 - **Predictive Anomaly Scoring** — an on-device, unsupervised outlier detector that learns the "normal shape" of the *currently-loaded* dataset and flags whole rows whose *combination* of values is unusual — the holistic, multi-column anomalies that single-column rules and the numeric-only Multivariate Outliers panel can miss (e.g. a 15-year-old with a retirement account, where neither value is individually out of range). The technique is a **k-nearest-neighbours distance outlier score** (Ramaswamy et al. 2000) over **Gower distance** (Gower 1971), which lets it mix *numeric and categorical* columns on one scale. Every flag is explainable: because Gower distance is an average of per-feature terms, each row's score decomposes additively across features, so the panel shows which features drove the flag in plain language. It is fit to *this* dataset's own distribution per-session (RAM only) — not a general AI, not a cross-session learned model, and **not one of the 20 validation layers** but a separate, complementary capability. Unusual is not the same as wrong: a flag may be a legitimate rare case. For performance the O(n²) neighbour search is capped (default 2,000 rows) with uniform random sampling above the cap, clearly disclosed in the UI.
 - **Self-Learning Validation Rules** — learns from *your own* corrections (applying/rejecting a suggested merge, dismissing a validation flag) and re-ranks flags so the ones you're most likely to care about surface first, with a plain-language "why". It is a simple, transparent, on-device **logistic-regression** model — not a neural network or general-purpose AI — that starts knowing nothing until you've made at least 10 corrections. Only labeled examples of your corrections (which check fired, the column type, accept/dismiss) are recorded — **never your raw cell values** — and nothing ever leaves your browser. Per-session learning is on by default (RAM only, wiped on reload); remembering it across sessions in IndexedDB is a separate opt-in, and a one-click **"Clear my learned corrections"** wipes it. It only ranks and highlights — it never auto-edits your data.
@@ -91,7 +90,6 @@ dataglow/
 │   ├── story.js             # AI narrative generation (pluggable providers)
 │   ├── python-runtime.js    # Pyodide notebook
 │   ├── r-runtime.js         # WebR notebook
-│   ├── swift-preview.js     # structural Swift preview
 │   └── utils.js
 ├── assets/
 │   ├── logo.svg
@@ -137,7 +135,7 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 | Simulation & time travel | What-if & history | `js/simulation/digital-twin.js`, `js/simulation/time-travel-diff.js`, `js/simulation/time-machine.js` |
 | Narrative & language models | Story & LLM | `js/narrative/story.js`, `js/narrative/ondevice-llm.js` |
 | Ambient & real-time | Live validation | `js/ambient/ambient-validation.worker.js`, `js/ambient/watch-folder.js` |
-| Language runtimes & visualization | Runtimes & charts | `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/swift-preview.js`, `js/runtimes-viz/visualize.js` |
+| Language runtimes & visualization | Runtimes & charts | `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/visualize.js` |
 | Protocol & interoperability | Conformance | `js/protocol/protocol-conformance.js` |
 | Problem framing | Problem Framer & Context Card | `js/problem-framing/problem-framer.js` |
 | App shell & data engine | Capability registry | `js/app-shell/capability-registry.js` |
@@ -151,7 +149,6 @@ _34 capabilities across 20 areas, generated from `capability-map.manifest.json` 
 
 ## Known Simplifications
 
-- Swift tab is a structural-syntax preview only, not full SwiftWasm compilation
 - Denial Radar-style column matching is heuristic, not real EDI 835/837 parsing
 - Story tab needs a user-supplied API key (Perplexity, Claude, Gemini, or OpenAI) for real AI-generated narratives; otherwise it transparently falls back to a rule-based summary and labels itself as such
 

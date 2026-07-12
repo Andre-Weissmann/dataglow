@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTabGroups, groupForTab, TAB_GROUP_ORDER } from '../js/app-shell/tab-groups.js';
 
-const FULL_ORDER = ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch', 'meeting'];
+const FULL_ORDER = ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'twin', 'watch', 'meeting'];
 
 test('buildTabGroups: every input tab id appears exactly once across all groups', () => {
   const groups = buildTabGroups(FULL_ORDER);
@@ -30,7 +30,7 @@ test('buildTabGroups: a subset (meeting flag off) omits automate members cleanly
 
 test('buildTabGroups: preserves the caller-supplied relative order within each group (drag-reorder respected)', () => {
   // user dragged 'diff' before 'clean' within the validate cluster
-  const reordered = ['framer', 'preflight', 'sql', 'python', 'r', 'diff', 'clean', 'validate', 'visualize', 'story', 'swift', 'twin', 'watch'];
+  const reordered = ['framer', 'preflight', 'sql', 'python', 'r', 'diff', 'clean', 'validate', 'visualize', 'story', 'twin', 'watch'];
   const groups = buildTabGroups(reordered);
   const validateGroup = groups.find((g) => g.id === 'validate');
   assert.deepEqual(validateGroup.tabIds, ['diff', 'clean', 'validate']);
@@ -72,7 +72,6 @@ test('groupForTab: returns the correct group id for every known tab', () => {
   assert.equal(groupForTab('r'), 'analyze');
   assert.equal(groupForTab('visualize'), 'share');
   assert.equal(groupForTab('story'), 'share');
-  assert.equal(groupForTab('swift'), 'share');
   assert.equal(groupForTab('twin'), 'automate');
   assert.equal(groupForTab('watch'), 'automate');
   assert.equal(groupForTab('meeting'), 'automate');

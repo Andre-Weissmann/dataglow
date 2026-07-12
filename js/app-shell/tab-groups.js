@@ -41,7 +41,6 @@ const TAB_TO_GROUP = {
   r: 'analyze',
   visualize: 'share',
   story: 'share',
-  swift: 'share',
   twin: 'automate',
   watch: 'automate',
   meeting: 'automate',

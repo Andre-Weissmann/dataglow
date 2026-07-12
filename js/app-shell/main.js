@@ -71,7 +71,6 @@ let devilsAdvocate;
 let syntheticAdversarial;
 import * as pyRuntime from '../runtimes-viz/python-runtime.js';
 import * as rRuntime from '../runtimes-viz/r-runtime.js';
-let swiftPreview;
 let receipt;
 let peerReview;
 let timeTravel;
@@ -109,7 +108,6 @@ const TAB_META = {
   diff: { label: 'Diff', icon: 'git-compare' },
   visualize: { label: 'Visualize', icon: 'pie-chart' },
   story: { label: 'Story', icon: 'book-open' },
-  swift: { label: 'Swift', icon: 'smartphone' },
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
   meeting: { label: 'Meeting', icon: 'message-circle' },
@@ -246,10 +244,6 @@ function switchTab(tabId) {
   if (tabId === 'validate') renderOneCanvasPhase1();
   if (tabId === 'twin') buildTwinControls();
   if (tabId === 'meeting') renderMeetingScribeTab();
-  if (tabId === 'swift' && !$('#swift-input').value) {
-    $('#swift-input').value = swiftPreview.SWIFT_TEMPLATE;
-    $('#swift-note').textContent = 'Structural SwiftUI-syntax preview — renders Text/VStack/HStack/Button/Divider live in the browser. Full SwiftWasm compilation is planned for a future Gen.';
-  }
   renderCommandDeckSidebar();
 }
 
@@ -4659,15 +4653,6 @@ function renderStoryClaims(queryResult) {
 }
 
 // ============================================================
-// Swift Tab
-// ============================================================
-function initSwiftTab() {
-  $('#btn-swift-run').addEventListener('click', () => {
-    swiftPreview.renderSwiftPreview($('#swift-input').value, 'swift-preview-wrap');
-  });
-}
-
-// ============================================================
 // Settings Modal
 // ============================================================
 function initSettings() {
@@ -5270,7 +5255,6 @@ function init() {
   initRTab();
   initVisualizeTab();
   initStoryTab();
-  initSwiftTab();
   initSettings();
   initRedTeam();
   initMemory();
@@ -5376,7 +5360,6 @@ async function bootstrapCapabilities() {
     }
     devilsAdvocate = registry.get('devils-advocate');
     syntheticAdversarial = registry.get('synthetic-adversarial');
-    swiftPreview = registry.get('swift-preview');
     receipt = registry.get('validation-receipt');
     peerReview = registry.get('peer-review');
     timeTravel = registry.get('time-travel-diff');
