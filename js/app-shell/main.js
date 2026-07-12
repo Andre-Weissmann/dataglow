@@ -92,6 +92,8 @@ import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from '../learning/self
 import { LayerPriorityModel, MIN_ACTIONS } from '../learning/adaptive-priority.js';
 import { LocalFingerprintModel, MIN_COHORT, DEFAULT_EPSILON } from '../federated/federated-learning.js';
 import { FederatedCoordinator, createGithubSignaling, createWebRTCMesh } from '../federated/federated-transport.js';
+import { buildTabGroups, groupForTab } from './tab-groups.js';
+import { createValidateFocusStore } from './validate-focus.js';
 
 // ============================================================
 // Tab Definitions
@@ -164,12 +166,17 @@ let activeTab = 'preflight';
 function renderTabBar() {
   const bar = $('#tabbar');
   bar.innerHTML = '';
+  bar.classList.toggle('tabbar-grouped', isEnabled('groupedNavigation'));
   // The 'meeting' tab is the meetingScribe flag's dark-by-default gate: with
   // the flag off (its shipped default) it is simply never added to the bar,
   // never a dead click target, and #panel-meeting stays empty and hidden
   // (see renderMeetingScribeTab). No other tab is filtered.
   const visibleTabOrder = state.tabOrder.filter((tabId) => tabId !== 'meeting' || isEnabled('meetingScribe'));
-  visibleTabOrder.forEach((tabId, idx) => {
+
+  // Shared per-tab element builder — IDENTICAL markup/handlers whether the
+  // flat or grouped renderer is active, so every existing test/selector
+  // (data-testid, draggable, switchTab wiring) keeps working unchanged.
+  function buildTabEl(tabId, idx) {
     const meta = TAB_META[tabId];
     const tabEl = el('div', {
       class: `tab ${tabId === activeTab ? 'active' : ''}`,
@@ -195,7 +202,30 @@ function renderTabBar() {
       state.tabOrder = arr;
       renderTabBar();
     });
-    bar.appendChild(tabEl);
+    return tabEl;
+  }
+
+  if (!isEnabled('groupedNavigation')) {
+    // Original flat single-row bar — byte-for-byte the same behavior as
+    // before this PR when the flag is off.
+    visibleTabOrder.forEach((tabId, idx) => bar.appendChild(buildTabEl(tabId, idx)));
+    return;
+  }
+
+  // Grouped bar: same tab ids, same click/drag behavior, presented under
+  // named mode headers instead of one flat row. idx passed to each tab is
+  // still its index within the FULL visibleTabOrder (not the sub-group), so
+  // drag-reorder math (which operates on state.tabOrder as a whole) is
+  // unaffected by which group a tab visually sits in.
+  const idxByTabId = new Map(visibleTabOrder.map((tabId, idx) => [tabId, idx]));
+  const groups = buildTabGroups(visibleTabOrder);
+  const activeGroupId = groupForTab(activeTab);
+  groups.forEach((group) => {
+    const groupEl = el('div', { class: `tab-group ${group.id === activeGroupId ? 'tab-group-active' : ''}` }, [
+      el('div', { class: 'tab-group-label' }, group.label),
+      el('div', { class: 'tab-group-tabs' }, group.tabIds.map((tabId) => buildTabEl(tabId, idxByTabId.get(tabId)))),
+    ]);
+    bar.appendChild(groupEl);
   });
 }
 
@@ -204,6 +234,10 @@ function switchTab(tabId) {
   activeTab = tabId;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
   $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tabId));
+  // Grouped nav highlights the whole mode header the active tab lives in;
+  // a full re-render is the simplest correct way to move that highlight
+  // when the new active tab is in a different group than the old one.
+  if (isEnabled('groupedNavigation') && groupForTab(previousTab) !== groupForTab(tabId)) renderTabBar();
   // Leaving the SQL tab: terminate the ambient-validation worker so it never
   // lingers in the background (recreated lazily on the next keystroke).
   if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
@@ -1461,6 +1495,10 @@ async function runValidation() {
   const fingerprintStore = state.settings.persistFingerprints ? memoryStore : null;
   const results = await validation.runAllLayers(ds, { freshnessThresholdHours: state.settings.freshnessThresholdHours, pack, fingerprintStore });
   recordLayerFires(results);
+  // Validate Focus Mode: a completed run earns the Advanced options open for
+  // this dataset going forward this session (no-op while the flag is off).
+  if (ds.name) validateFocusStore.markRunOnce(ds.name);
+  applyValidateFocusMode();
   // Unified Signal Layer: publish the ranker's learned per-column verdicts into
   // the shared store BEFORE any flag/badge renders, so the drift alerter (in the
   // grid below) and the anomaly scorer can read them and coordinate.
@@ -1642,6 +1680,46 @@ function renderMetricStudioPanel() {
 function renderOneCanvasPhase1() {
   renderTrustStripPanel();
   renderMetricStudioPanel();
+  applyValidateFocusMode();
+}
+
+// ============================================================
+// Validate Focus Mode (Steve Jobs UX pass) — pure disclosure-state logic
+// lives in validate-focus.js; this is just the DOM wiring, gated by the
+// validateFocusMode flag. Flag OFF (shipped default): every <details> below
+// is forced open every render, so nothing changes from pre-PR behavior —
+// no removed control, no re-labeled control, no new default-collapsed state.
+// ============================================================
+const validateFocusStore = createValidateFocusStore();
+let validateFocusListenersBound = false;
+function applyValidateFocusMode() {
+  const details = [$('#validate-advanced-options'), $('#validate-advanced-ai-synthesis'), $('#validate-advanced-peer-review')].filter(Boolean);
+  if (!details.length) return;
+  if (!isEnabled('validateFocusMode')) {
+    details.forEach((d) => { d.open = true; });
+    return;
+  }
+  const ds = getActiveDataset();
+  const datasetKey = ds && ds.name;
+  const expanded = validateFocusStore.isExpanded(datasetKey);
+  details.forEach((d) => { d.open = expanded; });
+  if (!validateFocusListenersBound) {
+    // A manual toggle on ANY of the three disclosures counts as "the analyst
+    // chose to look" — remembered per-dataset, and it opens the other two to
+    // match (all three represent one conceptual "Advanced options" surface
+    // split across the DOM only because the underlying cards are far apart).
+    details.forEach((d) => {
+      d.addEventListener('toggle', () => {
+        if (!isEnabled('validateFocusMode')) return;
+        const key = (getActiveDataset() || {}).name;
+        if (!key) return;
+        if (d.open) validateFocusStore.markManuallyExpanded(key);
+        else validateFocusStore.markCollapsed(key);
+        applyValidateFocusMode();
+      });
+    });
+    validateFocusListenersBound = true;
+  }
 }
 
 // ============================================================
