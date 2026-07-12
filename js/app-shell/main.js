@@ -1593,12 +1593,30 @@ async function renderConversationalPackBuilder(ds, results) {
     return;
   }
 
+  // AI Readiness Gate (batch 3) enforcement — ships dark behind its own flag. When
+  // ON, the agent-facing pack-authoring flow (question generator + uncertainty
+  // resolver) is hard-blocked from consuming a dataset the gate marks not
+  // agent-consumable; we thread the ALREADY-COMPUTED validation `results` as
+  // layerResults (never re-running validation). This changes ONLY this agent flow —
+  // the human-facing SQL/Python/R/Metric Studio workflows are untouched. When OFF
+  // (default) no readiness context is threaded and the agents behave exactly as before.
+  const readiness = isEnabled('aiReadinessGateEnforcement') ? { layerResults: results } : undefined;
+
   let questions = [];
   try {
     const ctx = await buildConversationalContext(ds, results);
-    questions = generateQuestions(ctx, { max: 5 });
+    questions = generateQuestions(ctx, { max: 5, readiness });
   } catch (e) {
     console.warn('[conversationalPackBuilder] question generation failed:', e);
+  }
+
+  // Gate refusal → the agent declined to author from ungoverned data. Offer nothing
+  // (humans keep full validation results elsewhere, unaffected).
+  if (questions && questions.blocked === true) {
+    console.info('[aiReadinessGateEnforcement] pack builder blocked:', questions.reasons);
+    host.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
   }
 
   if (!shouldOfferPackBuilder({ enabled: true, questions })) {
@@ -1611,6 +1629,7 @@ async function renderConversationalPackBuilder(ds, results) {
   mountConversationalPackBuilder({
     host,
     questions,
+    readiness,
     domain: (results && results.domainPack && results.domainPack.name) || '',
     voiceEnabled: isEnabled('conversationalPackBuilderVoice'),
     onDownload: downloadText,

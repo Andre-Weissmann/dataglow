@@ -256,7 +256,7 @@ to be CORRECT.
 All three batches gated behind the `metricContracts` flag (ships OFF, still currently gates nothing
 observable since none of the three is wired into `main.js` yet).
 
-- **AI Readiness Gate (pure scoring + UI badge, batches 1-2 of 4)** — `js/gate/readiness-gate.js` (a PURE
+- **AI Readiness Gate (pure scoring + UI badge + agent hard-block, batches 1-3 of 4)** — `js/gate/readiness-gate.js` (a PURE
   aggregator that composes the OUTPUT of validation's `runAllLayers()` — never re-running it — plus an
   optional metric-contract status into a single agent-consumability verdict. `computeReadinessGate(layerResults,
   metricContractStatus, options)` returns a well-formed `{ agentConsumable, score, threshold,
@@ -276,10 +276,21 @@ observable since none of the three is wired into `main.js` yet).
   (`state.validationResults`) and renders the badge below the result in `#sql-result-wrap`. It is purely
   INFORMATIONAL — it never re-runs validation and never blocks or delays a human's query.) Answers the
   project's North Star finding (see [`../NORTH_STAR.md`](../NORTH_STAR.md)) that ungoverned data handed
-  to AI agents drives the 60-84% AI-initiative failure rate. Batch 2 ships dark behind the
-  `aiReadinessGateBadge` flag (default OFF). Deferred: agent-module hard-block wiring (batch 3,
-  `js/agents/*`) and MCP exposure (batch 4); Python/R/Metric Studio badge wiring and a real per-query
-  metric-contract status are a batch-2 follow-up.
+  to AI agents drives the 60-84% AI-initiative failure rate. The batch-2 informational badge is now
+  PROMOTED — the `aiReadinessGateBadge` flag ships ON (it never blocks a human). **Batch 3 (agent
+  hard-block)** — `js/gate/agent-gate.js` (`evaluateAgentReadiness(readiness)` composes batch-1's
+  `computeReadinessGate()` into an allow/block decision — backward-compatible, so with no readiness
+  context threaded the agent is ALLOWED and every existing caller is unaffected; `buildAgentRefusal(agent,
+  evaluation)` produces the uniform graceful refusal object, discriminable by `blocked:true`, whose
+  reasons come from `explainGateReasons()`). The two data-consuming agents — `js/agents/question-generator-agent.js`
+  (`generateQuestions`) and `js/agents/uncertainty-resolver-agent.js` (`resolve`) — consult the gate ONLY
+  when their caller threads an optional `readiness` context; `js/app-shell/main.js` threads it in the
+  conversational pack builder ONLY when the `aiReadinessGateEnforcement` flag is on, passing the
+  already-computed validation results as `layerResults` (never re-running validation). This blocks ONLY
+  the automated agent path — humans' SQL/Python/R/Metric Studio workflows are entirely unaffected in both
+  flag states. Batch 3 ships dark behind `aiReadinessGateEnforcement` (default OFF). Deferred: MCP
+  exposure (batch 4); Python/R/Metric Studio badge wiring and a real per-query metric-contract status are
+  a batch-2 follow-up.
 
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
