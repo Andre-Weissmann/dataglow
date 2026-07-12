@@ -431,6 +431,24 @@
       ]
     },
     {
+      "id": "learning-proficiency-signal",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "On-device learning & personalization",
+      "name": "Session proficiency signal (Glow Path, Batch B)",
+      "files": [
+        "js/learning/proficiency-signal.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/learning/proficiency-signal.js",
+          "name": "createProficiencyTracker"
+        }
+      ]
+    },
+    {
       "id": "federated",
       "platforms": [
         "browser",

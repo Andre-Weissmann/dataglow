@@ -100,6 +100,7 @@ Transparent, browser-only learners that personalize ordering and suggestions fro
 user's own accept/dismiss history — plus the stores they read and write.
 - **Learners** — `js/learning/self-learning-rules.js` (logistic-regression flag ranking), `js/learning/adaptive-priority.js` (Beta-Binomial layer reordering), `js/learning/rule-suggestions.js` (correction-history rule induction).
 - **Shared state** — `js/learning/signal-store.js` (unified in-memory signal layer coordinating the learners), `js/learning/memory-store.js` (IndexedDB persistence, versioned + LRU-evicted).
+- **Session proficiency signal (Glow Path, Batch B)** — `js/learning/proficiency-signal.js` (a pure, in-memory, session-scoped tally of per-tab actions — SQL/Python/R/Validate runs, whatever the caller tracks — that `classifyDensity()` turns into an honest, conservative density level: `'low'`/`'mid'`/`'high'` on total-action thresholds exported as named constants. Same discipline as `signal-store.js`: synchronous, dependency-free, no IndexedDB/DOM/async — it persists NOTHING and resets on reload; cross-session persistence is a deliberate future follow-up. Pure logic only, with no wiring into `main.js` or any UI yet — reserved as the first consumer for Glow Path, a separate parallel batch).
 
 ## Federated learning
 Opt-in, off-by-default collaborative learning where only privacy-protected summaries or
