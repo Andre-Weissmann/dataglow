@@ -41,6 +41,14 @@ Each entry is one `###` block under **Entries** with these fields:
     re-raised.
 
 Keep entries short. Link related modules with backtick paths (e.g. `js/app-shell/utils.js`).
+
+> **Also read by:** the [`debug-log-tree`](../.claude/skills/debug-log-tree/SKILL.md)
+> dev-tooling skill searches this file first whenever a session hits a bug,
+> error, or design decision, before re-diagnosing it from scratch — and logs new
+> entries here afterward, using this same format. This file stays the single
+> shared log; that skill is just the workflow that makes sure it gets checked
+> and updated consistently.
+
 Newest entries go at the bottom of **Entries**.
 
 ## Entries
