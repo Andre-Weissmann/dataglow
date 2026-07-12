@@ -226,8 +226,8 @@
         </div>
       </div>
       <div class="sql-editor-wrap">
-        <textarea class="sql-textarea mono" id="py-input" spellcheck="false" placeholder="import pandas as pd&#10;df = dataglow.get_df('dataset')&#10;df.describe()" data-testid="input-python"></textarea>
-        <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow.get_df('table_name')</span> to load a loaded table as a pandas DataFrame. Libraries: pandas, numpy. Others load on demand (may take a moment).</div>
+        <textarea class="sql-textarea mono" id="py-input" spellcheck="false" placeholder="import pandas as pd&#10;import matplotlib.pyplot as plt&#10;df = dataglow.get_df('dataset')&#10;df.plot(kind='bar')&#10;plt.title('My chart')" data-testid="input-python"></textarea>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow.get_df('table_name')</span> to load a loaded table as a pandas DataFrame. Libraries: pandas, numpy, matplotlib (charts render inline). Others load on demand (may take a moment).</div>
         <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">⚠ The Pyodide runtime downloads from a public CDN the first time you run Python — a one-time internet download, then cached for offline reuse. Not available fully air-gapped until that first fetch. (SQL, Clean, Validate and Visualize work offline from first load.)</div>
         <div id="py-output-wrap"></div>
       </div>
@@ -246,8 +246,8 @@
         </div>
       </div>
       <div class="sql-editor-wrap">
-        <textarea class="sql-textarea mono" id="r-input" spellcheck="false" placeholder="df <- dataglow_get_df('dataset')&#10;summary(df)" data-testid="input-r"></textarea>
-        <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow_get_df('table_name')</span> to pull a loaded table into an R data.frame.</div>
+        <textarea class="sql-textarea mono" id="r-input" spellcheck="false" placeholder="df <- dataglow_get_df('dataset')&#10;library(ggplot2)&#10;ggplot(df, aes(x = col1, y = col2)) + geom_point()" data-testid="input-r"></textarea>
+        <div style="font-size:var(--text-xs); color:var(--color-text-faint);">Use <span class="mono">dataglow_get_df('table_name')</span> to pull a loaded table into an R data.frame. Base R and ggplot2 charts render inline.</div>
         <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">⚠ The WebR runtime downloads from a public CDN the first time you run R — a one-time internet download, then cached for offline reuse. Not available fully air-gapped until that first fetch. (SQL, Clean, Validate and Visualize work offline from first load.)</div>
         <div id="r-output-wrap"></div>
       </div>

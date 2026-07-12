@@ -1114,7 +1114,7 @@ function initPythonTab() {
     const outWrap = $('#py-output-wrap');
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
-      const { stdout, result, error, truncated } = await pyRuntime.runPython(code, getActiveDataset()?.table);
+      const { stdout, result, error, truncated, images } = await pyRuntime.runPython(code, getActiveDataset()?.table);
       let html = '';
       if (truncated && truncated.length) {
         const items = truncated
@@ -1133,6 +1133,9 @@ function initPythonTab() {
       if (error) html += `<span class="err">${escapeHtml(error)}</span>`;
       if (!stdout && !result && !error) html += '<span style="color:var(--color-text-faint);">(no output)</span>';
       html += '</div>';
+      for (const src of pyRuntime.extractImageDataUrls(images)) {
+        html += `<img class="runtime-chart" alt="Python chart output" src="${escapeHtml(src)}" />`;
+      }
       outWrap.innerHTML = html;
     } catch (err) {
       outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
@@ -1168,11 +1171,18 @@ function initRTab() {
     const outWrap = $('#r-output-wrap');
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
-      const { stdout, error } = await rRuntime.runR(code);
-      let html = '<div class="console-log" style="margin-top:var(--space-3);">';
+      const { stdout, error, images, graphicsAvailable, hasJsonlite } = await rRuntime.runR(code);
+      let html = '';
+      for (const notice of rRuntime.buildRBridgeNotices({ graphicsAvailable, hasJsonlite })) {
+        html += `<div class="runtime-notice" role="note" style="margin-top:var(--space-3); padding:var(--space-2) var(--space-3); border:1px solid var(--color-warn, #C9A227); border-radius:var(--radius-md); background:rgba(201,162,39,0.08); font-size:var(--text-sm);">${escapeHtml(notice)}</div>`;
+      }
+      html += '<div class="console-log" style="margin-top:var(--space-3);">';
       html += stdout ? escapeHtml(stdout) : '<span style="color:var(--color-text-faint);">(no output)</span>';
       if (error) html += `\n<span class="err">${escapeHtml(error)}</span>`;
       html += '</div>';
+      for (const src of rRuntime.extractImageDataUrls(images)) {
+        html += `<img class="runtime-chart" alt="R chart output" src="${escapeHtml(src)}" />`;
+      }
       outWrap.innerHTML = html;
     } catch (err) {
       outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
