@@ -418,6 +418,46 @@ repo changes — [https://www.perplexity.ai/computer/a/dataglow-proof-room-conce
 
 ---
 
+## Test findings (2026-07-12 run — "Test DataGlow Platform" program)
+
+A full research + rubric + hands-on live test + architecture brainstorm pass was run against DataGlow
+using a synthetic messy healthcare claims dataset with a known answer key, graded against a
+senior-analyst/engineer/scientist rubric. Full write-up: workspace `dataglow_test_data/dataglow_roadmap_2026-07-12.md`
+(also: `dataglow_test_rubric.md`, `dataglow_test_data/dataglow_test_results_2026-07-12.md`,
+`dataglow_architecture_brainstorm.md`). Top items to pull next, ranked:
+
+1. **P0 — Fix coverage/consistency gaps between panels that claim to catch something and don't.**
+   Verified this run: Cross-Column Logical Consistency reported PASS despite 6 real allowed>billed
+   violations; the Unit Test Layer's own "referential integrity" check didn't surface a confirmed
+   orphan claim; Missingness Detective narrated one column's missingness but not another's; Preflight's
+   duplicate check only catches byte-identical rows and missed 16 real business-key duplicates that
+   Validate's own layers are built to catch. None of this needs new capability — it's a coverage/wiring
+   fix, cheaper than a new feature and higher-trust-impact than one.
+2. **P1 — Protect, don't regress, two verified differentiators:** Story's honest low-confidence
+   caveats (n=6, Confidence D, explicit "treat this cautiously" language) and the empirically-verified
+   zero-upload architecture (9 outbound calls across the full core flow, all Google Fonts, zero dataset
+   content). Small fix: self-host Google Fonts or soften the README's "fetches nothing from a third
+   party" claim, since Fonts is in fact a live third-party call every load.
+3. **P2 — Two scoped, buildable gaps:** NCCI procedure-to-procedure edits/MUE ceilings (natural fit as
+   a Healthcare Billing domain-pack extension) and an AHIMA fuzzy-patient-matching catch-rate benchmark
+   test (cheap — the 12 seeded near-duplicate patients already exist in the test dataset, just need to
+   actually run Clean/fuzzy-dedup against `patients.csv` rather than `claims.csv`).
+4. **Cross-platform/scale architecture — six options, no single mandate yet** (see
+   `dataglow_architecture_brainstorm.md` for full detail): OPFS persistence and chunked/streaming
+   ingestion are pure client-side, low/medium cost, zero identity risk, and should come first regardless
+   of later choices. Native DuckDB in Tauri (desktop-only, no WASM ceiling) is the biggest pure-client
+   ceiling jump. A DIY sharded-worker approach is unproven/high-risk. An optional local/LAN DuckDB
+   "Quack" companion server (DuckDB's own new protocol, shipped May 2026) is the only path that could
+   raise the ceiling for the browser build itself, not just desktop, while staying user-owned/opt-in.
+   Bring-your-own-warehouse (`databricks-connect.js` already exists experimentally) has the largest
+   ceiling but comes closest to blurring the zero-upload identity for opted-in users. **Note:** WASM
+   Memory64 looked like an obvious fix for the 4GB ceiling but has zero Safari support as of mid-2026 —
+   not recommended as a near-term lever.
+5. **Untested follow-ups for the next test pass:** OMOP gender-discordant concept check, chart
+   sniff-tests (needs an actual generated chart), Metric Studio's own definition-locking feature
+   specifically, Tauri-build offline verification, and re-running Clean/fuzzy-dedup against the patient
+   file specifically.
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
