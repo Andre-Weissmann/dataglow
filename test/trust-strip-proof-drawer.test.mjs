@@ -105,11 +105,18 @@ async function main() {
   const noChain = buildProofContent({ type: 'trust-field', field: { key: 'lineage', label: 'Lineage', detail: 'No chain.' } });
   ok(noChain.blocks[0].kind === 'text', 'proof/lineage: no chain → honest text block');
 
-  // ---------- 4. Flag-off regression guard (ships dark) ----------
+  // ---------- 4. Flag promotion + kill-switch guard ----------
+  // Both flags were PROMOTED to ON (shipped default). The gate still reads the
+  // flag, so setting either back to false makes isEnabled() report false and
+  // main.js's renderTrustStripPanel()/renderMetricStudioPanel() render nothing —
+  // the kill-switch is intact.
   const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'flags.manifest.json'), 'utf8'));
   configureFlags(manifest);
-  ok(isEnabled('metricStudio') === false, 'flags: metricStudio ships OFF (nothing renders)');
-  ok(isEnabled('trustStripProofDrawer') === false, 'flags: trustStripProofDrawer ships OFF (nothing renders)');
+  ok(isEnabled('metricStudio') === true, 'flags: metricStudio ships ON (promoted)');
+  ok(isEnabled('trustStripProofDrawer') === true, 'flags: trustStripProofDrawer ships ON (promoted)');
+  configureFlags({ flags: { metricStudio: { enabled: false }, trustStripProofDrawer: { enabled: false } } });
+  ok(isEnabled('metricStudio') === false, 'flags: kill-switch — metricStudio OFF disables it');
+  ok(isEnabled('trustStripProofDrawer') === false, 'flags: kill-switch — trustStripProofDrawer OFF disables it');
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

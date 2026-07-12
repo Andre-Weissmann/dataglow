@@ -638,13 +638,25 @@ function showEngineInitializing() {
 // Run a dataset-loading action, surfacing any engine/load failure as a visible,
 // retryable banner instead of letting the click handler's promise reject
 // silently. The Retry button re-runs the exact same action.
+//
+// A fast double-click (or any concurrent trigger) would otherwise fire two
+// loads that race through ensureDuckDB() -> loaders.load*() -> createTableFromRows(),
+// whose DROP TABLE IF EXISTS + CREATE TABLE pair can interleave and throw
+// "Catalog Error: Table ... already exists". datasetLoadInFlight makes a second
+// call a safe no-op while one load is still running; the finally resets it so
+// the Retry button (a fresh call after this one settles) still works.
+let datasetLoadInFlight = false;
 async function runDatasetLoad(action) {
+  if (datasetLoadInFlight) return;
+  datasetLoadInFlight = true;
   clearEngineError();
   try {
     await action();
   } catch (err) {
     console.error('DATAGLOW dataset load failed:', err);
     showEngineError(err, () => runDatasetLoad(action));
+  } finally {
+    datasetLoadInFlight = false;
   }
 }
 

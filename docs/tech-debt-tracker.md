@@ -258,3 +258,25 @@ Newest entries go at the bottom of **Entries**.
 - **Area:** `js/validation/semantic-layer.js`
 - **Status:** open
 
+### 2026-07-12 — Golden-dataset double-load race threw "Table already exists"
+
+- **Description:** A fast double-click (or any concurrent trigger) on the "Load
+  Golden Test Dataset" button fired two concurrent `DATASET_ACTIONS.golden()`
+  calls that both raced through `ensureDuckDB()` -> `loaders.loadGoldenDataset()`
+  -> `engine.createTableFromRows()` (`js/app-shell/duckdb-engine.js`), whose
+  `DROP TABLE IF EXISTS` + `CREATE TABLE` pair could interleave between the two
+  in-flight calls, producing a "Catalog Error: Table ... already exists" and a
+  failed load. Affected every sample-dataset path routed through
+  `runDatasetLoad()` (golden/omop/fhir + file drops), not just the golden button.
+- **Date:** 2026-07-12
+- **Severity:** medium
+- **Area:** `js/app-shell/main.js` (`runDatasetLoad`), `js/app-shell/duckdb-engine.js` (`createTableFromRows`)
+- **Status:** fixed
+- **Resolution:** Added a minimal module-level in-flight guard
+  (`datasetLoadInFlight`) in `runDatasetLoad()`: a second call while a load is
+  already running is a safe no-op, and a `finally` resets the flag so the Retry
+  button (a fresh call after the first settles) still works. Regression test:
+  `test/golden-dataset-load-race.test.mjs` (`npm run test:goldenloadrace`) —
+  source-asserts the guard can't be silently deleted and proves the concurrency
+  semantics. Fixed in PR `feature/proof-room-batch2-flags-and-bugfix`.
+
