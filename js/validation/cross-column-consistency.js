@@ -129,6 +129,64 @@ function sharedStem(a, b) {
   return ta.some(t => tb.has(t));
 }
 
+// ---------- Rule 1c: semantic magnitude ordering ----------
+// A generalization of Rule 1b for numeric pairs that carry a "column A must not
+// exceed column B" relationship encoded in DOMAIN VOCABULARY rather than a
+// min/max naming convention. The motivating real-world miss: healthcare billing
+// columns like `amount_allowed` vs `amount_billed` — an allowed amount can never
+// exceed the billed amount, and a paid amount can never exceed the allowed
+// amount, yet neither name contains a min/max keyword so Rule 1b never pairs
+// them. Rather than bloat the min/max vocabulary (which would mis-pair unrelated
+// "low"/"high" columns), this is an explicit, small config of known
+// lesser≤greater semantics — the same "hand-written domain config" shape the
+// healthcare Domain Physics pack uses for its clinical rules. Pairing stays
+// conservative: a group only fires when BOTH sides are numeric AND the columns
+// share a stem (e.g. amount_allowed/amount_billed share "amount"), OR the
+// lesser side reduces to a bare domain keyword (e.g. "allowed"/"billed"),
+// mirroring Rule 1b's sharedStem discipline.
+export const MAGNITUDE_ORDER_GROUPS = [
+  { label: 'allowed ≤ billed', lesser: ['allowed'], greater: ['billed', 'charged', 'charge', 'gross'] },
+  { label: 'paid ≤ allowed', lesser: ['paid', 'payment', 'reimbursed', 'reimbursement'], greater: ['allowed'] },
+  { label: 'paid ≤ billed', lesser: ['paid', 'payment', 'reimbursed', 'reimbursement'], greater: ['billed', 'charged', 'charge', 'gross'] },
+];
+
+const MAGNITUDE_WORDS = new Set(MAGNITUDE_ORDER_GROUPS.flatMap(g => [...g.lesser, ...g.greater]));
+
+// Shared-stem check for magnitude pairs: strip the domain keywords and require a
+// common remaining token (so amount_allowed × amount_billed pair on "amount",
+// but allowed_visits × billed_amount do NOT). When the lesser side is a bare
+// keyword with nothing left over ("allowed"), treat the pair as related — the
+// same permissive base case Rule 1b uses for bare "min"/"max".
+function sharedMagnitudeStem(lesserName, greaterName) {
+  const lt = nameTokens(lesserName).filter(t => !MAGNITUDE_WORDS.has(t));
+  const gt = new Set(nameTokens(greaterName).filter(t => !MAGNITUDE_WORDS.has(t)));
+  if (lt.length === 0) return true;
+  return lt.some(t => gt.has(t));
+}
+
+// Detect semantic magnitude pairs. Returns [{ lesser, greater, label }] meaning
+// the value in `lesser` should never exceed the value in `greater`.
+export function detectMagnitudePairs(cols) {
+  const numeric = cols.filter(isNumeric);
+  const pairs = [];
+  const seen = new Set();
+  for (const g of MAGNITUDE_ORDER_GROUPS) {
+    const lesserCols = numeric.filter(c => hasAnyKeyword(c.name, g.lesser));
+    const greaterCols = numeric.filter(c => hasAnyKeyword(c.name, g.greater));
+    for (const lo of lesserCols) {
+      for (const hi of greaterCols) {
+        if (lo.name === hi.name) continue;
+        if (!sharedMagnitudeStem(lo.name, hi.name)) continue;
+        const key = `${lo.name}|${hi.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({ lesser: lo.name, greater: hi.name, label: g.label });
+      }
+    }
+  }
+  return pairs;
+}
+
 // ---------- Rule 2: impossible demographic combinations ----------
 const SEX_TOKENS = ['sex', 'gender'];
 const PREGNANCY_KW = ['pregnant', 'pregnancy', 'gestation', 'gestational', 'gravida', 'prenatal', 'antenatal', 'edd'];
@@ -223,7 +281,11 @@ const affirmativeSql = col =>
 //   text        — concise one-liner (used for the layer's `detail` list)
 //   explanation — plain-language "why this is impossible"
 // ============================================================
-export async function runCrossColumnChecks(table, cols, engine) {
+export async function runCrossColumnChecks(table, cols, engine, opts = {}) {
+  // `magnitude` gates the Rule 1c semantic magnitude-ordering findings so the
+  // caller can keep them dark behind a feature flag (default ON here so the pure
+  // module stays directly unit-testable without flag plumbing).
+  const { magnitude = true } = opts;
   const findings = [];
   const q = async sql => {
     const { rows } = await engine.runQuery(sql);
@@ -268,6 +330,28 @@ export async function runCrossColumnChecks(table, cols, engine) {
         });
       }
     } catch { /* skip pair */ }
+  }
+
+  // Rule 1c — semantic magnitude ordering (lesser exceeds greater), e.g. a
+  // healthcare claim's allowed amount exceeding the billed amount.
+  if (magnitude) {
+    for (const p of detectMagnitudePairs(cols)) {
+      try {
+        const n = await q(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE "${p.lesser}" IS NOT NULL AND "${p.greater}" IS NOT NULL AND "${p.lesser}" > "${p.greater}"`);
+        if (n > 0) {
+          findings.push({
+            rule: 'magnitude_order',
+            ruleLabel: `Magnitude ordering (${p.label})`,
+            columns: [p.lesser, p.greater],
+            count: n,
+            text: `${n} row(s) where "${p.lesser}" > "${p.greater}" — ${p.label} should hold.`,
+            explanation: `"${p.lesser}" is expected to be ≤ "${p.greater}" (${p.label}); ${n} row(s) violate that relationship.`,
+          });
+        }
+      } catch { /* incompatible columns — skip pair */ }
+    }
   }
 
   // Rule 2 — male patient flagged pregnant.

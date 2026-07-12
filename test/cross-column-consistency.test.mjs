@@ -21,6 +21,7 @@ import {
   nameTokens, matchesKeyword, hasAnyKeyword, isDateLike, isNumeric,
   detectDatePairs, detectRangePairs, detectSexColumn, detectPregnancyColumns,
   detectAgeColumn, detectMaritalColumn, detectAdultOnlyFlags, detectStatusPairs,
+  detectMagnitudePairs,
   isMaleValue, isAffirmative, maritalImpliesAdult, isAbnormalStatus,
   runCrossColumnChecks,
 } from '../js/validation/cross-column-consistency.js';
@@ -74,6 +75,29 @@ async function main() {
     const pairs = detectRangePairs(cols);
     ok(pairs.some(p => p.min === 'temp_min' && p.max === 'temp_max'), 'range-pairs: temp_min/temp_max paired via shared stem');
     ok(!pairs.some(p => p.min === 'pressure_low' && p.max === 'unrelated_high'), 'range-pairs: low/high with different stems NOT paired');
+  }
+
+  // ============================================================
+  // 3b. Magnitude-pair detection (Rule 1c) — semantic lesser≤greater
+  // ============================================================
+  {
+    const cols = [
+      col('amount_allowed', 'DOUBLE'), col('amount_billed', 'DOUBLE'), col('amount_paid', 'DOUBLE'),
+      col('allowed_visits', 'INTEGER'),          // count that shares "allowed" but NOT the "amount" stem
+      col('charged_amount', 'DOUBLE'),           // bare-ish greater synonym
+      col('note'),
+    ];
+    const pairs = detectMagnitudePairs(cols);
+    ok(pairs.some(p => p.lesser === 'amount_allowed' && p.greater === 'amount_billed'), 'magnitude-pairs: allowed≤billed paired via shared "amount" stem');
+    ok(pairs.some(p => p.lesser === 'amount_paid' && p.greater === 'amount_allowed'), 'magnitude-pairs: paid≤allowed paired via shared "amount" stem');
+    ok(pairs.some(p => p.lesser === 'amount_paid' && p.greater === 'amount_billed'), 'magnitude-pairs: paid≤billed paired via shared "amount" stem');
+    // Conservative: a count column sharing only the keyword (not the stem) is NOT paired.
+    ok(!pairs.some(p => p.lesser === 'allowed_visits'), 'magnitude-pairs: allowed_visits (count, different stem) NOT paired');
+    // Bare-keyword variants pair even without an explicit shared stem token.
+    const bare = detectMagnitudePairs([col('allowed', 'DOUBLE'), col('billed', 'DOUBLE')]);
+    ok(bare.some(p => p.lesser === 'allowed' && p.greater === 'billed'), 'magnitude-pairs: bare allowed/billed paired');
+    // No false pairs on unrelated numeric columns.
+    ok(detectMagnitudePairs([col('height', 'DOUBLE'), col('weight', 'DOUBLE')]).length === 0, 'magnitude-pairs: unrelated numerics not paired');
   }
 
   // ============================================================
@@ -142,6 +166,36 @@ async function main() {
   const cleanCols = (await getTableSchema('xcol_clean')).map(s => ({ name: s.column_name, type: s.column_type }));
   const cleanFindings = await runCrossColumnChecks('xcol_clean', cleanCols, engine);
   ok(cleanFindings.length === 0, `runner: no findings on clean data (got ${cleanFindings.length})`);
+
+  // ============================================================
+  // 6. Magnitude ordering (Rule 1c) against a real billing table
+  // ============================================================
+  const billRows = [
+    // clean: allowed ≤ billed, paid ≤ allowed
+    ...Array.from({ length: 5 }, (_, i) => ({ claim_id: i + 1, amount_billed: 500, amount_allowed: 300, amount_paid: 200 })),
+    // violation: allowed (500) > billed (300)
+    { claim_id: 101, amount_billed: 300, amount_allowed: 500, amount_paid: 200 },
+    // violation: paid (400) > allowed (300)
+    { claim_id: 102, amount_billed: 500, amount_allowed: 300, amount_paid: 400 },
+  ];
+  await createTableFromObjects('bill_test', billRows);
+  const billCols = (await getTableSchema('bill_test')).map(s => ({ name: s.column_name, type: s.column_type }));
+  const billFindings = await runCrossColumnChecks('bill_test', billCols, engine);
+  const mag = billFindings.filter(f => f.rule === 'magnitude_order');
+  ok(mag.some(f => f.columns[0] === 'amount_allowed' && f.columns[1] === 'amount_billed' && f.count === 1), 'runner: magnitude_order fires once for allowed>billed');
+  ok(mag.some(f => f.columns[0] === 'amount_paid' && f.columns[1] === 'amount_allowed' && f.count === 1), 'runner: magnitude_order fires once for paid>allowed');
+  ok(mag.every(f => typeof f.explanation === 'string' && f.explanation.length > 0), 'runner: magnitude findings carry an explanation');
+
+  // Flag-off parity: with { magnitude:false } the new rule stays dark.
+  const billOff = await runCrossColumnChecks('bill_test', billCols, engine, { magnitude: false });
+  ok(billOff.every(f => f.rule !== 'magnitude_order'), 'runner: magnitude rule suppressed when opts.magnitude=false');
+
+  // False-positive guard: a table where allowed≤billed everywhere fires nothing.
+  const cleanBill = Array.from({ length: 6 }, (_, i) => ({ claim_id: i + 1, amount_billed: 900, amount_allowed: 400, amount_paid: 350 }));
+  await createTableFromObjects('bill_clean', cleanBill);
+  const cbCols = (await getTableSchema('bill_clean')).map(s => ({ name: s.column_name, type: s.column_type }));
+  const cbFindings = await runCrossColumnChecks('bill_clean', cbCols, engine);
+  ok(cbFindings.filter(f => f.rule === 'magnitude_order').length === 0, 'runner: no magnitude findings when allowed≤billed holds');
 
   await closeConnection();
   console.log(`\n${passed} passed, ${failed} failed`);
