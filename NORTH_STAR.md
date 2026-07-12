@@ -189,6 +189,68 @@ Groups / Validate Focus Mode already own that question) — Glow Path answers a 
 
 ---
 
+## Concept in progress: The Glow
+
+**One sentence:** every trust/quality signal DataGlow already computes (the AI Readiness
+Gate verdict, Trust Strip field states, Golden Signals rates, CAT Scorecard grades)
+collapses into a single glowing orb docked in the topbar — one glance tells you if your
+data is trustworthy, one click opens a compact panel with the honest breakdown and the
+real next action, and a future hold-to-unfold gesture would fan the app's core surfaces
+out from the same point. Pure composition, zero new validation math — the whole point is
+compressing existing real value into one small, inevitable object rather than adding a new
+surface to explain.
+
+**Why it fits DataGlow:** brainstormed 2026-07-11 through an explicit Steve Jobs / Jony Ive
+lens (customer-first, work backwards from the tech; liberal-arts-meets-technology;
+relentless simplification — "made the MacBook Air fit into an envelope"). Two other
+directions were ranked and rejected in the same round (a new detector/validator, and a
+redesigned onboarding wizard) because both add power/explanation rather than removing the
+need to hunt across signals scattered across the SQL tab, the Validate tab, and computed-
+only values with no persistent chrome. The Glow is the opposite instinct: it removes the
+need to go anywhere. Checked against the capability map for duplication — no existing
+module renders a persistent single summary object in the topbar; the unbuilt OneCanvas
+shell backlog item is a different, additional-page-style unifying concept, not a duplicate.
+Mirrors `readiness-gate.js`'s founding discipline of composing existing layer output rather
+than inventing new logic.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — pure aggregator + tests, no UI.** (SHIPPED, merged in
+   [#154](https://github.com/Andre-Weissmann/dataglow/pull/154) — `js/glow/glow-signal.js`:
+   `computeGlowSignal(input)` composes the readiness gate, Trust Strip, Golden Signals, and
+   CAT Scorecard outputs into one `{ status, score, signals[], nextAction, summary }`
+   verdict (gate score/`agentConsumable` authoritative when present, no competing score
+   invented, every signal traces to a real field, `nextAction` built only from the gate's
+   own failing layers, never throws — empty input → idle). Plus `explainGlowSignal()` for
+   future UI. 50/0 passing in `test/glow-signal.test.mjs`. Ships DARK behind the new
+   `glowOrb` flag, default OFF; zero UI/DOM/`main.js` wiring in this batch.)
+2. **Batch 2 — orb UI wired into the topbar, same flag.** (SHIPPED, merged in
+   [#157](https://github.com/Andre-Weissmann/dataglow/pull/157) — `js/glow/glow-orb-ui.js`:
+   `buildGlowOrbModel()` (pure, DOM-free, reuses the Trust Strip's `ok/warn/bad/idle` dot
+   colors verbatim, shows `—` rather than a fabricated score when none exists) +
+   `renderGlowOrb()` (a ~30px orb button, click-to-expand panel with signal rows, an honest
+   next-action callout, and a "Show the math" toggle revealing `explainGlowSignal()`'s raw
+   text — same interaction pattern as the Readiness Gate badge; no hold-to-unfold gesture
+   built here). Wired into `main.js` as `renderGlowOrbWidget()` — mirrors
+   `renderReadinessGateBadge`'s `if (!isEnabled('glowOrb')) { host.innerHTML=''; return; }`
+   dark-ship guard exactly, composes the SAME already-computed gate + Trust Strip state
+   (re-runs no validation), called at the Glow Path rail's lifecycle points. Host
+   `#glow-orb-host` sits leftmost in `.topbar-right`. 33/0 passing in
+   `test/glow-orb-ui.test.mjs`. Golden Signals/CAT Scorecard are async and not persisted to
+   `state`, so they're left undefined in the topbar composition rather than re-run
+   synchronously — documented follow-up, not a fabricated stand-in. `glowOrb` stays OFF —
+   ships dark for a dogfood period before promotion, same discipline as the Readiness Gate
+   badge and Trust Strip.)
+3. **Batch 3 — promote `glowOrb` to ON** once dogfooded. NOT STARTED. Follow the Lessons
+   Learned discipline already logged below: flip the flag (and any flag-state guard test)
+   in the same or the very next PR, and say so explicitly rather than reporting "done"
+   while the feature stays invisible.
+4. **Batch 4 (stretch) — hold-to-unfold gesture.** NOT STARTED. Holding the orb down would
+   fan DataGlow's core surfaces (Validate, Clean, Export) out as cards from the same point.
+   Pure animation/interaction layer, no new data — safe to defer indefinitely without
+   blocking Batches 1-3.
+
+---
+
 ## Concept in progress: Trust Beam
 
 **One sentence:** turn an existing sealed check result into a self-contained, shareable
