@@ -136,10 +136,23 @@ building/merging it):**
    `job-room-signaling.yml` CI job. Ships DARK behind `roomsSignaling` (default OFF,
    intentionally dark per this batching plan): when off, nothing in the app imports or calls
    into this module and every existing path is byte-for-byte unchanged.)
-2. **Batch 2 — Object Space broadcast wiring.** NOT STARTED. When a Room is active, broadcast
-   new/updated Object Space entries to peers over the WebRTC data channel Batch 1 opens; render
-   read-only "who's viewing" tags. This is the core value but still additive — every existing
-   single-user code path stays byte-for-byte unchanged when no Room is open.
+2. **Batch 2 — Object Space broadcast wiring.** (DONE — new pure, Node-testable module
+   `js/rooms/room-broadcast.js`: `buildEntryMessage()`/`buildViewingMessage()` (wire builders
+   that carry only an entry's already-public shape metadata — name/originLanguage/kind/schema/
+   rowCount/provenance pointer — never raw rows) and `RoomBroadcastCoordinator`
+   (`broadcastEntry()`/`broadcastViewing()`/`receive()` plus the read-only `viewersOf()`/
+   `objectsViewedBy()`/`viewingSnapshot()` "who's viewing" map), which COMPOSES Batch 1's
+   `RoomSignalingCoordinator` with a data-channel transport adapter that reuses
+   `federated-transport.js`'s WebRTC mesh `exchange` primitive — one shared peer-to-peer path,
+   the exact dependency-injection pattern Batch 1 proved (a `NULL_ROOM_TRANSPORT` no-op adapter
+   makes an unreachable channel a first-class, never-thrown state; every broadcast is best-effort
+   and never throws, and remote entries apply newest-write-wins into the shared Object Space).
+   Verified in `test/room-broadcast.test.mjs` (`npm run test:roomsbroadcast`), 33/0 passing, new
+   `job-room-broadcast.yml` CI job. Ships DARK behind `roomsBroadcast` (default OFF): this is the
+   DATA LAYER only — explicitly NO DOM, NO Room pill/avatars/live-update toasts (Batch 3), and NO
+   wiring into the SQL/Python/R tabs — so with the flag off nothing constructs a coordinator,
+   broadcasting only ever happens once a Room is joined, and every existing single-user Object
+   Space code path is byte-for-byte unchanged.)
 3. **Batch 3 — UI: Room pill, avatar presence, live-update toasts.** NOT STARTED. The visual
    layer demonstrated in the 2026-07-12 live desktop + mobile preview mockup
    (`dataglow-rooms-preview` app asset).
