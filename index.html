@@ -372,6 +372,18 @@
         </div>
       </div>
 
+      <!-- Metric Contracts (Gen 44). Hidden until at least one metric definition
+           has been saved with the metricContracts flag ON; then this shows the
+           read-only, per-metric version history of definition changes (who/when/why)
+           and — only if an AI agent ever proposes a change — a confirm gate that
+           requires one explicit human Approve click. Ships behind the flag. -->
+      <div id="metric-contract-wrap" style="display:none; margin-bottom:var(--space-6);" class="card" data-testid="metric-contract-wrap">
+        <div style="padding:var(--space-4);">
+          <div style="font-weight:600; margin-bottom:var(--space-2);">Metric Contracts — definition history</div>
+          <div id="metric-contract-body"></div>
+        </div>
+      </div>
+
       <div id="top-problems-wrap" style="display:none; margin-bottom:var(--space-6);" class="card">
         <div style="padding:var(--space-4);">
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Top 5 Problems — Pre-Analysis Checklist</div>

@@ -402,11 +402,13 @@ function metricValueText(m) {
  * @param {(m:object)=>void} [opts.onOpenProof] open the Proof Drawer for a metric
  * @param {(msg:string,type?:string)=>void} [opts.onToast]
  * @param {()=>void} [opts.onChange] called after the registry mutates
+ * @param {(metric:object, meta:{source:string, reason:string, changedBy:string})=>void} [opts.onDefinitionSaved] called after a human saves (creates or merges) a metric definition, so a caller can record a Metric Contract version. Defaults to a no-op — with it unset, save behaviour is byte-for-byte unchanged.
  */
 export function renderMetricStudio(opts = {}) {
   const {
     host, registry, schemaCols = [], table = null, engine = null,
     onOpenProof = () => {}, onToast = () => {}, onChange = () => {},
+    onDefinitionSaved = () => {},
   } = opts;
   if (!host || !registry) return;
   host.innerHTML = '';
@@ -464,6 +466,10 @@ export function renderMetricStudio(opts = {}) {
       computeError: computed.ok ? null : computed.error,
     });
     onToast(`Metric "${stored.name}" saved${computed.ok ? '' : ' (formula did not compute)'}`, computed.ok ? 'success' : 'warn');
+    // Record a Metric Contract version of the just-saved human definition. The
+    // callback defaults to a no-op, so this changes nothing about the save
+    // itself — it only ADDS an append-only version-history entry alongside.
+    onDefinitionSaved(stored, { source: 'human', reason: 'Created in Metric Studio', changedBy: stored.owner || 'you' });
     nameInput.value = ''; plainInput.value = ''; exprInput.value = ''; exprInput.dataset.touched = '';
     ownerInput.value = ''; tagInput.value = '';
     onChange();
@@ -482,11 +488,12 @@ export function renderMetricStudio(opts = {}) {
         el('button', { class: 'btn btn-ghost', type: 'button', 'data-testid': 'metric-dup-merge',
           onclick: () => {
             // Merge = update the existing metric's definition in place.
-            registry.update(first.metric.id, {
+            const merged = registry.update(first.metric.id, {
               plainEnglish: candidate.plainEnglish, expression: candidate.expression, columns: candidate.columns,
             });
             promptHost.innerHTML = '';
             onToast(`Merged into "${first.metric.name}"`, 'success');
+            if (merged) onDefinitionSaved(merged, { source: 'human', reason: 'Merged into existing definition', changedBy: merged.owner || 'you' });
             onChange(); renderList();
           } }, 'Merge into existing'),
         el('button', { class: 'btn btn-primary', type: 'button', 'data-testid': 'metric-dup-keepboth',
