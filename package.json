@@ -111,6 +111,7 @@
     "test:e2e": "node test/e2e-smoke.test.mjs",
     "test:e2e-coi-race": "node test/coi-race.e2e.test.mjs",
     "test:e2e-ambient-slm": "node test/e2e-ambient-slm.test.mjs",
+    "test:e2e-analysiscontract": "node test/e2e-analysis-contract.test.mjs",
     "test:e2e-watch-twin": "node test/watch-folder-e2e.test.mjs",
     "test:e2e-packbuilder-ui": "node test/pack-builder-ui.test.mjs",
     "test:e2e-meetingscribe-ui": "node test/meeting-scribe-ui.test.mjs",

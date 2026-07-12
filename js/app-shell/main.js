@@ -722,6 +722,27 @@ async function buildLiveSchemaForContract(sql) {
     tables[ds.table] = { columns: ds.cols, rowCount: ds.rowCount, approxDistinct: {} };
   }
 
+  // Also fold in tables that exist in the live DuckDB catalog but never went
+  // through the file loader — a table made with CREATE TABLE ... AS, or one
+  // materialized from the Python/R bridges (more common now objectSpaceRegistry
+  // is live). Without these, the hallucination check compares every identifier
+  // in such a query against a column list that omits the very table being
+  // queried, and false-flags real columns as "hallucinated". Best-effort: a
+  // catalog lookup failure just leaves the file-loaded tables in place rather
+  // than breaking the contract, and file-loaded tables already present win.
+  try {
+    for (const tableName of await engine.listTables()) {
+      if (tables[tableName]) continue;
+      try {
+        tables[tableName] = {
+          columns: (await engine.getTableSchema(tableName)).map(s => ({ name: s.column_name, type: s.column_type })),
+          rowCount: null,
+          approxDistinct: {},
+        };
+      } catch { /* a table we can't introspect is simply skipped */ }
+    }
+  } catch { /* no live catalog available — fall back to state.datasets only */ }
+
   // Columns worth spending an approx_count_distinct query on: anything named
   // in a JOIN ON clause or a GROUP BY — exactly what the fan-out/guard checks
   // in analysis-contract.js and the ambient sanity anchor actually consult.

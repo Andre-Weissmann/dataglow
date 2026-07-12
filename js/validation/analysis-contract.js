@@ -165,6 +165,22 @@ export function checkSchemaHallucination(sql, schemaIndex) {
   const knownColumnNames = Array.from(schemaIndex.allColumns.keys());
   const aliasNames = extractAliasNames(sql);
 
+  // Safety net: with no known columns at all there is nothing to compare
+  // against, so every identifier would otherwise be reported as a hard-fail
+  // "hallucinated reference". That happens only when the schema is genuinely
+  // unavailable (e.g. the live-catalog lookup in the caller failed and no file
+  // was loaded), never because the query is wrong — so degrade to a single
+  // low-severity note instead of a wall of false failures.
+  if (knownColumnNames.length === 0) {
+    return [{
+      kind: 'schema_hallucination',
+      severity: 'info',
+      identifier: null,
+      suggestion: null,
+      message: 'No schema was available, so the column/table existence check was skipped for this query.',
+    }];
+  }
+
   for (const raw of idents) {
     const ident = raw;
     const lower = ident.toLowerCase();
