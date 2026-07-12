@@ -107,6 +107,17 @@ Opt-in, off-by-default collaborative learning where only privacy-protected summa
 weight deltas ever leave the browser — never raw data.
 - **Core & transport** — `js/federated/federated-fingerprint.js` (DP-noised dataset-shape fingerprint), `js/federated/federated-learning.js` (local training + weight averaging), `js/federated/federated-transport.js` (gossip/relay orchestration).
 
+## Data Diplomacy
+The first capability built around DISAGREEMENT between two parties rather than one dataset:
+two sources each hold a claim about the same entity+field, and DataGlow reconciles them
+honestly — preferring higher confidence, refusing to guess when it cannot tell, and applying
+a two-key rule so a resolution is only sealed once both parties independently approve.
+Batch 1 is pure logic + tests only (no UI, no DOM, no network), behind the off-by-default
+`dataDiplomacy` flag.
+- **Claim + seal** — `js/diplomacy/diplomacy-claim.js` (`sealClaim`/`verifyClaimSeal`: build an inert, SHA-256-fingerprinted claim and later detect any tampering, reusing the existing `js/provenance/` hashing primitives — no new crypto).
+- **Reconciliation engine** — `js/diplomacy/reconciliation-engine.js` (`reconcileClaims`/`explainReconciliation`: a pure, never-throwing referee that prefers the higher-confidence claim, tie-breaks on a caller-supplied source-trust ranking, and honestly returns `resolved:false` — "needs human debate" — rather than guessing).
+- **Two-key approval gate** — `js/diplomacy/diplomacy-approval-gate.js` (`createApprovalRequest`/`approve`/`reject`/`verifyApprovalRecord`: a two-party state machine that only flips a request to `applied` — and seals a tamper-evident record — once BOTH parties independently approve).
+
 ## Provenance, audit & trust
 The tamper-evident and human-readable record of what DATAGLOW did, plus artifacts built
 for auditors and regulators.
