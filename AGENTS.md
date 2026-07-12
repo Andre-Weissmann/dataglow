@@ -109,6 +109,38 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Query Memory (Batch 1) — per-run fingerprint + author/timestamp log
+
+Fingerprints every SQL/Python/R/Metric Studio run and logs who/when, so a later
+phase can surface a "seen before" badge grounding trust in real, validated usage
+history. Explicitly complementary to the AI Readiness Gate: the Gate decides
+agent-readiness now; Query Memory can become the audit trail behind those
+decisions over time. New pure, browser-free, Node-testable module
+`js/provenance/query-memory.js` follows the same pure-module-first, injected-store
+convention `js/agents/meeting-decision-ledger.js` established: `computeQueryFingerprint`
+SHA-256-hashes a canonical payload of the run's normalized text + the tables/columns
+it touched, REUSING the existing `sha256Hex` primitive from
+`js/provenance/provenance.js` (no new crypto); `createQueryMemoryLog({store, now})`
+exposes `record`/`lookup`/`history` and talks to persistence ONLY through an
+injected `store` adapter, so it is fully testable against a tiny in-memory fake and
+never assumes IndexedDB exists. Batch-1 matching is EXACT and documented on purpose
+(whitespace/semicolon-normalized, context-grounded, case-significant; fuzzy/near-match
+deferred), and an entry NEVER persists raw query text — only the fingerprint, kind,
+author, timestamp, and an optional human label.
+
+The real persistence is a new append-only, capped (`QUERY_MEMORY_CAP` 10000)
+IndexedDB store in `js/learning/memory-store.js` (`DB_VERSION` bumped 4→5, new
+`queryMemoryLog` object store with a NON-unique `fingerprint` index so a re-run
+appends rather than overwrites; `appendQueryMemory`/`getQueryMemory`/
+`getQueryMemoryByFingerprint`/`countQueryMemory`/`clearQueryMemory`) — additive only.
+Ships behind the `queryMemory` flag (OFF by default): Batch 1 is module + tests
+only, NO UI and NO wiring into the run paths, so with the flag off (and even on)
+nothing in the app reads or writes the log. Tests: `npm run test:querymemory`
+(`test/query-memory.test.mjs`, 48 assertions), run by the new
+`.github/workflows/job-query-memory.yml` CI job. Registered as the
+`provenance-query-memory` capability. Later batches: wire the "seen before" badge
+into the SQL/Python/R/Metric Studio run paths; consider fuzzy/near-match.
+
 ### DataGlow Live Rooms (Batch 1) — live transcript capture for the Meeting Scribe
 
 Gives the Meeting Scribe a LIVE audio-capture + on-device speech-to-text input

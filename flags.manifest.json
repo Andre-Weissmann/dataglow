@@ -6,6 +6,11 @@
       "addedInPR": "this PR number",
       "description": "demo flag for BNS"
     },
+    "queryMemory": {
+      "enabled": false,
+      "addedInPR": "feat/query-memory-batch1-fingerprint-log",
+      "description": "Query Memory (Batch 1 of N): fingerprint every SQL/Python/R/Metric Studio run (SHA-256 hash of its normalized text + the tables/columns it touched, reusing the provenance sha256Hex primitive — no new crypto) and log WHO ran it and WHEN, so a later phase can surface a 'seen before' badge grounding trust in real validated usage history. Explicitly complementary to the AI Readiness Gate: the Gate decides agent-readiness now, Query Memory can become the audit trail behind those decisions over time. Batch 1 ships the PURE, Node-testable module js/provenance/query-memory.js only (computeQueryFingerprint / createQueryMemoryLog{record,lookup,history} / summarizeQueryMemory — exact-match semantics, documented; fuzzy/near-match deferred) plus the real append-only capped IndexedDB store (appendQueryMemory/getQueryMemory/getQueryMemoryByFingerprint/clearQueryMemory in js/learning/memory-store.js, DB v5). NO UI and NO wiring into the SQL/Python/R/Metric Studio run paths yet — same batch-1 pattern as the AI Readiness Gate and The Glow. Ships OFF: nothing in the app reads or writes the log while the flag is off."
+    },
     "pluginPacks": {
       "enabled": true,
       "addedInPR": "gen40-domain-pack-plugin-architecture",

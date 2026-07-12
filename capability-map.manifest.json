@@ -595,6 +595,28 @@
       ]
     },
     {
+      "id": "provenance-query-memory",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Query Memory (Batch 1 — fingerprint + log)",
+      "files": [
+        "js/provenance/query-memory.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/query-memory.js",
+          "name": "computeQueryFingerprint"
+        },
+        {
+          "file": "js/provenance/query-memory.js",
+          "name": "createQueryMemoryLog"
+        }
+      ]
+    },
+    {
       "id": "provenance-artifacts",
       "platforms": [
         "browser",

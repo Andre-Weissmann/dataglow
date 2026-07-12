@@ -1,0 +1,32 @@
+# ============================================================
+# DATAGLOW — CI job: Query Memory (Batch 1 — fingerprint + log)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the Query Memory suite:
+#   - test:querymemory — batch 1: the PURE, Node-testable module
+#     (js/provenance/query-memory.js) — computeQueryFingerprint's exact-match,
+#     context-grounded fingerprint semantics, the JSON-safe (raw-text-free) log
+#     entry builder, the seen/count/authors summary, and createQueryMemoryLog's
+#     record/lookup/history against an in-memory fake store mirroring the
+#     memory-store.js contract (no real IndexedDB needed).
+# Pure JS, no DuckDB/browser needed. UI wiring is deferred to a later batch;
+# ships behind the OFF-by-default `queryMemory` flag.
+
+name: Query Memory
+
+on:
+  workflow_call:
+
+jobs:
+  query-memory:
+    name: Query Memory (pure fingerprint + log, batch 1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:querymemory
