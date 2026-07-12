@@ -248,9 +248,9 @@ to be CORRECT.
   recertifying a metric is not a definition change). `MetricContractHistory.recordVersion`
   appends an immutable, timestamped snapshot; nothing already recorded is ever edited or
   removed. `MetricContractRegistry` keys one history per metric id. `diffVersions` compares
-  any two snapshots field-by-field and `summarizeDiff` gives a one-line label. This batch is
-  pure logic only — no DOM presenter, no caller wired into `main.js` yet, and no AI-agent
-  write path exists through this module.
+  any two snapshots field-by-field and `summarizeDiff` gives a one-line label. `recordVersion` is
+  now called from `renderMetricStudio`'s `onDefinitionSaved` hook (wired in `main.js` as
+  `recordMetricDefinitionVersion`) every time a human creates or merges a metric definition.
 - **Metric Contracts (Batch 2: diff view, read-only)** — `js/metrics/metric-contract-diff-view.js`
   (turns two of Batch 1's version entries into a normalised block model via pure
   `buildDiffViewContent` — field-by-field before/after, who/when/why/human-vs-agent-proposed,
@@ -258,8 +258,9 @@ to be CORRECT.
   renders a metric's full oldest-first version timeline. `renderDiffView` is the DOM presenter,
   following `js/trust/proof-drawer.js`'s exact pure-content/DOM split and reusing its `kv`/`text`/`list`
   block kinds plus one new `field-diff` kind (side-by-side before/after) so both panels look and behave
-  consistently. READ-ONLY: no apply/accept button, no write path; nothing in `main.js` calls
-  `renderDiffView` yet.)
+  consistently. READ-ONLY: no apply/accept button, no write path. Now called from `main.js`'s
+  `renderMetricContractHistoryPanel()` to render each metric's definition-history timeline in the
+  Validate tab.)
 - **Metric Contracts (Batch 3: confirm gate)** — `js/metrics/metric-contract-confirm-gate.js`
   (the safety-critical piece. `proposeContractChange` builds a plain, inert PROPOSAL object — pure
   data, zero side effects — the only thing an AI-agent caller can produce with respect to a metric
@@ -272,11 +273,14 @@ to be CORRECT.
   on an already-decided proposal. `reject` writes nothing anywhere, ever. Reaffirms and tests
   DATAGLOW's hard autonomy-safety rule: an agent may propose, a human must approve every mutating
   action individually. Two EQUAL-weight Approve/Reject buttons — never nudges toward "accept."
-  Nothing in `main.js` calls `renderConfirmGate` yet — no agent in the running app can generate a
-  real proposal through this gate today.)
+  `main.js`'s `renderMetricContractHistoryPanel()` calls `renderConfirmGate` for any pending proposal,
+  but no metric-touching AI proposer exists in the running app, so the gate is wired, never faked — it
+  surfaces only if a proposal is ever produced.)
 
-All three batches gated behind the `metricContracts` flag (ships OFF, still currently gates nothing
-observable since none of the three is wired into `main.js` yet).
+All three batches gated behind the `metricContracts` flag (PROMOTED ON): the Metric Studio save path
+records a human version on every create/merge, and the Validate tab shows a read-only per-metric
+definition-history panel. The confirm gate is wired to `renderConfirmGate` but only surfaces when a
+pending AI proposal exists, which never happens today (no such proposer is wired).
 
 - **AI Readiness Gate (pure scoring + UI badge + agent hard-block, batches 1-3 of 4)** — `js/gate/readiness-gate.js` (a PURE
   aggregator that composes the OUTPUT of validation's `runAllLayers()` — never re-running it — plus an

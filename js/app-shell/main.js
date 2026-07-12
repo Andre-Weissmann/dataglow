@@ -53,6 +53,9 @@ import { buildSyntheticDataPassport, sealSyntheticPassport, renderPassportSummar
 import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
+import { MetricContractRegistry } from '../metrics/metric-contracts.js';
+import { buildHistoryListContent, renderDiffView } from '../metrics/metric-contract-diff-view.js';
+import { renderConfirmGate } from '../metrics/metric-contract-confirm-gate.js';
 import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
 import { openProofDrawer } from '../trust/proof-drawer.js';
 import { buildProofRoomPlan, renderProofRoom } from '../provenance/proof-room.js';
@@ -2050,6 +2053,30 @@ async function renderConversationalPackBuilder(ds, results) {
 // Local-only metric registry (in-memory; export/import JSON is user-driven).
 const metricRegistry = new MetricRegistry();
 
+// Append-only Metric Contract version history, sitting ALONGSIDE metricRegistry
+// (Metric Contracts, Gen 44). It is written to only through recordMetricDefinitionVersion
+// below, which fires from the existing Metric Studio human save path — there is
+// no other writer. `metricContractProposals` holds AI-agent-proposed changes
+// awaiting a human decision at the confirm gate; nothing in the running app
+// produces one today (no metric-touching AI proposer exists — confirmed by grep),
+// so it stays empty and the gate never surfaces. It exists as the single, honest
+// seam a future proposer would push into, so the gate is wired, not faked.
+const metricContractRegistry = new MetricContractRegistry();
+const metricContractProposals = [];
+
+// The one writer into the contract history: called by renderMetricStudio's
+// onDefinitionSaved hook every time a human creates or merges a metric. Gated
+// on the flag so, with metricContracts OFF, saving records nothing (unchanged).
+function recordMetricDefinitionVersion(metric, meta = {}) {
+  if (!isEnabled('metricContracts') || !metric || !metric.id) return;
+  metricContractRegistry.recordVersion(metric.id, metric, {
+    changedBy: meta.changedBy || metric.owner || 'you',
+    reason: meta.reason || '',
+    source: 'human',
+  });
+  renderMetricContractHistoryPanel();
+}
+
 // Open the Proof Drawer scoped to a Metric Studio metric.
 function openMetricProof(metric) {
   openProofDrawer({ trigger: { type: 'metric', metric } });
@@ -2113,7 +2140,56 @@ function renderMetricStudioPanel() {
     onOpenProof: openMetricProof,
     onToast: toast,
     onChange: renderTrustStripPanel, // certification counts feed the Trust Strip
+    onDefinitionSaved: recordMetricDefinitionVersion, // Metric Contracts version trail
   });
+}
+
+// Render the read-only Metric Contract history: per metric, an oldest-first
+// timeline of its recorded definition versions (Batch 2's buildHistoryListContent
+// + renderDiffView), plus any pending AI-agent proposal at its confirm gate
+// (Batch 3's renderConfirmGate). Read-only for the human's own past edits; the
+// only mutating control it can ever show is a confirm-gate Approve button, which
+// requires one explicit human click and never auto-applies.
+function renderMetricContractHistoryPanel() {
+  const wrap = $('#metric-contract-wrap');
+  const host = $('#metric-contract-body');
+  if (!wrap || !host) return;
+  if (!isEnabled('metricContracts')) { host.innerHTML = ''; wrap.style.display = 'none'; return; }
+
+  host.innerHTML = '';
+  const pending = metricContractProposals.filter((p) => p && p.status === 'pending');
+  const hasHistory = metricContractRegistry.size > 0;
+
+  if (!hasHistory && pending.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+
+  // Each metric that has at least one recorded version gets its own timeline.
+  for (const m of metricRegistry.list()) {
+    if (!metricContractRegistry.has(m.id)) continue;
+    const versions = metricContractRegistry.historyFor(m.id).list();
+    const section = el('div', { style: 'margin-bottom:var(--space-3);', 'data-testid': 'metric-contract-section', 'data-metric-id': m.id });
+    renderDiffView({ host: section, content: buildHistoryListContent({ metricName: m.name, versions }) });
+    host.appendChild(section);
+  }
+
+  // Any pending proposal renders its confirm gate — never present in-app today
+  // (nothing calls proposeContractChange), so this loop is a no-op in practice.
+  for (const proposal of pending) {
+    const metric = metricRegistry.get(proposal.metricId);
+    const gateHost = el('div', { style: 'margin-top:var(--space-3);', 'data-testid': 'metric-contract-gate' });
+    host.appendChild(gateHost);
+    renderConfirmGate({
+      host: gateHost,
+      proposal,
+      metricName: metric ? metric.name : proposal.metricId,
+      contractRegistry: metricContractRegistry,
+      metricRegistry,
+      onDecision: () => renderMetricContractHistoryPanel(),
+    });
+  }
 }
 
 // Single entry point: refresh both flag-gated surfaces. Safe to call with no
@@ -2121,6 +2197,7 @@ function renderMetricStudioPanel() {
 function renderOneCanvasPhase1() {
   renderTrustStripPanel();
   renderMetricStudioPanel();
+  renderMetricContractHistoryPanel();
   applyValidateFocusMode();
 }
 
@@ -2350,6 +2427,7 @@ function renderProofRoomTab() {
         onOpenProof: openMetricProof,
         onToast: toast,
         onChange: () => renderProofRoomTab(),
+        onDefinitionSaved: recordMetricDefinitionVersion, // Metric Contracts version trail
       }),
       trustStrip: (body) => renderTrustStrip({
         host: body,

@@ -82,6 +82,7 @@
     "test:metriccontracts": "node test/metric-contracts.test.mjs",
     "test:metriccontractdiffview": "node test/metric-contract-diff-view.test.mjs",
     "test:metriccontractconfirmgate": "node test/metric-contract-confirm-gate.test.mjs",
+    "test:e2e-metriccontracts-ui": "node test/metric-contracts-ui.test.mjs",
     "test:diplomacyclaim": "node test/diplomacy-claim.test.mjs",
     "test:reconciliation": "node test/reconciliation-engine.test.mjs",
     "test:diplomacyapproval": "node test/diplomacy-approval-gate.test.mjs",
