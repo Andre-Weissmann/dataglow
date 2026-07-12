@@ -44,6 +44,7 @@ const TAB_TO_GROUP = {
   twin: 'automate',
   watch: 'automate',
   meeting: 'automate',
+  diplomacy: 'validate',
 };
 
 /**

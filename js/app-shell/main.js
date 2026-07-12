@@ -61,6 +61,10 @@ import { computeGlowPathState } from './glow-path.js';
 import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
 import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
+import { sealClaim } from '../diplomacy/diplomacy-claim.js';
+import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
+import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
+import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
@@ -118,6 +122,7 @@ const TAB_META = {
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
   meeting: { label: 'Meeting', icon: 'message-circle' },
+  diplomacy: { label: 'Diplomacy', icon: 'handshake' },
 };
 
 const ICONS = {
@@ -135,6 +140,7 @@ const ICONS = {
   folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
   'message-circle': '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
+  handshake: '<path d="M11 12l2 2 3-3 4 4"/><path d="M13 14l-2 2-2-2-3 3-2-2"/><path d="M3 10l4-4 4 3"/><path d="M21 10l-4-4-3 2"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -176,7 +182,13 @@ function renderTabBar() {
   // the flag off (its shipped default) it is simply never added to the bar,
   // never a dead click target, and #panel-meeting stays empty and hidden
   // (see renderMeetingScribeTab). No other tab is filtered.
-  const visibleTabOrder = state.tabOrder.filter((tabId) => tabId !== 'meeting' || isEnabled('meetingScribe'));
+  // The 'diplomacy' tab follows the exact same dark-by-default gate as
+  // 'meeting': with the dataDiplomacy flag off (its shipped default) it is
+  // never added to the bar, never a dead click target, and #panel-diplomacy
+  // stays empty (see renderDiplomacyTab). No other tab is filtered.
+  const visibleTabOrder = state.tabOrder.filter((tabId) =>
+    (tabId !== 'meeting' || isEnabled('meetingScribe'))
+    && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -251,6 +263,7 @@ function switchTab(tabId) {
   if (tabId === 'validate') renderOneCanvasPhase1();
   if (tabId === 'twin') buildTwinControls();
   if (tabId === 'meeting') renderMeetingScribeTab();
+  if (tabId === 'diplomacy') renderDiplomacyTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -2044,6 +2057,62 @@ function renderDecisionLedgerSection() {
     onToast: toast,
   });
   decisionLedgerMounted = true;
+}
+
+// ============================================================
+// Data Diplomacy (Batch 2) — Diplomacy tab wiring
+// ============================================================
+// Mounts the two-key reconciliation panel (js/diplomacy/diplomacy-ui.js) over
+// the pure Batch-1 engine (js/diplomacy/*). The tab only exists in the bar
+// when the dataDiplomacy flag is on (see renderTabBar); this function is the
+// second, inner gate matching the meetingScribe precedent exactly.
+//
+// HONESTY NOTE: the two claims below are a hardcoded DEMO scenario, built with
+// the real sealClaim()/reconcileClaims()/createApprovalRequest() — NOT a
+// data-loading feature. Wiring this to columns of the actually-loaded dataset
+// (and to a real cross-device transport so the two keys are held by two
+// different people) is deliberate future work, not this batch.
+let diplomacyMounted = false;
+async function renderDiplomacyTab() {
+  const host = $('#diplomacy-body');
+  if (!host) return;
+  if (!isEnabled('dataDiplomacy')) { host.innerHTML = ''; diplomacyMounted = false; return; }
+  if (diplomacyMounted) return; // already mounted this session
+  diplomacyMounted = true;
+
+  const partyAId = 'analyst';
+  const partyBId = 'reviewer';
+  // Two sources disagree on Q3 net revenue for the same account; the warehouse
+  // export is more confident than the hand-maintained spreadsheet, so the
+  // engine resolves it — but nothing applies until BOTH parties sign off.
+  const claimA = await sealClaim({
+    entityId: 'account-4821', field: 'q3_net_revenue', value: 128400,
+    confidence: 0.92, source: 'warehouse-export', sealedBy: partyAId,
+  });
+  const claimB = await sealClaim({
+    entityId: 'account-4821', field: 'q3_net_revenue', value: 131750,
+    confidence: 0.6, source: 'finance-spreadsheet', sealedBy: partyBId,
+  });
+  const reconciliationResult = reconcileClaims(claimA, claimB);
+  const approvalRequest = reconciliationResult.resolved
+    ? createApprovalRequest({ reconciliationResult, partyAId, partyBId })
+    : null;
+
+  const paint = () => renderDiplomacyPanel({
+    host, claimA, claimB, partyAId, partyBId, reconciliationResult, approvalRequest,
+    onApprove: async (partyId) => {
+      const res = await approveDiplomacy(approvalRequest, partyId);
+      if (!res.ok && res.error) toast(res.error, 'error');
+      else if (res.bothApproved) toast('Both keys turned — resolution applied and sealed.', 'success');
+      paint();
+    },
+    onReject: (partyId) => {
+      const res = rejectDiplomacy(approvalRequest, partyId);
+      if (!res.ok && res.error) toast(res.error, 'error');
+      paint();
+    },
+  });
+  paint();
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.

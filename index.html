@@ -890,6 +890,20 @@
       <div id="meeting-decision-ledger-body" data-testid="meeting-decision-ledger-body"></div>
     </section>
 
+    <!-- Data Diplomacy (Batch 2). Like #panel-meeting, this panel's body stays
+         empty until main.js's renderDiplomacyTab() mounts it, and that mount is
+         gated behind the dataDiplomacy flag (off by default), so the tab is
+         never in the bar and this panel stays empty on a default build. -->
+    <section class="panel" id="panel-diplomacy" data-panel="diplomacy">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Diplomacy</div>
+          <div class="panel-subtitle">When two sources disagree on the same fact, reconcile them — and apply the result only when both parties turn their key.</div>
+        </div>
+      </div>
+      <div id="diplomacy-body" data-testid="diplomacy-body"></div>
+    </section>
+
   </div>
 </div>
 

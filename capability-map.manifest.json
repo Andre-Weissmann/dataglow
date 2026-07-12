@@ -1477,6 +1477,18 @@
           "name": "stageForTab"
         }
       ]
+    },
+    {
+      "id": "data-diplomacy-ui",
+      "area": "Data Diplomacy",
+      "name": "Data Diplomacy — two-key panel UI (Batch 2)",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/diplomacy/diplomacy-ui.js"],
+      "symbols": [
+        { "file": "js/diplomacy/diplomacy-ui.js", "name": "buildClaimCardModel" },
+        { "file": "js/diplomacy/diplomacy-ui.js", "name": "buildReconciliationPanelModel" },
+        { "file": "js/diplomacy/diplomacy-ui.js", "name": "renderDiplomacyPanel" }
+      ]
     }
   ]
 }
