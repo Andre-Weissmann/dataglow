@@ -111,7 +111,7 @@ the privacy/offline guarantees.
    `js/app-shell/sql-dialect-adapter.js`: `translateDialectSql(sql, dialect)` +
    `SUPPORTED_DIALECTS`; real per-dialect syntax translation verified against a live DuckDB
    engine in `test/sql-dialect-adapter.test.mjs`, 43/0 passing. PROMOTED to ON in
-   [#PR_PLACEHOLDER](https://github.com/Andre-Weissmann/dataglow/pull/PR_PLACEHOLDER):
+   [#165](https://github.com/Andre-Weissmann/dataglow/pull/165):
    the dialect-picker chip row now renders by default and transpiles the user's SQL before
    `runQuery`; the default 'duckdb' selection is a no-op passthrough, and turning
    `multiDialectSql` back off restores the byte-for-byte prior SQL tab.)
@@ -122,7 +122,7 @@ the privacy/offline guarantees.
    pointer), verified in `test/object-space.test.mjs`, 32/0 passing. Sits ALONGSIDE the
    existing per-language JSON bridges — does NOT replace transfer mechanics. Read-only
    "Object Space" strip in the data sidebar. PROMOTED to ON in
-   [#PR_PLACEHOLDER](https://github.com/Andre-Weissmann/dataglow/pull/PR_PLACEHOLDER):
+   [#165](https://github.com/Andre-Weissmann/dataglow/pull/165):
    the passive registry now populates and the Object Space strip renders by default;
    turning `objectSpaceRegistry` back off restores zero behavior change. Batch C (query-time
    resolution) remains the next batch that makes the registry load-bearing.)
