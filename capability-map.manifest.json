@@ -93,6 +93,24 @@
       ]
     },
     {
+      "id": "app-shell-object-space",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "Object Space registry (Polyglot Workbench, Batch B)",
+      "files": [
+        "js/app-shell/object-space.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/object-space.js",
+          "name": "createObjectSpace"
+        }
+      ]
+    },
+    {
       "id": "validation-orchestrator",
       "platforms": [
         "browser",
