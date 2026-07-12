@@ -280,3 +280,26 @@ Newest entries go at the bottom of **Entries**.
   source-asserts the guard can't be silently deleted and proves the concurrency
   semantics. Fixed in PR `feature/proof-room-batch2-flags-and-bugfix`.
 
+### 2026-07-12 — Unit Test Layer: duplicate check is byte-identical-only; referential-integrity check only tests FK non-nullness
+
+- **Description:** Two scope gaps in `runUnitTests()`
+  (`js/validation/validation.js`), now made VISIBLE and ASSERTED by tests but not
+  yet fixed (fix is a separate PR). (1) **Duplicate detection is byte-identical
+  only.** The check is `GROUP BY <every column>`, so it catches only fully
+  identical rows; two rows sharing the same real-world business key but differing
+  in one incidental column (e.g. an event timestamp) are a logical duplicate it
+  misses. (2) **Referential integrity only checks FK non-nullness.** For each
+  non-key `*_id` column it counts NULLs and emits a `null_ref` finding, but it
+  never verifies the referenced value actually exists in a parent table — so a
+  non-null-but-nonexistent (orphan) FK is never caught.
+- **Date:** 2026-07-12
+- **Severity:** medium
+- **Area:** `js/validation/validation.js` (`runUnitTests` duplicate + referential-integrity blocks), `test/validation-layers.test.mjs`
+- **Status:** open — coverage added this PR, detection logic intentionally
+  unchanged. `test/validation-layers.test.mjs` now asserts the CURRENT (missing)
+  behavior for a true orphan FK and a business-key-only duplicate, each with a
+  positive-control fixture (null FK trips `null_ref`; byte-identical rows trip
+  `duplicate`). When the detection logic is later hardened, those two
+  "KNOWN GAP" assertions must be flipped intentionally so the change is reviewed,
+  not silent.
+
