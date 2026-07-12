@@ -255,6 +255,24 @@
       ]
     },
     {
+      "id": "source-convergence-ingestion",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "Source Convergence ingestion adapters (Truth Network, Batch 2)",
+      "files": [
+        "js/validation/source-convergence-ingestion.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/source-convergence-ingestion.js",
+          "name": "adaptExcelWorkbook"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",

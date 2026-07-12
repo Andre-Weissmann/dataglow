@@ -61,3 +61,19 @@ those are the ones the index calls out as "standalone layer modules."
   and `summarizeConvergence` renders the plain-language headline. Pure, DOM/DuckDB/network-free,
   never throws. Ships dark behind the `sourceConvergence` flag (Batch 1 = logic only; ingestion
   wiring and UI are Batches 2 and 3). It is not one of the 20 single-table data-quality layers.
+- `js/validation/source-convergence-ingestion.js` — **Source Convergence ingestion adapters
+  (Truth Network, Batch 2)**: the seam that turns the mixed-format data an analyst actually loads
+  into the `{ id, rows, possibleKeys, trust, meta }` source objects the Batch 1 engine expects,
+  without touching that engine's public contract. `adaptExcelWorkbook` fans a parsed workbook out
+  to ONE source per sheet/tab (same file, different tabs = different sources); `adaptApiSource` and
+  `adaptSiteExport` defensively unwrap a parsed JSON pull (bare array or an object wrapping rows
+  under `data`/`rows`/`results`/`items`/`records`) and carry `url`/`fetchedAt` provenance;
+  `inferJoinKeys` is the shared heuristic key-inference helper (single-column `*_id`/`_key`/`_code`/
+  bare-`id` plus known composites like `patient_id`+`date_of_service`, returning `[]` and flagging
+  `needsManualKeySelection` when nothing matches); `assignDefaultTrust` gives a per-origin default
+  (upload/Excel > API > site) that an explicit caller trust overrides; and `toEngineSources`
+  flattens adapter results into the engine's source list + `sourceTrust` map. Pure and
+  Node-testable — it consumes ALREADY-PARSED data, so the real File reading (the app's existing
+  SheetJS `XLSX.read` in `js/app-shell/loaders.js`) and the user-initiated client-side `fetch()`
+  live in the UI batch. Never throws; ships dark behind the `sourceConvergenceIngestion` flag
+  (Batch 2 = adapters only; UI wiring is Batch 3).
