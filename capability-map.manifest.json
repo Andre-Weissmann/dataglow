@@ -170,6 +170,24 @@
       ]
     },
     {
+      "id": "glow-orb-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "The Glow topbar orb UI (Batch 2)",
+      "files": [
+        "js/glow/glow-orb-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/glow/glow-orb-ui.js",
+          "name": "renderGlowOrb"
+        }
+      ]
+    },
+    {
       "id": "validation-orchestrator",
       "platforms": [
         "browser",

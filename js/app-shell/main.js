@@ -60,6 +60,8 @@ import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
 import { registerObject, listObjectSpace } from './object-space.js';
 import { computeGlowPathState } from './glow-path.js';
 import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
+import { computeGlowSignal } from '../glow/glow-signal.js';
+import { renderGlowOrb } from '../glow/glow-orb-ui.js';
 import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { sealClaim } from '../diplomacy/diplomacy-claim.js';
@@ -269,6 +271,8 @@ function switchTab(tabId) {
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
   renderGlowPathRail();
+  // The Glow (Batch 2): refresh the topbar orb verdict. No-op when glowOrb off.
+  renderGlowOrbWidget();
 }
 
 // ============================================================
@@ -961,6 +965,8 @@ async function runSqlQuery() {
     // Glow Path (Batch A): refresh the next-action rail from the new state.
     // No-op when the glowPathRail flag is off.
     renderGlowPathRail();
+    // The Glow (Batch 2): refresh the topbar orb verdict. No-op when glowOrb off.
+    renderGlowOrbWidget();
     if (isEnabled('localAnalysisContract')) {
       // Runs after the result is already shown — the contract check never
       // gates or delays the query itself, only annotates the result with
@@ -1097,6 +1103,41 @@ function renderGlowPathRail() {
     onCtaClick: onGlowPathCta,
     onDismiss: () => { glowPathDismissalStore.markDismissed(dismissKey); host.innerHTML = ''; },
   });
+}
+
+// ============================================================
+// The Glow — topbar orb widget (Batch 2, ships dark)
+// ============================================================
+// Renders the single at-a-glance Glow orb into #glow-orb-host. Gated behind the
+// glowOrb flag — with the flag off, renderGlowOrbWidget() empties the host and
+// returns, so behavior is byte-for-byte unchanged. It COMPOSES the real
+// already-computed state (the same cheap computeReadinessGate() over
+// state.validationResults the badge/rail use, plus the same collectTrustSignals()
+// the Trust Strip assembles) via the pure Batch-1 aggregator — it re-runs NO
+// validation. goldenSignals/catScorecard are computed async inside renderDataHealth
+// via the DuckDB engine and are NOT persisted to `state`, so they are left
+// undefined here rather than re-run synchronously on every topbar refresh
+// (wiring those two in is a documented Batch-2 follow-up).
+function renderGlowOrbWidget() {
+  const host = document.getElementById('glow-orb-host');
+  if (!host) return;
+  if (!isEnabled('glowOrb')) { host.innerHTML = ''; return; }
+
+  const ds = getActiveDataset();
+  const hasValidated = Object.keys(state.validationResults || {}).length > 0;
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  const glowResult = computeGlowSignal({
+    readinessGateResult: hasValidated ? computeReadinessGate(state.validationResults) : undefined,
+    trustSignals: collectTrustSignals({
+      dataset: ds,
+      validationResults: state.validationResults,
+      metricCounts: metricRegistry.statusCounts(),
+      provenanceChain: chain,
+      anomalyResult: null,
+    }),
+    // goldenSignals / catScorecard: async + not on state — see header note.
+  });
+  renderGlowOrb({ host, glowResult });
 }
 
 // Map a symbolic Glow Path CTA action to a real, human-initiated navigation. Each
@@ -1861,6 +1902,9 @@ async function runValidation() {
   // (warnings to review, an agent-readiness block, or a clean pass). No-op when
   // the glowPathRail flag is off.
   renderGlowPathRail();
+  // The Glow (Batch 2): validation just changed the composed verdict — refresh
+  // the topbar orb. No-op when glowOrb off.
+  renderGlowOrbWidget();
 }
 
 // ============================================================
