@@ -64,8 +64,9 @@
       "description": "Local Analysis Contract (js/validation/analysis-contract.js): before/alongside running a SQL query — the user's own, or one an AI assistant wrote — checks it offline against the REAL schema of the loaded dataset and flags schema hallucination (references to columns/tables that don't exist), aggregation mismatches (COUNT without DISTINCT across a JOIN; SUM of a rate-like column), and missing guard clauses (aggregate query never excludes test/deleted/refunded rows a matching column suggests it should). Flags-only, never rewrites or blocks a query — empowerment-constraint compliant. Renders as a dismissible card in #sql-result-wrap, above the result table. When off, the SQL tab behaves exactly as before this PR."
     },
     "meetingScribe": {
-      "enabled": false,
+      "enabled": true,
       "addedInPR": "gen43-meeting-scribe-agent",
+      "promotedInPR": "feature/promote-batch4-meeting-flags",
       "description": "Gen 43 meeting scribe: pure grounding/tagging logic (js/agents/meeting-scribe-agent.js, PR gen43-meeting-scribe-agent) plus a Meeting tab presenter (js/agents/meeting-scribe-ui.js, PR gen43-meeting-scribe-ui) where a person pastes or types a transcript to see pushback moments, data requests, and an action-item tracker enforcing the owner+dueDate+outcome rule. Still no audio capture or speech-to-text — those stay separate follow-up work. When this flag is off (its shipped default), renderTabBar() leaves the 'meeting' entry out of state.tabOrder entirely, so the tab is not just hidden but never added to the bar or reachable by any click path; #panel-meeting stays empty."
     },
     "meetingScribeLiveCapture": {
@@ -74,13 +75,15 @@
       "description": "DataGlow Live Rooms (Batch 1) live audio-capture + on-device speech-to-text input for the Meeting Scribe: the follow-up the Gen 43 meeting-scribe PR deliberately deferred. Pure, Node-testable logic lives in js/agents/live-transcript-capture.js — isSpeechCaptureAvailable() (a never-throwing capability check mirroring ondevice-llm.js's isWebGPUAvailable(): false unless BOTH navigator.mediaDevices.getUserMedia AND WebGPU are present) plus assembleSegments()/createTranscriptAssembler(), which turn raw STT chunks (interim vs. final text + timestamps) into the SAME {text, ts} segment shape parseTranscriptText produces, so they feed directly into the EXISTING, unchanged tagSegmentsWithContext. The browser-only half (getUserMedia mic capture + a lazily-CDN-loaded on-device WebGPU Whisper-family STT pipeline via transformers.js) is code-loaded from a CDN like WebLLM in ondevice-llm.js and NEVER routes microphone audio anywhere. When ON, mountMeetingScribe (js/agents/meeting-scribe-ui.js) renders an ADDITIONAL 'Start live capture' / 'Stop' button pair beside the paste-a-transcript textarea; captured segments stream into the SAME taggedSegments state and re-render through the exact same renderResultsInto path as a pasted transcript. When OFF (its shipped default), main.js passes liveCapture:false, so NONE of the live-capture UI renders and the paste-a-transcript flow behaves byte-for-byte as before this PR — zero behavior change. This flag is INTENTIONALLY default OFF/dark per the DataGlow Live Rooms batching plan (Batches 2-4 — device pairing/WebRTC, chart-context timeline wiring, and on-device-LLM synthesis — are separate future PRs); dark here is expected, not an oversight."
     },
     "meetingDecisionLedger": {
-      "enabled": false,
+      "enabled": true,
       "addedInPR": "gen43-meeting-decision-ledger",
+      "promotedInPR": "feature/promote-batch4-meeting-flags",
       "description": "Gen 43 meeting decision ledger: a permanent, append-only, chart-anchored local record of pushback moments, data requests, and action items surfaced by the meeting scribe (js/agents/meeting-decision-ledger.js pure logic, persisted via js/learning/memory-store.js's new meetingDecisionLedger IndexedDB object store, presented by js/agents/meeting-decision-ledger-ui.js). A separate flag from meetingScribe so this piece can ship dark independently of that flag's state. Nothing is saved automatically — the analyst must click 'Save this meeting to ledger' for anything to be written; browsing, filtering by chart/type, exporting to a local .json file, and clearing the ledger are all explicit, on-device actions with no network call anywhere in this feature. When this flag is off (its shipped default), #meeting-decision-ledger-body stays empty and the section is never mounted."
     },
     "personalDataBom": {
-      "enabled": false,
+      "enabled": true,
       "addedInPR": "feature/personal-data-bom",
+      "promotedInPR": "feature/promote-batch4-meeting-flags",
       "description": "Personal Data Bill of Materials (js/provenance/data-bom.js): a one-click, fully offline 'ingredient label' for the active dataset — composes the existing provenance attestation (js/provenance/provenance.js, unmodified) with a schema-shape signature, the column-distribution snapshot already computed for drift/validation (if one has been run), and — only when the user has explicitly loaded it — the local on-device AI model's exact id/quantization. Exports as signed-digest JSON or a printable HTML certificate via the same Export/Attestation card and download path the existing Export Attestation button uses. Same honest-labelling convention as provenance.js: a self-computed SHA-256 digest, never a claimed third-party notarization/signature. Empowerment-constraint compliant — this is a read-only export of what the user already has loaded; it never modifies data or triggers any automated action."
     },
     "semanticDriftWatchdog": {
