@@ -15,6 +15,7 @@
     "test:gen8": "node --import ./test/duckdb-loader-hook.mjs test/trust-adversarial-suite.test.mjs",
     "test:gen8b": "node --import ./test/duckdb-loader-hook.mjs test/trust-collaboration-suite.test.mjs",
     "test:mimic": "node --import ./test/duckdb-loader-hook.mjs test/mimic-bugfixes.test.mjs",
+    "test:catidguard": "node --import ./test/duckdb-loader-hook.mjs test/categorical-consistency-identifier-guard.test.mjs",
     "test:bugfixes-layers": "node --import ./test/duckdb-loader-hook.mjs test/batched-bugfixes-layers.test.mjs",
     "test:bugfixes-editor": "node test/batched-bugfixes-editor.test.mjs",
     "test:physics": "node --import ./test/duckdb-loader-hook.mjs test/domain-physics.test.mjs",
