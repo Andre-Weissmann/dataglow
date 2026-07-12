@@ -47,6 +47,34 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
 
 ---
 
+## Concept in progress: Polyglot Workbench
+
+**One sentence:** Let an analyst write a query in whatever SQL dialect they already know
+(PostgreSQL, MySQL, BigQuery, Snowflake, T-SQL) and have DataGlow transpile it to the
+DuckDB SQL its in-browser engine runs — so the tool meets people where they are instead of
+forcing everyone to learn one engine's exact syntax first.
+
+**Why it fits DataGlow:** zero-upload / local-first / no-build — the translation is a pure,
+dependency-free string rewriter that runs entirely in the browser (no parser service, no
+network), mirroring the existing hand-rolled `sql-highlight.js` tokenizer discipline of
+never corrupting quoted string literals. It lowers the on-ramp for the large population of
+analysts whose muscle memory is a warehouse dialect, without compromising the privacy/offline
+guarantees.
+
+**Build batches (in order, each its own PR):**
+1. **Batch A — pure dialect adapter + tests, wired into the SQL tab behind a flag.**
+   (DONE — `js/app-shell/sql-dialect-adapter.js`: `translateDialectSql(sql, dialect)` +
+   `SUPPORTED_DIALECTS`; real per-dialect syntax translation verified against a live DuckDB
+   engine in `test/sql-dialect-adapter.test.mjs`. Ships DARK behind `multiDialectSql`
+   (default OFF): when on, the SQL tab shows a dialect-picker chip row and transpiles the
+   user's SQL before `runQuery`; when off, the SQL tab is byte-for-byte unchanged and the
+   default 'duckdb' selection is a no-op passthrough.)
+2. **Batch B — Object Space registry.** A shared, cross-runtime view of the named objects
+   (tables/frames) live across the SQL/Python/R runtimes. Separate follow-up PR — NOT STARTED
+   as of this Batch A PR, and deliberately out of scope here to keep Batch A self-contained.
+
+---
+
 ## Backlog (ranked, queued — not abandoned)
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.

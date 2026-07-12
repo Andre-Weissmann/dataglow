@@ -75,6 +75,24 @@
       ]
     },
     {
+      "id": "app-shell-sql-dialect-adapter",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "Multi-dialect SQL translation",
+      "files": [
+        "js/app-shell/sql-dialect-adapter.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/sql-dialect-adapter.js",
+          "name": "translateDialectSql"
+        }
+      ]
+    },
+    {
       "id": "app-shell-warehouse",
       "platforms": [
         "browser",

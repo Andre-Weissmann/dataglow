@@ -11,6 +11,7 @@ import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
 import * as loaders from './loaders.js';
 import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
+import { translateDialectSql, SUPPORTED_DIALECTS } from './sql-dialect-adapter.js';
 import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
@@ -836,9 +837,19 @@ function renderCheckSealAffordance(container, report, sql, result) {
   container.prepend(card);
 }
 
+// Polyglot Workbench (Batch A) — selected source dialect for the SQL tab. Kept
+// in memory only (no persistence). Default 'duckdb' is a no-op passthrough, so
+// with the multiDialectSql flag off this variable is never consulted and the SQL
+// tab behaves exactly as before this PR.
+let sqlDialect = 'duckdb';
+
 async function runSqlQuery() {
-  const sql = $('#sql-input').value.trim();
-  if (!sql) return;
+  const rawSql = $('#sql-input').value.trim();
+  if (!rawSql) return;
+  // When the multi-dialect flag is on, transpile the user's source-dialect SQL
+  // to DuckDB SQL before anything runs. When off (or dialect === 'duckdb') this
+  // is a byte-for-byte no-op, so the rest of the flow is unchanged.
+  const sql = isEnabled('multiDialectSql') ? translateDialectSql(rawSql, sqlDialect) : rawSql;
   await ensureDuckDB();
   const statusEl = $('#sql-status');
   const resultWrap = $('#sql-result-wrap');
@@ -942,6 +953,43 @@ function initSqlTab() {
   syncSqlHighlight();
   initAmbientValidation();
   initMetricDefiner();
+  renderSqlDialectPicker();
+}
+
+// Polyglot Workbench (Batch A) — dialect-picker chip row for the SQL tab.
+// Ships dark behind `multiDialectSql`. With the flag off the picker host stays
+// hidden and empty and `sqlDialect` remains 'duckdb', so the SQL tab is
+// byte-for-byte unchanged. With the flag on it renders one chip per
+// SUPPORTED_DIALECTS entry; clicking one sets the source dialect that
+// runSqlQuery() transpiles from before running. Reuses the existing `.chip`
+// component so no bespoke control is introduced.
+function renderSqlDialectPicker() {
+  const host = $('#sql-dialect-picker');
+  if (!host) return;
+  if (!isEnabled('multiDialectSql')) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  host.style.display = 'flex';
+  host.innerHTML = '';
+  host.appendChild(el('span', { class: 'sql-dialect-label' }, 'Dialect'));
+  for (const d of SUPPORTED_DIALECTS) {
+    const chip = el('button', {
+      type: 'button',
+      class: `chip${d.id === sqlDialect ? ' active' : ''}`,
+      title: d.description,
+      'data-dialect': d.id,
+      'data-testid': `sql-dialect-${d.id}`,
+    }, d.label);
+    chip.addEventListener('click', () => {
+      sqlDialect = d.id;
+      host.querySelectorAll('.chip').forEach((c) => {
+        c.classList.toggle('active', c.getAttribute('data-dialect') === sqlDialect);
+      });
+    });
+    host.appendChild(chip);
+  }
 }
 
 // "Define a metric" affordance (semanticMetricsLayer flag, off by default).
