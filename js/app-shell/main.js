@@ -17,6 +17,7 @@ import { runAnalysisContract, summarizeAnalysisContract } from '../validation/an
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
+import { buildBeamUrl } from '../provenance/trust-beam.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
@@ -59,7 +60,12 @@ import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
 import { registerObject, listObjectSpace } from './object-space.js';
 import { computeGlowPathState } from './glow-path.js';
 import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
+import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
+import { sealClaim } from '../diplomacy/diplomacy-claim.js';
+import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
+import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
+import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
@@ -117,6 +123,7 @@ const TAB_META = {
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
   meeting: { label: 'Meeting', icon: 'message-circle' },
+  diplomacy: { label: 'Diplomacy', icon: 'handshake' },
 };
 
 const ICONS = {
@@ -134,6 +141,7 @@ const ICONS = {
   folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
   'message-circle': '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
+  handshake: '<path d="M11 12l2 2 3-3 4 4"/><path d="M13 14l-2 2-2-2-3 3-2-2"/><path d="M3 10l4-4 4 3"/><path d="M21 10l-4-4-3 2"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -175,7 +183,13 @@ function renderTabBar() {
   // the flag off (its shipped default) it is simply never added to the bar,
   // never a dead click target, and #panel-meeting stays empty and hidden
   // (see renderMeetingScribeTab). No other tab is filtered.
-  const visibleTabOrder = state.tabOrder.filter((tabId) => tabId !== 'meeting' || isEnabled('meetingScribe'));
+  // The 'diplomacy' tab follows the exact same dark-by-default gate as
+  // 'meeting': with the dataDiplomacy flag off (its shipped default) it is
+  // never added to the bar, never a dead click target, and #panel-diplomacy
+  // stays empty (see renderDiplomacyTab). No other tab is filtered.
+  const visibleTabOrder = state.tabOrder.filter((tabId) =>
+    (tabId !== 'meeting' || isEnabled('meetingScribe'))
+    && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -250,6 +264,7 @@ function switchTab(tabId) {
   if (tabId === 'validate') renderOneCanvasPhase1();
   if (tabId === 'twin') buildTwinControls();
   if (tabId === 'meeting') renderMeetingScribeTab();
+  if (tabId === 'diplomacy') renderDiplomacyTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -828,6 +843,14 @@ function renderCheckSealAffordance(container, report, sql, result) {
             onclick: () => downloadText('dataglow-check-seal.json', exportSealAsJSON(seal), 'application/json'),
           }, 'Download seal (.json)');
           detail.appendChild(dl);
+          // Trust Beam opt-in affordance (feature-flagged: trustBeam). Turns this
+          // just-created seal into a self-contained shareable link whose payload
+          // lives in the URL fragment (after '#') so nothing is ever uploaded —
+          // a recipient with zero DataGlow install opens verify-beam.html and it
+          // re-verifies the seal client-side. No-op when the flag is off. QR image
+          // generation is a documented follow-up (no QR library is vendored yet);
+          // the copyable link IS the beam artifact for this batch.
+          renderBeamAffordance(detail, seal);
           toast('Check result sealed and re-verified locally', 'success');
         } catch (e) {
           toast('Could not seal this result: ' + e.message, 'error');
@@ -842,6 +865,61 @@ function renderCheckSealAffordance(container, report, sql, result) {
   card.appendChild(header);
   card.appendChild(detail);
   container.prepend(card);
+}
+
+// Trust Beam opt-in affordance (feature-flagged: trustBeam).
+// ------------------------------------------------------------
+// Given an already-created Verifiable Check Seal, renders a "Beam it" button that
+// composes a self-contained shareable link (js/provenance/trust-beam.js's
+// buildBeamUrl) carrying the whole seal in the URL FRAGMENT — never sent to any
+// server — plus a copy-to-clipboard action. A recipient opens the link in any
+// browser (verify-beam.html) and the seal is re-verified client-side with zero
+// DataGlow install and nothing uploaded. When the flag is off, nothing renders.
+// QR-image generation is a documented follow-up: no QR library is vendored yet,
+// so the copyable link is the beam artifact for this batch.
+function renderBeamAffordance(detail, seal) {
+  if (!isEnabled('trustBeam')) return;
+  const beamBtn = el('button', {
+    class: 'btn btn-secondary',
+    style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
+    'data-testid': 'trust-beam-create',
+    onclick: async () => {
+      try {
+        // verify-beam.html sits at the app root alongside index.html; derive its
+        // URL from the current location so a beam works from any deployment host.
+        const baseUrl = new URL('verify-beam.html', window.location.href).href;
+        const url = buildBeamUrl(seal, baseUrl);
+        let field = detail.querySelector('[data-testid="trust-beam-link"]');
+        if (!field) {
+          field = el('input', {
+            type: 'text',
+            readonly: 'readonly',
+            'data-testid': 'trust-beam-link',
+            style: 'width:100%; margin-top:6px; font-family:var(--font-mono); font-size:var(--text-xs); '
+              + 'padding:4px 6px; border:1px solid var(--color-border); border-radius:var(--radius-sm); '
+              + 'background:var(--color-surface-2); color:var(--color-text);',
+            onclick: (e) => e.target.select(),
+          });
+          detail.appendChild(field);
+          const copyBtn = el('button', {
+            class: 'btn btn-secondary',
+            style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
+            'data-testid': 'trust-beam-copy',
+            onclick: async () => {
+              try { await navigator.clipboard.writeText(field.value); toast('Trust Beam link copied', 'success'); }
+              catch { field.select(); toast('Select the link and copy it', 'info'); }
+            },
+          }, 'Copy link');
+          detail.appendChild(copyBtn);
+        }
+        field.value = url;
+        toast('Trust Beam link ready — share it to re-verify anywhere, no upload', 'success');
+      } catch (e) {
+        toast('Could not build a Trust Beam link: ' + e.message, 'error');
+      }
+    },
+  }, 'Beam it');
+  detail.appendChild(beamBtn);
 }
 
 // Polyglot Workbench (Batch A) — selected source dialect for the SQL tab. Kept
@@ -878,6 +956,8 @@ async function runSqlQuery() {
     // DuckDB tables as SQL-origin objects in the shared registry so the live
     // cross-language strip stays in sync. Flag-gated — no-op when off.
     registerSqlObjects();
+    // Glow Path (Batch C): a real SQL run raises the session proficiency signal.
+    proficiencyTracker.recordAction('sql');
     // Glow Path (Batch A): refresh the next-action rail from the new state.
     // No-op when the glowPathRail flag is off.
     renderGlowPathRail();
@@ -959,10 +1039,15 @@ function renderReadinessGateBadge(resultWrap) {
 // It COMPOSES state DATAGLOW already has — it never re-runs validation. The
 // readiness gate result it consults is a pure aggregation over the ALREADY-computed
 // state.validationResults (the same cheap computeReadinessGate() the badge uses),
-// not a fresh validation run. densityLevel is left at its 'low' default; the
-// proficiency signal that would raise it is a separate parallel batch (Batch B)
-// this wiring has no dependency on.
+// not a fresh validation run. densityLevel comes from the session proficiency
+// signal (Batch B/C): one shared in-memory tracker below, fed by real per-tab
+// run events, classified into 'low'/'mid'/'high'. It is session-scoped only —
+// never persisted (cross-session persistence is out of scope, see Batch B).
 const glowPathDismissalStore = createGlowPathDismissalStore();
+
+// One shared session proficiency tracker (Batch C). Fed by real per-tab run
+// events (SQL/Python/R/Validate) and read by renderGlowPathRail() for density.
+const proficiencyTracker = createProficiencyTracker();
 
 // Count pass/warn/fail across the last validation run. Mirrors the gate's own
 // tolerance: only entries carrying a string `status` are layers; aggregate keys
@@ -999,8 +1084,11 @@ function renderGlowPathRail() {
     // Reuse the pure gate aggregation over already-computed results (no re-run of
     // validation); only meaningful once validation has produced evidence.
     readinessGateResult: hasValidated ? computeReadinessGate(state.validationResults) : undefined,
-    // densityLevel omitted → defaults to 'low'; lastQueryRepeatCount omitted (not
-    // derivable — queryHistory is not populated), so the save-query nudge stays off.
+    // densityLevel from the real session proficiency signal (Batch C); starts
+    // 'low' and steps up to 'mid'/'high' as run events accrue. lastQueryRepeatCount
+    // omitted (not derivable — queryHistory is not populated), so the save-query
+    // nudge stays off.
+    densityLevel: proficiencyTracker.getDensityLevel(),
   };
 
   renderGlowPath({
@@ -1346,6 +1434,8 @@ function initPythonTab() {
       // Object Space (Batch B): the datasets pushed into the pandas bridge are
       // now live Python objects — register them (flag-gated, no-op when off).
       registerRuntimeObjects('python');
+      // Glow Path (Batch C): a real Python run raises the session proficiency signal.
+      proficiencyTracker.recordAction('python');
       let html = '';
       if (truncated && truncated.length) {
         const items = truncated
@@ -1406,6 +1496,8 @@ function initRTab() {
       // Object Space (Batch B): the datasets bridged into R are now live R
       // data.frames — register them (flag-gated, no-op when off).
       registerRuntimeObjects('r');
+      // Glow Path (Batch C): a real R run raises the session proficiency signal.
+      proficiencyTracker.recordAction('r');
       let html = '';
       for (const notice of rRuntime.buildRBridgeNotices({ graphicsAvailable, hasJsonlite })) {
         html += `<div class="runtime-notice" role="note" style="margin-top:var(--space-3); padding:var(--space-2) var(--space-3); border:1px solid var(--color-warn, #C9A227); border-radius:var(--radius-md); background:rgba(201,162,39,0.08); font-size:var(--text-sm);">${escapeHtml(notice)}</div>`;
@@ -1763,6 +1855,8 @@ async function runValidation() {
   // OneCanvas Phase 1: refresh the Trust Strip (now with real validation
   // results) and the Metric Studio panel. Both no-op when their flags are off.
   renderOneCanvasPhase1();
+  // Glow Path (Batch C): a real Validate run raises the session proficiency signal.
+  proficiencyTracker.recordAction('validate');
   // Glow Path (Batch A): validation just changed what the best next action is
   // (warnings to review, an agent-readiness block, or a clean pass). No-op when
   // the glowPathRail flag is off.
@@ -2027,6 +2121,62 @@ function renderDecisionLedgerSection() {
     onToast: toast,
   });
   decisionLedgerMounted = true;
+}
+
+// ============================================================
+// Data Diplomacy (Batch 2) — Diplomacy tab wiring
+// ============================================================
+// Mounts the two-key reconciliation panel (js/diplomacy/diplomacy-ui.js) over
+// the pure Batch-1 engine (js/diplomacy/*). The tab only exists in the bar
+// when the dataDiplomacy flag is on (see renderTabBar); this function is the
+// second, inner gate matching the meetingScribe precedent exactly.
+//
+// HONESTY NOTE: the two claims below are a hardcoded DEMO scenario, built with
+// the real sealClaim()/reconcileClaims()/createApprovalRequest() — NOT a
+// data-loading feature. Wiring this to columns of the actually-loaded dataset
+// (and to a real cross-device transport so the two keys are held by two
+// different people) is deliberate future work, not this batch.
+let diplomacyMounted = false;
+async function renderDiplomacyTab() {
+  const host = $('#diplomacy-body');
+  if (!host) return;
+  if (!isEnabled('dataDiplomacy')) { host.innerHTML = ''; diplomacyMounted = false; return; }
+  if (diplomacyMounted) return; // already mounted this session
+  diplomacyMounted = true;
+
+  const partyAId = 'analyst';
+  const partyBId = 'reviewer';
+  // Two sources disagree on Q3 net revenue for the same account; the warehouse
+  // export is more confident than the hand-maintained spreadsheet, so the
+  // engine resolves it — but nothing applies until BOTH parties sign off.
+  const claimA = await sealClaim({
+    entityId: 'account-4821', field: 'q3_net_revenue', value: 128400,
+    confidence: 0.92, source: 'warehouse-export', sealedBy: partyAId,
+  });
+  const claimB = await sealClaim({
+    entityId: 'account-4821', field: 'q3_net_revenue', value: 131750,
+    confidence: 0.6, source: 'finance-spreadsheet', sealedBy: partyBId,
+  });
+  const reconciliationResult = reconcileClaims(claimA, claimB);
+  const approvalRequest = reconciliationResult.resolved
+    ? createApprovalRequest({ reconciliationResult, partyAId, partyBId })
+    : null;
+
+  const paint = () => renderDiplomacyPanel({
+    host, claimA, claimB, partyAId, partyBId, reconciliationResult, approvalRequest,
+    onApprove: async (partyId) => {
+      const res = await approveDiplomacy(approvalRequest, partyId);
+      if (!res.ok && res.error) toast(res.error, 'error');
+      else if (res.bothApproved) toast('Both keys turned — resolution applied and sealed.', 'success');
+      paint();
+    },
+    onReject: (partyId) => {
+      const res = rejectDiplomacy(approvalRequest, partyId);
+      if (!res.ok && res.error) toast(res.error, 'error');
+      paint();
+    },
+  });
+  paint();
 }
 
 // The Assumption Ledger — a running, exportable log of every judgment call.
