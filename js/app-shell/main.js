@@ -55,6 +55,7 @@ import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
 import { openProofDrawer } from '../trust/proof-drawer.js';
 import { computeReadinessGate } from '../gate/readiness-gate.js';
 import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
+import { registerObject, listObjectSpace } from './object-space.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -334,6 +335,7 @@ function renderSidebar() {
     }).join('');
   }
   refreshFreshnessBadge();
+  renderObjectSpacePanel();
 }
 
 function refreshFreshnessBadge() {
@@ -856,6 +858,10 @@ async function runSqlQuery() {
     // agent-consumability verdict. It never re-runs validation, never blocks the
     // query, and shows an honest "not evaluated" state until validation has run.
     renderReadinessGateBadge(resultWrap);
+    // Object Space (Polyglot Workbench, Batch B): passively register the loaded
+    // DuckDB tables as SQL-origin objects in the shared registry so the live
+    // cross-language strip stays in sync. Flag-gated — no-op when off.
+    registerSqlObjects();
     if (isEnabled('localAnalysisContract')) {
       // Runs after the result is already shown — the contract check never
       // gates or delays the query itself, only annotates the result with
@@ -920,6 +926,71 @@ function renderReadinessGateBadge(resultWrap) {
   // real per-query contract status are a documented batch-2 follow-up.
   const gateResult = computeReadinessGate(state.validationResults);
   renderReadinessBadge({ host, gateResult });
+}
+
+// ============================================================
+// Object Space registry (Polyglot Workbench, Batch B)
+// ============================================================
+// A passive read model of the named objects live across the SQL/Python/R
+// runtimes. All wiring below is gated behind the objectSpaceRegistry flag — with
+// the flag off, nothing here registers anything or renders, so behavior is
+// byte-for-byte unchanged. This batch does NOT resolve cross-language references
+// at query time (no working `FROM py.name`); it only tracks + displays.
+
+// The current runtime origins are the same loaded DuckDB tables copied into each
+// language's bridge; we register them under an origin-qualified handle so the
+// shared namespace shows a table's availability per runtime without one origin
+// overwriting another. SQL is the canonical/home runtime, so it keeps the bare
+// table name.
+function objectSpaceName(originLanguage, table) {
+  if (originLanguage === 'python') return `py:${table}`;
+  if (originLanguage === 'r') return `r:${table}`;
+  return table;
+}
+
+function registerRuntimeObjects(originLanguage) {
+  if (!isEnabled('objectSpaceRegistry')) return;
+  for (const ds of state.datasets) {
+    registerObject({
+      name: objectSpaceName(originLanguage, ds.table),
+      originLanguage,
+      kind: 'dataframe',
+      schema: (ds.cols || []).map(c => ({ name: c.name, type: c.type })),
+      rowCount: ds.rowCount,
+      provenance: ds.table,
+    });
+  }
+  renderObjectSpacePanel();
+}
+
+function registerSqlObjects() { registerRuntimeObjects('sql'); }
+
+const ORIGIN_BADGE = { sql: 'SQL', python: 'Py', r: 'R' };
+
+// Read-only strip in the data sidebar listing the live cross-language objects.
+// Hidden entirely when the flag is off or nothing has registered yet.
+function renderObjectSpacePanel() {
+  const section = $('#object-space-section');
+  const body = $('#object-space-list');
+  if (!section || !body) return;
+  if (!isEnabled('objectSpaceRegistry')) { section.style.display = 'none'; return; }
+  const objects = listObjectSpace();
+  section.style.display = '';
+  if (!objects.length) {
+    body.innerHTML = '<div style="font-size:var(--text-xs); color:var(--color-text-faint);">No cross-language objects yet</div>';
+    return;
+  }
+  body.innerHTML = objects.map(o => {
+    const badge = ORIGIN_BADGE[o.originLanguage] || o.originLanguage;
+    const meta = o.kind === 'dataframe' && o.rowCount != null
+      ? `${o.rowCount.toLocaleString()} rows`
+      : escapeHtml(o.kind);
+    return `<div class="mono" style="padding:4px 0; display:flex; gap:6px; align-items:baseline;">`
+      + `<span class="badge" style="font-size:10px;">${escapeHtml(badge)}</span>`
+      + `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(o.name)}</span>`
+      + `<span style="color:var(--color-text-faint);">(${meta})</span>`
+      + `</div>`;
+  }).join('');
 }
 
 function initSqlTab() {
@@ -1142,6 +1213,9 @@ function initPythonTab() {
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
       const { stdout, result, error, truncated, images } = await pyRuntime.runPython(code, getActiveDataset()?.table);
+      // Object Space (Batch B): the datasets pushed into the pandas bridge are
+      // now live Python objects — register them (flag-gated, no-op when off).
+      registerRuntimeObjects('python');
       let html = '';
       if (truncated && truncated.length) {
         const items = truncated
@@ -1199,6 +1273,9 @@ function initRTab() {
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
       const { stdout, error, images, graphicsAvailable, hasJsonlite } = await rRuntime.runR(code);
+      // Object Space (Batch B): the datasets bridged into R are now live R
+      // data.frames — register them (flag-gated, no-op when off).
+      registerRuntimeObjects('r');
       let html = '';
       for (const notice of rRuntime.buildRBridgeNotices({ graphicsAvailable, hasJsonlite })) {
         html += `<div class="runtime-notice" role="note" style="margin-top:var(--space-3); padding:var(--space-2) var(--space-3); border:1px solid var(--color-warn, #C9A227); border-radius:var(--radius-md); background:rgba(201,162,39,0.08); font-size:var(--text-sm);">${escapeHtml(notice)}</div>`;

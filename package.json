@@ -81,6 +81,7 @@
     "test:readinessgateui": "node test/readiness-gate-ui.test.mjs",
     "test:agentgate": "node test/agent-gate.test.mjs",
     "test:truststrip": "node test/trust-strip-proof-drawer.test.mjs",
+    "test:objectspace": "node test/object-space.test.mjs",
     "test:golden": "node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:golden:update": "UPDATE_GOLDEN=1 node --import ./test/duckdb-loader-hook.mjs test/golden/index.test.mjs",
     "test:deps-freshness": "node .github/scripts/dependency-freshness.mjs",
