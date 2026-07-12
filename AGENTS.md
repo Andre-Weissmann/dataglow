@@ -109,6 +109,30 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### DataGlow Live Rooms (Batch 1) — live transcript capture for the Meeting Scribe
+
+Gives the Meeting Scribe a LIVE audio-capture + on-device speech-to-text input
+path alongside the existing paste-a-transcript flow. The new module
+`js/agents/live-transcript-capture.js` follows the exact pure-vs-browser split
+`js/narrative/ondevice-llm.js` established: the pure half
+(`isSpeechCaptureAvailable`, `assembleSegments`, `createTranscriptAssembler`) is
+deterministic, DOM-free, and Node-testable, while the browser-only half
+(`startLiveCapture`) lazily CDN-loads an on-device Whisper-family STT engine as
+CODE (transformers.js, the same way WebLLM is loaded) — never a path that sends
+user audio anywhere. `assembleSegments` turns raw STT chunks (interim vs. final
++ timestamps) into the SAME `{text, ts}` shape `parseTranscriptText` produces so
+the output feeds the EXISTING, unchanged `tagSegmentsWithContext`.
+
+Wired into `js/agents/meeting-scribe-ui.js` as additive Start/Stop live-capture
+controls streaming into the same tagged-segment state and re-render path. Ships
+behind the `meetingScribeLiveCapture` flag (OFF by default, intentionally dark
+per the batching plan): with it off, no live-capture UI renders and every
+existing path is byte-for-byte unchanged. Tests: `npm run test:livecapture`
+(`test/live-transcript-capture.test.mjs`), run by the
+`.github/workflows/job-live-transcript-capture.yml` CI job. Batches 2–4 (device
+pairing + WebRTC read-only mirror, chart-context timeline wiring, on-device-LLM
+synthesis panel) are separate future PRs.
+
 ### UX navigation & Validate declutter — grouped tab bar and focus-mode disclosure
 
 Two presentation-only, disabled-by-default flags applying a "decide for the

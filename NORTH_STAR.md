@@ -47,6 +47,48 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
 
 ---
 
+## Concept in progress: DataGlow Live Rooms
+
+**One sentence:** the Meeting Scribe stops being a paste-a-transcript-after-the-fact tool
+and becomes a live meeting companion — capturing audio and transcribing it on-device in
+real time, then (in later batches) mirroring the grounded action-item view to other people
+in the room and synthesising it, all without a single byte of audio or transcript ever
+leaving the device.
+
+**Why it fits DataGlow:** zero-upload / local-first / no-build. The speech-to-text engine
+is lazily CDN-loaded as CODE (transformers.js, exactly how WebLLM is loaded for the
+on-device LLM) and runs entirely in-browser on WebGPU — no audio is ever sent anywhere,
+holding the same privacy/offline guarantee as every other capability. Batch 1 reuses the
+existing `parseTranscriptText` segment shape and the unchanged `tagSegmentsWithContext`
+grounding logic, so the live path and the paste path converge on one code path rather than
+forking the agent.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — live audio capture + on-device STT input path.** (DONE — see
+   [PR (this branch)](https://github.com/Andre-Weissmann/dataglow/pulls) — new pure,
+   Node-testable module `js/agents/live-transcript-capture.js`: `isSpeechCaptureAvailable()`
+   graceful capability check plus `assembleSegments()`/`createTranscriptAssembler()` turning
+   raw STT chunks into the SAME `{text, ts}` shape `parseTranscriptText` produces, feeding
+   the EXISTING, unchanged `tagSegmentsWithContext`; the browser-only `startLiveCapture()`
+   lazily CDN-loads a Whisper-family STT engine as code, never uploading audio. Wired into
+   `js/agents/meeting-scribe-ui.js` as additive Start/Stop controls streaming into the same
+   state. Verified in `test/live-transcript-capture.test.mjs` (`npm run test:livecapture`),
+   28/0 passing, new `job-live-transcript-capture.yml` CI job. Ships DARK behind
+   `meetingScribeLiveCapture` (default OFF, intentionally dark per this batching plan — this
+   is expected, not an oversight): when off, no live-capture UI renders and every existing
+   path is byte-for-byte unchanged.)
+2. **Batch 2 — cross-device pairing + WebRTC read-only mirrored action-item view.** NOT
+   STARTED. Let others in the room watch the grounded action-item list update live on their
+   own device, peer-to-peer, with no server relay.
+3. **Batch 3 — real chart-context timeline wiring.** NOT STARTED. Feed
+   `tagSegmentsWithContext` a live timeline of which chart/query the analyst was viewing
+   when each line was spoken, so segments get real context tags instead of today's `null`.
+4. **Batch 4 — on-device LLM synthesis panel.** NOT STARTED. Summarise the captured,
+   grounded meeting (pushback moments, data requests, action items) with the existing
+   on-device LLM — no cloud call.
+
+---
+
 ## Concept in progress: Polyglot Workbench
 
 **One sentence:** SQL, Python, and R stop being three separate sandboxes that only talk
