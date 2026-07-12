@@ -564,6 +564,28 @@
       ]
     },
     {
+      "id": "rooms-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "DataGlow Rooms",
+      "name": "Topbar UI layer (Batch 3 of 4)",
+      "files": [
+        "js/rooms/room-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rooms/room-ui.js",
+          "name": "renderRoomUi"
+        },
+        {
+          "file": "js/rooms/room-ui.js",
+          "name": "buildRoomPillModel"
+        }
+      ]
+    },
+    {
       "id": "data-diplomacy-claim",
       "platforms": [
         "browser",

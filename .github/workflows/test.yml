@@ -57,6 +57,8 @@ jobs:
     uses: ./.github/workflows/job-room-broadcast.yml
   room-signaling:
     uses: ./.github/workflows/job-room-signaling.yml
+  room-ui:
+    uses: ./.github/workflows/job-room-ui.yml
   query-memory:
     uses: ./.github/workflows/job-query-memory.yml
   live-transcript-capture:
