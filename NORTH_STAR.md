@@ -49,29 +49,47 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
 
 ## Concept in progress: Polyglot Workbench
 
-**One sentence:** Let an analyst write a query in whatever SQL dialect they already know
-(PostgreSQL, MySQL, BigQuery, Snowflake, T-SQL) and have DataGlow transpile it to the
-DuckDB SQL its in-browser engine runs — so the tool meets people where they are instead of
-forcing everyone to learn one engine's exact syntax first.
+**One sentence:** SQL, Python, and R stop being three separate sandboxes that only talk
+through disposable JSON round-trips — they become three views into one shared, typed,
+provenance-tracked object space, dialect walls dissolve (write Postgres/MySQL/BigQuery/
+Snowflake/T-SQL, DuckDB executes it), and every object either language creates is visible
+to the others by name.
 
-**Why it fits DataGlow:** zero-upload / local-first / no-build — the translation is a pure,
-dependency-free string rewriter that runs entirely in the browser (no parser service, no
-network), mirroring the existing hand-rolled `sql-highlight.js` tokenizer discipline of
-never corrupting quoted string literals. It lowers the on-ramp for the large population of
-analysts whose muscle memory is a warehouse dialect, without compromising the privacy/offline
-guarantees.
+**Why it fits DataGlow:** zero-upload / local-first / no-build — every batch so far is a
+pure, dependency-free, in-browser module (no parser service, no network, no new backend),
+mirroring the existing hand-rolled `sql-highlight.js` tokenizer discipline of never
+corrupting quoted string literals and the existing provenance chain-of-custody conventions.
+It lowers the on-ramp for analysts who already know a warehouse dialect and removes the
+friction of three languages that today can't see each other's work, without compromising
+the privacy/offline guarantees.
 
 **Build batches (in order, each its own PR):**
 1. **Batch A — pure dialect adapter + tests, wired into the SQL tab behind a flag.**
-   (DONE — `js/app-shell/sql-dialect-adapter.js`: `translateDialectSql(sql, dialect)` +
+   (SHIPPED, merged in [#142](https://github.com/Andre-Weissmann/dataglow/pull/142) —
+   `js/app-shell/sql-dialect-adapter.js`: `translateDialectSql(sql, dialect)` +
    `SUPPORTED_DIALECTS`; real per-dialect syntax translation verified against a live DuckDB
-   engine in `test/sql-dialect-adapter.test.mjs`. Ships DARK behind `multiDialectSql`
-   (default OFF): when on, the SQL tab shows a dialect-picker chip row and transpiles the
-   user's SQL before `runQuery`; when off, the SQL tab is byte-for-byte unchanged and the
-   default 'duckdb' selection is a no-op passthrough.)
-2. **Batch B — Object Space registry.** A shared, cross-runtime view of the named objects
-   (tables/frames) live across the SQL/Python/R runtimes. Separate follow-up PR — NOT STARTED
-   as of this Batch A PR, and deliberately out of scope here to keep Batch A self-contained.
+   engine in `test/sql-dialect-adapter.test.mjs`, 43/0 passing. Ships DARK behind
+   `multiDialectSql` (default OFF): when on, the SQL tab shows a dialect-picker chip row
+   and transpiles the user's SQL before `runQuery`; when off, the SQL tab is byte-for-byte
+   unchanged and the default 'duckdb' selection is a no-op passthrough.)
+2. **Batch B — Object Space registry.** (SHIPPED, merged in
+   [#141](https://github.com/Andre-Weissmann/dataglow/pull/141) —
+   `js/app-shell/object-space.js`: a passive, in-memory single source of truth for named
+   cross-language objects (name, originLanguage, kind, schema, rowCount, provenance
+   pointer), verified in `test/object-space.test.mjs`, 32/0 passing. Sits ALONGSIDE the
+   existing per-language JSON bridges — does NOT replace transfer mechanics. Read-only
+   "Object Space" strip in the data sidebar. Ships DARK behind `objectSpaceRegistry`
+   (default OFF); zero behavior change when off.)
+3. **Batch C — cross-language query-time resolution (`FROM py.name` / `dataglow.get_df('sql_result')`
+   actually reading the SAME registered object).** NOT STARTED. This is what makes the
+   registry load-bearing instead of just a display strip — the real "three views into one
+   object space" mechanic. Natural next batch.
+4. **Batch D — schema-aware autocomplete in all three editors, sourced from the live
+   Object Space registry.** NOT STARTED. Depends on Batch C landing so the registry
+   actually reflects resolvable objects, not just passive registrations.
+5. **Batch E — cross-language error messages with a concrete "Suggested fix" (extends
+   `formatSqlError`'s pattern to Python tracebacks / R conditions, cross-referencing the
+   registry).** NOT STARTED.
 
 ---
 
@@ -93,19 +111,6 @@ These lost the "combine into one" round but remain valid; pull the next one when
    template, not just a domain pack.
 7. Governance-as-living-layer: one queryable interface for humans and agents (Gartner's "context as
    infrastructure" framing) — partially achieved once the Gate ships.
-
-## Polyglot Workbench (parallel track)
-
-A separate exploratory track (not from the ranked backlog above) making SQL/Python/R feel like one
-workbench instead of three siloed runtimes. Shipped as small additive batches, each its own PR:
-- **Batch A — Multi-dialect SQL adapter** (`js/app-shell/sql-dialect-adapter.js`, flag `multiDialectSql`):
-  separate PR, owned by another track. Not a dependency of Batch B.
-- **Batch B — Object Space registry** (`js/app-shell/object-space.js`, flag `objectSpaceRegistry`,
-  default OFF): in-PR. A passive, in-memory single source of truth for named cross-language objects
-  (name, originLanguage, kind, schema, rowCount, provenance pointer). Sits ALONGSIDE the existing
-  per-language JSON bridges — does NOT replace transfer mechanics and does NOT do query-time
-  cross-language resolution (`FROM py.name` is a deliberate future batch). Read-only UI strip in the
-  data sidebar. Ships dark; zero behavior change when the flag is off.
 
 ## Lessons learned
 
