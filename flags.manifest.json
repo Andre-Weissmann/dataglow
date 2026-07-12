@@ -1,6 +1,11 @@
 {
   "_about": "Build Nervous System (Stage 4, 'Land dark') client-side feature-flag manifest. Maps a flag name to { enabled, addedInPR, description }. Read once at init time by js/build/build-flags.js into an in-memory object — no localStorage, cookies, network, or server — so it behaves identically in the browser bundle, the Tauri desktop webview, and any future Tauri mobile build. Flag hygiene follows the promote-or-delete rule in docs/build-nervous-system.md: a flag left here for more than 3 merged PRs without being promoted (removed, code kept) or reverted (removed, code deleted) must be flagged in the 4th PR that touches this manifest. `addedInPR` records where each flag's clock started.",
   "flags": {
+    "roomsSignaling": {
+      "enabled": false,
+      "addedInPR": "feature/dataglow-rooms-batch1-signaling",
+      "description": "DataGlow Rooms (Batch 1 of 4): the collaboration concept that lets an analyst, a data scientist, and a data engineer open the SAME loaded dataset from their own browsers and see each other's SQL/Python/R results and Object Space entries appear live, peer-to-peer, with zero server and zero upload. Batch 1 ships ONLY the pure, Node-testable room-code + peer-discovery/signaling module js/rooms/room-signaling.js: generateRoomCode()/normalizeRoomCode()/isValidRoomCode() and RoomSignalingCoordinator (join/listPeers/leave), reusing the EXACT dependency-injection pattern already proven by js/federated/federated-transport.js (a NULL_ROOM_SIGNALING no-op adapter makes 'unreachable' a first-class, never-thrown state; real adapters are injected in the browser, fakes in tests). NO UI and NO Object Space broadcasting/wiring into the SQL/Python/R tabs yet — that is Batch 2. Ships OFF: with this flag off, nothing in the app imports or calls into js/rooms/room-signaling.js, so every existing path is byte-for-byte unchanged."
+    },
     "queryMemory": {
       "enabled": false,
       "addedInPR": "feat/query-memory-batch1-fingerprint-log",

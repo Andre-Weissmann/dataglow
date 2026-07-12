@@ -107,6 +107,14 @@ Opt-in, off-by-default collaborative learning where only privacy-protected summa
 weight deltas ever leave the browser — never raw data.
 - **Core & transport** — `js/federated/federated-fingerprint.js` (DP-noised dataset-shape fingerprint), `js/federated/federated-learning.js` (local training + weight averaging), `js/federated/federated-transport.js` (gossip/relay orchestration).
 
+## DataGlow Rooms
+The live, multi-person, zero-server counterpart to DataGlow's existing single-user, multi-
+abstraction-level workflow: an analyst, a data scientist, and a data engineer open the SAME
+loaded dataset from their own browsers and see each other's SQL/Python/R results and Object
+Space entries appear live, peer-to-peer — no server, no upload, same privacy discipline as
+Federated Learning above, whose WebRTC transport this reuses.
+- **Room signaling / peer discovery (Batch 1 of 4)** — `js/rooms/room-signaling.js` (`generateRoomCode()`/`normalizeRoomCode()`/`isValidRoomCode()` for short, human-shareable, collision-tolerant room codes excluding visually-ambiguous characters; `isRoomsSupported()`, a never-throwing WebRTC capability check reusing `isWebRTCSupported()` from `federated-learning.js`; `RoomSignalingCoordinator` — `join()`/`listPeers()`/`leave()` — built with the EXACT dependency-injection pattern `FederatedCoordinator` already proved: a `NULL_ROOM_SIGNALING` no-op adapter makes an unreachable coordination channel a first-class, never-thrown state, with real adapters injected in the browser and fakes injected in tests). NO UI and NO Object Space broadcasting/wiring into the SQL/Python/R tabs yet — that is Batch 2, per the plan in `NORTH_STAR.md`. Gated behind the `roomsSignaling` flag (ships OFF): with it off, nothing in the app imports or calls into this module, so every existing path is byte-for-byte unchanged. Tested in `test/room-signaling.test.mjs` (`npm run test:roomsignaling`, pure Node — no DuckDB, DOM, or network).
+
 ## Data Diplomacy
 The first capability built around DISAGREEMENT between two parties rather than one dataset:
 two sources each hold a claim about the same entity+field, and DataGlow reconciles them
