@@ -546,6 +546,24 @@
       ]
     },
     {
+      "id": "rooms-broadcast",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "DataGlow Rooms",
+      "name": "Object Space broadcast wiring (Batch 2 of 4)",
+      "files": [
+        "js/rooms/room-broadcast.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rooms/room-broadcast.js",
+          "name": "RoomBroadcastCoordinator"
+        }
+      ]
+    },
+    {
       "id": "data-diplomacy-claim",
       "platforms": [
         "browser",
