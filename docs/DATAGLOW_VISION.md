@@ -67,7 +67,6 @@ A **universal, all-in-one, browser-based data analytics platform** built to repl
 | Power BI / Tableau | Built-in Plotly visualization |
 | Manual QA processes | 13 automated validation layers |
 | Data storytelling decks | AI-powered Story tab |
-| Xcode (iOS dev) | SwiftWasm browser tab |
 
 ### Distribution Roadmap
 - **Phase 1 (Now)**: Personal tool — one analyst, one browser, no accounts needed
@@ -91,7 +90,6 @@ A **universal, all-in-one, browser-based data analytics platform** built to repl
 | DuckDB-WASM | v1.5.4 | ✅ Live (Gen 6) |
 | Pyodide (Python) | 3.12 | 🔨 Gen 7 |
 | WebR | 4.4 | 🔨 Gen 7 |
-| SwiftWasm | Swift 6.3.3 | 🔨 Gen 7 |
 
 ### Python Libraries to Bundle (Pyodide)
 | Library | Purpose | Priority |
@@ -162,7 +160,6 @@ All tabs are **draggable and reorderable** by the user.
 | 6 | **Validate** ✅ | All 20 validation layers (see below) |
 | 7 | **Visualize** ✅ | Plotly charts, drag-and-drop builder |
 | 8 | **Story** ✅ | AI narrative generation from query results |
-| 9 | **Swift** 🔨 | SwiftWasm — write Swift, preview iOS app layouts in browser |
 
 ---
 
@@ -362,23 +359,10 @@ In the spirit of Steve Jobs: *enrich people's lives through liberal arts and tec
 | 🥉 | Deepnote | DATAGLOW adds 20 validation layers |
 | 4 | Marimo | DATAGLOW adds multi-language + healthcare |
 | 5 | Google Colab | DATAGLOW needs no Google account |
-| 6 | Quadratic | DATAGLOW adds SQL + R + Swift + validation |
+| 6 | Quadratic | DATAGLOW adds SQL + R + validation |
 | ❌ | Jupyter | Outdated — what DATAGLOW replaces |
 
-**The honest gap**: Nobody has combined in-browser DuckDB + 13 novel validation layers + healthcare compliance + data storytelling + cleaning + Python/SQL/R/Swift in one tool. That combination is DATAGLOW's alone.
-
----
-
-## 🐦 SWIFT IN DATAGLOW
-
-SwiftWasm is production-ready as of 2026. Swift 6.3.3 officially supports WebAssembly. Demonstrated at FOSDEM 2026 running at near-native speed in browser via ElementaryUI. Same codebase ships to web, iOS, and macOS simultaneously.
-
-DATAGLOW Swift Tab:
-- Write SwiftUI-style code in browser
-- Preview iPhone app layouts live
-- No Xcode required, no Mac required
-- Uses SwiftWasm + JavaScriptKit bridge
-- Templates for common iOS data app patterns
+**The honest gap**: Nobody has combined in-browser DuckDB + 13 novel validation layers + healthcare compliance + data storytelling + cleaning + Python/SQL/R in one tool. That combination is DATAGLOW's alone.
 
 ---
 
@@ -419,7 +403,7 @@ DATAGLOW Swift Tab:
 | Gen 4 | Selective-Disclosure Verifiable Reports (Merkle-tree SHA-256 commitment), Synthetic Data (PSyGenTAB v2 — differential-privacy synthesis; fidelity/privacy not yet independently measured), Federated Scan with Laplace DP, AutoScan agentic pipeline, Multimodal Consistency | ✅ Complete |
 | Gen 5 | Confidence Layer, UX overhaul, light/dark mode | ✅ Complete |
 | Gen 6 | All 7 validation layers live, Story tab, Preflight tab | ✅ Complete (expired session) |
-| **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, SwiftWasm, 20 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
+| **Gen 7** | Full rebuild as DATAGLOW: Python 3.12, R 4.4, 20 validation layers, complete file format support, Steve Jobs UI philosophy | 🔨 In Progress |
 
 ---
 
@@ -434,7 +418,6 @@ CORE ENGINE:
 - DuckDB-WASM v1.5.4 for all SQL analytics — runs entirely in browser, no server
 - Pyodide (Python 3.12 in browser) with: pandas 3.0, polars, pyarrow, numpy, scikit-learn, plotly, pandera, scipy, statsmodels, faker
 - WebR (R 4.4 in browser) with tidyverse, ggplot2, dplyr
-- SwiftWasm (Swift 6.3.3) tab for iOS app preview
 
 FILE FORMAT SUPPORT (all in-browser):
 CSV, TSV, JSON, NDJSON, Parquet, Arrow/Feather, Excel (.xlsx/.xls), SQLite, ORC, Avro, HDF5, Delta Lake, SAS (.sas7bdat), SPSS (.sav), Stata (.dta), R (.rds), PDF tables, Fixed-width flat files, HL7 FHIR, DICOM metadata, Google Sheets API, EDI 835/837
@@ -448,7 +431,6 @@ TABS (draggable, reorderable):
 6. Validate — all 18 validation layers
 7. Visualize — Plotly charts, drag-and-drop
 8. Story — AI narrative generation from query results
-9. Swift — SwiftWasm iOS app preview tab
 
 13 VALIDATION LAYERS:
 1. Sanity Anchor — same query, two independent paths, auto-compared
@@ -513,7 +495,6 @@ Deploy publicly. Output the live URL.
 | Live app | ⚠️ Needs new Computer session |
 | Python tab | 🔨 Gen 7 |
 | R tab | 🔨 Gen 7 |
-| Swift tab | 🔨 Gen 7 |
 | All 20 validation layers | 🔨 Gen 7 |
 
 ---

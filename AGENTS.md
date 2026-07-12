@@ -122,7 +122,7 @@ Synthesis and Peer Review Mode cards) onto the screen at once.
 `buildTabGroups(tabOrder)` clusters the SAME tab ids `renderTabBar()` already
 renders into 5 named modes — Explore (Problem Framer, Preflight), Validate &
 Trust (Validate, Clean, Diff), Analyze (SQL, Python, R), Visualize & Share
-(Visualize, Story, Swift), Automate (Digital Twin, Watch Folder, Meeting).
+(Visualize, Story), Automate (Digital Twin, Watch Folder, Meeting).
 `groupForTab(tabId)` is the inverse lookup, used to highlight the active
 tab's mode header. Neither function touches the DOM, `state.tabOrder`,
 `switchTab()`, drag-reorder handlers, or any other tab's individual flag
@@ -410,7 +410,7 @@ auto-applies, ever, per this repo's hard autonomy-safety rule. Tests:
 `js/app-shell/command-deck-nav.js` regroups the app's 13 real tabs (read from
 `js/app-shell/state.js`'s `tabOrder`) into 5 Trust-Tier Lifecycle Stages —
 Frame (`framer`/`preflight`/`watch`), Work (`sql`/`python`/`r`/`clean`), Trust
-(`validate`/`diff`), Generate (`twin`/`swift`), Tell (`visualize`/`story`) —
+(`validate`/`diff`), Generate (`twin`), Tell (`visualize`/`story`) —
 as an ALTERNATE left-sidebar nav, not a replacement. `COMMAND_DECK_STAGES` is
 the static mapping; `buildSidebarContent({tabMeta, activeTab})` is the pure
 content-model builder (resolves each tab's real label/icon from the caller's

@@ -51,7 +51,7 @@ export const state = {
   // 'meeting' is only ever shown when the meetingScribe flag is on (see
   // main.js renderTabBar, which filters it out by default) — listed here so
   // drag-to-reorder has a stable slot for it once visible.
-  tabOrder: ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'swift', 'twin', 'watch', 'meeting'],
+  tabOrder: ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'twin', 'watch', 'meeting'],
 };
 
 export function setActiveDataset(name) {

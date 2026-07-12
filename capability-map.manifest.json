@@ -676,7 +676,6 @@
       "files": [
         "js/runtimes-viz/python-runtime.js",
         "js/runtimes-viz/r-runtime.js",
-        "js/runtimes-viz/swift-preview.js",
         "js/runtimes-viz/visualize.js"
       ]
     },

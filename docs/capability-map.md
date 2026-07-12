@@ -136,7 +136,7 @@ Runs validation without a manual upload click, off the main thread.
 
 ## Language runtimes & visualization
 In-browser second-language tabs and charting.
-- **Runtimes & charts** — `js/runtimes-viz/python-runtime.js` (Pyodide), `js/runtimes-viz/r-runtime.js` (WebR), `js/runtimes-viz/swift-preview.js` (SwiftUI-style live preview), `js/runtimes-viz/visualize.js` (Plotly chart builder).
+- **Runtimes & charts** — `js/runtimes-viz/python-runtime.js` (Pyodide), `js/runtimes-viz/r-runtime.js` (WebR), `js/runtimes-viz/visualize.js` (Plotly chart builder).
 
 ## Protocol & interoperability
 Bridges internal runtime objects to DATAGLOW's versioned, external-facing data contract

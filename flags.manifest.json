@@ -74,7 +74,7 @@
     "groupedNavigation": {
       "enabled": false,
       "addedInPR": "feature/ux-navigation-and-validate-declutter",
-      "description": "Groups the 13(+1) flat top-level tabs into 5 named modes \u2014 Explore (Problem Framer, Preflight), Validate & Trust (Clean, Validate, Diff), Analyze (SQL, Python, R), Visualize & Share (Visualize, Story, Swift), Automate (Digital Twin, Watch Folder) \u2014 rendered by js/app-shell/tab-groups.js's pure buildTabGroups(tabOrder)/groupForTab(tabId) reducer. This is a presentation-only change: no tab id, panel id, switchTab() call, drag-reorder handler, or flag gate for any individual tab is touched \u2014 renderTabBar() just renders the SAME state.tabOrder ids grouped under mode headers instead of in one flat row, and clicking a tab does exactly what it did before. When off (default), renderTabBar() renders the original flat single-row bar unchanged."
+      "description": "Groups the flat top-level tabs into 5 named modes \u2014 Explore (Problem Framer, Preflight), Validate & Trust (Clean, Validate, Diff), Analyze (SQL, Python, R), Visualize & Share (Visualize, Story), Automate (Digital Twin, Watch Folder) \u2014 rendered by js/app-shell/tab-groups.js's pure buildTabGroups(tabOrder)/groupForTab(tabId) reducer. This is a presentation-only change: no tab id, panel id, switchTab() call, drag-reorder handler, or flag gate for any individual tab is touched \u2014 renderTabBar() just renders the SAME state.tabOrder ids grouped under mode headers instead of in one flat row, and clicking a tab does exactly what it did before. When off (default), renderTabBar() renders the original flat single-row bar unchanged."
     },
     "validateFocusMode": {
       "enabled": false,

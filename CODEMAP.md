@@ -75,7 +75,7 @@ otherwise).
 - **`narrative/`** — *Narrative & language models.* `story.js`, `ondevice-llm.js`.
 
 - **`runtimes-viz/`** — *Language runtimes & visualization.* `python-runtime.js`,
-  `r-runtime.js`, `swift-preview.js`, `visualize.js`.
+  `r-runtime.js`, `visualize.js`.
 
 - **`protocol/`** — *Protocol & interoperability.* `protocol-conformance.js`.
   (Distinct from the top-level `protocol/` directory, which holds the interchange
