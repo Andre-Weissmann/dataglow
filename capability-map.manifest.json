@@ -451,6 +451,60 @@
       ]
     },
     {
+      "id": "data-diplomacy-claim",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Diplomacy",
+      "name": "Claim + seal",
+      "files": [
+        "js/diplomacy/diplomacy-claim.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/diplomacy/diplomacy-claim.js",
+          "name": "sealClaim"
+        }
+      ]
+    },
+    {
+      "id": "data-diplomacy-reconciliation-engine",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Diplomacy",
+      "name": "Reconciliation engine",
+      "files": [
+        "js/diplomacy/reconciliation-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/diplomacy/reconciliation-engine.js",
+          "name": "reconcileClaims"
+        }
+      ]
+    },
+    {
+      "id": "data-diplomacy-approval-gate",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Diplomacy",
+      "name": "Two-key approval gate",
+      "files": [
+        "js/diplomacy/diplomacy-approval-gate.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/diplomacy/diplomacy-approval-gate.js",
+          "name": "createApprovalRequest"
+        }
+      ]
+    },
+    {
       "id": "provenance-custody",
       "platforms": [
         "browser",
