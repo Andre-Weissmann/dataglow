@@ -51,3 +51,13 @@ those are the ones the index calls out as "standalone layer modules."
   fuller Missingness Detective layer above.
 - `js/validation/expected-range.js` — informational numeric trend bands that sit alongside
   the drift layer but change no status and raise no alert.
+- `js/validation/source-convergence.js` — **Source Convergence (Truth Network, Batch 1)**: the
+  first layer that reasons ACROSS N loaded sources at once instead of one table. Given each
+  source's rows and its possible join keys, `buildConvergenceGraph` works out which sources
+  join (including TRANSITIVE joins — A↔B, B↔C ⇒ A and C converge through B),
+  `computeConvergenceClusters` groups rows into same-entity clusters with per-column
+  agree/conflict analysis, `resolveClusterWithTrust` resolves a conflict to the highest-trust
+  source only when the trust margin is decisive (default 0.15) and honestly escalates the rest,
+  and `summarizeConvergence` renders the plain-language headline. Pure, DOM/DuckDB/network-free,
+  never throws. Ships dark behind the `sourceConvergence` flag (Batch 1 = logic only; ingestion
+  wiring and UI are Batches 2 and 3). It is not one of the 20 single-table data-quality layers.

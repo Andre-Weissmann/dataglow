@@ -391,6 +391,49 @@ it is genuinely new surface, not a rename of an existing module.
 
 ---
 
+## Concept in progress: Source Convergence (Truth Network)
+
+**One sentence:** Source Convergence is DataGlow's first capability that reasons ACROSS N
+loaded sources at once — working out which sources describe the same real-world entity, how
+they overlap, and where they disagree on a shared fact — then resolving each conflict to the
+highest-trust source's value only when the trust margin is decisive, and honestly escalating
+the rest for a human.
+
+**Why it fits DataGlow:** every validation layer shipped so far reasons WITHIN one table (even
+Cross-Column Logical Consistency is single-row, single-source), so a claim dated after a
+patient's death date recorded in a different file, or a claims total that disagrees between two
+datasets, goes undetected. Test findings run 4 (2026-07-12) logged this as a P1: "No cross-table
+temporal/relational plausibility checking exists at all." An earlier two-table attempt (the
+Cross-Table Relational Rules engine, [#197](https://github.com/Andre-Weissmann/dataglow/pull/197))
+was reverted ([#200](https://github.com/Andre-Weissmann/dataglow/pull/200)) because two tables is
+the wrong unit — real reconciliation spans a roster, a CMS eligibility extract, an adjudication
+feed, and more, all at once. Source Convergence replaces it with a graph-based N-way model that
+also follows TRANSITIVE joins (A joins B, B joins C ⇒ A and C converge through B even with no
+shared key). It reuses the trust-margin / honest-refusal discipline already proven in
+`js/diplomacy/reconciliation-engine.js` rather than inventing new resolution machinery, and it is
+the analytic engine that Data Diplomacy's two-key approval UX could later sit on top of.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — pure convergence engine, no UI, no ingestion wiring.** (THIS PR —
+   `js/validation/source-convergence.js`: `buildConvergenceGraph(sources)` builds the join graph +
+   connected components including transitive reachability; `computeConvergenceClusters(graph, sources)`
+   groups rows into same-entity clusters with a coverage pattern and per-column agree/conflict
+   analysis; `resolveClusterWithTrust(cluster, sourceTrust, { marginThreshold = 0.15 })` resolves a
+   conflict to the highest-trust source only when the top-two trust margin ≥ threshold, else escalates
+   — e.g. the mockup's Roster·Adj 0.75 vs CMS Elig. 0.65 → margin 0.10 → escalate; and
+   `summarizeConvergence(clusters)` renders "41 of 2,987 joined clusters need a human decision — 2,946
+   auto-resolved by trust weight." Pure, DOM/DuckDB/network-free, never throws. Ships DARK behind the
+   new `sourceConvergence` flag (default OFF) — nothing in the app imports it, so every existing path is
+   byte-for-byte unchanged.)
+2. **Batch 2 — ingestion wiring.** NOT STARTED. Feed real loaded sources (Excel, API, and site
+   ingestion) and their inferred/declared join keys into the engine, so convergence runs against the
+   datasets a user actually loaded rather than test fixtures.
+3. **Batch 3 — UI.** NOT STARTED. Surface the convergence graph, coverage patterns, and the
+   escalate-for-human-review queue in the Validate/Trust surface, reusing the Data Diplomacy two-key
+   approval UX for the conflicts the engine escalates.
+
+---
+
 ## Concept in progress: Trust Beam
 
 **One sentence:** turn an existing sealed check result into a self-contained, shareable

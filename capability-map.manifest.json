@@ -237,6 +237,24 @@
       ]
     },
     {
+      "id": "source-convergence",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "Source Convergence (Truth Network, Batch 1)",
+      "files": [
+        "js/validation/source-convergence.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/source-convergence.js",
+          "name": "buildConvergenceGraph"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",
