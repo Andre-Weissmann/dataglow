@@ -73,32 +73,22 @@ Roughly SLSA L1 equivalent (basic build provenance, no hosted attestation servic
 
 ```
 dataglow/
-├── index.html
-├── css/
-│   ├── base.css
-│   └── app.css
-├── js/
-│   ├── main.js            # app shell, tab routing, UI wiring
-│   ├── state.js            # shared app state
-│   ├── duckdb-engine.js     # DuckDB-WASM setup + query helpers
-│   ├── loaders.js           # file format loaders
-│   ├── clean.js             # automated cleaning + audit trail
-│   ├── validation.js        # 20-layer validation suite + Red Team self-test
-│   ├── self-learning-rules.js # on-device logistic-regression learner (personalizes flag ranking)
-│   ├── predictive-anomaly.js  # holistic kNN/Gower unsupervised row-level anomaly score
-│   ├── signal-store.js      # Unified Signal Layer: shared in-memory store the modules coordinate through
-│   ├── visualize.js         # chart builder
-│   ├── story.js             # AI narrative generation (pluggable providers)
-│   ├── python-runtime.js    # Pyodide notebook
-│   ├── r-runtime.js         # WebR notebook
-│   └── utils.js
-├── assets/
-│   ├── logo.svg
-│   ├── favicon.svg
-│   └── legacy/              # original concept art from early planning
-└── docs/
-    └── DATAGLOW_VISION.md   # original Gen 7 vision document
+├── index.html              # single entry point (no bundler, no build step)
+├── css/                    # base.css (design tokens) + app.css
+├── js/                     # ES modules, organized into feature domains (see below)
+├── assets/                 # self-hosted vendored libs (DuckDB-WASM, Plotly, SheetJS) + icons/art
+├── test/                   # node-run test suites (npm run test:*)
+├── docs/                   # CHANGELOG, design decisions, vision, generated dashboards
+└── flags.manifest.json     # client-side feature-flag manifest (Build Nervous System)
 ```
+
+The `js/` directory is no longer a flat list — it is split into per-capability
+subdirectories (`js/app-shell/`, `js/validation/`, `js/cleaning/`,
+`js/narrative/`, `js/runtimes-viz/`, …). Rather than duplicate that layout here
+by hand (where it would silently rot), see the **Capability dashboard** below:
+it is generated from `capability-map.manifest.json`, validated against the
+shipped code by the capability-map drift gate (`npm run test:capdrift`), and
+maps every capability area to its exact current module paths.
 
 ## Capability dashboard
 
