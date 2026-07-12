@@ -14,10 +14,11 @@
 
 import { createTableFromObjects, getTableSchema, closeConnection } from './node-duckdb-engine.mjs';
 
-import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords, BENFORD_TEACHINGS, benfordSkipCause, benfordTeachingGroups } from '../js/validation/validation.js';
+import { LAYER_DEFS, runAllLayers, isBenfordBoundedName, splitColumnNameWords, BENFORD_TEACHINGS, benfordSkipCause, benfordTeachingGroups, detectBusinessKeyColumns, EXTENDED_COVERAGE_FLAG } from '../js/validation/validation.js';
 import { buildGoldenDataset } from '../js/app-shell/loaders.js';
 import { clusterValues, withCanonical } from '../js/validation/categorical-consistency.js';
 import { getLedgerEntries, clearLedger } from '../js/provenance/assumption-ledger.js';
+import { configureFlags, resetFlags } from '../js/build/build-flags.js';
 
 // ---------- tiny test harness (no framework) ----------
 let passed = 0;
@@ -322,6 +323,53 @@ async function main() {
   ok(sources.has('Statistical Test Eligibility Gate'), 'ledger: Benford eligibility gate logged a skip decision');
   ok(sources.has('Cross-Column Logical Consistency'), 'ledger: Cross-Column checker logged a finding');
   ok(sources.has('Distributional Fingerprint Drift'), 'ledger: drift detector logged a drift entry');
+
+  // ============================================================
+  // Extended-coverage: business-key duplicate detection (flag-gated)
+  // ============================================================
+  // Pure detector: identifier-like names qualify; measures/timestamps do not.
+  {
+    const cols = [
+      { name: 'claim_id', type: 'BIGINT' }, { name: 'member_no', type: 'VARCHAR' },
+      { name: 'procedure_code', type: 'VARCHAR' }, { name: 'amount_billed', type: 'DOUBLE' },
+      { name: 'ingested_at', type: 'TIMESTAMP' }, { name: 'notes', type: 'VARCHAR' },
+    ];
+    const keys = detectBusinessKeyColumns(cols).map(c => c.name);
+    ok(keys.includes('claim_id') && keys.includes('member_no') && keys.includes('procedure_code'), 'bizkey: id/_no/_code columns identified as business key');
+    ok(!keys.includes('amount_billed') && !keys.includes('ingested_at') && !keys.includes('notes'), 'bizkey: measure/timestamp/text NOT treated as key');
+  }
+
+  // A realistic claims table: claim_id 9001 repeats with a different ingest
+  // timestamp (a true business-key duplicate the byte-identical check misses);
+  // claim_id 9003 repeats BYTE-IDENTICALLY (caught by the existing check, must
+  // NOT be double-counted by the business-key check).
+  const dupRows = [
+    { claim_id: 9001, amount_billed: 500, ingested_at: '2025-01-01T08:00:00' },
+    { claim_id: 9001, amount_billed: 500, ingested_at: '2025-01-02T09:30:00' }, // biz-key dup, differs on timestamp
+    { claim_id: 9002, amount_billed: 300, ingested_at: '2025-01-01T08:00:00' },
+    { claim_id: 9003, amount_billed: 250, ingested_at: '2025-01-01T08:00:00' },
+    { claim_id: 9003, amount_billed: 250, ingested_at: '2025-01-01T08:00:00' }, // byte-identical dup
+  ];
+  const dupDs = await makeDataset('bizkey_dup_test', dupRows);
+
+  // Flag OFF (shipped default): the business-key check is dark — only the
+  // pre-existing byte-identical duplicate is reported (no regression, no new finding).
+  resetFlags();
+  const offRes = await runAllLayers(dupDs, { pack: 'none' });
+  const offFindings = (offRes.unit_tests.findings || []);
+  ok(offFindings.some(f => f.kind === 'duplicate'), 'bizkey OFF: existing byte-identical duplicate still reported');
+  ok(!offFindings.some(f => f.kind === 'business_key_duplicate'), 'bizkey OFF: no business_key_duplicate finding (flag dark)');
+
+  // Flag ON: the business-key duplicate (claim_id 9001) is now caught, and it
+  // does NOT swallow or double-count the byte-identical one (9003).
+  configureFlags({ [EXTENDED_COVERAGE_FLAG]: { enabled: true } });
+  const onRes = await runAllLayers(dupDs, { pack: 'none' });
+  const onFindings = (onRes.unit_tests.findings || []);
+  const bk = onFindings.find(f => f.kind === 'business_key_duplicate');
+  ok(!!bk, 'bizkey ON: business_key_duplicate finding present');
+  ok(bk && /1 business-key duplicate/.test(bk.text), `bizkey ON: reports exactly the 1 non-identical dup row (text="${bk && bk.text}")`);
+  ok(onFindings.some(f => f.kind === 'duplicate'), 'bizkey ON: byte-identical duplicate still independently reported (not double-counted)');
+  resetFlags();
 
   await closeConnection();
   console.log(`\n${passed} passed, ${failed} failed`);

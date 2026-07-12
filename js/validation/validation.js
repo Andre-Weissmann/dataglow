@@ -16,6 +16,14 @@ import { runMissingnessDetective, MISSINGNESS_NOTE } from './missingness-detecti
 import { computeCalibratedGrades } from '../grades/calibrated-grades.js';
 import { devAssertConformance, toValidationRun, toDataset } from '../protocol/protocol-conformance.js';
 import { forecastDriftReport } from '../drift/drift-forecast.js';
+import { isEnabled } from '../build/build-flags.js';
+
+// Feature flag gating the extended-coverage validation checks (semantic
+// magnitude ordering in Cross-Column Logic + business-key duplicate detection
+// in the Unit Test Layer). Ships OFF by default per the repo's
+// "flag-if-visible-behavior-change" convention: both add new findings the
+// Validate tab surfaces to users. Flip on in flags.manifest.json to activate.
+export const EXTENDED_COVERAGE_FLAG = 'validationExtendedCoverage';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
 const history = {
@@ -93,6 +101,19 @@ async function runHistoricalDrift(table) {
 // date-shifting from fail → warn — is applied afterwards by the Domain Physics
 // Engine (see js/domain-physics.js), so this layer stays a pure defect detector
 // and the healthcare-specific judgement lives in a swappable pack.
+// A "business key" is the subset of columns that identify a logical record
+// (claim id, member id, encounter code, …) as opposed to the full row. We
+// recognize it purely from naming convention — the same identifier heuristic
+// the referential-integrity check below already uses (`*_id`), widened to the
+// common key suffixes (`_key`, `_code`, `_no`, `_num`, `_number`) and the bare
+// `id`/`key`/`code` names. Deliberately conservative: only these identifier-like
+// names qualify, so free-text/measure/timestamp columns are never mistaken for
+// a key. Returned columns preserve input order.
+const BUSINESS_KEY_RE = /^(id|key|code)$|(_id|_key|_code|_no|_num|_number)$/i;
+export function detectBusinessKeyColumns(cols) {
+  return cols.filter(c => BUSINESS_KEY_RE.test(c.name));
+}
+
 async function runUnitTests(table, cols) {
   const findings = [];
   const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
@@ -130,6 +151,32 @@ async function runUnitTests(table, cols) {
   if (dupRows[0].n > 0) {
     const { rows: dupTotal } = await engine.runQuery(`SELECT SUM(c) - COUNT(*) AS extra FROM (SELECT ${allCols}, COUNT(*) AS c FROM ${table} GROUP BY ${allCols} HAVING COUNT(*) > 1) t`);
     findings.push({ kind: 'duplicate', severity: 'fail', text: `${dupTotal[0].extra} duplicate row(s) found (${dupRows[0].n} distinct groups affected)` });
+  }
+  // business-key duplicates (flag-gated): the byte-identical check above misses
+  // rows that repeat a logical record but differ in an incidental column (a
+  // load timestamp, an ingest batch id, …). Group by the business-key subset
+  // and count only the groups that are NOT already fully byte-identical, so this
+  // never double-reports the duplicates the check above already caught. Skips
+  // cleanly when the key would be every column (no added signal) or none exists.
+  if (isEnabled(EXTENDED_COVERAGE_FLAG)) {
+    const bkCols = detectBusinessKeyColumns(cols);
+    if (bkCols.length > 0 && bkCols.length < cols.length) {
+      const bkList = bkCols.map(c => `"${c.name}"`).join(',');
+      const rowSig = cols.map(c => `COALESCE(CAST("${c.name}" AS VARCHAR), CHR(0))`).join(` || CHR(31) || `);
+      try {
+        const { rows: bkRows } = await engine.runQuery(`
+          SELECT COUNT(*) AS groups, COALESCE(SUM(c - 1), 0) AS extra FROM (
+            SELECT ${bkList}, COUNT(*) AS c, COUNT(DISTINCT ${rowSig}) AS distinctRows
+            FROM ${table} GROUP BY ${bkList}
+            HAVING COUNT(*) > 1 AND COUNT(DISTINCT ${rowSig}) > 1) t`);
+        const groups = Number(bkRows[0].groups) || 0;
+        const extra = Number(bkRows[0].extra) || 0;
+        if (groups > 0) {
+          const keyNames = bkCols.map(c => `"${c.name}"`).join(', ');
+          findings.push({ kind: 'business_key_duplicate', severity: 'fail', text: `${extra} business-key duplicate row(s) found on ${keyNames} (${groups} key group(s) with rows that repeat the key but differ elsewhere — e.g. an incidental timestamp)` });
+        }
+      } catch (e) { /* incompatible columns — skip */ }
+    }
   }
   // referential integrity: if a *_id column exists that isn't the key, check it's non-null
   const fkCols = cols.filter(c => /_id$/i.test(c.name) && c.name !== keyCol.name);
@@ -752,7 +799,7 @@ function logCategoricalAssumptions(catResult) {
 const NUMERIC_T = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
 
 async function runCrossColumnLogic(table, cols) {
-  const findings = await runCrossColumnChecks(table, cols, engine);
+  const findings = await runCrossColumnChecks(table, cols, engine, { magnitude: isEnabled(EXTENDED_COVERAGE_FLAG) });
   for (const f of findings) {
     logAssumption('Cross-Column Logical Consistency', `Flagged ${f.text}`, { rule: f.rule, columns: f.columns, count: f.count });
   }
