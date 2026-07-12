@@ -33,13 +33,23 @@
 // own documented graceful-degradation path, not a bug. Wiring a live context
 // timeline is a natural next piece once this screen exists to show it in.
 //
-// This module names no network primitive and has no import of any capture
-// API — it works entirely from text a person pastes or types.
+// LIVE CAPTURE (DataGlow Live Rooms, Batch 1): when the caller passes
+// `liveCapture: true` (main.js sets it from isEnabled('meetingScribeLiveCapture')),
+// this screen ALSO renders a "Start live capture" / "Stop" button pair beside
+// the paste path. It streams on-device speech-to-text segments
+// (js/agents/live-transcript-capture.js) into the SAME `taggedSegments` state
+// and re-renders through the exact same renderResultsInto path as a pasted
+// transcript. When `liveCapture` is falsy (its default, and the flag's shipped
+// state), none of that UI renders and this module behaves byte-for-byte as
+// before — the paste path is never removed or altered. This module still reads
+// no flag itself and names no upload primitive; the mic/STT wiring is lazy and
+// lives entirely in the sibling capture module.
 
 import { el } from '../app-shell/utils.js';
 import {
   tagSegmentsWithContext, buildActionItem, isActionItemResolved, resolveActionItem, buildMeetingNote,
 } from './meeting-scribe-agent.js';
+import { isSpeechCaptureAvailable, startLiveCapture } from './live-transcript-capture.js';
 
 /**
  * The single gate the caller checks before mounting anything for this tab.
@@ -79,16 +89,21 @@ const BTN_PRIMARY = 'btn btn-primary';
  * @param {object} opts
  * @param {HTMLElement} opts.host   container to render into
  * @param {(msg:string,type?:string)=>void} [opts.onToast]
- * @returns {{destroy:Function}|null}
+ * @param {boolean} [opts.liveCapture]  when true, also render the live audio
+ *   capture controls (DataGlow Live Rooms, Batch 1). Defaults to false so the
+ *   paste path is unchanged; main.js passes isEnabled('meetingScribeLiveCapture').
+ * @returns {{destroy:Function, getState:Function}|null}
  */
 export function mountMeetingScribe(opts = {}) {
-  const { host, onToast = () => {} } = opts;
+  const { host, onToast = () => {}, liveCapture = false } = opts;
   if (!host) return null;
 
   const meetingId = `meeting-${Date.now()}`;
   const startedAt = new Date().toISOString();
   let taggedSegments = [];
   const actionItems = [];
+  let captureSession = null;
+  let capturing = false;
 
   const clear = () => { host.innerHTML = ''; };
   const heading = (text) => el('div', {
@@ -122,6 +137,8 @@ export function mountMeetingScribe(opts = {}) {
         onclick: () => { textarea.value = ''; taggedSegments = []; renderResults(); },
       }, 'Clear'),
     ]));
+
+    if (liveCapture) renderLiveCaptureControls();
 
     const resultsHost = el('div', { 'data-testid': 'meeting-scribe-results' });
     host.appendChild(resultsHost);
@@ -169,6 +186,73 @@ export function mountMeetingScribe(opts = {}) {
     }, taggedSegments.map((s) => el('li', {}, `[${s.ts}s] ${s.text}${s.context ? ` — while viewing "${s.context.chart}"` : ''}`))));
   }
   function renderResults() { if (resultsHostRef) renderResultsInto(resultsHostRef); }
+
+  // ---- Live capture (DataGlow Live Rooms, Batch 1) ----
+  // Renders a Start/Stop pair only when the caller enabled liveCapture. The
+  // actual mic + on-device WebGPU speech-to-text wiring lives in the sibling
+  // capture module; here we only stream its committed segments into the SAME
+  // taggedSegments state and re-render through the existing renderResults path.
+  let captureStatusRef = null;
+  function renderLiveCaptureControls() {
+    const available = isSpeechCaptureAvailable();
+    const startBtn = el('button', {
+      class: BTN_PRIMARY, 'data-testid': 'meeting-scribe-btn-live-start',
+      onclick: onStartCapture,
+    }, 'Start live capture');
+    const stopBtn = el('button', {
+      class: 'btn btn-secondary', 'data-testid': 'meeting-scribe-btn-live-stop',
+      onclick: onStopCapture,
+    }, 'Stop');
+    stopBtn.disabled = !capturing;
+    startBtn.disabled = capturing || !available;
+    captureStatusRef = el('span', {
+      style: 'font-size:var(--text-sm); color:var(--color-text-muted); align-self:center;',
+      'data-testid': 'meeting-scribe-live-status',
+    }, available
+      ? (capturing ? 'Listening — transcribing on your device…' : 'On-device speech-to-text. Audio never leaves your machine.')
+      : 'Live capture needs a microphone and a WebGPU browser — paste a transcript above instead.');
+    host.appendChild(el('div', {
+      style: 'display:flex; gap:var(--space-2); margin-bottom:var(--space-3); flex-wrap:wrap;',
+      'data-testid': 'meeting-scribe-live-controls',
+    }, [startBtn, stopBtn, captureStatusRef]));
+  }
+
+  function setCaptureStatus(msg) { if (captureStatusRef) captureStatusRef.textContent = msg; }
+
+  async function onStartCapture() {
+    if (capturing) return;
+    if (!isSpeechCaptureAvailable()) {
+      onToast('Live capture needs a microphone and a WebGPU browser', 'warn');
+      return;
+    }
+    capturing = true;
+    render(); // re-render so buttons reflect the capturing state
+    setCaptureStatus('Loading the on-device speech model…');
+    try {
+      captureSession = await startLiveCapture({
+        onUpdate: ({ segments }) => {
+          taggedSegments = tagSegmentsWithContext(segments, []);
+          renderResults();
+          setCaptureStatus('Listening — transcribing on your device…');
+        },
+        onError: (err) => { onToast(`Live capture error: ${err.message}`, 'error'); },
+        onProgress: ({ text }) => { if (text) setCaptureStatus(`Preparing model: ${text}`); },
+      });
+    } catch (err) {
+      capturing = false;
+      captureSession = null;
+      render();
+      onToast(`Could not start live capture: ${err.message}`, 'error');
+    }
+  }
+
+  function onStopCapture() {
+    if (captureSession) { try { captureSession.stop(); } catch { /* already stopped */ } }
+    captureSession = null;
+    capturing = false;
+    render();
+    onToast('Live capture stopped', 'success');
+  }
 
   function onAnalyze(raw) {
     const segments = parseTranscriptText(raw);
@@ -252,7 +336,11 @@ export function mountMeetingScribe(opts = {}) {
   // any analysis has run — never throws. This does not change any existing
   // behavior for callers that only use `destroy` (e.g. Part 2's own tests).
   return {
-    destroy: () => clear(),
+    destroy: () => {
+      if (captureSession) { try { captureSession.stop(); } catch { /* already stopped */ } captureSession = null; }
+      capturing = false;
+      clear();
+    },
     getState: () => ({ meetingId, taggedSegments, actionItems }),
   };
 }
