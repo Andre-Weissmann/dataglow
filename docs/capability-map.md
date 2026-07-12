@@ -256,6 +256,21 @@ to be CORRECT.
 All three batches gated behind the `metricContracts` flag (ships OFF, still currently gates nothing
 observable since none of the three is wired into `main.js` yet).
 
+- **AI Readiness Gate (pure scoring, batch 1 of 4)** — `js/gate/readiness-gate.js` (a PURE aggregator
+  that composes the OUTPUT of validation's `runAllLayers()` — never re-running it — plus an optional
+  metric-contract status into a single agent-consumability verdict. `computeReadinessGate(layerResults,
+  metricContractStatus, options)` returns a well-formed `{ agentConsumable, score, threshold,
+  failingLayers, passingSummary, blockedByContract, evaluatedLayerCount }` object: it reuses validation's
+  existing `pass`/`warn`/`fail`/`idle` status vocabulary verbatim (inventing no new severity levels),
+  excludes `idle` layers from scoring, half-weights `warn`, and treats a broken/invalid metric contract
+  as a stand-alone hard block regardless of layer results. Never throws — empty/undefined/null input
+  yields a safe not-consumable verdict. `explainGateReasons(gateResult)` renders that verdict as a
+  human-readable multi-line string for a future batch-2 UI. Answers the project's North Star finding
+  (see [`../NORTH_STAR.md`](../NORTH_STAR.md)) that ungoverned data handed to AI agents drives the
+  60-84% AI-initiative failure rate. This batch is pure logic + tests ONLY: the UI badge (batch 2),
+  agent-module wiring (batch 3), and MCP exposure (batch 4) are deferred. Nothing in the app calls it
+  yet.)
+
 ## Export & reporting
 Turns the active dataset/analysis into a downloadable Excel workbook or a summary PDF.
 Built on a Universal Export Contract: one byte-builder per format, decoupled from a

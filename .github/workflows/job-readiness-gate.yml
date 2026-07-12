@@ -1,0 +1,29 @@
+# ============================================================
+# DATAGLOW — CI job: AI Readiness Gate (batch 1 of 4)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the AI Readiness Gate suite:
+#   - test:readinessgate — batch 1: the PURE scoring aggregator that composes
+#     runAllLayers() OUTPUT + an optional metric-contract status into a single
+#     agent-consumability verdict, plus the explainGateReasons() renderer.
+# Pure JS, no DuckDB/browser needed. UI (batch 2), agent wiring (batch 3), and
+# MCP exposure (batch 4) are deferred to later batches (see NORTH_STAR.md).
+
+name: AI Readiness Gate
+
+on:
+  workflow_call:
+
+jobs:
+  readiness-gate:
+    name: AI Readiness Gate (pure scoring, batch 1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:readinessgate
