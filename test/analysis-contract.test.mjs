@@ -97,6 +97,54 @@ function main() {
   const realTableRef = checkSchemaHallucination('SELECT o.order_id FROM orders o JOIN line_items li ON o.order_id = li.order_id', schemaIndex);
   ok(realTableRef.length === 0, 'schema_hallucination: table names and short aliases are not flagged as hallucinated columns');
 
+  // ===== Regression: live-catalog-sourced tables (M1) =====
+  // The Analysis Contract's known-columns set is now sourced from the live
+  // DuckDB catalog in addition to file-loaded datasets (see
+  // buildLiveSchemaForContract in main.js). A table made with CREATE TABLE ...
+  // AS, or one materialized from the Python/R bridges, therefore shows up in
+  // the schema this module receives — so its columns must NOT be flagged as
+  // hallucinated. These tests exercise the checker with a schema shaped exactly
+  // as the fixed caller now produces it.
+
+  // (a) A CREATE TABLE-originated table's columns are recognized as real.
+  const createdTableSchema = buildSchemaIndex({
+    tables: { derived: { columns: [{ name: 'computed_total', type: 'BIGINT' }] } },
+  });
+  ok(checkSchemaHallucination('SELECT computed_total FROM derived', createdTableSchema).length === 0,
+    'live-catalog: columns of a CREATE TABLE-created table (present via the live catalog) are NOT flagged as hallucinated');
+  // Contrast: with that table absent from the schema (the pre-fix state), the
+  // very same column WAS flagged — proving recognition depends on the table
+  // being sourced into the schema, which is exactly what the fix now does.
+  const withoutDerived = checkSchemaHallucination('SELECT computed_total FROM derived', schemaIndex);
+  ok(withoutDerived.some(f => f.identifier === 'computed_total' && f.severity === 'fail'),
+    'live-catalog: the same column IS a hard-fail hallucination when its table is absent from the schema (pre-fix behavior)');
+
+  // (b) A Python/R-bridged table's columns are recognized just the same.
+  const bridgedTableSchema = buildSchemaIndex({
+    tables: { py_frame: { columns: [{ name: 'model_score', type: 'DOUBLE' }, { name: 'segment', type: 'VARCHAR' }] } },
+  });
+  ok(checkSchemaHallucination('SELECT model_score, segment FROM py_frame', bridgedTableSchema).length === 0,
+    'live-catalog: columns of a Python/R-bridged table (present via the live catalog) are NOT flagged as hallucinated');
+
+  // (c) Empty-schema guard: when NO columns are known at all (live-catalog
+  // lookup failed and nothing was file-loaded), the check degrades to a single
+  // low-severity note instead of failing every identifier in the query.
+  const emptySchema = buildSchemaIndex({ tables: {} });
+  const emptyFlags = checkSchemaHallucination('SELECT made_up_col, another_col FROM ghost_table', emptySchema);
+  ok(emptyFlags.length === 1 && emptyFlags[0].severity === 'info',
+    'empty-schema guard: an unavailable schema yields exactly one info note, not a fail per identifier');
+  ok(!emptyFlags.some(f => f.severity === 'fail'),
+    'empty-schema guard: nothing is escalated to fail when the schema is unavailable');
+  ok(runAnalysisContract('SELECT made_up_col FROM ghost_table', { tables: {} }).status !== 'fail',
+    'empty-schema guard: the overall contract status is not fail when the schema is unavailable');
+
+  // (d) True positive preserved: with a real file-loaded schema, a genuinely
+  // made-up column IS still a hard-fail hallucination — the fix must not make
+  // the checker permissive/useless.
+  const stillFails = checkSchemaHallucination('SELECT definitely_not_a_column FROM orders', schemaIndex);
+  ok(stillFails.some(f => f.identifier === 'definitely_not_a_column' && f.severity === 'fail'),
+    'true-positive preserved: a genuinely non-existent column is STILL flagged as a hard-fail hallucination after the fix');
+
   // ===== Check 2: Aggregation mismatches =====
 
   const countJoinSql = `SELECT o.customer_id, COUNT(o.order_id) AS n
