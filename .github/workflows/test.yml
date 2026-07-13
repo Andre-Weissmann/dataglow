@@ -156,3 +156,5 @@ jobs:
     uses: ./.github/workflows/job-open-floor-kernel.yml
   ownership-ledger:
     uses: ./.github/workflows/job-ownership-ledger.yml
+  crucible:
+    uses: ./.github/workflows/job-crucible.yml

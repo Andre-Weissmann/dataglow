@@ -1,0 +1,37 @@
+# ============================================================
+# DATAGLOW — CI job: The Crucible (adversarial validator, Batch 1)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the two pure-logic suites behind The Crucible's Batch 1:
+#   - test:cruciblecontract — the typed handoff contract
+#     (js/validation/crucible-contract.js): buildCleaningResult /
+#     buildValidationVerdict never-throw + validation discipline, and
+#     fingerprintCleaningResult reusing the provenance SHA-256 primitive. Plain
+#     node — no DuckDB, DOM, or network.
+#   - test:cruciblepacks — the adversarial pack library
+#     (js/validation/crucible-adversarial-packs.js) run against the REAL
+#     findFuzzyDuplicates() with its DuckDB backend swapped in via the
+#     duckdb-loader-hook, asserting the name-order-swap and SSN-transposition
+#     packs currently and correctly FAIL (empirical proof of the two AHIMA gaps
+#     NORTH_STAR documented — a real gap, not a regression), plus the value packs
+#     against correct/naive stub agents and the never-throw suite runner.
+
+name: The Crucible (Batch 1)
+
+on:
+  workflow_call:
+
+jobs:
+  crucible:
+    name: The Crucible (typed handoff contract + adversarial packs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:cruciblecontract
+      - run: npm run test:cruciblepacks
