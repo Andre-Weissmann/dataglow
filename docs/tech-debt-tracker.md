@@ -336,7 +336,6 @@ Newest entries go at the bottom of **Entries**.
   "KNOWN GAP" assertions must be flipped intentionally so the change is reviewed,
   not silent.
 
-
 ### 2026-07-12 — Rebase gotcha: a conflict side can carry an in-place edit to an EXISTING entry bundled with its append, not just a stale fragment
 
 - **Description:** Backlog PR triage (PR #115, Command Deck Part 2) hit a
@@ -670,3 +669,47 @@ Newest entries go at the bottom of **Entries**.
 > onto `main`, and PR #121 was subsequently cherry-picked and merged (see the
 > entry above dated 2026-07-13 for the full resolution). Left as historical
 > record of the blocked state at the time it was logged.
+
+### 2026-07-13 — A PR's literal git base branch can be a stale orphan even after its real dependency merges elsewhere
+
+- **Description:** PR #121 (Open Floor Batch B, Sandbox Twin) was branched from
+  `gen44-agent-action-firewall` (commit `1e4910a`), one of two independently-built
+  duplicate implementations of the Agent Action Firewall (#108 vs #114). PR #191
+  had already logged that #121 couldn't be rebased because neither #108 nor #114
+  had landed on `main`. Today PR #133 resolved the duplication and merged a
+  *reconciled* firewall onto `main` — but #121's actual base branch
+  (`gen44-agent-action-firewall`) was never updated and is now a 24-commit-behind
+  orphan containing the *pre-reconciliation* firewall implementation, not the one
+  that shipped. A naive `git rebase main` from that branch tries to replay all
+  ~103 commits of shared-then-diverged history and produces bogus add/add
+  conflicts on files as old as `index.html`/`css/app.css` from the initial
+  commit — the wrong fix.
+- **Root cause / lesson:** after a duplicate-feature reconciliation PR merges,
+  check whether any *other* open PR's literal base branch pointed at one of the
+  now-superseded duplicates. The dependency being satisfied on `main` does NOT
+  mean the dependent PR's base branch is still valid — the base branch itself can
+  be an orphan even though the capability it depends on now exists elsewhere.
+- **Correct fix pattern:** diff the PR's unique commits against its stated base
+  (`git log base..head`) to isolate the *real* feature commit(s), verify the
+  dependency's exported API is unchanged between the orphan implementation and
+  what actually merged (function signatures matched exactly here), then
+  cherry-pick just the real commit(s) onto current `main` and retarget the PR's
+  base via the GitHub API (`gh api repos/OWNER/REPO/pulls/N -X PATCH -f base=main`
+  — `gh pr edit --base` can fail on unrelated GraphQL errors like the Projects
+  Classic deprecation notice; the direct API call is more reliable).
+- **Date:** 2026-07-13
+- **Severity:** low (process/git-mechanics gotcha, not a code defect)
+- **Area:** PR #121 (`gen45-open-floor-sandbox-twin`), formerly based on
+  `gen44-agent-action-firewall`; related to PR #133 (firewall reconciliation) and
+  PR #191 (original blocker log)
+- **Status:** resolved — #121 cherry-picked (`8b58d35`) onto `main`, 4 conflicts
+  resolved (pure appends: `test.yml`, `AGENTS.md`, `CHANGELOG.md`,
+  `flags.manifest.json`), base retargeted to `main`, now `MERGEABLE`.
+  `test:sandboxtwin` 40/40, `test:firewall` 61/61, `test:capdrift` 24/24,
+  `test:agentsdrift` 28/28, `test:golden` 10/10, `test:twin` 17/17,
+  `test:living-manifest` 29/29 all green. Still an unmerged draft, PR comment
+  posted, waiting on manual review per standing rule.
+
+> **Update (2026-07-14):** PR #121 has since merged onto `main` for real
+> (squash-merged, 2026-07-14). This entry's cherry-pick/retarget fix pattern is
+> the resolution that was ultimately used.
