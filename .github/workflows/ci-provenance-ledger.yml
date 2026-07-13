@@ -102,8 +102,8 @@ jobs:
           BRANCH=chore/ci-provenance-ledger
           TITLE="chore: append CI provenance ledger entry [skip ci]"
 
-          git config user.name "dataglow-bot"
-          git config user.email "dataglow-bot@users.noreply.github.com"
+          git config user.name "Claude"
+          git config user.email "claude@users.noreply.github.com"
           git add docs/ci-provenance-ledger.jsonl
 
           if git diff --cached --quiet; then
