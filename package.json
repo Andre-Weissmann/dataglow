@@ -42,6 +42,7 @@
     "test:badges": "node test/nutrition-badges.test.mjs",
     "test:postmortem": "node test/incident-postmortem.test.mjs",
     "test:portablereceipt": "node test/portable-receipt.test.mjs",
+    "test:ownershipledger": "node test/ownership-ledger.test.mjs",
     "test:sd-verify": "node test/verify-proof.mjs",
     "test:ambient": "node test/ambient-validation.test.mjs",
     "test:analysiscontract": "node test/analysis-contract.test.mjs",

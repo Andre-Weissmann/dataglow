@@ -959,6 +959,18 @@
       ]
     },
     {
+      "id": "provenance-ownership-ledger",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Ownership Ledger (DataGlow Passport, Batch D)",
+      "files": ["js/provenance/ownership-ledger.js"],
+      "symbols": [
+        { "file": "js/provenance/ownership-ledger.js", "name": "deriveOwnershipEvents" },
+        { "file": "js/provenance/ownership-ledger.js", "name": "summarizeCurrentOwnership" },
+        { "file": "js/provenance/ownership-ledger.js", "name": "claimOwnership" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",

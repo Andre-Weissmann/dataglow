@@ -311,6 +311,32 @@ Surfaced OFF-by-default behind the `syntheticDataPassport` flag. See
 `test/synthetic-data-passport.test.mjs`, whose source guard enforces both the
 zero-upload rule (no network primitive) and honest naming (any line mentioning
 `anonymized`/`HIPAA`/`certification`/`certified` must also negate it).
+### Ownership Ledger (DataGlow Passport, Batch D) — INFERRED ownership from the existing trail, never asserted
+
+`js/provenance/ownership-ledger.js` answers a DIFFERENT question from the Chain
+of Custody. Custody (`js/provenance/provenance.js` +
+`js/provenance/assumption-ledger.js`) tracks WHAT changed; the Ownership Ledger
+INFERS WHO is/was responsible — for the failure mode where a dataset quietly
+changes hands and, when it breaks, nobody can say whose it is. The hard rule for
+anyone extending it: ownership is DERIVED from audit trails that ALREADY exist,
+never a new manual stewardship form. `deriveOwnershipEvents({provenanceTrail,
+assumptionEntries})` reads whatever identity happens to be attached to each
+provenance step / ledger entry (directly, or in `detail.authorizedBy`) into an
+ordered, append-only event list — and it NEVER fabricates an identity. Today the
+Agent Action Firewall identity rider is not merged to main, so most real events
+legitimately carry `identity: null` ("unattributed"); that is reported honestly,
+not guessed. `summarizeCurrentOwnership` infers the likely current owner by a
+recency-weighted vote and says "ownership unknown" when nothing is attributed.
+`claimOwnership({datasetId, identity, note}, priorClaims)` is the ONLY write
+path — opt-in, append-only, requires a real local identity, and never overwrites
+a prior claim. HONESTY DISCIPLINE (the whole point): INFERRED ownership is a
+best-effort read of the trail, NOT a verified/certified assignment; an explicit
+claim is human-asserted, NOT independently verified. There is deliberately NO new
+shareable-HTML artifact — ownership surfaces in-app in the Provenance/Trust tab
+(`js/app-shell/main.js`) and via existing export paths — so it does not duplicate
+Portable Receipts or the Data Nutrition Label. Pure/offline, guarded by a
+no-network source-scan test; ships behind the `ownershipLedger` flag (dark) via
+the `ownership-ledger` CI job. See `test/ownership-ledger.test.mjs`.
 
 
 ### Verifiable Check Seal (Trust Passport, Batch 3) — apply the existing proof primitive, do not invent crypto

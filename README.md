@@ -145,9 +145,17 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | Query engine | `js/app-shell/duckdb-engine.js` |
 |  | File loading | `js/app-shell/loaders.js` |
 |  | SQL editor highlighting | `js/app-shell/sql-highlight.js` |
+|  | Multi-dialect SQL translation | `js/app-shell/sql-dialect-adapter.js` |
 |  | Warehouse import | `js/app-shell/databricks-connect.js` |
+|  | Object Space registry (Polyglot Workbench, Batch B) | `js/app-shell/object-space.js` |
+|  | Glow Path adaptive next-action rail (Batch A) | `js/app-shell/glow-path.js`, `js/app-shell/glow-path-ui.js` |
+|  | The Glow signal aggregator (Batch 1) | `js/glow/glow-signal.js` |
+|  | The Glow topbar orb UI (Batch 2) | `js/glow/glow-orb-ui.js` |
 | Validation layers | Orchestrator | `js/validation/validation.js` |
 |  | Standalone layer modules | `js/validation/categorical-consistency.js`, `js/validation/cross-column-consistency.js`, `js/validation/physiological-plausibility.js`, `js/validation/upper-bound-sanity.js`, `js/validation/missingness-detective.js`, `js/validation/missingness.js` |
+|  | Source Convergence (Truth Network, Batch 1) | `js/validation/source-convergence.js` |
+|  | Source Convergence ingestion adapters (Truth Network, Batch 2) | `js/validation/source-convergence-ingestion.js` |
+|  | Source Convergence UI (Truth Network, Batch 3) | `js/validation/source-convergence-ui.js` |
 |  | Reinterpretation & context | `js/validation/domain-physics.js`, `js/validation/expected-range.js` |
 |  | Healthcare standards bridge | `js/validation/health-standards.js` |
 |  | Domain-pack plugin architecture | `js/packs/extension-points.js`, `js/packs/pack-network-guard.js`, `js/packs/pack-registry.js`, `js/packs/builtin/none.pack.js`, `js/packs/builtin/healthcare.pack.js`, `js/packs/builtin/retail.pack.js`, `js/packs/builtin/finance.pack.js`, `js/packs/builtin/omop.pack.js`, `js/packs/builtin/fhir.pack.js` |
@@ -155,6 +163,7 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | Baselining & process control | `js/anomaly/entity-baseline.js`, `js/anomaly/spc-control.js` |
 |  | Triage | `js/anomaly/active-learning.js` |
 | Analysis robustness | Devil's Advocate | `js/analysis-robustness/devils-advocate.js` |
+|  | Assumption sensitivity + plain-language robustness verdict | `js/analysis-robustness/robustness-verdict.js` |
 | Drift, trend & fingerprinting | Forecasting | `js/drift/drift-forecast.js` |
 |  | Trend narration | `js/validation/expected-range.js` |
 | Cleaning & fixes | Core cleaning | `js/cleaning/clean.js`, `js/cleaning/fix-confidence.js`, `js/cleaning/materiality.js` |
@@ -162,19 +171,42 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 | Grades & health scores | Grades | `js/grades/calibrated-grades.js`, `js/grades/cat-scorecard.js`, `js/grades/golden-signals.js` |
 | On-device learning & personalization | Learners | `js/learning/self-learning-rules.js`, `js/learning/adaptive-priority.js`, `js/learning/rule-suggestions.js` |
 |  | Shared state | `js/learning/signal-store.js`, `js/learning/memory-store.js` |
+|  | Session proficiency signal (Glow Path, Batch B) | `js/learning/proficiency-signal.js` |
 | Federated learning | Core & transport | `js/federated/federated-fingerprint.js`, `js/federated/federated-learning.js`, `js/federated/federated-transport.js` |
+| DataGlow Rooms | Room signaling / peer discovery (Batch 1 of 4) | `js/rooms/room-signaling.js` |
+|  | Object Space broadcast wiring (Batch 2 of 4) | `js/rooms/room-broadcast.js` |
+|  | Topbar UI layer (Batch 3 of 4) | `js/rooms/room-ui.js` |
+|  | Real signaling + data-channel adapters (Batch 4 of 4) | `js/rooms/room-transport-adapter.js` |
+| Data Diplomacy | Claim + seal | `js/diplomacy/diplomacy-claim.js` |
+|  | Reconciliation engine | `js/diplomacy/reconciliation-engine.js` |
+|  | Two-key approval gate | `js/diplomacy/diplomacy-approval-gate.js` |
 | Provenance, audit & trust | Chain of custody | `js/provenance/provenance.js`, `js/provenance/assumption-ledger.js` |
-|  | Shareable artifacts | `js/provenance/validation-receipt.js`, `js/provenance/selective-disclosure-proof.js`, `js/provenance/irb-mode.js`, `js/provenance/peer-review.js` |
+|  | AI Touch Ledger (Batch 1 + Batch 2 — wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger) | `js/provenance/ai-touch-ledger.js`, `js/narrative/story.js`, `js/app-shell/main.js`, `js/provenance/proof-room.js` |
+|  | Query Memory (Batch 2 — SQL/Python/R wiring + "seen before" badge) | `js/provenance/query-memory.js`, `js/provenance/query-memory-ui.js` |
+|  | Shareable artifacts | `js/provenance/validation-receipt.js`, `js/provenance/selective-disclosure-proof.js`, `js/provenance/irb-mode.js`, `js/provenance/peer-review.js`, `js/provenance/data-bom.js` |
 |  | Portable Receipts — per-artifact lineage stamp | `js/provenance/portable-receipt.js` |
 |  | Provenance Packet — data blame + de-identification verifier | `js/provenance/data-blame.js`, `js/provenance/deidentification-verifier.js` |
+|  | Data Nutrition Label (Trust Passport, Batch 2) | `js/provenance/data-nutrition-label.js` |
+|  | Verifiable Check Seal (Trust Passport, Batch 3) | `js/provenance/verifiable-check-seal.js` |
+|  | Trust Beam (shareable seal link) | `js/provenance/trust-beam.js` |
+|  | Proof Room (Trust Passport, composition batch 1 + AI Touch Ledger step, feature-flagged: aiTouchLedger) | `js/provenance/proof-room.js` |
+|  | Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier | `js/provenance/denial-root-cause.js`, `js/provenance/cost-of-bad-data.js` |
+|  | Analysis fingerprint & nutrition label | `js/provenance/analysis-fingerprint.js`, `js/provenance/nutrition-badges.js` |
+|  | Blameless incident postmortem | `js/provenance/incident-postmortem.js` |
+|  | Ownership Ledger (DataGlow Passport, Batch D) | `js/provenance/ownership-ledger.js` |
 | Privacy & synthetic data | DP export & synthesis | `js/privacy/privacy-budget.js`, `js/privacy/synthetic-twin.js`, `js/privacy/synthetic-adversarial.js` |
+|  | Governed Synthetic Data Passport (Trust Passport, Batch 4) | `js/privacy/synthetic-data-passport.js` |
 | Simulation & time travel | What-if & history | `js/simulation/digital-twin.js`, `js/simulation/time-travel-diff.js`, `js/simulation/time-machine.js` |
 | Narrative & language models | Story & LLM | `js/narrative/story.js`, `js/narrative/ondevice-llm.js` |
 | Ambient & real-time | Live validation | `js/ambient/ambient-validation.worker.js`, `js/ambient/watch-folder.js` |
+| App shell & data engine | Grouped tab navigation | `js/app-shell/tab-groups.js` |
+|  | Validate tab focus mode | `js/app-shell/validate-focus.js` |
+| Ambient & real-time | Semantic drift watchdog | `js/ambient/drift-watchdog.js` |
 | Language runtimes & visualization | Runtimes & charts | `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/visualize.js` |
 | Protocol & interoperability | Conformance | `js/protocol/protocol-conformance.js` |
 | Problem framing | Problem Framer & Context Card | `js/problem-framing/problem-framer.js` |
 | App shell & data engine | Capability registry | `js/app-shell/capability-registry.js` |
+|  | Shared metrics registry | `js/app-shell/metrics-registry.js` |
 | Export & reporting | Universal export (Excel + PDF) | `js/export/export-report.js`, `js/export/export-delivery.js` |
 | Build tooling & feature flags | Build feature flags | `js/build/build-flags.js` |
 | Teaching & context | Teach-As-You-Clean micro-lessons | `js/teaching/micro-lessons.js` |
@@ -185,12 +217,27 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | Guided pack builder | `js/agents/pack-builder-agent.js` |
 |  | Guided pack builder — Validate-tab UI wiring | `js/agents/conversational-pack-ui.js` |
 | Validation layers | Local Analysis Contract | `js/validation/analysis-contract.js` |
+|  | Semantic / Metrics Layer | `js/validation/semantic-layer.js`, `js/validation/semantic-layer-ui.js` |
 | Meeting scribe | Meeting note grounding agent | `js/agents/meeting-scribe-agent.js` |
 |  | Meeting scribe — Meeting-tab UI wiring | `js/agents/meeting-scribe-ui.js` |
+|  | Live transcript capture (on-device speech-to-text input) | `js/agents/live-transcript-capture.js` |
 |  | Chart-anchored meeting decision ledger (pure logic) | `js/agents/meeting-decision-ledger.js` |
 |  | Meeting decision ledger — Meeting-tab browse/save UI wiring | `js/agents/meeting-decision-ledger-ui.js` |
+| Trust & metrics (OneCanvas Phase 1) | Metric Studio | `js/metrics/metric-studio.js` |
+|  | Trust Strip | `js/trust/trust-strip.js` |
+|  | Proof Drawer | `js/trust/proof-drawer.js` |
+|  | Metric Contracts (Batch 1: versioned data model) | `js/metrics/metric-contracts.js` |
+|  | Metric Contracts (Batch 2: diff view, read-only) | `js/metrics/metric-contract-diff-view.js` |
+|  | Metric Contracts (Batch 3: confirm gate) | `js/metrics/metric-contract-confirm-gate.js` |
+|  | AI Readiness Gate (pure scoring + UI badge + agent hard-block, batches 1-3 of 4) | `js/gate/readiness-gate.js`, `js/gate/readiness-gate-ui.js`, `js/gate/agent-gate.js` |
+| App shell / navigation | Command Deck sidebar nav (Part 1) | `js/app-shell/command-deck-nav.js` |
+| Data Diplomacy | Data Diplomacy — two-key panel UI (Batch 2) | `js/diplomacy/diplomacy-ui.js` |
+| Provenance, audit & trust | Agent Action Firewall — human-confirmation gate for data mutations | `js/agents/agent-action-firewall.js` |
+| Conversational pack builder | Debate transparency diagnostics | `js/agents/debate-diagnostics.js` |
+| App shell / navigation | Command Deck command palette (Part 2) | `js/app-shell/command-palette.js` |
+| Open Floor | Open Floor read-only room kernel + PHI prompt guard | `js/agents/open-floor-room.js`, `js/agents/phi-prompt-guard.js` |
 
-_49 capabilities across 22 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
+_96 capabilities across 27 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
 <!-- CAPABILITY_TABLE_END -->
 
 ## Known Simplifications
