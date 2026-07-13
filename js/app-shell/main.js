@@ -76,6 +76,7 @@ import { sealClaim } from '../diplomacy/diplomacy-claim.js';
 import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
 import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
 import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
+import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 // Capability modules loaded lazily through the platform-aware registry (see
 // bootstrapCapabilities below). They are `let` bindings, assigned once the
@@ -135,6 +136,7 @@ const TAB_META = {
   meeting: { label: 'Meeting', icon: 'message-circle' },
   diplomacy: { label: 'Diplomacy', icon: 'handshake' },
   proofroom: { label: 'Proof Room', icon: 'shield' },
+  convergence: { label: 'Convergence', icon: 'git-merge' },
 };
 
 const ICONS = {
@@ -153,6 +155,7 @@ const ICONS = {
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
   'message-circle': '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
   handshake: '<path d="M11 12l2 2 3-3 4 4"/><path d="M13 14l-2 2-2-2-3 3-2-2"/><path d="M3 10l4-4 4 3"/><path d="M21 10l-4-4-3 2"/>',
+  'git-merge': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 009 9"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -203,10 +206,16 @@ function renderTabBar() {
   // never added to the bar, never a dead click target, and #panel-proofroom
   // stays empty (see renderProofRoomTab). It gates ONLY this composed tab's
   // visibility — never any of the five underlying trust-surface flags.
+  // The 'convergence' tab follows the same dark-by-default gate as 'meeting',
+  // 'diplomacy', and 'proofroom': with the sourceConvergenceUI flag off (its
+  // shipped default) it is never added to the bar, never a dead click target,
+  // and #panel-convergence stays empty (see renderConvergenceTab). It gates ONLY
+  // this UI tab — never the Batch 1/2 engine flags it builds on.
   const visibleTabOrder = state.tabOrder.filter((tabId) =>
     (tabId !== 'meeting' || isEnabled('meetingScribe'))
     && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy'))
-    && (tabId !== 'proofroom' || isEnabled('proofRoom')));
+    && (tabId !== 'proofroom' || isEnabled('proofRoom'))
+    && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -283,6 +292,7 @@ function switchTab(tabId) {
   if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'diplomacy') renderDiplomacyTab();
   if (tabId === 'proofroom') renderProofRoomTab();
+  if (tabId === 'convergence') renderConvergenceTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -2453,6 +2463,33 @@ async function renderDiplomacyTab() {
     },
   });
   paint();
+}
+
+// ============================================================
+// Source Convergence (Truth Network, Batch 3 of 3) — Convergence tab wiring
+// ============================================================
+// Mounts the Convergence surface (js/validation/source-convergence-ui.js) which
+// wires the already-merged Batch 1 engine + Batch 2 adapters into a real tab.
+// Gated by ONE flag, sourceConvergenceUI (off by default): with it off the tab
+// is never in the bar (see renderTabBar) and this function clears/resets the
+// panel — the engine/adapter flags it builds on are never touched here. Mounts
+// once per session; the module owns its own load controls and empty state.
+let convergenceMounted = false;
+let convergenceHandle = null;
+function renderConvergenceTab() {
+  const host = $('#convergence-body');
+  if (!host) return;
+  if (!isEnabled('sourceConvergenceUI') || !shouldOfferConvergence({ enabled: true })) {
+    host.innerHTML = '';
+    if (convergenceHandle) { convergenceHandle.destroy(); }
+    convergenceMounted = false;
+    convergenceHandle = null;
+    return;
+  }
+  if (!convergenceMounted) {
+    convergenceHandle = mountConvergence({ host, onToast: toast });
+    convergenceMounted = true;
+  }
 }
 
 // ============================================================

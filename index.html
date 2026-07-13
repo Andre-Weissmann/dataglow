@@ -960,6 +960,20 @@
       <div id="proof-room-body" data-testid="proof-room-body"></div>
     </section>
 
+    <!-- Source Convergence (Truth Network, Batch 3 of 3). Wires the Batch 1
+         engine + Batch 2 adapters into a visible Convergence tab. Gated behind
+         the sourceConvergenceUI flag (off by default), so the tab is never in
+         the bar and this panel stays empty on a default build. -->
+    <section class="panel" id="panel-convergence" data-panel="convergence">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Convergence</div>
+          <div class="panel-subtitle">Reconcile N sources that describe the same entity — see where they overlap, resolve conflicts by trust weight, and escalate the rest for a human. Nothing leaves your device.</div>
+        </div>
+      </div>
+      <div id="convergence-body" data-testid="convergence-body"></div>
+    </section>
+
   </div>
 </div>
 
