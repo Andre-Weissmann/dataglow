@@ -1,0 +1,32 @@
+# ============================================================
+# DATAGLOW — CI job: Portable Receipts (DataGlow Passport, Batch B)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the per-artifact Portable Receipt (js/provenance/portable-receipt.js):
+# building a receipt for a single exported chart/KPI, the independent verifier
+# accepting an untampered receipt and rejecting a tampered claim value / query
+# hash / timestamp with a clear reason, a source guard asserting the
+# self-contained verifier HTML embeds no network primitive / external script /
+# outbound URL (offline-verifiable, DATAGLOW's zero-upload promise), the opt-in
+# gate never producing a receipt unless explicitly requested, and the delivery
+# blob following the Universal Export Contract. Pure Node — no browser, no
+# DuckDB, no network. See test/portable-receipt.test.mjs.
+
+name: Portable Receipts
+
+on:
+  workflow_call:
+
+jobs:
+  portable-receipt:
+    name: Portable Receipts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:portablereceipt

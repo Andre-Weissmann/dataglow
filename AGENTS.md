@@ -837,6 +837,37 @@ NOT a second SQL parser, so don't grow it into one. Only the SQL tab is wired so
 far; the other four surfaces are tracked in `docs/tech-debt-tracker.md`. Test:
 `npm run test:metricsregistry` (`test/metrics-registry.test.mjs`, the
 `metrics-registry` CI job) — engine-free.
+### Portable Receipts (DataGlow Passport, Batch B) — per-artifact lineage stamp
+
+The whole-dataset Validation Receipt and the Selective-Disclosure Proof both
+travel as a full artifact ABOUT the dataset. Portable Receipts
+(`js/provenance/portable-receipt.js`) cover the smaller, more common failure:
+one chart or one number gets pasted into Slack or a deck and its lineage is
+gone. A Portable Receipt stamps a SINGLE exported artifact (one chart, one KPI,
+one table) with the claim it certifies, a content hash of the exact
+query/transform chain, the dataset validation state (grade + summary) at compute
+time, and a timestamp — all committed into a Merkle (SHA-256) tree built with the
+SAME `hashLeaf`/`buildMerkleTree`/`sha256Hex` primitives as
+`js/provenance/selective-disclosure-proof.js` (imported, never a second hashing approach).
+`buildClaimReceipt`/`verifyClaimReceipt` are pure and are the single source of
+truth for the algorithm; `renderReceiptVerifierHTML` emits a self-contained,
+offline HTML file whose inline verifier reruns the exact same check with zero
+network, so anyone can confirm the fingerprint without DataGlow.
+
+Honesty discipline (modeled on the selective-disclosure module's own precise
+wording — do NOT overclaim): a Portable Receipt is TAMPER-EVIDENCE that binds an
+artifact's fields together so a partial edit is detected. It is **not** a
+cryptographic signature and **not** a zero-knowledge proof — there is no secret
+key, so a party willing to recompute every field can mint a fresh, internally
+consistent receipt; it proves internal consistency, not authorship. It does
+**not** certify that the underlying number is correct, that the query was
+appropriate, or that the data was compliant. Not a legal, clinical, or
+regulatory determination. Trust artifacts here are opt-in and VISIBLE (an
+explicit "Attach Portable Receipt" checkbox on the Visualize/Export tabs), never
+a silent default. Ships behind the `portableReceipts` flag (dark) — a
+user-facing export option, land-dark until verified live, distinct from a safety
+layer that would ship enabled. Tests: `npm run test:portablereceipt`
+(`portable-receipt` CI job), pure JS, no DuckDB/DOM/network.
 
 ### Meeting decision ledger (Gen 43, Part 3) — chart-anchored, append-only, opt-in
 

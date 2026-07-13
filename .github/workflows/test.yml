@@ -149,3 +149,6 @@ jobs:
     uses: ./.github/workflows/job-trust-beam.yml
   analysis-robustness:
     uses: ./.github/workflows/job-analysis-robustness.yml
+
+  portable-receipt:
+    uses: ./.github/workflows/job-portable-receipt.yml

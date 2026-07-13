@@ -144,10 +144,13 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | State & helpers | `js/app-shell/state.js`, `js/app-shell/utils.js` |
 |  | Query engine | `js/app-shell/duckdb-engine.js` |
 |  | File loading | `js/app-shell/loaders.js` |
+|  | SQL editor highlighting | `js/app-shell/sql-highlight.js` |
 |  | Warehouse import | `js/app-shell/databricks-connect.js` |
 | Validation layers | Orchestrator | `js/validation/validation.js` |
 |  | Standalone layer modules | `js/validation/categorical-consistency.js`, `js/validation/cross-column-consistency.js`, `js/validation/physiological-plausibility.js`, `js/validation/upper-bound-sanity.js`, `js/validation/missingness-detective.js`, `js/validation/missingness.js` |
 |  | Reinterpretation & context | `js/validation/domain-physics.js`, `js/validation/expected-range.js` |
+|  | Healthcare standards bridge | `js/validation/health-standards.js` |
+|  | Domain-pack plugin architecture | `js/packs/extension-points.js`, `js/packs/pack-network-guard.js`, `js/packs/pack-registry.js`, `js/packs/builtin/none.pack.js`, `js/packs/builtin/healthcare.pack.js`, `js/packs/builtin/retail.pack.js`, `js/packs/builtin/finance.pack.js`, `js/packs/builtin/omop.pack.js`, `js/packs/builtin/fhir.pack.js` |
 | Anomaly & outlier detection | Detectors | `js/anomaly/isolation-forest.js`, `js/anomaly/ondevice-ml.js`, `js/anomaly/predictive-anomaly.js` |
 |  | Baselining & process control | `js/anomaly/entity-baseline.js`, `js/anomaly/spc-control.js` |
 |  | Triage | `js/anomaly/active-learning.js` |
@@ -162,6 +165,8 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 | Federated learning | Core & transport | `js/federated/federated-fingerprint.js`, `js/federated/federated-learning.js`, `js/federated/federated-transport.js` |
 | Provenance, audit & trust | Chain of custody | `js/provenance/provenance.js`, `js/provenance/assumption-ledger.js` |
 |  | Shareable artifacts | `js/provenance/validation-receipt.js`, `js/provenance/selective-disclosure-proof.js`, `js/provenance/irb-mode.js`, `js/provenance/peer-review.js` |
+|  | Portable Receipts — per-artifact lineage stamp | `js/provenance/portable-receipt.js` |
+|  | Provenance Packet — data blame + de-identification verifier | `js/provenance/data-blame.js`, `js/provenance/deidentification-verifier.js` |
 | Privacy & synthetic data | DP export & synthesis | `js/privacy/privacy-budget.js`, `js/privacy/synthetic-twin.js`, `js/privacy/synthetic-adversarial.js` |
 | Simulation & time travel | What-if & history | `js/simulation/digital-twin.js`, `js/simulation/time-travel-diff.js`, `js/simulation/time-machine.js` |
 | Narrative & language models | Story & LLM | `js/narrative/story.js`, `js/narrative/ondevice-llm.js` |
@@ -174,8 +179,18 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 | Build tooling & feature flags | Build feature flags | `js/build/build-flags.js` |
 | Teaching & context | Teach-As-You-Clean micro-lessons | `js/teaching/micro-lessons.js` |
 |  | Community domain-pack sharing | `js/teaching/community-pack.js` |
+| Conversational pack builder | Data-grounded question generator | `js/agents/question-generator-agent.js` |
+|  | "I don't know" resolution engine | `js/agents/uncertainty-resolver-agent.js` |
+|  | Local peer-sourced pack index | `js/packs/local-pack-index.js` |
+|  | Guided pack builder | `js/agents/pack-builder-agent.js` |
+|  | Guided pack builder — Validate-tab UI wiring | `js/agents/conversational-pack-ui.js` |
+| Validation layers | Local Analysis Contract | `js/validation/analysis-contract.js` |
+| Meeting scribe | Meeting note grounding agent | `js/agents/meeting-scribe-agent.js` |
+|  | Meeting scribe — Meeting-tab UI wiring | `js/agents/meeting-scribe-ui.js` |
+|  | Chart-anchored meeting decision ledger (pure logic) | `js/agents/meeting-decision-ledger.js` |
+|  | Meeting decision ledger — Meeting-tab browse/save UI wiring | `js/agents/meeting-decision-ledger-ui.js` |
 
-_34 capabilities across 20 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
+_49 capabilities across 22 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
 <!-- CAPABILITY_TABLE_END -->
 
 ## Known Simplifications
