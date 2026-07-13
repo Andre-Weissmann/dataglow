@@ -561,6 +561,64 @@ repo changes — [https://www.perplexity.ai/computer/a/dataglow-proof-room-conce
 
 ---
 
+## Shipped (dark, flag off): AI Touch Ledger
+
+**One sentence:** a tamper-evident, hash-chained log of every time an AI model actually
+touches a dataset during Story generation — which model, whether the call stayed on-device
+or left the browser, which fields/columns it was shown, and what human action triggered it
+— so "was my data ever sent to an external AI provider, and when" has a real, exportable
+answer instead of a policy promise.
+
+**Why it fits DataGlow:** the Story Engine is the one place in the app where a query result's
+real column values can leave the browser (external providers: OpenAI/Anthropic/Gemini/
+Perplexity), and until this concept nothing recorded that fact anywhere the user could see or
+export. It reuses the EXACT `sha256Hex` primitive from `js/provenance/provenance.js` — no new
+crypto — and mirrors the Assumption Ledger's summarize/export contract, so it slots into the
+existing Provenance/Trust surface rather than inventing a new one.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — pure primitive, no wiring.** (DONE —
+   [#201](https://github.com/Andre-Weissmann/dataglow/pull/201) — `js/provenance/
+   ai-touch-ledger.js`: `createTouchLedger()` factory exposing `logTouch(touch)` (async, never
+   throws — malformed input becomes a `rejected:true` entry), `getEntries()`, `clear()`;
+   `verifyTouchLedger()` re-derives every entry's hash and detects tamper/delete/reorder;
+   `summarizeTouchLedger()`/`exportTouchLedger()` (json/markdown/text). 31/31 tests. Behind the
+   new `aiTouchLedger` flag, default OFF. Module only — nothing in the app imported it yet.)
+2. **Batch 2 — wire into the Story Engine + Proof Room.** (DONE —
+   [#206](https://github.com/Andre-Weissmann/dataglow/pull/206) — `js/narrative/story.js`
+   gained a private `logStoryTouch()` helper called from inside `generateStory()`, injected via
+   `opts.touchLedger` (DI, same pattern as `opts.ondeviceGenerate`, so `story.js` still never
+   imports the ledger module directly). Logs an on-device touch only on real on-device success;
+   logs an external touch on BOTH external success and external failure-AFTER-send (the request
+   body, containing the real query-result columns, already left the browser before a non-OK
+   response triggered the local fallback — not logging that would misrepresent what actually
+   happened); never logs for rule-based/no-key paths that never attempt a network call.
+   `js/app-shell/main.js` holds one lazily-created singleton, only populated when the flag is on,
+   plus a new panel (`renderAiTouchLedgerPanel`/`initAiTouchLedgerPanel`, modeled on the
+   Assumption Ledger panel) in a new `#ai-touch-ledger-wrap` block in `index.html`'s Story tab.
+   `js/provenance/proof-room.js` gained a sixth composed step, ready purely based on the flag
+   (independent of dataset/validation state). New `test/ai-touch-ledger-story-wiring.test.mjs`
+   (25/25) plus `test/proof-room.test.mjs` updated for the 6th step (38/38, was 33). Capability-
+   map updated, 0 drift. All 35 CI jobs green including `tauri-smoke`. Flag-off path verified
+   byte-for-byte unchanged: `touchLedger` is `undefined` in `opts` when the flag is off, so
+   `logStoryTouch()` early-returns before doing anything.)
+
+**Shipped, dark behind `aiTouchLedger` (default `false`).** Both batches are done — the full
+feature (primitive + real wiring + UI + Proof Room step) exists in `main` today, but stays
+inert for every user until the flag is separately, explicitly enabled. Enabling it was
+intentionally deferred as its own later confirmed action, per this repo's standing
+build/merge-vs-enable convention.
+
+**Open question for a future session:** confirm with the user whether "Source Convergence"
+(built in parallel this same window — [#203](https://github.com/Andre-Weissmann/dataglow/pull/203)/
+[#204](https://github.com/Andre-Weissmann/dataglow/pull/204), `js/validation/source-convergence.js`,
+flag `sourceConvergence`) is the "convergence layer" they asked about earlier. These are NOT the
+same concept: AI Touch Ledger is AI-activity provenance/audit (did an AI model see this data, and
+did it leave the browser); Source Convergence is cross-table/N-way data consistency (do multiple
+loaded sources agree on a shared fact about the same real-world entity).
+
+---
+
 ## Test findings (2026-07-12 run — "Test DataGlow Platform" program)
 
 A full research + rubric + hands-on live test + architecture brainstorm pass was run against DataGlow
