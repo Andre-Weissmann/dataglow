@@ -40,6 +40,15 @@ land — it consistently saves more time than it costs:
    and which files you expect to touch. A few lines is enough. This is a
    checkpoint against scope creep and accidental behavior changes — if the plan
    and the diff diverge, one of them is wrong.
+4. **If you hit a bug, error, or a real fork-in-the-road decision, check the
+   [`debug-log-tree`](./.claude/skills/debug-log-tree/SKILL.md) skill before
+   re-diagnosing from scratch.** It searches `docs/tech-debt-tracker.md`, git/PR
+   history, and past Perplexity Computer sessions for whether this exact problem
+   (or something adjacent) was already hit, fixed, or deliberately rejected —
+   then has you log the outcome so the next session doesn't repeat the work.
+   This is separate from step 1's overlap check: that one is about *duplicate
+   features* before you start; this one is about *repeated debugging* once
+   something breaks mid-session.
 
 Keep the plan proportionate: a one-line typo fix does not need a paragraph.
 
