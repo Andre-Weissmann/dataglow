@@ -38,7 +38,7 @@ on:
 
 jobs:
   crucible:
-    name: The Crucible (typed handoff contract + adversarial packs + read-only UI + revert proposals)
+    name: The Crucible (typed handoff contract + adversarial packs + read-only UI + revert proposals + orchestration)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,3 +51,4 @@ jobs:
       - run: npm run test:cruciblepacks
       - run: npm run test:crucibleui
       - run: npm run test:reverteligibility
+      - run: npm run test:crucibleorchestration

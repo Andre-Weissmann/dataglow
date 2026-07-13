@@ -15,6 +15,11 @@ export const state = {
   lastQueryResult: null,   // { columns, rows }
   queryHistory: [],        // for Historical Drift Detector
   validationResults: {},   // layerId -> result
+  // Latest Crucible orchestration run (RAM only, wiped on reload). Populated
+  // after a cleaning fix when the crucibleOrchestration flag is on; read by the
+  // Crucible tab to show live adversarial-pack results. See
+  // js/validation/crucible-orchestrator.js.
+  latestCrucibleRun: null,
   settings: {
     // Default to the private, in-browser small model (no API key, no upload).
     // If the browser lacks WebGPU, the Story tab transparently uses the offline
