@@ -420,8 +420,13 @@ trust weight, a 7-column coverage matrix across all 6, and a verdict panel match
 above. Verified clean at both viewports (desktop source-rail grid fixed from an original overflow at 6
 cards; a swipe hint was added for the wide coverage table on mobile).
 
+**Status: all 3 batches shipped, all dark.** As of 2026-07-12, the full concept is built and merged to
+main, but every flag below still defaults to `false` — nothing is visible or active for real users until
+an explicit, separately-confirmed flag flip.
+
 **Build batches (in order, each its own PR):**
-1. **Batch 1 — pure convergence engine, no UI, no ingestion wiring.** (THIS PR —
+1. **Batch 1 — pure convergence engine, no UI, no ingestion wiring.**
+   ([#203](https://github.com/Andre-Weissmann/dataglow/pull/203), merged —
    `js/validation/source-convergence.js`: `buildConvergenceGraph(sources)` builds the join graph +
    connected components including transitive reachability; `computeConvergenceClusters(graph, sources)`
    groups rows into same-entity clusters with a coverage pattern and per-column agree/conflict
@@ -429,15 +434,26 @@ cards; a swipe hint was added for the wide coverage table on mobile).
    conflict to the highest-trust source only when the top-two trust margin ≥ threshold, else escalates
    — e.g. the mockup's Roster·Adj 0.75 vs CMS Elig. 0.65 → margin 0.10 → escalate; and
    `summarizeConvergence(clusters)` renders "41 of 2,987 joined clusters need a human decision — 2,946
-   auto-resolved by trust weight." Pure, DOM/DuckDB/network-free, never throws. Ships DARK behind the
-   new `sourceConvergence` flag (default OFF) — nothing in the app imports it, so every existing path is
-   byte-for-byte unchanged.)
-2. **Batch 2 — ingestion wiring.** NOT STARTED. Feed real loaded sources (Excel, API, and site
-   ingestion) and their inferred/declared join keys into the engine, so convergence runs against the
-   datasets a user actually loaded rather than test fixtures.
-3. **Batch 3 — UI.** NOT STARTED. Surface the convergence graph, coverage patterns, and the
-   escalate-for-human-review queue in the Validate/Trust surface, reusing the Data Diplomacy two-key
-   approval UX for the conflicts the engine escalates.
+   auto-resolved by trust weight." Pure, DOM/DuckDB/network-free, never throws. 18 tests. Ships DARK
+   behind the `sourceConvergence` flag, default `false`.)
+2. **Batch 2 — ingestion adapters.** ([#204](https://github.com/Andre-Weissmann/dataglow/pull/204),
+   merged — `js/validation/source-convergence-ingestion.js`: `adaptExcelWorkbook` (one source per
+   tab), `adaptApiSource`/`adaptSiteExport` (shared defensive JSON unwrapping + provenance),
+   `inferJoinKeys`, `assignDefaultTrust`, `toEngineSources`. 24 tests including end-to-end integration
+   proving adapter output feeds straight into Batch 1's engine. Ships DARK behind
+   `sourceConvergenceIngestion`, default `false`.)
+3. **Batch 3 — UI wiring.** ([#205](https://github.com/Andre-Weissmann/dataglow/pull/205), merged —
+   new Convergence tab, absent from the DOM (not just CSS-hidden) when its flag is off. Source rail,
+   coverage matrix with Resolved/Escalate pills, verdict/summary banner, and click-to-expand
+   escalation detail showing the conflicting values, sources, and trust margin. Honest empty state
+   when no sources are loaded — no fabricated demo numbers. Assigned to the Trust stage in the Command
+   Deck sidebar alongside Validate/Diff/Meeting/Diplomacy/Proofroom. 20 tests. Ships DARK behind
+   `sourceConvergenceUI`, default `false`.)
+
+**To go live:** each of the 3 flags (`sourceConvergence`, `sourceConvergenceIngestion`,
+`sourceConvergenceUI`) needs its own separate, explicitly confirmed flip to `true` in
+`flags.manifest.json` — per this repo's standing rule, enabling is never bundled with the build/merge
+step that shipped it dark.
 
 ---
 
