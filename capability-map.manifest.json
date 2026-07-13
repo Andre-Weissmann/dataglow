@@ -640,6 +640,28 @@
       ]
     },
     {
+      "id": "rooms-transport-adapter",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "DataGlow Rooms",
+      "name": "Real signaling + data-channel adapters (Batch 4 of 4)",
+      "files": [
+        "js/rooms/room-transport-adapter.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rooms/room-transport-adapter.js",
+          "name": "createGithubRoomSignaling"
+        },
+        {
+          "file": "js/rooms/room-transport-adapter.js",
+          "name": "createRoomWebRTCTransport"
+        }
+      ]
+    },
+    {
       "id": "data-diplomacy-claim",
       "platforms": [
         "browser",
