@@ -109,6 +109,36 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Source Convergence (Truth Network, Batch 3 of 3, final) — the Convergence tab UI
+
+The first VISIBLE surface for the Truth Network: a flag-gated "Convergence" tab
+that wires Batch 1's pure engine (`js/validation/source-convergence.js`) and
+Batch 2's ingestion adapters (`js/validation/source-convergence-ingestion.js`)
+into a real UI, inventing NO convergence logic of its own. New module
+`js/validation/source-convergence-ui.js` follows the project's pure-builder /
+thin-renderer split (like `js/rooms/room-ui.js` and `js/diplomacy/diplomacy-ui.js`):
+the pure, DOM-free, never-throwing `buildConvergenceView(adapterResults, opts)`
+runs the whole pipeline (`toEngineSources` → `buildConvergenceGraph` →
+`computeConvergenceClusters` → `resolveClusterWithTrust` per conflicting cluster →
+`summarizeConvergence`) and returns a DOM-free model (source rail, coverage matrix,
+verdict, escalate list) with an honest `isEmpty:true` when no usable sources load —
+never a fabricated demo. `buildSourceCardModel`, `sourceKindBadge`, `formatTrust`,
+`buildEscalationModel`, `shouldOfferConvergence`, and the pure `toggleExpanded`
+click-through transition are all Node-testable; they are split from the browser-only
+renderer `mountConvergence`, which owns the two affordances Batch 2 deferred —
+reading a file via the app's global `XLSX` and a user-initiated client-side
+`fetch()` — each producing only a LOCAL summary (zero-upload/local-first holds).
+
+Wired into `js/app-shell/main.js` (`renderConvergenceTab` from `switchTab`,
+filtered out of `renderTabBar` when the flag is off, so the tab is ABSENT from the
+DOM rather than CSS-hidden); `convergence` added to `state.tabOrder` and the
+grouped-nav 'validate' mode. Ships DARK behind the new OFF-by-default
+`sourceConvergenceUI` flag — with it off the app is byte-for-byte unchanged, and
+Batch 1/2 public APIs are untouched. Promoting the
+`sourceConvergence`/`sourceConvergenceIngestion`/`sourceConvergenceUI` trio to ON
+is separate future work. Tested by `test/source-convergence-ui.test.mjs`
+(`npm run test:sourceconvergenceui`, pure Node per the `room-ui` precedent).
+
 ### Query Memory (Batch 1) — per-run fingerprint + author/timestamp log
 
 Fingerprints every SQL/Python/R/Metric Studio run and logs who/when, so a later

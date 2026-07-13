@@ -77,3 +77,18 @@ those are the ones the index calls out as "standalone layer modules."
   SheetJS `XLSX.read` in `js/app-shell/loaders.js`) and the user-initiated client-side `fetch()`
   live in the UI batch. Never throws; ships dark behind the `sourceConvergenceIngestion` flag
   (Batch 2 = adapters only; UI wiring is Batch 3).
+- `js/validation/source-convergence-ui.js` — **Source Convergence UI (Truth Network, Batch 3,
+  final)**: the first VISIBLE surface — a flag-gated "Convergence" tab that wires the Batch 1
+  engine and Batch 2 adapters into a real UI, inventing no convergence logic of its own. The pure,
+  Node-testable model builders — `buildConvergenceView` runs the whole pipeline (`toEngineSources`
+  → `buildConvergenceGraph` → `computeConvergenceClusters` → `resolveClusterWithTrust` per cluster
+  → `summarizeConvergence`) and returns a DOM-free model (source rail, coverage matrix, verdict,
+  escalate list); `buildSourceCardModel`, `sourceKindBadge`, `formatTrust`, `buildEscalationModel`,
+  and the pure `toggleExpanded` click-through state transition — are split from the browser-only
+  renderer `mountConvergence`, exactly like `js/rooms/room-ui.js`. The renderer owns the two
+  browser affordances Batch 2 deferred: reading a file via the app's global `XLSX`, and a
+  user-initiated client-side `fetch()`. Wired into `js/app-shell/main.js` (`renderConvergenceTab`
+  from `switchTab`, filtered out of `renderTabBar` when the flag is off). Renders an honest empty
+  state until real sources load; never fabricates demo numbers. Zero-upload/local-first and never
+  throws; ships dark behind the `sourceConvergenceUI` flag (Batch 3 = UI only; promoting the trio
+  to ON is separate future work).

@@ -46,6 +46,7 @@ const TAB_TO_GROUP = {
   meeting: 'automate',
   diplomacy: 'validate',
   proofroom: 'validate',
+  convergence: 'validate',
 };
 
 /**

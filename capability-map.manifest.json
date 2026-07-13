@@ -273,6 +273,24 @@
       ]
     },
     {
+      "id": "source-convergence-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "Source Convergence UI (Truth Network, Batch 3)",
+      "files": [
+        "js/validation/source-convergence-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/source-convergence-ui.js",
+          "name": "buildConvergenceView"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",

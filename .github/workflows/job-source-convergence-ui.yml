@@ -1,0 +1,32 @@
+# ============================================================
+# DATAGLOW — CI job: Source Convergence UI (Truth Network, Batch 3 of 3, final)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the pure-logic suite behind the Source Convergence UI
+# (js/validation/source-convergence-ui.js): shouldOfferConvergence() flag gate,
+# buildConvergenceView() empty-state + end-to-end pipeline (feeding real
+# adaptExcelWorkbook()/adaptApiSource() output through Batch 1's engine),
+# buildSourceCardModel()/sourceKindBadge()/formatTrust() view-model builders,
+# and the pure toggleExpanded() click-through state transition. The pure builders
+# import no DOM (the browser-only renderer mountConvergence is left to the app),
+# so plain `node` runs the suite — same shape as the Batch 1/2 Source Convergence
+# jobs and the room-ui precedent.
+
+name: Source Convergence UI (Truth Network B3)
+
+on:
+  workflow_call:
+
+jobs:
+  source-convergence-ui:
+    name: Source Convergence UI (flag gate + view-model builders + click-through)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sourceconvergenceui
