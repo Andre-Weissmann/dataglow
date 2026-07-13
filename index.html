@@ -608,6 +608,26 @@
         </div>
       </div>
 
+      <div id="denial-profiler-wrap" style="display:none; margin-top:var(--space-6);" class="card">
+        <div style="padding:var(--space-4);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-2);">
+            <div class="sidebar-heading">Denial Root-Cause Profiler (healthcare claims)</div>
+            <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
+              <label style="font-size:var(--text-xs); color:var(--color-text-faint);" title="Editable estimate — your average cost to rework one flagged claim. Not a DATAGLOW guarantee.">$ / flagged row
+                <input type="number" id="denial-cost-input" value="118" min="0" step="1" style="width:70px; font-size:var(--text-xs); padding:4px 6px; border:1px solid var(--color-divider); border-radius:6px; background:var(--color-surface); color:var(--color-text);" data-testid="input-denial-cost">
+              </label>
+              <button class="btn btn-primary" id="btn-denial-run" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-denial-run">Run Profiler</button>
+              <button class="btn btn-secondary" id="btn-denial-export" style="font-size:var(--text-xs); padding:6px 10px;" data-testid="button-denial-export" title="Export the signed denial-profile attestation (dataset structure + bucketed results + SHA-256 signature).">Export Attestation</button>
+            </div>
+          </div>
+          <p style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-3);">
+            Buckets likely claim-denial risk into five canonical categories — eligibility/registration, coding, duplicate/near-duplicate, provider/NPI, and coordination of benefits — grading only the columns your data actually has and clearly stating what it couldn't check. Heuristic triage for a human review, not payer adjudication. Runs entirely in-browser against DuckDB-WASM; no upload.
+          </p>
+          <div id="denial-cost-estimate" style="margin-bottom:var(--space-3);"></div>
+          <div id="denial-report"></div>
+        </div>
+      </div>
+
       <details id="validate-advanced-peer-review" data-testid="validate-advanced-peer-review" open style="margin-top:var(--space-6);">
         <summary style="cursor:pointer; font-size:var(--text-sm); font-weight:600; color:var(--color-text-muted); margin-bottom:var(--space-2);">Advanced options — Peer Review Mode</summary>
       <div id="peer-review-wrap" class="card">

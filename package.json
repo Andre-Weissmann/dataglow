@@ -82,6 +82,8 @@
     "test:proofroom": "node test/proof-room.test.mjs",
     "test:goldenloadrace": "node test/golden-dataset-load-race.test.mjs",
     "test:synthpassport": "node test/synthetic-data-passport.test.mjs",
+    "test:denialprofile": "node test/denial-root-cause.test.mjs",
+    "test:costofbaddata": "node test/cost-of-bad-data.test.mjs",
     "test:living-manifest": "node test/living-manifest.test.mjs",
     "test:agentsdrift": "node test/agents-md-drift.test.mjs",
     "test:pytruncation": "node --import ./test/duckdb-loader-hook.mjs test/python-bridge-truncation.test.mjs",

@@ -879,6 +879,17 @@
       ]
     },
     {
+      "id": "provenance-packet-batch-2",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier",
+      "files": ["js/provenance/denial-root-cause.js", "js/provenance/cost-of-bad-data.js"],
+      "symbols": [
+        { "file": "js/provenance/denial-root-cause.js", "name": "buildDenialReport" },
+        { "file": "js/provenance/cost-of-bad-data.js", "name": "estimateCostOfBadData" }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",
