@@ -83,6 +83,8 @@ jobs:
     uses: ./.github/workflows/job-onecanvas-phase1.yml
   semantic-layer:
     uses: ./.github/workflows/job-semantic-layer.yml
+  agent-action-firewall:
+    uses: ./.github/workflows/job-agent-action-firewall.yml
 
   provenance-packet:
     uses: ./.github/workflows/job-provenance-packet.yml
