@@ -86,6 +86,7 @@ import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
 import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
 import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
+import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 import * as firewall from '../agents/agent-action-firewall.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -148,6 +149,7 @@ const TAB_META = {
   diplomacy: { label: 'Diplomacy', icon: 'handshake' },
   proofroom: { label: 'Proof Room', icon: 'shield' },
   convergence: { label: 'Convergence', icon: 'git-merge' },
+  crucible: { label: 'Crucible', icon: 'shield' },
 };
 
 const ICONS = {
@@ -222,11 +224,17 @@ function renderTabBar() {
   // shipped default) it is never added to the bar, never a dead click target,
   // and #panel-convergence stays empty (see renderConvergenceTab). It gates ONLY
   // this UI tab — never the Batch 1/2 engine flags it builds on.
+  // The 'crucible' tab follows the same dark-by-default gate: with the
+  // crucibleValidatorUI flag off (its shipped default) it is never added to the
+  // bar, never a dead click target, and #panel-crucible stays empty (see
+  // renderCrucibleTab). It gates ONLY this read-only UI tab — never Batch 1's
+  // separate crucibleValidator logic flag.
   const visibleTabOrder = state.tabOrder.filter((tabId) =>
     (tabId !== 'meeting' || isEnabled('meetingScribe'))
     && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy'))
     && (tabId !== 'proofroom' || isEnabled('proofRoom'))
-    && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI')));
+    && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI'))
+    && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -305,6 +313,7 @@ function switchTab(tabId) {
   if (tabId === 'diplomacy') renderDiplomacyTab();
   if (tabId === 'proofroom') renderProofRoomTab();
   if (tabId === 'convergence') renderConvergenceTab();
+  if (tabId === 'crucible') renderCrucibleTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -2862,6 +2871,34 @@ function renderConvergenceTab() {
   if (!convergenceMounted) {
     convergenceHandle = mountConvergence({ host, onToast: toast });
     convergenceMounted = true;
+  }
+}
+
+// ============================================================
+// The Crucible (Batch 2 of 3) — Crucible tab wiring
+// ============================================================
+// Mounts the read-only Crucible surface (js/validation/crucible-ui.js) which
+// presents Batch 1's already-merged typed handoff contract + adversarial-pack
+// output. Gated by ONE flag, crucibleValidatorUI (off by default): with it off
+// the tab is never in the bar (see renderTabBar) and this function clears/resets
+// the panel. It adds NO data-mutation path — no live proposal is fed through it
+// yet (that + apply/revert are future batches), so it renders an honest empty
+// state. Batch 1's separate crucibleValidator logic flag is never touched here.
+let crucibleMounted = false;
+let crucibleHandle = null;
+function renderCrucibleTab() {
+  const host = $('#crucible-body');
+  if (!host) return;
+  if (!isEnabled('crucibleValidatorUI') || !shouldOfferCrucible({ enabled: true })) {
+    host.innerHTML = '';
+    if (crucibleHandle) { crucibleHandle.destroy(); }
+    crucibleMounted = false;
+    crucibleHandle = null;
+    return;
+  }
+  if (!crucibleMounted) {
+    crucibleHandle = mountCrucible({ host, onToast: toast });
+    crucibleMounted = true;
   }
 }
 

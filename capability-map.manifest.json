@@ -314,6 +314,24 @@
       ]
     },
     {
+      "id": "crucible-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "The Crucible: read-only UI (Batch 2)",
+      "files": [
+        "js/validation/crucible-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/crucible-ui.js",
+          "name": "buildPipelineModel"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",
