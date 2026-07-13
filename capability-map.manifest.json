@@ -291,6 +291,29 @@
       ]
     },
     {
+      "id": "crucible-validator",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "The Crucible: adversarial validator (Batch 1)",
+      "files": [
+        "js/validation/crucible-contract.js",
+        "js/validation/crucible-adversarial-packs.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/crucible-contract.js",
+          "name": "buildCleaningResult"
+        },
+        {
+          "file": "js/validation/crucible-adversarial-packs.js",
+          "name": "runAdversarialSuite"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",
