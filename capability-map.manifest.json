@@ -742,9 +742,10 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Query Memory (Batch 1 — fingerprint + log)",
+      "name": "Query Memory (Batch 2 — SQL/Python/R wiring + \"seen before\" badge)",
       "files": [
-        "js/provenance/query-memory.js"
+        "js/provenance/query-memory.js",
+        "js/provenance/query-memory-ui.js"
       ],
       "symbols": [
         {
@@ -754,6 +755,14 @@
         {
           "file": "js/provenance/query-memory.js",
           "name": "createQueryMemoryLog"
+        },
+        {
+          "file": "js/provenance/query-memory-ui.js",
+          "name": "buildQueryMemoryBadgeModel"
+        },
+        {
+          "file": "js/provenance/query-memory-ui.js",
+          "name": "renderQueryMemoryBadge"
         }
       ]
     },

@@ -1,5 +1,5 @@
 # ============================================================
-# DATAGLOW — CI job: Query Memory (Batch 1 — fingerprint + log)
+# DATAGLOW — CI job: Query Memory (Batch 1 + Batch 2)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
@@ -10,8 +10,13 @@
 #     entry builder, the seen/count/authors summary, and createQueryMemoryLog's
 #     record/lookup/history against an in-memory fake store mirroring the
 #     memory-store.js contract (no real IndexedDB needed).
-# Pure JS, no DuckDB/browser needed. UI wiring is deferred to a later batch;
-# ships behind the OFF-by-default `queryMemory` flag.
+#   - test:querymemoryui — batch 2: the PURE, DOM-free badge view-model
+#     (js/provenance/query-memory-ui.js) — buildQueryMemoryBadgeModel's honest
+#     "new" vs "seen before" phrasing, singular/plural author+count wording,
+#     and never-throws-on-junk behavior. SQL/Python/R wiring itself
+#     (recordAndRenderQueryMemory in js/app-shell/main.js) is exercised via the
+#     e2e smoke suite, not here — this job stays pure JS, no DuckDB/browser.
+# Ships behind the OFF-by-default `queryMemory` flag.
 
 name: Query Memory
 
@@ -20,7 +25,7 @@ on:
 
 jobs:
   query-memory:
-    name: Query Memory (pure fingerprint + log, batch 1)
+    name: Query Memory (pure fingerprint + log + badge, batch 1+2)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,3 +35,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:querymemory
+      - run: npm run test:querymemoryui
