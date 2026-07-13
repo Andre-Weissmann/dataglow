@@ -48,8 +48,11 @@
 import { el } from '../app-shell/utils.js';
 import {
   tagSegmentsWithContext, buildActionItem, isActionItemResolved, resolveActionItem, buildMeetingNote,
+  buildPushbackCandidate,
 } from './meeting-scribe-agent.js';
 import { isSpeechCaptureAvailable, startLiveCapture } from './live-transcript-capture.js';
+import { resolve } from './uncertainty-resolver-agent.js';
+import { buildDebateDiagnostics } from './debate-diagnostics.js';
 
 /**
  * The single gate the caller checks before mounting anything for this tab.
@@ -167,8 +170,14 @@ export function mountMeetingScribe(opts = {}) {
     if (note.pushbackMoments.length === 0) {
       container.appendChild(el('p', { style: 'color:var(--color-text-faint); font-size:var(--text-sm);' }, 'None detected.'));
     } else {
+      // Iterate the REAL taggedSegments (not note.pushbackMoments, which are
+      // fresh copies from buildMeetingNote) so a re-check can attach its result
+      // onto the SAME object getState() exposes to the Decision Ledger — see
+      // onRecheck. buildMeetingNote's pushbackMoments filter is identical, so
+      // this is the same set in the same order, just by reference.
+      const pushbackSegments = taggedSegments.filter((s) => s.pushback && s.pushback.isPushback);
       container.appendChild(el('ul', { style: 'margin:0; padding-left:var(--space-4); line-height:1.6;' },
-        note.pushbackMoments.map((s) => el('li', {}, `"${s.text}" — matched "${s.matched}"`))));
+        pushbackSegments.map((s, idx) => renderPushbackItem(s, idx))));
     }
 
     container.appendChild(sectionLabel(`Data requests (${note.dataRequests.length})`));
@@ -252,6 +261,151 @@ export function mountMeetingScribe(opts = {}) {
     capturing = false;
     render();
     onToast('Live capture stopped', 'success');
+  }
+
+  // ---- Pushback moment: quote + a secondary "Re-check this number" action ----
+  // The re-check routes the pushback through the EXISTING on-device uncertainty
+  // resolver (uncertainty-resolver-agent.js `resolve`) — closing the gap Part 1's
+  // comments named ("pushback should trigger the resolver's re-run"). This is
+  // READ-ONLY: it only displays a re-check result for the analyst to read; it
+  // writes to no pack, rule, dataset, or ledger and auto-applies nothing.
+  function renderPushbackItem(s, idx) {
+    const resultHost = el('div', {
+      'data-testid': `meeting-scribe-recheck-result-${idx}`,
+      style: 'margin:var(--space-2) 0 var(--space-1);',
+    });
+    const recheckBtn = el('button', {
+      // Secondary weight — this is a per-item action, lighter than Analyze/Clear.
+      class: 'btn btn-secondary', 'data-testid': `meeting-scribe-recheck-${idx}`,
+      style: 'font-size:var(--text-xs); margin-left:var(--space-2);',
+      onclick: () => onRecheck(s, resultHost, recheckBtn),
+    }, 'Re-check this number');
+    return el('li', { 'data-testid': `meeting-scribe-pushback-${idx}` }, [
+      el('span', {}, `"${s.text}" — matched "${s.pushback.matched}"`),
+      recheckBtn,
+      resultHost,
+    ]);
+  }
+
+  async function onRecheck(segment, resultHost, btn) {
+    resultHost.innerHTML = '';
+    btn.disabled = true;
+    resultHost.appendChild(el('p', {
+      'data-testid': 'meeting-scribe-recheck-loading',
+      style: 'color:var(--color-text-muted); font-size:var(--text-sm); margin:0;',
+    }, 'Re-checking on your device…'));
+    let resolution;
+    try {
+      // Pure candidate from the tagged segment; the resolver runs entirely
+      // on-device (no LLM injected here → deterministic Step-C debate).
+      resolution = await resolve(buildPushbackCandidate(segment));
+    } catch (e) {
+      resultHost.innerHTML = '';
+      btn.disabled = false;
+      resultHost.appendChild(el('p', {
+        'data-testid': 'meeting-scribe-recheck-error',
+        style: 'color:var(--color-text-muted); font-size:var(--text-sm); margin:0;',
+      }, "Couldn't re-check this right now."));
+      return;
+    }
+    btn.disabled = false;
+    // Attach a small PLAIN summary of the resolution onto the same tagged
+    // segment object getState() exposes, so the Decision Ledger can pick it up
+    // with zero new plumbing (see buildLedgerEntriesFromMeeting). We keep only
+    // the four flat fields the ledger needs — NOT the full debate transcript.
+    // `segment` is the real taggedSegments element (renderResultsInto iterates
+    // the live refs, not buildMeetingNote's copies), so this mutation is visible
+    // to getState(). Read-only w.r.t. the dataset: this writes nothing to a
+    // pack, rule, or ledger store here — it only annotates the in-memory segment.
+    segment.recheckResolution = {
+      resolvedBy: resolution.resolvedBy,
+      suggestion: resolution.suggestion,
+      reasoning: resolution.reasoning,
+      confidence: resolution.confidence,
+    };
+    renderRecheckResult(resolution, resultHost);
+  }
+
+  function renderRecheckResult(resolution, resultHost) {
+    resultHost.innerHTML = '';
+    const pct = Math.round(Math.max(0, Math.min(1, resolution.confidence || 0)) * 100);
+    // Step D pattern: ONE unified suggestion + reasoning + confidence, always shown.
+    resultHost.appendChild(el('div', {
+      'data-testid': 'meeting-scribe-recheck-suggestion',
+      style: 'font-size:var(--text-sm); line-height:1.5; padding:var(--space-2); border-left:2px solid var(--color-border, #ddd);',
+    }, `A second look suggests: ${resolution.suggestion}. Why: ${resolution.reasoning}. Confidence: ${pct}%.`));
+    // The SAME collapsed-by-default "Why this suggestion?" disclosure the pack
+    // builder uses — only when the resolution actually ran a debate (Step C).
+    appendReasoningDisclosure(resolution, resultHost);
+  }
+
+  // Opt-in transparency, mirroring conversational-pack-ui.js's appendReasoningDisclosure:
+  // a low-emphasis toggle that lazily builds the debate diagnostics on first
+  // expand, so the default DOM never contains the debate detail. Never shown for
+  // A/B/fallback-without-debate (buildDebateDiagnostics reports available:false).
+  // NOTE: this intentionally duplicates the pack-builder's disclosure rather than
+  // extracting a shared module — extracting cleanly would mean editing
+  // conversational-pack-ui.js (treated as read-only here). See tech-debt-tracker.md.
+  function appendReasoningDisclosure(resolution, mount) {
+    const diag = buildDebateDiagnostics(resolution);
+    if (!diag.available) return;
+    let panel = null;
+    const toggle = el('button', {
+      class: 'btn btn-secondary', 'data-testid': 'meeting-scribe-why',
+      style: 'font-size:var(--text-xs); opacity:0.85; margin-top:var(--space-2);',
+      'aria-expanded': 'false',
+      onclick: () => {
+        if (panel) {
+          const showing = panel.style.display !== 'none';
+          panel.style.display = showing ? 'none' : '';
+          toggle.setAttribute('aria-expanded', showing ? 'false' : 'true');
+          toggle.textContent = showing ? 'Why this suggestion?' : 'Hide reasoning';
+          return;
+        }
+        panel = buildDiagnosticsPanel(diag);
+        toggle.after(panel);
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.textContent = 'Hide reasoning';
+      },
+    }, 'Why this suggestion?');
+    mount.appendChild(toggle);
+  }
+
+  // Per-persona proposal + its OWN confidence, then the reconciliation math — no
+  // single collapsed trust score. Mirrors the pack-builder diagnostics panel.
+  function buildDiagnosticsPanel(diag) {
+    const kids = [el('div', {
+      style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:var(--space-2);',
+    }, 'How I reached this')];
+    if (diag.note) {
+      kids.push(el('p', {
+        'data-testid': 'meeting-scribe-budget-note',
+        style: 'margin:0 0 var(--space-2); color:var(--color-text-muted); line-height:1.5;',
+      }, diag.note));
+    }
+    if (diag.personas.length) {
+      kids.push(el('ul', {
+        'data-testid': 'meeting-scribe-personas',
+        style: 'margin:0 0 var(--space-2); padding-left:var(--space-4); line-height:1.6;',
+      }, diag.personas.map((p) => el('li', { 'data-testid': `meeting-scribe-persona-${p.role}` },
+        `${p.label} — proposed “${p.answer}” (its own confidence ${p.confidencePct}%)`))));
+    }
+    if (diag.winner) {
+      const groupMath = diag.groups.map((g) => `“${g.answer}” = ${g.totalConfidence} across ${g.count}`).join('; ');
+      const marginText = diag.groups.length > 1
+        ? `, ahead of the next option by ${diag.margin} in summed confidence`
+        : ' (the only option proposed)';
+      kids.push(el('p', {
+        'data-testid': 'meeting-scribe-reconciliation',
+        style: 'margin:0; font-size:var(--text-sm); line-height:1.5;',
+      }, `I grouped the proposals by answer and summed each group's confidence (${groupMath}). ` +
+         `Winner: “${diag.winner.answer}”, backed by ${diag.winner.agreement} of ${diag.personas.length} ` +
+         `(mean confidence ${Math.round(diag.winner.meanConfidence * 100)}%)${marginText}.`));
+    }
+    return el('div', {
+      'data-testid': 'meeting-scribe-diagnostics',
+      style: 'margin-top:var(--space-2); padding:var(--space-3); border:1px solid var(--color-border, #ddd); border-radius:6px;',
+    }, kids);
   }
 
   function onAnalyze(raw) {

@@ -98,6 +98,52 @@ export function detectDataRequest(text) {
   return { isDataRequest: !!matched, matched: matched || null };
 }
 
+// ---------- pushback → resolver candidate ----------
+
+// Category tag for a pushback candidate. Deliberately a NEW category (not
+// 'impossible'/'outlier'/etc.) so resolve() does NOT trigger Step A's
+// hard-constraint fast path — a raw meeting line has no statistic behind it —
+// and instead falls through Step A (no stat) → Step B (no peer unless supplied)
+// → Step C, the generic three-persona debate, which reasons off
+// {observation, ruleGuess} regardless of category.
+export const MEETING_PUSHBACK_CATEGORY = 'meeting-pushback';
+
+/**
+ * Build a resolver `candidate` from a tagged pushback segment so a stakeholder's
+ * "are you sure?" moment can be re-checked through the EXISTING on-device
+ * uncertainty resolver (js/agents/uncertainty-resolver-agent.js `resolve`) — the
+ * call site the Part 1 comments said "should" trigger but never had.
+ *
+ * HONESTY: there is no real numeric finding behind a raw transcript line, so this
+ * NEVER invents a statistic or claims a hard-constraint violation. `observation`
+ * quotes literally what was said; `ruleGuess` is a generic "worth a second look"
+ * placeholder, not a fabricated specific rule; `column` is whatever chart/query
+ * the segment was tagged against (or a neutral placeholder when none was
+ * captured — never guessed).
+ *
+ * Pure and synchronous — no DOM, no LLM, no network. Never mutates its input.
+ *
+ * @param {{text?:string, matched?:string|null, ts?:number, context?:{chart?:string, queryLabel?:string}|null}} segment
+ * @returns {{observation:string, ruleGuess:string, category:string, column:string}}
+ */
+export function buildPushbackCandidate(segment) {
+  const seg = segment && typeof segment === 'object' ? segment : {};
+  const text = typeof seg.text === 'string' ? seg.text.trim() : '';
+  const context = seg.context && typeof seg.context === 'object' ? seg.context : null;
+  const chart = context && typeof context.chart === 'string' ? context.chart.trim() : '';
+  const queryLabel = context && typeof context.queryLabel === 'string' ? context.queryLabel.trim() : '';
+  const column = chart !== '' ? chart : (queryLabel !== '' ? queryLabel : 'the number under discussion');
+  const observation = text !== ''
+    ? `A stakeholder pushed back on this number, saying: "${text}"`
+    : 'A stakeholder pushed back on this number.';
+  return {
+    observation,
+    ruleGuess: 'treat this as worth a second look',
+    category: MEETING_PUSHBACK_CATEGORY,
+    column,
+  };
+}
+
 // ---------- context tagging ----------
 
 /**

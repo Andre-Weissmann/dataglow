@@ -233,6 +233,59 @@ async function main() {
     ok(clearFlow.beforeEmpty === false, 'clear: the list shows entries before clearing');
     ok(clearFlow.afterEmpty === true, 'clear: the empty state returns after clearing');
     ok(clearFlow.backingLength === 0, 'clear: the injected store itself is emptied');
+
+    // ---------- 6. Re-check → save → browse: the resolution rides into the ledger ----------
+    // Analyze a transcript with a pushback line, click its on-device "Re-check
+    // this number" button, wait for the deterministic Step-C resolver to
+    // finish, THEN save to the ledger and confirm the browsed pushback entry
+    // shows the re-check outcome (Part D rendering) — proving the resolution
+    // flowed segment → getState() → buildLedgerEntriesFromMeeting → entry → UI.
+    const recheckFlow = await page.evaluate(async () => {
+      const scribeUi = await import('/js/agents/meeting-scribe-ui.js');
+      const ledgerUi = await import('/js/agents/meeting-decision-ledger-ui.js');
+      window.__recheckEntries = [];
+      const store = {
+        async appendLedgerEntries(list) { window.__recheckEntries = window.__recheckEntries.concat(list); return list.length; },
+        async getLedgerEntries() { return window.__recheckEntries.slice(); },
+        async clearLedgerEntries() { window.__recheckEntries = []; },
+      };
+
+      const scribeHost = document.createElement('div');
+      document.body.appendChild(scribeHost);
+      const scribeHandle = scribeUi.mountMeetingScribe({ host: scribeHost, onToast: () => {} });
+      const textarea = scribeHost.querySelector('[data-testid="meeting-scribe-transcript"]');
+      textarea.value = 'Why did this drop in March?';
+      scribeHost.querySelector('[data-testid="meeting-scribe-btn-analyze"]').click();
+
+      // Click the first pushback's re-check button and wait for the suggestion
+      // to render (the resolution is attached to the segment before render).
+      scribeHost.querySelector('[data-testid="meeting-scribe-recheck-0"]').click();
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline
+        && !scribeHost.querySelector('[data-testid="meeting-scribe-recheck-suggestion"]')) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      const stateHasRecheck = !!(scribeHandle.getState().taggedSegments
+        .find((s) => s.pushback && s.pushback.isPushback && s.recheckResolution));
+
+      const ledgerHost = document.createElement('div');
+      document.body.appendChild(ledgerHost);
+      ledgerUi.mountDecisionLedger({
+        host: ledgerHost, store, getCurrentMeeting: () => scribeHandle.getState(), onToast: () => {},
+      });
+      ledgerHost.querySelector('[data-testid="decision-ledger-btn-save"]').click();
+      await new Promise((r) => setTimeout(r, 60));
+
+      const stored = window.__recheckEntries.find((e) => e.kind === 'pushback');
+      return {
+        stateHasRecheck,
+        storedHasRecheck: !!(stored && stored.recheckResolution && stored.recheckResolution.suggestion),
+        recheckLineText: ledgerHost.querySelector('[data-testid="decision-ledger-recheck"]')?.textContent || '',
+      };
+    });
+    ok(recheckFlow.stateHasRecheck === true, 're-check: getState() exposes the resolution attached to the real tagged segment');
+    ok(recheckFlow.storedHasRecheck === true, 're-check: the saved pushback ledger entry carries the sanitized recheckResolution');
+    ok(/Re-checked:/.test(recheckFlow.recheckLineText), 're-check: the browse list renders the re-check outcome line (Part D)');
   } catch (err) {
     failed++;
     console.log('\n✗ FAILED: ' + (err && err.message ? err.message : err));
