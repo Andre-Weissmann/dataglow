@@ -506,6 +506,73 @@ for this feature.
 
 ---
 
+## Concept in progress: The Crucible
+
+**One sentence:** every AI agent's proposed data change now has to survive an adversarial
+"crucible" test from a second agent before it's applied — and every change that does get
+applied, human or agent, lands in a reversible ledger where a user can click any cell and
+instantly see who changed it, why, and undo it with one click.
+
+**Why this concept won this brainstorm round (2026-07-13, whole-product/revolutionary scope):**
+- Confirmed via research (`research_competitive_scale_2026-07-13.md`) that a data-quality-specific
+  adversarial/red-team validator — one agent deliberately constructing nasty edge cases to stress-test
+  a cleaning agent's output — is NOT a shipped named product anywhere surveyed (Salesforce Agentforce,
+  Palantir Foundry, Databricks, Snowflake, Microsoft, Alteryx). Genuine whitespace, not an incremental
+  feature.
+- Targets a gap even Palantir's own developer community calls out as unsolved: reverse/bidirectional
+  provenance (edit → the agent run that caused it), not just forward blame. DataGlow's local,
+  single-tenant architecture makes this cheap to build well where multi-tenant platforms can't.
+- Uses Salesforce Agentforce's most portable pattern (`@utils.transition` one-way vs `@topic`
+  round-trip) as the typed-handoff-contract model between the Cleaning Agent and the Crucible Validator.
+- Has a concrete, already-diagnosed proof case ready to test against on day one: the two AHIMA-pattern
+  gaps (name-order swap, SSN transposition) documented as uncaught by `js/cleaning/fuzzy-dedup.js` in
+  the 2026-07-12 test findings below.
+- Confirmed non-duplicative against existing repo code: `js/provenance/data-blame.js` has forward
+  blame/replay but no revert/undo action; `js/agents/agent-action-firewall.js` is pre-action gating,
+  not adversarial testing; `js/gate/` (AI Readiness Gate) is a separate, already-shipped concept.
+
+**Live desktop + mobile preview (mockup only, not the real app):** built and deployed from a standalone
+copy of DataGlow's real UI shell (not the production repo) — desktop + mobile screenshots QA'd, one
+concept-pill overflow bug found and fixed, two internal content-consistency issues in the mock
+Provenance Ledger example caught by the deploy tool's own validator and fixed. Shared with the user as
+a live link; never touched `main`.
+
+**Safety assessment (stated before the build gate, 2026-07-13):** the full concept touches a
+meaningful surface — new adversarial agent module, a typed handoff schema layered onto the existing
+provenance trail, a new UI tab, and a real revert action that mutates applied data. Split into 3
+batches/PRs rather than one shot, specifically because the revert action carries real blast-radius risk
+(silently un-reverting the wrong change) that the other two pieces don't.
+
+**Build batches (in order, each its own PR, each its own flag):**
+1. **Batch 1 — typed handoff contract + adversarial test-pack library. Pure logic, no UI, no data
+   mutation.** (DONE — [#227](https://github.com/Andre-Weissmann/dataglow/pull/227), merged into `main`
+   2026-07-13 — `js/validation/crucible-contract.js`: `buildCleaningResult()` / `buildValidationVerdict()`,
+   never-throw discipline, one-way-in/one-way-out handoff framing in comments. `js/validation/
+   crucible-adversarial-packs.js`: `nameOrderSwapPack`, `ssnTranspositionPack`, `boundaryDatePack`,
+   `impossibleValuePack`, `runAdversarialSuite()`. Deterministic fixed fixtures, no `Math.random`.
+   Integration tests run `nameOrderSwapPack` + `ssnTranspositionPack` against the REAL
+   `findFuzzyDuplicates()` and confirm both packs correctly FAIL against it — 6/6 name-order-swap and
+   6/6 SSN-transposition pairs go uncaught, empirically reconfirming the AHIMA gaps documented
+   2026-07-12 (a real gap, not a regression introduced by this PR). 43+20 new tests passing, 5/5
+   existing fuzzy-dedup regression tests still passing, 53/53 CI checks green. Ships DARK behind
+   `crucibleValidator` (default OFF, confirmed `false` on `main` post-merge); with the flag off nothing
+   in the app imports these modules, so every existing path is byte-for-byte unchanged.)
+2. **Batch 2 — Crucible UI tab (read-only surface for Batch 1's output).** NOT STARTED. New tab in the
+   tabbar, pipeline visualization (Clean Agent → Crucible Validator → Provenance Ledger), typed handoff
+   contract display, adversarial pack pass/fail log. No new data-mutation code path — pure view over
+   Batch 1's already-computed results, following the `sourceConvergenceUI`/`room-ui.js` view-model-
+   builder pattern (pure `buildXView()` functions + a thin browser-only renderer left for the e2e path).
+3. **Batch 3 — one-click revert on the Provenance Ledger.** NOT STARTED. The highest-risk piece since it
+   mutates already-applied data. Own flag, own tests, ships dark even after Batches 1-2 are enabled.
+   Builds on `js/provenance/data-blame.js`'s existing forward blame/replay machinery, adding the missing
+   revert/undo action.
+
+**Explicitly deferred, not rejected:** the full Clean → Validate → Model → Narrate orchestration pipeline
+(auto-applying only Crucible-accepted changes) is real future work but was not scoped into any of the
+three batches above — Batch 1 ships the contract types only, no orchestration layer consumes them yet.
+
+---
+
 ## Shipped: The Proof Room
 
 **One sentence:** one assembled "show your work" screen that composes DataGlow's five
