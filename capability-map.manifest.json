@@ -332,6 +332,24 @@
       ]
     },
     {
+      "id": "crucible-revert-proposals",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "The Crucible: revert proposals (Batch 3, proposal-only)",
+      "files": [
+        "js/provenance/revert-eligibility.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/revert-eligibility.js",
+          "name": "classifyRevertEligibility"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",

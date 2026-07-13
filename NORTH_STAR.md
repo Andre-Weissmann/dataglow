@@ -557,19 +557,43 @@ batches/PRs rather than one shot, specifically because the revert action carries
    existing fuzzy-dedup regression tests still passing, 53/53 CI checks green. Ships DARK behind
    `crucibleValidator` (default OFF, confirmed `false` on `main` post-merge); with the flag off nothing
    in the app imports these modules, so every existing path is byte-for-byte unchanged.)
-2. **Batch 2 — Crucible UI tab (read-only surface for Batch 1's output).** NOT STARTED. New tab in the
-   tabbar, pipeline visualization (Clean Agent → Crucible Validator → Provenance Ledger), typed handoff
-   contract display, adversarial pack pass/fail log. No new data-mutation code path — pure view over
-   Batch 1's already-computed results, following the `sourceConvergenceUI`/`room-ui.js` view-model-
-   builder pattern (pure `buildXView()` functions + a thin browser-only renderer left for the e2e path).
-3. **Batch 3 — one-click revert on the Provenance Ledger.** NOT STARTED. The highest-risk piece since it
-   mutates already-applied data. Own flag, own tests, ships dark even after Batches 1-2 are enabled.
-   Builds on `js/provenance/data-blame.js`'s existing forward blame/replay machinery, adding the missing
-   revert/undo action.
+2. **Batch 2 — Crucible UI tab (read-only surface for Batch 1's output).** (DONE —
+   [#230](https://github.com/Andre-Weissmann/dataglow/pull/230), merged into `main` 2026-07-13 —
+   `js/validation/crucible-ui.js`: the pure, Node-testable view-model builders `shouldOfferCrucible` /
+   `buildPipelineModel` (Clean Agent → Crucible Validator → Provenance Ledger, each step idle/running/done
+   + its contract fields) / `buildAdversarialPackListModel` / `buildRunLogModel` (pack pass/fail + an
+   escalation callout), split from the browser-only renderer `mountCrucible` following the
+   `sourceConvergenceUI`/`room-ui.js` pattern. New flag-gated read-only "Crucible" tab; no new
+   data-mutation code path — a pure view over Batch 1's already-computed results, rendering an honest
+   empty state (never fabricated demo numbers). Ships DARK behind `crucibleValidatorUI` (a SEPARATE flag
+   from Batch 1's `crucibleValidator`, default OFF); with the flag off the tab is never in the bar and the
+   whole app shell is byte-for-byte unchanged.)
+3. **Batch 3 — revert PROPOSALS on the provenance blame trail (proposal-only, DELIBERATELY narrowed).**
+   (DONE — [#231](https://github.com/Andre-Weissmann/dataglow/pull/231), branch
+   `feat/crucible-batch3-revert-proposals` — `js/provenance/revert-eligibility.js`: pure, never-throwing
+   `classifyRevertEligibility` / `buildRevertProposal` / `summarizeRevertProposals`, reusing
+   `normalizeBlameEntry` from `js/provenance/data-blame.js` as the single blame-entry shape. After
+   inspecting the real cleaning code (`js/cleaning/clean.js` `applyFix`), the scope was narrowed to
+   PROPOSALS ONLY: the module classifies whether a recorded fix is revert-eligible in principle and, for
+   eligible ones, emits an INERT, inspectable data description of the revert (`{ table, column, predicate,
+   restoreValue, sourceStepHash, humanDescription }`) — it emits NO executable SQL and NEVER mutates data.
+   DELETE-style fixes (`drop_rows`, `dedupe`) and aggregate-derived fills (`fill_mean`, `fill_mode`) are
+   PERMANENTLY and correctly NOT revert-eligible (rows are gone / value computed from the data at fix time
+   → naive undo would silently diverge); UPDATE-style fixes (`fill_zero`, `abs_value`, `null_out`, `trim`)
+   are eligible only when the trail actually captured usable before/after values, and anything ambiguous
+   is conservatively treated as not eligible, never fabricated. Ships DARK behind its own flag
+   `crucibleRevertProposals` (default OFF); with the flag off nothing imports the module, so every existing
+   path is byte-for-byte unchanged.)
 
-**Explicitly deferred, not rejected:** the full Clean → Validate → Model → Narrate orchestration pipeline
-(auto-applying only Crucible-accepted changes) is real future work but was not scoped into any of the
-three batches above — Batch 1 ships the contract types only, no orchestration layer consumes them yet.
+**Explicitly out of scope — live revert execution was deliberately NEVER built, not deferred to a numbered
+batch:** the original 3-batch sketch imagined Batch 3 as a real "one-click revert" that *mutates
+already-applied data*. After inspecting the real cleaning code, that was deliberately abandoned as too
+high-risk to ship blind: Batch 3 as delivered stops at inert, inspectable revert PROPOSALS. Actually
+EXECUTING a revert against live DuckDB would be brand-new, separate future work needing its own safety
+review — it is NOT an already-planned or already-numbered next batch, and nothing above should be read as
+committing to it. Separately, the full Clean → Validate → Model → Narrate orchestration pipeline
+(auto-applying only Crucible-accepted changes) also remains real future work that no batch above scoped —
+Batch 1 ships the contract types only, and no orchestration layer consumes them yet.
 
 ---
 
