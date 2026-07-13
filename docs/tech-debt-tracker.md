@@ -328,3 +328,34 @@ Newest entries go at the bottom of **Entries**.
   on top of the current main-side value, THEN appends the new entry — simply
   picking one full side and bolting on the other side's new block is not
   sufficient when a hunk modifies shared content instead of only adding to it.
+### 2026-07-12 — Merge-conflict markers can silently swallow adjacent tokens; naive duplicate-id regex false-positives on `data-testid`
+
+- **Description:** Two merge-mechanics gotchas surfaced while rebasing PR #107
+  (`feature/verified-debate`, 4 commits) onto `main`, neither a DATAGLOW product
+  bug but both worth recording so future conflict resolution catches them
+  immediately instead of by luck. (1) **A conflict marker line — especially a
+  bare `=======` — can land exactly at a hunk boundary and eat an adjacent
+  closing brace/token belonging to the "ours" side of a JS file.** In
+  `js/app-shell/main.js` this silently swallowed the closing `}` of
+  `renderObjectSpacePanel()`; removing just the 3 marker lines was not
+  sufficient — `node --check` was required to catch it (`Unexpected end of
+  input`), then `git show HEAD:<path>` was needed to find and restore the
+  elided token. Grepping for leftover `<<<<<<<`/`=======`/`>>>>>>>` markers is
+  necessary but NOT sufficient proof a JS merge resolution is correct. (2)
+  **Duplicate-DOM-id checks via a naive regex (`id="\K[^"]+"` without a
+  word-boundary anchor) produce false positives by also matching inside
+  `data-testid="..."` attributes** (since `id="` appears as a substring of
+  `data-testid="`), making a real duplicate-id scan report ~45 phantom
+  "duplicates" and risking the real signal (one genuine duplicate `id` was
+  found this same session, unrelated to the false positives) getting lost in
+  the noise. A properly anchored pattern (e.g. a leading-space `' id="'` literal
+  grep, or `(?:^|[^-\w])id="\K[^"]+`) is required.
+- **Date:** 2026-07-12
+- **Severity:** low (process/tooling gotcha, not a shipped-code defect)
+- **Area:** merge-conflict-resolution process (not a specific `js/` module); surfaced during PR #107 rebase
+- **Status:** open as a documented gotcha — no code change needed. Recommended
+  standing practice for any future manual conflict resolution: after resolving
+  any `.js` file, run `node --check <file>` even when no markers remain, and
+  diff suspicious hunk boundaries against `git show HEAD:<path>`; after
+  resolving any `.html` file, scan for duplicate `id=` attributes with a
+  properly anchored pattern, never a bare `id="\K[^"]+"`.
