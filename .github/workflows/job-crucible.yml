@@ -1,9 +1,9 @@
 # ============================================================
-# DATAGLOW — CI job: The Crucible (adversarial validator, Batch 1)
+# DATAGLOW — CI job: The Crucible (adversarial validator, Batches 1 & 2)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
-# Runs the two pure-logic suites behind The Crucible's Batch 1:
+# Runs the pure-logic suites behind The Crucible's Batch 1:
 #   - test:cruciblecontract — the typed handoff contract
 #     (js/validation/crucible-contract.js): buildCleaningResult /
 #     buildValidationVerdict never-throw + validation discipline, and
@@ -16,15 +16,21 @@
 #     packs currently and correctly FAIL (empirical proof of the two AHIMA gaps
 #     NORTH_STAR documented — a real gap, not a regression), plus the value packs
 #     against correct/naive stub agents and the never-throw suite runner.
+# And the Batch 2 read-only UI view-model suite:
+#   - test:crucibleui — the pure, DOM-free view-model builders
+#     (js/validation/crucible-ui.js): shouldOfferCrucible / buildPipelineModel /
+#     buildAdversarialPackListModel / buildRunLogModel, fed REAL Batch 1 output
+#     (buildCleaningResult / buildValidationVerdict / runAdversarialSuite), and
+#     the never-throw honest-empty-state discipline. Plain node — no DOM.
 
-name: The Crucible (Batch 1)
+name: The Crucible (Batches 1 & 2)
 
 on:
   workflow_call:
 
 jobs:
   crucible:
-    name: The Crucible (typed handoff contract + adversarial packs)
+    name: The Crucible (typed handoff contract + adversarial packs + read-only UI)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,3 +41,4 @@ jobs:
       - run: npm ci
       - run: npm run test:cruciblecontract
       - run: npm run test:cruciblepacks
+      - run: npm run test:crucibleui
