@@ -27,6 +27,7 @@
     "test:missingness": "node --import ./test/duckdb-loader-hook.mjs test/missingness-detective.test.mjs",
     "test:fuzzydedup": "node --import ./test/duckdb-loader-hook.mjs test/fuzzy-dedup-patients.test.mjs",
     "test:predanomaly": "node --import ./test/duckdb-loader-hook.mjs test/predictive-anomaly.test.mjs",
+    "test:robustnessverdict": "node test/robustness-verdict.test.mjs",
     "test:selflearn": "node test/self-learning-rules.test.mjs",
     "test:signalstore": "node test/signal-store.test.mjs",
     "test:metricsregistry": "node test/metrics-registry.test.mjs",

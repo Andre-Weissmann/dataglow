@@ -423,6 +423,28 @@
       ]
     },
     {
+      "id": "analysis-robustness-sensitivity-verdict",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Analysis robustness",
+      "name": "Assumption sensitivity + plain-language robustness verdict",
+      "files": [
+        "js/analysis-robustness/robustness-verdict.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/analysis-robustness/robustness-verdict.js",
+          "name": "mapAssumptionSensitivity"
+        },
+        {
+          "file": "js/analysis-robustness/robustness-verdict.js",
+          "name": "robustnessVerdict"
+        }
+      ]
+    },
+    {
       "id": "drift-forecasting",
       "platforms": [
         "browser",

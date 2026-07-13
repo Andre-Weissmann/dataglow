@@ -98,6 +98,7 @@ let domainPhysics;
 // to surface loaded-pack provenance on the trust/audit page.
 let packRegistry;
 let devilsAdvocate;
+let robustnessVerdictMod;
 let syntheticAdversarial;
 import * as pyRuntime from '../runtimes-viz/python-runtime.js';
 import * as rRuntime from '../runtimes-viz/r-runtime.js';
@@ -3555,6 +3556,28 @@ function initDevilsAdvocate() {
         ]),
       ])),
     ]));
+
+    // Analysis-robustness thickening (ships dark behind `robustnessVerdict`):
+    // append the plain-language verdict + the driving-segment sensitivity
+    // summary beneath the existing checks. Purely additive — with the flag off
+    // (its shipped default) nothing below runs and the card is unchanged.
+    if (isEnabled('robustnessVerdict') && robustnessVerdictMod) {
+      try {
+        const sensitivity = robustnessVerdictMod.mapAssumptionSensitivity(state.lastQueryResult, { log: false });
+        const verdict = robustnessVerdictMod.robustnessVerdict(report, sensitivity);
+        const vColor = verdict.verdict === 'robust' ? 'var(--color-grade-a)'
+          : verdict.verdict === 'fragile' ? 'var(--color-grade-d)' : 'var(--color-text-muted)';
+        out.querySelector('[data-testid="attack-verdict"]').appendChild(
+          el('div', { style: 'margin-top:var(--space-3); padding-top:var(--space-2); border-top:1px solid var(--color-divider);', 'data-testid': 'robustness-verdict' }, [
+            el('div', { style: `font-weight:600; color:${vColor}; text-transform:capitalize; margin-bottom:var(--space-1);` }, verdict.verdict),
+            el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted);' }, verdict.reason),
+            verdict.drivingFactor ? el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-1);' }, `Driving factor: ${verdict.drivingFactor}`) : null,
+          ]));
+      } catch (rvErr) {
+        console.warn('[robustnessVerdict] sensitivity/verdict skipped:', rvErr);
+      }
+    }
+
     renderAssumptionLedger();
   });
 }
@@ -6946,6 +6969,7 @@ async function bootstrapCapabilities() {
       }
     }
     devilsAdvocate = registry.get('devils-advocate');
+    robustnessVerdictMod = registry.get('robustness-verdict');
     syntheticAdversarial = registry.get('synthetic-adversarial');
     receipt = registry.get('validation-receipt');
     peerReview = registry.get('peer-review');

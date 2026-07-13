@@ -83,6 +83,7 @@ Adversarial re-analysis that stress-tests whether a query result's headline find
 actually holds up — this scrutinizes the *conclusion drawn from* the data, not the data
 itself (which is the validation layers' job).
 - **Devil's Advocate** — `js/analysis-robustness/devils-advocate.js` (bootstrap resampling, trimmed re-estimate, and subgroup leave-one-out robustness checks run over the current SQL result).
+- **Assumption sensitivity + robustness verdict** — `js/analysis-robustness/robustness-verdict.js` (pure functions that extend Devil's Advocate: `mapAssumptionSensitivity` finds the smallest set of rows whose removal makes an A-vs-B gap disappear or reverse and names the segment they concentrate in; `robustnessVerdict` folds that map together with the `attackAnalysis` output into one fixed-vocabulary `robust`/`fragile`/`inconclusive` verdict with a plain-English, number-grounded reason). Ships dark behind the `robustnessVerdict` flag.
 
 ## Drift, trend & fingerprinting
 Detects when a new upload has moved away from what history would predict. The base
