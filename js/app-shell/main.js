@@ -2,7 +2,8 @@
 // DATAGLOW — Main Application Controller
 // ============================================================
 
-import { state, getActiveDataset, addDataset, setActiveDataset } from './state.js';
+import { state, getActiveDataset, addDataset, setActiveDataset, getActiveMetricsRegistry } from './state.js';
+import { expandMetricReferences, MetricError } from './metrics-registry.js';
 import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from './utils.js';
 import { loadRegistry } from './capability-registry.js';
 import { buildSidebarContent } from './command-deck-nav.js';
@@ -291,6 +292,7 @@ function switchTab(tabId) {
   // Leaving the SQL tab: terminate the ambient-validation worker so it never
   // lingers in the background (recreated lazily on the next keystroke).
   if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
+  if (tabId === 'sql') renderSavedMetrics();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'validate') renderOneCanvasPhase1();
@@ -380,7 +382,7 @@ function renderSidebar() {
   } else {
     list.innerHTML = '';
     state.datasets.forEach(ds => {
-      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); renderOneCanvasPhase1(); } }, [
+      const item = el('div', { class: `dataset-item ${ds.name === state.activeDataset ? 'active' : ''}`, onclick: () => { state.activeDataset = ds.name; renderSidebar(); refreshFreshnessBadge(); renderOneCanvasPhase1(); renderSavedMetrics(); } }, [
         el('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', html: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>' }),
         el('span', { style: 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, ds.name),
       ]);
@@ -1013,7 +1015,11 @@ async function runSqlQuery() {
   statusEl.textContent = 'Running…';
   resultWrap.innerHTML = '<div class="skeleton" style="height:200px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
   try {
-    const result = await engine.runQuery(sql);
+    // Expand any @metric references against this dataset's shared registry so a
+    // business term defined once resolves the same way here as on every other
+    // surface. No @metric in the query → runs byte-identical to before.
+    const { sql: execSql } = expandMetricReferences(sql, getActiveMetricsRegistry());
+    const result = await engine.runQuery(execSql);
     state.lastQuery = sql;
     state.lastQueryResult = result;
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
@@ -1462,8 +1468,90 @@ function renderObjectSpacePanel() {
   }).join('');
 }
 
+// ---- Saved Metrics (shared metrics registry, SQL-tab surface) ----
+// Render the active dataset's defined metrics with an explicit Insert action.
+// Inserting is always a user click — nothing propagates a metric silently.
+function renderSavedMetrics() {
+  const listEl = $('#sql-metrics-list');
+  if (!listEl) return;
+  const registry = getActiveMetricsRegistry();
+  const metrics = registry ? registry.listMetrics() : [];
+  if (!registry) {
+    listEl.innerHTML = '<div style="font-size:var(--text-xs); color:var(--color-text-faint);">Load a dataset to define metrics for it.</div>';
+    return;
+  }
+  if (metrics.length === 0) {
+    listEl.innerHTML = '<div style="font-size:var(--text-xs); color:var(--color-text-faint);">No metrics defined yet for this dataset.</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  for (const m of metrics) {
+    const row = el('div', { class: 'card', style: 'display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); margin-bottom:var(--space-2);' }, [
+      el('div', { style: 'flex:1 1 auto; min-width:0;' }, [
+        el('div', { style: 'font-weight:600;' }, [
+          el('span', {}, m.name),
+          m.unit ? el('span', { style: 'font-weight:400; color:var(--color-text-faint); margin-left:var(--space-2);' }, `(${m.unit})`) : '',
+        ]),
+        el('div', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' }, m.sqlExpression),
+        m.description ? el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint);' }, m.description) : '',
+      ]),
+      el('button', { class: 'btn btn-secondary', 'data-testid': `button-insert-metric-${m.name}`, onclick: () => insertMetricIntoEditor(m.name) }, 'Insert'),
+    ]);
+    listEl.appendChild(row);
+  }
+}
+
+// Splice a metric's compiled SQL (aliased to its name) into the SQL editor at
+// the caret. Explicit, user-initiated — this is the "adopt this metric" click.
+function insertMetricIntoEditor(name) {
+  const registry = getActiveMetricsRegistry();
+  const input = $('#sql-input');
+  if (!registry || !input) return;
+  let fragment;
+  try {
+    fragment = registry.resolveMetricSql(name, { alias: true });
+  } catch { return; }
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  input.value = input.value.slice(0, start) + fragment + input.value.slice(end);
+  const caret = start + fragment.length;
+  input.selectionStart = input.selectionEnd = caret;
+  input.focus();
+  syncSqlHighlight();
+}
+
+function defineMetricFromForm() {
+  const statusEl = $('#metric-define-status');
+  const registry = getActiveMetricsRegistry();
+  if (!registry) {
+    if (statusEl) statusEl.textContent = 'Load a dataset first — metrics are scoped to the active dataset.';
+    return;
+  }
+  const name = $('#metric-name').value.trim();
+  const sqlExpression = $('#metric-expr').value.trim();
+  const unit = $('#metric-unit').value.trim() || null;
+  const description = $('#metric-desc').value.trim() || null;
+  try {
+    // Overwrite when the name already exists: redefining is an explicit user act
+    // (they re-typed the name), and the registry bumps the metric's version.
+    const overwrite = registry.hasMetric(name);
+    const m = registry.defineMetric({ name, sqlExpression, unit, description }, { overwrite });
+    if (statusEl) statusEl.textContent = `Saved metric "${m.name}"${m.version > 1 ? ` (v${m.version})` : ''}. Reference it as @${m.name} in a query.`;
+    $('#metric-name').value = '';
+    $('#metric-expr').value = '';
+    $('#metric-unit').value = '';
+    $('#metric-desc').value = '';
+    renderSavedMetrics();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = err instanceof MetricError ? err.message : `Could not define metric: ${err.message}`;
+  }
+}
+
 function initSqlTab() {
   $('#btn-sql-run').addEventListener('click', runSqlQuery);
+  const defineBtn = $('#btn-save-metric');
+  if (defineBtn) defineBtn.addEventListener('click', defineMetricFromForm);
+  renderSavedMetrics();
   $('#btn-sql-format').addEventListener('click', () => {
     const el = $('#sql-input');
     el.value = el.value.replace(/\s+/g, ' ').replace(/\bSELECT\b/gi, '\nSELECT').replace(/\bFROM\b/gi, '\nFROM').replace(/\bWHERE\b/gi, '\nWHERE').replace(/\bGROUP BY\b/gi, '\nGROUP BY').replace(/\bORDER BY\b/gi, '\nORDER BY').trim();
@@ -4117,6 +4205,12 @@ async function renderDataHealth(ds, results) {
   // the plain-English reason.
   renderCalibratedGrades(results && results.calibratedGrades);
 
+  // Dataset Nutrition Label — scannable provenance/quality badges, each backed
+  // by a REAL signal from the validation run. We also fingerprint this run (a
+  // fast, tamper-evident SHA-256 content hash, NOT a signature/notarization) and
+  // surface a "Fingerprinted" badge, tying the visual label to the crypto record.
+  await renderNutritionLabel(ds, results).catch(() => {});
+
   // Golden Signals (Google SRE-inspired, mapped to data quality).
   const gs = await goldenSignals.computeGoldenSignals(ds, results).catch(() => null);
   const gsEl = $('#golden-signals');
@@ -4147,6 +4241,93 @@ async function renderDataHealth(ds, results) {
 
   // Per-entity baselines (UEBA) if an ID-like + numeric column pair exists.
   await renderEntityBaselines(ds);
+}
+
+// Dataset Nutrition Label + Analysis Fingerprint for the current validation run.
+// Lazy-imports the two pure provenance modules (no top-level cost when the tab is
+// never opened) and renders a small, idempotent badge strip above the calibrated
+// grades. Every badge here is earned from a real signal; the fingerprint commits
+// to the validation result plus the inputs that produced it.
+async function renderNutritionLabel(ds, results) {
+  const [{ computeAnalysisFingerprint }, { computeBadges }] = await Promise.all([
+    import('../provenance/analysis-fingerprint.js'),
+    import('../provenance/nutrition-badges.js'),
+  ]);
+
+  // Canonical, stable representation of the validation result the fingerprint
+  // commits to: row count, the calibrated grades, and each layer's status.
+  const layerStatuses = {};
+  if (results) {
+    for (const id of Object.keys(results).sort()) {
+      const r = results[id];
+      if (r && typeof r === 'object' && typeof r.status === 'string') layerStatuses[id] = r.status;
+    }
+  }
+  const grades = results && results.calibratedGrades
+    ? {
+        integrity: results.calibratedGrades.integrity && results.calibratedGrades.integrity.grade,
+        plausibility: results.calibratedGrades.plausibility && results.calibratedGrades.plausibility.grade,
+        overall: results.calibratedGrades.overall && results.calibratedGrades.overall.grade,
+      }
+    : null;
+
+  const chain = ds ? provenance.getProvenance(ds.table) : null;
+  const trail = chain ? chain.getTrail() : [];
+  const datasetProvenanceHash = trail.length ? trail[trail.length - 1].hash : null;
+  // Commit to how many metrics the session has defined (a real, reproducible
+  // marker of registry state) so the fingerprint moves if the semantic layer did.
+  const registry = getActiveMetricsRegistry();
+  const metricsRegistryVersion = registry ? registry.listMetrics().length : null;
+
+  let fingerprint = null;
+  try {
+    fingerprint = await computeAnalysisFingerprint(
+      {
+        resultData: { rowCount: ds ? ds.rowCount : null, grades, layerStatuses },
+        sqlOrPipelineDescription: 'DATAGLOW validation run (all layers)',
+        parameters: { table: ds ? ds.table : null },
+        metricsRegistryVersion,
+        datasetProvenanceHash,
+      },
+      { label: 'validation-run' }
+    );
+  } catch { fingerprint = null; }
+
+  const badges = computeBadges({
+    results,
+    rowCount: ds ? ds.rowCount : undefined,
+    fingerprint,
+  });
+
+  // Idempotent container, inserted once directly above the calibrated grades.
+  let host = $('#nutrition-label');
+  if (!host) {
+    host = el('div', { id: 'nutrition-label', 'data-testid': 'nutrition-label', style: 'margin:var(--space-3) 0;' });
+    const gradesBox = $('#calibrated-grades');
+    const headline = $('#overall-headline');
+    const anchor = headline || gradesBox;
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(host, anchor);
+    else $('#data-health-wrap').appendChild(host);
+  }
+  host.innerHTML = '';
+  if (!badges.length) { host.style.display = 'none'; return; }
+  host.style.display = '';
+
+  host.appendChild(el('div', {
+    style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-1); font-weight:600;',
+  }, 'Dataset nutrition label'));
+  const strip = el('div', { style: 'display:flex; flex-wrap:wrap; gap:var(--space-2);' });
+  for (const b of badges) {
+    strip.appendChild(el('span', {
+      'data-testid': `nutrition-badge-${b.id}`,
+      title: b.meaning,
+      style: 'display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--color-divider); border-radius:999px; font-size:var(--text-xs); background:var(--color-surface-offset,transparent); cursor:help;',
+    }, [
+      el('span', { 'aria-hidden': 'true', style: 'font-size:var(--text-sm);' }, b.glyph),
+      el('span', {}, b.label),
+    ]));
+  }
+  host.appendChild(strip);
 }
 
 // Render the two-axis Confidence-Calibrated Grades with an explicit visual
@@ -5508,11 +5689,18 @@ function renderValidationResults(results) {
             el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;' }, [
               el('span', { style: 'font-size:var(--text-xs); font-weight:600; padding:2px 8px; border-radius:6px; color:#fff; background:var(--color-grade-c);' }, `${f.category} ${f.low}–${f.high}`),
               el('span', { class: 'mono', style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, `"${f.column}"`),
-              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px; margin-left:auto;', 'data-testid': `button-upperbound-dismiss-${f.column}` }, 'Dismiss'),
+              // "This finding was wrong" — draft a blameless postmortem from the
+              // recorded provenance trail. Rendering only; nothing is applied here.
+              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px; margin-left:auto;', 'data-testid': `button-upperbound-incident-${f.column}` }, 'Report incident'),
+              el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 9px;', 'data-testid': `button-upperbound-dismiss-${f.column}` }, 'Dismiss'),
             ]),
             el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-1);' }, f.explanation),
           ]);
-          const dismissBtn = fRow.querySelector('button');
+          const dismissBtn = fRow.querySelector(`[data-testid="button-upperbound-dismiss-${f.column}"]`);
+          const incidentBtn = fRow.querySelector(`[data-testid="button-upperbound-incident-${f.column}"]`);
+          incidentBtn.addEventListener('click', () => openIncidentPostmortem(fRow, {
+            label: `${f.category} ${f.low}–${f.high}`, column: f.column, layer: 'upper_bound_sanity', kind: 'false-positive',
+          }, `A value in "${f.column}" was flagged out of bounds (${f.category} ${f.low}–${f.high}) but is legitimate.`));
           dismissBtn.addEventListener('click', async () => {
             ledger.logAssumption('Upper-Bound Sanity Anchor',
               `Analyst dismissed ${f.count} out-of-bound value(s) in "${f.column}" (${f.category} ${f.low}–${f.high}) — accepted as valid.`,
@@ -5579,6 +5767,120 @@ function renderValidationResults(results) {
     if (lesson) card.appendChild(lesson);
     grid.appendChild(card);
   }
+}
+
+// Blameless Incident Postmortem (Batch 4). From a validation finding the analyst
+// reports was WRONG, draft — from the SUPPLIED provenance trail only — a
+// timeline + root-cause narrative + a PROPOSED corrective rule. This function
+// only renders the draft; the pure module (js/provenance/incident-postmortem.js)
+// applies nothing. Accept routes the correction through the SAME confirm-gated
+// community-pack import path a hand-authored domain-pack rule uses (mirrors
+// initCommunityPack: importPack → registerRuntimePack), behind an explicit
+// per-action confirm(). Dismiss discards the draft with zero side effects.
+async function openIncidentPostmortem(mountAfter, finding, description) {
+  const ds = getActiveDataset();
+  const prev = mountAfter.nextElementSibling;
+  if (prev && prev.getAttribute && prev.getAttribute('data-postmortem') === '1') prev.remove();
+
+  let postmortem;
+  try { postmortem = await import('../provenance/incident-postmortem.js'); }
+  catch { toast('Postmortem module unavailable on this runtime', 'error'); return; }
+
+  const chain = ds && provenance.getProvenance(ds.table);
+  const provenanceTrail = chain ? chain.getTrail() : [];
+  const draft = postmortem.draftPostmortem({
+    incident: { description, discoveredAt: Date.now(), affectedFinding: finding },
+    provenanceTrail,
+    assumptionLedger: ledger.getLedgerEntries ? ledger.getLedgerEntries() : undefined,
+  });
+  const corr = draft.proposedCorrection;
+
+  const timelineItems = draft.timeline.map(e => el('li', {
+    style: `font-size:var(--text-xs); color:var(--color-text-muted); margin:2px 0;${e.source === 'incident' ? 'font-weight:600;color:var(--color-text);' : ''}`,
+  }, `${e.iso ? e.iso.replace('T', ' ').slice(0, 19) + ' — ' : ''}${e.source === 'incident' ? 'Incident discovered' : `${e.op || 'step'}: ${e.description || ''}`}`));
+
+  const acceptBtn = el('button', { class: 'btn btn-primary', style: 'font-size:var(--text-xs); padding:4px 12px;', 'data-testid': `button-postmortem-accept-${finding.column}` }, 'Accept correction');
+  const dismissBtn = el('button', { class: 'btn btn-ghost', style: 'font-size:var(--text-xs); padding:4px 12px;', 'data-testid': `button-postmortem-dismiss-${finding.column}` }, 'Dismiss');
+
+  const panel = el('div', {
+    'data-postmortem': '1', 'data-testid': `postmortem-${finding.column}`,
+    style: 'margin-top:var(--space-2); padding:var(--space-3); border:1px solid var(--color-divider); border-left:3px solid var(--color-grade-b); border-radius:8px; background:rgba(80,140,220,0.05);',
+  }, [
+    el('div', { style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:var(--space-1);' }, 'Blameless postmortem (DRAFT — proposal only)'),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2);' }, draft.rootCause.narrative),
+    el('div', { style: 'font-size:var(--text-xs); font-weight:600; margin-bottom:2px;' }, `Timeline (${draft.timeline.length} event${draft.timeline.length === 1 ? '' : 's'}, from the recorded provenance trail)`),
+    el('ul', { style: 'margin:0 0 var(--space-2); padding-left:18px;' }, timelineItems.length ? timelineItems : [el('li', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, 'No provenance steps were recorded for this dataset.')]),
+    el('div', { style: 'font-size:var(--text-xs); margin-bottom:var(--space-2);' }, [
+      el('span', { style: 'font-weight:600;' }, 'Proposed correction: '),
+      el('span', {}, corr.summary + ' '),
+      el('span', { style: 'font-weight:600; padding:1px 6px; border-radius:5px; background:var(--color-surface-2); color:var(--color-text-muted);', 'data-testid': `postmortem-confidence-${finding.column}` }, `${corr.confidence.label} (${corr.confidence.score})`),
+    ]),
+    el('div', { style: 'font-size:11px; color:var(--color-text-muted); margin-bottom:var(--space-2); font-style:italic;' }, draft.disclaimer),
+    el('div', { style: 'display:flex; gap:var(--space-2);' }, [acceptBtn, dismissBtn]),
+  ]);
+  mountAfter.insertAdjacentElement('afterend', panel);
+
+  // Dismiss: discard the draft with ZERO side effects.
+  dismissBtn.addEventListener('click', () => { panel.remove(); });
+
+  // Accept: stage the correction through the EXISTING confirm-gated apply path.
+  acceptBtn.addEventListener('click', async () => {
+    if (!communityPack || !domainPhysics) { toast('The domain-pack apply path is unavailable on this runtime', 'error'); return; }
+    // Only the annotate-only outlier-context correction maps onto an existing
+    // portable rule kind. Anything else is recorded for manual follow-up rather
+    // than applied — the module never invents a new apply path.
+    if (corr.applyVia !== 'domain-pack-rule' || corr.kind !== 'add-outlier-context') {
+      ledger.logAssumption('Incident Postmortem',
+        `Accepted a PROPOSED correction for "${finding.column}" (${corr.kind}) — recorded for manual review; nothing was applied automatically.`,
+        { column: finding.column, kind: corr.kind, staged: true });
+      renderAssumptionLedger();
+      acceptBtn.disabled = true; acceptBtn.textContent = 'Recorded for review';
+      toast('This correction type needs manual review — recorded in the audit trail, not auto-applied', 'success');
+      return;
+    }
+    // Explicit, per-action human confirmation BEFORE anything is applied.
+    const confirmed = window.confirm(
+      `Add an annotate-only context rule for "${finding.column}" so legitimate values like this are no longer flagged?\n\n`
+      + 'This routes through the same domain-pack import path as a hand-authored rule. It never hard-fails or edits your data.');
+    if (!confirmed) return;
+
+    const fullCol = String(finding.column || '');
+    const shortCol = fullCol.slice(0, 24).replace(/[^a-z0-9_-]/gi, '-') || 'column';
+    const pattern = `^${fullCol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+    const envelope = {
+      kind: communityPack.PACK_KIND,
+      schemaVersion: communityPack.PACK_SCHEMA_VERSION,
+      pack: {
+        name: `postmortem-${shortCol}`.slice(0, 60),
+        label: `Postmortem: ${shortCol}`.slice(0, 60),
+        description: `Annotate-only outlier context proposed by a blameless incident postmortem for "${fullCol}".`,
+        rules: [{
+          kind: 'outlier-context',
+          id: `pm-ctx-${shortCol}`.slice(0, 60),
+          description: corr.summary,
+          match: { pattern },
+          packLabel: 'Postmortem',
+          reason: description,
+        }],
+      },
+    };
+    const res = communityPack.importPack(envelope);
+    if (!res.ok) { toast('Could not stage the correction: ' + res.errors.slice(0, 2).join('; '), 'error'); return; }
+    domainPhysics.registerRuntimePack(res.pack);
+    const sel = $('#domain-pack-select');
+    if (sel && !Array.from(sel.options).some(o => o.value === res.pack.name)) {
+      sel.appendChild(el('option', { value: res.pack.name, title: res.pack.description }, `${res.pack.label} (postmortem)`));
+    }
+    ledger.logAssumption('Incident Postmortem',
+      `Applied a PROPOSED annotate-only context rule for "${fullCol}" via the domain-pack import path, after explicit confirmation.`,
+      { column: fullCol, packName: res.pack.name });
+    if (ds) await provenance.recordStep(ds.table, 'validate',
+      `Accepted postmortem correction: annotate-only context for "${fullCol}".`, { column: fullCol, packName: res.pack.name });
+    renderAssumptionLedger(); renderProvenanceTrail();
+    acceptBtn.disabled = true; acceptBtn.textContent = 'Applied'; dismissBtn.textContent = 'Close';
+    toast('Correction staged and applied through the domain-pack path', 'success');
+    if (ds) runValidation();
+  });
 }
 
 function renderConfidenceSummary(c) {

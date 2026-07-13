@@ -223,6 +223,29 @@
         <div id="sql-status" style="font-size:var(--text-xs); color:var(--color-text-muted);"></div>
         <div id="attack-results"></div>
         <div id="sql-result-wrap"></div>
+
+        <!-- Saved Metrics: the SQL-tab surface of the in-session shared metrics
+             registry. Define a business term once (name + read-only SQL
+             expression) and reference it in any query as @name, or insert its
+             compiled SQL with an explicit click. Scoped to the active dataset. -->
+        <div class="card" id="sql-metrics" data-testid="sql-metrics" style="padding:var(--space-4); margin-top:var(--space-4);">
+          <div class="sidebar-heading" style="display:flex; align-items:center; gap:var(--space-2);">
+            Saved Metrics
+            <span style="font-weight:400; color:var(--color-text-faint); font-size:var(--text-xs);">defined once, shared across this dataset's session — reference in a query as <span class="mono">@name</span></span>
+          </div>
+          <div id="sql-metrics-list" data-testid="sql-metrics-list" style="margin-top:var(--space-2);"></div>
+          <details style="margin-top:var(--space-3);">
+            <summary style="cursor:pointer; font-size:var(--text-sm); color:var(--color-text-muted);">Define a metric</summary>
+            <div style="display:flex; flex-wrap:wrap; gap:var(--space-2); margin-top:var(--space-2); align-items:flex-start;">
+              <input id="metric-name" data-testid="input-metric-name" placeholder="name (e.g. revenue)" style="flex:0 0 160px;" />
+              <input id="metric-expr" data-testid="input-metric-expr" class="mono" placeholder="SQL expression (e.g. SUM(amount))" style="flex:1 1 260px;" />
+              <input id="metric-unit" data-testid="input-metric-unit" placeholder="unit (optional)" style="flex:0 0 120px;" />
+              <input id="metric-desc" data-testid="input-metric-desc" placeholder="description (optional)" style="flex:1 1 200px;" />
+              <button class="btn btn-secondary" id="btn-save-metric" data-testid="button-save-metric">Define metric</button>
+            </div>
+            <div id="metric-define-status" data-testid="metric-define-status" style="font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-2);"></div>
+          </details>
+        </div>
       </div>
     </section>
 

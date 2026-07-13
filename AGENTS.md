@@ -839,6 +839,103 @@ for the analyst to review. Ships behind the `meetingScribe` flag, but the flag i
 currently decorative: there is no UI, capture path, or call site anywhere in the app
 yet, so this PR changes zero runtime behaviour. Test: `npm run test:meetingscribe`
 (`test/meeting-scribe.test.mjs`), pure JS — no DuckDB, DOM, or network.
+
+### Propose a correction from the audit trail — draft, never auto-apply
+
+A recurring, surface-agnostic pattern for turning DATAGLOW's own recorded audit
+data into a corrective proposal WITHOUT ever crossing the no-auto-apply line.
+`js/provenance/incident-postmortem.js` is the reference: `draftPostmortem({incident,
+provenanceTrail, assumptionLedger?, fingerprint?, badges?, debateResolution?,
+metricInvolved?})` reconstructs a timeline **1:1 from the supplied provenance
+trail** (`js/provenance/provenance.js` `getTrail()`) — it invents no step and adds
+no logging system; the sole non-provenance marker is the incident-discovery
+moment, taken straight from `incident.discoveredAt` and tagged `source:'incident'`
+— then writes a deterministic, template-based root-cause narrative (no LLM call,
+in the spirit of `js/agents/question-generator-agent.js`) and a PROPOSED
+correction carrying a `{score,label}` safety score in the exact vocabulary and
+thresholds of `js/cleaning/fix-confidence.js`.
+
+The load-bearing rule: **the module applies nothing.** It has no imports, mutates
+none of its inputs, names no apply/mutation/network primitive, and labels every
+draft `isProposal:true`/`applied:false`. Applying a proposal is a SEPARATE,
+explicit, human-confirmed action wired in `js/app-shell/main.js` — the "Report
+incident" action on a Validate-tab finding renders the draft with Accept/Dismiss,
+and Accept routes an annotate-only correction through the SAME confirm-gated
+domain-pack path a hand-authored rule uses (`communityPack.importPack` →
+`domainPhysics.registerRuntimePack`, behind an explicit `confirm()`), while
+Dismiss discards with zero side effects. This is the confirm-gated discipline
+(pure module PROPOSES; only a main.js click handler APPLIES) generalised from
+cleaning fixes to audit-trail-driven rule/metric corrections: any future feature
+that "suggests a fix from what we recorded" should draft a labelled proposal and
+hand the apply to an existing confirm-gated path, never invent a new one. The
+optional cross-batch inputs (fingerprint/badges/debate/metric) are referenced
+when supplied but never required — a postmortem works from `incident` alone.
+
+### Analysis fingerprint + nutrition label — make a result checkable at a glance AND cryptographically
+
+Two coupled, pure modules give a computed result two independent trust checks a
+non-expert can act on. `js/provenance/analysis-fingerprint.js` is the crypto
+half: `computeAnalysisFingerprint({resultData, sqlOrPipelineDescription,
+parameters, metricsRegistryVersion, datasetProvenanceHash}, {label})` returns a
+self-describing record whose `digest` is a SHA-256 over a canonical JSON payload
+of the result plus the inputs that produced it, and `verifyAnalysisFingerprint(record,
+recomputedInputs)` is a pure recompute-and-compare that needs only the record +
+an independent recomputation (no app state). It REUSES `sha256Hex` from
+`js/provenance/provenance.js` via `crypto.subtle` — do NOT add a second hash, an
+external crypto library, or any zero-knowledge machinery. HONEST LABELLING is a
+hard rule here, matching the attestation module's discipline: this is a
+"tamper-evident content fingerprint" that proves integrity, NOT authorship or
+existence-at-a-time — there is no signing key or timestamp authority, so never
+describe it as signed, notarized, or certified, and never fake a signature claim.
+`js/provenance/nutrition-badges.js` is the visual half: a frozen `BADGE_CATALOG`
+(text/unicode glyphs only — no image assets, no icon library) plus pure
+`computeBadges(context)`. The binding rule is **no decorative badges** — every
+catalog entry carries a `check(context)` that returns backing detail only when a
+REAL signal is present (calibrated grades, missingness findings, row count below
+`SMALL_SAMPLE_THRESHOLD`, outlier-layer status, a fingerprint record, a Step-C
+`resolvedBy==='C'` debate resolution), so a badge can never be emitted without its
+evidence; a candidate badge that can't be honestly computed (e.g. "Truncated
+Axis", which has no signal in `js/runtimes-viz/visualize.js`) is recorded in
+`docs/tech-debt-tracker.md`, not faked. Both are wired end-to-end on ONE surface
+so far — `renderDataHealth` in `js/app-shell/main.js` (the Validate-tab Data
+Health dashboard) — deliberately lazy-imported and idempotent; other surfaces are
+tracked as tech debt. Registered as the `provenance-analysis-fingerprint`
+capability (`platforms: ["browser","desktop"]`). Tests: `npm run test:fingerprint`
+(`test/analysis-fingerprint.test.mjs`) and `npm run test:badges`
+(`test/nutrition-badges.test.mjs`), the `analysis-fingerprint` CI job — both pure
+Node, no browser/DuckDB/network.
+
+### Shared metrics registry — one "define once" source of truth per session
+
+`js/app-shell/metrics-registry.js` is the in-session shared registry of named
+metric definitions (e.g. `revenue` → `SUM(amount)`), so the SQL / Python / R /
+Visualize / Story surfaces never silently compute the same business term two
+different ways within one session. It is deliberately scoped to ONE browser
+session / dataset — NOT a multi-user/org semantic layer. A metric only NAMES a
+read-only SQL expression evaluated over the active dataset's DuckDB table: the
+module never runs SQL and never mutates data, so **DuckDB stays the sole compute
+engine — do not build a second one here**. `createMetricsRegistry()` is pure and
+dependency-free (mirrors `js/learning/signal-store.js`): `defineMetric` /
+`getMetric` / `hasMetric` / `listMetrics` / `removeMetric` /
+`resolveMetricSql(name, {alias})` / async `fingerprint(name)` (which reuses
+`sha256Hex` from `js/provenance/provenance.js` via a LAZY dynamic import — don't
+add a second hash), plus the standalone `expandMetricReferences(sql, registry)`
+that rewrites `@name` tokens into compiled fragments. Registries are keyed per
+dataset table name in `js/app-shell/state.js` (`getMetricsRegistry` /
+`getActiveMetricsRegistry`), exactly like the per-table provenance chains, so
+switching datasets yields a fresh isolated registry. Two rules bind anyone
+extending this: (1) **defining is safe, adopting is a click** — defining a
+metric only names a read-only expression, but any UI that propagates a metric
+into a query/surface must stay an EXPLICIT user action, never silent
+propagation (the SQL tab's "Saved Metrics" Insert button and `@metric`
+expansion in `runSqlQuery` are the reference wiring). (2) Validation is
+engine-free and fails loud at define-time (bad name, empty/non-string
+expression, `;`, full statement, unbalanced parens, unterminated string) — it is
+NOT a second SQL parser, so don't grow it into one. Only the SQL tab is wired so
+far; the other four surfaces are tracked in `docs/tech-debt-tracker.md`. Test:
+`npm run test:metricsregistry` (`test/metrics-registry.test.mjs`, the
+`metrics-registry` CI job) — engine-free.
+
 ### Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier
 
 Two client-side capabilities under `js/provenance/`, one module per feature,

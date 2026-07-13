@@ -191,10 +191,13 @@ export const DEFAULT_TIME_BUDGET_MS = 2000;
 
 /**
  * Resolve one uncertain finding through Steps A→D. Returns a resolution:
- *   { resolvedBy, suggestion, reasoning, confidence, source, peer, stepsAttempted }
+ *   { resolvedBy, suggestion, reasoning, confidence, source, peer, debate?, stepsAttempted }
  * `stepsAttempted` records the steps tried, in order, so the ordering is
- * observable (and testable). The debate/steps are NEVER surfaced to the user;
- * only Step D's unified suggestion is (see buildResolutionView).
+ * observable (and testable). Step D still surfaces ONLY the single unified
+ * suggestion by default (see buildResolutionView); the `debate` field (present
+ * only for a Step-C resolution or a Step-C→fallback) carries the already-computed
+ * proposals + budget flag so an OPTIONAL, user-invoked transparency view can
+ * render them (see js/agents/debate-diagnostics.js) — it adds no new computation.
  */
 export async function resolve(candidate, opts = {}) {
   // AI Readiness Gate (batch 3), defence-in-depth. Only when the caller threads
@@ -245,11 +248,16 @@ export async function resolve(candidate, opts = {}) {
   stepsAttempted.push('C');
   const { proposals, budgetExceeded } = await runDebate(candidate, { ...opts, now, startedAt });
   const reconciled = budgetExceeded ? null : reconcile(proposals);
+  // The already-computed debate inputs/outputs, carried on the resolution so an
+  // OPTIONAL, user-invoked transparency view can render them (see
+  // js/agents/debate-diagnostics.js). This surfaces no NEW computation — Step D
+  // still shows only the single suggestion unless the user opts in.
+  const debate = { proposals, budgetExceeded, reconciled };
   if (reconciled) {
     return {
       resolvedBy: 'C', suggestion: reconciled.answer,
       reasoning: `weighing a strict reading, what similar ${opts.domain || 'datasets'} usually do, and this data's own distribution`,
-      confidence: reconciled.confidence, source: 'debate-panel', peer: null, stepsAttempted,
+      confidence: reconciled.confidence, source: 'debate-panel', peer: null, debate, stepsAttempted,
     };
   }
 
@@ -258,7 +266,7 @@ export async function resolve(candidate, opts = {}) {
   return {
     resolvedBy: 'fallback', suggestion: candidate.ruleGuess,
     reasoning: `a safe default while we keep things quick (${candidate.observation})`,
-    confidence: 0.4, source: 'fallback-default', peer: null, stepsAttempted,
+    confidence: 0.4, source: 'fallback-default', peer: null, debate, stepsAttempted,
   };
 }
 

@@ -22,6 +22,7 @@ import {
   DEFAULT_TIME_BUDGET_MS, resolve, buildResolutionView,
   ResolverSession, buildParkedRevisit,
 } from '../js/agents/uncertainty-resolver-agent.js';
+import { buildDebateDiagnostics, PERSONA_LABELS } from '../js/agents/debate-diagnostics.js';
 import { runWithNetworkDenied, scanSourceForNetwork } from '../js/packs/pack-network-guard.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -180,6 +181,73 @@ async function main() {
   ok(msg && msg.includes('basket_value') && msg.includes('the basket total spikes'),
     'revisit: a cross-column co-occurrence is offered as new evidence');
 
+  // ---------- 8b. OPT-IN debate diagnostics (transparency view model) ----------
+  // The resolution now carries the already-computed debate detail so an OPTIONAL
+  // transparency view can render it — resolve() itself still returns the single
+  // suggestion for the default flow.
+  ok(rC.debate && Array.isArray(rC.debate.proposals) && rC.debate.proposals.length === 3,
+    'diag: a Step-C resolution carries the three proposals it already computed');
+  ok(rA.debate === undefined && rB.debate === undefined,
+    'diag: Steps A and B carry no debate (there was none to reveal)');
+
+  // A/B produce NO diagnostics view — the caller must not fabricate a debate.
+  ok(buildDebateDiagnostics(rA).available === false, 'diag: Step A has no debate view (available:false)');
+  ok(buildDebateDiagnostics(rB).available === false, 'diag: Step B has no debate view (available:false)');
+
+  // Step C exposes per-persona confidence + the reconciliation math (no single
+  // aggregate trust score).
+  const dC = buildDebateDiagnostics(rC);
+  ok(dC.available === true && dC.resolvedBy === 'C', 'diag: Step C exposes an available debate view');
+  ok(dC.personas.length === 3 && dC.personas.every(p => typeof p.confidencePct === 'number'),
+    'diag: each of the three personas shows its OWN confidence (per-persona, not aggregate)');
+  ok(dC.personas.every(p => p.label === PERSONA_LABELS[p.role]),
+    'diag: personas carry human-readable viewpoint labels, not raw role tokens');
+  ok(Array.isArray(dC.groups) && dC.groups.some(g => g.isWinner)
+    && dC.groups.every(g => typeof g.totalConfidence === 'number'),
+    'diag: the reconciliation grouping (summed confidence per answer + winner) is exposed');
+  ok(dC.winner && typeof dC.margin === 'number',
+    'diag: a winner and a winning margin (vs runner-up) are reported, not one collapsed number');
+  ok(!('trustScore' in dC) && !('score' in dC),
+    'diag: no opaque single aggregate trust score is present');
+
+  // Reconciliation math matches reconcile(): weighted winner beats blind majority.
+  const splitRes = {
+    resolvedBy: 'C',
+    debate: {
+      budgetExceeded: false,
+      proposals: [
+        { role: 'conservative', answer: 'cap at 90%', confidence: 0.3 },
+        { role: 'industry-norm', answer: 'cap at 90%', confidence: 0.3 },
+        { role: 'statistical', answer: 'cap at 100%', confidence: 0.9 },
+      ],
+      reconciled: reconcile([
+        { role: 'conservative', answer: 'cap at 90%', confidence: 0.3 },
+        { role: 'industry-norm', answer: 'cap at 90%', confidence: 0.3 },
+        { role: 'statistical', answer: 'cap at 100%', confidence: 0.9 },
+      ]),
+    },
+  };
+  const dSplit = buildDebateDiagnostics(splitRes);
+  ok(dSplit.winner.answer === 'cap at 100%' && dSplit.groups[0].answer === 'cap at 100%',
+    'diag: the winning group reflects confidence weighting, not the majority answer');
+  ok(dSplit.winner.agreement === 1 && dSplit.margin === Math.round((0.9 - 0.6) * 1000) / 1000,
+    'diag: the margin is the winner\'s summed-confidence lead over the runner-up');
+
+  // Budget-exceeded fallback is surfaced explicitly and shows no fabricated winner.
+  ok(rFallback.resolvedBy === 'fallback' && rFallback.debate && rFallback.debate.budgetExceeded === true,
+    'diag: a blown budget marks debate.budgetExceeded on the fallback resolution');
+  const dBudget = buildDebateDiagnostics(rFallback);
+  ok(dBudget.available === true && dBudget.budgetExceeded === true && dBudget.winner === null,
+    'diag: the budget-skip is surfaced with no fabricated winner');
+  ok(typeof dBudget.note === 'string' && /budget/i.test(dBudget.note),
+    'diag: the budget-skip carries a plain-language note');
+
+  // Degrades cleanly with the deterministic no-LLM proposal shape too.
+  const rCdet = await resolve(outlierCandidate(), { domain: 'retail' }); // no llm
+  const dDet = buildDebateDiagnostics(rCdet);
+  ok(dDet.available === true && dDet.personas.length === 3,
+    'diag: renders identically for the deterministic no-LLM fallback proposal shape');
+
   // ---------- 9. ZERO network calls across the whole resolution path ----------
   // Primary proof: the resolver's own source names NO network primitive at all
   // (reuses the pack no-network guard's static scan — the same mechanism CI runs
@@ -188,6 +256,11 @@ async function main() {
   const violations = scanSourceForNetwork(resolverSrc);
   ok(violations.length === 0,
     `network: the resolver source references zero network primitives (found ${violations.map(v => v.primitive).join(', ') || 'none'})`);
+  // The opt-in diagnostics layer is pure presentation — it too must name no network.
+  const diagSrc = readFileSync(join(__dirname, '..', 'js', 'agents', 'debate-diagnostics.js'), 'utf8');
+  const diagViolations = scanSourceForNetwork(diagSrc);
+  ok(diagViolations.length === 0,
+    `network: the debate-diagnostics source references zero network primitives (found ${diagViolations.map(v => v.primitive).join(', ') || 'none'})`);
 
   // Defence in depth: the synchronous entry into a resolution runs inside the
   // runtime trap without tripping it.

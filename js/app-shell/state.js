@@ -2,6 +2,8 @@
 // DATAGLOW — Central App State
 // ============================================================
 
+import { createMetricsRegistry } from './metrics-registry.js';
+
 export const state = {
   theme: 'light',
   datasets: [],           // [{ name, table, rowCount, cols, loadedAt }]
@@ -66,4 +68,27 @@ export function addDataset(ds) {
   state.datasets = state.datasets.filter(d => d.name !== ds.name);
   state.datasets.push(ds);
   state.activeDataset = ds.name;
+}
+
+// ---- Per-dataset shared metrics registries, keyed by table name ----
+// Each loaded dataset gets its own "define once" metrics registry, exactly like
+// the per-table provenance chains in js/provenance/provenance.js. Keying by
+// table name means switching datasets transparently gets a fresh, isolated
+// registry — a metric defined for one dataset never leaks into another. Lives
+// in RAM for the session only; nothing is persisted or uploaded.
+const metricsRegistries = new Map();
+
+export function getMetricsRegistry(tableName) {
+  if (!tableName) return null;
+  let registry = metricsRegistries.get(tableName);
+  if (!registry) {
+    registry = createMetricsRegistry();
+    metricsRegistries.set(tableName, registry);
+  }
+  return registry;
+}
+
+export function getActiveMetricsRegistry() {
+  const ds = getActiveDataset();
+  return ds ? getMetricsRegistry(ds.table) : null;
 }

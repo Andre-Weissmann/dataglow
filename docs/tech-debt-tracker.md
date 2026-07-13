@@ -415,3 +415,68 @@ Newest entries go at the bottom of **Entries**.
   just after failures) and again right after a rebase completes, confirming it
   matches the PR's `head.ref` from `gh api repos/.../pulls/<n>`, before doing any
   conflict resolution work or push.
+### 2026-07-11 — Shared metrics registry wired only into the SQL tab
+
+- **Description:** The in-session shared metrics registry
+  (`js/app-shell/metrics-registry.js`, keyed per-dataset in `js/app-shell/state.js`)
+  is designed so all five consuming surfaces — SQL, Python, R, Visualize, and
+  Story/narrative tabs — read metric definitions from one source of truth. This
+  batch wired only the SQL tab end-to-end (the "Saved Metrics" card plus `@metric`
+  expansion in `runSqlQuery`) as the proof path. The Python (`js/runtimes-viz/python-runtime.js`),
+  R (`js/runtimes-viz/r-runtime.js`), Visualize (`js/runtimes-viz/visualize.js`),
+  and Story (`js/narrative/story.js`) tabs do NOT yet reference the registry, so a
+  metric defined once is currently honored only in SQL. Deferred deliberately to
+  keep this batch to one real, tested path rather than five shallow ones; the
+  registry API (`resolveMetricSql`, `expandMetricReferences`, `getActiveMetricsRegistry`)
+  is already surface-agnostic, so wiring each remaining tab is additive.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/app-shell/metrics-registry.js`, `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/visualize.js`, `js/narrative/story.js`
+- **Status:** open
+
+### 2026-07-11 — "Truncated Axis" nutrition badge not shippable; nutrition label wired to one surface
+
+- **Description:** The Dataset Nutrition Label
+  (`js/provenance/nutrition-badges.js`) ships six badges, each backed by a real
+  computed signal. A seventh candidate — "Truncated Axis" (warn when a chart's
+  y-axis does not start at zero / is visually truncated) — was deliberately NOT
+  shipped: `js/runtimes-viz/visualize.js` only carries axis *title* configuration
+  and exposes no truncated / zero-baseline signal to compute the badge honestly,
+  and the "no decorative badges" rule forbids faking it. Shipping it needs
+  `visualize.js` to surface a real per-chart axis-range/zero-baseline fact for
+  `computeBadges` to read. Separately, the label + Analysis Fingerprint
+  (`js/provenance/analysis-fingerprint.js`) are wired end-to-end on ONE surface
+  only — `renderDataHealth` (the Validate-tab Data Health dashboard) in
+  `js/app-shell/main.js`; the SQL result grid and Visualize/chart exports are not
+  yet badged or fingerprinted. Deferred to keep this batch to one real, tested
+  rendering path; both modules are pure and surface-agnostic, so extending them is
+  additive.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/nutrition-badges.js`, `js/runtimes-viz/visualize.js`, `js/provenance/analysis-fingerprint.js`, `js/app-shell/main.js`
+- **Status:** open
+
+### 2026-07-11 — Incident postmortem: only annotate-only corrections apply; wired to one finding type
+
+- **Description:** The blameless incident postmortem
+  (`js/provenance/incident-postmortem.js`) proposes four correction kinds
+  (`add-outlier-context`, `tighten-validation-rule`, `revise-metric`,
+  `review-finding`), but only `add-outlier-context` maps onto an existing portable
+  domain-pack rule kind (`outlier-context`), so it is the only one the Accept
+  handler in `js/app-shell/main.js` can route through the existing confirm-gated
+  `communityPack.importPack` → `domainPhysics.registerRuntimePack` path. The other
+  three (tightening a rule, revising a metric) are — correctly — NOT auto-applied:
+  Accept records them to the assumption ledger for manual follow-up. A real
+  "tighten a validation rule" or "revise a metrics-registry definition" apply path
+  would need a hard-fail-capable rule kind in `js/validation/domain-physics.js` +
+  the portable schema (deliberately out of scope; the annotate-only sandbox is a
+  safety rail) or a confirm-gated metrics-registry edit surface. Separately, the
+  "Report incident" trigger is wired to ONE finding type — Upper-Bound Sanity
+  findings (the canonical false-positive case) in `renderValidationResults`; other
+  layers' findings are not yet reportable. Deferred to keep this batch to one real,
+  tested apply path; the pure module is surface- and finding-agnostic, so extending
+  the trigger to more layers is additive.
+- **Date:** 2026-07-11
+- **Severity:** low
+- **Area:** `js/provenance/incident-postmortem.js`, `js/app-shell/main.js`, `js/validation/domain-physics.js`
+- **Status:** open
