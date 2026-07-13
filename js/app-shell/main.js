@@ -62,6 +62,8 @@ import { openProofDrawer } from '../trust/proof-drawer.js';
 import { buildProofRoomPlan, renderProofRoom } from '../provenance/proof-room.js';
 import { computeReadinessGate } from '../gate/readiness-gate.js';
 import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
+import { createQueryMemoryLog, QUERY_KINDS } from '../provenance/query-memory.js';
+import { renderQueryMemoryBadge } from '../provenance/query-memory-ui.js';
 import { registerObject, listObjectSpace } from './object-space.js';
 import { computeGlowPathState } from './glow-path.js';
 import { renderGlowPath, createGlowPathDismissalStore } from './glow-path-ui.js';
@@ -1018,6 +1020,14 @@ async function runSqlQuery() {
     // agent-consumability verdict. It never re-runs validation, never blocks the
     // query, and shows an honest "not evaluated" state until validation has run.
     renderReadinessGateBadge(resultWrap);
+    // Query Memory (batch 2): fingerprints this SQL run against the tables/
+    // columns it touched and renders a "seen before?" badge. No-op when the
+    // queryMemory flag is off. Never blocks or delays the query.
+    recordAndRenderQueryMemory(
+      resultWrap,
+      { kind: QUERY_KINDS.SQL, text: sql, context: { tables: loadedTableNames(), columns: result.columns } },
+      sql.slice(0, 80),
+    );
     // Object Space (Polyglot Workbench, Batch B): passively register the loaded
     // DuckDB tables as SQL-origin objects in the shared registry so the live
     // cross-language strip stays in sync. Flag-gated — no-op when off.
@@ -1116,6 +1126,48 @@ const glowPathDismissalStore = createGlowPathDismissalStore();
 // One shared session proficiency tracker (Batch C). Fed by real per-tab run
 // events (SQL/Python/R/Validate) and read by renderGlowPathRail() for density.
 const proficiencyTracker = createProficiencyTracker();
+
+// ============================================================
+// Query Memory (batch 2 — UI wiring)
+// ============================================================
+// One shared log instance backed by the REAL IndexedDB store
+// (js/learning/memory-store.js), mirroring memoryStore's own
+// appendQueryMemory/getQueryMemory/getQueryMemoryByFingerprint contract exactly
+// — createQueryMemoryLog never talks to storage directly, only through this
+// injected adapter, same DI discipline as every other store-backed module here.
+// Entirely gated by the `queryMemory` flag: every call site below is a no-op
+// when the flag is off, so behavior is byte-for-byte unchanged in that state.
+const queryMemoryLog = createQueryMemoryLog({
+  store: {
+    appendQueryMemory: (entries) => memoryStore.appendQueryMemory(entries),
+    getQueryMemory: () => memoryStore.getQueryMemory(),
+    getQueryMemoryByFingerprint: (fp) => memoryStore.getQueryMemoryByFingerprint(fp),
+  },
+});
+
+// DataGlow has no login/author system; this single-user local app just labels
+// every run 'you' rather than inventing an identity layer. Kept as one constant
+// so a future multi-user surface only has to change this one spot.
+const QUERY_MEMORY_AUTHOR = 'you';
+
+// Currently-loaded dataset table names, used as the SQL run's `context.tables`.
+// Mirrors the same state.datasets source registerRuntimeObjects() already reads
+// — no new dataset-tracking concept introduced.
+function loadedTableNames() {
+  return (state.datasets || []).map(ds => ds.table).filter(Boolean);
+}
+
+// Record a run in Query Memory and render the "seen before?" badge into `host`.
+// No-op (and never throws into the caller) when the flag is off or IndexedDB is
+// unavailable — Query Memory is informational only and must never break a run.
+async function recordAndRenderQueryMemory(host, run, label) {
+  if (!host || !isEnabled('queryMemory')) return;
+  try {
+    await memoryStore.initMemoryStore();
+    const { priorLookup } = await queryMemoryLog.record(run, QUERY_MEMORY_AUTHOR, { label });
+    renderQueryMemoryBadge({ host, lookupResult: priorLookup });
+  } catch (e) { /* Query Memory is best-effort; never break the run it sits beside */ }
+}
 
 // Count pass/warn/fail across the last validation run. Mirrors the gate's own
 // tolerance: only entries carrying a string `status` are layers; aggregate keys
@@ -1666,7 +1718,14 @@ function initPythonTab() {
       for (const src of pyRuntime.extractImageDataUrls(images)) {
         html += `<img class="runtime-chart" alt="Python chart output" src="${escapeHtml(src)}" />`;
       }
+      html += '<div id="py-query-memory-host"></div>';
       outWrap.innerHTML = html;
+      // Query Memory (batch 2): no-op when the queryMemory flag is off.
+      recordAndRenderQueryMemory(
+        $('#py-query-memory-host'),
+        { kind: QUERY_KINDS.PYTHON, text: code, context: { tables: loadedTableNames() } },
+        code.slice(0, 80),
+      );
     } catch (err) {
       outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
     }
@@ -1718,7 +1777,14 @@ function initRTab() {
       for (const src of rRuntime.extractImageDataUrls(images)) {
         html += `<img class="runtime-chart" alt="R chart output" src="${escapeHtml(src)}" />`;
       }
+      html += '<div id="r-query-memory-host"></div>';
       outWrap.innerHTML = html;
+      // Query Memory (batch 2): no-op when the queryMemory flag is off.
+      recordAndRenderQueryMemory(
+        $('#r-query-memory-host'),
+        { kind: QUERY_KINDS.R, text: code, context: { tables: loadedTableNames() } },
+        code.slice(0, 80),
+      );
     } catch (err) {
       outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
     }
