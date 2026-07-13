@@ -1,5 +1,5 @@
 # ============================================================
-# DATAGLOW — CI job: AI Touch Ledger (Batch 1)
+# DATAGLOW — CI job: AI Touch Ledger (Batch 1 + Batch 2)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
@@ -10,15 +10,18 @@
 # summarize/export helpers. The module is pure JS + Web Crypto with no
 # DOM/DuckDB/network, so plain `node` runs the suite — same shape as the
 # Cross-Table Relational Rules (Truth Network B1) job.
+#
+# Batch 2 adds the Story Engine wiring suite (js/narrative/story.js's
+# logStoryTouch()) — also pure Node with fetch stubbed, no DOM/browser needed.
 
-name: AI Touch Ledger (Batch 1)
+name: AI Touch Ledger (Batch 1 + Batch 2)
 
 on:
   workflow_call:
 
 jobs:
   ai-touch-ledger:
-    name: AI Touch Ledger (hash-chain integrity + never-throws contract)
+    name: AI Touch Ledger (hash-chain integrity + never-throws contract + Story wiring)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,3 +31,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:aitouchledger
+      - run: npm run test:aitouchledgerwiring
