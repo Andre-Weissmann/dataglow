@@ -1920,5 +1920,37 @@
         }
       ]
     }
+,
+    {
+      "id": "open-floor-kernel",
+      "area": "Open Floor",
+      "name": "Open Floor read-only room kernel + PHI prompt guard",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/open-floor-room.js",
+        "js/agents/phi-prompt-guard.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/agents/open-floor-room.js",
+          "name": "createReadOnlyRoom"
+        },
+        {
+          "file": "js/agents/open-floor-room.js",
+          "name": "classifyReadOnlySql"
+        },
+        {
+          "file": "js/agents/phi-prompt-guard.js",
+          "name": "guardPromptPayload"
+        },
+        {
+          "file": "js/agents/phi-prompt-guard.js",
+          "name": "classifySensitiveColumns"
+        }
+      ]
+    }
   ]
 }

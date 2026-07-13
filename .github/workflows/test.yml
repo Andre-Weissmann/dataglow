@@ -152,3 +152,5 @@ jobs:
 
   portable-receipt:
     uses: ./.github/workflows/job-portable-receipt.yml
+  open-floor-kernel:
+    uses: ./.github/workflows/job-open-floor-kernel.yml
