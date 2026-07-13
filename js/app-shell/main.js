@@ -87,6 +87,7 @@ import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDip
 import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
+import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 import * as firewall from '../agents/agent-action-firewall.js';
 // Capability modules loaded lazily through the platform-aware registry (see
@@ -2119,8 +2120,20 @@ async function scanClean() {
           // names who authorized it, not just that it happened.
           const who = identity ? ` [authorized by ${identity.label}]` : '';
           ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`);
-          await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`,
+          const recordedStep = await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`,
             dataBlame.buildBlameDetail({ rule: fixType, column: issue.column, affectedCount: issue.count }));
+          // ADDITIVE-ONLY Crucible orchestration (flag crucibleOrchestration,
+          // default off). Runs the standing adversarial suite against this fix and
+          // stashes the result for the Crucible tab. Wrapped so ANY failure here is
+          // swallowed — it must never block, delay, or alter the fix above, which
+          // has already been applied and recorded by this point.
+          if (isEnabled('crucibleOrchestration')) {
+            try {
+              state.latestCrucibleRun = runCrucibleForFix({ fixType, issue, blameEntry: recordedStep });
+            } catch (e) {
+              console.warn('[crucibleOrchestration] suppressed:', e && e.message);
+            }
+          }
         };
         try {
           if (isEnabled('agentActionFirewall')) {
@@ -2894,6 +2907,23 @@ function renderCrucibleTab() {
     if (crucibleHandle) { crucibleHandle.destroy(); }
     crucibleMounted = false;
     crucibleHandle = null;
+    return;
+  }
+  // ADDITIVE-ONLY: when the crucibleOrchestration flag is on AND a fix has been
+  // run through the standing suite this session, feed that live result into the
+  // panel; re-mount so the newest run is shown. In every other case (flag off,
+  // or no run yet) fall back to the original one-time empty-state mount, so the
+  // tab renders exactly as before when the flag is dark.
+  const run = isEnabled('crucibleOrchestration') ? state.latestCrucibleRun : null;
+  if (run) {
+    if (crucibleHandle) { crucibleHandle.destroy(); }
+    crucibleHandle = mountCrucible({
+      host, onToast: toast,
+      cleaningResult: run.cleaningResult,
+      validationVerdict: run.validationVerdict,
+      suiteResult: run.suiteResult,
+    });
+    crucibleMounted = true;
     return;
   }
   if (!crucibleMounted) {

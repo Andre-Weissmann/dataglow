@@ -76,6 +76,7 @@
     "test:cruciblepacks": "node --import ./test/duckdb-loader-hook.mjs test/crucible-adversarial-packs.test.mjs",
     "test:crucibleui": "node test/crucible-ui.test.mjs",
     "test:reverteligibility": "node test/revert-eligibility.test.mjs",
+    "test:crucibleorchestration": "node test/crucible-orchestrator.test.mjs",
     "test:roomsignaling": "node test/room-signaling.test.mjs",
     "test:roomsbroadcast": "node test/room-broadcast.test.mjs",
     "test:roomsui": "node test/room-ui.test.mjs",

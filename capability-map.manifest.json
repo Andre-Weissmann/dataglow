@@ -350,6 +350,24 @@
       ]
     },
     {
+      "id": "crucible-orchestration",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "The Crucible: orchestration glue (additive-only)",
+      "files": [
+        "js/validation/crucible-orchestrator.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/validation/crucible-orchestrator.js",
+          "name": "runCrucibleForFix"
+        }
+      ]
+    },
+    {
       "id": "validation-reinterpretation",
       "platforms": [
         "browser",
