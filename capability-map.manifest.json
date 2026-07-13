@@ -1872,6 +1872,36 @@
         { "file": "js/agents/debate-diagnostics.js", "name": "buildDebateDiagnostics" },
         { "file": "js/agents/debate-diagnostics.js", "name": "PERSONA_LABELS" }
       ]
+    },
+    {
+      "id": "command-palette",
+      "area": "App shell / navigation",
+      "name": "Command Deck command palette (Part 2)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/app-shell/command-palette.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "COMMAND_ACTIONS"
+        },
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "buildCommandList"
+        },
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "scoreCommand"
+        },
+        {
+          "file": "js/app-shell/command-palette.js",
+          "name": "filterCommands"
+        }
+      ]
     }
   ]
 }
