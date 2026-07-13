@@ -1,5 +1,5 @@
 # ============================================================
-# DATAGLOW — CI job: The Crucible (adversarial validator, Batches 1 & 2)
+# DATAGLOW — CI job: The Crucible (adversarial validator, Batches 1, 2 & 3)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
@@ -22,15 +22,23 @@
 #     buildAdversarialPackListModel / buildRunLogModel, fed REAL Batch 1 output
 #     (buildCleaningResult / buildValidationVerdict / runAdversarialSuite), and
 #     the never-throw honest-empty-state discipline. Plain node — no DOM.
+# And the Batch 3 proposal-only revert-eligibility suite:
+#   - test:reverteligibility — the pure classifier + proposal builder
+#     (js/provenance/revert-eligibility.js): classifyRevertEligibility /
+#     buildRevertProposal / summarizeRevertProposals, fed REAL blame entries
+#     (buildBlameDetail / normalizeBlameEntry from js/provenance/data-blame.js).
+#     Asserts DELETE-style + aggregate fixes are permanently not revert-eligible,
+#     UPDATE-style only with usable before/after, proposals are inert data (no
+#     SQL, no mutation), and the never-throw discipline. Plain node — no DOM.
 
-name: The Crucible (Batches 1 & 2)
+name: The Crucible (Batches 1, 2 & 3)
 
 on:
   workflow_call:
 
 jobs:
   crucible:
-    name: The Crucible (typed handoff contract + adversarial packs + read-only UI)
+    name: The Crucible (typed handoff contract + adversarial packs + read-only UI + revert proposals)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,3 +50,4 @@ jobs:
       - run: npm run test:cruciblecontract
       - run: npm run test:cruciblepacks
       - run: npm run test:crucibleui
+      - run: npm run test:reverteligibility
