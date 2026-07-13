@@ -71,6 +71,7 @@ import { computeGlowSignal } from '../glow/glow-signal.js';
 import { renderGlowOrb } from '../glow/glow-orb-ui.js';
 import { generateRoomCode, isRoomsSupported, RoomSignalingCoordinator } from '../rooms/room-signaling.js';
 import { RoomBroadcastCoordinator } from '../rooms/room-broadcast.js';
+import { createGithubRoomSignaling, createRoomWebRTCTransport } from '../rooms/room-transport-adapter.js';
 import { buildRoomPillModel, buildPresenceModel, renderRoomUi, notifyRemoteEntry } from '../rooms/room-ui.js';
 import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
@@ -1311,9 +1312,28 @@ function renderRoomUiWidget() {
 async function startRoom() {
   try {
     const roomCode = generateRoomCode();
-    roomSignaling = new RoomSignalingCoordinator({ roomCode });
+    const selfId = `peer-${Math.floor(Math.random() * 1e9)}`;
+    // Batch 4: a real signaling adapter, bridging the same GitHub coordination-
+    // branch pattern already proven in production by Federated Learning
+    // (createGithubSignaling in federated-transport.js) but partitioned per
+    // room code instead of one global phone book. No write token is
+    // configured here (same as Federated Learning's own default) so presence
+    // announces degrade to read-only best-effort — a Room still opens and
+    // shows its code, peers just won't see each other until a token is wired
+    // into a future settings surface. Never throws: any failure here falls
+    // back to the RoomSignalingCoordinator's own NULL_ROOM_SIGNALING default.
+    let signaling;
+    try {
+      signaling = createGithubRoomSignaling({ owner: 'Andre-Weissmann', repo: 'dataglow' });
+    } catch (e) { signaling = undefined; }
+    roomSignaling = new RoomSignalingCoordinator(signaling ? { roomCode, selfId, signaling } : { roomCode, selfId });
+    let transport;
+    try {
+      transport = createRoomWebRTCTransport({ roomCode: roomSignaling.roomCode, selfId, signaling });
+    } catch (e) { transport = undefined; }
     roomBroadcast = new RoomBroadcastCoordinator({
       room: roomSignaling,
+      transport,
       onRemoteEntry: (entry, m) => notifyRemoteEntry({ entry, from: m && m.from, peers: roomPeers, toast }),
       onViewersChanged: () => renderRoomUiWidget(),
     });
@@ -1331,10 +1351,14 @@ async function startRoom() {
 // Leave the current Room (best-effort) and return the pill to its idle state.
 async function leaveRoom() {
   const coord = roomSignaling;
+  const broadcast = roomBroadcast;
   roomSignaling = null;
   roomBroadcast = null;
   roomPeers = [];
   renderRoomUiWidget();
+  // Tear down any open peer connections before leaving so a left Room never
+  // keeps a dangling RTCPeerConnection running in the background.
+  try { broadcast && broadcast.transport && broadcast.transport.closeAll && broadcast.transport.closeAll(); } catch (e) { /* never throws */ }
   if (coord) { try { await coord.leave(); } catch (e) { /* never throws */ } }
 }
 
