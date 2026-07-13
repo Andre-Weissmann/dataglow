@@ -569,7 +569,7 @@ batches/PRs rather than one shot, specifically because the revert action carries
    from Batch 1's `crucibleValidator`, default OFF); with the flag off the tab is never in the bar and the
    whole app shell is byte-for-byte unchanged.)
 3. **Batch 3 — revert PROPOSALS on the provenance blame trail (proposal-only, DELIBERATELY narrowed).**
-   (DONE — [#{PR}](https://github.com/Andre-Weissmann/dataglow/pull/{PR}), branch
+   (DONE — [#231](https://github.com/Andre-Weissmann/dataglow/pull/231), branch
    `feat/crucible-batch3-revert-proposals` — `js/provenance/revert-eligibility.js`: pure, never-throwing
    `classifyRevertEligibility` / `buildRevertProposal` / `summarizeRevertProposals`, reusing
    `normalizeBlameEntry` from `js/provenance/data-blame.js` as the single blame-entry shape. After
