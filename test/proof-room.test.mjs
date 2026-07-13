@@ -1,13 +1,14 @@
 // ============================================================
 // DATAGLOW — Proof Room composer unit tests (Trust Passport, composition batch 1)
 // ============================================================
-// The Proof Room is pure UI composition of five already-tested surfaces, so the
+// The Proof Room is pure UI composition of six already-tested surfaces, so the
 // ONLY new logic worth testing is js/provenance/proof-room.js's pure plan
 // builder + its fixed step order/metadata. No DOM, no DuckDB, no network.
 //
-//   - the five steps are emitted in the fixed product order,
+//   - the six steps are emitted in the fixed product order,
 //   - readiness is decided honestly from session state (no dataset → most steps
-//     not ready; validation not yet run → no seal; no seal → no beam),
+//     not ready; validation not yet run → no seal; no seal → no beam; the
+//     AI Touch Ledger step depends only on the aiTouchLedgerEnabled flag),
 //   - a not-ready step carries a one-line reason, a ready step carries none,
 //   - the beam step follows the seal step's readiness unless overridden,
 //   - the aggregator never throws on empty/garbage input,
@@ -37,9 +38,9 @@ const step = (plan, key) => plan.steps.find((s) => s.key === key);
 
 function main() {
   // ---------- 1. Fixed step order + metadata ----------
-  ok(PROOF_ROOM_STEP_KEYS.length === 5, 'meta: exactly five steps');
+  ok(PROOF_ROOM_STEP_KEYS.length === 6, 'meta: exactly six steps');
   ok(JSON.stringify(PROOF_ROOM_STEP_KEYS) === JSON.stringify([
-    'metricStudio', 'trustStrip', 'dataNutritionLabel', 'verifiableCheckSeal', 'trustBeam',
+    'metricStudio', 'trustStrip', 'dataNutritionLabel', 'verifiableCheckSeal', 'trustBeam', 'aiTouchLedger',
   ]), 'meta: step keys are in the fixed product order');
   ok(PROOF_ROOM_STEPS.map((s) => s.key).join(',') === PROOF_ROOM_STEP_KEYS.join(','),
     'meta: PROOF_ROOM_STEPS order matches PROOF_ROOM_STEP_KEYS');
@@ -50,14 +51,15 @@ function main() {
   // ---------- 2. Nothing loaded ----------
   {
     const plan = buildProofRoomPlan({});
-    ok(plan.steps.length === 5, 'empty: five steps emitted');
-    ok(plan.steps.map((s, i) => s.step === i + 1).every(Boolean), 'empty: steps numbered 1..5 in order');
+    ok(plan.steps.length === 6, 'empty: six steps emitted');
+    ok(plan.steps.map((s, i) => s.step === i + 1).every(Boolean), 'empty: steps numbered 1..6 in order');
     ok(step(plan, 'metricStudio').available === false, 'empty: Metric Studio not ready with no dataset');
     ok(step(plan, 'trustStrip').available === true, 'empty: Trust Strip always renders (honest empty state)');
     ok(step(plan, 'dataNutritionLabel').available === false, 'empty: Nutrition Label not ready with no dataset');
     ok(step(plan, 'verifiableCheckSeal').available === false, 'empty: Seal not ready with no dataset/validation');
     ok(step(plan, 'trustBeam').available === false, 'empty: Beam not ready without a seal');
-    ok(plan.readyCount === 1 && plan.totalCount === 5, 'empty: only the Trust Strip is ready');
+    ok(step(plan, 'aiTouchLedger').available === false, 'empty: AI Touch Ledger not ready when the flag is off (default)');
+    ok(plan.readyCount === 1 && plan.totalCount === 6, 'empty: only the Trust Strip is ready');
     ok(step(plan, 'metricStudio').detail.length > 0 && step(plan, 'trustStrip').detail === '',
       'empty: a not-ready step has a reason, a ready step has none');
   }
@@ -77,8 +79,25 @@ function main() {
     const plan = buildProofRoomPlan({ datasetLoaded: true, hasValidationResults: true });
     ok(step(plan, 'verifiableCheckSeal').available === true, 'validated: Seal ready');
     ok(step(plan, 'trustBeam').available === true, 'validated: Beam follows the seal step by default');
-    ok(plan.readyCount === 5, 'validated: all five steps ready');
-    ok(plan.steps.every((s) => s.detail === ''), 'validated: no step carries a pending reason');
+    ok(plan.readyCount === 5, 'validated: five of six steps ready (AI Touch Ledger flag still off)');
+    ok(step(plan, 'aiTouchLedger').available === false, 'validated: AI Touch Ledger still not ready — independent of dataset/validation state');
+    ok(plan.steps.filter((s) => s.key !== 'aiTouchLedger').every((s) => s.detail === ''),
+      'validated: no step other than the flagged-off AI Touch Ledger carries a pending reason');
+  }
+
+  // ---------- 4b. AI Touch Ledger step depends only on the flag ----------
+  {
+    const flagOff = buildProofRoomPlan({ datasetLoaded: true, hasValidationResults: true, aiTouchLedgerEnabled: false });
+    ok(step(flagOff, 'aiTouchLedger').available === false, 'flag: AI Touch Ledger not ready when aiTouchLedgerEnabled is false');
+    ok(step(flagOff, 'aiTouchLedger').detail.length > 0, 'flag: AI Touch Ledger explains it is an opt-in feature when off');
+
+    const flagOn = buildProofRoomPlan({ aiTouchLedgerEnabled: true });
+    ok(step(flagOn, 'aiTouchLedger').available === true, 'flag: AI Touch Ledger ready when aiTouchLedgerEnabled is true, even with nothing else loaded');
+    ok(step(flagOn, 'aiTouchLedger').detail === '', 'flag: AI Touch Ledger has no pending reason once enabled');
+    ok(step(flagOn, 'metricStudio').available === false, 'flag: enabling AI Touch Ledger does not make unrelated steps ready');
+
+    const allSix = buildProofRoomPlan({ datasetLoaded: true, hasValidationResults: true, aiTouchLedgerEnabled: true });
+    ok(allSix.readyCount === 6, 'flag: all six steps ready when dataset+validation+flag are all satisfied');
   }
 
   // ---------- 5. Explicit sealReady override decouples beam from seal step ----------

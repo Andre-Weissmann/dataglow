@@ -10,6 +10,7 @@
     "test:layers": "node --import ./test/duckdb-loader-hook.mjs test/validation-layers.test.mjs",
     "test:crosscol": "node --import ./test/duckdb-loader-hook.mjs test/cross-column-consistency.test.mjs",
     "test:aitouchledger": "node test/ai-touch-ledger.test.mjs",
+    "test:aitouchledgerwiring": "node test/ai-touch-ledger-story-wiring.test.mjs",
     "test:fpdrift": "node --import ./test/duckdb-loader-hook.mjs test/distribution-fingerprint-drift.test.mjs",
     "test:driftforecast": "node --import ./test/duckdb-loader-hook.mjs test/drift-forecast.test.mjs",
     "test:expectedrange": "node --import ./test/duckdb-loader-hook.mjs test/expected-range.test.mjs",

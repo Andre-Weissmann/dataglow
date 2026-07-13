@@ -155,13 +155,90 @@ export function generateLocalStory(queryResult, tableName) {
 // `opts.ondeviceGenerate(queryResult, tableName)` is injected by the browser
 // (main.js) to run the on-device WebLLM model. It is a dependency so this module
 // stays free of any WebGPU/WebLLM import and remains unit-testable in Node.
+//
+// `opts.touchLedger` (AI Touch Ledger, Batch 2) is an OPTIONAL injected object
+// exposing `logTouch(touch)` — same dependency-injection shape as
+// `ondeviceGenerate`, so this module stays free of any import from
+// js/provenance/ai-touch-ledger.js and remains unit-testable in Node without a
+// ledger present. When supplied, every attempted AI touch (on-device or
+// external — including ones that fail or fall back) is logged exactly once,
+// AFTER the real outcome is known, so `location`/`sentTo`/`model` always
+// reflect what actually happened rather than what was requested. `logTouch`
+// never throws (see ai-touch-ledger.js's own contract), but a defensive
+// try/catch here means even a broken injected ledger can never break story
+// generation itself.
 export async function generateStory(queryResult, tableName, provider, apiKey, opts = {}) {
   const result = await produceStory(queryResult, tableName, provider, apiKey, opts);
+  await logStoryTouch(queryResult, tableName, provider, opts, result);
   // Dev-mode, non-fatal: confirm the Story Engine output conforms to the
   // published protocol/schema/story-output.schema.json.
   const claims = (queryResult && queryResult.rows && queryResult.rows.length) ? buildStoryClaims(queryResult) : [];
   devAssertConformance('story-output', toStoryOutput(result, claims));
   return result;
+}
+
+// Map a produceStory() result to an AI Touch Ledger entry, and log it via the
+// injected opts.touchLedger if present.
+//
+// The subtle case: `source: 'local-fallback'` can mean two very different
+// things, and conflating them would be dishonest about what actually left
+// the browser:
+//   1. provider === 'ondevice' failed BEFORE any network call — nothing ever
+//      left the browser, so this is NOT an AI touch at all. Not logged.
+//   2. An EXTERNAL provider's fetch() already sent the real query-result rows
+//      in its request body, then threw (bad status or network error) AFTER
+//      that send. The touch already happened even though the story text that
+//      reaches the user is the local fallback — logging nothing here would
+//      hide a real instance of data leaving the browser. Logged as external.
+// `source: 'local'` (provider was 'local' or no API key configured, or an
+// unrecognized/keyless provider) never attempts any AI call, so it is never
+// logged either.
+async function logStoryTouch(queryResult, tableName, provider, opts, result) {
+  const touchLedger = opts && opts.touchLedger;
+  if (!touchLedger || typeof touchLedger.logTouch !== 'function') return;
+  if (!result) return;
+
+  const fieldsTouched = Array.isArray(queryResult && queryResult.columns) ? queryResult.columns : [];
+  const action = `Generate Story narrative for "${tableName}"`;
+  const providerDef = MODEL_PROVIDERS.find((p) => p.id === provider);
+
+  try {
+    if (result.source === 'ondevice') {
+      await touchLedger.logTouch({
+        model: (providerDef && providerDef.name) || 'On-device model',
+        location: 'ondevice',
+        action,
+        fieldsTouched,
+      });
+    } else if (result.source === 'local-fallback' && provider !== 'ondevice' && providerDef && providerDef.endpoint) {
+      // An external provider's request body (containing fieldsTouched) already
+      // went out over the network before this call failed and fell back locally.
+      await touchLedger.logTouch({
+        model: providerDef.name,
+        location: 'external',
+        sentTo: providerDef.endpoint,
+        action,
+        fieldsTouched,
+      });
+    } else if (result.source !== 'local' && result.source !== 'local-fallback') {
+      // Any other source value is a successful external-provider id
+      // (perplexity/anthropic/google/openai) — the real query-result columns
+      // were embedded in the HTTP request body sent to providerDef.endpoint.
+      await touchLedger.logTouch({
+        model: (providerDef && providerDef.name) || result.source,
+        location: 'external',
+        sentTo: (providerDef && providerDef.endpoint) || result.source,
+        action,
+        fieldsTouched,
+      });
+    }
+    // else: source === 'local', or an ondevice local-fallback that never sent
+    // anything — correctly not logged, since no AI model was touched.
+  } catch (_e) {
+    // logTouch() itself never throws, but a broken/foreign injected object
+    // (e.g. missing logTouch after a typeof check race, or a getter that
+    // throws) must still never break story generation.
+  }
 }
 
 async function produceStory(queryResult, tableName, provider, apiKey, opts = {}) {

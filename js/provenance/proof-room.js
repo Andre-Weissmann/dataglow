@@ -1,13 +1,14 @@
 // ============================================================
 // DATAGLOW — Proof Room (Trust Passport, composition batch 1)
 // ============================================================
-// A single screen that composes FIVE already-shipped, already-tested trust
+// A single screen that composes SIX already-shipped, already-tested trust
 // surfaces into one top-to-bottom "assembled proof", in a fixed order:
 //   1. Metric Studio            (js/metrics/metric-studio.js)
 //   2. Trust Strip              (js/trust/trust-strip.js)
 //   3. Data Nutrition Label     (js/provenance/data-nutrition-label.js)
 //   4. Verifiable Check Seal    (js/provenance/verifiable-check-seal.js)
 //   5. Trust Beam               (js/provenance/trust-beam.js + verify-beam.html)
+//   6. AI Touch Ledger          (js/provenance/ai-touch-ledger.js, feature-flagged: aiTouchLedger)
 //
 // PURE UI COMPOSITION ONLY — this module invents NO crypto, NO validation logic,
 // NO backend, and NO AI model. It reuses each underlying module's existing
@@ -36,6 +37,7 @@ export const PROOF_ROOM_STEP_KEYS = [
   'dataNutritionLabel',
   'verifiableCheckSeal',
   'trustBeam',
+  'aiTouchLedger',
 ];
 
 // Per-step metadata: the short heading + one-line description shown above each
@@ -66,6 +68,11 @@ export const PROOF_ROOM_STEPS = [
     title: 'Trust Beam',
     description: 'Turn a seal into a self-contained shareable link whose whole payload lives in the URL fragment, so nothing is ever uploaded. A recipient re-verifies it in verify-beam.html with zero install.',
   },
+  {
+    key: 'aiTouchLedger',
+    title: 'AI Touch Ledger',
+    description: 'A hash-chained log of every AI model touch on this dataset — which model, on-device or external, and which fields were involved. Feature-flagged (aiTouchLedger); only appears once enabled.',
+  },
 ];
 
 export const PROOF_ROOM_DISCLAIMER =
@@ -88,6 +95,12 @@ export const PROOF_ROOM_DISCLAIMER =
 // @param {boolean} [ctx.sealReady]           A seal can be / has been produced.
 //   Defaults to (datasetLoaded && hasValidationResults) — the seal step's own
 //   readiness — since a beam needs a seal to exist first.
+// @param {boolean} [ctx.aiTouchLedgerEnabled] Whether the aiTouchLedger flag is
+//   on. This module is pure/DOM-free and has no flag access of its own, so the
+//   caller (main.js) passes the already-resolved isEnabled('aiTouchLedger')
+//   value through ctx — same pattern as every other readiness input here.
+//   Defaults to false, so with the flag off this step is never available and
+//   the Proof Room renders exactly as it did before this step existed.
 // @returns {{steps: Array<{key,title,description,step,available,detail}>,
 //            readyCount: number, totalCount: number}}
 export function buildProofRoomPlan(ctx = {}) {
@@ -95,6 +108,7 @@ export function buildProofRoomPlan(ctx = {}) {
   const hasValidationResults = !!(ctx && ctx.hasValidationResults);
   const sealStepReady = datasetLoaded && hasValidationResults;
   const sealReady = ctx && ctx.sealReady != null ? !!ctx.sealReady : sealStepReady;
+  const aiTouchLedgerEnabled = !!(ctx && ctx.aiTouchLedgerEnabled);
 
   const available = {
     // Metric Studio needs the loaded dataset's schema columns to validate a
@@ -111,6 +125,9 @@ export function buildProofRoomPlan(ctx = {}) {
     verifiableCheckSeal: sealStepReady,
     // A beam is a wrapper around a seal, so it needs a seal to exist first.
     trustBeam: sealReady,
+    // The AI Touch Ledger is entirely feature-flagged; it never depends on
+    // dataset/validation state — only on whether aiTouchLedger is enabled.
+    aiTouchLedger: aiTouchLedgerEnabled,
   };
 
   const detail = {
@@ -119,6 +136,7 @@ export function buildProofRoomPlan(ctx = {}) {
     dataNutritionLabel: 'Load a dataset to assemble its nutrition label.',
     verifiableCheckSeal: 'Run the validation layers first — a seal binds a real check result to the data’s fingerprint.',
     trustBeam: 'Seal a check result above, then beam it as a self-contained shareable link.',
+    aiTouchLedger: 'The AI Touch Ledger is an opt-in feature and is not yet enabled for this session.',
   };
 
   const steps = PROOF_ROOM_STEPS.map((meta, i) => ({

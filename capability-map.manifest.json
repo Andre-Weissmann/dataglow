@@ -695,9 +695,12 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "AI Touch Ledger (Batch 1)",
+      "name": "AI Touch Ledger (Batch 1 + Batch 2 — wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
       "files": [
-        "js/provenance/ai-touch-ledger.js"
+        "js/provenance/ai-touch-ledger.js",
+        "js/narrative/story.js",
+        "js/app-shell/main.js",
+        "js/provenance/proof-room.js"
       ],
       "symbols": [
         {
@@ -707,6 +710,10 @@
         {
           "file": "js/provenance/ai-touch-ledger.js",
           "name": "verifyTouchLedger"
+        },
+        {
+          "file": "js/narrative/story.js",
+          "name": "generateStory"
         }
       ]
     },
@@ -815,7 +822,7 @@
       "id": "provenance-proof-room",
       "platforms": ["browser", "desktop"],
       "area": "Provenance, audit & trust",
-      "name": "Proof Room (Trust Passport, composition batch 1)",
+      "name": "Proof Room (Trust Passport, composition batch 1 + AI Touch Ledger step, feature-flagged: aiTouchLedger)",
       "files": ["js/provenance/proof-room.js"],
       "symbols": [
         { "file": "js/provenance/proof-room.js", "name": "buildProofRoomPlan" },

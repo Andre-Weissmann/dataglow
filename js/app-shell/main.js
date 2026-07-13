@@ -43,6 +43,7 @@ import * as driftForecast from '../drift/drift-forecast.js';
 import { DriftWatchdog, formatWatchdogAlert } from '../ambient/drift-watchdog.js';
 import * as expectedRange from '../validation/expected-range.js';
 import * as ledger from '../provenance/assumption-ledger.js';
+import { createTouchLedger, summarizeTouchLedger, exportTouchLedger } from '../provenance/ai-touch-ledger.js';
 import * as provenance from '../provenance/provenance.js';
 import * as sdProof from '../provenance/selective-disclosure-proof.js';
 import * as dataBlame from '../provenance/data-blame.js';
@@ -2524,6 +2525,7 @@ function renderProofRoomTab() {
   const plan = buildProofRoomPlan({
     datasetLoaded: true,
     hasValidationResults: !!state.validationResults,
+    aiTouchLedgerEnabled: isEnabled('aiTouchLedger'),
   });
 
   renderProofRoom({
@@ -2630,6 +2632,24 @@ function renderProofRoomTab() {
           },
         }, 'Beam it'));
       },
+      aiTouchLedger: (body) => {
+        const entries = aiTouchLedger.getEntries();
+        if (!entries.length) {
+          body.appendChild(el('div', {
+            style: 'font-size:var(--text-xs); color:var(--color-text-faint); font-style:italic;',
+          }, 'No AI touches recorded yet this session — generate a story with an on-device or external model in the Story tab to see entries here.'));
+          return;
+        }
+        body.appendChild(el('div', {
+          style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:6px;',
+        }, summarizeTouchLedger(entries)));
+        body.appendChild(el('button', {
+          class: 'btn btn-secondary',
+          style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start;',
+          'data-testid': 'proof-room-ai-touch-ledger-export',
+          onclick: () => downloadText('dataglow-ai-touch-ledger.json', exportTouchLedger(entries, 'json'), 'application/json'),
+        }, 'Download AI Touch Ledger (.json)'));
+      },
     },
   });
 }
@@ -2675,6 +2695,53 @@ function initLedger() {
   $('#btn-ledger-export-md').addEventListener('click', () => downloadText('dataglow-assumption-ledger.md', ledger.exportLedger('markdown'), 'text/markdown'));
   $('#btn-ledger-export-json').addEventListener('click', () => downloadText('dataglow-assumption-ledger.json', ledger.exportLedger('json'), 'application/json'));
   $('#btn-ledger-clear').addEventListener('click', () => { ledger.clearLedger(); renderAssumptionLedger(); toast('Ledger cleared', 'success'); });
+}
+
+// AI Touch Ledger (Batch 2) — UI panel modeled directly on the Assumption
+// Ledger above (#assumption-ledger-wrap / renderAssumptionLedger / initLedger).
+// Entirely gated by the aiTouchLedger flag: renderAiTouchLedgerPanel() is only
+// ever called from the flag-gated call site in the Story tab handler above, and
+// initAiTouchLedgerPanel()'s button wiring is itself flag-gated (see initApp).
+function renderAiTouchLedgerPanel() {
+  const wrap = $('#ai-touch-ledger-wrap');
+  const list = $('#ai-touch-ledger-list');
+  if (!wrap || !list) return;
+  const entries = aiTouchLedger.getEntries();
+  wrap.style.display = '';
+  if (!entries.length) {
+    list.innerHTML = '<span style="color:var(--color-text-faint);">No AI touches recorded yet — generate a story with an on-device or external model to see entries here.</span>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const e of entries) {
+    const time = new Date(e.ts).toLocaleTimeString();
+    const locLabel = e.location === 'external' ? `external → ${e.sentTo || 'unknown endpoint'}` : 'on-device (private)';
+    const rejected = e.rejected ? ' [rejected: malformed entry]' : '';
+    const fieldsSuffix = Array.isArray(e.fieldsTouched) && e.fieldsTouched.length ? ` (fields: ${e.fieldsTouched.join(', ')})` : '';
+    list.appendChild(el('div', { style: 'padding:4px 0; border-top:1px solid var(--color-divider);' }, [
+      el('span', { style: 'color:var(--color-text-faint);' }, `[${time}] `),
+      el('span', { style: 'font-weight:600; color:var(--color-text-muted);' }, `${e.model || 'unknown model'} — `),
+      el('span', {}, `${locLabel}: ${e.action || ''}${fieldsSuffix}${rejected}`),
+    ]));
+  }
+  list.scrollTop = list.scrollHeight;
+}
+
+function initAiTouchLedgerPanel() {
+  const copyBtn = $('#btn-ai-touch-ledger-copy');
+  const txtBtn = $('#btn-ai-touch-ledger-export-txt');
+  const mdBtn = $('#btn-ai-touch-ledger-export-md');
+  const jsonBtn = $('#btn-ai-touch-ledger-export-json');
+  const clearBtn = $('#btn-ai-touch-ledger-clear');
+  if (!copyBtn || !txtBtn || !mdBtn || !jsonBtn || !clearBtn) return;
+  copyBtn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(exportTouchLedger(aiTouchLedger.getEntries(), 'text')); toast('AI Touch Ledger copied', 'success'); }
+    catch (e) { toast('Copy failed: ' + e.message, 'error'); }
+  });
+  txtBtn.addEventListener('click', () => downloadText('dataglow-ai-touch-ledger.txt', exportTouchLedger(aiTouchLedger.getEntries(), 'text'), 'text/plain'));
+  mdBtn.addEventListener('click', () => downloadText('dataglow-ai-touch-ledger.md', exportTouchLedger(aiTouchLedger.getEntries(), 'markdown'), 'text/markdown'));
+  jsonBtn.addEventListener('click', () => downloadText('dataglow-ai-touch-ledger.json', exportTouchLedger(aiTouchLedger.getEntries(), 'json'), 'application/json'));
+  clearBtn.addEventListener('click', () => { aiTouchLedger.clear(); renderAiTouchLedgerPanel(); toast('AI Touch Ledger cleared', 'success'); });
 }
 
 // Data Provenance Trail — the tamper-evident cryptographic sibling of the
@@ -5423,6 +5490,15 @@ function updateStoryBadgePreview() {
 // checked inside WebLLM's progress callback to abort the load).
 let storyModelCancelled = false;
 
+// AI Touch Ledger (Batch 2) — a single session-scoped hash chain, mirroring how
+// the Assumption Ledger (js/provenance/assumption-ledger.js) is a single running
+// log for this session. Gated entirely by the aiTouchLedger flag: when off, this
+// object still exists (cheap, pure, no timers/network) but story.generateStory()
+// is never given it (see the btn-story-generate handler below), so logTouch() is
+// never called and the ledger stays permanently empty — byte-for-byte the same
+// as if this line did not exist.
+const aiTouchLedger = createTouchLedger();
+
 // Show/refresh the in-browser-model panel in the Story tab. Visible only when the
 // on-device provider is selected; adapts its copy to WebGPU availability and
 // whether the model is already cached/loaded in this session.
@@ -5514,8 +5590,16 @@ function initStoryTab() {
       const apiKey = state.settings.apiKeys[provider];
       const { text, source } = await story.generateStory(
         state.lastQueryResult, getActiveDataset().table, provider, apiKey,
-        { ondeviceGenerate: ondeviceGenerateStory },
+        {
+          ondeviceGenerate: ondeviceGenerateStory,
+          // AI Touch Ledger (Batch 2): only handed to the Story Engine when the
+          // flag is on, per the promote-or-delete flag convention — with it off,
+          // story.generateStory() never receives a touchLedger and its own
+          // logStoryTouch() early-returns, so nothing changes with the flag off.
+          touchLedger: isEnabled('aiTouchLedger') ? aiTouchLedger : undefined,
+        },
       );
+      if (isEnabled('aiTouchLedger')) renderAiTouchLedgerPanel();
       state.lastStory = text.replace(/<[^>]+>/g, ''); // plain text kept for consistency checker
       $('#story-empty').style.display = 'none';
       $('#story-content-wrap').style.display = '';
@@ -6181,6 +6265,7 @@ function init() {
   initAnonExport();
   initExportReport();
   initLedger();
+  if (isEnabled('aiTouchLedger')) initAiTouchLedgerPanel();
   initProvenance();
   initDataBlame();
   initDeidVerifier();
