@@ -126,6 +126,31 @@ reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
 
+### Auto-resync stale feature PRs against a fast-moving main — opt-in, conflict-free-only, never merges
+
+With several unrelated feature PRs landing on `main` per day, a long-lived feature
+branch built across multiple careful, individually-tested batches (the usual pattern
+in this repo) can go stale — `CONFLICTING` against `main` — within minutes of a
+manual resync, well before a human reviewer gets to it. Manually re-resyncing on a
+guess of "when the reviewer will look" is a race that keeps losing.
+
+`.github/workflows/auto-resync-stale-prs.yml` removes the timing dependency instead
+of trying to win the race: it runs on every push to `main`, finds each OPEN pull
+request labeled `auto-resync`, and merges the new `main` tip into that PR's branch —
+but ONLY pushes the result back if the merge is genuinely conflict-free. A real
+content conflict (as opposed to the append-only "both sides added near the same doc
+marker" collisions this repo sees repeatedly in `AGENTS.md`/`docs/CHANGELOG.md`/
+`capability-map.manifest.json`/`docs/capability-map.md`/`.github/workflows/test.yml`)
+is left untouched on the branch, and the workflow posts one comment on the PR saying
+a human needs to resolve it by hand — the same manual, verify-JSON/YAML-validity-
+after discipline every prior resync in this project has used.
+
+Hard boundary: this workflow can push a rebase commit to a labeled FEATURE branch.
+It never merges a PR, never approves a PR, and never pushes to `main` itself — the
+human-reviews-and-clicks-merge rule this whole project is built around is completely
+unchanged. Opt-in via the `auto-resync` label (not automatic for every PR) so it can
+never silently touch a branch nobody asked it to touch.
+
 ### Source Convergence (Truth Network, Batch 3 of 3, final) — the Convergence tab UI
 
 The first VISIBLE surface for the Truth Network: a flag-gated "Convergence" tab

@@ -1,0 +1,101 @@
+# ============================================================
+# Auto-resync stale feature PRs with main
+# ============================================================
+# Problem this solves: main has been landing multiple feature PRs per day, so
+# any long-lived feature branch (e.g. one built across several careful,
+# individually-tested batches) goes CONFLICTING against main within
+# minutes/hours of a manual resync -- turning "resync right before review"
+# into a race the human reviewer keeps losing.
+#
+# This job runs on every push to main and, for each OPEN PR labeled
+# `auto-resync`, merges the new main tip into that PR's branch and pushes the
+# result back -- IF the merge is conflict-free. A real conflict (not just
+# "both sides appended near the same doc marker") is left alone and the job
+# posts a comment on the PR explaining a human needs to resolve it by hand,
+# exactly like every prior resync in this repo's history has been done.
+#
+# This workflow NEVER merges a PR, approves a PR, or pushes directly to main --
+# it only keeps a labeled feature branch caught up with main so a human
+# reviewer's merge button stays clickable. Opt-in via the `auto-resync` label,
+# never automatic for every PR, so this cannot silently touch branches nobody
+# asked it to touch.
+name: auto-resync-stale-prs
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find open PRs labeled auto-resync
+        id: find-prs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+            });
+            const targets = prs.filter(pr => pr.labels.some(l => l.name === 'auto-resync'));
+            core.setOutput('branches', JSON.stringify(targets.map(pr => ({ number: pr.number, branch: pr.head.ref }))));
+
+      - name: Checkout
+        if: steps.find-prs.outputs.branches != '[]'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge main into each labeled branch
+        if: steps.find-prs.outputs.branches != '[]'
+        env:
+          BRANCHES_JSON: ${{ steps.find-prs.outputs.branches }}
+        run: |
+          set -e
+          git config user.name "dataglow-auto-resync"
+          git config user.email "actions@users.noreply.github.com"
+          echo "$BRANCHES_JSON" | node -e '
+            const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            data.forEach(d => console.log(d.number + " " + d.branch));
+          ' > /tmp/targets.txt
+          while read -r num branch; do
+            echo "--- PR #$num ($branch) ---"
+            git fetch origin "$branch" main
+            git checkout -B "$branch" "origin/$branch"
+            if git merge origin/main --no-edit; then
+              if git diff --quiet "origin/$branch" HEAD; then
+                echo "Already up to date, nothing to push."
+              else
+                git push origin "$branch"
+                echo "Resynced and pushed."
+              fi
+            else
+              git merge --abort
+              echo "CONFLICT -- leaving branch untouched, will comment on the PR."
+              echo "$num" >> /tmp/conflicted.txt
+            fi
+          done < /tmp/targets.txt
+
+      - name: Comment on PRs that need a human to resolve conflicts
+        if: steps.find-prs.outputs.branches != '[]'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('/tmp/conflicted.txt')) return;
+            const nums = fs.readFileSync('/tmp/conflicted.txt', 'utf8').trim().split('\n').filter(Boolean);
+            for (const num of nums) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: Number(num),
+                body: 'main moved again and this branch now has a **real** merge conflict with it (not just an append-only doc collision) -- auto-resync could not resolve this safely on its own and left the branch untouched. This needs a human (or an assisted) merge-conflict resolution before it can be merged.',
+              });
+            }
