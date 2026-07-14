@@ -182,6 +182,45 @@ off) until the producer PRs (#97, #100) land. Test: `npm run test:provpacket`
 Registered as the `provenance-packet-format` capability; CI job
 `provenance-packet-batch-3`.
 
+### DataGlow Open Floor (Batch B) — the Sandbox Twin (firewall-gated, forkable, disposable)
+
+`js/simulation/sandbox-twin.js` is the second Open Floor primitive and the first
+consumer of the Agent Action Firewall. `createSandboxTwin({realRows, columns,
+keyColumn, firewall})` forks a **disposable, deep-copied in-memory twin** of an
+already-loaded dataset so an autonomous agent (or a stakeholder on the Open
+Floor) can propose destructive operations against it FREELY, because two
+structural guarantees hold at once:
+
+1. **Fork isolation.** The twin is a deep copy taken at fork time. Mutating it
+   only ever rewrites the twin's own row array; `reset()` restores the exact fork
+   baseline; the real dataset is never reachable by reference. Every twin op is
+   reversible/disposable by construction.
+2. **Nothing applies without the firewall.** EVERY mutation — of the twin
+   (`applyToTwin`/`perturbTwin`) AND, especially, PROMOTING a twin result back
+   into the REAL dataset (`promoteToReal`) — routes through
+   `js/agents/agent-action-firewall.js`'s mandatory per-action human-confirmation
+   + single-use-nonce + authenticated-identity handshake. An agent may
+   `propose()` anything (that only classifies and mints a nonce, executing
+   nothing); it can apply nothing. `promoteToReal` is the ONLY method that can
+   touch real data, and it invokes the caller's real-table writer exclusively
+   AFTER the firewall passes — there is no trusted/auto/force path here, exactly
+   as there is none in the firewall itself.
+
+It REUSES `perturbRows` from `js/simulation/digital-twin.js` and `diffRows` /
+`detectKeyColumn` from `js/simulation/time-travel-diff.js` — it owns no new
+diffing or perturbation logic. The firewall is resolved via an INJECTED
+dependency (tests) or a dynamic import (browser); if that module is unavailable
+the twin does NOT throw at construction — it comes up disabled and fails closed
+(every propose/apply/promote `console.warn`s and refuses, applying no mutation).
+Tests: `npm run test:sandboxtwin` (`test/sandbox-twin.test.mjs`, a red-team
+suite that simulates an agent attempting unconfirmed "delete everything" against
+both the twin and the real dataset), the `open-floor-sandbox-twin` CI job.
+Registered as the `open-floor-sandbox-twin` capability in
+`capability-map.manifest.json`. Ships behind the `openFloorSandboxTwin` flag
+(OFF), which depends on `agentActionFirewall`; no flag flipped, no UI, no call
+site, so runtime behaviour is unchanged. Stacked on `gen44-agent-action-firewall`
+(#114) — merge that first.
+
 ### Source Convergence (Truth Network, Batch 3 of 3, final) — the Convergence tab UI
 
 The first VISIBLE surface for the Truth Network: a flag-gated "Convergence" tab

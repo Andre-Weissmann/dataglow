@@ -276,6 +276,11 @@
       "enabled": false,
       "addedInPR": "provenance-packet-batch-3",
       "description": "Provenance Packet Batch 3: the portable, signed .dataglow.json packet format (js/provenance/provenance-packet.js) plus its Export Packet / Import Packet UI in the Trust tab. Bundles whatever provenance artifacts have been produced for the loaded dataset — cell-level data blame (batch 1), the de-identification attestation (batch 1), and the denial-risk profile + cost-of-bad-data estimate (batch 2) — into one SHA-256-signed document, and imports + verifies one WITHOUT the original dataset present. Ships DARK because the section producers (PR #97, #100) are not merged to main yet; promote once they land so the Export path can gather live sections."
+    },
+    "openFloorSandboxTwin": {
+      "enabled": false,
+      "addedInPR": "gen45-open-floor-sandbox-twin",
+      "description": "DataGlow Open Floor, Batch B: the Sandbox Twin (js/simulation/sandbox-twin.js) — a forkable, disposable, deep-copied in-memory twin of an already-loaded dataset that an autonomous agent (or a stakeholder on the Open Floor) can propose destructive ops against FREELY, because two guarantees hold at once: (1) fork isolation — mutating the twin only ever rewrites the twin's own row array and reset() restores the fork baseline, so every twin op is reversible and the real dataset is never reachable by reference; (2) nothing applies without the firewall — EVERY mutation of the twin AND, especially, promoting a twin result back into the REAL dataset routes through the Agent Action Firewall's mandatory per-action human-confirmation + single-use-nonce + identity handshake (no trusted/auto/force path). It reuses perturbRows from js/simulation/digital-twin.js and diffRows/detectKeyColumn from js/simulation/time-travel-diff.js (owns no diffing logic). DEPENDS ON the agentActionFirewall capability (js/agents/agent-action-firewall.js, PR gen44/#114): if that module is unavailable the twin degrades gracefully to a disabled, fail-closed state (console.warn, applies nothing) rather than throwing. Pure logic only — no UI, no call site — so with this flag off (its shipped default) runtime behaviour is unchanged. Red-team regression: test/sandbox-twin.test.mjs."
     }
   }
 }
