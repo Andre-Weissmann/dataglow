@@ -639,3 +639,34 @@ Newest entries go at the bottom of **Entries**.
   done. Recommend prioritizing the real fix soon — the quick-patch well of
   small same-shape job pairs is not infinite, and consolidating jobs one PR at
   a time is a growing maintenance tax on every future feature landing.
+
+### 2026-07-12 — PR #121 (Open Floor Batch B / Sandbox Twin) is blocked on an unmerged, ambiguous dependency chain
+
+- **Description:** PR #121 (`gen45-open-floor-sandbox-twin`, branch based on
+  `gen44-agent-action-firewall`) imports `js/agents/agent-action-firewall.js`
+  directly and its own description says "Merge #114 first, then rebase/retarget
+  this onto `main`." But PR #114 (the firewall PR it names) is **closed, not
+  merged**, and was superseded by PR #133 ("Resolve duplicate Agent Action
+  Firewall (#108 vs #114) onto current main, flag enabled"), which is itself
+  **still open and unmerged**. Checked current `main` directly: no
+  `agentActionFirewall` flag, no `js/agents/agent-action-firewall.js` or
+  `agent-firewall.js` module, and no `test:firewall` npm script exist anywhere
+  on `main` yet. So PR #121 cannot be rebased onto `main` today without either
+  (a) also pulling in PR #133's unreviewed firewall code as an undeclared
+  transitive dependency, or (b) breaking on a missing import.
+- **Date:** 2026-07-12
+- **Severity:** medium — blocks backlog triage of #121, not a defect in shipped
+  code (the firewall flag would ship OFF either way).
+- **Area:** PR dependency sequencing / stacked-branch hygiene for
+  `gen44`/`gen45` Open Floor + Agent Action Firewall batches.
+- **Status:** open — needs a human call, not an automated resolution. Options
+  identified: (1) merge #133 first (bringing the firewall onto `main`), then
+  rebase/retarget #121 onto `main` directly, closing out the stale
+  `gen44-agent-action-firewall` base; or (2) close #121 if the Sandbox Twin
+  concept is superseded/no longer wanted. Left #121 as-is (draft, not rebased,
+  not merged) pending that decision — did not attempt to force a rebase.
+
+> **Update (2026-07-14):** resolved — PR #133 (firewall reconciliation) merged
+> onto `main`, and PR #121 was subsequently cherry-picked and merged (see the
+> entry above dated 2026-07-13 for the full resolution). Left as historical
+> record of the blocked state at the time it was logged.
