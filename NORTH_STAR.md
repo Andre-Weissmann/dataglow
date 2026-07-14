@@ -1040,3 +1040,99 @@ Do not ask the user whether to apply "the creative lens" — always apply it. Do
 confirm this process again in future sessions unless they explicitly want to change it. Do not skip
 the live desktop + mobile preview step (8b) — it was explicitly requested by the user on 2026-07-11
 so they can actually see, not just read about, how a brainstormed idea would look in DataGlow.
+
+## Archive: original "DataGlow Development" ideation Q&A (2026-07-14, verbatim)
+
+Preserved permanently here because chat history can be compacted/truncated and this record should
+not depend on that. These are the user's own words, answering the scoping question tree that led to
+the `dataglow-development` skill. Recovered from the user's own screenshots after the live session's
+stored turn record truncated the original message.
+
+**Q1 — What's the primary pain point to solve?**
+> Everything! Pain point is everything! You saw my prompt. I feel that everything can be streamlined,
+> focused and more! Like one continuous build a new feature and while it's doing that pr's and merging
+> stuff and other stuff is being figured out on the backend so that all I need to do is build, review
+> and confirm. That's it. Once I hit confirm, all the merges, pr's and more is all figured out because
+> everything is in my GitHub already and the being built new feature can access the GitHub repo to
+> configure all the debugging and more. Also, when I hit confirm, the new feature will be built and
+> switched to on and feature flag will be on because again my GitHub repo code and everything is
+> available for viewing.
+
+**Q2 — Standing agent roles, or on-demand subagents?**
+> Create and use applicable ai agents each time. Like this entire process will be called, dataglow
+> development. When I type dataglow development, you have context already because you have access to
+> my GitHub. When I say run dataglow development, you already know my pain points because i typed it
+> into question 1. Also I can say edit dataglow development to edit it because it is a quedtion tree
+> format prompt when it is ran. When I say, run dataglow development, a question tree will appear
+> asking me questions like what to build as well as the question form adapts each time I use it because
+> it also access's my GitHub repo so it already knows what is built and gives me feedback of what areas
+> to tackle next to make it a great data product / tool for not only that data community but also every
+> single person interested in all things data as well as marking it a powerful and capable tool /
+> product to have access to get any data work tasks done because it is a ever learning cross platform
+> that I'm trying to make it future proof and more!
+
+**Q3 — How much should this change your existing standing rules?**
+> A lot this I touched on in questions 1 and 2, so look at those answers. Though, I will add more. I'm
+> honestly open to change. I will say a little stuff relating to Steve job. His philosophy. His privacy
+> stance. I love everything about both. All this existing standing rules, no direct push to main,
+> confirm before merge. The technology should be working for the human. True, things need to be
+> reviewed like ai code and etc. empower the human. Simply the entire process. Use Steve Jobs philosophy
+> and more. Also another Steve Jobs saying I think he touched on. Great features and great privacy. The
+> entire gui, ux ui and more needs to have Steve Jon's philosophy, empower the user and more. Like make
+> dataglow so simple yet also customizable and powerful like iPhone software that any data person like
+> data analyst, data engineer, data scientist and other data roles can just dataglow and get real work
+> done as well as learn as their work because of built in machine learning and on device artificial
+> intelligence.
+
+**Q4 — Does "one confirm at the end" match what you want, or literally zero confirms?**
+> I still want to confirm. Also, I can add steps to this dataglow development. The additional add is
+> this: search for anything going on in the GitHub repo that has open PR's, stuff left untouched for
+> days. Etc. basically, when I type run dataglow development, the question tree is smart, intelligent
+> and more because it knows my GitHub repo code and more so it can find stuff that I didn't even know
+> about and bring it to my attention. No more wondering about bugs. No more wondering about prs and
+> other things that haven't been turned on or other things to that nature that I'm not even mentioning.
+> Is anyone else in the world thinking of this development cycle stuff? Also, have dataglow development
+> give me feedback on how things are looking for the dataglow tool / product and how to make it better
+> and better because that more I use the dataglow development process and question tree, the more
+> information is presented to me to empower me so that I can empower the dataglow platform and more!
+> Also, the more I use dataglow development process, have it learn and improve and get efficient and
+> safer and build quicker without anything braking down as well as other in other areas that I'm not
+> mentioning, basically the dataglow development question tree and background process and more are
+> capable of learning, adapting and more each time I use it. If possible, tell me how it what ways is
+> the dataglow development process and background process are learning and adapting and also since
+> dataglow development trigger / process has access to my entire GitHub, give me recommendations and
+> more to make the not only the dataglow development better but say and do things that make the
+> dataglow cross platform idea / tool / product better. Also, since dataglow development trigger /
+> question tree is smart and intelligent, any questions can be asked because each time I use the
+> dataglow development trigger, it has full access to my GitHub as well the growing base it has about
+> itself because database development trigger / idea has a ever growing knowledge base so it can learn
+> and adapt and so much other things that I'm not mentioning. Basically, the more that I use the
+> dataglow development trigger, the more it grows and adapts and so much more than what I'm mentioning
+> because it has full access to my full GitHub as well as context and knowledge base and so much than
+> what I'm saying or mentioning.
+
+**Q5 — Should this fully replace list-time/dataglow-brainstorm/test-dataglow-platform?**
+> Yes. I also touched upon this in question 1. Though i will answer fully. Yes. Dataglow development is
+> going to be the new command center so that it can get things done in a super streamlined way. Also,
+> dataglow development can learn from me as well as give me recommendations based on the status of
+> dataglow as well as find even more lingering bugs, errors and more through dataglow cross platform
+> mock ups as well as the live version of dataglow even if I just looking at a feature or the entire
+> data project. Dataglow development can also do and use deep research, create and use ai customized ai
+> agents and so many other things that I'm not mentioning. Dataglow development can even recommend
+> actions that I have never seen before because it learns from me, learns from my GitHub and learns in
+> some many numerous ways that I'm not even mentioning. So, since database development learns and so
+> much more, it can tell me that it wants to edit steps in the database development steps because every
+> time there I use database development it learns more and more in ways that I'm not even mentioning.
+> Also, let's says that I got a built feature in dataglow that was created like a few days ago, I tell
+> dataglow development to find it and when it does, dataglow development can inspect the fester and
+> then brings up a question tree of what I can do as well as things that dataglow recommends for the
+> feature to be better and so much more than what I'm saying.
+
+### Gap flagged from this archive (not yet built — candidate for a future round)
+
+Q4/Q5 both describe the skill proactively suggesting edits to **its own process steps** as it learns
+("it can tell me that it wants to edit steps in the development steps... every time I use it, it learns
+more and more"). The current `dataglow-development` skill (Step 6) logs learnings to `dev-log/journal.md`
+and lets the user manually trigger "edit dataglow development," but it does not yet have the skill
+proactively proposing edits to its own SKILL.md based on what it's learned. Worth considering in a future
+`dataglow-development` or `dataglow-brainstorm` round — not built as part of this documentation-only commit.
