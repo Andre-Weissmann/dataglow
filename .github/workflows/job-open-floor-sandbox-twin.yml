@@ -24,7 +24,7 @@ on:
 
 jobs:
   open-floor-sandbox-twin:
-    name: Open Floor Sandbox Twin (red-team: firewall-gated twin + promote)
+    name: "Open Floor Sandbox Twin (red-team: firewall-gated twin + promote)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
