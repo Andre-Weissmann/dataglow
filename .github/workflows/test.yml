@@ -88,8 +88,6 @@ jobs:
     uses: ./.github/workflows/job-provenance-packet.yml
   command-deck:
     uses: ./.github/workflows/job-command-deck.yml
-  provenance-packet-batch-2:
-    uses: ./.github/workflows/job-provenance-packet-batch-2.yml
   incident-postmortem:
     uses: ./.github/workflows/job-incident-postmortem.yml
 

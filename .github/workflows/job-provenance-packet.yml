@@ -1,17 +1,30 @@
 # ============================================================
-# DATAGLOW — CI job: Provenance Packet (Batch 1)
+# DATAGLOW — CI job: Provenance Packet (Batch 1 + Batch 2)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
-# Unit-tests the two Provenance Packet features, both pure Node (no browser, no
-# DuckDB, no network):
+# Unit-tests all four Provenance Packet Batch 1 + Batch 2 features, all pure
+# Node (no browser, no DuckDB, no network). Consolidated into one job
+# (2026-07-14) to stay under GitHub Actions' 50-reusable-workflow-job cap —
+# see docs/tech-debt-tracker.md for the full rationale. No test coverage was
+# removed; all four suites still run in full as separate steps.
+#
+# Batch 1:
 #   - Cell-level Data Blame (js/provenance/data-blame.js) — the per-column /
 #     per-cell transform-history reader over the existing chain-of-custody trail.
 #   - De-identification Verifier (js/provenance/deidentification-verifier.js) —
 #     the 18 HIPAA Safe Harbor categories, the re-identification risk score, and
 #     the SHA-256-signed attestation + its verifier (exercised end-to-end via the
 #     DuckDB wrapper against a fake engine).
-# See test/data-blame.test.mjs and test/deidentification-verifier.test.mjs.
+# Batch 2:
+#   - Denial Root-Cause Profiler (js/provenance/denial-root-cause.js) — the
+#     schema-tolerant claims-denial risk bucketer + its SHA-256-signed
+#     attestation (exercised end-to-end via the DuckDB wrapper against a fake
+#     engine).
+#   - Cost-of-bad-data quantifier (js/provenance/cost-of-bad-data.js) — the
+#     transparent flagged-rows × editable per-error-cost estimate.
+# See test/data-blame.test.mjs, test/deidentification-verifier.test.mjs,
+# test/denial-root-cause.test.mjs, and test/cost-of-bad-data.test.mjs.
 
 name: Provenance Packet
 
@@ -20,7 +33,7 @@ on:
 
 jobs:
   provenance-packet:
-    name: Provenance Packet
+    name: Provenance Packet (Batch 1 + Batch 2)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,3 +44,5 @@ jobs:
       - run: npm ci
       - run: npm run test:datablame
       - run: npm run test:deidverify
+      - run: npm run test:denialprofile
+      - run: npm run test:costofbaddata

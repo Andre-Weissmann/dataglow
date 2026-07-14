@@ -623,3 +623,19 @@ Newest entries go at the bottom of **Entries**.
   handful of combined jobs the way this entry did, or (b) split `test.yml` into
   two or more workflow files (e.g. `test.yml` + `test-extra.yml`), each staying
   under the 50-job cap independently, so this stops being a recurring blocker.
+- **Update (same day, 2026-07-14, second occurrence):** hit this exact ceiling
+  again immediately when rebasing PR #121 (Open Floor Batch B: Sandbox Twin) on
+  top of the just-merged PR #106 — confirming this is a real recurring pattern,
+  not a one-off. Applied the identical quick-patch shape: consolidated
+  `provenance-packet` (Batch 1: data-blame + de-identification-verifier) and
+  `provenance-packet-batch-2` (denial-root-cause + cost-of-bad-data) into one
+  job with four sequential `npm run` steps, since all four were already the
+  same pure-Node, no-browser, no-DuckDB shape and part of the same feature
+  family. Zero coverage removed — all four suites (`test:datablame` 21 passing,
+  `test:deidverify` 35 passing, `test:denialprofile` 49 passing,
+  `test:costofbaddata` 19 passing) still run in full. This is now the **second**
+  slot freed via the same tactic; each new feature PR with its own CI job will
+  keep forcing another one of these until the real fix (option a or b above) is
+  done. Recommend prioritizing the real fix soon — the quick-patch well of
+  small same-shape job pairs is not infinite, and consolidating jobs one PR at
+  a time is a growing maintenance tax on every future feature landing.
