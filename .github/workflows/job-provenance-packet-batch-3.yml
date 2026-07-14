@@ -1,0 +1,29 @@
+# ============================================================
+# DATAGLOW — CI job: Provenance Packet (Batch 3)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Unit-tests the portable, signed `.dataglow` Provenance Packet format
+# (js/provenance/provenance-packet.js) — pure Node, no browser, no DuckDB, no
+# network. Covers packet assembly with all sections and with sections missing
+# (graceful omission), top-level SHA-256 signature success, tamper detection on
+# every kind of post-export edit, and export->import round-trip fidelity.
+# See test/provenance-packet.test.mjs.
+
+name: Provenance Packet Batch 3
+
+on:
+  workflow_call:
+
+jobs:
+  provenance-packet-batch-3:
+    name: Provenance Packet Batch 3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:provpacket

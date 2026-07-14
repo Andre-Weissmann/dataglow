@@ -588,3 +588,38 @@ Newest entries go at the bottom of **Entries**.
 - **Severity:** low
 - **Area:** `js/provenance/incident-postmortem.js`, `js/app-shell/main.js`
 - **Status:** open
+
+### 2026-07-14 — CI job-count ceiling: `.github/workflows/test.yml` hit GitHub Actions' 50-reusable-workflow-job limit
+
+- **Description:** `main` reached exactly 50 `workflow_call`-referenced jobs in
+  `.github/workflows/test.yml` (one job per feature, `job-*.yml` reusable
+  workflow files). PR #106 (Provenance Packet Batch 3) adding its own job would
+  have tipped it to 51, which GitHub Actions hard-rejects with "too many
+  workflows are referenced" — the whole workflow file fails to even start (zero
+  jobs run), not just the new one. PR #121 (Sandbox Twin) would have pushed it
+  to 52 on top of that. This is a real structural ceiling, not a one-off bug —
+  every new feature batch that lands with its own dedicated CI job will hit this
+  again once the count is back near 50.
+- **Quick patch applied this entry (2026-07-14):** consolidated the two
+  smallest, most similar existing jobs — `room-signaling` (DataGlow Rooms Batch
+  1) and `room-broadcast` (DataGlow Rooms Batch 2) — into one job
+  (`room-signaling-and-broadcast`) with two sequential `npm run` steps instead
+  of two separate reusable-workflow jobs. Both were already the same shape
+  (pure-Node, no browser/DuckDB, identical checkout/setup-node steps), and no
+  test coverage was removed — `test:roomsignaling` (29 passing) and
+  `test:roomsbroadcast` (33 passing) both still run in full, verified locally.
+  This freed exactly one slot, bringing the count back to 50 and unblocking
+  PR #106; #121 will need its own slot freed the same way (or this ceiling will
+  need the real fix below) before it can merge.
+- **Severity:** medium — will recur and block merges again soon; the quick
+  patch buys headroom for roughly one more new-feature PR, not a lasting fix.
+- **Area:** `.github/workflows/test.yml` and the `job-*.yml` reusable workflow
+  files it calls.
+- **Status:** open — a real fix was deliberately deferred (user chose the
+  minimal unblock-today patch over a full consolidation pass or splitting into
+  two workflow files, both discussed and available as follow-up options). A
+  future session should either (a) group more of the small, same-shape pure-Node
+  jobs (there are several similarly-sized provenance/room/passport jobs) into a
+  handful of combined jobs the way this entry did, or (b) split `test.yml` into
+  two or more workflow files (e.g. `test.yml` + `test-extra.yml`), each staying
+  under the 50-job cap independently, so this stops being a recurring blocker.

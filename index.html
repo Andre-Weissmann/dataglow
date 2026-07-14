@@ -603,6 +603,9 @@
               <button class="btn btn-secondary" id="btn-databom-export" style="display:none; font-size:var(--text-xs); padding:6px 10px;" data-testid="button-databom-export" title="Export a Personal Data Bill of Materials: source, schema signature, column-distribution snapshot, and (if used) the local AI model's id/quantization, wrapped around this dataset's provenance attestation — one signed-digest JSON file, generated fully offline.">Export Data BOM</button>
               <button class="btn btn-secondary" id="btn-databom-html" style="display:none; font-size:var(--text-xs); padding:6px 10px;" data-testid="button-databom-html" title="Export the Personal Data Bill of Materials as a printable, PDF-friendly HTML certificate.">Data BOM HTML</button>
               <button class="btn btn-secondary" id="btn-databom-verify" style="display:none; font-size:var(--text-xs); padding:6px 10px;" data-testid="button-databom-verify" title="Re-verify the most recently generated Data BOM: recompute its SHA-256 digest and re-check the nested provenance attestation, entirely offline, to confirm nothing has been tampered with. Export a Data BOM first.">Verify Data BOM</button>
+              <button class="btn btn-secondary" id="btn-packet-export" style="display:none; font-size:var(--text-xs); padding:6px 10px;" data-testid="button-packet-export" title="Export a portable, SHA-256-signed .dataglow.json Provenance Packet: one self-contained document bundling whatever provenance artifacts have been produced for this dataset (transform history / data blame, the de-identification attestation, the denial-risk profile and cost-of-bad-data estimate). Share it to prove properties without sharing the data; any later edit breaks the signature.">Export Packet</button>
+              <button class="btn btn-secondary" id="btn-packet-import" style="display:none; font-size:var(--text-xs); padding:6px 10px;" data-testid="button-packet-import" title="Import a .dataglow.json Provenance Packet, verify its signature (tampered packets are refused), and view its contents read-only — no original dataset required.">Import Packet</button>
+              <input type="file" id="packet-import-file" accept=".json,.dataglow.json,application/json" style="display:none;" data-testid="input-packet-import" />
             </div>
             <div id="databom-verify-result" data-testid="databom-verify-result" style="font-size:var(--text-xs); margin-top:var(--space-2);"></div>
           </div>
@@ -623,6 +626,7 @@
             </div>
             <div id="blame-history" style="margin-top:var(--space-2); font-size:var(--text-xs);"></div>
           </div>
+          <div id="packet-import-view" style="display:none; margin-top:var(--space-4); border-top:1px solid var(--color-divider); padding-top:var(--space-3);" data-testid="packet-import-view"></div>
         </div>
       </div>
 
