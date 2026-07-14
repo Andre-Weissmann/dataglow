@@ -7,6 +7,58 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-14 13:15 CT] Launched Checkpoints (before/after proof) system + cleared the PR/branch backlog
+
+**Trigger:** Session pivot: "dataglow development is Perplexity AI chat in Perplexity but the GUI for
+dataglow development will show me before and after running." Question-tree answers: focus = before/after
+proof view; trigger = automatic (run-start/run-end) plus a manual "log this" command; ambition = super
+huge swing. User then explicitly approved (1) building the real Checkpoints system and (2) including
+backlog cleanup (stale PRs + orphaned branches) in the same run.
+
+**Step 1 findings:** 3 open PRs (#241 new checkpoints work, plus two long-stale docs-only drafts #222 and
+#191 both about PR #121's now-resolved dependency chain, both draft/never-merged "per standing rule"), 29
+open issues (mostly wiki stub issues, pre-existing, not touched), 48 branches with commits but no open PR
+and no longer tracked by any PR, 4 dark flags (unchanged), CI green on main.
+
+**Decision:** Build `dev-log/checkpoints.json` as a structured, dashboard-renderable before/after data
+layer (companion to journal.md's prose log), wire the `dataglow-development` skill file with automatic
+run-start/run-end checkpoint writes plus a manual "log this" trigger, then use the same run to clear the
+backlog Step 1 surfaced: rebase and merge #222/#191 (both were genuinely stale only because of appended
+sibling entries in the same doc section — trivial, safe append-only conflicts once inspected), and delete
+the subset of orphaned branches independently confirmed (via `git merge-base --is-ancestor`) to be fully
+merged into main already, so nothing unique was at risk.
+
+**Built:** `dev-log/checkpoints.json` (schema: id, startedAt/endedAt, trigger, title, before/after repo-
+state snapshot, diffstat, commits, prUrl, verification, outcome). `dataglow-development/SKILL.md` updated
+with the checkpoint-logging steps and the new "log this" manual trigger; `checkpoints_schema.md` added as
+a reference doc. Rebased and merged PR #191 and #222 (docs-only, tech-debt-tracker.md entries about PR
+#121's resolved dependency chain). Deleted 16 of the 48 orphaned branches after confirming each one's tip
+commit was already an ancestor of `main` (fully shipped elsewhere via squash/cherry-pick) — left the other
+32, which carry real unmerged/unique commits, untouched for a dedicated future review.
+
+**Outcome:** shipped-dark (checkpoints.json itself has no `enabled` flag — it's a data file, not a human-
+facing feature — but the dashboard's read of it is additive/non-breaking) + backlog cleanup fully executed
+(open PRs 3 → 0, orphan branches 48 → 32).
+
+**Safety notes:** Both #191 and #222 showed `CONFLICTING`/`DIRTY` merge state before rebase — inspected
+with `git merge-tree` first and confirmed both were pure trailing-append conflicts (another doc entry had
+been appended at the same insertion point since the drafts were opened), not real semantic conflicts, so
+rebasing and keeping both sides was safe. Branch deletion was NOT inferred from the general "triage"
+authorization — the platform's own safety classifier correctly flagged that destructive git action and it
+was re-confirmed explicitly with the user, naming all 16 branches before any deletion executed.
+
+**Flag:** n/a — no feature flag attached to this run's changes (data file + docs only).
+
+**Process learning:** When rebasing multiple stale PRs that touch the same appended doc section, expect a
+second round of conflicts after the first PR of the batch merges (main moves again) — budget for it rather
+than assuming one rebase per PR is enough. Also: `git merge-base --is-ancestor <branch> main` is a cheap,
+reliable, mechanical litmus test for "is this orphaned branch's content already shipped" — use it as the
+first pass on any future branch-triage run before spending time reading diffs by hand.
+
+**PR(s):** https://github.com/Andre-Weissmann/dataglow/pull/241, https://github.com/Andre-Weissmann/dataglow/pull/191, https://github.com/Andre-Weissmann/dataglow/pull/222
+
+---
+
 ## [2026-07-14 08:35 CT] Made the live companion dashboard genuinely interactive — real polling, real GitHub Events feed, live per-job CI status
 
 **Trigger:** Repeated, most-emphasized standing ask across sessions: "I need dataglow development to run
