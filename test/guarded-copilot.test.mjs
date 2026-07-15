@@ -110,6 +110,71 @@ ok(classifyIntent(undefined) === null, 'returns null for non-string input, never
   ok(refined.text === tier1.text, 'Tier 2 falls back to the exact Tier 1 text unmodified — never a silent failure or blank answer');
 }
 
+// ---------- Tier 2 with an injected (mocked) on-device model ----------
+// The `deps` param lets us exercise the REAL model-loaded code path without a
+// GPU: a fake engine whose chat.completions.create returns a streaming async
+// iterable, exactly the shape ondevice-llm.js's WebLLM engine yields.
+function makeFakeEngine(chunks) {
+  return {
+    chat: {
+      completions: {
+        create: async () => ({
+          async *[Symbol.asyncIterator]() {
+            for (const c of chunks) yield { choices: [{ delta: { content: c } }] };
+          },
+        }),
+      },
+    },
+  };
+}
+{
+  const tier1 = { answered: true, text: 'Not yet. The gate is blocking this: missingness.', citedFrom: [] };
+  const engine = makeFakeEngine(['This dataset ', 'is not ready ', 'yet because of missing values.']);
+  const deps = {
+    isWebGPUAvailable: () => true,
+    isModelLoaded: () => true,
+    loadModel: async () => engine,
+  };
+  const refined = await refineWithOnDeviceModel('is this ready?', tier1, deps);
+  ok(refined.usedOnDeviceModel === true, 'Tier 2 uses the on-device model when WebGPU is available AND the model is loaded');
+  ok(refined.text === 'This dataset is not ready yet because of missing values.', 'Tier 2 returns the streamed, rephrased text — not the Tier 1 text verbatim');
+}
+{
+  // WebGPU present but model NOT loaded → must NOT trigger a load, must fall back.
+  const tier1 = { answered: true, text: 'Grade B: solid.', citedFrom: [] };
+  let loadCalled = false;
+  const deps = {
+    isWebGPUAvailable: () => true,
+    isModelLoaded: () => false,
+    loadModel: async () => { loadCalled = true; return makeFakeEngine(['x']); },
+  };
+  const refined = await refineWithOnDeviceModel('explain grade', tier1, deps);
+  ok(refined.usedOnDeviceModel === false && refined.text === tier1.text, 'Tier 2 falls back to Tier 1 text when the model is not yet loaded');
+  ok(loadCalled === false, 'Tier 2 never triggers a model download on its own when the model is unloaded');
+}
+{
+  // Model loaded but produces empty output → fall back rather than show blank.
+  const tier1 = { answered: true, text: 'No logged changes found.', citedFrom: [] };
+  const deps = {
+    isWebGPUAvailable: () => true,
+    isModelLoaded: () => true,
+    loadModel: async () => makeFakeEngine(['', '  ', '']),
+  };
+  const refined = await refineWithOnDeviceModel('what changed', tier1, deps);
+  ok(refined.usedOnDeviceModel === false && refined.text === tier1.text, 'Tier 2 falls back to Tier 1 text if the model yields empty output — never a blank answer');
+}
+{
+  // A throwing engine must never propagate — always degrade to Tier 1 text.
+  const tier1 = { answered: true, text: 'Tier 1 stays safe.', citedFrom: [] };
+  const deps = {
+    isWebGPUAvailable: () => true,
+    isModelLoaded: () => true,
+    loadModel: async () => { throw new Error('boom'); },
+  };
+  const refined = await refineWithOnDeviceModel('anything', tier1, deps);
+  ok(refined.usedOnDeviceModel === false && refined.text === tier1.text, 'Tier 2 swallows model errors and returns the exact Tier 1 text');
+}
+
 // ---------- RED-TEAM: structural proof of the read-only guarantee ----------
 {
   const src = fs.readFileSync(new URL('../js/agents/guarded-copilot.js', import.meta.url), 'utf8');

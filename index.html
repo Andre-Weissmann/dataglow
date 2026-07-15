@@ -1064,6 +1064,22 @@
       <div id="crucible-body" data-testid="crucible-body"></div>
     </section>
 
+    <!-- Guarded Copilot (Batch 2 — chat UI). Like #panel-meeting, this panel's
+         body stays empty until main.js's renderGuardedCopilotTab() mounts it,
+         and that mount is gated behind the guardedCopilot flag (off by default),
+         so the 'copilot' tab is never in the bar and this panel renders empty on
+         a default build. The underlying engine (js/agents/guarded-copilot.js) is
+         architecturally read-only — it has no write/mutation path of any kind. -->
+    <section class="panel" id="panel-copilot" data-panel="copilot">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Copilot</div>
+          <div class="panel-subtitle">Ask why a dataset looks the way it does — readiness, grades, recent changes, who touched it — answered from real lineage. Read-only: it never modifies your data.</div>
+        </div>
+      </div>
+      <div id="guarded-copilot-body" data-testid="guarded-copilot-body"></div>
+    </section>
+
   </div>
 </div>
 
