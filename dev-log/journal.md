@@ -7,6 +7,66 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-15 10:24 CT] Enabled `guardedCopilot` — went live (One Confirm gate)
+
+**Trigger:** The One Confirm gate for the Batch 1 + Batch 2 work already merged dark (see entry directly
+below). This is deliberately its own separate, separately-logged event per the standing rule that flag
+enable (`false → true`) is never bundled into a build/merge decision, even when the user has already
+seen and approved both in close succession.
+
+**What preceded this:** Before presenting the gate, re-verified the live preview end-to-end on a genuine
+deployed link (not just the local dev server): loaded the Golden Test Dataset, asked "is this dataset
+ready for an AI agent to use?" in the Copilot chat panel, and got back the correct, cited answer
+(`BLOCKED — not agent-consumable (score 0/100, threshold 70)`, sourced to `js/gate/readiness-gate.js`).
+Confirmed on both a fresh full-page load and the Copilot tab specifically, on the actual publicly
+reachable preview URL, not an internal-only proxy link. Also wrote the run's `dev-log/checkpoints.json`
+entry (`chk_20260715_1`, PR #247) before presenting the gate, so the before/after proof exists
+independent of this journal narrative.
+
+**One Confirm gate contents:** what was built (read-only chat, optional on-device Tier 2 rephrase),
+cross-platform impact (web + desktop confirmed directly; PWA/mobile inherits the same static assets, but
+Tier 2's on-device rephrase needs WebGPU — flagged explicitly that the user's primary iPhone will likely
+fall back to the safe Tier 1 exact-answer path since iOS Safari's WebGPU support is still limited/
+inconsistent as of 2026), safety assessment (read-only, no write-path, small blast radius, independently
+re-verified), test evidence (40/40 `guardedcopilot`, 24/24 `capdrift`, 54/54 CI on PR #245, 54/54 CI on
+PR #246), and the live preview link. User approved with a single yes.
+
+**Built:** Flipped `guardedCopilot.enabled` from `false` to `true` in `flags.manifest.json`, on its own
+branch/PR (#248), fully decoupled from the Batch 2 build/merge (#245/#246). No other code touched.
+
+**Outcome:** shipped-live
+
+**Safety notes:** PR #248's diff is exactly the flag value and its own description text — nothing else.
+All 40 CI checks passed, including `tauri-smoke` (8m9s). Merge required its own explicit `confirm_action`
+(per the now-corrected standing rule — see the process-learning note in the entry below), separate from
+the One Confirm gate's approval itself: the gate is the *decision* to go live, the merge confirm is the
+*mechanical act* of landing that one-line change — both logged, neither skipped.
+
+**Flag:** `guardedCopilot` — now `true` on `main` (commit `70f4c1f`). The Copilot tab is live in the nav
+bar for all users on web, desktop, and PWA/mobile.
+
+**Blast radius:** trivial by diff size, but this is the actual user-facing exposure moment — the whole
+point of the One Confirm gate is that this entry's blast radius is measured in real users seeing a new
+feature, not in lines changed.
+
+**Hygiene debt:** 0 open PRs, 36 branches (up from 31 — new work branches created and cleaned up this run,
+not new orphaned debt; verify next run), 4 dark flags remaining (`conversationalPackBuilderVoice`,
+`meetingScribeLiveCapture`, `provenancePacket`, `openFloorSandboxTwin` — `guardedCopilot` now promoted out
+of the dark-flag count), 0 failing CI.
+
+**Process learning:** This run is the first real end-to-end proof that the checkpoints.json + One Confirm
++ separately-logged-enable design actually holds together across a full cycle: build dark (no confirm
+needed per se, but the platform correctly forced one anyway per the user's absolute standing rule) →
+merge dark (confirmed) → live preview → One Confirm gate (single user-facing decision) → enable (its own
+branch/PR/confirm/journal entry). Nothing was collapsed or skipped even under real pressure to move fast.
+Separately, the live-preview deploy hit and resolved a new, reusable finding: `deploy_website`'s upload
+step silently excludes any file under a path segment literally named `build/` (a false positive for this
+repo's genuine tracked `js/build/build-flags.js`) — worked around in the disposable preview copy by
+relocating to `js/flagsconfig/build-flags.js` and fixing its two import sites; the real repo was never
+touched by this workaround. Worth remembering for any future preview deploy of this repo.
+
+---
+
 ## [2026-07-15 08:53 CT] Shipped Guarded Copilot Batch 2 dark — chat panel UI + real Tier 2 on-device model call
 
 **Trigger:** "Build Batch 2 first, then bring me the real confirm" — user chose to complete the UI/model
