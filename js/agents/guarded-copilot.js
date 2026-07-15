@@ -220,32 +220,63 @@ export async function askGuardedCopilot(question, context = {}) {
   return { ...result, intent, ledgerEntry };
 }
 
+// System prompt for the Tier 2 rephrase. Deliberately narrow: the model may
+// ONLY restate the deterministic Tier 1 answer in more natural language — it is
+// forbidden from adding facts, numbers, or verdicts of its own. This keeps the
+// read-only, never-invent-a-verdict guarantee intact even when a model is in the
+// loop: Tier 1's structured facts remain the single source of truth.
+const REPHRASE_SYSTEM_PROMPT =
+  'You are a careful assistant that rephrases a data-quality answer into one or '
+  + 'two natural, plain sentences. Do NOT add any facts, numbers, grades, or '
+  + 'conclusions that are not already in the provided answer. If you are unsure, '
+  + 'repeat the answer as-is. Never invent a verdict.';
+
 /**
- * Tier 2 (opt-in): reuse the EXACT on-device model loader Story already uses.
- * Never calls any external provider. Falls back to the Tier 1 text untouched
- * if WebGPU/the model is unavailable, so callers never get a hard failure.
- * Dynamically imported so Tier 1 (and this file's tests) never pay the cost of
- * loading WebLLM.
+ * Tier 2 (opt-in): reuse the EXACT on-device model loader + generation machinery
+ * Story already uses (js/narrative/ondevice-llm.js) to rephrase the Tier 1
+ * answer into more natural language. Never calls any external provider and never
+ * adds facts of its own (see REPHRASE_SYSTEM_PROMPT). Falls back to the Tier 1
+ * text UNTOUCHED — with usedOnDeviceModel:false — whenever WebGPU is missing, the
+ * model isn't loaded, or generation yields nothing, so a caller never gets a hard
+ * failure or a blank answer.
+ *
+ * The on-device module is dynamically imported (not a top-level import) so Tier 1
+ * and this file's Node tests never pay the cost of loading WebLLM. Tests inject a
+ * stub via the optional `deps` param instead of loading a real WebGPU model.
  *
  * @param {string} question
  * @param {{answered:boolean,text:string,citedFrom:string[]}} tier1Result
+ * @param {{isWebGPUAvailable:Function,isModelLoaded:Function,loadModel:Function}} [deps]
+ *   - injectable on-device-LLM surface; defaults to the real module.
  * @returns {Promise<{text:string, usedOnDeviceModel:boolean}>}
  */
-export async function refineWithOnDeviceModel(question, tier1Result) {
+export async function refineWithOnDeviceModel(question, tier1Result, deps = null) {
+  const fallback = { text: tier1Result.text, usedOnDeviceModel: false };
   try {
-    const { isWebGPUAvailable } = await import('../narrative/ondevice-llm.js');
-    if (!isWebGPUAvailable()) {
-      return { text: tier1Result.text, usedOnDeviceModel: false };
+    const llm = deps || await import('../narrative/ondevice-llm.js');
+    // The model must already be warmed (loaded) by the caller's opt-in flow;
+    // this function never triggers a ~1GB download on its own.
+    if (!llm.isWebGPUAvailable() || !llm.isModelLoaded()) return fallback;
+
+    const engine = await llm.loadModel(); // memoized — returns the warm engine.
+    const stream = await engine.chat.completions.create({
+      messages: [
+        { role: 'system', content: REPHRASE_SYSTEM_PROMPT },
+        { role: 'user', content: `Question: ${question}\n\nAnswer to rephrase:\n${tier1Result.text}` },
+      ],
+      temperature: 0.3,
+      max_tokens: 200,
+      stream: true,
+    });
+    let refined = '';
+    for await (const chunk of stream) {
+      refined += chunk?.choices?.[0]?.delta?.content || '';
     }
-    // Batch 1 stops here deliberately: actually invoking the loaded model to
-    // rephrase tier1Result.text is Batch 2 scope (needs the model already
-    // warmed via the Story engine's own opt-in flow to avoid double-loading a
-    // ~1.1GB model just for a chat rephrase). Returning the Tier 1 text
-    // unmodified keeps this function's public contract stable so Batch 2 can
-    // fill in the model call without changing any call site.
-    return { text: tier1Result.text, usedOnDeviceModel: false };
+    refined = refined.trim();
+    return refined ? { text: refined, usedOnDeviceModel: true } : fallback;
   } catch {
-    return { text: tier1Result.text, usedOnDeviceModel: false };
+    // Any failure (no WebGPU, load error, generation error) → exact Tier 1 text.
+    return fallback;
   }
 }
 

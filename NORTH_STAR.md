@@ -77,10 +77,18 @@ constraint), and falls back to Tier 1's text untouched if WebGPU/the model isn't
    `confirmAndApply`/`proposeAction` and no write/insert/delete/update/mutate call anywhere in the
    file. Ships DARK behind `guardedCopilot` (default OFF): not imported by `js/app-shell/main.js` yet,
    no chat UI, zero effect on any existing path.)
-2. **Batch 2 — chat panel UI + Tier 2 model wiring.** NOT STARTED. Wire a chat panel into the app
-   shell behind its own UI sub-flag, and fill in `refineWithOnDeviceModel()`'s actual model-call once
-   the on-device model is already warmed via Story's own opt-in flow (avoids double-loading the
-   ~1.1GB model just for a chat rephrase).
+2. **Batch 2 — chat panel UI + Tier 2 model wiring.** MERGED DARK. Wired a read-only 'Copilot' chat
+   panel into the app shell (`renderGuardedCopilotTab()` in `js/app-shell/main.js` mounting
+   `#panel-copilot` in `index.html`): message list, text input + Ask button, a persistent "Read-only —
+   never modifies your data" note, a "Sources:" line citing the real modules each answer came from, and
+   an off-by-default "Refine with the on-device model" toggle that lazy-loads the model (progress +
+   cancel, mirroring the Story tab). No second UI sub-flag was needed — the existing `guardedCopilot`
+   flag gates the whole panel/tab, so this stays behind ONE flag as intended. Also completed the real
+   `refineWithOnDeviceModel()` model call: it now rephrases the Tier 1 answer via the already-warmed
+   on-device engine (`loadModel()` + `engine.chat.completions.create`, no new pathway, no second model),
+   under a narrow rephrase-only prompt, still falling back to Tier 1's exact text with no WebGPU/model.
+   Still ships DARK behind `guardedCopilot` (default OFF): with the flag off the tab is never in the bar
+   and the panel stays empty — zero effect on any existing path.
 
 ## Concept in progress: DataGlow Live Rooms
 

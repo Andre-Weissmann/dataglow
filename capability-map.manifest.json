@@ -1982,7 +1982,7 @@
     {
       "id": "guarded-copilot",
       "area": "Provenance, audit & trust",
-      "name": "Guarded Copilot (Batch 1) — read-only, lineage-citing chat core",
+      "name": "Guarded Copilot (Batch 2) — read-only, lineage-citing chat core + chat panel UI",
       "platforms": ["browser", "desktop"],
       "files": ["js/agents/guarded-copilot.js"],
       "symbols": [
