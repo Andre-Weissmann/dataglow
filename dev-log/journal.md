@@ -7,6 +7,77 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-15 07:51 CT] Shipped Guarded Copilot Batch 1 dark; caught and fixed a repo-wide CI ceiling + a manifest-drift gap before merge
+
+**Trigger:** "Build it all... Also, keep working" — user approved Guarded Copilot (full scope: deterministic
+tier + optional in-browser small-model tier) plus 3 other Mission Center items, then explicitly asked to
+continue autonomously through build/test/PR/CI rather than pausing after each step.
+
+**Step 1 findings:** main was clean going in (0 open PRs, CI green, 5 dark flags already known/documented).
+
+**Decision:** Build Guarded Copilot Batch 1 (deterministic core only — Tier 2 on-device-model refinement
+stubbed but gracefully no-ops without WebGPU) as a read-only chat-answer engine composing the EXISTING
+AI Readiness Gate, AI Touch Ledger, and Story grade vocabulary. Deliberately excludes any import of or
+call to the Agent Action Firewall's proposeAction/confirmAndApply, so it cannot mutate data by
+construction — verified with a structural red-team test, not just asserted in a comment.
+
+**Built:** `js/agents/guarded-copilot.js` (262 lines) + `test/guarded-copilot.test.mjs` (138 lines, 34/34
+passing). Also updated `flags.manifest.json` (new `guardedCopilot` flag, default false), `NORTH_STAR.md`,
+`docs/capability-map.md`, `capability-map.manifest.json`, `package.json` (new test script), and
+`.github/workflows/job-agent-action-firewall.yml` (added Guarded Copilot's test as a second job in this
+already-counted file instead of a new top-level file — see Safety notes).
+
+**Outcome:** shipped-dark (merged to main, flag `guardedCopilot: false`)
+
+**Safety notes:** Two real problems found and fixed during this run, neither swept aside:
+1. **CI ceiling.** `main`'s `test.yml` was already at GitHub's hard cap of 50 unique reusable workflows
+   callable from one file (raised from 20 in Nov 2025). My original PR added a 51st file
+   (`job-guarded-copilot.yml`), which made the entire `tests` orchestrator fail to parse — a 0-job,
+   0-second failure, confirmed via `gh api .../jobs` returning `total_count: 0`. Fixed by running the new
+   test as a second job inside the already-counted `job-agent-action-firewall.yml` instead of adding a
+   52nd top-level entry. `test.yml` itself ended up byte-identical to `main` — zero diff there. Documented
+   the constraint in `NORTH_STAR.md` as a real, now-verified repo-wide limitation for the next PR that
+   wants a genuinely new standalone CI job (real fix: one more level of workflow nesting, not attempted
+   here to keep this PR's diff scoped).
+2. **Capability-map drift.** The repo's own drift-detector gate (`capability-map-drift`, 24 tests) failed
+   because I'd documented Guarded Copilot in `docs/capability-map.md` but not in the machine-readable
+   `capability-map.manifest.json`. Added the matching manifest entry (id, area, platforms, files,
+   exported symbols); drift detector then reported 0 findings.
+Independently re-verified before merge (not just trusting green CI): grepped the actual diff for any
+firewall import/call (none — only comments) and any write/insert/delete/update/drop/mutate verb or SQL
+DML (none). Confirmed the new module is not referenced anywhere in `js/app-shell/` — genuinely
+unreachable/inert until Batch 2 wires it in.
+
+**Flag:** `guardedCopilot` — `enabled: false` (dark; awaiting a separate One Confirm decision to go live)
+
+**Blast radius:** small — 8 files, purely additive (1 new module, 1 new test file, CI/docs/manifest
+updates); zero existing production code path's logic was modified.
+
+**Hygiene debt:** 0 open PRs, 29 open issues, 5 dark flags (`conversationalPackBuilderVoice`,
+`meetingScribeLiveCapture`, `provenancePacket`, `openFloorSandboxTwin`, `guardedCopilot` — the last just
+added this run), ~31 remote branches (feature/guarded-copilot itself among them, not yet deleted post-
+merge). Direction vs. prior entries: open-PR count flat at 0 (healthy); dark-flag count rose by 1 this run
+(expected — every new dark-shipped feature adds one until its own future enable-confirm).
+
+**Process learning:** When a PR adds a new standalone `job-*.yml` CI file, check the total `uses:` count
+in `test.yml` against `main` FIRST (`grep -c 'uses: ./.github/workflows/job-' test.yml`) before writing
+any CI config — this run discovered the cap only after a live 0-job CI failure, which cost a full
+pause-and-diagnose cycle that a one-line pre-check would have avoided. Also: run the capability-map drift
+check locally (`npm run test:capdrift`) as part of Step 4.4's own safety verification, not just as an
+incidental CI job — it would have caught the manifest gap before ever pushing.
+
+**PR(s):** [PR #243](https://github.com/Andre-Weissmann/dataglow/pull/243) — merged as `79469b6`
+
+**Portfolio note:** Built a read-only "Guarded Copilot" answer engine for DataGlow that explains its own
+trust/readiness/lineage decisions in plain language — composing existing gate, ledger, and grading modules
+rather than adding a new source of truth, and structurally prevented from ever mutating data (verified
+with a dedicated red-team test, not just a design intent). Shipped dark behind a feature flag. Along the
+way, the CI pipeline surfaced a real, previously-invisible constraint — the repo had quietly hit GitHub's
+hard limit on reusable workflow files — which I diagnosed from first principles (workflow-run job counts,
+GitHub's own changelog) and fixed without needing to touch any unrelated CI job.
+
+---
+
 ## [2026-07-14 13:15 CT] Launched Checkpoints (before/after proof) system + cleared the PR/branch backlog
 
 **Trigger:** Session pivot: "dataglow development is Perplexity AI chat in Perplexity but the GUI for
