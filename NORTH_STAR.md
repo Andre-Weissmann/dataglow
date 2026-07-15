@@ -47,6 +47,41 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
 
 ---
 
+## Concept in progress: Guarded Copilot
+
+**One sentence:** a read-only, lineage-citing chat assistant that answers "why is this data/grade/
+agent-readiness the way it is" — architecturally, not just conventionally, incapable of writing to
+data, because it has no import of and no call path to the Agent Action Firewall's apply methods.
+
+**Why it fits DataGlow:** composes four modules DataGlow already ships and trusts rather than
+inventing anything new: the AI Readiness Gate (`js/gate/readiness-gate.js`) for readiness/why-blocked
+answers, the AI Touch Ledger (`js/provenance/ai-touch-ledger.js`) both to answer "who touched this"
+and to log Guarded Copilot's own queries into the same hash chain, the Story engine's grade vocabulary
+for grade explanations, and — critically — deliberately holds NO reference to the Agent Action
+Firewall's `proposeAction`/`confirmAndApply` functions, so it cannot initiate or complete a mutation
+by construction, not by promise. Two-tier answer model: Tier 1 is deterministic template answers
+(zero cost, zero model, always available); Tier 2 optionally reuses the EXACT on-device Qwen2.5-1.5B
+model already loaded for Story (`js/narrative/ondevice-llm.js`) to rephrase Tier 1's facts more
+naturally — never a second model, never an external API call (matches the standing no-paid-AI-API
+constraint), and falls back to Tier 1's text untouched if WebGPU/the model isn't available.
+
+**Build batches (in order, each its own PR):**
+1. **Batch 1 — deterministic core + read-only contract.** (this batch — new pure, Node-testable
+   module `js/agents/guarded-copilot.js`: `classifyIntent()` keyword-based question routing across
+   5 supported intents (readiness, why-low-confidence, what-changed, who-touched-this, explain-grade),
+   `answerDeterministic()` composing the real readiness gate / grade vocabulary / caller-supplied
+   journal and ledger entries, `askGuardedCopilot()` as the single public entry point which also logs
+   its own query to a real `createTouchLedger()` chain, and `refineWithOnDeviceModel()` as the Tier 2
+   opt-in stub that gracefully falls back with no WebGPU. Verified in `test/guarded-copilot.test.mjs`,
+   34/0 passing, including a structural red-team suite proving no import of/call to
+   `confirmAndApply`/`proposeAction` and no write/insert/delete/update/mutate call anywhere in the
+   file. Ships DARK behind `guardedCopilot` (default OFF): not imported by `js/app-shell/main.js` yet,
+   no chat UI, zero effect on any existing path.)
+2. **Batch 2 — chat panel UI + Tier 2 model wiring.** NOT STARTED. Wire a chat panel into the app
+   shell behind its own UI sub-flag, and fill in `refineWithOnDeviceModel()`'s actual model-call once
+   the on-device model is already warmed via Story's own opt-in flow (avoids double-loading the
+   ~1.1GB model just for a chat rephrase).
+
 ## Concept in progress: DataGlow Live Rooms
 
 **One sentence:** the Meeting Scribe stops being a paste-a-transcript-after-the-fact tool
@@ -963,6 +998,24 @@ two of three AHIMA name-matching patterns) is largely unimplemented today. None 
 silently wrong answer — they are "didn't check for this at all," not "checked and got it wrong" — but
 they are real gaps between the healthcare-domain-pack marketing framing and current behavior, and P0-P2
 above are now the highest-value next healthcare-domain build targets.
+
+## CI infrastructure: reusable-workflow cap is now exactly full
+
+**Discovered 2026-07-15, PR #243 (Guarded Copilot).** GitHub Actions caps a single top-level
+workflow file at 50 unique reusable workflows called (raised from 20 in Nov 2025 — see
+[GitHub's reusable-workflow docs](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#limitations-of-reusable-workflows)).
+`test.yml` was already at exactly 50 `job-*.yml` calls before this PR — adding a 51st (a new
+`job-guarded-copilot.yml`) made the whole `tests` workflow fail to parse (an immediate 0-job,
+0-second "workflow file issue" failure, not a test failure). Worked around for this PR by adding
+Guarded Copilot's suite as a second job inside the already-counted `job-agent-action-firewall.yml`
+rather than a new top-level file — both are `js/agents/` red-team suites, a reasonable pairing, but
+this is a stopgap, not a scalable pattern. **The next PR that wants a genuinely new standalone CI
+job will hit this same wall immediately.** Real fix (not attempted here, to keep this PR's diff
+scoped to Guarded Copilot itself): introduce one more level of nesting — a small number of "batch"
+reusable workflows (e.g. `job-batch-agents.yml`, `job-batch-provenance.yml`), each itself calling
+several leaf `job-*.yml` files. Up to 10 levels of nesting are allowed, so this only needs to happen
+once to buy back a lot of headroom, but it touches `test.yml`'s structure directly and should be its
+own small, dedicated PR (docs/CI-only, no source changes) rather than bundled into a feature PR.
 
 ## Backlog (ranked, queued — not abandoned)
 

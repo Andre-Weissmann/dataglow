@@ -1980,6 +1980,19 @@
       ]
     },
     {
+      "id": "guarded-copilot",
+      "area": "Provenance, audit & trust",
+      "name": "Guarded Copilot (Batch 1) — read-only, lineage-citing chat core",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/agents/guarded-copilot.js"],
+      "symbols": [
+        { "file": "js/agents/guarded-copilot.js", "name": "classifyIntent" },
+        { "file": "js/agents/guarded-copilot.js", "name": "answerDeterministic" },
+        { "file": "js/agents/guarded-copilot.js", "name": "askGuardedCopilot" },
+        { "file": "js/agents/guarded-copilot.js", "name": "refineWithOnDeviceModel" }
+      ]
+    },
+    {
       "id": "pack-builder-debate-diagnostics",
       "area": "Conversational pack builder",
       "name": "Debate transparency diagnostics",

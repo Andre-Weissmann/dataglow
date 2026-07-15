@@ -1,8 +1,31 @@
 # ============================================================
 # DATAGLOW — CI job: Agent Action Firewall (DataGlow Passport, Batch 1)
+#                     + Guarded Copilot (Batch 1)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
+# NOTE ON WHY TWO MODULES SHARE ONE FILE: GitHub Actions caps a single
+# top-level workflow file at 50 unique reusable workflows called (raised from
+# 20 in Nov 2025 — see docs.github.com/en/actions/reference/workflows-and-
+# actions/reusing-workflow-configurations#limitations-of-reusable-workflows).
+# test.yml was already at exactly that cap when Guarded Copilot's PR added a
+# would-be 51st job-*.yml file, which made `tests` fail to parse entirely (an
+# immediate 0-job, 0-second workflow-file-issue failure — this is a repo-wide
+# CI capacity ceiling, not anything specific to Guarded Copilot's own code).
+# Rather than add a 51st top-level entry, Guarded Copilot's suite runs as a
+# SECOND job inside this already-counted file, alongside its closest thematic
+# sibling: both are js/agents/ red-team suites asserting an agent-facing
+# module cannot mutate data without going through the real confirmation gate.
+# If this repo needs more CI capacity in the future, the fix is either (a)
+# keep pairing new agent-safety suites into this file's pattern, or (b)
+# introduce one more level of nesting (a small number of "batch" reusable
+# workflows, each itself calling several leaf job-*.yml files) — up to 10
+# levels are allowed, so this only needs to happen once to buy a lot of
+# headroom back. Not attempted in this PR to keep its diff scoped to Guarded
+# Copilot itself; flagged in NORTH_STAR.md as a real, now-verified constraint
+# for the next PR that hits it.
+#
+# --- Agent Action Firewall ---
 # Runs the RED-TEAM regression suite for the Agent Action Firewall
 # (js/agents/agent-action-firewall.js) — the central gate every data-mutating
 # code path must pass through. The suite plays the attacker and asserts that
@@ -12,8 +35,18 @@
 # April 2026 "AI agent deleted the prod DB in nine seconds with no confirmation"
 # incident. Pure Node — no browser, no DuckDB, no network.
 # See test/agent-action-firewall.test.mjs.
+#
+# --- Guarded Copilot ---
+# Runs the test suite for Guarded Copilot (js/agents/guarded-copilot.js), a
+# read-only, lineage-citing chat-answer engine. Covers intent classification,
+# all five Tier 1 deterministic answer paths, end-to-end askGuardedCopilot with
+# real touch-ledger hash-chain linking, Tier 2's graceful no-WebGPU fallback,
+# and a RED-TEAM structural section proving the module never imports or calls
+# the Agent Action Firewall's proposeAction/confirmAndApply, and contains no
+# write/insert/delete/update/mutate call of any kind. Pure Node — no browser,
+# no DuckDB, no network. See test/guarded-copilot.test.mjs.
 
-name: Agent Action Firewall
+name: Agent Action Firewall + Guarded Copilot
 
 on:
   workflow_call:
@@ -30,3 +63,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:firewall
+
+  guarded-copilot:
+    name: "Guarded Copilot (red-team: read-only contract + deterministic answers)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:guardedcopilot
