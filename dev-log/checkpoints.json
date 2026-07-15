@@ -24,12 +24,53 @@
       "additions": 76,
       "deletions": 1
     },
-    "commits": ["bbd2ca9", "2ec0817", "6266162"],
+    "commits": [
+      "bbd2ca9",
+      "2ec0817",
+      "6266162"
+    ],
     "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/241",
     "verification": {
       "testsRun": 0,
       "testsPassed": 0,
-      "notTouched": "No application source code touched this run — dev-log/checkpoints.json is a new empty-array data file, and the other two merges (#191, #222) were docs-only additions to docs/tech-debt-tracker.md. No JS modules, no flags.manifest.json, no UI."
+      "notTouched": "No application source code touched this run \u2014 dev-log/checkpoints.json is a new empty-array data file, and the other two merges (#191, #222) were docs-only additions to docs/tech-debt-tracker.md. No JS modules, no flags.manifest.json, no UI."
+    },
+    "outcome": "shipped-dark"
+  },
+  {
+    "id": "chk_20260715_1",
+    "startedAt": "2026-07-15T02:30:00Z",
+    "endedAt": "2026-07-15T14:30:00Z",
+    "trigger": "run-end",
+    "title": "Guarded Copilot Batch 2 \u2014 chat panel UI + Tier 2 on-device model wiring",
+    "before": {
+      "openPRs": 1,
+      "openIssues": 29,
+      "orphanBranches": 32,
+      "darkFlags": 5,
+      "ciStatus": "pending"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 29,
+      "orphanBranches": 36,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 10,
+      "additions": 303,
+      "deletions": 27
+    },
+    "commits": [
+      "c3330e9",
+      "95960ae"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/245",
+    "verification": {
+      "testsRun": 64,
+      "testsPassed": 64,
+      "notTouched": "No write-path/DB-mutation code touched \u2014 refineWithOnDeviceModel() only calls loadModel() after confirming isModelLoaded() is true, and loadModel() is memoized so it can never trigger a new model download; all 54 CI checks green, independently re-verified line-by-line for zero write-path imports."
     },
     "outcome": "shipped-dark"
   }
