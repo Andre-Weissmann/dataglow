@@ -1007,6 +1007,65 @@ silently wrong answer — they are "didn't check for this at all," not "checked 
 they are real gaps between the healthcare-domain-pack marketing framing and current behavior, and P0-P2
 above are now the highest-value next healthcare-domain build targets.
 
+## Test findings (2026-07-15 run 5 — Portfolio-readiness targeted rerun)
+
+A targeted, narrower rerun of the "Test DataGlow Platform" program (new named "Portfolio-readiness"
+rerun mode, added to the skill this same run), scoped specifically to the question "would I trust this
+on real data I'm publishing": Section 1 (Data Quality Dimension Checklist) in full, Section 3
+(healthcare-specific rules) in full, and Section 5.1/5.5 (zero-upload/local-first privacy + offline
+verification) only — Section 2 and remaining Section 5 items explicitly out of scope this round, per the
+new rerun mode's own definition. Reused Run 1's seed=42 fixture set (already verified matching the
+answer key). Web-only this round (desktop/mobile parity not re-verified). Full write-up: workspace
+`dataglow_test_results_2026-07-15.md`. Top items, ranked:
+
+1. **P0 (regression re-confirmation, not new) — the Clean tab's Fuzzy Duplicate Radar still proposes
+   destructive merges on the `claim_id` unique-identifier column.** Observed live: 98%-confidence
+   "Merge →" suggestions purely from digit-permutation string similarity (e.g. `"CLM100001" ≈
+   "CLM100010"`, `"CLM100001" ≈ "CLM101000"`). This is the exact bug class Run 4's P0 finding described
+   and that PR #198 (`18d9f48`, merged 2026-07-12) was written to fix — but source inspection this run
+   shows that fix only patched `js/validation/categorical-consistency.js` (which has its own dedicated
+   test, `test/categorical-consistency-identifier-guard.test.mjs`). The Clean tab's radar panel is
+   powered by a separate sibling module, `js/cleaning/fuzzy-dedup.js`, which has **no identifier/
+   cardinality guard of any kind** (confirmed via direct grep) and no corresponding test file. The same
+   destructive-merge risk PR #198 was meant to close remains live through this second, unpatched code
+   path. Suggested fix: port the same two guards from `categorical-consistency.js` into `fuzzy-dedup.js`
+   (or better, factor them into one shared identifier-detection helper both modules call), and add a
+   `fuzzy-dedup`-specific identifier-guard test mirroring the existing categorical-consistency one so this
+   class of bug can't silently reappear in a third module later.
+2. **P1 (corroborates Run 4, independent reconfirmation) — near-duplicate patient detection (AHIMA
+   nickname/typo/suffix patterns) is still uncaught.** Loaded `patients.csv` alone, ran Clean → Scan for
+   Issues: result was "No issues found." The 12 seeded near-duplicate patients were not flagged.
+   Independently confirmed via SQL (`GROUP BY dob, ssn_last4 HAVING COUNT(*) > 1` → exactly 12 rows) that
+   the underlying signal is present and trivially queryable, so this is a real detection-path gap, not a
+   data problem. Reconfirms Run 4's finding on an independent seed/fixture set — the gap has not been
+   addressed since 2026-07-12.
+3. **P2 (new this run) — the Unit Test Layer's self-described scope overstates its actual output.** Its
+   description claims 5 silent tests (negatives, future dates, blank keys, duplicates, referential
+   integrity), but this run's live output surfaced only the future-date finding — the seeded orphan claim
+   (`patient_id="PT9999"`, confirmed real via direct SQL anti-join) and seeded duplicate claims (confirmed
+   real via the separate Denial Root-Cause Profiler, which flagged 29 rows by name) were both silently
+   absent from this layer's own reported findings. The underlying detection capability exists elsewhere in
+   the product (SQL tab, Denial Profiler) — this is a coverage-consistency gap in one layer's output, not
+   a missing capability. Suggested fix: either genuinely wire referential-integrity and duplicate checks
+   into the Unit Test Layer's output, or narrow its self-description to what it actually currently checks.
+4. **What worked and should be protected (confirmed again this run):** the zero-upload/local-first claim
+   held up under direct empirical network-capture testing across four separate feature surfaces (Validate,
+   SQL, HIPAA Safe Harbor de-identification, Denial Root-Cause Profiler) with zero genuine external calls
+   observed; the HIPAA de-identification verifier and Denial Root-Cause Profiler both produced correct,
+   well-caveated, in-browser-only results; offline functionality (network killed post-load) held up.
+5. **Untested follow-ups still open from this run:** NCCI-style same-day conflicting-procedure pairs (8
+   seeded), disambiguating the suspect-duplicate (10) vs. exact-duplicate (15) claim buckets specifically
+   (only a combined query was run), and desktop/Tauri + mobile/PWA parity for all Run 5 findings.
+
+**Practical readiness verdict for the portfolio use case (asked directly this run):** the strongest,
+most defensible claim — zero-upload/local-first architecture — held up under adversarial-ish testing and
+is safe to lean on when presenting DataGlow publicly. The two P0/P1 findings above are real and should be
+fixed before treating DataGlow's automated Clean/Validate output as a complete, unsupervised audit of any
+real claims- or patient-shaped dataset; a manual SQL cross-check (which DataGlow's own SQL tab makes easy)
+remains the safer path for duplicate/referential-integrity findings until the Unit Test Layer's coverage
+is reconciled and the Fuzzy Duplicate Radar receives the same identifier guard categorical-consistency.js
+already has.
+
 ## CI infrastructure: reusable-workflow cap is now exactly full
 
 **Discovered 2026-07-15, PR #243 (Guarded Copilot).** GitHub Actions caps a single top-level
@@ -1026,6 +1085,19 @@ once to buy back a lot of headroom, but it touches `test.yml`'s structure direct
 own small, dedicated PR (docs/CI-only, no source changes) rather than bundled into a feature PR.
 
 ## Backlog (ranked, queued — not abandoned)
+
+**From 2026-07-15 Run 5 (Portfolio-readiness), highest-priority — bug fixes, not new features, ranked
+above the feature backlog below since they're cheaper and higher-trust-impact:**
+
+0a. **Port the identifier/cardinality merge-guard from `js/validation/categorical-consistency.js` into
+    `js/cleaning/fuzzy-dedup.js`** (Clean tab's Fuzzy Duplicate Radar) — the same destructive-merge bug
+    PR #198 fixed in one module is still live in this sibling module. Add a matching test file.
+0b. **Reconcile the Unit Test Layer's claimed 5-check scope (negatives, future dates, blank keys,
+    duplicates, referential integrity) with its actual output** — duplicates and referential integrity
+    are not currently surfaced by this layer despite being named in its own description.
+0c. **Extend patient-level fuzzy-dedup to actually run against name/DOB-style near-duplicate patterns**
+    (nickname, typo, suffix variants) — confirmed uncaught in two independent test runs (2026-07-12 Run
+    4, 2026-07-15 Run 5) on two different seeds.
 
 These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
 
