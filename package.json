@@ -41,6 +41,7 @@
     "test:databom": "node test/data-bom.test.mjs",
     "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/synthetic-twin-time-machine-suite.test.mjs",
     "test:sd-proof": "node test/selective-disclosure-proof.test.mjs",
+    "test:skillscredential": "node test/self-issued-skills-credential.test.mjs",
     "test:fingerprint": "node test/analysis-fingerprint.test.mjs",
     "test:badges": "node test/nutrition-badges.test.mjs",
     "test:postmortem": "node test/incident-postmortem.test.mjs",
