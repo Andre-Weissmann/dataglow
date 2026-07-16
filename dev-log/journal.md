@@ -7,6 +7,89 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-15 23:53 CT] Query Sentinel — all three batches shipped dark (Batches 1-3 complete)
+
+**Trigger:** `dataglow-brainstorm` round ("List time" on improving DataGlow's coding capabilities) landed
+on ONE flagship concept, Query Sentinel, after parallel practitioner/competitor/feasibility/ROI research
+and a mandatory live desktop+mobile preview. User answered the mandatory `ask_user_question` Build gate
+with "Yes, build it" — explicit authorization to build all three batches autonomously, each with its own
+flag/tests/PR/CI, merged dark, with zero check-ins until each flag's own separate go-live confirm.
+
+**What was found in Step 1 (repo state at run start):** `main` at `e1a3d00` (pre-Batch-1). 0 open PRs,
+0 real orphaned branches, 0 stale flags, 0 failing CI. Hygiene debt: 0. Object Space registry
+(`js/app-shell/object-space.js`, Batch B) already existed and its own header explicitly documented a real
+gap: no working `FROM py.name` resolution at query time — this became Batch 3's target.
+
+**What was decided and built (three independent batches, sequenced by real dependency order):**
+
+1. **Batch 1 — `queryVerificationSentinel`** (PR #256, merged `e1a3d00`→now ancestor of `aee7e0a`):
+   `js/validation/query-sentinel.js` — a per-query deterministic static analyzer distinct from the
+   whole-dataset Local Analysis Contract. Checks FANOUT (non-unique joined-side key before an aggregate),
+   JOIN_KEY (column-type mismatch across a JOIN ON), ADDITIVITY (GROUP BY on a non-unique joined column),
+   and SENSITIVE_COLUMN (delegates to the existing `phi-prompt-guard.js` predicate, no new pattern list).
+   22/22 tests pass. Ships dark, wired as its own independent branch in the SQL tab's query-run path.
+
+2. **Batch 2 — `querySentinelAssist`** (PR #257, merged `64f4a70`): `js/validation/query-sentinel-assist.js`
+   — an opt-in "Explain & suggest a fix" button layered on Batch 1's already-computed flags, mirroring
+   `js/agents/guarded-copilot.js`'s exact Tier 1 (zero-model template lookup) / Tier 2 (on-device WebLLM
+   rephrase, narrow prompt, falls back to Tier 1 text) pattern. Reuses the same on-device model Story/
+   Guarded Copilot already load — no second model, no new WebGPU path. 30/30 tests pass.
+
+3. **Batch 3 — `querySentinelBridge`** (PR #258, merged `aee7e0a`, final batch): `js/validation/
+   query-sentinel-bridge.js` — resolves `FROM py.<name>` / `FROM r.<name>` cross-runtime references
+   against the live Object Space registry. Pure text-transform: exact-match-only substitution (`py:<name>`
+   /`r:<name>` → the real underlying DuckDB table via each entry's `provenance` field), a near-miss or
+   never-loaded name is left completely untouched and reported as an honest unresolved reference — never
+   a fuzzy guess. Wired into `runSqlQuery()` immediately before the existing `@metric` expansion step.
+   31/31 tests pass. **Honestly scoped, confirmed by direct code inspection**: `registerRuntimeObjects()`
+   only re-registers already-loaded SQL datasets under `py:`/`r:` prefixes, not ad-hoc in-runtime
+   variables — so this bridge resolves the "already-loaded dataset referenced across languages" case
+   only. True arbitrary-variable capture across Python/R is explicitly out of scope and named as a future
+   batch, not implied to exist.
+
+**Cross-platform impact (Mission Center's standing requirement):** all three batches are pure JS logic
+(`js/validation/query-sentinel*.js`) plus one shared UI hook in `js/app-shell/main.js` — the confirmed
+single shared codebase means **all three ship simultaneously to web, desktop (Tauri), and the installable
+PWA/mobile surface** the moment each flag is flipped. None of the three depend on a platform-specific API
+(no WebGPU-only code path beyond what Batch 2's Tier 2 already inherits from the existing on-device model
+feature, no Tauri filesystem/IPC call). `tauri-smoke` passed on every one of the three PRs (#256: prior
+run; #257: 7m3s; #258: 7m11s), independently proving the desktop shell isn't broken by any of them.
+
+**Outcome:** shipped/dark, all three. `main` now at `aee7e0a`. All three flags default `false` — the SQL
+tab is byte-for-byte unchanged for every existing user until each flag is separately, explicitly enabled.
+
+**Safety notes:** every merge (all three, despite being dark) got its own independent safety
+re-verification (diff re-read, local test re-run beyond trusting green CI, secret/destructive-op scan) and
+its own explicit `confirm_action` per the user's standing override — no exceptions taken for "it's just
+dark code." Pre-existing unrelated test failures (`batched-bugfixes-layers`, `clean-scan-fuzzy-wiring`,
+`digital-twin`, `domain-physics`, `expected-range`, `fuzzy-dedup-identifier-guard`, `mimic-bugfixes`,
+`python-bridge-truncation`, `trust-adversarial-suite`, `validation-layers`) were confirmed via `git stash`
+comparison to exist identically on `main` before each batch — never conflated with new work, disclosed in
+every PR description.
+
+**Flags:** `queryVerificationSentinel` (Batch 1, false), `querySentinelAssist` (Batch 2, false),
+`querySentinelBridge` (Batch 3, false) — all three independent, all three dark, all three awaiting their
+own future separate go-live confirm.
+
+**Blast radius:** additive-only across all three batches — zero existing `enabled:true` path modified in
+any of the three PRs (independently verified each time via direct diff read, not assumed).
+
+**Hygiene debt (this run vs. prior 3 entries):** 0 → 0 → 0 → 0 (flat). Open PRs: 0 (both intermediate PRs
+merged same-run, none left dangling). Flag count: 51 → 54 (net +3, all three new Query Sentinel flags,
+none yet promoted/removed — all under the 3-merged-PR staleness threshold as of this entry). Orphaned
+branches: 0 real (2 live bot-managed branches unchanged; noted one pre-existing `federated-coordination`
+branch with NO common git ancestor with `main` — an orphan-history branch, not orphaned work, not
+actioned this run, flagged for a future run to investigate). CI on `main`: green.
+
+**Process learning:** this is the first Mission Center run to ship a genuine three-batch, single-concept
+pipeline end-to-end in one sitting with zero mid-build check-ins, exactly as the user's "Yes, build it"
+authorization asked for — the one-confirm-per-merge discipline held for all three merges without any
+corner cut, even though every one of them was a dark, technically-zero-user-risk change. Worth carrying
+forward: sequencing by real dependency (bridge last, since it reads the object registry Batches 1-2 don't
+touch) meant no batch had to be reworked because an earlier one changed shape underneath it.
+
+---
+
 ## [2026-07-15 21:29 CT] Correction — orphaned-branch check was skipped, not actually zero
 
 **Trigger:** User checked the live companion dashboard directly and saw Repo health 49/100 with "33

@@ -1084,6 +1084,32 @@ several leaf `job-*.yml` files. Up to 10 levels of nesting are allowed, so this 
 once to buy back a lot of headroom, but it touches `test.yml`'s structure directly and should be its
 own small, dedicated PR (docs/CI-only, no source changes) rather than bundled into a feature PR.
 
+## Shipped (dark, all three flags off): Query Sentinel
+
+**Concept:** a three-batch SQL-tab trust layer, built and merged in one continuous autonomous run
+(2026-07-15) after a `dataglow-brainstorm` round on DataGlow's coding capabilities landed on this as the
+one combined flagship concept, then "Yes, build it" authorized all three batches with zero check-ins
+until each flag's own go-live confirm. Full detail in `dev-log/journal.md`'s 2026-07-15 23:53 CT entry.
+
+1. **`queryVerificationSentinel`** (PR #256) — per-query deterministic static analyzer: FANOUT (non-unique
+   joined-side key before an aggregate), JOIN_KEY (type mismatch across a JOIN ON), ADDITIVITY (GROUP BY
+   on a non-unique joined column), SENSITIVE_COLUMN (delegates to the existing `phi-prompt-guard.js`).
+   22/22 tests.
+2. **`querySentinelAssist`** (PR #257) — opt-in "Explain & suggest a fix" layered on Batch 1's flags,
+   mirroring Guarded Copilot's Tier 1 (template) / Tier 2 (on-device WebLLM) pattern, no second model
+   loaded. 30/30 tests.
+3. **`querySentinelBridge`** (PR #258) — resolves `FROM py.<name>` / `FROM r.<name>` against the Object
+   Space registry; exact-match-only, never fuzzy; honestly scoped to already-loaded datasets only (not
+   arbitrary in-runtime variables — that remains a named future gap, not implied to exist). 31/31 tests.
+
+**Cross-platform:** pure JS logic + one shared `main.js` hook — ships to web, desktop (Tauri), and the
+PWA/mobile surface simultaneously off the single shared codebase the moment each flag flips.
+`tauri-smoke` passed independently on all three PRs.
+
+**Status:** all three flags default `false`. Each flag's `false→true` flip is its own separate, future,
+explicitly confirmed action — never bundled together or with any other flag (including the still-pending,
+unrelated `zkThresholdProof` enable request).
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-15 Run 5 (Portfolio-readiness), highest-priority — bug fixes, not new features, ranked
