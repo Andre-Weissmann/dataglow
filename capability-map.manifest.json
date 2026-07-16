@@ -2087,6 +2087,22 @@
       "symbols": [
         { "file": "js/simulation/sandbox-twin.js", "name": "createSandboxTwin" }
       ]
+    },
+    {
+      "id": "query-sentinel",
+      "area": "Validation layers",
+      "name": "Query Sentinel (Batch 1) — deterministic per-query SQL correctness verifier",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/validation/query-sentinel.js"],
+      "symbols": [
+        { "file": "js/validation/query-sentinel.js", "name": "extractJoins" },
+        { "file": "js/validation/query-sentinel.js", "name": "checkFanout" },
+        { "file": "js/validation/query-sentinel.js", "name": "checkJoinKey" },
+        { "file": "js/validation/query-sentinel.js", "name": "checkAdditivity" },
+        { "file": "js/validation/query-sentinel.js", "name": "checkSensitiveColumn" },
+        { "file": "js/validation/query-sentinel.js", "name": "runQuerySentinel" },
+        { "file": "js/validation/query-sentinel.js", "name": "summarizeQuerySentinel" }
+      ]
     }
   ]
 }
