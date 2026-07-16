@@ -100,7 +100,7 @@ distributional-fingerprint drift is layer 18 inside `js/validation/validation.js
 Everything that proposes a change to the data. All of it is preview-only: DATAGLOW
 generates the SQL/plan and shows confidence, the human approves.
 - **Core cleaning** — `js/cleaning/clean.js` (issue scan + preview-only fixes), `js/cleaning/fix-confidence.js` (safety score per proposed fix), `js/cleaning/materiality.js` (hide sub-threshold issues).
-- **Targeted transforms** — `js/cleaning/imputation.js` (grouped-mean fills), `js/cleaning/format-fingerprint.js` (currency/date/fake-null standardizer), `js/cleaning/fuzzy-dedup.js` (near-duplicate radar + shared string-similarity metrics).
+- **Targeted transforms** — `js/cleaning/imputation.js` (grouped-mean fills), `js/cleaning/format-fingerprint.js` (currency/date/fake-null standardizer), `js/cleaning/fuzzy-dedup.js` (near-duplicate radar + shared string-similarity metrics), `js/shared/identifier-columns.js` (shared unique-identifier-column name/cardinality heuristics — guards fuzzy-dedup.js and js/validation/categorical-consistency.js against suggesting merges between distinct records on ID-like columns).
 
 ## Grades & health scores
 Composite roll-ups that turn raw layer output into a few honest, high-level numbers.

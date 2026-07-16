@@ -576,7 +576,8 @@
       "files": [
         "js/cleaning/imputation.js",
         "js/cleaning/format-fingerprint.js",
-        "js/cleaning/fuzzy-dedup.js"
+        "js/cleaning/fuzzy-dedup.js",
+        "js/shared/identifier-columns.js"
       ]
     },
     {
