@@ -16,6 +16,7 @@ import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
 import { translateDialectSql, SUPPORTED_DIALECTS } from './sql-dialect-adapter.js';
 import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
+import { runQuerySentinel, summarizeQuerySentinel } from '../validation/query-sentinel.js';
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
@@ -1010,6 +1011,51 @@ function renderAnalysisContractCard(container, report) {
   container.prepend(card);
 }
 
+// Query Sentinel opt-in verifier card (feature-flagged: queryVerificationSentinel).
+// ------------------------------------------------------------
+// Same card shape/placement contract as the Local Analysis Contract card
+// above (dismissible, prepended above the result), but for the four
+// FANOUT/JOIN_KEY/ADDITIVITY/SENSITIVE_COLUMN checks in
+// js/validation/query-sentinel.js. Deliberately a SEPARATE card, never
+// merged into the Analysis Contract card, so each verifier's on/off state
+// and dismissal stay independent (the contract can be dismissed without
+// hiding Sentinel's findings, and vice versa). Suggestion-only — this never
+// blocks or delays the query, only annotates the already-shown result.
+function renderQuerySentinelCard(container, report) {
+  if (!isEnabled('queryVerificationSentinel')) return;
+  if (!report || report.flagCount === 0) return;
+  const toneFor = (sev) => (sev === 'fail' ? 'fail' : sev === 'warn' ? 'warn' : 'pass');
+  const outerTone = report.status === 'fail' ? 'fail' : report.status === 'pass' ? 'pass' : 'warn';
+  const card = el('div', {
+    class: 'card',
+    'data-testid': 'query-sentinel-card',
+    style: 'margin-top:var(--space-3); padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2);',
+  }, [
+    el('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:var(--space-2);' }, [
+      el('span', { class: `validation-status ${outerTone}` }, [
+        el('span', { class: `status-dot ${outerTone}` }),
+        el('span', {}, 'Query Sentinel'),
+      ]),
+      el('button', {
+        class: 'btn btn-secondary',
+        style: 'font-size:var(--text-xs); padding:2px 8px;',
+        'data-testid': 'query-sentinel-dismiss',
+        onclick: () => card.remove(),
+      }, 'Dismiss'),
+    ]),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' }, summarizeQuerySentinel(report)),
+    el('ul', { style: 'margin:0; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:6px;' },
+      report.flags.map(f => el('li', {
+        style: 'display:flex; align-items:flex-start; gap:var(--space-2); font-size:var(--text-xs);',
+      }, [
+        el('span', { class: `status-dot ${toneFor(f.severity)}`, style: 'margin-top:3px; flex:none;' }),
+        el('span', { style: 'flex:1;' }, `[${f.kind}] ${f.message}`),
+      ]))
+    ),
+  ]);
+  container.prepend(card);
+}
+
 // Verifiable Check Seal opt-in affordance (feature-flagged: verifiableCheckSeal).
 // ------------------------------------------------------------
 // Renders a small card offering to SEAL the Analysis Contract result for this
@@ -1303,6 +1349,16 @@ async function runSqlQuery() {
         // (zero critical flags) rather than sealing a disclosed one.
         renderZkThresholdProofAffordance(resultWrap, report);
       }).catch(() => { /* contract check is best-effort; never break the SQL tab */ });
+    }
+    if (isEnabled('queryVerificationSentinel')) {
+      // Independent of the Local Analysis Contract branch above — Query
+      // Sentinel is its own flag, own card, own dismissal state. Reuses the
+      // exact same buildLiveSchemaForContract() schema shape (no duplicate
+      // schema-collection code), and is equally best-effort/never-blocking.
+      buildLiveSchemaForContract(sql).then(schema => {
+        const sentinelReport = runQuerySentinel(sql, schema);
+        renderQuerySentinelCard(resultWrap, sentinelReport);
+      }).catch(() => { /* sentinel check is best-effort; never break the SQL tab */ });
     }
   } catch (err) {
     statusEl.textContent = '';
