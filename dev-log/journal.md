@@ -7,6 +7,99 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 06:00 CT] Query Sentinel — all three flags flipped live (Batches 1-3 go-live complete)
+
+**Trigger:** "Enable all three Query Sentinel flags. Build it :)" — explicit authorization to run all
+three go-live confirms this session, each still fully separate and independently confirmed per the
+standing rule that flag enable is always its own decoupled action, never bundled with build/merge or
+with another flag's enable.
+
+**Step 1 findings:** all three flags (`queryVerificationSentinel`, `querySentinelAssist`,
+`querySentinelBridge`) already shipped dark from the prior run (2026-07-15 23:53 CT entry below), `main`
+at `0990e94` after the docs-only journal/NORTH_STAR PR #259. 0 open PRs, 0 orphaned branches, 0 failing
+CI at the start of this run.
+
+**Decision:** enable each flag through its own independent branch → flag flip → live Playwright
+verification against the real running app → commit → PR → wait for full CI → independent safety
+re-verification of the diff → explicit `confirm_action` → squash merge → sync main. Sequenced in the
+same dependency order as the original build (verifier, then assist which reads its output, then bridge
+which is fully independent but built/tested last).
+
+**Built:** no new code — each batch's implementation already existed dark from PR #256/#257/#258. This
+run only flips `enabled: false → true` for each flag, one flag manifest edit at a time:
+
+1. **Batch 1 — `queryVerificationSentinel`** (PR #260, squash-merged, branch deleted, `main` → `0f2b0df`).
+   Live-verified: uploaded a 3-row claims CSV, ran a fanout self-join query
+   (`SELECT p.patient_id, SUM(c.amount) FROM claims p JOIN claims c ON p.patient_id = c.patient_id
+   GROUP BY p.patient_id`), confirmed the Query Sentinel card rendered with 1 FANOUT + 1 ADDITIVITY
+   finding, no console errors.
+2. **Batch 2 — `querySentinelAssist`** (PR #261, squash-merged, branch deleted, `main` → `e8b3f85`).
+   Live-verified with Batch 1 also on: re-ran the same fanout query, clicked the new "Explain & suggest
+   a fix" button, confirmed the Tier 1 deterministic explanation rendered correctly in-card, scoped only
+   to already-reported findings, no fabricated content, no console errors, no layout issues.
+3. **Batch 3 — `querySentinelBridge`** (PR #262, squash-merged, branch deleted, `main` → `759eed9`, final
+   flag). Live end-to-end verified through the real SQL tab with all three flags on: registered a
+   `py:claims` Object Space entry in the exact write shape `registerRuntimeObjects('python')` produces
+   after a real Python run, then ran `SELECT * FROM py.claims WHERE amount > 40` through the real
+   `runSqlQuery()` path — correctly resolved to the underlying `claims` table, returned 2 rows in 13ms,
+   showed the real "Cross-runtime bridge: resolved py.claims → claims" success toast. Separately ran
+   `SELECT * FROM py.never_loaded_dataset` (never registered) — left completely untouched, surfaced the
+   honest "could not find ... run that tab first" warning toast, failed safely with DuckDB's own Catalog
+   Error. No crash, no silent wrong-table substitution, zero console errors either case. Local test
+   suites re-confirmed clean before commit: 31/31 (`query-sentinel-bridge.test.mjs`), 32/32
+   (`object-space.test.mjs`).
+
+**Cross-platform impact:** each enable is a pure config flip (`flags.manifest.json`) with zero source
+change, so — consistent with the original dark-ship entry — the moment each flag flips it takes effect
+simultaneously on web, desktop (Tauri), and the installable PWA/mobile surface off the single shared
+codebase. `tauri-smoke` passed independently on all three enable PRs (#260, #261, #262), each confirming
+the desktop shell isn't broken by a live-flag path any differently than by the dark one.
+
+**Outcome:** shipped-live, all three. `main` now at `759eed9`. All three Query Sentinel flags are now
+`true` — the SQL tab's Query Sentinel card, its Assist button, and its cross-runtime bridge resolution
+are all active for every user, no longer gated behind a flag.
+
+**Safety notes:** every one of the three merges got its own independent safety re-verification (`git
+diff origin/main...<branch> -- flags.manifest.json` confirmed each diff was exactly the 2-line flag flip
+plus a `promotedInPR` provenance field — zero source code touched in any of the three) and its own
+explicit `confirm_action`, never bundled together, never combined with another flag's enable, per the
+user's standing rule restated at the start of this run.
+
+**Flag:** `queryVerificationSentinel` (true), `querySentinelAssist` (true), `querySentinelBridge` (true)
+— all three now live, all three `promotedInPR` fields recorded (`enable/query-sentinel-verifier`,
+`enable/query-sentinel-assist`, `enable/query-sentinel-bridge`).
+
+**Blast radius:** small for each individual flip (config-only, no source change), but additive in
+aggregate: this is the first time real users see any Query Sentinel UI at all. No existing `enabled:true`
+path was modified by any of the three PRs — independently verified via diff read each time, not assumed.
+
+**Hygiene debt (this run vs. prior 3 entries):** 0 → 0 → 0 → 0 (flat). Open PRs: 0 (all three enable PRs
+merged same-run, none left dangling). Flag count: unchanged at 54, but 3 fewer "dark" flags — all three
+Query Sentinel flags are now promoted (have a `promotedInPR` field) rather than sitting dark, which is a
+hygiene improvement even though the raw flag count didn't drop (dark-but-promotable flags are the ones
+the repo's 3-merged-PR staleness rule is meant to catch; these are now clean). CI on `main`: green.
+
+**Process learning:** three fully separate go-live confirms in one session, back-to-back, held up cleanly
+without any pressure to collapse them — worth noting that Batch 3's live verification required one
+correction mid-run (a first test harness attempt used the bare table name as the Object Space registry
+key instead of the real `py:<name>` combined key `registerRuntimeObjects()` actually produces, which
+initially made the resolver look broken when it wasn't). Carrying forward: when hand-seeding an Object
+Space entry for a test instead of running the real Python/R tab, always cross-check the exact key format
+against `objectSpaceName()` in `main.js` first, not just the `registerObject()` function signature —
+otherwise a test-harness mistake can be misread as a real product bug.
+
+**PR(s):** [#260](https://github.com/Andre-Weissmann/dataglow/pull/260),
+[#261](https://github.com/Andre-Weissmann/dataglow/pull/261),
+[#262](https://github.com/Andre-Weissmann/dataglow/pull/262)
+
+**Portfolio note:** Shipped a three-part SQL trust-and-assist feature to production across web, desktop,
+and mobile in two sessions — building all three behind feature flags with full test coverage first, then
+enabling each one independently only after live browser verification and an explicit go/no-go decision
+per flag. Demonstrates a deliberate dark-launch → verify → enable discipline rather than shipping
+untested code straight to users.
+
+---
+
 ## [2026-07-15 23:53 CT] Query Sentinel — all three batches shipped dark (Batches 1-3 complete)
 
 **Trigger:** `dataglow-brainstorm` round ("List time" on improving DataGlow's coding capabilities) landed
