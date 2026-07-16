@@ -1110,8 +1110,18 @@ PWA/mobile surface simultaneously off the single shared codebase the moment each
 **Status:** all three flags are now `true` and live for every user, as of 2026-07-16 (PRs #260, #261,
 #262 — each flag flip was its own separate, explicitly confirmed action, never bundled together or with
 any other flag). The SQL tab's Query Sentinel card, its Assist button, and its cross-runtime bridge
-resolution are all active. The unrelated `zkThresholdProof` enable request remains separately pending and
-has not been actioned.
+resolution are all active.
+
+**`zkThresholdProof`** (unrelated to Query Sentinel — the first genuine zero-knowledge proof primitive
+in DataGlow) is now also `true` and live, as of 2026-07-16 (PR #264, its own separate, explicitly
+confirmed action). `proveZeroCriticalIssues()` — an opt-in 'Prove zero critical issues' button in the
+SQL tab's Local Analysis Contract flow — proves a result has zero critical (fail-severity) flags without
+revealing the count or the data, using a non-interactive Schnorr Sigma protocol over a 512-bit
+safe-prime group (native BigInt only, no crypto library/WASM/new dependency/trusted-setup ceremony).
+Live-verified before merge: the success path (clean data → proof generated and independently
+re-verified), the honest-refusal path (a real critical flag present → `ok:false`, no fabricated proof),
+and the artifact's actual JSON payload (no secret blinding factor value present, only the Schnorr
+transcript). 31/31 tests. No other pending flag-enable requests remain.
 
 ## Backlog (ranked, queued — not abandoned)
 
