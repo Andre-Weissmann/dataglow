@@ -1084,12 +1084,13 @@ several leaf `job-*.yml` files. Up to 10 levels of nesting are allowed, so this 
 once to buy back a lot of headroom, but it touches `test.yml`'s structure directly and should be its
 own small, dedicated PR (docs/CI-only, no source changes) rather than bundled into a feature PR.
 
-## Shipped (dark, all three flags off): Query Sentinel
+## Shipped (live, all three flags on): Query Sentinel
 
-**Concept:** a three-batch SQL-tab trust layer, built and merged in one continuous autonomous run
+**Concept:** a three-batch SQL-tab trust layer, built and merged dark in one continuous autonomous run
 (2026-07-15) after a `dataglow-brainstorm` round on DataGlow's coding capabilities landed on this as the
-one combined flagship concept, then "Yes, build it" authorized all three batches with zero check-ins
-until each flag's own go-live confirm. Full detail in `dev-log/journal.md`'s 2026-07-15 23:53 CT entry.
+one combined flagship concept, then enabled live one flag at a time (2026-07-16), each with its own
+separate go-live confirm. Full detail in `dev-log/journal.md`'s 2026-07-15 23:53 CT (dark ship) and
+2026-07-16 06:00 CT (go-live) entries.
 
 1. **`queryVerificationSentinel`** (PR #256) — per-query deterministic static analyzer: FANOUT (non-unique
    joined-side key before an aggregate), JOIN_KEY (type mismatch across a JOIN ON), ADDITIVITY (GROUP BY
@@ -1106,9 +1107,11 @@ until each flag's own go-live confirm. Full detail in `dev-log/journal.md`'s 202
 PWA/mobile surface simultaneously off the single shared codebase the moment each flag flips.
 `tauri-smoke` passed independently on all three PRs.
 
-**Status:** all three flags default `false`. Each flag's `false→true` flip is its own separate, future,
-explicitly confirmed action — never bundled together or with any other flag (including the still-pending,
-unrelated `zkThresholdProof` enable request).
+**Status:** all three flags are now `true` and live for every user, as of 2026-07-16 (PRs #260, #261,
+#262 — each flag flip was its own separate, explicitly confirmed action, never bundled together or with
+any other flag). The SQL tab's Query Sentinel card, its Assist button, and its cross-runtime bridge
+resolution are all active. The unrelated `zkThresholdProof` enable request remains separately pending and
+has not been actioned.
 
 ## Backlog (ranked, queued — not abandoned)
 
