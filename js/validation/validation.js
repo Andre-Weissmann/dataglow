@@ -24,6 +24,21 @@ import { isEnabled } from '../build/build-flags.js';
 // "flag-if-visible-behavior-change" convention: both add new findings the
 // Validate tab surfaces to users. Flip on in flags.manifest.json to activate.
 export const EXTENDED_COVERAGE_FLAG = 'validationExtendedCoverage';
+// Cross-table referential integrity (P0, NORTH_STAR 2026-07-15 finding 0b): the
+// Unit Test Layer's own LAYER_DEFS description has always claimed 'referential
+// integrity' as one of its 5 silent tests, but the check below (see fkCols loop
+// in runUnitTests) only ever verified a foreign-key-shaped column is non-NULL
+// WITHIN the same table — it never checked whether that value actually exists
+// as a key in another loaded table, so a syntactically-valid but nonexistent
+// FK (e.g. a claim referencing patient_id "PT9999" when no such patient was
+// ever loaded) was invisible to it. This flag gates a genuinely new, separate
+// cross-table check (detectCrossTableOrphans / the orphan-FK query in
+// runUnitTests) that is intentionally its OWN flag rather than piggybacking on
+// EXTENDED_COVERAGE_FLAG: that flag is already enabled:true in production, and
+// silently attaching new user-visible findings to an already-live flag would
+// bypass the standing rule that every new detection surfacing to users ships
+// dark and gets its own explicit enable decision.
+export const CROSS_TABLE_REFERENTIAL_FLAG = 'crossTableReferentialIntegrity';
 
 // In-memory history for drift/reproducibility/correlation layers (per session — no server)
 const history = {
@@ -36,7 +51,7 @@ const history = {
 export const LAYER_DEFS = [
   { id: 'sanity_anchor', name: 'Sanity Anchor', desc: 'Runs the same GROUP BY two independent ways and compares.' },
   { id: 'historical_drift', name: 'Historical Drift Detector', desc: 'Flags when results change between runs on the same query.' },
-  { id: 'unit_tests', name: 'Unit Test Layer', desc: '5 silent tests: negatives, future dates, blank keys, duplicates, referential integrity.' },
+  { id: 'unit_tests', name: 'Unit Test Layer', desc: '5 silent tests: negatives, future dates, blank keys, duplicates, in-table reference nullness. Cross-table referential integrity (does a foreign key actually exist in another loaded table) is a separate, flag-gated check — see crossTableReferentialIntegrity.' },
   { id: 'confidence', name: 'Confidence Layer', desc: '0–100 score across 5 signals with a color-coded grade.' },
   { id: 'denial_radar', name: 'Denial Radar', desc: 'Healthcare claim denial pattern detection (requires EDI 835/837 columns).' },
   { id: 'schema_fingerprint', name: 'Schema Fingerprint', desc: 'Cryptographic hash of the schema — flags renamed/removed/retyped columns.' },
@@ -114,6 +129,51 @@ export function detectBusinessKeyColumns(cols) {
   return cols.filter(c => BUSINESS_KEY_RE.test(c.name));
 }
 
+// Pure matcher for the cross-table referential-integrity check: given a
+// foreign-key-shaped column name (e.g. "patient_id") from the CURRENT table
+// and the list of OTHER currently-loaded datasets (state.datasets entries,
+// excluding the current table), find the best candidate reference table that
+// column is likely pointing at, plus which of ITS columns is the matching key.
+// Deliberately conservative — returns null rather than guessing when nothing
+// lines up, so this never invents a false orphan finding against an unrelated
+// table that merely happens to share a generic column name.
+//
+// Matching rules (checked in order, first match wins):
+//   1. Exact column-name match: the other dataset has a column with the exact
+//      same name (e.g. both tables have "patient_id") — use that as the key.
+//   2. Base-name-to-bare-"id" match: the FK column strips to a base noun (e.g.
+//      "patient_id" -> "patient") that is a singular/plural form of the other
+//      dataset's name (e.g. dataset named "patients"), AND that dataset has a
+//      bare "id" column (or a column literally named the same as the FK) as
+//      its first column (the existing key-column convention used elsewhere in
+//      this file, see keyCol in runUnitTests) — use that first column as the key.
+// Never matches the current table against itself.
+export function findReferenceCandidate(fkColumnName, currentTableName, otherDatasets) {
+  const base = fkColumnName.replace(/_id$/i, '').toLowerCase();
+  for (const other of otherDatasets) {
+    if (!other || other.table === currentTableName || !Array.isArray(other.cols) || other.cols.length === 0) continue;
+    // Rule 1: exact column-name match, but only when that column is ALSO the
+    // other table's own first column (its established key-column convention)
+    // — this avoids matching two unrelated tables that merely happen to share
+    // a same-named FK column for their own separate reasons (e.g. two claims-
+    // shaped tables both carrying an incidental "patient_id" column, neither
+    // of which is actually the patients master table).
+    const exact = other.cols.find(c => c.name.toLowerCase() === fkColumnName.toLowerCase());
+    if (exact && other.cols[0].name.toLowerCase() === fkColumnName.toLowerCase()) {
+      return { table: other.table, name: other.name, keyColumn: exact.name };
+    }
+    // Rule 2: base-name-to-dataset-name match, keyed on the other table's own
+    // first column (its established key-column convention).
+    const dsName = (other.name || '').toLowerCase();
+    const singular = base.endsWith('s') ? base.slice(0, -1) : base;
+    const plural = base.endsWith('s') ? base : `${base}s`;
+    if (dsName === base || dsName === singular || dsName === plural || dsName.includes(base)) {
+      return { table: other.table, name: other.name, keyColumn: other.cols[0].name };
+    }
+  }
+  return null;
+}
+
 async function runUnitTests(table, cols) {
   const findings = [];
   const numericCols = cols.filter(c => ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'].includes(c.type));
@@ -183,6 +243,50 @@ async function runUnitTests(table, cols) {
   for (const c of fkCols) {
     const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table} WHERE "${c.name}" IS NULL`);
     if (rows[0].n > 0) findings.push({ kind: 'null_ref', column: c.name, severity: 'fail', text: `${rows[0].n} null reference(s) in "${c.name}"` });
+  }
+
+  // Cross-table referential integrity (flag-gated, P0 NORTH_STAR 2026-07-15
+  // finding 0b): the null-check loop above only verifies a FK-shaped column
+  // is non-NULL WITHIN this table. A syntactically-valid but nonexistent FK
+  // (e.g. a claim's patient_id = "PT9999" when no such patient was ever
+  // loaded) is invisible to that check. This block adds a genuine anti-join
+  // against any OTHER currently-loaded dataset that findReferenceCandidate()
+  // conservatively identifies as the likely reference table for that FK
+  // column, and reports non-null values that don't exist in that table's key
+  // column. Deliberately separate from EXTENDED_COVERAGE_FLAG (see that
+  // flag's own comment above) since this is new user-visible behavior that
+  // needs its own explicit enable decision. Fails open (never throws) if the
+  // other dataset can't be queried for any reason (removed mid-run, type
+  // mismatch on the join, etc.) — the rest of the Unit Test Layer's findings
+  // must never be lost because of a cross-table check's failure.
+  if (isEnabled(CROSS_TABLE_REFERENTIAL_FLAG)) {
+    const otherDatasets = (state.datasets || []).filter(d => d && d.table !== table);
+    if (otherDatasets.length > 0) {
+      for (const c of fkCols) {
+        const candidate = findReferenceCandidate(c.name, table, otherDatasets);
+        if (!candidate) continue;
+        try {
+          const { rows: orphanRows } = await engine.runQuery(`
+            SELECT COUNT(*) AS n FROM ${table} t
+            WHERE t."${c.name}" IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM ${candidate.table} r
+                WHERE CAST(r."${candidate.keyColumn}" AS VARCHAR) = CAST(t."${c.name}" AS VARCHAR)
+              )`);
+          const orphanCount = Number(orphanRows[0].n) || 0;
+          if (orphanCount > 0) {
+            const refLabel = candidate.name || candidate.table;
+            findings.push({
+              kind: 'orphan_reference',
+              column: c.name,
+              severity: 'fail',
+              text: `${orphanCount} value(s) in "${c.name}" don't exist in "${candidate.keyColumn}" of the loaded "${refLabel}" dataset (orphan reference)`,
+              meta: { referenceTable: candidate.table, referenceDataset: refLabel, referenceKeyColumn: candidate.keyColumn, orphanCount },
+            });
+          }
+        } catch (e) { /* incompatible join (type mismatch, dropped table, ...) — skip, fail open */ }
+      }
+    }
   }
 
   const r = summarizeUnitTests(findings);
