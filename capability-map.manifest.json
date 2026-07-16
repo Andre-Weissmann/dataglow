@@ -985,6 +985,18 @@
       ]
     },
     {
+      "id": "provenance-zk-threshold-proof",
+      "platforms": ["browser", "desktop"],
+      "area": "Provenance, audit & trust",
+      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) — first genuine zero-knowledge proof in DataGlow",
+      "files": ["js/provenance/zk-threshold-proof.js"],
+      "symbols": [
+        { "file": "js/provenance/zk-threshold-proof.js", "name": "proveZeroCriticalIssues" },
+        { "file": "js/provenance/zk-threshold-proof.js", "name": "verifyZeroProof" },
+        { "file": "js/provenance/zk-threshold-proof.js", "name": "selfCheckGroup" }
+      ]
+    },
+    {
       "id": "provenance-proof-room",
       "platforms": ["browser", "desktop"],
       "area": "Provenance, audit & trust",
