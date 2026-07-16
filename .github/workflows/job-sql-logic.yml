@@ -49,6 +49,17 @@ jobs:
       # Fuzzy Duplicate Radar: catch-rate benchmark against a seeded patients
       # dataset (12 known near-duplicate records) + false-positive guard.
       - run: npm run test:fuzzydedup
+      # Fuzzy Duplicate Radar — P0 identifier guard (2026-07-15): the radar
+      # must never offer a destructive "Merge →" on a unique-identifier column
+      # (claim_id, patient_id, etc.) even when digit-permutation IDs score high
+      # on pure string similarity — mirrors categorical-consistency.js's own
+      # guard below via the shared js/shared/identifier-columns.js helper.
+      - run: npm run test:fuzzydedupidguard
+      # Clean tab "Scan for Issues" — fuzzy-dedup wiring (P1 fix, 2026-07-15):
+      # Scan for Issues must surface a fuzzy_duplicates summary issue when
+      # near-duplicate text values are present, not just the standalone Fuzzy
+      # Duplicate Radar panel — previously a silent coverage gap.
+      - run: npm run test:cleanscanfuzzy
       # Categorical Consistency Engine — P0 identifier guard: unique-ID columns
       # (patient_id, claim_id, and any column matching the business-key naming
       # convention or measured near-unique cardinality) must never be offered a
