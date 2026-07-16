@@ -7,6 +7,80 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-15 21:05 CT] Built Zero-Knowledge Threshold Proof (Batch 1) — first genuine ZK primitive in DataGlow
+
+**Trigger:** Continuation of the first-ever Mission Center run. After the P0/P1 fuzzy-dedup fix (PR
+#251) shipped, the user was asked what to build next and answered "Since this is the very first time
+running dataglow mission center. Build a privacy feature for dataglow," explicitly invoking the DataGlow
+Think List as the ambition lens.
+
+**Step 1 findings:** Re-confirmed clean at branch time — 0 open PRs, 0 orphaned branches, CI green on
+`main` (commit `846becc`, the PR #252 doc-only journal/checkpoint commit), 29 open issues, 4 dark flags.
+
+**Decision:** Every existing `js/provenance/` artifact (Verifiable Check Seal, Trust Beam, Selective
+Disclosure Proof, Portable Receipts) explicitly disclaims being zero-knowledge — each commits to a value
+with SHA-256/Merkle hashing and then discloses it in cleartext. Building an actual zero-knowledge proof
+(a provably different cryptographic guarantee: proving a fact about hidden data without revealing the
+data) is a genuine capability jump, not a rehash — and squarely fits the Think List's "tear down a
+walled-off boundary" and "no paid AI API keys" constraints (this is pure math, zero new dependencies).
+Scoped deliberately to one predicate ("zero critical issues") rather than a general-purpose ZK system, to
+keep the batch reviewable and shippable in one PR.
+
+**Built:**
+- `js/provenance/zk-threshold-proof.js` (428 lines) — non-interactive Schnorr Sigma protocol
+  (Fiat-Shamir heuristic over a Pedersen commitment opening) on a deterministic, independently
+  re-verifiable 512-bit safe-prime group. Native BigInt only. Exports `proveZeroCriticalIssues()` /
+  `verifyZeroProof()` / `selfCheckGroup()` / `countCriticalIssues()` / `countCriticalContractFlags()` /
+  `ZK_PROOF_DISCLAIMER`. Honestly refuses to fabricate a proof when the underlying statement is false.
+- `test/zk-threshold-proof.test.mjs` — 31 assertions: completeness, soundness (5 tamper scenarios),
+  zero-knowledge (no secret leakage in the artifact), honest-refusal behavior, commitment unlinkability.
+- `js/app-shell/main.js` — new `renderZkThresholdProofAffordance()`, wired into the SQL tab's Local
+  Analysis Contract flow next to (not replacing) the existing Check Seal button. Purely additive: zero
+  existing lines removed from the file.
+- `flags.manifest.json` — new `zkThresholdProof` flag, default `false`.
+- `capability-map.manifest.json` + `docs/capability-map.md` — new capability entry, added via surgical
+  `edit`-tool insertions (not a full `json.dump()` rewrite), per the PR #251 lesson about unreviewable
+  diffs from Python JSON reformatting.
+
+**Outcome:** shipped-dark (flag `zkThresholdProof` stays `false` — no One Confirm gate run this entry;
+the user did not ask to flip it live, and this batch's default is to ship dark per repo convention)
+
+**Safety notes:** Diff is purely additive — 6 files changed, 672 insertions, 0 deletions, zero existing
+function bodies modified. Independently re-read the full diff before requesting the merge confirm:
+confirmed no destructive operations, no network calls, no hardcoded secrets (the "secret"/"delete"
+regex hits were all documentation prose or test-assertion variable names, verified by inspection), no
+scope creep beyond the described batch, no modification of any `enabled:true` path. Re-ran all 4
+existing tests that import `js/app-shell/main.js` (diplomacy-tab-gating, golden-dataset-load-race,
+coi-headers, command-deck-nav) — all still pass, confirming the flag-gated call site is a true no-op
+when off. All 54 CI jobs passed (including `tauri-smoke`). Re-ran the module's own 31 tests locally
+outside CI immediately before the merge confirm. User explicitly approved the merge via `confirm_action`
+(PR #253) with a full safety assessment stated up front, per the standing rule.
+
+**Flag:** `zkThresholdProof` — `false` (dark)
+
+**Blast radius:** small — new isolated module + one new flag-gated UI call site; zero existing behavior
+changed with the flag off.
+
+**Hygiene debt:** 0 (0 open PRs + 0 orphaned branches + 0 stale flags + 0 failing-CI-on-main) — flat vs.
+the prior entry (also 0 at merge time for PR #251). Dark-flag count is now 5 (was 4), the expected and
+intended shape of a ships-dark batch — not itself hygiene debt unless one of these ages past 3 merged
+PRs without promotion or removal.
+
+**Process learning:** Applying the surgical-`edit`-not-`json.dump()` lesson from PR #251 to
+`capability-map.manifest.json` up front (rather than rediscovering it via a failed CI gate a second time)
+saved a full CI round-trip this run — a concrete example of the log actually changing behavior across
+runs, not just recording it.
+
+**PR(s):** https://github.com/Andre-Weissmann/dataglow/pull/253
+
+**Portfolio note:** Designed and shipped the first genuine zero-knowledge proof primitive in a
+browser-native data-quality tool — a non-interactive Schnorr Sigma protocol implemented with zero
+third-party cryptography libraries, reasoned from first principles about completeness/soundness/
+zero-knowledge properties, and scoped deliberately to one provable predicate to keep the change safely
+reviewable in a single PR rather than over-building a general-purpose system.
+
+---
+
 ## [2026-07-15 20:27 CT] Fixed Fuzzy Duplicate Radar P0 identifier-guard gap + Scan for Issues P1 wiring gap (first Mission Center run)
 
 **Trigger:** First-ever run of the renamed `dataglow-mission-center` skill (v2.0, supersedes
