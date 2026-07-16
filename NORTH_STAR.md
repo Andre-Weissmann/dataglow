@@ -1128,17 +1128,31 @@ transcript). 31/31 tests. No other pending flag-enable requests remain.
 **From 2026-07-15 Run 5 (Portfolio-readiness), highest-priority — bug fixes, not new features, ranked
 above the feature backlog below since they're cheaper and higher-trust-impact:**
 
-0a. **Port the identifier/cardinality merge-guard from `js/validation/categorical-consistency.js` into
-    `js/cleaning/fuzzy-dedup.js`** (Clean tab's Fuzzy Duplicate Radar) — the same destructive-merge bug
-    PR #198 fixed in one module is still live in this sibling module. Add a matching test file.
-0b. **Reconcile the Unit Test Layer's claimed 5-check scope (negatives, future dates, blank keys,
-    duplicates, referential integrity) with its actual output** — duplicates and referential integrity
-    are not currently surfaced by this layer despite being named in its own description.
-0c. **Extend patient-level fuzzy-dedup to actually run against name/DOB-style near-duplicate patterns**
-    (nickname, typo, suffix variants) — confirmed uncaught in two independent test runs (2026-07-12 Run
-    4, 2026-07-15 Run 5) on two different seeds.
+0a. **RESOLVED (PR #251, merged 2026-07-16).** Ported the identifier/cardinality merge-guard from
+    `js/validation/categorical-consistency.js` into `js/cleaning/fuzzy-dedup.js` (`js/shared/identifier-
+    columns.js` + guard wired into `fuzzy-dedup.js`). Matching test added.
+0b. **RESOLVED (PR #267, merged 2026-07-16).** The Unit Test Layer's claimed 5-check scope (negatives,
+    future dates, blank keys, duplicates, referential integrity) now matches its actual output for the
+    in-table checks (negatives/future-dates/blank-keys/duplicates were already correct; the layer's own
+    description was corrected to stop overclaiming cross-table referential integrity as part of that
+    base set). A genuinely new, separate cross-table referential-integrity check was built —
+    `findReferenceCandidate()` + an anti-join query in `runUnitTests` — gated behind a **new, dedicated
+    flag `crossTableReferentialIntegrity` (shipped `enabled: false`, dark)**, since this surfaces a new
+    finding kind (`orphan_reference`) to users and needs its own explicit enable decision per standing
+    convention. 9 new tests (`test/unit-test-layer-cross-table-referential.test.mjs`) plus 500+ existing
+    tests across every file importing `validation.js`/`state.js`/`build-flags.js` re-verified clean. Flag
+    enable is a separate, not-yet-taken decision — see dev-log/journal.md 2026-07-16 entry.
+0c. **RESOLVED (PR #251, merged 2026-07-16) — same PR as 0a.** `js/cleaning/clean.js`'s `scanForIssues`
+    now wires into `findFuzzyDuplicates` for the patients table, so name/DOB-style near-duplicate
+    patterns (nickname, typo, suffix variants) ARE surfaced by "Scan for Issues," closing the gap
+    confirmed uncaught in the 2026-07-12 Run 4 and 2026-07-15 Run 5 test passes. Verified independently
+    this run via a standalone script exercising `scanForIssues('patients', cols)` against a fresh
+    dataset with 2 seeded near-dup name pairs — correctly surfaced as a `fuzzy_duplicates_patient_name`
+    finding. Existing benchmark (`test/fuzzy-dedup-patients.test.mjs`) already proves 100% catch-rate on
+    12 seeded pairs.
 
-These lost the "combine into one" round but remain valid; pull the next one when Readiness Gate ships.
+All three items from this ranked batch are now resolved as of 2026-07-16. Pull the next backlog item
+below when Readiness Gate ships.
 
 1. **Query Memory** (round 1 pick) — fingerprint every SQL/Python/R/Metric Studio run, log author +
    timestamp, surface a "seen before" badge grounding trust in validated usage history instead of static

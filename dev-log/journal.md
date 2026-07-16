@@ -7,6 +7,69 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 08:36 CT] Fixed all 3 remaining 2026-07-15 accuracy bugs — 2 already fixed, 1 newly built
+
+**Trigger:** "Is dataglow ready to do any data project end to end accurately?" → honest "not yet" verdict
+citing the 3 bugs from `dataglow_test_results_2026-07-15.md` → "Fix all" → mid-task discovery that 2 of
+3 were already fixed and merged (PR #251, same morning) → "Be smart on what to do next" (delegated the
+call on the one real remaining gap).
+
+**What was found (Step 1):** Pulled `main` at `d942109`. Investigating bug 0b (Unit Test Layer claims
+"referential integrity" as one of its 5 checks but never actually checked cross-table existence) led to
+discovering bugs 0a and 0c were BOTH already resolved by PR #251 (merged 2026-07-16 01:26 CT, same repo,
+earlier that morning, unrelated to this session) — verified 0a by reading the merged diff
+(`js/shared/identifier-columns.js` + guard in `fuzzy-dedup.js`) and verified 0c empirically by writing a
+standalone throwaway script that ran `scanForIssues('patients', cols)` against a fresh dataset with 2
+seeded name near-dups and confirmed a `fuzzy_duplicates_patient_name` finding surfaced. Also found: a
+prior attempt at cross-table checks (PR #197 "Cross-Table Relational Rules") was deliberately reverted
+(PR #200) in favor of Source Convergence — confirmed by reading Source Convergence's own flag
+descriptions that it solves a different problem (N-way entity resolution/trust reconciliation via a
+dedicated tab), not the narrow "does this FK exist anywhere" gap the Unit Test Layer's description
+claims. So 0b was real and distinct from Source Convergence — the only genuine remaining gap.
+
+**What was decided:** User explicitly delegated ("be smart") the choice between (a) building the real
+cross-table check, (b) just correcting the layer's self-description to stop overclaiming, or (c)
+skipping it. Chose (a) — the honest, higher-value fix — since a cosmetic-only fix would leave the actual
+detection gap (an orphan FK like a claim's `patient_id = "PT9999"` with no such patient loaded) silently
+unfixed while merely relabeling it as "working as intended."
+
+**What was built (PR #267, merged 2026-07-16 08:36 CT, commit `73ddfbe`):**
+- `findReferenceCandidate()` — new pure, exported matcher in `js/validation/validation.js`: conservatively
+  finds a likely reference table for a FK-shaped column among other loaded datasets (exact column-name
+  match against the other table's own key column, or FK base-noun-to-dataset-name match); returns `null`
+  rather than guessing.
+- New anti-join check wired into `runUnitTests`, gated behind a **brand-new, dedicated flag**
+  `crossTableReferentialIntegrity` — deliberately NOT piggybacked onto the already-`enabled:true`
+  `validationExtendedCoverage` flag, since this is genuinely new user-visible behavior (a new
+  `orphan_reference` finding kind) needing its own explicit enable decision.
+- **Shipped `enabled: false` (dark).** Flag enable was NOT part of this run — it remains a separate,
+  not-yet-taken decision per the standing rule that build/merge and enable are always decoupled.
+- Corrected `LAYER_DEFS`' `unit_tests` description, which had overclaimed cross-table referential
+  integrity as part of its always-on base checks.
+- Fails open (try/catch) per column — an incompatible join never drops the rest of the layer's findings.
+
+**Test evidence:** New file `test/unit-test-layer-cross-table-referential.test.mjs` — 9/9 passing,
+covering the pure matcher (including its false-positive guard against unrelated same-named columns), the
+exact PT9999 orphan scenario end-to-end via `runAllLayers` with the flag on, no false positives on clean
+data, flag-off byte-for-byte parity with prior behavior, and graceful no-candidate fail-open. Re-ran
+every one of the 18 existing test files that import `validation.js`/`state.js`/`build-flags.js` (500+
+individual tests) — zero regressions. All 54 CI checks passed on PR #267, including `tauri-smoke`
+(6m24s).
+
+**Outcome:** Shipped, dark. `crossTableReferentialIntegrity` flag is `enabled: false` — real users see
+no behavior change from this merge. Enabling it (surfacing `orphan_reference` findings live) is queued
+as its own future one-confirm decision, not bundled into this run.
+
+**Safety assessment given at merge confirm:** Read-only anti-join query only; no destructive ops; no
+credential/secret exposure; changes confined to `js/validation/validation.js` + `flags.manifest.json`
+(the two files the bug actually lives in); new flag ships `false` so zero live-behavior change; all CI
+green; 500+ tests re-verified with zero regressions.
+
+**Lesson for next time:** When a user says "fix all N bugs," always re-verify each one against current
+`main` before starting work — two of the three were already fixed by an unrelated same-day PR, and
+building redundant fixes for 0a/0c would have wasted effort and risked merge conflicts. Confirming
+real repo state first (Step 1's whole purpose) caught this before any wasted work began.
+
 ## [2026-07-16 06:34 CT] zkThresholdProof go-live — the long-pending flag finally actioned
 
 **Trigger:** "Okay. So what do you need to do?" → identified `zkThresholdProof` as the one remaining
