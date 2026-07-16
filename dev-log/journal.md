@@ -7,6 +7,56 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 13:45 CT] Command Deck mobile sidebar fix + 2 bundled pre-existing bugs (PR #273, shipped)
+
+**Trigger:** User asked to fix the `.command-deck-sidebar` mobile-responsiveness bug found in the prior
+entry below (fixed 200px width consuming 41-49% of phone viewports), alongside two other standing asks
+(explain the PDF/OCR ingestion build concretely, deliver the DuckDB-WASM-vs-alternatives architecture
+research). This entry covers only the sidebar fix; the other two are non-code deliverables logged
+separately once delivered.
+
+**What was found (Step 1):** Confirmed the prior entry's finding still reproduced on unmodified `main`
+before starting (checked via a temporary comparison clone). While building the off-canvas drawer fix and
+testing it on real mobile viewports (iPhone 14 390px, Pixel 7 412px), found two more pre-existing, unrelated
+bugs in the same topbar region:
+1. The DATAGLOW logo was invisible on every sub-480px viewport — `.brand svg { width: auto }` (specificity
+   0,2,0) always overrode `.brand-logo { width: 84px }` (specificity 0,1,0), so the logo's rendered width
+   silently resolved to 0 in the collapsing flex context.
+2. The live "Start a Room" Room pill (`roomsUi` flag, `enabled:true`, already promoted for all users) had
+   zero mobile treatment and measured 379px natural width on a 390px phone — its idle state renders both a
+   label span and an action button that duplicate the same "Start a Room" text — which alone consumed the
+   entire topbar and squeezed the logo/new toggle to zero width via `.topbar-right { flex-shrink: 0 }`.
+
+**What was decided:** User was asked via `ask_user_question` each time a new bug surfaced whether to bundle
+into the same PR or split — both times chose "fix all in the same PR." All three fixes are pure CSS/DOM
+presentation changes (a new off-canvas drawer + toggle + backdrop for the sidebar, a qualified CSS selector
+for the logo, mobile-only padding/hide rules for the Room pill's duplicated label) — zero JS logic changes,
+zero new flags (both `dataglowSidebarNav` and `roomsUi` were already `enabled:true`; this PR only changes
+their mobile *presentation*, not their state or logic).
+
+**Testing:** Built a reusable Playwright functional test (`test_sidebar_fix2.mjs`) covering drawer
+open/close via toggle and backdrop, tab-click auto-close, and a full data-load → validate flow (orphan-
+reference finding still surfaces correctly) — passed cleanly on iPhone 14 and Pixel 7, zero horizontal
+scroll on either (`scrollWidth === viewportWidth`). Desktop (1280px) independently re-verified with zero
+regression: toggle CSS-hidden, sidebar renders inline at full width, logo and Room pill render at their
+original full size/label, unchanged from before this PR.
+
+**Safety assessment given at merge confirm:** 3 files changed (`css/app.css`, `index.html`,
+`js/app-shell/main.js`), all pure presentation/DOM-toggle logic — no backend, no data layer, no new
+dependencies, no secrets, no destructive operations (confirmed via targeted diff grep). Blast radius:
+both touched flags were already live for all users; this PR changes mobile presentation only, not default
+state or logic. All 54 CI checks passed, including `tauri-smoke`. User approved merge via `confirm_action`
+after reviewing the full safety assessment. PR #273, squash-merged to `main` at commit `5b8bfe3`, branch
+deleted.
+
+**What to do differently next time:** When a fix to one flagged UI area surfaces multiple unrelated bugs
+in the same visual region, the ask-to-bundle pattern worked well twice in a row — keep using it rather than
+assuming bundle-or-split by default. Also: cross-checking a bug against a fresh unmodified clone of `main`
+before starting (done here) is worth doing as standard practice whenever a finding might be mistaken for
+something introduced by in-progress work — it kept the diagnosis honest here.
+
+---
+
 ## [2026-07-16 10:19 CT] Cross-platform verification of crossTableReferentialIntegrity + multimodal ingestion architecture brainstorm (docs-only)
 
 **Trigger:** User asked whether DataGlow works identically on web/desktop/mobile/tablet, then escalated
