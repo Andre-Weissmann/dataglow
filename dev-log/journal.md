@@ -7,6 +7,30 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 09:04 CT] crossTableReferentialIntegrity flag enabled (go-live)
+
+**Trigger:** User said "Let me know when you want that confirm" was answered with "Yes. I confirm and
+approve" — explicit go-ahead to flip the flag built dark in PR #267 (previous entry below).
+
+**What changed:** One-line flag flip in `flags.manifest.json`, `crossTableReferentialIntegrity`:
+`false → true`. PR #269, merged `ab9eca6`. Per standing convention this was its own separate PR and
+its own separate `confirm_action`, decoupled from the build/merge in #267 — even though the user's
+verbal approval was general ("confirm and approve"), the concrete go-live confirmation was presented
+with the specific PR, its safety assessment, and its user-visible effect before merging.
+
+**User-visible effect (live now):** The Unit Test Layer's Validate output now includes a new
+`orphan_reference` finding whenever a foreign-key-shaped column has a non-null value that doesn't exist
+in another currently-loaded dataset's key column (e.g. a claim referencing a `patient_id` that was
+never loaded in that session). Only fires when 2+ related datasets are loaded together — single-dataset
+sessions see no change.
+
+**Safety assessment given at merge confirm:** Single-line flag flip only, no other files touched, fails
+open on any join incompatibility, all 54 CI checks green, 9/9 new tests + 88/88 existing
+`validation-layers` tests re-verified with the flag on before merging.
+
+**Outcome:** Live. All three 2026-07-15 accuracy findings (0a, 0b, 0c) are now fully resolved and, for
+0b specifically, actually enabled for real users — not just merged dark.
+
 ## [2026-07-16 08:36 CT] Fixed all 3 remaining 2026-07-15 accuracy bugs — 2 already fixed, 1 newly built
 
 **Trigger:** "Is dataglow ready to do any data project end to end accurately?" → honest "not yet" verdict
