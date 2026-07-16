@@ -1163,6 +1163,49 @@ regression. All 54 CI checks passed, including `tauri-smoke`.
 touched flags (`dataglowSidebarNav`, `roomsUi`) were already live; this PR changed their mobile
 presentation only. Full detail: `dev-log/journal.md`'s 2026-07-16 13:45 CT entry.
 
+## Architecture research: is DuckDB-WASM still the right foundation for any-format ingestion? (2026-07-16, docs-only)
+
+Deep research directly answering the founder's "any data format" ambition from run 6 (PDF/image/audio/
+video ingestion, tied to Zach Wilson's Volume/Velocity/**Variety** framing). Full report:
+`dataglow_architecture_report.md` (235 lines, every claim URL-sourced).
+
+**Verdict: COMPLEMENT DuckDB-WASM, do not replace it.** No embedded engine — DuckDB-WASM or any
+alternative — natively parses pixels/audio/PDF layout via SQL over raw bytes; neither do the cloud
+giants marketing "query any format with SQL." Snowflake Cortex, BigQuery ObjectRef, Databricks
+`ai_parse_document`, and MotherDuck all use the same **reference → extract → structure → join** pattern:
+reference the blob, run an extraction/AI function to turn it into structured columns/text/embeddings,
+land the output in a queryable relational layer. This is exactly what Zach Wilson teaches ("convert
+everything to Markdown first"; video → audio+frames → transcript+captions → vector DB → RAG) — his
+method never asks a SQL engine to parse pixels either.
+
+**Ranked scoring (5 dimensions: maturity, multimodal capability, integration cost, cross-platform
+feasibility, complement-vs-replace fit):**
+
+1. On-device extraction stack (PDF.js + Tesseract.js + transformers.js/Whisper) — 4.6
+2. Apache Arrow + parquet-wasm (interchange fabric) — 4.6
+3. DuckDB-WASM (keep as core) — 4.4
+4. Browser vector store (sqlite-vec / usearch) — 4.4
+5. SQLite-WASM + OPFS (durable app state, not analytics) — 4.2
+6. Polars via Pyodide (optional DataFrame complement) — 4.0
+7. Multi-engine Web Worker pattern (Comlink) — enabling pattern, not an engine — 3.8
+8. WASI/Component Model 2026 — not the browser answer; no browser GPU/inference path — 3.0
+
+**Recommended phased path:** Phase 1 — PDF.js + Tesseract.js (documents: extract text from PDFs/scans
+→ land as rows in DuckDB-WASM for cleaning/validation/query; raw bytes stored in OPFS, referenced not
+inlined). Phase 2 — on-device embeddings (transformers.js) + sqlite-vec/usearch for semantic search/
+dedup. Phase 3 — Whisper-based audio/video transcription (WebGPU with WASM fallback; mobile WebGPU
+support is newly-landed and fragmented, so this stays opt-in/desktop-first). Phase 4 — hardening: move
+each engine to its own Web Worker, enforce reference-not-inline for large blobs, add explicit memory
+budgeting before the ~1–4 GB browser tab ceiling (no graceful degradation exists today).
+
+**Constraint fit confirmed:** every recommended piece (PDF.js, Tesseract.js, transformers.js, sqlite-vec/
+usearch) runs fully client-side with zero cloud API calls, satisfying DataGlow's no-paid-AI-key rule, and
+none require native-only OS APIs — all work identically in a plain browser, the Tauri webview, and a
+mobile PWA off the single shared codebase.
+
+**Not yet built — this is research only, no code shipped.** Phase 1 (PDF.js + Tesseract.js) is the
+recommended next buildable feature when the founder is ready to start.
+
 ## CI infrastructure: reusable-workflow cap is now exactly full
 
 **Discovered 2026-07-15, PR #243 (Guarded Copilot).** GitHub Actions caps a single top-level

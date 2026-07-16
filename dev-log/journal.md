@@ -7,6 +7,39 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 14:30 CT] Architecture research: DuckDB-WASM vs alternatives for any-format ingestion (docs-only)
+
+**Trigger:** Second of the user's three original standing asks this session — deep research comparing
+DuckDB-WASM against client-side alternatives for handling "any data format" (PDF/image/audio/video),
+tied to Zach Wilson's Volume/Velocity/**Variety** framing cited in the prior multimodal-brainstorm entry.
+
+**What was found:** A `research` subagent (`wide-search`) produced a fully URL-cited 235-line report
+(`dataglow_architecture_report.md`) covering how cloud/lakehouse giants (Snowflake Cortex, BigQuery
+ObjectRef, Databricks `ai_parse_document`, MotherDuck) architect multimodal ingestion, a component-by-
+component findings section (DuckDB-WASM, SQLite-WASM, sqlite-vec/usearch, Arrow/parquet-wasm, Polars,
+on-device extraction stack, WASI), and a 5-dimension ranked scoring table across 8 architecture options.
+
+**What was decided:** Verdict is COMPLEMENT DuckDB-WASM, not replace it — no client-side engine natively
+parses pixels/audio/PDF layout via SQL, and neither do the cloud giants; they all extract first, then
+land structured output in a queryable layer. Recommended phased path: Phase 1 PDF.js+Tesseract.js
+(documents) → Phase 2 embeddings+vector store (sqlite-vec/usearch) → Phase 3 Whisper audio/video
+(opt-in, desktop-first given fragmented mobile WebGPU) → Phase 4 hardening (Web Workers, memory
+budgeting, reference-not-inline for large blobs). Every recommended piece runs fully client-side with
+zero cloud API calls, satisfying the standing no-paid-AI-key constraint, and works identically across
+web/Tauri desktop/mobile PWA off the single shared codebase.
+
+**Outcome:** Documentation-only — findings written to `NORTH_STAR.md`'s new "Architecture research"
+section. No code built or shipped this entry; Phase 1 (PDF.js + Tesseract.js) is flagged as the
+recommended next buildable feature.
+
+**What to do differently next time:** None — the research cleanly validated the founder's own intuition
+(multimodal via extraction-to-text, not via a different SQL engine), so no course correction needed;
+worth re-checking DuckDB-WASM's autoloadable extension set (Lance/vss/httpfs) periodically in case that
+changes before Phase 1 starts, since that gap is what currently requires the separate vector-store
+addition rather than relying on DuckDB-WASM alone.
+
+---
+
 ## [2026-07-16 13:45 CT] Command Deck mobile sidebar fix + 2 bundled pre-existing bugs (PR #273, shipped)
 
 **Trigger:** User asked to fix the `.command-deck-sidebar` mobile-responsiveness bug found in the prior
