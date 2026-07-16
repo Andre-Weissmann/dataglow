@@ -48,6 +48,13 @@
   <!-- ============ TOP BAR ============ -->
   <header class="topbar">
     <div class="topbar-left">
+      <!-- Mobile-only Command Deck sidebar toggle. Hidden at >860px via CSS
+           (display:none set in the @media (min-width: 861px) rule); shown
+           at <=860px only when dataglowSidebarNav is on (main.js keeps this
+           hidden if the flag is off, mirroring the sidebar host itself). -->
+      <button class="icon-btn" id="btn-sidebar-toggle" title="Open navigation" aria-label="Open navigation" data-testid="button-sidebar-toggle" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <div class="brand" aria-label="DATAGLOW">
         <svg class="brand-logo" width="110" height="20" viewBox="0 0 220 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="DATAGLOW" role="img">
           <text x="0" y="34" font-family="Poppins, sans-serif" font-weight="600" font-size="28" class="brand-logo-data">data</text>
@@ -92,6 +99,7 @@
          main.js at boot so a flag-off session never shows it, the top tab
          bar above stays the default until this is reviewed live). -->
     <aside class="command-deck-sidebar" id="command-deck-sidebar" aria-label="DATAGLOW Command Deck" style="display:none;"></aside>
+    <div class="cd-sidebar-backdrop" id="cd-sidebar-backdrop"></div>
 
     <!-- Command Deck, Part 2: global command palette (Ctrl/Cmd+K). Hidden overlay,
          mounted at the body level so it can sit above every tab/panel. Ships dark

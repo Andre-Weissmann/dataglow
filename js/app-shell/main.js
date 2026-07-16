@@ -351,11 +351,47 @@ function switchTab(tabId) {
 // user's "build all, safely and smartly" instruction.
 const collapsedStages = new Set();
 
+// Mobile off-canvas drawer state for #command-deck-sidebar. Desktop
+// (>860px, CSS media query) ignores .open entirely -- the sidebar is
+// always visible in-flow there, unchanged from before this fix. Only
+// matters at <=860px, where the sidebar is fixed/off-screen by default
+// (see css/app.css "Command Deck sidebar mobile drawer").
+function closeSidebarDrawer() {
+  const host = document.getElementById('command-deck-sidebar');
+  const backdrop = document.getElementById('cd-sidebar-backdrop');
+  if (host) host.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+}
+
+function openSidebarDrawer() {
+  const host = document.getElementById('command-deck-sidebar');
+  const backdrop = document.getElementById('cd-sidebar-backdrop');
+  if (host) host.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+}
+
+function toggleSidebarDrawer() {
+  const host = document.getElementById('command-deck-sidebar');
+  if (host && host.classList.contains('open')) closeSidebarDrawer();
+  else openSidebarDrawer();
+}
+
 function renderCommandDeckSidebar() {
   const host = document.getElementById('command-deck-sidebar');
+  const toggleBtn = document.getElementById('btn-sidebar-toggle');
   if (!host) return;
-  if (!isEnabled('dataglowSidebarNav')) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  if (!isEnabled('dataglowSidebarNav')) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    if (toggleBtn) toggleBtn.style.display = 'none';
+    return;
+  }
   host.style.display = '';
+  // Toggle button's own visibility is governed by CSS @media (min-width:
+  // 861px) { display:none }; here we only ensure the flag-off inline
+  // display:none (set above when the flag is off) is cleared so that CSS
+  // rule -- not this inline style -- decides visibility per viewport width.
+  if (toggleBtn) toggleBtn.style.display = '';
   host.innerHTML = '';
 
   const { stages } = buildSidebarContent({ tabMeta: TAB_META, activeTab });
@@ -383,7 +419,7 @@ function renderCommandDeckSidebar() {
       const tabEl = el('div', {
         class: `cd-tab ${t.active ? 'active' : ''}`,
         'data-testid': `cd-tab-${t.id}`,
-        onclick: () => switchTab(t.id),
+        onclick: () => { switchTab(t.id); closeSidebarDrawer(); },
       }, [
         el('span', { html: iconSvg(t.icon) }),
         el('span', {}, t.label),
@@ -7153,6 +7189,14 @@ function initSettings() {
 
   $('#btn-settings').addEventListener('click', () => $('#settings-modal').classList.add('open'));
   $('#btn-settings-close').addEventListener('click', () => $('#settings-modal').classList.remove('open'));
+  // Command Deck mobile drawer: hamburger toggle + tap-outside-to-close backdrop.
+  // Both elements are always in the DOM; visibility at each viewport width and
+  // flag state is governed by CSS + renderCommandDeckSidebar(), so these
+  // listeners are safe to attach unconditionally.
+  const sidebarToggleBtn = $('#btn-sidebar-toggle');
+  if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', () => toggleSidebarDrawer());
+  const sidebarBackdrop = $('#cd-sidebar-backdrop');
+  if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', () => closeSidebarDrawer());
   $('#freshness-threshold').addEventListener('change', (e) => { state.settings.freshnessThresholdHours = parseInt(e.target.value, 10); });
   $('#btn-settings-save').addEventListener('click', () => {
     const provider = state.settings.modelProvider;

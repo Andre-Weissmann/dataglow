@@ -498,18 +498,70 @@
   .data-sidebar.open { left: 0; }
   .panel { padding: var(--space-4); }
   .confidence-ring-wrap { flex-direction: column; align-items: flex-start; }
+
+  /* ---- Command Deck sidebar (#command-deck-sidebar) mobile drawer ----
+     Fixed 200px width was previously unconditional, permanently consuming
+     41-49% of phone-width viewports and truncating validation/status text
+     (confirmed 2026-07-16, see NORTH_STAR.md "Test findings"). Mirrors the
+     .data-sidebar off-canvas pattern above: hidden off-screen by default,
+     slides in via .open (toggled by #btn-sidebar-toggle in the topbar),
+     with a dedicated backdrop so a tap outside the drawer closes it. */
+  .command-deck-sidebar {
+    position: fixed; left: -280px; top: 0; bottom: 0; width: 260px;
+    z-index: 45; transition: left 200ms ease; box-shadow: var(--shadow-lg);
+    background: var(--color-surface); overflow-y: auto;
+    padding-top: var(--space-4);
+  }
+  .command-deck-sidebar.open { left: 0; }
+  .cd-sidebar-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 44;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .cd-sidebar-backdrop.open { display: block; }
+  #btn-sidebar-toggle { display: inline-flex; flex-shrink: 0; }
+}
+
+@media (min-width: 861px) {
+  #btn-sidebar-toggle { display: none; }
 }
 
 @media (max-width: 480px) {
   .topbar { padding: 0 var(--space-2); gap: var(--space-2); }
-  .topbar-left { gap: var(--space-2); min-width: 0; flex: 1 1 auto; overflow: hidden; }
-  .brand-logo { width: 84px; flex-shrink: 0; }
-  .freshness-badge { max-width: 38vw; overflow: hidden; }
+  .topbar-left { gap: 6px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  /* Bug (found 2026-07-16, pre-existing on main, unrelated to the sidebar drawer
+     above): ".brand svg { width: auto }" (base rule, line ~27) has specificity
+     0,2,0 which always beats a plain ".brand-logo { width: 84px }" rule's 0,1,0
+     here, so the logo silently computed width:auto -> 0 and vanished on every
+     sub-480px viewport. Qualifying the selector with .brand raises this rule to
+     matching 0,2,0 specificity so it wins via later source order instead.
+     Also sized down from the base 84px: even after the Room-pill compaction
+     below, .topbar-left's total content still slightly exceeded the space
+     freed up on a 390px phone, so the logo itself needed to shrink a bit
+     rather than clip — 60px keeps "dataglow" fully legible at this size. */
+  .brand .brand-logo { width: 60px; flex-shrink: 0; }
+  .freshness-badge { max-width: 30vw; overflow: hidden; flex-shrink: 1; min-width: 0; }
   #freshness-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; max-width: 100%; }
   .topbar-right { flex-shrink: 0; gap: 2px; }
   .topbar-right .icon-btn, .topbar-right button { flex-shrink: 0; }
   .btn-label { display: none; }
   #btn-red-team { padding: var(--space-2); }
+
+  /* Bug (found 2026-07-16, pre-existing on main): the live "Start a Room"
+     Room pill widget (roomsUi flag, promoted ON for all users, no prior
+     mobile treatment) measured a 379px natural width on a 390px viewport,
+     because its idle state renders the label "Start a Room" AND an action
+     button ALSO reading "Start a Room" side by side (buildRoomPillModel(),
+     js/rooms/room-ui.js). With .topbar-right's flex-shrink:0, this alone
+     consumed the entire topbar and squeezed .topbar-left (logo, sidebar
+     toggle) to zero width. CSS-only fix, no JS/behavior change: hide the
+     redundant idle-state label text (the action button already says
+     "Start a Room"/room code/"Leave") and tighten the pill's own padding.
+     data-testid selectors are the same stable hooks this repo's own tests
+     already use, not new coupling. */
+  #room-ui-host [data-testid="room-pill-label"] { display: none; }
+  #room-ui-host [data-testid="room-pill"] { padding: 4px 4px !important; gap: 4px !important; }
+  #room-ui-host [data-testid="room-pill-action"] { padding: 2px 8px !important; }
+  #room-ui-host [data-testid="room-ui-wrap"] { gap: 4px !important; }
   .tabbar { padding: 0 var(--space-2); }
   .tab { padding: var(--space-2) var(--space-3); }
 }
