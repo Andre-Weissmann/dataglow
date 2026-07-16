@@ -19,6 +19,7 @@ import { runAnalysisContract, summarizeAnalysisContract } from '../validation/an
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
+import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } from '../provenance/zk-threshold-proof.js';
 import { buildBeamUrl } from '../provenance/trust-beam.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as story from '../narrative/story.js';
@@ -1090,6 +1091,88 @@ function renderCheckSealAffordance(container, report, sql, result) {
   container.prepend(card);
 }
 
+// Zero-Knowledge Threshold Proof opt-in affordance (feature-flagged: zkThresholdProof).
+// ------------------------------------------------------------
+// Renders a small card offering to prove, via a GENUINE zero-knowledge proof
+// (js/provenance/zk-threshold-proof.js — a non-interactive Schnorr Sigma
+// protocol, NOT a Merkle/hash commitment like every other provenance
+// artifact), that this Analysis Contract result has ZERO critical (fail-
+// severity) flags — WITHOUT disclosing the actual flag count, which flags
+// exist, or the underlying data. This is deliberately a DIFFERENT guarantee
+// than the Verifiable Check Seal above: the Seal discloses its result in
+// cleartext and only proves tamper-evidence; this proof discloses NOTHING
+// about the result except the single true/false bit "zero critical issues."
+// Proving is always an explicit human action (the button click); if the
+// statement is false (there ARE critical flags), the module honestly refuses
+// to fabricate a proof rather than lying — that refusal is surfaced here as
+// a plain status message, never silently swallowed.
+function renderZkThresholdProofAffordance(container, report) {
+  if (!isEnabled('zkThresholdProof')) return;
+  const card = el('div', {
+    class: 'card',
+    'data-testid': 'zk-threshold-proof-card',
+    style: 'margin-top:var(--space-3); padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2);',
+  });
+  const header = el('div', { style: 'display:flex; align-items:center; justify-content:space-between; gap:var(--space-2);' }, [
+    el('span', { class: 'validation-status pass' }, [
+      el('span', { class: 'status-dot pass' }),
+      el('span', {}, 'Zero-Knowledge Threshold Proof'),
+    ]),
+    el('button', {
+      class: 'btn btn-primary',
+      style: 'font-size:var(--text-xs); padding:2px 8px;',
+      'data-testid': 'zk-threshold-proof-create',
+      onclick: async () => {
+        try {
+          detail.innerHTML = '<span style="color:var(--color-text-muted);">Generating proof (safe-prime group setup runs once per session)…</span>';
+          const criticalIssueCount = countCriticalContractFlags(report);
+          const outcome = await proveZeroCriticalIssues({
+            criticalIssueCount,
+            datasetLabel: `local-analysis-contract:${new Date().toISOString().slice(0, 10)}`,
+          });
+          detail.innerHTML = '';
+          if (!outcome.ok) {
+            detail.appendChild(el('div', {
+              style: 'font-size:var(--text-xs); color:var(--color-error);',
+            }, `Cannot generate a proof: this result currently has ${outcome.criticalIssueCount} critical (fail-severity) flag(s). A zero-knowledge proof can only be produced for a TRUE statement — it will never fabricate one.`));
+            toast('No proof generated — the statement is not true for this result', 'info');
+            return;
+          }
+          const verify = await verifyZeroProof(outcome.artifact);
+          detail.appendChild(el('div', {
+            style: `font-size:var(--text-xs); color:var(--color-${verify.valid ? 'success' : 'error'});`,
+          }, verify.valid
+            ? '✓ Proof generated and independently re-verified: zero critical issues, without revealing the count or any flag detail.'
+            : '✗ Proof failed independent re-verification — this should never happen; treat as a bug.'));
+          detail.appendChild(el('div', {
+            style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:4px;',
+          }, outcome.artifact.disclaimer));
+          const dl = el('button', {
+            class: 'btn btn-secondary',
+            style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
+            'data-testid': 'zk-threshold-proof-download',
+            onclick: () => downloadText('dataglow-zk-threshold-proof.json', JSON.stringify(outcome.artifact, null, 2), 'application/json'),
+          }, 'Download proof (.json)');
+          detail.appendChild(dl);
+          toast('Zero-knowledge proof generated and re-verified locally', 'success');
+        } catch (e) {
+          detail.innerHTML = '';
+          toast('Could not generate proof: ' + e.message, 'error');
+        }
+      },
+    }, 'Prove zero critical issues'),
+  ]);
+  const detail = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' },
+    'Optionally generate a genuine zero-knowledge proof that this result has zero '
+    + 'critical (fail-severity) flags — a business partner or auditor can verify the '
+    + 'proof without ever learning the actual flag count or seeing the data. This is '
+    + 'a real cryptographic zero-knowledge proof (Schnorr Sigma protocol), unlike the '
+    + 'Check Seal above which discloses its result in cleartext.');
+  card.appendChild(header);
+  card.appendChild(detail);
+  container.prepend(card);
+}
+
 // Trust Beam opt-in affordance (feature-flagged: trustBeam).
 // ------------------------------------------------------------
 // Given an already-created Verifiable Check Seal, renders a "Beam it" button that
@@ -1215,6 +1298,10 @@ async function runSqlQuery() {
         // Opt-in seal affordance (no-op unless verifiableCheckSeal is on). Never
         // seals automatically — it only renders a button the analyst may click.
         renderCheckSealAffordance(resultWrap, report, sql, result);
+        // Opt-in zero-knowledge proof affordance (no-op unless zkThresholdProof is
+        // on). Independent of the Check Seal above — proves a hidden-value claim
+        // (zero critical flags) rather than sealing a disclosed one.
+        renderZkThresholdProofAffordance(resultWrap, report);
       }).catch(() => { /* contract check is best-effort; never break the SQL tab */ });
     }
   } catch (err) {
