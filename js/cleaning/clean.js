@@ -4,6 +4,7 @@
 // ============================================================
 
 import * as engine from '../app-shell/duckdb-engine.js';
+import { findFuzzyDuplicates } from './fuzzy-dedup.js';
 
 const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT', 'DECIMAL', 'REAL'];
 
@@ -56,6 +57,35 @@ export async function scanForIssues(table, cols) {
         issues.push({ id: `negative_${c.name}`, type: 'negative', column: c.name, count: rows[0].n, label: `${rows[0].n} negative value(s) in "${c.name}"`, fixes: ['drop_rows', 'abs_value', 'null_out'] });
       }
     }
+  }
+
+  // Near-duplicate text values (e.g. "Jonathan Meyer" vs "Jonathan Meyar").
+  // P1 fix (found 2026-07-15, Run 5 test): "Scan for Issues" previously never
+  // called findFuzzyDuplicates at all — that detection only ran if a user
+  // separately opened the standalone Fuzzy Duplicate Radar panel, so a user
+  // who only ran "Scan for Issues" on a fresh patients-only dataset saw "No
+  // issues found" despite 12 seeded near-duplicate names being present and
+  // (confirmed this run) fully detectable by the underlying module at 100%
+  // catch-rate — this was a wiring gap, not an algorithm failure. Surfaced
+  // here as ONE summary issue (not one row per pair) to avoid duplicating
+  // the dedicated radar panel's per-pair Merge/Ignore UI; its `fixes` array
+  // is deliberately empty since resolving it means visiting that panel, not
+  // a one-click fix here.
+  try {
+    const fuzzyResult = await findFuzzyDuplicates(table, cols);
+    if (fuzzyResult && fuzzyResult.pairs && fuzzyResult.pairs.length > 0) {
+      issues.push({
+        id: `fuzzy_duplicates_${fuzzyResult.column}`,
+        type: 'fuzzy_duplicates',
+        column: fuzzyResult.column,
+        count: fuzzyResult.pairs.length,
+        label: `${fuzzyResult.pairs.length} possible near-duplicate value(s) in "${fuzzyResult.column}" — review in the Fuzzy Duplicate Radar below`,
+        fixes: [],
+      });
+    }
+  } catch {
+    // Fail-open: if fuzzy matching errors for any reason, scanForIssues still
+    // returns the other, independent checks above rather than throwing.
   }
 
   return issues;

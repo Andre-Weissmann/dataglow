@@ -5,8 +5,47 @@
 // auto-merges. Similarity is the max of two public string metrics.
 
 import * as engine from '../app-shell/duckdb-engine.js';
+import { isLikelyIdentifierColumn } from '../shared/identifier-columns.js';
 
 const MAX_ROWS = 2000;
+
+// ------------------------------------------------------------
+// P0 safety guard — unique-identifier columns must never be fuzzy-matched.
+//
+// Bug this fixes (found 2026-07-15, Run 5 "Portfolio-readiness" test): this
+// radar judges values by pure string similarity (Levenshtein/Jaro-Winkler)
+// with no awareness of column semantics. On a business-key column such as
+// claim_id, two unrelated identifiers can be textually "close" purely by
+// digit permutation (e.g. "CLM100001" vs "CLM100010", or "CLM100001" vs
+// "CLM101000") — confirmed live: this exact input produces 98%-confidence
+// "Merge →" suggestions. Because the Clean tab's radar is presented as a
+// destructive-merge candidate list, a false-positive pair on a unique-ID
+// column is not a cosmetic miss — a user acting on it would silently
+// collapse two distinct claims' or patients' records onto the same key.
+//
+// A near-identical NAME-based guard already exists in
+// categorical-consistency.js (PR #198, 2026-07-12) but was never ported to
+// this sibling module — this is the second, previously-unpatched code path
+// the same bug class lived in. Both modules import the identical name-
+// pattern regex from the shared, dependency-free js/shared/identifier-
+// columns.js instead of hand-duplicating it a third time.
+//
+// Deliberately NAME-ONLY here, unlike categorical-consistency.js's guard
+// (which also checks cardinality ratio). Cardinality-based near-uniqueness
+// is the WRONG signal for this specific module: fuzzy-dedup's whole purpose
+// is finding near-duplicates in free-text columns (patient names, company
+// names) where every value being distinct is the expected, healthy case —
+// applying a >=0.9-distinct-ratio guard here was tried and immediately
+// broke the radar's own 100%-catch-rate benchmark on a genuine patient_name
+// column (36 rows, 12 seeded near-dup pairs, ~35 distinct values — a ratio
+// that trips a cardinality guard just as hard as a real identifier column
+// would). categorical-consistency.js's guard exists for a different shape
+// of column (bounded-vocabulary categoricals, where near-uniqueness really
+// is anomalous) — the two modules share the name pattern but must NOT share
+// the cardinality heuristic.
+function isGuardedIdentifierColumn(columnName) {
+  return isLikelyIdentifierColumn(columnName);
+}
 
 // Levenshtein edit distance (Levenshtein 1965, public algorithm).
 export function levenshtein(a, b) {
@@ -89,7 +128,11 @@ export function similarity(a, b) {
 }
 
 function pickBestTextColumn(cols) {
-  const varchars = cols.filter(c => c.type === 'VARCHAR');
+  // Identifier-like columns are excluded from auto-selection at the source —
+  // never let the radar default onto a unique-key column even by name-match
+  // coincidence (a column named e.g. "customer_id" would otherwise match the
+  // name-like preference below).
+  const varchars = cols.filter(c => c.type === 'VARCHAR' && !isLikelyIdentifierColumn(c.name));
   if (varchars.length === 0) return null;
   // Prefer name-like columns; else first VARCHAR.
   return (varchars.find(c => /name|title|company|city|address|email|customer|vendor/i.test(c.name)) || varchars[0]).name;
@@ -111,6 +154,21 @@ export async function findFuzzyDuplicates(table, cols, options = {}) {
     `SELECT ROW_NUMBER() OVER () AS __rn, "${column}" AS v FROM ${table} WHERE "${column}" IS NOT NULL LIMIT ${MAX_ROWS}`
   );
   const items = rows.map(r => ({ rn: Number(r.__rn), value: String(r.v) }));
+
+  // P0 guard, run BEFORE any similarity comparison — even an explicitly
+  // passed `options.column` (not just the auto-picked default above) must
+  // never reach the O(n^2) comparison loop below if it's identifier-like,
+  // since an explicit caller-supplied column bypasses pickBestTextColumn
+  // entirely.
+  if (!options.skipIdentifierGuard && isGuardedIdentifierColumn(column)) {
+    return {
+      column,
+      threshold,
+      comparedRows: 0,
+      pairs: [],
+      warning: `"${column}" looks like a unique-identifier column by name — fuzzy matching is disabled here to avoid suggesting destructive merges between distinct records.`,
+    };
+  }
 
   const pairs = [];
   for (let i = 0; i < items.length; i++) {

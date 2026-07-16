@@ -9,6 +9,7 @@
 // (Levenshtein 1965) and Jaro-Winkler (Jaro 1989 / Winkler 1990) — via the
 // existing implementations in fuzzy-dedup.js.
 import { similarity } from '../cleaning/fuzzy-dedup.js';
+import { isLikelyIdentifierColumn, isNearUniqueColumn } from '../shared/identifier-columns.js';
 
 const MAX_DISTINCT = 500; // clustering is O(n^2) on distinct values; cap for safety
 
@@ -56,23 +57,19 @@ export function isSensitiveCategory(columnName) {
 // since the cost of missing a real spelling-variant cluster is minor (an
 // analyst does one merge manually) while the cost of allowing a merge on a
 // true identifier column is severe and silent.
-const IDENTIFIER_COLUMN_NAME = /^(id|key|code)$|(_id|_key|_code|_no|_num|_number)$/i;
-
-export function isLikelyIdentifierColumn(columnName) {
-  return IDENTIFIER_COLUMN_NAME.test(String(columnName ?? ''));
-}
+// Re-exported for backward compatibility — other modules previously imported
+// isLikelyIdentifierColumn from this file. The actual implementation now
+// lives in js/shared/identifier-columns.js (2026-07-15, this run) so
+// fuzzy-dedup.js can use the identical guard without a circular import.
+export { isLikelyIdentifierColumn };
 
 // distinctCount / nonNullCount close to 1 means "almost every row has its own
 // value" — the signature of a unique key, not a bounded category vocabulary.
 // 0.9 is deliberately conservative (a real categorical column with genuine
 // spelling variants will have nowhere near this ratio; a unique-ID column
 // with a handful of accidental exact duplicates will still clear it easily).
-const IDENTIFIER_UNIQUE_RATIO = 0.9;
-
-export function isNearUniqueColumn(distinctCount, nonNullCount, ratio = IDENTIFIER_UNIQUE_RATIO) {
-  if (!nonNullCount || nonNullCount <= 0) return false;
-  return (distinctCount / nonNullCount) >= ratio;
-}
+// Re-exported for backward compatibility — see note above.
+export { isNearUniqueColumn };
 
 // Render a cluster's one-line finding string. Shared by the Categorical
 // Consistency Engine (validation.js) and the Domain Physics Engine so that
