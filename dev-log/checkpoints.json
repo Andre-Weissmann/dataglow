@@ -111,5 +111,42 @@
       "notTouched": "No UI/UX, no flags.manifest.json, no other capability areas beyond fuzzy-dedup/categorical-consistency/clean-scan wiring; ZK Compliance Proof privacy feature not started in this checkpoint."
     },
     "outcome": "shipped-dark"
+  },
+  {
+    "id": "chk_20260715_2",
+    "startedAt": "2026-07-15T21:05:00Z",
+    "endedAt": "2026-07-16T02:03:00Z",
+    "trigger": "run-end",
+    "title": "Built Zero-Knowledge Threshold Proof (Batch 1) \u2014 first genuine ZK primitive in DataGlow, shipped dark",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 29,
+      "orphanBranches": 0,
+      "darkFlags": 4,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 29,
+      "orphanBranches": 0,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 6,
+      "additions": 672,
+      "deletions": 0
+    },
+    "commits": [
+      "4125dbd",
+      "7856b49"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/253",
+    "verification": {
+      "testsRun": 31,
+      "testsPassed": 31,
+      "notTouched": "No existing js/provenance/ module, no existing flag, and no existing enabled:true UI path was modified \u2014 this batch only adds a new file, a new flag (default false), and a new additive call site."
+    },
+    "outcome": "shipped-dark"
   }
 ]
