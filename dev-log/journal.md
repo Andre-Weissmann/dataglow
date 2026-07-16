@@ -7,6 +7,93 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-15 20:27 CT] Fixed Fuzzy Duplicate Radar P0 identifier-guard gap + Scan for Issues P1 wiring gap (first Mission Center run)
+
+**Trigger:** First-ever run of the renamed `dataglow-mission-center` skill (v2.0, supersedes
+`dataglow-development`). Step 1 found no stale PRs/branches/flags, so Step 2's question tree offered:
+(a) two real findings surfaced by re-reading Run 5's "Portfolio-readiness" test-findings section in
+`NORTH_STAR.md` — a P0 bug and a P1 wiring gap in the Fuzzy Duplicate Radar, neither yet fixed — and
+(b) building something new. User picked both: "Run :) Give me honest results," then, asked what to build,
+chose a privacy feature (ZK Compliance Proof — logged separately once that batch lands).
+
+**Step 1 findings:** Clean otherwise — 0 open PRs, 0 orphaned branches, CI green on `main`
+(commit `a51af1b`), 29 open issues, 4 dark flags (`conversationalPackBuilderVoice`,
+`meetingScribeLiveCapture`, `provenancePacket`, `openFloorSandboxTwin`). The two real findings acted on
+this entry came from the *test-findings* section of `NORTH_STAR.md` (written by `test-dataglow-platform`,
+not by this skill) — exactly the cross-skill signal Mission Center's Step 1 is designed to surface.
+
+**Decision:** Fix both real, cheap, already-diagnosed issues before starting the larger privacy build —
+P0 (destructive false-positive merge suggestions on identifier columns) is a safety-relevant bug with a
+known root cause and a proven precedent fix in a sibling module; P1 (a silent coverage gap) is a one-line
+wiring fix once P0's guard exists. Batched together since P1's fix literally could not be tested for
+safety without P0's guard already in place (the new `clean.js` call site needed to inherit the guard, not
+bypass it).
+
+**Built:**
+- New `js/shared/identifier-columns.js` — dependency-free shared home for the identifier-name-pattern
+  guard (avoids a circular import between `fuzzy-dedup.js` and `categorical-consistency.js`).
+- `js/cleaning/fuzzy-dedup.js` — added the P0 guard (name-pattern only, deliberately NOT cardinality-
+  based here — documented at length in-code why that would break the radar's own 100%-catch-rate
+  benchmark on genuine name columns).
+- `js/cleaning/clean.js` — `scanForIssues()` now also calls `findFuzzyDuplicates()` (P1 fix), fail-open
+  via try/catch, surfaces one summary issue (not one row per pair).
+- `js/validation/categorical-consistency.js` — refactored to import the shared guard instead of hand-
+  duplicating the regex a third time (public exports unchanged, backward compatible).
+- 2 new test files (9 assertions): `test/fuzzy-dedup-identifier-guard.test.mjs`,
+  `test/clean-scan-fuzzy-wiring.test.mjs`. Wired into `package.json` and the `job-sql-logic.yml` CI job.
+- `capability-map.manifest.json` + `docs/capability-map.md` — registered the new shared module (the
+  repo's own `capability-map-drift` CI gate correctly failed once on the first push and was fixed before
+  merge — see Safety notes).
+
+**Outcome:** shipped-dark (no flag — this restores documented intended behavior, not new user-facing
+functionality, so there is nothing to flip live; no One Confirm gate applies to this entry)
+
+**Safety notes:** Ran the full 16-file `sql-logic` CI job test set locally before opening the PR — 442
+assertions, 0 failures, including the pre-existing `fuzzy-dedup-patients.test.mjs` 100%-catch-rate
+benchmark and `categorical-consistency-identifier-guard.test.mjs` suite (both fully unaffected by the
+refactor). The `capability-map-drift` CI gate failed on the first CI run (legitimately — the new shared
+module had no capability-map entry yet); fixed with a minimal, surgical 3-line diff and re-verified
+locally (`test:capdrift`: 0 drift findings) before pushing again. All 50 CI jobs passed on the corrected
+commit, including `tauri-smoke` (7m5s). Independently re-read the full diff line-by-line before requesting
+the merge confirm — confirmed scope matched exactly what was described, no unrelated changes, no
+secrets, no destructive operations. User explicitly approved the merge via `confirm_action` (PR #251).
+
+**Flag:** n/a — no flag, dark-merge-only fix restoring documented behavior.
+
+**Blast radius:** small — 3 existing files modified, 1 new dependency-free shared module, 2 new test
+files, 2 docs/config files. No visible-behavior change for any column that isn't a unique identifier. No
+other `js/` areas touched.
+
+**Hygiene debt:** 4 (0 open PRs + 0 orphaned branches + 4 stale flags + 0 failing CI) — flat vs. the last
+entry below (also 4). The two real findings acted on this run were never counted in hygiene debt in the
+first place (they're correctness bugs, not process/flag hygiene), so this number correctly did not move
+as a result of this fix — worth noting explicitly so a future run doesn't expect a hygiene-debt drop from
+a pure bug-fix batch.
+
+**Process learning:** This is the first run where Step 1's mandated read of `NORTH_STAR.md`'s test-
+findings sections (a cross-skill signal, not something this skill itself wrote) directly produced the
+work item Step 2 led with — concrete proof the "read test findings even though Mission Center didn't
+write them" instruction in Step 1.2 does what it's meant to do. Also: when a repo-wide drift/lint gate
+fails after a PR is already open, prefer a minimal surgical text edit (the `edit` tool with an exact
+old_string/new_string) over reading-and-rewriting a large JSON/config file wholesale — a first attempt
+here used `json.dump()` to add one array entry and it silently reformatted ~400 unrelated lines (escaping
+em-dashes, re-indenting every array) purely as a side effect of Python's default serialization, which
+would have made the diff unreviewable had it not been caught and reverted before committing.
+
+**PR(s):** [#251](https://github.com/Andre-Weissmann/dataglow/pull/251)
+
+**Portfolio note:** Found and fixed a data-safety bug in a fuzzy-duplicate-detection feature: a
+unique-ID column (like a claim or patient ID) could get flagged as a "near-duplicate" of another ID
+purely by coincidental digit similarity, which would have suggested merging two genuinely different
+records. I traced the root cause to a missing safety guard that existed in one code module but had never
+been ported to a related one, added a shared, tested guard both modules now use, and along the way found
+and fixed a second gap where the app's main "scan for issues" button silently never ran this detector at
+all. Verified the fix with new automated tests, ran the full existing test suite to confirm nothing else
+broke, and got the change through code review and CI (50 automated checks, including a repo-wide
+docs-consistency check that caught one thing I'd missed) before merging.
+
+---
+
 ## [2026-07-15 10:24 CT] Enabled `guardedCopilot` — went live (One Confirm gate)
 
 **Trigger:** The One Confirm gate for the Batch 1 + Batch 2 work already merged dark (see entry directly
