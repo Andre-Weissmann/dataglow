@@ -7,6 +7,93 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 06:34 CT] zkThresholdProof go-live — the long-pending flag finally actioned
+
+**Trigger:** "Okay. So what do you need to do?" → identified `zkThresholdProof` as the one remaining
+item carried forward across sessions without action → "Yes please" to run the full enable process,
+following the exact same standing pattern used for the three Query Sentinel flags.
+
+**Step 1 findings:** clean start — `main` at `711ce09` (after PR #263's docs-only Query Sentinel
+journal/NORTH_STAR update). 0 open PRs, 0 orphaned branches, 0 failing CI. `zkThresholdProof` confirmed
+still `false`, dark-shipped from `feat/zk-threshold-proof-batch1`, description unchanged/undrifted since
+it was first added — re-read in full before touching anything, per the user's own explicit "re-verify
+nothing has drifted" instruction.
+
+**Decision:** enable through the same proven pipeline: branch off fresh `main` → flip the flag → live-
+verify end-to-end in a real browser (not just trust old test results) → commit → PR → wait for full CI
+→ independent safety re-verification of the diff → one explicit `confirm_action` → squash merge → sync
+main → log. No new code — the feature already existed dark from its original batch-1 PR; this run only
+flips `enabled: false → true`.
+
+**Built:** no new code. `zkThresholdProof` (js/provenance/zk-threshold-proof.js) — DataGlow's first
+genuine zero-knowledge proof primitive: a non-interactive Schnorr Sigma protocol (Fiat-Shamir heuristic
+over a Pedersen commitment opening) over a deterministically-generated 512-bit safe-prime group, native
+BigInt only (zero crypto library, zero WASM, zero new dependency, zero trusted-setup ceremony).
+Wired as an opt-in "Prove zero critical issues" button in the SQL tab's Local Analysis Contract flow
+(`renderZkThresholdProofAffordance` in `js/app-shell/main.js`), alongside but independent of the
+existing Verifiable Check Seal button (PR #264, squash-merged, branch deleted, `main` → `8e00ec6`).
+
+Live-verified before commit:
+- **Success path:** uploaded a clean 3-row CSV, ran `SELECT * FROM clean` in the SQL tab, clicked
+  "Prove zero critical issues" — proof generated, independently re-verified (`verifyZeroProof` →
+  valid), "Download proof (.json)" button rendered, success toast shown. Screenshot confirmed clean
+  layout, no overflow/wrapping issues.
+- **Honest-refusal path:** DuckDB's own binder rejects any query referencing a genuinely nonexistent
+  column before the Local Analysis Contract ever runs, so the refusal path can't be triggered through a
+  literal SQL query in this UI flow — instead directly invoked the production module (same import path
+  `main.js` uses) in the live browser with a hand-built report containing a real fail-severity flag.
+  Confirmed `proveZeroCriticalIssues` correctly returns `ok:false` with the accurate critical count,
+  never fabricating a proof for a false statement.
+- **Artifact inspection:** read the actual success artifact's JSON payload directly — contains only the
+  Schnorr transcript (commitment/announcement/response) plus metadata/disclaimer text; no secret
+  blinding factor value anywhere in the serialized output, matching the documented zero-knowledge
+  guarantee.
+- Re-ran `test/zk-threshold-proof.test.mjs` locally both before and after the PR: 31/31 passing each
+  time. Zero console errors across every verification run.
+
+**Cross-platform impact:** pure config-only diff (`flags.manifest.json`, 2 lines) — no source change —
+so the flag flip takes effect simultaneously on web, desktop (Tauri), and the installable PWA/mobile
+surface off the single shared codebase the moment it merged. `tauri-smoke` passed on PR #264 (7m11s).
+
+**Outcome:** shipped-live. `main` now at `8e00ec6`. `zkThresholdProof` is `true` — the SQL tab's opt-in
+"Prove zero critical issues" button is now active for every user on web/desktop/PWA. This closes out
+the last flag-enable item that had been sitting unactioned across sessions — no other pending
+flag-enable requests remain as of this entry.
+
+**Safety notes:** none found. Diff verified via `git diff origin/main...enable/zk-threshold-proof` to be
+exactly 2 lines (`enabled` flip + `promotedInPR` add) — zero source code touched. Module has no import
+of/call to the Agent Action Firewall's `proposeAction`/`confirmAndApply`, so it cannot initiate a data
+mutation by construction.
+
+**Flag:** `zkThresholdProof` — `true` (was `false`).
+
+**Blast radius:** small — additive-only UI affordance gated behind `localAnalysisContract` (already on);
+fully reversible by flipping back to `false`.
+
+**Hygiene debt:** 0 (0 open PRs + 0 orphaned branches + 0 stale flags + 0 failing CI on `main`) — flat
+vs. the last 3 entries (all reported 0 at their respective run-ends).
+
+**Process learning:** when live-verifying an honest-refusal/false-statement path that depends on a
+validator's own "fail" severity class, check the validator's actual trigger condition first (here,
+Local Analysis Contract's only `fail`-severity class is a schema-hallucination with no close-match
+suggestion) — a naive "dirty row data" test dataset can pass every check and look like a false negative
+when it's actually a correct pass; and if the natural trigger is blocked by an earlier layer (here,
+DuckDB's binder rejects unknown columns before the Contract ever runs), fall back to directly invoking
+the production function with a hand-built report over exercising it through the UI — this still tests
+real production code, just skips a UI layer that can't structurally reach the case being tested.
+
+**PR(s):** https://github.com/Andre-Weissmann/dataglow/pull/264
+
+**Portfolio note:** Shipped DataGlow's first real zero-knowledge proof feature end-to-end — not just
+writing the cryptography, but designing the safe go-live process around it: dark-launch behind a flag,
+live browser verification of both the success path and the honest-refusal-rather-than-lie path, a direct
+inspection of the serialized proof to confirm no secret value leaks, and a single explicit human
+confirmation gate before the feature reached real users. Demonstrates comfort validating a genuine
+cryptographic guarantee (Schnorr Sigma protocol, Fiat-Shamir heuristic, Pedersen commitments) in a
+production browser context, not just unit tests in isolation.
+
+---
+
 ## [2026-07-16 06:00 CT] Query Sentinel — all three flags flipped live (Batches 1-3 go-live complete)
 
 **Trigger:** "Enable all three Query Sentinel flags. Build it :)" — explicit authorization to run all
