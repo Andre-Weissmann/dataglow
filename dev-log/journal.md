@@ -7,6 +7,51 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 10:19 CT] Cross-platform verification of crossTableReferentialIntegrity + multimodal ingestion architecture brainstorm (docs-only)
+
+**Trigger:** User asked whether DataGlow works identically on web/desktop/mobile/tablet, then escalated
+to wanting DataGlow to eventually "handle any data format" (video, audio, PDFs, images), citing Zach
+Wilson's Volume/Velocity/**Variety** framing from a LinkedIn/substack post as the career-relevance case.
+User explicitly chose to combine both into one session rather than running separately, confirmed "handles
+it all" on multimodal scope, and named both portfolio-readiness and capability expansion as goals without
+prioritizing one over the other.
+
+**What was found (Step 1 / Phase 5-7):**
+- `crossTableReferentialIntegrity` (shipped live in the prior entry below) verified functionally correct
+  on iPhone 14, Pixel 7, and iPad Pro 11 via Playwright device emulation — real finding text confirmed
+  rendering on all three ("...don't exist... (orphan reference)"). Desktop (Tauri) verified
+  architectural-parity-only (byte-identical asset diff) — no Rust/cargo toolchain available in this
+  sandbox for a live WebDriver functional run.
+- **New finding, not what was being tested for:** `.command-deck-sidebar` has zero mobile-responsive
+  breakpoint — a fixed 200px `<aside>` that consumes 41.2% of an iPhone 14's width and 48.5% of a Pixel
+  7's, confirmed via direct `getBoundingClientRect()` measurement, causing validation text to
+  wrap/truncate on phones. The exact fix pattern already exists in the same codebase for a different,
+  older sidebar (`.data-sidebar`'s off-canvas `@media` rule) — this was simply never applied to the newer
+  Command Deck sidebar. iPad unaffected (24% is proportionate there).
+- Multimodal ingestion research subagent returned a fully-cited 4-option architecture brainstorm (PDF+OCR
+  → structured-extraction heuristics → Whisper opt-in → full document intelligence), grounded in pdf.js,
+  Tesseract.js/Scribe.js, Transformers.js/whisper.cpp, and WebGPU cross-platform support docs.
+
+**What was decided:** Documentation-only this run — no code built or shipped. Findings written to
+workspace `dataglow_test_results_2026-07-16.md` and `dataglow_roadmap_2026-07-16.md`, then fed into
+`NORTH_STAR.md`'s "Test findings" section per standing Phase 9 convention. PR #271, branch
+`docs/test-findings-2026-07-16-crossplatform-multimodal`.
+
+**Safety assessment given at merge confirm:** Single-file change (`NORTH_STAR.md`, 61 insertions, 0
+deletions), zero source code touched, zero flags touched, zero behavior change. All 54 CI checks passed.
+Independently re-verified via `git diff --stat` immediately before requesting the merge confirm.
+
+**Outcome:** Merged to `main` (`0bd47a6`), squashed, branch deleted. No flag changes — nothing new is
+live for end users this run. Next buildable step identified: (1) the Command Deck mobile-sidebar fix
+(small, low-risk, reuses existing pattern), and (2) PDF text + Image OCR ingestion (Architecture Option
+A) as the next flagship-scope feature, since it has zero WebGPU dependency and full cross-platform parity
+by construction.
+
+**Lesson learned:** An earlier Playwright mobile test this run used a fuzzy substring match ("referential"
+anywhere in page text) that produced a false positive — matched unrelated UI copy, not the actual
+finding. Always assert on the specific finding text and prefer `page.waitForFunction()` polling over
+fixed `waitForTimeout` calls for this app's async DuckDB-WASM loading.
+
 ## [2026-07-16 09:04 CT] crossTableReferentialIntegrity flag enabled (go-live)
 
 **Trigger:** User said "Let me know when you want that confirm" was answered with "Yes. I confirm and
