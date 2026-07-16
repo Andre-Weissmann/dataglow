@@ -2115,6 +2115,18 @@
         { "file": "js/validation/query-sentinel-assist.js", "name": "assistDeterministic" },
         { "file": "js/validation/query-sentinel-assist.js", "name": "assistWithOnDeviceModel" }
       ]
+    },
+    {
+      "id": "query-sentinel-bridge",
+      "area": "Validation layers",
+      "name": "Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/validation/query-sentinel-bridge.js"],
+      "symbols": [
+        { "file": "js/validation/query-sentinel-bridge.js", "name": "extractBridgeReferences" },
+        { "file": "js/validation/query-sentinel-bridge.js", "name": "resolveBridgeReferences" },
+        { "file": "js/validation/query-sentinel-bridge.js", "name": "summarizeBridgeResolution" }
+      ]
     }
   ]
 }
