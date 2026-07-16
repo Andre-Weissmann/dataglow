@@ -1127,6 +1127,42 @@ Full write-up: workspace `dataglow_test_results_2026-07-16.md` and
 Command Deck sidebar finding is a real but low-risk, cheaply-fixable mobile layout bug, and the
 multimodal roadmap is grounded in primary-sourced, phaseable evidence rather than speculation.
 
+## Test findings (2026-07-16 run 7 — Command Deck mobile sidebar fix, shipped)
+
+The P1 mobile sidebar finding from run 6 (directly above) is now fixed and shipped: PR #273,
+squash-merged to `main` at commit `5b8bfe3`. `.command-deck-sidebar` now mirrors `.data-sidebar`'s
+existing off-canvas pattern — hidden off-screen by default at `≤860px`, opened via a new hamburger
+toggle in the topbar, closes on backdrop tap or on nav-tab selection. Desktop (`>860px`) is unchanged:
+the toggle is CSS-hidden and the sidebar renders inline at full width, exactly as before.
+
+While testing the fix on real mobile viewports, two more pre-existing, unrelated bugs surfaced in the
+same topbar region and were bundled into the same PR (user approved bundling both times, via
+`ask_user_question`):
+
+1. **The DATAGLOW logo was invisible on every sub-480px viewport.** Root cause: `.brand svg { width:
+   auto }` (specificity 0,2,0) always overrode `.brand-logo { width: 84px }` (specificity 0,1,0)
+   regardless of media-query source order, so the logo's computed width silently resolved to 0 in the
+   collapsing flex context. Fixed by qualifying the selector as `.brand .brand-logo` to match
+   specificity, plus sizing down to 60px so it fits alongside the Room-pill fix below.
+2. **The live "Start a Room" Room pill (`roomsUi` flag, `enabled:true`, already promoted for all users)
+   had zero mobile treatment and alone consumed the entire topbar on a 390px phone.** Root cause:
+   `buildRoomPillModel()` (`js/rooms/room-ui.js`) renders duplicated text in idle state — both a label
+   span and an action button that both read "Start a Room" — measured at 379px natural width on a 390px
+   viewport, and with `.topbar-right { flex-shrink: 0 }` this squeezed the logo/toggle to zero width.
+   CSS-only fix: hide the redundant idle-state label (the action button already conveys the
+   affordance) and tighten the pill's padding/gaps on mobile. No JS/behavior change; the pill's joined-
+   state (`room-pill-code`) was correctly left untouched.
+
+**Testing:** a reusable Playwright functional test (`test_sidebar_fix2.mjs`) covering drawer open/close,
+tab-click auto-close, and a full data-load → validate flow (the `crossTableReferentialIntegrity` orphan-
+reference finding from run 6 still surfaces correctly) passed cleanly on iPhone 14 (390px) and Pixel 7
+(412px) — zero horizontal scroll on either. Desktop (1280px) independently re-verified with zero
+regression. All 54 CI checks passed, including `tauri-smoke`.
+
+**Practical verdict:** the P1 finding from run 6 is now closed. No new flags were introduced — both
+touched flags (`dataglowSidebarNav`, `roomsUi`) were already live; this PR changed their mobile
+presentation only. Full detail: `dev-log/journal.md`'s 2026-07-16 13:45 CT entry.
+
 ## CI infrastructure: reusable-workflow cap is now exactly full
 
 **Discovered 2026-07-15, PR #243 (Guarded Copilot).** GitHub Actions caps a single top-level
