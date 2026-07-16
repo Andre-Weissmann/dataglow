@@ -1066,6 +1066,67 @@ remains the safer path for duplicate/referential-integrity findings until the Un
 is reconciled and the Fuzzy Duplicate Radar receives the same identifier guard categorical-consistency.js
 already has.
 
+## Test findings (2026-07-16 run 6 — Cross-platform verification + multimodal ingestion brainstorm)
+
+A targeted rerun combining (a) cross-platform verification of the recently-shipped
+`crossTableReferentialIntegrity` check (web/desktop/mobile/tablet) and (b) a "handle any data format"
+architecture brainstorm for future video/audio/PDF/image ingestion — prompted directly by the user citing
+Zach Wilson's Volume/Velocity/**Variety** framing for AI-resistant data-engineering skill ("rows and
+columns are the past... PDFs, images, audio, transcripts — that's the work that matters now,"
+[Joe Reis substack, 2026-05-09](https://joereis.substack.com/p/data-engineering-in-2026-w-zach-wilson)).
+Full write-up: workspace `dataglow_test_results_2026-07-16.md` and
+`dataglow_multimodal_ingestion_architecture_brainstorm.md`. Top items, ranked:
+
+1. **P1 (new this run) — the Command Deck sidebar (`.command-deck-sidebar`,
+   `js/app-shell/command-deck-nav.js`) has zero mobile-responsive handling.** Confirmed via direct DOM
+   measurement (`getBoundingClientRect()`, not visual impression): the fixed 200px-wide `<aside>`
+   consumes 41.2% of an iPhone 14's viewport width and 48.5% of a Pixel 7's, squeezing the main content
+   column so badly that validation status text and finding details wrap/truncate mid-word ("Metrics: 0
+   certified · 0 re...", "...don't exis..."). `grep -rn "command-deck" css/*.css` confirms zero `@media`
+   query exists for this element anywhere in the codebase. Notably, the **exact right fix pattern already
+   exists** in the same file for a different, older sidebar: `.data-sidebar` correctly goes
+   `position: fixed; left: -260px` (off-canvas) at `@media (max-width: 860px)` — the newer Command Deck
+   sidebar was simply never given the same treatment when it shipped. iPad Pro 11 is unaffected (200px is
+   a proportionate 24.0% there). Suggested fix: mirror `.data-sidebar`'s existing off-canvas pattern for
+   `.command-deck-sidebar` — low-risk, reuses a proven convention, no new design work required.
+2. **Pass (functional correctness re-confirmed) — `crossTableReferentialIntegrity` fires correctly on
+   every platform tested this run.** iPhone 14, Pixel 7, and iPad Pro 11 (Playwright device emulation,
+   `waitForFunction`-based polling, not fixed-timeout) all confirmed the real finding text renders
+   correctly ("1 value(s) in 'patient_id' don't exist... (orphan reference)"). Desktop (Tauri) verified
+   architectural-parity-only this run (byte-identical asset diff between `js/` and
+   `src-tauri/dist/js/`) — no Rust/cargo toolchain was available in this sandbox for a live WebDriver
+   functional run, a standing limitation carried forward from the prior run. No data-quality regression
+   found on any platform.
+3. **Methodology note for future Playwright mobile testing:** an earlier attempt this run using a fuzzy
+   substring match (checking for "referential" anywhere in page text) produced a **false positive** — the
+   substring matched unrelated UI copy, not the actual finding. Always assert on the specific finding text
+   (e.g. "orphan reference") and prefer `page.waitForFunction()` polling over fixed `waitForTimeout` calls,
+   since this app's async DuckDB-WASM loading makes fixed timeouts unreliable.
+4. **Multimodal ingestion architecture brainstorm (Phase 7, in scope this run) — full report is
+   evidence-backed and phaseable.** Headline verdict: native-PDF text extraction (pdf.js) and image OCR
+   (Tesseract.js/Scribe.js) are genuinely solved client-side today with zero WebGPU dependency, so they
+   work identically on web, Tauri desktop, and mobile/PWA — this is the recommended next buildable feature
+   ("Option A" in the scored menu). Audio/video transcription via Whisper is real but WebGPU-dependent for
+   a good experience, and WebGPU on mobile is newly-landed and fragmented (iOS needs 26+, Android is
+   GPU-family-gated per [WebKit's own blog](https://webkit.org/blog/16993/news-from-wwdc25-web-technology-coming-this-fall-in-safari-26-beta/)
+   and [caniuse](https://caniuse.com/webgpu)) — recommended as an opt-in, desktop-first Phase 3, not a
+   default-on feature. Full structured extraction from messy real-world documents (turning a scanned
+   invoice into clean rows) remains only partially solved even for funded cloud vendors per
+   [Turbolens's 2026 analysis](https://www.turbolens.io/blog/2026-05-04-pdf-table-extraction-for-developers-from-raw-documents-to-clean-json) —
+   DataGlow should frame any such output as "assistive, verify before trusting," matching the honest
+   ceiling every competitor in this space describes for itself. Recommended sequence: Phase 1 (PDF+OCR) →
+   Phase 2 (structured-extraction heuristics) → Phase 3 (Whisper, opt-in) → Phase 4 (full document
+   intelligence, deferred pending ecosystem maturity — no confirmed browser-portable layout-aware model
+   exists yet).
+5. **Untested follow-ups still open from this run:** real on-device WebGPU/Whisper performance
+   benchmarking (no source found gives current mobile-specific numbers; the research explicitly flags
+   this as a gap requiring direct measurement before committing a default model size), and a genuine live
+   Tauri WebDriver functional test (blocked on missing Rust toolchain in this sandbox).
+
+**Practical verdict:** no data-quality regression exists in the tested feature on any platform — the
+Command Deck sidebar finding is a real but low-risk, cheaply-fixable mobile layout bug, and the
+multimodal roadmap is grounded in primary-sourced, phaseable evidence rather than speculation.
+
 ## CI infrastructure: reusable-workflow cap is now exactly full
 
 **Discovered 2026-07-15, PR #243 (Guarded Copilot).** GitHub Actions caps a single top-level
