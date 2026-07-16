@@ -2103,6 +2103,18 @@
         { "file": "js/validation/query-sentinel.js", "name": "runQuerySentinel" },
         { "file": "js/validation/query-sentinel.js", "name": "summarizeQuerySentinel" }
       ]
+    },
+    {
+      "id": "query-sentinel-assist",
+      "area": "Validation layers",
+      "name": "Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/validation/query-sentinel-assist.js"],
+      "symbols": [
+        { "file": "js/validation/query-sentinel-assist.js", "name": "buildFixSuggestion" },
+        { "file": "js/validation/query-sentinel-assist.js", "name": "assistDeterministic" },
+        { "file": "js/validation/query-sentinel-assist.js", "name": "assistWithOnDeviceModel" }
+      ]
     }
   ]
 }
