@@ -17,6 +17,7 @@ import { translateDialectSql, SUPPORTED_DIALECTS } from './sql-dialect-adapter.j
 import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
 import { runQuerySentinel, summarizeQuerySentinel } from '../validation/query-sentinel.js';
+import { resolveBridgeReferences, summarizeBridgeResolution } from '../validation/query-sentinel-bridge.js';
 import { getRegisteredMetrics } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
@@ -1334,10 +1335,28 @@ async function runSqlQuery() {
   statusEl.textContent = 'Running…';
   resultWrap.innerHTML = '<div class="skeleton" style="height:200px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
   try {
+    // Query Sentinel Bridge (Batch 3 of 3): resolve any FROM py.<name> / FROM
+    // r.<name> cross-runtime references against the live Object Space registry
+    // BEFORE @metric expansion, so a resolved bridge reference is just a plain
+    // SQL table name by the time @metric/engine.runQuery ever see it. No-op
+    // pass-through when the flag is off, or when the query has no py./r.
+    // reference at all (the common, unaffected case).
+    let bridgedSql = sql;
+    if (isEnabled('querySentinelBridge')) {
+      const bridgeResult = resolveBridgeReferences(sql, listObjectSpace());
+      bridgedSql = bridgeResult.sql;
+      const bridgeSummary = summarizeBridgeResolution(bridgeResult);
+      if (bridgeSummary) {
+        // Only ever informational — never blocks or delays the query, even when
+        // a reference was left unresolved (that case still surfaces honestly
+        // via the toast rather than failing silently or guessing a table).
+        toast(bridgeSummary, bridgeResult.unresolved.length > 0 ? 'warn' : 'info');
+      }
+    }
     // Expand any @metric references against this dataset's shared registry so a
     // business term defined once resolves the same way here as on every other
     // surface. No @metric in the query → runs byte-identical to before.
-    const { sql: execSql } = expandMetricReferences(sql, getActiveMetricsRegistry());
+    const { sql: execSql } = expandMetricReferences(bridgedSql, getActiveMetricsRegistry());
     const result = await engine.runQuery(execSql);
     state.lastQuery = sql;
     state.lastQueryResult = result;
