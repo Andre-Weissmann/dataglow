@@ -1053,7 +1053,48 @@ function renderQuerySentinelCard(container, report) {
       ]))
     ),
   ]);
+  renderQuerySentinelAssist(card, report);
   container.prepend(card);
+}
+
+// Query Sentinel Assist opt-in affordance (Batch 2, feature-flagged:
+// querySentinelAssist — fully independent of queryVerificationSentinel's own
+// flag, so assist can be toggled without touching the base verifier).
+// ------------------------------------------------------------
+// A single button that, on click, calls js/validation/query-sentinel-assist.js's
+// Tier 1 (always, instant, zero model) and — only if the on-device model is
+// already warm — Tier 2 for a more natural rephrase. Never re-derives
+// findings, never writes/executes anything; purely explains + suggests a fix
+// SHAPE on top of what Query Sentinel already flagged above.
+function renderQuerySentinelAssist(card, report) {
+  if (!isEnabled('querySentinelAssist')) return;
+  const btn = el('button', {
+    class: 'btn btn-secondary',
+    style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start;',
+    'data-testid': 'query-sentinel-assist-btn',
+    onclick: async () => {
+      btn.disabled = true;
+      btn.textContent = 'Thinking…';
+      try {
+        const assist = await import('../validation/query-sentinel-assist.js');
+        const tier1 = assist.assistDeterministic(report);
+        const refined = await assist.assistWithOnDeviceModel(report, tier1).catch(() => tier1);
+        out.textContent = refined.text;
+        out.style.display = 'block';
+      } catch {
+        out.textContent = 'Could not generate a suggestion for this report.';
+        out.style.display = 'block';
+      } finally {
+        btn.remove();
+      }
+    },
+  }, 'Explain & suggest a fix');
+  const out = el('div', {
+    style: 'display:none; font-size:var(--text-xs); color:var(--color-text-primary); white-space:pre-line; border-top:1px solid var(--color-border); padding-top:var(--space-2);',
+    'data-testid': 'query-sentinel-assist-output',
+  });
+  card.appendChild(btn);
+  card.appendChild(out);
 }
 
 // Verifiable Check Seal opt-in affordance (feature-flagged: verifiableCheckSeal).
