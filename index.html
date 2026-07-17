@@ -895,6 +895,22 @@
       <div id="glow-canvas-body" data-testid="glow-canvas-body"></div>
     </section>
 
+    <!-- ============ DRILL FLOOR TAB ============ -->
+    <!-- Practice-problem module ("Data Drill" format): the same problem solved
+         side-by-side in SQL, Python and R against the drill's own bundled sample
+         tables. Gated behind the drillFloor flag (off by default), so the
+         'drillfloor' tab is never in the bar and this panel renders empty on a
+         default build. Python/R runtimes load lazily on first Run click only. -->
+    <section class="panel" id="panel-drillfloor" data-panel="drillfloor">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Drill Floor</div>
+          <div class="panel-subtitle">Solve one real practice problem side-by-side in SQL, Python and R against a bundled sample dataset. Nothing leaves your device.</div>
+        </div>
+      </div>
+      <div id="drill-floor-body" data-testid="drill-floor-body"></div>
+    </section>
+
     <!-- ============ STORY TAB ============ -->
     <section class="panel" id="panel-story" data-panel="story">
       <div class="panel-header">

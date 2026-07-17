@@ -25,6 +25,8 @@ import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } 
 import { buildBeamUrl } from '../provenance/trust-beam.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
+import * as drillFloor from '../drill-floor/drill-floor.js';
+import * as drillFloorData from '../drill-floor/drill-floor-data.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
 import * as formatFingerprint from '../cleaning/format-fingerprint.js';
@@ -150,6 +152,7 @@ const TAB_META = {
   diff: { label: 'Diff', icon: 'git-compare' },
   visualize: { label: 'Visualize', icon: 'pie-chart' },
   glowcanvas: { label: 'Glow Canvas', icon: 'grid' },
+  drillfloor: { label: 'Drill Floor', icon: 'target' },
   story: { label: 'Story', icon: 'book-open' },
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
@@ -179,6 +182,7 @@ const ICONS = {
   handshake: '<path d="M11 12l2 2 3-3 4 4"/><path d="M13 14l-2 2-2-2-3 3-2-2"/><path d="M3 10l4-4 4 3"/><path d="M21 10l-4-4-3 2"/>',
   'git-merge': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 009 9"/>',
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -255,7 +259,8 @@ function renderTabBar() {
     && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI'))
     && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
     && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
-    && (tabId !== 'glowcanvas' || isEnabled('glowCanvas')));
+    && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
+    && (tabId !== 'drillfloor' || isEnabled('drillFloor')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -337,6 +342,7 @@ function switchTab(tabId) {
   if (tabId === 'crucible') renderCrucibleTab();
   if (tabId === 'copilot') renderGuardedCopilotTab();
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
+  if (tabId === 'drillfloor') renderDrillFloorTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -7005,6 +7011,123 @@ async function renderGlowCanvasTab() {
     } catch (_e) { /* no saved layout / store unavailable — start from the empty layout */ }
   }
   drawGlowCanvas();
+}
+
+// ============================================================
+// Drill Floor Tab (Batch 1 -- ships dark behind the drillFloor flag)
+// ============================================================
+// Practice-problem module: the SAME drill is solved side-by-side in SQL, Python
+// and R against the drill's own bundled tables (drill_orders / drill_promos),
+// loaded once per session into DuckDB. The tab's flag is checked HERE (the
+// caller), never inside js/drill-floor/*. Python/R runtimes are heavy, so we do
+// NOT initialize them when the tab opens -- only on the first click of each
+// language's Run button (see the handlers below), mirroring ensurePythonRuntime /
+// ensureRRuntime used by the Python/R tabs.
+
+let drillFloorLoaded = false;
+const DRILL_FLOOR_ACTIVE_ID = 'spot-the-sale';
+
+async function renderDrillFloorTab() {
+  const host = document.getElementById('drill-floor-body');
+  if (!host) return;
+  if (!isEnabled('drillFloor')) { host.innerHTML = ''; drillFloorLoaded = false; return; }
+  const drill = drillFloor.getDrill(DRILL_FLOOR_ACTIVE_ID);
+  if (!drill) { host.innerHTML = '<p class="empty-state">No drill available.</p>'; return; }
+
+  const pane = (lang, label, textId, btnId, outId, code) => `
+    <div class="drill-pane" data-testid="drill-pane-${lang}" style="display:flex; flex-direction:column; min-width:0; gap:var(--space-2);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-2);">
+        <strong>${escapeHtml(label)}</strong>
+        <button type="button" class="btn btn-primary" id="${btnId}" data-testid="${btnId}">Run</button>
+      </div>
+      <textarea id="${textId}" data-testid="${textId}" class="code-input" spellcheck="false" style="width:100%; min-height:220px; font-family:var(--font-mono); font-size:var(--text-sm);">${escapeHtml(code)}</textarea>
+      <div class="console-log" id="${outId}" data-testid="${outId}" style="min-height:48px;"><span style="color:var(--color-text-faint);">(not run yet)</span></div>
+    </div>`;
+
+  host.innerHTML = `
+    <div class="drill-floor" data-testid="drill-floor" style="display:flex; flex-direction:column; gap:var(--space-4);">
+      <header>
+        <div style="display:flex; align-items:center; gap:var(--space-2);">
+          <h2 style="margin:0;" data-testid="drill-title">${escapeHtml(drill.title)}</h2>
+          <span class="badge" data-testid="drill-difficulty">${escapeHtml(drill.difficulty)}</span>
+        </div>
+        <p data-testid="drill-description" style="color:var(--color-text-muted); margin-top:var(--space-2);">${escapeHtml(drill.description)}</p>
+      </header>
+      <div class="drill-grid" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:var(--space-4);">
+        ${pane('sql', 'SQL', 'drill-sql-input', 'btn-drill-sql-run', 'drill-sql-output', drill.starterSql)}
+        ${pane('python', 'Python', 'drill-py-input', 'btn-drill-py-run', 'drill-py-output', drill.starterPython)}
+        ${pane('r', 'R', 'drill-r-input', 'btn-drill-r-run', 'drill-r-output', drill.starterR)}
+      </div>
+    </div>`;
+
+  // Load the drill's sample tables once per session. This runs CREATE OR REPLACE
+  // TABLE for drill_orders / drill_promos (dedicated names -- they never touch the
+  // user's own tables) and registers descriptors into state.datasets WITHOUT
+  // changing the active dataset, so the Python/R pandas/df bridges can expose them
+  // via dataglow.get_df / dataglow_get_df.
+  if (!drillFloorLoaded) {
+    drillFloorLoaded = true;
+    try {
+      const descriptors = await drillFloorData.loadDrillTables({ runQuery: engine.runQuery });
+      for (const d of descriptors) {
+        if (!state.datasets.some((ds) => ds.table === d.table)) {
+          state.datasets.push({ ...d, loadedAt: Date.now() });
+        }
+      }
+    } catch (err) {
+      drillFloorLoaded = false;
+      toast('Drill Floor: failed to load sample data: ' + err.message, 'error');
+    }
+  }
+
+  const renderDrillOutput = (outId, { stdout, result, error, rowCount }) => {
+    const out = document.getElementById(outId);
+    if (!out) return;
+    let html = '';
+    if (typeof rowCount === 'number') html += `<div data-testid="${outId}-rowcount"><strong>${rowCount.toLocaleString()}</strong> row(s)</div>`;
+    if (stdout) html += `<div>${escapeHtml(stdout)}</div>`;
+    if (result != null && result !== '') html += `<div class="ok">${escapeHtml(typeof result === 'string' ? result : String(result))}</div>`;
+    if (error) html += `<div class="err" data-testid="${outId}-error">${escapeHtml(error)}</div>`;
+    if (!html) html = '<span style="color:var(--color-text-faint);">(no output)</span>';
+    out.innerHTML = html;
+  };
+
+  $('#btn-drill-sql-run').addEventListener('click', async () => {
+    const out = document.getElementById('drill-sql-output');
+    out.innerHTML = '<span style="color:var(--color-text-faint);">Running…</span>';
+    const res = await drillFloor.runDrillSql($('#drill-sql-input').value, { runQuery: engine.runQuery });
+    renderDrillOutput('drill-sql-output', res);
+  });
+
+  $('#btn-drill-py-run').addEventListener('click', async () => {
+    const out = document.getElementById('drill-py-output');
+    out.innerHTML = '<span style="color:var(--color-text-faint);">Loading Python runtime…</span>';
+    ensurePythonRuntime();
+    try {
+      await pyRuntime.initPyodideRuntime();
+    } catch (err) {
+      renderDrillOutput('drill-py-output', { error: 'Python runtime failed to load: ' + err.message });
+      return;
+    }
+    out.innerHTML = '<span style="color:var(--color-text-faint);">Running…</span>';
+    const res = await drillFloor.runDrillPython($('#drill-py-input').value, { runPython: (c) => pyRuntime.runPython(c, getActiveDataset()?.table) });
+    renderDrillOutput('drill-py-output', res);
+  });
+
+  $('#btn-drill-r-run').addEventListener('click', async () => {
+    const out = document.getElementById('drill-r-output');
+    out.innerHTML = '<span style="color:var(--color-text-faint);">Loading R runtime…</span>';
+    ensureRRuntime();
+    try {
+      await rRuntime.initWebRRuntime();
+    } catch (err) {
+      renderDrillOutput('drill-r-output', { error: 'R runtime failed to load: ' + err.message });
+      return;
+    }
+    out.innerHTML = '<span style="color:var(--color-text-faint);">Running…</span>';
+    const res = await drillFloor.runDrillR($('#drill-r-input').value, { runR: rRuntime.runR });
+    renderDrillOutput('drill-r-output', res);
+  });
 }
 
 // ============================================================

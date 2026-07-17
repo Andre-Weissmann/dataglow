@@ -1289,6 +1289,57 @@
       ]
     },
     {
+      "id": "drill-floor",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Language runtimes & visualization",
+      "name": "Drill Floor (SQL/Python/R practice drills, Batch 1: Spot the Sale)",
+      "files": [
+        "js/drill-floor/drill-floor.js",
+        "js/drill-floor/drill-floor-data.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/drill-floor/drill-floor.js",
+          "name": "DRILLS"
+        },
+        {
+          "file": "js/drill-floor/drill-floor.js",
+          "name": "getDrill"
+        },
+        {
+          "file": "js/drill-floor/drill-floor.js",
+          "name": "runDrillSql"
+        },
+        {
+          "file": "js/drill-floor/drill-floor.js",
+          "name": "runDrillPython"
+        },
+        {
+          "file": "js/drill-floor/drill-floor.js",
+          "name": "runDrillR"
+        },
+        {
+          "file": "js/drill-floor/drill-floor-data.js",
+          "name": "generateOrders"
+        },
+        {
+          "file": "js/drill-floor/drill-floor-data.js",
+          "name": "generatePromos"
+        },
+        {
+          "file": "js/drill-floor/drill-floor-data.js",
+          "name": "loadDrillTables"
+        },
+        {
+          "file": "js/drill-floor/drill-floor-data.js",
+          "name": "buildCreateTableSql"
+        }
+      ]
+    },
+    {
       "id": "protocol",
       "platforms": [
         "browser",
