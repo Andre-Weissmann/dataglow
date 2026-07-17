@@ -7,6 +7,68 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 21:09 CT] Drill Floor Batch 1: "Spot the Sale" practice drill in SQL/Python/R (PR #280, shipped dark)
+
+**Trigger:** Continuation of the "Drill Floor & Glow Canvas" flagship build. This starts the other half of
+the concept — Drill Floor, a Maven-Analytics-"Data Drill"-style practice module. Third of the 4 planned
+batches overall (Glow Canvas Batches 1-2 already shipped as PRs #276/#278).
+
+**Step 1 findings:** Clean — 0 open PRs, 0 orphaned branches, 0 stale flags, CI green on `main` at
+commit `018bc6c` before this run started.
+
+**Decision:** Ship exactly ONE drill for Batch 1 — "Spot the Sale" (join `promos` to `orders` where
+`order_date` falls BETWEEN a promo's start/end date, inclusive) — the same drill already designed and
+shown to the user in the concept mockup. Deliberately scoped out: the cross-language result-diff engine
+(Batch 2 of Drill Floor), additional drills, and attempt/progress persistence.
+
+**Built:** `js/drill-floor/drill-floor-data.js` — pure, seeded (mulberry32 PRNG) generators for 300 sample
+orders and 14 sample promos with realistic overlapping/boundary-adjacent date ranges, pure SQL builders
+(`sqlLiteral`/`buildCreateTableSql` mirroring Glow Canvas's escaping discipline: single quotes doubled in
+values, double quotes doubled in identifiers), and the one side-effecting function `loadDrillTables()`
+which creates two dedicated, namespaced temp tables (`drill_orders`/`drill_promos`) via the existing
+`engine.runQuery` bridge — verified these can never collide with a user's own loaded tables.
+`js/drill-floor/drill-floor.js` holds the `DRILLS` registry (one entry) and thin `runDrillSql`/
+`runDrillPython`/`runDrillR` delegators that reuse the EXISTING runtime bridges (no runtime reimplemented)
+and convert a rejection into a returned `{error}` field rather than throwing. A new flag-gated `drillfloor`
+tab renders three side-by-side editable code panes (SQL/Python/R), each pre-filled with a correct starter
+solution and its own Run button and output panel. Python/R runtimes (Pyodide/WebR, both heavy) are
+confirmed to initialize lazily only on first Run click per language, never on tab open.
+
+**Outcome:** shipped-dark
+
+**Safety notes:** I independently re-verified rather than trusting the subagent's self-report — fetched the
+actual PR branch, read both new core modules and the full `main.js`/`index.html`/`state.js`/
+`command-deck-nav.js` diff line-by-line, and re-ran the tests myself: `test:drillfloor` 59/59,
+`test:capdrift` 24/24, `test:glowcanvas` 69/69 regression (untouched). Confirmed the starter code's join
+boundary logic is inclusive and consistent across all three languages (SQL `BETWEEN`, Python `>=`/`<=`,
+R `>=`/`<=`) — no baked-in cross-language boundary mismatch this time. CI: 56/56 green, using the same
+inline-job workaround (added to `.github/workflows/test.yml` directly, not a new `job-<name>.yml`) that
+Batches 1-2 established for the 50-reusable-workflow cap.
+
+**Flag:** `drillFloor`, `enabled: false` (ships fully dark; Drill Floor Batch 2 and Glow Canvas's remaining
+batches still to come before any enable decision)
+
+**Blast radius:** small — 12 files, +780/-3, additive only. New tab only reachable when the flag is on;
+drill tables are namespaced and read-only/practice data, no persistence, no network calls.
+
+**Hygiene debt:** 0 → 0 → 0 → 0 → 0 (flat). 0 open PRs, 0 orphaned branches, 0 stale flags, CI green on
+`main` post-merge.
+
+**Process learning:** The same independent-verification discipline used for Glow Canvas (never trust a
+subagent's self-reported test/CI results — fetch the branch, read the diff, re-run tests myself) caught
+no issues this time, which is itself useful signal that this repo's established conventions (pure-core/
+thin-DOM split, never-throw-out error handling, flag-gate-at-the-caller, escaping discipline) are being
+followed consistently across unrelated modules built by different subagent runs — the pattern is holding.
+
+**PR(s):** [#280](https://github.com/Andre-Weissmann/dataglow/pull/280) — merged (squash), branch deleted.
+
+**Portfolio note:** Shipped a genuinely new module (not an extension of Glow Canvas) reusing three
+existing runtime bridges (DuckDB SQL, Pyodide, WebR) without reimplementing any of them, while
+independently re-verifying cross-language join-boundary correctness — the exact kind of subtle bug
+(inclusive vs. exclusive boundaries) that the concept mockup itself was designed to surface for users.
+
+---
+
 ## [2026-07-16 20:25 CT] Glow Canvas Batch 2: cross-filtering between dashboard cards (PR #278, shipped dark)
 
 **Trigger:** Continuation of the "Drill Floor & Glow Canvas" flagship build, user said "Yes" to continuing
