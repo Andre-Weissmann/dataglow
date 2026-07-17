@@ -7,6 +7,51 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 13:48 CT] Logged audio/video ingestion brainstorm candidate to backlog (PR #291, merged, docs-only, no flag)
+
+**Trigger:** User asked whether they already had something built better than the pending `cleaningCrew`
+(PDF) flag preview, then asked whether DataGlow could ingest audio/video files "like Zach Wilson says in
+his video clip." After confirming (via web search) that Zach Wilson's (DataExpert.io) public posts
+describe transcribing audio, captioning video frames, linking both by timestamp, and pushing everything
+into a vector DB for RAG, the user asked to scope this out as a real Mission Center brainstorm — its own
+flag, its own batches, separate from the still-pending Cleaning Crew (PDF) decision — and, this run
+specifically, to "just add it to the capability map."
+
+**What was found / decided:** `capability-map.manifest.json` is a drift-checked ledger of code that
+ALREADY exists (`test:capdrift` fails a PR if a manifest entry points at a file that isn't real) — adding
+an unbuilt idea there would misrepresent shipped state and likely break CI. Confirmed via direct
+inspection of `js/app-shell/loaders.js` that audio/video ingestion does not exist anywhere in the repo
+today (`loadFile()` only branches on pdf/csv/tsv/json/ndjson/parquet/xlsx/xls/sqlite/db/arrow/feather).
+Redirected the request to its honest home: a new ranked Backlog item (item 9) in `NORTH_STAR.md`, which is
+exactly where every other not-yet-built concept in this repo already lives. Noted for the record that the
+PDF Profiler's own capability-map entry already names "audio (Whisper)" as a documented future batch, so
+this is a real extension of an existing roadmap line, not an invented one.
+
+**Built:** Backlog item 9 in `NORTH_STAR.md` — "Cleaning Crew — Media station" brainstorm candidate.
+Scoped honestly narrower than Zach Wilson's actual pipeline: DataGlow has no vector store or RAG surface
+today, so the entry proposes on-device Whisper transcription + frame captioning turned into ordinary
+queryable rows via the same `loadRowsAsDataset()` path the PDF Profiler already uses, NOT a new
+vector/embeddings layer (flagged as a separate, larger architectural decision if ever pursued). Candidate
+batch shape recorded (unscoped): (1) audio → transcript → dataset, (2) video → frame extraction + on-
+device captioning → dataset, (3) timestamp-linked join between the two. Explicitly states its own future
+flag must stay fully decoupled from the still-pending `cleaningCrew` (PDF) enable decision, per standing
+user instruction that enabling one must never imply or require enabling the other.
+
+**Outcome:** shipped (docs-only, no flag, no behavior change)
+
+**Safety notes:** Independently re-verified via `gh pr diff 291` before presenting the merge confirm — 1
+file changed (`NORTH_STAR.md`), 26 additions, 0 deletions, 0 other files touched. All 57 CI checks passed
+(including `capability-map-drift`), merge state CLEAN/MERGEABLE. Explicit `confirm_action` safety
+assessment presented and approved before merging, per the standing rule that applies to every merge
+regardless of how low-risk it looks.
+
+**What to do differently next time:** none — this run correctly distinguished "record an idea" (backlog)
+from "claim something is built" (capability map), which is the exact discipline the manifest's drift check
+exists to enforce. Worth remembering as a reusable pattern: any future "just add X to the capability map"
+request for something not yet coded should route to the Backlog section instead, the same way this one did.
+
+---
+
 ## [2026-07-17 09:42 CT] Story tab null-active-dataset crash fixed with a friendly error message (PR #289, merged, no flag)
 
 **Trigger:** Direct follow-up on backlog item #8, logged in the immediately-prior entry's PR (#288) from
