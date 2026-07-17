@@ -160,5 +160,22 @@ jobs:
   open-floor-sandbox-twin:
     uses: ./.github/workflows/job-open-floor-sandbox-twin.yml
 
+  # NOTE: this job is defined INLINE, not as a `uses:` reusable workflow like the
+  # entries above. GitHub caps a single caller file at 50 UNIQUE reusable
+  # workflows (nested trees included); this orchestrator was already at exactly
+  # 50, so a 51st `uses:` makes the whole `tests` workflow fail to compile
+  # ("workflow file issue", zero jobs). An inline job with `steps:` is NOT a
+  # reusable-workflow call and does not count toward that 50 cap. Until the
+  # orchestrator is restructured (e.g. split across caller files), further new
+  # jobs must be added inline here rather than as new job-<name>.yml files.
   glow-canvas:
-    uses: ./.github/workflows/job-glow-canvas.yml
+    name: Glow Canvas (layout algebra + serialize/deserialize contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:glowcanvas
