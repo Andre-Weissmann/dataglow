@@ -1413,6 +1413,32 @@ below when Readiness Gate ships.
    "Load a dataset first (upload a file or load the Golden Test Dataset)" instead of crashing. Covered by
    a new e2e regression case in `test/e2e-analysis-contract.test.mjs`. See `dev-log/journal.md` entry
    [2026-07-17 09:42 CT] for full detail.
+9. **NOT YET SCOPED — brainstorm candidate, added 2026-07-17.** Audio/video ingestion ("Cleaning Crew —
+   Media station"): DataGlow currently cannot ingest audio or video files at all — `js/app-shell/
+   loaders.js`'s `loadFile()` dispatch only branches on `pdf`/`csv`/`tsv`/`json`/`ndjson`/`parquet`/
+   `xlsx`/`xls`/`sqlite`/`db`/`arrow`/`feather`. This item is explicitly triggered by comparing DataGlow
+   against the unstructured-data pipeline Zach Wilson (DataExpert.io) describes publicly — deconstruct
+   video into an audio track + periodic still frames, transcribe the audio, caption the frames, link both
+   by timestamp, then push into a vector DB for RAG. The overlap with DataGlow is narrow: DataGlow has no
+   vector store today (DuckDB-WASM tables only) and no RAG surface, so the realistic DataGlow-shaped
+   version of this idea is narrower than Zach's pipeline — on-device transcription (Whisper-family, same
+   WebGPU pattern already proven in `js/agents/live-transcript-capture.js` and Story's model loader) and
+   frame-level captioning turned into ordinary queryable rows via the SAME `loadRowsAsDataset()` path
+   Cleaning Crew's PDF Profiler already uses — NOT a new vector/embeddings layer (that would be a
+   separate, larger architectural decision, not a Cleaning Crew batch). The PDF Profiler's own capability-
+   map entry (`docs/capability-map.md`, "Cleaning Crew — Profiler station") already explicitly names
+   "audio (Whisper)" as future/not-yet-built, so this is a documented extension of an existing roadmap
+   line, not a new direction. Per explicit user instruction: **scope this as its own flag and its own
+   batches, kept fully separate from the still-pending `cleaningCrew` (PDF) enable decision** — enabling
+   one must never imply or require enabling the other. Candidate batch shape (unscoped, for a future
+   Mission Center brainstorm round to size properly): (1) audio file upload → on-device Whisper transcript
+   → queryable dataset, mirroring the PDF Profiler's shape exactly; (2) video file upload → frame
+   extraction (e.g. every 3-4s, matching Zach's cadence) → on-device captioning (if a suitable on-device
+   vision model exists — needs research, no paid API keys per standing constraint) → queryable dataset;
+   (3) timestamp-linked join between a video's audio-transcript rows and its frame-caption rows. Platform
+   impact: web + desktop certain (same WebGPU-gated pattern as existing on-device features); PWA/mobile
+   likely degrades gracefully to no-transcription/no-captioning on devices without WebGPU, same ceiling as
+   Story and Live Transcript Capture today.
 
 ## Lessons learned
 
