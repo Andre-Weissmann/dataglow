@@ -145,6 +145,60 @@ function main() {
   ok(stillFails.some(f => f.identifier === 'definitely_not_a_column' && f.severity === 'fail'),
     'true-positive preserved: a genuinely non-existent column is STILL flagged as a hard-fail hallucination after the fix');
 
+  // ===== Regression: SQL function calls must not be flagged as hallucinated (2026-07-17) =====
+  // Root cause: any bare identifier immediately followed by '(' is a function
+  // call, not a column/table reference — but the checker had no notion of
+  // this and only recognized a short hardcoded list (COUNT/SUM/AVG/MIN/MAX)
+  // as safe. Every other real SQL function name (ROUND, UPPER, ROW_NUMBER,
+  // STDDEV, etc.) was flagged as "doesn't match any table or column" /
+  // "hallucinated reference", even though the query was completely valid and
+  // executed correctly. Originally found via a GROUP BY + ROUND(...) alias +
+  // ORDER BY <alias> query against real CMS Medicare data; isolation testing
+  // showed the GROUP BY/ORDER BY shape was a red herring — ANY function call
+  // not on the short list triggered it, in any query shape.
+
+  const roundGroupOrderSql = `SELECT customer_id, ROUND(AVG(total_amount), 2) AS avg_amt
+                              FROM orders GROUP BY customer_id ORDER BY avg_amt DESC`;
+  ok(checkSchemaHallucination(roundGroupOrderSql, schemaIndex).length === 0,
+    'schema_hallucination: original bug repro (ROUND + GROUP BY + ORDER BY alias) produces zero flags');
+
+  const bareRoundSql = `SELECT ROUND(1.567, 2) AS r`;
+  ok(checkSchemaHallucination(bareRoundSql, schemaIndex).length === 0,
+    'schema_hallucination: a bare ROUND() call with no table at all is not flagged');
+
+  // A representative sample across math/string/date/window/aggregate
+  // function families — covers the ~34 functions confirmed broken pre-fix,
+  // without hardcoding the entire list into the test.
+  const functionCallSamples = [
+    'ROUND(total_amount, 2)', 'ABS(total_amount)', 'UPPER(sku)', 'LOWER(sku)',
+    'TRIM(sku)', 'CEIL(total_amount)', 'FLOOR(total_amount)', 'CONCAT(sku, sku)',
+    'SUBSTRING(sku, 1, 3)', 'LENGTH(sku)', 'REPLACE(sku, "a", "b")',
+    'POWER(total_amount, 2)', 'SQRT(total_amount)', 'NOW()', 'STRFTIME(created_at, "%Y")',
+    'ROW_NUMBER() OVER (ORDER BY total_amount)', 'RANK() OVER (ORDER BY total_amount)',
+    'STDDEV(total_amount)', 'VARIANCE(total_amount)', 'MEDIAN(total_amount)',
+  ];
+  for (const expr of functionCallSamples) {
+    const sql = `SELECT ${expr} AS v FROM orders`;
+    const flags = checkSchemaHallucination(sql, schemaIndex);
+    ok(flags.length === 0, `schema_hallucination: function call "${expr}" produces zero flags`);
+  }
+
+  // A genuinely unknown/novel function name (not in SQL_FUNCTION_NAMES at all)
+  // must ALSO be recognized as a function call via the structural '(' check,
+  // proving the fix isn't just a bigger hardcoded list.
+  const novelFnSql = `SELECT SOME_BRAND_NEW_DUCKDB_FN(total_amount) AS v FROM orders`;
+  ok(checkSchemaHallucination(novelFnSql, schemaIndex).length === 0,
+    'schema_hallucination: an unrecognized/novel function name is still not flagged, via the structural call-site check');
+
+  // True positive preserved: a bare identifier that looks like it *could* be
+  // a function name but is used as a plain column reference (no parens) with
+  // no matching real column must still be flagged — the fix must not make
+  // every bare word starting with a function-like name silently pass.
+  const bareIdentNotCallSql = `SELECT round_trip_flag FROM orders`;
+  const bareIdentFlags = checkSchemaHallucination(bareIdentNotCallSql, schemaIndex);
+  ok(bareIdentFlags.some(f => f.identifier === 'round_trip_flag'),
+    'schema_hallucination: a non-existent column that merely starts with a function-like word (no parens) is still flagged');
+
   // ===== Check 2: Aggregation mismatches =====
 
   const countJoinSql = `SELECT o.customer_id, COUNT(o.order_id) AS n

@@ -38,6 +38,13 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e
+      # M1 live-catalog regression (2026-07-17): a CREATE TABLE-created table's
+      # real columns must be resolved via the live DuckDB catalog and NOT
+      # false-flagged as hallucinated references by the SQL Analysis Contract.
+      - name: Run analysis-contract e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-analysiscontract
       # Gen 9 Batch 2: ambient-validation warnings + on-device SLM graceful
       # degradation (both engine-independent, so robust in headless CI).
       - name: Run ambient + SLM e2e test
