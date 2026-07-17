@@ -1406,15 +1406,13 @@ below when Readiness Gate ships.
    template, not just a domain pack.
 7. Governance-as-living-layer: one queryable interface for humans and agents (Gartner's "context as
    infrastructure" framing) — partially achieved once the Gate ships.
-8. **Minor, found 2026-07-17 (Story tab retest):** clicking "Generate Story" with no active dataset
-   populated (e.g. after only running a raw SQL `CREATE TABLE`/`SELECT`, never loading a file or the
-   Golden Test Dataset) throws an unhandled `Cannot read properties of null (reading 'table')` from
-   `getActiveDataset()` in the click handler (`js/app-shell/main.js`, Story tab), surfaced to the user
-   only as a generic error toast ("Story generation failed: Cannot read properties of null (reading
-   'table')"). Cosmetic/edge-case — fails instantly with no hang, no data loss, no crash beyond the one
-   handler — but the message is confusing to a real user who doesn't know what "table" refers to. Low
-   priority: a one-line pre-check ("Load a dataset first" toast) before calling `getActiveDataset()`
-   would close it; not bundled into PR #287 since it's unrelated to that PR's SQL-tab scope.
+8. ~~**Minor, found 2026-07-17 (Story tab retest):** clicking "Generate Story" with no active dataset
+   populated throws an unhandled `Cannot read properties of null (reading 'table')` from
+   `getActiveDataset()` in the click handler.~~ **RESOLVED 2026-07-17 (PR #289, merged `ba070a1`, no
+   flag):** added an explicit pre-check — `getActiveDataset()` result is now checked before use, showing
+   "Load a dataset first (upload a file or load the Golden Test Dataset)" instead of crashing. Covered by
+   a new e2e regression case in `test/e2e-analysis-contract.test.mjs`. See `dev-log/journal.md` entry
+   [2026-07-17 09:42 CT] for full detail.
 
 ## Lessons learned
 
