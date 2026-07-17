@@ -7,6 +7,58 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 06:22 CT] Real-data portfolio-readiness test: CMS Medicare data, web + desktop (PR #285, docs-only, merged)
+
+**Trigger:** Direct user request outside the Mission Center trigger phrase ("Go grab a real current
+healthcare dataset. Test dataglow browser and desktop application") — a genuinely new test variant not
+covered by `test-dataglow-platform`'s synthetic-seeded-data assumption, since this run used real,
+external, unknown-answer-key data instead.
+
+**Step 1 findings:** Clean at run start — 0 open PRs, 0 orphaned branches, CI green on `main` at
+`728e5a8`, 7 dark flags unchanged, 29 open issues unchanged.
+
+**Decision:** Source a real, current, legally-open healthcare dataset (CMS Medicare Physician & Other
+Practitioners by Provider and Service, 2024 reference year, IL slice, 3,036 rows/28 columns, pulled live
+via CMS's public Data API) and run the full Preflight/Validate/Clean/SQL/Story flow against it on both
+web and desktop builds, independently re-verifying every DataGlow-reported number against the raw data
+rather than trusting a pre-written answer key.
+
+**Built:** No source code — this was a test/verification run, not a build run. Output: a full test report
+(`dataglow_real_data_test_2026-07-17.md`) plus a new dated "Test findings" section in `NORTH_STAR.md`.
+
+**Outcome:** all checked DataGlow findings (null-column count, duplicate count, MAD/IQR outlier stats,
+missingness patterns, fuzzy-dedup matches, blind-spot gaps) matched independent DuckDB verification
+exactly. Zero-upload claim held under a live network-blocking test. One new reproducible bug found and
+logged (not fixed): the SQL panel's hallucination-detector false-positives on `ROUND()` used as an
+aliased column inside `GROUP BY ... ORDER BY <alias>` queries — warning-only, does not affect actual
+query results.
+
+**Safety notes:** Desktop coverage this run was architectural/CI-based, not a live native run — no
+Rust/cargo toolchain existed in the test sandbox, so `npm run tauri:build:debug` could not be run
+locally. Substituted: (1) direct-read confirmation that `scripts/stage-desktop-frontend.mjs` performs a
+byte-identical, non-transpiled copy of the same web assets just tested, and (2) confirmation that CI's
+own `tauri-smoke` job passes on the exact `main` commit under test. This is real but indirect evidence;
+flagged explicitly as a scope limitation rather than silently presented as an equivalent test to the web
+run. All 55 CI checks passed on the docs PR itself, including `tauri-smoke` (7m1s).
+
+**Flag:** none — no flags touched, this run shipped no code.
+
+**Blast radius:** none — documentation-only PR (NORTH_STAR.md + one new report file). Zero source code
+touched, zero behavior change.
+
+**Hygiene debt:** 0 open PRs + 0 orphaned branches + 7 stale-eligible-tracking flags (unchanged, none
+past the 3-merged-PR threshold) + 0 failing CI on `main` = flat vs. the last 3 entries.
+
+**Process learning:** A real-data test with no pre-written answer key is a stronger trust signal than a
+synthetic seeded-defect pass precisely because there's nothing to "match" — every DataGlow number had to
+be independently re-derived from scratch. Worth repeating periodically with fresh real datasets rather
+than relying solely on the synthetic fixture in `test-dataglow-platform`. Also: when a local toolchain
+gap blocks part of a planned test (here, Rust/cargo for desktop), the right move is to substitute the
+strongest available indirect evidence (asset-identity + CI compile-gate) and say so plainly, not to skip
+the platform silently or overstate the substitute as equivalent to a direct test.
+
+---
+
 ## [2026-07-17 05:11 CT] Cleaning Crew Batch 1: Profiler station, PDF text extraction (PR #283, shipped dark)
 
 **Trigger:** Continuation of the "end-to-end multi-tool workbench + dashboard canvas" flagship build — a
