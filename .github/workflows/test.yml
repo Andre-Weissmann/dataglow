@@ -159,3 +159,6 @@ jobs:
 
   open-floor-sandbox-twin:
     uses: ./.github/workflows/job-open-floor-sandbox-twin.yml
+
+  glow-canvas:
+    uses: ./.github/workflows/job-glow-canvas.yml

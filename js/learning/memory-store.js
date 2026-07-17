@@ -5,7 +5,7 @@
 // ============================================================
 
 const DB_NAME = 'dataglow_memory';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORE_PROFILES = 'columnProfiles';
 const STORE_RULES = 'approvedRules';
 const STORE_BASELINES = 'datasetBaselines';
@@ -13,6 +13,7 @@ const STORE_LEARNED = 'learnedCorrections';
 const STORE_FP_HISTORY = 'fingerprintHistory';
 const STORE_LEDGER = 'meetingDecisionLedger';
 const STORE_QUERY_MEMORY = 'queryMemoryLog';
+const STORE_CANVAS_LAYOUTS = 'canvasLayouts';
 
 // Ledger entries are append-only and can accumulate across many meetings;
 // cap so an unbounded history can't grow the local database without limit.
@@ -95,6 +96,16 @@ export function initMemoryStore() {
         // overwriting — the read path filters by fingerprint for a fast lookup.
         const queryMemoryStore = db.createObjectStore(STORE_QUERY_MEMORY, { keyPath: '_id', autoIncrement: true });
         queryMemoryStore.createIndex('fingerprint', 'fingerprint', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_CANVAS_LAYOUTS)) {
+        // Saved Glow Canvas dashboard layouts (js/runtimes-viz/glow-canvas.js
+        // supplies the pure layout algebra + JSON serialization; this file only
+        // stores/retrieves the resulting plain objects). Keyed by a
+        // caller-supplied layout name so saving under the same name overwrites
+        // that named dashboard rather than duplicating it — the same
+        // save-by-key discipline as columnProfiles/approvedRules above, not the
+        // append-only pattern of the ledgers.
+        db.createObjectStore(STORE_CANVAS_LAYOUTS, { keyPath: 'name' });
       }
     };
     open.onsuccess = () => resolve(open.result);
@@ -413,5 +424,53 @@ export async function clearQueryMemory() {
   const db = await initMemoryStore();
   const tx = db.transaction(STORE_QUERY_MEMORY, 'readwrite');
   tx.objectStore(STORE_QUERY_MEMORY).clear();
+  await txDone(tx);
+}
+
+// ---------- canvasLayouts (Glow Canvas saved dashboards, keyed by name) ----------
+// Persists whole Glow Canvas layouts (the JSON produced by
+// js/runtimes-viz/glow-canvas.js's serializeLayout) so a dashboard survives a
+// reload. Save-by-name: re-saving the same name overwrites that dashboard.
+// Only the derived layout description is stored — never a byte of the user's
+// data — matching the store-only-summaries discipline of every store above.
+
+export async function saveCanvasLayout(name, layoutJson) {
+  if (typeof name !== 'string' || !name) {
+    throw new Error('saveCanvasLayout requires a non-empty name.');
+  }
+  const db = await initMemoryStore();
+  const record = { name, layoutJson: typeof layoutJson === 'string' ? layoutJson : String(layoutJson), savedAt: Date.now() };
+  const tx = db.transaction(STORE_CANVAS_LAYOUTS, 'readwrite');
+  tx.objectStore(STORE_CANVAS_LAYOUTS).put(record);
+  await txDone(tx);
+  return record;
+}
+
+export async function getCanvasLayout(name) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_CANVAS_LAYOUTS, 'readonly');
+  return req(tx.objectStore(STORE_CANVAS_LAYOUTS).get(name));
+}
+
+export async function listCanvasLayouts() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_CANVAS_LAYOUTS, 'readonly');
+  return req(tx.objectStore(STORE_CANVAS_LAYOUTS).getAll());
+}
+
+export async function deleteCanvasLayout(name) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_CANVAS_LAYOUTS, 'readwrite');
+  tx.objectStore(STORE_CANVAS_LAYOUTS).delete(name);
+  await txDone(tx);
+}
+
+// Clear ONLY the saved Glow Canvas layouts, leaving every other store intact.
+// Backs a "Clear saved dashboards" consent control, same pattern as the other
+// clear* helpers above.
+export async function clearCanvasLayouts() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_CANVAS_LAYOUTS, 'readwrite');
+  tx.objectStore(STORE_CANVAS_LAYOUTS).clear();
   await txDone(tx);
 }

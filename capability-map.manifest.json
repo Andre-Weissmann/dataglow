@@ -1255,6 +1255,32 @@
       ]
     },
     {
+      "id": "glow-canvas",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Language runtimes & visualization",
+      "name": "Glow Canvas (multi-chart dashboard, Batch 1)",
+      "files": [
+        "js/runtimes-viz/glow-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "createCanvasLayout"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "addCard"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "renderCanvas"
+        }
+      ]
+    },
+    {
       "id": "protocol",
       "platforms": [
         "browser",

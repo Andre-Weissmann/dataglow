@@ -1,0 +1,34 @@
+# ============================================================
+# DATAGLOW — CI job: Glow Canvas (multi-chart dashboard, Batch 1)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the pure-logic suite behind the Glow Canvas dashboard layer
+# (js/runtimes-viz/glow-canvas.js):
+#   - createCanvasLayout() — an empty {cards,nextId} layout,
+#   - addCard() — append + auto-incrementing id + next-available-slot gridPos,
+#     and the purity guarantee (never mutates its input),
+#   - removeCard() / updateCardPosition() — pure, id-targeted layout edits,
+#   - serializeLayout()/deserializeLayout() — JSON round-trip, incl. the empty
+#     layout and the malformed-JSON -> safe empty layout (never throws) edge case.
+# The tested surface is the pure layout algebra only (the DOM renderer
+# renderCanvas() is left to the browser/e2e path, exactly like room-ui.js), so
+# plain `node` runs the suite — no DuckDB, DOM, Plotly, or browser needed.
+
+name: Glow Canvas (Batch 1)
+
+on:
+  workflow_call:
+
+jobs:
+  glow-canvas:
+    name: Glow Canvas (layout algebra + serialize/deserialize contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:glowcanvas

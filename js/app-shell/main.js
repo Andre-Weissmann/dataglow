@@ -24,6 +24,7 @@ import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON }
 import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } from '../provenance/zk-threshold-proof.js';
 import { buildBeamUrl } from '../provenance/trust-beam.js';
 import * as viz from '../runtimes-viz/visualize.js';
+import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
 import * as formatFingerprint from '../cleaning/format-fingerprint.js';
@@ -148,6 +149,7 @@ const TAB_META = {
   validate: { label: 'Validate', icon: 'shield' },
   diff: { label: 'Diff', icon: 'git-compare' },
   visualize: { label: 'Visualize', icon: 'pie-chart' },
+  glowcanvas: { label: 'Glow Canvas', icon: 'grid' },
   story: { label: 'Story', icon: 'book-open' },
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
@@ -176,6 +178,7 @@ const ICONS = {
   'message-circle': '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
   handshake: '<path d="M11 12l2 2 3-3 4 4"/><path d="M13 14l-2 2-2-2-3 3-2-2"/><path d="M3 10l4-4 4 3"/><path d="M21 10l-4-4-3 2"/>',
   'git-merge': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 009 9"/>',
+  grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -241,13 +244,18 @@ function renderTabBar() {
   // never a dead click target, and #panel-copilot stays empty (see
   // renderGuardedCopilotTab). It gates the Batch 2 chat UI over the read-only
   // Guarded Copilot core.
+  // The 'glowcanvas' tab follows the same dark-by-default gate: with the
+  // glowCanvas flag off (its shipped default) it is never added to the bar,
+  // never a dead click target, and #panel-glowcanvas stays empty (see
+  // renderGlowCanvasTab). It gates ONLY this multi-chart dashboard surface.
   const visibleTabOrder = state.tabOrder.filter((tabId) =>
     (tabId !== 'meeting' || isEnabled('meetingScribe'))
     && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy'))
     && (tabId !== 'proofroom' || isEnabled('proofRoom'))
     && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI'))
     && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
-    && (tabId !== 'copilot' || isEnabled('guardedCopilot')));
+    && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
+    && (tabId !== 'glowcanvas' || isEnabled('glowCanvas')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -328,6 +336,7 @@ function switchTab(tabId) {
   if (tabId === 'convergence') renderConvergenceTab();
   if (tabId === 'crucible') renderCrucibleTab();
   if (tabId === 'copilot') renderGuardedCopilotTab();
+  if (tabId === 'glowcanvas') renderGlowCanvasTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -6951,6 +6960,51 @@ function initVisualizeTab() {
       toast('Receipt failed: ' + e.message, 'error');
     }
   });
+}
+
+// ============================================================
+// Glow Canvas Tab (Batch 1 — ships dark behind the glowCanvas flag)
+// ============================================================
+// The multi-chart dashboard surface. main.js owns the live layout state and
+// its persistence (the IndexedDB canvasLayouts store); js/runtimes-viz/
+// glow-canvas.js only holds the PURE layout algebra and the thin renderer,
+// which delegates every actual chart draw to the existing viz.renderChart. The
+// glowCanvas flag is checked HERE (the caller), never inside that module.
+const GLOW_CANVAS_LAYOUT_NAME = 'default';
+let glowCanvasLayout = glowCanvas.createCanvasLayout();
+let glowCanvasLoaded = false;
+
+async function persistGlowCanvasLayout() {
+  try {
+    await memoryStore.saveCanvasLayout(GLOW_CANVAS_LAYOUT_NAME, glowCanvas.serializeLayout(glowCanvasLayout));
+  } catch (_e) { /* persistence is best-effort — a save failure must never break the canvas */ }
+}
+
+function drawGlowCanvas() {
+  glowCanvas.renderCanvas('glow-canvas-body', glowCanvasLayout, {
+    datasets: state.datasets || [],
+    onChange: (next) => {
+      glowCanvasLayout = next;
+      persistGlowCanvasLayout();
+      drawGlowCanvas();
+    },
+  });
+}
+
+async function renderGlowCanvasTab() {
+  const host = document.getElementById('glow-canvas-body');
+  if (!host) return;
+  if (!isEnabled('glowCanvas')) { host.innerHTML = ''; glowCanvasLoaded = false; return; }
+  // Load the saved layout once per session, then draw. Subsequent activations
+  // just redraw the in-memory layout (kept in sync by onChange above).
+  if (!glowCanvasLoaded) {
+    glowCanvasLoaded = true;
+    try {
+      const saved = await memoryStore.getCanvasLayout(GLOW_CANVAS_LAYOUT_NAME);
+      if (saved && saved.layoutJson) glowCanvasLayout = glowCanvas.deserializeLayout(saved.layoutJson);
+    } catch (_e) { /* no saved layout / store unavailable — start from the empty layout */ }
+  }
+  drawGlowCanvas();
 }
 
 // ============================================================

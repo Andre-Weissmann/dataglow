@@ -125,6 +125,7 @@
     "test:agentgate": "node test/agent-gate.test.mjs",
     "test:truststrip": "node test/trust-strip-proof-drawer.test.mjs",
     "test:objectspace": "node test/object-space.test.mjs",
+    "test:glowcanvas": "node test/glow-canvas.test.mjs",
     "test:proficiencysignal": "node test/proficiency-signal.test.mjs",
     "test:glowpath": "node test/glow-path.test.mjs",
     "test:diplomacyui": "node test/diplomacy-ui.test.mjs",
