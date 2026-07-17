@@ -7431,13 +7431,25 @@ function initStoryTab() {
 
   $('#btn-story-generate').addEventListener('click', async () => {
     if (!state.lastQueryResult) { toast('Run a SQL query first', 'error'); return; }
+    // Bug fix (2026-07-17): state.lastQueryResult and getActiveDataset() are
+    // tracked independently — a query run directly against a raw SQL
+    // CREATE TABLE (never loaded via a file upload or the golden-dataset
+    // loader, so addDataset() never ran) leaves state.datasets empty and
+    // getActiveDataset() returns null even though lastQueryResult is set.
+    // Previously this fell through to an unguarded getActiveDataset().table
+    // access below, throwing a generic "Cannot read properties of null
+    // (reading 'table')" TypeError that surfaced to the user as a confusing
+    // "Story generation failed: ..." toast. Guard explicitly with a clear,
+    // actionable message instead.
+    const activeDataset = getActiveDataset();
+    if (!activeDataset) { toast('Load a dataset first (upload a file or load the Golden Test Dataset)', 'error'); return; }
     const btn = $('#btn-story-generate');
     btn.disabled = true; btn.textContent = 'Generating…';
     try {
       const provider = state.settings.modelProvider;
       const apiKey = state.settings.apiKeys[provider];
       const { text, source } = await story.generateStory(
-        state.lastQueryResult, getActiveDataset().table, provider, apiKey,
+        state.lastQueryResult, activeDataset.table, provider, apiKey,
         {
           ondeviceGenerate: ondeviceGenerateStory,
           // AI Touch Ledger (Batch 2): only handed to the Story Engine when the

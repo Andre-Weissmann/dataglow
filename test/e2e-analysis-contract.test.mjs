@@ -179,6 +179,29 @@ async function main() {
     const statusAfterRace = await page.evaluate(() => document.querySelector('#sql-status')?.textContent || '');
     ok(/row\(s\)/i.test(statusAfterRace),
       'sql-status reflects the second (latest) query, not a stale first-query state');
+
+    // Story-tab null-active-dataset regression (2026-07-17): dg_m1_foo above
+    // was created purely via CREATE TABLE, so it never entered state.datasets
+    // and getActiveDataset() returns null even though state.lastQueryResult IS
+    // set (from the queries above). Pre-fix, clicking Generate Story here fell
+    // through to an unguarded getActiveDataset().table access and threw a
+    // generic "Cannot read properties of null (reading 'table')" TypeError,
+    // surfaced as a confusing "Story generation failed: ..." toast. The fix
+    // adds an explicit, friendly pre-check — assert that message appears
+    // instead, and that the old confusing TypeError text never does.
+    await page.click('[data-testid="tab-story"]');
+    await page.click('#btn-story-generate');
+    await page.waitForFunction(
+      () => !!document.querySelector('#toast-container .toast.error'),
+      { timeout: 10000, polling: 250 }
+    );
+    const storyToastText = await page.evaluate(
+      () => document.querySelector('#toast-container .toast.error')?.textContent || ''
+    );
+    ok(/load a dataset first/i.test(storyToastText),
+      'Generate Story with no active dataset shows the friendly "load a dataset first" message');
+    ok(!/reading 'table'/i.test(storyToastText) && !/cannot read propert/i.test(storyToastText),
+      'the old confusing null-property TypeError text is gone from the toast');
   } catch (err) {
     failed++;
     console.log('\n✗ FAILED: ' + (err && err.message ? err.message : err));
