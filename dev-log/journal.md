@@ -7,6 +7,64 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 09:42 CT] Story tab null-active-dataset crash fixed with a friendly error message (PR #289, merged, no flag)
+
+**Trigger:** Direct follow-up on backlog item #8, logged in the immediately-prior entry's PR (#288) from
+the same-day Story tab on-device model retest. User's instruction was simply "Fix the null-dataset error
+message on the Story tab now."
+
+**Root cause:** `state.lastQueryResult` (set by any SQL run) and `state.datasets`/`getActiveDataset()`
+(populated only by `addDataset()` — i.e. a file upload or the Golden Test Dataset loader) are tracked
+completely independently in `js/app-shell/state.js`. A user who runs raw SQL directly against DuckDB
+(e.g. `CREATE TABLE ... AS SELECT ...`) without ever loading a file or the golden dataset has
+`lastQueryResult` set (passing the existing "Run a SQL query first" guard) but `state.datasets` empty, so
+`getActiveDataset()` returns `null`. The `#btn-story-generate` click handler in `js/app-shell/main.js`
+then fell through to an unguarded `getActiveDataset().table` access, throwing a generic `Cannot read
+properties of null (reading 'table')` TypeError that surfaced to the user only as a confusing "Story
+generation failed: ..." toast — exactly the bug found and logged (but not yet fixed) in the prior entry.
+
+**Fix:** added an explicit pre-check mirroring the existing pattern immediately above it — capture
+`getActiveDataset()` into a local `activeDataset` variable, and if it's `null`, show a clear actionable
+toast ("Load a dataset first (upload a file or load the Golden Test Dataset)") and return before any
+further access. The later `getActiveDataset().table` call site downstream was also replaced with the
+already-captured `activeDataset.table`, removing a redundant second lookup as a minor cleanup alongside
+the fix. No feature flag — this only changes behavior in the previously-crashing null case; the existing
+happy path (a real active dataset) is untouched.
+
+**Test coverage:** added a new regression case directly onto the existing "raw SQL, never through the
+file loader" scenario already present in `test/e2e-analysis-contract.test.mjs` (which already creates a
+table named `dg_m1_foo` via `CREATE TABLE`, never through `addDataset()`) — after that setup, clicks
+Generate Story and asserts the friendly toast text appears and the old confusing TypeError text does not.
+This is a real-browser e2e test, not a unit test, because the bug lives specifically in the DOM click
+handler layer (`main.js`), not in `story.js`'s pure `generateStory()` logic that the existing
+`story-model.test.mjs` unit suite already exercises — a unit test calling `generateStory()` directly
+would bypass the buggy code path entirely and could never have caught this.
+
+**Independent verification performed (per standing rule, not just trusting CI):**
+- Confirmed the new test actually catches the bug: temporarily reverted only the `main.js` fix (keeping
+  the new test in place) and confirmed both new assertions failed against the pre-fix code with the exact
+  expected error text; restored the fix and reconfirmed all green.
+- Re-ran `test:e2e-analysiscontract` 10 total times across the session (0 flakiness) plus 3 more times on
+  the exact pushed commit (`3fcff0c`) after CI passed.
+- Personally re-read the full diff on the pushed commit before approving merge — confirmed it matched
+  the intended change exactly, no scope creep.
+- Re-ran `story-model` (36/36), `story-xss` (30/30), `ai-touch-ledger-story-wiring` (25/25), and `e2e-smoke`
+  (pass) myself for regressions — all clean.
+- CI: 57/57 jobs passed, including `e2e-smoke` (real Chrome, exercised the new test) and `tauri-smoke`
+  (6m50s).
+
+**Outcome:** shipped, no flag, merged as `ba070a1`. Resolves `NORTH_STAR.md` backlog item #8.
+
+**Process learning:** this closes the loop opened by the immediately-prior entry within the same session —
+the retest found the bug, logged it, and the very next user turn fixed it with full test coverage and
+independent verification. Worth naming as a pattern: when a test/retest run surfaces a *specific,
+reproducible* minor bug (not a vague "something felt off"), it's cheap to fix immediately rather than
+letting it sit in the backlog, precisely because the retest session already did the hard part (finding
+the exact repro shape) — the fix here took one `edit` call, one new test block, and no additional
+investigation beyond what the retest had already surfaced.
+
+---
+
 ## [2026-07-17 08:18 CT] SQL Analysis Contract false-positive fix + two independent async render races (PR #287, merged, no flag)
 
 **Trigger:** Direct follow-up on the previous entry's logged-but-unfixed bug (ROUND()-as-alias false
