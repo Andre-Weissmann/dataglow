@@ -878,6 +878,23 @@
       </div>
     </section>
 
+    <!-- ============ GLOW CANVAS TAB ============ -->
+    <!-- Multi-chart dashboard (Batch 1). Like #panel-copilot, this panel's body
+         stays empty until main.js's renderGlowCanvasTab() mounts it, and that
+         mount is gated behind the glowCanvas flag (off by default), so the
+         'glowcanvas' tab is never in the bar and this panel renders empty on a
+         default build. It reuses the existing single-chart renderer per card and
+         moves no data. -->
+    <section class="panel" id="panel-glowcanvas" data-panel="glowcanvas">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Glow Canvas</div>
+          <div class="panel-subtitle">Build a multi-chart dashboard from your loaded datasets — add charts as cards on a grid, each drawn by the same engine as the Visualize tab. Nothing leaves your device.</div>
+        </div>
+      </div>
+      <div id="glow-canvas-body" data-testid="glow-canvas-body"></div>
+    </section>
+
     <!-- ============ STORY TAB ============ -->
     <section class="panel" id="panel-story" data-panel="story">
       <div class="panel-header">
