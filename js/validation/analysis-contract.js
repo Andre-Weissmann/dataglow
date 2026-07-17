@@ -72,6 +72,57 @@ const SQL_KEYWORDS = new Set([
   'coalesce', 'nullif', 'extract', 'interval', 'date', 'timestamp', 'using',
 ]);
 
+// Common DuckDB/SQL scalar, aggregate, and window function names. Bug fix
+// 2026-07-17: the schema-hallucination check was flagging ANY function call
+// not in this list as a "hallucinated reference" (e.g. `ROUND(...)`,
+// `UPPER(...)`, `ROW_NUMBER()`), because a bare identifier immediately
+// followed by `(` was never being distinguished from a column/table
+// reference. This list backs up the structural function-call check below
+// (`isFunctionCallIdentifier`) — kept as a second, independent layer so a
+// function name is still recognized even in the rare case the regex-based
+// call-site detection misses a slightly unusual formatting.
+const SQL_FUNCTION_NAMES = new Set([
+  // math
+  'round', 'abs', 'ceil', 'ceiling', 'floor', 'power', 'pow', 'sqrt', 'mod',
+  'exp', 'ln', 'log', 'log10', 'log2', 'sign', 'trunc', 'random', 'greatest',
+  'least',
+  // string
+  'upper', 'lower', 'trim', 'ltrim', 'rtrim', 'concat', 'concat_ws',
+  'substring', 'substr', 'length', 'len', 'replace', 'lpad', 'rpad',
+  'split_part', 'regexp_matches', 'regexp_replace', 'regexp_extract',
+  'string_split', 'strip_accents', 'printf', 'format', 'left', 'right',
+  'reverse', 'repeat', 'position', 'instr', 'ascii', 'chr', 'starts_with',
+  'contains',
+  // date/time
+  'now', 'current_date', 'current_time', 'current_timestamp', 'strftime',
+  'strptime', 'date_trunc', 'date_part', 'datediff', 'date_add', 'date_sub',
+  'age', 'to_timestamp', 'epoch', 'epoch_ms', 'make_date', 'make_timestamp',
+  'year', 'month', 'day', 'hour', 'minute', 'second',
+  // aggregate / statistical
+  'median', 'stddev', 'stddev_pop', 'stddev_samp', 'variance', 'var_pop',
+  'var_samp', 'percentile_cont', 'percentile_disc', 'mode', 'corr',
+  'covar_pop', 'covar_samp', 'any_value', 'list', 'array_agg', 'string_agg',
+  'group_concat', 'first', 'last', 'arbitrary', 'bool_and', 'bool_or',
+  // window
+  'row_number', 'rank', 'dense_rank', 'ntile', 'lag', 'lead', 'percent_rank',
+  'cume_dist', 'first_value', 'last_value', 'nth_value',
+  // type / null handling
+  'cast', 'try_cast', 'isnan', 'isinf', 'typeof', 'ifnull', 'nvl',
+  // json / struct / list (DuckDB-specific, common in analyst queries)
+  'json_extract', 'json_extract_string', 'unnest', 'struct_pack', 'list_value',
+]);
+
+// True when the identifier at index `idx` (its match position in `sql`) is
+// immediately followed by optional whitespace then `(` — i.e. it's being
+// called as a function, not referenced as a column/table. This is a
+// structural check (works for ANY function name, not just ones in a
+// hardcoded list) and is the primary fix for the false-positive bug above;
+// `SQL_FUNCTION_NAMES` is kept as a secondary belt-and-suspenders layer.
+function isFunctionCallIdentifier(sql, matchIndex, identifier) {
+  const after = sql.slice(matchIndex + identifier.length);
+  return /^\s*\(/.test(after);
+}
+
 const AGGREGATE_FNS = ['count', 'sum', 'avg', 'min', 'max'];
 
 // Column-name fragments that usually signal "this distinguishes real rows
@@ -86,6 +137,21 @@ const GUARD_HINT_FRAGMENTS = [
 
 function tokenizeIdentifiers(sql) {
   return (sql.match(IDENT_RE) || []).map(t => t);
+}
+
+// Same tokens as tokenizeIdentifiers, but keeps each match's index in `sql`
+// so callers can inspect what immediately follows a given occurrence (e.g.
+// to detect a function call via `isFunctionCallIdentifier`). Kept as a
+// separate function rather than changing tokenizeIdentifiers's return shape,
+// so existing callers of the plain-strings version are unaffected.
+function tokenizeIdentifiersWithIndex(sql) {
+  const out = [];
+  let m;
+  const re = new RegExp(IDENT_RE.source, 'g');
+  while ((m = re.exec(sql)) !== null) {
+    out.push({ text: m[0], index: m.index });
+  }
+  return out;
 }
 
 // Case-insensitive Levenshtein distance, capped small — this only needs to
@@ -161,7 +227,7 @@ function extractAliasNames(sql) {
 export function checkSchemaHallucination(sql, schemaIndex) {
   const flags = [];
   const seen = new Set();
-  const idents = tokenizeIdentifiers(sql);
+  const idents = tokenizeIdentifiersWithIndex(sql);
   const knownColumnNames = Array.from(schemaIndex.allColumns.keys());
   const aliasNames = extractAliasNames(sql);
 
@@ -181,10 +247,16 @@ export function checkSchemaHallucination(sql, schemaIndex) {
     }];
   }
 
-  for (const raw of idents) {
+  for (const { text: raw, index } of idents) {
     const ident = raw;
     const lower = ident.toLowerCase();
     if (SQL_KEYWORDS.has(lower)) continue;
+    // Function call, e.g. `ROUND(...)`, `ROW_NUMBER()` — a call site is never
+    // a column/table reference regardless of whether the function name is a
+    // reserved word. Structural check first (works for any function name),
+    // `SQL_FUNCTION_NAMES` as a secondary guard for unusual formatting.
+    if (isFunctionCallIdentifier(sql, index, ident)) continue;
+    if (SQL_FUNCTION_NAMES.has(lower)) continue;
     if (schemaIndex.tableNames.has(ident) || Array.from(schemaIndex.tableNames).some(t => t.toLowerCase() === lower)) continue;
     if (schemaIndex.allColumns.has(lower)) continue; // real column, fine
     if (aliasNames.has(lower)) continue; // a query-defined output label, not a schema reference

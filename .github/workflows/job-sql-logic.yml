@@ -24,6 +24,14 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # SQL Analysis Contract: schema-hallucination detection (including the
+      # 2026-07-17 fix for SQL function calls like ROUND/UPPER/ROW_NUMBER
+      # being false-positived as hallucinated references), aggregation
+      # mismatch detection, and missing-guard-clause detection. Pure Node,
+      # no browser/DuckDB needed (see test/analysis-contract.test.mjs) — the
+      # live-catalog/real-browser e2e counterpart runs in job-e2e-smoke.yml
+      # alongside this repo's other real-Chrome e2e suites.
+      - run: npm run test:analysiscontract
       - run: npm run test:sql
       # Cross-Column Logical Consistency Checker: rule detection/firing unit suite.
       - run: npm run test:crosscol
