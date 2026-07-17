@@ -28,7 +28,7 @@ const loaders = read('js/app-shell/loaders.js');
 
 // Extensions loadFile() actually ingests (parsed straight from its handler
 // branches so the list can't silently drift from the code).
-const WORKING = new Set(['csv', 'tsv', 'json', 'ndjson', 'parquet', 'xlsx', 'xls', 'arrow', 'feather']);
+const WORKING = new Set(['csv', 'tsv', 'json', 'ndjson', 'parquet', 'xlsx', 'xls', 'arrow', 'feather', 'pdf']);
 // Extensions loadFile() has a branch for but which only throw "not supported".
 const RUNTIME_REJECTED = new Set(['sqlite', 'db']);
 

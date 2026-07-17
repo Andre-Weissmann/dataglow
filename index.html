@@ -120,7 +120,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <div style="font-size:var(--text-sm); font-weight:500;">Drop a file</div>
           <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;">CSV, JSON, Excel, Parquet…</div>
-          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather" multiple>
+          <input type="file" id="file-input" class="sr-only" accept=".csv,.tsv,.json,.ndjson,.parquet,.xlsx,.xls,.arrow,.feather,.pdf" multiple>
         </div>
         <button class="btn btn-ghost" id="btn-load-golden" style="width:100%; justify-content:center; margin-top:var(--space-2);" data-testid="button-load-golden">
           Load Golden Test Dataset
@@ -909,6 +909,23 @@
         </div>
       </div>
       <div id="drill-floor-body" data-testid="drill-floor-body"></div>
+    </section>
+
+    <!-- ============ CLEANING CREW TAB ============ -->
+    <!-- On-device multi-agent ingestion pipeline. Batch 1 ships ONLY the Profiler
+         station, for ONE new format: PDF text extraction via PDF.js. Gated behind
+         the cleaningCrew flag (off by default), so the 'cleaningcrew' tab is never
+         in the bar and this panel renders empty on a default build. PDF.js loads
+         lazily on the first PDF upload only — never on tab open — and parses fully
+         client-side, so nothing leaves the device. -->
+    <section class="panel" id="panel-cleaningcrew" data-panel="cleaningcrew">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Cleaning Crew</div>
+          <div class="panel-subtitle">Profile an uploaded PDF: how many pages have extractable text vs. are scanned images, plus an AI-readiness verdict. Batch 1 = the Profiler station only. Nothing leaves your device.</div>
+        </div>
+      </div>
+      <div id="cleaning-crew-body" data-testid="cleaning-crew-body"></div>
     </section>
 
     <!-- ============ STORY TAB ============ -->

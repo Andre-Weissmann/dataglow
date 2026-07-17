@@ -54,7 +54,7 @@
  */
 export const COMMAND_DECK_STAGES = [
   { id: 'frame', label: 'Frame', description: 'Define the question, load the data', tabs: ['framer', 'preflight', 'watch'] },
-  { id: 'work', label: 'Work', description: 'Raw analysis and prep', tabs: ['sql', 'python', 'r', 'clean', 'drillfloor'] },
+  { id: 'work', label: 'Work', description: 'Raw analysis and prep', tabs: ['sql', 'python', 'r', 'clean', 'drillfloor', 'cleaningcrew'] },
   { id: 'trust', label: 'Trust', description: 'DATAGLOW\u2019s actual differentiator \u2014 verify before you share', tabs: ['validate', 'diff', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot'] },
   { id: 'generate', label: 'Generate', description: 'Synthetic and advanced generation', tabs: ['twin'] },
   { id: 'tell', label: 'Tell', description: 'Audience-facing, shareable output', tabs: ['visualize', 'glowcanvas', 'story'] },

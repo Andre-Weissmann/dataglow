@@ -28,6 +28,7 @@ import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
 import * as drillFloorData from '../drill-floor/drill-floor-data.js';
 import * as drillDiff from '../drill-floor/drill-diff.js';
+import * as pdfProfiler from '../cleaning-crew/pdf-profiler.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
 import * as formatFingerprint from '../cleaning/format-fingerprint.js';
@@ -154,6 +155,7 @@ const TAB_META = {
   visualize: { label: 'Visualize', icon: 'pie-chart' },
   glowcanvas: { label: 'Glow Canvas', icon: 'grid' },
   drillfloor: { label: 'Drill Floor', icon: 'target' },
+  cleaningcrew: { label: 'Cleaning Crew', icon: 'sparkles' },
   story: { label: 'Story', icon: 'book-open' },
   twin: { label: 'Digital Twin', icon: 'sliders' },
   watch: { label: 'Watch Folder', icon: 'folder' },
@@ -261,7 +263,8 @@ function renderTabBar() {
     && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
     && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
     && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
-    && (tabId !== 'drillfloor' || isEnabled('drillFloor')));
+    && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
+    && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -344,6 +347,7 @@ function switchTab(tabId) {
   if (tabId === 'copilot') renderGuardedCopilotTab();
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
   if (tabId === 'drillfloor') renderDrillFloorTab();
+  if (tabId === 'cleaningcrew') renderCleaningCrewTab();
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -7180,6 +7184,82 @@ async function renderDrillFloorTab() {
     drillResults.r = res;
     updateComparison();
   });
+}
+
+
+// ============================================================
+// Cleaning Crew Tab (Batch 1 -- ships dark behind the cleaningCrew flag)
+// ============================================================
+// First station of the Cleaning Crew: the PROFILER, for exactly one new format --
+// PDF text extraction via PDF.js. Uploading a PDF here runs the SAME code path a
+// PDF dropped on the main upload zone takes (loaders.loadPdfAsDataset ->
+// profilePdf -> loadRowsAsDataset), so the extracted text becomes an ordinary
+// queryable dataset; this panel additionally shows the profile summary and the
+// AI Readiness Gate verdict. The flag is checked HERE (the caller), never inside
+// js/cleaning-crew/*. PDF.js is heavy and loads lazily on the first upload only --
+// never on tab open. Batch 1 is Profiler-only and PDF-only; the other four
+// stations, OCR, audio and run persistence are future batches.
+
+async function renderCleaningCrewTab() {
+  const host = document.getElementById('cleaning-crew-body');
+  if (!host) return;
+  if (!isEnabled('cleaningCrew')) { host.innerHTML = ''; return; }
+
+  host.innerHTML = `
+    <div class="cleaning-crew" data-testid="cleaning-crew" style="display:flex; flex-direction:column; gap:var(--space-4);">
+      <div class="crew-station" data-testid="crew-station-profiler" style="display:flex; align-items:center; gap:var(--space-2);">
+        ${iconSvg('sparkles', 20)}
+        <div>
+          <strong>Profiler</strong>
+          <div style="color:var(--color-text-muted); font-size:var(--text-sm);">Station 1 of 5 — profiles an uploaded PDF: how many pages have extractable text vs. are scanned images. Runs fully on your device.</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:var(--space-2);">
+        <button type="button" class="btn btn-primary" id="btn-crew-pdf" data-testid="btn-crew-pdf">Upload a PDF</button>
+        <input type="file" id="crew-pdf-input" data-testid="crew-pdf-input" accept="application/pdf,.pdf" style="display:none;" />
+        <span id="crew-pdf-status" data-testid="crew-pdf-status" style="color:var(--color-text-faint); font-size:var(--text-sm);"></span>
+      </div>
+      <div id="crew-profile" data-testid="crew-profile"></div>
+    </div>`;
+
+  const statusEl = $('#crew-pdf-status');
+  const input = $('#crew-pdf-input');
+  $('#btn-crew-pdf').addEventListener('click', () => input.click());
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    input.value = '';
+    if (!file) return;
+    statusEl.textContent = 'Loading PDF runtime & extracting text…';
+    $('#crew-profile').innerHTML = '';
+    try {
+      await ensureDuckDB();
+      const { ds, profile } = await loaders.loadPdfAsDataset(file);
+      statusEl.textContent = ds ? `Loaded "${escapeHtml(ds.name)}" — ${ds.rowCount} page-row(s).` : '';
+      renderCleaningCrewProfile(profile);
+      renderSidebar();
+    } catch (err) {
+      statusEl.textContent = '';
+      $('#crew-profile').innerHTML = `<div class="err" data-testid="crew-profile-error">Failed to profile PDF: ${escapeHtml(err.message)}</div>`;
+    }
+  });
+}
+
+function renderCleaningCrewProfile(profile) {
+  const el = document.getElementById('crew-profile');
+  if (!el) return;
+  const { gate, explanation } = pdfProfiler.evaluatePdfReadiness(profile);
+  const verdictClass = gate.agentConsumable ? 'ok' : 'err';
+  const warningsHtml = (profile.warnings || [])
+    .map((w) => `<li>${escapeHtml(w)}</li>`).join('');
+  el.innerHTML = `
+    <div class="crew-profile-card" data-testid="crew-profile-card" style="display:flex; flex-direction:column; gap:var(--space-2);">
+      <div><strong>Profile</strong></div>
+      <div data-testid="crew-page-count">Pages: <strong>${profile.pageCount}</strong></div>
+      <div data-testid="crew-pages-with-text">Pages with extractable text: <strong>${profile.pagesWithText}</strong></div>
+      <div data-testid="crew-pages-without-text">Pages without extractable text: <strong>${profile.pagesWithoutText}</strong></div>
+      ${warningsHtml ? `<ul data-testid="crew-warnings" style="margin:0; color:var(--color-warn, #b7791f);">${warningsHtml}</ul>` : ''}
+      <div class="${verdictClass}" data-testid="crew-gate-verdict" style="white-space:pre-wrap; font-family:var(--font-mono); font-size:var(--text-sm);">${escapeHtml(explanation)}</div>
+    </div>`;
 }
 
 // ============================================================

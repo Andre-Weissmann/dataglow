@@ -1353,6 +1353,40 @@
       ]
     },
     {
+      "id": "cleaning-crew",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Language runtimes & visualization",
+      "name": "Cleaning Crew — Profiler station (PDF text extraction, Batch 1)",
+      "files": [
+        "js/cleaning-crew/pdf-profiler.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/cleaning-crew/pdf-profiler.js",
+          "name": "summarizePdfProfile"
+        },
+        {
+          "file": "js/cleaning-crew/pdf-profiler.js",
+          "name": "pdfProfileToRows"
+        },
+        {
+          "file": "js/cleaning-crew/pdf-profiler.js",
+          "name": "buildPdfGateLayers"
+        },
+        {
+          "file": "js/cleaning-crew/pdf-profiler.js",
+          "name": "evaluatePdfReadiness"
+        },
+        {
+          "file": "js/cleaning-crew/pdf-profiler.js",
+          "name": "profilePdf"
+        }
+      ]
+    },
+    {
       "id": "protocol",
       "platforms": [
         "browser",
