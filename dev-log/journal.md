@@ -7,6 +7,115 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 05:11 CT] Cleaning Crew Batch 1: Profiler station, PDF text extraction (PR #283, shipped dark)
+
+**Trigger:** Continuation of the "end-to-end multi-tool workbench + dashboard canvas" flagship build — a
+parallel batch built alongside Drill Floor Batch 2 in the same run.
+
+**Step 1 findings:** Clean at the start of this run — 0 open PRs, 0 orphaned branches, CI green on `main`
+at commit `de6323f` (post Drill Floor Batch 2 merge, PR #282, logged separately below).
+
+**Decision:** Ship the first Cleaning Crew station — a Profiler that reads PDF files and extracts text/
+tabular content client-side, no server round-trip. Deliberately scoped out for future batches: Extractor/
+Cleaner/Validator/Documenter stations, OCR (Tesseract.js), audio (Whisper), embeddings/vector store, and
+run persistence.
+
+**Built:** `js/cleaning-crew/pdf-profiler.js` — exports `summarizePdfProfile`, `pdfProfileToRows`,
+`buildPdfGateLayers`, `evaluatePdfReadiness`, `profilePdf`, `ensurePdfjs`, `PDF_DATASET_COLUMNS`. Lazy
+PDF.js v3 UMD load from jsDelivr CDN on first PDF only, parsing runs in a Web Worker, zero network egress
+for file content, never-throw discipline matching sibling detection modules. `js/app-shell/loaders.js`
+gained `loadPdfAsDataset(file)` and a new `ext === 'pdf'` branch in `loadFile()` that reuses the existing
+`loadRowsAsDataset()` path (not routed through the Agent Action Firewall, consistent with every other
+`loadFile` branch). `js/app-shell/main.js` gained `renderCleaningCrewTab()`/`renderCleaningCrewProfile()`,
+gated behind the new `cleaningCrew` flag, plus tab-bar/command-deck/tabOrder wiring. `index.html` gained a
+new `#panel-cleaningcrew` section and `.pdf` added to the upload accept attribute.
+
+**Outcome:** shipped-dark
+
+**Safety notes:** Independently re-verified rather than trusting the building subagent's self-report —
+read `pdf-profiler.js`, `loaders.js`, and `main.js` in full myself. Caught and resolved a real incident
+mid-run: a second `codebase` subagent was run concurrently against the same shared sandbox/repo clone as
+the Drill Floor Batch 2 build, and the two collided on the same working tree/branch, intermingling file
+edits from both unrelated batches — this caused one subagent to misread the mixed state as "already
+complete." Recovered by disentangling the two batches' changes, re-verifying each independently, and
+re-testing both from clean state before opening either PR. **Process learning below captures the fix.**
+After the merge order landed Drill Floor Batch 2 (PR #282) first, this branch needed a rebase onto the
+new `main` — resolved conflicts in 4 files (`.github/workflows/test.yml`, `package.json`,
+`docs/capability-map.md`, `js/app-shell/main.js`) by keeping BOTH batches' additions in every case, then
+re-ran the full test suite post-rebase before pushing and re-confirming CI green on the rebased commit.
+
+**Flag:** `cleaningCrew`, `enabled: false` at end of run.
+
+**Blast radius:** small — purely additive new tab/module gated behind a flag defaulting to false; no
+existing `enabled:true` path modified; PDF parsing runs in an isolated Web Worker.
+
+**Hygiene debt:** 0 open PRs + 0 orphaned branches + 7 stale-eligible-tracking flags (`glowCanvas`,
+`drillFloor`, `cleaningCrew`, `conversationalPackBuilderVoice`, `meetingScribeLiveCapture`,
+`provenancePacket`, `openFloorSandboxTwin` — none yet past the 3-merged-PR promote-or-delete threshold) +
+0 failing CI on `main` = flat vs. the last 3 entries; dark-flag count rose from 4 to 7 this run (2 new
+flagship batches shipped dark: `drillFloor` and `cleaningCrew`) — a rising trend worth watching, since
+more dark flags outstanding means more pending One-Confirm decisions queued up for the user.
+
+**Process learning:** Never run two `codebase` subagents concurrently against the same shared sandbox/
+repo clone — they collide on the same working tree/branch and intermingle unrelated batches' file edits.
+Future parallel builds on this repo must use separate clones/worktrees, or must be sequenced rather than
+parallelized within the same sandbox. This was the root cause of the entire repair effort in this run.
+
+**PR(s):** [github.com/Andre-Weissmann/dataglow/pull/283](https://github.com/Andre-Weissmann/dataglow/pull/283)
+
+**Portfolio note:** Shipped a client-side PDF-profiling station (PDF.js in a Web Worker, zero server
+round-trip) as the first module of a planned five-station "Cleaning Crew" data-prep pipeline, while also
+recovering from and documenting a genuine multi-agent coordination failure (two build agents colliding on
+a shared working tree) — the kind of operational lesson that improves how future batches get built, not
+just what got built this time.
+
+---
+
+## [2026-07-17 05:11 CT] Drill Floor Batch 2: cross-language result-diff engine (PR #282, shipped dark)
+
+**Trigger:** Continuation of the "Drill Floor & Glow Canvas" flagship build — the second Drill Floor
+batch, adding a diff engine on top of Batch 1's "Spot the Sale" drill (PR #280).
+
+**Step 1 findings:** Clean at the start of this run — 0 open PRs, 0 orphaned branches, CI green on `main`
+at commit `49a8894` (post Drill Floor Batch 1 journal log, PR #281).
+
+**Decision:** Ship a pure cross-language result-diff engine so a learner's SQL/Python/R answers to the
+same drill can be compared against each other, not just against a single "correct" answer — surfacing
+where languages disagree and offering a caveat-flagged likely cause, never an invented explanation.
+
+**Built:** `js/drill-floor/drill-diff.js` — exports `parseMatchedRows`, `compareDrillResults`,
+`suggestLikelyCause`, `LANG_LABELS`. Never invents numbers; explicit about unknown/error/not-run states;
+cause suggestions are always caveat-flagged rather than asserted as fact. Pure, dependency-free, Node-
+testable exactly like the sibling Drill Floor and validation modules.
+
+**Outcome:** shipped-dark
+
+**Safety notes:** Independently re-verified rather than trusting the building subagent's self-report —
+read `drill-diff.js` in full myself, confirmed the never-invents-numbers and caveat-flagging discipline
+directly in the code. This batch was built concurrently with Cleaning Crew Batch 1 in the same sandbox —
+see that entry above for the coordination incident this exposed and how it was resolved; this batch's own
+final content was unaffected once disentangled and re-verified independently.
+
+**Flag:** `drillFloor`, `enabled: false` at end of run (same flag as Batch 1, PR #280 — not a new flag).
+
+**Blast radius:** small — pure, dependency-free addition to an already-flag-gated tab; no existing
+`enabled:true` path touched.
+
+**Hygiene debt:** see combined figure in the Cleaning Crew Batch 1 entry above (both batches merged in
+the same run).
+
+**Process learning:** See the Cleaning Crew Batch 1 entry above — same underlying lesson (subagent/
+sandbox collision), logged once in detail there since it applied to both batches equally.
+
+**PR(s):** [github.com/Andre-Weissmann/dataglow/pull/282](https://github.com/Andre-Weissmann/dataglow/pull/282)
+
+**Portfolio note:** Built a pure cross-language verification engine that compares SQL/Python/R query
+results on the same practice problem and surfaces genuine discrepancies with caveat-flagged (never
+invented) likely causes — a concrete answer to "how do you know your different-language implementations
+agree," framed as a teaching tool rather than a hidden internal check.
+
+---
+
 ## [2026-07-16 21:09 CT] Drill Floor Batch 1: "Spot the Sale" practice drill in SQL/Python/R (PR #280, shipped dark)
 
 **Trigger:** Continuation of the "Drill Floor & Glow Canvas" flagship build. This starts the other half of
