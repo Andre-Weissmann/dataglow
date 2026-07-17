@@ -193,3 +193,16 @@ jobs:
       - run: npm ci
       - run: npm run test:drillfloor
       - run: npm run test:drilldiff
+
+  # Inline job (see the 50-reusable-workflow cap note above) — NOT a job-<name>.yml.
+  cleaning-crew:
+    name: Cleaning Crew (PDF Profiler summarization + readiness-gate wiring)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:cleaningcrew

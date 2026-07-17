@@ -8,6 +8,7 @@ import { sanitizeTableName, toast } from './utils.js';
 import * as engine from './duckdb-engine.js';
 import { startProvenance, hashBytes } from '../provenance/provenance.js';
 import { buildOmopSample, buildFhirSample, flattenFhirBundle } from '../validation/health-standards.js';
+import { profilePdf, pdfProfileToRows, PDF_DATASET_COLUMNS } from '../cleaning-crew/pdf-profiler.js';
 
 function uniqueTableName(baseName) {
   const existingTables = new Set(state.datasets.map(d => d.table));
@@ -19,6 +20,15 @@ function uniqueTableName(baseName) {
 
 export async function loadFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
+  // PDF is handled by the Cleaning Crew's Profiler station: it is not a DuckDB
+  // native format, so it takes a dedicated branch that extracts text and ingests
+  // it via loadRowsAsDataset (below) rather than the buffer-registration path the
+  // CSV/JSON/Parquet formats share. Kept as one more branch in the SAME
+  // format-detection dispatch so existing formats are byte-for-byte unchanged.
+  if (ext === 'pdf') {
+    const { ds } = await loadPdfAsDataset(file);
+    return ds;
+  }
   // Two uploads with the same filename stem but different extensions (e.g. sales.csv
   // and sales.json) would otherwise collide on the same DuckDB table name and silently
   // overwrite each other's data via CREATE OR REPLACE TABLE. Disambiguate up front.
@@ -121,6 +131,39 @@ export async function loadRowsAsDataset({ name, columns, rows, source = 'rows', 
     toast(`Failed to load ${name}: ${err.message}`, 'error');
     throw err;
   }
+}
+
+// ============================================================
+// Cleaning Crew — Profiler station: PDF ingestion (Batch 1)
+// ============================================================
+// Profile an uploaded PDF and ingest its extracted text as an ordinary local
+// dataset, following the SAME in-memory path a CSV/JSON upload ends in
+// (loadRowsAsDataset). PDF.js is loaded lazily by profilePdf() only when this
+// runs — never on tab open or app load — and parses entirely client-side, so a
+// PDF's contents never leave the browser. Returns { ds, profile } so a caller
+// (the Cleaning Crew panel) can render the profile summary + readiness verdict;
+// the generic loadFile() dispatch above uses only `ds`.
+//
+// Firewall note: like every other loadFile branch (CSV/JSON/Parquet/Excel), this
+// is a user-initiated file import, not an agent-proposed mutation, so it does NOT
+// route through the Agent Action Firewall — matching the existing precedent
+// rather than inventing a stricter rule for PDFs.
+export async function loadPdfAsDataset(file) {
+  const profile = await profilePdf(file);
+  const rows = pdfProfileToRows(profile);
+  const ds = await loadRowsAsDataset({
+    name: file.name,
+    columns: PDF_DATASET_COLUMNS,
+    rows,
+    source: 'pdf',
+    meta: {
+      format: 'PDF',
+      pageCount: profile.pageCount,
+      pagesWithText: profile.pagesWithText,
+      pagesWithoutText: profile.pagesWithoutText,
+    },
+  });
+  return { ds, profile };
 }
 
 // ============================================================
