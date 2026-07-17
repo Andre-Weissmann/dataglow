@@ -157,6 +157,28 @@ async function main() {
       'real columns of a CREATE TABLE-created table are NOT flagged as hallucinated (M1 fixed)');
     ok(/never references it/i.test(realText),
       'the contract resolved the table via the live catalog (guard-clause note present, not the empty-schema fallback)');
+
+    // Stale-generation regression (2026-07-17): a slow first query's
+    // buildLiveSchemaForContract().then() callback must never fire after a
+    // second query has already started and re-rendered #sql-result-wrap —
+    // pre-fix, this raced intermittently (~1 in 10 real-Chrome runs) and hung
+    // waiting for a contract card that got stomped by the stale callback.
+    // Fire two queries back-to-back with no settle between the click calls
+    // (skipping runSql's own settle-wait) to maximize the chance of
+    // reproducing the race if it regresses.
+    // Both queries must aggregate (checkMissingGuardClauses only fires on
+    // aggregate SELECTs), so the guard-clause note reliably produces a
+    // non-empty report and the card renders after each query.
+    await page.fill('#sql-input', 'SELECT SUM(amount) AS a FROM dg_m1_foo;');
+    await page.click('#btn-sql-run');
+    await page.fill('#sql-input', 'SELECT SUM(quantity) AS q FROM dg_m1_foo;');
+    await page.click('#btn-sql-run');
+    const raceText = await waitForContractCard(page);
+    ok(!/hallucinat/i.test(raceText),
+      'rapid-fire second query still renders a clean contract card (no stale-callback corruption)');
+    const statusAfterRace = await page.evaluate(() => document.querySelector('#sql-status')?.textContent || '');
+    ok(/row\(s\)/i.test(statusAfterRace),
+      'sql-status reflects the second (latest) query, not a stale first-query state');
   } catch (err) {
     failed++;
     console.log('\n✗ FAILED: ' + (err && err.message ? err.message : err));

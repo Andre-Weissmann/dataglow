@@ -1378,6 +1378,18 @@ function renderBeamAffordance(detail, seal) {
 // tab behaves exactly as before this PR.
 let sqlDialect = 'duckdb';
 
+// Race guard: buildLiveSchemaForContract() (used by both the Local Analysis
+// Contract and Query Sentinel below) does real async catalog lookups whose
+// timing varies with query complexity. If the analyst fires a second query
+// before the first query's schema lookup + .then() callback has resolved,
+// that stale callback would otherwise still fire and mutate #sql-result-wrap
+// out from under the newer query's already-rendered result — the exact race
+// that made test/e2e-analysis-contract.test.mjs intermittently hang waiting
+// for a card that got stomped before it could be read. Each runSqlQuery()
+// call captures the current token; any async work started under an older
+// token is stale and must no-op once a newer query has begun.
+let sqlQueryGeneration = 0;
+
 async function runSqlQuery() {
   const rawSql = $('#sql-input').value.trim();
   if (!rawSql) return;
@@ -1386,6 +1398,7 @@ async function runSqlQuery() {
   // is a byte-for-byte no-op, so the rest of the flow is unchanged.
   const sql = isEnabled('multiDialectSql') ? translateDialectSql(rawSql, sqlDialect) : rawSql;
   await ensureDuckDB();
+  const myGeneration = ++sqlQueryGeneration;
   const statusEl = $('#sql-status');
   const resultWrap = $('#sql-result-wrap');
   statusEl.textContent = 'Running…';
@@ -1427,10 +1440,30 @@ async function runSqlQuery() {
     // Query Memory (batch 2): fingerprints this SQL run against the tables/
     // columns it touched and renders a "seen before?" badge. No-op when the
     // queryMemory flag is off. Never blocks or delays the query.
+    //
+    // Bug fix (2026-07-17): this used to pass `resultWrap` itself as the badge
+    // host. renderQueryMemoryBadge() does `host.innerHTML = ''` before
+    // rendering the badge, so passing the whole result container meant every
+    // Query Memory render wiped out the result table, the AI Readiness Gate
+    // badge, and (once it lands, asynchronously, in the block below) the
+    // Analysis Contract / Query Sentinel cards — a second, independent race
+    // contributing to the same test/e2e-analysis-contract.test.mjs flakiness
+    // as the sqlQueryGeneration fix above. Every other call site of this
+    // function (Python/R) already uses its own small dedicated host div for
+    // exactly this reason; the SQL call site is now brought in line with that
+    // convention, plus the same generation-token guard as the async chains
+    // above, so a stale query's badge can never land after a newer query has
+    // started.
+    let queryMemoryHost = resultWrap.querySelector('#sql-query-memory-host');
+    if (!queryMemoryHost) {
+      queryMemoryHost = el('div', { id: 'sql-query-memory-host', style: 'margin-top:var(--space-2);' });
+      resultWrap.appendChild(queryMemoryHost);
+    }
     recordAndRenderQueryMemory(
-      resultWrap,
+      queryMemoryHost,
       { kind: QUERY_KINDS.SQL, text: sql, context: { tables: loadedTableNames(), columns: result.columns } },
       sql.slice(0, 80),
+      myGeneration,
     );
     // Object Space (Polyglot Workbench, Batch B): passively register the loaded
     // DuckDB tables as SQL-origin objects in the shared registry so the live
@@ -1455,6 +1488,12 @@ async function runSqlQuery() {
         ? { metrics: getRegisteredMetrics() }
         : {};
       buildLiveSchemaForContract(sql).then(schema => {
+        // Stale generation: a newer query has started (and already replaced
+        // resultWrap's contents) since this schema lookup began. Rendering
+        // now would corrupt the newer query's result, so skip silently —
+        // this is the exact race that made the e2e regression test
+        // intermittently hang (see sqlQueryGeneration comment above).
+        if (myGeneration !== sqlQueryGeneration) return;
         const report = runAnalysisContract(sql, schema, contractOptions);
         renderAnalysisContractCard(resultWrap, report);
         // Opt-in seal affordance (no-op unless verifiableCheckSeal is on). Never
@@ -1472,6 +1511,9 @@ async function runSqlQuery() {
       // exact same buildLiveSchemaForContract() schema shape (no duplicate
       // schema-collection code), and is equally best-effort/never-blocking.
       buildLiveSchemaForContract(sql).then(schema => {
+        // Same stale-generation guard as the Local Analysis Contract branch
+        // above — Query Sentinel shares the identical resultWrap-mutation race.
+        if (myGeneration !== sqlQueryGeneration) return;
         const sentinelReport = runQuerySentinel(sql, schema);
         renderQuerySentinelCard(resultWrap, sentinelReport);
       }).catch(() => { /* sentinel check is best-effort; never break the SQL tab */ });
@@ -1578,11 +1620,18 @@ function loadedTableNames() {
 // Record a run in Query Memory and render the "seen before?" badge into `host`.
 // No-op (and never throws into the caller) when the flag is off or IndexedDB is
 // unavailable — Query Memory is informational only and must never break a run.
-async function recordAndRenderQueryMemory(host, run, label) {
+// `expectedGeneration` is optional (Python/R call sites don't pass it, since
+// their hosts are dedicated per-run-not-per-tab elements with no equivalent
+// overlapping-query race). When provided (the SQL call site), skip rendering
+// if a newer query has started since this call was made — belt-and-suspenders
+// alongside the dedicated-host fix above, since IndexedDB latency here is
+// independent of and can outlast buildLiveSchemaForContract()'s latency.
+async function recordAndRenderQueryMemory(host, run, label, expectedGeneration) {
   if (!host || !isEnabled('queryMemory')) return;
   try {
     await memoryStore.initMemoryStore();
     const { priorLookup } = await queryMemoryLog.record(run, QUERY_MEMORY_AUTHOR, { label });
+    if (expectedGeneration !== undefined && expectedGeneration !== sqlQueryGeneration) return;
     renderQueryMemoryBadge({ host, lookupResult: priorLookup });
   } catch (e) { /* Query Memory is best-effort; never break the run it sits beside */ }
 }
