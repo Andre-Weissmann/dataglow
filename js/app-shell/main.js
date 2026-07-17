@@ -27,6 +27,7 @@ import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
 import * as drillFloorData from '../drill-floor/drill-floor-data.js';
+import * as drillDiff from '../drill-floor/drill-diff.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
 import * as formatFingerprint from '../cleaning/format-fingerprint.js';
@@ -7014,7 +7015,7 @@ async function renderGlowCanvasTab() {
 }
 
 // ============================================================
-// Drill Floor Tab (Batch 1 -- ships dark behind the drillFloor flag)
+// Drill Floor Tab (Batch 1 + Batch 2 -- ships dark behind the drillFloor flag)
 // ============================================================
 // Practice-problem module: the SAME drill is solved side-by-side in SQL, Python
 // and R against the drill's own bundled tables (drill_orders / drill_promos),
@@ -7023,6 +7024,14 @@ async function renderGlowCanvasTab() {
 // NOT initialize them when the tab opens -- only on the first click of each
 // language's Run button (see the handlers below), mirroring ensurePythonRuntime /
 // ensureRRuntime used by the Python/R tabs.
+//
+// Batch 2 adds a cross-language comparison panel below the three columns. After
+// EVERY run we store that language's latest result and re-run the PURE diff
+// engine (js/drill-floor/drill-diff.js) over whatever has run so far, so the
+// panel is always accurate for partial state: each language shows its own
+// not-run / errored / no-count / row-count status, and when two or more counts
+// are comparable the panel explains match/mismatch grounded in the ACTUAL
+// numbers plus an optional caveat-flagged likely-cause hint.
 
 let drillFloorLoaded = false;
 const DRILL_FLOOR_ACTIVE_ID = 'spot-the-sale';
@@ -7058,6 +7067,7 @@ async function renderDrillFloorTab() {
         ${pane('python', 'Python', 'drill-py-input', 'btn-drill-py-run', 'drill-py-output', drill.starterPython)}
         ${pane('r', 'R', 'drill-r-input', 'btn-drill-r-run', 'drill-r-output', drill.starterR)}
       </div>
+      <div class="drill-comparison card" id="drill-comparison" data-testid="drill-comparison" style="padding:var(--space-3);"></div>
     </div>`;
 
   // Load the drill's sample tables once per session. This runs CREATE OR REPLACE
@@ -7092,11 +7102,43 @@ async function renderDrillFloorTab() {
     out.innerHTML = html;
   };
 
+  // Per-language latest result (null = "not yet run" -- a distinct state from an
+  // errored run or a run with no readable count). Fed verbatim to the pure diff
+  // engine, whose return shapes each language's run* output already matches.
+  const drillResults = { sql: null, python: null, r: null };
+
+  const updateComparison = () => {
+    const panel = document.getElementById('drill-comparison');
+    if (!panel) return;
+    const summary = drillDiff.compareDrillResults(drillResults);
+    const suggestion = drillDiff.suggestLikelyCause(summary);
+    const chip = (lang) => {
+      const e = summary.languages[lang];
+      let detail;
+      if (e.state === 'ok') detail = `${e.count.toLocaleString()} rows`;
+      else if (e.state === 'error') detail = 'error';
+      else if (e.state === 'unknown') detail = 'no count';
+      else detail = 'not run';
+      return `<span class="badge" data-testid="drill-cmp-${lang}" data-state="${e.state}">${escapeHtml(drillDiff.LANG_LABELS[lang])}: ${escapeHtml(detail)}</span>`;
+    };
+    let html = `<div style="display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;">
+        <strong>Comparison</strong>${chip('sql')}${chip('python')}${chip('r')}
+      </div>
+      <p data-testid="drill-cmp-status" data-status="${summary.status}" style="margin:var(--space-2) 0 0;">${escapeHtml(summary.message)}</p>`;
+    if (suggestion) {
+      html += `<p data-testid="drill-cmp-suggestion" style="margin:var(--space-2) 0 0; color:var(--color-text-muted);"><strong>Possible cause</strong> — ${escapeHtml(suggestion.text)}</p>`;
+    }
+    panel.innerHTML = html;
+  };
+  updateComparison();
+
   $('#btn-drill-sql-run').addEventListener('click', async () => {
     const out = document.getElementById('drill-sql-output');
     out.innerHTML = '<span style="color:var(--color-text-faint);">Running…</span>';
     const res = await drillFloor.runDrillSql($('#drill-sql-input').value, { runQuery: engine.runQuery });
     renderDrillOutput('drill-sql-output', res);
+    drillResults.sql = res;
+    updateComparison();
   });
 
   $('#btn-drill-py-run').addEventListener('click', async () => {
@@ -7106,12 +7148,17 @@ async function renderDrillFloorTab() {
     try {
       await pyRuntime.initPyodideRuntime();
     } catch (err) {
-      renderDrillOutput('drill-py-output', { error: 'Python runtime failed to load: ' + err.message });
+      const res = { error: 'Python runtime failed to load: ' + err.message };
+      renderDrillOutput('drill-py-output', res);
+      drillResults.python = res;
+      updateComparison();
       return;
     }
     out.innerHTML = '<span style="color:var(--color-text-faint);">Running…</span>';
     const res = await drillFloor.runDrillPython($('#drill-py-input').value, { runPython: (c) => pyRuntime.runPython(c, getActiveDataset()?.table) });
     renderDrillOutput('drill-py-output', res);
+    drillResults.python = res;
+    updateComparison();
   });
 
   $('#btn-drill-r-run').addEventListener('click', async () => {
@@ -7121,12 +7168,17 @@ async function renderDrillFloorTab() {
     try {
       await rRuntime.initWebRRuntime();
     } catch (err) {
-      renderDrillOutput('drill-r-output', { error: 'R runtime failed to load: ' + err.message });
+      const res = { error: 'R runtime failed to load: ' + err.message };
+      renderDrillOutput('drill-r-output', res);
+      drillResults.r = res;
+      updateComparison();
       return;
     }
     out.innerHTML = '<span style="color:var(--color-text-faint);">Running…</span>';
     const res = await drillFloor.runDrillR($('#drill-r-input').value, { runR: rRuntime.runR });
     renderDrillOutput('drill-r-output', res);
+    drillResults.r = res;
+    updateComparison();
   });
 }
 

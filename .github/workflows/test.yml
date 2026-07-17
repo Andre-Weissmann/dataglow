@@ -182,7 +182,7 @@ jobs:
 
   # Inline job (see the 50-reusable-workflow cap note above) — NOT a job-<name>.yml.
   drill-floor:
-    name: Drill Floor (sample data + SQL/Python/R delegation contract)
+    name: Drill Floor (sample data + SQL/Python/R delegation + cross-language diff)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -192,3 +192,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:drillfloor
+      - run: npm run test:drilldiff
