@@ -148,5 +148,42 @@
       "notTouched": "No existing js/provenance/ module, no existing flag, and no existing enabled:true UI path was modified \u2014 this batch only adds a new file, a new flag (default false), and a new additive call site."
     },
     "outcome": "shipped-dark"
+  },
+  {
+    "id": "chk_20260717_1",
+    "startedAt": "2026-07-16T21:09:00Z",
+    "endedAt": "2026-07-17T10:11:00Z",
+    "trigger": "run-end",
+    "title": "Merged Drill Floor Batch 2 (cross-language diff engine) and Cleaning Crew Batch 1 (PDF profiler) \u2014 both shipped dark; recovered from a subagent/sandbox collision mid-run",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 29,
+      "orphanBranches": 0,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 29,
+      "orphanBranches": 0,
+      "darkFlags": 7,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 20,
+      "additions": 1140,
+      "deletions": 12
+    },
+    "commits": [
+      "de6323f",
+      "246f13f"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/283",
+    "verification": {
+      "testsRun": 268,
+      "testsPassed": 268,
+      "notTouched": "No existing enabled:true UI path modified in either batch; drill-diff.js and pdf-profiler.js are both purely additive new modules gated behind their own flags (drillFloor, cleaningCrew), both still false. Cleaning Crew's remaining stations (Extractor/Cleaner/Validator/Documenter), OCR, audio transcription, embeddings, and run persistence were not touched this run."
+    },
+    "outcome": "shipped-dark"
   }
 ]
