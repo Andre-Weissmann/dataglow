@@ -7,6 +7,68 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 19:40 CT] Glow Canvas Batch 1: multi-chart dashboard shell (PR #276, shipped dark)
+
+**Trigger:** "List Time" flagship brainstorm round (topic: Ingestion & multimodal / Cleaning Crew, ambition:
+Super big) — the user explicitly flagged DataGlow's Visualize tab as "so-so" vs. Power BI during the
+honesty check, and asked for the process to combine strongest ideas into one flagship concept rather than
+ship several disconnected small features. Ranked ideas this round (Drill Floor, Glow Canvas, Cleaning
+Crew multimodal ingestion, a loop-engineered eval harness) were combined into one story — "The DataGlow
+Drill Floor & Glow Canvas" — get data in, solve it side by side in SQL/Python/R, see it on a real
+dashboard. This entry covers only the first batch of the dashboard half.
+
+**Step 1 findings:** Clean — 0 open PRs, 0 orphaned branches, 0 stale flags, CI green on `main` at
+commit `c4477da` before this run started.
+
+**Decision:** Confirmed via direct code read that `js/runtimes-viz/visualize.js` was genuinely only 55
+lines and rendered exactly one chart into one container — no multi-chart canvas existed. Rather than
+build the whole "Drill Floor & Glow Canvas" concept in one shot (assessed as unsafe — it spans the
+SQL/Python/R runtime bridges, the Object Space registry, and a brand-new dashboard UI), split into 4
+batches and started with the smallest: the canvas shell itself, no cross-filtering yet.
+
+**Built:** `js/runtimes-viz/glow-canvas.js` (pure layout algebra — `createCanvasLayout`/`addCard`/
+`removeCard`/`updateCardPosition`/`serializeLayout`/`deserializeLayout`, same pure-core/thin-DOM split as
+`js/rooms/room-ui.js`; malformed input never throws) + a thin `renderCanvas` that reuses the EXISTING
+`viz.renderChart` per card rather than reimplementing chart drawing. New `canvasLayouts` IndexedDB store
+in `js/learning/memory-store.js` (DB v5→v6, guarded upgrade path) for save/reload. Flag-gated `glowcanvas`
+tab wired through `main.js`/`state.js`/`index.html`/`command-deck-nav.js`. Capability-map + docs entries.
+`test/glow-canvas.test.mjs` (35 assertions).
+
+**Outcome:** shipped-dark
+
+**Safety notes:** Build hit GitHub's hard 50-reusable-workflow-per-caller-file cap on `.github/workflows/
+test.yml` — the 51st `uses:` job broke the entire `tests` workflow's compilation. Fixed by adding the new
+test job INLINE (steps directly in `test.yml`) instead of a new `job-glow-canvas.yml` reusable workflow —
+inline jobs don't count toward the cap. This is a real, documented constraint, not patched around
+silently: the orchestrator is now at its ceiling for `uses:`-style jobs and needs restructuring (e.g.
+split across caller files) before the next new CI job can be added the old way. I independently re-ran
+`test:glowcanvas` (35/35), `test:capdrift` (24/24), and `test:objectspace` (32/32) myself on the PR branch
+before approving merge, rather than relying on the build report alone. Verified flag-off behavior by
+reading (not just trusting) `main.js`'s `visibleTabOrder` filter and `renderGlowCanvasTab()`'s early-return.
+
+**Flag:** `glowCanvas`, `enabled: false` (shipped dark, as planned — not yet awaiting an enable decision)
+
+**Blast radius:** small — 12 files, +703/-4 lines, additive only, `visualize.js`'s existing exports
+untouched, no network calls, only layout metadata (never raw rows) persists locally.
+
+**Hygiene debt:** 0 → 0 → 0 → 0 (flat). 0 open PRs, 0 orphaned branches, 0 stale flags, CI green on `main`
+post-merge.
+
+**Process learning:** The 50-reusable-workflow cap is now a real, load-bearing constraint on this repo's
+CI — the NEXT new CI job (whichever batch/feature needs one) should either also go inline, or this should
+be the trigger to finally restructure `test.yml` into multiple caller files before adding more. Flag this
+explicitly at the start of the next build run rather than rediscovering it the same way again.
+
+**PR(s):** [#276](https://github.com/Andre-Weissmann/dataglow/pull/276) — merged (squash), branch deleted.
+
+**Portfolio note:** Shipped the first piece of a real multi-chart dashboard canvas for DataGlow, directly
+addressing a gap I'd identified against Power BI's dashboarding depth — reused the existing chart engine
+rather than duplicating it, added persistence via a versioned IndexedDB migration, and caught a CI
+infrastructure ceiling (GitHub's reusable-workflow cap) that would have silently blocked every future PR
+had it gone unnoticed.
+
+---
+
 ## [2026-07-16 14:30 CT] Architecture research: DuckDB-WASM vs alternatives for any-format ingestion (docs-only)
 
 **Trigger:** Second of the user's three original standing asks this session — deep research comparing
