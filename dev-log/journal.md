@@ -7,6 +7,64 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-16 20:25 CT] Glow Canvas Batch 2: cross-filtering between dashboard cards (PR #278, shipped dark)
+
+**Trigger:** Continuation of the "Drill Floor & Glow Canvas" flagship build, user said "Yes" to continuing
+with Batch 2 immediately after Batch 1 merged. Second of the 4 planned batches for this concept.
+
+**Step 1 findings:** Clean — 0 open PRs, 0 orphaned branches, 0 stale flags, CI green on `main` at
+commit `23c3617` before this run started.
+
+**Decision:** Cross-filtering (click a bar/slice in one card, other same-table cards react) was the
+next highest-value increment toward closing the Power-BI dashboard-depth gap, per Batch 1's own plan.
+Scoped explicitly to same-table filtering only — no join-key/cross-table model yet, that's a future batch.
+
+**Built:** `visualize.js`'s `renderChart` gained two new optional trailing parameters — `whereClause` (a
+raw-SQL boolean clause ANDed into each chart type's query via a new `combineWhere` helper) and
+`opts.onPointClick` (a generic, injectable Plotly `plotly_click` callback, wired for bar/line/histogram/pie
+only — scatter/box correctly excluded since their axes are continuous, not categorical). Both are fully
+additive: I independently confirmed all six existing 5-argument call sites produce byte-identical SQL
+when `whereClause` is empty. `glow-canvas.js` gained a layout-level `activeFilter {table, column, value}`
+plus pure `setActiveFilter`/`clearActiveFilter`/`toggleFilter`/`filterWhereClause` functions (same
+never-mutate discipline as Batch 1), a filtered-card badge, a "Clear filter" toolbar affordance, and
+click-to-toggle-off behavior. Values are SQL-escaped (single quotes doubled) and column identifiers are
+escaped (double quotes doubled) before being spliced into SQL — verified by reading the escaping code
+directly, not just trusting the test names.
+
+**Outcome:** shipped-dark
+
+**Safety notes:** A subagent run was interrupted mid-build by an infrastructure socket error (not a task
+failure) — resumed the same subagent in the same sandbox rather than restarting from scratch, and it
+picked back up from its own uncommitted diff cleanly. I independently re-ran the full test suite myself
+on the actual PR branch after fetching it fresh (`test:glowcanvas` 69/69, `test:capdrift` 24/24,
+`test:objectspace` 32/32) and read the full diff line-by-line before approving — confirmed the escaping,
+the backward-compatibility claim, and the scatter/box exclusion rationale all hold up. CI: 55/55 green,
+using the same inline-job workaround Batch 1 established for the 50-reusable-workflow cap.
+
+**Flag:** `glowCanvas`, `enabled: false` (still shipped dark, Batch 3-4 still to come before any enable decision)
+
+**Blast radius:** small — 5 files, +404/-30, additive only, all existing 5-arg `renderChart` callers
+unaffected, no network calls, filter state is layout-local (never persisted data change).
+
+**Hygiene debt:** 0 → 0 → 0 → 0 (flat). 0 open PRs, 0 orphaned branches, 0 stale flags, CI green on `main`
+post-merge.
+
+**Process learning:** When a subagent fails on an infrastructure error mid-build (not a task error), check
+for an existing branch/uncommitted diff before spawning a fresh subagent — resuming the same subagent via
+`message_subagent` preserved its own context and finished cleanly rather than wasting the partial work.
+Also: the 50-reusable-workflow-cap workaround from Batch 1 is now a repeatable pattern (extend the existing
+inline job rather than adding a new one) — worth formalizing as a standing convention until the
+orchestrator is restructured.
+
+**PR(s):** [#278](https://github.com/Andre-Weissmann/dataglow/pull/278) — merged (squash), branch deleted.
+
+**Portfolio note:** Shipped click-to-cross-filter dashboard behavior — the kind of interaction that
+separates a real BI tool from a single-chart viewer — while independently re-verifying a subagent's SQL-
+escaping and backward-compatibility claims myself rather than trusting a self-report, and recovering
+cleanly from a mid-build infrastructure failure without losing work.
+
+---
+
 ## [2026-07-16 19:40 CT] Glow Canvas Batch 1: multi-chart dashboard shell (PR #276, shipped dark)
 
 **Trigger:** "List Time" flagship brainstorm round (topic: Ingestion & multimodal / Cleaning Crew, ambition:
