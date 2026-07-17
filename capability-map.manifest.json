@@ -1295,12 +1295,25 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Drill Floor (SQL/Python/R practice drills, Batch 1: Spot the Sale)",
+      "name": "Drill Floor (SQL/Python/R practice drills; Batch 1: Spot the Sale, Batch 2: cross-language result diff)",
       "files": [
         "js/drill-floor/drill-floor.js",
-        "js/drill-floor/drill-floor-data.js"
+        "js/drill-floor/drill-floor-data.js",
+        "js/drill-floor/drill-diff.js"
       ],
       "symbols": [
+        {
+          "file": "js/drill-floor/drill-diff.js",
+          "name": "compareDrillResults"
+        },
+        {
+          "file": "js/drill-floor/drill-diff.js",
+          "name": "suggestLikelyCause"
+        },
+        {
+          "file": "js/drill-floor/drill-diff.js",
+          "name": "parseMatchedRows"
+        },
         {
           "file": "js/drill-floor/drill-floor.js",
           "name": "DRILLS"
