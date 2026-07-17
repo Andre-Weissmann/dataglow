@@ -7,6 +7,90 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 08:18 CT] SQL Analysis Contract false-positive fix + two independent async render races (PR #287, merged, no flag)
+
+**Trigger:** Direct follow-up on the previous entry's logged-but-unfixed bug (ROUND()-as-alias false
+positive from the 2026-07-17 06:22 CT real-data test), plus a scope-expansion the user explicitly
+authorized ("Fix both. Fix it all.") to the full class of common SQL function names, not just ROUND().
+Mid-fix, an unrelated pre-existing flaky test (`test/e2e-analysis-contract.test.mjs`, ~1-in-10
+real-Chrome failure rate) surfaced; the user's explicit instruction ("Do all of the above") was to (1)
+root-cause and fix the flakiness now, (2) bundle that fix into this same PR, and (3) still log it as its
+own distinct tracked item rather than silently folding it into the SQL fix's own description — hence this
+entry names three things, not one.
+
+**Item 1 — SQL hallucination-detector false positive (the originally-logged bug):** The Local Analysis
+Contract's reference-resolution logic in `js/validation/analysis-contract.js` was flagging common SQL
+function calls (`ROUND()`, `SUM()`, `COUNT()`, `AVG()`, etc.) referenced by their `GROUP BY`/`ORDER BY`
+alias as if they were hallucinated column/table references never seen in the live catalog. Fixed broadly
+per explicit user direction: the identifier-matching logic now recognizes the general class of known SQL
+function names before treating an unresolved identifier as a hallucination candidate, not just `ROUND()`.
+Covered by new tests in `test/analysis-contract.test.mjs` reproducing the exact original repro query shape
+plus the broader function-name class.
+
+**Item 2 — Race #1, stale schema-lookup callback:** `buildLiveSchemaForContract(sql).then(...)` chains
+feeding both the Local Analysis Contract and Query Sentinel cards are fire-and-forget async work with
+real `await`ed catalog lookups. If a second query started and finished before a slower first query's
+chain resolved, the stale callback still fired afterward and rendered over the newer query's already-
+rendered `#sql-result-wrap` content. Fixed with a monotonic `sqlQueryGeneration` counter: each
+`runSqlQuery()` call captures its own generation; both `.then()` callbacks now bail out if a newer query
+has started since.
+
+**Item 3 — Race #2, Query Memory host mutation (found while chasing Race #1's incomplete fix):**
+`recordAndRenderQueryMemory()`'s SQL call site passed the entire `resultWrap` as its render host, unlike
+the Python/R call sites which already use small dedicated sub-host divs. `renderQueryMemoryBadge()`
+clears `host.innerHTML` before rendering, so a late-resolving Query Memory write (real IndexedDB latency,
+independent of and can outlast Race #1's schema-lookup latency) for a STALE first query could wipe out the
+entire result table, readiness badge, and contract/sentinel cards for whatever newer query had since
+rendered — more destructive than Race #1 and fully independent of it. Found via an instrumented
+MutationObserver debug script (created and deleted this session) tracing exactly when the query-memory div
+was injected relative to query completions. Fixed by giving the SQL call site its own dedicated
+`#sql-query-memory-host` div (mirroring the existing `renderReadinessGateBadge` pattern) plus the same
+generation-token guard as defense-in-depth.
+
+**Built:** All three fixes on one branch/PR (`fix/sql-hallucination-function-false-positives`), no feature
+flag — pure bug fixes with no new user-facing behavior beyond removing a false-positive warning and
+eliminating two DOM races. New regression coverage: `test/analysis-contract.test.mjs` (function-name class)
+and an expanded `test/e2e-analysis-contract.test.mjs` (two aggregate queries fired back-to-back with no
+settle-wait, specifically designed to keep catching this race class if it regresses).
+
+**Outcome — shipped, merged to main as `ff5ffc3`.** CI: all 57 jobs passed on the final commit
+(`f8a50d2`), including `e2e-smoke` (1m4s, the job that runs the exact regression test), `sql-logic`
+(32s), and `tauri-smoke` (7m20s). Independent verification (not just trusting CI): re-read the full diff
+line-by-line; personally re-ran `test:analysiscontract` (60/60), `test:sql` (14/14), `test:querymemory`
+(48/48), `test:querymemoryui` (13/13), and `test:e2e` (pass) on the exact merged commit. Stress-tested the
+specific flaky test across this whole session: 45 total local runs of `test:e2e-analysiscontract`, 0
+failures (previously ~1-in-10 real-Chrome failure rate before either race fix).
+
+**Safety notes:** Touches an always-on rendering path (SQL tab's Analysis Contract/Query Sentinel cards,
+always visible) and one dark/opt-in path (`queryMemory` flag, still defaults off) — in both cases the
+change only prevents an incorrect/stale render; no new capability exposed on either path. No
+migration/rollback risk — plain code change, revertible via `git revert`. Squash-merged after explicit
+`confirm_action` approval with a full safety assessment, per standing rule (every merge, dark or not,
+requires this).
+
+**Flag:** none — no flags added, changed, or touched.
+
+**Blast radius:** `js/app-shell/main.js` (SQL tab query-rendering sequencing only — no other tab, module,
+or flag's own logic touched) + `js/validation/analysis-contract.js` (identifier-matching only) +
+`test/analysis-contract.test.mjs` + `test/e2e-analysis-contract.test.mjs`.
+
+**Hygiene debt:** 0 open PRs (287 now closed/merged) + 0 orphaned branches (fix branch merged) + 7
+stale-eligible-tracking flags (unchanged, none past the 3-merged-PR threshold) + 0 failing CI on `main` =
+flat vs. the last 3 entries.
+
+**Process learning:** A bug found during a real-data test (the ROUND()-alias false positive, logged in
+the prior entry with no answer key to "match" against) turned out to have a sibling flaky-test bug hiding
+behind it — Race #1's incomplete first fix directly led to discovering the more destructive Race #2
+through repeated stress-testing rather than a single pass. This reinforces the prior entry's own lesson
+(real-data/real-repeated-run testing surfaces things a single synthetic pass or a single green CI run
+won't) one level deeper: even a race-condition fix should be stress-tested dozens of times, not just once,
+before treating a ~1-in-10 flake rate as resolved. Also reconfirmed the standing scope-expansion rule
+worked as intended here — the flakiness was surfaced mid-fix, and rather than silently expanding the PR,
+it was explicitly named as a distinct item and the user was left to decide how to proceed, which they did
+via "Do all of the above."
+
+---
+
 ## [2026-07-17 06:22 CT] Real-data portfolio-readiness test: CMS Medicare data, web + desktop (PR #285, docs-only, merged)
 
 **Trigger:** Direct user request outside the Mission Center trigger phrase ("Go grab a real current

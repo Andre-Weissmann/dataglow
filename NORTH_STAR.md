@@ -1210,6 +1210,57 @@ round. A future run should close the desktop gap with a real `tauri-driver`/Webd
 data today — every checked number matched independent verification, and the one real bug found is a
 UX/trust false-alarm, not a data-integrity defect.
 
+## Test findings (2026-07-17 run 2 — Story tab on-device model retest, real Chrome, headless sandbox)
+
+Direct follow-up on the previous entry's one open caveat: the 2026-07-17 real-CMS-data test did not
+verify the Story tab's on-device LLM narrative actually completing (its first-model-download attempt
+timed out that session before finishing). This run retested that one specific gap in isolation, using a
+real headless-Chrome browser (not a mock) with WebGPU explicitly enabled and a persistent browser profile
+(the first attempt used an ephemeral in-memory profile and hit a spurious `QuotaExceededError` from
+Chromium's storage-quota accounting under that specific profile type — re-run with a persistent profile
+directory to rule that artifact out, which it did).
+
+**What was confirmed working, end to end:** the full non-AI portion of the "dataset in → clean → analyze"
+loop, using the built-in Golden Test Dataset loader (100 rows, 10 columns) — load, run a live SQL query,
+navigate to Story, click Generate. The on-device download pipeline itself worked correctly: WebLLM's
+~829MB `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` weight cache downloaded cleanly over real network requests to
+Hugging Face + the MLC binary-libs mirror, reaching 100% in ~197 seconds in this sandbox, with the model's
+own live progress text ("Fetching param cache[N/30]: XMB fetched, Y% completed...") rendering correctly
+throughout — this is real, working, user-visible progress reporting, not a stub.
+
+**Where it actually stopped, precisely:** after the download finished and model loading proceeded to GPU
+shader-module compilation ("Loading GPU shader modules[7/75]..."), WebGPU shader creation failed with
+`Error while parsing WGSL: extension 'f16' is not allowed in the current environment` — this quantized
+model build (`q4f16_1`) requires the WGSL `f16` (half-precision float) extension, which this sandbox's
+headless-Chrome software GPU renderer (SwiftShader, the `--use-gl=swiftshader` CPU-emulated path used to
+get WebGPU running at all in a container with no real GPU) does not support. **This is a software-
+renderer ceiling specific to this test sandbox, not a confirmed DataGlow product bug** — real Chrome on
+real hardware (the README's own stated target, including "Chrome on Android") uses a native GPU driver,
+and `f16` support is a normal, common feature on modern GPU hardware. On shader failure, `ondevice-llm.js`
+caught the error and DataGlow correctly fell back to the rule-based offline story engine (`MODEL BADGE:
+"Rule-based (fallback)"`), which produced a correct, confidence-annotated narrative from the same query
+result — this is exactly the intended "co-pilot not autopilot" graceful-degradation behavior working as
+designed, not a crash or a silent failure.
+
+**Honest scope of what this run does and does not prove:**
+- Proves: the download pipeline, progress UI, model-cache flow, and — critically — the fallback safety
+  net all work correctly under real network conditions in a real browser engine.
+- Does NOT prove: the on-device model completing inference and producing an AI-written narrative on real
+  end-user hardware. This sandbox's software GPU renderer is a materially different environment from a
+  real user's Chrome (desktop with a real GPU, or Chrome on Android per the README's specific claim), and
+  the one failure found here is plausibly an artifact of that renderer rather than of DataGlow's own code.
+- This remains an open, not-yet-closed verification gap — a real-device or real-GPU-enabled-headless run
+  (e.g. a CI runner or local machine with actual GPU passthrough, not software rendering) is the correct
+  next step to close it definitively, one way or the other.
+
+**Recommendation for the founder:** for a real portfolio-project deadline today, treat the loop as: data
+in → clean → analyze → SQL/Story-with-rule-based-narrative → present, fully proven end to end right now.
+The on-device AI narrative specifically is an enhancement layer on top of that already-solid loop, not a
+load-bearing step in it — the rule-based fallback alone produces a legitimate, confidence-labeled written
+summary suitable for a proof-project write-up. Don't block a real deadline on the AI narrative completing
+until it's verified on real GPU hardware; if it works there (likely, given how far this run got), treat it
+as a bonus polish item, not a prerequisite.
+
 ## Architecture research: is DuckDB-WASM still the right foundation for any-format ingestion? (2026-07-16, docs-only)
 
 Deep research directly answering the founder's "any data format" ambition from run 6 (PDF/image/audio/
@@ -1355,6 +1406,15 @@ below when Readiness Gate ships.
    template, not just a domain pack.
 7. Governance-as-living-layer: one queryable interface for humans and agents (Gartner's "context as
    infrastructure" framing) — partially achieved once the Gate ships.
+8. **Minor, found 2026-07-17 (Story tab retest):** clicking "Generate Story" with no active dataset
+   populated (e.g. after only running a raw SQL `CREATE TABLE`/`SELECT`, never loading a file or the
+   Golden Test Dataset) throws an unhandled `Cannot read properties of null (reading 'table')` from
+   `getActiveDataset()` in the click handler (`js/app-shell/main.js`, Story tab), surfaced to the user
+   only as a generic error toast ("Story generation failed: Cannot read properties of null (reading
+   'table')"). Cosmetic/edge-case — fails instantly with no hang, no data loss, no crash beyond the one
+   handler — but the message is confusing to a real user who doesn't know what "table" refers to. Low
+   priority: a one-line pre-check ("Load a dataset first" toast) before calling `getActiveDataset()`
+   would close it; not bundled into PR #287 since it's unrelated to that PR's SQL-tab scope.
 
 ## Lessons learned
 
