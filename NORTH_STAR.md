@@ -1163,6 +1163,53 @@ regression. All 54 CI checks passed, including `tauri-smoke`.
 touched flags (`dataglowSidebarNav`, `roomsUi`) were already live; this PR changed their mobile
 presentation only. Full detail: `dev-log/journal.md`'s 2026-07-16 13:45 CT entry.
 
+## Test findings (2026-07-17 run — real CMS healthcare data, web + desktop)
+
+First run against genuinely real, current, external data instead of a synthetic seeded-defect fixture.
+Dataset: CMS's own public Medicare Physician & Other Practitioners by Provider and Service file (2024
+reference year, released 2026-05), pulled live via CMS's public Data API and filtered to 3,036
+Illinois-provider rows, 28 columns — de-identified, no DUA required. Full write-up:
+`dataglow_real_data_test_2026-07-17.md`.
+
+**Why this run matters more than a synthetic pass:** there was no pre-written answer key. Every
+DataGlow finding below was independently re-derived from the raw CSV with direct DuckDB queries run
+outside the app, so a match is real evidence the underlying engine is correct on real-world data, not
+just internally consistent with its own seeded test fixture.
+
+**Confirmed correct, independently re-verified:**
+- Preflight's null-column count (4/28) and duplicate-row count (0) — exact match.
+- Outlier detection (MAD z-score + Tukey IQR) on `Tot_Benes` — DataGlow's "378 high (MAD z>3.5), 298
+  above IQR fence (>153)" reproduced exactly from raw values (median 33, MAD 19, Q1=18, Q3=72).
+- Missingness Detective correctly identified MAR/MNAR patterns tied to provider rurality — a genuine
+  senior-analyst-level catch on real data, not a scripted response.
+- Fuzzy Duplicate Radar surfaced real near-duplicate provider names ("Franklin"≈"Frank",
+  "Martinez"≈"Martinez Mateo").
+- Blind Spot Scanner correctly flagged this specific CMS file's real absence of
+  race/ethnicity/payer/age/gender fields.
+- Zero-upload/local-first claim held under an actual network-blocking test (all external requests
+  aborted via Playwright route interception) — app still loaded the CSV and ran Preflight/Validate
+  correctly, zero blocked-attempt events even fired.
+
+**New bug found (reproducible, not yet fixed):** the SQL panel's hallucinated-reference check false-
+positives on `ROUND(...)` when used as an aliased column inside a `GROUP BY ... ORDER BY <alias>`
+query — a very common analyst query shape. The query still executes and returns correct results; only
+the warning banner is wrong. Isolated to the GROUP BY + aliased-ORDER-BY combination specifically
+(bare `ROUND()` calls and ungrouped queries do not trigger it). Likely root cause: the hallucination
+detector's identifier scan doesn't exclude known SQL function names when resolving an `ORDER BY` alias
+reference. Recommend as a P1 backlog item — low blast radius (warning-only, no data corruption) but
+high reproducibility on exactly the query pattern a healthcare/billing analyst writes daily.
+
+**Platform coverage caveat:** web was tested live end-to-end. Desktop (Tauri) was verified
+architecturally (byte-identical static asset copy, confirmed via `scripts/stage-desktop-frontend.mjs`
+source) plus CI's `tauri-smoke` job passing on this exact `main` commit — no local native Tauri window
+was actually driven this run (no Rust/cargo toolchain in the test sandbox). Mobile/PWA not tested this
+round. A future run should close the desktop gap with a real `tauri-driver`/WebdriverIO pass per
+`references/platform_architecture_notes.md`.
+
+**Overall verdict:** DataGlow's core data-quality engine is trustworthy on real healthcare billing
+data today — every checked number matched independent verification, and the one real bug found is a
+UX/trust false-alarm, not a data-integrity defect.
+
 ## Architecture research: is DuckDB-WASM still the right foundation for any-format ingestion? (2026-07-16, docs-only)
 
 Deep research directly answering the founder's "any data format" ambition from run 6 (PDF/image/audio/
