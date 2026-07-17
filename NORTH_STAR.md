@@ -1261,6 +1261,122 @@ summary suitable for a proof-project write-up. Don't block a real deadline on th
 until it's verified on real GPU hardware; if it works there (likely, given how far this run got), treat it
 as a bonus polish item, not a prerequisite.
 
+## Test findings (2026-07-17 run 3 — founder's 7-question readiness audit: healthcare accuracy, toolchain combos, dashboards, BI interop, cross-platform)
+
+A custom-scoped run answering the founder's own 7 specific questions directly, rather than a generic
+rubric sweep: (1) is DataGlow accurate end-to-end on a real healthcare dataset, (2) can a project be done
+in SQL-only / Excel-only / any combination, (3) are dashboards ready, (4) what happens if a stakeholder
+wants Power BI/Tableau, (5) other relevant factors, (6) is browser/desktop/mobile ready for real work, (7)
+would a DataGlow-built product be accurate enough to share on LinkedIn without a data professional pushing
+back. Full evidence (screenshots, Playwright scripts, raw SQL cross-checks) at
+`/home/user/workspace/dataglow_test_run_20260717/` in the test sandbox; full write-up in
+`dataglow_roadmap_2026-07-17.md` in that same directory.
+
+**Methodology — independent verification, not UI self-report:** built a fresh synthetic 1101-row claims
+dataset (seed=42) with 6 seeded-defect categories and a documented answer key, ran DataGlow's Validate tab
+("Run All 20 Layers," Healthcare domain pack) against it, then cross-checked every finding directly against
+the raw data using independent SQL queries run in DataGlow's own DuckDB-WASM engine — never trusting the
+UI's self-reported count alone.
+
+**Accuracy results — exact matches on 4 of 6 seeded defect categories:** allowed_amount > billed_amount
+(6/6 exact), missing procedure_code (5/5 exact), future-dated service_date (1/1 exact), orphan
+patient_id-not-in-patients.csv (1/1 exact, **but only when both related files are loaded together** — see
+usability finding below). Duplicate-claim counts were directionally correct but not exactly reconciled
+against the answer key's literal "15" this run (found 16 groups/32 rows under the answer key's own match
+definition) — flagged as an open follow-up, more likely a dataset-regeneration artifact than a detection
+bug. **NCCI-style same-day conflicting-procedure-pair detection is a confirmed gap** — verified via direct
+source inspection that no NCCI/CCI-edit module exists anywhere in `js/` (this repeats and now doubly
+confirms an item flagged open since the 2026-07-12 run 4 entry).
+
+**New unprompted strengths surfaced this run** (not seeded, found emerging naturally from the checks):
+Benford's Law digit-distribution check correctly flagged `billed_amount`/`allowed_amount` deviation;
+sensitive-column governance auto-disabled fuzzy-merge suggestions on the `payer` column (protected-category
+lockout, working exactly as intended); the Physiological Plausibility layer correctly skipped rather than
+false-flagged when no vital-sign columns were present in claims data — genuine "don't fabricate a finding"
+judgment; Denial Radar computed a real, specific denial rate (34.8%, 383/1101) directly from the data.
+
+**Confirmed usability gap — referential integrity is silently single-file-scoped:** loading `claims.csv`
+alone (the natural first move) never surfaces the orphan-reference check at all; it only activates once a
+related table (`patients.csv`) is also loaded, and there is currently no visible prompt telling a
+single-file user that a second file would unlock this check.
+
+**Confirmed workflow-breaking gap — Visualize cannot chart a SQL/derived query result:** ran a real GROUP
+BY aggregation in the SQL tab, then opened Visualize — the Y-axis dropdown only ever offered columns from
+the originally-uploaded table, never the query's own derived columns (e.g. `total_billed`, `claim_count`).
+Excel-only chart-building (charting the raw uploaded table directly, no SQL involved) worked cleanly by
+contrast, confirming this is specific to SQL-derived results, not a general Visualize bug. This is the
+single highest-priority fix from this run — it's what currently breaks the promise that SQL-only, Excel-
+only, and any combination of the two can each reach a finished chart.
+
+**Dashboard status, precisely:** the single-chart Visualize tab is live and produces genuinely
+presentation-quality output (verified by opening the actual exported PNG file). The actual named
+dashboard capability, Glow Canvas, remains `enabled: false` in `flags.manifest.json` — confirmed live in
+the running app that `tab-glowcanvas` is entirely absent from the rendered tabbar when the flag is off
+(not greyed out, just missing), so there is currently no visible signal to a user that a dashboard-builder
+exists at all.
+
+**BI-tool interop, verified by opening actual exported files (not just reading the export code):** Excel
+export is clean and BI-import-friendly, with two confirmed small bugs — dates are written as text, not
+native Excel date cells (forces a manual re-type on Power BI/Tableau import), and export filenames carry a
+double extension (e.g. `dataglow-claims.csv.xlsx`) because the internal table name retains the original
+file's extension. PDF export is real but thin (metadata/summary only, no embedded tables or charts) and
+has a confirmed, intentional-but-visible bug: `asciiSafe()` in `js/export/export-report.js` replaces all
+non-ASCII characters — including em-dashes — with a literal `?`, by design, for byte-offset parity in the
+hand-rolled PDF generator with no external PDF library; this produces visibly broken text like
+"DATAGLOW export ? claims.csv" in real exported files. **No native `.pbix`/`.twbx` export exists** —
+confirmed via direct code inspection, not a bug, simply unbuilt. The realistic path today is Excel export
+as a manual hand-off to whatever BI tool a stakeholder uses; product positioning should say this plainly
+rather than imply direct BI-tool integration.
+
+**Cross-platform, this run's honest coverage:** web (desktop browser) got the deepest hands-on pass and is
+the basis for everything above. Desktop (Tauri): confirmed the `tauri-smoke` CI job — the repo's own
+compile gate, documented as "nothing more" — passed on the latest `main` commit (`13c9952`) via direct
+`gh run view` inspection; could not run a live functional WebDriver/`tauri-driver` pass this run (no
+Rust/Cargo toolchain in this test sandbox), so "compiles" and "functionally identical to web" remain
+distinct, and only the first is verified this run. Mobile (installable PWA — confirmed again this run,
+no native Android/iOS project exists in the repo): `manifest.webmanifest` valid and fetches correctly with
+proper icon sets, service worker registers, content reflows cleanly with no overflow at a real iPhone 14
+viewport/touch emulation, file upload works via tap. Two new, minor, confirmed mobile findings: the tabbar
+and dialect-selector rows scroll correctly but have **no visible scroll affordance** (no arrow/fade/dots),
+and tab touch targets measured ~38.5px tall, slightly under the commonly-cited 44px (iOS)/48px (Material)
+minimum. Not verified this run: real-device WebGPU/on-device-AI behavior on actual Android hardware, and a
+real post-load network-cutoff offline test.
+
+**Story tab fallback behavior — consistent with the 2026-07-17 run 2 finding above:** in this sandbox
+(`navigator.gpu` present but no functional adapter), generating a story correctly fell back to the
+rule-based narrative engine rather than silently failing or fabricating output, and that fallback itself
+produced real computed statistics with an explicit small-sample confidence caveat ("Confidence: D · n=6...
+treat this average cautiously"). This corroborates run 2's finding that the fallback safety net works
+correctly, from a second, independent test session.
+
+**LinkedIn-shareability verdict (the founder's core underlying question):** conditionally yes, with a
+precise scope statement rather than a blanket claim. Share with confidence: any Validate/Clean/SQL-based
+data-quality finding (every independently-checkable seeded defect held up under direct SQL
+cross-verification), a single exported Visualize chart, and the governance features (AI-readiness gate,
+sensitive-column merge lockout, ZK proof options) as genuine differentiators. Do not yet claim, without
+caveat: "dashboard" (say "chart/visualization" until Glow Canvas ships), "direct BI-tool export" (say
+"exports to Excel for BI hand-off"), or "verified cross-platform parity" (say "ships to web, desktop, and
+mobile from one codebase," which is true and verifiable, not "tested identically across all three," which
+isn't yet true). The core data-quality engine's rigor (Benford's Law, kNN multivariate outliers, honest
+skip-when-inapplicable behavior, exact-count accuracy under independent cross-checking) is not something a
+senior data professional would dismiss as "needs more work" — the confirmed gaps are specific and fixable,
+not signs of a fundamentally unreliable engine.
+
+**Ranked fix list from this run (cheapest/highest-trust-impact first):** (1) Visualize-from-SQL-result —
+the single most workflow-breaking gap, closes the "any toolchain combination" promise; (2)
+referential-integrity discoverability — surface a prompt when a second file would unlock a check; (3)
+export filename double-extension bug and Excel date-as-text export — both small, both visible to a BI
+stakeholder; (4) PDF em-dash-to-`?` encoding bug — cosmetic, but visible in every export; (5) Glow Canvas —
+already built per the capability map, needs whatever gate is holding the flag dark cleared, then
+cross-filtering QA before flip; (6) NCCI same-day conflicting-procedure detection — a genuinely new build,
+real value for healthcare-claims positioning specifically; (7) mobile touch-target sizing and scroll
+affordance — low cost, meaningful given the founder's own iPhone-primary usage pattern.
+
+**Explicitly not covered this run:** live functional Tauri WebDriver pass, real physical Android/iOS
+device testing, full duplicate-count discrepancy reconciliation, Python/R tab correctness, and a formal
+Section 1-5 rubric Pass/Partial/Fail scoring matrix (this run answered the founder's 7 questions directly
+per their explicit ask; a full rubric-matrix run remains available as a future targeted rerun).
+
 ## Architecture research: is DuckDB-WASM still the right foundation for any-format ingestion? (2026-07-16, docs-only)
 
 Deep research directly answering the founder's "any data format" ambition from run 6 (PDF/image/audio/
