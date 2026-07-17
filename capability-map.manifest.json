@@ -1261,7 +1261,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Glow Canvas (multi-chart dashboard, Batch 1)",
+      "name": "Glow Canvas (multi-chart dashboard, Batch 2: cross-filtering)",
       "files": [
         "js/runtimes-viz/glow-canvas.js"
       ],
@@ -1277,6 +1277,14 @@
         {
           "file": "js/runtimes-viz/glow-canvas.js",
           "name": "renderCanvas"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "setActiveFilter"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "toggleFilter"
         }
       ]
     },

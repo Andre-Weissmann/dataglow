@@ -8,9 +8,15 @@
 // "cards", each laid out on a simple CSS grid, and draws each one by REUSING
 // that same viz.renderChart — it invents no new chart engine and moves no data.
 //
-// WHAT THIS BATCH DELIBERATELY DOES NOT DO: no cross-filtering between cards, no
-// drag-and-drop reordering, and no wiring into / replacement of the existing
-// Visualize tab — those are later batches. It ships fully dark behind the
+// BATCH 2 adds cross-filtering: clicking a categorical point/bar/slice in one
+// card sets a single canvas-wide activeFilter {table, column, value}; every card
+// on the SAME table redraws filtered (via viz.renderChart's new whereClause arg)
+// and is badged, while different-table cards render unfiltered (there is no
+// join-key model yet). Clicking the same point again toggles the filter off.
+//
+// WHAT THIS BATCH DELIBERATELY STILL DOES NOT DO: no drag-and-drop reordering,
+// no cross-table (join-key) filtering, and no wiring into / replacement of the
+// existing Visualize tab — those are later batches. It ships fully dark behind the
 // `glowCanvas` flag (enabled:false); with the flag off nothing here mounts and
 // the app shell is byte-for-byte unchanged. The flag is checked by the CALLER
 // in main.js, never inside this module.
@@ -47,7 +53,19 @@ export const CANVAS_CHART_TYPES = ['bar', 'line', 'scatter', 'pie', 'histogram',
  * @returns {{cards: Array<object>, nextId: number}}
  */
 export function createCanvasLayout() {
-  return { cards: [], nextId: 1 };
+  return { cards: [], nextId: 1, activeFilter: null };
+}
+
+// Normalize any value into a well-formed {table, column, value} cross-filter, or
+// null. A filter is only valid with a string table + string column and a
+// non-null value (coerced to string, matching how DuckDB categories come back);
+// anything else (garbage, partial, wrong types) becomes null and never throws.
+function normalizeFilter(filter) {
+  if (!filter || typeof filter !== 'object') return null;
+  const table = typeof filter.table === 'string' ? filter.table : null;
+  const column = typeof filter.column === 'string' ? filter.column : null;
+  if (table === null || column === null || filter.value === undefined || filter.value === null) return null;
+  return { table, column, value: String(filter.value) };
 }
 
 // Normalize any value into a well-formed layout object. Used by every pure
@@ -61,7 +79,11 @@ function normalizeLayout(layout) {
   const maxId = cards.reduce((m, c) => (Number.isFinite(c.id) && c.id > m ? c.id : m), 0);
   const declared = Number.isFinite(l.nextId) ? l.nextId : 1;
   const nextId = Math.max(declared, maxId + 1);
-  return { cards: cards.map(c => ({ ...c, gridPos: { ...(c.gridPos || {}) } })), nextId };
+  return {
+    cards: cards.map(c => ({ ...c, gridPos: { ...(c.gridPos || {}) } })),
+    nextId,
+    activeFilter: normalizeFilter(l.activeFilter),
+  };
 }
 
 // Find the next free grid slot, scanning row-by-row, column-by-column, so a new
@@ -118,7 +140,7 @@ export function addCard(layout, cardSpec = {}) {
     title: typeof spec.title === 'string' ? spec.title : '',
     gridPos,
   };
-  return { cards: [...l.cards, card], nextId: id + 1 };
+  return { cards: [...l.cards, card], nextId: id + 1, activeFilter: l.activeFilter };
 }
 
 /**
@@ -131,7 +153,7 @@ export function addCard(layout, cardSpec = {}) {
  */
 export function removeCard(layout, cardId) {
   const l = normalizeLayout(layout);
-  return { cards: l.cards.filter(c => c.id !== cardId), nextId: l.nextId };
+  return { cards: l.cards.filter(c => c.id !== cardId), nextId: l.nextId, activeFilter: l.activeFilter };
 }
 
 /**
@@ -160,7 +182,79 @@ export function updateCardPosition(layout, cardId, gridPos = {}) {
       },
     };
   });
-  return { cards, nextId: l.nextId };
+  return { cards, nextId: l.nextId, activeFilter: l.activeFilter };
+}
+
+// ---------- cross-filter (Batch 2): a single canvas-wide active filter ----------
+// The filter is a top-level {table, column, value} on the LAYOUT (not per-card).
+// Cross-filter semantic for this batch: a card reacts ONLY if its `table` equals
+// the filter's table (there is no join-key model yet, so different-table cards
+// cannot be meaningfully filtered — that's a future batch). All three functions
+// follow the same never-mutate / return-a-new-layout discipline as addCard.
+
+/**
+ * PURE. Return a NEW layout whose activeFilter is set to `filter` (normalized;
+ * garbage becomes null). The input layout is never mutated.
+ * @param {object} layout
+ * @param {{table:string, column:string, value:*}|null} filter
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: object|null}}
+ */
+export function setActiveFilter(layout, filter) {
+  const l = normalizeLayout(layout);
+  return { cards: l.cards, nextId: l.nextId, activeFilter: normalizeFilter(filter) };
+}
+
+/**
+ * PURE. Return a NEW layout with no active filter. The input is never mutated.
+ * @param {object} layout
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: null}}
+ */
+export function clearActiveFilter(layout) {
+  const l = normalizeLayout(layout);
+  return { cards: l.cards, nextId: l.nextId, activeFilter: null };
+}
+
+/**
+ * PURE. Toggle a cross-filter: if `filter` is already exactly the active one
+ * (same table+column+value), clear it; otherwise set it. This gives the real
+ * cross-filter UX where clicking the same point again turns the filter off.
+ * @param {object} layout
+ * @param {{table:string, column:string, value:*}} filter
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: object|null}}
+ */
+export function toggleFilter(layout, filter) {
+  const l = normalizeLayout(layout);
+  const next = normalizeFilter(filter);
+  const cur = l.activeFilter;
+  if (next && cur && cur.table === next.table && cur.column === next.column && cur.value === next.value) {
+    return { cards: l.cards, nextId: l.nextId, activeFilter: null };
+  }
+  return { cards: l.cards, nextId: l.nextId, activeFilter: next };
+}
+
+// Escape a value as a DuckDB/standard-SQL single-quoted string literal by
+// doubling any embedded single quote, so a category value like "O'Brien" or a
+// hostile "x' OR '1'='1" can never break out of the literal.
+function sqlStringLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * PURE. The raw-SQL WHERE clause a given card should be drawn with, given the
+ * layout's active filter. Returns '' when there is no filter or the card is on a
+ * DIFFERENT table (different-table cards render unfiltered — the cross-filter
+ * semantic for this batch). The column identifier is double-quoted (embedded
+ * double quotes doubled) and the value is single-quote escaped.
+ * @param {object} layout
+ * @param {{table?:string}} card
+ * @returns {string}
+ */
+export function filterWhereClause(layout, card) {
+  const l = normalizeLayout(layout);
+  const f = l.activeFilter;
+  if (!f || !card || card.table !== f.table) return '';
+  const col = String(f.column).replace(/"/g, '""');
+  return `"${col}" = ${sqlStringLiteral(f.value)}`;
 }
 
 /**
@@ -221,11 +315,15 @@ export function renderCanvas(containerId, layout, opts = {}) {
 
   const emit = (next) => { if (typeof onChange === 'function') onChange(next); };
 
-  // ---- toolbar: the "Add chart" affordance ----
-  const toolbar = el('div', {
-    'data-testid': 'glow-canvas-toolbar',
-    style: 'display:flex; align-items:center; gap:var(--space-2,8px); margin-bottom:var(--space-3,12px);',
-  }, [
+  // A click on a categorical point cross-filters: toggle the layout's active
+  // filter (clicking the same point again clears it) and re-render. Passed as a
+  // generic opts.onPointClick into viz.renderChart, which stays Glow-Canvas-
+  // agnostic. `current` is the layout at render time, which is exactly what the
+  // toggle must compare against.
+  const onPointClick = (table, column, value) => emit(toggleFilter(current, { table, column, value }));
+
+  // ---- toolbar: "Add chart", the chart count, and (when filtered) Clear filter ----
+  const toolbarChildren = [
     el('button', {
       type: 'button',
       class: 'btn btn-primary',
@@ -236,7 +334,24 @@ export function renderCanvas(containerId, layout, opts = {}) {
       'data-testid': 'glow-canvas-count',
       style: 'color:var(--color-text-muted,#666); font-size:var(--text-sm,13px);',
     }, current.cards.length === 1 ? '1 chart' : `${current.cards.length} charts`),
-  ]);
+  ];
+  if (current.activeFilter) {
+    const f = current.activeFilter;
+    toolbarChildren.push(el('span', {
+      'data-testid': 'glow-canvas-filter-indicator',
+      style: 'margin-left:auto; color:var(--color-text-muted,#666); font-size:var(--text-sm,13px);',
+    }, `Filtered: ${f.column} = ${f.value}`));
+    toolbarChildren.push(el('button', {
+      type: 'button',
+      class: 'btn btn-secondary',
+      'data-testid': 'glow-canvas-clear-filter',
+      onclick: () => emit(clearActiveFilter(current)),
+    }, 'Clear filter'));
+  }
+  const toolbar = el('div', {
+    'data-testid': 'glow-canvas-toolbar',
+    style: 'display:flex; align-items:center; gap:var(--space-2,8px); margin-bottom:var(--space-3,12px);',
+  }, toolbarChildren);
   host.appendChild(toolbar);
 
   // ---- inline add form (minimal; text-input fallback acceptable for Batch 1) ----
@@ -300,13 +415,30 @@ export function renderCanvas(containerId, layout, opts = {}) {
     const h = Number.isFinite(gp.h) && gp.h > 0 ? gp.h : DEFAULT_CARD_H;
     const chartContainerId = `glow-canvas-chart-${card.id}`;
 
-    const header = el('div', {
-      style: 'display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-2,8px);',
-    }, [
+    // Cross-filter: this card is affected only when the active filter targets its
+    // table. Filtered cards get a badge + border treatment so the user can see
+    // which charts are reacting; the whereClause is passed to viz.renderChart.
+    const whereClause = filterWhereClause(current, card);
+    const isFiltered = whereClause !== '';
+
+    const titleChildren = [
       el('div', {
         'data-testid': 'glow-canvas-card-title',
         style: 'font-weight:600; font-size:var(--text-sm,13px); color:var(--color-text,#111);',
       }, card.title || `${card.chartType} of ${card.table || '—'}`),
+    ];
+    if (isFiltered) {
+      titleChildren.push(el('span', {
+        'data-testid': 'glow-canvas-card-filtered',
+        title: `Filtered by ${current.activeFilter.column} = ${current.activeFilter.value}`,
+        style: 'margin-left:var(--space-2,8px); padding:1px 6px; font-size:var(--text-xs,12px); border-radius:999px; background:var(--color-accent,#0A7E8C); color:#fff;',
+      }, 'Filtered'));
+    }
+
+    const header = el('div', {
+      style: 'display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-2,8px);',
+    }, [
+      el('div', { style: 'display:flex; align-items:center;' }, titleChildren),
       el('button', {
         type: 'button',
         class: 'btn btn-secondary',
@@ -325,18 +457,21 @@ export function renderCanvas(containerId, layout, opts = {}) {
     });
 
     const cardEl = el('div', {
-      class: 'card glow-canvas-card',
+      class: `card glow-canvas-card${isFiltered ? ' glow-canvas-card--filtered' : ''}`,
       'data-testid': 'glow-canvas-card',
       'data-card-id': String(card.id),
-      style: `grid-column:${col} / span ${w}; grid-row:${row} / span ${h}; padding:var(--space-4,16px);`,
+      'data-filtered': isFiltered ? 'true' : 'false',
+      style: `grid-column:${col} / span ${w}; grid-row:${row} / span ${h}; padding:var(--space-4,16px);${isFiltered ? ' outline:2px solid var(--color-accent,#0A7E8C); outline-offset:-2px;' : ''}`,
     }, [header, chartBox]);
     grid.appendChild(cardEl);
 
-    // Delegate the actual draw to the existing single-chart renderer, per card.
+    // Delegate the actual draw to the existing single-chart renderer, per card,
+    // now passing the cross-filter whereClause ('' when this card is unaffected)
+    // and the generic onPointClick so a click anywhere cross-filters the canvas.
     // A failure in one card must never abort the others or throw out of render.
     if (card.table && typeof renderChart === 'function') {
       Promise.resolve()
-        .then(() => renderChart(chartContainerId, card.table, card.chartType, card.xCol, card.yCol))
+        .then(() => renderChart(chartContainerId, card.table, card.chartType, card.xCol, card.yCol, whereClause, { onPointClick }))
         .catch(() => {
           const node = document.getElementById(chartContainerId);
           if (node) node.textContent = 'Chart error.';

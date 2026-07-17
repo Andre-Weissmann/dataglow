@@ -22,7 +22,13 @@ import {
   updateCardPosition,
   serializeLayout,
   deserializeLayout,
+  setActiveFilter,
+  clearActiveFilter,
+  toggleFilter,
+  filterWhereClause,
+  renderCanvas,
 } from '../js/runtimes-viz/glow-canvas.js';
+import { combineWhere } from '../js/runtimes-viz/visualize.js';
 
 let passed = 0;
 let failed = 0;
@@ -161,6 +167,171 @@ ok(JSON.stringify(CANVAS_CHART_TYPES) === JSON.stringify(['bar', 'line', 'scatte
   ok(l.nextId === 8, 'deserialize repairs nextId to be greater than the max existing card id');
   const l2 = addCard(l, { table: 'y' });
   ok(l2.cards[1].id === 8, 'the next added card gets a non-colliding id after repair');
+}
+
+// ============================================================
+// BATCH 2 — cross-filtering
+// ============================================================
+
+// ---------- createCanvasLayout carries a null activeFilter ----------
+{
+  const l = createCanvasLayout();
+  ok(l.activeFilter === null, 'a fresh layout has activeFilter === null');
+}
+
+// ---------- setActiveFilter: sets + is pure + normalizes ----------
+{
+  const l0 = createCanvasLayout();
+  const l1 = setActiveFilter(l0, { table: 'sales', column: 'region', value: 'West' });
+  ok(l1.activeFilter && l1.activeFilter.table === 'sales' && l1.activeFilter.column === 'region' && l1.activeFilter.value === 'West',
+    'setActiveFilter stores the {table, column, value} filter');
+  ok(l0.activeFilter === null, 'setActiveFilter is pure — original layout untouched');
+
+  // value is coerced to a string (DuckDB categories can come back as numbers).
+  const l2 = setActiveFilter(l0, { table: 't', column: 'yr', value: 2024 });
+  ok(l2.activeFilter.value === '2024', 'setActiveFilter coerces a numeric value to a string');
+
+  // garbage / partial filters normalize to null and never throw.
+  ok(setActiveFilter(l0, null).activeFilter === null, 'setActiveFilter(null) clears to null');
+  ok(setActiveFilter(l0, { column: 'x', value: 'y' }).activeFilter === null, 'a filter missing table normalizes to null');
+  ok(setActiveFilter(l0, { table: 't', column: 'c' }).activeFilter === null, 'a filter missing value normalizes to null');
+}
+
+// ---------- clearActiveFilter: clears + is pure + keeps cards ----------
+{
+  let l = createCanvasLayout();
+  l = addCard(l, { table: 'sales', chartType: 'bar', xCol: 'region' });
+  const filtered = setActiveFilter(l, { table: 'sales', column: 'region', value: 'West' });
+  const cleared = clearActiveFilter(filtered);
+  ok(cleared.activeFilter === null, 'clearActiveFilter removes the active filter');
+  ok(cleared.cards.length === 1 && cleared.cards[0].table === 'sales', 'clearActiveFilter preserves the cards');
+  ok(filtered.activeFilter !== null, 'clearActiveFilter is pure — original (filtered) layout untouched');
+}
+
+// ---------- toggleFilter: sets when new, clears when identical ----------
+{
+  const base = createCanvasLayout();
+  const f = { table: 'sales', column: 'region', value: 'West' };
+  const on = toggleFilter(base, f);
+  ok(on.activeFilter && on.activeFilter.value === 'West', 'toggleFilter sets the filter when none is active');
+
+  // clicking the SAME point again toggles OFF.
+  const off = toggleFilter(on, f);
+  ok(off.activeFilter === null, 'toggleFilter clears when the identical filter is re-applied (click-toggle-off)');
+
+  // a DIFFERENT value replaces (does not clear).
+  const other = toggleFilter(on, { table: 'sales', column: 'region', value: 'East' });
+  ok(other.activeFilter && other.activeFilter.value === 'East', 'toggleFilter replaces with a different value');
+
+  // a different column on the same value also replaces.
+  const otherCol = toggleFilter(on, { table: 'sales', column: 'city', value: 'West' });
+  ok(otherCol.activeFilter && otherCol.activeFilter.column === 'city', 'toggleFilter replaces with a different column');
+
+  ok(base.activeFilter === null && on.activeFilter.value === 'West', 'toggleFilter is pure — inputs untouched');
+}
+
+// ---------- activeFilter round-trips through serialize/deserialize ----------
+{
+  let l = createCanvasLayout();
+  l = addCard(l, { table: 'sales', chartType: 'bar', xCol: 'region' });
+  l = setActiveFilter(l, { table: 'sales', column: 'region', value: "O'Brien" });
+  const round = deserializeLayout(serializeLayout(l));
+  ok(round.activeFilter && round.activeFilter.value === "O'Brien", 'activeFilter (incl. a quote in the value) survives a serialize -> deserialize round-trip');
+  ok(JSON.stringify(round) === JSON.stringify(l), 'a filtered layout round-trips byte-for-byte');
+
+  // a stored blob with a garbage activeFilter deserializes to null, never throws.
+  const blob = JSON.stringify({ cards: [], nextId: 1, activeFilter: { nope: true } });
+  ok(deserializeLayout(blob).activeFilter === null, 'a garbage stored activeFilter normalizes to null on load');
+}
+
+// ---------- filterWhereClause: same-table filters, other-table does not ----------
+{
+  let l = createCanvasLayout();
+  l = addCard(l, { table: 'sales', chartType: 'bar', xCol: 'region' }); // id 1
+  l = addCard(l, { table: 'ops', chartType: 'pie', xCol: 'team' });     // id 2
+  const salesCard = l.cards[0];
+  const opsCard = l.cards[1];
+
+  ok(filterWhereClause(l, salesCard) === '', 'no active filter -> empty whereClause');
+
+  const lf = setActiveFilter(l, { table: 'sales', column: 'region', value: 'West' });
+  ok(filterWhereClause(lf, salesCard) === `"region" = 'West'`, 'same-table card gets the constructed whereClause');
+  ok(filterWhereClause(lf, opsCard) === '', 'different-table card is NOT filtered (no join-key model yet)');
+
+  // single-quote escaping (SQL-injection-style value is neutralized).
+  const linj = setActiveFilter(l, { table: 'sales', column: 'region', value: "x' OR '1'='1" });
+  ok(filterWhereClause(linj, salesCard) === `"region" = 'x'' OR ''1''=''1'`, 'single quotes in the value are doubled (escaped) so the literal cannot break out');
+
+  // double-quote in the column identifier is doubled.
+  const lcol = setActiveFilter(l, { table: 'sales', column: 'we"ird', value: 'v' });
+  ok(filterWhereClause(lcol, salesCard) === `"we""ird" = 'v'`, 'double quotes in the column identifier are doubled (escaped)');
+}
+
+// ---------- combineWhere (visualize.js): backward-compatible SQL splicing ----------
+{
+  ok(combineWhere('', undefined) === '', 'no existing condition + no clause -> empty (5-arg callers unchanged)');
+  ok(combineWhere('', '') === '', 'empty existing + empty clause -> empty');
+  ok(combineWhere(`"x" IS NOT NULL`, undefined) === ` WHERE "x" IS NOT NULL`, 'existing condition alone -> " WHERE cond" (histogram/box/scatter unchanged when unfiltered)');
+  ok(combineWhere('', `"region" = 'West'`) === ` WHERE "region" = 'West'`, 'clause alone (bar/line/pie) -> " WHERE clause"');
+  ok(combineWhere(`"x" IS NOT NULL`, `"region" = 'West'`) === ` WHERE "x" IS NOT NULL AND "region" = 'West'`, 'existing condition AND new clause are combined');
+  ok(combineWhere('   ', '   ') === '', 'whitespace-only inputs are treated as empty');
+}
+
+// ---------- renderCanvas forwards the whereClause + onPointClick to renderChart ----------
+// The one DOM-touching test: a minimal document shim (no jsdom dep) lets us drive
+// renderCanvas with an injected FAKE renderChart (opts.renderChart) and assert on
+// the exact SQL/args each card is drawn with. Only the surface el()/renderCanvas
+// actually use is stubbed.
+{
+  const registry = {};
+  function makeEl(tag) {
+    return {
+      tagName: tag, children: [], attributes: {}, style: {}, _listeners: {},
+      className: '', innerHTML: '', textContent: '', value: '',
+      setAttribute(k, v) { this.attributes[k] = v; if (k === 'id') registry[v] = this; },
+      getAttribute(k) { return this.attributes[k]; },
+      addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); },
+      appendChild(c) { this.children.push(c); return c; },
+    };
+  }
+  const host = makeEl('div');
+  registry.host = host;
+  global.document = {
+    createElement: makeEl,
+    createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
+    getElementById: (id) => registry[id] || null,
+  };
+
+  let l = createCanvasLayout();
+  l = addCard(l, { table: 'sales', chartType: 'bar', xCol: 'region', yCol: 'amount' }); // id 1
+  l = addCard(l, { table: 'ops', chartType: 'pie', xCol: 'team' });                     // id 2
+  l = setActiveFilter(l, { table: 'sales', column: 'region', value: 'West' });
+
+  const calls = [];
+  const fakeRenderChart = (...args) => { calls.push(args); return Promise.resolve(); };
+  renderCanvas('host', l, { renderChart: fakeRenderChart, datasets: [], onChange: () => {} });
+
+  // renderChart is invoked in a microtask (Promise.resolve().then(...)).
+  await new Promise((r) => setTimeout(r, 0));
+
+  ok(calls.length === 2, 'renderCanvas draws both cards via the injected renderChart');
+  const salesCall = calls.find((a) => a[1] === 'sales');
+  const opsCall = calls.find((a) => a[1] === 'ops');
+  // arg order: (containerId, table, chartType, xCol, yCol, whereClause, opts)
+  ok(salesCall && salesCall[5] === `"region" = 'West'`, 'the same-table (sales) card is drawn with the cross-filter whereClause');
+  ok(opsCall && opsCall[5] === '', 'the different-table (ops) card is drawn with an empty whereClause');
+  ok(salesCall && salesCall[6] && typeof salesCall[6].onPointClick === 'function', 'renderChart receives a generic onPointClick callback in opts');
+
+  // the onPointClick wired in emits a toggled layout (click-to-cross-filter).
+  let emitted = null;
+  renderCanvas('host', l, { renderChart: fakeRenderChart, datasets: [], onChange: (next) => { emitted = next; } });
+  await new Promise((r) => setTimeout(r, 0));
+  const salesCall2 = calls.filter((a) => a[1] === 'sales').pop();
+  // clicking the SAME active point toggles the filter OFF.
+  salesCall2[6].onPointClick('sales', 'region', 'West');
+  ok(emitted && emitted.activeFilter === null, 'clicking the already-active point via onPointClick toggles the filter off');
+
+  delete global.document;
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
