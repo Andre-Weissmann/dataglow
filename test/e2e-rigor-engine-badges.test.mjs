@@ -229,6 +229,56 @@ async function main() {
     );
     const vizBadgeText = await page.evaluate(() => document.querySelector('#viz-rigor-badge-host [data-testid="rigor-confidence-badge"]').textContent);
     ok(/insufficient/i.test(vizBadgeText), 'Visualize-tab badge shows the same "insufficient" verdict for the sent-over data');
+
+    // 4. Regression (2026-07-18): a PRE-AGGREGATED GROUP BY result (one row
+    // per group, with AVG + COUNT(*) already computed) must badge using the
+    // REAL per-group observation count, not the row-counting fallback that
+    // silently miscounted every group as n=1 before this fix. Both groups
+    // here have real n>=30 (50 and 48), so a correctly-fixed badge must read
+    // "sufficient" for both -- the pre-fix bug would have shown n=1/n=1 and
+    // an "insufficient" verdict despite the healthy real sample sizes.
+    // Send-to-Visualize (step 3) switched the active tab to Visualize, so
+    // the SQL tab must be re-activated before #sql-input is visible/fillable.
+    await page.click('[data-testid="tab-sql"]');
+    const preAggregatedSql = `
+      SELECT gender, AVG(amt) AS avg_amt, COUNT(*) AS n FROM (
+        SELECT 'F' AS gender, (400 + i) AS amt FROM range(50) t(i)
+        UNION ALL
+        SELECT 'M' AS gender, (300 + i) AS amt FROM range(48) t(i)
+      ) GROUP BY gender;`;
+    await runSql(page, preAggregatedSql);
+    await page.waitForFunction(
+      () => !!document.querySelector('[data-testid="rigor-confidence-badge"]'),
+      { timeout: 15000, polling: 250 }
+    );
+    const preAggBadgeText = await page.evaluate(() => document.querySelector('[data-testid="rigor-confidence-badge"]').textContent);
+    ok(/sufficient/i.test(preAggBadgeText) && !/insufficient/i.test(preAggBadgeText), 'a pre-aggregated GROUP BY result (real n=50/n=48) badges "sufficient" using the true COUNT(*) column, not the row-counting fallback that would report n=1 for every group');
+    const preAggExpanded = await page.evaluate(() => {
+      const card = document.querySelector('[data-testid="rigor-confidence-badge"]')?.closest('[data-testid="rigor-badge-card"]') || document.querySelector('#rigor-confidence-host');
+      return card ? card.textContent : '';
+    });
+    ok(!/\bn=1\b/.test(preAggExpanded), 'the pre-aggregated badge never reports the confidently-wrong n=1-per-group figure anywhere in its card text');
+
+    // 5. Regression (2026-07-18): a GROUP BY result whose FIRST row has a
+    // null/unknown group value (e.g. an unknown-gender bucket) must still be
+    // detected as a categorical grouping column -- the pre-fix bug sampled
+    // only rows[0] for type detection, so typeof null === 'object' caused
+    // the whole badge to silently render nothing for this exact shape.
+    const nullFirstRowSql = `
+      SELECT gender, AVG(amt) AS avg_amt, COUNT(*) AS n FROM (
+        SELECT NULL AS gender, (500 + i) AS amt FROM range(12) t(i)
+        UNION ALL
+        SELECT 'F' AS gender, (400 + i) AS amt FROM range(50) t(i)
+        UNION ALL
+        SELECT 'M' AS gender, (300 + i) AS amt FROM range(48) t(i)
+      ) GROUP BY gender;`;
+    await runSql(page, nullFirstRowSql);
+    await page.waitForFunction(
+      () => !!document.querySelector('[data-testid="rigor-confidence-badge"]'),
+      { timeout: 15000, polling: 250 }
+    );
+    const nullFirstRowBadgeText = await page.evaluate(() => document.querySelector('[data-testid="rigor-confidence-badge"]').textContent);
+    ok(!!nullFirstRowBadgeText && nullFirstRowBadgeText.trim().length > 0, 'a GROUP BY result whose first row has a null group value still renders a confidence badge (not silently dropped by row[0]-only type detection)');
   } catch (err) {
     failed++;
     console.log('\n✗ FAILED (flag-on page): ' + (err && err.message ? err.message : err));

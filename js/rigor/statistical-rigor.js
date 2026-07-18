@@ -258,22 +258,47 @@ export function classifyConfidence(values, confidenceLevel = 0.95) {
  * Rows with a null/undefined group value are grouped under the literal
  * string '(null)' rather than silently dropped, so a caller can see there
  * WAS a null-group slice rather than an undercount with no explanation.
- * Rows whose value is missing/non-numeric are simply filtered out by the
- * same numeric-only rule classifyConfidence already applies per group — a
- * group with zero valid numeric values still gets an 'insufficient' verdict
- * (n=0) rather than being silently omitted from the result.
+ *
+ * Two distinct input shapes are supported, and this function must never
+ * confuse them (this is the fix for a real bug found 2026-07-18 during a
+ * live-preview check before this flag went live — see dev-log/journal.md):
+ *
+ *   1. Row-level (un-aggregated) data — each row is one real observation.
+ *      e.g. `SELECT gender, length_of_stay FROM patients`. Here, counting
+ *      how many rows land in each group IS the correct sample size, so no
+ *      `countCol` is needed.
+ *   2. Pre-aggregated GROUP BY results — each row already represents many
+ *      collapsed observations. e.g. `SELECT gender, AVG(los), COUNT(*) AS n
+ *      FROM patients GROUP BY gender` returns exactly ONE row per group, so
+ *      counting rows-per-group always yields n=1 regardless of the real
+ *      underlying sample size — confidently wrong, not just imprecise. When
+ *      the query already computed a count, that real count MUST be used
+ *      instead of the row-counting fallback.
+ *
+ * Callers that know they have a pre-aggregated result should pass the name
+ * of the column holding each row's true observation count as `countCol`
+ * (see `detectGroupedConfidenceColumns` for the auto-detection heuristic
+ * used by the SQL-tab/Visualize-tab callers). When `countCol` is omitted or
+ * not present/numeric on a row, this function falls back to counting rows
+ * per group — correct for shape 1, and an honest (clearly labelled by the
+ * caller, never silently overstated) best-effort for shape 2 when no count
+ * column exists in the query result.
  *
  * @param {Array<Record<string, *>>} rows
  * @param {string} groupCol
  * @param {string} valueCol
  * @param {number} [confidenceLevel=0.95]
- * @returns {Array<{group:string, verdict:'sufficient'|'low'|'insufficient', n:number, ci:object|null, reason:string}>}
+ * @param {string|null} [countCol=null] column holding each row's true
+ *   observation count, for pre-aggregated GROUP BY results. Omit for
+ *   row-level data where each row is one real observation.
+ * @returns {Array<{group:string, verdict:'sufficient'|'low'|'insufficient', n:number, ci:object|null, reason:string, nSource:'counted-rows'|'count-column'}>}
  *   One entry per distinct group value, in first-seen order.
  */
-export function classifyGroupedConfidence(rows, groupCol, valueCol, confidenceLevel = 0.95) {
+export function classifyGroupedConfidence(rows, groupCol, valueCol, confidenceLevel = 0.95, countCol = null) {
   if (!Array.isArray(rows)) return [];
   const order = [];
   const buckets = new Map();
+  const explicitCounts = new Map();
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
     const rawGroup = row[groupCol];
@@ -281,8 +306,40 @@ export function classifyGroupedConfidence(rows, groupCol, valueCol, confidenceLe
     if (!buckets.has(group)) { buckets.set(group, []); order.push(group); }
     const v = row[valueCol];
     if (typeof v === 'number' && Number.isFinite(v)) buckets.get(group).push(v);
+    if (countCol) {
+      const c = row[countCol];
+      if (typeof c === 'number' && Number.isFinite(c) && c >= 0) {
+        // A pre-aggregated result has exactly one row per group, so the last
+        // (only) count seen for a group is the count — no summing needed.
+        explicitCounts.set(group, c);
+      }
+    }
   }
-  return order.map((group) => ({ group, ...classifyConfidence(buckets.get(group) || [], confidenceLevel) }));
+  return order.map((group) => {
+    const values = buckets.get(group) || [];
+    const explicitN = explicitCounts.get(group);
+    if (typeof explicitN === 'number') {
+      // Re-run the same threshold logic classifyConfidence uses, but against
+      // the REAL observation count rather than values.length, since values
+      // here holds only the one pre-aggregated number per group (e.g. the
+      // AVG), not the underlying observations — there is no raw sample to
+      // compute a real confidence interval from, so ci is honestly null.
+      const sampleClass = classifySampleSize(explicitN);
+      let verdict, reason;
+      if (sampleClass === 'insufficient') {
+        verdict = 'insufficient';
+        reason = `Only ${explicitN} observation(s) — too few to support a statistically defensible claim (rule-of-thumb minimum: 10).`;
+      } else if (sampleClass === 'low') {
+        verdict = 'low';
+        reason = `n=${explicitN} is below the conventional n=30 threshold for the normal approximation — treat any interval here as wider than shown.`;
+      } else {
+        verdict = 'sufficient';
+        reason = `n=${explicitN} meets the conventional n>=30 threshold for a defensible confidence interval.`;
+      }
+      return { group, verdict, n: explicitN, ci: null, reason, nSource: 'count-column' };
+    }
+    return { group, ...classifyConfidence(values, confidenceLevel), nSource: 'counted-rows' };
+  });
 }
 
 /**
