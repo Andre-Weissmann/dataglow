@@ -8213,6 +8213,60 @@ function initSettings() {
   const initialDef = story.MODEL_PROVIDERS.find(p => p.id === state.settings.modelProvider);
   $('#api-key-section').style.display = (initialDef && initialDef.requiresKey) ? '' : 'none';
 
+  // MCP export section — show only when mcpInterface flag is on
+  if (isEnabled('mcpInterface')) {
+    const mcpSection = $('#mcp-export-section');
+    if (mcpSection) {
+      mcpSection.style.display = '';
+      // Build config snippets (no template literals — iOS WKWebView constraint)
+      const serverPath = window.location.pathname.replace('/index.html', '') + '/js/mcp/dataglow-mcp-server.mjs';
+      const claudeConfig = JSON.stringify({
+        mcpServers: {
+          dataglow: {
+            command: 'node',
+            args: [serverPath]
+          }
+        }
+      }, null, 2);
+      const cursorConfig = JSON.stringify({
+        mcpServers: {
+          dataglow: {
+            command: 'node',
+            args: [serverPath]
+          }
+        }
+      }, null, 2);
+      const claudePre = $('#mcp-config-claude');
+      const cursorPre = $('#mcp-config-cursor');
+      if (claudePre) claudePre.textContent = claudeConfig;
+      if (cursorPre) cursorPre.textContent = cursorConfig;
+    }
+    const exportBtn = $('#btn-export-gate-state');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        try {
+          const { serializeGateState } = window.__dataglow_mcp_exporter__ || {};
+          const datasetsWithResults = (state.datasets || []).map(function(ds) {
+            return Object.assign({}, ds, { layerResults: state.lastLayerResults && state.lastLayerResults[ds.table] ? state.lastLayerResults[ds.table] : {} });
+          });
+          const json = serializeGateState
+            ? serializeGateState(datasetsWithResults)
+            : JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), datasets: datasetsWithResults }, null, 2);
+          const blob = new Blob([json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'dataglow-gate-state.json';
+          a.click();
+          URL.revokeObjectURL(url);
+          toast('Gate state exported', 'success');
+        } catch (e) {
+          toast('Export failed: ' + e.message, 'error');
+        }
+      });
+    }
+  }
+
   $('#btn-settings').addEventListener('click', () => $('#settings-modal').classList.add('open'));
   $('#btn-settings-close').addEventListener('click', () => $('#settings-modal').classList.remove('open'));
   // Command Deck mobile drawer: hamburger toggle + tap-outside-to-close backdrop.

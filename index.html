@@ -1489,6 +1489,22 @@
       </ul>
     </div>
 
+    <!-- MCP Export (mcpInterface flag) -->
+    <div id="mcp-export-section" style="display:none; margin-top:var(--space-4); padding:var(--space-3); background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md);">
+      <div style="display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-2);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0;"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+        <span style="font-size:var(--text-sm); font-weight:600;">MCP — AI Agent Access</span>
+      </div>
+      <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3); line-height:1.5;">Export your current validation results so AI agents (Claude Code, Cursor, Windsurf) can check your data before acting on it. Save the file next to your DataGlow folder, then run the MCP server.</p>
+      <button class="btn btn-secondary" id="btn-export-gate-state" style="width:100%; justify-content:center; margin-bottom:var(--space-3);" data-testid="button-export-gate-state">Export Gate State (dataglow-gate-state.json)</button>
+      <div style="font-size:11px; color:var(--color-text-muted); line-height:1.6;">
+        <strong>Claude Code</strong> (~/.claude.json):
+        <pre id="mcp-config-claude" style="margin:4px 0 8px; padding:6px 8px; background:var(--color-surface-alt); border-radius:var(--radius-sm); font-size:10px; overflow-x:auto; white-space:pre;"></pre>
+        <strong>Cursor</strong> (.cursor/mcp.json):
+        <pre id="mcp-config-cursor" style="margin:4px 0; padding:6px 8px; background:var(--color-surface-alt); border-radius:var(--radius-sm); font-size:10px; overflow-x:auto; white-space:pre;"></pre>
+      </div>
+    </div>
+
     <button class="btn btn-primary" id="btn-settings-save" style="width:100%; justify-content:center; margin-top:var(--space-4);" data-testid="button-settings-save">Save Settings</button>
   </div>
 </div>
