@@ -7,6 +7,44 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 20:54 CT] Fixed CI 50-workflow cap for real (PR #296, merged, docs/CI-only)
+
+**Trigger:** "DataGlow list time" brainstorm on the CI cap problem itself (creative Think-List-style
+round, ranked options, combined into one flagship approach), approved verbatim: "1. Real fix: consolidate
+the 50 leaf job-*.yml files ... into fewer multi-job files ... 2. CI Architect ... 3. Then Rigor Engine
+Batch 2." This entry covers step 1 + the CI Architect's skill-guard half; the dashboard half and Rigor
+Engine Batch 2 are separate entries.
+
+**What was found:** The two prior entries in this journal (2026-07-15 PR #243, 2026-07-17 PR #294) both
+proposed the same fix for next time — a "batch-of-batches" nesting refactor. Before building that, I
+re-read [GitHub's reusable-workflow docs](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#limitations-of-reusable-workflows)
+carefully and found that proposal was wrong: the 50-workflow cap counts the entire nested call tree, not
+just top-level calls, so nesting would have bought back zero headroom. Caught before any code was written.
+
+**What was built:** The real, GitHub-documented fix — jobs defined directly in one file's `jobs:` block
+cost nothing toward the cap; only `uses:` calls to separate files count. Consolidated the 47 plain
+one-job-per-file `job-*.yml` workflows into 5 multi-job `job-ci-batch-01.yml` through `job-ci-batch-05.yml`
+files. Left the 3 special-shaped jobs (`e2e-smoke`, `tauri-smoke`, `supply-chain-hardening`) as their own
+files. `test.yml`'s `uses:` calls: 50 → 8. Also fixed 7 stale `AGENTS.md` file-path references this
+change caused (caught by the repo's own `test:agentsdrift` gate, which failed until corrected).
+
+**Verification (independent, per standing rule):** diffed sorted job-id lists confirming 51 reusable job
+ids before == 51 after and 55 total jobs (incl. 4 inline) before == 55 after, zero dropped/duplicated.
+`actionlint` clean on every workflow file. All 137 non-browser `npm run test:*` scripts passed — run
+twice, once before push and once again on a fresh checkout of the exact merged commit. All 55 real
+GitHub Actions checks passed on PR #296 (not just local YAML parsing), including `tauri-smoke` (7m0s) and
+`e2e-smoke` (1m0s, real Chrome). Only `.github/workflows/*` and `AGENTS.md` touched — zero source code.
+
+**Outcome:** Shipped. PR #296 merged `35c3dae`. No flag involved (CI-config-only change, not a
+user-facing feature) — the standing merge-confirm rule was still followed in full.
+
+**Lesson for next time:** When a documented platform limit is hit twice, re-verify the *fix* against the
+platform's own docs before building it — don't just repeat the first plan that comes to mind. The nesting
+idea sounded plausible and was written down twice as "the real fix" without being checked against the
+actual docs text describing how the cap is counted.
+
+---
+
 ## [2026-07-17 19:34 CT] Shipped The Rigor Engine — Batch 1: Statistical Rigor Layer (PR #294, merged, dark, tests only)
 
 **Trigger:** "DataGlow list time" — a revolutionary/flagship-ambition brainstorm run grounded in the
