@@ -115,20 +115,43 @@ async function main() {
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--use-gl=swiftshader'],
   });
 
-  // ---- Page 1: flag OFF (default shipped state) — byte-for-byte unchanged ----
+  // ---- Page 1: flag OFF (forced via route intercept) — byte-for-byte unchanged ----
+  // Deliberately forces the flag OFF via the same route-intercept technique
+  // Page 2 uses to force it ON, rather than relying on the shipped manifest's
+  // default value. rigorEngineBadges was promoted to `enabled: true` on
+  // 2026-07-18 (see flags.manifest.json), so this page must not assume the
+  // shipped default is off — it actively constructs the off-state itself so
+  // this check keeps meaning something after promotion, and would still
+  // catch a real regression in the flag-gating logic itself.
   {
     const page = await browser.newPage();
     const consoleLines = [];
     page.on('console', msg => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
     page.on('pageerror', err => consoleLines.push(`[pageerror] ${err.message}`));
+
+    await page.addInitScript(() => {
+      try {
+        delete Object.getPrototypeOf(navigator).serviceWorker;
+        Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true });
+        delete navigator.serviceWorker;
+      } catch (e) { /* ignore on engines where this isn't deletable */ }
+    });
+
+    await page.route('**/flags.manifest.json', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      if (body.flags && body.flags.rigorEngineBadges) body.flags.rigorEngineBadges.enabled = false;
+      await route.fulfill({ response: res, json: body });
+    });
+
     try {
       await gotoAndInitEngine(page, baseUrl);
       await page.click('[data-testid="tab-sql"]');
       await runSql(page, "SELECT 'Medicare' AS payer, 400.0 AS amt UNION ALL SELECT 'Humana', 300.0;");
       const hasBadge = await page.evaluate(() => !!document.querySelector('[data-testid="rigor-confidence-badge"]'));
       const hasSendBtn = await page.evaluate(() => !!document.querySelector('[data-testid="btn-send-to-visualize"]'));
-      ok(!hasBadge, 'flag OFF (shipped default): no confidence badge renders even for a grouped result');
-      ok(!hasSendBtn, 'flag OFF (shipped default): no Send-to-Visualize button renders');
+      ok(!hasBadge, 'flag OFF (forced via route intercept): no confidence badge renders even for a grouped result');
+      ok(!hasSendBtn, 'flag OFF (forced via route intercept): no Send-to-Visualize button renders');
     } catch (err) {
       failed++;
       console.log('\n✗ FAILED (flag-off page): ' + (err && err.message ? err.message : err));
