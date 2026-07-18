@@ -237,6 +237,29 @@ function initTheme() {
 // ============================================================
 let activeTab = 'preflight';
 
+// Single source of truth for which tab ids are currently visible given flag
+// state. Both the flat/grouped top tab bar (renderTabBar) and the Command
+// Deck sidebar (renderCommandDeckSidebar) MUST call this -- duplicating this
+// filter in two places is exactly how the sidebar's drillFloor leak happened
+// (the sidebar was built later, against the full TAB_META, and this gate was
+// never ported over). Any new dark-flag tab only needs to be added HERE.
+function getVisibleTabIds() {
+  return state.tabOrder.filter((tabId) =>
+    (tabId !== 'meeting' || isEnabled('meetingScribe'))
+    && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy'))
+    && (tabId !== 'proofroom' || isEnabled('proofRoom'))
+    && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI'))
+    && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
+    && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
+    && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
+    && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
+    && (tabId !== 'nlsql' || isEnabled('nlSql'))
+    && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
+    && tabId !== 'council' // council merged into AI tab
+    && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
+    && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
+}
+
 function renderTabBar() {
   const bar = $('#tabbar');
   bar.innerHTML = '';
@@ -273,20 +296,7 @@ function renderTabBar() {
   // glowCanvas flag off (its shipped default) it is never added to the bar,
   // never a dead click target, and #panel-glowcanvas stays empty (see
   // renderGlowCanvasTab). It gates ONLY this multi-chart dashboard surface.
-  const visibleTabOrder = state.tabOrder.filter((tabId) =>
-    (tabId !== 'meeting' || isEnabled('meetingScribe'))
-    && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy'))
-    && (tabId !== 'proofroom' || isEnabled('proofRoom'))
-    && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI'))
-    && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
-    && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
-    && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
-    && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
-    && (tabId !== 'nlsql' || isEnabled('nlSql'))
-    && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
-    && tabId !== 'council' // council merged into AI tab
-    && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
-    && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
+  const visibleTabOrder = getVisibleTabIds();
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
   // flat or grouped renderer is active, so every existing test/selector
@@ -441,7 +451,16 @@ function renderCommandDeckSidebar() {
   if (toggleBtn) toggleBtn.style.display = '';
   host.innerHTML = '';
 
-  const { stages } = buildSidebarContent({ tabMeta: TAB_META, activeTab });
+  // Filter TAB_META down to only currently-visible (flag-enabled) tabs before
+  // handing it to the pure grouping model, so a dark-flag tab (e.g. drillFloor
+  // while off) is never listed here even though buildSidebarContent() itself
+  // has no flag awareness by design. Reuses the SAME source of truth as the
+  // top tab bar (getVisibleTabIds) so the two navs can never drift apart.
+  const visibleIds = new Set(getVisibleTabIds());
+  const visibleTabMeta = Object.fromEntries(
+    Object.entries(TAB_META).filter(([tabId]) => visibleIds.has(tabId)),
+  );
+  const { stages } = buildSidebarContent({ tabMeta: visibleTabMeta, activeTab });
 
   stages.forEach((stage) => {
     const collapsed = collapsedStages.has(stage.id);
@@ -7877,7 +7896,12 @@ async function renderDrillFloorTab() {
     let html = '';
     if (typeof rowCount === 'number') html += `<div data-testid="${outId}-rowcount"><strong>${rowCount.toLocaleString()}</strong> row(s)</div>`;
     if (stdout) html += `<div>${escapeHtml(stdout)}</div>`;
-    if (result != null && result !== '') html += `<div class="ok">${escapeHtml(typeof result === 'string' ? result : String(result))}</div>`;
+    // Only render `result` as a display string when it genuinely IS one (e.g.
+    // Python/R runtime bridges that surface a printable value). SQL's `result`
+    // is the raw DuckDB query object (used above for rowCount) -- stringifying
+    // that here used to print the literal "[object Object]" text to the user;
+    // found live during drillFloor's pre-flight verification, 2026-07-18.
+    if (typeof result === 'string' && result !== '') html += `<div class="ok">${escapeHtml(result)}</div>`;
     if (error) html += `<div class="err" data-testid="${outId}-error">${escapeHtml(error)}</div>`;
     if (!html) html = '<span style="color:var(--color-text-faint);">(no output)</span>';
     out.innerHTML = html;

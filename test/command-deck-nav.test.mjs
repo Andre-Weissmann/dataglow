@@ -158,3 +158,35 @@ test('validateStageCoverage: ok true when the real list exactly matches the mapp
   assert.deepEqual(result.missing, []);
   assert.deepEqual(result.stale, []);
 });
+
+// ---------- Sidebar flag-awareness (regression guard) ----------
+//
+// Found during drillFloor's pre-flight (2026-07-18): buildSidebarContent()
+// itself is deliberately flag-unaware (pure grouping over whatever tabMeta it
+// is given -- see the file header). That is correct in isolation, but it means
+// the CALLER in main.js (renderCommandDeckSidebar) is solely responsible for
+// filtering TAB_META down to only flag-enabled tabs before calling it. That
+// filtering was missing entirely when the Command Deck sidebar first shipped,
+// so any dark-flagged tab with a real TAB_META entry (drillFloor, at the time)
+// was visible in the sidebar even while its flag was false -- even though the
+// SAME tab was correctly hidden from the top tab bar. Fixed by extracting the
+// tab bar's gate into a shared getVisibleTabIds() and having the sidebar
+// filter TAB_META through it before calling buildSidebarContent(). This test
+// regex-reads main.js so that gate can never silently regress again.
+test('regression guard: renderCommandDeckSidebar filters TAB_META by the shared visible-tab gate before building sidebar content, never the raw TAB_META', () => {
+  const mainSrc = readFileSync(join(repoRoot, 'js/app-shell/main.js'), 'utf8');
+  const fnMatch = mainSrc.match(/function renderCommandDeckSidebar\(\) \{([\s\S]*?)\n\}/);
+  assert.ok(fnMatch, 'could not locate renderCommandDeckSidebar() in main.js — has it moved or been renamed?');
+  const fnBody = fnMatch[1];
+
+  assert.doesNotMatch(
+    fnBody,
+    /buildSidebarContent\(\{\s*tabMeta:\s*TAB_META\s*,/,
+    'renderCommandDeckSidebar must NOT pass the raw, unfiltered TAB_META into buildSidebarContent — that is exactly how a dark-flagged tab (e.g. drillFloor) leaked into the sidebar while its flag was off',
+  );
+  assert.match(
+    fnBody,
+    /getVisibleTabIds\(\)/,
+    'renderCommandDeckSidebar must call the shared getVisibleTabIds() gate (the same one renderTabBar uses) before building sidebar content',
+  );
+});

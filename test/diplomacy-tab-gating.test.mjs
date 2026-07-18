@@ -60,11 +60,13 @@ test('flag ON: the diplomacy tab appears in the rendered bar', () => {
 });
 
 test('drift guard: main.js really gates the diplomacy tab on isEnabled(\'dataDiplomacy\')', () => {
-  // Locate renderTabBar's visibleTabOrder filter and assert the diplomacy gate
-  // is present, so a refactor can't silently drop the flag check.
-  assert.match(mainSrc, /visibleTabOrder\s*=\s*state\.tabOrder\.filter/, 'could not find the visibleTabOrder filter in main.js');
+  // Locate the shared tab-visibility filter (getVisibleTabIds, extracted from
+  // renderTabBar so both the top tab bar and the Command Deck sidebar reuse the
+  // SAME gate -- see the drillFloor sidebar-leak fix) and assert the diplomacy
+  // gate is present inside it, so a refactor can't silently drop the flag check.
+  assert.match(mainSrc, /state\.tabOrder\.filter/, 'could not find the shared tab-visibility filter (getVisibleTabIds) in main.js');
   assert.match(mainSrc, /tabId\s*!==\s*'diplomacy'\s*\|\|\s*isEnabled\('dataDiplomacy'\)/,
-    'main.js renderTabBar must gate the diplomacy tab on isEnabled(\'dataDiplomacy\')');
+    'main.js\'s shared tab-visibility filter must gate the diplomacy tab on isEnabled(\'dataDiplomacy\')');
 });
 
 test('drift guard: switchTab dispatches to renderDiplomacyTab', () => {
