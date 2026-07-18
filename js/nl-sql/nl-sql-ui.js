@@ -6,9 +6,17 @@
 // Browser-only — no DOM references in the engine or model files.
 // ============================================================
 
-import { nlToSQL, NL_SQL_PROVIDERS } from './nl-sql-engine.js';
+import { nlToSQL, NL_SQL_PROVIDERS, autoFixSQL } from './nl-sql-engine.js';
 import { getAllContracts, matchContracts } from './metric-contracts.js';
 import { datasetsToSchemaContext } from './schema-context.js';
+import { getProviderKey, hasAnyKey } from './nl-sql-key-store.js';
+
+// Source badge styling: pattern engine (green), AI model (blue), contract (teal).
+var SOURCE_BADGES = {
+  pattern:  { label: 'Pattern engine', bg: 'rgba(46,160,67,.14)',  fg: '#2EA043', border: '#2EA043' },
+  llm:      { label: 'AI model',       bg: 'rgba(47,109,246,.14)', fg: '#2F6DF6', border: '#2F6DF6' },
+  contract: { label: 'Metric contract', bg: 'rgba(32,128,141,.14)', fg: '#20808D', border: '#20808D' },
+};
 
 // ---------------------------------------------------------------
 // DOM helpers (mirrors DataGlow's utils.el pattern)
@@ -102,7 +110,7 @@ function buildContractChips(contracts, onChipClick) {
   for (const c of contracts) {
     const chip = h('button', {
       class: 'btn',
-      'data-testid': `nlsql-contract-chip-${c.id}`,
+      'data-testid': 'nlsql-contract-chip-' + c.id,
       style: {
         fontSize: '11px', padding: '2px 8px', borderRadius: '12px',
         background: 'rgba(32,128,141,.12)', color: '#20808D',
@@ -141,6 +149,10 @@ export function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
   let isLoading = false;
   let lastWarnings = [];
   let lastContractsUsed = [];
+  let lastExplanation = '';
+  let lastSteps = [];
+  let lastSource = 'none';
+  let lastRunError = '';   // set by the host when DuckDB rejects the query
 
   // ---- Layout ----
   const header = h('div', { style: { marginBottom: '16px' } });
@@ -266,7 +278,7 @@ export function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
         },
         'data-testid': 'nlsql-warnings',
       });
-      warnBox.innerHTML = '<strong>Warnings:</strong><br>' + lastWarnings.map(w => `&bull; ${w}`).join('<br>');
+      warnBox.innerHTML = '<strong>Warnings:</strong><br>' + lastWarnings.map(w => '&bull; ' + w).join('<br>');
       resultWrap.appendChild(warnBox);
     }
 
@@ -280,6 +292,25 @@ export function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
     }
 
     if (generatedSQL) {
+      // ---- Source badge row (pattern / AI model / metric contract) ----
+      const badgeSpec = SOURCE_BADGES[lastSource];
+      if (badgeSpec) {
+        const badgeRow = h('div', { style: { marginBottom: '6px' } });
+        const badge = h('span', {
+          'data-testid': 'nlsql-source-badge',
+          'data-source': lastSource,
+          style: {
+            display: 'inline-block', fontSize: '11px', fontWeight: 'bold',
+            padding: '2px 10px', borderRadius: '12px',
+            background: badgeSpec.bg, color: badgeSpec.fg,
+            border: '1px solid ' + badgeSpec.border,
+          },
+        });
+        badge.textContent = badgeSpec.label;
+        badgeRow.appendChild(badge);
+        resultWrap.appendChild(badgeRow);
+      }
+
       const sqlLabel = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)', marginBottom: '4px' } });
       sqlLabel.textContent = 'Generated SQL (review before running):';
       resultWrap.appendChild(sqlLabel);
@@ -301,6 +332,65 @@ export function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
       });
       sqlPre.textContent = generatedSQL;
       resultWrap.appendChild(sqlPre);
+
+      // ---- Plain-English explanation (subtle italic line) ----
+      if (lastExplanation) {
+        const explLine = h('div', {
+          'data-testid': 'nlsql-explanation',
+          style: {
+            fontSize: '12px', fontStyle: 'italic',
+            color: 'var(--color-text-muted)', marginBottom: '10px',
+          },
+        });
+        explLine.textContent = lastExplanation;
+        resultWrap.appendChild(explLine);
+      }
+
+      // ---- Steps (collapsed by default) ----
+      if (lastSteps && lastSteps.length) {
+        const details = h('details', {
+          'data-testid': 'nlsql-steps',
+          style: { marginBottom: '10px' },
+        });
+        const summary = h('summary', {
+          style: { fontSize: '12px', color: 'var(--color-text-muted)', cursor: 'pointer' },
+        });
+        summary.textContent = 'Steps (' + lastSteps.length + ')';
+        details.appendChild(summary);
+        const stepList = h('ol', {
+          style: { fontSize: '12px', color: 'var(--color-text-muted)', margin: '6px 0 0 18px', padding: '0' },
+        });
+        for (const st of lastSteps) {
+          const li = h('li', { style: { marginBottom: '2px' } });
+          li.textContent = st;
+          stepList.appendChild(li);
+        }
+        details.appendChild(stepList);
+        resultWrap.appendChild(details);
+      }
+
+      // ---- Auto-fix note + button when the last run errored ----
+      if (lastRunError) {
+        const errBox = h('div', {
+          'data-testid': 'nlsql-run-error',
+          style: {
+            padding: '8px 12px', marginBottom: '10px', borderRadius: '6px',
+            background: 'rgba(161,44,123,.08)', color: 'var(--color-error, #A12C7B)',
+            border: '1px solid var(--color-error, #A12C7B)', fontSize: '12px',
+          },
+        });
+        errBox.textContent = 'Query error: ' + lastRunError;
+        resultWrap.appendChild(errBox);
+
+        const fixBtn = h('button', {
+          class: 'btn',
+          'data-testid': 'nlsql-autofix-btn',
+          style: { fontSize: '13px', padding: '6px 14px', marginBottom: '10px' },
+        });
+        fixBtn.textContent = 'Auto-fix';
+        fixBtn.addEventListener('click', () => handleAutoFix());
+        resultWrap.appendChild(fixBtn);
+      }
 
       const btnRow = h('div', { style: { display: 'flex', gap: '8px' } });
 
@@ -335,34 +425,71 @@ export function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
   // ---- Generate handler ----
   async function handleGenerate() {
     if (!question.trim()) { if (onToast) onToast('Enter a question first.'); return; }
-    if (!apiKey.trim()) { if (onToast) onToast('Add an API key to use NL\u2192SQL.'); return; }
+    // No API key gate: the pattern engine answers most questions with no key.
 
     isLoading = true;
     generatedSQL = '';
     lastWarnings = [];
     lastContractsUsed = [];
+    lastExplanation = '';
+    lastSteps = [];
+    lastSource = 'none';
+    lastRunError = '';
     renderQuestion();
     renderResult();
 
     try {
       const provider = NL_SQL_PROVIDERS.find(p => p.id === providerId) || NL_SQL_PROVIDERS[0];
+      // Prefer the in-tab key; otherwise use whatever was saved in Settings.
+      const effectiveKey = (apiKey && apiKey.trim()) || getProviderKey(provider.id);
       const result = await nlToSQL({
         question,
         datasets,
         domainContext: 'healthcare',
         provider,
-        apiKey,
+        apiKey: effectiveKey,
       });
       generatedSQL = result.sql;
       lastWarnings = result.warnings;
       lastContractsUsed = result.contractsUsed;
+      lastExplanation = result.explanation || '';
+      lastSteps = result.steps || [];
+      lastSource = result.source || 'none';
     } catch (err) {
-      lastWarnings = [`Unexpected error: ${err.message}`];
+      lastWarnings = ['Unexpected error: ' + err.message];
     } finally {
       isLoading = false;
       renderQuestion();
       renderResult();
     }
+  }
+
+  // ---- Auto-fix handler: repair SQL that DuckDB rejected, then re-run ----
+  async function handleAutoFix() {
+    if (!generatedSQL || !lastRunError) return;
+    const schemaCtx = datasetsToSchemaContext(datasets || [], 'healthcare');
+    const fixResult = autoFixSQL(generatedSQL, lastRunError, schemaCtx);
+    if (!fixResult.sql) {
+      if (onToast) onToast(fixResult.fix || 'Could not auto-fix this query.');
+      return;
+    }
+    generatedSQL = fixResult.sql;
+    lastSteps = (lastSteps || []).concat(['Auto-fix: ' + fixResult.fix]);
+    lastRunError = '';
+    if (onToast) onToast(fixResult.fix);
+    renderResult();
+    if (onRunSQL) onRunSQL(generatedSQL);
+  }
+
+  // Allow the host to report a DuckDB run error so the Auto-fix button appears.
+  function reportRunError(message) {
+    lastRunError = message ? String(message) : '';
+    renderResult();
+  }
+
+  // Expose a small control surface on the host element for the host page.
+  if (host) {
+    host.__nlsql = { reportRunError: reportRunError };
   }
 
   // ---- Initial render ----

@@ -1283,6 +1283,27 @@
       <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-top:4px;">Keys are kept in memory for this session only — never sent anywhere except directly to the selected provider.</div>
     </div>
 
+    <div class="sidebar-heading">AI Provider Keys (optional)</div>
+    <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-3);">
+      DataGlow works without API keys. Keys unlock AI-powered query generation for freeform questions the pattern engine cannot answer.
+    </p>
+    <div id="nlsql-keys-section" style="display:flex; flex-direction:column; gap:var(--space-2); margin-bottom:var(--space-2);">
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:var(--text-sm);">OpenAI
+        <input type="password" id="nlsql-key-openai" class="sql-textarea mono" style="min-height:auto; padding:var(--space-2) var(--space-3);" placeholder="sk-..." data-testid="input-nlsql-key-openai">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:var(--text-sm);">Anthropic
+        <input type="password" id="nlsql-key-anthropic" class="sql-textarea mono" style="min-height:auto; padding:var(--space-2) var(--space-3);" placeholder="sk-..." data-testid="input-nlsql-key-anthropic">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:var(--text-sm);">Google
+        <input type="password" id="nlsql-key-google" class="sql-textarea mono" style="min-height:auto; padding:var(--space-2) var(--space-3);" placeholder="sk-..." data-testid="input-nlsql-key-google">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px; font-size:var(--text-sm);">Perplexity
+        <input type="password" id="nlsql-key-perplexity" class="sql-textarea mono" style="min-height:auto; padding:var(--space-2) var(--space-3);" placeholder="sk-..." data-testid="input-nlsql-key-perplexity">
+      </label>
+    </div>
+    <button class="btn btn-secondary" id="btn-nlsql-keys-save" style="margin-bottom:4px;" data-testid="button-nlsql-keys-save">Save to session</button>
+    <div style="font-size:var(--text-xs); color:var(--color-text-faint); margin-bottom:var(--space-5);">Keys are held in memory only and cleared when you close DataGlow.</div>
+
     <div class="sidebar-heading">Freshness Threshold</div>
     <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">Flag datasets as stale after:</p>
     <select id="freshness-threshold" class="btn btn-secondary" style="padding:var(--space-2) var(--space-3); margin-bottom:var(--space-5);">
