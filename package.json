@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DATAGLOW \u2014 browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
+  "description": "DATAGLOW — browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
   "scripts": {
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:dialectadapter": "node test/sql-dialect-adapter.test.mjs",
@@ -164,13 +164,15 @@
     "test:e2e-rigor-engine-badges": "node test/e2e-rigor-engine-badges.test.mjs",
     "screenshot:grades": "node test/_screenshot-grades.mjs",
     "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
-    "screenshot:missingness": "node test/_screenshot-missingness.mjs"
+    "screenshot:missingness": "node test/_screenshot-missingness.mjs",
+    "test:mcp": "node test/mcp-server.test.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
     "playwright-chromium": "^1.47.0"
   },
   "dependencies": {
-    "@duckdb/duckdb-wasm": "1.29.0"
+    "@duckdb/duckdb-wasm": "1.29.0",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }
