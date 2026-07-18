@@ -7,13 +7,75 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 10:45 CT] Found + fixed a live app-breaking syntax error while verifying glowCanvas (PR #327, merged)
+
+**What happened:** While doing verification-only checks on `glowCanvas` (already promoted by the repo owner via PR #316 — this run's job was to confirm it actually works, not build it), a Playwright load of a plain `index.html` threw `pageerror: missing ) after argument list` on first load, before any interaction. Root-caused to a single mangled line in `js/council/council-ui.js` shipped by PR #326 ("deep reasoning upgrade"): a broken string-literal expression meant to check for a triple-backtick code fence, mis-escaped during editing. Since `js/app-shell/main.js` imports `council-ui.js` at module scope, this broke every page load on main, not only the Council tab.
+
+**Why CI didn't catch it:** no test file imports `council-ui.js` at all (checked every `test:*` script in `package.json`), and none of the ~55 CI jobs run a blanket `node --check` across `js/`. Logged as a real coverage gap for the backlog (not fixed this run, to keep the fix PR minimal).
+
+**What was decided/built:** Fixed to the clearly-intended triple-backtick check. One line, one file (confirmed via `git diff origin/main <branch>` showing exactly this change). Independent verification before the merge confirm: full `node --check` sweep across every `js/` file (zero other syntax errors, before and after the fix), and a from-scratch Playwright re-run against the exact PR branch code (page load + tab switch + full add-chart-with-data flow, zero console/page errors, chart rendered correctly). CI: all green except the same 3 known pre-existing unrelated failures (capability-map drift, Context Engine micro-lessons, Command Deck sidebar nav); `tauri-smoke` passed (6m56s); `e2e-smoke` (real Chrome) passed. Explicit `confirm_action` obtained before merge, squash-merged, branch deleted.
+
+**Outcome:** Live. Fix re-confirmed present and holding on `main` after the merge, plus a second full syntax sweep on the new main tip — the merge fast-forwarded through a concurrent, unrelated Phase 12 NL-SQL upgrade the repo owner shipped in parallel (9 files, ~1285 lines), and that sweep confirms it introduced zero new syntax errors either. `glowCanvas` re-verified working end-to-end on this new main tip too: real bar chart rendered from a 10-row sample dataset via the Add Chart form, `1 chart` count, zero JS errors. Logged as "already promoted by repo owner (PR #316), verified working" — not a new promotion, per the plan.
+
+**Lesson for next time:** A verification-only pass on an already-shipped flag is still worth running the app through Playwright with a `pageerror` listener attached — this caught a completely unrelated, real, live-breaking bug that plain code review or CI both missed. Treat "just verify it still works" runs as a real opportunity to catch drift, not a formality.
+
+---
+
+## [2026-07-18 10:14 CT] provenancePacket promoted to live (PR #315, merged)
+
+**What was asked:** Promote the 4 ready dark flags (provenancePacket, glowCanvas, cleaningCrew, drillFloor)
+in overdue-first order. This entry covers provenancePacket, the most overdue at 198 merged PRs since
+added, with no remaining blocker (dependencies PR #97/#100 landed long ago).
+
+**What was found in Step 1:** Main advanced very fast mid-run — Phases 6 through 11 (SQL→Viz bridge,
+Excel round-trip, join builder, NL-SQL, Data Version Control, AI Council) all landed directly from the
+repo owner while this promotion was in flight, moving main from `a197e04` to `b690292`. Also found and
+fixed, in its own separate PR (#321, merged first), a pre-existing CI bug unrelated to any flag work:
+the validation-layer registry had legitimately grown from 21 to 22 layers across Phases 2-4, but three
+test artifacts (`test/validation-layers.test.mjs`, `test/trust-collaboration-suite.test.mjs`, two golden
+fixtures) were never updated to match — breaking `20-layer Validate suite`, `Zero-upload egress-deny`,
+and `Golden regression suite` CI jobs on main itself. Fixed via the sanctioned `test:golden:update`
+workflow; diff reviewed as purely additive (drg_icd_validation, equity, relational, temporal_drift now
+present, all idle/pass, no new fail/warn states) — no behavior regression.
+
+**Also found (pre-existing, NOT fixed this run — logged for backlog):** three more drift gaps surfaced
+by the same rapid shipping, all independently confirmed to also fail on a clean main checkout:
+- Capability-map drift detector: several new files from Phases 5-9 (warehouse connectors, join builder,
+  NL-SQL, relational checkers, equity, DVC, rulepacks) are undocumented in `capability-map.manifest.json`.
+- Context Engine (micro-lessons): coverage is missing an entry for the `drg_icd_validation` layer.
+- Command Deck sidebar nav: one assertion failure, not yet root-caused.
+
+**What was decided/built:** Verified `provenancePacket` end-to-end (golden dataset → Validate run →
+Export Packet produced a signed `.dataglow.json` with all 4 sections → Import Packet verified signature
+and rendered the summary without the original dataset). Tests: `npm run test:provpacket` (46/46),
+`npm run test:living-manifest` (29/29). One Confirm gate presented with full evidence; user approved.
+Branch `enable/provenance-packet` (single-line flag flip only) rebased onto the fast-moving main using
+`git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>` before an explicit-lease force push
+(plain `--force-with-lease` failed with "stale info" once; the explicit `branch:oid` form succeeded).
+Re-verified `provenancePacket.enabled` held `true` through the rebase before re-pushing. CI on the rebased
+PR was fully green except the same 3 pre-existing unrelated failures above. Merged (squash) after a second
+explicit `confirm_action` — the rebase was purely mechanical (identical one-line diff replayed onto a
+newer base) but a skipped `ask_user_question` earlier was correctly NOT treated as consent to merge; got
+unambiguous confirmation before merging.
+
+**Outcome:** Live. `provenancePacket.enabled === true` re-confirmed on main immediately post-merge
+(standing incident-lesson re-check). Total flags on main: 70 (up from 65 at start of this run — new
+flags `serverOffload` and others arrived via the concurrent Phase 6-11 work, not from this session).
+
+**Lesson for next time:** When a promotion run spans enough wall-clock time for the repo owner to ship
+multiple phases concurrently, re-run the FULL Step 1 pre-flight (not just the flag-clobber check) before
+resuming — new dark flags can appear mid-run (`serverOffload` here) and need triage of their own before
+being assumed out of scope.
+
+---
+
 ## [2026-07-18 07:52 CT] Incident: rigorEngineBadges was silently reverted 7 minutes after going live, then restored (PR #312, merged, fix-only)
 
 **What happened:** PR #305 flipped `rigorEngineBadges.enabled` to `true` and merged clean at 06:51:38 CT.
 PR #309 ("Phase 2 — Relational Integrity Layer") — a real, unrelated feature, authored and merged directly
 by the repo owner outside this session — squash-merged 7 minutes later at 06:58:20 CT. Its branch tip commit
 rewrote `flags.manifest.json` wholesale: 56 lines changed, every em-dash re-escaped from a literal `—`
-character to `\u2014`, a signature of a JSON serializer reading the whole file into memory and writing it
+character to `—`, a signature of a JSON serializer reading the whole file into memory and writing it
 back out rather than a targeted text edit. That in-memory snapshot still carried `rigorEngineBadges.enabled:
 false` — evidently captured before the PR #305 flip — so writing the file back out silently clobbered the
 live value even though the branch's other new flags and code were correctly based on post-flip main. Found

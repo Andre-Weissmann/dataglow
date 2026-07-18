@@ -1550,6 +1550,21 @@ transcript). 31/31 tests. No other pending flag-enable requests remain.
 
 ## Backlog (ranked, queued — not abandoned)
 
+**From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
+the user ("more stuff can be added later on"):**
+
+0x. **AI Council model-default staleness has no in-app signal.** `js/council/council-engine.js`'s
+    `COUNCIL_PROVIDERS` hardcodes one default model string per provider (currently `gpt-5.6-sol`,
+    `claude-fable-5`, `gemini-3.5-flash`, per PR #325 "update default models to July 2026 releases") with
+    a code comment saying "update when models change" — a manual process. The model name field IS
+    user-editable in the Council tab UI (PR #324), so a user who knows to retype it can always point at a
+    newer model — but there's no UI cue telling them the shown default might be outdated, and no
+    auto-fetch of each provider's current model list. Deferred: not a correctness bug (BYO-key calls go
+    straight to the real provider API, nothing is ever silently wrong), just a discoverability gap. Two
+    sketched options if picked up later: (a) a small "defaults as of July 2026 — verify before relying on
+    them" note in the Council tab, or (b) a lightweight models-list fetch per provider to populate the
+    field with real current options instead of free text. Neither started.
+
 **From 2026-07-15 Run 5 (Portfolio-readiness), highest-priority — bug fixes, not new features, ranked
 above the feature backlog below since they're cheaper and higher-trust-impact:**
 
