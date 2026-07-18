@@ -162,7 +162,7 @@ forking the agent.
    never created, the scribe uses its default `[]` and every existing path is byte-for-byte
    unchanged.)
 4. **Batch 4 — on-device LLM synthesis panel.** (DONE — see
-   [#PRNUM_BATCH4](https://github.com/Andre-Weissmann/dataglow/pull/PRNUM_BATCH4) — new pure,
+   [#364](https://github.com/Andre-Weissmann/dataglow/pull/364) — new pure,
    Node-testable module `js/agents/meeting-synthesis.js` turns a grounded meeting note (the
    output of `buildMeetingNote()`) into a focused prompt for the SAME on-device model the
    Story and Guarded Copilot tabs use, then packages the result:
