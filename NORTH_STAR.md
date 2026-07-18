@@ -557,10 +557,17 @@ for the auditor/partner-org/regulator persona the whole Trust Passport was built
    result" button in `js/app-shell/main.js`. Real tamper detection verified in
    `test/trust-beam.test.mjs` (40/0 passing). Ships DARK behind `trustBeam` (default OFF);
    with the flag off the app is byte-for-byte unchanged.)
-2. **Batch 2 — optional data-match hint in the verifier.** NOT STARTED. Let a recipient who
-   HAPPENS to hold the data drop a file into `verify-beam.html` to run the seal's optional
-   layer-2 data-fingerprint match locally (still zero-upload); today the standalone page does
-   the commitment/integrity layer only, which is all a recipient-without-data can check.
+2. **Batch 2 — optional data-match hint in the verifier.** (DONE — `verify-beam.html` gains a
+   file-drop zone below the Fingerprints section. If the seal has a committed data fingerprint
+   (`fp.data`), a "Verify your data matches this seal" section renders: the recipient drops
+   (or picks) the CSV/file they hold; the page calls `fingerprintData()` locally (same function
+   used at seal-creation time) and compares the re-derived hash to the committed value — match
+   or mismatch result rendered in-page, nothing uploaded, zero new server involvement.
+   `fingerprintData` is now also exported from `verifiable-check-seal.js` for this use.
+   Drag-and-drop, click-to-pick, and keyboard (Enter/Space) all supported. iOS WKWebView
+   constraint respected (no template literals in the script block). No new flag — the drop
+   zone only renders when the seal already has a fingerprint, which is gated on the existing
+   `verifiableCheckSeal` flag. 25/25 tests in `test/trust-beam-batch2-data-match.test.mjs`.)
 3. **Batch 3 — promote `trustBeam` to ON.** (SHIPPED, [#164](https://github.com/Andre-Weissmann/dataglow/pull/164) —
    promoted alongside the rest of the Trust Passport chain (`verifiableCheckSeal`,
    `dataNutritionLabel`, `syntheticDataPassport`) after the verifier was dogfooded, following

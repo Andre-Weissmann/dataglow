@@ -56,6 +56,20 @@
     border-top: 1px solid var(--color-border); padding-top: var(--space-4); margin-top: var(--space-6);
   }
   .beam-brand { font-family: var(--font-display); font-weight: 600; color: var(--color-text); }
+  /* Batch 2: data-match file drop zone */
+  .beam-drop-zone {
+    border: 2px dashed var(--color-border); border-radius: var(--radius-lg);
+    padding: var(--space-5); text-align: center;
+    color: var(--color-text-muted); font-size: var(--text-sm);
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    margin-bottom: var(--space-3);
+  }
+  .beam-drop-zone.drag-over { border-color: var(--color-primary); background: rgba(0,100,148,0.06); }
+  .beam-drop-zone input[type="file"] { display: none; }
+  .beam-match-result { padding: var(--space-3); border-radius: var(--radius-md); font-size: var(--text-sm); }
+  .beam-match-result.match { background: rgba(67,122,34,0.1); color: var(--color-success); }
+  .beam-match-result.mismatch { background: rgba(161,44,123,0.1); color: var(--color-error); }
+  .beam-match-result.checking { background: var(--color-surface); color: var(--color-text-muted); }
 </style>
 </head>
 <body>
@@ -83,7 +97,7 @@
 
   <script type="module">
     import { readBeamPayloadFromFragment, decodeBeam, BEAM_DISCLAIMER } from './js/provenance/trust-beam.js';
-    import { verifySeal, renderSealSummaryLines } from './js/provenance/verifiable-check-seal.js';
+    import { verifySeal, renderSealSummaryLines, fingerprintData } from './js/provenance/verifiable-check-seal.js';
 
     const verdictEl = document.getElementById('beam-verdict');
     const headEl = document.getElementById('beam-verdict-head');
@@ -163,7 +177,7 @@
 
       // Per-claim membership results.
       const claimsSection = el('div', { class: 'beam-section', 'data-testid': 'beam-claims' }, [
-        el('h2', {}, `Sealed claims (${result.claims.length})`),
+        el('h2', {}, 'Sealed claims (' + result.claims.length + ')'),
       ]);
       for (const c of result.claims) {
         claimsSection.appendChild(el('div', { class: 'beam-claim' }, [
@@ -186,6 +200,67 @@
         el('span', { class: 'beam-mono' }, shortHash(fp.data)),
       ]));
       detailsEl.appendChild(fpSection);
+
+      // --- Batch 2: optional data-match hint --------------------------------
+      // Render a file-drop zone only when the seal has a committed data fingerprint.
+      if (fp.data) {
+        const matchSection = el('div', { class: 'beam-section', 'data-testid': 'beam-data-match-section' }, [
+          el('h2', {}, 'Optional: verify your data matches this seal'),
+        ]);
+        const note = el('p', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin:0 0 var(--space-2);' });
+        note.textContent = 'Drop the CSV or data file you hold here. DataGlow will re-fingerprint it '
+          + 'locally (nothing is uploaded) and compare it to the fingerprint committed in this seal.';
+        matchSection.appendChild(note);
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.csv,.txt,.json';
+        fileInput.setAttribute('data-testid', 'beam-data-file-input');
+
+        const dropZone = el('div', { class: 'beam-drop-zone', 'data-testid': 'beam-drop-zone', tabindex: '0',
+          role: 'button', 'aria-label': 'Drop data file to verify fingerprint' });
+        dropZone.textContent = 'Drop a file here, or click to choose';
+        dropZone.appendChild(fileInput);
+
+        const matchResult = el('div', { 'data-testid': 'beam-match-result', style: 'display:none;' });
+
+        async function checkFile(file) {
+          if (!file) return;
+          matchResult.style.display = '';
+          matchResult.className = 'beam-match-result checking';
+          matchResult.textContent = 'Fingerprinting…';
+          try {
+            const text = await file.text();
+            const recomputed = await fingerprintData(text);
+            if (recomputed === fp.data) {
+              matchResult.className = 'beam-match-result match';
+              matchResult.textContent = '✓ Data match confirmed — this file has the exact fingerprint committed in the seal.';
+            } else {
+              matchResult.className = 'beam-match-result mismatch';
+              matchResult.textContent = '✗ Data does not match — this file has a different fingerprint than the one committed in the seal. '
+                + 'The data may have been modified since sealing, or this is not the right file.';
+            }
+          } catch (e) {
+            matchResult.className = 'beam-match-result mismatch';
+            matchResult.textContent = 'Could not read the file: ' + e.message;
+          }
+        }
+
+        dropZone.addEventListener('click', function() { fileInput.click(); });
+        dropZone.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+        fileInput.addEventListener('change', function() { if (fileInput.files && fileInput.files[0]) checkFile(fileInput.files[0]); });
+        dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('drag-over'); });
+        dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('drag-over'); });
+        dropZone.addEventListener('drop', function(e) {
+          e.preventDefault();
+          dropZone.classList.remove('drag-over');
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) checkFile(e.dataTransfer.files[0]);
+        });
+
+        matchSection.appendChild(dropZone);
+        matchSection.appendChild(matchResult);
+        detailsEl.appendChild(matchSection);
+      }
     }
 
     run().catch((e) => setVerdict('bad', 'Something went wrong', e.message));
