@@ -133,6 +133,8 @@ let exportReport;
 let microLessons;
 let communityPack;
 import { DatabricksConnector, DEFAULT_QUERY, TRUST_NOTICE } from './databricks-connect.js';
+import { S3Connector, MODES as S3_MODES, TRUST_NOTICE as S3_TRUST_NOTICE } from '../warehouse/s3-connector.js';
+import { BigQueryConnector, TRUST_NOTICE as BQ_TRUST_NOTICE } from '../warehouse/bigquery-connector.js';
 import { withCanonical } from '../validation/categorical-consistency.js';
 import { SelfLearningModel, MIN_EXAMPLES, actionToLabel } from '../learning/self-learning-rules.js';
 import { LayerPriorityModel, MIN_ACTIONS } from '../learning/adaptive-priority.js';
@@ -796,6 +798,113 @@ function initDatabricksConnect() {
       runBtn.disabled = false;
     }
   });
+}
+
+// ============================================================
+// Warehouse Lane: S3 / Parquet (Phase 5)
+// ============================================================
+function initS3Connect() {
+  const runBtn   = $('#btn-s3-run');
+  const urlEl    = $('#s3-url');
+  const keyIdEl  = $('#s3-key-id');
+  const secretEl = $('#s3-secret');
+  const regionEl = $('#s3-region');
+  const statusEl = $('#s3-status');
+  const trustEl  = $('#s3-trust-note');
+  const iamFields = $('#s3-iam-fields');
+  const presignedRadio = $('#s3-mode-presigned');
+  const iamRadio       = $('#s3-mode-iam');
+
+  if (!runBtn) return;
+
+  if (trustEl) trustEl.textContent = S3_TRUST_NOTICE;
+
+  // Toggle IAM fields based on mode selection.
+  function updateMode() {
+    const isIAM = iamRadio && iamRadio.checked;
+    if (iamFields) iamFields.style.display = isIAM ? 'flex' : 'none';
+  }
+  if (presignedRadio) presignedRadio.addEventListener('change', updateMode);
+  if (iamRadio)       iamRadio.addEventListener('change', updateMode);
+  updateMode();
+
+  const connector = new S3Connector({
+    runQuery: (sql) => engine.runQuery(sql),
+    loadRows: (args) => loaders.loadRowsAsDataset(args),
+  });
+
+  runBtn.addEventListener('click', async () => {
+    const mode = iamRadio && iamRadio.checked ? S3_MODES.IAM : S3_MODES.PRESIGNED;
+    runBtn.disabled = true;
+    try {
+      await connector.connect({
+        mode,
+        url:    urlEl    ? urlEl.value    : '',
+        keyId:  keyIdEl  ? keyIdEl.value  : '',
+        secret: secretEl ? secretEl.value : '',
+        region: regionEl ? regionEl.value : '',
+        onStatus: (msg) => { if (statusEl) statusEl.textContent = msg; },
+      });
+      if (statusEl) statusEl.textContent = 'Imported successfully.';
+    } catch (e) {
+      if (statusEl) statusEl.textContent = e && e.message ? e.message : String(e);
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+}
+
+// ============================================================
+// Warehouse Lane: BigQuery (Phase 5)
+// ============================================================
+function initBigQueryConnect() {
+  const runBtn     = $('#btn-bigquery-run');
+  const signoutBtn = $('#btn-bigquery-signout');
+  const clientIdEl = $('#bigquery-client-id');
+  const projectEl  = $('#bigquery-project');
+  const sqlEl      = $('#bigquery-sql');
+  const statusEl   = $('#bigquery-status');
+  const trustEl    = $('#bigquery-trust-note');
+
+  if (!runBtn) return;
+
+  if (trustEl) trustEl.textContent = BQ_TRUST_NOTICE;
+
+  const connector = new BigQueryConnector({
+    loadRows: (args) => loaders.loadRowsAsDataset(args),
+  });
+
+  function updateSignoutBtn() {
+    if (signoutBtn) signoutBtn.style.display = connector.token ? '' : 'none';
+  }
+
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    try {
+      await connector.connect({
+        clientId:  clientIdEl ? clientIdEl.value : '',
+        projectId: projectEl  ? projectEl.value  : '',
+        query:     sqlEl      ? sqlEl.value       : '',
+        onStatus:  (msg) => { if (statusEl) statusEl.textContent = msg; },
+      });
+      if (statusEl) statusEl.textContent = 'Imported successfully.';
+      updateSignoutBtn();
+    } catch (e) {
+      if (statusEl) statusEl.textContent = e && e.message ? e.message : String(e);
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  if (signoutBtn) {
+    signoutBtn.addEventListener('click', () => {
+      connector.clearToken();
+      updateSignoutBtn();
+      if (statusEl) statusEl.textContent = 'Signed out.';
+    });
+  }
+
+  updateSignoutBtn();
 }
 
 function resetPanelStates() {
@@ -8330,6 +8439,8 @@ function init() {
   initTheme();
   initFileLoading();
   initDatabricksConnect();
+  initS3Connect();
+  initBigQueryConnect();
   initSqlTab();
   initPythonTab();
   initRTab();
