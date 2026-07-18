@@ -18,6 +18,10 @@ import { computeCalibratedGrades } from '../grades/calibrated-grades.js';
 import { devAssertConformance, toValidationRun, toDataset } from '../protocol/protocol-conformance.js';
 import { forecastDriftReport } from '../drift/drift-forecast.js';
 import { isEnabled } from '../build/build-flags.js';
+import { checkForeignKey, checkAllForeignKeys } from '../relational/foreign-key-checker.js';
+import { checkTemporalOrder } from '../relational/temporal-order-checker.js';
+import { checkFlagConsistency } from '../relational/flag-consistency-checker.js';
+import { checkJoinCoverage, checkAllJoinCoverage } from '../relational/join-coverage-checker.js';
 
 // Feature flag gating the extended-coverage validation checks (semantic
 // magnitude ordering in Cross-Column Logic + business-key duplicate detection
@@ -1298,6 +1302,107 @@ async function runMissingnessDetectiveLayer(table, cols) {
   return r;
 }
 
+// ---------- Relational Integrity Orchestrator ----------
+// Runs the three Phase 2 relational sub-checks, each gated by its own flag.
+// Returns a unified relational result that rolls up to the worst sub-check status.
+// options.relationalPairs: Array<{childTable,childCol,parentTable,parentCol,label}>
+//   -- explicit FK/join pairs for multi-table checks. Derived from state.datasets
+//   when not provided.
+async function runRelationalLayer(ds, cols, options = {}) {
+  const table = ds.table;
+  const engineAdapter = { runQuery: (sql) => engine.runQuery(sql) };
+
+  // Sub-results -- each defaults to idle if its flag is off.
+  let temporal = { status: 'idle', level: 'none', summary: 'Temporal order checks not enabled.', rules: [] };
+  let flagConsistency = { status: 'idle', level: 'none', summary: 'Flag consistency checks not enabled.', rules: [] };
+  let fkCheck = { status: 'idle', level: 'none', summary: 'FK / orphan checks not enabled.', pairs: [] };
+  let joinCoverage = { status: 'idle', level: 'none', summary: 'Join coverage checks not enabled.', pairs: [] };
+
+  // 1. Temporal order checks (single-table, intra-row date comparisons)
+  if (isEnabled('temporalOrderChecks')) {
+    temporal = await checkTemporalOrder({ table, cols, engine: engineAdapter })
+      .catch(e => ({ status: 'idle', level: 'none', rules: [],
+        summary: 'Temporal order check error: ' + (e && e.message ? e.message : String(e)) }));
+  }
+
+  // 2. Flag consistency checks (single-table, intra-row flag logic)
+  if (isEnabled('flagConsistencyChecks')) {
+    flagConsistency = await checkFlagConsistency({ table, cols, engine: engineAdapter })
+      .catch(e => ({ status: 'idle', level: 'none', rules: [],
+        summary: 'Flag consistency check error: ' + (e && e.message ? e.message : String(e)) }));
+  }
+
+  // 3. Cross-table FK + join coverage (requires relationalPairs or auto-detection
+  //    via state.datasets -- only runs when a second table is loaded).
+  const pairs = options.relationalPairs || autoDetectPairs(ds, cols);
+  if (pairs.length > 0) {
+    if (isEnabled('crossTableReferentialIntegrity')) {
+      fkCheck = await checkAllForeignKeys(pairs, engineAdapter)
+        .catch(e => ({ status: 'idle', level: 'none', pairs: [],
+          summary: 'FK check error: ' + (e && e.message ? e.message : String(e)) }));
+    }
+    if (isEnabled('joinCoverageChecks')) {
+      joinCoverage = await checkAllJoinCoverage(pairs, engineAdapter)
+        .catch(e => ({ status: 'idle', level: 'none', pairs: [],
+          summary: 'Join coverage check error: ' + (e && e.message ? e.message : String(e)) }));
+    }
+  }
+
+  // Roll up to worst status across all sub-checks.
+  const subStatuses = [temporal.status, flagConsistency.status, fkCheck.status, joinCoverage.status];
+  const overallStatus = subStatuses.includes('fail') ? 'fail'
+    : subStatuses.includes('warn') ? 'warn'
+    : subStatuses.every(s => s === 'idle') ? 'idle' : 'pass';
+  const subLevels = [temporal.level, flagConsistency.level, fkCheck.level, joinCoverage.level];
+  const overallLevel = subLevels.includes('high') ? 'high'
+    : subLevels.includes('medium') ? 'medium'
+    : subLevels.includes('low') ? 'low' : 'none';
+
+  const parts = [];
+  if (temporal.status !== 'idle') parts.push('Temporal: ' + temporal.status);
+  if (flagConsistency.status !== 'idle') parts.push('Flags: ' + flagConsistency.status);
+  if (fkCheck.status !== 'idle') parts.push('FK: ' + fkCheck.status);
+  if (joinCoverage.status !== 'idle') parts.push('Coverage: ' + joinCoverage.status);
+
+  const summary = parts.length > 0
+    ? 'Relational integrity — ' + parts.join(' | ')
+    : 'Relational integrity checks idle (no applicable rules detected).';
+
+  return { status: overallStatus, level: overallLevel, summary, layer: 'relational',
+    temporal, flagConsistency, fkCheck, joinCoverage };
+}
+
+// Auto-detect cross-table pairs from other loaded datasets in state.
+// Matches FK-shaped column names against other loaded table names/columns.
+function autoDetectPairs(ds, cols) {
+  const pairs = [];
+  try {
+    const otherDatasets = (state.datasets || []).filter(d => d.table !== ds.table);
+    if (otherDatasets.length === 0) return pairs;
+    for (const col of (cols || [])) {
+      const colName = typeof col === 'string' ? col : col.name;
+      if (!colName) continue;
+      // Heuristic: column name ends with _id or matches another table name.
+      const candidate = otherDatasets.find(d => {
+        const tName = d.table.toLowerCase();
+        const cLower = colName.toLowerCase();
+        // e.g. patient_id -> patients table, encounter_id -> encounters table
+        return cLower === tName + '_id' || cLower.startsWith(tName + '_') ||
+          (d.cols && d.cols.length > 0 && (d.cols[0].name || d.cols[0]) === colName);
+      });
+      if (candidate && candidate.cols && candidate.cols.length > 0) {
+        const parentCol = candidate.cols[0].name || candidate.cols[0];
+        pairs.push({
+          childTable: ds.table, childCol: colName,
+          parentTable: candidate.table, parentCol,
+          label: ds.table + '.' + colName + ' -> ' + candidate.table + '.' + parentCol,
+        });
+      }
+    }
+  } catch { /* fail open */ }
+  return pairs;
+}
+
 // ---------- Orchestrator ----------
 export async function runAllLayers(ds, options = {}) {
   const table = ds.table;
@@ -1331,6 +1436,15 @@ export async function runAllLayers(ds, options = {}) {
   results.physiological_plausibility = await runPhysiologicalPlausibility(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.upper_bound_sanity = await runUpperBoundSanity(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.missingness_detective = await runMissingnessDetectiveLayer(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+
+  // ---- Relational Integrity Layer (Phase 2) ----
+  // Three new sub-checks that operate across column pairs and (optionally) across
+  // table pairs. Each is gated by its own feature flag and fails open: an error
+  // in any sub-check produces an 'idle' result and never kills the run.
+  results.relational = await runRelationalLayer(ds, cols, options).catch(e => ({
+    status: 'idle', summary: 'Relational layer could not run: ' + (e && e.message ? e.message : String(e)),
+    temporal: null, flagConsistency: null, joinCoverage: null,
+  }));
 
   // ---- Domain Physics Engine ----
   // Sits ABOVE the 20 layers: it reinterprets/annotates their raw output using a
