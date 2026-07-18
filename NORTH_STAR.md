@@ -1462,33 +1462,45 @@ mobile PWA off the single shared codebase.
 **Not yet built — this is research only, no code shipped.** Phase 1 (PDF.js + Tesseract.js) is the
 recommended next buildable feature when the founder is ready to start.
 
-## CI infrastructure: reusable-workflow cap is now exactly full
+## CI infrastructure: reusable-workflow cap — fixed for real (2026-07-17, PR #296)
 
-**Discovered 2026-07-15, PR #243 (Guarded Copilot).** GitHub Actions caps a single top-level
-workflow file at 50 unique reusable workflows called (raised from 20 in Nov 2025 — see
+**Discovered 2026-07-15, PR #243 (Guarded Copilot); hit again 2026-07-17, PR #294 (Rigor Engine
+Batch 1).** GitHub Actions caps a single top-level workflow file at 50 unique reusable workflows called
+(raised from 20 in Nov 2025 — see
 [GitHub's reusable-workflow docs](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#limitations-of-reusable-workflows)).
-`test.yml` was already at exactly 50 `job-*.yml` calls before this PR — adding a 51st (a new
-`job-guarded-copilot.yml`) made the whole `tests` workflow fail to parse (an immediate 0-job,
-0-second "workflow file issue" failure, not a test failure). Worked around for this PR by adding
-Guarded Copilot's suite as a second job inside the already-counted `job-agent-action-firewall.yml`
-rather than a new top-level file — both are `js/agents/` red-team suites, a reasonable pairing, but
-this is a stopgap, not a scalable pattern. **The next PR that wants a genuinely new standalone CI
-job will hit this same wall immediately.** Real fix (not attempted here, to keep this PR's diff
-scoped to Guarded Copilot itself): introduce one more level of nesting — a small number of "batch"
-reusable workflows (e.g. `job-batch-agents.yml`, `job-batch-provenance.yml`), each itself calling
-several leaf `job-*.yml` files. Up to 10 levels of nesting are allowed, so this only needs to happen
-once to buy back a lot of headroom, but it touches `test.yml`'s structure directly and should be its
-own small, dedicated PR (docs/CI-only, no source changes) rather than bundled into a feature PR.
+`test.yml` hit exactly 50 `job-*.yml` calls twice, and each time a 51st `uses:` call made the whole
+`tests` workflow fail to parse (an immediate 0-job "workflow file issue", not a test failure). Both times
+were worked around with inline jobs (`steps:` directly in `test.yml`) as a stopgap — correctly flagged in
+both entries as finite, not a real fix.
 
-**Hit again, 2026-07-17, PR #294 (The Rigor Engine, Batch 1).** Same failure mode exactly: adding
-`job-statistical-rigor.yml` as a 51st `uses:` call broke the entire `tests` workflow (0 jobs, "workflow
-file issue"). Worked around the same way as before — defined the job inline (`steps:` directly in
-`test.yml`, matching the `glow-canvas`/`drill-floor`/`cleaning-crew` inline-job pattern) instead of a new
-top-level file, and deleted the orphaned job file. **This is now the second time this exact wall has
-stopped a PR mid-flight**, and the inline-job workaround itself is finite — `test.yml` will eventually
-get unwieldy as more jobs get inlined instead of living in their own files. The real fix described above
-(a batch-of-batches nesting refactor) should be prioritized as its own small, dedicated, docs/CI-only PR
-before the next few feature batches (Rigor Engine Batches 2-4 will each likely want their own CI job too).
+**Correction: the "batch-of-batches nesting" idea proposed in the original two entries above was WRONG
+and was never built.** Re-reading
+[GitHub's own docs](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#limitations-of-reusable-workflows)
+more carefully before building it: the 50-workflow cap counts the **entire nested call tree**, not just
+top-level `uses:` calls. A `job-batch-agents.yml` that itself calls 5 leaf files would count as 6 toward
+the cap, not 1 — nesting buys back nothing. Good that this was caught before implementation; it would
+have been a wasted PR.
+
+**The real, documented fix (PR #296, merged `35c3dae`):** a single file's `jobs:` block can define many
+named jobs directly, with **zero** contribution to the cap — only `uses:` calls to *separate* files count.
+Consolidated the 47 plain (checkout + setup-node + npm ci + npm run, `ubuntu-latest`, no special
+deps/caches/artifacts) one-job-per-file `job-*.yml` workflows into 5 multi-job `job-ci-batch-NN.yml` files
+(~10 jobs each). The 3 genuinely special-shaped jobs (`job-e2e-smoke.yml`: real Chrome,
+`job-tauri-smoke.yml`: Rust/apt/cache, `job-supply-chain-hardening.yml`: artifact upload) stayed as their
+own files. `test.yml`'s `uses:` calls dropped from **50 to 8** in one PR, restoring 42 slots of headroom.
+Every job id/name/step is byte-identical to before (51 reusable job ids before == 51 after; 55 total jobs
+including the 4 inline jobs before == 55 after) — verified locally and confirmed by all 55 real GitHub
+Actions checks passing on the PR, including `tauri-smoke` and `e2e-smoke`.
+
+**CI Architect (built alongside PR #296, see Shipped section below):** a standing pre-flight guard is now
+baked into both `dataglow-mission-center` and `dataglow-brainstorm`'s own Step 4 (before opening any PR
+that adds a new CI job) — it checks the current `uses:` count against the 50 cap and defaults to
+appending into whichever `job-ci-batch-NN.yml` has spare room (creating a new batch file once all are
+full), rather than ever creating a new standalone `job-<name>.yml` + `uses:` line again. This is a
+build-time check inside the skill's own workflow, not a cron/scheduled job. The live dashboard
+(https://dataglow-mission-center.pplx.app) also now surfaces the current `uses:` count and headroom as
+part of its hygiene-debt tracking, so the number is visible between runs too. This should prevent this
+wall from ever being hit a third time.
 
 ## Shipped (live, all three flags on): Query Sentinel
 
