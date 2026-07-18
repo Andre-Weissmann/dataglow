@@ -99,6 +99,7 @@ import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { buildDiplomacyFormModel, renderDiplomacyLoader } from '../diplomacy/diplomacy-loader.js';
 import { createDiplomacyP2PTransport, NULL_DIPLOMACY_TRANSPORT } from '../diplomacy/diplomacy-p2p-transport.js';
 import { createLiveRoomsBroadcast, NULL_LIVE_ROOMS_BROADCAST } from '../agents/live-rooms-broadcast.js';
+import { createChartContextTimeline, buildChartContextEntry } from '../agents/chart-context-timeline.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
@@ -1591,6 +1592,17 @@ async function runSqlQuery() {
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
     renderResultTable(resultWrap, result);
     $('#story-empty').style.display = 'none';
+    // Live Rooms Batch 3: record that this SQL result was the chart/query the
+    // analyst was viewing right now, so a concurrent Meeting Scribe capture can
+    // tag each spoken line with its real context instead of null. No-op when the
+    // chartContextTimeline flag is off (ensureChartContextTimeline returns null).
+    {
+      const cct = ensureChartContextTimeline();
+      if (cct) {
+        const currentQueryLabel = String(sql || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        cct.recordChartView({ chart: currentQueryLabel || 'SQL result', queryLabel: currentQueryLabel || null });
+      }
+    }
     // AI Readiness Gate (batch 2): an informational badge near the result that
     // composes the LAST real validation run for the active dataset into a single
     // agent-consumability verdict. It never re-runs validation, never blocks the
@@ -3521,13 +3533,35 @@ let meetingScribeHandle = null;
 // constructed and the Meeting tab is byte-for-byte unchanged.
 var liveRoomsBroadcastTransport = NULL_LIVE_ROOMS_BROADCAST;
 let liveRoomsBroadcastWired = false;
+// Live Rooms Batch 3: chart-context timeline singleton. Lazily created only when
+// the chartContextTimeline flag is on; records which chart/query the analyst was
+// viewing when each meeting line was spoken so tagSegmentsWithContext gets real
+// context tags instead of null. With the flag off it stays null and nothing is
+// recorded — the flag-off path is byte-for-byte unchanged.
+var chartContextTimeline = null;
+function ensureChartContextTimeline() {
+  if (!isEnabled('chartContextTimeline')) return null;
+  if (!chartContextTimeline) chartContextTimeline = createChartContextTimeline();
+  return chartContextTimeline;
+}
 function renderMeetingScribeTab() {
   const host = $('#meeting-scribe-body');
   if (!host) return;
   if (!isEnabled('meetingScribe')) { host.innerHTML = ''; meetingScribeMounted = false; meetingScribeHandle = null; return; }
   if (!shouldOfferMeetingScribe({ enabled: true })) { host.innerHTML = ''; meetingScribeMounted = false; meetingScribeHandle = null; return; }
   if (!meetingScribeMounted) {
-    meetingScribeHandle = mountMeetingScribe({ host, onToast: toast, liveCapture: isEnabled('meetingScribeLiveCapture') });
+    meetingScribeHandle = mountMeetingScribe({
+      host,
+      onToast: toast,
+      liveCapture: isEnabled('meetingScribeLiveCapture'),
+      // Live Rooms Batch 3: when the flag is on, supply the real chart-context
+      // timeline so tagSegmentsWithContext tags each segment with the chart/query
+      // active when it was spoken. Flag off -> the option is undefined and the
+      // scribe uses its default [] (byte-for-byte unchanged).
+      getContextTimeline: isEnabled('chartContextTimeline')
+        ? function() { var t = ensureChartContextTimeline(); return t ? t.getTimeline() : []; }
+        : undefined,
+    });
     meetingScribeMounted = true;
   }
   wireLiveRoomsBroadcast();

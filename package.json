@@ -135,6 +135,7 @@
     "test:diplomacyui": "node test/diplomacy-ui.test.mjs",
     "test:diplomacytab": "node test/diplomacy-tab-gating.test.mjs",
     "test:liveroomsbroadcast": "node test/live-rooms-broadcast.test.mjs",
+    "test:chartcontexttimeline": "node test/chart-context-timeline.test.mjs",
     "test:glowsignal": "node test/glow-signal.test.mjs",
     "test:gloworbui": "node test/glow-orb-ui.test.mjs",
     "test:querymemory": "node test/query-memory.test.mjs",

@@ -62,6 +62,18 @@ jobs:
       - run: npm ci
       - run: npm run test:liveroomsbroadcast
 
+  chart-context-timeline:
+    name: Chart-context timeline (Live Rooms Batch 3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:chartcontexttimeline
+
   living-manifest:
     name: Living-manifest automation
     runs-on: ubuntu-latest

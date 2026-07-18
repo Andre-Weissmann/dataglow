@@ -3047,6 +3047,22 @@
         { "file": "js/agents/live-rooms-broadcast.js", "name": "buildActionItemsMessage" },
         { "file": "js/agents/live-rooms-broadcast.js", "name": "isValidActionItemsMessage" }
       ]
+    },
+    {
+      "id": "chart-context-timeline",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Meeting Scribe",
+      "name": "Chart-context timeline (Batch 3)",
+      "files": [
+        "js/agents/chart-context-timeline.js"
+      ],
+      "symbols": [
+        { "file": "js/agents/chart-context-timeline.js", "name": "createChartContextTimeline" },
+        { "file": "js/agents/chart-context-timeline.js", "name": "buildChartContextEntry" }
+      ]
     }
   ]
 }

@@ -145,9 +145,22 @@ forking the agent.
    device, peer-to-peer, with no server relay. 35/0 tests in
    `test/live-rooms-broadcast.test.mjs`. Ships DARK: with the flag off the transport is never
    constructed and the Meeting tab is byte-for-byte unchanged.)
-3. **Batch 3 — real chart-context timeline wiring.** NOT STARTED. Feed
-   `tagSegmentsWithContext` a live timeline of which chart/query the analyst was viewing
-   when each line was spoken, so segments get real context tags instead of today's `null`.
+3. **Batch 3 — real chart-context timeline wiring.** (DONE — see
+   [#363](https://github.com/Andre-Weissmann/dataglow/pull/363) — new pure,
+   Node-testable module `js/agents/chart-context-timeline.js` is the missing producer for
+   `tagSegmentsWithContext`: `buildChartContextEntry({chart, queryLabel, ts})` (chart must be
+   a non-empty string, queryLabel defaults to null, ts defaults to `Date.now()`, returns null
+   on bad input, never throws) and `createChartContextTimeline()` returning
+   `recordChartView()` (silent no-op on bad input so it never throws inside the SQL render
+   path), `getTimeline()` (a frozen, safe copy — mutating it never changes internal state),
+   and `clear()`. Wired into `main.js` behind the `chartContextTimeline` flag: the SQL result
+   render path records the query (truncated to 60 chars) and `renderMeetingScribeTab()` hands
+   `getTimeline()` to `mountMeetingScribe` via a new `getContextTimeline` option that the
+   scribe passes to `tagSegmentsWithContext`, so each spoken line now gets a REAL context tag
+   (the chart/query active when it was said) instead of today's `null`. 26/0 tests in
+   `test/chart-context-timeline.test.mjs`. Ships DARK: with the flag off the singleton is
+   never created, the scribe uses its default `[]` and every existing path is byte-for-byte
+   unchanged.)
 4. **Batch 4 — on-device LLM synthesis panel.** NOT STARTED. Summarise the captured,
    grounded meeting (pushback moments, data requests, action items) with the existing
    on-device LLM — no cloud call.
