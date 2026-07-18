@@ -640,6 +640,48 @@ Batch 1 ships the contract types only, and no orchestration layer consumes them 
 
 ---
 
+## Concept in progress: The Rigor Engine
+
+**One sentence:** every number DataGlow shows (a query result, an aggregate, a chart, a Story claim)
+carries its own statistical confidence, and any AI agent must state that confidence or refuse.
+
+**Why this concept won this brainstorm round (2026-07-17, revolutionary/flagship scope, grounded in the
+2026-07-17 run 3 founder's-readiness-audit test findings above):** the audit's central finding was that
+DataGlow can be right on the raw defect-detection layer while still letting a human or an AI agent draw an
+overconfident conclusion from a *result* (small sample, unadjusted multiple comparisons, an aggregate that
+reverses at the segment level) with nothing in the UI or the agent gate saying so. This concept closes that
+gap directly, and does it in a way distinctive to DataGlow's existing architecture: it slots underneath
+both the already-shipped AI Readiness Gate (a new refusal reason code) and Analysis Robustness (Devil's
+Advocate / robustness-verdict), rather than duplicating either. Directly serves the five demands this
+brainstorm was scoped against: portfolio/resume dataset trust (a claim with a stated confidence is a
+defensible claim), best-in-class analytics/science tooling (CI/effect-size/multiple-comparison rigor is
+standard practice in real data science and near-absent from BI-style tools), all-in-one-platform demand (no
+new external stats package needed), privacy/math-rigor/infrastructure (100% on-device, zero new
+dependency), and ingest-any-data-deliver-insights (confidence travels with every insight regardless of
+source format).
+
+**Build batches (each its own PR, dark by default, per standing convention):**
+1. **SHIPPED (PR #294, merged 2026-07-17, `99af7ba`).** Pure stats module
+   `js/rigor/statistical-rigor.js` — `confidenceIntervalForMean`, `classifySampleSize`/
+   `classifyConfidence` (n<10 insufficient, n<30 low, n>=30 sufficient — never overstates a small
+   sample), `cohensD`, `bonferroniAdjustedAlpha`, `detectSimpsonsParadox`. 42 tests, zero DOM/network/
+   DuckDB dependency (verified by a source-scan test). Tests only — no UI or agent wiring yet, so no
+   flag decision was needed for this batch.
+2. **Not yet started.** Wire CI/effect-size badges onto SQL result tables and Visualize; this batch is
+   also the fix point for the SQL→Visualize charting gap noted in the run 3 test findings. New flag,
+   ships `enabled: false`.
+3. **Not yet started.** Extend the AI Readiness Gate (`js/gate/agent-gate.js`) with a new
+   `statisticalConfidence` reason code so an agent handed a low-confidence result must say so or refuse.
+   New flag, ships `enabled: false`.
+4. **Not yet started.** "Verified by DataGlow" exportable certificate for portfolio/resume use — the most
+   direct answer to the portfolio/resume-trust demand that started this brainstorm. New flag.
+
+Each batch gets its own merge confirm and, since Batches 2-4 all change agent- or user-facing behavior,
+its own separate, explicitly confirmed flag-enable decision — never bundled with the merge confirm, per
+standing rule.
+
+---
+
 ## Shipped: The Proof Room
 
 **One sentence:** one assembled "show your work" screen that composes DataGlow's five
@@ -1437,6 +1479,16 @@ reusable workflows (e.g. `job-batch-agents.yml`, `job-batch-provenance.yml`), ea
 several leaf `job-*.yml` files. Up to 10 levels of nesting are allowed, so this only needs to happen
 once to buy back a lot of headroom, but it touches `test.yml`'s structure directly and should be its
 own small, dedicated PR (docs/CI-only, no source changes) rather than bundled into a feature PR.
+
+**Hit again, 2026-07-17, PR #294 (The Rigor Engine, Batch 1).** Same failure mode exactly: adding
+`job-statistical-rigor.yml` as a 51st `uses:` call broke the entire `tests` workflow (0 jobs, "workflow
+file issue"). Worked around the same way as before — defined the job inline (`steps:` directly in
+`test.yml`, matching the `glow-canvas`/`drill-floor`/`cleaning-crew` inline-job pattern) instead of a new
+top-level file, and deleted the orphaned job file. **This is now the second time this exact wall has
+stopped a PR mid-flight**, and the inline-job workaround itself is finite — `test.yml` will eventually
+get unwieldy as more jobs get inlined instead of living in their own files. The real fix described above
+(a batch-of-batches nesting refactor) should be prioritized as its own small, dedicated, docs/CI-only PR
+before the next few feature batches (Rigor Engine Batches 2-4 will each likely want their own CI job too).
 
 ## Shipped (live, all three flags on): Query Sentinel
 
