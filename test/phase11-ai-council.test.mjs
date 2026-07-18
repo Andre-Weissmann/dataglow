@@ -331,7 +331,7 @@ async function main() {
 
     // Fallback: empty string should fall back to the default model
     const emptyEp = resolveGoogleEndpoint('');
-    ok(emptyEp.indexOf('gemini-2.5-pro') !== -1, 'empty model string falls back to default');
+    ok(emptyEp.indexOf('gemini-3.5-flash') !== -1, 'empty model string falls back to default');
 
     // null/undefined should not crash
     let threw = false;
