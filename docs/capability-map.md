@@ -378,3 +378,70 @@ A stakeholder-facing, server-less exploration surface built in small, independen
 flagged batches. Every primitive is pure, offline, and safe-by-construction. Ships dark.
 - **Read-only room kernel** — `js/agents/open-floor-room.js` (`createReadOnlyRoom` wraps an already-loaded dataset plus its governed validation/metric state in a FROZEN facade whose surface has NO mutating method — read-only by construction, not convention; reads delegate to an injected engine reader so the room never owns a query engine, and `classifyReadOnlySql` refuses any statement it cannot positively classify as a single read-only one, so the read path can never be smuggled into a write). Behind the `openFloorKernel` flag (ships OFF).
 - **PHI / sensitive-field prompt guard** — `js/agents/phi-prompt-guard.js` (`guardPromptPayload` is the single pre-submit filter a caller runs right before handing text to any LLM path — the WebLLM narrative/story engines today, a future NL-to-SQL path tomorrow; `classifySensitiveColumns` reuses the EXISTING domain-pack sensitive-category predicate `isSensitiveCategory` from `js/validation/categorical-consistency.js` to drop protected columns, and `redactSensitiveText` runs a minimal always-on value scan (SSN/MRN/email/long-id shapes) so the guard protects even when no domain pack is active). Behind the `openFloorKernel` flag (ships OFF).
+
+## AI Council
+The three-model deliberation engine — asks OpenAI, Anthropic, and Google in parallel, detects consensus/disagreement, and synthesises a structured answer. Dormant until BYO API keys are set in Settings.
+- **Multi-model deliberation engine** — `js/council/council-engine.js` (domain detection, 6 reasoning frameworks, semantic synthesis, alignment scoring; no fallback — requires keys from `js/council/council-ui.js`'s Settings wiring).
+- **Council tab UI** — `js/council/council-ui.js` (mode chips, domain chips, structured answer cards, narrative — now embedded inside the AI tab's Council mode rather than a standalone tab).
+
+## NL-to-SQL
+Zero-cost pattern engine (no API key required) plus an optional LLM fallback. The AI tab's Query mode.
+- **NL-to-SQL engine** — `js/nl-sql/nl-sql-engine.js` (pattern-first router, LLM fallback, July 2026 model list).
+- **Zero-cost pattern engine** — `js/nl-sql/nl-sql-pattern-engine.js` (column detection, intent mapping, DuckDB SQL builder, auto-fix, explanation; zero external calls).
+- **API key store (in-memory)** — `js/nl-sql/nl-sql-key-store.js` (session-only, never persisted).
+- **Schema context serializer** — `js/nl-sql/schema-context.js` (serializes column names + types for prompts; never sends row values).
+- **Metric contract definitions** — `js/nl-sql/metric-contracts.js` (locked SQL expressions for reproducible named metrics).
+- **AI tab UI** — `js/nl-sql/nl-sql-ui.js` (source badge, explanation line, auto-fix button, Steps section).
+
+## Data Version Control
+Lightweight in-session snapshots — schema + statistics only, no row data.
+- **Snapshot store** — `js/dvc/dvc-store.js` (create, retrieve, diff snapshots keyed by dataset table name).
+- **Snapshot diff engine** — `js/dvc/dvc-diff.js` (column-level diff between two snapshots: added/removed/type-changed/stats-shifted).
+- **Versions tab UI** — `js/dvc/dvc-ui.js` (snapshot list, diff view, restore prompt).
+
+## Equity & fairness
+Detects protected demographic columns, stratifies outcomes, and builds CMS-threshold attestations.
+- **Protected-column detector** — `js/equity/equity-detector.js` (heuristic recognition of race/sex/zip/payer columns).
+- **Outcome stratifier** — `js/equity/equity-stratifier.js` (group-level aggregation of outcome metrics by detected protected column).
+- **Disparity scorer** — `js/equity/disparity-scorer.js` (scores disparities against CMS thresholds; returns pass/warn/fail per group).
+- **Equity attestation builder** — `js/equity/equity-attestation.js` (signed attestation block surfaced in the Validate tab).
+
+## Join Builder
+Visual join canvas for multi-table DuckDB queries.
+- **Visual join canvas** — `js/join-builder/join-canvas.js` (drag-and-connect column UI).
+- **Join model** — `js/join-builder/join-model.js` (pure join graph: tables, key columns, join type).
+- **Join SQL generator** — `js/join-builder/join-sql.js` (renders the model as a DuckDB SELECT with explicit JOIN conditions).
+
+## Relational integrity
+Per-column cross-table checks beyond what the 20 layers cover. Flag-gated, fail-open.
+- **Temporal order checker** — `js/relational/temporal-order-checker.js` (admit_date ≤ discharge_date, etc.).
+- **Flag consistency checker** — `js/relational/flag-consistency-checker.js` (binary flags agree with their parent category column).
+- **Foreign key checker** — `js/relational/foreign-key-checker.js` (in-table null FK detection; cross-table orphan detection is the `crossTableReferentialIntegrity` flag).
+- **Join coverage checker** — `js/relational/join-coverage-checker.js` (validates that a proposed join has sufficient non-null key coverage before execution).
+
+## Rule packs
+Swappable domain overlays that reinterpret raw validation-layer output. Selecting "none" restores domain-agnostic output.
+- **Rulepack registry** — `js/rulepacks/rulepack-registry.js` (register, resolve, and apply domain packs).
+- **Healthcare rulepack** — `js/rulepacks/packs/healthcare.js` (healthcare-domain annotations and severity overrides).
+- **General rulepack** — `js/rulepacks/packs/general.js` (domain-agnostic defaults).
+
+## Trust & provenance (additional)
+- **Trust certificate builder** — `js/trust/trust-certificate.js` (Phase 1 trust certificate: structured, signable summary of a dataset's validation status, provenance chain, and readiness-gate result).
+
+## Validation layers (additional)
+- **DRG/ICD coding validator** — `js/validation/drg-icd-validator.js` (Layer 15: detects DRG ↔ ICD-10 coding mismatches that indicate audit and reimbursement risk; healthcare-specific, skipped automatically when columns are not present).
+
+## Data quality & drift (additional)
+- **Dataset differ** — `js/drift/dataset-differ.js` (row-level diff between two DuckDB table snapshots; powers the Diff tab).
+- **Freshness decay calculator** — `js/drift/freshness-decay.js` (exponential freshness score that decays from 1.0 at load time toward 0 as hours pass; feeds the Freshness layer).
+
+## Enterprise & governance
+- **Enterprise policy engine** — `js/build/enterprise-policy.js` (org-level feature policy: can disable or lock flags that should not be toggled by individual users in a managed deployment).
+
+## App shell & data engine (additional)
+- **DuckDB WASM configuration** — `js/app-shell/duckdb-config.js` (WASM bundle path resolution, shared-buffer COOP/COEP header checks, worker-thread setup; loaded once before any query runs).
+
+## Warehouse connectors
+Direct, browser-side read from external data warehouses into DuckDB. All connectors are proof-of-concept, BYO-token, and never proxy credentials through any DataGlow server.
+- **BigQuery connector** — `js/warehouse/bigquery-connector.js` (browser-direct BigQuery read via the BigQuery REST API; user supplies a GCP service-account token).
+- **S3 connector** — `js/warehouse/s3-connector.js` (browser-direct S3/R2 object read via presigned URLs; user supplies their own credentials).

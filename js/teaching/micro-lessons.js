@@ -112,6 +112,11 @@ export const MICRO_LESSONS = {
     practitioner: 'Compares leading-digit frequencies to the Benford expectation on the columns where the law actually applies.',
     expert: 'Newcomb-Benford first-digit conformance test, gated to multi-order-of-magnitude quantities.',
   },
+  drg_icd_validation: {
+    beginner: 'Checks that the billing codes on each claim actually match the diagnosis codes — mismatches are a common source of claim denials and audits.',
+    practitioner: 'Validates DRG-to-ICD-10 code alignment per claim row: flags cases where the listed diagnosis codes are inconsistent with the assigned DRG, which triggers payer audits and payment reductions.',
+    expert: 'Layer 15 DRG/ICD-10 coding-pair validator: cross-checks each claim row against a curated DRG → allowed ICD-10 chapter/code mapping, surfacing mismatches that indicate potential upcoding, downcoding, or data-entry errors with direct reimbursement risk.',
+  },
   categorical_consistency: {
     beginner: 'Finds values that are really the same thing spelled differently and offers to merge them into one.',
     practitioner: 'Clusters near-identical category values and proposes a single canonical spelling to merge them into.',
