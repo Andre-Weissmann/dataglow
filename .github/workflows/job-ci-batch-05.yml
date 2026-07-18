@@ -1,19 +1,76 @@
 # ============================================================
-# DATAGLOW — CI job: SQL logic (native DuckDB)
+# DATAGLOW — CI job batch 05 (consolidated)
 # ============================================================
 # Reusable workflow (called by .github/workflows/test.yml).
 #
-# Runs the Node-side SQL logic suite against a REAL (native) DuckDB engine.
-# Exercises the exact production SQL-generating modules (imputation,
-# format-fingerprint, validation) with the browser engine transparently swapped
-# for @duckdb/node-api via a loader hook. Fast, deterministic, no browser needed.
+# CONSOLIDATION NOTE (2026-07-17): GitHub caps a single caller workflow file
+# at 50 UNIQUE reusable workflows in its call tree (confirmed via GitHub Docs:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations
+# — nesting into intermediate "batch" reusable workflows does NOT free
+# headroom, since every workflow in the tree still counts individually).
+# The real, GitHub-documented fix is that a single file's `jobs:` block can
+# define many named jobs with zero contribution to that 50-workflow limit —
+# only `uses:` calls to SEPARATE files count. This file groups several
+# previously-separate one-job-per-file reusable workflows into one file with
+# multiple jobs, each still running independently in its own runner, with
+# IDENTICAL job names/ids and IDENTICAL steps as before (pure structural
+# consolidation, zero behavior change). The individual per-job files this
+# batch replaces:
+#   - job-source-convergence-ingestion.yml -> job: source-convergence-ingestion
+#   - job-source-convergence-ui.yml -> job: source-convergence-ui
+#   - job-source-convergence.yml -> job: source-convergence
+#   - job-sql-logic.yml -> job: sql-logic
+#   - job-synthetic-data-passport.yml -> job: synthetic-data-passport
+#   - job-trust-beam.yml -> job: trust-beam
+#   - job-verifiable-check-seal.yml -> job: verifiable-check-seal
+#
+# To add a NEW job going forward: prefer adding a job block to whichever
+# job-ci-batch-*.yml file has spare room, rather than creating a new
+# job-<name>.yml + a new `uses:` line in test.yml. See the DataGlow CI
+# Architect note in test.yml's header for the standing guardrail.
 
-name: SQL logic (native DuckDB)
+name: CI batch 05
 
 on:
   workflow_call:
 
 jobs:
+  source-convergence-ingestion:
+    name: Source Convergence ingestion (Excel/API/site adapters + engine-compatibility contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sourceconvergenceingestion
+
+  source-convergence-ui:
+    name: Source Convergence UI (flag gate + view-model builders + click-through)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sourceconvergenceui
+
+  source-convergence:
+    name: Source Convergence (N-way join graph + trust-margin resolution contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sourceconvergence
+
   sql-logic:
     name: SQL logic (native DuckDB)
     runs-on: ubuntu-latest
@@ -120,3 +177,39 @@ jobs:
       # and Ambient Watch-Folder change-detection + validation-pipeline reuse.
       - run: npm run test:twin
       - run: npm run test:watch
+
+  synthetic-data-passport:
+    name: Synthetic Data Passport
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:synthpassport
+
+  trust-beam:
+    name: Trust Beam
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:trustbeam
+
+  verifiable-check-seal:
+    name: Verifiable Check Seal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:checkseal

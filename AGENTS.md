@@ -279,7 +279,8 @@ Ships behind the `queryMemory` flag (OFF by default): Batch 1 is module + tests
 only, NO UI and NO wiring into the run paths, so with the flag off (and even on)
 nothing in the app reads or writes the log. Tests: `npm run test:querymemory`
 (`test/query-memory.test.mjs`, 48 assertions), run by the new
-`.github/workflows/job-query-memory.yml` CI job. Registered as the
+`.github/workflows/job-ci-batch-04.yml` CI job (consolidated 2026-07-17; the
+`query-memory` job id is unchanged, only its file moved). Registered as the
 `provenance-query-memory` capability. Later batches: wire the "seen before" badge
 into the SQL/Python/R/Metric Studio run paths; consider fuzzy/near-match.
 
@@ -303,7 +304,8 @@ behind the `meetingScribeLiveCapture` flag (OFF by default, intentionally dark
 per the batching plan): with it off, no live-capture UI renders and every
 existing path is byte-for-byte unchanged. Tests: `npm run test:livecapture`
 (`test/live-transcript-capture.test.mjs`), run by the
-`.github/workflows/job-live-transcript-capture.yml` CI job. Batches 2–4 (device
+`.github/workflows/job-ci-batch-03.yml` CI job (consolidated 2026-07-17; the
+`live-transcript-capture` job id is unchanged, only its file moved). Batches 2–4 (device
 pairing + WebRTC read-only mirror, chart-context timeline wiring, on-device-LLM
 synthesis panel) are separate future PRs.
 
@@ -446,7 +448,8 @@ affordance additionally requires `localAnalysisContract`), so with the flag off
 nothing renders. Test: `npm run test:checkseal`
 (`test/verifiable-check-seal.test.mjs`, pure Node — no DOM, DuckDB, or network),
 in the `verifiable-check-seal` CI job
-(`.github/workflows/job-verifiable-check-seal.yml`). Registered as the
+(`.github/workflows/job-ci-batch-05.yml`; the `verifiable-check-seal` job id is
+unchanged post 2026-07-17 consolidation, only its file moved). Registered as the
 `provenance-check-seal` capability.
 
 
@@ -601,7 +604,8 @@ batch is READ-ONLY: no apply/accept button, no write path, and nothing in
 this exact same builder/renderer for AI-proposed changes — one explicit human
 click required before anything applies, nothing auto-applies, ever. Tests:
 `npm run test:metriccontractdiffview` (20 cases, pure Node), added to the
-existing `.github/workflows/job-metric-contracts.yml` CI job.
+existing `.github/workflows/job-ci-batch-03.yml` CI job (the `metric-contracts`
+job id is unchanged post 2026-07-17 consolidation, only its file moved).
 
 ### Metric Contracts, Batch 1 — versioned metric-definition data model
 
@@ -627,7 +631,7 @@ confirm-gate so that any AI-agent-proposed change to a metric renders as this
 exact diff and requires one explicit human click before it applies — nothing
 auto-applies, ever, per this repo's hard autonomy-safety rule. Tests:
 `npm run test:metriccontracts` (21 cases, pure Node, no DuckDB), CI job
-`.github/workflows/job-metric-contracts.yml`.
+`.github/workflows/job-ci-batch-03.yml` (job id `metric-contracts`, unchanged post 2026-07-17 consolidation).
 
 ### Command Deck command palette (Part 2) — decision record and safety posture
 
@@ -1102,7 +1106,8 @@ fix-button click (which IS the per-action human confirmation) routes through
 handler while `clean.applyFix` itself was ungated — the firewall centralizes and
 hardens the gate so a direct call path can no longer bypass it. Test:
 `npm run test:firewall` (`test/agent-action-firewall.test.mjs`, 61 red-team
-cases), CI job `.github/workflows/job-agent-action-firewall.yml`. Registered as
+cases), CI job `.github/workflows/job-ci-batch-01.yml` (job id `agent-action-firewall`,
+unchanged post 2026-07-17 consolidation, only its file moved). Registered as
 capability `agent-action-firewall` in `capability-map.manifest.json`. Out of
 scope here (later Passport batches): Sandbox Twin, Open Floor, and routing the
 self-learning / pack-builder / meeting-scribe write paths through the gate.
@@ -1155,7 +1160,8 @@ trio drives the score up), and produces a SHA-256-signed attestation via the sam
 in-browser DuckDB-WASM; nothing is uploaded. Tests: `npm run test:datablame`
 (`test/data-blame.test.mjs`) and `npm run test:deidverify`
 (`test/deidentification-verifier.test.mjs`), both in the `provenance-packet` CI
-job (`.github/workflows/job-provenance-packet.yml`).
+job (`.github/workflows/job-ci-batch-04.yml`, job id `provenance-packet`,
+unchanged post 2026-07-17 consolidation).
 
 ### Local Analysis Contract — SQL-vs-schema checker, and a consolidation call
 
@@ -1595,7 +1601,8 @@ When you add or reclassify a capability, set its `platforms` (and, if a single
 backing file differs, `platformsByFile`): the drift gate `npm run test:capdrift`
 fails the build on a missing/invalid list, and `npm run test:capregistry`
 unit-tests the loader (both run in the `capability-map-drift` CI job,
-`.github/workflows/job-capability-map-drift.yml`). Migrating a module onto the
+`.github/workflows/job-ci-batch-01.yml`, job id `capability-map-drift`, unchanged
+post 2026-07-17 consolidation). Migrating a module onto the
 registry means dropping its static import in `js/app-shell/main.js` and fetching it via the
 registry during bootstrap; unmigrated modules keep their static imports and still
 work — migration is incremental, not all-or-nothing.

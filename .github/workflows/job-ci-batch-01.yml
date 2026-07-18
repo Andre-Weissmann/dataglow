@@ -1,0 +1,208 @@
+# ============================================================
+# DATAGLOW — CI job batch 01 (consolidated)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# CONSOLIDATION NOTE (2026-07-17): GitHub caps a single caller workflow file
+# at 50 UNIQUE reusable workflows in its call tree (confirmed via GitHub Docs:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations
+# — nesting into intermediate "batch" reusable workflows does NOT free
+# headroom, since every workflow in the tree still counts individually).
+# The real, GitHub-documented fix is that a single file's `jobs:` block can
+# define many named jobs with zero contribution to that 50-workflow limit —
+# only `uses:` calls to SEPARATE files count. This file groups several
+# previously-separate one-job-per-file reusable workflows into one file with
+# multiple jobs, each still running independently in its own runner, with
+# IDENTICAL job names/ids and IDENTICAL steps as before (pure structural
+# consolidation, zero behavior change). The individual per-job files this
+# batch replaces:
+#   - job-agent-action-firewall.yml -> job: agent-action-firewall
+#   - job-agents-md-drift.yml -> job: agents-md-drift
+#   - job-ai-touch-ledger.yml -> job: ai-touch-ledger
+#   - job-analysis-fingerprint.yml -> job: analysis-fingerprint
+#   - job-analysis-robustness.yml -> job: analysis-robustness
+#   - job-batched-bugfixes.yml -> job: batched-bugfixes
+#   - job-capability-map-drift.yml -> job: capability-map-drift
+#   - job-coi-headers.yml -> job: coi-headers
+#   - job-command-deck.yml -> job: command-deck
+#   - job-command-palette.yml -> job: command-palette
+#
+# To add a NEW job going forward: prefer adding a job block to whichever
+# job-ci-batch-*.yml file has spare room, rather than creating a new
+# job-<name>.yml + a new `uses:` line in test.yml. See the DataGlow CI
+# Architect note in test.yml's header for the standing guardrail.
+
+name: CI batch 01
+
+on:
+  workflow_call:
+
+jobs:
+  agent-action-firewall:
+    name: Agent Action Firewall
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:firewall
+
+  guarded-copilot:
+    name: "Guarded Copilot (red-team: read-only contract + deterministic answers)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:guardedcopilot
+
+  agents-md-drift:
+    name: AGENTS.md context-rot detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # AGENTS.md Context-Rot Detector: a merge gate that keeps the shared
+      # agent-instructions file honest against the code. Every coding subagent
+      # reads AGENTS.md and trusts it confidently, so a stale reference (a file
+      # path or npm script that has since been renamed/removed) silently misleads
+      # every later generation. This checker extracts backtick-quoted file-path-
+      # and npm-script-like identifiers from AGENTS.md and fails if a referenced
+      # file is gone from the tree or a referenced script is absent from
+      # package.json (wildcard globs like `test:*` are ignored). Pure static
+      # analysis — regex + file I/O + package.json lookup, no browser, no network,
+      # no LLM. The test suite doubles as the gate: its final case runs the check
+      # against the real repo. See .github/scripts/agents-md-drift.mjs.
+      - run: npm run test:agentsdrift
+
+  ai-touch-ledger:
+    name: AI Touch Ledger (hash-chain integrity + never-throws contract + Story wiring)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:aitouchledger
+      - run: npm run test:aitouchledgerwiring
+
+  analysis-fingerprint:
+    name: Analysis fingerprint & nutrition label
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:fingerprint
+      - run: npm run test:badges
+
+  analysis-robustness:
+    name: Analysis Robustness (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:robustnessverdict
+
+  batched-bugfixes:
+    name: Batched bug-fix regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:bugfixes-layers
+      - run: npm run test:bugfixes-editor
+      - run: npm run test:protocol
+
+  capability-map-drift:
+    name: Capability-map drift detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Capability-Map Drift Detector: a merge gate that keeps the capability-map
+      # docs honest against the shipped code. It reads capability-map.manifest.json
+      # (documented capability -> backing js/ file(s)/symbol(s)) and fails if a
+      # documented capability's backing file/symbol is gone (overclaim/doc rot),
+      # if docs reference a js/ file that no longer exists, or if a shipped
+      # top-level js/ module has no capability-map entry (best-effort underclaim
+      # heuristic). Pure file I/O + string checks — no browser, no network. The
+      # test suite doubles as the gate: its final case runs the check against the
+      # real repo and fails on any drift. See .github/scripts/capability-drift.mjs.
+      - run: npm run test:capdrift
+      # Capability registry: unit-tests the platform-aware module loader
+      # (js/capability-registry.js) that reads the same manifest's `platforms`
+      # field and dynamically imports only the modules meant for the detected
+      # runtime. Pure functions + injected manifest/importer — no browser, no
+      # network. See test/capability-registry.test.mjs.
+      - run: npm run test:capregistry
+
+  coi-headers:
+    name: cross-origin isolation headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coi
+
+  command-deck:
+    name: Command Deck sidebar nav
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Part 1: stage-grouping content model, drift-checked against the real
+      # TAB_META block in js/app-shell/main.js so this can never silently
+      # fall out of sync with the app's actual tools.
+      - run: npm run test:commanddecknav
+
+  command-palette:
+    name: Command Deck command palette
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Part 2: fuzzy-match/ranking + tab-command-list logic, drift-checked
+      # against the real TAB_META/tabOrder in js/app-shell/main.js and
+      # js/app-shell/state.js so this can never silently fall out of sync
+      # with the app's actual tools.
+      - run: npm run test:commandpalette

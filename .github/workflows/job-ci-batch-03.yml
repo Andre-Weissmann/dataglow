@@ -1,0 +1,169 @@
+# ============================================================
+# DATAGLOW — CI job batch 03 (consolidated)
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# CONSOLIDATION NOTE (2026-07-17): GitHub caps a single caller workflow file
+# at 50 UNIQUE reusable workflows in its call tree (confirmed via GitHub Docs:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations
+# — nesting into intermediate "batch" reusable workflows does NOT free
+# headroom, since every workflow in the tree still counts individually).
+# The real, GitHub-documented fix is that a single file's `jobs:` block can
+# define many named jobs with zero contribution to that 50-workflow limit —
+# only `uses:` calls to SEPARATE files count. This file groups several
+# previously-separate one-job-per-file reusable workflows into one file with
+# multiple jobs, each still running independently in its own runner, with
+# IDENTICAL job names/ids and IDENTICAL steps as before (pure structural
+# consolidation, zero behavior change). The individual per-job files this
+# batch replaces:
+#   - job-live-transcript-capture.yml -> job: live-transcript-capture
+#   - job-living-manifest.yml -> job: living-manifest
+#   - job-metric-contracts.yml -> job: metric-contracts
+#   - job-metrics-registry.yml -> job: metrics-registry
+#   - job-onecanvas-phase1.yml -> job: onecanvas-phase1
+#   - job-open-floor-kernel.yml -> job: open-floor-kernel
+#   - job-open-floor-sandbox-twin.yml -> job: open-floor-sandbox-twin
+#   - job-ownership-ledger.yml -> job: ownership-ledger
+#   - job-pack-architecture.yml -> job: pack-architecture
+#   - job-portable-receipt.yml -> job: portable-receipt
+#
+# To add a NEW job going forward: prefer adding a job block to whichever
+# job-ci-batch-*.yml file has spare room, rather than creating a new
+# job-<name>.yml + a new `uses:` line in test.yml. See the DataGlow CI
+# Architect note in test.yml's header for the standing guardrail.
+
+name: CI batch 03
+
+on:
+  workflow_call:
+
+jobs:
+  live-transcript-capture:
+    name: Live Transcript Capture (capability check + segment assembly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:livecapture
+
+  living-manifest:
+    name: Living-manifest automation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm run test:living-manifest
+
+  metric-contracts:
+    name: Metric Contracts (versioned definitions, pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metriccontracts
+      - run: npm run test:metriccontractdiffview
+      - run: npm run test:metriccontractconfirmgate
+
+  metrics-registry:
+    name: Shared metrics registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metricsregistry
+
+  onecanvas-phase1:
+    name: OneCanvas Phase 1 (Metric Studio + Trust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metricstudio
+      - run: npm run test:truststrip
+
+  open-floor-kernel:
+    name: Open Floor kernel (read-only room + PHI prompt guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:openfloor
+
+  open-floor-sandbox-twin:
+    name: "Open Floor Sandbox Twin (red-team: firewall-gated twin + promote)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:sandboxtwin
+
+  ownership-ledger:
+    name: Ownership Ledger
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:ownershipledger
+
+  pack-architecture:
+    name: Domain-pack plugin architecture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Gen 40 domain-pack plugin architecture. Proves the refactor is
+      # behaviour-preserving (legacy inline pack map vs plugin registry produce
+      # identical output per extension point) and that the no-network guarantee is
+      # ENFORCED: a static source scan rejects any pack that references a network
+      # primitive, a runtime trap backs it up, every shipped pack file under
+      # js/packs/ is scanned, and a test-only rogue pack that attempts fetch() is
+      # caught. Also validates every manifest (semver, id↔name, known extension
+      # points, no inter-pack dependencies). Pure JS + fs — no browser, no
+      # network, no DuckDB. See test/pack-architecture.test.mjs.
+      - run: npm run test:packs
+
+  portable-receipt:
+    name: Portable Receipts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:portablereceipt

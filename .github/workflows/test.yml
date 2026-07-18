@@ -3,22 +3,54 @@
 # ============================================================
 # This file used to hold every CI job inline, which meant two PRs each adding a
 # job collided on this one YAML file. It is now a THIN ORCHESTRATOR: every job
-# lives in its own standalone reusable workflow (each triggered via
-# `on: workflow_call`), and each entry below is a one-line `uses:` call into one
-# of those files. Adding a CI job is a single appended block under the
-# NEW-JOB-ENTRIES-BELOW marker — no edits to existing entries.
+# lives in a reusable workflow file (triggered via `on: workflow_call`), and
+# each entry below is a one-line `uses:` call into one of those files.
 #
-# The per-job files are named `.github/workflows/job-<name>.yml`. They live at
-# the TOP LEVEL of .github/workflows/ (not a subdirectory) because GitHub only
-# resolves reusable workflows referenced from the top level of that directory —
-# a `jobs/` subdirectory fails with "workflows must be defined at the top level
-# of the .github/workflows/ directory". The `job-` prefix keeps them grouped and
-# distinguishable from this orchestrator and the two standalone scheduled
-# workflows. Each is `workflow_call`-only, so none of them triggers a run on its
-# own; they execute only when called from here.
+# CI CAP FIX (2026-07-17, DataGlow CI Architect): GitHub caps a single caller
+# workflow file at 50 UNIQUE reusable workflows across its ENTIRE call tree —
+# confirmed via GitHub's own docs
+# (https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#limitations-of-reusable-workflows).
+# This orchestrator previously called 50 separate one-job-per-file
+# `job-<name>.yml` files directly and had hit that cap exactly, forcing new
+# jobs to be added inline instead (see the tail of this file). An earlier plan
+# to fix this by nesting leaf files inside intermediate "batch" reusable
+# workflows was tried and found INVALID per the docs above: nesting does not
+# free headroom, since every workflow in the call tree still counts, nested or
+# not. The REAL fix, per GitHub's own documented recommendation, is that a
+# single file's `jobs:` block can hold many named jobs — each still runs
+# independently in its own runner — with ZERO contribution to the 50-workflow
+# cap; only `uses:` calls to SEPARATE files count. So the 47 plain
+# (checkout + setup-node + npm ci + npm run, ubuntu-latest, no special deps)
+# one-job files were consolidated into 5 multi-job `job-ci-batch-NN.yml` files
+# (~10 jobs each). The 3 jobs with genuinely special shapes — real Chrome
+# (e2e-smoke), Rust/apt/cache (tauri-smoke), artifact upload
+# (supply-chain-hardening) — were left as their own files. This is a pure
+# structural refactor: every job id, name, and step is byte-identical to
+# before; only which file it lives in changed. Total `uses:` calls dropped
+# from 50 to 8, restoring 42 slots of headroom in one PR.
 #
-# To add a job: create .github/workflows/job-<name>.yml as a `workflow_call`
-# reusable workflow, then append a `uses:` block below the marker.
+# DataGlow CI Architect (standing guardrail, not a cron/scheduled job): before
+# adding a new CI job, `dataglow-mission-center` and `dataglow-brainstorm`'s
+# own Step 4 now check current `uses:` headroom against this 50-workflow cap
+# and default to appending the new job into whichever `job-ci-batch-NN.yml`
+# file has spare room (creating a new `job-ci-batch-NN.yml` once all existing
+# batches are full), rather than ever creating a new standalone `job-<name>.yml`
+# + `uses:` line. This is checked at build/PR time only — never scheduled or
+# autonomous — so the cap should never silently block a PR again.
+#
+# The per-job/per-batch files live at the TOP LEVEL of .github/workflows/ (not
+# a subdirectory) because GitHub only resolves reusable workflows referenced
+# from the top level of that directory — a `jobs/` subdirectory fails with
+# "workflows must be defined at the top level of the .github/workflows/
+# directory". The `job-` prefix keeps them grouped and distinguishable from
+# this orchestrator and the two standalone scheduled workflows. Each is
+# `workflow_call`-only, so none of them triggers a run on its own; they
+# execute only when called from here.
+#
+# To add a job: prefer adding a job block to whichever job-ci-batch-NN.yml file
+# has spare room (see the CI Architect note above). Only create a new standalone
+# job-<name>.yml file if the job has a genuinely special runner/dependency shape
+# (like e2e-smoke/tauri-smoke/supply-chain-hardening) that doesn't fit a batch.
 
 name: tests
 
@@ -31,99 +63,30 @@ on:
   merge_group:
 
 jobs:
-  sql-logic:
-    uses: ./.github/workflows/job-sql-logic.yml
+  ci-batch-01:
+    uses: ./.github/workflows/job-ci-batch-01.yml
 
-  databricks-connect:
-    uses: ./.github/workflows/job-databricks-connect.yml
+  ci-batch-02:
+    uses: ./.github/workflows/job-ci-batch-02.yml
 
-  golden-regression:
-    uses: ./.github/workflows/job-golden-regression.yml
+  ci-batch-03:
+    uses: ./.github/workflows/job-ci-batch-03.yml
 
-  dependency-freshness:
-    uses: ./.github/workflows/job-dependency-freshness.yml
+  ci-batch-04:
+    uses: ./.github/workflows/job-ci-batch-04.yml
 
-  capability-map-drift:
-    uses: ./.github/workflows/job-capability-map-drift.yml
+  ci-batch-05:
+    uses: ./.github/workflows/job-ci-batch-05.yml
+
+  # NEW-JOB-ENTRIES-BELOW: prefer adding a job block to whichever
+  # job-ci-batch-NN.yml file has spare room (see CI Architect note in this
+  # file's header) rather than appending a new `uses:` line here. Only add a
+  # new standalone job-<name>.yml + `uses:` entry for a genuinely special
+  # runner/dependency shape that doesn't fit a batch (see e2e-smoke,
+  # tauri-smoke, supply-chain-hardening below for examples of that case).
 
   supply-chain-hardening:
     uses: ./.github/workflows/job-supply-chain-hardening.yml
-
-  agents-md-drift:
-    uses: ./.github/workflows/job-agents-md-drift.yml
-
-  # NEW-JOB-ENTRIES-BELOW: append new "uses:" job blocks directly under this line, do not edit existing entries above
-  source-convergence-ui:
-    uses: ./.github/workflows/job-source-convergence-ui.yml
-  source-convergence-ingestion:
-    uses: ./.github/workflows/job-source-convergence-ingestion.yml
-  source-convergence:
-    uses: ./.github/workflows/job-source-convergence.yml
-  ai-touch-ledger:
-    uses: ./.github/workflows/job-ai-touch-ledger.yml
-  room-signaling-and-broadcast:
-    uses: ./.github/workflows/job-room-signaling.yml
-  room-ui:
-    uses: ./.github/workflows/job-room-ui.yml
-  room-transport-adapter:
-    uses: ./.github/workflows/job-room-transport-adapter.yml
-  query-memory:
-    uses: ./.github/workflows/job-query-memory.yml
-  live-transcript-capture:
-    uses: ./.github/workflows/job-live-transcript-capture.yml
-  synthetic-data-passport:
-    uses: ./.github/workflows/job-synthetic-data-passport.yml
-  verifiable-check-seal:
-    uses: ./.github/workflows/job-verifiable-check-seal.yml
-  data-nutrition-label:
-    uses: ./.github/workflows/job-data-nutrition-label.yml
-  onecanvas-phase1:
-    uses: ./.github/workflows/job-onecanvas-phase1.yml
-  semantic-layer:
-    uses: ./.github/workflows/job-semantic-layer.yml
-  agent-action-firewall:
-    uses: ./.github/workflows/job-agent-action-firewall.yml
-
-  provenance-packet:
-    uses: ./.github/workflows/job-provenance-packet.yml
-  command-deck:
-    uses: ./.github/workflows/job-command-deck.yml
-  incident-postmortem:
-    uses: ./.github/workflows/job-incident-postmortem.yml
-
-  analysis-fingerprint:
-    uses: ./.github/workflows/job-analysis-fingerprint.yml
-
-  metrics-registry:
-    uses: ./.github/workflows/job-metrics-registry.yml
-  command-palette:
-    uses: ./.github/workflows/job-command-palette.yml
-  provenance-packet-batch-3:
-    uses: ./.github/workflows/job-provenance-packet-batch-3.yml
-
-  conversational-pack-builder:
-    uses: ./.github/workflows/job-conversational-pack-builder.yml
-
-  metric-contracts:
-    uses: ./.github/workflows/job-metric-contracts.yml
-
-  batched-bugfixes:
-    uses: ./.github/workflows/job-batched-bugfixes.yml
-
-  shipped-bug-regressions:
-    uses: ./.github/workflows/job-shipped-bug-regressions.yml
-
-  coi-headers:
-    uses: ./.github/workflows/job-coi-headers.yml
-
-  pack-architecture:
-    uses: ./.github/workflows/job-pack-architecture.yml
-
-  living-manifest:
-    uses: ./.github/workflows/job-living-manifest.yml
-
-  problem-framer:
-    uses: ./.github/workflows/job-problem-framer.yml
 
   e2e-smoke:
     uses: ./.github/workflows/job-e2e-smoke.yml
@@ -131,43 +94,16 @@ jobs:
   tauri-smoke:
     uses: ./.github/workflows/job-tauri-smoke.yml
 
-  export-reporting:
-    uses: ./.github/workflows/job-export-reporting.yml
-
-  readiness-gate:
-    uses: ./.github/workflows/job-readiness-gate.yml
-
-  context-engine:
-    uses: ./.github/workflows/job-context-engine.yml
-
-  dialect-adapter:
-    uses: ./.github/workflows/job-dialect-adapter.yml
-
-  trust-beam:
-    uses: ./.github/workflows/job-trust-beam.yml
-  analysis-robustness:
-    uses: ./.github/workflows/job-analysis-robustness.yml
-
-  portable-receipt:
-    uses: ./.github/workflows/job-portable-receipt.yml
-  open-floor-kernel:
-    uses: ./.github/workflows/job-open-floor-kernel.yml
-  ownership-ledger:
-    uses: ./.github/workflows/job-ownership-ledger.yml
-  crucible:
-    uses: ./.github/workflows/job-crucible.yml
-
-  open-floor-sandbox-twin:
-    uses: ./.github/workflows/job-open-floor-sandbox-twin.yml
-
   # NOTE: this job is defined INLINE, not as a `uses:` reusable workflow like the
   # entries above. GitHub caps a single caller file at 50 UNIQUE reusable
   # workflows (nested trees included); this orchestrator was already at exactly
-  # 50, so a 51st `uses:` makes the whole `tests` workflow fail to compile
-  # ("workflow file issue", zero jobs). An inline job with `steps:` is NOT a
-  # reusable-workflow call and does not count toward that 50 cap. Until the
-  # orchestrator is restructured (e.g. split across caller files), further new
-  # jobs must be added inline here rather than as new job-<name>.yml files.
+  # 50, so a 51st `uses:` had made the whole `tests` workflow fail to compile
+  # ("workflow file issue", zero jobs) before the 2026-07-17 consolidation fix
+  # (see this file's header) brought `uses:` calls down to 8. This job is left
+  # inline rather than moved into a job-ci-batch-NN.yml file purely to avoid
+  # unnecessary diff/risk on a job that already works — there is no remaining
+  # constraint forcing it to stay inline. New jobs going forward should prefer
+  # a job-ci-batch-NN.yml file (see CI Architect note above), not this pattern.
   glow-canvas:
     name: Glow Canvas (layout algebra + serialize/deserialize contract)
     runs-on: ubuntu-latest
@@ -180,7 +116,8 @@ jobs:
       - run: npm ci
       - run: npm run test:glowcanvas
 
-  # Inline job (see the 50-reusable-workflow cap note above) — NOT a job-<name>.yml.
+  # Inline job, kept as-is post-consolidation (see glow-canvas's comment above
+  # for why) — NOT a job-<name>.yml or job-ci-batch-NN.yml.
   drill-floor:
     name: Drill Floor (sample data + SQL/Python/R delegation + cross-language diff)
     runs-on: ubuntu-latest
@@ -194,7 +131,8 @@ jobs:
       - run: npm run test:drillfloor
       - run: npm run test:drilldiff
 
-  # Inline job (see the 50-reusable-workflow cap note above) — NOT a job-<name>.yml.
+  # Inline job, kept as-is post-consolidation (see glow-canvas's comment above
+  # for why) — NOT a job-<name>.yml or job-ci-batch-NN.yml.
   cleaning-crew:
     name: Cleaning Crew (PDF Profiler summarization + readiness-gate wiring)
     runs-on: ubuntu-latest
@@ -207,10 +145,10 @@ jobs:
       - run: npm ci
       - run: npm run test:cleaningcrew
 
-  # Inline job (see the 50-reusable-workflow cap note above) — NOT a job-<name>.yml.
-  # The orchestrator was already at exactly 50 unique `uses:` calls; this job
-  # (Batch 1 of "The Rigor Engine" concept) is added inline per that standing
-  # constraint rather than as a new job-statistical-rigor.yml `uses:` entry.
+  # Inline job, kept as-is post-consolidation (see glow-canvas's comment above
+  # for why) — NOT a job-<name>.yml or job-ci-batch-NN.yml. This job (Batch 1
+  # of "The Rigor Engine" concept) was originally added inline because the
+  # orchestrator was at exactly 50 unique `uses:` calls at the time.
   statistical-rigor:
     name: Statistical Rigor (pure logic)
     runs-on: ubuntu-latest
