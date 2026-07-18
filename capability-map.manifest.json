@@ -3030,6 +3030,23 @@
       "files": [
         "js/diplomacy/diplomacy-p2p-transport.js"
       ]
+    },
+    {
+      "id": "live-rooms-broadcast",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Meeting Scribe",
+      "name": "Live Rooms action-item broadcast (Batch 2)",
+      "files": [
+        "js/agents/live-rooms-broadcast.js"
+      ],
+      "symbols": [
+        { "file": "js/agents/live-rooms-broadcast.js", "name": "createLiveRoomsBroadcast" },
+        { "file": "js/agents/live-rooms-broadcast.js", "name": "buildActionItemsMessage" },
+        { "file": "js/agents/live-rooms-broadcast.js", "name": "isValidActionItemsMessage" }
+      ]
     }
   ]
 }
