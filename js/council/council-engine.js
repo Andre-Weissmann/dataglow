@@ -19,11 +19,36 @@
 // ---------------------------------------------------------------
 // Provider configs
 // ---------------------------------------------------------------
+// MODEL NAMES: users can override these in the UI without touching this file.
+// Whenever you update a model name in the UI, the engine uses your override.
+//
+// Google note: Gemini encodes the model name inside the URL. Use
+// resolveGoogleEndpoint(model) to rebuild the URL whenever the model changes.
+// OpenAI and Anthropic pass the model in the JSON body, so swapping is trivial.
+//
+// Current recommended models (July 2026):
+//   OpenAI:    gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, o3-mini
+//   Anthropic: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-3-5
+//   Google:    gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash
 export const COUNCIL_PROVIDERS = [
   { id: 'openai',    name: 'OpenAI (GPT)',       endpoint: 'https://api.openai.com/v1/chat/completions',   model: 'gpt-4o',          requiresKey: true },
   { id: 'anthropic', name: 'Anthropic (Claude)', endpoint: 'https://api.anthropic.com/v1/messages',        model: 'claude-opus-4-5', requiresKey: true },
   { id: 'google',    name: 'Google (Gemini)',    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', model: 'gemini-2.5-pro', requiresKey: true },
 ];
+
+// Google endpoint template -- model name is embedded in the path.
+// Call this whenever the user changes the Gemini model name.
+export const GOOGLE_ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+export const GOOGLE_ENDPOINT_SUFFIX = ':generateContent';
+
+/**
+ * Build the correct Google endpoint URL for any Gemini model name.
+ * @param {string} modelName  e.g. 'gemini-2.5-pro' or 'gemini-2.5-flash'
+ * @returns {string}
+ */
+export function resolveGoogleEndpoint(modelName) {
+  return GOOGLE_ENDPOINT_BASE + (modelName || 'gemini-2.5-pro').trim() + GOOGLE_ENDPOINT_SUFFIX;
+}
 
 // ---------------------------------------------------------------
 // Prompt builder
