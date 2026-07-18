@@ -2259,6 +2259,21 @@
         { "file": "js/validation/query-sentinel-bridge.js", "name": "resolveBridgeReferences" },
         { "file": "js/validation/query-sentinel-bridge.js", "name": "summarizeBridgeResolution" }
       ]
+    },
+    {
+      "id": "statistical-rigor-layer",
+      "area": "Analysis robustness",
+      "name": "Statistical Rigor Layer (Batch 1) — confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
+      "platforms": ["browser", "desktop"],
+      "files": ["js/rigor/statistical-rigor.js"],
+      "symbols": [
+        { "file": "js/rigor/statistical-rigor.js", "name": "confidenceIntervalForMean" },
+        { "file": "js/rigor/statistical-rigor.js", "name": "classifySampleSize" },
+        { "file": "js/rigor/statistical-rigor.js", "name": "classifyConfidence" },
+        { "file": "js/rigor/statistical-rigor.js", "name": "cohensD" },
+        { "file": "js/rigor/statistical-rigor.js", "name": "bonferroniAdjustedAlpha" },
+        { "file": "js/rigor/statistical-rigor.js", "name": "detectSimpsonsParadox" }
+      ]
     }
   ]
 }

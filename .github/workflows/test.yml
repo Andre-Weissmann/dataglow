@@ -206,3 +206,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:cleaningcrew
+
+  # Inline job (see the 50-reusable-workflow cap note above) — NOT a job-<name>.yml.
+  # The orchestrator was already at exactly 50 unique `uses:` calls; this job
+  # (Batch 1 of "The Rigor Engine" concept) is added inline per that standing
+  # constraint rather than as a new job-statistical-rigor.yml `uses:` entry.
+  statistical-rigor:
+    name: Statistical Rigor (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:statisticalrigor
