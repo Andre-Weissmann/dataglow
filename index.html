@@ -1595,9 +1595,18 @@
   //                 the engine's loud-failure UX surfaces the real reason.
   //   unsupported — no service worker; loads run and surface any loud error.
   (function () {
+    // iOS detection: SharedArrayBuffer is not reliably available on iOS Safari
+    // regardless of COOP/COEP headers, and the service-worker reload loop never
+    // resolves. Detect iOS early and skip the reload entirely — the app shell
+    // still renders fully; only the DuckDB SQL engine is unavailable.
+    var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
     var reloadedOnce = false;
     try { reloadedOnce = sessionStorage.getItem('dataglow-coi-reloaded') === '1'; } catch (e) {}
-    if (window.crossOriginIsolated) {
+    if (isIOS) {
+      window.__dataglowIsolation = 'ios';
+    } else if (window.crossOriginIsolated) {
       window.__dataglowIsolation = 'isolated';
     } else if (!('serviceWorker' in navigator)) {
       window.__dataglowIsolation = 'unsupported';
@@ -1623,6 +1632,9 @@
     // cause a reload loop. Hosts that DO send real COOP/COEP headers (see
     // _headers) are isolated on first paint and never hit this path.
     navigator.serviceWorker.addEventListener('controllerchange', function () {
+      // Never reload on iOS — the COOP/COEP reload loop does not help there
+      // and causes a blank page on first load.
+      if (window.__dataglowIsolation === 'ios') return;
       if (window.crossOriginIsolated) return;
       try {
         if (sessionStorage.getItem('dataglow-coi-reloaded') === '1') return;
