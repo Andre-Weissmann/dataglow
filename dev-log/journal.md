@@ -7,6 +7,58 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 19:34 CT] Shipped The Rigor Engine — Batch 1: Statistical Rigor Layer (PR #294, merged, dark, tests only)
+
+**Trigger:** "DataGlow list time" — a revolutionary/flagship-ambition brainstorm run grounded in the
+2026-07-17 run 3 test findings (founder's 7-question readiness audit). Five demands were in scope:
+portfolio/resume dataset trust, pushing toward best-in-class data analytics/engineering/science tooling,
+all-in-one-platform demand, privacy/math-rigor/infrastructure, and ingest-any-data-deliver-insights.
+
+**What was found / decided:** Ranked candidate ideas through the DataGlow Think List lens at flagship
+scale, combined the strongest threads into one concept — "The Rigor Engine": every number DataGlow shows
+(query result, aggregate, chart, Story claim) carries its own statistical confidence, and any AI agent
+must state that confidence or refuse. Checked against `capability-map.manifest.json` for duplication —
+none found; this is a genuinely new capability. Scoped into 4 independent batches, each its own PR/flag:
+(1) pure stats module, (2) UI wiring onto SQL/Visualize, (3) AI Readiness Gate `statisticalConfidence`
+reason code, (4) exportable "Verified by DataGlow" certificate. This entry covers Batch 1 only.
+
+**Built:** `js/rigor/statistical-rigor.js` (247 lines, zero DOM/network/DuckDB imports, verified by a
+source-scan test) — `mean`, `sampleStdDev`, `confidenceIntervalForMean`, `classifySampleSize`,
+`classifyConfidence` (never calls a small sample "sufficient": n<10 insufficient, n<30 low, n>=30
+sufficient), `cohensD`, `bonferroniAdjustedAlpha`, `detectSimpsonsParadox`. 42 hand-rolled tests
+(`test/statistical-rigor.test.mjs`), matching the repo's existing pure-math test-harness convention (no
+new dependency). Tests-only batch — zero UI, SQL/Visualize, Story, or AI Readiness Gate wiring yet.
+
+**Two real issues caught and fixed during the build, not hidden:**
+1. First push broke ALL of CI ("workflow file issue", 0 jobs run) — `test.yml` was already at exactly the
+   documented 50-reusable-workflow cap (see the dedicated "CI infrastructure" section in NORTH_STAR.md,
+   first hit in PR #243/Guarded Copilot on 2026-07-15). Fixed by defining the new job inline (`steps:`
+   directly in `test.yml`, matching the `glow-canvas`/`drill-floor`/`cleaning-crew` pattern) instead of a
+   51st `uses:` call, and deleted the orphaned `job-statistical-rigor.yml`. **This is the second time this
+   exact wall has been hit** — the real fix (a batch-of-batches nesting refactor) recorded in that section
+   is now overdue rather than hypothetical; flagged again in this run's NORTH_STAR.md CI section.
+2. The repo's own `capability-map-drift` CI gate correctly caught that the new module shipped with no
+   capability-map entry. Registered it (`id: statistical-rigor-layer`, area: Analysis robustness, all 6
+   public symbols) in both `capability-map.manifest.json` and `docs/capability-map.md`, edited directly
+   with exact-string replacement (never `json.dump()`, per standing lesson). Drift findings: 1 → 0.
+
+**Independent verification (not just CI's self-report):** fetched `origin/feature/rigor-engine-batch1-
+stats-module` fresh, diffed directly against `origin/main` (confirmed 6 files, 454 insertions, 0
+deletions — no existing file's behavior touched), checked out that exact commit's content and personally
+re-ran both `node test/statistical-rigor.test.mjs` (42/42) and `node test/capability-drift.test.mjs`
+(24/24, 0 drift) before requesting the merge confirm. All 58 CI checks passed on GitHub, including the
+~7-minute `tauri-smoke` compile gate.
+
+**Outcome:** shipped (merged to `main` at `99af7ba`, squashed, branch deleted). Dark by design — tests
+only, no flag needed yet since nothing user-facing changed. Batches 2-4 remain separate future PRs, each
+with their own merge confirm and, for anything user-facing, its own explicit flag-enable confirm.
+
+**One lesson for next time:** before adding ANY new top-level CI job file, check
+`grep -c "uses: \./\.github/workflows/job-" .github/workflows/test.yml` first — it will very likely
+already be at 50. Default to an inline job definition rather than discovering the cap failure after a push.
+
+---
+
 ## [2026-07-17 13:48 CT] Logged audio/video ingestion brainstorm candidate to backlog (PR #291, merged, docs-only, no flag)
 
 **Trigger:** User asked whether they already had something built better than the pending `cleaningCrew`
