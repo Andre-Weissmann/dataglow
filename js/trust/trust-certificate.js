@@ -86,6 +86,9 @@ function certCore(cert) {
     gate: cert.gate,
     validationSummary: cert.validationSummary,
     kAnonymity: cert.kAnonymity,
+    // Phase 3: commit to equity attestation status + its own signature.
+    equityStatus: cert.equity ? cert.equity.status : null,
+    equitySignature: cert.equity ? cert.equity.signature : null,
     // Commit to the inner packet's own signature rather than the full packet
     // payload (which can be large). Any tampering with the packet changes its
     // own stored signature, which is embedded here.
@@ -106,6 +109,7 @@ function certCore(cert) {
  * @param {object} [opts.deidentification] - de-id attestation
  * @param {object} [opts.denial] - denial-risk attestation
  * @param {object} [opts.metricContractStatus] - optional metric contract status
+ * @param {object} [opts.equityAttestation] - signed equity attestation from Phase 3 (buildEquityAttestation output)
  * @param {object} [opts.producer] - { app, version, build }
  * @param {string} [opts.generatedAt] - ISO timestamp override (for tests)
  * @returns {Promise<object>} signed certificate
@@ -118,6 +122,7 @@ export async function buildTrustCertificate({
   deidentification = null,
   denial = null,
   metricContractStatus = null,
+  equityAttestation = null,
   producer = null,
   generatedAt = null,
 } = {}) {
@@ -192,16 +197,31 @@ export async function buildTrustCertificate({
     },
     validationSummary,
     kAnonymity,
+    // Phase 3: equity attestation (null when equity layer is disabled or not applicable)
+    equity: equityAttestation ? {
+      status: equityAttestation.status || 'idle',
+      level: equityAttestation.level || 'none',
+      verdict: equityAttestation.verdict || null,
+      analysisCount: equityAttestation.analysisCount || 0,
+      flaggedPairs: equityAttestation.flaggedPairs || 0,
+      topFindings: equityAttestation.topFindings || [],
+      suppressedGroups: equityAttestation.suppressedGroups || [],
+      rationale: equityAttestation.rationale || null,
+      signature: equityAttestation.signature || null,
+      signatureAlgorithm: equityAttestation.signatureAlgorithm || 'SHA-256',
+      methodology: equityAttestation.methodology || null,
+      attestationVersion: equityAttestation.version || null,
+    } : null,
     packet,
   };
 
   // Outer certificate signature (commits to gate + validation summary + k-anon
-  // + the inner packet's own signature value).
+  // + equity status + the inner packet's own signature value).
   const sigValue = await sha256Hex(JSON.stringify(certCore(cert)));
   cert.signature = {
     algorithm: 'SHA-256',
     value: sigValue,
-    covers: 'kind, formatVersion, generatedAt, producer, dataset, gate, validationSummary, kAnonymity, packetSignature',
+    covers: 'kind, formatVersion, generatedAt, producer, dataset, gate, validationSummary, kAnonymity, equityStatus, equitySignature, packetSignature',
   };
 
   cert.disclaimer =
