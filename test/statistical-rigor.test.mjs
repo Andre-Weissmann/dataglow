@@ -206,6 +206,56 @@ ok(classifyGroupedConfidence([], 'g', 'v').length === 0, 'classifyGroupedConfide
   ok(!single.reason.includes('Weakest of'), 'summarizeGroupedConfidence omits the "Weakest of N groups" prefix for a single group');
 }
 
+// ---------- classifyGroupedConfidence countCol fix (2026-07-18 regression) ----------
+// Real bug found during a live-preview check before rigorEngineBadges went live: a
+// pre-aggregated `SELECT gender, AVG(los) AS avg_los, COUNT(*) AS n FROM t GROUP BY
+// gender` result has exactly ONE row per group (the average is already computed), so
+// counting rows-per-group always reported n=1 for every group regardless of the real
+// underlying sample size — confidently wrong, not just imprecise, on the single most
+// common real-world grouped-query shape. These cases pin the fix: an explicit
+// countCol argument must override row-counting with the query's own real count.
+{
+  // Mirrors the exact failing query from the live-preview check: one row per
+  // group holding a pre-computed AVG and a real COUNT(*), aliased "n".
+  const rows = [
+    { gender: 'F', avg_los: 5.98, n: 50 },
+    { gender: 'M', avg_los: 6.91, n: 48 },
+  ];
+  const grouped = classifyGroupedConfidence(rows, 'gender', 'avg_los', 0.95, 'n');
+  ok(grouped.length === 2, 'classifyGroupedConfidence with countCol still returns one entry per distinct group');
+  ok(grouped[0].n === 50 && grouped[1].n === 48, 'classifyGroupedConfidence with countCol reports the REAL per-group count, not 1 (the bug this fix addresses)');
+  ok(grouped[0].verdict === 'sufficient' && grouped[1].verdict === 'sufficient', 'a pre-aggregated group with a real n>=30 is correctly classified sufficient once countCol is honored');
+  ok(grouped[0].ci === null && grouped[1].ci === null, 'a countCol-derived verdict reports ci=null honestly — there is no raw sample here to compute a real interval from');
+  ok(grouped.every((g) => g.nSource === 'count-column'), 'classifyGroupedConfidence tags countCol-derived entries with nSource "count-column"');
+}
+{
+  // Without countCol, the exact same pre-aggregated shape reproduces the original
+  // bug (n=1 per group) — pinned here as a regression guard so a future change
+  // can't silently make countCol mandatory-but-broken without a test noticing.
+  const rows = [{ gender: 'F', avg_los: 5.98, n: 50 }, { gender: 'M', avg_los: 6.91, n: 48 }];
+  const grouped = classifyGroupedConfidence(rows, 'gender', 'avg_los'); // no countCol
+  ok(grouped[0].n === 1 && grouped[1].n === 1, 'omitting countCol on a pre-aggregated result correctly falls back to counting result rows (n=1 per group) — this is the documented fallback, not a silent lie, since the caller is responsible for detecting and passing countCol when it exists');
+  ok(grouped.every((g) => g.nSource === 'counted-rows'), 'the row-counting fallback path is tagged nSource "counted-rows", distinct from the countCol path');
+}
+{
+  // countCol must be ignored when the column isn't actually numeric/present on a
+  // row, falling back to row-counting rather than crashing or reporting NaN/undefined.
+  const rows = [{ g: 'A', v: 10, badCount: 'not-a-number' }, { g: 'A', v: 12, badCount: 'not-a-number' }];
+  const grouped = classifyGroupedConfidence(rows, 'g', 'v', 0.95, 'badCount');
+  ok(grouped[0].n === 2, 'a non-numeric countCol value is ignored; falls back to counting the 2 valid rows in that group');
+  ok(grouped[0].nSource === 'counted-rows', 'a non-numeric countCol falls back to nSource "counted-rows"');
+}
+{
+  // Row-level (un-aggregated) data must still behave exactly as before — this
+  // fix must not regress the case that was already correct.
+  const rows = [
+    ...Array.from({ length: 47 }, () => ({ gender: 'M', los: 6 })),
+    ...Array.from({ length: 50 }, () => ({ gender: 'F', los: 5 })),
+  ];
+  const grouped = classifyGroupedConfidence(rows, 'gender', 'los'); // no countCol — row-level data
+  ok(grouped.find((g) => g.group === 'M').n === 47 && grouped.find((g) => g.group === 'F').n === 50, 'row-level (un-aggregated) grouping still counts real rows correctly — no regression from the countCol fix');
+}
+
 // ---------- source scan: prove this module names no DOM/network/DuckDB primitive ----------
 {
   const __filename = fileURLToPath(import.meta.url);

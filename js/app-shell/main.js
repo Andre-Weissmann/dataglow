@@ -1564,16 +1564,50 @@ function renderResultTable(container, result) {
 // don't look GROUP-BY-shaped (no categorical column, or no numeric column)
 // render nothing — this is a bonus insight on top of an aggregate result,
 // not a claim that every query result needs a confidence verdict.
+// Column name patterns that mean "this column already holds the true
+// observation count for this row" — DuckDB's own default naming for an
+// un-aliased COUNT(*)/COUNT(x) ("count_star()", "count(x)") plus the common
+// aliases an analyst would actually type (n, count, cnt, num_rows, total).
+// Matched case-insensitively against the bare column name.
+const COUNT_COLUMN_NAME_PATTERN = /^(n|count|cnt|count_star\(\)?|count\(.*\)|num_rows|numrows|row_count|total_count)$/i;
+
 function detectGroupedConfidenceColumns(result) {
   if (!result || !Array.isArray(result.columns) || !result.rows || result.rows.length === 0) return null;
-  const sample = result.rows[0];
-  const numericCols = result.columns.filter((c) => typeof sample[c] === 'number' && Number.isFinite(sample[c]));
-  const textCols = result.columns.filter((c) => typeof sample[c] === 'string');
+  const rows = result.rows;
+  // Scan ALL rows (not just rows[0]) to decide each column's type — fixes a
+  // real bug found 2026-07-18: a categorical column whose first row happens
+  // to be null (e.g. an unknown/missing group value) was being misread as
+  // non-string, silently dropping the badge for an otherwise valid grouped
+  // result. A column counts as numeric/text if ANY row shows that type.
+  const numericCols = [];
+  const textCols = [];
+  for (const c of result.columns) {
+    let isNumeric = false;
+    let isText = false;
+    for (const row of rows) {
+      const v = row ? row[c] : undefined;
+      if (typeof v === 'number' && Number.isFinite(v)) isNumeric = true;
+      if (typeof v === 'string') isText = true;
+      if (isNumeric && isText) break; // a column reporting both is ambiguous; neither list wins early
+    }
+    if (isNumeric && !isText) numericCols.push(c);
+    if (isText && !isNumeric) textCols.push(c);
+  }
   if (numericCols.length === 0 || textCols.length === 0) return null;
-  // First text column = group, first numeric column = value. A query with
-  // multiple numeric columns still only badges the first — a reasonable
-  // single-badge default; the analyst can always re-run isolating one metric.
-  return { groupCol: textCols[0], valueCol: numericCols[0] };
+  // A pre-aggregated GROUP BY result (one row per group) needs the REAL
+  // per-group observation count, not a count of result rows (which is
+  // always 1 per group and would make every verdict confidently wrong —
+  // the bug this fix addresses). If a numeric column's name matches a known
+  // count pattern, treat it as that true count and exclude it from value-
+  // column candidates so it's never mistaken for the metric being measured.
+  const countCol = numericCols.find((c) => COUNT_COLUMN_NAME_PATTERN.test(c.trim())) || null;
+  const valueCandidates = countCol ? numericCols.filter((c) => c !== countCol) : numericCols;
+  if (valueCandidates.length === 0) return null;
+  // First text column = group, first remaining numeric column = value. A
+  // query with multiple numeric columns still only badges the first — a
+  // reasonable single-badge default; the analyst can always re-run
+  // isolating one metric.
+  return { groupCol: textCols[0], valueCol: valueCandidates[0], countCol };
 }
 
 function renderRigorConfidenceBadge(resultWrap, result) {
@@ -1585,7 +1619,11 @@ function renderRigorConfidenceBadge(resultWrap, result) {
     resultWrap.appendChild(host);
   }
   if (!cols) { host.innerHTML = ''; return; }
-  const grouped = classifyGroupedConfidence(result.rows, cols.groupCol, cols.valueCol);
+  // Pass cols.countCol through so a pre-aggregated GROUP BY result badges
+  // its REAL per-group observation count instead of counting result rows
+  // (which is always 1 per group for an aggregate query) — see the fix
+  // notes on classifyGroupedConfidence for the bug this addresses.
+  const grouped = classifyGroupedConfidence(result.rows, cols.groupCol, cols.valueCol, 0.95, cols.countCol);
   const summary = summarizeGroupedConfidence(grouped);
   host.innerHTML = '';
   host.appendChild(renderRigorBadgeCard(summary, grouped, cols));
