@@ -90,6 +90,17 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-decisionledger-ui
+      # Rigor Engine Batch 2: SQL-tab + Visualize-tab grouped confidence badges,
+      # plus the SQL→Visualize gap fix ("Send to Visualize"). Forces the dark
+      # rigorEngineBadges flag on via a Playwright route intercept on
+      # flags.manifest.json (the SW is disabled first, since sw.js's own fetch
+      # handler would otherwise intercept the request before Playwright's route
+      # ever sees it) and separately confirms the flag-off default renders
+      # neither badge nor button.
+      - name: Run rigor engine badges e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-rigor-engine-badges
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4

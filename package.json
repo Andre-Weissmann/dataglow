@@ -161,6 +161,7 @@
     "test:e2e-packbuilder-ui": "node test/pack-builder-ui.test.mjs",
     "test:e2e-meetingscribe-ui": "node test/meeting-scribe-ui.test.mjs",
     "test:e2e-decisionledger-ui": "node test/meeting-decision-ledger-ui.test.mjs",
+    "test:e2e-rigor-engine-badges": "node test/e2e-rigor-engine-badges.test.mjs",
     "screenshot:grades": "node test/_screenshot-grades.mjs",
     "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
     "screenshot:missingness": "node test/_screenshot-missingness.mjs"

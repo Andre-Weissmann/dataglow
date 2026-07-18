@@ -32,6 +32,8 @@ import {
   bonferroniAdjustedAlpha,
   detectSimpsonsParadox,
   classifyConfidence,
+  classifyGroupedConfidence,
+  summarizeGroupedConfidence,
 } from '../js/rigor/statistical-rigor.js';
 
 // ---------- tiny test harness (no framework) ----------
@@ -158,6 +160,51 @@ ok(close(bonferroniAdjustedAlpha(4, 0.10), 0.025), 'bonferroniAdjustedAlpha resp
   ok(result.reversalDetected === false, 'detectSimpsonsParadox matches today\'s finding: no reversal for Medicare vs Humana by claim_type');
 }
 ok(detectSimpsonsParadox([], 'A', 'B').reversalDetected === false, 'detectSimpsonsParadox degrades cleanly on empty input, never throws');
+
+// ---------- classifyGroupedConfidence / summarizeGroupedConfidence (Batch 2) ----------
+{
+  // Mirrors a real SQL GROUP BY result: 3 payers, wildly different n per group.
+  const rows = [
+    ...Array.from({ length: 40 }, (_, i) => ({ payer: 'Medicare', amt: 400 + i })),
+    ...Array.from({ length: 15 }, (_, i) => ({ payer: 'Humana', amt: 300 + i })),
+    ...Array.from({ length: 1 }, (_, i) => ({ payer: 'Aetna', amt: 250 + i })),
+  ];
+  const grouped = classifyGroupedConfidence(rows, 'payer', 'amt');
+  ok(grouped.length === 3, 'classifyGroupedConfidence returns one entry per distinct group');
+  ok(grouped[0].group === 'Medicare' && grouped[0].verdict === 'sufficient', 'Medicare (n=40) classified sufficient');
+  ok(grouped[1].group === 'Humana' && grouped[1].verdict === 'low', 'Humana (n=15) classified low');
+  ok(grouped[2].group === 'Aetna' && grouped[2].verdict === 'insufficient', 'Aetna (n=1) classified insufficient');
+  ok(grouped[0].n === 40 && grouped[1].n === 15 && grouped[2].n === 1, 'classifyGroupedConfidence reports correct per-group n');
+
+  const summary = summarizeGroupedConfidence(grouped);
+  ok(summary.verdict === 'insufficient', 'summarizeGroupedConfidence takes the WORST group verdict, never an average');
+  ok(summary.groupCount === 3, 'summarizeGroupedConfidence reports the correct group count');
+  ok(summary.reason.includes('3 groups'), 'summarizeGroupedConfidence names the group count in its reason');
+}
+{
+  // Null-group rows are bucketed under '(null)', never silently dropped.
+  const rows = [{ region: null, v: 1 }, { region: null, v: 2 }, { region: 'West', v: 3 }];
+  const grouped = classifyGroupedConfidence(rows, 'region', 'v');
+  ok(grouped.some((g) => g.group === '(null)'), 'classifyGroupedConfidence buckets null group values under "(null)" rather than dropping them');
+}
+{
+  // Non-numeric/missing values in the value column are filtered per-group, never crash the pass.
+  const rows = [{ g: 'A', v: 'not-a-number' }, { g: 'A', v: null }, { g: 'B', v: 10 }, { g: 'B', v: 12 }];
+  const grouped = classifyGroupedConfidence(rows, 'g', 'v');
+  const groupA = grouped.find((g) => g.group === 'A');
+  ok(groupA.n === 0 && groupA.verdict === 'insufficient', 'a group with zero valid numeric values gets n=0/insufficient, not silently omitted');
+}
+ok(classifyGroupedConfidence(null, 'g', 'v').length === 0, 'classifyGroupedConfidence degrades to [] on non-array input, never throws');
+ok(classifyGroupedConfidence([], 'g', 'v').length === 0, 'classifyGroupedConfidence degrades to [] on empty input');
+{
+  const empty = summarizeGroupedConfidence([]);
+  ok(empty.verdict === 'insufficient' && empty.groupCount === 0, 'summarizeGroupedConfidence degrades cleanly on empty input, never throws');
+}
+{
+  // Single-group summary reads the raw reason, no "weakest of N groups" prefix.
+  const single = summarizeGroupedConfidence(classifyGroupedConfidence([{ g: 'A', v: 5 }, { g: 'A', v: 6 }], 'g', 'v'));
+  ok(!single.reason.includes('Weakest of'), 'summarizeGroupedConfidence omits the "Weakest of N groups" prefix for a single group');
+}
 
 // ---------- source scan: prove this module names no DOM/network/DuckDB primitive ----------
 {
