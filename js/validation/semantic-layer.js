@@ -291,3 +291,83 @@ export function checkQueryAgainstMetrics(sql, metrics) {
 
   return flags;
 }
+
+// ============================================================
+// Persistence bridge — called by main.js on app init and on
+// every registerMetric / unregisterMetric call.
+// Deliberately dependency-injected (the caller passes the store
+// functions) so this module stays pure / Node-testable with no
+// IndexedDB import at the top level.
+// ============================================================
+
+/**
+ * Rehydrate the in-memory registry from persisted records. Call once on app
+ * init after the memory store is ready. Tolerant: a bad record is skipped, not
+ * thrown, so one corrupt entry never blocks the rest.
+ *
+ * @param {Array<{name:string, expression:string, description?:string, registeredAt?:number}>} records
+ * @returns {{ loaded: number, skipped: number }}
+ */
+export function hydrateFromRecords(records) {
+  if (!Array.isArray(records)) return { loaded: 0, skipped: 0 };
+  let loaded = 0, skipped = 0;
+  for (const r of records) {
+    if (!r || typeof r !== 'object') { skipped++; continue; }
+    try {
+      registerMetric({ name: r.name, expression: r.expression, description: r.description || '' });
+      loaded++;
+    } catch (_) { skipped++; }
+  }
+  return { loaded, skipped };
+}
+
+/**
+ * Export all registered metrics as a JSON string. Produces a portable,
+ * human-readable file the user can save and share across machines. Round-trips
+ * back through importMetricsFromJson without loss.
+ * @returns {string}
+ */
+export function exportMetricsToJson() {
+  const metrics = getRegisteredMetrics();
+  return JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), metrics }, null, 2);
+}
+
+/**
+ * Import metric definitions from a JSON string previously produced by
+ * exportMetricsToJson (or hand-authored in the same shape). Merges into the
+ * current registry: existing definitions with the same name are overwritten;
+ * others are untouched. Returns a summary of what happened.
+ *
+ * @param {string} json
+ * @param {{ onSave?: function }} [opts] - optional async `onSave(metric)` hook so
+ *   the caller can also persist each imported metric to IndexedDB.
+ * @returns {{ imported: number, skipped: number, errors: string[] }}
+ */
+export function importMetricsFromJson(json, opts) {
+  const errors = [];
+  let imported = 0, skipped = 0;
+  let parsed;
+  try {
+    parsed = JSON.parse(String(json || ''));
+  } catch (e) {
+    return { imported: 0, skipped: 0, errors: ['Invalid JSON: ' + e.message] };
+  }
+  const items = Array.isArray(parsed) ? parsed
+    : (parsed && Array.isArray(parsed.metrics)) ? parsed.metrics
+    : [];
+  if (!items.length) return { imported: 0, skipped: 0, errors: ['No metrics array found in file.'] };
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || !item.name || !item.expression) { skipped++; continue; }
+    try {
+      const registered = registerMetric({ name: item.name, expression: item.expression, description: item.description || '' });
+      if (opts && typeof opts.onSave === 'function') {
+        // Fire-and-forget persist — import itself is synchronous, persistence is best-effort.
+        // Add nameLower so the IDB store key is always available to the caller.
+        const payload = Object.assign({ nameLower: registered.name.toLowerCase() }, registered);
+        try { opts.onSave(payload); } catch (_) {}
+      }
+      imported++;
+    } catch (e) { errors.push(item.name + ': ' + e.message); skipped++; }
+  }
+  return { imported, skipped, errors };
+}

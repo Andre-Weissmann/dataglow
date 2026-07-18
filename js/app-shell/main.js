@@ -18,7 +18,7 @@ import * as validation from '../validation/validation.js';
 import { runAnalysisContract, summarizeAnalysisContract } from '../validation/analysis-contract.js';
 import { runQuerySentinel, summarizeQuerySentinel } from '../validation/query-sentinel.js';
 import { resolveBridgeReferences, summarizeBridgeResolution } from '../validation/query-sentinel-bridge.js';
-import { getRegisteredMetrics } from '../validation/semantic-layer.js';
+import { getRegisteredMetrics, hydrateFromRecords, exportMetricsToJson, importMetricsFromJson } from '../validation/semantic-layer.js';
 import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/semantic-layer-ui.js';
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
 import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } from '../provenance/zk-threshold-proof.js';
@@ -2395,10 +2395,73 @@ function initMetricDefiner() {
     return;
   }
   btn.style.display = '';
+  // Show export/import buttons alongside the define-metric button.
+  const exportMetricsBtn = $('#btn-export-metrics');
+  const importMetricsLabel = $('#label-import-metrics');
+  if (exportMetricsBtn) exportMetricsBtn.style.display = '';
+  if (importMetricsLabel) importMetricsLabel.style.display = '';
+
+  // Persist a newly registered metric to IDB (best-effort).
+  function onMetricSave(stored) {
+    if (!stored || !stored.name) return;
+    if (!stored.nameLower) stored = Object.assign({ nameLower: stored.name.toLowerCase() }, stored);
+    memoryStore.initMemoryStore()
+      .then(() => memoryStore.saveSemanticMetric(stored))
+      .catch(() => { /* IDB unavailable -- registry stays in memory */ });
+  }
+
+  // Delete a metric from IDB when the user removes it (best-effort).
+  function onMetricDelete(nameLower) {
+    if (!nameLower) return;
+    memoryStore.initMemoryStore()
+      .then(() => memoryStore.deleteSemanticMetric(nameLower))
+      .catch(() => {});
+  }
+
   btn.addEventListener('click', () => {
     if (host.childElementCount > 0) { host.innerHTML = ''; return; } // toggle off
-    mountMetricDefiner({ host, onToast: toast });
+    mountMetricDefiner({ host, onToast: toast, onRegister: onMetricSave, onDelete: onMetricDelete });
   });
+
+  // Export all metric definitions as JSON file.
+  const exportBtn = $('#btn-export-metrics');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      try {
+        const json = exportMetricsToJson();
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dataglow-metrics.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('Metric definitions exported', 'success');
+      } catch (e) { toast('Export failed: ' + e.message, 'error'); }
+    });
+  }
+
+  // Import metric definitions from a JSON file.
+  const importInput = $('#input-import-metrics');
+  if (importInput) {
+    importInput.addEventListener('change', (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = importMetricsFromJson(e.target.result, {
+          onSave: (metric) => onMetricSave(metric),
+        });
+        if (result.imported > 0) {
+          toast(result.imported + ' metric(s) imported', 'success');
+        } else {
+          toast('No metrics imported' + (result.errors.length ? ': ' + result.errors[0] : ''), 'warn');
+        }
+      };
+      reader.readAsText(file);
+      importInput.value = '';
+    });
+  }
 }
 
 // ============================================================
@@ -5864,6 +5927,15 @@ async function refreshDriftForecastStats() {
 }
 
 function initMemory() {
+  // Hydrate the semantic metrics registry from IDB on every app load.
+  // Best-effort: a failure here never breaks the rest of the app.
+  if (isEnabled('semanticMetricsLayer')) {
+    memoryStore.initMemoryStore()
+      .then(() => memoryStore.loadSemanticMetrics())
+      .then((records) => { hydrateFromRecords(records); })
+      .catch(() => { /* IDB unavailable or no metrics stored yet */ });
+  }
+
   memoryStore.initMemoryStore().then(refreshMemoryPanel).catch(() => {
     const el0 = $('#memory-stats');
     if (el0) el0.textContent = 'Local memory unavailable in this browser.';
