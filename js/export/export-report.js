@@ -83,8 +83,14 @@ export function buildDatasetView(opts = {}) {
 }
 
 // A filesystem-safe stem for generated filenames.
+// Phase 6 fix: strip trailing format extensions from the input name so that a
+// dataset loaded from "claims.csv" produces "dataglow-claims.xlsx" rather than
+// "dataglow-claims.csv.xlsx" (double-extension bug).
 function safeStem(name) {
-  return String(name || 'dataset').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'dataset';
+  const stripped = String(name || 'dataset')
+    // Remove common data-file extensions from the tail only.
+    .replace(/\.(csv|tsv|json|ndjson|parquet|xlsx|xls|arrow|feather|pdf|txt)$/i, '');
+  return stripped.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'dataset';
 }
 
 // ------------------------------------------------------------
@@ -116,15 +122,29 @@ export function buildWorkbookBlob(view, opts = {}) {
   const wb = XLSX.utils.book_new();
 
   // --- Data sheet: header row + rows, in the displayed column order. ---
+  // Phase 6 fix: detect ISO date strings (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS…)
+  // and convert them to native JS Date objects so SheetJS emits proper Excel
+  // date serial cells rather than plain text. Previously all values were passed
+  // as raw strings, which made dates unsortable and uncalculable in Excel.
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.Z+-]+)?$/;
+  function coerceForExcel(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && ISO_DATE_RE.test(v)) {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return v;
+  }
   const header = view.columns.slice();
   const aoa = [header];
   for (const r of view.rows) {
     aoa.push(header.map((c) => {
       const v = r == null ? null : r[c];
-      return v === undefined ? null : v;
+      return coerceForExcel(v === undefined ? null : v);
     }));
   }
-  const dataSheet = XLSX.utils.aoa_to_sheet(aoa);
+  const dataSheet = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
   XLSX.utils.book_append_sheet(wb, dataSheet, 'Data');
 
   // --- Summary sheet: dataset facts (+ validation, when available). ---
@@ -190,10 +210,42 @@ const PDF_LEADING = 16;       // line height, points
 const PDF_TOP = PDF_PAGE_HEIGHT - PDF_MARGIN;
 const PDF_BOTTOM = PDF_MARGIN;
 
+// Phase 6 fix: replace common typographic Unicode characters with their
+// WinAnsi/ASCII equivalents BEFORE falling back to '?' so that em dashes,
+// curly quotes, ellipses, bullet points, and similar characters that
+// DataGlow's own validation layer generates (e.g. '—' in layer summaries)
+// render as recognizable text rather than mystery question marks in the PDF.
+const UNICODE_TO_ASCII = [
+  [/\u2014/g, '--'],   // em dash -> double hyphen
+  [/\u2013/g, '-'],    // en dash -> hyphen
+  [/\u2026/g, '...'],  // ellipsis -> three dots
+  [/[\u2018\u2019]/g, "'"],  // curly single quotes -> straight
+  [/[\u201C\u201D]/g, '"'],  // curly double quotes -> straight
+  [/\u2022/g, '*'],    // bullet
+  [/\u00B7/g, '*'],    // middle dot
+  [/\u00A9/g, '(c)'],  // copyright
+  [/\u00AE/g, '(R)'],  // registered
+  [/\u2122/g, '(TM)'], // trademark
+  [/\u00B0/g, 'deg'],  // degree sign
+  [/\u00B1/g, '+/-'],  // plus-minus
+  [/\u00D7/g, 'x'],    // multiplication sign
+  [/\u00F7/g, '/'],    // division sign
+  [/\u2248/g, '~='],   // approximately equal
+  [/\u2260/g, '!='],   // not equal
+  [/\u2264/g, '<='],   // less-than-or-equal
+  [/\u2265/g, '>='],   // greater-than-or-equal
+  [/\u00A0/g, ' '],    // non-breaking space
+  [/[\u2000-\u200F]/g, ' '], // various spaces and zero-width chars
+];
+
 function asciiSafe(s) {
-  // Replace non-ASCII with '?' and drop control chars so the byte length of the
-  // serialized document matches its character length (xref offsets stay valid).
-  return String(s == null ? '' : s).replace(/[^\x20-\x7E]/g, '?');
+  // Transliterate known typographic Unicode to ASCII equivalents, then
+  // replace any remaining non-ASCII with '?'. The byte length of the
+  // serialized PDF still equals its character length because every substitution
+  // uses only ASCII bytes, keeping the xref offset table valid.
+  let result = String(s == null ? '' : s);
+  for (const [re, sub] of UNICODE_TO_ASCII) result = result.replace(re, sub);
+  return result.replace(/[^\x20-\x7E]/g, '?');
 }
 
 function pdfEscape(s) {

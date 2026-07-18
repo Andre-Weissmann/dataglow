@@ -342,6 +342,7 @@ function switchTab(tabId) {
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'validate') renderOneCanvasPhase1();
   if (tabId === 'twin') buildTwinControls();
+  if (tabId === 'visualize') maybeMaterializeSqlResultForVisualize();
   if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'diplomacy') renderDiplomacyTab();
   if (tabId === 'proofroom') renderProofRoomTab();
@@ -7240,13 +7241,93 @@ function initRedTeam() {
 // ============================================================
 // Visualize Tab
 // ============================================================
+// All DuckDB numeric type strings that should be available as a Y-axis metric.
+// The original narrow list missed DECIMAL (common in SUM/AVG aggregates),
+// REAL, SMALLINT, TINYINT, and unsigned variants — SQL-derived result columns
+// routinely produce these types and were silently excluded from the Y-axis,
+// breaking the SQL -> chart workflow. This is the Phase 6 fix.
+const VISUALIZE_NUMERIC_TYPES = new Set([
+  'DOUBLE', 'FLOAT', 'REAL',
+  'BIGINT', 'INTEGER', 'HUGEINT', 'INT', 'INT4', 'INT8',
+  'SMALLINT', 'TINYINT',
+  'UBIGINT', 'UINTEGER', 'UHUGEINT', 'USMALLINT', 'UTINYINT',
+  'DECIMAL', 'NUMERIC',
+]);
+
+// Returns true for any DuckDB column_type string that represents a number.
+// Handles parameterized types like 'DECIMAL(18,3)' and 'NUMERIC(10,2)'.
+function isNumericColType(type) {
+  if (!type) return false;
+  const base = type.toUpperCase().split('(')[0].trim();
+  return VISUALIZE_NUMERIC_TYPES.has(base);
+}
+
+// Phase 6: SQL -> Visualize automatic bridge.
+// When the analyst switches to the Visualize tab right after running a SQL
+// query, we check whether the last query result has more columns than the
+// currently active dataset. If so, we silently materialize it as a new
+// named dataset and switch to it, so the Y-axis already shows the derived
+// columns (e.g. total_billed, claim_count from a GROUP BY). This is a pure
+// quality-of-life shortcut -- it never replaces the manual 'Send to Visualize'
+// button and never runs without a real prior query result.
+async function maybeMaterializeSqlResultForVisualize() {
+  const result = state.lastQueryResult;
+  if (!result || !Array.isArray(result.columns) || result.columns.length === 0) return;
+  if (!Array.isArray(result.rows) || result.rows.length === 0) return;
+  // If the last query result was already materialized as a dataset (same
+  // columns + row count), don't create a duplicate.
+  const existingDs = getActiveDataset();
+  const resultColSet = result.columns.join(',');
+  if (existingDs && existingDs.cols.map(c => c.name).join(',') === resultColSet &&
+      existingDs.rowCount === result.rowCount && existingDs.isSynthetic) return;
+  // Only auto-materialize when the result has at least one derived numeric column
+  // that the active dataset does NOT already have. This avoids redundantly
+  // materializing simple SELECT * queries.
+  const activeDs = getActiveDataset();
+  const activeCols = new Set(activeDs ? activeDs.cols.map(c => c.name) : []);
+  const hasNewCol = result.columns.some(c => !activeCols.has(c));
+  if (!hasNewCol) return;
+  try {
+    await ensureDuckDB();
+    const tableName = 'sql_viz_' + Date.now().toString(36);
+    await engine.createTableFromRows(tableName, result.columns, result.rows);
+    const schema = await engine.getTableSchema(tableName);
+    const cols = schema.map(s => ({ name: s.column_name, type: s.column_type }));
+    const label = state.lastQuery
+      ? 'SQL: ' + state.lastQuery.slice(0, 48) + (state.lastQuery.length > 48 ? '…' : '')
+      : 'SQL result';
+    addDataset({ name: label, table: tableName, rowCount: result.rowCount, cols, loadedAt: Date.now(), isSynthetic: true });
+    renderSidebar();
+    populateVisualizeBuilder();
+    // Pre-select the best x/y guess so the analyst sees a relevant chart immediately.
+    const detected = detectGroupedConfidenceColumns(result);
+    if (detected) {
+      const xSel = $('#viz-x'), ySel = $('#viz-y');
+      if (xSel && [...xSel.options].some(o => o.value === detected.groupCol)) xSel.value = detected.groupCol;
+      if (ySel && [...ySel.options].some(o => o.value === detected.valueCol)) ySel.value = detected.valueCol;
+    }
+  } catch (_e) {
+    // Best-effort: if materialization fails, the analyst still sees whatever
+    // dataset was already active. Never throw from switchTab hooks.
+  }
+}
+
 function populateVisualizeBuilder() {
   const ds = getActiveDataset();
   if (!ds) return;
   $('#visualize-builder').style.display = '';
   const xSel = $('#viz-x'), ySel = $('#viz-y');
   xSel.innerHTML = ds.cols.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
-  ySel.innerHTML = ds.cols.filter(c => ['DOUBLE','BIGINT','INTEGER','HUGEINT','FLOAT'].includes(c.type)).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  // Phase 6 fix: use isNumericColType() instead of a hard-coded narrow list so
+  // derived columns from SQL GROUP BY / aggregates (DECIMAL, REAL, SMALLINT…)
+  // appear in the Y-axis selector just like raw dataset numeric columns do.
+  ySel.innerHTML = ds.cols.filter(c => isNumericColType(c.type)).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  // If nothing qualifies as numeric (e.g. a text-only result), show all columns
+  // rather than an empty dropdown — the chart will fail gracefully, which is
+  // better than silently offering nothing and confusing the analyst.
+  if (!ySel.options.length) {
+    ySel.innerHTML = ds.cols.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+  }
 }
 
 // Rigor Engine (Batch 2) — Visualize-tab confidence badge. Reuses the exact
@@ -7264,8 +7345,8 @@ async function renderVisualizeRigorBadge(ds, type, x, y) {
   if (!isEnabled('rigorEngineBadges') || !ds || !x || !y) return;
   const xCol = ds.cols.find((c) => c.name === x);
   const yCol = ds.cols.find((c) => c.name === y);
-  const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
-  if (!xCol || !yCol || NUMERIC_TYPES.includes(xCol.type) || !NUMERIC_TYPES.includes(yCol.type)) return;
+  // Phase 6: use isNumericColType() so SQL-derived DECIMAL/REAL columns get rigor badges too.
+  if (!xCol || !yCol || isNumericColType(xCol.type) || !isNumericColType(yCol.type)) return;
   if (['scatter'].includes(type)) return; // scatter plots two numeric axes; no grouping concept applies
   try {
     const { rows } = await engine.runQuery(`SELECT "${x}" AS "${x}", "${y}" AS "${y}" FROM ${ds.table} WHERE "${y}" IS NOT NULL`);
