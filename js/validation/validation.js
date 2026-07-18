@@ -25,6 +25,9 @@ import { checkJoinCoverage, checkAllJoinCoverage } from '../relational/join-cove
 import { detectEquityColumns } from '../equity/equity-detector.js';
 import { stratifyEquity } from '../equity/equity-stratifier.js';
 import { buildEquityAttestation } from '../equity/equity-attestation.js';
+import { getRulepack, buildVersionPin } from '../rulepacks/rulepack-registry.js';
+import { computeFreshnessDecay, freshnessLabel } from '../drift/freshness-decay.js';
+import { captureSnapshot, diffSnapshots } from '../drift/dataset-differ.js';
 
 // Feature flag gating the extended-coverage validation checks (semantic
 // magnitude ordering in Cross-Column Logic + business-key duplicate detection
@@ -1305,6 +1308,84 @@ async function runMissingnessDetectiveLayer(table, cols) {
   return r;
 }
 
+// ---------- Temporal Drift + Rulepack Version Pin (Phase 4) ----------
+// Computes freshness decay for the dataset (based on dataDate option),
+// captures a statistical snapshot for diff comparison against a prior snapshot,
+// and builds a rulepack version pin. All three fail open.
+async function runDriftLayer(ds, cols, options = {}) {
+  const flagKey = 'temporalDrift';
+  const flagEnabled = isFeatureFlagEnabled(flagKey);
+  const packId = (options && options.pack) || 'healthcare';
+  const rulepack = getRulepack(packId);
+
+  // 1. Freshness decay -- requires options.dataDate.
+  let freshnessResult = null;
+  try {
+    freshnessResult = computeFreshnessDecay({
+      dataDate: options && options.dataDate ? options.dataDate : null,
+      packId,
+    });
+  } catch (e) {
+    freshnessResult = {
+      status: 'unknown', multiplier: 1.0, ageDays: null,
+      rationale: 'Freshness decay failed: ' + String(e && e.message ? e.message : e),
+    };
+  }
+
+  // 2. Rulepack version pin.
+  const versionPin = buildVersionPin(packId);
+
+  // 3. Snapshot capture + diff (only if flagEnabled and a table is present).
+  let snapshot = null;
+  let diffResult = null;
+  const table = ds && ds.table ? ds.table : null;
+  if (flagEnabled && table) {
+    try {
+      const engineAdapter = { runQuery: (sql) => engine.runQuery(sql) };
+      snapshot = await captureSnapshot({
+        table,
+        cols: cols || [],
+        engine: engineAdapter,
+        label: options && options.snapshotLabel ? options.snapshotLabel : null,
+      });
+      // Diff against a prior snapshot if provided.
+      if (options && options.priorSnapshot) {
+        diffResult = diffSnapshots(options.priorSnapshot, snapshot);
+      }
+    } catch (e) {
+      snapshot = null;
+      diffResult = null;
+    }
+  }
+
+  const status = diffResult ? diffResult.status
+    : (freshnessResult && freshnessResult.status === 'expired') ? 'warn'
+    : (freshnessResult && freshnessResult.status === 'stale') ? 'warn'
+    : 'pass';
+  const level = diffResult ? diffResult.level
+    : (freshnessResult && freshnessResult.status === 'expired') ? 'medium'
+    : (freshnessResult && freshnessResult.status === 'stale') ? 'low'
+    : 'none';
+
+  const rationale = [
+    freshnessLabel(freshnessResult),
+    diffResult ? diffResult.rationale : null,
+  ].filter(Boolean).join(' | ');
+
+  return {
+    layer: 'temporal_drift',
+    status,
+    level,
+    freshnessResult,
+    versionPin,
+    snapshot,
+    diffResult,
+    packId,
+    packLabel: rulepack.label,
+    rationale: rationale || 'Temporal drift layer ran (no data date provided; no prior snapshot to diff).',
+  };
+}
+
 // ---------- Equity Stratification Orchestrator (Phase 3) ----------
 // Detects equity-relevant columns (race, sex, zip, payer, age group, disability),
 // stratifies outcome metrics (readmit, denial, mortality, LOS, cost, ED, quality)
@@ -1545,6 +1626,16 @@ export async function runAllLayers(ds, options = {}) {
     status: 'idle', level: 'none', layer: 'equity',
     detectionResult: null, stratificationResult: null, attestation: null,
     rationale: 'Equity layer could not run: ' + (e && e.message ? e.message : String(e)),
+  }));
+
+  // ---- Temporal Drift + Rulepack Version Pin (Phase 4) ----
+  // Computes freshness decay, captures a statistical snapshot, diffs against a
+  // prior snapshot if provided, and version-pins the active rulepack.
+  // Fails open: any error produces a pass result and never kills the run.
+  results.temporal_drift = await runDriftLayer(ds, cols, options).catch(e => ({
+    layer: 'temporal_drift', status: 'pass', level: 'none',
+    freshnessResult: null, versionPin: null, snapshot: null, diffResult: null,
+    rationale: 'Drift layer could not run: ' + (e && e.message ? e.message : String(e)),
   }));
 
   // ---- Domain Physics Engine ----
