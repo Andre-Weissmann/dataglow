@@ -5,6 +5,14 @@
 
 import { state } from './state.js';
 import { toast } from './utils.js';
+import {
+  isExtensionPermitted,
+  opfsTempDirSQL,
+  isOPFSAvailable,
+  coiDiagnostic,
+  isCrossOriginIsolated,
+  queryBatch,
+} from './duckdb-config.js';
 
 // Self-hosted DuckDB-WASM assets (vendored under assets/duckdb/). Resolved
 // relative to this module so it works no matter what path the app is served
@@ -47,6 +55,24 @@ export function initDuckDB() {
     state.duckdb.db = db;
     state.duckdb.conn = conn;
     state.duckdb.ready = true;
+
+    // #3 — OPFS-backed temp_directory for spilling large join/sort intermediates.
+    // Errors are caught and ignored: a failed SET does not break DuckDB, it just
+    // means spilling stays in-memory (the 1.29.0 default). OPFS availability is
+    // a soft capability — we never hard-require it.
+    if (isOPFSAvailable()) {
+      try {
+        await conn.query(opfsTempDirSQL());
+      } catch (_opfsErr) {
+        // OPFS spill unavailable — DuckDB continues in in-memory mode.
+        // See duckdb-config.js #3 for context and known upstream bug refs.
+      }
+    }
+
+    // #4 — Log threading status to the console (diagnostic only).
+    console.info('[DataGlow DuckDB] ' + coiDiagnostic());
+    state.duckdb.crossOriginIsolated = isCrossOriginIsolated();
+
     return { db, conn };
   })().catch(err => {
     initPromise = null;
@@ -61,8 +87,33 @@ function isArrowDateField(field) {
   return typeId === 8 || typeId === 10;
 }
 
+/**
+ * Run a SQL query through the QueryBatch deduplication coordinator (#7).
+ * Identical concurrent queries are merged into a single DuckDB round-trip.
+ * @param {string} sql
+ * @returns {Promise<{columns, rows, elapsedMs, rowCount, dateColumns}>}
+ */
+export function runQueryBatched(sql) {
+  return queryBatch.run(sql, runQuery);
+}
+
 export async function runQuery(sql) {
   if (!state.duckdb.ready) await initDuckDB();
+
+  // #1 — Extension allowlist guard.
+  // Intercept any LOAD statement and block non-permitted extensions.
+  // DataGlow only needs: parquet, json, httpfs, excel, autocomplete, icu.
+  const loadMatch = /^\s*LOAD\s+['"]?([\w]+)['"]?\s*;?\s*$/i.exec(sql);
+  if (loadMatch) {
+    const extName = loadMatch[1];
+    if (!isExtensionPermitted(extName)) {
+      throw new Error(
+        '[DataGlow] Extension \'' + extName + '\' is not in the permitted extension list. ' +
+        'See js/app-shell/duckdb-config.js PERMITTED_EXTENSIONS.'
+      );
+    }
+  }
+
   const conn = state.duckdb.conn;
   const t0 = performance.now();
   const result = await conn.query(sql);
