@@ -101,6 +101,23 @@ export function mountMeetingScribe(opts = {}) {
   const { host, onToast = () => {}, liveCapture = false } = opts;
   if (!host) return null;
 
+  // Live Rooms Batch 3: an optional supplier of the chart-context timeline. When
+  // the chartContextTimeline flag is on, main.js injects a function returning the
+  // real timeline of which chart/query the analyst was viewing when each line was
+  // spoken. Default is a no-op that returns [] so the flag-off path is byte-for-
+  // byte unchanged (identical to the previous hardcoded tagSegmentsWithContext(segments, [])).
+  const getContextTimeline = (typeof opts.getContextTimeline === 'function')
+    ? opts.getContextTimeline
+    : function() { return []; };
+  function currentContextTimeline() {
+    try {
+      const tl = getContextTimeline();
+      return Array.isArray(tl) ? tl : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   const meetingId = `meeting-${Date.now()}`;
   const startedAt = new Date().toISOString();
   let taggedSegments = [];
@@ -240,7 +257,7 @@ export function mountMeetingScribe(opts = {}) {
     try {
       captureSession = await startLiveCapture({
         onUpdate: ({ segments }) => {
-          taggedSegments = tagSegmentsWithContext(segments, []);
+          taggedSegments = tagSegmentsWithContext(segments, currentContextTimeline());
           renderResults();
           setCaptureStatus('Listening — transcribing on your device…');
         },
@@ -414,10 +431,11 @@ export function mountMeetingScribe(opts = {}) {
       onToast('Nothing to analyze — paste or type at least one line', 'warn');
       return;
     }
-    // No live chart-context timeline is wired in yet, so every segment is
-    // tagged context: null — this is the agent's own graceful-degradation
-    // path (see meeting-scribe-agent.js), not an error.
-    taggedSegments = tagSegmentsWithContext(segments, []);
+    // Chart-context timeline is supplied by the caller when the
+    // chartContextTimeline flag is on (Live Rooms Batch 3); otherwise this is
+    // an empty array and every segment is tagged context: null — the agent's
+    // own graceful-degradation path (see meeting-scribe-agent.js), not an error.
+    taggedSegments = tagSegmentsWithContext(segments, currentContextTimeline());
     renderResults();
     onToast(`Analyzed ${segments.length} line(s)`, 'success');
   }
