@@ -7,6 +7,47 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 06:51 CT] Flipped rigorEngineBadges live for real users (PR #305, merged, enable-only)
+
+**Trigger:** The One Confirm gate for `rigorEngineBadges` — presented with the full build summary, safety
+assessment, test evidence, and live-preview screenshot from the bug-fix verification (PR #303) — was shown
+to the user and explicitly approved at 06:16 CT. This is the standalone flag-enable action, per standing
+project convention: always its own separate, explicitly confirmed action, decoupled from build/merge, even
+when the underlying feature and its bug fix are already merged and dark.
+
+**What changed:** `flags.manifest.json` — `rigorEngineBadges.enabled: false → true`, with
+`promotedInPR: "enable/rigor-engine-badges"` added, matching the repo's established promote-or-delete
+flag-hygiene convention. No source/behavior code touched in this PR.
+
+**A real bug surfaced and was fixed before merging, not glossed over:** CI on the flag-flip PR failed
+`e2e-smoke` — `test/e2e-rigor-engine-badges.test.mjs`'s "flag OFF" page had been asserting the off-state by
+reading the *shipped manifest's default* rather than forcing it via route intercept the way the "flag ON"
+page already did. That assumption silently broke the moment this very PR made `true` the real default —
+a stale-test problem, not a product regression. Fixed by making the flag-OFF page explicitly route-intercept
+`flags.manifest.json` to force `enabled: false`, mirroring the flag-ON page's own pattern, so the check keeps
+verifying real flag-gating logic regardless of what the shipped default is now or later. Re-verified 66/66
+unit + 11/11 e2e locally before and after this fix, and again after rebasing onto main (which had advanced
+independently via PRs #306/#307 landing mid-flow) — rebase was clean, no conflicts, no scope change.
+
+**Verification (independent, per standing rule):** Read the actual `gh pr diff 305` output directly (not
+just trusted green CI) — confirmed exactly two files changed: the flag flip and the one test file, nothing
+else. CI green across 53 checks including `tauri-smoke` (6m49s) and the now-fixed `e2e-smoke`; the only 5
+failures were the same pre-existing, unrelated failures seen on every PR this session (20-layer Validate
+suite, Zero-upload egress-deny, Capability-map drift detector, Context Engine, Golden regression suite).
+
+**Outcome:** Merged (squash) to `main` at `112c1b0`, branch `enable/rigor-engine-badges` deleted. The
+confidence-badge feature and the SQL→Visualize bridge (built PR #301, bug-fixed PR #303) are now live for
+real users. `rigorEngineBadges` drops off the dark-flags list — 7 dark flags remain
+(`glowCanvas`, `drillFloor`, `cleaningCrew`, `conversationalPackBuilderVoice`, `meetingScribeLiveCapture`,
+`provenancePacket`, `openFloorSandboxTwin`), pending a promote/remove review.
+
+**Lesson for next time:** Any e2e test that asserts a flag's "off" behavior by reading the shipped default
+instead of forcing it via route/mock will silently go stale the moment that flag is promoted — write such
+assertions to force both states explicitly from day one (as the "flag ON" pages in this suite already did),
+not just at promotion time.
+
+---
+
 ## [2026-07-18 05:50 CT] Fixed two real bugs in the still-dark Rigor Engine badges, found during the live-preview check before flipping the flag (PR #303, merged, dark, bug-fix-only)
 
 **Trigger:** During the live-preview re-test ahead of the One Confirm gate for `rigorEngineBadges` (PR #301,
