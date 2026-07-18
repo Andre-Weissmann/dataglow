@@ -445,3 +445,8 @@ Swappable domain overlays that reinterpret raw validation-layer output. Selectin
 Direct, browser-side read from external data warehouses into DuckDB. All connectors are proof-of-concept, BYO-token, and never proxy credentials through any DataGlow server.
 - **BigQuery connector** — `js/warehouse/bigquery-connector.js` (browser-direct BigQuery read via the BigQuery REST API; user supplies a GCP service-account token).
 - **S3 connector** — `js/warehouse/s3-connector.js` (browser-direct S3/R2 object read via presigned URLs; user supplies their own credentials).
+
+## MCP (Model Context Protocol) interface
+Exposes DataGlow's AI Readiness Gate to any external AI agent — Claude Code, Cursor, Windsurf, or any MCP-compatible tool — via a lightweight Node.js stdio server. No new validation logic; this is a typed adapter around already-tested gate code.
+- **MCP server** — `js/mcp/dataglow-mcp-server.mjs` (stdio transport; exposes `check_readiness` tool, `dataglow://schema/{name}` and `dataglow://validation/{name}` resources, `analyze_validated_dataset` and `fix_failing_layers` prompt templates; reads gate state from disk; fail-open when no state file found).
+- **Gate state exporter** — `js/mcp/gate-state-exporter.js` (browser-side; `buildGateStatePayload` / `serializeGateState` / `GATE_STATE_FILENAME`; pure, Node-testable; produces the JSON file the MCP server reads; caller handles the actual file-save download).
