@@ -492,5 +492,55 @@ export async function runCrossColumnChecks(table, cols, engine, opts = {}) {
     }
   }
 
+  // Rule 5 — Readmission flag logical consistency.
+  // The 30-day readmission window is a strict subset of the 90-day window.
+  // Therefore readmit_30d = 1 with readmit_90d = 0 is a logical impossibility:
+  // any patient readmitted within 30 days is by definition also readmitted
+  // within 90 days. The inverse (readmit_90d=1 with readmit_30d=0) is valid
+  // and means the readmission occurred on days 31–90.
+  //
+  // Clinical significance: CMS uses 30-day and 90-day readmission rates for
+  // Hospital Readmissions Reduction Program (HRRP) penalty calculations.
+  // A flipped flag corrupts quality reporting and risk models downstream.
+  //
+  // Column detection: looks for numeric/boolean columns whose names contain
+  // both a readmission stem ('readmit','readmission','rehospital') and a
+  // day-count token ('30','90','thirty','ninety'). Conservative: requires
+  // BOTH stems to be present so unrelated flag columns never fire.
+  const READMIT_STEMS = ['readmit', 'readmission', 'rehospital', 'rehosp'];
+  const isReadmitCol = c => hasAnyKeyword(c.name, READMIT_STEMS);
+  // Check tokens for 30/90 day markers. Tokens may be '30d', '30day', '30',
+  // 'thirty' etc. — match by checking whether any token contains the digit
+  // string OR the word form, rather than exact token equality.
+  const has30 = c => nameTokens(c.name).some(t => t.includes('30') || t === 'thirty');
+  const has90 = c => nameTokens(c.name).some(t => t.includes('90') || t === 'ninety');
+
+  const readmit30 = cols.find(c => isReadmitCol(c) && has30(c));
+  const readmit90 = cols.find(c => isReadmitCol(c) && has90(c));
+
+  if (readmit30 && readmit90 && readmit30.name !== readmit90.name) {
+    try {
+      // Truthy encodings: 1, '1', 'true', 'yes', 'y', 't'
+      const truthy = `LOWER(TRIM(CAST({col} AS VARCHAR))) IN ('1','true','yes','y','t')`;
+      const falsy  = `LOWER(TRIM(CAST({col} AS VARCHAR))) IN ('0','false','no','n','f')`;
+      const n = await q(`
+        SELECT COUNT(*) AS n FROM ${table}
+        WHERE ${truthy.replace('{col}', `"${readmit30.name}"`)}
+          AND ${falsy.replace('{col}',  `"${readmit90.name}"`)}
+          AND "${readmit30.name}" IS NOT NULL
+          AND "${readmit90.name}" IS NOT NULL`);
+      if (n > 0) {
+        findings.push({
+          rule: 'readmit_flag_inconsistency',
+          ruleLabel: 'Readmission flag logical inconsistency',
+          columns: [readmit30.name, readmit90.name],
+          count: n,
+          text: `${n} row(s) where "${readmit30.name}" = 1 but "${readmit90.name}" = 0 — a 30-day readmission is always within the 90-day window, so this combination is logically impossible.`,
+          explanation: `The 30-day readmission window is a strict subset of the 90-day window. "${readmit30.name}" = 1 means the patient returned within 30 days, which guarantees "${readmit90.name}" must also be 1. ${n} row(s) have the flags in an impossible state, indicating a data entry error, ETL bug, or flag derivation logic that was not applied consistently. This corrupts HRRP-style quality metrics and any risk model built on these flags.`,
+        });
+      }
+    } catch { /* incompatible columns — skip */ }
+  }
+
   return findings;
 }
