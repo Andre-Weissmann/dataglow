@@ -448,10 +448,17 @@ it is genuinely new surface, not a rename of an existing module.
    row lookup, real cell-value extraction from DuckDB, and then the full Batch-1 seal+reconcile
    path. Batch-2 two-key panel renders below on reconciliation. Flag: `dataDiplomacyLoader`,
    `enabled:true`. 25/25 tests.)
-4. **Batch 4 — real peer-to-peer / cross-org transport.** NOT STARTED. Batch 1 currently borrows
-   the federated-transport pattern only as a reference shape, not as real wiring; this batch would
-   make two actual parties in two actual browsers exchange sealed claims, closing the loop on the
-   cross-org promise.
+4. **Batch 4 — real peer-to-peer / cross-org transport.** (DONE — `js/diplomacy/diplomacy-p2p-transport.js`:
+   `createDiplomacyP2PTransport({transport, selfId})` wraps the existing `RoomBroadcastCoordinator`
+   transport shape (from `js/rooms/room-broadcast.js`) with `sendClaim(claim)` and `onReceiveClaim(fn)`.
+   Wire message kind: `"diplomacy-claim"`. Pure helpers: `buildClaimMessage()` + `isValidClaimMessage()`.
+   `NULL_DIPLOMACY_TRANSPORT` no-op adapter for when no Rooms session is active. Wired into
+   `renderDiplomacyTab()` behind the `dataDiplomacyP2P` flag (`enabled:true`): the Diplomacy tab
+   gains a "Share claim with peer" section; incoming claims auto-fill the other party's form.
+   The real WebRTC mesh is owned by Rooms (Batch 1) — this batch only adds the claim message kind.
+   30/30 tests in `test/diplomacy-p2p-transport.test.mjs`.)
+
+**Data Diplomacy concept: ALL 4 BATCHES COMPLETE. ✅**
 
 ---
 

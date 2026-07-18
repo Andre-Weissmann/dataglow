@@ -3018,6 +3018,18 @@
       "files": [
         "js/diplomacy/diplomacy-loader.js"
       ]
+    },
+    {
+      "id": "data-diplomacy-p2p-transport",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Diplomacy",
+      "name": "Sealed claim P2P exchange adapter (Batch 4)",
+      "files": [
+        "js/diplomacy/diplomacy-p2p-transport.js"
+      ]
     }
   ]
 }

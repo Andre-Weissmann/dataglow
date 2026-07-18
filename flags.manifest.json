@@ -421,6 +421,11 @@
       "enabled": true,
       "addedInPR": "feat/data-diplomacy-batch3-real-dataset-loader",
       "description": "Data Diplomacy Batch 3: replaces the hardcoded two-claim demo scenario with a real data-loading UI (js/diplomacy/diplomacy-loader.js). Users pick any loaded dataset, choose entity-ID and value columns, enter the entity ID value to compare, and set source label + confidence + signer ID per party. The Reconcile button is enabled only when both claim forms are complete. The loader queries DuckDB to read the actual cell value for each party's row, then seals and reconciles using the same Batch-1 engine. The Batch-2 two-key approval UX renders below the forms after reconciliation completes. 25/25 tests. Paired with the top-level dataDiplomacy flag."
+    },
+    "dataDiplomacyP2P": {
+      "enabled": true,
+      "addedInPR": "feat/data-diplomacy-batch4-p2p-transport",
+      "description": "Data Diplomacy Batch 4: sealed-claim peer-to-peer exchange adapter (js/diplomacy/diplomacy-p2p-transport.js). DIPLOMACY_CLAIM_MESSAGE_KIND='diplomacy-claim'; buildClaimMessage()/isValidClaimMessage() are pure wire-format helpers; createDiplomacyP2PTransport({transport, selfId}) wraps any injected broadcast transport (typically a RoomBroadcastCoordinator) with sendClaim(claim)->Promise<boolean> and onReceiveClaim(fn)->unsubscribe(). NULL_DIPLOMACY_TRANSPORT is the no-op fallback when no Rooms session is active. Follows the exact dependency-injection discipline proven by federated-transport.js, room-signaling.js, and room-broadcast.js: unknown message kinds are silently ignored, handler errors never abort other handlers, destroy() tears down the subscription. Wired into renderDiplomacyTab in main.js when both dataDiplomacy and dataDiplomacyP2P flags are on: the loader form gains a 'Share claim with peer' button that calls sendClaim() with the locally sealed claim; onReceiveClaim() fills the other party's form from the incoming claim. Ships DARK: with the flag off the transport is never constructed and the Diplomacy tab is byte-for-byte unchanged. 30/30 tests in test/diplomacy-p2p-transport.test.mjs."
     }
   }
 }
