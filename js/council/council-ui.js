@@ -11,7 +11,7 @@
 // across a reload.
 // ============================================================
 
-import { runCouncil, COUNCIL_PROVIDERS, resolveGoogleEndpoint } from './council-engine.js';
+import { runCouncil, COUNCIL_PROVIDERS, resolveGoogleEndpoint, detectQuestionMode, detectDomain, parseAnswerSections, extractConfidenceLevel } from './council-engine.js';
 
 // ---------------------------------------------------------------
 // Minimal HTML-escape sanitizer (esc()) -- every innerHTML write below
@@ -117,7 +117,8 @@ export function mountCouncilUI(opts) {
   const cardsWrap = h('div', { 'data-testid': 'council-cards-wrap' });
   const actionsWrap = h('div', { 'data-testid': 'council-actions-wrap' });
 
-  host.append(questionWrap, providerWrap, schemaWrap, progressWrap, synthesisWrap, cardsWrap, actionsWrap);
+  const modeBadgeWrap = h('div', { 'data-testid': 'council-mode-badge-wrap', style: { marginBottom: '8px' } });
+  host.append(questionWrap, providerWrap, schemaWrap, modeBadgeWrap, progressWrap, synthesisWrap, cardsWrap, actionsWrap);
 
   // ---------------------------------------------------------------
   // Question box
@@ -443,6 +444,15 @@ export function mountCouncilUI(opts) {
       },
     });
     badge.textContent = 'Agreement: ' + synthesis.overallAgreement;
+
+    if (synthesis.narrative) {
+      const narrativeBox = h('div', {
+        'data-testid': 'council-synthesis-narrative',
+        style: { fontSize: '13px', color: 'var(--color-text)', marginBottom: '10px', fontStyle: 'italic' },
+      });
+      narrativeBox.textContent = synthesis.narrative;
+      panel.appendChild(narrativeBox);
+    }
     headerRow.append(title, badge);
     panel.appendChild(headerRow);
 
@@ -492,9 +502,46 @@ export function mountCouncilUI(opts) {
       errBox.textContent = response.error;
       card.appendChild(errBox);
     } else if (response && response.answer) {
-      const answerBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', whiteSpace: 'pre-wrap' } });
-      answerBox.textContent = response.answer;
-      card.appendChild(answerBox);
+      const parsed = parseAnswerSections(response.answer);
+      const hasSections = parsed.finding || parsed.evidence;
+      if (hasSections) {
+        if (parsed.finding) {
+          const findingLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
+          findingLabel.textContent = 'Finding';
+          const findingBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', marginBottom: '6px' } });
+          findingBox.textContent = parsed.finding;
+          card.appendChild(findingLabel);
+          card.appendChild(findingBox);
+        }
+        if (parsed.evidence) {
+          const isSQL = parsed.evidence.indexOf('` + '```' + `') !== -1;
+          const evidenceLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
+          evidenceLabel.textContent = isSQL ? 'SQL' : 'Evidence';
+          const evidenceBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', whiteSpace: 'pre-wrap', fontFamily: isSQL ? 'monospace' : 'inherit', marginBottom: '6px' } });
+          evidenceBox.textContent = parsed.evidence;
+          card.appendChild(evidenceLabel);
+          card.appendChild(evidenceBox);
+        }
+        if (parsed.confidence) {
+          const confLevel = extractConfidenceLevel(parsed.confidence);
+          const confColor = confLevel === 'HIGH' ? '#1F8A57' : confLevel === 'LOW' ? '#A12C7B' : '#B8860B';
+          const confChip = h('span', { style: { display: 'inline-block', fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', background: confColor, color: '#fff', marginBottom: '4px' } });
+          confChip.textContent = confLevel + ' confidence';
+          card.appendChild(confChip);
+        }
+        if (parsed.caveats) {
+          const cavLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
+          cavLabel.textContent = 'Caveats';
+          const cavBox = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)', whiteSpace: 'pre-wrap' } });
+          cavBox.textContent = parsed.caveats;
+          card.appendChild(cavLabel);
+          card.appendChild(cavBox);
+        }
+      } else {
+        const answerBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', whiteSpace: 'pre-wrap' } });
+        answerBox.textContent = response.answer;
+        card.appendChild(answerBox);
+      }
     } else if (isRunning) {
       const waitBox = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)' } });
       waitBox.textContent = 'Waiting for response...';
@@ -569,6 +616,8 @@ export function mountCouncilUI(opts) {
     exportBtn.addEventListener('click', function () {
       const payload = {
         question: question,
+        detectedMode: lastResult.detectedMode || null,
+        detectedDomain: lastResult.detectedDomain || null,
         responses: lastResult.responses,
         synthesis: lastResult.synthesis,
         timestamp: new Date().toISOString(),
@@ -607,6 +656,23 @@ export function mountCouncilUI(opts) {
       if (onToast) onToast('Add an API key for every enabled council member.', 'warn');
       return;
     }
+
+    // Show mode + domain badge before starting
+    modeBadgeWrap.innerHTML = '';
+    const detectedModeNow = detectQuestionMode(question);
+    let schemaCtxForBadge = '';
+    if (getSchemaContext) { try { schemaCtxForBadge = getSchemaContext() || ''; } catch (e) { schemaCtxForBadge = ''; } }
+    const detectedDomainNow = detectDomain(schemaCtxForBadge, question);
+    const badgeRow = h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' } });
+    const modeChip = h('span', { 'data-testid': 'council-mode-chip', style: { display: 'inline-block', fontSize: '11px', fontWeight: 'bold', padding: '2px 10px', borderRadius: '10px', background: 'var(--color-surface-alt, #f0f0f0)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' } });
+    modeChip.textContent = 'Mode: ' + detectedModeNow.label;
+    badgeRow.appendChild(modeChip);
+    if (detectedDomainNow) {
+      const domainChip = h('span', { 'data-testid': 'council-domain-chip', style: { display: 'inline-block', fontSize: '11px', fontWeight: 'bold', padding: '2px 10px', borderRadius: '10px', background: 'var(--color-surface-alt, #f0f0f0)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' } });
+      domainChip.textContent = 'Domain: ' + detectedDomainNow.charAt(0).toUpperCase() + detectedDomainNow.slice(1);
+      badgeRow.appendChild(domainChip);
+    }
+    modeBadgeWrap.appendChild(badgeRow);
 
     isRunning = true;
     progressByProviderId = {};
