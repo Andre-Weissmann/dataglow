@@ -514,7 +514,7 @@ export function mountCouncilUI(opts) {
           card.appendChild(findingBox);
         }
         if (parsed.evidence) {
-          const isSQL = parsed.evidence.indexOf('` + '```' + `') !== -1;
+          const isSQL = parsed.evidence.indexOf('```') !== -1;
           const evidenceLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
           evidenceLabel.textContent = isSQL ? 'SQL' : 'Evidence';
           const evidenceBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', whiteSpace: 'pre-wrap', fontFamily: isSQL ? 'monospace' : 'inherit', marginBottom: '6px' } });
