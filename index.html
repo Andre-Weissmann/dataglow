@@ -1212,6 +1212,17 @@
           <div class="panel-title">Join Builder</div>
           <div class="panel-subtitle">Drag tables onto the canvas, draw lines between columns to define joins, and generate production-ready SQL — no typing required.</div>
       
+    <!-- DVC (Phase 10). Dark behind the dataVersionControl flag. -->
+    <section class="panel" id="panel-dvc" data-panel="dvc">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Versions</div>
+          <div class="panel-subtitle">Snapshot your dataset before any transform, diff two snapshots side by side, and get advisory rollback info. Schema + stats only — no row data ever stored.</div>
+        </div>
+      </div>
+      <div id="dvc-body" data-testid="dvc-body"></div>
+    </section>
+
     <!-- NL→SQL (Phase 9). Dark behind the nlSql flag. Renders a question input
          and LLM provider picker; ships the mounted UI via mountNLSQLUI(). -->
     <section class="panel" id="panel-nlsql" data-panel="nlsql">

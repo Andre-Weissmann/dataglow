@@ -381,6 +381,11 @@
             "enabled": true,
             "addedInPR": "feature/phase9-nl-sql",
             "description": "Phase 9 -- NL\u2192SQL via Schema-Only + Metric Contracts. Adds an \"Ask AI\" tab where the user types a question in plain English and receives a DuckDB SQL SELECT statement. PRIVACY: only column names and types are sent to the LLM (never row data or patient records). Named metrics (readmission rate, denial rate, LOS, etc.) are resolved via Metric Contracts -- pinned SQL expressions that bypass LLM freestyle and produce reproducible, auditable SQL. Provider and API key configured per-session in the UI. Supports OpenAI, Anthropic, Google Gemini, and Perplexity. Ships enabled; the tab only shows when a provider and API key are configured."
+        },
+        "dataVersionControl": {
+            "enabled": true,
+            "addedInPR": "feature/phase10-dvc",
+            "description": "Phase 10 -- Data Version Control. Adds a Versions tab where users can snapshot datasets (schema + stats only, no row data), diff any two snapshots side-by-side (schema changes + statistical drift detection with BREAKING/WARN/OK risk levels), and get advisory rollback info. Export/import snapshots as portable JSON. Snapshot fingerprinting prevents duplicate captures."
         }
     }
 }
