@@ -376,6 +376,11 @@
             "enabled": true,
             "addedInPR": "feature/phase8-join-builder",
             "description": "Phase 8 -- Multi-Table Visual Join Builder. Adds a \"Join Builder\" tab with an SVG drag-and-drop canvas. Users select tables from their loaded datasets, add them to the canvas as schema cards, draw join lines between columns (click-to-connect), change join type (INNER/LEFT/RIGHT/FULL) by clicking an edge, and generate production-ready DuckDB SQL automatically. The Run query button pushes the generated SQL into the SQL tab and executes it. Ships enabled (not dark) because the feature is additive and has no risk to existing tabs."
+        },
+        "nlSql": {
+            "enabled": true,
+            "addedInPR": "feature/phase9-nl-sql",
+            "description": "Phase 9 -- NL\u2192SQL via Schema-Only + Metric Contracts. Adds an \"Ask AI\" tab where the user types a question in plain English and receives a DuckDB SQL SELECT statement. PRIVACY: only column names and types are sent to the LLM (never row data or patient records). Named metrics (readmission rate, denial rate, LOS, etc.) are resolved via Metric Contracts -- pinned SQL expressions that bypass LLM freestyle and produce reproducible, auditable SQL. Provider and API key configured per-session in the UI. Supports OpenAI, Anthropic, Google Gemini, and Perplexity. Ships enabled; the tab only shows when a provider and API key are configured."
         }
     }
 }

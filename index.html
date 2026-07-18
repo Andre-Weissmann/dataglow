@@ -1211,7 +1211,19 @@
         <div>
           <div class="panel-title">Join Builder</div>
           <div class="panel-subtitle">Drag tables onto the canvas, draw lines between columns to define joins, and generate production-ready SQL — no typing required.</div>
+      
+    <!-- NL→SQL (Phase 9). Dark behind the nlSql flag. Renders a question input
+         and LLM provider picker; ships the mounted UI via mountNLSQLUI(). -->
+    <section class="panel" id="panel-nlsql" data-panel="nlsql">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Ask AI</div>
+          <div class="panel-subtitle">Type a question in plain English and get a DuckDB SQL query — schema only, no patient data sent to the LLM. Named metrics use pinned Metric Contract expressions for reproducible results.</div>
         </div>
+      </div>
+      <div id="nl-sql-body" data-testid="nl-sql-body"></div>
+    </section>
+  </div>
       </div>
       <div id="join-builder-body" data-testid="join-builder-body"></div>
     </section>
