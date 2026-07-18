@@ -142,6 +142,8 @@ import { LocalFingerprintModel, MIN_COHORT, DEFAULT_EPSILON } from '../federated
 import { FederatedCoordinator, createGithubSignaling, createWebRTCMesh } from '../federated/federated-transport.js';
 import { buildTabGroups, groupForTab } from './tab-groups.js';
 import { createValidateFocusStore } from './validate-focus.js';
+import { createJoinGraph } from '../join-builder/join-model.js';
+import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
 
 // ============================================================
 // Tab Definitions
@@ -168,6 +170,7 @@ const TAB_META = {
   convergence: { label: 'Convergence', icon: 'git-merge' },
   crucible: { label: 'Crucible', icon: 'shield' },
   copilot: { label: 'Copilot', icon: 'message-circle' },
+  joinbuilder: { label: 'Join Builder', icon: 'join' },
 };
 
 const ICONS = {
@@ -188,6 +191,7 @@ const ICONS = {
   handshake: '<path d="M11 12l2 2 3-3 4 4"/><path d="M13 14l-2 2-2-2-3 3-2-2"/><path d="M3 10l4-4 4 3"/><path d="M21 10l-4-4-3 2"/>',
   'git-merge': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 009 9"/>',
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  join: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><line x1="9" y1="12" x2="15" y2="12"/><circle cx="12" cy="6" r="2"/><line x1="12" y1="8" x2="12" y2="12"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
 };
 
@@ -266,6 +270,7 @@ function renderTabBar() {
     && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
     && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
     && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
+    && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
     && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
     && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
 
@@ -350,6 +355,7 @@ function switchTab(tabId) {
   if (tabId === 'crucible') renderCrucibleTab();
   if (tabId === 'copilot') renderGuardedCopilotTab();
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
+  if (tabId === 'joinbuilder') renderJoinBuilderTab();
   if (tabId === 'drillfloor') renderDrillFloorTab();
   if (tabId === 'cleaningcrew') renderCleaningCrewTab();
   renderCommandDeckSidebar();
@@ -7466,6 +7472,100 @@ async function renderGlowCanvasTab() {
     } catch (_e) { /* no saved layout / store unavailable — start from the empty layout */ }
   }
   drawGlowCanvas();
+}
+
+// ============================================================
+// Join Builder Tab (Phase 8 -- ships dark behind the joinBuilder flag)
+// ============================================================
+// Visual multi-table join builder. Gated by ONE flag (joinBuilder, off by
+// default). The join-model and join-sql modules are pure and have no DOM
+// dependency; join-canvas.js is the browser-side renderer. All graph state
+// lives HERE (in joinGraph) so the graph survives tab switches and re-renders.
+// The canvas is destroyed and rebuilt on every tab activation so it always
+// reflects the latest graph.
+
+let joinGraph = createJoinGraph();
+let joinBuilderLoaded = false;
+
+function renderJoinBuilderTab() {
+  const host = document.getElementById('join-builder-body');
+  if (!host) return;
+  if (!isEnabled('joinBuilder')) { host.innerHTML = ''; joinBuilderLoaded = false; return; }
+
+  // Build a map of loaded tables -> ColDef[] from the global dataset state.
+  // DataGlow stores loaded schemas in the global `state.datasets` array.
+  const datasets = (window.__dataglow_datasets || state.datasets || []);
+  const availableTables = datasets.map(d => d.name || d.tableName).filter(Boolean);
+  const tableColsMap = {};
+  for (const d of datasets) {
+    const name = d.name || d.tableName;
+    if (name) tableColsMap[name] = (d.columns || d.cols || []).map(c =>
+      typeof c === 'string' ? { name: c, type: '' } : { name: c.name || c.col || '', type: c.type || '' }
+    );
+  }
+
+  // Stable onGraphChange callback — updates joinGraph and re-renders.
+  function onGraphChange(newGraph) {
+    joinGraph = newGraph;
+    renderJoinBuilderTab();
+  }
+
+  // When the user clicks Run, push the SQL into the SQL tab and switch to it.
+  function onRunSQL(sql) {
+    const sqlEditor = document.getElementById('sql-editor');
+    if (sqlEditor) sqlEditor.value = sql;
+    switchTab('sql');
+    // Trigger a run if the run-sql button is present.
+    const runBtn = document.getElementById('btn-run-sql') || document.querySelector('[data-testid="btn-run-sql"]');
+    if (runBtn) runBtn.click();
+  }
+
+  host.innerHTML = '';
+
+  // Toolbar (add-table selector, run/clear buttons)
+  const toolbar = buildJoinToolbar({
+    graph: joinGraph,
+    availableTables,
+    tableColsMap,
+    onGraphChange,
+    onRunSQL,
+  });
+  host.appendChild(toolbar);
+
+  // Instruction hint when canvas is empty
+  if (joinGraph.cards.length === 0) {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'padding:32px; color:var(--color-text-muted); font-size:14px; text-align:center;';
+    hint.innerHTML = 'Select a table from the dropdown above to add it to the canvas.<br><br>' +
+      'Click a column connector dot, then click a column on another table to draw a join line.<br>' +
+      'Click any join line to change the join type (INNER / LEFT / RIGHT / FULL).';
+    host.appendChild(hint);
+    joinBuilderLoaded = true;
+    return;
+  }
+
+  // Canvas container
+  const canvasHost = document.createElement('div');
+  canvasHost.style.cssText = 'height:560px; overflow:auto; border:1px solid var(--color-border); border-radius:8px; background:var(--color-surface-alt);';
+  host.appendChild(canvasHost);
+
+  // SQL preview panel
+  const sqlPre = document.createElement('pre');
+  sqlPre.setAttribute('data-testid', 'join-builder-sql-preview');
+  sqlPre.style.cssText = 'margin-top:12px; padding:12px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:6px; font-size:12px; overflow-x:auto; white-space:pre-wrap; color:var(--color-text);';
+  host.appendChild(sqlPre);
+
+  renderJoinCanvas({
+    host: canvasHost,
+    graph: joinGraph,
+    onGraphChange,
+    onSQLChange: ({ sql, warnings }) => {
+      sqlPre.textContent = sql || (warnings.length ? warnings.join('\n') : '');
+    },
+    onRunSQL,
+  });
+
+  joinBuilderLoaded = true;
 }
 
 // ============================================================
