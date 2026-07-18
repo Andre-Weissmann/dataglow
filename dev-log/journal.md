@@ -7,6 +7,57 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 05:50 CT] Fixed two real bugs in the still-dark Rigor Engine badges, found during the live-preview check before flipping the flag (PR #303, merged, dark, bug-fix-only)
+
+**Trigger:** During the live-preview re-test ahead of the One Confirm gate for `rigorEngineBadges` (PR #301,
+shipped dark 2026-07-17), two real bugs surfaced. User's explicit instruction: "Fix both bugs first, then
+come back for the live-preview + confirm," with a specific fix design already sketched (rewrite
+`classifyGroupedConfidence` to receive real per-group n rather than inferring it from an already-aggregated
+result; fix column-type detection to scan all rows, not just row 0), confirmed with "Yes. Do this please."
+
+**What was found (both slipped through PR #301's original 56 unit + 8 e2e assertions, because none of those
+tests seeded a real multi-row-per-group GROUP BY+AVG shape or a null in the first grouping row):**
+1. **n-miscounting on pre-aggregated GROUP BY results.** `classifyGroupedConfidence()` counted SQL *result
+   rows* per group as n. A query like `SELECT gender, AVG(los), COUNT(*) AS n FROM t GROUP BY gender` already
+   collapses each group to exactly one row, so every group's n was reported as 1 regardless of the real
+   sample size — confirmed live: real counts 50/48 badged as n=1/n=1, "insufficient" for both.
+2. **null-in-row-0 type detection bug.** `detectGroupedConfidenceColumns()` sampled only `result.rows[0]` to
+   classify column types via `typeof`. The golden test dataset's first `GROUP BY gender` row has
+   `gender: null`, so `typeof null === 'object'` caused the categorical column to be missed entirely,
+   silently dropping the badge for an otherwise valid grouped result.
+
+**What was built:** `classifyGroupedConfidence` gained an optional `countCol` parameter — when present and
+numeric on a row, its value is used as the real per-group n instead of counting result rows; row-counting
+remains the correct, unchanged fallback for row-level (non-aggregated) data, where each row genuinely is one
+observation. `detectGroupedConfidenceColumns` now scans **all** rows (not just row 0) to decide each column's
+type, and auto-detects a likely count column by name pattern (`n`, `count`, `count_star()`, DuckDB's own
+default un-aliased naming, etc.) to pass through. Both the SQL-tab and Visualize-tab badge call sites updated
+to pass `countCol` through; the Visualize-tab's own query path was confirmed to need no change since it
+always queries raw row-level data, never a pre-aggregated result.
+
+**Verification (independent, per standing rule):** 10 new unit assertions in `test/statistical-rigor.test.mjs`
+(66/66 total) pin the `countCol` behavior, its row-counting fallback, and a no-regression case for row-level
+data. 3 new e2e assertions in `test/e2e-rigor-engine-badges.test.mjs` (11/11 total) reproduce the exact
+failing queries from the live-preview check against the real running app — confirming both bugs are actually
+fixed, not just unit-tested in isolation. I read the full PR diff myself end to end (4 files, additive-only,
+no `enabled:true` path touched) and re-ran both suites myself before the merge confirm. CI showed the same 4
+pre-existing unrelated failures already tracked from PR #298 (20-layer Validate suite / Zero-upload
+egress-deny stale layer-count assertion, ci-batch-01 Capability-map drift detector, ci-batch-02 Context
+Engine, ci-batch-02 Golden regression suite) — `tauri-smoke` (6m50s) and `e2e-smoke` both green.
+
+**Outcome:** Shipped. PR #303 merged `7f32cb3`. Flag `rigorEngineBadges` still `false` — the live-preview
+re-test with the fix applied, and the One Confirm gate to flip it live, are the next step.
+
+**Lesson for next time:** A grouped-confidence heuristic that only ever sees SQL *result* rows cannot tell a
+row-level query apart from a pre-aggregated one just by shape — both return "rows". Any function inferring
+sample size from already-fetched query results needs either an explicit count signal from the caller or a
+named convention (like the count-column-name heuristic added here) to avoid confidently misreporting n for
+the single most common real-world grouped-query shape (`GROUP BY ... AVG(...) ... COUNT(*)`). Also: sampling
+only `rows[0]` for type detection is never safe when nulls are a normal, expected value in real data (e.g. an
+unknown-category bucket) — scan the full result set for type inference, not just the first row.
+
+---
+
 ## [2026-07-17 22:00 CT] Shipped The Rigor Engine — Batch 2: SQL/Visualize confidence badges + the SQL→Visualize gap fix (PR #301, merged, dark)
 
 **Trigger:** Continuation of the approved 3-part plan ("1. Real fix... 2. CI Architect... 3. Then Rigor
