@@ -23,6 +23,7 @@ import { shouldOfferMetricDefiner, mountMetricDefiner } from '../validation/sema
 import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON } from '../provenance/verifiable-check-seal.js';
 import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } from '../provenance/zk-threshold-proof.js';
 import { buildBeamUrl } from '../provenance/trust-beam.js';
+import { classifyGroupedConfidence, summarizeGroupedConfidence, cohensD } from '../rigor/statistical-rigor.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
@@ -1437,6 +1438,14 @@ async function runSqlQuery() {
     // agent-consumability verdict. It never re-runs validation, never blocks the
     // query, and shows an honest "not evaluated" state until validation has run.
     renderReadinessGateBadge(resultWrap);
+    // Rigor Engine (Batch 2): honest per-group confidence badge for a
+    // GROUP-BY-shaped result. No-op (renders nothing) when the flag is off,
+    // or when the result doesn't look grouped (no categorical+numeric pair).
+    renderRigorConfidenceBadge(resultWrap, result);
+    // Rigor Engine (Batch 2): fixes the SQL→Visualize gap — without this,
+    // the Visualize tab could only ever chart whichever dataset was already
+    // active, never a SQL query's own result set. No-op when the flag is off.
+    renderSendToVisualizeAffordance(resultWrap, sql, result);
     // Query Memory (batch 2): fingerprints this SQL run against the tables/
     // columns it touched and renders a "seen before?" badge. No-op when the
     // queryMemory flag is off. Never blocks or delays the query.
@@ -1543,6 +1552,136 @@ function renderResultTable(container, result) {
   const head = `<thead><tr>${result.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>`;
   const body = `<tbody>${result.rows.slice(0, 500).map(r => `<tr>${result.columns.map(c => `<td>${escapeHtml(formatNumber(r[c]))}</td>`).join('')}</tr>`).join('')}</tbody>`;
   container.innerHTML = `<div class="result-table-wrap" style="margin-top:var(--space-3);"><table class="result-table">${head}${body}</table></div>`;
+}
+
+// Rigor Engine (Batch 2) — SQL-tab confidence badge.
+// Ships dark behind `rigorEngineBadges`. Purely informational, never blocks
+// or delays the query. Heuristically detects a GROUP-BY-shaped result (one
+// text/categorical column plus at least one numeric column) and runs
+// classifyGroupedConfidence() over it, so a query like
+// "SELECT payer, AVG(amount) FROM claims GROUP BY payer" gets an honest
+// per-group confidence read without the analyst asking for it. Rows that
+// don't look GROUP-BY-shaped (no categorical column, or no numeric column)
+// render nothing — this is a bonus insight on top of an aggregate result,
+// not a claim that every query result needs a confidence verdict.
+function detectGroupedConfidenceColumns(result) {
+  if (!result || !Array.isArray(result.columns) || !result.rows || result.rows.length === 0) return null;
+  const sample = result.rows[0];
+  const numericCols = result.columns.filter((c) => typeof sample[c] === 'number' && Number.isFinite(sample[c]));
+  const textCols = result.columns.filter((c) => typeof sample[c] === 'string');
+  if (numericCols.length === 0 || textCols.length === 0) return null;
+  // First text column = group, first numeric column = value. A query with
+  // multiple numeric columns still only badges the first — a reasonable
+  // single-badge default; the analyst can always re-run isolating one metric.
+  return { groupCol: textCols[0], valueCol: numericCols[0] };
+}
+
+function renderRigorConfidenceBadge(resultWrap, result) {
+  if (!resultWrap || !isEnabled('rigorEngineBadges')) return;
+  const cols = detectGroupedConfidenceColumns(result);
+  let host = resultWrap.querySelector('#rigor-confidence-host');
+  if (!host) {
+    host = el('div', { id: 'rigor-confidence-host' });
+    resultWrap.appendChild(host);
+  }
+  if (!cols) { host.innerHTML = ''; return; }
+  const grouped = classifyGroupedConfidence(result.rows, cols.groupCol, cols.valueCol);
+  const summary = summarizeGroupedConfidence(grouped);
+  host.innerHTML = '';
+  host.appendChild(renderRigorBadgeCard(summary, grouped, cols));
+}
+
+const RIGOR_GRADE = {
+  sufficient: { label: 'Confidence: sufficient', color: 'var(--color-grade-a)' },
+  low: { label: 'Confidence: low', color: 'var(--color-grade-c)' },
+  insufficient: { label: 'Confidence: insufficient', color: 'var(--color-grade-d)' },
+};
+
+// Shared card renderer for both the SQL-result badge and the Visualize-chart
+// badge, so the two surfaces present the exact same verdict vocabulary.
+function renderRigorBadgeCard(summary, grouped, cols) {
+  const grade = RIGOR_GRADE[summary.verdict] || RIGOR_GRADE.insufficient;
+  const rows = (grouped || []).slice(0, 8).map((g) => {
+    const gGrade = RIGOR_GRADE[g.verdict] || RIGOR_GRADE.insufficient;
+    return el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); padding:2px 0;' }, [
+      el('span', { style: `width:8px; height:8px; border-radius:50%; background:${gGrade.color}; flex-shrink:0;` }),
+      el('span', { style: 'color:var(--color-text-muted);' }, `${g.group}: n=${g.n}`),
+    ]);
+  });
+  return el('div', { class: 'card', 'data-testid': 'rigor-confidence-badge', style: `padding:var(--space-3); margin-top:var(--space-2); border-color:${grade.color};` }, [
+    el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); font-weight:600; font-size:var(--text-sm);' }, [
+      el('span', { style: `width:10px; height:10px; border-radius:50%; background:${grade.color};` }),
+      el('span', {}, `${grade.label} (grouped by "${cols.groupCol}")`),
+    ]),
+    el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:4px;' }, summary.reason),
+    ...(rows.length ? [el('div', { style: 'margin-top:6px;' }, rows)] : []),
+  ]);
+}
+
+// Rigor Engine (Batch 2) — fixes the SQL→Visualize gap. Before this, the
+// Visualize tab could only ever chart whichever dataset was already loaded
+// and active (populateVisualizeBuilder/initVisualizeTab both read
+// getActiveDataset() unconditionally) — a SQL query's own result set had no
+// path into a chart at all. This renders a small "Send to Visualize" button
+// under a SQL result; clicking it registers the result as a REAL DuckDB
+// table (same engine.createTableFromRows/getTableSchema/addDataset sequence
+// the existing Red Team v2 synthetic-dataset flow already uses), makes it
+// the active dataset, and switches to Visualize with it pre-selected —
+// so it reuses the tab's existing chart-rendering path byte-for-byte rather
+// than duplicating any chart logic here.
+function renderSendToVisualizeAffordance(resultWrap, sql, result) {
+  if (!resultWrap || !isEnabled('rigorEngineBadges')) return;
+  let host = resultWrap.querySelector('#send-to-visualize-host');
+  if (!host) {
+    host = el('div', { id: 'send-to-visualize-host', style: 'margin-top:var(--space-2);' });
+    resultWrap.appendChild(host);
+  }
+  host.innerHTML = '';
+  if (!result || !Array.isArray(result.rows) || result.rows.length === 0 || !Array.isArray(result.columns) || result.columns.length === 0) return;
+  const btn = el('button', {
+    class: 'btn btn-secondary',
+    'data-testid': 'btn-send-to-visualize',
+    type: 'button',
+    style: 'padding:4px 12px; font-size:var(--text-xs);',
+  }, 'Send to Visualize');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      await ensureDuckDB();
+      const tableName = `sql_result_${Date.now().toString(36)}`;
+      await engine.createTableFromRows(tableName, result.columns, result.rows);
+      const schema = await engine.getTableSchema(tableName);
+      const cols = schema.map((s) => ({ name: s.column_name, type: s.column_type }));
+      addDataset({
+        name: `SQL result — ${sql.slice(0, 40)}${sql.length > 40 ? '…' : ''}`,
+        table: tableName,
+        rowCount: result.rowCount,
+        cols,
+        loadedAt: Date.now(),
+        isSynthetic: true,
+      });
+      renderSidebar();
+      switchTab('visualize');
+      populateVisualizeBuilder();
+      // Pre-select a sensible x/y from the result's own columns, using the
+      // exact same detection heuristic the confidence badge uses, so the
+      // chart that first renders matches what the analyst was just looking at.
+      const detected = detectGroupedConfidenceColumns(result);
+      if (detected) {
+        const xSel = $('#viz-x'), ySel = $('#viz-y');
+        if (xSel && [...xSel.options].some((o) => o.value === detected.groupCol)) xSel.value = detected.groupCol;
+        if (ySel && [...ySel.options].some((o) => o.value === detected.valueCol)) ySel.value = detected.valueCol;
+      }
+      toast('Query result sent to Visualize', 'success');
+    } catch (err) {
+      toast('Could not send to Visualize: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send to Visualize';
+    }
+  });
+  host.appendChild(btn);
 }
 
 // AI Readiness Gate (batch 2) — SQL-tab badge presenter.
@@ -6963,6 +7102,33 @@ function populateVisualizeBuilder() {
   ySel.innerHTML = ds.cols.filter(c => ['DOUBLE','BIGINT','INTEGER','HUGEINT','FLOAT'].includes(c.type)).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
 }
 
+// Rigor Engine (Batch 2) — Visualize-tab confidence badge. Reuses the exact
+// same classifyGroupedConfidence/summarizeGroupedConfidence/renderRigorBadgeCard
+// helpers the SQL tab badge uses, so both surfaces present one consistent
+// vocabulary. x must be a text/categorical column in the dataset's own schema
+// (checked from ds.cols, not the query result, since a Visualize x-axis is
+// always a real column) and y must be numeric — otherwise this renders
+// nothing, since a scatter of two numeric columns or a single-series chart
+// has no natural grouping for a per-group verdict.
+async function renderVisualizeRigorBadge(ds, type, x, y) {
+  const host = $('#viz-rigor-badge-host');
+  if (!host) return;
+  host.innerHTML = '';
+  if (!isEnabled('rigorEngineBadges') || !ds || !x || !y) return;
+  const xCol = ds.cols.find((c) => c.name === x);
+  const yCol = ds.cols.find((c) => c.name === y);
+  const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+  if (!xCol || !yCol || NUMERIC_TYPES.includes(xCol.type) || !NUMERIC_TYPES.includes(yCol.type)) return;
+  if (['scatter'].includes(type)) return; // scatter plots two numeric axes; no grouping concept applies
+  try {
+    const { rows } = await engine.runQuery(`SELECT "${x}" AS "${x}", "${y}" AS "${y}" FROM ${ds.table} WHERE "${y}" IS NOT NULL`);
+    const grouped = classifyGroupedConfidence(rows, x, y);
+    if (grouped.length === 0) return;
+    const summary = summarizeGroupedConfidence(grouped);
+    host.appendChild(renderRigorBadgeCard(summary, grouped, { groupCol: x }));
+  } catch (_e) { /* badge is best-effort; never break the chart */ }
+}
+
 function initVisualizeTab() {
   $('#viz-chart-type').addEventListener('change', () => {
     const type = $('#viz-chart-type').value;
@@ -6976,6 +7142,13 @@ function initVisualizeTab() {
     const y = $('#viz-y').value;
     try {
       await viz.renderChart('viz-chart', ds.table, type, x, y);
+      // Rigor Engine (Batch 2): the same honest per-group confidence read the
+      // SQL tab gets, now on the Visualize tab too — the two most common
+      // places an analyst reads an aggregate deserve the same caveat. No-op
+      // when the flag is off, or for a chart type/axis pair that isn't a
+      // categorical-x + numeric-y aggregate (e.g. a scatter of two numeric
+      // columns has no natural "group" and correctly renders no badge).
+      await renderVisualizeRigorBadge(ds, type, x, y);
     } catch (err) {
       toast('Chart error: ' + err.message, 'error');
     }

@@ -245,3 +245,69 @@ export function classifyConfidence(values, confidenceLevel = 0.95) {
     reason: `n=${n} meets the conventional n>=30 threshold for a defensible confidence interval.`,
   };
 }
+
+/**
+ * Batch 2 of "The Rigor Engine": groups already-fetched rows by a category
+ * column and runs classifyConfidence() over each group's numeric column, so
+ * a caller (the SQL result table, or a Visualize aggregate chart) can badge
+ * EVERY group with its own honest confidence verdict in one pass, rather
+ * than a single verdict for the whole result set. Pure, engine-agnostic —
+ * the caller runs the actual SQL/DuckDB query and passes plain rows in;
+ * this module never touches DuckDB, the DOM, or the network.
+ *
+ * Rows with a null/undefined group value are grouped under the literal
+ * string '(null)' rather than silently dropped, so a caller can see there
+ * WAS a null-group slice rather than an undercount with no explanation.
+ * Rows whose value is missing/non-numeric are simply filtered out by the
+ * same numeric-only rule classifyConfidence already applies per group — a
+ * group with zero valid numeric values still gets an 'insufficient' verdict
+ * (n=0) rather than being silently omitted from the result.
+ *
+ * @param {Array<Record<string, *>>} rows
+ * @param {string} groupCol
+ * @param {string} valueCol
+ * @param {number} [confidenceLevel=0.95]
+ * @returns {Array<{group:string, verdict:'sufficient'|'low'|'insufficient', n:number, ci:object|null, reason:string}>}
+ *   One entry per distinct group value, in first-seen order.
+ */
+export function classifyGroupedConfidence(rows, groupCol, valueCol, confidenceLevel = 0.95) {
+  if (!Array.isArray(rows)) return [];
+  const order = [];
+  const buckets = new Map();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const rawGroup = row[groupCol];
+    const group = rawGroup === null || rawGroup === undefined ? '(null)' : String(rawGroup);
+    if (!buckets.has(group)) { buckets.set(group, []); order.push(group); }
+    const v = row[valueCol];
+    if (typeof v === 'number' && Number.isFinite(v)) buckets.get(group).push(v);
+  }
+  return order.map((group) => ({ group, ...classifyConfidence(buckets.get(group) || [], confidenceLevel) }));
+}
+
+/**
+ * Folds a full grouped-confidence pass (classifyGroupedConfidence output)
+ * into ONE overall verdict for a badge that has room for a single summary,
+ * not a per-group breakdown (e.g. a compact SQL-result-table header badge).
+ * Deliberately conservative, same rule as classifyConfidence itself: the
+ * WORST verdict among groups wins, never an average or a majority vote —
+ * one thin/insufficient slice is enough to caveat the whole result. Returns
+ * a safe 'insufficient'/n=0 shape for an empty input rather than throwing.
+ * @param {Array<{verdict:string, n:number}>} groupVerdicts
+ * @returns {{verdict:'sufficient'|'low'|'insufficient', worstN:number, groupCount:number, reason:string}}
+ */
+export function summarizeGroupedConfidence(groupVerdicts) {
+  const RANK = { insufficient: 0, low: 1, sufficient: 2 };
+  if (!Array.isArray(groupVerdicts) || groupVerdicts.length === 0) {
+    return { verdict: 'insufficient', worstN: 0, groupCount: 0, reason: 'No groups to evaluate.' };
+  }
+  let worst = groupVerdicts[0];
+  for (const g of groupVerdicts) {
+    if (RANK[g.verdict] < RANK[worst.verdict]) worst = g;
+  }
+  const groupCount = groupVerdicts.length;
+  const reason = groupCount === 1
+    ? worst.reason
+    : `Weakest of ${groupCount} groups: ${worst.reason}`;
+  return { verdict: worst.verdict, worstN: worst.n, groupCount, reason };
+}
