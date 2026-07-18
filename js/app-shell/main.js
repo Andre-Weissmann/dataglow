@@ -97,6 +97,7 @@ import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
 import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
 import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { buildDiplomacyFormModel, renderDiplomacyLoader } from '../diplomacy/diplomacy-loader.js';
+import { createDiplomacyP2PTransport, NULL_DIPLOMACY_TRANSPORT } from '../diplomacy/diplomacy-p2p-transport.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
@@ -3570,6 +3571,10 @@ let diplomacyFormState = {
 };
 let diplomacyReconcileState = null; // { claimA, claimB, reconciliationResult, approvalRequest, partyAId, partyBId } | null
 let diplomacyStatusText = null;
+// Batch 4: P2P claim-exchange adapter (reuses the live Rooms transport when available).
+let diplomacyP2PTransport = NULL_DIPLOMACY_TRANSPORT;
+let diplomacyP2PShareStatusA = null; // 'sending' | 'sent' | 'failed' | null
+let diplomacyP2PShareStatusB = null;
 
 async function renderDiplomacyTab() {
   const host = $('#diplomacy-body');
@@ -3660,6 +3665,84 @@ async function renderDiplomacyTab() {
     },
     statusText: diplomacyStatusText,
   });
+
+  // Batch 4: P2P claim sharing — if the Rooms broadcast transport is live and the
+  // dataDiplomacyP2P flag is on, wire up a 'Share claim with peer' section.
+  // The transport is created lazily once and reused across re-renders.
+  if (isEnabled('dataDiplomacyP2P')) {
+    // (Re-)wire the receive handler each render so it always reads the current formState.
+    // The transport itself is a singleton for this tab session.
+    if (!diplomacyP2PTransport.supported && typeof window !== 'undefined' && window.__dataglow_rooms_broadcast) {
+      diplomacyP2PTransport = createDiplomacyP2PTransport({
+        transport: window.__dataglow_rooms_broadcast,
+        selfId: window.__dataglow_rooms_self_id || null,
+      });
+      diplomacyP2PTransport.onReceiveClaim(function(msg) {
+        // Incoming sealed claim from a peer fills the OPPOSITE party's form state.
+        // Convention: the local user is party A; the peer is party B.
+        var claim = msg.claim;
+        if (claim && typeof claim === 'object') {
+          diplomacyFormState.b.source = claim.source || '';
+          diplomacyFormState.b.sealedBy = claim.sealedBy || 'peer';
+          diplomacyFormState.b.entityIdValue = claim.entityId || '';
+          diplomacyFormState.b.valueCol = claim.field || '';
+          if (typeof claim.confidence === 'number') diplomacyFormState.b.confidence = claim.confidence;
+          toast('Received peer claim for ' + (claim.field || 'a field') + ' from ' + (msg.from || 'peer'), 'success');
+          diplomacyReconcileState = null;
+          diplomacyStatusText = null;
+          renderDiplomacyTab();
+        }
+      });
+    }
+
+    // Render the P2P share section
+    var p2pSection = el('div', {
+      'data-testid': 'diplomacy-p2p-section',
+      style: 'margin-top:var(--space-3); padding:var(--space-3); border:1px solid var(--color-border); border-radius:var(--radius-md);',
+    });
+    var p2pHeading = el('div', { style: 'font-weight:600; margin-bottom:var(--space-1);' });
+    p2pHeading.textContent = 'Share claim with peer (Rooms)';
+    p2pSection.appendChild(p2pHeading);
+
+    if (!diplomacyP2PTransport.supported) {
+      var p2pNotice = el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted);' });
+      p2pNotice.textContent = 'Join a Room first to enable cross-device claim exchange.';
+      p2pSection.appendChild(p2pNotice);
+    } else {
+      var shareRow = el('div', { style: 'display:flex; gap:var(--space-2); flex-wrap:wrap;' });
+      var shareABtn = el('button', { type: 'button', class: 'btn btn-secondary', 'data-testid': 'diplomacy-share-a' });
+      shareABtn.textContent = diplomacyP2PShareStatusA === 'sending' ? 'Sending...' :
+        (diplomacyP2PShareStatusA === 'sent' ? 'Sent!' : 'Share my claim (Party A)');
+      shareABtn.disabled = !modelA.isComplete || diplomacyP2PShareStatusA === 'sending';
+      shareABtn.addEventListener('click', async function() {
+        diplomacyP2PShareStatusA = 'sending';
+        renderDiplomacyTab();
+        var fa = diplomacyFormState.a;
+        var claimPayload = { entityId: fa.entityIdValue, field: fa.valueCol, value: null, confidence: fa.confidence, source: fa.source, sealedBy: fa.sealedBy };
+        var ok = await diplomacyP2PTransport.sendClaim(claimPayload);
+        diplomacyP2PShareStatusA = ok ? 'sent' : 'failed';
+        renderDiplomacyTab();
+      });
+      shareRow.appendChild(shareABtn);
+
+      var shareBBtn = el('button', { type: 'button', class: 'btn btn-secondary', 'data-testid': 'diplomacy-share-b' });
+      shareBBtn.textContent = diplomacyP2PShareStatusB === 'sending' ? 'Sending...' :
+        (diplomacyP2PShareStatusB === 'sent' ? 'Sent!' : 'Share my claim (Party B)');
+      shareBBtn.disabled = !modelB.isComplete || diplomacyP2PShareStatusB === 'sending';
+      shareBBtn.addEventListener('click', async function() {
+        diplomacyP2PShareStatusB = 'sending';
+        renderDiplomacyTab();
+        var fb = diplomacyFormState.b;
+        var claimPayload = { entityId: fb.entityIdValue, field: fb.valueCol, value: null, confidence: fb.confidence, source: fb.source, sealedBy: fb.sealedBy };
+        var ok2 = await diplomacyP2PTransport.sendClaim(claimPayload);
+        diplomacyP2PShareStatusB = ok2 ? 'sent' : 'failed';
+        renderDiplomacyTab();
+      });
+      shareRow.appendChild(shareBBtn);
+      p2pSection.appendChild(shareRow);
+    }
+    host.appendChild(p2pSection);
+  }
 
   // If reconciliation has been run, show the two-key verdict panel below the loader.
   if (diplomacyReconcileState) {
