@@ -270,15 +270,26 @@ the privacy/offline guarantees.
    turning `objectSpaceRegistry` back off restores zero behavior change. Batch C (query-time
    resolution) remains the next batch that makes the registry load-bearing.)
 3. **Batch C — cross-language query-time resolution (`FROM py.name` / `dataglow.get_df('sql_result')`
-   actually reading the SAME registered object).** NOT STARTED. This is what makes the
-   registry load-bearing instead of just a display strip — the real "three views into one
-   object space" mechanic. Natural next batch.
+   actually reading the SAME registered object).** (DONE — shipped as `querySentinelBridge`,
+   [PR #258](https://github.com/Andre-Weissmann/dataglow/pull/258), live `enabled:true`. The
+   FROM py./r. resolver in `js/validation/query-sentinel-bridge.js` is exactly this batch:
+   exact-match rewrite against the live Object Space, honestly scoped to already-loaded
+   datasets, 31/31 tests. NORTH_STAR was not updated at ship time; corrected now.)
 4. **Batch D — schema-aware autocomplete in all three editors, sourced from the live
-   Object Space registry.** NOT STARTED. Depends on Batch C landing so the registry
-   actually reflects resolvable objects, not just passive registrations.
-5. **Batch E — cross-language error messages with a concrete "Suggested fix" (extends
-   `formatSqlError`'s pattern to Python tracebacks / R conditions, cross-referencing the
-   registry).** NOT STARTED.
+   Object Space registry.** (DONE — `js/polyglot/polyglot-autocomplete.js`: `getSuggestions()`
+   returns scored, deduplicated candidates (table names, column names in language-native
+   notation, keywords/functions/snippets); `topSuggestion()` returns the ghost-text suffix.
+   Flag `polyglotAutocomplete` `enabled:true`. 40/40 tests.)
+5. **Batch E — cross-language error messages with a concrete "Suggested fix".** (DONE —
+   `js/polyglot/polyglot-error-advisor.js`: `adviseError()` parses SQL/Python/R errors
+   into structured shape and adds a registry-grounded `suggestedFix` when the named
+   identifier resolves to a different-language object (e.g. SQL `claims` not found →
+   suggests `FROM py.claims`; Python `patients` not defined → suggests `dataglow.get_df('patients')`).
+   Never fabricates a fix. `renderAdvisedErrorHtml()` matches the existing error-card shape.
+   XSS-safe. Wired into SQL/Python/R `catch` blocks in main.js. Flag `polyglotErrorAdvisor`
+   `enabled:true`. 44/44 tests.)
+
+**Polyglot Workbench concept: ALL 5 BATCHES COMPLETE. ✅**
 
 ---
 

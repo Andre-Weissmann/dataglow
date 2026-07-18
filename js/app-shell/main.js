@@ -150,6 +150,8 @@ import { mountDVCUI } from '../dvc/dvc-ui.js';
 import { mountCouncilUI } from '../council/council-ui.js';
 import { datasetsToSchemaContext, serializeSchemaForPrompt } from '../nl-sql/schema-context.js';
 import { buildTrustCertificate, serializeCertificate, certificateFilename } from '../trust/trust-certificate.js';
+import { getSuggestions, topSuggestion } from '../polyglot/polyglot-autocomplete.js';
+import { adviseError, renderAdvisedErrorHtml } from '../polyglot/polyglot-error-advisor.js';
 
 // ============================================================
 // Tab Definitions
@@ -1682,7 +1684,17 @@ async function runSqlQuery() {
     }
   } catch (err) {
     statusEl.textContent = '';
-    resultWrap.innerHTML = `<div class="card" data-testid="sql-error" style="padding:var(--space-4); border-color:var(--color-error);">${renderSqlErrorHtml(err)}</div>`;
+    // Polyglot Error Advisor (Batch E): if the flag is on, enrich the SQL error
+    // with a cross-registry Suggested fix. Falls back to the plain error card
+    // when the flag is off or the advisor returns an empty suggestedFix.
+    let sqlErrorHtml;
+    if (isEnabled('polyglotErrorAdvisor')) {
+      const advised = adviseError(err && err.message ? err.message : String(err), 'sql', listObjectSpace());
+      sqlErrorHtml = renderAdvisedErrorHtml(advised);
+    } else {
+      sqlErrorHtml = renderSqlErrorHtml(err);
+    }
+    resultWrap.innerHTML = '<div class="card" data-testid="sql-error" style="padding:var(--space-4); border-color:var(--color-error);">' + sqlErrorHtml + '</div>';
     // If the NL->SQL tab is mounted, let it know so the Auto-fix button appears.
     const nlHost = document.getElementById('nl-sql-body');
     if (nlHost && nlHost.__nlsql && typeof nlHost.__nlsql.reportRunError === 'function') {
@@ -2697,7 +2709,15 @@ function initPythonTab() {
         code.slice(0, 80),
       );
     } catch (err) {
-      outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
+      // Polyglot Error Advisor (Batch E): enrich Python errors with cross-registry fix.
+      let pyErrHtml;
+      if (isEnabled('polyglotErrorAdvisor')) {
+        const advised = adviseError(err && err.message ? err.message : String(err), 'python', listObjectSpace());
+        pyErrHtml = renderAdvisedErrorHtml(advised);
+      } else {
+        pyErrHtml = '<span class="err">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
+      }
+      outWrap.innerHTML = '<div class="console-log" style="margin-top:var(--space-3);">' + pyErrHtml + '</div>';
     }
   });
   $('#py-input').addEventListener('keydown', (e) => {
@@ -2756,7 +2776,15 @@ function initRTab() {
         code.slice(0, 80),
       );
     } catch (err) {
-      outWrap.innerHTML = `<div class="console-log" style="margin-top:var(--space-3);"><span class="err">${escapeHtml(err.message)}</span></div>`;
+      // Polyglot Error Advisor (Batch E): enrich R errors with cross-registry fix.
+      let rErrHtml;
+      if (isEnabled('polyglotErrorAdvisor')) {
+        const advised = adviseError(err && err.message ? err.message : String(err), 'r', listObjectSpace());
+        rErrHtml = renderAdvisedErrorHtml(advised);
+      } else {
+        rErrHtml = '<span class="err">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span>';
+      }
+      outWrap.innerHTML = '<div class="console-log" style="margin-top:var(--space-3);">' + rErrHtml + '</div>';
     }
   });
 }

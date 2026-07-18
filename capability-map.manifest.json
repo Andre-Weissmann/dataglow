@@ -2982,6 +2982,30 @@
       "files": [
         "js/mcp/gate-state-exporter.js"
       ]
+    },
+    {
+      "id": "polyglot-autocomplete",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Polyglot Workbench",
+      "name": "Cross-language schema-aware autocomplete",
+      "files": [
+        "js/polyglot/polyglot-autocomplete.js"
+      ]
+    },
+    {
+      "id": "polyglot-error-advisor",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Polyglot Workbench",
+      "name": "Cross-language error advisor with suggested fix",
+      "files": [
+        "js/polyglot/polyglot-error-advisor.js"
+      ]
     }
   ]
 }
