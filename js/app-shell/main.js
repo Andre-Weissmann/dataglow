@@ -98,6 +98,7 @@ import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDip
 import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
 import { buildDiplomacyFormModel, renderDiplomacyLoader } from '../diplomacy/diplomacy-loader.js';
 import { createDiplomacyP2PTransport, NULL_DIPLOMACY_TRANSPORT } from '../diplomacy/diplomacy-p2p-transport.js';
+import { createLiveRoomsBroadcast, NULL_LIVE_ROOMS_BROADCAST } from '../agents/live-rooms-broadcast.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
@@ -3514,6 +3515,12 @@ function applyValidateFocusMode() {
 // also guards against a stale mount if the panel is ever revisited.
 let meetingScribeMounted = false;
 let meetingScribeHandle = null;
+// Live Rooms Batch 2: peer-to-peer mirrored action-item view. NULL until the
+// liveRoomsBroadcast flag is on AND a live Rooms transport exists; created
+// lazily once and reused across re-renders. With the flag off it is never
+// constructed and the Meeting tab is byte-for-byte unchanged.
+var liveRoomsBroadcastTransport = NULL_LIVE_ROOMS_BROADCAST;
+let liveRoomsBroadcastWired = false;
 function renderMeetingScribeTab() {
   const host = $('#meeting-scribe-body');
   if (!host) return;
@@ -3523,7 +3530,54 @@ function renderMeetingScribeTab() {
     meetingScribeHandle = mountMeetingScribe({ host, onToast: toast, liveCapture: isEnabled('meetingScribeLiveCapture') });
     meetingScribeMounted = true;
   }
+  wireLiveRoomsBroadcast();
   renderDecisionLedgerSection();
+}
+
+// Live Rooms Batch 2 wiring. Lazily creates the broadcast adapter over the live
+// Rooms transport (window.__dataglow_rooms_broadcast) and registers a handler
+// that merges incoming remote action items into the local scribe state, then
+// re-renders. Broadcasting the local list back out is driven from the scribe
+// handle when action items change (broadcastCurrentActionItems below).
+function wireLiveRoomsBroadcast() {
+  if (!isEnabled('liveRoomsBroadcast')) return;
+  if (liveRoomsBroadcastWired) return;
+  if (typeof window === 'undefined' || !window.__dataglow_rooms_broadcast) return;
+  liveRoomsBroadcastTransport = createLiveRoomsBroadcast({
+    transport: window.__dataglow_rooms_broadcast,
+    selfId: window.__dataglow_rooms_self_id || null,
+  });
+  if (!liveRoomsBroadcastTransport.supported) return;
+  liveRoomsBroadcastWired = true;
+  liveRoomsBroadcastTransport.onReceiveActionItems(function(msg) {
+    // Merge remote action items into the local list and re-render so watchers
+    // see the grounded list update live on their own device.
+    if (!msg || !Array.isArray(msg.actionItems)) return;
+    var merged = msg.actionItems;
+    var meetingId = msg.meetingId || null;
+    if (meetingScribeHandle && typeof meetingScribeHandle.mergeRemoteActionItems === 'function') {
+      try { merged = meetingScribeHandle.mergeRemoteActionItems(msg.actionItems) || msg.actionItems; } catch (e) { /* never abort */ }
+      if (meetingScribeHandle.getState) {
+        var st = meetingScribeHandle.getState();
+        if (st && st.meetingId) meetingId = st.meetingId;
+      }
+    }
+    renderMeetingScribeTab();
+    // Primary broadcast call site is the scribe change-detection path, which
+    // fires broadcastCurrentActionItems whenever the local analyst tags a new
+    // action item. Re-broadcasting the merged list here keeps a multi-peer
+    // mesh consistent when one peer relays another peer's update.
+    broadcastCurrentActionItems(merged, meetingId);
+  });
+}
+
+// Called from the scribe update path once action items change. Broadcasts the
+// current grounded action-item list to peers. Never throws; no-op when the flag
+// is off or no Rooms session is live.
+function broadcastCurrentActionItems(currentActionItems, currentMeetingId) {
+  if (!isEnabled('liveRoomsBroadcast')) return;
+  if (!liveRoomsBroadcastTransport || !liveRoomsBroadcastTransport.supported) return;
+  liveRoomsBroadcastTransport.broadcastActionItems(currentActionItems, currentMeetingId);
 }
 
 // ============================================================

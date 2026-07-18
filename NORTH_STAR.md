@@ -127,9 +127,24 @@ forking the agent.
    `meetingScribeLiveCapture` (default OFF, intentionally dark per this batching plan — this
    is expected, not an oversight): when off, no live-capture UI renders and every existing
    path is byte-for-byte unchanged.)
-2. **Batch 2 — cross-device pairing + WebRTC read-only mirrored action-item view.** NOT
-   STARTED. Let others in the room watch the grounded action-item list update live on their
-   own device, peer-to-peer, with no server relay.
+2. **Batch 2 — cross-device pairing + WebRTC mirrored action-item view.** (DONE — see
+   [#361](https://github.com/Andre-Weissmann/dataglow/pull/361) — new pure,
+   Node-testable module `js/agents/live-rooms-broadcast.js` adds a `live-action-items` message
+   kind on top of the existing Rooms data channel: `LIVE_ACTION_ITEMS_MESSAGE_KIND`,
+   `buildActionItemsMessage({actionItems, meetingId, from})` (returns `null` for an empty items
+   list), `isValidActionItemsMessage(msg)` (requires the correct kind AND a non-null
+   `actionItems` array), and `createLiveRoomsBroadcast({transport, selfId})` wrapping any
+   injected broadcast transport (the `send(msg)/onReceive(fn)` shape `RoomBroadcastCoordinator`
+   uses) with `broadcastActionItems(actionItems, meetingId)->Promise<boolean>` (false on any
+   failure, never throws) and `onReceiveActionItems(fn)->unsubscribe()` (handler errors never
+   abort other handlers); `NULL_LIVE_ROOMS_BROADCAST` is the no-op fallback when no Rooms session
+   is live. Same dependency-injection discipline as `diplomacy-p2p-transport.js`. Wired into
+   `renderMeetingScribeTab()` in `main.js` behind the `liveRoomsBroadcast` flag: the local
+   grounded action-item list is broadcast to peers, and incoming remote items are merged into
+   the local list and re-rendered so others in the room watch it update live on their own
+   device, peer-to-peer, with no server relay. 35/0 tests in
+   `test/live-rooms-broadcast.test.mjs`. Ships DARK: with the flag off the transport is never
+   constructed and the Meeting tab is byte-for-byte unchanged.)
 3. **Batch 3 — real chart-context timeline wiring.** NOT STARTED. Feed
    `tagSegmentsWithContext` a live timeline of which chart/query the analyst was viewing
    when each line was spoken, so segments get real context tags instead of today's `null`.
