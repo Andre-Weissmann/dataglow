@@ -7,6 +7,20 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 10:45 CT] Found + fixed a live app-breaking syntax error while verifying glowCanvas (PR #327, merged)
+
+**What happened:** While doing verification-only checks on `glowCanvas` (already promoted by the repo owner via PR #316 — this run's job was to confirm it actually works, not build it), a Playwright load of a plain `index.html` threw `pageerror: missing ) after argument list` on first load, before any interaction. Root-caused to a single mangled line in `js/council/council-ui.js` shipped by PR #326 ("deep reasoning upgrade"): a broken string-literal expression meant to check for a triple-backtick code fence, mis-escaped during editing. Since `js/app-shell/main.js` imports `council-ui.js` at module scope, this broke every page load on main, not only the Council tab.
+
+**Why CI didn't catch it:** no test file imports `council-ui.js` at all (checked every `test:*` script in `package.json`), and none of the ~55 CI jobs run a blanket `node --check` across `js/`. Logged as a real coverage gap for the backlog (not fixed this run, to keep the fix PR minimal).
+
+**What was decided/built:** Fixed to the clearly-intended triple-backtick check. One line, one file (confirmed via `git diff origin/main <branch>` showing exactly this change). Independent verification before the merge confirm: full `node --check` sweep across every `js/` file (zero other syntax errors, before and after the fix), and a from-scratch Playwright re-run against the exact PR branch code (page load + tab switch + full add-chart-with-data flow, zero console/page errors, chart rendered correctly). CI: all green except the same 3 known pre-existing unrelated failures (capability-map drift, Context Engine micro-lessons, Command Deck sidebar nav); `tauri-smoke` passed (6m56s); `e2e-smoke` (real Chrome) passed. Explicit `confirm_action` obtained before merge, squash-merged, branch deleted.
+
+**Outcome:** Live. Fix re-confirmed present and holding on `main` after the merge, plus a second full syntax sweep on the new main tip — the merge fast-forwarded through a concurrent, unrelated Phase 12 NL-SQL upgrade the repo owner shipped in parallel (9 files, ~1285 lines), and that sweep confirms it introduced zero new syntax errors either. `glowCanvas` re-verified working end-to-end on this new main tip too: real bar chart rendered from a 10-row sample dataset via the Add Chart form, `1 chart` count, zero JS errors. Logged as "already promoted by repo owner (PR #316), verified working" — not a new promotion, per the plan.
+
+**Lesson for next time:** A verification-only pass on an already-shipped flag is still worth running the app through Playwright with a `pageerror` listener attached — this caught a completely unrelated, real, live-breaking bug that plain code review or CI both missed. Treat "just verify it still works" runs as a real opportunity to catch drift, not a formality.
+
+---
+
 ## [2026-07-18 10:14 CT] provenancePacket promoted to live (PR #315, merged)
 
 **What was asked:** Promote the 4 ready dark flags (provenancePacket, glowCanvas, cleaningCrew, drillFloor)
