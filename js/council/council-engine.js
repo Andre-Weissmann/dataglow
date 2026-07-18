@@ -26,14 +26,20 @@
 // resolveGoogleEndpoint(model) to rebuild the URL whenever the model changes.
 // OpenAI and Anthropic pass the model in the JSON body, so swapping is trivial.
 //
-// Current recommended models (July 2026):
-//   OpenAI:    gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, o3-mini
-//   Anthropic: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-3-5
-//   Google:    gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash
+// Current recommended models (July 2026 -- update this comment when models change):
+//   OpenAI:    gpt-5.6-sol (flagship), gpt-5.6-terra (balanced), gpt-5.6-luna (budget)
+//              Legacy still on API: gpt-4o, gpt-4.1
+//   Anthropic: claude-fable-5 (frontier), claude-opus-4-8 (strong), claude-sonnet-5 (agentic/default)
+//              claude-haiku-4-5 (fast/budget)
+//   Google:    gemini-3.5-flash (broadly available, fast), gemini-3.5-pro (frontier, GA mid-July 2026)
+//              gemini-2.5-pro still works on the API
+//
+// To update a model without redeploying: just type the new name in the model field
+// in the Council tab UI. The engine uses whatever you typed.
 export const COUNCIL_PROVIDERS = [
-  { id: 'openai',    name: 'OpenAI (GPT)',       endpoint: 'https://api.openai.com/v1/chat/completions',   model: 'gpt-4o',          requiresKey: true },
-  { id: 'anthropic', name: 'Anthropic (Claude)', endpoint: 'https://api.anthropic.com/v1/messages',        model: 'claude-opus-4-5', requiresKey: true },
-  { id: 'google',    name: 'Google (Gemini)',    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', model: 'gemini-2.5-pro', requiresKey: true },
+  { id: 'openai',    name: 'OpenAI (GPT)',       endpoint: 'https://api.openai.com/v1/chat/completions',   model: 'gpt-5.6-sol',     requiresKey: true },
+  { id: 'anthropic', name: 'Anthropic (Claude)', endpoint: 'https://api.anthropic.com/v1/messages',        model: 'claude-fable-5',  requiresKey: true },
+  { id: 'google',    name: 'Google (Gemini)',    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', model: 'gemini-3.5-flash', requiresKey: true },
 ];
 
 // Google endpoint template -- model name is embedded in the path.
@@ -47,7 +53,7 @@ export const GOOGLE_ENDPOINT_SUFFIX = ':generateContent';
  * @returns {string}
  */
 export function resolveGoogleEndpoint(modelName) {
-  return GOOGLE_ENDPOINT_BASE + (modelName || 'gemini-2.5-pro').trim() + GOOGLE_ENDPOINT_SUFFIX;
+  return GOOGLE_ENDPOINT_BASE + (modelName || 'gemini-3.5-flash').trim() + GOOGLE_ENDPOINT_SUFFIX;
 }
 
 // ---------------------------------------------------------------
