@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTabGroups, groupForTab, TAB_GROUP_ORDER } from '../js/app-shell/tab-groups.js';
 
-const FULL_ORDER = ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'story', 'twin', 'watch', 'meeting'];
+// Core 6 + power-user tabs (no council -- merged into nlsql AI tab)
+const FULL_ORDER = ['preflight', 'sql', 'clean', 'validate', 'nlsql', 'dvc', 'framer', 'python', 'r', 'diff', 'visualize', 'story', 'twin', 'watch', 'meeting'];
 
 test('buildTabGroups: every input tab id appears exactly once across all groups', () => {
   const groups = buildTabGroups(FULL_ORDER);
@@ -20,24 +21,24 @@ test('buildTabGroups: groups render in TAB_GROUP_ORDER, skipping empty groups', 
   assert.deepEqual(ids, filteredCanonical);
 });
 
-test('buildTabGroups: a subset (meeting flag off) omits automate members cleanly, no crash', () => {
-  const withoutMeeting = FULL_ORDER.filter((t) => t !== 'meeting');
-  const groups = buildTabGroups(withoutMeeting);
-  const automate = groups.find((g) => g.id === 'automate');
-  assert.ok(automate);
-  assert.deepEqual(automate.tabIds, ['twin', 'watch']);
+test('buildTabGroups: core group contains exactly the 6 core tabs', () => {
+  const groups = buildTabGroups(FULL_ORDER);
+  const core = groups.find((g) => g.id === 'core');
+  assert.ok(core, 'core group present');
+  assert.deepEqual(core.tabIds.sort(), ['clean', 'dvc', 'nlsql', 'preflight', 'sql', 'validate'].sort());
 });
 
-test('buildTabGroups: preserves the caller-supplied relative order within each group (drag-reorder respected)', () => {
-  // user dragged 'diff' before 'clean' within the validate cluster
-  const reordered = ['framer', 'preflight', 'sql', 'python', 'r', 'diff', 'clean', 'validate', 'visualize', 'story', 'twin', 'watch'];
-  const groups = buildTabGroups(reordered);
-  const validateGroup = groups.find((g) => g.id === 'validate');
-  assert.deepEqual(validateGroup.tabIds, ['diff', 'clean', 'validate']);
+test('buildTabGroups: power-user tabs land in the more group', () => {
+  const groups = buildTabGroups(FULL_ORDER);
+  const more = groups.find((g) => g.id === 'more');
+  assert.ok(more, 'more group present');
+  assert.ok(more.tabIds.includes('framer'));
+  assert.ok(more.tabIds.includes('python'));
+  assert.ok(more.tabIds.includes('visualize'));
 });
 
 test('buildTabGroups: an unknown tab id lands in the trailing "more" group rather than being dropped', () => {
-  const withUnknown = ['framer', 'some-future-tab', 'preflight'];
+  const withUnknown = ['preflight', 'some-future-tab', 'sql'];
   const groups = buildTabGroups(withUnknown);
   const seen = groups.flatMap((g) => g.tabIds);
   assert.ok(seen.includes('some-future-tab'));
@@ -61,20 +62,24 @@ test('buildTabGroups: every group entry has an id, label, and non-empty tabIds',
   });
 });
 
-test('groupForTab: returns the correct group id for every known tab', () => {
-  assert.equal(groupForTab('framer'), 'explore');
-  assert.equal(groupForTab('preflight'), 'explore');
-  assert.equal(groupForTab('validate'), 'validate');
-  assert.equal(groupForTab('clean'), 'validate');
-  assert.equal(groupForTab('diff'), 'validate');
-  assert.equal(groupForTab('sql'), 'analyze');
-  assert.equal(groupForTab('python'), 'analyze');
-  assert.equal(groupForTab('r'), 'analyze');
-  assert.equal(groupForTab('visualize'), 'share');
-  assert.equal(groupForTab('story'), 'share');
-  assert.equal(groupForTab('twin'), 'automate');
-  assert.equal(groupForTab('watch'), 'automate');
-  assert.equal(groupForTab('meeting'), 'automate');
+test('groupForTab: core tabs return core group id', () => {
+  assert.equal(groupForTab('preflight'), 'core');
+  assert.equal(groupForTab('sql'), 'core');
+  assert.equal(groupForTab('clean'), 'core');
+  assert.equal(groupForTab('validate'), 'core');
+  assert.equal(groupForTab('nlsql'), 'core');
+  assert.equal(groupForTab('dvc'), 'core');
+});
+
+test('groupForTab: non-core tabs return more', () => {
+  assert.equal(groupForTab('framer'), 'more');
+  assert.equal(groupForTab('python'), 'more');
+  assert.equal(groupForTab('r'), 'more');
+  assert.equal(groupForTab('visualize'), 'more');
+  assert.equal(groupForTab('story'), 'more');
+  assert.equal(groupForTab('twin'), 'more');
+  assert.equal(groupForTab('watch'), 'more');
+  assert.equal(groupForTab('meeting'), 'more');
 });
 
 test('groupForTab: an unknown tab id returns "more" rather than throwing or returning undefined', () => {

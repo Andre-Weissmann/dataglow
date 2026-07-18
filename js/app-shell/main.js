@@ -176,9 +176,9 @@ const TAB_META = {
   crucible: { label: 'Crucible', icon: 'shield' },
   copilot: { label: 'Copilot', icon: 'message-circle' },
   joinbuilder: { label: 'Join Builder', icon: 'join' },
-  nlsql: { label: 'Ask AI', icon: 'message-square' },
+  nlsql: { label: 'AI', icon: 'message-square' },
   dvc: { label: 'Versions', icon: 'git-branch' },
-  council: { label: 'Council', icon: 'users' },
+  // council merged into AI tab -- no standalone tab
 };
 
 const ICONS = {
@@ -284,7 +284,7 @@ function renderTabBar() {
     && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
     && (tabId !== 'nlsql' || isEnabled('nlSql'))
     && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
-    && (tabId !== 'council' || isEnabled('aiCouncil'))
+    && tabId !== 'council' // council merged into AI tab
     && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
     && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
 
@@ -372,7 +372,7 @@ function switchTab(tabId) {
   if (tabId === 'joinbuilder') renderJoinBuilderTab();
   if (tabId === 'nlsql') renderNLSQLTab();
   if (tabId === 'dvc') renderDVCTab();
-  if (tabId === 'council') renderCouncilTab();
+  // council is mounted lazily inside the AI tab -- no standalone trigger
   if (tabId === 'drillfloor') renderDrillFloorTab();
   if (tabId === 'cleaningcrew') renderCleaningCrewTab();
   renderCommandDeckSidebar();
@@ -7620,6 +7620,35 @@ function renderNLSQLTab() {
     onRunSQL,
     onToast: toast,
   });
+
+  // Wire AI mode switcher (Query <-> Council)
+  var queryBtn = document.getElementById('ai-mode-query');
+  var councilBtn = document.getElementById('ai-mode-council');
+  var queryBody = document.getElementById('ai-mode-query-body');
+  var councilBody = document.getElementById('ai-mode-council-body');
+
+  function activateMode(mode) {
+    var isQuery = mode === 'query';
+    if (queryBody) queryBody.style.display = isQuery ? '' : 'none';
+    if (councilBody) councilBody.style.display = isQuery ? 'none' : '';
+    if (queryBtn) {
+      queryBtn.style.background = isQuery ? 'var(--color-primary)' : 'transparent';
+      queryBtn.style.color = isQuery ? '#fff' : 'var(--color-text-muted)';
+      queryBtn.style.border = isQuery ? '1px solid var(--color-primary)' : '1px solid var(--color-border)';
+    }
+    if (councilBtn) {
+      councilBtn.style.background = isQuery ? 'transparent' : 'var(--color-primary)';
+      councilBtn.style.color = isQuery ? 'var(--color-text-muted)' : '#fff';
+      councilBtn.style.border = isQuery ? '1px solid var(--color-border)' : '1px solid var(--color-primary)';
+    }
+    // Mount council lazily on first switch
+    if (!isQuery && isEnabled('aiCouncil')) {
+      renderCouncilTab();
+    }
+  }
+
+  if (queryBtn) queryBtn.addEventListener('click', function() { activateMode('query'); });
+  if (councilBtn) councilBtn.addEventListener('click', function() { activateMode('council'); });
 }
 
 
@@ -7669,14 +7698,18 @@ function renderDVCTab() {
 // PRIVACY: schema (column names + types) only, same guarantee as NL->SQL --
 // no row data is ever sent to any of the three providers.
 
+var _councilMounted = false;
 function renderCouncilTab() {
+  // council-body now lives inside the AI tab panel, not a standalone panel
   const host = document.getElementById('council-body');
   if (!host) return;
   if (!isEnabled('aiCouncil')) { host.innerHTML = ''; return; }
+  if (_councilMounted) return; // mount once; switching modes re-shows the existing UI
+  _councilMounted = true;
 
   mountCouncilUI({
     host,
-    getSchemaContext: () => {
+    getSchemaContext: function() {
       const datasets = state.datasets || [];
       if (!datasets.length) return null;
       try {

@@ -16,37 +16,25 @@
 
 // Which named mode each known tab id belongs to, and the display order of
 // the modes themselves. Order here is also the render order.
-export const TAB_GROUP_ORDER = ['explore', 'validate', 'analyze', 'share', 'automate', 'more'];
+// Core group order: 6 primary tabs + a 'more' overflow for power-user tabs.
+// Council is merged into the AI tab (nlsql) -- no standalone council group.
+export const TAB_GROUP_ORDER = ['core', 'more'];
 
 export const TAB_GROUP_META = {
-  explore: { label: 'Explore' },
-  validate: { label: 'Validate & Trust' },
-  analyze: { label: 'Analyze' },
-  share: { label: 'Visualize & Share' },
-  automate: { label: 'Automate' },
+  core: { label: 'Core' },
   more: { label: 'More' },
 };
 
-// tabId -> groupId. Every tab id currently in TAB_META (main.js) must be
-// listed here; a new tab id added to TAB_META that is NOT added here still
-// renders correctly (it lands in 'more'), just not in its ideal group.
+// Core 6: the only tabs a first-time user needs to see.
+// Everything else lands in 'more' automatically.
 const TAB_TO_GROUP = {
-  framer: 'explore',
-  preflight: 'explore',
-  validate: 'validate',
-  clean: 'validate',
-  diff: 'validate',
-  sql: 'analyze',
-  python: 'analyze',
-  r: 'analyze',
-  visualize: 'share',
-  story: 'share',
-  twin: 'automate',
-  watch: 'automate',
-  meeting: 'automate',
-  diplomacy: 'validate',
-  proofroom: 'validate',
-  convergence: 'validate',
+  preflight: 'core',
+  sql: 'core',
+  clean: 'core',
+  validate: 'core',
+  nlsql: 'core',
+  dvc: 'core',
+  // All other tabs land in 'more' via the fallback in buildTabGroups
 };
 
 /**
