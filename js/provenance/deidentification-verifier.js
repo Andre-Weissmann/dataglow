@@ -318,3 +318,144 @@ export async function runDeidentificationCheck(table, cols, engine) {
   const attestation = await buildDeidAttestation(report, { table, rowCount });
   return { report, attestation };
 }
+
+// ---- k-anonymity small-cell analysis ----------------------------------------
+// Computes the minimum group size (k-floor) across every combination of
+// quasi-identifier values present in the dataset. A k-floor < 5 is the standard
+// small-cell suppression threshold used by NCHS, CMS, and most state health
+// departments. This is a COMBINATORIAL privacy risk check that the 18-category
+// Safe Harbor heuristic cannot catch -- Safe Harbor says "these columns look like
+// quasi-identifiers"; k-anonymity says "how many people share the same
+// quasi-identifier combination, and could they be singled out?"
+//
+// Pure and synchronous: takes already-sampled row objects (no DuckDB call here).
+// The DuckDB-aware wrapper (runKAnonymityCheck) does the sampling and calls this.
+//
+// HONEST SCOPE: this operates on SAMPLED rows (up to KANON_SAMPLE_LIMIT) and the
+// DETECTED quasi-identifier columns only. It is a screening aid -- a low k-floor
+// in the sample is a strong re-identification signal, but a clean sample does not
+// guarantee the full dataset is k-anonymous. The result is always labelled as an
+// estimate.
+
+export const KANON_THRESHOLD = 5;     // below this count -> small-cell flag
+export const KANON_SAMPLE_LIMIT = 500; // max rows sampled for the check
+
+// Column name patterns that indicate a quasi-identifier even without a full
+// de-id report. Kept aligned with scoreReidentificationRisk()'s quasi-id list.
+const QUASI_COL_PATTERN = /(zip|postal|city|county|geo|location)|(dob|birth_date|date_of_birth|\bage\b)|(^|\b)(sex|gender)($|\b)|(race|ethnicity|ethnic)/i;
+
+/**
+ * Pure k-anonymity check over sampled rows.
+ *
+ * @param {{quasiCols:string[], rows:object[], totalRows:number|null}} opts
+ * @returns {{quasiCols, sampledRows, totalRows, groupCount, kFloor, smallCellGroups,
+ *            smallCellThreshold, flagged, level, rationale, groups}}
+ */
+export function computeKAnonymityFromRows({ quasiCols = [], rows = [], totalRows = null } = {}) {
+  const cols = quasiCols.filter(c => typeof c === 'string' && c.length > 0);
+
+  if (cols.length === 0 || rows.length === 0) {
+    return {
+      quasiCols: cols, sampledRows: rows.length, totalRows,
+      groupCount: 0, kFloor: null, smallCellGroups: 0,
+      smallCellThreshold: KANON_THRESHOLD, flagged: false,
+      level: 'none',
+      rationale: cols.length === 0
+        ? 'No quasi-identifier columns detected -- k-anonymity check skipped.'
+        : 'No rows sampled -- k-anonymity check skipped.',
+      groups: [],
+    };
+  }
+
+  // Group rows by the combination of quasi-identifier values.
+  const counts = new Map();
+  for (const row of rows) {
+    const key = cols.map(c => {
+      const v = row[c];
+      return (v === null || v === undefined) ? '\x00NULL\x00' : String(v);
+    }).join('\x1F'); // unit-separator -- safe since values are stringified
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const groups = [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => a.count - b.count);
+
+  const kFloor = groups.length > 0 ? groups[0].count : null;
+  const smallCellGroups = groups.filter(g => g.count < KANON_THRESHOLD).length;
+  const flagged = kFloor !== null && kFloor < KANON_THRESHOLD;
+
+  let level = 'none';
+  if (flagged) {
+    if (kFloor === 1) level = 'high';
+    else if (kFloor < 3) level = 'medium';
+    else level = 'low';
+  }
+
+  let rationale;
+  if (!flagged && kFloor !== null) {
+    rationale = `k-floor = ${kFloor} across ${groups.length} quasi-identifier group(s) in ${rows.length} sampled row(s) -- all groups meet the small-cell threshold of k >= ${KANON_THRESHOLD}.`;
+  } else if (flagged) {
+    rationale = `k-floor = ${kFloor} (${smallCellGroups} group(s) below threshold k=${KANON_THRESHOLD}) across ${groups.length} group(s) in ${rows.length} sampled row(s) from columns [${cols.join(', ')}]. Small groups may be re-identifiable. This is an estimate on the sampled rows -- full-dataset k-anonymity requires a complete census.`;
+  } else {
+    rationale = 'k-anonymity could not be computed.';
+  }
+
+  return {
+    quasiCols: cols, sampledRows: rows.length, totalRows,
+    groupCount: groups.length, kFloor, smallCellGroups,
+    smallCellThreshold: KANON_THRESHOLD, flagged, level, rationale,
+    // Expose only the smallest (most at-risk) groups -- cap at 20 to keep
+    // the attestation payload compact.
+    groups: groups.slice(0, 20),
+  };
+}
+
+/**
+ * DuckDB-aware k-anonymity runner. Samples rows for quasi-identifier columns
+ * and calls computeKAnonymityFromRows.
+ *
+ * @param {string} table - DuckDB table name
+ * @param {Array<{name:string,type:string}>} cols - column descriptors
+ * @param {object} engine - duckdb-engine.js compatible (runQuery + getRowCount)
+ * @param {object} [deidReport] - optional buildDeidReport() output; quasi-identifier
+ *   columns are taken from its reidentification.present list when available.
+ * @returns {Promise<object>} computeKAnonymityFromRows result
+ */
+export async function runKAnonymityCheck(table, cols, engine, deidReport = null) {
+  const allCols = Array.isArray(cols) ? cols : [];
+
+  // Start from quasi-identifier columns detected in the de-id report.
+  let quasiCols = [];
+  if (deidReport && deidReport.reidentification && Array.isArray(deidReport.reidentification.present)) {
+    const presentIds = new Set(deidReport.reidentification.present);
+    if (presentIds.size > 0) {
+      quasiCols = allCols
+        .filter(c => QUASI_COL_PATTERN.test(c.name || ''))
+        .map(c => c.name);
+    }
+  }
+  // Always union with column-name heuristic catches (handles case where no report).
+  const heuristic = allCols
+    .filter(c => QUASI_COL_PATTERN.test(c.name || ''))
+    .map(c => c.name);
+  quasiCols = [...new Set([...quasiCols, ...heuristic])];
+
+  if (quasiCols.length === 0) {
+    return computeKAnonymityFromRows({ quasiCols: [], rows: [], totalRows: null });
+  }
+
+  let totalRows = null;
+  try { totalRows = await engine.getRowCount(table); } catch { /* ok */ }
+
+  const safeColList = quasiCols.map(c => '"' + c.replace(/"/g, '""') + '"').join(', ');
+  let rows = [];
+  try {
+    const { rows: r } = await engine.runQuery(
+      'SELECT ' + safeColList + ' FROM ' + table + ' LIMIT ' + KANON_SAMPLE_LIMIT
+    );
+    rows = r || [];
+  } catch { rows = []; }
+
+  return computeKAnonymityFromRows({ quasiCols, rows, totalRows });
+}

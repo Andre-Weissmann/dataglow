@@ -1,0 +1,32 @@
+{
+  "_comment": "DATAGLOW Enterprise Policy File — copy to dataglow-policy.json to activate. Version must be 1.",
+  "version": 1,
+  "organization": "Your Health System Name",
+  "adminContact": "dataops@yourhealthsystem.org",
+
+  "disable": [
+    "byokStory",
+    "webrtcRooms",
+    "cdnFetches",
+    "federatedLearning"
+  ],
+
+  "require": [
+    "auditLog",
+    "enterpriseBuild"
+  ],
+
+  "allowedExportFormats": ["pdf", "xlsx", "json"],
+
+  "_disable_reference": {
+    "byokStory": "Blocks the BYOK/external-LLM Story tab. Prevents data-derived content from being sent to OpenAI, Anthropic, Google, or Perplexity endpoints. Recommended for any deployment where datasets may contain PHI or sensitive business data.",
+    "webrtcRooms": "Blocks the Rooms peer-to-peer collaboration feature, which opens WebRTC connections on the local network. Required for environments where hospital IDS/IPS systems block or alert on P2P traffic.",
+    "cdnFetches": "Blocks all lazy CDN loads (DuckDB-WASM bundle, PDF.js, WebLLM weights). For air-gapped or network-namespaced deployments: vendor the DuckDB-WASM bundle locally before enabling this. Without local vendoring the app will not load.",
+    "federatedLearning": "Blocks the federated learning coordinator and its WebRTC/WebSocket transport. Required where only the covered entity (not the individual analyst) is authorized to disclose aggregate statistics."
+  },
+
+  "_require_reference": {
+    "auditLog": "Writes a session-start audit entry and policy fingerprint to the browser console. Pair with a browser extension or Tauri sidecar that captures console output to a SIEM or audit trail.",
+    "enterpriseBuild": "Marks this session as enterprise-policy-governed in all Trust Certificates and exported provenance packets. The policy SHA-256 fingerprint is embedded in every signed artifact."
+  }
+}
