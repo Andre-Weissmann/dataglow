@@ -149,6 +149,7 @@ import { setProviderKey as setNlsqlProviderKey, getProviderKey as getNlsqlProvid
 import { mountDVCUI } from '../dvc/dvc-ui.js';
 import { mountCouncilUI } from '../council/council-ui.js';
 import { datasetsToSchemaContext, serializeSchemaForPrompt } from '../nl-sql/schema-context.js';
+import { buildTrustCertificate, serializeCertificate, certificateFilename } from '../trust/trust-certificate.js';
 
 // ============================================================
 // Tab Definitions
@@ -4664,6 +4665,54 @@ function initProvenancePacket() {
   }
 }
 
+// ============================================================
+// Trust Certificate (Rigor Engine Batch 4)
+// ============================================================
+// Wires the "Download Trust Certificate" button (flag: trustCertificate).
+// Calls buildTrustCertificate() from js/trust/trust-certificate.js with the
+// live validation results and gate score already in state, then triggers a
+// Blob download of the signed .dataglow-cert.json file.
+// Pure composition: no new validation logic, no new signing machinery.
+function initTrustCertificate() {
+  const btn = $('#btn-trust-certificate');
+  if (!btn) return;
+  btn.style.display = '';
+
+  btn.addEventListener('click', async () => {
+    const ds = getActiveDataset();
+    if (!ds) { toast('Load and validate a dataset first', 'error'); return; }
+    if (!state.validationResults || Object.keys(state.validationResults).length === 0) {
+      toast('Run validation first — the certificate bundles the full layer results', 'warn');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const dataset = {
+        table: ds.table,
+        rowCount: ds.rowCount,
+        columns: Array.isArray(ds.cols) ? ds.cols.map(function(c) { return { name: c.name, type: c.type }; }) : [],
+        sourceHash: ds.sourceHash || null,
+      };
+      const cert = await buildTrustCertificate({
+        dataset,
+        layerResults: state.validationResults,
+        kAnonymityResult: state.kAnonymityResult || null,
+        metricContractStatus: state.metricContractStatus || null,
+        producer: { app: 'DATAGLOW', version: '1.0.0', build: 'rigor-engine-batch4' },
+      });
+      const filename = certificateFilename(cert);
+      downloadText(filename, serializeCertificate(cert), 'application/json');
+      const gate = cert.gate || {};
+      const verdict = gate.agentConsumable ? 'PASS' : 'BLOCKED';
+      toast('Trust Certificate downloaded — Gate: ' + verdict + ' (' + (gate.score !== undefined ? gate.score + '/100' : 'n/a') + ')', gate.agentConsumable ? 'success' : 'warn');
+    } catch (e) {
+      toast('Certificate generation failed: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 // Populate the Domain Physics pack selector and re-run validation on change so
 // switching packs (or turning reinterpretation off with "None") updates results.
 // Also wires the optional Context Card: typing what the data is for re-orders
@@ -8950,6 +8999,7 @@ function init() {
   initDeidVerifier();
   initDenialProfiler();
   initProvenancePacket();
+  if (isEnabled('trustCertificate')) initTrustCertificate();
   initDomainPack();
   initDevilsAdvocate();
   initReceipts();

@@ -295,6 +295,11 @@
       "addedInPR": "dataglow-passport-batch-d-ownership-ledger",
       "description": "DataGlow Passport Batch D Ownership Ledger (js/provenance/ownership-ledger.js): answers WHO is/was responsible for a dataset — distinct from the Chain of Custody, which tracks WHAT changed. deriveOwnershipEvents reads the identities ALREADY attached to the existing provenance trail + assumption ledger (it never fabricates one; today most events legitimately degrade to 'unattributed' because the identity rider is optional) into an ordered, append-only event list; summarizeCurrentOwnership infers the likely current owner by recency-weighted vote and reports 'unknown' honestly when nothing is attributed; claimOwnership is the ONLY write path — an opt-in, append-only explicit claim that requires a real local identity and never overwrites a prior claim. When on, the Provenance/Trust tab shows an 'Ownership Ledger' panel with the inferred current-owner summary, an inferred/claimed event timeline, and a 'Claim ownership' button. Ships DARK (land-dark): this is passive read-only inference plus an opt-in local write, not a safety gate, so it stays behind the flag until the panel is verified live in a browser, then gets flipped on. When off, the panel stays hidden and the tab behaves exactly as before."
     },
+    "trustCertificate": {
+      "enabled": true,
+      "addedInPR": "feat/rigor-engine-batch4-trust-certificate",
+      "description": "Rigor Engine Batch 4: Download Trust Certificate button (js/trust/trust-certificate.js) wired into the Preflight Trust tab. Bundles the full 20+ layer validation run, AI Readiness Gate score, and k-anonymity check into one SHA-256-signed .dataglow-cert.json file any stakeholder or downstream AI agent can verify offline without re-running the analysis. Ships live (enabled:true) — pure composition over already-shipped modules, no new validation or signing machinery."
+    },
     "provenancePacket": {
       "enabled": true,
       "addedInPR": "provenance-packet-batch-3",
