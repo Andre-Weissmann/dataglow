@@ -73,7 +73,17 @@ export async function runQuery(sql) {
     const obj = {};
     for (const c of columns) {
       let v = row[c];
-      if (typeof v === 'bigint') v = Number(v);
+      // Safely convert BigInt values: JS Number can only represent integers
+      // up to 2^53 - 1 (Number.MAX_SAFE_INTEGER). Claim IDs, encounter IDs,
+      // and member IDs are routinely 64-bit values that exceed this boundary.
+      // Coercing directly to Number silently corrupts those IDs.
+      // Strategy: keep as string when the value exceeds safe integer range so
+      // that downstream display and export preserve the original digits exactly.
+      if (typeof v === 'bigint') {
+        v = (v >= -9007199254740991n && v <= 9007199254740991n)
+          ? Number(v)
+          : v.toString();
+      }
       if (dateCols.has(c) && typeof v === 'number') {
         v = new Date(v).toISOString().slice(0, 10);
       }
