@@ -53,10 +53,17 @@ export function scoreDisparities({
   metricName = 'metric',
   stratifierName = 'stratifier',
   referenceMethod = 'population_mean',
+  // Phase 4: accept rulepack-sourced thresholds. Falls back to the
+  // exported constants for backward compatibility with Phase 3 callers.
+  thresholds = null,
 } = {}) {
+  // Resolve thresholds: rulepack-provided > exported constants.
+  const T = resolveThresholds(thresholds, metricType);
+  const effectiveMinCellSize = (thresholds && thresholds.minCellSize) ? thresholds.minCellSize : MIN_CELL_SIZE;
+
   // Filter to groups with sufficient cell size (small-cell suppression).
-  const eligible = groups.filter(g => g && typeof g.n === 'number' && g.n >= MIN_CELL_SIZE);
-  const suppressed = groups.filter(g => g && typeof g.n === 'number' && g.n < MIN_CELL_SIZE);
+  const eligible = groups.filter(g => g && typeof g.n === 'number' && g.n >= effectiveMinCellSize);
+  const suppressed = groups.filter(g => g && typeof g.n === 'number' && g.n < effectiveMinCellSize);
 
   if (eligible.length < 2) {
     return makeResult({
@@ -65,7 +72,7 @@ export function scoreDisparities({
       reference: null, findings: [],
       status: 'idle', level: 'none',
       rationale: eligible.length === 0
-        ? 'All groups below minimum cell size (' + MIN_CELL_SIZE + ') -- disparity analysis suppressed.'
+        ? 'All groups below minimum cell size (' + effectiveMinCellSize + ') -- disparity analysis suppressed.'
         : 'Only one group with sufficient cell size -- need at least 2 groups for disparity analysis.',
     });
   }
@@ -107,7 +114,7 @@ export function scoreDisparities({
 
     const finding = scoreGroup({
       group: g.group, n: g.n, value: val, referenceValue, referenceLabel,
-      metricType, metricName, stratifierName,
+      metricType, metricName, stratifierName, T,
     });
     findings.push(finding);
   }
@@ -142,7 +149,7 @@ export function scoreDisparities({
 // ---- per-group scorer -------------------------------------------------------
 
 function scoreGroup({ group, n, value, referenceValue, referenceLabel,
-  metricType, metricName, stratifierName }) {
+  metricType, metricName, stratifierName, T }) {
   let rateRatio = null, absDiff = null, smd = null;
   let flagged = false, status = 'pass', level = 'none';
   const signals = [];
@@ -162,36 +169,33 @@ function scoreGroup({ group, n, value, referenceValue, referenceLabel,
 
     // Score by rate ratio (use absolute ratio for suppressed groups)
     const absRatio = rateRatio === Infinity ? 99 : Math.max(rateRatio, rateRatio > 0 ? 1 / rateRatio : 1);
-    if (absRatio >= RATE_RATIO_FAIL || Math.abs(absDiff) >= ABS_DIFF_FAIL) {
+    if (absRatio >= T.rateRatioFail || Math.abs(absDiff) >= T.absDiffFail) {
       flagged = true; level = absRatio >= 2.0 || Math.abs(absDiff) >= 0.10 ? 'high' : 'medium';
       status = 'fail';
-      if (absRatio >= RATE_RATIO_FAIL) signals.push('rate ratio ' + fmt2(rateRatio) + 'x (threshold ' + RATE_RATIO_FAIL + 'x)');
-      if (Math.abs(absDiff) >= ABS_DIFF_FAIL) signals.push('absolute difference ' + fmtPct(Math.abs(absDiff)) + ' pp (threshold ' + fmtPct(ABS_DIFF_FAIL) + ' pp)');
-    } else if (absRatio >= RATE_RATIO_WARN || Math.abs(absDiff) >= ABS_DIFF_WARN) {
+      if (absRatio >= T.rateRatioFail) signals.push('rate ratio ' + fmt2(rateRatio) + 'x (threshold ' + T.rateRatioFail + 'x)');
+      if (Math.abs(absDiff) >= T.absDiffFail) signals.push('absolute difference ' + fmtPct(Math.abs(absDiff)) + ' pp (threshold ' + fmtPct(T.absDiffFail) + ' pp)');
+    } else if (absRatio >= T.rateRatioWarn || Math.abs(absDiff) >= T.absDiffWarn) {
       flagged = true; level = 'low';
       status = 'warn';
-      if (absRatio >= RATE_RATIO_WARN) signals.push('rate ratio ' + fmt2(rateRatio) + 'x (threshold ' + RATE_RATIO_WARN + 'x)');
-      if (Math.abs(absDiff) >= ABS_DIFF_WARN) signals.push('absolute difference ' + fmtPct(Math.abs(absDiff)) + ' pp (threshold ' + fmtPct(ABS_DIFF_WARN) + ' pp)');
+      if (absRatio >= T.rateRatioWarn) signals.push('rate ratio ' + fmt2(rateRatio) + 'x (threshold ' + T.rateRatioWarn + 'x)');
+      if (Math.abs(absDiff) >= T.absDiffWarn) signals.push('absolute difference ' + fmtPct(Math.abs(absDiff)) + ' pp (threshold ' + fmtPct(T.absDiffWarn) + ' pp)');
     }
 
   } else {
     // Continuous metric -- use standardized mean difference (Cohen's d approximation)
-    // SMD = (group_mean - reference_mean) / reference_mean (relative effect)
-    // For a proper SMD we'd need pooled SD; we use relative deviation as a proxy
-    // and label it clearly as an estimate.
     if (referenceValue !== 0) {
       smd = Math.abs(value - referenceValue) / Math.abs(referenceValue);
       absDiff = value - referenceValue;
     }
 
-    if (smd !== null && smd >= SMD_FAIL) {
+    if (smd !== null && smd >= T.smdFail) {
       flagged = true; level = smd >= 0.40 ? 'high' : 'medium';
       status = 'fail';
-      signals.push('relative deviation ' + fmtPct(smd) + ' (threshold ' + fmtPct(SMD_FAIL) + ')');
-    } else if (smd !== null && smd >= SMD_WARN) {
+      signals.push('relative deviation ' + fmtPct(smd) + ' (threshold ' + fmtPct(T.smdFail) + ')');
+    } else if (smd !== null && smd >= T.smdWarn) {
       flagged = true; level = 'low';
       status = 'warn';
-      signals.push('relative deviation ' + fmtPct(smd) + ' (threshold ' + fmtPct(SMD_WARN) + ')');
+      signals.push('relative deviation ' + fmtPct(smd) + ' (threshold ' + fmtPct(T.smdWarn) + ')');
     }
   }
 
@@ -249,5 +253,30 @@ function makeResult(obj) {
   return {
     layer: 'equity_disparity',
     ...obj,
+  };
+}
+
+// ---- Phase 4: threshold resolver -------------------------------------------
+// Merges rulepack-supplied thresholds with the exported constants as fallback.
+// Called once per scoreDisparities() invocation, before any group scoring.
+
+function resolveThresholds(thresholds, metricType) {
+  if (!thresholds) {
+    // No rulepack thresholds supplied -- use the exported Phase 3 constants.
+    return metricType === 'binary'
+      ? { rateRatioWarn: RATE_RATIO_WARN, rateRatioFail: RATE_RATIO_FAIL, absDiffWarn: ABS_DIFF_WARN, absDiffFail: ABS_DIFF_FAIL }
+      : { smdWarn: SMD_WARN, smdFail: SMD_FAIL };
+  }
+  // Rulepack thresholds are the equity.binary / equity.continuous sub-objects.
+  // Caller may pass either the full equity object or the sub-object directly.
+  const bin = thresholds.binary || thresholds;
+  const cont = thresholds.continuous || thresholds;
+  return {
+    rateRatioWarn: bin.rateRatioWarn ?? RATE_RATIO_WARN,
+    rateRatioFail: bin.rateRatioFail ?? RATE_RATIO_FAIL,
+    absDiffWarn:   bin.absDiffWarn   ?? ABS_DIFF_WARN,
+    absDiffFail:   bin.absDiffFail   ?? ABS_DIFF_FAIL,
+    smdWarn:       cont.smdWarn      ?? SMD_WARN,
+    smdFail:       cont.smdFail      ?? SMD_FAIL,
   };
 }
