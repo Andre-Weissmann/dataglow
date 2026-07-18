@@ -7,6 +7,65 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 11:23 CT] cleaningCrew promoted to live (PR #331, merged)
+
+**What was asked:** Third of the 4-flag promotion sequence (provenancePacket, glowCanvas, cleaningCrew,
+drillFloor). This entry covers `cleaningCrew` — Batch 1 (Profiler station only) of the on-device,
+multi-agent ingestion pipeline: upload a PDF, extract per-page text client-side via PDF.js, and report
+an AI-readiness gate verdict. Zero cloud calls, no AI API keys.
+
+**Pre-flight:** Read the flag's manifest description and source (`js/cleaning-crew/pdf-profiler.js`, 222
+lines) — pure summarization/gate functions plus a browser-only PDF.js loader that lazy-loads on first use
+only. Confirmed tab wiring across `main.js`/`state.js`/`index.html`/`command-deck-nav.js` follows the same
+dark-by-default gating pattern as every other flag. `npm run test:cleaningcrew`: 46/46 passing.
+
+**Live preview verification (local, flag temporarily edited then reverted before any git operation, per
+the standing no-runtime-override-mechanism lesson):** both the pass path (real 2-page PDF with genuine
+text → PASS 100/100) and the fail path (blank/no-text PDF simulating a scan → BLOCKED 0/100 with the
+correct OCR-not-available warning) worked correctly with zero JS errors. Confirmed real OFF-state on
+unmodified main: tab genuinely absent, zero errors. One apparent visual issue (warning text look
+overlapped) turned out to be the ordinary transient toast-notification stack that clears after a few
+seconds — a shared app-wide pattern, not a bug in this feature.
+
+**What CI caught (and was fixed, not pushed through):** once the flag flipped to `true`, the test suite's
+own flag-state assertion (`manifest.flags.cleaningCrew.enabled === false`) failed — it had literally
+hard-coded the pre-promotion "ships dark" snapshot as a permanent expectation rather than testing real
+gating behavior. Relaxed to assert a valid boolean type instead; the two real behavioral assertions below
+it (tab hidden when off, panel cleared when off) were untouched and remain equally strict. This is a
+genuine, generalizable lesson: any flag test using this "assert enabled === false" pattern will break the
+moment that specific flag is promoted — worth checking for this pattern proactively in `drillFloor`'s own
+test file during its pre-flight, rather than discovering it again in CI.
+
+**What was decided/built:** One Confirm gate presented with full evidence (diff scope, blast radius, test
+evidence, both pass/fail path screenshots); user approved. Branch `enable/cleaning-crew-live` — 2 lines
+across 2 files (`flags.manifest.json` flip + the one test-assertion fix), zero source module changes.
+Independently re-verified before merge: fetched the exact branch tip myself, diffed against main (confirmed
+exactly those 2 lines, nothing else), ran `node --check` (clean) and the full test suite myself (46/46) on
+that commit — not just trusting CI's green. CI green except the same 3 pre-existing unrelated failures
+seen on every PR this session (Capability-map drift detector, Command Deck sidebar nav, Context Engine
+micro-lessons); `tauri-smoke` passed (7m25s). Merged (squash), branch deleted.
+
+**Outcome:** Live. Re-verified `cleaningCrew.enabled === true` on the new main tip immediately after merge
+(the merge fast-forwarded through unrelated concurrent work — `capability-map.manifest.json`,
+`docs/capability-map.md`, `js/teaching/micro-lessons.js` — confirmed via flag-value check that nothing was
+clobbered; all other previously-flipped flags — provenancePacket, glowCanvas, rigorEngineBadges — still
+`true`). Full `node --check` sweep across `js/` on the new tip: zero errors. Re-ran the live Playwright
+pass-path test against real (not temporarily-edited) main: tab present, upload → profile → PASS 100/100,
+zero JS errors — confirmed holding for real, not just merged-and-assumed. (One test-script false alarm
+along the way: an immediate `.count()` check without waiting reported the tab as absent because it fired
+before the tab-groups reorg's slightly-later async render completed; `.click()`'s built-in auto-wait found
+it fine. Not an app bug — a reminder to use `waitForSelector`/auto-waiting locators, not a bare `.count()`
+immediately after page load, when the DOM has any async tab-rendering step.)
+
+**Lesson for next time:** (1) A flag's own test file hard-coding its current `enabled` value as a
+permanent expectation is a real, generalizable footgun — worth a quick grep across all flag test files for
+this exact pattern before the next promotion round, rather than hitting it once per flag in CI. (2) When a
+fast-shipping repo introduces new async DOM structure (like this run's tab-groups reorg), prefer
+`waitForSelector` over a fixed `waitForTimeout` + immediate `.count()` in verification scripts — a real
+feature can look falsely broken from timing alone.
+
+---
+
 ## [2026-07-18 10:45 CT] Found + fixed a live app-breaking syntax error while verifying glowCanvas (PR #327, merged)
 
 **What happened:** While doing verification-only checks on `glowCanvas` (already promoted by the repo owner via PR #316 — this run's job was to confirm it actually works, not build it), a Playwright load of a plain `index.html` threw `pageerror: missing ) after argument list` on first load, before any interaction. Root-caused to a single mangled line in `js/council/council-ui.js` shipped by PR #326 ("deep reasoning upgrade"): a broken string-literal expression meant to check for a triple-backtick code fence, mis-escaped during editing. Since `js/app-shell/main.js` imports `council-ui.js` at module scope, this broke every page load on main, not only the Council tab.
