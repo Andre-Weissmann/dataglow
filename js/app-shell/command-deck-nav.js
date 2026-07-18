@@ -44,6 +44,22 @@
 // items — is a verification/accountability function, the same job Trust's
 // other tabs (Validate, Diff) perform, rather than a Frame (define-the-
 // question) or Tell (audience-facing output) fit.
+//
+// SECOND POST-MERGE ADDENDUM (2026-07-18): three more tabs — `joinbuilder`
+// (Join Builder), `nlsql` (AI / natural-language-to-SQL), `dvc` (Versions /
+// Data Version Control) — landed on main via concurrent Polyglot Workbench
+// and DVC batches after this map was last updated, and the coverage test
+// caught all three as unassigned (this is the drift-guard doing exactly its
+// job — CI on main had been failing on every push since these tabs landed,
+// auto-filing repeated "CI failure on main" issue comments). Placed:
+//   - `joinbuilder` under Work: it's a raw analysis/prep tool building a
+//     join query, the same job as the existing sql/python/r/clean tabs.
+//   - `nlsql` under Work: natural-language-to-SQL is still a query-authoring
+//     tool producing a raw analysis result, not a verification or
+//     audience-facing step.
+//   - `dvc` under Trust: Data Version Control's job — tracking what changed
+//     and when, so a result can be audited/rolled back — is a verification/
+//     accountability function, the same category as Validate/Diff/Meeting.
 
 /**
  * The 5 Trust-Tier Lifecycle Stages, in display order, each listing the
@@ -54,8 +70,8 @@
  */
 export const COMMAND_DECK_STAGES = [
   { id: 'frame', label: 'Frame', description: 'Define the question, load the data', tabs: ['framer', 'preflight', 'watch'] },
-  { id: 'work', label: 'Work', description: 'Raw analysis and prep', tabs: ['sql', 'python', 'r', 'clean', 'drillfloor', 'cleaningcrew'] },
-  { id: 'trust', label: 'Trust', description: 'DATAGLOW\u2019s actual differentiator \u2014 verify before you share', tabs: ['validate', 'diff', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot'] },
+  { id: 'work', label: 'Work', description: 'Raw analysis and prep', tabs: ['sql', 'python', 'r', 'clean', 'drillfloor', 'cleaningcrew', 'joinbuilder', 'nlsql'] },
+  { id: 'trust', label: 'Trust', description: 'DATAGLOW\u2019s actual differentiator \u2014 verify before you share', tabs: ['validate', 'diff', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot', 'dvc'] },
   { id: 'generate', label: 'Generate', description: 'Synthetic and advanced generation', tabs: ['twin'] },
   { id: 'tell', label: 'Tell', description: 'Audience-facing, shareable output', tabs: ['visualize', 'glowcanvas', 'story'] },
 ];
