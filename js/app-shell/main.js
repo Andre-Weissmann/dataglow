@@ -745,10 +745,27 @@ function isolationPending() {
   return typeof window !== 'undefined' && window.__dataglowIsolation === 'pending';
 }
 
+// True when running on iOS Safari, which cannot support SharedArrayBuffer
+// reliably regardless of COOP/COEP headers. The app shell renders normally;
+// only the DuckDB SQL engine is unavailable.
+function isIOSDevice() {
+  return typeof window !== 'undefined' && window.__dataglowIsolation === 'ios';
+}
+
 // Entry point for the sample-dataset buttons. Runs the load immediately when the
 // engine can start; otherwise queues it (persisted across the reload) and shows
 // a non-error "starting…" state instead of silently dropping the click.
 function requestDatasetLoad(id) {
+  if (isIOSDevice()) {
+    var iosE = new Error(
+      'The in-browser SQL engine (DuckDB-WASM) is not available on iOS Safari '
+      + 'due to a platform limitation with SharedArrayBuffer. '
+      + 'All other features work normally on this device.'
+    );
+    iosE.isIOS = true;
+    showEngineError(iosE, null);
+    return;
+  }
   if (isolationPending()) {
     try { sessionStorage.setItem(PENDING_LOAD_KEY, id); } catch (e) { /* private mode */ }
     showEngineInitializing();
@@ -976,6 +993,11 @@ function resetPanelStates() {
 
 async function ensureDuckDB() {
   if (state.duckdb.ready) return;
+  if (isIOSDevice()) {
+    var iosErr = new Error('The in-browser SQL engine requires SharedArrayBuffer, which is not available on iOS Safari. All other features work normally.');
+    iosErr.isIOS = true;
+    throw iosErr;
+  }
   toast('Starting DuckDB-WASM engine…', 'warn');
   try {
     await engine.initDuckDB();
@@ -998,6 +1020,15 @@ function showEngineError(err, onRetry) {
   box.innerHTML = '';
   box.appendChild(el('div', { class: 'engine-error-title' }, 'Couldn’t start the data engine'));
   box.appendChild(el('div', { class: 'engine-error-detail', 'data-testid': 'engine-error-detail' }, reason));
+  var iosDevErr = err && err.isIOS;
+  if (iosDevErr) {
+    box.appendChild(el('div', { class: 'engine-error-hint' },
+      'The in-browser SQL engine (DuckDB-WASM) is not available on iOS Safari '
+      + 'due to a platform limitation with SharedArrayBuffer. '
+      + 'All other features work normally on this device: Meeting Scribe, '
+      + 'Data Diplomacy, Guarded Copilot, Rooms, Trust Beam, and more.'));
+    return;
+  }
   if (notIsolated) {
     box.appendChild(el('div', { class: 'engine-error-hint' },
       'This page is not cross-origin isolated (the COOP/COEP headers are missing), so the in-browser SQL engine can’t start. A reload often fixes it once the service worker is active; if it persists, the site needs to send Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers.'));
