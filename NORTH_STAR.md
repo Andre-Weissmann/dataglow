@@ -128,7 +128,7 @@ forking the agent.
    is expected, not an oversight): when off, no live-capture UI renders and every existing
    path is byte-for-byte unchanged.)
 2. **Batch 2 — cross-device pairing + WebRTC mirrored action-item view.** (DONE — see
-   [#PRNUM_BATCH2](https://github.com/Andre-Weissmann/dataglow/pull/PRNUM_BATCH2) — new pure,
+   [#361](https://github.com/Andre-Weissmann/dataglow/pull/361) — new pure,
    Node-testable module `js/agents/live-rooms-broadcast.js` adds a `live-action-items` message
    kind on top of the existing Rooms data channel: `LIVE_ACTION_ITEMS_MESSAGE_KIND`,
    `buildActionItemsMessage({actionItems, meetingId, from})` (returns `null` for an empty items
