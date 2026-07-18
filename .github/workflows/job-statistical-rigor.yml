@@ -1,0 +1,28 @@
+# ============================================================
+# DATAGLOW — CI job: Statistical Rigor Layer
+# ============================================================
+# Reusable workflow (called by .github/workflows/test.yml).
+#
+# Runs the browser-free unit suite for Batch 1 of "The Rigor Engine" concept:
+# confidence intervals, sample-size honesty classification, Cohen's d effect
+# size, Bonferroni-adjusted multiple-comparison correction, and Simpson's-
+# paradox detection. Pure JS, no DuckDB, no browser, no network — this batch
+# ships tests only, with no UI or agent wiring yet.
+
+name: Statistical Rigor
+
+on:
+  workflow_call:
+
+jobs:
+  statistical-rigor:
+    name: Statistical Rigor (pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:statisticalrigor
