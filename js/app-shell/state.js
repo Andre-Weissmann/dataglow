@@ -58,7 +58,11 @@ export const state = {
   // 'meeting' is only ever shown when the meetingScribe flag is on (see
   // main.js renderTabBar, which filters it out by default) — listed here so
   // drag-to-reorder has a stable slot for it once visible.
-  tabOrder: ['framer', 'preflight', 'sql', 'python', 'r', 'clean', 'validate', 'diff', 'visualize', 'glowcanvas', 'drillfloor', 'cleaningcrew', 'story', 'twin', 'watch', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot', 'joinbuilder', 'nlsql', 'council', 'dvc'],
+  // Core 6 tabs shown by default. Council is merged into the AI tab (nlsql).
+  // Power-user tabs (framer, python, r, diff, glowcanvas, drillfloor, cleaningcrew,
+  // story, twin, watch, meeting, diplomacy, proofroom, convergence, crucible, copilot)
+  // still exist and are accessible but live after the core tabs.
+  tabOrder: ['preflight', 'sql', 'clean', 'validate', 'nlsql', 'dvc', 'framer', 'python', 'r', 'diff', 'visualize', 'glowcanvas', 'drillfloor', 'cleaningcrew', 'story', 'twin', 'watch', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot', 'joinbuilder'],
 };
 
 export function setActiveDataset(name) {

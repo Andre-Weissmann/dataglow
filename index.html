@@ -1223,29 +1223,30 @@
       <div id="dvc-body" data-testid="dvc-body"></div>
     </section>
 
-    <!-- NL→SQL (Phase 9). Dark behind the nlSql flag. Renders a question input
-         and LLM provider picker; ships the mounted UI via mountNLSQLUI(). -->
+    <!-- AI tab (Phase 9 + 11 unified). Dark behind the nlSql flag. -->
     <section class="panel" id="panel-nlsql" data-panel="nlsql">
       <div class="panel-header">
         <div>
-          <div class="panel-title">Ask AI</div>
-          <div class="panel-subtitle">Type a question in plain English and get a DuckDB SQL query — schema only, no patient data sent to the LLM. Named metrics use pinned Metric Contract expressions for reproducible results.</div>
+          <div class="panel-title">AI</div>
+          <div class="panel-subtitle">Ask questions about your data in plain English. Query mode writes SQL from your schema instantly. Council mode sends your question to three AI models and compares their answers.</div>
+        </div>
+        <div id="ai-mode-switcher" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+          <button id="ai-mode-query" class="ai-mode-btn ai-mode-btn-active" data-testid="ai-mode-query" style="font-size:12px;padding:4px 14px;border-radius:20px;border:1px solid var(--color-primary);background:var(--color-primary);color:#fff;cursor:pointer;font-weight:600;">Query</button>
+          <button id="ai-mode-council" class="ai-mode-btn" data-testid="ai-mode-council" style="font-size:12px;padding:4px 14px;border-radius:20px;border:1px solid var(--color-border);background:transparent;color:var(--color-text-muted);cursor:pointer;font-weight:600;">Council</button>
         </div>
       </div>
-      <div id="nl-sql-body" data-testid="nl-sql-body"></div>
+      <div id="ai-mode-query-body" data-testid="ai-mode-query-body">
+        <div id="nl-sql-body" data-testid="nl-sql-body"></div>
+      </div>
+      <div id="ai-mode-council-body" data-testid="ai-mode-council-body" style="display:none;">
+        <div style="font-size:12px;color:var(--color-text-muted);padding:8px 0 12px;line-height:1.5;">Three independent AI models answer your question simultaneously and compare results. Works best with API keys in Settings.</div>
+        <div id="council-body" data-testid="council-body"></div>
+      </div>
     </section>
 
-    <!-- AI Council (Phase 11). Dark behind the aiCouncil flag. Ask one question,
-         get parallel answers from OpenAI, Anthropic, and Google Gemini, then see
-         where they agree (consensus/majority) and where they differ (contested). -->
-    <section class="panel" id="panel-council" data-panel="council">
-      <div class="panel-header">
-        <div>
-          <div class="panel-title">Council</div>
-          <div class="panel-subtitle">Ask one analytical question and get answers from three LLM providers in parallel, then see where they agree and where they differ. Schema only — no row data sent to any provider.</div>
-        </div>
-      </div>
-      <div id="council-body" data-testid="council-body"></div>
+    <!-- council tab removed: merged into AI tab above -->
+    <section class="panel" id="panel-council" data-panel="council" style="display:none;">
+      <div id="council-body-legacy" style="display:none;"></div>
     </section>
   </div>
       </div>
