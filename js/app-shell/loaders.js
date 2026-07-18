@@ -7,6 +7,12 @@ import { state, addDataset } from './state.js';
 import { sanitizeTableName, toast } from './utils.js';
 import * as engine from './duckdb-engine.js';
 import { startProvenance, hashBytes } from '../provenance/provenance.js';
+import {
+  shouldUseFSAA,
+  isFSAASupported,
+  XLSX_TRY_DUCKDB_NATIVE,
+  FSAA_THRESHOLD_BYTES,
+} from './duckdb-config.js';
 import { buildOmopSample, buildFhirSample, flattenFhirBundle } from '../validation/health-standards.js';
 import { profilePdf, pdfProfileToRows, PDF_DATASET_COLUMNS } from '../cleaning-crew/pdf-profiler.js';
 
@@ -214,7 +220,57 @@ export async function loadFhirSampleDataset() {
   return loaded;
 }
 
+// #2 — File System Access API streaming path for files > FSAA_THRESHOLD_BYTES.
+// Returns a FileSystemFileHandle or null (null = fall back to arrayBuffer load).
+// Only called when the user has already interacted with a file picker and the
+// browser supports the FSAA API. Never called silently; it is the caller's job
+// to decide whether to use it based on shouldUseFSAA(file.size).
+export async function loadLargeFileViaFSAA(fileHandle) {
+  // DuckDB-WASM can register a File object from a FileSystemFileHandle via
+  // db.registerFileHandle(). This lets DuckDB read bytes on-demand from disk
+  // without loading the entire file into WASM linear memory.
+  if (!fileHandle || typeof fileHandle.getFile !== 'function') return null;
+  const file = await fileHandle.getFile();
+  return file;
+}
+
+// #2 — Show a native FSAA file picker and return the File.
+// Used by the drag-and-drop / click-to-upload handler when the file is too
+// large for in-memory load. Returns null if user cancels or FSAA unavailable.
+export async function pickLargeFileViaFSAA() {
+  if (!isFSAASupported()) return null;
+  try {
+    const [handle] = await window.showOpenFilePicker({ multiple: false });
+    return await handle.getFile();
+  } catch (e) {
+    // User cancelled (AbortError) or API unavailable
+    return null;
+  }
+}
+
+// #5 — XLSX loading with SheetJS fallback.
+// Tries DuckDB native read_xlsx() first (faster for large files) and falls
+// back to SheetJS (already bundled) if DuckDB throws.
+// The Safari-specific crash from duckdb-wasm#1956 manifests as a runtime
+// exception inside db.runQuery, so the catch block handles it cleanly.
 async function loadExcel(arrayBuffer, tableName) {
+  if (XLSX_TRY_DUCKDB_NATIVE) {
+    // DuckDB 1.29.0+ can read XLSX natively via read_xlsx() in the browser
+    // build. Attempt it first. If it throws (WASM-specific crash, Safari bug,
+    // or unsupported file variant), fall through to SheetJS.
+    try {
+      const xlsxFileName = tableName + '_upload.xlsx';
+      await engine.registerFileBuffer(xlsxFileName, arrayBuffer);
+      await engine.runQuery(
+        'CREATE OR REPLACE TABLE ' + tableName + ' AS SELECT * FROM read_xlsx(\'' + xlsxFileName + '\')'
+      );
+      return; // DuckDB native succeeded
+    } catch (_nativeErr) {
+      // DuckDB native XLSX failed (Safari crash or unsupported variant).
+      // Fall through to SheetJS.
+    }
+  }
+  // SheetJS fallback (always available, already bundled).
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
   const sheetName = wb.SheetNames[0];
   const sheet = wb.Sheets[sheetName];
