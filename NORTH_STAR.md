@@ -161,9 +161,25 @@ forking the agent.
    `test/chart-context-timeline.test.mjs`. Ships DARK: with the flag off the singleton is
    never created, the scribe uses its default `[]` and every existing path is byte-for-byte
    unchanged.)
-4. **Batch 4 — on-device LLM synthesis panel.** NOT STARTED. Summarise the captured,
-   grounded meeting (pushback moments, data requests, action items) with the existing
-   on-device LLM — no cloud call.
+4. **Batch 4 — on-device LLM synthesis panel.** (DONE — see
+   [#364](https://github.com/Andre-Weissmann/dataglow/pull/364) — new pure,
+   Node-testable module `js/agents/meeting-synthesis.js` turns a grounded meeting note (the
+   output of `buildMeetingNote()`) into a focused prompt for the SAME on-device model the
+   Story and Guarded Copilot tabs use, then packages the result:
+   `buildSynthesisPrompt(meetingNote)` returns `{systemPrompt, userPrompt}` (both plain-language
+   strings, always valid even for a null/empty note; the system prompt forbids inventing
+   owners, dates, or numbers and asks for a four-part summary of pushback moments, data
+   requests, action items, and the chart/query grounding context), and
+   `summarizeMeetingSynthesis(rawResponse, meetingNote)` returns
+   `{summary, actionItemCount, pushbackCount, contextReferenceCount}` — never throwing.
+   `isSynthesisAvailable()` is a pure stub returning `false`, DI-wired in `main.js` to a real
+   WebGPU check. Wired into the Meeting tab behind the `meetingSynthesis` flag via a separate
+   host (`#meeting-synthesis-body`): a "Synthesize with on-device model" button loads the model
+   if needed (exact Story-tab progress + cancel pattern), runs
+   `buildSynthesisPrompt(currentMeetingNote)` through the engine, and shows the summary plus
+   grounding counts. No cloud call, no audio; nothing leaves the device. 26/0 tests in
+   `test/meeting-synthesis.test.mjs`. Ships DARK: with the flag off the host stays empty and
+   the Meeting tab is byte-for-byte unchanged.)
 
 ---
 
