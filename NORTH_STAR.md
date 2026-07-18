@@ -667,9 +667,16 @@ source format).
    sample), `cohensD`, `bonferroniAdjustedAlpha`, `detectSimpsonsParadox`. 42 tests, zero DOM/network/
    DuckDB dependency (verified by a source-scan test). Tests only — no UI or agent wiring yet, so no
    flag decision was needed for this batch.
-2. **Not yet started.** Wire CI/effect-size badges onto SQL result tables and Visualize; this batch is
-   also the fix point for the SQL→Visualize charting gap noted in the run 3 test findings. New flag,
-   ships `enabled: false`.
+2. **SHIPPED (PR #301, merged 2026-07-17, `41576c3`).** `classifyGroupedConfidence`/
+   `summarizeGroupedConfidence` added to `js/rigor/statistical-rigor.js` (per-group verdicts folded to
+   one conservative worst-group summary). Wired onto the SQL tab (auto-detects a categorical+numeric
+   pair in any query result) and the Visualize tab (badges the currently-charted x/y pair, skipped for
+   scatter), sharing one card renderer so both surfaces use identical verdict vocabulary. Also fixes the
+   SQL→Visualize charting gap noted in the run 3 test findings — "Send to Visualize" registers a SQL
+   result as a real DuckDB table and hands it to the existing chart path. New flag `rigorEngineBadges`,
+   ships `enabled: false`. 56/56 unit tests + 8/8 new e2e assertions (real Chrome, both locally and in
+   CI) — see `dev-log/journal.md` for the full verification writeup, including the service-worker/
+   Playwright route-interception discovery this batch surfaced.
 3. **Not yet started.** Extend the AI Readiness Gate (`js/gate/agent-gate.js`) with a new
    `statisticalConfidence` reason code so an agent handed a low-confidence result must say so or refuse.
    New flag, ships `enabled: false`.

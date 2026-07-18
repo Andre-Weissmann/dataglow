@@ -7,6 +7,52 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-17 22:00 CT] Shipped The Rigor Engine — Batch 2: SQL/Visualize confidence badges + the SQL→Visualize gap fix (PR #301, merged, dark)
+
+**Trigger:** Continuation of the approved 3-part plan ("1. Real fix... 2. CI Architect... 3. Then Rigor
+Engine Batch 2 as originally planned"), user-approved verbatim: "Cool :) Go go go :) Thank you very much!"
+and, after the CI-fix merge confirm, "Okay. Go go go :) Thank you very much :)". Parts 1-2 already logged
+in the two entries directly below this one; this entry covers part 3.
+
+**What was built:** Two new pure functions in `js/rigor/statistical-rigor.js` —
+`classifyGroupedConfidence(rows, groupCol, valueCol)` runs Batch 1's `classifyConfidence()` over every
+distinct group in a GROUP-BY-shaped result (never one verdict for a mixed result set), and
+`summarizeGroupedConfidence()` folds that into one conservative badge verdict using the **worst** group,
+never an average. Wired onto two surfaces sharing one card renderer (`renderRigorBadgeCard`): the SQL tab
+auto-detects a categorical+numeric column pair in any query result and badges it; the Visualize tab badges
+the currently-charted x/y pair the same way (skipped for scatter charts, which have no grouping concept).
+Separately fixed a real gap found during investigation: the Visualize tab could only ever chart the
+already-loaded active dataset — a SQL query's own result set had no path into a chart at all. "Send to
+Visualize" registers the SQL result as a real DuckDB table (reusing the exact
+`createTableFromRows`/`getTableSchema`/`addDataset` sequence the existing synthetic-dataset flow already
+uses), switches tabs, and pre-selects x/y. All new code ships dark behind a new `rigorEngineBadges` flag
+(`enabled: false`); every new render path returns immediately on its first line when the flag is off.
+
+**Verification (independent, per standing rule):** 56/56 unit tests pass (`test/statistical-rigor.test.mjs`,
++17 new cases). New real-browser e2e test (`test/e2e-rigor-engine-badges.test.mjs`, 8/8 assertions) proves
+flag-off is byte-for-byte unchanged, the correct worst-group verdict renders when on, a non-grouped result
+gets no badge, and the full Send-to-Visualize → chart → badge flow works end to end — confirmed both
+locally and in real CI (real Chrome). Wired as a new step inside the existing `job-e2e-smoke.yml` job, not
+a new workflow file, so CI headroom (just restored by PR #296) is untouched. I read the full PR diff
+myself end to end before the merge confirm. 4 CI checks were red on the PR; traced each to a pre-existing
+failure already on `main` (from PR #298's DRG/ICD-10 validator missing capability-map/micro-lesson
+coverage, plus one stale hardcoded layer-count assertion) by re-running the identical tests against a
+clean `main` checkout with none of this PR's changes applied — confirmed unrelated, none touch this PR's
+diff.
+
+**Outcome:** Shipped. PR #301 merged `41576c3`. Flag `rigorEngineBadges` stays `false` — going live is a
+separate, later confirm per the standing rule.
+
+**Lesson for next time:** Playwright's `page.route()` cannot see through a registered service worker's own
+`fetch` handler — a route intercept on any same-origin resource (here, `flags.manifest.json`, the only way
+to exercise a dark flag in an e2e test without touching the shipped manifest) will silently never fire
+while the SW is active. Fix: fully delete/undefine `navigator.serviceWorker` via `page.addInitScript()`
+before `page.goto()` — not just stubbing `register()` — so index.html's own `'serviceWorker' in navigator`
+guard skips registration cleanly with no console/page error. Treat this as a standing implementation note
+for any future e2e test in this repo that needs route interception.
+
+---
+
 ## [2026-07-17 20:54 CT] Fixed CI 50-workflow cap for real (PR #296, merged, docs/CI-only)
 
 **Trigger:** "DataGlow list time" brainstorm on the CI cap problem itself (creative Think-List-style
