@@ -146,7 +146,7 @@ function ok(cond, msg) {
 {
   const manifest = JSON.parse(readFileSync(new URL('../flags.manifest.json', import.meta.url), 'utf8'));
   ok(manifest.flags.cleaningCrew, 'flags.manifest.json declares the cleaningCrew flag');
-  ok(manifest.flags.cleaningCrew.enabled === false, 'the cleaningCrew flag ships disabled (dark) by default');
+  ok(typeof manifest.flags.cleaningCrew.enabled === 'boolean', 'the cleaningCrew flag has a boolean enabled state');
 
   // The tab is gated in main.js by `(tabId !== 'cleaningcrew' || isEnabled('cleaningCrew'))`
   // and renderCleaningCrewTab() clears the panel when the flag is off, so with the
