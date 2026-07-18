@@ -107,35 +107,92 @@ function resolveXLSX(injected) {
   return xlsx;
 }
 
-/**
- * Build an .xlsx workbook from a dataset view and return raw bytes. Sheet 1 is
- * the data as displayed; a "Validation Summary" sheet is added only when the
- * view carries validation metadata (otherwise a plain data export — an
- * acceptable v1). Never touches the network.
- * @param {object} view A view from buildDatasetView.
- * @param {object} [opts]
- * @param {object} [opts.xlsx] Injected SheetJS (tests); defaults to global XLSX.
- * @returns {{data: Uint8Array, filename: string, mimeType: string}}
- */
+// ------------------------------------------------------------
+// Phase 7 — Excel round-trip fidelity helpers
+// (buildWorkbookBlob follows after the helper declarations)
+// ------------------------------------------------------------
+
+// Coerce ISO date strings to JS Date objects so SheetJS emits native date
+// serial cells (Phase 6). Kept here so all Excel helpers live together.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.Z+-]+)?$/;
+export function coerceForExcel(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return v;
+  if (v instanceof Date) return v;
+  if (typeof v === 'string' && ISO_DATE_RE.test(v)) {
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return v;
+}
+
+// Truncate a sheet name to 31 chars (Excel hard limit) and strip forbidden
+// characters: \ / ? * [ ] : — silently, never throw.
+export function safeSheetName(raw, fallback = 'Data') {
+  const cleaned = String(raw || fallback)
+    .replace(/[\\/\?\*\[\]:\x00-\x1F]/g, ' ')
+    .trim()
+    .slice(0, 31)
+    .trim();
+  return cleaned || fallback;
+}
+
+// Compute column widths: for each column take the max character length across
+// the header and (up to) the first 500 rows, then clamp to [8, 60] chars.
+// Returns an array of { wch: number } objects in column order.
+export function computeColWidths(header, rows) {
+  return header.map((col) => {
+    let max = String(col).length;
+    const sample = rows.length > 500 ? rows.slice(0, 500) : rows;
+    for (const r of sample) {
+      const v = r == null ? null : r[col];
+      if (v != null) max = Math.max(max, String(v).length);
+    }
+    return { wch: Math.min(60, Math.max(8, max + 2)) };
+  });
+}
+
+// Apply bold + background fill styling to the header row of a SheetJS sheet.
+// SheetJS CE (community edition) supports cell styles only in the Pro build;
+// we write the style objects anyway — Pro users get formatting, CE users get
+// clean data with no error. Never throws if a cell is missing.
+function styleHeaderRow(sheet, colCount) {
+  for (let c = 0; c < colCount; c++) {
+    const addr = String.fromCharCode(65 + (c < 26 ? c : 25)) + '1';
+    // For columns beyond Z, use AA, AB… — SheetJS encode_cell handles this cleanly.
+    const cellAddr = sheet['!ref']
+      ? (typeof XLSX !== 'undefined' && XLSX.utils
+          ? (XLSX.utils.encode_cell ? XLSX.utils.encode_cell({ r: 0, c }) : addr)
+          : addr)
+      : addr;
+    const cell = sheet[cellAddr];
+    if (!cell) continue;
+    cell.s = {
+      font: { bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '1A3A4A' }, patternType: 'solid' },
+      alignment: { horizontal: 'left', vertical: 'center', wrapText: false },
+      border: {
+        bottom: { style: 'thin', color: { rgb: 'AAAAAA' } },
+      },
+    };
+  }
+}
+
+// Build a human-readable sheet name from a dataset name.
+// "my_claims_data.csv" -> "my_claims_data" (31 char max).
+function dataSheetName(datasetName) {
+  const stripped = String(datasetName || 'Data')
+    .replace(/\.(csv|tsv|json|ndjson|parquet|xlsx|xls|arrow|feather|pdf|txt)$/i, '');
+  return safeSheetName(stripped || 'Data', 'Data');
+}
+
 export function buildWorkbookBlob(view, opts = {}) {
   const XLSX = resolveXLSX(opts.xlsx);
   const wb = XLSX.utils.book_new();
 
-  // --- Data sheet: header row + rows, in the displayed column order. ---
-  // Phase 6 fix: detect ISO date strings (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS…)
-  // and convert them to native JS Date objects so SheetJS emits proper Excel
-  // date serial cells rather than plain text. Previously all values were passed
-  // as raw strings, which made dates unsortable and uncalculable in Excel.
-  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.Z+-]+)?$/;
-  function coerceForExcel(v) {
-    if (v == null || v === '') return null;
-    if (typeof v === 'number') return v;
-    if (typeof v === 'string' && ISO_DATE_RE.test(v)) {
-      const d = new Date(v);
-      if (!isNaN(d.getTime())) return d;
-    }
-    return v;
-  }
+  // --- Data sheet ---
+  // Phase 6: date coercion to native Excel date serials.
+  // Phase 7: named sheet, frozen header row, auto column widths, bold headers.
   const header = view.columns.slice();
   const aoa = [header];
   for (const r of view.rows) {
@@ -145,46 +202,91 @@ export function buildWorkbookBlob(view, opts = {}) {
     }));
   }
   const dataSheet = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
-  XLSX.utils.book_append_sheet(wb, dataSheet, 'Data');
 
-  // --- Summary sheet: dataset facts (+ validation, when available). ---
+  // Phase 7: auto-size column widths so nothing gets cut off.
+  dataSheet['!cols'] = computeColWidths(header, view.rows);
+
+  // Phase 7: freeze the top header row so it stays visible when scrolling.
+  dataSheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+
+  // Phase 7: bold + coloured header row (Pro only; CE ignores cell.s cleanly).
+  styleHeaderRow(dataSheet, header.length);
+
+  // Phase 7: named sheet derived from the dataset name instead of generic 'Data'.
+  const dataTab = dataSheetName(view.datasetName);
+  XLSX.utils.book_append_sheet(wb, dataSheet, dataTab);
+
+  // --- Summary sheet ---
+  // Phase 7: richer summary — grade colour indicators and a Validation Overview
+  // section that gives a quick pass/warn/fail count at a glance.
   const summaryRows = [
-    ['DATAGLOW export'],
+    ['DATAGLOW Export Report'],
+    [],
     ['Dataset', view.datasetName],
     ['Table', view.tableName],
     ['Generated', view.generatedAt],
-    ['Rows (dataset)', view.rowCount],
+    ['Rows (full dataset)', view.rowCount],
     ['Columns', view.columnCount],
-    ['Rows exported', view.rows.length],
+    ['Rows in this export', view.rows.length],
   ];
   if (view.loadedAt) summaryRows.push(['Loaded at', view.loadedAt]);
+
   if (view.grades) {
-    if (view.grades.overall != null) summaryRows.push(['Overall grade', String(view.grades.overall)]);
-    if (view.grades.integrity != null) summaryRows.push(['Integrity grade', String(view.grades.integrity)]);
-    if (view.grades.plausibility != null) summaryRows.push(['Domain-confidence grade', String(view.grades.plausibility)]);
+    summaryRows.push([]);
+    summaryRows.push(['Validation Grades']);
+    if (view.grades.overall != null) summaryRows.push(['  Overall', String(view.grades.overall)]);
+    if (view.grades.integrity != null) summaryRows.push(['  Integrity', String(view.grades.integrity)]);
+    if (view.grades.plausibility != null) summaryRows.push(['  Domain confidence', String(view.grades.plausibility)]);
   }
+
+  // Phase 7: add a pass/warn/fail counts block when validation data is available.
+  if (view.validation.length) {
+    const passed = view.validation.filter(v => (v.status || '').toString().toUpperCase() === 'PASS').length;
+    const warned = view.validation.filter(v => (v.status || '').toString().toUpperCase() === 'WARN').length;
+    const failed = view.validation.filter(v => (v.status || '').toString().toUpperCase() === 'FAIL').length;
+    const skipped = view.validation.length - passed - warned - failed;
+    summaryRows.push([]);
+    summaryRows.push(['Validation Overview', `${view.validation.length} layers`]);
+    summaryRows.push(['  PASS', passed]);
+    summaryRows.push(['  WARN', warned]);
+    summaryRows.push(['  FAIL', failed]);
+    if (skipped > 0) summaryRows.push(['  SKIP / other', skipped]);
+  }
+
+  summaryRows.push([]);
+  summaryRows.push(['Generated locally by DATAGLOW — your data never left this device.']);
+
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+  // Phase 7: widen the label column on the summary sheet.
+  summarySheet['!cols'] = [{ wch: 28 }, { wch: 48 }];
   XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
 
+  // --- Validation Detail sheet (when validation data exists) ---
   if (view.validation.length) {
     const vAoa = [['Layer', 'Status', 'Summary']];
     for (const v of view.validation) {
-      vAoa.push([v.name || v.layer || '', (v.status || '').toString().toUpperCase(), v.summary || '']);
+      vAoa.push([
+        v.name || v.layer || '',
+        (v.status || '').toString().toUpperCase(),
+        v.summary || '',
+      ]);
     }
     const vSheet = XLSX.utils.aoa_to_sheet(vAoa);
-    XLSX.utils.book_append_sheet(wb, vSheet, 'Validation Summary');
+    // Phase 7: size the columns for readability.
+    vSheet['!cols'] = [{ wch: 32 }, { wch: 8 }, { wch: 60 }];
+    vSheet['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+    styleHeaderRow(vSheet, 3);
+    XLSX.utils.book_append_sheet(wb, vSheet, 'Validation Detail');
   }
 
-  // Opt-in Data Nutrition Label sheet — present only when the human opted in
-  // (the caller passed pre-rendered lines). Absent otherwise, so the workbook
-  // is unchanged when the feature is off.
+  // --- Data Nutrition Label sheet (opt-in only) ---
   if (view.nutritionLabelLines && view.nutritionLabelLines.length) {
     const labelSheet = XLSX.utils.aoa_to_sheet(view.nutritionLabelLines.map((l) => [l]));
+    labelSheet['!cols'] = [{ wch: 80 }];
     XLSX.utils.book_append_sheet(wb, labelSheet, 'Data Nutrition Label');
   }
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  // type:'array' yields an ArrayBuffer (or a typed array) — normalize to bytes.
   const data = out instanceof Uint8Array ? out : new Uint8Array(out);
   return {
     data,
