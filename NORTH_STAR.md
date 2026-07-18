@@ -146,7 +146,7 @@ forking the agent.
    `test/live-rooms-broadcast.test.mjs`. Ships DARK: with the flag off the transport is never
    constructed and the Meeting tab is byte-for-byte unchanged.)
 3. **Batch 3 — real chart-context timeline wiring.** (DONE — see
-   [#PRNUM_BATCH3](https://github.com/Andre-Weissmann/dataglow/pull/PRNUM_BATCH3) — new pure,
+   [#363](https://github.com/Andre-Weissmann/dataglow/pull/363) — new pure,
    Node-testable module `js/agents/chart-context-timeline.js` is the missing producer for
    `tagSegmentsWithContext`: `buildChartContextEntry({chart, queryLabel, ts})` (chart must be
    a non-empty string, queryLabel defaults to null, ts defaults to `Date.now()`, returns null
