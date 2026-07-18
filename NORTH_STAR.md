@@ -1444,6 +1444,44 @@ device testing, full duplicate-count discrepancy reconciliation, Python/R tab co
 Section 1-5 rubric Pass/Partial/Fail scoring matrix (this run answered the founder's 7 questions directly
 per their explicit ask; a full rubric-matrix run remains available as a future targeted rerun).
 
+## Research spike: on-device STT to unblock conversationalPackBuilderVoice (2026-07-18, docs-only)
+
+Direct research spike to resolve the TODO already written into `conversationalPackBuilderVoice`'s own
+flag description ("pick a small Apache/MIT WASM speech model before promotion"). Full report saved to
+the research subagent's output (not yet copied into the repo tree — summarized here so the finding
+survives independent of the sandbox).
+
+**Recommendation: Whisper via Transformers.js** (`@huggingface/transformers`, model
+`onnx-community/whisper-tiny.en` or `whisper-base`, `device:'webgpu'` with automatic WASM fallback).
+Apache-2.0 runtime + MIT model weights ([transformers.js](https://github.com/huggingface/transformers.js),
+[OpenAI Whisper](https://github.com/openai/whisper)) — both permissive, no paid keys, zero network calls
+after the one-time model download, same ONNX Runtime Web + WebGPU family the app's existing on-device LLM
+stack already trusts. One `pipeline()` call integration, works from plain ESM/CDN import (no bundler
+required), and degrades gracefully to WASM when WebGPU is unavailable — so the mic feature is never
+hard-blocked on WebGPU support, matching the Chrome-on-Android mobile target already used for the
+in-browser AI Story feature.
+
+**Second-best alternative: Moonshine** (same Transformers.js runtime, `onnx-community/moonshine-tiny-ONNX`
+or `@usefulsensors/moonshine-js`) — purpose-built for short voice commands, smaller/faster than Whisper at
+comparable or better accuracy, MIT for code and the English model. Prefer this if English-only voice input
+is acceptable; non-English Moonshine models carry a revenue-capped community license that is NOT
+permissive, so multilingual voice should stay on Whisper (MIT, ~100 languages).
+
+**Disqualified:** NVIDIA Parakeet-web (AGPL-3.0 app code — copyleft, fails the permissive-license
+constraint despite strong technical fit). **WASM-only fallback tier (if a self-hosted non-Transformers.js
+path is ever preferred):** whisper.cpp WASM (MIT, but historically weak mobile WASM-SIMD support —
+reverify before relying on it) and vosk-browser (Apache-2.0, true streaming, lower conversational accuracy).
+
+**Open items before implementation:** pin the exact model repo + revision and re-confirm its license at
+build time; benchmark `dtype` quantization (q4/q8/fp16) tradeoffs on real target devices, not just desktop;
+decide streaming vs. batch-after-recording (batch is simplest and likely sufficient for short commands);
+profile peak memory alongside the existing WebLLM model to avoid mobile OOM when both are loaded; confirm
+the existing COOP/COEP cross-origin-isolation headers (already needed for the WebLLM WASM/WebGPU path)
+also cover the new STT worker.
+
+**Not yet built — this is a research finding only, no code or flag change this run.** Next session that
+picks up `conversationalPackBuilderVoice` should start from this recommendation rather than re-researching.
+
 ## Architecture research: is DuckDB-WASM still the right foundation for any-format ingestion? (2026-07-16, docs-only)
 
 Deep research directly answering the founder's "any data format" ambition from run 6 (PDF/image/audio/
