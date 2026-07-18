@@ -11,7 +11,7 @@
 // across a reload.
 // ============================================================
 
-import { runCouncil, COUNCIL_PROVIDERS } from './council-engine.js';
+import { runCouncil, COUNCIL_PROVIDERS, resolveGoogleEndpoint } from './council-engine.js';
 
 // ---------------------------------------------------------------
 // Minimal HTML-escape sanitizer (esc()) -- every innerHTML write below
@@ -92,8 +92,16 @@ export function mountCouncilUI(opts) {
 
   // ---- Local, in-memory-only state ----
   let question = '';
+  // Deep-copy provider config so the user's model overrides are per-session
+  // in-memory only and never mutate the shared COUNCIL_PROVIDERS array.
   const providerState = COUNCIL_PROVIDERS.map(function (p) {
-    return { provider: p, apiKey: '', enabled: true };
+    return {
+      provider: p,
+      apiKey: '',
+      enabled: true,
+      // modelOverride: null means 'use the default from COUNCIL_PROVIDERS'
+      modelOverride: null,
+    };
   });
   let isRunning = false;
   let progressByProviderId = {}; // id -> { status, elapsedMs }
@@ -166,6 +174,24 @@ export function mountCouncilUI(opts) {
     label.textContent = 'Council members (BYO API key -- held in page memory only, never stored):';
     providerWrap.appendChild(label);
 
+    // Column headers for the provider rows
+    const colHeaders = h('div', {
+      style: {
+        display: 'flex', gap: '10px', alignItems: 'center',
+        padding: '0 10px', marginBottom: '2px',
+      },
+    });
+    const chOn = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', width: '16px' } });
+    chOn.textContent = 'On';
+    const chName = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', minWidth: '150px' } });
+    chName.textContent = 'Provider';
+    const chKey = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', flex: '1' } });
+    chKey.textContent = 'API key';
+    const chModel = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', width: '160px' } });
+    chModel.textContent = 'Model (blank = default)';
+    colHeaders.append(chOn, chName, chKey, chModel);
+    providerWrap.appendChild(colHeaders);
+
     const table = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' } });
 
     providerState.forEach(function (row, idx) {
@@ -204,7 +230,40 @@ export function mountCouncilUI(opts) {
       keyInput.value = row.apiKey;
       keyInput.addEventListener('input', function () { row.apiKey = keyInput.value; });
 
-      rowEl.append(toggle, nameEl, keyInput);
+      // Model name input -- allows overriding the default without touching code.
+      // For Google/Gemini the model name is embedded in the endpoint URL, so
+      // changing it here automatically rebuilds the effective endpoint.
+      const modelInput = h('input', {
+        type: 'text',
+        placeholder: row.provider.model,
+        title: 'Model name (leave blank to use default: ' + row.provider.model + ')',
+        'data-testid': 'council-model-input-' + row.provider.id,
+        style: {
+          fontSize: '12px', padding: '5px 8px', borderRadius: '4px',
+          border: '1px solid var(--color-border)', width: '160px',
+          color: 'var(--color-text-muted)',
+          fontFamily: 'monospace',
+        },
+      });
+      modelInput.value = row.modelOverride || '';
+      modelInput.addEventListener('input', function () {
+        var val = modelInput.value.trim();
+        row.modelOverride = val || null;
+        // For Google, the model name is part of the endpoint URL.
+        // Rebuild it live so the engine always gets a valid URL.
+        if (row.provider.id === 'google') {
+          row.provider = Object.assign({}, row.provider, {
+            model: val || row.provider.model,
+            endpoint: resolveGoogleEndpoint(val || row.provider.model),
+          });
+        } else {
+          row.provider = Object.assign({}, row.provider, {
+            model: val || COUNCIL_PROVIDERS.find(function (p) { return p.id === row.provider.id; }).model,
+          });
+        }
+      });
+
+      rowEl.append(toggle, nameEl, keyInput, modelInput);
       table.appendChild(rowEl);
     });
 

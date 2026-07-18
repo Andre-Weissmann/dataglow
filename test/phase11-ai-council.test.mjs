@@ -13,6 +13,9 @@ import {
   callProvider,
   runCouncil,
   synthesizeCouncil,
+  resolveGoogleEndpoint,
+  GOOGLE_ENDPOINT_BASE,
+  GOOGLE_ENDPOINT_SUFFIX,
 } from '../js/council/council-engine.js';
 
 // ---- Minimal test harness (mirrors phase9's) ----
@@ -308,6 +311,63 @@ async function main() {
 
     const resultNoOpts = await runCouncil({});
     ok(Array.isArray(resultNoOpts.responses), 'runCouncil with empty opts object never throws');
+  }
+
+  // ============================================================
+  section('resolveGoogleEndpoint -- model-override helper');
+  // ============================================================
+  {
+    const defaultEp = resolveGoogleEndpoint('gemini-2.5-pro');
+    ok(defaultEp.indexOf('gemini-2.5-pro') !== -1, 'default model name appears in endpoint');
+    ok(defaultEp.startsWith(GOOGLE_ENDPOINT_BASE), 'endpoint starts with base URL');
+    ok(defaultEp.endsWith(GOOGLE_ENDPOINT_SUFFIX), 'endpoint ends with :generateContent suffix');
+
+    const flashEp = resolveGoogleEndpoint('gemini-2.5-flash');
+    ok(flashEp.indexOf('gemini-2.5-flash') !== -1, 'flash model name appears in endpoint');
+    ok(flashEp !== defaultEp, 'flash endpoint differs from pro endpoint');
+
+    const gemini2Ep = resolveGoogleEndpoint('gemini-2.0-flash');
+    ok(gemini2Ep.indexOf('gemini-2.0-flash') !== -1, 'gemini-2.0-flash resolves correctly');
+
+    // Fallback: empty string should fall back to the default model
+    const emptyEp = resolveGoogleEndpoint('');
+    ok(emptyEp.indexOf('gemini-2.5-pro') !== -1, 'empty model string falls back to default');
+
+    // null/undefined should not crash
+    let threw = false;
+    try { resolveGoogleEndpoint(null); resolveGoogleEndpoint(undefined); } catch (e) { threw = true; }
+    ok(!threw, 'resolveGoogleEndpoint does not crash on null/undefined');
+
+    // Whitespace is trimmed
+    const spacedEp = resolveGoogleEndpoint('  gemini-2.5-flash  ');
+    ok(spacedEp === flashEp, 'leading/trailing whitespace is trimmed from model name');
+  }
+
+  // ============================================================
+  section('model override flows through runCouncil correctly');
+  // ============================================================
+  {
+    // Simulate a user overriding the OpenAI model to gpt-4.1-mini
+    // The override is applied by the UI before calling runCouncil;
+    // here we verify runCouncil passes the overridden model through to callProvider.
+    const seenModels = [];
+    const captureProvider = async function (provider, apiKey, systemPrompt, question) {
+      seenModels.push(provider.model);
+      return 'answer from ' + provider.model;
+    };
+    const overriddenProviders = COUNCIL_PROVIDERS.map(function (p) {
+      if (p.id === 'openai') return Object.assign({}, p, { model: 'gpt-4.1-mini', apiKey: 'key1', enabled: true });
+      return Object.assign({}, p, { apiKey: 'key1', enabled: false });
+    });
+    const enabledOnly = overriddenProviders.filter(function (p) { return p.enabled !== false; });
+    const result = await runCouncil({
+      question: 'Which metric predicts readmission?',
+      providers: enabledOnly.map(function (p) { return { provider: p, apiKey: 'key1', enabled: true }; }),
+      callLLM: captureProvider,
+    });
+    ok(seenModels.length === 1, 'only the enabled provider was called');
+    ok(seenModels[0] === 'gpt-4.1-mini', 'overridden model name gpt-4.1-mini was passed to provider call');
+    ok(result.responses[0].answer.indexOf('gpt-4.1-mini') !== -1, 'answer reflects the overridden model');
   }
 
   // ---- Summary ----
