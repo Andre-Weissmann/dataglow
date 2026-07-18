@@ -3063,6 +3063,23 @@
         { "file": "js/agents/chart-context-timeline.js", "name": "createChartContextTimeline" },
         { "file": "js/agents/chart-context-timeline.js", "name": "buildChartContextEntry" }
       ]
+    },
+    {
+      "id": "meeting-synthesis",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Meeting Scribe",
+      "name": "Meeting synthesis (Batch 4)",
+      "files": [
+        "js/agents/meeting-synthesis.js"
+      ],
+      "symbols": [
+        { "file": "js/agents/meeting-synthesis.js", "name": "buildSynthesisPrompt" },
+        { "file": "js/agents/meeting-synthesis.js", "name": "summarizeMeetingSynthesis" },
+        { "file": "js/agents/meeting-synthesis.js", "name": "isSynthesisAvailable" }
+      ]
     }
   ]
 }

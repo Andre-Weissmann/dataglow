@@ -1133,6 +1133,10 @@
       </div>
       <div id="meeting-scribe-body" data-testid="meeting-scribe-body"></div>
       <div id="meeting-decision-ledger-body" data-testid="meeting-decision-ledger-body"></div>
+      <!-- Live Rooms Batch 4: on-device LLM synthesis panel. SEPARATE host,
+           gated by its OWN flag (meetingSynthesis) so it ships dark independently.
+           Stays empty with the flag off (renderSynthesisSection in main.js). -->
+      <div id="meeting-synthesis-body" data-testid="meeting-synthesis-body"></div>
     </section>
 
     <!-- Data Diplomacy (Batch 2). Like #panel-meeting, this panel's body stays

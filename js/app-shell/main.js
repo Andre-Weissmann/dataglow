@@ -100,6 +100,8 @@ import { buildDiplomacyFormModel, renderDiplomacyLoader } from '../diplomacy/dip
 import { createDiplomacyP2PTransport, NULL_DIPLOMACY_TRANSPORT } from '../diplomacy/diplomacy-p2p-transport.js';
 import { createLiveRoomsBroadcast, NULL_LIVE_ROOMS_BROADCAST } from '../agents/live-rooms-broadcast.js';
 import { createChartContextTimeline, buildChartContextEntry } from '../agents/chart-context-timeline.js';
+import { buildSynthesisPrompt, summarizeMeetingSynthesis } from '../agents/meeting-synthesis.js';
+import { buildMeetingNote as buildMeetingNoteForSynthesis } from '../agents/meeting-scribe-agent.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
@@ -3566,6 +3568,7 @@ function renderMeetingScribeTab() {
   }
   wireLiveRoomsBroadcast();
   renderDecisionLedgerSection();
+  renderSynthesisSection();
 }
 
 // Live Rooms Batch 2 wiring. Lazily creates the broadcast adapter over the live
@@ -3636,6 +3639,166 @@ function renderDecisionLedgerSection() {
     onToast: toast,
   });
   decisionLedgerMounted = true;
+}
+
+// ============================================================
+// Meeting Synthesis (Live Rooms Batch 4) — separate flag, separate host
+// ============================================================
+// Mounted underneath the Meeting Scribe screen inside the same panel, gated by
+// its OWN flag (meetingSynthesis) so it ships dark independently of the scribe
+// flag. It summarizes the ALREADY-captured, grounded meeting note (pushback
+// moments, data requests, action items, chart/query context) with the SAME
+// on-device model the Story and Guarded Copilot tabs use — no cloud call, no
+// audio, nothing leaves the device. Reads the in-progress meeting from
+// meetingScribeHandle.getState() only when the analyst clicks the button.
+//
+// The prompt/summary logic is pure and Node-tested in js/agents/meeting-synthesis.js
+// (buildSynthesisPrompt / summarizeMeetingSynthesis). This function only owns the
+// DOM + the model-load-with-progress-and-cancel wiring, mirroring the Story tab.
+let synthesisMounted = false;
+let synthesisModelCancelled = false;
+
+// DI seam matching isSynthesisAvailable()'s intent: true only when the on-device
+// model can actually run here (WebGPU present). Never throws.
+function isOnDeviceSynthesisAvailable() {
+  try { return !!ondeviceLLM.isWebGPUAvailable(); } catch (e) { return false; }
+}
+
+// Build the current grounded meeting note from the live scribe state, or null.
+function currentMeetingNoteForSynthesis() {
+  if (!meetingScribeHandle || typeof meetingScribeHandle.getState !== 'function') return null;
+  var st;
+  try { st = meetingScribeHandle.getState(); } catch (e) { return null; }
+  if (!st) return null;
+  try {
+    return buildMeetingNoteForSynthesis({
+      meetingId: st.meetingId,
+      startedAt: st.startedAt || null,
+      taggedSegments: st.taggedSegments || [],
+      actionItems: st.actionItems || [],
+    });
+  } catch (e) { return null; }
+}
+
+// Run the pure prompt through the on-device engine. Loads the model first (with
+// the exact Story-tab progress + cancel pattern) if it is not already loaded.
+async function runSynthesisOnDevice(meetingNote, els) {
+  var prompt = buildSynthesisPrompt(meetingNote);
+  if (!ondeviceLLM.isModelLoaded()) {
+    synthesisModelCancelled = false;
+    els.progressWrap.style.display = '';
+    els.cancelBtn.style.display = '';
+    els.progressBar.style.width = '0%';
+    els.progressText.textContent = 'Preparing download\u2026';
+    try {
+      await ondeviceLLM.loadModel(function(rep) {
+        if (synthesisModelCancelled) { var e = new Error('Model download cancelled.'); e.code = 'CANCELLED'; throw e; }
+        var pct = Math.round((rep.progress || 0) * 100);
+        els.progressBar.style.width = pct + '%';
+        els.progressText.textContent = rep.text || ('Downloading model\u2026 ' + pct + '%');
+      });
+    } finally {
+      els.progressWrap.style.display = 'none';
+      els.cancelBtn.style.display = 'none';
+    }
+  }
+  // loadModel() returns the engine; reuse it to run our custom grounded prompt.
+  var engine = await ondeviceLLM.loadModel();
+  var stream = await engine.chat.completions.create({
+    messages: [
+      { role: 'system', content: prompt.systemPrompt },
+      { role: 'user', content: prompt.userPrompt },
+    ],
+    temperature: 0.3,
+    max_tokens: 600,
+    stream: true,
+  });
+  var full = '';
+  for await (var chunk of stream) {
+    var delta = (chunk && chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) || '';
+    if (delta) {
+      full += delta;
+      els.output.textContent = full;
+    }
+  }
+  return full.trim();
+}
+
+function renderSynthesisSection() {
+  const host = $('#meeting-synthesis-body');
+  if (!host) return;
+  if (!isEnabled('meetingSynthesis')) { host.innerHTML = ''; synthesisMounted = false; return; }
+  if (synthesisMounted) return; // mount once per session
+  synthesisMounted = true;
+  host.innerHTML = '';
+
+  const wrap = el('div', {
+    'data-testid': 'meeting-synthesis',
+    style: 'margin-top:var(--space-4); padding-top:var(--space-4); border-top:1px solid var(--color-border, rgba(0,0,0,0.1));',
+  });
+
+  wrap.appendChild(el('div', {
+    style: 'font-size:var(--text-sm); font-weight:600; margin-bottom:var(--space-2);',
+  }, 'Synthesize this meeting'));
+  wrap.appendChild(el('div', {
+    style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-3);',
+    'data-testid': 'meeting-synthesis-note',
+  }, 'Summarize the captured pushback, data requests, and action items with the on-device model. Private (WebGPU) \u2014 nothing leaves your device. It only rephrases what was captured; it never invents owners, dates, or numbers.'));
+
+  const btn = el('button', { class: 'btn btn-sm', 'data-testid': 'btn-meeting-synthesize' }, 'Synthesize with on-device model');
+  wrap.appendChild(btn);
+
+  const progressWrap = el('div', { 'data-testid': 'meeting-synthesis-progress-wrap', style: 'display:none; margin-top:var(--space-2);' });
+  const progressBar = el('div', { 'data-testid': 'meeting-synthesis-progress-bar', style: 'height:6px; width:0%; background:var(--color-grade-a); border-radius:3px; transition:width 150ms;' });
+  const progressText = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;' }, 'Preparing\u2026');
+  const cancelBtn = el('button', { class: 'btn btn-sm', 'data-testid': 'btn-meeting-synthesis-cancel', style: 'display:none; margin-top:var(--space-2);' }, 'Cancel');
+  progressWrap.appendChild(progressBar);
+  progressWrap.appendChild(progressText);
+  wrap.appendChild(progressWrap);
+  wrap.appendChild(cancelBtn);
+  cancelBtn.addEventListener('click', function() { synthesisModelCancelled = true; toast('Cancelling model download\u2026', 'info'); });
+
+  const status = el('div', { 'data-testid': 'meeting-synthesis-status', style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:var(--space-2);' });
+  wrap.appendChild(status);
+
+  const output = el('div', {
+    'data-testid': 'meeting-synthesis-output',
+    style: 'white-space:pre-wrap; font-size:var(--text-sm); margin-top:var(--space-3); display:none;',
+  });
+  const counts = el('div', { 'data-testid': 'meeting-synthesis-counts', style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-top:var(--space-2); display:none;' });
+  wrap.appendChild(output);
+  wrap.appendChild(counts);
+
+  host.appendChild(wrap);
+
+  btn.addEventListener('click', async function() {
+    if (!isOnDeviceSynthesisAvailable()) {
+      status.textContent = 'On-device AI needs a WebGPU-capable browser (recent Chrome, Edge, or Chrome on Android; Safari 18+).';
+      return;
+    }
+    const note = currentMeetingNoteForSynthesis();
+    if (!note || (note.quoteCount || 0) === 0) {
+      status.textContent = 'Nothing captured yet \u2014 tag some meeting lines first, then synthesize.';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Synthesizing on-device\u2026';
+    output.style.display = '';
+    output.textContent = '';
+    try {
+      const raw = await runSynthesisOnDevice(note, { progressWrap: progressWrap, progressBar: progressBar, progressText: progressText, cancelBtn: cancelBtn, output: output });
+      const result = summarizeMeetingSynthesis(raw, note);
+      output.textContent = result.summary || '(the model returned no text)';
+      counts.style.display = '';
+      counts.textContent = 'Grounded in ' + result.actionItemCount + ' action item(s), ' + result.pushbackCount + ' pushback moment(s), ' + result.contextReferenceCount + ' chart/query reference(s).';
+      status.textContent = '';
+    } catch (err) {
+      output.style.display = 'none';
+      status.textContent = (err && err.code === 'CANCELLED') ? 'Cancelled.' : ('Synthesis failed: ' + ((err && err.message) || 'unknown error'));
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // ============================================================
