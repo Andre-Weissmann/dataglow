@@ -96,6 +96,7 @@ import { sealClaim } from '../diplomacy/diplomacy-claim.js';
 import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
 import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
 import { renderDiplomacyPanel } from '../diplomacy/diplomacy-ui.js';
+import { buildDiplomacyFormModel, renderDiplomacyLoader } from '../diplomacy/diplomacy-loader.js';
 import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
 import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
@@ -3562,46 +3563,131 @@ function renderDecisionLedgerSection() {
 // (and to a real cross-device transport so the two keys are held by two
 // different people) is deliberate future work, not this batch.
 let diplomacyMounted = false;
+// Batch 3: per-party form state — replaces the hardcoded demo scenario.
+let diplomacyFormState = {
+  a: { table: '', entityIdCol: '', entityIdValue: '', valueCol: '', source: '', confidence: 0.8, sealedBy: 'analyst' },
+  b: { table: '', entityIdCol: '', entityIdValue: '', valueCol: '', source: '', confidence: 0.8, sealedBy: 'reviewer' },
+};
+let diplomacyReconcileState = null; // { claimA, claimB, reconciliationResult, approvalRequest, partyAId, partyBId } | null
+let diplomacyStatusText = null;
+
 async function renderDiplomacyTab() {
   const host = $('#diplomacy-body');
   if (!host) return;
   if (!isEnabled('dataDiplomacy')) { host.innerHTML = ''; diplomacyMounted = false; return; }
-  if (diplomacyMounted) return; // already mounted this session
+
+  host.innerHTML = '';
   diplomacyMounted = true;
 
-  const partyAId = 'analyst';
-  const partyBId = 'reviewer';
-  // Two sources disagree on Q3 net revenue for the same account; the warehouse
-  // export is more confident than the hand-maintained spreadsheet, so the
-  // engine resolves it — but nothing applies until BOTH parties sign off.
-  const claimA = await sealClaim({
-    entityId: 'account-4821', field: 'q3_net_revenue', value: 128400,
-    confidence: 0.92, source: 'warehouse-export', sealedBy: partyAId,
-  });
-  const claimB = await sealClaim({
-    entityId: 'account-4821', field: 'q3_net_revenue', value: 131750,
-    confidence: 0.6, source: 'finance-spreadsheet', sealedBy: partyBId,
-  });
-  const reconciliationResult = reconcileClaims(claimA, claimB);
-  const approvalRequest = reconciliationResult.resolved
-    ? createApprovalRequest({ reconciliationResult, partyAId, partyBId })
-    : null;
+  const datasets = state.datasets || [];
+  const partyAId = (diplomacyFormState.a.sealedBy && diplomacyFormState.a.sealedBy.trim()) || 'analyst';
+  const partyBId = (diplomacyFormState.b.sealedBy && diplomacyFormState.b.sealedBy.trim()) || 'reviewer';
 
-  const paint = () => renderDiplomacyPanel({
-    host, claimA, claimB, partyAId, partyBId, reconciliationResult, approvalRequest,
-    onApprove: async (partyId) => {
-      const res = await approveDiplomacy(approvalRequest, partyId);
-      if (!res.ok && res.error) toast(res.error, 'error');
-      else if (res.bothApproved) toast('Both keys turned — resolution applied and sealed.', 'success');
-      paint();
+  const modelA = buildDiplomacyFormModel({ partyId: 'a', datasets: datasets, currentValues: diplomacyFormState.a });
+  const modelB = buildDiplomacyFormModel({ partyId: 'b', datasets: datasets, currentValues: diplomacyFormState.b });
+
+  // Batch 3 loader: real form replacing the hardcoded demo.
+  renderDiplomacyLoader({
+    host: host,
+    modelA: modelA,
+    modelB: modelB,
+    onChange: function(party, field, value) {
+      diplomacyFormState[party][field] = value;
+      // When table changes, reset column selections for that party.
+      if (field === 'table') {
+        diplomacyFormState[party].entityIdCol = '';
+        diplomacyFormState[party].valueCol = '';
+      }
+      diplomacyReconcileState = null;
+      diplomacyStatusText = null;
+      renderDiplomacyTab();
     },
-    onReject: (partyId) => {
-      const res = rejectDiplomacy(approvalRequest, partyId);
-      if (!res.ok && res.error) toast(res.error, 'error');
-      paint();
+    onReconcile: async function() {
+      diplomacyStatusText = 'Reconciling…';
+      renderDiplomacyTab();
+      try {
+        // Look up the actual value from each dataset by querying DuckDB.
+        const fa = diplomacyFormState.a;
+        const fb = diplomacyFormState.b;
+
+        const sqlA = 'SELECT "' + fa.valueCol + '" AS val FROM ' + fa.table +
+          ' WHERE CAST("' + fa.entityIdCol + '" AS VARCHAR) = \'' + fa.entityIdValue.toString().replace(/'/g, '') + '\' LIMIT 1';
+        const sqlB = 'SELECT "' + fb.valueCol + '" AS val FROM ' + fb.table +
+          ' WHERE CAST("' + fb.entityIdCol + '" AS VARCHAR) = \'' + fb.entityIdValue.toString().replace(/'/g, '') + '\' LIMIT 1';
+
+        const resA = await engine.runQuery(sqlA);
+        const resB = await engine.runQuery(sqlB);
+
+        const rowA = resA.rows && resA.rows[0];
+        const rowB = resB.rows && resB.rows[0];
+
+        if (!rowA) { diplomacyStatusText = 'No row found for Party A with that entity ID.'; renderDiplomacyTab(); return; }
+        if (!rowB) { diplomacyStatusText = 'No row found for Party B with that entity ID.'; renderDiplomacyTab(); return; }
+
+        const valueA = rowA.val !== undefined ? rowA.val : rowA[Object.keys(rowA)[0]];
+        const valueB = rowB.val !== undefined ? rowB.val : rowB[Object.keys(rowB)[0]];
+
+        const claimA = await sealClaim({
+          entityId: fa.entityIdValue.toString(),
+          field: fa.valueCol,
+          value: valueA,
+          confidence: fa.confidence,
+          source: fa.source,
+          sealedBy: fa.sealedBy || 'analyst',
+        });
+        const claimB = await sealClaim({
+          entityId: fb.entityIdValue.toString(),
+          field: fb.valueCol,
+          value: valueB,
+          confidence: fb.confidence,
+          source: fb.source,
+          sealedBy: fb.sealedBy || 'reviewer',
+        });
+
+        const reconciliationResult = reconcileClaims(claimA, claimB);
+        const approvalRequest = reconciliationResult.resolved
+          ? createApprovalRequest({ reconciliationResult, partyAId: claimA.sealedBy, partyBId: claimB.sealedBy })
+          : null;
+
+        diplomacyReconcileState = { claimA: claimA, claimB: claimB, reconciliationResult: reconciliationResult, approvalRequest: approvalRequest };
+        diplomacyStatusText = null;
+        renderDiplomacyTab();
+      } catch (err) {
+        diplomacyStatusText = 'Reconciliation error: ' + (err && err.message ? err.message : String(err));
+        diplomacyReconcileState = null;
+        renderDiplomacyTab();
+      }
     },
+    statusText: diplomacyStatusText,
   });
-  paint();
+
+  // If reconciliation has been run, show the two-key verdict panel below the loader.
+  if (diplomacyReconcileState) {
+    const { claimA, claimB, reconciliationResult } = diplomacyReconcileState;
+    let approvalRequest = diplomacyReconcileState.approvalRequest;
+    const verdictHost = el('div', { 'data-testid': 'diplomacy-verdict-section', style: 'margin-top:var(--space-4);' });
+    host.appendChild(verdictHost);
+    const paint = function() {
+      renderDiplomacyPanel({
+        host: verdictHost,
+        claimA: claimA, claimB: claimB,
+        partyAId: claimA.sealedBy, partyBId: claimB.sealedBy,
+        reconciliationResult: reconciliationResult, approvalRequest: approvalRequest,
+        onApprove: async function(pid) {
+          const res = await approveDiplomacy(approvalRequest, pid);
+          if (!res.ok && res.error) toast(res.error, 'error');
+          else if (res.bothApproved) toast('Both keys turned — resolution applied and sealed.', 'success');
+          paint();
+        },
+        onReject: function(pid) {
+          const res = rejectDiplomacy(approvalRequest, pid);
+          if (!res.ok && res.error) toast(res.error, 'error');
+          paint();
+        },
+      });
+    };
+    paint();
+  }
 }
 
 // ============================================================

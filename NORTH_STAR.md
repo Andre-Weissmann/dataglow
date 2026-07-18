@@ -442,9 +442,12 @@ it is genuinely new surface, not a rename of an existing module.
    flag — which is STILL OFF, so the Diplomacy tab is not visible to any real user yet even though
    the code is merged into main. Landed dark ≠ shipped/visible: both Batch 1 and Batch 2 are MERGED
    but the feature is NOT yet visible to end users. This is not "done".)
-3. **Batch 3 — generalize beyond the hardcoded demo.** NOT STARTED. Replace the two-claim example
-   scenario with a real data-loading UI so users can construct claims from their own loaded
-   datasets, not just the built-in demo pair.
+3. **Batch 3 — generalize beyond the hardcoded demo.** (DONE — `js/diplomacy/diplomacy-loader.js`:
+   `buildDiplomacyFormModel()` (pure/DOM-free) + `renderDiplomacyForm()` + `renderDiplomacyLoader()`
+   replace the hardcoded hospital-admission-date scenario with dataset/column pickers, an entity-ID
+   row lookup, real cell-value extraction from DuckDB, and then the full Batch-1 seal+reconcile
+   path. Batch-2 two-key panel renders below on reconciliation. Flag: `dataDiplomacyLoader`,
+   `enabled:true`. 25/25 tests.)
 4. **Batch 4 — real peer-to-peer / cross-org transport.** NOT STARTED. Batch 1 currently borrows
    the federated-transport pattern only as a reference shape, not as real wiring; this batch would
    make two actual parties in two actual browsers exchange sealed claims, closing the loop on the
