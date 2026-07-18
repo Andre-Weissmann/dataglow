@@ -684,11 +684,22 @@ source format).
    ships `enabled: false`. 56/56 unit tests + 8/8 new e2e assertions (real Chrome, both locally and in
    CI) — see `dev-log/journal.md` for the full verification writeup, including the service-worker/
    Playwright route-interception discovery this batch surfaced.
-3. **Not yet started.** Extend the AI Readiness Gate (`js/gate/agent-gate.js`) with a new
-   `statisticalConfidence` reason code so an agent handed a low-confidence result must say so or refuse.
-   New flag, ships `enabled: false`.
-4. **Not yet started.** "Verified by DataGlow" exportable certificate for portfolio/resume use — the most
-   direct answer to the portfolio/resume-trust demand that started this brainstorm. New flag.
+3. **DONE.** Extend the AI Readiness Gate (`js/gate/agent-gate.js`) with a new
+   `statisticalConfidence` reason code. `evaluateStatisticalConfidence()` hard-blocks agents on
+   `'insufficient'` verdict (n<10), surfaces a non-blocking advisory on `'low'` verdict (n<30),
+   and is transparent on `'sufficient'`. `evaluateAgentReadiness()` checks stat confidence BEFORE
+   the layer-results gate so the reason code is always discriminable. `buildStatConfidenceRefusal()`
+   mirrors `buildAgentRefusal()` shape. 48/48 new tests in `test/agent-gate-stat-confidence.test.mjs`.
+   No new flag needed — stat confidence block is opt-in via the existing `rigorResult` field in the
+   readiness context; callers without it are fully backward-compatible.
+4. **DONE.** "Download Trust Certificate" button wired into the Preflight Trust tab
+   (`js/trust/trust-certificate.js` was already built + 102/102 tests; this batch adds the
+   `initTrustCertificate()` main.js wiring, the `btn-trust-certificate` button in `index.html`,
+   and the `trustCertificate` flag `enabled:true`). Clicking the button assembles and downloads a
+   signed `.dataglow-cert.json` bundling the full 20+ layer run, AI Readiness Gate score, and
+   k-anonymity check — any stakeholder or AI agent can verify it offline.
+
+**Rigor Engine concept: ALL 4 BATCHES COMPLETE. ✅**
 
 Each batch gets its own merge confirm and, since Batches 2-4 all change agent- or user-facing behavior,
 its own separate, explicitly confirmed flag-enable decision — never bundled with the merge confirm, per
