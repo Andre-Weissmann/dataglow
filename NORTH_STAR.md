@@ -94,8 +94,8 @@ constraint), and falls back to Tier 1's text untouched if WebGPU/the model isn't
    `refineWithOnDeviceModel()` model call: it now rephrases the Tier 1 answer via the already-warmed
    on-device engine (`loadModel()` + `engine.chat.completions.create`, no new pathway, no second model),
    under a narrow rephrase-only prompt, still falling back to Tier 1's exact text with no WebGPU/model.
-   Still ships DARK behind `guardedCopilot` (default OFF): with the flag off the tab is never in the bar
-   and the panel stays empty — zero effect on any existing path.
+   PROMOTED to ON: `guardedCopilot` flag is `enabled:true` in the live codebase. The Copilot tab renders
+   by default; with the flag off the tab is never in the bar and the panel stays empty.
 
 ## Concept in progress: DataGlow Live Rooms
 
@@ -841,11 +841,9 @@ existing Provenance/Trust surface rather than inventing a new one.
    byte-for-byte unchanged: `touchLedger` is `undefined` in `opts` when the flag is off, so
    `logStoryTouch()` early-returns before doing anything.)
 
-**Shipped, dark behind `aiTouchLedger` (default `false`).** Both batches are done — the full
-feature (primitive + real wiring + UI + Proof Room step) exists in `main` today, but stays
-inert for every user until the flag is separately, explicitly enabled. Enabling it was
-intentionally deferred as its own later confirmed action, per this repo's standing
-build/merge-vs-enable convention.
+**LIVE: `aiTouchLedger` flag is `enabled:true` in the live codebase.** Both batches are done — the full
+feature (primitive + real wiring + UI + Proof Room step) is active for all users. Flag was promoted
+to ON as a separately confirmed action, per this repo's build/merge-vs-enable convention.
 
 **Open question for a future session:** confirm with the user whether "Source Convergence"
 (built in parallel this same window — [#203](https://github.com/Andre-Weissmann/dataglow/pull/203)/
