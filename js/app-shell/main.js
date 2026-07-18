@@ -145,6 +145,7 @@ import { createValidateFocusStore } from './validate-focus.js';
 import { createJoinGraph } from '../join-builder/join-model.js';
 import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
 import { mountNLSQLUI } from '../nl-sql/nl-sql-ui.js';
+import { mountDVCUI } from '../dvc/dvc-ui.js';
 
 // ============================================================
 // Tab Definitions
@@ -173,6 +174,7 @@ const TAB_META = {
   copilot: { label: 'Copilot', icon: 'message-circle' },
   joinbuilder: { label: 'Join Builder', icon: 'join' },
   nlsql: { label: 'Ask AI', icon: 'message-square' },
+  dvc: { label: 'Versions', icon: 'git-branch' },
 };
 
 const ICONS = {
@@ -195,6 +197,7 @@ const ICONS = {
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
   join: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><line x1="9" y1="12" x2="15" y2="12"/><circle cx="12" cy="6" r="2"/><line x1="12" y1="8" x2="12" y2="12"/>',
   'message-square': '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
+  'git-branch': '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
 };
 
@@ -275,6 +278,7 @@ function renderTabBar() {
     && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
     && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
     && (tabId !== 'nlsql' || isEnabled('nlSql'))
+    && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
     && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
     && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
 
@@ -361,6 +365,7 @@ function switchTab(tabId) {
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
   if (tabId === 'joinbuilder') renderJoinBuilderTab();
   if (tabId === 'nlsql') renderNLSQLTab();
+  if (tabId === 'dvc') renderDVCTab();
   if (tabId === 'drillfloor') renderDrillFloorTab();
   if (tabId === 'cleaningcrew') renderCleaningCrewTab();
   renderCommandDeckSidebar();
@@ -7601,6 +7606,43 @@ function renderNLSQLTab() {
     host,
     datasets,
     onRunSQL,
+    onToast: toast,
+  });
+}
+
+
+// ============================================================
+// DVC Tab (Phase 10 -- ships dark behind the dataVersionControl flag)
+// ============================================================
+// Data Version Control: snapshot datasets before transforms, diff snapshots,
+// rollback (advisory -- shows what data looked like, not the raw rows).
+// PRIVACY: only schema + stats stored in snapshots, never row data.
+
+function renderDVCTab() {
+  const host = document.getElementById('dvc-body');
+  if (!host) return;
+  if (!isEnabled('dataVersionControl')) { host.innerHTML = ''; return; }
+
+  mountDVCUI({
+    host,
+    datasets: state.datasets || [],
+    getActiveDataset: () => {
+      const name = state.activeDataset;
+      if (!name) return null;
+      return (state.datasets || []).find(d => (d.name || d.tableName) === name) || null;
+    },
+    onSnapshot: (id) => {
+      toast('Snapshot ' + id.slice(0, 12) + ' created', 'success');
+    },
+    onRollback: (meta) => {
+      // Advisory rollback: show the user what the snapshot looked like.
+      // DataGlow doesn't store row data, so actual data restore requires
+      // the user to reload from the original file.
+      const msg = 'Rollback info: "' + meta.label + '" had ' +
+        meta.rowCount.toLocaleString() + ' rows, ' +
+        meta.cols.length + ' cols. Reload the original file to restore.';
+      toast(msg, 'info');
+    },
     onToast: toast,
   });
 }
