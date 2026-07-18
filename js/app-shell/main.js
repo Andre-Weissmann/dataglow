@@ -144,6 +144,7 @@ import { buildTabGroups, groupForTab } from './tab-groups.js';
 import { createValidateFocusStore } from './validate-focus.js';
 import { createJoinGraph } from '../join-builder/join-model.js';
 import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
+import { mountNLSQLUI } from '../nl-sql/nl-sql-ui.js';
 
 // ============================================================
 // Tab Definitions
@@ -171,6 +172,7 @@ const TAB_META = {
   crucible: { label: 'Crucible', icon: 'shield' },
   copilot: { label: 'Copilot', icon: 'message-circle' },
   joinbuilder: { label: 'Join Builder', icon: 'join' },
+  nlsql: { label: 'Ask AI', icon: 'message-square' },
 };
 
 const ICONS = {
@@ -192,6 +194,7 @@ const ICONS = {
   'git-merge': '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 009 9"/>',
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
   join: '<circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><line x1="9" y1="12" x2="15" y2="12"/><circle cx="12" cy="6" r="2"/><line x1="12" y1="8" x2="12" y2="12"/>',
+  'message-square': '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
 };
 
@@ -271,6 +274,7 @@ function renderTabBar() {
     && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
     && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
     && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
+    && (tabId !== 'nlsql' || isEnabled('nlSql'))
     && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
     && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
 
@@ -356,6 +360,7 @@ function switchTab(tabId) {
   if (tabId === 'copilot') renderGuardedCopilotTab();
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
   if (tabId === 'joinbuilder') renderJoinBuilderTab();
+  if (tabId === 'nlsql') renderNLSQLTab();
   if (tabId === 'drillfloor') renderDrillFloorTab();
   if (tabId === 'cleaningcrew') renderCleaningCrewTab();
   renderCommandDeckSidebar();
@@ -7566,6 +7571,38 @@ function renderJoinBuilderTab() {
   });
 
   joinBuilderLoaded = true;
+}
+
+// ============================================================
+// NL→SQL Tab (Phase 9 -- ships dark behind the nlSql flag)
+// ============================================================
+// Natural language to SQL: type a question, get deterministic DuckDB SQL.
+// PRIVACY: schema (column names + types) only — no row data is sent to the LLM.
+// Metric Contracts ensure named metrics (readmission rate, denial rate, LOS)
+// use pinned SQL expressions regardless of which LLM is called.
+// The LLM provider and API key are configured per-session in the tab UI.
+
+function renderNLSQLTab() {
+  const host = document.getElementById('nl-sql-body');
+  if (!host) return;
+  if (!isEnabled('nlSql')) { host.innerHTML = ''; return; }
+
+  const datasets = state.datasets || [];
+
+  function onRunSQL(sql) {
+    const sqlEditor = document.getElementById('sql-editor');
+    if (sqlEditor) sqlEditor.value = sql;
+    switchTab('sql');
+    const runBtn = document.getElementById('btn-run-sql') || document.querySelector('[data-testid="btn-run-sql"]');
+    if (runBtn) runBtn.click();
+  }
+
+  mountNLSQLUI({
+    host,
+    datasets,
+    onRunSQL,
+    onToast: toast,
+  });
 }
 
 // ============================================================
