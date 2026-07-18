@@ -7,6 +7,54 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 07:52 CT] Incident: rigorEngineBadges was silently reverted 7 minutes after going live, then restored (PR #312, merged, fix-only)
+
+**What happened:** PR #305 flipped `rigorEngineBadges.enabled` to `true` and merged clean at 06:51:38 CT.
+PR #309 ("Phase 2 — Relational Integrity Layer") — a real, unrelated feature, authored and merged directly
+by the repo owner outside this session — squash-merged 7 minutes later at 06:58:20 CT. Its branch tip commit
+rewrote `flags.manifest.json` wholesale: 56 lines changed, every em-dash re-escaped from a literal `—`
+character to `\u2014`, a signature of a JSON serializer reading the whole file into memory and writing it
+back out rather than a targeted text edit. That in-memory snapshot still carried `rigorEngineBadges.enabled:
+false` — evidently captured before the PR #305 flip — so writing the file back out silently clobbered the
+live value even though the branch's other new flags and code were correctly based on post-flip main. Found
+while starting the dark-flag review (item 9 of this run's plan): a fresh read of `flags.manifest.json`
+showed `rigorEngineBadges` back in the dark-flags list, which shouldn't have been possible immediately after
+its own One Confirm approval.
+
+**Root cause, concretely:** not a merge conflict (git handled the structurally-similar JSON region without
+flagging it), not a deliberate revert, and not a stale/unrebased branch in the git-history sense — the
+feature branch's own tip commit (`320cb4f`) was correctly built on top of `0f50fbc` (already `true`). The
+clobber came from a tool/script on that branch reading `flags.manifest.json` into memory at some point
+before 06:51:38 CT and writing the *entire file* back out later, carrying a stale in-memory value for a flag
+it never intended to touch. This is exactly the failure mode behind this project's existing standing lesson
+("never use Python `json.dump()` to edit JSON manifest files") — except this time triggered by concurrent,
+independent work on the same file rather than a single session's own mistake.
+
+**Fix:** Branch `fix/restore-rigor-engine-badges-enabled` from main, restored `enabled: true` via a minimal,
+direct text edit (4 lines total: the value plus new `promotedInPR`/`restoredInPR` provenance fields) — no
+source code touched. Re-verified 66/66 unit (`statistical-rigor.test.mjs`) + 11/11 e2e
+(`e2e-rigor-engine-badges.test.mjs`, which forces both flag states via route intercept and was therefore
+never actually affected by the manifest's real value). Before merging, checked whether main had advanced
+again (it had — PR #311, Phase 4 Temporal Drift) and specifically inspected that PR's own diff on
+`flags.manifest.json` to rule out a second clobber: confirmed it was a clean, minimal, targeted addition of
+new flags only, not a wholesale rewrite, so no re-clobber risk. Merged (squash) to main at `5fecd7f`,
+fast-forwarded cleanly on top of PR #311 with zero conflicts. Confirmed live: `rigorEngineBadges.enabled` is
+`true` on main again.
+
+**Standing lesson (new, generalizes the existing json.dump warning):** the risk isn't limited to this
+session's own edits — `flags.manifest.json` is a shared, frequently-touched file, and ANY branch (this
+session's or the repo owner's own, concurrent, independently-authored work) that regenerates the file via a
+full read-modify-write round trip can silently clobber a flag flipped by a different branch that merged in
+the gap between that branch's checkout and its own merge — regardless of which branch is based on the more
+recent commit. Two concrete guards going forward: (1) this session's own edits to this file must always stay
+minimal, surgical text edits, never a script-driven full rewrite (already standing policy, now with a
+concrete real-world example of the failure it prevents); (2) after ANY merge that changes a flag's `enabled`
+value, especially in a repo with concurrent human+agent activity, proactively re-check the flag's actual
+value on main once more shortly after — do not assume a clean merge is the end of the story when other
+work could be landing in parallel.
+
+---
+
 ## [2026-07-18 06:51 CT] Flipped rigorEngineBadges live for real users (PR #305, merged, enable-only)
 
 **Trigger:** The One Confirm gate for `rigorEngineBadges` — presented with the full build summary, safety
