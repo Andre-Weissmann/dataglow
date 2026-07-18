@@ -404,13 +404,21 @@ section('11. nlToSQL with injected LLM');
 }
 
 {
-  // No provider or callLLM — should gracefully explain
-  const result = await nlToSQL({
+  // No provider or callLLM. As of the July 2026 upgrade the zero-cost pattern
+  // engine answers this directly (source=pattern) instead of warning about a
+  // missing key. A truly unanswerable question still warns about the API key.
+  const answerable = await nlToSQL({
     question: 'Show me something',
     datasets: [{ name: 'encounters', columns: ENCOUNTERS_SCHEMA.cols }],
     // no callLLM, no provider, no apiKey
   });
-  ok(result.warnings.some(w => w.includes('API key') || w.includes('provider')), 'no-provider warning shown');
+  ok(answerable.source === 'pattern', 'pattern engine answers list-style question with no key');
+
+  const unanswerable = await nlToSQL({
+    question: 'xyzzy',
+    datasets: [{ name: 'encounters', columns: ENCOUNTERS_SCHEMA.cols }],
+  });
+  ok(unanswerable.warnings.some(w => w.includes('API key') || w.includes('provider')), 'no-provider warning shown for unanswerable question');
 }
 
 // ============================================================

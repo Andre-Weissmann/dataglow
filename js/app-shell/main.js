@@ -145,6 +145,7 @@ import { createValidateFocusStore } from './validate-focus.js';
 import { createJoinGraph } from '../join-builder/join-model.js';
 import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
 import { mountNLSQLUI } from '../nl-sql/nl-sql-ui.js';
+import { setProviderKey as setNlsqlProviderKey, getProviderKey as getNlsqlProviderKey } from '../nl-sql/nl-sql-key-store.js';
 import { mountDVCUI } from '../dvc/dvc-ui.js';
 import { mountCouncilUI } from '../council/council-ui.js';
 import { datasetsToSchemaContext, serializeSchemaForPrompt } from '../nl-sql/schema-context.js';
@@ -1662,6 +1663,11 @@ async function runSqlQuery() {
   } catch (err) {
     statusEl.textContent = '';
     resultWrap.innerHTML = `<div class="card" data-testid="sql-error" style="padding:var(--space-4); border-color:var(--color-error);">${renderSqlErrorHtml(err)}</div>`;
+    // If the NL->SQL tab is mounted, let it know so the Auto-fix button appears.
+    const nlHost = document.getElementById('nl-sql-body');
+    if (nlHost && nlHost.__nlsql && typeof nlHost.__nlsql.reportRunError === 'function') {
+      nlHost.__nlsql.reportRunError(err && err.message ? err.message : String(err));
+    }
   }
 }
 
@@ -8194,6 +8200,32 @@ function initSettings() {
     updateStoryBadgePreview();
     toast('Settings saved', 'success');
   });
+
+  // ---- NL->SQL AI Provider Keys (held in memory only) ----
+  // These are dormant: the pattern engine answers most questions with no key.
+  // Keys unlock the LLM fallback for freeform questions. Never persisted.
+  const nlsqlKeyInputs = [
+    { id: 'openai',     el: '#nlsql-key-openai' },
+    { id: 'anthropic',  el: '#nlsql-key-anthropic' },
+    { id: 'google',     el: '#nlsql-key-google' },
+    { id: 'perplexity', el: '#nlsql-key-perplexity' },
+  ];
+  const nlsqlSaveBtn = $('#btn-nlsql-keys-save');
+  if (nlsqlSaveBtn) {
+    nlsqlSaveBtn.addEventListener('click', () => {
+      let savedCount = 0;
+      for (const item of nlsqlKeyInputs) {
+        const input = $(item.el);
+        if (!input) continue;
+        const val = input.value.trim();
+        setNlsqlProviderKey(item.id, val);
+        if (val) savedCount++;
+      }
+      toast(savedCount
+        ? 'AI provider key(s) saved to this session.'
+        : 'AI provider keys cleared for this session.', 'success');
+    });
+  }
 }
 
 // ============================================================
