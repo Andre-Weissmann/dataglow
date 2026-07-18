@@ -43,7 +43,14 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
    `generateQuestions`/`resolve` gated behind an optional `readiness` context; `main.js` threads it only when
    the `aiReadinessGateEnforcement` flag is on. Ships DARK: flag default OFF. Blocks ONLY js/agents/* output —
    human-facing SQL/Python/R/Metric Studio workflows are entirely unaffected in both flag states.)
-4. (Stretch) Expose the gate via any future MCP interface so external agents respect it too. (NEXT)
+4. **Expose the gate via MCP so external agents respect it too.** (DONE — PR #345, `js/mcp/dataglow-mcp-server.mjs`.
+   Node.js stdio MCP server exposing: `check_readiness` tool (agentConsumable verdict, score, failingLayers,
+   reasons, per-dataset or list-all), `dataglow://schema/{name}` and `dataglow://validation/{name}` resources,
+   `analyze_validated_dataset` and `fix_failing_layers` prompt templates. Config snippets for Claude Code
+   and Cursor in the server file header. `gate-state-exporter.js` writes `dataglow-gate-state.json` from the
+   browser app; Settings tab Export Gate State button (flag-gated: `mcpInterface`). 59/59 tests passing.)
+
+**AI Readiness Gate concept: ALL 4 BATCHES COMPLETE. ✅**
 
 ---
 
