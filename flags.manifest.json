@@ -352,6 +352,11 @@
       "enabled": true,
       "addedInPR": "feature/relational-integrity-phase2",
       "description": "Phase 2 \u2014 Join Coverage Checker. Measures child-side join coverage rate (% of child rows that match a parent key). Thresholds: >=99% pass, 95-99% warn, 75-95% fail medium, <75% fail high. Complements FK orphan check. Stored in validationResults.relational.joinCoverage."
+    },
+    "equityStratification": {
+      "enabled": true,
+      "addedInPR": "feature/equity-stratification-phase3",
+      "description": "Phase 3 -- Equity Stratification Layer. Auto-detects race/ethnicity, sex/gender, zip/geography, payer class, age group, and disability/dual columns. Stratifies outcome metrics (readmission, denial, mortality, LOS, cost, ED utilization, quality score) by group using DuckDB GROUP BY queries. Scores disparities against CMS Disparities Impact Statement thresholds (rate ratio >= 1.5x or abs diff >= 5 pp = fail; 1.25x / 3 pp = warn). Builds a signed equity attestation block embedded in the Trust Certificate. Gated by this flag. Results in validationResults.equity. Fails open: any error produces idle status."
     }
   }
 }

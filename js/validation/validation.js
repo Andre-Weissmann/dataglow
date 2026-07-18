@@ -22,6 +22,9 @@ import { checkForeignKey, checkAllForeignKeys } from '../relational/foreign-key-
 import { checkTemporalOrder } from '../relational/temporal-order-checker.js';
 import { checkFlagConsistency } from '../relational/flag-consistency-checker.js';
 import { checkJoinCoverage, checkAllJoinCoverage } from '../relational/join-coverage-checker.js';
+import { detectEquityColumns } from '../equity/equity-detector.js';
+import { stratifyEquity } from '../equity/equity-stratifier.js';
+import { buildEquityAttestation } from '../equity/equity-attestation.js';
 
 // Feature flag gating the extended-coverage validation checks (semantic
 // magnitude ordering in Cross-Column Logic + business-key duplicate detection
@@ -1302,6 +1305,94 @@ async function runMissingnessDetectiveLayer(table, cols) {
   return r;
 }
 
+// ---------- Equity Stratification Orchestrator (Phase 3) ----------
+// Detects equity-relevant columns (race, sex, zip, payer, age group, disability),
+// stratifies outcome metrics (readmit, denial, mortality, LOS, cost, ED, quality)
+// by those columns using DuckDB GROUP BY queries, and scores disparities against
+// CMS Disparities Impact Statement thresholds. Builds a signed equity attestation
+// block that is embedded in the Trust Certificate.
+// Gated by the 'equityStratification' feature flag.
+async function runEquityLayer(ds, cols, options = {}) {
+  const flagKey = 'equityStratification';
+  const flagEnabled = isFeatureFlagEnabled(flagKey);
+  if (!flagEnabled) {
+    return {
+      status: 'idle', level: 'none', layer: 'equity',
+      detectionResult: null, stratificationResult: null, attestation: null,
+      rationale: 'Equity stratification is disabled (flag ' + flagKey + ' = false).',
+    };
+  }
+
+  const table = ds && ds.table ? ds.table : null;
+  if (!table) {
+    return {
+      status: 'idle', level: 'none', layer: 'equity',
+      detectionResult: null, stratificationResult: null, attestation: null,
+      rationale: 'Equity layer skipped -- no table available.',
+    };
+  }
+
+  const engineAdapter = { runQuery: (sql) => engine.runQuery(sql) };
+
+  try {
+    // 1. Detect equity-relevant columns.
+    const detectionResult = detectEquityColumns(cols);
+
+    // 2. Stratify and score disparities.
+    const stratificationResult = detectionResult.hasEquityData
+      ? await stratifyEquity({
+          table,
+          stratifiers: detectionResult.stratifiers,
+          metrics: detectionResult.metrics,
+          engine: engineAdapter,
+        })
+      : {
+          analyses: [], status: 'idle', level: 'none',
+          summary: { total: 0, pass: 0, warn: 0, fail: 0, idle: 0, flaggedPairs: 0 },
+          rationale: detectionResult.summary,
+        };
+
+    // 3. Build the signed equity attestation block.
+    const runId = (options && options.runId) ? options.runId : null;
+    const attestation = await buildEquityAttestation({
+      tableName: table,
+      runId,
+      detectionResult,
+      stratificationResult,
+    });
+
+    // Emit an assumption-ledger entry so the equity finding is auditable.
+    if (stratificationResult.status === 'fail' || stratificationResult.status === 'warn') {
+      logAssumption(
+        'Equity Stratification',
+        stratificationResult.rationale,
+        {
+          status: stratificationResult.status,
+          level: stratificationResult.level,
+          flaggedPairs: stratificationResult.summary.flaggedPairs,
+          totalPairs: stratificationResult.summary.total,
+        }
+      );
+    }
+
+    return {
+      status: stratificationResult.status,
+      level: stratificationResult.level,
+      layer: 'equity',
+      detectionResult,
+      stratificationResult,
+      attestation,
+      rationale: stratificationResult.rationale,
+    };
+  } catch (err) {
+    return {
+      status: 'idle', level: 'none', layer: 'equity',
+      detectionResult: null, stratificationResult: null, attestation: null,
+      rationale: 'Equity layer error (non-fatal): ' + String(err && err.message ? err.message : err),
+    };
+  }
+}
+
 // ---------- Relational Integrity Orchestrator ----------
 // Runs the three Phase 2 relational sub-checks, each gated by its own flag.
 // Returns a unified relational result that rolls up to the worst sub-check status.
@@ -1444,6 +1535,16 @@ export async function runAllLayers(ds, options = {}) {
   results.relational = await runRelationalLayer(ds, cols, options).catch(e => ({
     status: 'idle', summary: 'Relational layer could not run: ' + (e && e.message ? e.message : String(e)),
     temporal: null, flagConsistency: null, joinCoverage: null,
+  }));
+
+  // ---- Equity Stratification Layer (Phase 3) ----
+  // Detects race/sex/zip/payer columns, stratifies outcome metrics by group,
+  // and scores disparities against CMS thresholds. Builds a signed equity
+  // attestation block. Fails open: any error produces idle, never kills the run.
+  results.equity = await runEquityLayer(ds, cols, options).catch(e => ({
+    status: 'idle', level: 'none', layer: 'equity',
+    detectionResult: null, stratificationResult: null, attestation: null,
+    rationale: 'Equity layer could not run: ' + (e && e.message ? e.message : String(e)),
   }));
 
   // ---- Domain Physics Engine ----
