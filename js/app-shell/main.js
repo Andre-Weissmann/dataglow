@@ -146,6 +146,8 @@ import { createJoinGraph } from '../join-builder/join-model.js';
 import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
 import { mountNLSQLUI } from '../nl-sql/nl-sql-ui.js';
 import { mountDVCUI } from '../dvc/dvc-ui.js';
+import { mountCouncilUI } from '../council/council-ui.js';
+import { datasetsToSchemaContext, serializeSchemaForPrompt } from '../nl-sql/schema-context.js';
 
 // ============================================================
 // Tab Definitions
@@ -175,6 +177,7 @@ const TAB_META = {
   joinbuilder: { label: 'Join Builder', icon: 'join' },
   nlsql: { label: 'Ask AI', icon: 'message-square' },
   dvc: { label: 'Versions', icon: 'git-branch' },
+  council: { label: 'Council', icon: 'users' },
 };
 
 const ICONS = {
@@ -199,6 +202,7 @@ const ICONS = {
   'message-square': '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
   'git-branch': '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  users: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -279,6 +283,7 @@ function renderTabBar() {
     && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
     && (tabId !== 'nlsql' || isEnabled('nlSql'))
     && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
+    && (tabId !== 'council' || isEnabled('aiCouncil'))
     && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
     && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
 
@@ -366,6 +371,7 @@ function switchTab(tabId) {
   if (tabId === 'joinbuilder') renderJoinBuilderTab();
   if (tabId === 'nlsql') renderNLSQLTab();
   if (tabId === 'dvc') renderDVCTab();
+  if (tabId === 'council') renderCouncilTab();
   if (tabId === 'drillfloor') renderDrillFloorTab();
   if (tabId === 'cleaningcrew') renderCleaningCrewTab();
   renderCommandDeckSidebar();
@@ -7642,6 +7648,37 @@ function renderDVCTab() {
         meta.rowCount.toLocaleString() + ' rows, ' +
         meta.cols.length + ' cols. Reload the original file to restore.';
       toast(msg, 'info');
+    },
+    onToast: toast,
+  });
+}
+
+// ============================================================
+// AI Council Tab (Phase 11 -- ships dark behind the aiCouncil flag)
+// ============================================================
+// Multi-Model AI Council: ask one analytical question, get parallel answers
+// from OpenAI, Anthropic Claude, and Google Gemini, then see where they agree
+// (consensus), where two of three agree (majority), and where they differ
+// (contested). Primary use case is data questions, not general chat.
+// PRIVACY: schema (column names + types) only, same guarantee as NL->SQL --
+// no row data is ever sent to any of the three providers.
+
+function renderCouncilTab() {
+  const host = document.getElementById('council-body');
+  if (!host) return;
+  if (!isEnabled('aiCouncil')) { host.innerHTML = ''; return; }
+
+  mountCouncilUI({
+    host,
+    getSchemaContext: () => {
+      const datasets = state.datasets || [];
+      if (!datasets.length) return null;
+      try {
+        const ctx = datasetsToSchemaContext(datasets, 'healthcare');
+        return serializeSchemaForPrompt(ctx);
+      } catch (err) {
+        return null;
+      }
     },
     onToast: toast,
   });
