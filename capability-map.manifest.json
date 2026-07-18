@@ -1,6 +1,6 @@
 {
-  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and \u2014 for the identity-defining modules \u2014 a symbol that must still be exported.",
+  "_platforms": "Each capability declares a non-empty `platforms` list \u2014 a subset of [\"browser\",\"desktop\",\"mobile\"] \u2014 read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API \u2014 see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -835,7 +835,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "AI Touch Ledger (Batch 1 + Batch 2 — wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
+      "name": "AI Touch Ledger (Batch 1 + Batch 2 \u2014 wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
       "files": [
         "js/provenance/ai-touch-ledger.js",
         "js/narrative/story.js",
@@ -864,7 +864,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Query Memory (Batch 2 — SQL/Python/R wiring + \"seen before\" badge)",
+      "name": "Query Memory (Batch 2 \u2014 SQL/Python/R wiring + \"seen before\" badge)",
       "files": [
         "js/provenance/query-memory.js",
         "js/provenance/query-memory-ui.js"
@@ -921,14 +921,23 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Portable Receipts — per-artifact lineage stamp",
+      "name": "Portable Receipts \u2014 per-artifact lineage stamp",
       "files": [
         "js/provenance/portable-receipt.js"
       ],
       "symbols": [
-        { "file": "js/provenance/portable-receipt.js", "name": "PORTABLE_RECEIPT_KIND" },
-        { "file": "js/provenance/portable-receipt.js", "name": "buildClaimReceipt" },
-        { "file": "js/provenance/portable-receipt.js", "name": "verifyClaimReceipt" }
+        {
+          "file": "js/provenance/portable-receipt.js",
+          "name": "PORTABLE_RECEIPT_KIND"
+        },
+        {
+          "file": "js/provenance/portable-receipt.js",
+          "name": "buildClaimReceipt"
+        },
+        {
+          "file": "js/provenance/portable-receipt.js",
+          "name": "verifyClaimReceipt"
+        }
       ]
     },
     {
@@ -938,7 +947,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet — data blame + de-identification verifier",
+      "name": "Provenance Packet \u2014 data blame + de-identification verifier",
       "files": [
         "js/provenance/data-blame.js",
         "js/provenance/deidentification-verifier.js"
@@ -956,71 +965,135 @@
     },
     {
       "id": "provenance-nutrition-label",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Data Nutrition Label (Trust Passport, Batch 2)",
-      "files": ["js/provenance/data-nutrition-label.js"],
+      "files": [
+        "js/provenance/data-nutrition-label.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/data-nutrition-label.js", "name": "buildDataNutritionLabel" }
+        {
+          "file": "js/provenance/data-nutrition-label.js",
+          "name": "buildDataNutritionLabel"
+        }
       ]
     },
     {
       "id": "provenance-check-seal",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Verifiable Check Seal (Trust Passport, Batch 3)",
-      "files": ["js/provenance/verifiable-check-seal.js"],
+      "files": [
+        "js/provenance/verifiable-check-seal.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/verifiable-check-seal.js", "name": "sealCheckResult" }
+        {
+          "file": "js/provenance/verifiable-check-seal.js",
+          "name": "sealCheckResult"
+        }
       ]
     },
     {
       "id": "provenance-trust-beam",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Trust Beam (shareable seal link)",
-      "files": ["js/provenance/trust-beam.js"],
+      "files": [
+        "js/provenance/trust-beam.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/trust-beam.js", "name": "buildBeamUrl" }
+        {
+          "file": "js/provenance/trust-beam.js",
+          "name": "buildBeamUrl"
+        }
       ]
     },
     {
       "id": "provenance-zk-threshold-proof",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
-      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) — first genuine zero-knowledge proof in DataGlow",
-      "files": ["js/provenance/zk-threshold-proof.js"],
+      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) \u2014 first genuine zero-knowledge proof in DataGlow",
+      "files": [
+        "js/provenance/zk-threshold-proof.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/zk-threshold-proof.js", "name": "proveZeroCriticalIssues" },
-        { "file": "js/provenance/zk-threshold-proof.js", "name": "verifyZeroProof" },
-        { "file": "js/provenance/zk-threshold-proof.js", "name": "selfCheckGroup" }
+        {
+          "file": "js/provenance/zk-threshold-proof.js",
+          "name": "proveZeroCriticalIssues"
+        },
+        {
+          "file": "js/provenance/zk-threshold-proof.js",
+          "name": "verifyZeroProof"
+        },
+        {
+          "file": "js/provenance/zk-threshold-proof.js",
+          "name": "selfCheckGroup"
+        }
       ]
     },
     {
       "id": "provenance-proof-room",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Proof Room (Trust Passport, composition batch 1 + AI Touch Ledger step, feature-flagged: aiTouchLedger)",
-      "files": ["js/provenance/proof-room.js"],
+      "files": [
+        "js/provenance/proof-room.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/proof-room.js", "name": "buildProofRoomPlan" },
-        { "file": "js/provenance/proof-room.js", "name": "renderProofRoom" }
+        {
+          "file": "js/provenance/proof-room.js",
+          "name": "buildProofRoomPlan"
+        },
+        {
+          "file": "js/provenance/proof-room.js",
+          "name": "renderProofRoom"
+        }
       ]
     },
     {
       "id": "provenance-packet-batch-2",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier",
-      "files": ["js/provenance/denial-root-cause.js", "js/provenance/cost-of-bad-data.js"],
+      "name": "Provenance Packet (Batch 2) \u2014 denial root-cause profiler + cost-of-bad-data quantifier",
+      "files": [
+        "js/provenance/denial-root-cause.js",
+        "js/provenance/cost-of-bad-data.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/denial-root-cause.js", "name": "buildDenialReport" },
-        { "file": "js/provenance/cost-of-bad-data.js", "name": "estimateCostOfBadData" }
+        {
+          "file": "js/provenance/denial-root-cause.js",
+          "name": "buildDenialReport"
+        },
+        {
+          "file": "js/provenance/cost-of-bad-data.js",
+          "name": "estimateCostOfBadData"
+        }
       ]
     },
     {
       "id": "provenance-analysis-fingerprint",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Analysis fingerprint & nutrition label",
       "files": [
@@ -1028,47 +1101,96 @@
         "js/provenance/nutrition-badges.js"
       ],
       "symbols": [
-        { "file": "js/provenance/analysis-fingerprint.js", "name": "computeAnalysisFingerprint" },
-        { "file": "js/provenance/analysis-fingerprint.js", "name": "verifyAnalysisFingerprint" },
-        { "file": "js/provenance/nutrition-badges.js", "name": "computeBadges" },
-        { "file": "js/provenance/nutrition-badges.js", "name": "BADGE_CATALOG" }
+        {
+          "file": "js/provenance/analysis-fingerprint.js",
+          "name": "computeAnalysisFingerprint"
+        },
+        {
+          "file": "js/provenance/analysis-fingerprint.js",
+          "name": "verifyAnalysisFingerprint"
+        },
+        {
+          "file": "js/provenance/nutrition-badges.js",
+          "name": "computeBadges"
+        },
+        {
+          "file": "js/provenance/nutrition-badges.js",
+          "name": "BADGE_CATALOG"
+        }
       ]
     },
     {
       "id": "provenance-incident-postmortem",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Blameless incident postmortem",
       "files": [
         "js/provenance/incident-postmortem.js"
       ],
       "symbols": [
-        { "file": "js/provenance/incident-postmortem.js", "name": "draftPostmortem" },
-        { "file": "js/provenance/incident-postmortem.js", "name": "reconstructTimeline" },
-        { "file": "js/provenance/incident-postmortem.js", "name": "proposeCorrection" }
+        {
+          "file": "js/provenance/incident-postmortem.js",
+          "name": "draftPostmortem"
+        },
+        {
+          "file": "js/provenance/incident-postmortem.js",
+          "name": "reconstructTimeline"
+        },
+        {
+          "file": "js/provenance/incident-postmortem.js",
+          "name": "proposeCorrection"
+        }
       ]
     },
     {
       "id": "provenance-ownership-ledger",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
       "name": "Ownership Ledger (DataGlow Passport, Batch D)",
-      "files": ["js/provenance/ownership-ledger.js"],
+      "files": [
+        "js/provenance/ownership-ledger.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/ownership-ledger.js", "name": "deriveOwnershipEvents" },
-        { "file": "js/provenance/ownership-ledger.js", "name": "summarizeCurrentOwnership" },
-        { "file": "js/provenance/ownership-ledger.js", "name": "claimOwnership" }
+        {
+          "file": "js/provenance/ownership-ledger.js",
+          "name": "deriveOwnershipEvents"
+        },
+        {
+          "file": "js/provenance/ownership-ledger.js",
+          "name": "summarizeCurrentOwnership"
+        },
+        {
+          "file": "js/provenance/ownership-ledger.js",
+          "name": "claimOwnership"
+        }
       ]
     },
     {
       "id": "provenance-packet-format",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 3) — portable signed .dataglow packet format (export/import)",
-      "files": ["js/provenance/provenance-packet.js"],
+      "name": "Provenance Packet (Batch 3) \u2014 portable signed .dataglow packet format (export/import)",
+      "files": [
+        "js/provenance/provenance-packet.js"
+      ],
       "symbols": [
-        { "file": "js/provenance/provenance-packet.js", "name": "buildPacket" },
-        { "file": "js/provenance/provenance-packet.js", "name": "verifyPacket" }
+        {
+          "file": "js/provenance/provenance-packet.js",
+          "name": "buildPacket"
+        },
+        {
+          "file": "js/provenance/provenance-packet.js",
+          "name": "verifyPacket"
+        }
       ]
     },
     {
@@ -1087,12 +1209,20 @@
     },
     {
       "id": "privacy-synthetic-passport",
-      "platforms": ["browser", "desktop"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
       "area": "Privacy & synthetic data",
       "name": "Governed Synthetic Data Passport (Trust Passport, Batch 4)",
-      "files": ["js/privacy/synthetic-data-passport.js"],
+      "files": [
+        "js/privacy/synthetic-data-passport.js"
+      ],
       "symbols": [
-        { "file": "js/privacy/synthetic-data-passport.js", "name": "buildSyntheticDataPassport" }
+        {
+          "file": "js/privacy/synthetic-data-passport.js",
+          "name": "buildSyntheticDataPassport"
+        }
       ]
     },
     {
@@ -1359,7 +1489,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Cleaning Crew — Profiler station (PDF text extraction, Batch 1)",
+      "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1)",
       "files": [
         "js/cleaning-crew/pdf-profiler.js"
       ],
@@ -1448,11 +1578,22 @@
       "id": "app-shell-metrics-registry",
       "area": "App shell & data engine",
       "name": "Shared metrics registry",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/app-shell/metrics-registry.js"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/app-shell/metrics-registry.js"
+      ],
       "symbols": [
-        { "file": "js/app-shell/metrics-registry.js", "name": "createMetricsRegistry" },
-        { "file": "js/app-shell/metrics-registry.js", "name": "expandMetricReferences" }
+        {
+          "file": "js/app-shell/metrics-registry.js",
+          "name": "createMetricsRegistry"
+        },
+        {
+          "file": "js/app-shell/metrics-registry.js",
+          "name": "expandMetricReferences"
+        }
       ]
     },
     {
@@ -1643,7 +1784,7 @@
     {
       "id": "pack-builder-ui",
       "area": "Conversational pack builder",
-      "name": "Guided pack builder — Validate-tab UI wiring",
+      "name": "Guided pack builder \u2014 Validate-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -1768,7 +1909,7 @@
     {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
-      "name": "Meeting scribe — Meeting-tab UI wiring",
+      "name": "Meeting scribe \u2014 Meeting-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -1866,7 +2007,7 @@
     {
       "id": "meeting-decision-ledger-ui",
       "area": "Meeting scribe",
-      "name": "Meeting decision ledger — Meeting-tab browse/save UI wiring",
+      "name": "Meeting decision ledger \u2014 Meeting-tab browse/save UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2102,50 +2243,109 @@
     {
       "id": "data-diplomacy-ui",
       "area": "Data Diplomacy",
-      "name": "Data Diplomacy — two-key panel UI (Batch 2)",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/diplomacy/diplomacy-ui.js"],
+      "name": "Data Diplomacy \u2014 two-key panel UI (Batch 2)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/diplomacy/diplomacy-ui.js"
+      ],
       "symbols": [
-        { "file": "js/diplomacy/diplomacy-ui.js", "name": "buildClaimCardModel" },
-        { "file": "js/diplomacy/diplomacy-ui.js", "name": "buildReconciliationPanelModel" },
-        { "file": "js/diplomacy/diplomacy-ui.js", "name": "renderDiplomacyPanel" }
+        {
+          "file": "js/diplomacy/diplomacy-ui.js",
+          "name": "buildClaimCardModel"
+        },
+        {
+          "file": "js/diplomacy/diplomacy-ui.js",
+          "name": "buildReconciliationPanelModel"
+        },
+        {
+          "file": "js/diplomacy/diplomacy-ui.js",
+          "name": "renderDiplomacyPanel"
+        }
       ]
     },
     {
       "id": "agent-action-firewall",
       "area": "Provenance, audit & trust",
-      "name": "Agent Action Firewall — human-confirmation gate for data mutations",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/agent-action-firewall.js"],
+      "name": "Agent Action Firewall \u2014 human-confirmation gate for data mutations",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/agent-action-firewall.js"
+      ],
       "symbols": [
-        { "file": "js/agents/agent-action-firewall.js", "name": "classifyAction" },
-        { "file": "js/agents/agent-action-firewall.js", "name": "proposeAction" },
-        { "file": "js/agents/agent-action-firewall.js", "name": "confirmAndApply" },
-        { "file": "js/agents/agent-action-firewall.js", "name": "normalizeIdentity" }
+        {
+          "file": "js/agents/agent-action-firewall.js",
+          "name": "classifyAction"
+        },
+        {
+          "file": "js/agents/agent-action-firewall.js",
+          "name": "proposeAction"
+        },
+        {
+          "file": "js/agents/agent-action-firewall.js",
+          "name": "confirmAndApply"
+        },
+        {
+          "file": "js/agents/agent-action-firewall.js",
+          "name": "normalizeIdentity"
+        }
       ]
     },
     {
       "id": "guarded-copilot",
       "area": "Provenance, audit & trust",
-      "name": "Guarded Copilot (Batch 2) — read-only, lineage-citing chat core + chat panel UI",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/guarded-copilot.js"],
+      "name": "Guarded Copilot (Batch 2) \u2014 read-only, lineage-citing chat core + chat panel UI",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/guarded-copilot.js"
+      ],
       "symbols": [
-        { "file": "js/agents/guarded-copilot.js", "name": "classifyIntent" },
-        { "file": "js/agents/guarded-copilot.js", "name": "answerDeterministic" },
-        { "file": "js/agents/guarded-copilot.js", "name": "askGuardedCopilot" },
-        { "file": "js/agents/guarded-copilot.js", "name": "refineWithOnDeviceModel" }
+        {
+          "file": "js/agents/guarded-copilot.js",
+          "name": "classifyIntent"
+        },
+        {
+          "file": "js/agents/guarded-copilot.js",
+          "name": "answerDeterministic"
+        },
+        {
+          "file": "js/agents/guarded-copilot.js",
+          "name": "askGuardedCopilot"
+        },
+        {
+          "file": "js/agents/guarded-copilot.js",
+          "name": "refineWithOnDeviceModel"
+        }
       ]
     },
     {
       "id": "pack-builder-debate-diagnostics",
       "area": "Conversational pack builder",
       "name": "Debate transparency diagnostics",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/agents/debate-diagnostics.js"],
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/agents/debate-diagnostics.js"
+      ],
       "symbols": [
-        { "file": "js/agents/debate-diagnostics.js", "name": "buildDebateDiagnostics" },
-        { "file": "js/agents/debate-diagnostics.js", "name": "PERSONA_LABELS" }
+        {
+          "file": "js/agents/debate-diagnostics.js",
+          "name": "buildDebateDiagnostics"
+        },
+        {
+          "file": "js/agents/debate-diagnostics.js",
+          "name": "PERSONA_LABELS"
+        }
       ]
     },
     {
@@ -2177,8 +2377,7 @@
           "name": "filterCommands"
         }
       ]
-    }
-,
+    },
     {
       "id": "open-floor-kernel",
       "area": "Open Floor",
@@ -2213,66 +2412,547 @@
     {
       "id": "open-floor-sandbox-twin",
       "area": "Open Floor",
-      "name": "Open Floor Sandbox Twin — forkable disposable dataset copy; every mutation & promote firewall-gated",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/simulation/sandbox-twin.js"],
+      "name": "Open Floor Sandbox Twin \u2014 forkable disposable dataset copy; every mutation & promote firewall-gated",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/simulation/sandbox-twin.js"
+      ],
       "symbols": [
-        { "file": "js/simulation/sandbox-twin.js", "name": "createSandboxTwin" }
+        {
+          "file": "js/simulation/sandbox-twin.js",
+          "name": "createSandboxTwin"
+        }
       ]
     },
     {
       "id": "query-sentinel",
       "area": "Validation layers",
-      "name": "Query Sentinel (Batch 1) — deterministic per-query SQL correctness verifier",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/validation/query-sentinel.js"],
+      "name": "Query Sentinel (Batch 1) \u2014 deterministic per-query SQL correctness verifier",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/validation/query-sentinel.js"
+      ],
       "symbols": [
-        { "file": "js/validation/query-sentinel.js", "name": "extractJoins" },
-        { "file": "js/validation/query-sentinel.js", "name": "checkFanout" },
-        { "file": "js/validation/query-sentinel.js", "name": "checkJoinKey" },
-        { "file": "js/validation/query-sentinel.js", "name": "checkAdditivity" },
-        { "file": "js/validation/query-sentinel.js", "name": "checkSensitiveColumn" },
-        { "file": "js/validation/query-sentinel.js", "name": "runQuerySentinel" },
-        { "file": "js/validation/query-sentinel.js", "name": "summarizeQuerySentinel" }
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "extractJoins"
+        },
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "checkFanout"
+        },
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "checkJoinKey"
+        },
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "checkAdditivity"
+        },
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "checkSensitiveColumn"
+        },
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "runQuerySentinel"
+        },
+        {
+          "file": "js/validation/query-sentinel.js",
+          "name": "summarizeQuerySentinel"
+        }
       ]
     },
     {
       "id": "query-sentinel-assist",
       "area": "Validation layers",
-      "name": "Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/validation/query-sentinel-assist.js"],
+      "name": "Query Sentinel Assist (Batch 2) \u2014 bounded on-device explain & fix-suggest",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/validation/query-sentinel-assist.js"
+      ],
       "symbols": [
-        { "file": "js/validation/query-sentinel-assist.js", "name": "buildFixSuggestion" },
-        { "file": "js/validation/query-sentinel-assist.js", "name": "assistDeterministic" },
-        { "file": "js/validation/query-sentinel-assist.js", "name": "assistWithOnDeviceModel" }
+        {
+          "file": "js/validation/query-sentinel-assist.js",
+          "name": "buildFixSuggestion"
+        },
+        {
+          "file": "js/validation/query-sentinel-assist.js",
+          "name": "assistDeterministic"
+        },
+        {
+          "file": "js/validation/query-sentinel-assist.js",
+          "name": "assistWithOnDeviceModel"
+        }
       ]
     },
     {
       "id": "query-sentinel-bridge",
       "area": "Validation layers",
-      "name": "Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/validation/query-sentinel-bridge.js"],
+      "name": "Query Sentinel Bridge (Batch 3, final) \u2014 FROM py./r. cross-runtime table resolver",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/validation/query-sentinel-bridge.js"
+      ],
       "symbols": [
-        { "file": "js/validation/query-sentinel-bridge.js", "name": "extractBridgeReferences" },
-        { "file": "js/validation/query-sentinel-bridge.js", "name": "resolveBridgeReferences" },
-        { "file": "js/validation/query-sentinel-bridge.js", "name": "summarizeBridgeResolution" }
+        {
+          "file": "js/validation/query-sentinel-bridge.js",
+          "name": "extractBridgeReferences"
+        },
+        {
+          "file": "js/validation/query-sentinel-bridge.js",
+          "name": "resolveBridgeReferences"
+        },
+        {
+          "file": "js/validation/query-sentinel-bridge.js",
+          "name": "summarizeBridgeResolution"
+        }
       ]
     },
     {
       "id": "statistical-rigor-layer",
       "area": "Analysis robustness",
-      "name": "Statistical Rigor Layer (Batch 1) — confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
-      "platforms": ["browser", "desktop"],
-      "files": ["js/rigor/statistical-rigor.js"],
+      "name": "Statistical Rigor Layer (Batch 1) \u2014 confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/rigor/statistical-rigor.js"
+      ],
       "symbols": [
-        { "file": "js/rigor/statistical-rigor.js", "name": "confidenceIntervalForMean" },
-        { "file": "js/rigor/statistical-rigor.js", "name": "classifySampleSize" },
-        { "file": "js/rigor/statistical-rigor.js", "name": "classifyConfidence" },
-        { "file": "js/rigor/statistical-rigor.js", "name": "cohensD" },
-        { "file": "js/rigor/statistical-rigor.js", "name": "bonferroniAdjustedAlpha" },
-        { "file": "js/rigor/statistical-rigor.js", "name": "detectSimpsonsParadox" }
+        {
+          "file": "js/rigor/statistical-rigor.js",
+          "name": "confidenceIntervalForMean"
+        },
+        {
+          "file": "js/rigor/statistical-rigor.js",
+          "name": "classifySampleSize"
+        },
+        {
+          "file": "js/rigor/statistical-rigor.js",
+          "name": "classifyConfidence"
+        },
+        {
+          "file": "js/rigor/statistical-rigor.js",
+          "name": "cohensD"
+        },
+        {
+          "file": "js/rigor/statistical-rigor.js",
+          "name": "bonferroniAdjustedAlpha"
+        },
+        {
+          "file": "js/rigor/statistical-rigor.js",
+          "name": "detectSimpsonsParadox"
+        }
+      ]
+    },
+    {
+      "id": "app-shell-duckdb-config",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "DuckDB WASM configuration",
+      "files": [
+        "js/app-shell/duckdb-config.js"
+      ]
+    },
+    {
+      "id": "enterprise-policy",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Enterprise & governance",
+      "name": "Enterprise policy engine",
+      "files": [
+        "js/build/enterprise-policy.js"
+      ]
+    },
+    {
+      "id": "council-engine",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "AI Council",
+      "name": "Multi-model deliberation engine",
+      "files": [
+        "js/council/council-engine.js"
+      ]
+    },
+    {
+      "id": "council-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "AI Council",
+      "name": "Council tab UI",
+      "files": [
+        "js/council/council-ui.js"
+      ]
+    },
+    {
+      "id": "drift-dataset-differ",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data quality & drift",
+      "name": "Dataset differ",
+      "files": [
+        "js/drift/dataset-differ.js"
+      ]
+    },
+    {
+      "id": "drift-freshness-decay",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data quality & drift",
+      "name": "Freshness decay calculator",
+      "files": [
+        "js/drift/freshness-decay.js"
+      ]
+    },
+    {
+      "id": "dvc-diff",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Version Control",
+      "name": "Snapshot diff engine",
+      "files": [
+        "js/dvc/dvc-diff.js"
+      ]
+    },
+    {
+      "id": "dvc-store",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Version Control",
+      "name": "Snapshot store",
+      "files": [
+        "js/dvc/dvc-store.js"
+      ]
+    },
+    {
+      "id": "dvc-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Data Version Control",
+      "name": "Versions tab UI",
+      "files": [
+        "js/dvc/dvc-ui.js"
+      ]
+    },
+    {
+      "id": "equity-disparity-scorer",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Equity & fairness",
+      "name": "Disparity scorer",
+      "files": [
+        "js/equity/disparity-scorer.js"
+      ]
+    },
+    {
+      "id": "equity-attestation",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Equity & fairness",
+      "name": "Equity attestation builder",
+      "files": [
+        "js/equity/equity-attestation.js"
+      ]
+    },
+    {
+      "id": "equity-detector",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Equity & fairness",
+      "name": "Protected-column detector",
+      "files": [
+        "js/equity/equity-detector.js"
+      ]
+    },
+    {
+      "id": "equity-stratifier",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Equity & fairness",
+      "name": "Outcome stratifier",
+      "files": [
+        "js/equity/equity-stratifier.js"
+      ]
+    },
+    {
+      "id": "join-builder-canvas",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Join Builder",
+      "name": "Visual join canvas",
+      "files": [
+        "js/join-builder/join-canvas.js"
+      ]
+    },
+    {
+      "id": "join-builder-model",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Join Builder",
+      "name": "Join model",
+      "files": [
+        "js/join-builder/join-model.js"
+      ]
+    },
+    {
+      "id": "join-builder-sql",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Join Builder",
+      "name": "Join SQL generator",
+      "files": [
+        "js/join-builder/join-sql.js"
+      ]
+    },
+    {
+      "id": "nlsql-metric-contracts",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "NL-to-SQL",
+      "name": "Metric contract definitions",
+      "files": [
+        "js/nl-sql/metric-contracts.js"
+      ]
+    },
+    {
+      "id": "nlsql-engine",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "NL-to-SQL",
+      "name": "NL-to-SQL engine",
+      "files": [
+        "js/nl-sql/nl-sql-engine.js"
+      ]
+    },
+    {
+      "id": "nlsql-key-store",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "NL-to-SQL",
+      "name": "API key store (in-memory)",
+      "files": [
+        "js/nl-sql/nl-sql-key-store.js"
+      ]
+    },
+    {
+      "id": "nlsql-pattern-engine",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "NL-to-SQL",
+      "name": "Zero-cost pattern engine",
+      "files": [
+        "js/nl-sql/nl-sql-pattern-engine.js"
+      ]
+    },
+    {
+      "id": "nlsql-ui",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "NL-to-SQL",
+      "name": "AI tab UI",
+      "files": [
+        "js/nl-sql/nl-sql-ui.js"
+      ]
+    },
+    {
+      "id": "nlsql-schema-context",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "NL-to-SQL",
+      "name": "Schema context serializer",
+      "files": [
+        "js/nl-sql/schema-context.js"
+      ]
+    },
+    {
+      "id": "relational-flag-consistency",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Relational integrity",
+      "name": "Flag consistency checker",
+      "files": [
+        "js/relational/flag-consistency-checker.js"
+      ]
+    },
+    {
+      "id": "relational-foreign-key",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Relational integrity",
+      "name": "Foreign key checker",
+      "files": [
+        "js/relational/foreign-key-checker.js"
+      ]
+    },
+    {
+      "id": "relational-join-coverage",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Relational integrity",
+      "name": "Join coverage checker",
+      "files": [
+        "js/relational/join-coverage-checker.js"
+      ]
+    },
+    {
+      "id": "relational-temporal-order",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Relational integrity",
+      "name": "Temporal order checker",
+      "files": [
+        "js/relational/temporal-order-checker.js"
+      ]
+    },
+    {
+      "id": "rulepacks-general",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Rule packs",
+      "name": "General rulepack",
+      "files": [
+        "js/rulepacks/packs/general.js"
+      ]
+    },
+    {
+      "id": "rulepacks-healthcare",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Rule packs",
+      "name": "Healthcare rulepack",
+      "files": [
+        "js/rulepacks/packs/healthcare.js"
+      ]
+    },
+    {
+      "id": "rulepacks-registry",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Rule packs",
+      "name": "Rulepack registry",
+      "files": [
+        "js/rulepacks/rulepack-registry.js"
+      ]
+    },
+    {
+      "id": "trust-certificate",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Trust & provenance",
+      "name": "Trust certificate builder",
+      "files": [
+        "js/trust/trust-certificate.js"
+      ]
+    },
+    {
+      "id": "validation-drg-icd",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Validation layers",
+      "name": "DRG/ICD coding validator",
+      "files": [
+        "js/validation/drg-icd-validator.js"
+      ]
+    },
+    {
+      "id": "warehouse-bigquery",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Warehouse connectors",
+      "name": "BigQuery connector",
+      "files": [
+        "js/warehouse/bigquery-connector.js"
+      ]
+    },
+    {
+      "id": "warehouse-s3",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Warehouse connectors",
+      "name": "S3 connector",
+      "files": [
+        "js/warehouse/s3-connector.js"
       ]
     }
   ]
