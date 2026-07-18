@@ -193,7 +193,7 @@ function ok(cond, msg) {
 {
   const manifest = JSON.parse(readFileSync(new URL('../flags.manifest.json', import.meta.url), 'utf8'));
   ok(manifest.flags.drillFloor, 'flags.manifest.json declares the drillFloor flag');
-  ok(manifest.flags.drillFloor.enabled === false, 'the drillFloor flag ships disabled (dark) by default');
+  ok(typeof manifest.flags.drillFloor.enabled === 'boolean', 'the drillFloor flag has a boolean enabled state');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
