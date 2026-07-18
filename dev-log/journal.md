@@ -7,6 +7,79 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 12:28 CT] drillFloor promoted to live (PR #349, merged) — 4th and final flag in this promotion round
+
+**What was asked:** Fourth and final flag in the 4-flag promotion sequence (provenancePacket, glowCanvas,
+cleaningCrew, drillFloor). This entry covers `drillFloor` — a Maven-Analytics-style practice module where
+the same real problem ("Spot the Sale", a BETWEEN-join of orders to active promo date ranges) is solved
+side-by-side in SQL, Python, and R, plus Batch 2's cross-language result-diff/comparison engine, both of
+which have been shipping dark since earlier batches.
+
+**Pre-flight found two real bugs, not just a flag flip:**
+1. **Sidebar flag-gating leak (pre-existing, not caused by this flag):** the Command Deck sidebar rendered
+   the raw, unfiltered `TAB_META` with no flag check at all — confirmed via screenshot that `drillFloor`
+   appeared in the sidebar on unmodified `main` even with its flag off, while the top tab bar correctly hid
+   it. Two independent nav renderers (`renderTabBar`, `renderCommandDeckSidebar`) had each implemented their
+   own visibility logic, and only one of them actually filtered by flag state. Fixed by extracting a single
+   shared `getVisibleTabIds()` gate now used by both.
+2. **`[object Object]` display bug:** running the SQL drill rendered the literal text `[object Object]`
+   because `renderDrillOutput` fell back to stringifying the raw DuckDB result object. Fixed to only render
+   `result` as display text when it is genuinely a string (Python/R already returned real strings and were
+   unaffected).
+
+Also fixed a test-footgun (`test/drill-floor.test.mjs` hard-coded `enabled === false` as a permanent
+assertion — the same generalizable pattern flagged during `cleaningCrew`'s promotion and confirmed present
+here too), a drift-guard regression in `test/diplomacy-tab-gating.test.mjs` whose regex was scanning for the
+old inline filter location the sidebar refactor moved, and added a new regression test to
+`test/command-deck-nav.test.mjs` asserting the sidebar always filters through the shared gate so this bug
+class can't silently return.
+
+**What was decided/built:** One Confirm gate presented with full evidence (diff scope, both bonus bug fixes
+disclosed explicitly, test evidence, OFF/ON-state screenshots including the SQL and Python runs); user
+approved at 12:00 PM CT. Branch `enable/drill-floor-live` — 5 files, 81 insertions / 23 deletions.
+
+**Main moved twice while this was in flight** — a real-time instance of the generalized clobber-risk lesson
+from earlier flags. First, 3 PRs landed (semantic-layer persistence, an MCP server, an AI Readiness Gate
+Settings export) touching `flags.manifest.json` and `main.js` — required a full rebase, resolved by taking
+my exact two-line semantic change (flag flip + description) on top of the new base and confirming via a
+full-file diff that nothing else in the 71-flag (then 72) manifest was touched. Re-ran the full test suite
+and a live Playwright pass against the rebased code before re-pushing (`--force-with-lease`, using the
+short-SHA form after the proxy's remote-tracking refspec turned out to only track `main` by default — a new
+infra quirk worth remembering: `git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>` is
+needed to get a working lease reference for any non-`main` branch on this remote). Then, while CI was
+running, main moved a second time (2 more PRs, a new `trustCertificate` flag) — a `git merge-tree`
+conflict simulation confirmed a clean merge with no conflicts in either shared file, so merged directly via
+the already-CI-validated commit rather than rebasing again.
+
+Independently re-verified before merge: re-ran the full 165-test suite myself on the actual branch tip
+(162 pass, same 3 pre-existing unrelated failures as always). CI: 57/58 green (`tauri-smoke` passed);
+the 1 failure is the same pre-existing Command Deck sidebar coverage-gap test (joinbuilder/nlsql/dvc), and
+the new regression test (test 15 in that same file) passed. Merged (squash), branch deleted.
+
+**Outcome:** Live. Re-verified on the new main tip (`dd2d73b`, which fast-forwarded through the second
+round of concurrent work): `drillFloor.enabled === true`, and `cleaningCrew`, `provenancePacket`,
+`glowCanvas`, `rigorEngineBadges`, and the concurrently-landed `trustCertificate` all still `true` — nothing
+clobbered, 72 flags total. Full `node --check` clean. Full test sweep on the new tip: 163/166 pass, same 3
+pre-existing failures. Live Playwright re-run against the real (not temp-edited) new main tip: tab present
+in both top bar and sidebar, SQL drill returns 133 rows with no `[object Object]`, zero console errors.
+This completes all 4 flags in this promotion round: **provenancePacket, glowCanvas, cleaningCrew, and
+drillFloor are now all live.**
+
+**Lesson for next time:** (1) A sidebar/tab-bar nav split into two independent renderers is a standing risk
+for exactly this kind of silent gating drift — any future new nav surface should be checked against the
+same shared `getVisibleTabIds()` gate from day one, not audited after the fact per-flag. (2) A "drift guard"
+test that regex-matches literal source text (not just behavior) will break the instant that pattern's
+surrounding code is refactored, even when behavior is unchanged or improved — when refactoring shared logic
+out of one call site, proactively search for every drift-guard test referencing the old pattern rather than
+waiting for CI to find it, and add a new drift-guard test for the newly-extracted shared function itself.
+(3) Never fall back to `String(someObject)` when rendering a value that might be a non-string object to the
+UI — guard with `typeof x === 'string'` instead; this is a generalizable rendering-layer rule, not specific
+to this one drill output. (4) This session saw `main` move twice during a single flag's promotion — with
+multiple concurrent workstreams landing PRs, budget for at least one rebase-or-merge-tree-check per
+promotion as the normal case going forward, not an exception.
+
+---
+
 ## [2026-07-18 11:23 CT] cleaningCrew promoted to live (PR #331, merged)
 
 **What was asked:** Third of the 4-flag promotion sequence (provenancePacket, glowCanvas, cleaningCrew,
