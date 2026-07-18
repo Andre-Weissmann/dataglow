@@ -447,5 +447,50 @@ export async function runCrossColumnChecks(table, cols, engine, opts = {}) {
     } catch { /* skip */ }
   }
 
+  // Rule 4 — LOS field vs date math mismatch.
+  // The los_days (length-of-stay) column, when present alongside admit and
+  // discharge date columns, must match the integer difference between those
+  // two dates. A mismatch of ≥ 2 days (allowing ±1 rounding convention) is
+  // a clear data error — either the LOS field was copied from a prior
+  // encounter, manually overridden, or the dates were corrected without
+  // updating the derived field.
+  const losCol = cols.find(c => {
+    const t = nameTokens(c.name);
+    return (t.includes('los') || (t.includes('length') && t.includes('stay'))) && isNumeric(c);
+  });
+  if (losCol) {
+    // Find an admit/discharge date pair within the already-detected date pairs,
+    // or fall back to any column whose name contains both the admit and
+    // discharge tokens from detectDatePairs.
+    const admitCol = cols.find(c => hasAnyKeyword(c.name, ['admit', 'admission']));
+    const dischargeCol = cols.find(c => hasAnyKeyword(c.name, ['discharge']));
+    if (admitCol && dischargeCol && admitCol.name !== dischargeCol.name) {
+      try {
+        const n = await q(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE "${admitCol.name}" IS NOT NULL
+            AND "${dischargeCol.name}" IS NOT NULL
+            AND "${losCol.name}" IS NOT NULL
+            AND ABS(
+              CAST("${losCol.name}" AS INTEGER)
+              - DATEDIFF('day',
+                  TRY_CAST("${admitCol.name}" AS DATE),
+                  TRY_CAST("${dischargeCol.name}" AS DATE)
+              )
+            ) >= 2`);
+        if (n > 0) {
+          findings.push({
+            rule: 'los_date_mismatch',
+            ruleLabel: 'LOS field vs date arithmetic mismatch',
+            columns: [losCol.name, admitCol.name, dischargeCol.name],
+            count: n,
+            text: `${n} row(s) where "${losCol.name}" differs from ("${dischargeCol.name}" − "${admitCol.name}") by ≥2 days — the stored LOS does not match the actual stay duration.`,
+            explanation: `"${losCol.name}" should equal the calendar-day difference between "${admitCol.name}" and "${dischargeCol.name}". ${n} row(s) have a discrepancy of 2+ days, indicating the field was not recomputed after a date correction, was copied from another record, or was manually entered incorrectly.`,
+          });
+        }
+      } catch { /* incompatible columns or missing DATEDIFF — skip */ }
+    }
+  }
+
   return findings;
 }

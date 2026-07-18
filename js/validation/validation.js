@@ -8,6 +8,7 @@ import * as engine from '../app-shell/duckdb-engine.js';
 import { sha256, formatNumber } from '../app-shell/utils.js';
 import { detectColumnClusters, describeCluster } from './categorical-consistency.js';
 import { runCrossColumnChecks } from './cross-column-consistency.js';
+import { runDrgIcdValidation } from './drg-icd-validator.js';
 import { logAssumption } from '../provenance/assumption-ledger.js';
 import { applyDomainPack, summarizeUnitTests } from './domain-physics.js';
 import { runPhysiologicalChecks, PHYSIO_DISCLAIMER } from './physiological-plausibility.js';
@@ -64,7 +65,8 @@ export const LAYER_DEFS = [
   { id: 'outlier_detection', name: 'Outlier Detection (MAD + IQR)', desc: 'Flags high AND low outliers via modified z-score and IQR fences — catches large positives, not just negatives.' },
   { id: 'benford', name: "Benford's Law Check", desc: 'Compares leading-digit distribution to the Newcomb-Benford expectation; gated to columns where the law actually applies.' },
   { id: 'categorical_consistency', name: 'Categorical Consistency Engine', desc: 'Clusters near-identical spellings (Levenshtein / Jaro-Winkler + ISO abbreviations) and proposes a canonical merge.' },
-  { id: 'cross_column_logic', name: 'Cross-Column Logical Consistency', desc: 'Detects impossible combinations across columns — end-before-start ranges, discharge-before-admit, adult-only status on minors.' },
+  { id: 'cross_column_logic', name: 'Cross-Column Logical Consistency', desc: 'Detects impossible combinations across columns — end-before-start ranges, discharge-before-admit, adult-only status on minors, LOS field vs date arithmetic mismatch.' },
+  { id: 'drg_icd_validation', name: 'DRG / ICD-10 Coding Validation', desc: 'Healthcare coding cross-check: flags MS-DRG codes whose principal ICD-10-CM diagnosis is incompatible under CMS MS-DRG grouper rules (FY2024). Catches claim-denial risk and case-mix index errors.' },
   { id: 'distribution_drift', name: 'Distributional Fingerprint Drift', desc: 'Stores each column\'s distribution shape and flags drift on a later load of the same schema.' },
   { id: 'physiological_plausibility', name: 'Physiological Plausibility', desc: 'Healthcare-aware check: flags vital-sign values (heart rate, temperature, blood pressure, respiratory rate, SpO₂) outside general human physiological limits. A data-plausibility check, not medical advice.' },
   { id: 'upper_bound_sanity', name: 'Upper-Bound Sanity Anchor', desc: 'Flags values outside a column\'s definitional bounds — percentages above 100 or below 0, proportions/probabilities outside 0–1. Anchored on logical/mathematical limits, not this dataset\'s statistics. Conservative: skips ambiguous unbounded rates/ratios.' },
@@ -913,6 +915,34 @@ async function runCrossColumnLogic(table, cols) {
   return r;
 }
 
+// ---------- 18b. DRG / ICD-10 Coding Validation ----------
+// Healthcare coding cross-check: detects MS-DRG codes whose principal
+// ICD-10-CM diagnosis is incompatible under public CMS MS-DRG grouper rules
+// (FY2024 IPPS). Fires only when the dataset has both a DRG column and a
+// primary ICD column; silently skipped otherwise (no false positives on
+// non-claims datasets). Each finding carries the DRG family, the affected
+// count, and a plain-language explanation for a coder to act on.
+// Detection + DRG family table live in js/validation/drg-icd-validator.js.
+async function runDrgIcdValidationLayer(table, cols) {
+  const findings = await runDrgIcdValidation(table, cols, engine);
+  if (findings.length === 0) {
+    // Determine whether DRG/ICD columns were even present.
+    const { detectDrgColumn, detectPrimaryIcdColumn } = await import('./drg-icd-validator.js');
+    const hasDrg = !!detectDrgColumn(cols);
+    const hasIcd = !!detectPrimaryIcdColumn(cols);
+    if (!hasDrg || !hasIcd) {
+      return result('idle', 'No DRG and ICD-10 column pair detected. Skipped (non-claims dataset).');
+    }
+    return result('pass', 'No DRG / ICD-10 coding mismatches detected.');
+  }
+  for (const f of findings) {
+    logAssumption('DRG / ICD-10 Coding Validation', `Flagged ${f.text}`, { rule: f.rule, columns: f.columns, count: f.count });
+  }
+  const r = result('fail', `${findings.length} DRG / ICD-10 coding mismatch type(s) detected — audit and reimbursement risk.`, findings.map(f => f.text));
+  r.findings = findings;
+  return r;
+}
+
 // ---------- 18. Distributional Fingerprint Drift ----------
 // Sibling of the Schema Fingerprint layer: even when the schema is unchanged,
 // the DATA can silently shift. On each load we record a per-column
@@ -1296,6 +1326,7 @@ export async function runAllLayers(ds, options = {}) {
   results.benford = await runBenford(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.categorical_consistency = await runCategoricalConsistency(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.cross_column_logic = await runCrossColumnLogic(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
+  results.drg_icd_validation = await runDrgIcdValidationLayer(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.distribution_drift = await runDistributionDrift(table, cols, { fingerprintStore: options.fingerprintStore }).catch(e => result('warn', `Could not run: ${e.message}`));
   results.physiological_plausibility = await runPhysiologicalPlausibility(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
   results.upper_bound_sanity = await runUpperBoundSanity(table, cols).catch(e => result('warn', `Could not run: ${e.message}`));
