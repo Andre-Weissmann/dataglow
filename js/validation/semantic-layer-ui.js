@@ -16,7 +16,7 @@
 // "AI-powered" and makes no network call.
 
 import { el } from '../app-shell/utils.js';
-import { registerMetric, getRegisteredMetrics } from './semantic-layer.js';
+import { registerMetric, getRegisteredMetrics, unregisterMetric } from './semantic-layer.js';
 
 /**
  * The single gate the SQL tab checks before offering the affordance. Pure — no
@@ -28,7 +28,7 @@ export function shouldOfferMetricDefiner({ enabled } = {}) {
   return enabled === true;
 }
 
-function renderRegisteredList(listHost) {
+function renderRegisteredList(listHost, onDelete) {
   const metrics = getRegisteredMetrics();
   listHost.innerHTML = '';
   if (!metrics.length) {
@@ -39,16 +39,31 @@ function renderRegisteredList(listHost) {
   }
   listHost.appendChild(el('div', {
     style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:6px;',
-  }, `Defined metrics (${metrics.length}) — in-memory only, cleared on reload:`));
+  }, 'Defined metrics (' + metrics.length + ') — saved locally, restored on reload:'));
   listHost.appendChild(el('ul', {
     style: 'margin:0; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:6px;',
-  }, metrics.map(m => el('li', {
-    style: 'font-size:var(--text-xs); display:flex; flex-direction:column; gap:2px;',
-  }, [
-    el('span', { class: 'mono', style: 'font-weight:600;' }, m.name),
-    el('span', { class: 'mono', style: 'color:var(--color-text-muted);' }, m.expression),
-    m.description ? el('span', { style: 'color:var(--color-text-faint);' }, m.description) : null,
-  ]))));
+  }, metrics.map(function(m) {
+    const removeBtn = el('button', {
+      'data-testid': 'metric-remove-' + m.nameLower,
+      style: 'border:none; background:none; cursor:pointer; color:var(--color-text-faint); font-size:var(--text-xs); padding:0; align-self:flex-start;',
+      title: 'Remove this metric definition',
+    }, 'Remove');
+    removeBtn.addEventListener('click', function() {
+      unregisterMetric(m.name);
+      if (typeof onDelete === 'function') onDelete(m.nameLower);
+      renderRegisteredList(listHost, onDelete);
+    });
+    return el('li', {
+      style: 'font-size:var(--text-xs); display:flex; flex-direction:column; gap:2px;',
+    }, [
+      el('div', { style: 'display:flex; align-items:center; gap:var(--space-2);' }, [
+        el('span', { class: 'mono', style: 'font-weight:600;' }, m.name),
+        removeBtn,
+      ]),
+      el('span', { class: 'mono', style: 'color:var(--color-text-muted);' }, m.expression),
+      m.description ? el('span', { style: 'color:var(--color-text-faint);' }, m.description) : null,
+    ]);
+  })));
 }
 
 /**
@@ -106,7 +121,7 @@ export function mountMetricDefiner({ host, onRegister, onToast } = {}) {
       nameInput.value = '';
       exprInput.value = '';
       descInput.value = '';
-      renderRegisteredList(listHost);
+      renderRegisteredList(listHost, onDelete);
       onToast?.(`Defined metric "${stored.name}". The Local Analysis Contract will now flag queries that compute it differently.`, 'success');
       onRegister?.(stored);
     },
@@ -118,7 +133,7 @@ export function mountMetricDefiner({ host, onRegister, onToast } = {}) {
   }, [
     el('div', { style: 'font-weight:600; font-size:var(--text-sm);' }, 'Define a metric'),
     el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-muted);' },
-      'Record what a metric MEANS so a query that computes it differently gets flagged. Definitions are local and in-memory only — nothing is uploaded.'),
+      'Record what a metric MEANS so a query that computes it differently gets flagged. Definitions are saved locally in your browser and restored on next load — nothing is uploaded.'),
     field('Name', nameInput),
     field('Canonical expression', exprInput),
     field('Description', descInput),
@@ -127,5 +142,5 @@ export function mountMetricDefiner({ host, onRegister, onToast } = {}) {
   ]);
 
   host.appendChild(card);
-  renderRegisteredList(listHost);
+  renderRegisteredList(listHost, onDelete);
 }

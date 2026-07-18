@@ -289,6 +289,8 @@
         <div style="display:flex; gap:var(--space-2);">
           <button class="btn btn-secondary" id="btn-attack-analysis" data-testid="button-attack-analysis" title="Run an adversarial robustness pass on the current query result">Attack My Analysis</button>
           <button class="btn btn-secondary" id="btn-define-metric" data-testid="button-define-metric" style="display:none;" title="Define what a metric means so queries computing it differently get flagged">Define a metric</button>
+          <button class="btn btn-secondary" id="btn-export-metrics" data-testid="button-export-metrics" style="display:none;" title="Export all metric definitions as JSON">Export metrics</button>
+          <label class="btn btn-secondary" id="label-import-metrics" data-testid="label-import-metrics" style="display:none; cursor:pointer;" title="Import metric definitions from a JSON file">Import metrics<input type="file" id="input-import-metrics" accept=".json,application/json" style="display:none;"></label>
           <button class="btn btn-secondary" id="btn-sql-format" data-testid="button-sql-format">Format</button>
           <button class="btn btn-primary" id="btn-sql-run" data-testid="button-sql-run">▶ Run (⌘⏎)</button>
         </div>

@@ -5,7 +5,7 @@
 // ============================================================
 
 const DB_NAME = 'dataglow_memory';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORE_PROFILES = 'columnProfiles';
 const STORE_RULES = 'approvedRules';
 const STORE_BASELINES = 'datasetBaselines';
@@ -14,6 +14,7 @@ const STORE_FP_HISTORY = 'fingerprintHistory';
 const STORE_LEDGER = 'meetingDecisionLedger';
 const STORE_QUERY_MEMORY = 'queryMemoryLog';
 const STORE_CANVAS_LAYOUTS = 'canvasLayouts';
+const STORE_SEMANTIC_METRICS = 'semanticMetrics';
 
 // Ledger entries are append-only and can accumulate across many meetings;
 // cap so an unbounded history can't grow the local database without limit.
@@ -106,6 +107,15 @@ export function initMemoryStore() {
         // save-by-key discipline as columnProfiles/approvedRules above, not the
         // append-only pattern of the ledgers.
         db.createObjectStore(STORE_CANVAS_LAYOUTS, { keyPath: 'name' });
+      }
+      if (!db.objectStoreNames.contains(STORE_SEMANTIC_METRICS)) {
+        // Semantic / Metrics Layer definitions (js/validation/semantic-layer.js
+        // supplies the pure registry + comparator; this file only stores and
+        // retrieves the resulting plain objects so metric definitions survive a
+        // page reload). Keyed by lowercased metric name — the same key the
+        // in-memory registry uses — so re-registering under the same name
+        // overwrites that definition rather than duplicating it.
+        db.createObjectStore(STORE_SEMANTIC_METRICS, { keyPath: 'nameLower' });
       }
     };
     open.onsuccess = () => resolve(open.result);
@@ -472,5 +482,68 @@ export async function clearCanvasLayouts() {
   const db = await initMemoryStore();
   const tx = db.transaction(STORE_CANVAS_LAYOUTS, 'readwrite');
   tx.objectStore(STORE_CANVAS_LAYOUTS).clear();
+  await txDone(tx);
+}
+
+// ---------- semanticMetrics (Semantic Layer metric definitions, keyed by lowercased name) ----------
+// Persists user-authored metric definitions (from js/validation/semantic-layer.js) so the
+// in-memory registry can be rehydrated on every page load. Save-by-name: re-registering under
+// the same name overwrites that definition. Only the metric name, expression, and description
+// are stored — never a byte of dataset row data — matching the store-only-summaries discipline.
+
+/**
+ * Persist one metric definition. The record shape mirrors registerMetric()'s
+ * validated output: { name, nameLower, expression, description, registeredAt }.
+ * @param {{ name:string, nameLower:string, expression:string, description?:string, registeredAt?:number }} metric
+ */
+export async function saveSemanticMetric(metric) {
+  if (!metric || typeof metric.nameLower !== 'string' || !metric.nameLower) {
+    throw new Error('saveSemanticMetric requires a metric with a non-empty nameLower key.');
+  }
+  const db = await initMemoryStore();
+  const record = {
+    nameLower: metric.nameLower,
+    name: String(metric.name || metric.nameLower),
+    expression: String(metric.expression || ''),
+    description: typeof metric.description === 'string' ? metric.description : '',
+    registeredAt: Number(metric.registeredAt) || Date.now(),
+  };
+  const tx = db.transaction(STORE_SEMANTIC_METRICS, 'readwrite');
+  tx.objectStore(STORE_SEMANTIC_METRICS).put(record);
+  await txDone(tx);
+  return record;
+}
+
+/**
+ * Load all persisted metric definitions. Returns an array of record objects
+ * in no guaranteed order — caller is responsible for re-registering each into
+ * the in-memory registry via registerMetric().
+ * @returns {Promise<Array<{name:string, nameLower:string, expression:string, description:string, registeredAt:number}>>}
+ */
+export async function loadSemanticMetrics() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_SEMANTIC_METRICS, 'readonly');
+  return req(tx.objectStore(STORE_SEMANTIC_METRICS).getAll());
+}
+
+/**
+ * Delete one metric definition by lowercased name.
+ * @param {string} nameLower
+ */
+export async function deleteSemanticMetric(nameLower) {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_SEMANTIC_METRICS, 'readwrite');
+  tx.objectStore(STORE_SEMANTIC_METRICS).delete(String(nameLower || '').toLowerCase());
+  await txDone(tx);
+}
+
+/**
+ * Delete ALL persisted metric definitions. Backs a "Clear all metrics" consent
+ * control in the Settings > Local Memory panel.
+ */
+export async function clearSemanticMetrics() {
+  const db = await initMemoryStore();
+  const tx = db.transaction(STORE_SEMANTIC_METRICS, 'readwrite');
+  tx.objectStore(STORE_SEMANTIC_METRICS).clear();
   await txDone(tx);
 }
