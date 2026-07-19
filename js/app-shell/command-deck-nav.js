@@ -60,6 +60,14 @@
 //   - `dvc` under Trust: Data Version Control's job — tracking what changed
 //     and when, so a result can be audited/rolled back — is a verification/
 //     accountability function, the same category as Validate/Diff/Meeting.
+//
+// THIRD POST-MERGE ADDENDUM (2026-07-19): the `portfolio` tab (Portfolio
+// Narrative assembler, ships dark behind portfolioNarrativeAssembler) landed
+// on main after this map was last updated, and the coverage test caught it
+// as unassigned. Placed under Tell: its whole job is stitching Frame/Work/
+// Trust output into one audience-facing, shareable write-up — the same
+// category as visualize/glowcanvas/story, not a new analysis or
+// verification step of its own.
 
 /**
  * The 5 Trust-Tier Lifecycle Stages, in display order, each listing the
@@ -73,7 +81,7 @@ export const COMMAND_DECK_STAGES = [
   { id: 'work', label: 'Work', description: 'Raw analysis and prep', tabs: ['sql', 'python', 'r', 'clean', 'pivot', 'drillfloor', 'cleaningcrew', 'joinbuilder', 'nlsql'] },
   { id: 'trust', label: 'Trust', description: 'DATAGLOW\u2019s actual differentiator \u2014 verify before you share', tabs: ['validate', 'diff', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot', 'dvc'] },
   { id: 'generate', label: 'Generate', description: 'Synthetic and advanced generation', tabs: ['twin'] },
-  { id: 'tell', label: 'Tell', description: 'Audience-facing, shareable output', tabs: ['visualize', 'glowcanvas', 'story'] },
+  { id: 'tell', label: 'Tell', description: 'Audience-facing, shareable output', tabs: ['visualize', 'glowcanvas', 'story', 'portfolio'] },
 ];
 
 /**
