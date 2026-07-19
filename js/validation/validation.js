@@ -274,6 +274,12 @@ async function runUnitTests(table, cols) {
   if (isEnabled(CROSS_TABLE_REFERENTIAL_FLAG)) {
     const otherDatasets = (state.datasets || []).filter(d => d && d.table !== table);
     if (otherDatasets.length > 0) {
+      // Discoverability: tell the analyst explicitly which FK columns matched
+      // (or didn't match) a loaded reference table this run, rather than
+      // silently skipping ones with no candidate. A single-table analyst
+      // never sees this branch at all (see the `else` below), so this only
+      // fires once a second table exists but a specific FK still can't be
+      // resolved to it (e.g. name/type mismatch) — still worth surfacing.
       for (const c of fkCols) {
         const candidate = findReferenceCandidate(c.name, table, otherDatasets);
         if (!candidate) continue;
@@ -298,6 +304,23 @@ async function runUnitTests(table, cols) {
           }
         } catch (e) { /* incompatible join (type mismatch, dropped table, ...) — skip, fail open */ }
       }
+    } else if (fkCols.length > 0) {
+      // Discoverability fix (readiness-audit finding #2, 2026-07-17): a
+      // single-table load with FK-shaped columns (e.g. "patient_id" in
+      // claims.csv) previously gave no signal that loading a second, related
+      // file would unlock cross-table referential integrity checking — the
+      // capability existed and was already enabled, but nothing told the
+      // analyst it was one file-load away. This is informational only (kind:
+      // 'referential_integrity_locked', no severity — never fails or warns a
+      // otherwise-clean single-table load) and names the actual FK column(s)
+      // so the hint is concrete, not generic.
+      const fkNames = fkCols.map(c => `"${c.name}"`).join(', ');
+      findings.push({
+        kind: 'referential_integrity_locked',
+        severity: 'info',
+        text: `Cross-table referential integrity is not yet checked — load a related dataset with a matching key column (e.g. for ${fkNames}) to unlock orphan-reference checking against it.`,
+        meta: { fkColumns: fkCols.map(c => c.name) },
+      });
     }
   }
 
