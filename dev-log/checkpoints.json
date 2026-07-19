@@ -185,5 +185,41 @@
       "notTouched": "No existing enabled:true UI path modified in either batch; drill-diff.js and pdf-profiler.js are both purely additive new modules gated behind their own flags (drillFloor, cleaningCrew), both still false. Cleaning Crew's remaining stations (Extractor/Cleaner/Validator/Documenter), OCR, audio transcription, embeddings, and run persistence were not touched this run."
     },
     "outcome": "shipped-dark"
+  },
+  {
+    "id": "chk_20260719_1",
+    "startedAt": "2026-07-17T00:00:00Z",
+    "endedAt": "2026-07-19T08:16:00Z",
+    "trigger": "run-end",
+    "title": "Fix #2: referential-integrity discoverability hint \u2014 merged live (info-only, rides existing enabled flag, no new flag)",
+    "before": {
+      "openPRs": 1,
+      "openIssues": 0,
+      "orphanBranches": 0,
+      "darkFlags": 7,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 0,
+      "orphanBranches": 0,
+      "darkFlags": 7,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 3,
+      "additions": 87,
+      "deletions": 3
+    },
+    "commits": [
+      "b60135e"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/369",
+    "verification": {
+      "testsRun": 13,
+      "testsPassed": 13,
+      "notTouched": "Purely additive info-severity finding riding the existing crossTableReferentialIntegrity flag (already enabled) \u2014 never changes pass/warn/fail status, no new flag introduced. Independently re-read the full diff before merge, not just trusted green CI."
+    },
+    "outcome": "shipped-live"
   }
 ]
