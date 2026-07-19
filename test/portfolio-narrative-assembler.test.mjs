@@ -257,6 +257,59 @@ const sampleStoryDoc = {
 }
 
 // ============================================================
+// live-app audit log shape (freeform strings, no issueId)
+// ============================================================
+
+{
+  // DataGlow's real Clean tab (js/app-shell/main.js) pushes freeform
+  // strings into the audit log, not {issueId, fixType} objects. This
+  // proves buildCleaningSummary() still infers resolution from the quoted
+  // column name in those strings, instead of silently reporting 0 resolved.
+  const issues = [
+    { id: 'whitespace_amount', type: 'whitespace', column: 'amount', count: 4, label: '4 value(s) with leading/trailing whitespace in "amount"' },
+    { id: 'nulls_dob', type: 'nulls', column: 'dob', count: 2, label: '2 null value(s) in "dob"' },
+  ];
+  const freeformLog = ['[10:32:01 AM] Applied format fix on "amount" (whitespace).'];
+  const summary = buildCleaningSummary(issues, freeformLog);
+  ok(summary.totalFixesApplied === 1, 'freeform audit log: totalFixesApplied counts raw log length');
+  ok(summary.openIssues.length === 1 && summary.openIssues[0].id === 'nulls_dob', 'freeform audit log: column-name match resolves the "amount" issue, leaving "dob" open');
+}
+
+{
+  // Structured {issueId} entries still take priority / still work exactly
+  // as before -- this is a non-regression check for the pre-existing shape.
+  const issues = [{ id: 'nulls_dob', type: 'nulls', column: 'dob', count: 2, label: 'x' }];
+  const structuredLog = [{ issueId: 'nulls_dob', fixType: 'null_out' }];
+  const summary = buildCleaningSummary(issues, structuredLog);
+  ok(summary.openIssues.length === 0, 'structured audit log: issueId-based resolution still works unchanged');
+}
+
+// ============================================================
+// raw narrative-overconfidence-guard.js finding shape (no per-item status)
+// ============================================================
+
+{
+  // checkNarrativeOverconfidence() findings have no `status` field at all
+  // (only the top-level {status, findings} wrapper does) -- proves these
+  // always count as real caveats, and that a readable fallback message is
+  // generated when the caller passes raw guard output straight through.
+  const rawGuardFindings = [
+    { claimKind: 'average', column: 'length_of_stay', grade: 'weak', issue: 'missing_hedge', sentence: null, pattern: null },
+  ];
+  const doc = buildNarrativeDocument({ recommendation: 'Ship it.', overconfidenceFindings: rawGuardFindings });
+  const caveatSection = doc.sections.find((s) => s.type === 'overconfidence_caveat');
+  ok(!!caveatSection, 'raw guard findings with no status field still produce a Confidence Caveats section');
+  ok(caveatSection.content[0].message.includes('length_of_stay'), 'fallback message mentions the flagged column when no describeOverconfidenceFinding() text was pre-computed');
+}
+
+{
+  // Explicit status:'pass'/'idle' items are still correctly suppressed.
+  const doc = buildNarrativeDocument({ recommendation: 'Ship it.', overconfidenceFindings: [{ status: 'pass' }, { status: 'idle' }] });
+  const caveatSection = doc.sections.find((s) => s.type === 'overconfidence_caveat');
+  ok(!caveatSection, 'items explicitly marked status pass/idle are still excluded from caveats');
+}
+
+// ============================================================
 // summary
 // ============================================================
 

@@ -62,7 +62,7 @@ export const state = {
   // Power-user tabs (framer, python, r, diff, glowcanvas, drillfloor, cleaningcrew,
   // story, twin, watch, meeting, diplomacy, proofroom, convergence, crucible, copilot)
   // still exist and are accessible but live after the core tabs.
-  tabOrder: ['preflight', 'sql', 'clean', 'validate', 'nlsql', 'dvc', 'framer', 'python', 'r', 'diff', 'visualize', 'glowcanvas', 'pivot', 'drillfloor', 'cleaningcrew', 'story', 'twin', 'watch', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot', 'joinbuilder'],
+  tabOrder: ['preflight', 'sql', 'clean', 'validate', 'nlsql', 'dvc', 'framer', 'python', 'r', 'diff', 'visualize', 'glowcanvas', 'pivot', 'drillfloor', 'cleaningcrew', 'story', 'twin', 'watch', 'meeting', 'diplomacy', 'proofroom', 'convergence', 'crucible', 'copilot', 'joinbuilder', 'portfolio'],
 };
 
 export function setActiveDataset(name) {

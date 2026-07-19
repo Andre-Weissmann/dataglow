@@ -40,8 +40,34 @@ function buildCleaningSummary(issues, auditLog) {
   const issueList = Array.isArray(issues) ? issues : [];
   const log = Array.isArray(auditLog) ? auditLog : [];
 
-  const resolvedIssueIds = new Set(log.map((entry) => entry && entry.issueId).filter(Boolean));
-  const openIssues = issueList.filter((issue) => issue && !resolvedIssueIds.has(issue.id));
+  // auditLog entries come from two different shapes depending on caller:
+  //   - structured: {issueId, fixType, timestamp?} (the documented/tested shape)
+  //   - freeform strings: DataGlow's live Clean tab (js/app-shell/main.js)
+  //     pushes human-readable strings like
+  //     '[10:32:01 AM] Applied format fix on "amount" (whitespace).' with no
+  //     issueId embedded. There is no exact-id signal in that string, so
+  //     resolution is inferred best-effort by matching the issue's column
+  //     name (quoted in the string) -- honest best-effort, not exact-id
+  //     certainty, but it beats reporting zero resolved fixes when fixes
+  //     clearly did happen. Structured entries always take priority when
+  //     both an issueId and a string are present on the same run.
+  const resolvedIssueIds = new Set();
+  const resolvedColumns = new Set();
+  for (const entry of log) {
+    if (entry && typeof entry === 'object' && entry.issueId) {
+      resolvedIssueIds.add(entry.issueId);
+    } else if (typeof entry === 'string') {
+      const match = entry.match(/"([^"]+)"/);
+      if (match) resolvedColumns.add(match[1]);
+    }
+  }
+
+  const openIssues = issueList.filter((issue) => {
+    if (!issue) return false;
+    if (resolvedIssueIds.has(issue.id)) return false;
+    if (issue.column && resolvedColumns.has(issue.column)) return false;
+    return true;
+  });
 
   const issuesByType = {};
   for (const issue of issueList) {
@@ -56,6 +82,31 @@ function buildCleaningSummary(issues, auditLog) {
     openIssues,
     issuesByType,
   };
+}
+
+// ------------------------------------------------------------
+// describeGuardFinding (internal helper, not exported)
+// ------------------------------------------------------------
+
+/**
+ * Fallback English description for a raw narrative-overconfidence-guard.js
+ * finding object ({claimKind, column, grade, issue, sentence, pattern}) when
+ * the caller hasn't already run it through that module's own
+ * describeOverconfidenceFinding(). Kept intentionally simple -- this only
+ * fires when a caller passes raw guard output straight through without its
+ * matching presenter, which the app-shell UI layer avoids by always calling
+ * describeOverconfidenceFinding() itself before handing findings here.
+ */
+function describeGuardFinding(finding) {
+  if (!finding || typeof finding !== 'object') return 'Unspecified confidence caveat.';
+  const col = finding.column ? ` ("${finding.column}")` : '';
+  if (finding.issue === 'missing_hedge') {
+    return `A ${finding.grade || 'low'}-confidence claim${col} has no hedging language anywhere in the narrative.`;
+  }
+  if (finding.issue === 'overconfident_language') {
+    return `A ${finding.grade || 'low'}-confidence claim${col} is stated with overconfident language.`;
+  }
+  return `Confidence caveat flagged on a claim${col}.`;
 }
 
 // ------------------------------------------------------------
@@ -119,8 +170,22 @@ function buildNarrativeDocument({
   });
 
   // 2b. Overconfidence caveats, if the caller already ran the guard.
+  //
+  // Accepts findings in either shape so this module works whether the
+  // caller hands it raw output from narrative-overconfidence-guard.js's
+  // checkNarrativeOverconfidence() (items shaped like {claimKind, column,
+  // grade, issue, sentence, pattern} with no per-item status) or a
+  // caller-normalized list (items shaped like {status, message}). Any item
+  // is treated as a real caveat UNLESS it explicitly carries status 'pass'
+  // or 'idle' (the guard's real per-finding objects never set a status at
+  // all, so they always count as caveats here -- matching the guard's own
+  // contract that everything in its findings[] array already represents a
+  // problem worth surfacing).
   const findings = Array.isArray(overconfidenceFindings) ? overconfidenceFindings : [];
-  const flaggedFindings = findings.filter((f) => f && f.status !== 'pass' && f.status !== 'idle');
+  const flaggedFindings = findings
+    .filter((f) => f && typeof f === 'object')
+    .filter((f) => f.status !== 'pass' && f.status !== 'idle')
+    .map((f) => (f.message ? f : { ...f, message: describeGuardFinding(f) }));
   if (flaggedFindings.length > 0) {
     sections.push({
       type: 'overconfidence_caveat',

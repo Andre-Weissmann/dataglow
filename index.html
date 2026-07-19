@@ -980,6 +980,26 @@
       <div id="pivot-body" data-testid="pivot-body"></div>
     </section>
 
+    <!-- ============ PORTFOLIO NARRATIVE TAB ============ -->
+    <!-- Stitches Problem Framer's recap + the Story tab's narrative text +
+         a Clean tab issue/fix summary + an analyst-written recommendation
+         into one exportable Markdown write-up, via
+         js/portfolio/narrative-assembler.js (pure logic, no DOM) and
+         js/portfolio/portfolio-ui.js (thin renderer). Gated behind the
+         portfolioNarrativeAssembler flag (off by default), so the
+         'portfolio' tab is never in the bar and this panel renders empty on
+         a default build. Nothing leaves your device -- this tab only reads
+         what other tabs already produced this session. -->
+    <section class="panel" id="panel-portfolio" data-panel="portfolio">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Portfolio Narrative</div>
+          <div class="panel-subtitle">Combines your Problem Framer recap, Story narrative, and Clean tab findings into one Markdown write-up you can put on a portfolio, resume, or LinkedIn post.</div>
+        </div>
+      </div>
+      <div id="portfolio-body" data-testid="portfolio-body"></div>
+    </section>
+
     <!-- ============ DRILL FLOOR TAB ============ -->
     <!-- Practice-problem module ("Data Drill" format): the same problem solved
          side-by-side in SQL, Python and R against the drill's own bundled sample
