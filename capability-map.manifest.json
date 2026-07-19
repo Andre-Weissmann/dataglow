@@ -219,7 +219,8 @@
         "js/validation/physiological-plausibility.js",
         "js/validation/upper-bound-sanity.js",
         "js/validation/missingness-detective.js",
-        "js/validation/missingness.js"
+        "js/validation/missingness.js",
+        "js/validation/ncci-ptp-validator.js"
       ],
       "symbols": [
         {
@@ -229,6 +230,10 @@
         {
           "file": "js/validation/upper-bound-sanity.js",
           "name": "matchBoundedType"
+        },
+        {
+          "file": "js/validation/ncci-ptp-validator.js",
+          "name": "runNcciPtpValidation"
         },
         {
           "file": "js/validation/missingness-detective.js",

@@ -112,6 +112,7 @@
     "historical_drift": "warn",
     "missingness_detective": "pass",
     "narrative_consistency": "idle",
+    "ncci_ptp_validation": "idle",
     "outlier_detection": "warn",
     "physiological_plausibility": "idle",
     "relational": "idle",
