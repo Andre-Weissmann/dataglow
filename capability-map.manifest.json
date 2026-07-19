@@ -2376,6 +2376,32 @@
       ]
     },
     {
+      "id": "metric-access-rules",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Metric Contracts (Batch 4: agent-access rules, read gate)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/metrics/metric-access-rules.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/metrics/metric-access-rules.js",
+          "name": "ANY_AGENT"
+        },
+        {
+          "file": "js/metrics/metric-access-rules.js",
+          "name": "MetricAccessRule"
+        },
+        {
+          "file": "js/metrics/metric-access-rules.js",
+          "name": "MetricAccessRuleRegistry"
+        }
+      ]
+    },
+    {
       "id": "ai-readiness-gate",
       "area": "Trust & metrics (OneCanvas Phase 1)",
       "name": "AI Readiness Gate (pure scoring + UI badge + agent hard-block, batches 1-3 of 4)",

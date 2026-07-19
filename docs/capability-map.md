@@ -334,8 +334,26 @@ to be CORRECT.
   `main.js`'s `renderMetricContractHistoryPanel()` calls `renderConfirmGate` for any pending proposal,
   but no metric-touching AI proposer exists in the running app, so the gate is wired, never faked — it
   surfaces only if a proposal is ever produced.)
+- **Metric Contracts (Batch 4: agent-access rules, read gate)** — `js/metrics/metric-access-rules.js`
+  (addresses the NORTH_STAR.md backlog item asking for agent-access rules on top of Batches 1-3's
+  versioned-definition model — a DIFFERENT axis than the confirm gate above: Batch 3 governs WRITES
+  — an agent proposing a metric-definition change, which always needs human approval — while this
+  governs READS — which agent/source identifiers are allowed to query a metric's value at all.
+  `MetricAccessRule` holds a per-metric allow-list of agent ids, or the explicit `ANY_AGENT` wildcard
+  constant; `permits()` checks membership, `isUnrestricted` reports whether the rule is the wildcard.
+  `MetricAccessRuleRegistry` is a CURRENT-STATE map keyed by metric id — `setRule` REPLACES the prior
+  rule for that metric rather than appending, unlike Batch 1's append-only version history —
+  `ruleFor()` returns an implicit unrestricted rule for any metric with no rule ever set, so shipping
+  this changes nothing until a rule is explicitly configured. `isAuthorized(metricId, agentId)` is the
+  one convenience predicate a future call site would use. Both classes have `toJSON`/`fromJSON` for
+  persistence, mirroring Batch 1's registry serialization pattern. Ships as PURE LOGIC ONLY behind the
+  new `metricAccessRules` flag (default OFF): no UI yet (a future batch would add an editor inside the
+  Metric Studio contract view) and not wired into any real query path yet (NL-SQL execution, the MCP
+  interface, Query Sentinel) — `isAuthorized()` has no caller today, so the flag is inert regardless of
+  its value until that wiring batch lands. 34/34 tests in `test/metric-access-rules.test.mjs`.)
 
-All three batches gated behind the `metricContracts` flag (PROMOTED ON): the Metric Studio save path
+All four batches gated behind the `metricContracts` flag (PROMOTED ON) for Batches 1-3, and the separate
+`metricAccessRules` flag (default OFF, dark) for Batch 4: the Metric Studio save path
 records a human version on every create/merge, and the Validate tab shows a read-only per-metric
 definition-history panel. The confirm gate is wired to `renderConfirmGate` but only surfaces when a
 pending AI proposal exists, which never happens today (no such proposer is wired).
