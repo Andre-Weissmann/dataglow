@@ -48,7 +48,7 @@ async function main() {
   clearLedger();
 
   // ---- Layer registry ----
-  ok(LAYER_DEFS.length === 22, `registry: 22 validation layers defined (got ${LAYER_DEFS.length})`);
+  ok(LAYER_DEFS.length === 23, `registry: 23 validation layers defined (got ${LAYER_DEFS.length})`);
   const ids = new Set(LAYER_DEFS.map(l => l.id));
   ok(ids.has('categorical_consistency'), 'registry: layer 16 (categorical_consistency) present');
   ok(ids.has('cross_column_logic'), 'registry: layer 17 (cross_column_logic) present');
