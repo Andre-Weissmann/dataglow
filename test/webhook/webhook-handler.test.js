@@ -116,7 +116,7 @@ async function main() {
     ok(!result.error, 'processWebhookBatch: 5-row batch with null baseline produces no error');
     ok(result.response && result.response.status === 'pass', 'processWebhookBatch: first-run batch resolves to pass status');
     ok(result.response.batchId === validPayload.batchId, 'processWebhookBatch: response batchId matches input');
-    ok(result.newBaseline && Array.isArray(result.newBaseline.columns), 'processWebhookBatch: newBaseline captures column shape for next call');
+    ok(result.newBaseline && typeof result.newBaseline.schemaFingerprint === 'string', 'processWebhookBatch: newBaseline captures column shape for next call');
     ok(typeof result.response.signature === 'string' && result.response.signature.length > 0, 'processWebhookBatch: response is signed');
   }
   {
