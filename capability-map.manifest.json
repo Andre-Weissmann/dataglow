@@ -4288,6 +4288,25 @@
           "name": "AnomalyTimeline"
         }
       ]
+    },
+    {
+      "id": "dashboard-engine",
+      "area": "Visualization",
+      "name": "Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/dashboard/dashboard-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/dashboard/dashboard-engine.js",
+          "name": "DashboardEngine"
+        }
+      ]
     }
   ]
 }

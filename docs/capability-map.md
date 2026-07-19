@@ -557,3 +557,9 @@ The question-first analysis layer: DataGlow generates 3–7 contextually relevan
 - **Symbol:** `AnomalyTimeline.detect(dataset)`, `AnomalyTimeline.render(report, containerEl)`
 - **What it does:** Pinpoints exactly when a metric changed in the validation rail — the exact row/date where a value spiked, dropped, went missing, or crossed a threshold (statistical z-score/stddev-based detection, severity-ranked: critical/high/medium/low). Surfaces a structured `AnomalyReport` (`events[]` + a plain-English `summary`) rather than just a flat outlier list.
 - **Platforms:** browser, desktop, mobile
+
+### Dashboard View (PR AN)
+- **File:** `js/dashboard/dashboard-engine.js`
+- **Symbol:** `DashboardEngine`
+- **What it does:** Research-grounded auto-dashboard: gates on data readiness (null rates, duplicates, row count, type consistency) before rendering, then lays out 3–4 KPI cards in a top-row Z-pattern, each with the three-in-one anatomy (headline + sparkline + delta badge). Uses a fixed RAG color system (green/amber/red, never inverted) and caps at 6 charts total, bar/line only (no pie, no 3D, no dual-axis, per its own documented layout rules). Outliers are flagged, never silently removed. CSV export is surfaced front and center.
+- **Platforms:** browser, desktop, mobile
