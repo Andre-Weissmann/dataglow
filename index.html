@@ -962,6 +962,24 @@
       <div id="glow-canvas-body" data-testid="glow-canvas-body"></div>
     </section>
 
+    <!-- ============ PIVOT TABLE TAB ============ -->
+    <!-- Excel-style pivot builder: tap columns into Rows/Columns/Values wells,
+         runs as a real DuckDB SQL query via js/pivot/pivot-builder.js (pure
+         logic, no DOM) -- so results are provably the same numbers the SQL
+         tab would produce for an equivalent hand-written query. Gated behind
+         the pivotTable flag (off by default), so the 'pivot' tab is never in
+         the bar and this panel renders empty on a default build. Nothing
+         leaves your device. -->
+    <section class="panel" id="panel-pivot" data-panel="pivot">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Pivot Table</div>
+          <div class="panel-subtitle">Tap columns into Rows, Columns, and Values to build a pivot summary — runs as a real DuckDB query, same engine as the SQL tab. Nothing leaves your device.</div>
+        </div>
+      </div>
+      <div id="pivot-body" data-testid="pivot-body"></div>
+    </section>
+
     <!-- ============ DRILL FLOOR TAB ============ -->
     <!-- Practice-problem module ("Data Drill" format): the same problem solved
          side-by-side in SQL, Python and R against the drill's own bundled sample
