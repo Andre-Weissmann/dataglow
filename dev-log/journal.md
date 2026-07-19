@@ -7,6 +7,62 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-18 14:22 CT] Wiki documentation debt cleared — 38 new capability-map pages, 41 issues closed (PR #366, merged)
+
+**What was asked:** Fix issue #299 (CI failure on main: tests) and address the accumulated "Wiki page needed"
+issues auto-filed by `.github/scripts/wiki-gap-detector.mjs` as features shipped. Issue #299 was resolved
+separately (see prior entry, PR #360, Command Deck sidebar coverage gap for joinbuilder/nlsql/dvc).
+
+**Scope grew mid-run — caught before writing anything wrong.** The wiki task was initially scoped against
+a 29-issue snapshot (28 areas + 1 excluded), but a fresh `gh issue list` pull mid-run revealed 41 open
+"Wiki page needed" issues — 12 more had accumulated since the original scoping pass, plus a fresh one
+(#362, "Meeting Scribe" capital-S) filed while work was already in progress. Reconciled the full manifest
+(41 distinct `capability-map.manifest.json` areas) against all 41 open issues and confirmed a clean 1:1
+match before writing a single page — this caught the scope gap early rather than shipping an incomplete
+run that would have re-triggered the detector immediately.
+
+**What was built:** 38 new companion detail pages under `docs/capability-map/`, each following the existing
+`validation-layers.md` template (module-by-module, code-grounded — real exported functions/data shapes,
+current `flags.manifest.json` state, `main.js` UI wiring, matching test files). Delegated to 6 parallel
+`codebase` subagents (7/7/7/7/6/5-area batches) to make the scale tractable; each subagent was required to
+read every backing file and the relevant flag/test state directly rather than infer from area names.
+`docs/wiki-coverage.json`'s `documented[]` array updated with all 41 exact area name strings. Verified with
+a live dry run of the actual detector script (`DRY_RUN=1 node .github/scripts/wiki-gap-detector.mjs`) —
+**0 area(s) without a wiki page** — both before and after pulling the latest concurrent `main` moves
+(Live Rooms Batch 4 landed mid-run under the existing "Meeting Scribe" area string, so it required no new
+page).
+
+**Two real data-hygiene issues found and documented as honest caveats, not silently patched around:**
+1. `capability-map.manifest.json` has three distinct Meeting-Scribe-ish area strings — `"DataGlow Rooms"`,
+   `"Meeting scribe"` (lowercase s), and `"Meeting Scribe"` (capital S, a naming inconsistency covering
+   `live-rooms-broadcast.js` and `chart-context-timeline.js`). Documented the split honestly across
+   `dataglow-rooms.md` and `meeting-scribe.md` rather than merging or guessing which was "correct."
+2. `js/nl-sql/metric-contracts.js` and `js/metrics/metric-contracts.js` share only a filename, not code —
+   clarified in `nl-to-sql.md` so a future reader doesn't assume duplication.
+
+**Stale code comments corrected against the manifest's real state (not invented, just re-verified):**
+AI Council, Join Builder, Data Version Control, Drill Floor, Glow Canvas, and Cleaning Crew all carry
+in-code "ships dark" comments that are now stale — the manifest confirms all are `enabled: true`. Every
+page cites the manifest as authoritative over the comment, and says so explicitly.
+
+**Safety assessment presented before merge:** Documentation-only — zero `.js`/`test/**`/config files
+touched (confirmed via `git diff --stat`: 40 files changed, 39 `.md` + 1 `.json`, all under `docs/`).
+Zero behavior change, zero flags flipped. `git merge-tree` precheck: 0 conflict markers. `gh pr view`:
+`mergeStateStatus: CLEAN`. All 61 CI jobs green including `tauri-smoke`.
+
+**Outcome:** Merged (squash) into main at `76831b9`. GitHub's auto-close did not fire (the PR body used a
+"## Closes" section header followed by a bare `#N` list rather than the keyword directly adjacent to each
+number — a real syntax lesson for next time: use `Closes #123` inline, not a header+list, if auto-close
+matters). Closed all 41 issues manually with a comment linking back to PR #366. Final state verified:
+0 open "Wiki page needed" issues, gap detector reports 0 gaps on the latest main tip.
+
+**Lesson for next time:** GitHub issue auto-closing via PR body needs `Closes #N` (or `Fixes`/`Resolves`)
+immediately preceding each issue number, not a section header followed by a list of bare numbers — always
+verify auto-close fired post-merge rather than assuming the PR body syntax worked, especially for large
+issue-closing batches.
+
+---
+
 ## [2026-07-18 12:28 CT] drillFloor promoted to live (PR #349, merged) — 4th and final flag in this promotion round
 
 **What was asked:** Fourth and final flag in the 4-flag promotion sequence (provenancePacket, glowCanvas,
