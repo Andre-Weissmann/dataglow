@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ret_001",
+    "source": "SKU (Stock Keeping Unit) — Definition and Structure",
+    "text": "A SKU is a unique alphanumeric identifier assigned to a distinct sellable product variant, tracking attributes such as size, color, and packaging separately even within the same product line. Retailers design SKU structures to encode useful metadata directly in the code — for example, a segment for department, one for product category, and one for variant — which simplifies inventory reporting and point-of-sale lookups. SKUs are retailer-specific (unlike UPCs, which are standardized across the industry), so the same physical product can have different SKUs at different retailers."
+  },
+  {
+    "id": "ret_002",
+    "source": "Inventory Turnover Ratio",
+    "text": "Inventory turnover ratio is calculated as cost of goods sold divided by average inventory value over a period, and it measures how many times a retailer sells through and replaces its inventory during that period. A higher turnover ratio generally indicates efficient inventory management and strong sales velocity, while a low ratio can signal overstocking, weak demand, or obsolete merchandise. Benchmark turnover rates vary widely by category — grocery and fast fashion retailers often turn inventory 10+ times per year, while furniture or jewelry retailers may turn inventory only 2-4 times per year."
+  },
+  {
+    "id": "ret_003",
+    "source": "Gross Margin — Definition and Calculation",
+    "text": "Gross margin is calculated as (revenue minus cost of goods sold) divided by revenue, expressed as a percentage, and it represents the portion of each sales dollar retained after covering the direct cost of the merchandise sold. It excludes operating expenses like rent, marketing, and labor, which are captured further down the income statement. Gross margin benchmarks vary significantly by retail category — grocery typically runs in the low-to-mid 20s percent, while apparel and specialty retail often achieve 40-60% gross margins."
+  },
+  {
+    "id": "ret_004",
+    "source": "Days Sales of Inventory (DSI)",
+    "text": "Days Sales of Inventory measures the average number of days it takes a retailer to sell its entire inventory, calculated as (average inventory / cost of goods sold) multiplied by the number of days in the period. A lower DSI indicates inventory is converting to sales quickly, which reduces carrying costs and the risk of markdowns on aging stock, while a rising DSI trend often signals a demand slowdown or purchasing that has outpaced sell-through. DSI is the inverse relationship of inventory turnover — as turnover increases, DSI decreases proportionally."
+  },
+  {
+    "id": "ret_005",
+    "source": "Retail Shrinkage — Definition and Benchmarks",
+    "text": "Shrinkage is the loss of inventory between what accounting records show should be on hand and what a physical count actually finds, attributable to causes such as theft (external and internal), administrative/paperwork errors, vendor fraud, and damage. Industry surveys such as the National Retail Federation's Retail Security Survey typically report average shrinkage in the range of 1.5% to 2% of retail sales, though rates vary by category — categories with small, high-value, easily concealed items (e.g., cosmetics, electronics accessories) tend to see above-average shrink rates."
+  },
+  {
+    "id": "ret_006",
+    "source": "FIFO vs. LIFO Inventory Accounting",
+    "text": "FIFO (First-In, First-Out) assumes the oldest inventory units are sold first, so cost of goods sold reflects earlier, often lower, purchase costs while ending inventory reflects more recent costs — this tends to produce higher reported profit and inventory value during inflationary periods. LIFO (Last-In, First-Out) assumes the most recently purchased units are sold first, matching current higher costs against current revenue, which lowers reported taxable income during inflation but is prohibited under IFRS. The choice between the two methods, once elected under GAAP, generally cannot be changed without IRS approval and can materially affect a retailer's reported margins and tax liability."
+  },
+  {
+    "id": "ret_007",
+    "source": "Same-Store Sales (Comparable Sales)",
+    "text": "Same-store sales, also called comparable sales or comps, measure the year-over-year revenue growth of stores that have been open for a full comparable period (commonly at least 12 months), explicitly excluding revenue contribution from newly opened or closed locations. This metric isolates organic sales performance — pricing, foot traffic, conversion, and basket size — from growth that is simply a function of opening more stores, making it the primary metric analysts and investors use to judge the health of an existing retail footprint."
+  },
+  {
+    "id": "ret_008",
+    "source": "Retail Return Rate Benchmarks by Category",
+    "text": "Return rates vary substantially by retail category: apparel and footwear, especially online, commonly see return rates in the 20-30% range due to sizing and fit issues, while categories like consumables, beauty, and hardware typically see single-digit return rates. E-commerce return rates are generally two to three times higher than brick-and-mortar return rates for the same category, because customers cannot try on or physically inspect items before purchase, making return rate a key input into e-commerce profitability and reverse-logistics planning."
+  },
+  {
+    "id": "ret_009",
+    "source": "Customer Lifetime Value (CLV) Calculation",
+    "text": "Customer Lifetime Value estimates the total net profit a retailer can expect from a customer relationship over its entire duration, commonly calculated as average order value multiplied by purchase frequency multiplied by average customer lifespan, then adjusted for gross margin. CLV is used to set sustainable customer acquisition cost (CAC) budgets — a healthy business generally targets a CLV:CAC ratio of at least 3:1 — and to prioritize retention investment toward the highest-value customer segments rather than treating all customers as equally valuable."
+  },
+  {
+    "id": "ret_010",
+    "source": "Net Promoter Score (NPS) in Retail",
+    "text": "Net Promoter Score is derived from a single survey question asking customers, on a 0-10 scale, how likely they are to recommend a retailer to a friend or colleague; respondents scoring 9-10 are Promoters, 7-8 are Passives, and 0-6 are Detractors. NPS is calculated as the percentage of Promoters minus the percentage of Detractors, yielding a score from -100 to +100. In retail, NPS is commonly tracked at both the brand level and the individual-transaction level (post-purchase or post-service-interaction surveys) to identify specific friction points in the customer journey."
+  },
+  {
+    "id": "ret_011",
+    "source": "Basket Size / Average Order Value",
+    "text": "Basket size, often expressed as Average Order Value (AOV), is calculated as total revenue divided by the number of transactions over a given period, and it captures how much a customer spends per visit or per order. Retailers actively try to grow AOV through tactics like cross-selling, bundling, minimum-spend free-shipping thresholds, and upselling at checkout, since increasing AOV is often more cost-effective than acquiring entirely new customers. AOV is frequently analyzed alongside purchase frequency, since the two together determine a customer's overall spending contribution."
+  },
+  {
+    "id": "ret_012",
+    "source": "Sell-Through Rate",
+    "text": "Sell-through rate measures the percentage of units received into inventory that have actually been sold within a given period, calculated as units sold divided by units received (or beginning-of-period inventory), expressed as a percentage. Retail buyers and merchandisers use sell-through rate to evaluate whether initial purchase quantities matched actual demand — a low sell-through rate on a style signals overbuying and forecasts a need for markdowns, while a very high sell-through rate can indicate a missed opportunity to have ordered more units before a style sold out."
+  }
+]
