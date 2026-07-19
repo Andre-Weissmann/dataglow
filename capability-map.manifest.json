@@ -1,6 +1,6 @@
 {
-  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and \u2014 for the identity-defining modules \u2014 a symbol that must still be exported.",
+  "_platforms": "Each capability declares a non-empty `platforms` list \u2014 a subset of [\"browser\",\"desktop\",\"mobile\"] \u2014 read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API \u2014 see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -842,7 +842,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "AI Touch Ledger (Batch 1 + Batch 2 — wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
+      "name": "AI Touch Ledger (Batch 1 + Batch 2 \u2014 wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
       "files": [
         "js/provenance/ai-touch-ledger.js",
         "js/narrative/story.js",
@@ -871,7 +871,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Query Memory (Batch 2 — SQL/Python/R wiring + \"seen before\" badge)",
+      "name": "Query Memory (Batch 2 \u2014 SQL/Python/R wiring + \"seen before\" badge)",
       "files": [
         "js/provenance/query-memory.js",
         "js/provenance/query-memory-ui.js"
@@ -928,7 +928,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Portable Receipts — per-artifact lineage stamp",
+      "name": "Portable Receipts \u2014 per-artifact lineage stamp",
       "files": [
         "js/provenance/portable-receipt.js"
       ],
@@ -954,7 +954,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet — data blame + de-identification verifier",
+      "name": "Provenance Packet \u2014 data blame + de-identification verifier",
       "files": [
         "js/provenance/data-blame.js",
         "js/provenance/deidentification-verifier.js"
@@ -1031,7 +1031,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) — first genuine zero-knowledge proof in DataGlow",
+      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) \u2014 first genuine zero-knowledge proof in DataGlow",
       "files": [
         "js/provenance/zk-threshold-proof.js"
       ],
@@ -1079,7 +1079,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier",
+      "name": "Provenance Packet (Batch 2) \u2014 denial root-cause profiler + cost-of-bad-data quantifier",
       "files": [
         "js/provenance/denial-root-cause.js",
         "js/provenance/cost-of-bad-data.js"
@@ -1185,7 +1185,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 3) — portable signed .dataglow packet format (export/import)",
+      "name": "Provenance Packet (Batch 3) \u2014 portable signed .dataglow packet format (export/import)",
       "files": [
         "js/provenance/provenance-packet.js"
       ],
@@ -1207,7 +1207,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Institutional Memory Layer — decision log, timeline, provenance hash",
+      "name": "Institutional Memory Layer \u2014 decision log, timeline, provenance hash",
       "files": [
         "js/memory/institutional-memory.js"
       ],
@@ -1616,7 +1616,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Cleaning Crew — Profiler station (PDF text extraction, Batch 1)",
+      "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1)",
       "files": [
         "js/cleaning-crew/pdf-profiler.js"
       ],
@@ -1911,7 +1911,7 @@
     {
       "id": "pack-builder-ui",
       "area": "Conversational pack builder",
-      "name": "Guided pack builder — Validate-tab UI wiring",
+      "name": "Guided pack builder \u2014 Validate-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2036,7 +2036,7 @@
     {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
-      "name": "Meeting scribe — Meeting-tab UI wiring",
+      "name": "Meeting scribe \u2014 Meeting-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2134,7 +2134,7 @@
     {
       "id": "meeting-decision-ledger-ui",
       "area": "Meeting scribe",
-      "name": "Meeting decision ledger — Meeting-tab browse/save UI wiring",
+      "name": "Meeting decision ledger \u2014 Meeting-tab browse/save UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2370,7 +2370,7 @@
     {
       "id": "data-diplomacy-ui",
       "area": "Data Diplomacy",
-      "name": "Data Diplomacy — two-key panel UI (Batch 2)",
+      "name": "Data Diplomacy \u2014 two-key panel UI (Batch 2)",
       "platforms": [
         "browser",
         "desktop"
@@ -2396,7 +2396,7 @@
     {
       "id": "agent-action-firewall",
       "area": "Provenance, audit & trust",
-      "name": "Agent Action Firewall — human-confirmation gate for data mutations",
+      "name": "Agent Action Firewall \u2014 human-confirmation gate for data mutations",
       "platforms": [
         "browser",
         "desktop"
@@ -2426,7 +2426,7 @@
     {
       "id": "guarded-copilot",
       "area": "Provenance, audit & trust",
-      "name": "Guarded Copilot (Batch 2) — read-only, lineage-citing chat core + chat panel UI",
+      "name": "Guarded Copilot (Batch 2) \u2014 read-only, lineage-citing chat core + chat panel UI",
       "platforms": [
         "browser",
         "desktop"
@@ -2539,7 +2539,7 @@
     {
       "id": "open-floor-sandbox-twin",
       "area": "Open Floor",
-      "name": "Open Floor Sandbox Twin — forkable disposable dataset copy; every mutation & promote firewall-gated",
+      "name": "Open Floor Sandbox Twin \u2014 forkable disposable dataset copy; every mutation & promote firewall-gated",
       "platforms": [
         "browser",
         "desktop"
@@ -2557,7 +2557,7 @@
     {
       "id": "query-sentinel",
       "area": "Validation layers",
-      "name": "Query Sentinel (Batch 1) — deterministic per-query SQL correctness verifier",
+      "name": "Query Sentinel (Batch 1) \u2014 deterministic per-query SQL correctness verifier",
       "platforms": [
         "browser",
         "desktop"
@@ -2599,7 +2599,7 @@
     {
       "id": "query-sentinel-assist",
       "area": "Validation layers",
-      "name": "Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest",
+      "name": "Query Sentinel Assist (Batch 2) \u2014 bounded on-device explain & fix-suggest",
       "platforms": [
         "browser",
         "desktop"
@@ -2625,7 +2625,7 @@
     {
       "id": "query-sentinel-bridge",
       "area": "Validation layers",
-      "name": "Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver",
+      "name": "Query Sentinel Bridge (Batch 3, final) \u2014 FROM py./r. cross-runtime table resolver",
       "platforms": [
         "browser",
         "desktop"
@@ -2651,7 +2651,7 @@
     {
       "id": "statistical-rigor-layer",
       "area": "Analysis robustness",
-      "name": "Statistical Rigor Layer (Batch 1) — confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
+      "name": "Statistical Rigor Layer (Batch 1) \u2014 confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
       "platforms": [
         "browser",
         "desktop"
@@ -2689,7 +2689,7 @@
     {
       "id": "narrative-overconfidence-guard",
       "area": "Analysis robustness",
-      "name": "Narrative Overconfidence Guard — verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
+      "name": "Narrative Overconfidence Guard \u2014 verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
       "platforms": [
         "browser",
         "desktop",
@@ -2719,6 +2719,52 @@
       "name": "DuckDB WASM configuration",
       "files": [
         "js/app-shell/duckdb-config.js"
+      ]
+    },
+    {
+      "id": "app-shell-grid-bridge",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "DataGlow Grid bridge (Univer data contract, Tier 1 of DataGlow Canvas)",
+      "files": [
+        "js/grid/grid-bridge.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "formatRowsForGrid"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "buildColumnHealthScore"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "mapSeverityToStyle"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "buildAgentDiff"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "applyAgentDiffs"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "serializeGridDataset"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "deserializeGridDataset"
+        },
+        {
+          "file": "js/grid/grid-bridge.js",
+          "name": "typeToChip"
+        }
       ]
     },
     {
@@ -3273,15 +3319,15 @@
         },
         {
           "file": "js/streaming/streaming-validator.js",
-          "name": "checkSchemaDrift"
+          "name": "detectSchemaDrift"
         },
         {
           "file": "js/streaming/streaming-validator.js",
-          "name": "checkValueDrift"
+          "name": "detectValueDrift"
         },
         {
           "file": "js/streaming/streaming-validator.js",
-          "name": "checkArrivalAnomaly"
+          "name": "detectArrivalAnomaly"
         }
       ]
     },
@@ -3313,6 +3359,211 @@
         {
           "file": "js/webhook/webhook-handler.js",
           "name": "processWebhookBatch"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-drop-zone-router",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Universal Drop Zone router",
+      "files": [
+        "js/drop-zone/drop-zone-router.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/drop-zone/drop-zone-router.js",
+          "name": "detectFileFormat"
+        },
+        {
+          "file": "js/drop-zone/drop-zone-router.js",
+          "name": "buildDropManifest"
+        },
+        {
+          "file": "js/drop-zone/drop-zone-router.js",
+          "name": "routeDropManifest"
+        },
+        {
+          "file": "js/drop-zone/drop-zone-router.js",
+          "name": "buildJoinPanelDescriptor"
+        },
+        {
+          "file": "js/drop-zone/drop-zone-router.js",
+          "name": "buildTabDescriptor"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-rag-core",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "RAG core (chunker, cosine similarity, retrieval)",
+      "files": [
+        "js/rag/rag-core.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rag/rag-core.js",
+          "name": "chunkText"
+        },
+        {
+          "file": "js/rag/rag-core.js",
+          "name": "cosineSimilarity"
+        },
+        {
+          "file": "js/rag/rag-core.js",
+          "name": "retrieveTopK"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-rag-validation-bridge",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "RAG validation bridge (citation injection)",
+      "files": [
+        "js/rag/rag-validation-bridge.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rag/rag-validation-bridge.js",
+          "name": "attachCitationsToFindings"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-rag-user-knowledge-store",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "User Knowledge Store (in-memory RAG index)",
+      "files": [
+        "js/rag/user-knowledge-store.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rag/user-knowledge-store.js",
+          "name": "addUserDocument"
+        },
+        {
+          "file": "js/rag/user-knowledge-store.js",
+          "name": "getUserKnowledgeBase"
+        },
+        {
+          "file": "js/rag/user-knowledge-store.js",
+          "name": "clearUserKnowledge"
+        },
+        {
+          "file": "js/rag/user-knowledge-store.js",
+          "name": "getUserKnowledgeStats"
+        },
+        {
+          "file": "js/rag/user-knowledge-store.js",
+          "name": "setChunkEmbedding"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-audio-structurer",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Audio ingestion structurer (Whisper \u2192 structured transcript dataset)",
+      "files": [
+        "js/audio/audio-structurer.js",
+        "js/audio/whisper-worker.scaffold.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/audio/audio-structurer.js",
+          "name": "validateTranscriptionInput"
+        },
+        {
+          "file": "js/audio/audio-structurer.js",
+          "name": "structureTranscription"
+        },
+        {
+          "file": "js/audio/audio-structurer.js",
+          "name": "buildAudioDatasetSummary"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-video-bridge",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Video ingestion bridge (audio-only, Batch 1)",
+      "files": [
+        "js/video/video-ingestion-bridge.js",
+        "js/video/webcodecs-audio-extractor.scaffold.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/video/video-ingestion-bridge.js",
+          "name": "buildVideoManifest"
+        },
+        {
+          "file": "js/video/video-ingestion-bridge.js",
+          "name": "validateVideoFile"
+        },
+        {
+          "file": "js/video/video-ingestion-bridge.js",
+          "name": "estimateTranscriptionTime"
+        },
+        {
+          "file": "js/video/video-ingestion-bridge.js",
+          "name": "buildVideoTranscriptDatasetName"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-pdf-bridge",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "PDF ingestion bridge (PDF.js \u2192 RAG pipeline)",
+      "files": [
+        "js/pdf/pdf-ingestion-bridge.js",
+        "js/pdf/pdfjs-extractor.scaffold.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/pdf/pdf-ingestion-bridge.js",
+          "name": "buildPDFManifest"
+        },
+        {
+          "file": "js/pdf/pdf-ingestion-bridge.js",
+          "name": "validatePDFText"
+        },
+        {
+          "file": "js/pdf/pdf-ingestion-bridge.js",
+          "name": "preparePDFForRAG"
+        },
+        {
+          "file": "js/pdf/pdf-ingestion-bridge.js",
+          "name": "buildPDFIngestionSummary"
+        },
+        {
+          "file": "js/pdf/pdfjs-extractor.scaffold.js",
+          "name": "extractPDFText"
         }
       ]
     }
