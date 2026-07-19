@@ -1232,6 +1232,108 @@
   }
 
   /* ============================================================
+     DASHBOARD VIEW (PR AN)
+     Research: Z-pattern, 3-5 KPIs, RAG, bar/line only, no pie/3D
+     ============================================================ */
+  #dashboard-view {
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding: 0;
+  }
+  #dashboard-view-inner { width: 100%; min-height: 100%; }
+
+  /* Gate (preflight check UI) */
+  .dash-gate {
+    max-width: 640px; margin: 48px auto 0; padding: 32px 28px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .dash-gate-title { font-size: 16px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px; }
+  .dash-gate-icon { font-size: 18px; }
+  .dash-gate-icon.ok  { color: #16A34A; }
+  .dash-gate-icon.fail{ color: #D97706; }
+  .dash-gate-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .dash-gate-section { display: flex; flex-direction: column; gap: 8px; }
+  .dash-gate-section-title { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .dash-gate-row { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0; }
+  .dash-gate-row.block { background: #FEF2F2; border-radius: 6px; padding: 8px 10px; }
+  .dash-gate-row.warn  { background: #FFFBEB; border-radius: 6px; padding: 6px 10px; }
+  .dark .dash-gate-row.block { background: rgba(185,28,28,.08); }
+  .dark .dash-gate-row.warn  { background: rgba(217,119,6,.08); }
+  .dash-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+  .dash-dot.red   { background: #DC2626; }
+  .dash-dot.amber { background: #D97706; }
+  .dash-dot.green { background: #16A34A; }
+  .dash-dot.blue  { background: #2563EB; }
+  .dash-row-msg  { font-size: 13px; color: var(--text); line-height: 1.4; }
+  .dash-row-detail { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+  .dash-gate-actions { display: flex; flex-direction: column; gap: 10px; }
+  .dash-gate-hint { font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+  .dash-btn-primary { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .dash-btn-primary:hover { background: var(--primary-hover); }
+  .dash-btn-secondary { background: transparent; color: var(--text-muted); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; font-size: 12.5px; cursor: pointer; }
+  .dash-btn-secondary:hover { color: var(--text); border-color: var(--text-muted); }
+
+  /* Dashboard root */
+  .dash-root { padding: 20px 24px 48px; display: flex; flex-direction: column; gap: 18px; }
+  .dash-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .dash-hdr-left { display: flex; flex-direction: column; gap: 3px; }
+  .dash-title { font-size: 18px; font-weight: 700; color: var(--text); }
+  .dash-meta { font-size: 11.5px; color: var(--text-muted); }
+  .dash-hdr-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dash-quality-badge { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+  .dash-quality-badge.ok   { background: #DCFCE7; color: #15803D; }
+  .dash-quality-badge.warn { background: #FEF3C7; color: #B45309; }
+  .dark .dash-quality-badge.ok   { background: rgba(22,163,74,.15); color: #4ADE80; }
+  .dark .dash-quality-badge.warn { background: rgba(217,119,6,.15);  color: #FCD34D; }
+  .dash-export-btn { font-size: 12.5px; font-weight: 600; padding: 6px 14px; border-radius: 7px; border: 1.5px solid var(--primary); color: var(--primary); background: transparent; cursor: pointer; }
+  .dash-export-btn:hover { background: var(--primary); color: #fff; }
+
+  /* KPI row (max 4, research: 3-5 rule) */
+  .dash-kpi-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  .dash-kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+  .dash-kpi-card.primary { border-color: var(--primary); }
+  .dash-kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+  .dash-kpi-value { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .dash-kpi-card.primary .dash-kpi-value { font-size: 34px; }
+  .dash-kpi-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dash-delta { font-size: 11.5px; font-weight: 700; padding: 2px 7px; border-radius: 12px; white-space: nowrap; }
+  .dash-spark { display: flex; align-items: center; }
+  .dash-kpi-sub { font-size: 10.5px; color: var(--text-faint); }
+
+  /* Outlier banner (never silent — Tableau rule) */
+  .dash-outlier-banner { background: #DBEAFE; border: 1px solid #93C5FD; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #1D4ED8; line-height: 1.5; }
+  .dark .dash-outlier-banner { background: rgba(37,99,235,.12); border-color: rgba(37,99,235,.3); color: #93C5FD; }
+
+  /* Chart grid (6 max, 2-col) */
+  .dash-chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .dash-chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+  .dash-chart-q { font-size: 12px; font-weight: 600; color: var(--primary); }
+  .dash-chart-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .dash-chart-wrap { position: relative; height: 200px; margin-top: 6px; }
+
+  /* Footer */
+  .dash-footer { font-size: 11.5px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; line-height: 1.6; }
+
+  /* Empty state */
+  .dash-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; color: var(--text-muted); text-align: center; padding: 60px 24px; }
+  .dash-empty-icon { font-size: 42px; opacity: .3; }
+  .dash-empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
+  .dash-empty-sub { font-size: 13px; max-width: 320px; line-height: 1.5; }
+
+  /* No numeric warning */
+  .dash-no-numeric { font-size: 13px; color: var(--text-muted); text-align: center; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    .dash-kpi-row { grid-template-columns: 1fr 1fr; }
+    .dash-chart-grid { grid-template-columns: 1fr; }
+    .dash-root { padding: 14px 12px 40px; }
+    .dash-kpi-card.primary .dash-kpi-value { font-size: 26px; }
+  }
+
+  /* ============================================================
      SQL MODE OVERLAY (Cmd+` / Ctrl+`)
      ============================================================ */
   #sql-overlay {
@@ -1321,6 +1423,126 @@
   #sql-run:hover {
     background: var(--primary-hover);
   }
+  /* ============================================================
+     SQL ENGINE (PR AO) — upgraded styles
+     ============================================================ */
+  #sql-panel {
+    display: flex; flex-direction: column;
+    width: min(900px, 96vw); max-height: 90vh; border-radius: 14px;
+    background: var(--bg); border: 1px solid var(--border);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35); overflow: hidden;
+  }
+  #sql-panel-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  #sql-panel-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  #sql-engine-badge {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+    background: var(--primary); color: #fff;
+    padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
+  }
+  #sql-header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  #sql-history-btn, #sql-export-btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text-muted); cursor: pointer; transition: 120ms;
+  }
+  #sql-history-btn:hover, #sql-export-btn:hover { color: var(--primary); border-color: var(--primary); }
+  #sql-body {
+    display: flex; flex: 1; min-height: 0; overflow: hidden;
+  }
+  #sql-schema-panel {
+    width: 180px; flex-shrink: 0; border-right: 1px solid var(--border);
+    background: var(--surface); overflow-y: auto; padding: 10px;
+  }
+  #sql-schema-title {
+    font-size: 10px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+  }
+  .sql-schema-table { margin-bottom: 12px; }
+  .sql-schema-tbl-name {
+    font-size: 12px; font-weight: 600; color: var(--primary);
+    margin-bottom: 4px; cursor: pointer; word-break: break-all;
+  }
+  .sql-schema-col {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--text); padding: 2px 4px;
+    border-radius: 3px; cursor: pointer;
+  }
+  .sql-schema-col:hover { background: var(--surface-alt); }
+  .sql-schema-col-type { font-size: 10px; color: var(--text-faint); }
+  #sql-editor-pane {
+    flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+  }
+  #sql-suggestions-bar {
+    display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px 4px;
+    border-bottom: 1px solid var(--border); background: var(--surface-alt);
+    flex-shrink: 0; min-height: 0;
+  }
+  #sql-suggestions-bar:empty { display: none; }
+  .sql-suggestion-chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text-muted); cursor: pointer; white-space: nowrap;
+    transition: 120ms;
+  }
+  .sql-suggestion-chip:hover { border-color: var(--primary); color: var(--primary); }
+  #sql-textarea-wrap { position: relative; flex-shrink: 0; }
+  #sql-input {
+    width: 100%; height: 130px; resize: vertical;
+    font-family: 'Consolas', 'JetBrains Mono', monospace; font-size: 13px;
+    background: var(--bg); color: var(--text);
+    border: none; border-bottom: 1px solid var(--border);
+    padding: 12px 14px; outline: none; box-sizing: border-box;
+    tab-size: 2; line-height: 1.6;
+  }
+  .sql-autocomplete {
+    position: absolute; bottom: 100%; left: 14px; z-index: 200;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 7px; min-width: 180px; max-width: 320px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2); overflow: hidden;
+  }
+  .sql-ac-item {
+    padding: 6px 10px; font-size: 12px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--text);
+  }
+  .sql-ac-item:hover, .sql-ac-item.active { background: var(--primary); color: #fff; }
+  .sql-ac-detail { font-size: 10px; color: var(--text-faint); margin-left: 8px; }
+  .sql-ac-item.active .sql-ac-detail { color: rgba(255,255,255,0.6); }
+  #sql-actions {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  #sql-shortcut-hint { font-size: 11px; color: var(--text-faint); }
+  #sql-status {
+    font-size: 12px; color: var(--text-muted);
+    padding: 5px 14px; flex-shrink: 0; min-height: 22px;
+  }
+  #sql-status.error { color: #A12C7B; }
+  #sql-status.success { color: #437A22; }
+  #sql-results-wrapper { flex: 1; overflow: auto; }
+  #sql-history-panel {
+    position: absolute; top: 44px; right: 0; bottom: 0; width: 280px;
+    background: var(--surface); border-left: 1px solid var(--border);
+    overflow-y: auto; z-index: 10; padding: 12px;
+  }
+  #sql-history-title {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    display: flex; justify-content: space-between; margin-bottom: 8px;
+  }
+  #sql-history-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; }
+  .sql-history-item {
+    font-size: 11px; font-family: monospace; color: var(--text-muted);
+    padding: 6px 8px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--border); margin-bottom: 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sql-history-item:hover { border-color: var(--primary); color: var(--text); }
+
   #sql-results-wrapper {
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -2609,6 +2831,7 @@
         <button class="nav-btn" data-view="charts">Charts</button>
         <button class="nav-btn" data-view="story">Story</button>
         <button class="nav-btn" data-view="join">Join</button>
+        <button class="nav-btn" data-view="dashboard">Dashboard</button>
       </div>
       <div id="nav-right">
         <button id="publish-btn" title="Share this analysis" disabled>
@@ -2737,6 +2960,11 @@
       <!-- Join view — PR AL -->
       <div id="join-view" class="view hidden">
         <div id="join-view-inner"></div>
+      </div>
+
+      <!-- Dashboard view — PR AN -->
+      <div id="dashboard-view" class="view hidden">
+        <div id="dashboard-view-inner"></div>
       </div>
 
       <!-- Ambient Validation Rail -->
@@ -2896,27 +3124,45 @@
   </div>
 
   <!-- ============================================================
-       SQL MODE OVERLAY (Tier 3, Cmd+` / Ctrl+`)
+       SQL MODE OVERLAY — DuckDB-WASM (PR AO)
        ============================================================ -->
   <div id="sql-overlay" class="hidden">
     <div id="sql-panel">
       <div id="sql-panel-header">
-        <span id="sql-panel-title">SQL Mode</span>
-        <span id="sql-panel-hint">Mock engine &mdash; real DuckDB-WASM lands in a follow-up PR</span>
-        <button id="sql-close">&times;</button>
+        <span id="sql-panel-title">SQL</span>
+        <span id="sql-engine-badge">DuckDB-WASM</span>
+        <div id="sql-header-actions">
+          <button id="sql-history-btn" title="Query history (↑↓)">History</button>
+          <button id="sql-export-btn" title="Export results as CSV" class="hidden">Export CSV</button>
+          <button id="sql-close">&times;</button>
+        </div>
       </div>
       <div id="sql-body">
-        <textarea id="sql-input" placeholder="SELECT * FROM dataset WHERE ..." spellcheck="false"></textarea>
-        <div id="sql-actions">
-          <button id="sql-run">Run</button>
+        <div id="sql-schema-panel">
+          <div id="sql-schema-title">Schema</div>
+          <div id="sql-schema-list"></div>
         </div>
-        <div id="sql-status"></div>
-        <div id="sql-results-wrapper">
-          <table id="sql-results-table">
-            <thead id="sql-results-thead"></thead>
-            <tbody id="sql-results-tbody"></tbody>
-          </table>
+        <div id="sql-editor-pane">
+          <div id="sql-suggestions-bar"></div>
+          <div id="sql-textarea-wrap">
+            <textarea id="sql-input" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+          </div>
+          <div id="sql-actions">
+            <button id="sql-run">&#9654; Run</button>
+            <span id="sql-shortcut-hint">Ctrl+Enter</span>
+          </div>
+          <div id="sql-status"></div>
+          <div id="sql-results-wrapper">
+            <table id="sql-results-table">
+              <thead id="sql-results-thead"></thead>
+              <tbody id="sql-results-tbody"></tbody>
+            </table>
+          </div>
         </div>
+      </div>
+      <div id="sql-history-panel" class="hidden">
+        <div id="sql-history-title">Recent queries <button id="sql-history-close">&times;</button></div>
+        <div id="sql-history-list"></div>
       </div>
     </div>
   </div>
@@ -7302,6 +7548,795 @@ var AnomalyTimeline = (function () {
   return { detect: detect, render: render };
 })();
   /* ---- end anomaly-timeline.js ---- */
+  /* ---- from js/sql/sql-engine.js ---- */
+/**
+ * sql-engine.js — DataGlow Real SQL Engine (PR AO)
+ *
+ * Powers the SQL Mode overlay with real DuckDB-WASM execution,
+ * smart autocomplete, query history, schema sidebar, and explain output.
+ *
+ * Public API:
+ *   SQLEngine.init(containerEl, getDatasets, opts) → instance
+ *   instance.loadDataset(dataset)   — registers dataset as DuckDB table
+ *   instance.runQuery(sql)          → Promise<{columns, rows, durationMs}>
+ *   instance.destroy()
+ *
+ * Smart features:
+ *   - Schema panel: table name, column names + types at a glance
+ *   - Autocomplete: column names, table name, SQL keywords, functions
+ *   - Query history (last 20, navigable with ↑↓)
+ *   - EXPLAIN plan toggle
+ *   - Error messages translated to plain English
+ *   - "Export results as CSV" after any query
+ *   - AI suggestions: if query returns 0 rows, suggest a fix
+ *   - Multi-dataset: each loaded file becomes its own table
+ */
+
+var SQLEngine = (function () {
+  'use strict';
+
+  // DuckDB-WASM CDN (ESM bundle — loads via dynamic import in init)
+  var DUCKDB_CDN = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
+
+  var SQL_KEYWORDS = [
+    'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET',
+    'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN', 'ON',
+    'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'LIKE', 'IS NULL', 'IS NOT NULL',
+    'AS', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX',
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+    'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT',
+    'WITH', 'CTE', 'PARTITION BY', 'OVER', 'ROW_NUMBER', 'RANK', 'DENSE_RANK',
+    'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
+    'CAST', 'TRY_CAST', 'COALESCE', 'NULLIF', 'IFF',
+    'STRFTIME', 'DATE_TRUNC', 'DATE_DIFF', 'NOW', 'CURRENT_DATE',
+    'ROUND', 'FLOOR', 'CEIL', 'ABS', 'MOD',
+    'LOWER', 'UPPER', 'TRIM', 'LENGTH', 'SUBSTRING', 'REPLACE', 'CONCAT',
+    'ARRAY_AGG', 'STRING_AGG', 'LIST_AGG',
+    'ASC', 'DESC', 'NULLS FIRST', 'NULLS LAST',
+    'CREATE', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER',
+    'TRUE', 'FALSE', 'NULL'
+  ];
+
+  // Friendly error translations
+  var ERROR_TRANSLATIONS = [
+    { pattern: /Table.*not found|No table.*named/i, msg: 'Table not found. Check the table name in the Schema panel on the left.' },
+    { pattern: /Column.*not found|No column.*named/i, msg: 'Column not found. Check the column names in the Schema panel.' },
+    { pattern: /Syntax error/i, msg: 'SQL syntax error. Check for missing commas, unclosed parentheses, or misspelled keywords.' },
+    { pattern: /division by zero/i, msg: 'Division by zero detected. Add a WHERE or NULLIF guard around your denominator.' },
+    { pattern: /conversion.*failed|cannot cast/i, msg: 'Type conversion failed. A column may contain text where a number is expected.' },
+    { pattern: /ambiguous.*column/i, msg: 'Ambiguous column name. Prefix it with the table name: `tablename.columnname`.' }
+  ];
+
+  function translateError(msg) {
+    for (var i = 0; i < ERROR_TRANSLATIONS.length; i++) {
+      if (ERROR_TRANSLATIONS[i].pattern.test(msg)) return ERROR_TRANSLATIONS[i].msg;
+    }
+    return msg;
+  }
+
+  // Smart query suggestions when 0 rows returned
+  function zeroRowsSuggestion(sql, dataset) {
+    var suggestions = [];
+    if (/WHERE/i.test(sql)) {
+      suggestions.push('Your WHERE clause may be too restrictive. Try removing it temporarily to see if rows exist.');
+    }
+    if (/LIMIT\s+0/i.test(sql)) {
+      suggestions.push('LIMIT 0 returns no rows by design. Increase your LIMIT value.');
+    }
+    if (dataset && dataset.rows && dataset.rows.length > 0) {
+      suggestions.push('The table has ' + dataset.rows.length.toLocaleString() + ' rows — try SELECT * FROM "' + safeTableName(dataset.name) + '" LIMIT 5 to verify access.');
+    }
+    return suggestions.length ? suggestions[0] : null;
+  }
+
+  function safeTableName(filename) {
+    return (filename || 'dataset').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── DuckDB-WASM wrapper ────────────────────────────────────────────────────
+  function createDuckDBAdapter() {
+    var db = null, conn = null, initialised = false, registeredTables = {};
+
+    async function ensureInit() {
+      if (initialised) return;
+      initialised = true;
+      try {
+        // Dynamic import of DuckDB-WASM ESM bundle
+        var mod = await import(DUCKDB_CDN);
+        var JSDELIVR_BUNDLES = mod.getJsDelivrBundles ? mod.getJsDelivrBundles() : mod.selectBundle ? mod.selectBundle(mod.getJsDelivrBundles()) : null;
+        var bundle = JSDELIVR_BUNDLES || {
+          mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-eh.wasm',
+          mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-eh.worker.js'
+        };
+        if (mod.selectBundle) bundle = mod.selectBundle(mod.getJsDelivrBundles());
+        var worker = new Worker(bundle.mainWorker);
+        var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
+        db = new mod.AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+        conn = await db.connect();
+      } catch (e) {
+        db = null; conn = null; initialised = false;
+        throw new Error('DuckDB-WASM failed to load: ' + e.message);
+      }
+    }
+
+    async function registerDataset(dataset) {
+      await ensureInit();
+      var tbl = safeTableName(dataset.name);
+      if (registeredTables[tbl]) return tbl; // already registered
+
+      // Build CSV string from dataset rows
+      var cols = dataset.columns.map(function (c) { return c.name; });
+      var lines = [cols.map(function (c) { return JSON.stringify(String(c)); }).join(',')];
+      dataset.rows.forEach(function (row) {
+        lines.push(cols.map(function (c) {
+          var v = row[c];
+          if (v === null || v === undefined) return '';
+          return JSON.stringify(String(v));
+        }).join(','));
+      });
+      var csv = lines.join('\n');
+
+      // Register as in-memory CSV
+      var encoder = new TextEncoder();
+      var bytes = encoder.encode(csv);
+      var fname = tbl + '.csv';
+      await db.registerFileBuffer(fname, bytes);
+      await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true)");
+      registeredTables[tbl] = true;
+      return tbl;
+    }
+
+    async function query(sql, datasets) {
+      await ensureInit();
+      // Register all datasets
+      for (var i = 0; i < datasets.length; i++) {
+        await registerDataset(datasets[i]);
+      }
+      var t0 = Date.now();
+      var result = await conn.query(sql);
+      var durationMs = Date.now() - t0;
+
+      var schema = result.schema.fields;
+      var columns = schema.map(function (f) { return { name: f.name, type: String(f.type) }; });
+      var rows = result.toArray().map(function (r) {
+        return r.toJSON ? r.toJSON() : Object.fromEntries(columns.map(function (c) { return [c.name, r[c.name]]; }));
+      });
+      return { columns: columns, rows: rows, durationMs: durationMs };
+    }
+
+    return { query: query, registerDataset: registerDataset };
+  }
+
+  // ── Autocomplete ──────────────────────────────────────────────────────────
+  function buildAutocomplete(textarea, getSchemaTokens) {
+    var dropEl = document.createElement('div');
+    dropEl.className = 'sql-autocomplete';
+    dropEl.style.display = 'none';
+    textarea.parentNode.style.position = 'relative';
+    textarea.parentNode.appendChild(dropEl);
+
+    var items = [], activeIdx = -1;
+
+    function getWordBefore() {
+      var pos = textarea.selectionStart;
+      var text = textarea.value.slice(0, pos);
+      var m = /[\w"]+$/.exec(text);
+      return m ? m[0] : '';
+    }
+
+    function show(matches) {
+      items = matches;
+      activeIdx = -1;
+      if (!matches.length) { dropEl.style.display = 'none'; return; }
+      dropEl.innerHTML = matches.slice(0, 8).map(function (m, i) {
+        return '<div class="sql-ac-item" data-idx="' + i + '">' + escHtml(m.text) +
+          (m.detail ? '<span class="sql-ac-detail">' + escHtml(m.detail) + '</span>' : '') + '</div>';
+      }).join('');
+      dropEl.style.display = 'block';
+      dropEl.querySelectorAll('.sql-ac-item').forEach(function (el) {
+        el.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          applyCompletion(items[+el.dataset.idx].text);
+        });
+      });
+    }
+
+    function hide() { dropEl.style.display = 'none'; items = []; activeIdx = -1; }
+
+    function applyCompletion(text) {
+      var pos = textarea.selectionStart;
+      var before = textarea.value.slice(0, pos);
+      var after = textarea.value.slice(pos);
+      var m = /[\w"]+$/.exec(before);
+      var start = m ? pos - m[0].length : pos;
+      textarea.value = before.slice(0, start) + text + after;
+      textarea.selectionStart = textarea.selectionEnd = start + text.length;
+      hide();
+      textarea.focus();
+    }
+
+    textarea.addEventListener('input', function () {
+      var word = getWordBefore();
+      if (word.length < 1) { hide(); return; }
+      var tokens = getSchemaTokens();
+      var all = SQL_KEYWORDS.map(function (k) { return { text: k, detail: 'keyword' }; })
+        .concat(tokens.map(function (t) { return { text: t.text, detail: t.detail }; }));
+      var lc = word.toLowerCase();
+      var matches = all.filter(function (t) { return t.text.toLowerCase().startsWith(lc) && t.text.toLowerCase() !== lc; });
+      show(matches);
+    });
+
+    textarea.addEventListener('keydown', function (e) {
+      if (dropEl.style.display === 'none') return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, Math.min(items.length, 8) - 1);
+        dropEl.querySelectorAll('.sql-ac-item').forEach(function (el, i) { el.classList.toggle('active', i === activeIdx); });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        dropEl.querySelectorAll('.sql-ac-item').forEach(function (el, i) { el.classList.toggle('active', i === activeIdx); });
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (activeIdx >= 0 && items[activeIdx]) { e.preventDefault(); applyCompletion(items[activeIdx].text); }
+        else hide();
+      } else if (e.key === 'Escape') {
+        hide();
+      }
+    });
+
+    document.addEventListener('click', function (e) { if (!dropEl.contains(e.target) && e.target !== textarea) hide(); });
+  }
+
+  // ── Query history ─────────────────────────────────────────────────────────
+  function createHistory() {
+    var items = [], idx = -1;
+    return {
+      push: function (sql) { items.unshift(sql); if (items.length > 20) items.pop(); idx = -1; },
+      prev: function () { if (idx < items.length - 1) idx++; return items[idx] || null; },
+      next: function () { if (idx > 0) idx--; return items[idx] || null; },
+      all: function () { return items.slice(); }
+    };
+  }
+
+  // ── Smart SQL suggestions ─────────────────────────────────────────────────
+  function buildSmartSuggestions(dataset) {
+    if (!dataset || !dataset.columns) return [];
+    var tbl = '"' + safeTableName(dataset.name) + '"';
+    var cols = dataset.columns;
+    var numCols = cols.filter(function (c) { return c.type === 'number' || c.type === 'integer' || c.type === 'double'; });
+    var catCols = cols.filter(function (c) { return c.type === 'text' || c.type === 'varchar'; });
+    var dateCols = cols.filter(function (c) { return c.type === 'date' || c.type === 'timestamp'; });
+    var suggestions = [];
+
+    // Row count
+    suggestions.push({ label: 'Count all rows', sql: 'SELECT COUNT(*) AS total_rows\nFROM ' + tbl });
+
+    // Null check
+    if (cols.length) {
+      suggestions.push({
+        label: 'Check null counts',
+        sql: 'SELECT\n' + cols.slice(0, 6).map(function (c) {
+          return '  COUNT(*) - COUNT("' + c.name + '") AS "' + c.name + '_nulls"';
+        }).join(',\n') + '\nFROM ' + tbl
+      });
+    }
+
+    // Group by + avg for first categorical + numeric pair
+    if (catCols.length && numCols.length) {
+      suggestions.push({
+        label: 'Group by ' + catCols[0].name,
+        sql: 'SELECT\n  "' + catCols[0].name + '",\n  COUNT(*) AS count,\n  ROUND(AVG("' + numCols[0].name + '"), 2) AS avg_' + numCols[0].name.replace(/[^a-z0-9]/gi, '_') + '\nFROM ' + tbl + '\nGROUP BY "' + catCols[0].name + '"\nORDER BY count DESC\nLIMIT 10'
+      });
+    }
+
+    // Top N by numeric
+    if (numCols.length) {
+      suggestions.push({
+        label: 'Top 10 by ' + numCols[0].name,
+        sql: 'SELECT *\nFROM ' + tbl + '\nORDER BY "' + numCols[0].name + '" DESC\nLIMIT 10'
+      });
+    }
+
+    // Date trend
+    if (dateCols.length && numCols.length) {
+      suggestions.push({
+        label: 'Monthly trend',
+        sql: 'SELECT\n  DATE_TRUNC(\'month\', "' + dateCols[0].name + '") AS month,\n  COUNT(*) AS count,\n  ROUND(SUM("' + numCols[0].name + '"), 2) AS total\nFROM ' + tbl + '\nGROUP BY month\nORDER BY month'
+      });
+    }
+
+    // Duplicates
+    if (cols.length) {
+      suggestions.push({
+        label: 'Find duplicates',
+        sql: 'SELECT\n  ' + cols.slice(0, 3).map(function (c) { return '"' + c.name + '"'; }).join(', ') + ',\n  COUNT(*) AS occurrences\nFROM ' + tbl + '\nGROUP BY ' + cols.slice(0, 3).map(function (c) { return '"' + c.name + '"'; }).join(', ') + '\nHAVING COUNT(*) > 1\nORDER BY occurrences DESC'
+      });
+    }
+
+    return suggestions;
+  }
+
+  // ── Results export ────────────────────────────────────────────────────────
+  function exportResultsCSV(columns, rows) {
+    var lines = [columns.map(function (c) { return JSON.stringify(c.name); }).join(',')];
+    rows.forEach(function (row) {
+      lines.push(columns.map(function (c) {
+        var v = row[c.name];
+        return v === null || v === undefined ? '' : JSON.stringify(String(v));
+      }).join(','));
+    });
+    var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'query_results.csv';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+
+  // ── Public init ───────────────────────────────────────────────────────────
+  function init(opts) {
+    // opts: { getDatasets, onResultReady, onError }
+    var adapter = createDuckDBAdapter();
+    var history = createHistory();
+    var lastResult = null;
+
+    return {
+      loadDataset: async function (dataset) {
+        try { await adapter.registerDataset(dataset); } catch (e) { /* silent */ }
+      },
+      runQuery: async function (sql, datasets) {
+        try {
+          var result = await adapter.query(sql, datasets || []);
+          lastResult = result;
+          if (opts && opts.onResultReady) opts.onResultReady(result, sql);
+          return result;
+        } catch (e) {
+          var msg = translateError(e.message || String(e));
+          if (opts && opts.onError) opts.onError(msg, sql);
+          throw new Error(msg);
+        }
+      },
+      history: history,
+      getLastResult: function () { return lastResult; },
+      exportLastResult: function () {
+        if (lastResult) exportResultsCSV(lastResult.columns, lastResult.rows);
+      },
+      buildSmartSuggestions: buildSmartSuggestions,
+      buildAutocomplete: buildAutocomplete,
+      safeTableName: safeTableName
+    };
+  }
+
+  return { init: init, SQL_KEYWORDS: SQL_KEYWORDS, safeTableName: safeTableName, exportResultsCSV: exportResultsCSV };
+})();
+  /* ---- end sql-engine.js ---- */
+
+  /* ---- from js/dashboard/dashboard-engine.js ---- */
+/**
+ * dashboard-engine.js — DataGlow Dashboard View (PR AN)
+ *
+ * DataGlow rows are arrays (not objects). Columns are { name, type } where
+ * type is one of: 'INT', 'FLOAT', 'STR', 'DATE', 'BOOL' (from detectType).
+ * Access: r[colIdx] — NOT r[col.name].
+ *
+ * Research-grounded rules:
+ *  - Data readiness gate first (null rates, dupes, row count, type consistency)
+ *  - 3-4 KPI cards, top row, Z-pattern
+ *  - Three-in-one KPI anatomy: headline + sparkline + delta badge
+ *  - RAG colors: green #16A34A / amber #D97706 / red #DC2626 — never inverted
+ *  - Bar + line charts only — no pie, no 3D, no dual-axis
+ *  - 6 charts max
+ *  - Outliers flagged, never silently removed
+ *  - Export CSV front and center
+ */
+
+var DashboardEngine = (function () {
+  'use strict';
+
+  var RAG = {
+    green: { bg: '#DCFCE7', text: '#15803D', dot: '#16A34A' },
+    amber: { bg: '#FEF3C7', text: '#B45309', dot: '#D97706' },
+    red:   { bg: '#FEE2E2', text: '#B91C1C', dot: '#DC2626' },
+    gray:  { bg: '#F3F4F6', text: '#4B5563', dot: '#6B7280' },
+    blue:  { bg: '#DBEAFE', text: '#1D4ED8', dot: '#2563EB' }
+  };
+
+  // DataGlow numeric types
+  var NUMERIC_TYPES = { 'INT': true, 'FLOAT': true, 'number': true, 'integer': true, 'float': true, 'double': true };
+  var TEXT_TYPES    = { 'STR': true, 'BOOL': true, 'text': true, 'varchar': true, 'string': true };
+  var DATE_TYPES    = { 'DATE': true, 'date': true, 'timestamp': true };
+
+  function isNum(v) { return v !== null && v !== undefined && v !== '' && !isNaN(parseFloat(v)) && isFinite(v); }
+  function toNum(v) { return parseFloat(v); }
+  function escH(s)  { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined || isNaN(n)) return '\u2014';
+    var abs = Math.abs(n);
+    if (abs >= 1e9) return (n/1e9).toFixed(1)+'B';
+    if (abs >= 1e6) return (n/1e6).toFixed(1)+'M';
+    if (abs >= 1e3) return (n/1e3).toFixed(1)+'K';
+    if (abs < 1 && abs > 0) return n.toFixed(2);
+    return parseFloat(n.toFixed(2)).toLocaleString();
+  }
+  function fmtPct(n) {
+    if (n === null || isNaN(n)) return '';
+    return (n >= 0 ? '+' : '') + (n * 100).toFixed(1) + '%';
+  }
+
+  // Get value from a row by column index
+  function getVal(row, colIdx) { return row[colIdx]; }
+
+  // ── Data Readiness Check ──────────────────────────────────────────────────
+  function runReadinessCheck(dataset) {
+    var issues = [], warnings = [], passed = [];
+    if (!dataset || !dataset.rows || !dataset.columns) {
+      return { pass: false, issues: [{ msg: 'No dataset loaded.', severity: 'block' }], warnings: [], passed: [], outlierCols: [] };
+    }
+    var rows = dataset.rows, cols = dataset.columns, n = rows.length;
+
+    // Row count
+    if (n === 0) {
+      issues.push({ severity: 'block', msg: 'Dataset is empty (0 rows).' });
+    } else if (n < 30) {
+      warnings.push({ severity: 'warn', msg: n + ' rows \u2014 below the 30-row minimum. KPI values may be statistically unreliable.' });
+    } else {
+      passed.push('Row count: ' + n.toLocaleString() + ' rows');
+    }
+
+    // Duplicates (Uber SLA: <=1%)
+    var seen = {}, dupeCount = 0;
+    rows.forEach(function(r) { var k=JSON.stringify(r); if(seen[k]) dupeCount++; else seen[k]=true; });
+    var dupePct = n > 0 ? dupeCount/n : 0;
+    if (dupePct > 0.01) {
+      issues.push({ severity: 'block', msg: dupeCount + ' duplicate rows (' + (dupePct*100).toFixed(1) + '%) exceeds the 1% threshold.', detail: 'Duplicates inflate KPIs. Use the Grid view to remove them first.' });
+    } else if (dupeCount > 0) {
+      warnings.push({ severity: 'warn', msg: dupeCount + ' duplicate row(s) found (within 1% tolerance).' });
+    } else {
+      passed.push('Duplicates: none found');
+    }
+
+    // Null rates per numeric column (block >30%, warn 10-30%)
+    var highNullCols = [];
+    cols.forEach(function(col, ci) {
+      var nullC = rows.filter(function(r){ var v=getVal(r,ci); return v===null||v===undefined||v===''; }).length;
+      var pct = n > 0 ? nullC/n : 0;
+      if (pct > 0.30 && NUMERIC_TYPES[col.type]) {
+        highNullCols.push(col.name);
+        issues.push({ severity: 'block', field: col.name, msg: '"'+col.name+'": '+(pct*100).toFixed(0)+'% empty \u2014 too incomplete to chart reliably.', detail: 'Above 30% nulls on a metric column produces misleading charts. Fix with Column Editor.' });
+      } else if (pct > 0.10) {
+        warnings.push({ severity: 'warn', msg: '"'+col.name+'": '+(pct*100).toFixed(0)+'% empty (10\u201330% \u2014 null rows excluded from charts).' });
+      }
+    });
+    if (!highNullCols.length) passed.push('Null rates: all columns within safe thresholds');
+
+    // Outliers (1.5x IQR, flag only, never remove)
+    var outlierCols = [];
+    cols.forEach(function(col, ci) {
+      if (!NUMERIC_TYPES[col.type]) return;
+      var vals = rows.map(function(r){return getVal(r,ci);}).filter(isNum).map(toNum);
+      if (vals.length < 10) return;
+      var sorted = vals.slice().sort(function(a,b){return a-b;});
+      var q1=sorted[Math.floor(sorted.length*0.25)], q3=sorted[Math.floor(sorted.length*0.75)];
+      var iqr=q3-q1, lo=q1-1.5*iqr, hi=q3+1.5*iqr;
+      var cnt=vals.filter(function(v){return v<lo||v>hi;}).length;
+      if (cnt > 0) outlierCols.push({ name: col.name, count: cnt });
+    });
+    if (outlierCols.length) {
+      warnings.push({ severity: 'info', msg: 'Outliers flagged in: '+outlierCols.map(function(c){return c.name+' ('+c.count+')';}).join(', ')+'. Shown in context, not removed (Tableau best practice).' });
+    }
+
+    return { pass: issues.length===0, issues: issues, warnings: warnings, passed: passed, outlierCols: outlierCols };
+  }
+
+  // ── KPI derivation ────────────────────────────────────────────────────────
+  function deriveKPIs(dataset) {
+    var rows = dataset.rows, cols = dataset.columns;
+    // Find numeric columns by type OR by value inspection
+    var numColIdxs = [];
+    cols.forEach(function(col, ci) {
+      if (NUMERIC_TYPES[col.type]) {
+        numColIdxs.push(ci);
+      } else {
+        // Fallback: check if 50%+ of values are numeric
+        var vals = rows.slice(0,30).map(function(r){return getVal(r,ci);}).filter(isNum);
+        if (vals.length >= Math.max(1, Math.min(30, rows.length)*0.5)) numColIdxs.push(ci);
+      }
+    });
+
+    return numColIdxs.slice(0,4).map(function(ci) {
+      var col = cols[ci];
+      var vals = rows.map(function(r){return getVal(r,ci);}).filter(isNum).map(toNum);
+      if (!vals.length) return null;
+      var total = vals.reduce(function(s,v){return s+v;},0);
+      var avg = total/vals.length;
+      var mn = Math.min.apply(null,vals), mx = Math.max.apply(null,vals);
+      var spark = vals.slice(-12);
+      var half = Math.floor(vals.length/2);
+      var avg1 = half>0 ? vals.slice(0,half).reduce(function(s,v){return s+v;},0)/half : avg;
+      var avg2 = (vals.length-half)>0 ? vals.slice(half).reduce(function(s,v){return s+v;},0)/(vals.length-half) : avg;
+      var delta = avg1 !== 0 ? (avg2-avg1)/Math.abs(avg1) : 0;
+      return { name: col.name, value: fmtNum(avg), total: fmtNum(total), min: fmtNum(mn), max: fmtNum(mx), count: vals.length, delta: delta, deltaStr: fmtPct(delta), spark: spark };
+    }).filter(Boolean);
+  }
+
+  // ── Chart derivation (bar + line only) ───────────────────────────────────
+  function deriveCharts(dataset) {
+    var rows = dataset.rows, cols = dataset.columns, charts = [];
+
+    // Classify columns
+    var numIdxs = [], catIdxs = [], dateIdxs = [];
+    cols.forEach(function(col, ci) {
+      if (NUMERIC_TYPES[col.type]) {
+        numIdxs.push(ci);
+      } else if (DATE_TYPES[col.type]) {
+        dateIdxs.push(ci);
+      } else if (TEXT_TYPES[col.type]) {
+        // Check cardinality for categorical use
+        var uniq = new Set(rows.slice(0,50).map(function(r){return getVal(r,ci);}).filter(function(v){return v!==null&&v!==undefined&&v!=='';} )).size;
+        if (uniq >= 2 && uniq <= 25) catIdxs.push(ci);
+      }
+    });
+
+    // Fallback: if no classified cols, infer from values
+    if (!numIdxs.length && !catIdxs.length) {
+      cols.forEach(function(col, ci) {
+        var vals30 = rows.slice(0,30).map(function(r){return getVal(r,ci);});
+        var numCount = vals30.filter(isNum).length;
+        if (numCount >= vals30.length*0.5) numIdxs.push(ci);
+        else {
+          var uniq = new Set(vals30.filter(Boolean)).size;
+          if (uniq >= 2 && uniq <= 20) catIdxs.push(ci);
+        }
+      });
+    }
+
+    // 1. Avg metric by top categorical col
+    if (catIdxs.length && numIdxs.length) {
+      var ci=catIdxs[0], mi=numIdxs[0], g={};
+      rows.forEach(function(r){ var k=String(getVal(r,ci)||'Unknown'); if(!g[k]) g[k]={sum:0,n:0}; var v=getVal(r,mi); if(isNum(v)){g[k].sum+=toNum(v);g[k].n++;} });
+      var s=Object.keys(g).map(function(k){return{label:k,value:g[k].n?g[k].sum/g[k].n:0};}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
+      if (s.length>=2) charts.push({type:'bar',title:'Avg '+cols[mi].name+' by '+cols[ci].name,data:s,question:'Which '+cols[ci].name+' has the highest avg '+cols[mi].name+'?'});
+    }
+
+    // 2. Count by category
+    if (catIdxs.length) {
+      var ci2=catIdxs.length>1?catIdxs[1]:catIdxs[0], freq={};
+      rows.forEach(function(r){ var k=String(getVal(r,ci2)||'Unknown'); freq[k]=(freq[k]||0)+1; });
+      var fs=Object.keys(freq).map(function(k){return{label:k,value:freq[k]};}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
+      if (fs.length>=2&&(catIdxs.length>1||charts.length===0)) charts.push({type:'bar',title:'Count by '+cols[ci2].name,data:fs,question:'How many records per '+cols[ci2].name+'?'});
+    }
+
+    // 3. Time series line (date col + metric col)
+    if (dateIdxs.length && numIdxs.length) {
+      var di=dateIdxs[0], mi2=numIdxs[0], tg={};
+      rows.forEach(function(r){ var d=new Date(String(getVal(r,di)||'')); if(isNaN(d)) return; var k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); if(!tg[k])tg[k]={sum:0,n:0}; var v=getVal(r,mi2); if(isNum(v)){tg[k].sum+=toNum(v);tg[k].n++;} });
+      var ts=Object.keys(tg).sort().map(function(k){return{label:k,value:tg[k].n?tg[k].sum/tg[k].n:0};});
+      if (ts.length>=2) charts.push({type:'line',title:cols[mi2].name+' trend over time',data:ts,question:'How has '+cols[mi2].name+' trended over time?'});
+    }
+
+    // 4. Distribution histogram of primary numeric col
+    if (numIdxs.length) {
+      var hci=numIdxs[0];
+      var hv=rows.map(function(r){return getVal(r,hci);}).filter(isNum).map(toNum);
+      if (hv.length>=5) {
+        var mn=Math.min.apply(null,hv), mx=Math.max.apply(null,hv), binCnt=Math.min(8,Math.ceil(Math.sqrt(hv.length))), bw=(mx-mn)/binCnt||1;
+        var bd=[]; for(var b=0;b<binCnt;b++){ var lo=mn+b*bw,hi=mn+(b+1)*bw; bd.push({label:fmtNum(lo)+'\u2013'+fmtNum(hi),value:hv.filter(function(v){return v>=lo&&(b===binCnt-1?v<=hi:v<hi);}).length}); }
+        if (bd.length>1) charts.push({type:'bar',title:'Distribution: '+cols[hci].name,data:bd,question:'What is the distribution of '+cols[hci].name+'?'});
+      }
+    }
+
+    // 5. Second numeric by first categorical
+    if (numIdxs.length>1 && catIdxs.length) {
+      var ci5=catIdxs[0], mi5=numIdxs[1], g5={};
+      rows.forEach(function(r){ var k=String(getVal(r,ci5)||'Unknown'); if(!g5[k])g5[k]={sum:0,n:0}; var v=getVal(r,mi5); if(isNum(v)){g5[k].sum+=toNum(v);g5[k].n++;} });
+      var s5=Object.keys(g5).map(function(k){return{label:k,value:g5[k].n?g5[k].sum/g5[k].n:0};}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
+      if (s5.length>=2) charts.push({type:'bar',title:'Avg '+cols[mi5].name+' by '+cols[ci5].name,data:s5,question:'How does '+cols[mi5].name+' compare across '+cols[ci5].name+'?'});
+    }
+
+    return charts.slice(0,6);
+  }
+
+  // ── Sparkline SVG ─────────────────────────────────────────────────────────
+  function sparkSVG(vals, color) {
+    if (!vals||vals.length<2) return '';
+    var w=80, h=28, mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals), rng=mx-mn||1;
+    var pts=vals.map(function(v,i){ return ((i/(vals.length-1))*w).toFixed(1)+','+(h-((v-mn)/rng)*h).toFixed(1); }).join(' ');
+    return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'"><polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  // ── Chart.js rendering ────────────────────────────────────────────────────
+  var chartInstances = [];
+  function destroyCharts() { chartInstances.forEach(function(c){try{c.destroy();}catch(e){}}); chartInstances=[]; }
+
+  function loadChartJs() {
+    if (window.Chart) return Promise.resolve();
+    return new Promise(function(resolve,reject){
+      var s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+      s.onload=resolve; s.onerror=function(){resolve();};  // don't block on CDN failure
+      document.head.appendChild(s);
+    });
+  }
+
+  function renderChartCanvas(canvas, chart, isDark) {
+    if (!window.Chart||!canvas) return;
+    var tc=isDark?'#CDCCCA':'#28251D', gc=isDark?'#393836':'#D4D1CA', primary='#20808D';
+    var labels=chart.data.map(function(d){return d.label;}), vals=chart.data.map(function(d){return d.value;});
+    var isHoriz=chart.type==='bar'&&labels.some(function(l){return String(l).length>10;});
+    var cfg={
+      type:chart.type==='line'?'line':'bar',
+      data:{ labels:labels, datasets:[{
+        data:vals,
+        backgroundColor:chart.type==='line'?'transparent':primary+'88',
+        borderColor:primary, borderWidth:chart.type==='line'?2:0,
+        borderRadius:chart.type==='bar'?4:0,
+        pointBackgroundColor:primary, pointRadius:chart.type==='line'?3:0,
+        tension:0.35,
+        fill:chart.type==='line'?{target:'origin',above:primary+'18'}:false
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        indexAxis:isHoriz?'y':'x',
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:function(ctx){return fmtNum(ctx.parsed[isHoriz?'x':'y']);}}} },
+        scales:{
+          x:{ grid:{color:gc,lineWidth:0.5}, ticks:{color:tc,font:{size:10},maxRotation:isHoriz?0:35,maxTicksLimit:8} },
+          y:{ grid:{color:gc,lineWidth:0.5}, ticks:{color:tc,font:{size:10},callback:function(v){return fmtNum(v);}} }
+        }
+      }
+    };
+    chartInstances.push(new window.Chart(canvas,cfg));
+  }
+
+  // ── Gate UI ───────────────────────────────────────────────────────────────
+  function renderGate(report, el, onProceed) {
+    el.innerHTML='';
+    var wrap=document.createElement('div'); wrap.className='dash-gate';
+    var hasBlocks=report.issues.length>0;
+    wrap.innerHTML='<div class="dash-gate-title">'+(report.pass?'<span class="dash-gate-icon ok">&#10003;</span> Data Readiness Check Passed':'<span class="dash-gate-icon fail">&#9888;</span> Data Needs Attention Before Dashboarding')+'</div>'+
+      '<div class="dash-gate-sub">'+(report.pass?'All quality checks passed. Building dashboard\u2026':'Presenting incomplete or duplicate data in a dashboard is bad practice. Fix the issues below first.')+'</div>';
+
+    if (report.issues.length) {
+      var il=document.createElement('div'); il.className='dash-gate-section';
+      il.innerHTML='<div class="dash-gate-section-title">Blocking issues</div>';
+      report.issues.forEach(function(i){ var r=document.createElement('div'); r.className='dash-gate-row block'; r.innerHTML='<span class="dash-dot red"></span><div><div class="dash-row-msg">'+escH(i.msg)+'</div>'+(i.detail?'<div class="dash-row-detail">'+escH(i.detail)+'</div>':'')+'</div>'; il.appendChild(r); });
+      wrap.appendChild(il);
+    }
+    if (report.warnings.length) {
+      var wl=document.createElement('div'); wl.className='dash-gate-section';
+      wl.innerHTML='<div class="dash-gate-section-title">Quality notes</div>';
+      report.warnings.forEach(function(w){ var r=document.createElement('div'); r.className='dash-gate-row warn'; r.innerHTML='<span class="dash-dot '+(w.severity==='info'?'blue':'amber')+'"></span><div><div class="dash-row-msg">'+escH(w.msg)+'</div>'+(w.detail?'<div class="dash-row-detail">'+escH(w.detail)+'</div>':'')+'</div>'; wl.appendChild(r); });
+      wrap.appendChild(wl);
+    }
+    if (report.passed.length) {
+      var pl=document.createElement('div'); pl.className='dash-gate-section';
+      pl.innerHTML='<div class="dash-gate-section-title">Checks passed</div>';
+      report.passed.forEach(function(p){ var r=document.createElement('div'); r.className='dash-gate-row'; r.innerHTML='<span class="dash-dot green"></span><div class="dash-row-msg">'+escH(p)+'</div>'; pl.appendChild(r); });
+      wrap.appendChild(pl);
+    }
+    var ba=document.createElement('div'); ba.className='dash-gate-actions';
+    if (!hasBlocks) {
+      var btn=document.createElement('button'); btn.className='dash-btn-primary'; btn.textContent='Build Dashboard'; btn.addEventListener('click',onProceed); ba.appendChild(btn);
+    } else {
+      var hint=document.createElement('div'); hint.className='dash-gate-hint'; hint.textContent='Fix the blocking issues in the Grid or Column Editor, then return to the Dashboard tab.'; ba.appendChild(hint);
+      var ob=document.createElement('button'); ob.className='dash-btn-secondary'; ob.textContent='Build anyway (quality caveats shown)'; ob.addEventListener('click',onProceed); ba.appendChild(ob);
+    }
+    wrap.appendChild(ba);
+    el.appendChild(wrap);
+  }
+
+  // ── Dashboard render ──────────────────────────────────────────────────────
+  function renderDashboard(dataset, report, el) {
+    destroyCharts();
+    el.innerHTML='';
+    var isDark=document.documentElement.classList.contains('dark');
+    var kpis=deriveKPIs(dataset), charts=deriveCharts(dataset);
+    var dsName=(dataset.name||'Dataset').replace(/\.[^.]+$/,'');
+    var now=new Date().toLocaleString();
+
+    var dash=document.createElement('div'); dash.className='dash-root';
+
+    // Header
+    var hdr=document.createElement('div'); hdr.className='dash-header';
+    hdr.innerHTML='<div class="dash-hdr-left"><div class="dash-title">'+escH(dsName)+'</div><div class="dash-meta">'+dataset.rows.length.toLocaleString()+' rows \u00b7 '+dataset.columns.length+' cols \u00b7 '+escH(now)+'</div></div>'+
+      '<div class="dash-hdr-right">'+
+      (report.warnings.length?'<span class="dash-quality-badge warn">&#9888; '+report.warnings.length+' note'+(report.warnings.length>1?'s':'')+'</span>':'<span class="dash-quality-badge ok">&#10003; Quality passed</span>')+
+      '<button class="dash-export-btn" id="dash-csv-btn">&#8681; Export CSV</button></div>';
+    dash.appendChild(hdr);
+
+    // KPI row (3-4 max)
+    if (kpis.length) {
+      var kr=document.createElement('div'); kr.className='dash-kpi-row';
+      kpis.forEach(function(kpi,i){
+        var card=document.createElement('div'); card.className='dash-kpi-card'+(i===0?' primary':'');
+        var ragC=kpi.delta>0.05?RAG.green:kpi.delta<-0.05?RAG.red:RAG.gray;
+        var arrow=kpi.delta>0?'\u2191':kpi.delta<0?'\u2193':'\u2192';
+        card.innerHTML='<div class="dash-kpi-label">'+escH(kpi.name)+'</div>'+
+          '<div class="dash-kpi-value">'+escH(kpi.value)+'</div>'+
+          '<div class="dash-kpi-footer"><span class="dash-delta" style="background:'+ragC.bg+';color:'+ragC.text+'">'+arrow+' '+escH(kpi.deltaStr||'\u2014')+'</span><span class="dash-spark">'+sparkSVG(kpi.spark,ragC.dot)+'</span></div>'+
+          '<div class="dash-kpi-sub">min '+escH(kpi.min)+' \u00b7 max '+escH(kpi.max)+'</div>';
+        kr.appendChild(card);
+      });
+      dash.appendChild(kr);
+    } else {
+      var noKpi=document.createElement('div'); noKpi.className='dash-no-numeric';
+      noKpi.textContent='No numeric columns detected. Add numeric data for KPI cards.';
+      dash.appendChild(noKpi);
+    }
+
+    // Outlier banner (never silent)
+    if (report.outlierCols&&report.outlierCols.length) {
+      var ob=document.createElement('div'); ob.className='dash-outlier-banner';
+      ob.innerHTML='<strong>Outliers visible:</strong> '+report.outlierCols.map(function(c){return escH(c.name)+' ('+c.count+' point'+(c.count>1?'s':'')+')'}).join(', ')+'. Shown in context per Tableau best practice \u2014 not removed.';
+      dash.appendChild(ob);
+    }
+
+    // Chart grid (max 6)
+    if (charts.length) {
+      var cg=document.createElement('div'); cg.className='dash-chart-grid';
+      charts.forEach(function(chart){
+        var card=document.createElement('div'); card.className='dash-chart-card';
+        var q=document.createElement('div'); q.className='dash-chart-q'; q.textContent=chart.question;
+        var t=document.createElement('div'); t.className='dash-chart-title'; t.textContent=chart.title;
+        var cw=document.createElement('div'); cw.className='dash-chart-wrap';
+        var canvas=document.createElement('canvas');
+        cw.appendChild(canvas); card.appendChild(q); card.appendChild(t); card.appendChild(cw); cg.appendChild(card);
+        loadChartJs().then(function(){ renderChartCanvas(canvas,chart,isDark); });
+      });
+      dash.appendChild(cg);
+    } else {
+      var noChart=document.createElement('div'); noChart.className='dash-no-numeric';
+      noChart.textContent='Not enough structured data to auto-generate charts. Try adding numeric or categorical columns.';
+      dash.appendChild(noChart);
+    }
+
+    // Footer quality notes
+    if (report.warnings.length) {
+      var ft=document.createElement('div'); ft.className='dash-footer';
+      ft.innerHTML='<strong>Quality notes:</strong> '+report.warnings.map(function(w){return escH(w.msg);}).join(' \u00b7 ');
+      dash.appendChild(ft);
+    }
+
+    el.appendChild(dash);
+
+    // Export CSV
+    var csvBtn=el.querySelector('#dash-csv-btn');
+    if (csvBtn) {
+      csvBtn.addEventListener('click', function(){
+        var colNames=dataset.columns.map(function(c){return c.name;});
+        var lines=[colNames.map(function(c){return JSON.stringify(c);}).join(',')];
+        dataset.rows.forEach(function(r){ lines.push(dataset.columns.map(function(col,ci){var v=getVal(r,ci);return v===null||v===undefined?'':JSON.stringify(String(v));}).join(',')); });
+        var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+        var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=dsName+'_dashboard.csv'; a.click();
+        setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+      });
+    }
+  }
+
+  // ── Public render ─────────────────────────────────────────────────────────
+  function render(dataset, el) {
+    el.innerHTML='';
+    if (!dataset) {
+      el.innerHTML='<div class="dash-empty"><div class="dash-empty-icon">&#9783;</div><div class="dash-empty-title">No data loaded</div><div class="dash-empty-sub">Drop a CSV file anywhere to get started.</div></div>';
+      return;
+    }
+    var report=runReadinessCheck(dataset);
+    renderGate(report, el, function(){ renderDashboard(dataset, report, el); });
+    if (report.pass) {
+      setTimeout(function(){ renderDashboard(dataset, report, el); }, 350);
+    }
+  }
+
+  return { render: render, runReadinessCheck: runReadinessCheck };
+})();
+
+  /* ---- end dashboard-engine.js ---- */
+
 
 
 
@@ -9196,6 +10231,14 @@ var InstantInsight = (function () {
           ChartEngine.renderAll(ds, cg);
         }
       }
+      // Render dashboard when Dashboard tab is activated
+      if (view === 'dashboard') {
+        var dv = $('dashboard-view-inner');
+        if (dv && typeof DashboardEngine !== 'undefined') {
+          var dDs = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+          DashboardEngine.render(dDs, dv);
+        }
+      }
       // Render join builder when Join tab is activated
       if (view === 'join') {
         var jc = $('join-view-inner');
@@ -10794,22 +11837,32 @@ var InstantInsight = (function () {
     return { columns: dataset.columns, rows: matchingRows.slice(0, 10) };
   }
 
-  sqlRunBtn.addEventListener('click', function () {
-    var sql = sqlInput.value.trim();
-    var dataset = getActiveDataset();
-    if (!sql) {
-      sqlStatus.textContent = 'Enter a query first.';
-      return;
-    }
-    if (!dataset) {
-      sqlStatus.textContent = 'No dataset loaded.';
-      return;
-    }
+  // ── Real DuckDB-WASM SQL Engine init ──────────────────────────────────────
+  var sqlEngineInstance = null;
+  var sqlEngineLoading = false;
 
-    var result = runMockSqlQuery(sql);
+  function getSQLEngine() {
+    if (sqlEngineInstance) return Promise.resolve(sqlEngineInstance);
+    if (sqlEngineLoading) return new Promise(function (resolve) {
+      var iv = setInterval(function () { if (sqlEngineInstance) { clearInterval(iv); resolve(sqlEngineInstance); } }, 100);
+    });
+    sqlEngineLoading = true;
+    sqlEngineInstance = SQLEngine.init({
+      onResultReady: renderSQLResult,
+      onError: function (msg) { renderSQLError(msg); }
+    });
+    return Promise.resolve(sqlEngineInstance);
+  }
 
-    sqlResultsThead.innerHTML = '';
-    sqlResultsTbody.innerHTML = '';
+  function renderSQLResult(result, sql) {
+    var thead = $('sql-results-thead');
+    var tbody = $('sql-results-tbody');
+    var status = $('sql-status');
+    var exportBtn = $('sql-export-btn');
+    if (!thead || !tbody || !status) return;
+
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
 
     var headRow = document.createElement('tr');
     result.columns.forEach(function (col) {
@@ -10817,29 +11870,216 @@ var InstantInsight = (function () {
       th.textContent = col.name;
       headRow.appendChild(th);
     });
-    sqlResultsThead.appendChild(headRow);
+    thead.appendChild(headRow);
 
     result.rows.forEach(function (row) {
       var tr = document.createElement('tr');
-      row.forEach(function (cell) {
+      result.columns.forEach(function (col) {
         var td = document.createElement('td');
-        td.textContent = (cell === '' || cell === null || cell === undefined) ? '\u2014' : cell;
+        var v = row[col.name];
+        td.textContent = (v === null || v === undefined || v === '') ? '—' : String(v);
         tr.appendChild(td);
       });
-      sqlResultsTbody.appendChild(tr);
+      tbody.appendChild(tr);
     });
 
-    sqlStatus.textContent = result.rows.length + ' row(s) returned (mock query engine \u2014 real DuckDB-WASM pending future integration).';
+    status.className = 'success';
+    status.textContent = result.rows.length.toLocaleString() + ' row' + (result.rows.length === 1 ? '' : 's') +
+      ' · ' + result.durationMs + 'ms · DuckDB-WASM';
+    if (exportBtn) exportBtn.classList.toggle('hidden', result.rows.length === 0);
 
-    state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
-      type: InstitutionalMemory.RECORD_TYPES.SQL_QUERY,
-      actor: 'human',
-      datasetId: dataset.id,
-      column: null,
-      reason: 'Ran SQL query in Tier 3 SQL Mode.',
-      metadata: { sql: sql, rowCount: result.rows.length }
+    // Zero-rows hint
+    if (result.rows.length === 0) {
+      var ds = getActiveDataset();
+      var hint = SQLEngine.init.prototype ? null : null; // instance-based
+      status.className = '';
+      var suggestion = 'Query returned 0 rows.';
+      if (ds && /WHERE/i.test(sql)) suggestion += ' Try relaxing the WHERE clause.';
+      if (ds) suggestion += ' Table "' + SQLEngine.safeTableName(ds.name) + '" has ' + ds.rows.length.toLocaleString() + ' rows.';
+      status.textContent = suggestion;
+    }
+  }
+
+  function renderSQLError(msg) {
+    var status = $('sql-status');
+    if (!status) return;
+    status.className = 'error';
+    status.textContent = msg;
+    $('sql-results-thead').innerHTML = '';
+    $('sql-results-tbody').innerHTML = '';
+    if ($('sql-export-btn')) $('sql-export-btn').classList.add('hidden');
+  }
+
+  function refreshSQLSchema() {
+    var schemaList = $('sql-schema-list');
+    if (!schemaList) return;
+    schemaList.innerHTML = '';
+    state.datasets.forEach(function (ds) {
+      var tblName = SQLEngine.safeTableName(ds.name);
+      var block = document.createElement('div');
+      block.className = 'sql-schema-table';
+      var tblLabel = document.createElement('div');
+      tblLabel.className = 'sql-schema-tbl-name';
+      tblLabel.textContent = tblName;
+      tblLabel.title = 'Click to insert table name';
+      tblLabel.addEventListener('click', function () {
+        var inp = $('sql-input');
+        if (inp) { inp.value += '"' + tblName + '"'; inp.focus(); }
+      });
+      block.appendChild(tblLabel);
+      ds.columns.forEach(function (col) {
+        var row = document.createElement('div');
+        row.className = 'sql-schema-col';
+        row.innerHTML = '<span>' + col.name + '</span><span class="sql-schema-col-type">' + (col.type || '') + '</span>';
+        row.title = 'Click to insert column name';
+        row.addEventListener('click', function () {
+          var inp = $('sql-input');
+          if (inp) { inp.value += '"' + col.name + '"'; inp.focus(); }
+        });
+        block.appendChild(row);
+      });
+      schemaList.appendChild(block);
     });
+  }
+
+  function refreshSQLSuggestions() {
+    var bar = $('sql-suggestions-bar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    var ds = getActiveDataset();
+    if (!ds) return;
+    var suggestions = SQLEngine.init({ getDatasets: function(){return state.datasets;} }).buildSmartSuggestions
+      ? null : null;
+    // Use the module's static function
+    var sugs = typeof SQLEngine.buildSmartSuggestions === 'function'
+      ? SQLEngine.buildSmartSuggestions(ds)
+      : [];
+    sugs.forEach(function (s) {
+      var chip = document.createElement('button');
+      chip.className = 'sql-suggestion-chip';
+      chip.textContent = s.label;
+      chip.title = s.sql;
+      chip.addEventListener('click', function () {
+        var inp = $('sql-input');
+        if (inp) { inp.value = s.sql; inp.focus(); }
+      });
+      bar.appendChild(chip);
+    });
+  }
+
+  // Expose buildSmartSuggestions at module level for refreshSQLSuggestions
+  SQLEngine.buildSmartSuggestions = (function () {
+    // Replicate the function inline so it works without an instance
+    var safeN = SQLEngine.safeTableName;
+    return function (dataset) {
+      if (!dataset || !dataset.columns) return [];
+      var tbl = '"' + safeN(dataset.name) + '"';
+      var cols = dataset.columns;
+      var numCols = cols.filter(function (c) { return c.type === 'number' || c.type === 'integer' || c.type === 'double' || c.type === 'float'; });
+      var catCols = cols.filter(function (c) { return c.type === 'text' || c.type === 'varchar' || c.type === 'string'; });
+      var dateCols = cols.filter(function (c) { return c.type === 'date' || c.type === 'timestamp' || /date/i.test(c.name); });
+      var s = [];
+      s.push({ label: 'Count all rows', sql: 'SELECT COUNT(*) AS total_rows\nFROM ' + tbl });
+      if (cols.length) {
+        s.push({ label: 'Null check', sql: 'SELECT\n' + cols.slice(0, 5).map(function (c) { return '  COUNT(*) - COUNT("' + c.name + '") AS "' + c.name + '_nulls"'; }).join(',\n') + '\nFROM ' + tbl });
+      }
+      if (catCols.length && numCols.length) {
+        s.push({ label: 'Group by ' + catCols[0].name, sql: 'SELECT\n  "' + catCols[0].name + '",\n  COUNT(*) AS count,\n  ROUND(AVG("' + numCols[0].name + '"), 2) AS avg_' + numCols[0].name.replace(/[^a-z0-9]/gi, '_') + '\nFROM ' + tbl + '\nGROUP BY "' + catCols[0].name + '"\nORDER BY count DESC\nLIMIT 10' });
+      }
+      if (numCols.length) {
+        s.push({ label: 'Top 10 by ' + numCols[0].name, sql: 'SELECT *\nFROM ' + tbl + '\nORDER BY "' + numCols[0].name + '" DESC\nLIMIT 10' });
+      }
+      if (dateCols.length && numCols.length) {
+        s.push({ label: 'Monthly trend', sql: 'SELECT\n  DATE_TRUNC(\'month\', "' + dateCols[0].name + '") AS month,\n  COUNT(*) AS count,\n  ROUND(SUM("' + numCols[0].name + '"), 2) AS total\nFROM ' + tbl + '\nGROUP BY month\nORDER BY month' });
+      }
+      s.push({ label: 'Find duplicates', sql: 'SELECT\n  ' + cols.slice(0, 3).map(function (c) { return '"' + c.name + '"'; }).join(', ') + ',\n  COUNT(*) AS occurrences\nFROM ' + tbl + '\nGROUP BY ' + cols.slice(0, 3).map(function (c) { return '"' + c.name + '"'; }).join(', ') + '\nHAVING COUNT(*) > 1\nORDER BY occurrences DESC' });
+      return s;
+    };
+  })();
+
+  // Wire up SQL run
+  async function runSQL() {
+    var sql = $('sql-input') && $('sql-input').value.trim();
+    var status = $('sql-status');
+    if (!sql) { if (status) status.textContent = 'Enter a query.'; return; }
+    if (!state.datasets.length) { if (status) status.textContent = 'No dataset loaded. Drop a file first.'; return; }
+    if (status) { status.className = ''; status.textContent = 'Running…'; }
+    try {
+      var engine = await getSQLEngine();
+      await engine.runQuery(sql, state.datasets);
+      engine.history.push(sql);
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.SQL_QUERY,
+        actor: 'human', datasetId: state.activeDatasetId, column: null,
+        reason: 'SQL query executed via DuckDB-WASM.',
+        metadata: { sql: sql }
+      });
+    } catch (e) { /* error already rendered by onError */ }
+  }
+
+  sqlRunBtn.addEventListener('click', runSQL);
+
+  // Ctrl+Enter shortcut
+  $('sql-input') && $('sql-input').addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runSQL(); }
   });
+
+  // Export button
+  var sqlExportBtn = $('sql-export-btn');
+  if (sqlExportBtn) {
+    sqlExportBtn.addEventListener('click', async function () {
+      var engine = await getSQLEngine();
+      var res = engine.getLastResult();
+      if (res) SQLEngine.exportResultsCSV(res.columns, res.rows);
+    });
+  }
+
+  // History panel
+  var sqlHistoryBtn = $('sql-history-btn');
+  var sqlHistoryPanel = $('sql-history-panel');
+  var sqlHistoryClose = $('sql-history-close');
+  if (sqlHistoryBtn && sqlHistoryPanel) {
+    sqlHistoryBtn.addEventListener('click', async function () {
+      sqlHistoryPanel.classList.toggle('hidden');
+      if (!sqlHistoryPanel.classList.contains('hidden')) {
+        var engine = await getSQLEngine();
+        var list = $('sql-history-list');
+        if (list) {
+          list.innerHTML = '';
+          engine.history.all().forEach(function (q) {
+            var item = document.createElement('div');
+            item.className = 'sql-history-item';
+            item.textContent = q;
+            item.title = q;
+            item.addEventListener('click', function () {
+              var inp = $('sql-input');
+              if (inp) { inp.value = q; inp.focus(); }
+              sqlHistoryPanel.classList.add('hidden');
+            });
+            list.appendChild(item);
+          });
+          if (!engine.history.all().length) list.innerHTML = '<div style="font-size:12px;color:var(--text-faint);padding:8px">No queries yet.</div>';
+        }
+      }
+    });
+    if (sqlHistoryClose) sqlHistoryClose.addEventListener('click', function () { sqlHistoryPanel.classList.add('hidden'); });
+  }
+
+  // When SQL overlay opens, refresh schema + suggestions
+  var origSqlOpen = $('sql-overlay');
+  if (origSqlOpen) {
+    var sqlOpenObserver = new MutationObserver(function () {
+      if (!origSqlOpen.classList.contains('hidden')) {
+        refreshSQLSchema();
+        refreshSQLSuggestions();
+        // Pre-register all current datasets
+        getSQLEngine().then(function (engine) {
+          state.datasets.forEach(function (ds) { engine.loadDataset(ds); });
+        });
+      }
+    });
+    sqlOpenObserver.observe(origSqlOpen, { attributes: true, attributeFilter: ['class'] });
+  }
 
 })();
 </script>
