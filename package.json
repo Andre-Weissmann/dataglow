@@ -173,7 +173,8 @@
     "test:mcp": "node test/mcp-server.test.mjs",
     "test:streamingvalidator": "node test/streaming/streaming-validator.test.js",
     "test:tauriconnector": "node test/connectors/tauri-connector.test.js",
-    "test:connectormanager": "node test/connectors/connector-manager.test.js"
+    "test:connectormanager": "node test/connectors/connector-manager.test.js",
+    "test:questionprompter": "node test/questions/question-prompter.test.js"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

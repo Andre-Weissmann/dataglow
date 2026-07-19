@@ -3935,6 +3935,53 @@
           "name": "renderPortfolioTab"
         }
       ]
+    },
+    {
+      "id": "question-prompter",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Narrative & storytelling",
+      "name": "Question Prompter (Feature 13 \u2014 \"Where to start\" intelligence)",
+      "files": [
+        "js/questions/question-prompter.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "generateQuestions"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "generatePreUploadQuestions"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "inferDomain"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "updateStreamingQuestions"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "rankQuestions"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "generateStarterSQL"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "formatQuestionsCard"
+        },
+        {
+          "file": "js/questions/question-prompter.js",
+          "name": "QUESTION_TEMPLATES"
+        }
+      ]
     }
   ]
 }
