@@ -7,6 +7,62 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 10:56 CT] Narrative Overconfidence Guard merged, dark (PR #396)
+
+**What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Item 10 of the day's
+plan — build the Narrative Overconfidence Guard: verify that generated Story/Copilot narrative text
+actually reflects its own per-claim confidence grades, closing the gap named directly in Stanford HAI's
+reporting on AI "delusional spirals" (sycophancy/overconfidence in generated text). Distinct from the
+already-shipped Rigor Engine, which only covers structured/statistical claim grading itself, not whether
+generated prose text obeys that grading.
+
+**What was built:** `js/rigor/narrative-overconfidence-guard.js` — pure, Node-testable logic module (zero
+DOM/network/DuckDB/model dependency, verified by an automated source-scan test). Exports
+`checkNarrativeOverconfidence(text, claims)` → `{status: 'pass'|'warn'|'idle', findings}`: for every grade
+C/D claim only (grade A/B claims are never flagged regardless of wording), checks the claim's sentence for
+overconfident language ("clearly", "definitely", "proves", etc.) and checks whether the narrative hedges
+anywhere for that claim at all. `describeOverconfidenceFinding()` renders a plain-language line per
+finding. 29/29 tests in `test/narrative-overconfidence-guard.test.mjs`. Wired into the Story tab in
+`main.js`: a new `#story-overconfidence-guard` card renders directly below the existing Narrative
+Consistency Check card, reusing `story.buildStoryClaims()` so it checks the exact same claims/grades the
+visible per-claim badges already show — never a second, independent scoring pass. Ships dark: new flag
+`narrativeOverconfidenceGuard` defaults `false`; with the flag off, the render function returns before
+touching the DOM — every existing Story tab render path is byte-for-byte unchanged.
+
+**QA:** `scripts/qa_narrative_overconfidence.mjs` — 10/10 checks pass at desktop and mobile viewports
+(flag flipped on locally only), confirming correct pass-state rendering with zero console errors and
+correct card placement/styling on both screenshots. Warn-state rendering manually verified against real
+claim grades with a synthetic overconfident narrative, since the local rule-based story engine always
+hedges grade C/D numeric-mean claims by design — only a model (on-device or external) that ignores its
+own hedge instruction would trigger a live warn through the real UI end-to-end; that exact failure mode
+is what the 29 unit tests cover directly.
+
+**Full regression check:** ran the repo's entire 153-script `npm test:*` suite before opening the PR:
+4401 passed, 1 failed. The 1 failure (`test:capdrift`, the capability-map drift detector) was independently
+confirmed pre-existing on `main` itself (cloned `main` fresh, re-ran the same test, same failure) — caused
+by several concurrent PRs (#387, #388, #375, #377, and others) shipping modules without a capability-map
+entry. This PR's own diff is additive-only (618 insertions, 0 deletions across 8 files) and touches none
+of the undocumented files.
+
+**CI:** 61/63 checks passed on PR #396. The 2 failures — `ci-batch-01 / Capability-map drift detector` and
+`ci-batch-05 / Prompt Eval Harness` (a pre-existing `require()`-in-ESM bug in `test/prompt-eval/runner.js`
+from PR #378) — were both independently confirmed already failing on `main`'s own latest push (`f7f080a`)
+before this PR existed. Zero new CI failures introduced by this PR.
+
+**Merged:** squash-merged as `5095c8c` after explicit user confirm with a full safety assessment. Flag
+confirmed `false` on `main` post-merge. A concurrent session merged PR #397 immediately after (unrelated
+files, no conflict).
+
+**Lesson for next time:** the repo's `capability-map.manifest.json` drift is now real and growing (11
+undocumented modules on `main` as of this run, up from 4 within this same day) — worth a dedicated small,
+docs-only PR soon to resync it, rather than letting every future PR inherit an already-red `tests` job on
+`main` as ambient background noise that could mask a genuinely new failure.
+
+**Cross-platform impact:** web, desktop (Tauri), mobile (PWA) — single shared codebase, no
+platform-specific API used; this feature is available on all three the moment the flag is enabled.
+
+---
+
 ## [2026-07-19 09:45 CT] Pivot Table Batch 1 merged, dark (PR #380)
 
 **What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Item 9 of the day's
