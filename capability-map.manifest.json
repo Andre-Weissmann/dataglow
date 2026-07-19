@@ -1275,6 +1275,40 @@
       ]
     },
     {
+      "id": "story-view",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Narrative & language models",
+      "name": "Story View",
+      "files": [
+        "js/story/story-builder.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/story/story-builder.js",
+          "name": "buildStory"
+        },
+        {
+          "file": "js/story/story-builder.js",
+          "name": "renderMarkdown"
+        },
+        {
+          "file": "js/story/story-builder.js",
+          "name": "renderHTML"
+        },
+        {
+          "file": "js/story/story-builder.js",
+          "name": "computeStoryHash"
+        },
+        {
+          "file": "js/story/story-builder.js",
+          "name": "validateStory"
+        }
+      ]
+    },
+    {
       "id": "ambient",
       "area": "Ambient & real-time",
       "name": "Live validation",
@@ -3081,9 +3115,18 @@
         "js/agents/live-rooms-broadcast.js"
       ],
       "symbols": [
-        { "file": "js/agents/live-rooms-broadcast.js", "name": "createLiveRoomsBroadcast" },
-        { "file": "js/agents/live-rooms-broadcast.js", "name": "buildActionItemsMessage" },
-        { "file": "js/agents/live-rooms-broadcast.js", "name": "isValidActionItemsMessage" }
+        {
+          "file": "js/agents/live-rooms-broadcast.js",
+          "name": "createLiveRoomsBroadcast"
+        },
+        {
+          "file": "js/agents/live-rooms-broadcast.js",
+          "name": "buildActionItemsMessage"
+        },
+        {
+          "file": "js/agents/live-rooms-broadcast.js",
+          "name": "isValidActionItemsMessage"
+        }
       ]
     },
     {
@@ -3098,8 +3141,14 @@
         "js/agents/chart-context-timeline.js"
       ],
       "symbols": [
-        { "file": "js/agents/chart-context-timeline.js", "name": "createChartContextTimeline" },
-        { "file": "js/agents/chart-context-timeline.js", "name": "buildChartContextEntry" }
+        {
+          "file": "js/agents/chart-context-timeline.js",
+          "name": "createChartContextTimeline"
+        },
+        {
+          "file": "js/agents/chart-context-timeline.js",
+          "name": "buildChartContextEntry"
+        }
       ]
     },
     {
@@ -3114,9 +3163,18 @@
         "js/agents/meeting-synthesis.js"
       ],
       "symbols": [
-        { "file": "js/agents/meeting-synthesis.js", "name": "buildSynthesisPrompt" },
-        { "file": "js/agents/meeting-synthesis.js", "name": "summarizeMeetingSynthesis" },
-        { "file": "js/agents/meeting-synthesis.js", "name": "isSynthesisAvailable" }
+        {
+          "file": "js/agents/meeting-synthesis.js",
+          "name": "buildSynthesisPrompt"
+        },
+        {
+          "file": "js/agents/meeting-synthesis.js",
+          "name": "summarizeMeetingSynthesis"
+        },
+        {
+          "file": "js/agents/meeting-synthesis.js",
+          "name": "isSynthesisAvailable"
+        }
       ]
     },
     {
@@ -3131,10 +3189,22 @@
         "js/streaming/streaming-validator.js"
       ],
       "symbols": [
-        { "file": "js/streaming/streaming-validator.js", "name": "runStreamingValidation" },
-        { "file": "js/streaming/streaming-validator.js", "name": "checkSchemaDrift" },
-        { "file": "js/streaming/streaming-validator.js", "name": "checkValueDrift" },
-        { "file": "js/streaming/streaming-validator.js", "name": "checkArrivalAnomaly" }
+        {
+          "file": "js/streaming/streaming-validator.js",
+          "name": "runStreamingValidation"
+        },
+        {
+          "file": "js/streaming/streaming-validator.js",
+          "name": "checkSchemaDrift"
+        },
+        {
+          "file": "js/streaming/streaming-validator.js",
+          "name": "checkValueDrift"
+        },
+        {
+          "file": "js/streaming/streaming-validator.js",
+          "name": "checkArrivalAnomaly"
+        }
       ]
     },
     {
@@ -3150,10 +3220,22 @@
         "js/webhook/service-worker-relay.js"
       ],
       "symbols": [
-        { "file": "js/webhook/webhook-handler.js", "name": "parseWebhookPayload" },
-        { "file": "js/webhook/webhook-handler.js", "name": "buildValidationRequest" },
-        { "file": "js/webhook/webhook-handler.js", "name": "buildWebhookResponse" },
-        { "file": "js/webhook/webhook-handler.js", "name": "processWebhookBatch" }
+        {
+          "file": "js/webhook/webhook-handler.js",
+          "name": "parseWebhookPayload"
+        },
+        {
+          "file": "js/webhook/webhook-handler.js",
+          "name": "buildValidationRequest"
+        },
+        {
+          "file": "js/webhook/webhook-handler.js",
+          "name": "buildWebhookResponse"
+        },
+        {
+          "file": "js/webhook/webhook-handler.js",
+          "name": "processWebhookBatch"
+        }
       ]
     }
   ]

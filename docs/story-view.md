@@ -1,0 +1,250 @@
+# Story View
+
+Companion to the **Narrative & language models** area in
+[`capability-map.md`](./capability-map.md). Load this when working on the Story
+tab in DataGlow Canvas, the Proof Package's dual-hash system, or anything that
+converts a validated dataset into a shareable narrative.
+
+## 1. What Story View is
+
+Story View is the pure-logic layer behind the **Story tab** in DataGlow
+Canvas: a one-click shift from the Grid View (rows and columns) to a
+structured narrative document — title, key finding, a findings table, an
+analyst timeline, a SQL audit trail, and a provenance hash — ready to export
+as Markdown or a print-ready PDF.
+
+The whole pipeline is: **grid → narrative → PDF-ready output with a
+provenance hash**. It lives in `js/story/story-builder.js` and has **no
+browser API dependency** — no DOM, no `window`, no `fetch`, no IndexedDB. It
+takes a validated dataset, the findings produced by the Ambient Validation
+Rail, and the institutional-memory store, and returns one plain JavaScript
+object (a `StoryDocument`). Rendering to Markdown or HTML is a second, equally
+pure step. This mirrors the pure-builder / thin-renderer split used across the
+codebase (e.g. `js/rooms/room-ui.js`, `js/diplomacy/diplomacy-ui.js`,
+`js/validation/source-convergence-ui.js`): the value logic is 100%
+Node-testable, and only the eventual DOM mount (in `main.js`, PR S) touches
+the browser.
+
+## 2. StoryDocument schema
+
+```js
+{
+  version: 1,
+  generatedAt: '2026-07-19T10:00:00.000Z',   // ISO string
+  title: 'Analysis of claims_Q2_2026.csv',
+  subtitle: '14,203 rows · 18 columns · Validation 94%',
+  keyFinding: 'Critical issue: Invalid ICD-10 codes found',
+  sections: [ /* StorySection[] — see below */ ],
+  provenance: {
+    datasetName: 'claims_Q2_2026.csv',
+    rowCount: 14203,
+    columnCount: 18,
+    provenanceHash: '9f1c2a3b',
+    generatedAt: '2026-07-19T10:00:00.000Z',
+  },
+  metadata: {
+    author: 'Andre Weissmann',
+    toolVersion: 'DataGlow Canvas v1',
+    includesTimeline: true,
+  },
+}
+```
+
+A `StorySection` is:
+
+```js
+{ id: 'summary', type: 'summary', title: 'Summary', content: { /* section-specific */ } }
+```
+
+`type` is one of `'summary' | 'findings' | 'timeline' | 'sql_audit' | 'provenance'`.
+
+## 3. The five section types
+
+| Type | Builder | Content |
+|---|---|---|
+| `summary` | `buildSummarySection(dataset, findings)` | `{ overallHealth, totalFindings, errorCount, warningCount, topIssues (max 3) }`. `overallHealth` averages each column's `healthScore` when the dataset supplies one; otherwise it derives a simple deduction score (`100 − 10×errors − 3×warnings`) so the number is always honest, never fabricated. |
+| `findings` | `buildFindingsSection(findings)` | `{ items: [{ severity, column, message, rowsAffected, suggestedFix }] }`, sorted errors → warnings → info (same severity order the Ambient Validation Rail uses). |
+| `timeline` | `buildTimelineSection(memoryStore, datasetId, options)` | `{ entries: string[] }` — plain-language sentences describing what analysts did to this dataset over time. |
+| `sql_audit` | `buildSQLAuditSection(memoryStore, datasetId)` | `{ queries: [{ sql, timestamp, note }] }` — every `SQL_QUERY` memory record for this dataset, oldest first. |
+| `provenance` | `buildProvenanceSection(dataset, memoryStore, datasetId, options)` | `{ datasetName, rowCount, columnCount, provenanceHash, generatedAt, recordCount }`. |
+
+Each builder is individually exported. The Canvas — or any other caller — can
+compose a **custom** story (e.g. a SQL-audit-only export for a compliance
+request) without running the full `buildStory` pipeline.
+
+`buildStory(dataset, findings, memoryStore, options)` assembles all of the
+above into one `StoryDocument`. `options`:
+
+| Option | Default | Effect |
+|---|---|---|
+| `title` | `Analysis of <dataset.name>` | Overrides the document title. |
+| `author` | `'Unknown analyst'` | Recorded in `metadata.author`. |
+| `includeTimeline` | `true` | Set `false` to omit the timeline section entirely. |
+| `includeSQL` | `true` | Set `false` to omit the SQL audit section entirely. |
+| `maxTimelineEntries` | unset (builder default) | Caps how many timeline entries are rendered. |
+| `datasetId` | `dataset.id` | Which dataset's memory records to pull. |
+| `generateTimeline` | inline fallback | Injected function from `institutional-memory.js` — see §6. |
+| `computeProvenanceHash` | inline fallback | Injected function from `institutional-memory.js` — see §6. |
+| `now` | `new Date().toISOString()` | Overridable for deterministic tests. |
+
+## 4. Rendering: Markdown, HTML, and PDF export
+
+### `renderMarkdown(storyDoc)`
+
+Returns a clean Markdown string:
+
+```
+# <title>
+*<subtitle>*
+## Key Finding
+> <keyFinding>
+## Summary
+## Findings   (table: Severity | Column | Issue | Rows Affected)
+## Timeline           (only if the timeline section exists)
+## SQL Audit          (only if there are SQL queries to show)
+## Provenance
+---
+*Generated by DataGlow Canvas. Provenance hash: <hash>*
+```
+
+Good for pasting into a PR description, a wiki page, or a chat message —
+no build step, no dependency on a Markdown library.
+
+### `renderHTML(storyDoc)`
+
+Returns a self-contained, print-friendly HTML document string: a single
+`<style>` block with inline `@media print` rules, no external stylesheet, no
+JS. Uses the DataGlow color tokens directly:
+
+- Background: `#F7F6F2`
+- Primary (headings, blockquote rule, table header): `#01696F`
+- Warning severity: `#964219`
+- Error severity: `#A12C7B`
+
+The findings table has striped rows and severity-colored text; the timeline
+renders as an `<ol>` with muted, de-emphasized timestamps.
+
+**PDF export** is a zero-dependency browser trick, not a server-side
+renderer: the Canvas opens `renderHTML(storyDoc)`'s output in a new window (or
+an offscreen iframe) and calls `window.print()`. The `@media print` rules hide
+any no-print chrome and prevent tables/code blocks from splitting across page
+breaks. Because the HTML is plain, inline-styled markup, this works in any
+browser without Puppeteer, wkhtmltopdf, or any other PDF-generation
+dependency.
+
+## 5. The dual-hash system
+
+Story View produces **two independent hashes**, and the Proof Package
+verification layer depends on both being present and both being recomputable
+from the underlying data:
+
+1. **`provenanceHash`** (`provenance.provenanceHash`, and inside the
+   `provenance` section's `content.provenanceHash`) — a hash over the
+   **institutional-memory records** for this dataset (query history, notes,
+   resolved findings). Computed by `institutional-memory.js`'s
+   `computeProvenanceHash` (injected — see §6) or, when that module isn't
+   available, a small inline fallback in `story-builder.js` that hashes the
+   record count and record types. This hash answers: *"has anything in this
+   dataset's audit trail changed since the story was generated?"*
+
+2. **`storyHash`** (`computeStoryHash(storyDoc)`) — a djb2 hash over
+   `JSON.stringify` of every section's `content` (id, type, and content only —
+   deliberately excluding `generatedAt`, so re-rendering the identical
+   findings at a different time doesn't change the hash). This hash answers:
+   *"has the narrative itself — the findings, the summary, the timeline text —
+   changed since it was generated?"*
+
+Together, `provenanceHash` + `storyHash` form the **dual-hash** the Proof
+Package embeds: one hash proves the underlying audit trail is untampered, the
+other proves the rendered narrative built from it is untampered. A Proof
+Package that ships a story with a `storyHash` that doesn't match a
+recomputation of `computeStoryHash` on the same sections is provably stale or
+edited — the same tamper-evidence pattern used by
+`js/provenance/verifiable-check-seal.js` and the AI Touch Ledger's hash chain,
+just applied to narrative content instead of a data cell or a model touch.
+
+Both hashes use the same dependency-free djb2 algorithm already used
+elsewhere in the codebase (`js/webhook/webhook-handler.js`) — no crypto
+library, no `SubtleCrypto` dependency, works identically in Node and the
+browser.
+
+## 6. Integration guide — how the Canvas calls `buildStory`
+
+The Canvas Story tab (PR S) calls `buildStory` on-demand, when the analyst
+clicks the "Story" tab or an explicit "Generate Story" action — **not** on
+every validation run, since narrative generation is a presentation step, not
+part of the validation pipeline itself.
+
+```js
+import { buildStory, renderMarkdown, renderHTML, computeStoryHash, validateStory }
+  from './js/story/story-builder.js';
+import { generateTimeline, computeProvenanceHash } from './js/institutional-memory.js'; // PR Q
+
+const storyDoc = buildStory(
+  state.dataset,           // { name, rowCount, columnCount, columns: [...] }
+  state.lastValidationFindings,  // same shape as the Ambient Validation Rail
+  state.memoryStore,        // institutional-memory.js store object
+  {
+    title: `Analysis of ${state.dataset.name}`,
+    author: state.currentUser,
+    datasetId: state.dataset.id,
+    generateTimeline,           // inject the real institutional-memory function
+    computeProvenanceHash,      // inject the real institutional-memory function
+  }
+);
+
+const gate = validateStory(storyDoc);
+if (!gate.valid) {
+  // Block export — same Critical-severity-blocks-export behavior as the
+  // Validation Rail. Surface gate.errors to the analyst.
+} else {
+  const markdown = renderMarkdown(storyDoc);
+  const html = renderHTML(storyDoc);
+  const storyHash = computeStoryHash(storyDoc);
+  // markdown -> copy/download; html -> open in a window and call window.print()
+  // for PDF; storyHash + storyDoc.provenance.provenanceHash -> Proof Package.
+}
+```
+
+**Dependency injection, not a hard import.** `story-builder.js` never imports
+`institutional-memory.js` (PR Q) directly. `generateTimeline` and
+`computeProvenanceHash` are accepted as **injected functions** via `options`.
+When they're omitted, `story-builder.js` uses small inline fallbacks so the
+module — and its 40+ tests — run standalone, with or without PR Q merged.
+Once PR Q lands, the Canvas wiring in `main.js` passes the real functions in;
+no change to `story-builder.js` itself is required.
+
+## 7. Forward compatibility with DataGlow Rooms
+
+DataGlow Rooms (Feature 11) shares only shape metadata and presence records
+peer-to-peer — never raw dataset rows. A `StoryDocument` is, by construction,
+already row-free: `sections[].content` holds aggregated summaries, finding
+descriptions, SQL text, and hashes, never underlying cell values. That makes
+a `StoryDocument` (or its rendered Markdown) a natural **signed findings
+JSON** payload a Room peer can broadcast or a teammate can import into their
+own Canvas session to see the same narrative — without ever transferring the
+dataset itself.
+
+The forward-compatible path once Rooms adds a findings-sharing surface:
+
+1. Serialize `storyDoc` (already plain-JSON, no functions, no DOM references).
+2. Attach `computeStoryHash(storyDoc)` and `storyDoc.provenance.provenanceHash`
+   as a signature pair, the same dual-hash described in §5.
+3. Broadcast/import the JSON exactly as Rooms' `room-broadcast.js` broadcasts
+   an Object Space entry — `{ kind: 'story-share', storyDoc, storyHash }`.
+4. On receipt, a peer calls `validateStory(storyDoc)` and recomputes
+   `computeStoryHash(storyDoc)` locally; a mismatch means the shared story was
+   edited in transit and should be flagged, not trusted silently.
+
+No code in this PR implements the Rooms wiring — it's a design note so PR S
+(the Canvas Story tab) and any future Rooms batch can build on a
+`StoryDocument` shape that is already share-safe.
+
+## Files
+
+- [`js/story/story-builder.js`](../js/story/story-builder.js) — `buildStory`,
+  the five section builders, `renderMarkdown`, `renderHTML`,
+  `computeStoryHash`, `validateStory`.
+- [`test/story/story-builder.test.js`](../test/story/story-builder.test.js) —
+  75 assertions, pure Node, no DOM/DuckDB/network. Run with
+  `node test/story/story-builder.test.js`.
