@@ -580,16 +580,211 @@
   /* ============================================================
      STORY / JOIN PLACEHOLDERS
      ============================================================ */
-  #story-view, #join-view {
+  #join-view {
     align-items: center;
     justify-content: center;
     text-align: center;
     color: var(--text-muted);
   }
-  #story-placeholder h2, #join-placeholder h2 {
+  #join-placeholder h2 {
     color: var(--text);
     font-size: 22px;
     margin-bottom: 8px;
+  }
+
+  /* ============================================================
+     STORY VIEW (real, rendered from story-builder.js)
+     ============================================================ */
+  #story-view {
+    align-items: stretch;
+    justify-content: flex-start;
+    text-align: left;
+    overflow: hidden;
+  }
+  #story-toolbar {
+    height: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  #story-toolbar button {
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
+  #story-toolbar button:hover {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--primary);
+  }
+  #story-frame-wrapper {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg);
+  }
+  #story-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #F7F6F2;
+  }
+  #story-empty {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  #story-empty h2 {
+    color: var(--text);
+    font-size: 22px;
+    margin-bottom: 8px;
+  }
+
+  /* ============================================================
+     SQL MODE OVERLAY (Cmd+` / Ctrl+`)
+     ============================================================ */
+  #sql-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(20, 19, 17, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #sql-overlay.hidden {
+    display: none;
+  }
+  #sql-panel {
+    width: 720px;
+    max-width: 92vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+  }
+  #sql-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #sql-panel-title {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  #sql-panel-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  #sql-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--text-muted);
+    line-height: 1;
+    padding: 4px;
+  }
+  #sql-close:hover {
+    color: var(--text);
+  }
+  #sql-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+  }
+  #sql-input {
+    width: 100%;
+    min-height: 100px;
+    resize: vertical;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    outline: none;
+  }
+  #sql-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  #sql-run {
+    background: var(--primary);
+    color: #fff;
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+  #sql-run:hover {
+    background: var(--primary-hover);
+  }
+  #sql-results-wrapper {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: auto;
+    max-height: 280px;
+  }
+  #sql-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  #sql-results-table th, #sql-results-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  #sql-results-table th {
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+  }
+  #sql-status {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ============================================================
+     RETURN-USE GREETING
+     ============================================================ */
+  #return-use-banner {
+    margin-top: 16px;
+    max-width: 560px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+    background: rgba(1, 105, 111, 0.08);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    opacity: 0;
+    transition: opacity 400ms ease-out;
+  }
+  #return-use-banner.show {
+    opacity: 1;
+  }
+  #return-use-banner strong {
+    color: var(--text);
   }
 
   /* ============================================================
@@ -855,6 +1050,7 @@
       <span id="finding-text"></span>
       <button id="finding-expand">Here is what that means.</button>
     </div>
+    <div id="return-use-banner" class="hidden"></div>
     <p id="drop-zone-hint">or click to browse files &middot; <span id="try-example-link" style="text-decoration:underline; cursor:pointer;">Try an example</span></p>
   </div>
 
@@ -911,11 +1107,18 @@
         </div>
       </div>
 
-      <!-- Story view placeholder -->
+      <!-- Story view: real generated narrative (story-builder.js) -->
       <div id="story-view" class="view hidden">
-        <div id="story-placeholder">
-          <h2>Story View</h2>
-          <p>One-click shift from grid to narrative. Coming in the next release.</p>
+        <div id="story-toolbar">
+          <button id="story-export-md">Export Markdown</button>
+          <button id="story-export-pdf">Export PDF</button>
+        </div>
+        <div id="story-frame-wrapper">
+          <div id="story-empty">
+            <h2>Story View</h2>
+            <p>Drop a dataset to generate a narrative.</p>
+          </div>
+          <iframe id="story-frame" class="hidden" title="Story narrative"></iframe>
         </div>
       </div>
 
@@ -953,9 +1156,983 @@
     </div>
   </div>
 
+  <!-- ============================================================
+       SQL MODE OVERLAY (Tier 3, Cmd+` / Ctrl+`)
+       ============================================================ -->
+  <div id="sql-overlay" class="hidden">
+    <div id="sql-panel">
+      <div id="sql-panel-header">
+        <span id="sql-panel-title">SQL Mode</span>
+        <span id="sql-panel-hint">Mock engine &mdash; real DuckDB-WASM lands in a follow-up PR</span>
+        <button id="sql-close">&times;</button>
+      </div>
+      <div id="sql-body">
+        <textarea id="sql-input" placeholder="SELECT * FROM dataset WHERE ..." spellcheck="false"></textarea>
+        <div id="sql-actions">
+          <button id="sql-run">Run</button>
+        </div>
+        <div id="sql-status"></div>
+        <div id="sql-results-wrapper">
+          <table id="sql-results-table">
+            <thead id="sql-results-thead"></thead>
+            <tbody id="sql-results-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script>
 (function () {
   'use strict';
+
+  /* ============================================================
+     INLINED PURE-LOGIC MODULES (zero-build-step compatibility)
+     ------------------------------------------------------------
+     The functions below are copied inline from the repo's pure-logic
+     js/ modules so this single self-contained HTML file has no <script
+     src="..."> dependency on a server. Each block names its source file.
+     Keep behavior identical to the source module; do not "improve" the
+     logic here without porting the change back to js/.
+     ============================================================ */
+
+  /* ---- from js/drop-zone/drop-zone-router.js ---- */
+  var DropZoneRouter = (function () {
+    var FORMAT_HANDLERS = {
+      csv: 'duckdb', tsv: 'duckdb', json: 'duckdb', ndjson: 'duckdb', parquet: 'duckdb',
+      xlsx: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs', unknown: 'unknown'
+    };
+    var FORMAT_ICONS = {
+      csv: 'table', tsv: 'table', json: 'table', ndjson: 'table', parquet: 'table',
+      xlsx: 'grid', pdf: 'document', audio: 'audio', video: 'video', unknown: 'unknown'
+    };
+    var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac'];
+    var VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm'];
+
+    function extOf(fileName) {
+      var m = /\.[^./\\]+$/.exec(fileName || '');
+      return m ? m[0].toLowerCase() : '';
+    }
+    function bytesStartWith(bytes, ascii, offset) {
+      offset = offset || 0;
+      if (!bytes || bytes.length < offset + ascii.length) return false;
+      for (var i = 0; i < ascii.length; i++) {
+        if (bytes[offset + i] !== ascii.charCodeAt(i)) return false;
+      }
+      return true;
+    }
+    function bytesStartWithPK(bytes) {
+      return !!bytes && bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+    }
+    function handlerForFormat(format) { return FORMAT_HANDLERS[format] || 'unknown'; }
+    function iconForFormat(format) { return FORMAT_ICONS[format] || 'unknown'; }
+
+    function detectFileFormat(fileName, mimeType, firstBytes) {
+      var name = fileName || '';
+      var mime = mimeType || '';
+      var ext = extOf(name);
+
+      if (bytesStartWith(firstBytes, 'PAR1', 0)) {
+        return { format: 'parquet', confidence: 'high', handler: handlerForFormat('parquet') };
+      }
+      if (bytesStartWith(firstBytes, '%PDF', 0)) {
+        return { format: 'pdf', confidence: 'high', handler: handlerForFormat('pdf') };
+      }
+      if (bytesStartWithPK(firstBytes) && ext === '.xlsx') {
+        return { format: 'xlsx', confidence: 'high', handler: handlerForFormat('xlsx') };
+      }
+      if (mime === 'text/csv') {
+        return { format: 'csv', confidence: 'medium', handler: handlerForFormat('csv') };
+      }
+      if (mime === 'application/json') {
+        return { format: 'json', confidence: 'medium', handler: handlerForFormat('json') };
+      }
+      if (mime.indexOf('audio/') === 0) {
+        return { format: 'audio', confidence: 'medium', handler: handlerForFormat('audio') };
+      }
+      if (mime.indexOf('video/') === 0) {
+        return { format: 'video', confidence: 'medium', handler: handlerForFormat('video') };
+      }
+      if (ext === '.tsv') return { format: 'tsv', confidence: 'low', handler: handlerForFormat('tsv') };
+      if (ext === '.parquet') return { format: 'parquet', confidence: 'low', handler: handlerForFormat('parquet') };
+      if (ext === '.csv') return { format: 'csv', confidence: 'low', handler: handlerForFormat('csv') };
+      if (ext === '.json') return { format: 'json', confidence: 'low', handler: handlerForFormat('json') };
+      if (ext === '.ndjson') return { format: 'json', confidence: 'low', handler: handlerForFormat('json') };
+      if (ext === '.xlsx') return { format: 'xlsx', confidence: 'low', handler: handlerForFormat('xlsx') };
+      if (ext === '.pdf') return { format: 'pdf', confidence: 'low', handler: handlerForFormat('pdf') };
+      if (AUDIO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'audio', confidence: 'low', handler: handlerForFormat('audio') };
+      if (VIDEO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'video', confidence: 'low', handler: handlerForFormat('video') };
+
+      return { format: 'unknown', confidence: 'low', handler: 'unknown' };
+    }
+
+    function cleanDisplayName(fileName) {
+      var ext = extOf(fileName);
+      var base = ext ? fileName.slice(0, -ext.length) : fileName;
+      return base.replace(/_/g, ' ');
+    }
+
+    var _manifestCounter = 0;
+    function nextManifestId() {
+      return 'manifest_' + Date.now().toString(36) + '_' + (++_manifestCounter).toString(36);
+    }
+    function fileIdFor(index, name) {
+      return 'file_' + index + '_' + (name || '').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
+    }
+
+    function buildDropManifest(files) {
+      var list = files || [];
+      var items = list.map(function (f, index) {
+        var d = detectFileFormat(f.name, f.mimeType, f.firstBytes);
+        return {
+          fileId: fileIdFor(index, f.name),
+          name: f.name,
+          size: f.size,
+          format: d.format,
+          handler: d.handler,
+          confidence: d.confidence,
+          displayName: cleanDisplayName(f.name || ''),
+          tabOrder: index
+        };
+      });
+
+      var handlersPresent = {};
+      items.forEach(function (i) { handlersPresent[i.handler] = true; });
+      var hasMixedFormats = Object.keys(handlersPresent).length > 1;
+      var requiresTranscription = items.some(function (i) { return i.format === 'audio' || i.format === 'video'; });
+      var requiresRAG = items.some(function (i) { return i.format === 'pdf'; });
+
+      return {
+        manifestId: nextManifestId(),
+        totalFiles: items.length,
+        items: items,
+        hasMixedFormats: hasMixedFormats,
+        requiresTranscription: requiresTranscription,
+        requiresRAG: requiresRAG
+      };
+    }
+
+    function routeDropManifest(manifest) {
+      var plan = { duckdbFiles: [], univerFiles: [], ragFiles: [], transcriptionFiles: [], webCodecsFiles: [], unknownFiles: [] };
+      var items = (manifest && manifest.items) || [];
+      items.forEach(function (item) {
+        switch (item.handler) {
+          case 'duckdb': plan.duckdbFiles.push(item); break;
+          case 'univer': plan.univerFiles.push(item); break;
+          case 'rag': plan.ragFiles.push(item); break;
+          case 'whisper': plan.transcriptionFiles.push(item); break;
+          case 'webcodecs': plan.webCodecsFiles.push(item); break;
+          default: plan.unknownFiles.push(item);
+        }
+      });
+      return plan;
+    }
+
+    function buildTabDescriptor(fileId, displayName, format, status) {
+      return { fileId: fileId, displayName: displayName, format: format, status: status, icon: iconForFormat(format) };
+    }
+
+    return {
+      detectFileFormat: detectFileFormat,
+      buildDropManifest: buildDropManifest,
+      routeDropManifest: routeDropManifest,
+      buildTabDescriptor: buildTabDescriptor
+    };
+  })();
+
+  /* ---- from js/memory/institutional-memory.js ---- */
+  var InstitutionalMemory = (function () {
+    var RECORD_TYPES = Object.freeze({
+      AGENT_FIX_ACCEPTED: 'agent_fix_accepted',
+      AGENT_FIX_DISMISSED: 'agent_fix_dismissed',
+      MANUAL_EDIT: 'manual_edit',
+      VALIDATION_RESOLVED: 'validation_resolved',
+      VALIDATION_DISMISSED: 'validation_dismissed',
+      SQL_QUERY: 'sql_query',
+      STORY_EXPORTED: 'story_exported',
+      FILE_LOADED: 'file_loaded',
+      JOIN_CREATED: 'join_created',
+      COLUMN_RENAMED: 'column_renamed',
+      TYPE_OVERRIDDEN: 'type_overridden'
+    });
+    var VALID_RECORD_TYPES = {};
+    Object.keys(RECORD_TYPES).forEach(function (k) { VALID_RECORD_TYPES[RECORD_TYPES[k]] = true; });
+    var VALID_ACTORS = { agent: true, human: true };
+    var MEMORY_STORE_VERSION = 1;
+
+    function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+
+    function generateId() {
+      var rand = Math.random().toString(36).slice(2, 10);
+      return Date.now().toString(36) + '-' + rand;
+    }
+    function generateSessionId() {
+      var rand = Math.random().toString(36).slice(2, 10);
+      return 'session-' + Date.now().toString(36) + '-' + rand;
+    }
+    function nowIso() { return new Date().toISOString(); }
+
+    function canonicalRecordPayload(record) {
+      var safe = {
+        id: record.id == null ? null : record.id,
+        type: record.type == null ? null : record.type,
+        actor: record.actor == null ? null : record.actor,
+        datasetId: record.datasetId == null ? null : record.datasetId,
+        column: record.column == null ? null : record.column,
+        row: record.row == null ? null : record.row,
+        before: record.before === undefined ? null : record.before,
+        after: record.after === undefined ? null : record.after,
+        reason: record.reason == null ? null : record.reason,
+        sql: record.sql == null ? null : record.sql,
+        metadata: record.metadata == null ? null : record.metadata,
+        timestamp: record.timestamp == null ? null : record.timestamp,
+        sessionId: record.sessionId == null ? null : record.sessionId
+      };
+      return JSON.stringify(safe, Object.keys(safe).sort());
+    }
+
+    function djb2(str) {
+      var hash = 5381;
+      for (var i = 0; i < str.length; i++) {
+        hash = (hash * 33) ^ str.charCodeAt(i);
+      }
+      return (hash >>> 0).toString(16).padStart ? (hash >>> 0).toString(16).padStart(8, '0') : (hash >>> 0).toString(16);
+    }
+
+    function createMemoryStore(options) {
+      options = options || {};
+      return {
+        records: [],
+        version: MEMORY_STORE_VERSION,
+        createdAt: nowIso(),
+        sessionId: options.sessionId || generateSessionId()
+      };
+    }
+
+    function appendRecord(store, record) {
+      if (!isPlainObject(store)) throw new TypeError('appendRecord: store must be a plain object (use createMemoryStore())');
+      if (!isPlainObject(record)) throw new TypeError('appendRecord: record must be a plain object');
+      if (!VALID_RECORD_TYPES[record.type]) throw new TypeError('appendRecord: record.type must be a valid RECORD_TYPES value');
+      if (!VALID_ACTORS[record.actor]) throw new TypeError('appendRecord: record.actor must be "agent" or "human"');
+
+      var fullRecord = Object.assign({}, record, {
+        id: generateId(),
+        timestamp: nowIso(),
+        sessionId: record.sessionId || store.sessionId || generateSessionId()
+      });
+
+      return Object.assign({}, store, { records: store.records.concat([fullRecord]) });
+    }
+
+    function queryRecords(store, filter) {
+      filter = filter || {};
+      if (!isPlainObject(store) || !Array.isArray(store.records)) return [];
+
+      var type = filter.type, actor = filter.actor, datasetId = filter.datasetId, column = filter.column,
+          fromTimestamp = filter.fromTimestamp, toTimestamp = filter.toTimestamp, limit = filter.limit;
+
+      var results = store.records.filter(function (r) {
+        if (type !== undefined && r.type !== type) return false;
+        if (actor !== undefined && r.actor !== actor) return false;
+        if (datasetId !== undefined && r.datasetId !== datasetId) return false;
+        if (column !== undefined && r.column !== column) return false;
+        if (fromTimestamp !== undefined && !(r.timestamp >= fromTimestamp)) return false;
+        if (toTimestamp !== undefined && !(r.timestamp <= toTimestamp)) return false;
+        return true;
+      });
+
+      results = results.slice().sort(function (a, b) { return a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0; });
+
+      if (typeof limit === 'number' && limit >= 0) results = results.slice(0, limit);
+      return results;
+    }
+
+    function summarizeMemory(store, datasetId) {
+      var records = (isPlainObject(store) && Array.isArray(store.records))
+        ? store.records.filter(function (r) { return datasetId === undefined || r.datasetId === datasetId; })
+        : [];
+
+      var agentFixes = 0, humanEdits = 0, dismissals = 0, validationsResolved = 0, lastActivity = null;
+      var columnCounts = {};
+
+      records.forEach(function (r) {
+        if (r.type === RECORD_TYPES.AGENT_FIX_ACCEPTED) agentFixes++;
+        if (r.type === RECORD_TYPES.MANUAL_EDIT) humanEdits++;
+        if (r.type === RECORD_TYPES.AGENT_FIX_DISMISSED || r.type === RECORD_TYPES.VALIDATION_DISMISSED) dismissals++;
+        if (r.type === RECORD_TYPES.VALIDATION_RESOLVED) validationsResolved++;
+        if (r.column) columnCounts[r.column] = (columnCounts[r.column] || 0) + 1;
+        if (!lastActivity || r.timestamp > lastActivity) lastActivity = r.timestamp;
+      });
+
+      var topColumns = Object.keys(columnCounts)
+        .map(function (column) { return { column: column, decisionCount: columnCounts[column] }; })
+        .sort(function (a, b) { return b.decisionCount - a.decisionCount || a.column.localeCompare(b.column); });
+
+      return {
+        totalDecisions: records.length,
+        agentFixes: agentFixes,
+        humanEdits: humanEdits,
+        dismissals: dismissals,
+        validationsResolved: validationsResolved,
+        lastActivity: lastActivity,
+        topColumns: topColumns
+      };
+    }
+
+    function formatDisplayTimestamp(iso) {
+      if (!iso) return '';
+      return iso.replace('T', ' ').slice(0, 16);
+    }
+
+    function describeRecord(r) {
+      var ts = formatDisplayTimestamp(r.timestamp);
+      var who = r.actor === 'agent' ? 'Agent' : 'Analyst';
+
+      switch (r.type) {
+        case RECORD_TYPES.AGENT_FIX_ACCEPTED: {
+          var count = r.metadata && r.metadata.count !== undefined ? r.metadata.count : null;
+          var col = r.column ? (' in ' + r.column) : '';
+          var countStr = count !== null ? (count + ' ') : '';
+          var reason = r.reason ? (' — ' + r.reason) : '';
+          return 'Agent fixed ' + countStr + 'values' + col + ' — accepted by analyst (' + ts + ')' + reason;
+        }
+        case RECORD_TYPES.AGENT_FIX_DISMISSED: {
+          var col2 = r.column ? (' in ' + r.column) : '';
+          var reason2 = r.reason ? (' — ' + r.reason) : '';
+          return 'Agent fix' + col2 + ' dismissed by analyst (' + ts + ')' + reason2;
+        }
+        case RECORD_TYPES.MANUAL_EDIT: {
+          var col3 = r.column ? (' ' + r.column) : ' a value';
+          var rowStr = (r.row !== undefined && r.row !== null) ? (' (row ' + r.row + ')') : '';
+          return who + ' manually edited' + col3 + rowStr + ' (' + ts + ')';
+        }
+        case RECORD_TYPES.VALIDATION_RESOLVED: {
+          var col4 = r.column ? (' on ' + r.column) : '';
+          var reason4 = r.reason ? (' — ' + r.reason) : '';
+          return 'Validation issue' + col4 + ' resolved by ' + who.toLowerCase() + ' (' + ts + ')' + reason4;
+        }
+        case RECORD_TYPES.VALIDATION_DISMISSED: {
+          var col5 = r.column ? (' on ' + r.column) : '';
+          var reason5 = r.reason ? (' — ' + r.reason) : '';
+          return 'Validation issue' + col5 + ' dismissed by ' + who.toLowerCase() + ' (' + ts + ')' + reason5;
+        }
+        case RECORD_TYPES.SQL_QUERY: {
+          var sql = r.sql ? r.sql : '(no SQL captured)';
+          var rows = (r.metadata && r.metadata.rowCount !== undefined) ? (' (returned ' + r.metadata.rowCount + ' rows)') : '';
+          return 'SQL query run: ' + sql + rows + ' (' + ts + ')';
+        }
+        case RECORD_TYPES.STORY_EXPORTED: {
+          var title = (r.metadata && r.metadata.title) ? (' "' + r.metadata.title + '"') : '';
+          return 'Story' + title + ' exported by ' + who.toLowerCase() + ' (' + ts + ')';
+        }
+        case RECORD_TYPES.FILE_LOADED: {
+          var name = (r.metadata && r.metadata.fileName) ? r.metadata.fileName : (r.datasetId || 'file');
+          return 'File loaded: ' + name + ' (' + ts + ')';
+        }
+        case RECORD_TYPES.JOIN_CREATED: {
+          var desc = (r.metadata && r.metadata.description) ? r.metadata.description : 'join created';
+          return 'Join created: ' + desc + ' (' + ts + ')';
+        }
+        case RECORD_TYPES.COLUMN_RENAMED: {
+          var before = (r.before !== undefined && r.before !== null) ? r.before : '?';
+          var after = (r.after !== undefined && r.after !== null) ? r.after : '?';
+          return 'Column renamed: ' + before + ' → ' + after + ' by ' + who.toLowerCase() + ' (' + ts + ')';
+        }
+        case RECORD_TYPES.TYPE_OVERRIDDEN: {
+          var col6 = r.column ? r.column : 'column';
+          var before2 = (r.before !== undefined && r.before !== null) ? r.before : '?';
+          var after2 = (r.after !== undefined && r.after !== null) ? r.after : '?';
+          return 'Type override: ' + col6 + ' changed from ' + before2 + ' to ' + after2 + ' by ' + who.toLowerCase() + ' (' + ts + ')';
+        }
+        default:
+          return who + ' action (' + r.type + ') recorded (' + ts + ')';
+      }
+    }
+
+    function generateTimeline(store, datasetId, options) {
+      options = options || {};
+      var maxEntries = options.maxEntries, includeTypes = options.includeTypes, actorFilter = options.actorFilter;
+
+      var records = queryRecords(store, { datasetId: datasetId, type: undefined });
+
+      if (Array.isArray(includeTypes) && includeTypes.length > 0) {
+        var allow = {};
+        includeTypes.forEach(function (t) { allow[t] = true; });
+        records = records.filter(function (r) { return allow[r.type]; });
+      }
+      if (actorFilter) records = records.filter(function (r) { return r.actor === actorFilter; });
+      if (typeof maxEntries === 'number' && maxEntries >= 0) records = records.slice(0, maxEntries);
+
+      return records.map(describeRecord);
+    }
+
+    function computeProvenanceHash(store, datasetId) {
+      var records = (isPlainObject(store) && Array.isArray(store.records))
+        ? store.records.filter(function (r) { return datasetId === undefined || r.datasetId === datasetId; })
+        : [];
+
+      var sorted = records.slice()
+        .sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; })
+        .map(canonicalRecordPayload);
+
+      var serialized = JSON.stringify(sorted);
+      return 'djb2:' + djb2(serialized);
+    }
+
+    return {
+      RECORD_TYPES: RECORD_TYPES,
+      createMemoryStore: createMemoryStore,
+      appendRecord: appendRecord,
+      queryRecords: queryRecords,
+      summarizeMemory: summarizeMemory,
+      generateTimeline: generateTimeline,
+      computeProvenanceHash: computeProvenanceHash
+    };
+  })();
+
+  /* ---- from js/story/story-builder.js ---- */
+  var StoryBuilder = (function () {
+    function djb2Hash(str) {
+      var hash = 5381;
+      var s = String(str == null ? '' : str);
+      for (var i = 0; i < s.length; i++) {
+        hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0;
+      }
+      var h = (hash >>> 0).toString(16);
+      return h.length >= 8 ? h : new Array(8 - h.length + 1).join('0') + h;
+    }
+
+    function clampHealth(n) {
+      if (typeof n !== 'number' || isNaN(n)) return 0;
+      return Math.max(0, Math.min(100, n));
+    }
+    function severityRank(severity) {
+      switch (severity) {
+        case 'error': return 0;
+        case 'critical': return 0;
+        case 'warning': return 1;
+        case 'info': return 2;
+        default: return 3;
+      }
+    }
+
+    function buildSummarySection(dataset, findings) {
+      var list = Array.isArray(findings) ? findings : [];
+      var errorCount = list.filter(function (f) { return f && (f.severity === 'error' || f.severity === 'critical'); }).length;
+      var warningCount = list.filter(function (f) { return f && f.severity === 'warning'; }).length;
+      var totalFindings = list.length;
+
+      var overallHealth;
+      var columns = (dataset && Array.isArray(dataset.columns)) ? dataset.columns : [];
+      var columnScores = columns
+        .map(function (c) { return (c && typeof c.healthScore === 'number') ? c.healthScore : null; })
+        .filter(function (v) { return v != null; });
+      if (columnScores.length > 0) {
+        overallHealth = clampHealth(columnScores.reduce(function (a, b) { return a + b; }, 0) / columnScores.length);
+      } else {
+        overallHealth = clampHealth(100 - errorCount * 10 - warningCount * 3);
+      }
+
+      var sortedForTop = list.slice().sort(function (a, b) { return severityRank(a && a.severity) - severityRank(b && b.severity); });
+      var topIssues = sortedForTop.slice(0, 3).map(function (f) {
+        return { column: (f && f.column) || 'dataset', severity: (f && f.severity) || 'info', message: (f && f.message) || '' };
+      });
+
+      return {
+        id: 'summary', type: 'summary', title: 'Summary',
+        content: { overallHealth: overallHealth, totalFindings: totalFindings, errorCount: errorCount, warningCount: warningCount, topIssues: topIssues }
+      };
+    }
+
+    function buildFindingsSection(findings) {
+      var list = Array.isArray(findings) ? findings : [];
+      var items = list.slice()
+        .sort(function (a, b) { return severityRank(a && a.severity) - severityRank(b && b.severity); })
+        .map(function (f) {
+          return {
+            severity: (f && f.severity) || 'info',
+            column: (f && f.column) || '',
+            message: (f && f.message) || '',
+            rowsAffected: (f && typeof f.rowsAffected === 'number') ? f.rowsAffected : null,
+            suggestedFix: (f && f.suggestedFix) || null
+          };
+        });
+      return { id: 'findings', type: 'findings', title: 'Findings', content: { items: items } };
+    }
+
+    function buildTimelineSection(memoryStore, datasetId, options) {
+      options = options || {};
+      var generate = typeof options.generateTimeline === 'function' ? options.generateTimeline : function () { return []; };
+      var entries = [];
+      try { entries = generate(memoryStore, datasetId, options) || []; } catch (_e) { entries = []; }
+      if (!Array.isArray(entries)) entries = [];
+      if (options.maxTimelineEntries) entries = entries.slice(0, options.maxTimelineEntries);
+      return { id: 'timeline', type: 'timeline', title: 'Timeline', content: { entries: entries } };
+    }
+
+    function buildSQLAuditSection(memoryStore, datasetId) {
+      var records = (memoryStore && Array.isArray(memoryStore.records))
+        ? memoryStore.records.filter(function (r) { return datasetId === undefined || r.datasetId === datasetId; })
+        : [];
+      var queries = records
+        .filter(function (r) { return r && r.type === 'sql_query'; })
+        .slice()
+        .sort(function (a, b) { return (a.timestamp || '') < (b.timestamp || '') ? -1 : 1; })
+        .map(function (r) { return { sql: r.sql || '', timestamp: r.timestamp || null, note: (r.reason || '') }; });
+      return { id: 'sql_audit', type: 'sql_audit', title: 'SQL Audit', content: { queries: queries } };
+    }
+
+    function buildProvenanceSection(dataset, memoryStore, datasetId, options) {
+      options = options || {};
+      var computeHash = typeof options.computeProvenanceHash === 'function' ? options.computeProvenanceHash : function () { return 'djb2:00000000'; };
+      var provenanceHash;
+      try { provenanceHash = computeHash(memoryStore, datasetId); } catch (_e) { provenanceHash = 'djb2:00000000'; }
+      var recordCount = (memoryStore && Array.isArray(memoryStore.records))
+        ? memoryStore.records.filter(function (r) { return datasetId === undefined || r.datasetId === datasetId; }).length
+        : 0;
+      var generatedAt = options.now || new Date().toISOString();
+
+      return {
+        id: 'provenance', type: 'provenance', title: 'Provenance',
+        content: {
+          datasetName: (dataset && dataset.name) || 'Untitled dataset',
+          rowCount: (dataset && dataset.rowCount) || 0,
+          columnCount: (dataset && dataset.columnCount) || 0,
+          provenanceHash: provenanceHash,
+          generatedAt: generatedAt,
+          recordCount: recordCount
+        }
+      };
+    }
+
+    function formatSubtitle(dataset, summaryContent) {
+      var rows = (dataset && typeof dataset.rowCount === 'number') ? dataset.rowCount : 0;
+      var cols = (dataset && typeof dataset.columnCount === 'number') ? dataset.columnCount : 0;
+      var health = summaryContent ? Math.round(summaryContent.overallHealth) : 0;
+      return rows.toLocaleString('en-US') + ' rows · ' + cols + ' columns · Validation ' + health + '%';
+    }
+
+    function deriveKeyFinding(summaryContent, findingsContent) {
+      var top = summaryContent && summaryContent.topIssues && summaryContent.topIssues[0];
+      if (top && top.message) {
+        var label = (top.severity === 'error' || top.severity === 'critical') ? 'Critical issue' : 'Top finding';
+        return label + ': ' + top.message;
+      }
+      if (findingsContent && findingsContent.items && findingsContent.items.length === 0) {
+        return 'No validation issues were found — this dataset is clean.';
+      }
+      return 'This dataset has no standout issues to report.';
+    }
+
+    function buildStory(dataset, findings, memoryStore, options) {
+      options = options || {};
+      var datasetId = options.datasetId != null ? options.datasetId : (dataset && dataset.id);
+      var includeTimeline = options.includeTimeline !== false;
+      var includeSQL = options.includeSQL !== false;
+
+      var summarySection = buildSummarySection(dataset, findings);
+      var findingsSection = buildFindingsSection(findings);
+      var provenanceSection = buildProvenanceSection(dataset, memoryStore, datasetId, options);
+
+      var sections = [summarySection, findingsSection];
+      if (includeTimeline) sections.push(buildTimelineSection(memoryStore, datasetId, options));
+      if (includeSQL) sections.push(buildSQLAuditSection(memoryStore, datasetId));
+      sections.push(provenanceSection);
+
+      var title = options.title || ('Analysis of ' + ((dataset && dataset.name) || 'dataset'));
+      var subtitle = formatSubtitle(dataset, summarySection.content);
+      var keyFinding = deriveKeyFinding(summarySection.content, findingsSection.content);
+      var generatedAt = options.now || new Date().toISOString();
+
+      return {
+        version: 1,
+        generatedAt: generatedAt,
+        title: title,
+        subtitle: subtitle,
+        keyFinding: keyFinding,
+        sections: sections,
+        provenance: {
+          datasetName: provenanceSection.content.datasetName,
+          rowCount: provenanceSection.content.rowCount,
+          columnCount: provenanceSection.content.columnCount,
+          provenanceHash: provenanceSection.content.provenanceHash,
+          generatedAt: provenanceSection.content.generatedAt
+        },
+        metadata: {
+          author: options.author || 'Unknown analyst',
+          toolVersion: 'DataGlow Canvas v1',
+          includesTimeline: includeTimeline
+        }
+      };
+    }
+
+    function escapeMarkdownCell(text) {
+      return String(text == null ? '' : text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+    }
+    function findSection(storyDoc, type) {
+      return (storyDoc && Array.isArray(storyDoc.sections)) ? storyDoc.sections.filter(function (s) { return s && s.type === type; })[0] : null;
+    }
+
+    function renderMarkdown(storyDoc) {
+      var doc = storyDoc || {};
+      var lines = [];
+
+      lines.push('# ' + (doc.title || 'Untitled Story'));
+      lines.push('');
+      lines.push('*' + (doc.subtitle || '') + '*');
+      lines.push('');
+      lines.push('## Key Finding');
+      lines.push('');
+      lines.push('> ' + (doc.keyFinding || ''));
+      lines.push('');
+
+      var summary = findSection(doc, 'summary');
+      lines.push('## Summary');
+      lines.push('');
+      if (summary && summary.content) {
+        var c = summary.content;
+        lines.push('- Overall health: **' + Math.round(c.overallHealth) + '%**');
+        lines.push('- Total findings: **' + c.totalFindings + '** (' + c.errorCount + ' errors, ' + c.warningCount + ' warnings)');
+        if (c.topIssues && c.topIssues.length) {
+          lines.push('');
+          lines.push('Top issues:');
+          c.topIssues.forEach(function (issue) {
+            lines.push('- **' + issue.severity + '** — ' + issue.column + ': ' + issue.message);
+          });
+        }
+      }
+      lines.push('');
+
+      var findings = findSection(doc, 'findings');
+      lines.push('## Findings');
+      lines.push('');
+      var items = (findings && findings.content && findings.content.items) || [];
+      if (items.length === 0) {
+        lines.push('_No findings recorded._');
+      } else {
+        lines.push('| Severity | Column | Issue | Rows Affected |');
+        lines.push('|---|---|---|---|');
+        items.forEach(function (item) {
+          lines.push('| ' + escapeMarkdownCell(item.severity) + ' | ' + escapeMarkdownCell(item.column) + ' | ' + escapeMarkdownCell(item.message) + ' | ' + (item.rowsAffected != null ? item.rowsAffected : '—') + ' |');
+        });
+      }
+      lines.push('');
+
+      var timeline = findSection(doc, 'timeline');
+      if (timeline) {
+        lines.push('## Timeline');
+        lines.push('');
+        var entries = (timeline.content && timeline.content.entries) || [];
+        if (entries.length === 0) {
+          lines.push('_No timeline entries recorded._');
+        } else {
+          entries.forEach(function (entry) { lines.push('1. ' + entry); });
+        }
+        lines.push('');
+      }
+
+      var sqlAudit = findSection(doc, 'sql_audit');
+      var sqlQueries = (sqlAudit && sqlAudit.content && sqlAudit.content.queries) || [];
+      if (sqlAudit && sqlQueries.length > 0) {
+        lines.push('## SQL Audit');
+        lines.push('');
+        sqlQueries.forEach(function (q) {
+          lines.push('```sql');
+          lines.push(q.sql || '');
+          lines.push('```');
+          var meta = [q.timestamp, q.note].filter(Boolean).join(' — ');
+          if (meta) lines.push('*' + meta + '*');
+          lines.push('');
+        });
+      }
+
+      var provenance = findSection(doc, 'provenance');
+      lines.push('## Provenance');
+      lines.push('');
+      if (provenance && provenance.content) {
+        var pc = provenance.content;
+        lines.push('- Dataset: **' + pc.datasetName + '**');
+        lines.push('- Rows: ' + pc.rowCount + ' · Columns: ' + pc.columnCount);
+        lines.push('- Provenance hash: `' + pc.provenanceHash + '`');
+        lines.push('- Generated at: ' + pc.generatedAt);
+        lines.push('- Memory records: ' + pc.recordCount);
+      }
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+      lines.push('*Generated by DataGlow Canvas. Provenance hash: ' + (doc.provenance ? doc.provenance.provenanceHash : '') + '*');
+
+      return lines.join('\n');
+    }
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    var COLOR_BACKGROUND = '#F7F6F2';
+    var COLOR_PRIMARY = '#01696F';
+    var COLOR_WARNING = '#964219';
+    var COLOR_ERROR = '#A12C7B';
+
+    function severityColor(severity) {
+      if (severity === 'error' || severity === 'critical') return COLOR_ERROR;
+      if (severity === 'warning') return COLOR_WARNING;
+      return COLOR_PRIMARY;
+    }
+
+    function renderHTML(storyDoc) {
+      var doc = storyDoc || {};
+      var summary = findSection(doc, 'summary');
+      var findings = findSection(doc, 'findings');
+      var timeline = findSection(doc, 'timeline');
+      var sqlAudit = findSection(doc, 'sql_audit');
+      var provenance = findSection(doc, 'provenance');
+
+      var summaryContent = (summary && summary.content) || {};
+      var findingsItems = (findings && findings.content && findings.content.items) || [];
+      var timelineEntries = (timeline && timeline.content && timeline.content.entries) || [];
+      var sqlQueries = (sqlAudit && sqlAudit.content && sqlAudit.content.queries) || [];
+      var provenanceContent = (provenance && provenance.content) || {};
+
+      var topIssuesHtml = (summaryContent.topIssues || [])
+        .map(function (issue) {
+          return '<li><span style="color:' + severityColor(issue.severity) + '; font-weight:600;">' + escapeHtml(issue.severity) + '</span> — ' + escapeHtml(issue.column) + ': ' + escapeHtml(issue.message) + '</li>';
+        }).join('\n');
+
+      var findingsRowsHtml = findingsItems.length === 0
+        ? '<tr><td colspan="4" style="padding:8px 12px; color:#666;">No findings recorded.</td></tr>'
+        : findingsItems.map(function (item, idx) {
+          var stripe = idx % 2 === 0 ? COLOR_BACKGROUND : '#FFFFFF';
+          return '<tr style="background:' + stripe + ';">' +
+            '<td style="padding:8px 12px; color:' + severityColor(item.severity) + '; font-weight:600;">' + escapeHtml(item.severity) + '</td>' +
+            '<td style="padding:8px 12px;">' + escapeHtml(item.column) + '</td>' +
+            '<td style="padding:8px 12px;">' + escapeHtml(item.message) + '</td>' +
+            '<td style="padding:8px 12px; text-align:right;">' + (item.rowsAffected != null ? escapeHtml(item.rowsAffected) : '—') + '</td>' +
+          '</tr>';
+        }).join('\n');
+
+      var timelineHtml = timelineEntries.length === 0
+        ? '<p style="color:#666;">No timeline entries recorded.</p>'
+        : '<ol style="margin:0; padding-left:20px;">' + timelineEntries.map(function (entry) { return '<li style="margin-bottom:6px;">' + escapeHtml(entry) + '</li>'; }).join('\n') + '</ol>';
+
+      var sqlHtml = sqlQueries.length === 0 ? '' :
+        '<h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">SQL Audit</h2>' +
+        sqlQueries.map(function (q) {
+          return '<pre style="background:#1e1e1e; color:#f5f5f5; padding:12px; border-radius:4px; overflow-x:auto; font-size:12px;"><code>' + escapeHtml(q.sql) + '</code></pre>' +
+            '<p style="color:#888; font-size:12px; margin-top:-4px;">' + escapeHtml([q.timestamp, q.note].filter(Boolean).join(' — ')) + '</p>';
+        }).join('\n');
+
+      return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<title>' + escapeHtml(doc.title || 'DataGlow Story') + '</title>\n<style>\n' +
+        '  @media print {\n    body { background: #FFFFFF !important; }\n    .no-print { display: none !important; }\n    a { color: inherit; text-decoration: none; }\n    table, pre { page-break-inside: avoid; }\n  }\n' +
+        '  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: ' + COLOR_BACKGROUND + '; color: #1a1a1a; margin: 0; padding: 32px; line-height: 1.5; }\n' +
+        '  table { border-collapse: collapse; width: 100%; }\n  th { text-align: left; padding: 8px 12px; background: ' + COLOR_PRIMARY + '; color: #FFFFFF; }\n</style>\n</head>\n<body>\n' +
+        '  <h1 style="color:' + COLOR_PRIMARY + '; margin-bottom:4px;">' + escapeHtml(doc.title || 'Untitled Story') + '</h1>\n' +
+        '  <p style="color:#555; margin-top:0;"><em>' + escapeHtml(doc.subtitle || '') + '</em></p>\n\n' +
+        '  <h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">Key Finding</h2>\n' +
+        '  <blockquote style="border-left:4px solid ' + COLOR_PRIMARY + '; margin:0; padding:8px 16px; background:#FFFFFF;">\n    ' + escapeHtml(doc.keyFinding || '') + '\n  </blockquote>\n\n' +
+        '  <h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">Summary</h2>\n' +
+        '  <p>Overall health: <strong>' + Math.round(summaryContent.overallHealth || 0) + '%</strong> &middot;\n' +
+        '     Total findings: <strong>' + (summaryContent.totalFindings || 0) + '</strong>\n' +
+        '     (' + (summaryContent.errorCount || 0) + ' errors, ' + (summaryContent.warningCount || 0) + ' warnings)</p>\n' +
+        (topIssuesHtml ? ('  <ul>' + topIssuesHtml + '</ul>\n') : '') +
+        '  <h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">Findings</h2>\n' +
+        '  <table>\n    <thead>\n      <tr><th>Severity</th><th>Column</th><th>Issue</th><th style="text-align:right;">Rows Affected</th></tr>\n    </thead>\n    <tbody>\n      ' + findingsRowsHtml + '\n    </tbody>\n  </table>\n\n' +
+        (timeline ? ('  <h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">Timeline</h2>' + timelineHtml + '\n') : '') +
+        '  ' + sqlHtml + '\n\n' +
+        '  <h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">Provenance</h2>\n' +
+        '  <table>\n    <tbody>\n' +
+        '      <tr><td style="padding:4px 12px; font-weight:600;">Dataset</td><td style="padding:4px 12px;">' + escapeHtml(provenanceContent.datasetName) + '</td></tr>\n' +
+        '      <tr><td style="padding:4px 12px; font-weight:600;">Rows</td><td style="padding:4px 12px;">' + escapeHtml(provenanceContent.rowCount) + '</td></tr>\n' +
+        '      <tr><td style="padding:4px 12px; font-weight:600;">Columns</td><td style="padding:4px 12px;">' + escapeHtml(provenanceContent.columnCount) + '</td></tr>\n' +
+        '      <tr><td style="padding:4px 12px; font-weight:600;">Provenance hash</td><td style="padding:4px 12px; font-family:monospace;">' + escapeHtml(provenanceContent.provenanceHash) + '</td></tr>\n' +
+        '      <tr><td style="padding:4px 12px; font-weight:600;">Generated at</td><td style="padding:4px 12px;">' + escapeHtml(provenanceContent.generatedAt) + '</td></tr>\n' +
+        '    </tbody>\n  </table>\n\n' +
+        '  <hr style="margin:32px 0; border:none; border-top:1px solid #ccc;" />\n' +
+        '  <p style="color:#888; font-size:12px;"><em>Generated by DataGlow Canvas. Provenance hash: ' + escapeHtml(doc.provenance ? doc.provenance.provenanceHash : '') + '</em></p>\n</body>\n</html>';
+    }
+
+    function computeStoryHash(storyDoc) {
+      var sections = (storyDoc && Array.isArray(storyDoc.sections)) ? storyDoc.sections : [];
+      var contentBasis = sections.map(function (s) { return { id: s && s.id, type: s && s.type, content: s && s.content }; });
+      return djb2Hash(JSON.stringify(contentBasis));
+    }
+
+    function validateStory(storyDoc) {
+      var errors = [];
+      var doc = storyDoc;
+
+      if (!doc || typeof doc !== 'object') {
+        return { valid: false, errors: ['storyDoc is missing or not an object'] };
+      }
+      if (doc.version == null) errors.push('version is missing');
+      if (!doc.generatedAt || isNaN(Date.parse(doc.generatedAt))) errors.push('generatedAt is missing or not a valid ISO date string');
+      if (!doc.title || typeof doc.title !== 'string' || doc.title.trim() === '') errors.push('title is missing or empty');
+
+      if (!Array.isArray(doc.sections)) {
+        errors.push('sections is missing or not an array');
+      } else {
+        doc.sections.forEach(function (section, idx) {
+          if (!section || typeof section !== 'object') { errors.push('section at index ' + idx + ' is missing or not an object'); return; }
+          if (!section.id) errors.push('section at index ' + idx + ' is missing an id');
+          if (!section.type) errors.push('section at index ' + idx + ' is missing a type');
+          if (!section.title) errors.push('section at index ' + idx + ' is missing a title');
+          if (section.content == null) errors.push('section at index ' + idx + ' is missing content');
+        });
+      }
+      if (!doc.provenance || typeof doc.provenance !== 'object' || !doc.provenance.provenanceHash) errors.push('provenance.provenanceHash is missing');
+
+      return { valid: errors.length === 0, errors: errors };
+    }
+
+    return {
+      buildStory: buildStory,
+      renderMarkdown: renderMarkdown,
+      renderHTML: renderHTML,
+      computeStoryHash: computeStoryHash,
+      validateStory: validateStory
+    };
+  })();
+
+  /* ---- from js/streaming/streaming-validator.js ---- */
+  var StreamingValidator = (function () {
+    function computeSchemaFingerprint(columns) {
+      return columns.map(function (c) { return c.name + ':' + c.type; }).sort().join('|');
+    }
+    function detectSchemaDrift(baseline, current) {
+      return { drifted: baseline !== current, baseline: baseline, current: current };
+    }
+    function computeBatchStats(rows, columnName) {
+      var count = rows.length;
+      var nullCount = 0;
+      var numericValues = [];
+
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var value = row ? row[columnName] : undefined;
+        if (value === null || value === undefined || value === '') { nullCount++; continue; }
+        var num = typeof value === 'number' ? value : Number(value);
+        if (typeof value === 'number' ? !isNaN(value) : (value !== '' && !isNaN(num))) {
+          numericValues.push(num);
+        }
+      }
+
+      var nullRatio = count > 0 ? nullCount / count : 0;
+      var nonNullCount = count - nullCount;
+      var isNumeric = nonNullCount > 0 && numericValues.length === nonNullCount;
+
+      if (!isNumeric) {
+        return { count: count, nullCount: nullCount, nullRatio: nullRatio, min: null, max: null, mean: null, stddev: null };
+      }
+
+      var min = Infinity, max = -Infinity, sum = 0;
+      for (var j = 0; j < numericValues.length; j++) {
+        var v = numericValues[j];
+        if (v < min) min = v;
+        if (v > max) max = v;
+        sum += v;
+      }
+      var mean = sum / numericValues.length;
+      var sumSquaredDiff = 0;
+      for (var k = 0; k < numericValues.length; k++) {
+        var diff = numericValues[k] - mean;
+        sumSquaredDiff += diff * diff;
+      }
+      var stddev = Math.sqrt(sumSquaredDiff / numericValues.length);
+
+      return { count: count, nullCount: nullCount, nullRatio: nullRatio, min: min, max: max, mean: mean, stddev: stddev };
+    }
+    function detectValueDrift(baselineStats, currentStats, options) {
+      options = options || {};
+      var zScoreThreshold = options.zScoreThreshold != null ? options.zScoreThreshold : 2.5;
+
+      var baselineMean = baselineStats ? baselineStats.mean : null;
+      var currentMean = currentStats ? currentStats.mean : null;
+      var baselineStddev = baselineStats ? baselineStats.stddev : null;
+      var baselineNullRatio = baselineStats ? baselineStats.nullRatio : 0;
+      var currentNullRatio = currentStats ? currentStats.nullRatio : 0;
+
+      var meanShift = false;
+      if (baselineMean !== null && currentMean !== null && baselineStddev !== null && baselineStddev > 0) {
+        meanShift = Math.abs(currentMean - baselineMean) > zScoreThreshold * baselineStddev;
+      }
+      var nullSpike = currentNullRatio > baselineNullRatio + 0.1;
+
+      return {
+        drifted: meanShift || nullSpike,
+        meanShift: meanShift,
+        nullSpike: nullSpike,
+        details: { baselineMean: baselineMean, currentMean: currentMean, baselineNullRatio: baselineNullRatio, currentNullRatio: currentNullRatio }
+      };
+    }
+    function detectArrivalAnomaly(expectedRowsPerBatch, actualRows, tolerance) {
+      tolerance = tolerance == null ? 0.3 : tolerance;
+      var ratio = expectedRowsPerBatch > 0 ? actualRows / expectedRowsPerBatch : (actualRows === 0 ? 1 : Infinity);
+      var lowerBound = expectedRowsPerBatch * (1 - tolerance);
+      var upperBound = expectedRowsPerBatch * (1 + tolerance);
+      var anomaly = actualRows < lowerBound || actualRows > upperBound;
+      return { anomaly: anomaly, expected: expectedRowsPerBatch, actual: actualRows, ratio: ratio };
+    }
+    function makeBatchId() {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+      return 'batch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+    }
+    function runStreamingValidation(batch, baseline, options) {
+      options = options || {};
+      var zScoreThreshold = options.zScoreThreshold != null ? options.zScoreThreshold : 2.5;
+      var arrivalTolerance = options.arrivalTolerance != null ? options.arrivalTolerance : 0.3;
+      var columnsToWatch = options.columnsToWatch || [];
+
+      var currentFingerprint = computeSchemaFingerprint(batch.columns);
+
+      var schemaDrift = baseline ? detectSchemaDrift(baseline.schemaFingerprint, currentFingerprint) : null;
+      var arrivalAnomaly = baseline ? detectArrivalAnomaly(baseline.expectedRowsPerBatch, batch.rows.length, arrivalTolerance) : null;
+
+      var valueDrift = {};
+      var newColumnStats = {};
+
+      columnsToWatch.forEach(function (colName) {
+        var currentStats = computeBatchStats(batch.rows, colName);
+        newColumnStats[colName] = currentStats;
+        if (baseline && baseline.columnStats && baseline.columnStats[colName]) {
+          valueDrift[colName] = detectValueDrift(baseline.columnStats[colName], currentStats, { zScoreThreshold: zScoreThreshold });
+        }
+      });
+
+      var newBaseline = { schemaFingerprint: currentFingerprint, columnStats: newColumnStats, expectedRowsPerBatch: batch.rows.length };
+
+      var schemaFailed = !!(schemaDrift && schemaDrift.drifted);
+      var arrivalFailed = !!(arrivalAnomaly && arrivalAnomaly.anomaly);
+      var valueDriftValues = Object.keys(valueDrift).map(function (k) { return valueDrift[k]; });
+      var meanShiftFailed = valueDriftValues.some(function (v) { return v.meanShift; });
+      var nullSpikeOnly = valueDriftValues.some(function (v) { return v.nullSpike; }) && !meanShiftFailed;
+
+      var overallStatus = 'pass';
+      if (schemaFailed || arrivalFailed || meanShiftFailed) overallStatus = 'fail';
+      else if (nullSpikeOnly) overallStatus = 'warn';
+
+      return {
+        batchId: makeBatchId(),
+        arrivedAt: batch.arrivedAt,
+        schemaDrift: schemaDrift,
+        valueDrift: valueDrift,
+        arrivalAnomaly: arrivalAnomaly,
+        overallStatus: overallStatus,
+        newBaseline: newBaseline
+      };
+    }
+
+    return {
+      computeSchemaFingerprint: computeSchemaFingerprint,
+      detectSchemaDrift: detectSchemaDrift,
+      computeBatchStats: computeBatchStats,
+      detectValueDrift: detectValueDrift,
+      detectArrivalAnomaly: detectArrivalAnomaly,
+      runStreamingValidation: runStreamingValidation
+    };
+  })();
+
 
   /* ============================================================
      STATE
@@ -964,9 +2141,34 @@
     datasets: [],        // { id, name, columns:[{name,type}], rows:[[...]], findings:[], columnStats:[], score }
     activeDatasetId: null,
     railOpen: false,
-    activeFindingRowIndex: null
+    activeFindingRowIndex: null,
+    memoryStore: InstitutionalMemory.createMemoryStore(),
+    currentStoryDoc: null
   };
   var datasetCounter = 0;
+
+  /* ============================================================
+     RETURN-USE FILE RECOGNITION (Section 10.2)
+     ------------------------------------------------------------
+     djb2 hash of file name + size — NOT cryptographic, just enough to
+     recognize "we've seen a file that looks like this before" without
+     pulling in a crypto dependency in the canvas shell.
+     ============================================================ */
+  var seenFiles = {};
+
+  function djb2HashString(str) {
+    var hash = 5381;
+    var s = String(str == null ? '' : str);
+    for (var i = 0; i < s.length; i++) {
+      hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0;
+    }
+    var h = (hash >>> 0).toString(16);
+    return h.length >= 8 ? h : new Array(8 - h.length + 1).join('0') + h;
+  }
+
+  function fileSeenHash(name, size) {
+    return djb2HashString((name || '') + '::' + (size || 0));
+  }
 
   /* ============================================================
      DOM SHORTCUTS
@@ -1013,6 +2215,20 @@
   var agentExplainBtn = $('agent-explain');
 
   var themeToggle = $('theme-toggle');
+  var returnUseBanner = $('return-use-banner');
+
+  var storyEmpty = $('story-empty');
+  var storyFrame = $('story-frame');
+  var storyExportMdBtn = $('story-export-md');
+  var storyExportPdfBtn = $('story-export-pdf');
+
+  var sqlOverlay = $('sql-overlay');
+  var sqlInput = $('sql-input');
+  var sqlRunBtn = $('sql-run');
+  var sqlCloseBtn = $('sql-close');
+  var sqlStatus = $('sql-status');
+  var sqlResultsThead = $('sql-results-thead');
+  var sqlResultsTbody = $('sql-results-tbody');
 
   /* ============================================================
      CSV PARSER (inline, minimal, handles quoted fields)
@@ -1208,17 +2424,116 @@
       }
     });
 
-    // Sort findings: error first, then warning
+    return { findings: findings, rowFlags: rowFlags, columnHealth: columnHealth };
+  }
+
+  /* ============================================================
+     REAL VALIDATION (streaming-validator.js, four-pillar)
+     ------------------------------------------------------------
+     Runs the real runStreamingValidation() against a snapshot built from
+     the parsed dataset, then maps its pillar results into the rail's
+     finding format. There is no persisted baseline across page loads in
+     this shell pass (baseline is null on every file drop), so schemaDrift
+     and arrivalAnomaly always come back null on first run \u2014 exactly the
+     "first run degrades gracefully" behavior the module documents. The
+     empty-cell / negative-value heuristics from the mock validator are
+     layered in underneath the real four-pillar findings so the rail still
+     reads richly for a single-batch demo dataset.
+     ============================================================ */
+  function rowsToRecordArray(dataset) {
+    // Streaming validator expects rows shaped as plain objects keyed by
+    // column name (mirrors what a DuckDB-WASM query result row looks like).
+    return dataset.rows.map(function (row) {
+      var obj = {};
+      dataset.columns.forEach(function (col, idx) {
+        var v = row[idx];
+        obj[col.name] = (v === '' || v === undefined) ? null : v;
+      });
+      return obj;
+    });
+  }
+
+  function runRealValidation(dataset) {
+    var mock = runMockValidation(dataset);
+
+    var snapshot = {
+      rows: rowsToRecordArray(dataset),
+      columns: dataset.columns.map(function (c) { return { name: c.name, type: c.type }; }),
+      timestamp: Date.now()
+    };
+
+    var columnsToWatch = dataset.columns
+      .filter(function (c) { return c.type === 'INT' || c.type === 'FLOAT'; })
+      .map(function (c) { return c.name; });
+
+    var streamingResult;
+    try {
+      streamingResult = StreamingValidator.runStreamingValidation(
+        { columns: snapshot.columns, rows: snapshot.rows, arrivedAt: new Date(snapshot.timestamp).toISOString() },
+        null, // no persisted baseline across page loads in this shell pass
+        { columnsToWatch: columnsToWatch }
+      );
+    } catch (_e) {
+      streamingResult = null;
+    }
+
+    var findings = mock.findings.slice();
+    var rowFlags = mock.rowFlags;
+    var columnHealth = mock.columnHealth;
+
+    if (streamingResult) {
+      if (streamingResult.schemaDrift && streamingResult.schemaDrift.drifted) {
+        findings.push({
+          severity: 'error',
+          column: 'dataset',
+          rowCount: dataset.rows.length,
+          message: 'Schema drift detected: the column set changed from the prior baseline.',
+          rule: 'streaming_schema_drift',
+          sql: 'SELECT * FROM dataset; -- schema fingerprint changed',
+          citation: null
+        });
+      }
+      if (streamingResult.arrivalAnomaly && streamingResult.arrivalAnomaly.anomaly) {
+        findings.push({
+          severity: 'warning',
+          column: 'dataset',
+          rowCount: dataset.rows.length,
+          message: 'Arrival anomaly: this batch has ' + streamingResult.arrivalAnomaly.actual + ' rows, outside the expected cadence of ' + streamingResult.arrivalAnomaly.expected + '.',
+          rule: 'streaming_arrival_anomaly',
+          sql: 'SELECT COUNT(*) FROM dataset;',
+          citation: null
+        });
+      }
+      Object.keys(streamingResult.valueDrift || {}).forEach(function (colName) {
+        var vd = streamingResult.valueDrift[colName];
+        if (vd.meanShift) {
+          if (findings.every(function (f) { return f.column !== colName || f.rule !== 'streaming_value_drift'; })) {
+            findings.push({
+              severity: 'error',
+              column: colName,
+              rowCount: dataset.rows.length,
+              message: '`' + colName + '` shows a statistically significant mean shift versus its prior baseline.',
+              rule: 'streaming_value_drift',
+              sql: 'SELECT AVG(' + colName + ') FROM dataset;',
+              citation: null
+            });
+          }
+        }
+      });
+    }
+
+    // Sort findings: error/critical first, then warning
     findings.sort(function (a, b) {
       var order = { critical: 0, error: 1, warning: 2 };
-      return order[a.severity] - order[b.severity];
+      return (order[a.severity] != null ? order[a.severity] : 3) - (order[b.severity] != null ? order[b.severity] : 3);
     });
 
     var cleanRows = rowFlags.filter(function (f) { return !f.warning && !f.error; }).length;
-    var score = rows.length ? Math.round((cleanRows / rows.length) * 100) : 100;
+    var score = rowFlags.length ? Math.round((cleanRows / rowFlags.length) * 100) : 100;
 
-    return { findings: findings, rowFlags: rowFlags, columnHealth: columnHealth, score: score };
+    return { findings: findings, rowFlags: rowFlags, columnHealth: columnHealth, score: score, streamingResult: streamingResult };
   }
+
 
   /* ============================================================
      SEQUENCED REVEAL
@@ -1264,14 +2579,30 @@
     requestAnimationFrame(step);
   }
 
-  function runSequencedReveal(dataset, filename) {
+  function runSequencedReveal(dataset, filename, seenBefore) {
     resetRevealUI();
 
-    var validation = runMockValidation(dataset);
+    var validation = runRealValidation(dataset);
     dataset.findings = validation.findings;
     dataset.rowFlags = validation.rowFlags;
     dataset.columnHealth = validation.columnHealth;
     dataset.score = validation.score;
+    dataset.streamingResult = validation.streamingResult;
+
+    // Section 10.2: return-use greeting. If we recognize this exact file
+    // (by djb2 hash of name+size) from a prior session, show what memory
+    // recalls about it before running the (still full) ceremony below.
+    if (seenBefore && seenBefore.datasetId) {
+      var priorSummary = InstitutionalMemory.summarizeMemory(state.memoryStore, seenBefore.datasetId);
+      returnUseBanner.innerHTML = '<strong>We\u2019ve seen this file before.</strong> Here is what was decided last time: ' +
+        escapeHtmlText(describeSummaryForBanner(priorSummary));
+      returnUseBanner.classList.remove('hidden');
+      requestAnimationFrame(function () { returnUseBanner.classList.add('show'); });
+    } else {
+      returnUseBanner.classList.add('hidden');
+      returnUseBanner.classList.remove('show');
+      returnUseBanner.innerHTML = '';
+    }
 
     // STEP 1 (0ms): pulse drop zone border teal for 300ms
     dropZone.classList.add('pulse');
@@ -1354,8 +2685,42 @@
     state.datasets.push(dataset);
     state.activeDatasetId = id;
 
+    // Remember this file (by content-agnostic name+size hash) so a future
+    // drop of "the same" file can trigger the return-use greeting.
+    seenFiles[dataset.fileHash] = { datasetId: id, name: filename };
+
+    state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+      type: InstitutionalMemory.RECORD_TYPES.FILE_LOADED,
+      actor: 'human',
+      datasetId: id,
+      column: null,
+      reason: 'File "' + filename + '" loaded (' + dataset.rows.length + ' rows x ' + dataset.columns.length + ' cols).',
+      metadata: { filename: filename, rowCount: dataset.rows.length, colCount: dataset.columns.length, fileHash: dataset.fileHash }
+    });
+
     addTab(filename, id);
     renderGrid(dataset);
+  }
+
+  function escapeHtmlText(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function describeSummaryForBanner(summary) {
+    if (!summary || !summary.totalDecisions) return 'No prior activity recorded for this file.';
+    var parts = [];
+    parts.push(summary.totalDecisions + ' decision(s) logged');
+    if (summary.agentFixes) parts.push(summary.agentFixes + ' agent fix(es) accepted');
+    if (summary.humanEdits) parts.push(summary.humanEdits + ' manual edit(s)');
+    if (summary.dismissals) parts.push(summary.dismissals + ' dismissal(s)');
+    if (summary.validationsResolved) parts.push(summary.validationsResolved + ' validation(s) resolved');
+    if (summary.topColumns && summary.topColumns.length) {
+      parts.push('most-touched column(s): ' + summary.topColumns.join(', '));
+    }
+    return parts.join(', ') + '.';
   }
 
   /* ============================================================
@@ -1510,8 +2875,28 @@
       chevron.textContent = '\u203A';
       chevron.title = 'Expand detail';
 
+      var dismissBtn = document.createElement('button');
+      dismissBtn.className = 'finding-chevron';
+      dismissBtn.textContent = '\u00D7';
+      dismissBtn.title = 'Dismiss this finding';
+      dismissBtn.style.marginLeft = '4px';
+      dismissBtn.addEventListener('click', function (evt) {
+        evt.stopPropagation();
+        item.classList.add('hidden');
+        var activeDs = getActiveDataset();
+        state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+          type: InstitutionalMemory.RECORD_TYPES.VALIDATION_DISMISSED,
+          actor: 'human',
+          datasetId: activeDs ? activeDs.id : null,
+          column: finding.column,
+          reason: 'Dismissed finding: ' + finding.message,
+          metadata: { rule: finding.rule, severity: finding.severity }
+        });
+      });
+
       sentenceWrap.appendChild(textWrap);
       sentenceWrap.appendChild(chevron);
+      sentenceWrap.appendChild(dismissBtn);
 
       var detail = document.createElement('div');
       detail.className = 'finding-detail';
@@ -1685,11 +3070,27 @@
     requestAnimationFrame(function () { agentPopover.classList.add('visible'); });
 
     agentFixBtn.onclick = function () {
-      setAgentStatus('Proposed a fix for `' + col.name + '`. (Diff overlay scaffold \u2014 full wiring pending validation spine integration.)');
+      setAgentStatus('Applied suggested fix for `' + col.name + '`.');
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.AGENT_FIX_ACCEPTED,
+        actor: 'human',
+        datasetId: dataset.id,
+        column: col.name,
+        reason: msg,
+        metadata: { colIdx: colIdx, healthClass: healthClass }
+      });
       hideAgentPopoverNow();
     };
     agentExplainBtn.onclick = function () {
       openRail();
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.AGENT_FIX_DISMISSED,
+        actor: 'human',
+        datasetId: dataset.id,
+        column: col.name,
+        reason: 'User asked to see more detail instead of accepting the fix; opened the rail. ' + msg,
+        metadata: { colIdx: colIdx, healthClass: healthClass }
+      });
       hideAgentPopoverNow();
     };
   }
@@ -1770,46 +3171,88 @@
   });
 
   function handleFileDrop(files) {
-    var file = files[0]; // ceremony handles first file; multi-file batch is out of scope for this shell pass
-    var name = file.name;
-    var ext = name.split('.').pop().toLowerCase();
+    // Support multi-file drop by giving each file its own ceremony + tab,
+    // sequenced one after another (Test Step 10: multi-file drop -> tab strip).
+    var fileList = Array.prototype.slice.call(files);
+    processNextDroppedFile(fileList, 0);
+  }
 
-    if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
+  function processNextDroppedFile(fileList, idx) {
+    if (idx >= fileList.length) return;
+    var file = fileList[idx];
+    var name = file.name;
+    var fileHash = fileSeenHash(name, file.size);
+    var seenBefore = seenFiles[fileHash] || null;
+
+    var advance = function () {
+      if (idx + 1 < fileList.length) {
+        // Slight stagger so each ceremony is visually distinct.
+        setTimeout(function () { processNextDroppedFile(fileList, idx + 1); }, 400);
+      }
+    };
+
+    // Read first bytes for magic-byte based format detection (drop-zone-router.js).
+    var headerReader = new FileReader();
+    headerReader.onload = function (headerEvt) {
+      var firstBytes = new Uint8Array(headerEvt.target.result);
+      var format = DropZoneRouter.detectFileFormat(name, file.type, firstBytes);
+      routeDroppedFile(file, name, format, fileHash, seenBefore, advance);
+    };
+    headerReader.onerror = function () {
+      // Fall back to extension-only detection if the header read fails.
+      var format = DropZoneRouter.detectFileFormat(name, file.type, null);
+      routeDroppedFile(file, name, format, fileHash, seenBefore, advance);
+    };
+    headerReader.readAsArrayBuffer(file.slice(0, 16));
+  }
+
+  function routeDroppedFile(file, name, format, fileHash, seenBefore, advance) {
+    var fmt = (format && format.format) || 'unknown';
+
+    if (fmt === 'csv' || fmt === 'tsv' || fmt === 'text') {
       var reader = new FileReader();
       reader.onload = function (e) {
         var text = e.target.result;
         var rawRows = parseCSV(text);
         var dataset = buildDatasetFromRows(rawRows, name);
-        runSequencedReveal(dataset, name);
+        dataset.fileHash = fileHash;
+        runSequencedReveal(dataset, name, seenBefore);
+        advance();
       };
       reader.readAsText(file);
-    } else if (ext === 'json') {
+    } else if (fmt === 'json') {
       var jreader = new FileReader();
       jreader.onload = function (e) {
         try {
           var json = JSON.parse(e.target.result);
           var dataset = buildDatasetFromJSON(json);
-          runSequencedReveal(dataset, name);
+          dataset.fileHash = fileHash;
+          runSequencedReveal(dataset, name, seenBefore);
         } catch (err) {
           alert('Could not parse JSON file: ' + err.message);
         }
+        advance();
       };
       jreader.readAsText(file);
     } else {
-      // Binary formats (XLSX / Parquet) — mark as binary, not parsed in this shell pass.
-      // Real parsing wires in via drop-zone-router.js (PR L).
+      // Binary formats (XLSX / Parquet / PDF / etc.) — routed & labeled via
+      // drop-zone-router.js's format detection, but not parsed in this shell
+      // pass. Real binary parsing (Univer/DuckDB-WASM) is out of scope for PR S.
       var dataset = {
         columns: [
           { name: 'file', type: 'STR' },
           { name: 'status', type: 'STR' }
         ],
         rows: [
-          [name, 'Binary format detected \u2014 full parsing pending drop-zone-router.js integration (PR L).']
-        ]
+          [name, (fmt || 'binary') + ' format detected \u2014 full parsing pending future integration.']
+        ],
+        fileHash: fileHash
       };
-      runSequencedReveal(dataset, name);
+      runSequencedReveal(dataset, name, seenBefore);
+      advance();
     }
   }
+
 
   function buildDatasetFromJSON(json) {
     var arr = Array.isArray(json) ? json : (json.data && Array.isArray(json.data) ? json.data : [json]);
@@ -1856,13 +3299,17 @@
       '1010,P-2010,120.00,60610,paid\n';
     var rawRows = parseCSV(csv);
     var dataset = buildDatasetFromRows(rawRows, 'claims_example.csv');
-    runSequencedReveal(dataset, 'claims_example.csv');
+    dataset.fileHash = fileSeenHash('claims_example.csv', csv.length);
+    var seenBefore = seenFiles[dataset.fileHash] || null;
+    runSequencedReveal(dataset, 'claims_example.csv', seenBefore);
   }
 
   /* ============================================================
      FORMULA BAR (scaffold — cell selection wiring pending Univer)
      ============================================================ */
   var formulaInput = $('formula-input');
+  var formulaActiveRef = { rowIdx: null, colIdx: null, originalValue: '' };
+
   gridTbody.addEventListener('click', function (e) {
     var td = e.target.closest('td');
     if (!td) return;
@@ -1871,7 +3318,232 @@
     var colIdx = Array.prototype.indexOf.call(tr.children, td);
     var colLetter = String.fromCharCode(65 + (colIdx % 26));
     $('formula-cell-ref').textContent = colLetter + (rowIdx + 2); // +2: header is row 1
-    formulaInput.value = td.textContent === '\u2014' ? '' : td.textContent;
+    var originalValue = td.textContent === '\u2014' ? '' : td.textContent;
+    formulaInput.value = originalValue;
+    formulaActiveRef = { rowIdx: rowIdx, colIdx: colIdx, originalValue: originalValue };
+  });
+
+  function commitFormulaEdit() {
+    if (formulaActiveRef.rowIdx === null) return;
+    var dataset = getActiveDataset();
+    if (!dataset) return;
+    var newValue = formulaInput.value;
+    if (newValue === formulaActiveRef.originalValue) return;
+
+    var col = dataset.columns[formulaActiveRef.colIdx];
+    dataset.rows[formulaActiveRef.rowIdx][formulaActiveRef.colIdx] = newValue;
+
+    state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+      type: InstitutionalMemory.RECORD_TYPES.MANUAL_EDIT,
+      actor: 'human',
+      datasetId: dataset.id,
+      column: col ? col.name : null,
+      reason: 'Cell edited via formula bar: "' + formulaActiveRef.originalValue + '" \u2192 "' + newValue + '".',
+      metadata: { rowIdx: formulaActiveRef.rowIdx, colIdx: formulaActiveRef.colIdx, oldValue: formulaActiveRef.originalValue, newValue: newValue }
+    });
+
+    formulaActiveRef.originalValue = newValue;
+    renderGrid(dataset);
+  }
+
+  formulaInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitFormulaEdit();
+    }
+  });
+  formulaInput.addEventListener('blur', commitFormulaEdit);
+
+  /* ============================================================
+     STORY VIEW (story-builder.js real rendering)
+     ============================================================ */
+  function refreshStoryView() {
+    var dataset = getActiveDataset();
+    if (!dataset) {
+      storyEmpty.classList.remove('hidden');
+      storyFrame.classList.add('hidden');
+      state.currentStoryDoc = null;
+      return;
+    }
+
+    var titleDateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    var storyDoc = StoryBuilder.buildStory(dataset, dataset.findings || [], state.memoryStore, {
+      generateTimeline: InstitutionalMemory.generateTimeline,
+      computeProvenanceHash: InstitutionalMemory.computeProvenanceHash,
+      datasetId: dataset.id,
+      title: dataset.name + ' \u2014 Data Story (' + titleDateStr + ')'
+    });
+
+    var validation = StoryBuilder.validateStory(storyDoc);
+    if (validation && validation.valid === false) {
+      setAgentStatus('Story validation warning: ' + (validation.errors || []).join('; '));
+    }
+
+    state.currentStoryDoc = storyDoc;
+
+    var html = StoryBuilder.renderHTML(storyDoc);
+    storyEmpty.classList.add('hidden');
+    storyFrame.classList.remove('hidden');
+    storyFrame.srcdoc = html;
+  }
+
+  navBtns.forEach(function (btn) {
+    if (btn.dataset.view === 'story') {
+      btn.addEventListener('click', refreshStoryView);
+    }
+  });
+
+  storyExportMdBtn.addEventListener('click', function () {
+    if (!state.currentStoryDoc) return;
+    var md = StoryBuilder.renderMarkdown(state.currentStoryDoc);
+    var blob = new Blob([md], { type: 'text/markdown' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var dataset = getActiveDataset();
+    a.href = url;
+    a.download = (dataset ? dataset.name.replace(/\.[^.]+$/, '') : 'story') + '-story.md';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    if (dataset) {
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.STORY_EXPORTED,
+        actor: 'human',
+        datasetId: dataset.id,
+        column: null,
+        reason: 'Exported Story View as Markdown.',
+        metadata: { format: 'markdown' }
+      });
+    }
+  });
+
+  storyExportPdfBtn.addEventListener('click', function () {
+    if (storyFrame.contentWindow) {
+      storyFrame.contentWindow.focus();
+      storyFrame.contentWindow.print();
+    } else {
+      window.print();
+    }
+    var dataset = getActiveDataset();
+    if (dataset) {
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.STORY_EXPORTED,
+        actor: 'human',
+        datasetId: dataset.id,
+        column: null,
+        reason: 'Exported Story View as PDF (browser print).',
+        metadata: { format: 'pdf' }
+      });
+    }
+  });
+
+  /* ============================================================
+     SQL MODE (Tier 3 overlay — Cmd+`/Ctrl+`)
+     ============================================================ */
+  function openSqlOverlay() {
+    sqlOverlay.classList.remove('hidden');
+    sqlStatus.textContent = '';
+    sqlResultsThead.innerHTML = '';
+    sqlResultsTbody.innerHTML = '';
+    setTimeout(function () { sqlInput.focus(); }, 0);
+  }
+
+  function closeSqlOverlay() {
+    sqlOverlay.classList.add('hidden');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === '`') {
+      e.preventDefault();
+      if (sqlOverlay.classList.contains('hidden')) openSqlOverlay();
+      else closeSqlOverlay();
+    } else if (e.key === 'Escape' && !sqlOverlay.classList.contains('hidden')) {
+      closeSqlOverlay();
+    }
+  });
+
+  sqlCloseBtn.addEventListener('click', closeSqlOverlay);
+
+  function runMockSqlQuery(sql) {
+    var dataset = getActiveDataset();
+    if (!dataset) return { columns: [], rows: [] };
+
+    var upper = sql.toUpperCase();
+    if (upper.indexOf('SELECT') === -1) {
+      return { columns: [], rows: [] };
+    }
+
+    var whereIdx = upper.indexOf('WHERE');
+    var matchingRows = dataset.rows;
+
+    if (whereIdx !== -1) {
+      var whereText = sql.slice(whereIdx + 5).toLowerCase();
+      var matchedColIdxs = [];
+      dataset.columns.forEach(function (col, idx) {
+        if (whereText.indexOf(col.name.toLowerCase()) !== -1) matchedColIdxs.push(idx);
+      });
+      if (matchedColIdxs.length) {
+        // Very small mock: filter to rows where at least one matched column
+        // has a non-empty value, to visibly narrow the result set.
+        matchingRows = dataset.rows.filter(function (row) {
+          return matchedColIdxs.some(function (idx) {
+            var v = row[idx];
+            return v !== '' && v !== null && v !== undefined;
+          });
+        });
+      }
+    }
+
+    return { columns: dataset.columns, rows: matchingRows.slice(0, 10) };
+  }
+
+  sqlRunBtn.addEventListener('click', function () {
+    var sql = sqlInput.value.trim();
+    var dataset = getActiveDataset();
+    if (!sql) {
+      sqlStatus.textContent = 'Enter a query first.';
+      return;
+    }
+    if (!dataset) {
+      sqlStatus.textContent = 'No dataset loaded.';
+      return;
+    }
+
+    var result = runMockSqlQuery(sql);
+
+    sqlResultsThead.innerHTML = '';
+    sqlResultsTbody.innerHTML = '';
+
+    var headRow = document.createElement('tr');
+    result.columns.forEach(function (col) {
+      var th = document.createElement('th');
+      th.textContent = col.name;
+      headRow.appendChild(th);
+    });
+    sqlResultsThead.appendChild(headRow);
+
+    result.rows.forEach(function (row) {
+      var tr = document.createElement('tr');
+      row.forEach(function (cell) {
+        var td = document.createElement('td');
+        td.textContent = (cell === '' || cell === null || cell === undefined) ? '\u2014' : cell;
+        tr.appendChild(td);
+      });
+      sqlResultsTbody.appendChild(tr);
+    });
+
+    sqlStatus.textContent = result.rows.length + ' row(s) returned (mock query engine \u2014 real DuckDB-WASM pending future integration).';
+
+    state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+      type: InstitutionalMemory.RECORD_TYPES.SQL_QUERY,
+      actor: 'human',
+      datasetId: dataset.id,
+      column: null,
+      reason: 'Ran SQL query in Tier 3 SQL Mode.',
+      metadata: { sql: sql, rowCount: result.rows.length }
+    });
   });
 
 })();
