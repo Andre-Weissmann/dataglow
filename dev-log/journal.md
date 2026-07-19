@@ -7,6 +7,59 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 11:58 CT] Portfolio Narrative assembler wired to UI (PR #406) + Command Deck nav coverage fix (PR #409)
+
+**What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Wire the already-merged
+`js/portfolio/narrative-assembler.js` pure logic into a real, usable Portfolio tab.
+
+**What was built:** `js/portfolio/portfolio-ui.js` — thin renderer, zero business logic, reading Problem
+Framer's live DOM inputs, `state.lastStory`, and two newly captured `window.__dataglow*` snapshots (Clean
+issues, Overconfidence Guard findings) captured as pure, unconditional assignments alongside their
+existing call sites in `main.js` — never re-running any of the four underlying checks itself. New
+`portfolio` tab wired via the same `TAB_META`/`getVisibleTabIds()`/`switchTab()` pattern as the `pivot`
+tab. Ships dark: `portfolioNarrativeAssembler` flag defaults `false`.
+
+**QA:** Functional Playwright test against the local server (flag temporarily flipped `true` locally only,
+reverted before commit): uploaded a CSV with 2 seeded issues, typed a Problem Framer question, ran the
+Clean scan, opened the Portfolio tab, and confirmed the assembled Markdown correctly showed both real
+issues, the typed framing question, and a live-editable recommendation — zero new console/page errors.
+
+**Incident — merge happened without the standing confirm step:** while PR #406's CI was still running,
+it was merged into `main` directly (by the repo owner via GitHub, not by this agent) before the agent's
+own `confirm_action` gate was reached. The flag was confirmed `false` on `main` immediately after, so no
+user-facing risk materialized, but the merge landed with 2 CI checks still red — including a real
+regression this PR caused (see below). Surfaced directly and transparently to the user rather than
+silently treated as approved; user acknowledged and gave explicit go-ahead to continue fixing forward.
+
+**Regression found and fixed (PR #409):** PR #406 added the `portfolio` tab to `main.js`'s `TAB_META` but
+didn't update `js/app-shell/command-deck-nav.js`'s stage map, breaking its drift-guard coverage test
+(`test/command-deck-nav.test.mjs`, 14/15 → found via direct CI log inspection, not just trusting the red
+X). Fixed by mapping `portfolio` to the `Tell` stage (same category as visualize/glowcanvas/story) —
+verified 15/15 passing locally before and after pushing. This is the same class of gap the file's own two
+prior addenda (meeting; joinbuilder/nlsql/dvc) already document — a real, recurring drift pattern worth
+noting (see lesson below).
+
+**Second failing check, confirmed pre-existing and unrelated:** `ci-batch-05 / Prompt Eval Harness`
+(`require()` in an ES module, `test/prompt-eval/runner.js`, broken since PR #378 — see the 2026-07-19
+10:56 CT entry below, which independently confirmed the same failure pre-existing on `main` before that
+PR too). Not touched by either PR this entry covers.
+
+**Merged:** PR #409 (Command Deck nav fix) squash-merged as `b4923dd` after explicit user confirm with a
+full safety assessment (single file, 9 lines, zero logic/behavior change to any `enabled:true` path,
+independently re-tested 15/15 locally). Both `portfolioNarrativeAssembler` and `narrativeOverconfidenceGuard`
+flags reconfirmed `false` on `main` post-merge.
+
+**Lesson for next time:** any PR that adds a new tab id to `main.js`'s `TAB_META` must also update
+`js/app-shell/command-deck-nav.js`'s stage map in the SAME PR — this is now the third time (after
+meeting; joinbuilder/nlsql/dvc) a new tab has landed unmapped and broken CI on `main`. Worth adding this
+file to the standard build checklist for any future tab-adding batch, rather than relying on the
+drift-guard test to catch it after the fact. Separately: when a PR is externally merged before this
+agent's own merge-confirm step is reached, stop and surface it transparently rather than treating
+silence as approval — this happened once this run and was handled correctly (flagged directly, user
+acknowledged).
+
+---
+
 ## [2026-07-19 10:56 CT] Narrative Overconfidence Guard merged, dark (PR #396)
 
 **What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Item 10 of the day's
