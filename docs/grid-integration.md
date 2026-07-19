@@ -1,14 +1,23 @@
 # DataGlow Grid — Univer Integration Guide
 
-**Status:** Architecture scaffold (PR K). This document accompanies
-`js/grid/grid-bridge.js`, the data contract layer between DataGlow's
-validation spine and the [Univer](https://univer.ai) spreadsheet grid UI.
-It is Tier 1 of the DataGlow Canvas feature set ("DataGlow Grid").
+**Status:** Architecture scaffold (PR K) plus the full contract layer (PR W).
+This document accompanies `js/grid/grid-bridge.js`, `js/grid/pivot-engine.js`,
+`js/grid/formula-bridge.js`, and `js/grid/validation-coloring.js` — together
+the data contract layer between DataGlow's validation spine and the
+[Univer](https://univer.ai) spreadsheet grid UI. It is Tier 1 of the
+DataGlow Canvas feature set ("DataGlow Grid").
 
 This is **not** a full Univer integration. Univer is a full npm package that
-is loaded and driven entirely by the UI layer; `grid-bridge.js` never imports
-it. This doc describes the pattern the UI layer follows to consume the data
-contracts `grid-bridge.js` exports.
+is loaded and driven entirely by the UI layer; none of the four modules above
+import it. This doc describes the pattern the UI layer follows to consume the
+data contracts they export.
+
+| Module | Role |
+|---|---|
+| `js/grid/grid-bridge.js` | Base data contract: `GridDataset`, column health scoring, row/severity styling, agent diff descriptors (PR K, #388) |
+| `js/grid/pivot-engine.js` | Pure-logic pivot table engine — builds a `PivotDescriptor` from a `GridDataset` and converts it back into a renderable `GridDataset` |
+| `js/grid/formula-bridge.js` | Maps Excel formula names (as Univer's formula engine names them) to DuckDB SQL equivalents, for audit/documentation and Story View |
+| `js/grid/validation-coloring.js` | Cell- and row-level style descriptors, agent-diff overlay pair, and the Univer `IWorkbookData` styles conversion |
 
 ---
 
@@ -273,6 +282,208 @@ result to a rendered, tinted Univer sheet:
 
 ---
 
+## 7. Pivot tables
+
+`js/grid/pivot-engine.js` builds pivot tables entirely from a `GridDataset` —
+no DuckDB re-query, no Univer dependency. The pipeline is:
+
+```js
+import { formatRowsForGrid } from '../js/grid/grid-bridge.js';
+import {
+  validatePivotConfig,
+  buildPivotDescriptor,
+  pivotToGridDataset,
+} from '../js/grid/pivot-engine.js';
+
+const gridDataset = formatRowsForGrid(rows, columns, validationFindings);
+
+const pivotConfig = {
+  rowFields: ['region'],
+  colFields: ['product'],       // optional — omit for a single "Total" column
+  valueField: 'amount',
+  aggregation: 'sum',            // 'sum' | 'avg' | 'count' | 'min' | 'max'
+  filters: { region: ['East', 'West'] }, // optional
+};
+
+const { valid, errors } = validatePivotConfig(gridDataset, pivotConfig);
+if (!valid) throw new Error(errors.join('; '));
+
+const pivotDescriptor = buildPivotDescriptor(gridDataset, pivotConfig);
+// pivotDescriptor: { config, rowGroups, colGroups, cells, totals: { row, col, grand } }
+
+// Convert back into a GridDataset-compatible shape so it can be rendered
+// through the exact same toUniverCellData() pipeline described in section 3.
+const pivotGridDataset = pivotToGridDataset(pivotDescriptor);
+const workbookData = {
+  id: 'dataglow-grid-pivot',
+  sheetOrder: ['pivot-01'],
+  sheets: {
+    'pivot-01': {
+      id: 'pivot-01',
+      name: 'Pivot',
+      rowCount: pivotGridDataset.rows.length + 1,
+      columnCount: pivotGridDataset.headers.length,
+      cellData: toUniverCellData(pivotGridDataset), // reuse section 3's helper
+    },
+  },
+};
+univerAPI.createWorkbook(workbookData);
+```
+
+Key properties of pivot output:
+
+- The first column (`__pivot_row__`) holds the row-group labels; if
+  `colFields` is supplied, one column is emitted per unique column-group
+  value, followed by a trailing `Total` column; with no `colFields`, there is
+  just a single `Total` value column.
+- A trailing `Total` row holds column totals plus the grand total in the
+  bottom-right cell.
+- Every header in a pivot `GridDataset` carries `typeChip: 'pivot'` and a
+  neutral `healthLabel: 'clean'` / `healthScore: 1.0` — validation findings
+  are anchored to raw source rows, not derived aggregates, so pivot output is
+  intentionally never tinted by `mapSeverityToStyle()`. The UI layer should
+  branch on `pivotGridDataset.isPivot === true` to skip the validation-tinting
+  step from section 4 entirely for a pivot sheet.
+- `formatPivotValue(value, aggregation, decimalPlaces = 2)` renders numeric
+  aggregates with thousands separators (`"1,234.56"`) and integer counts
+  (`"42"`), and is what populates `displayValue` on every pivot cell.
+
+---
+
+## 8. Formula bridge
+
+Univer ships its own Excel-compatible formula engine
+(`@univerjs/engine-formula`, see section 1) — it parses and evaluates
+formulas client-side. `js/grid/formula-bridge.js` does **not** re-implement
+formula parsing; instead it documents the DuckDB SQL equivalent of each
+supported formula (for Story View / audit trails) and cross-checks computed
+formula results against DataGlow's column health scores.
+
+`FORMULA_SQL_MAP` (18 formulas as of this writing):
+
+| Excel formula | DuckDB SQL equivalent |
+|---|---|
+| `SUM` | `SUM({col})` |
+| `AVERAGE` | `AVG({col})` |
+| `COUNT` / `COUNTA` | `COUNT({col})` |
+| `COUNTBLANK` | `COUNT(*) FILTER (WHERE {col} IS NULL)` |
+| `COUNTIF` | `COUNT(*) FILTER (WHERE {col} {op} {val})` |
+| `SUMIF` | `SUM({col}) FILTER (WHERE {col} {op} {val})` |
+| `AVERAGEIF` | `AVG({col}) FILTER (WHERE {col} {op} {val})` |
+| `MAX` / `MIN` | `MAX({col})` / `MIN({col})` |
+| `STDEV` / `STDEVP` | `STDDEV({col})` / `STDDEV_POP({col})` |
+| `VAR` / `VARP` | `VARIANCE({col})` / `VAR_POP({col})` |
+| `MEDIAN` | `PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {col})` |
+| `DISTINCTCOUNT` | `COUNT(DISTINCT {col})` |
+| `MODE` | `MODE() WITHIN GROUP (ORDER BY {col})` |
+| `PRODUCT` | `PRODUCT({col})` |
+
+Usage:
+
+```js
+import {
+  isFormulaSupported,
+  getFormulaSQL,
+  buildFormulaAudit,
+  validateFormulaResult,
+} from '../js/grid/formula-bridge.js';
+
+isFormulaSupported('SUM');              // true
+isFormulaSupported('VLOOKUP');          // false — not in the SQL map
+
+getFormulaSQL('SUM', 'amount');         // 'SUM("amount")'
+getFormulaSQL('COUNTIF', 'status', { op: '=', val: 'denied' });
+// => `COUNT(*) FILTER (WHERE "status" = 'denied')`
+
+// After Univer evaluates the formulas on the sheet, hand the results back
+// to the audit builder for Story View:
+const audit = buildFormulaAudit([
+  { cellRef: 'B1', formulaName: 'SUM', columnName: 'amount', result: 450 },
+  { cellRef: 'B2', formulaName: 'VLOOKUP', columnName: 'amount', result: 'x' },
+]);
+// => { supportedCount: 1, unsupportedCount: 1,
+//      formulasByType: { SUM: 1, VLOOKUP: 1 },
+//      sqlEquivalents: ['SUM("amount")'] }
+
+// Cross-check a formula result against the column's health score
+// (buildColumnHealthScore from grid-bridge.js) to flag misleading aggregates:
+const check = validateFormulaResult('SUM', 0, columnHealthScore);
+if (!check.consistent) showWarningBadge(check.warning);
+```
+
+`validateFormulaResult` is a display-layer heuristic, not a statistical
+test: it flags `SUM`/`AVERAGE`/`MIN`/`MAX`/`STDEV`/`MEDIAN`/`VAR`-family
+results that collapse to `0`/`null` on a column with a health score below
+0.8 (possible silent null-collapse), and flags `COUNT`-family results on a
+column with a health score below 0.5 (population may be understated).
+
+---
+
+## 9. Cell-level validation coloring
+
+`grid-bridge.js`'s `mapSeverityToStyle()` (section 4) operates at row
+granularity. `js/grid/validation-coloring.js` extends the same severity
+model down to individual cells, and adds the diff-overlay pair used when
+rendering agent-proposed edits (section 5).
+
+```js
+import {
+  computeCellStyles,
+  SEVERITY_COLORS,
+  buildDiffOverlay,
+  cellStylesToUniverFormat,
+  computeRowHealth,
+} from '../js/grid/validation-coloring.js';
+
+// 1. Compute a CellStyleMap from the same validation findings passed to
+//    formatRowsForGrid() — { [rowIndex]: { [colIndex]: CellStyle } }
+const cellStyleMap = computeCellStyles(gridDataset, validationFindings);
+
+// 2. Convert to a partial Univer IWorkbookData `styles` table + a cellData
+//    patch keyed the same way as toUniverCellData() in section 3.
+const { styles, cellStylePatch } = cellStylesToUniverFormat(cellStyleMap);
+
+// 3. Merge into the workbook snapshot before createWorkbook(), or apply
+//    post-hoc via worksheet.setStyle(row, col, styleId) per patched cell.
+workbookData.sheets['sheet-01'].styles = styles;
+for (const [rowIndex, cols] of Object.entries(cellStylePatch)) {
+  for (const [colIndex, { s }] of Object.entries(cols)) {
+    workbookData.sheets['sheet-01'].cellData[rowIndex][colIndex].s = s;
+  }
+}
+
+// 4. Row-level rollup (e.g. for a left-rail row-health gutter):
+const rowHealth = computeRowHealth(cellStyleMap, someRowIndex); // 'clean'|'warning'|'error'|'critical'
+```
+
+`SEVERITY_COLORS` are the canonical severity → color values (also re-derived
+by `computeRowHealth`'s reverse lookup):
+
+| Severity | background | border | text |
+|---|---|---|---|
+| `error` | `rgba(161,44,123,0.08)` | `#A12C7B` | `null` |
+| `warning` | `rgba(150,66,25,0.08)` | `#964219` | `null` |
+| `critical` | `rgba(161,44,123,0.12)` | `#A12C7B` | `#A12C7B` |
+| `clean` | `null` | `null` | `null` |
+
+Agent diff overlays (section 5) get their style pair from `buildDiffOverlay`:
+
+```js
+const overlay = buildDiffOverlay('B4', originalValue, proposedValue);
+// overlay.original: red background + strikethrough text, note = "Original value: ..."
+// overlay.proposed: green background + underline + bold text, note = "Proposed value: ..."
+// overlay.controlAnchor === 'B4' — the cell the Accept/Dismiss buttons render against
+```
+
+The Univer style keys used by `cellStylesToUniverFormat()` follow Univer's
+`IStyleData` shape: `bg` (fill, `{ rgb }`), `cl` (font color, `{ rgb }`),
+`bl` (bold, `0`/`1`), `st`/`ul` (strikethrough/underline, `{ s: 0|1 }`), and
+`bd` (border, per-side `{ s, cl }`). Identical `CellStyle` objects are
+de-duplicated into a single style-id entry in the `styles` table, matching
+Univer's flat style-lookup convention.
+
+---
+
 ## References
 
 - [Univer GitHub repository](https://github.com/dream-num/univer)
@@ -285,5 +496,11 @@ result to a rendered, tinted Univer sheet:
 
 ## Related source
 
-- `js/grid/grid-bridge.js` — the data contract layer this doc describes
-- `test/grid/grid-bridge.test.js` — the contract test suite
+- `js/grid/grid-bridge.js` — the base data contract layer this doc describes
+- `js/grid/pivot-engine.js` — pivot table engine (section 7)
+- `js/grid/formula-bridge.js` — Excel formula → DuckDB SQL bridge (section 8)
+- `js/grid/validation-coloring.js` — cell-level validation coloring and diff overlay (section 9)
+- `test/grid/grid-bridge.test.js` — the base contract test suite
+- `test/grid/pivot-engine.test.js` — pivot engine test suite
+- `test/grid/formula-bridge.test.js` — formula bridge test suite
+- `test/grid/validation-coloring.test.js` — validation coloring test suite
