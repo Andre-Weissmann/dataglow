@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DataGlow Snapshot</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F7F6F2;
+      --surface: #F9F8F5;
+      --surface-alt: #FBFBF9;
+      --border: #D4D1CA;
+      --text: #28251D;
+      --text-muted: #7A7974;
+      --text-faint: #BAB9B4;
+      --primary: #01696F;
+      --primary-hover: #0C4E54;
+      --success: #437A22;
+      --warning: #964219;
+      --error: #A12C7B;
+      --mono: 'Menlo', 'Consolas', monospace;
+    }
+    [data-theme="dark"] {
+      --bg: #171614;
+      --surface: #1C1B19;
+      --surface-alt: #201F1D;
+      --border: #393836;
+      --text: #CDCCCA;
+      --text-muted: #797876;
+      --text-faint: #5A5957;
+      --primary: #4F98A3;
+      --primary-hover: #227F8B;
+      --success: #6DAA45;
+      --warning: #BB653B;
+      --error: #D163A7;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ── */
+    #top-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    #brand {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      color: var(--text);
+    }
+    #brand span { color: var(--primary); }
+    #bar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #snapshot-badge {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+    }
+    #theme-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 30px;
+      height: 30px;
+      font-size: 14px;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #theme-btn:hover { background: var(--surface-alt); }
+
+    /* ── Main container ── */
+    #main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    /* ── Header card ── */
+    #header-card {
+      margin-bottom: 24px;
+    }
+    #snapshot-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    #snapshot-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    #snapshot-meta span { display: flex; align-items: center; gap: 4px; }
+
+    /* ── Insight card ── */
+    #insight-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 22px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      border-left: 3px solid var(--primary);
+    }
+    #insight-card.type-outliers,
+    #insight-card.type-negatives,
+    #insight-card.type-duplicates { border-left-color: var(--warning); }
+    #insight-card.type-dominant_category,
+    #insight-card.type-group_concentration { border-left-color: var(--primary); }
+    #insight-card.type-correlation { border-left-color: var(--success); }
+    #insight-card.type-skew,
+    #insight-card.type-zero_heavy,
+    #insight-card.type-null_heavy { border-left-color: var(--error); }
+
+    #insight-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    #insight-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    #insight-text {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    /* ── Findings strip ── */
+    #findings-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .finding-chip {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-muted);
+    }
+    .finding-chip.error {
+      border-color: var(--error);
+      color: var(--error);
+      background: rgba(161,44,123,0.05);
+    }
+    .finding-chip.warning {
+      border-color: var(--warning);
+      color: var(--warning);
+      background: rgba(150,66,25,0.05);
+    }
+
+    /* ── Grid ── */
+    #grid-wrapper {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    #grid-scroll {
+      overflow: auto;
+      max-height: 480px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface-alt);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      z-index: 1;
+    }
+    tbody td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      white-space: nowrap;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--surface-alt); }
+
+    /* ── Footer ── */
+    #footer {
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    #footer-brand { font-size: 13px; color: var(--text-muted); }
+    #footer-brand strong { color: var(--primary); }
+    #open-dataglow {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary);
+      text-decoration: none;
+      border: 1px solid var(--primary);
+      border-radius: 8px;
+      padding: 7px 16px;
+      transition: background 150ms, color 150ms;
+    }
+    #open-dataglow:hover {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    /* ── Loading / error states ── */
+    #loading, #error-state {
+      text-align: center;
+      padding: 80px 24px;
+      color: var(--text-muted);
+    }
+    #loading-spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #error-state h2 { color: var(--text); margin-bottom: 8px; font-size: 18px; }
+
+    /* ── Truncation notice ── */
+    #truncation-notice {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 12px;
+      background: var(--surface-alt);
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 600px) {
+      #main { padding: 20px 16px 48px; }
+      #snapshot-title { font-size: 20px; }
+      #insight-text { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="top-bar">
+  <div id="brand">data<span>glow</span></div>
+  <div id="bar-right">
+    <span id="snapshot-badge">Snapshot</span>
+    <button id="theme-btn" title="Toggle dark mode">&#9681;</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="loading">
+    <div id="loading-spinner"></div>
+    <p>Loading snapshot...</p>
+  </div>
+
+  <div id="error-state" style="display:none">
+    <h2>Snapshot not found</h2>
+    <p>This link may be invalid or the snapshot data is missing from the URL.</p>
+  </div>
+
+  <div id="content" style="display:none">
+    <div id="header-card">
+      <h1 id="snapshot-title"></h1>
+      <div id="snapshot-meta">
+        <span id="meta-rows"></span>
+        <span id="meta-cols"></span>
+        <span id="meta-date"></span>
+        <span id="meta-file"></span>
+      </div>
+    </div>
+
+    <div id="insight-card">
+      <div id="insight-icon">&#128269;</div>
+      <div>
+        <div id="insight-label">Instant Insight</div>
+        <div id="insight-text"></div>
+      </div>
+    </div>
+
+    <div id="findings-strip"></div>
+
+    <div id="grid-wrapper">
+      <div id="grid-scroll">
+        <table>
+          <thead id="grid-head"></thead>
+          <tbody id="grid-body"></tbody>
+        </table>
+      </div>
+      <div id="truncation-notice" style="display:none"></div>
+    </div>
+
+    <div id="footer">
+      <div id="footer-brand">
+        Made with <strong>DataGlow</strong> — drop any data, understand it instantly
+      </div>
+      <a id="open-dataglow" href="./index.html" target="_blank">Open DataGlow</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Theme
+  var themeBtn = document.getElementById('theme-btn');
+  themeBtn.addEventListener('click', function () {
+    var cur = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+  });
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.dataset.theme = 'dark';
+  }
+
+  function fromBase64Url(str) {
+    var b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    var pad = (4 - b64.length % 4) % 4;
+    b64 += '=='.slice(0, pad);
+    var binary = atob(b64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function decompressBytes(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      return Promise.resolve(new TextDecoder().decode(bytes));
+    }
+    var ds = new DecompressionStream('gzip');
+    var writer = ds.writable.getWriter();
+    var chunks = [];
+    var reader = ds.readable.getReader();
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) return;
+        chunks.push(r.value);
+        return pump();
+      });
+    }
+    writer.write(bytes);
+    writer.close();
+    return pump().then(function () {
+      var total = chunks.reduce(function (n, c) { return n + c.length; }, 0);
+      var out = new Uint8Array(total);
+      var pos = 0;
+      chunks.forEach(function (c) { out.set(c, pos); pos += c.length; });
+      return new TextDecoder().decode(out);
+    });
+  }
+
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function formatDate(iso) {
+    try {
+      return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (e) { return iso; }
+  }
+
+  function renderSnapshot(data) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = '';
+
+    document.title = (data.title || 'DataGlow Snapshot') + ' — DataGlow';
+    document.getElementById('snapshot-title').textContent = data.title || data.name || 'Untitled Snapshot';
+
+    document.getElementById('meta-rows').textContent =
+      (data.rowCount || data.rows.length).toLocaleString() + ' rows';
+    document.getElementById('meta-cols').textContent =
+      (data.colCount || data.columns.length) + ' columns';
+    if (data.createdAt) {
+      document.getElementById('meta-date').textContent = formatDate(data.createdAt);
+    }
+    if (data.name) {
+      document.getElementById('meta-file').textContent = data.name;
+    }
+
+    // Insight
+    var insightCard = document.getElementById('insight-card');
+    if (data.insightType) {
+      insightCard.className = 'type-' + data.insightType;
+    }
+    document.getElementById('insight-text').textContent = data.insight || 'Dataset loaded successfully.';
+
+    // Findings chips
+    var strip = document.getElementById('findings-strip');
+    if (data.findings && data.findings.length) {
+      data.findings.slice(0, 8).forEach(function (f) {
+        var chip = document.createElement('span');
+        chip.className = 'finding-chip ' + (f.severity || '');
+        chip.textContent = f.column ? f.column + ': ' + f.message : f.message;
+        strip.appendChild(chip);
+      });
+    }
+
+    // Grid header
+    var thead = document.getElementById('grid-head');
+    var hrow = document.createElement('tr');
+    data.columns.forEach(function (col) {
+      var th = document.createElement('th');
+      th.textContent = col;
+      hrow.appendChild(th);
+    });
+    thead.appendChild(hrow);
+
+    // Grid rows (cap at 500 for viewer performance)
+    var tbody = document.getElementById('grid-body');
+    var displayRows = data.rows.slice(0, 500);
+    displayRows.forEach(function (row) {
+      var tr = document.createElement('tr');
+      data.columns.forEach(function (col) {
+        var td = document.createElement('td');
+        var val = row[col];
+        td.textContent = val == null ? '' : String(val);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    // Truncation notice
+    var total = data.rowCount || data.rows.length;
+    if (total > data.rows.length || data.rows.length > 500) {
+      var notice = document.getElementById('truncation-notice');
+      notice.style.display = '';
+      var shown = Math.min(data.rows.length, 500);
+      notice.textContent = 'Showing ' + shown.toLocaleString() + ' of ' +
+        total.toLocaleString() + ' rows. Open DataGlow to explore the full dataset.';
+    }
+  }
+
+  // Decode from URL fragment
+  var fragment = window.location.hash;
+  if (!fragment || !fragment.includes('share=')) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error-state').style.display = '';
+    return;
+  }
+
+  var encoded = fragment.replace(/^#?share=/, '');
+  try {
+    var bytes = fromBase64Url(encoded);
+    decompressBytes(bytes)
+      .then(function (json) { return JSON.parse(json); })
+      .then(renderSnapshot)
+      .catch(function () {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error-state').style.display = '';
+      });
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error-state').style.display = '';
+  }
+})();
+</script>
+</body>
+</html>
