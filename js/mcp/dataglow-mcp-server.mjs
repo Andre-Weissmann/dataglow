@@ -263,6 +263,202 @@ async function handleCheckReadiness(args) {
   };
 }
 
+// ── Tool: get_agent_passport ──────────────────────────────────
+// Agent Passport Bridge: composes FOUR already-live DataGlow signals into one
+// JSON trust object for external MCP-calling agents. ZERO new checks, ZERO new
+// crypto, ZERO new scoring — every field below is read verbatim (or with a
+// trivial pass-through mapping) from data the browser already computed and
+// wrote into dataglow-gate-state.json via the extended gate-state exporter:
+//   1. readinessGate    — same computeForDataset()/computeReadinessGate() this
+//                          file already uses for check_readiness. Not
+//                          recomputed differently; literally the same call.
+//   2. semanticLayer    — reflects ds.metricContractStatus as exported (the
+//                          semantic-layer.js checkQueryAgainstMetrics() output
+//                          the browser already attaches per dataset). If the
+//                          browser never attached one, this is reported as
+//                          "not checked" rather than invented as a pass.
+//   3. aiTouchLedger    — reflects state.touchLedgerSummary, itself built from
+//                          the browser's single global ledger via the already-
+//                          tested summarizeTouchLedger()/verifyTouchLedger().
+//   4. verifiableCheckSeal — reflects state.proofRoomSeal, a seal object
+//                          produced verbatim by sealCheckResult() elsewhere in
+//                          the app; this tool inspects its shape only (sealed
+//                          if a seal object with a commitment root is present)
+//                          and does NOT re-run verifySeal() against raw data
+//                          the MCP server does not have — dataFingerprintMatch
+//                          is therefore reported as null ("not independently
+//                          re-verified here") unless the exported seal already
+//                          carries its own prior verification outcome.
+//
+// Every section is independently optional in the underlying state; a missing
+// piece is reported honestly (null / "not available") rather than defaulted
+// to a passing value, matching the fail-open-for-server / honest-to-agent
+// contract check_readiness already follows above.
+
+const AGENT_PASSPORT_TOOL = {
+  name: 'get_agent_passport',
+  description:
+    'Get a composed DataGlow "Agent Passport" for a dataset: one JSON object combining ' +
+    'the AI Readiness Gate verdict, Semantic Layer metric-match status, AI Touch Ledger ' +
+    'history/chain-verification, and Verifiable Check Seal status. Intended for external ' +
+    'MCP-calling agents (Claude Code, Cursor, or any MCP client) to make a single trust ' +
+    'call before acting on a dataset, instead of querying each signal separately. This tool ' +
+    'composes existing, already-tested DataGlow outputs verbatim — it does not run new ' +
+    'checks. If readinessGate.agentConsumable is false, treat this the same as ' +
+    'check_readiness returning false: do NOT proceed with analysis.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      dataset: {
+        type: 'string',
+        description:
+          'Dataset name or DuckDB table name to build a passport for. Required — the AI ' +
+          'Touch Ledger and Verifiable Check Seal sections are session-level, not per-dataset, ' +
+          'so this tool always answers about one named dataset\'s readinessGate/semanticLayer ' +
+          'plus the session-level ledger/seal snapshot.',
+      },
+    },
+    required: ['dataset'],
+  },
+};
+
+function buildSemanticLayerSection(ds) {
+  const status = ds && ds.metricContractStatus;
+  if (!status || typeof status !== 'object') {
+    return { checked: false, metricsChecked: 0, mismatches: [], note: 'No semantic-layer metric contract check was attached to this dataset export.' };
+  }
+  const mismatches = Array.isArray(status.flags) ? status.flags
+    : Array.isArray(status.mismatches) ? status.mismatches
+    : [];
+  return {
+    checked: true,
+    metricsChecked: Number.isFinite(status.metricsChecked) ? status.metricsChecked : mismatches.length,
+    mismatches,
+  };
+}
+
+function buildAiTouchLedgerSection(state) {
+  const summary = state && state.touchLedgerSummary;
+  if (!summary || typeof summary !== 'object') {
+    return { available: false, entries: 0, externalCalls: 0, chainVerified: null, note: 'No AI Touch Ledger snapshot was present in the exported gate state.' };
+  }
+  return {
+    available: true,
+    entries: Number.isFinite(summary.entries) ? summary.entries : 0,
+    externalCalls: Number.isFinite(summary.externalCalls) ? summary.externalCalls : 0,
+    onDeviceCalls: Number.isFinite(summary.onDeviceCalls) ? summary.onDeviceCalls : null,
+    chainVerified: typeof summary.chainVerified === 'boolean' ? summary.chainVerified : null,
+    summary: typeof summary.summary === 'string' ? summary.summary : null,
+  };
+}
+
+function buildVerifiableCheckSealSection(state) {
+  const seal = state && state.proofRoomSeal;
+  if (!seal || typeof seal !== 'object' || seal.kind !== 'dataglow-verifiable-check-seal') {
+    return { sealed: false, dataFingerprintMatch: null, note: 'No Verifiable Check Seal was present in the exported gate state. Open the Proof Room tab and re-export to include one.' };
+  }
+  return {
+    sealed: true,
+    sealCheckName: (seal.check && seal.check.name) || null,
+    sealGeneratedAt: seal.generatedAt || null,
+    merkleRoot: (seal.commitment && seal.commitment.merkleRoot) || null,
+    // This tool inspects the exported seal's own shape only; it does not
+    // independently re-run verifySeal() against raw data (the MCP server has no
+    // access to the original rows). Honest null, not a fabricated pass.
+    dataFingerprintMatch: null,
+    note: 'dataFingerprintMatch is not independently re-verified by this tool — re-run Verify locally in the Proof Room tab against the source data for a live check.',
+  };
+}
+
+async function handleGetAgentPassport(args) {
+  const state = await loadGateState();
+
+  if (!state) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            kind: 'dataglow-agent-passport',
+            error: 'no_validation_run',
+            message:
+              'No DataGlow validation run found. Open DataGlow in your browser, load a dataset, ' +
+              'run validation (Validate tab), then export the gate state via Settings > Export Gate State.',
+            agentConsumable: false,
+          }, null, 2),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (!args || !args.dataset) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            kind: 'dataglow-agent-passport',
+            error: 'dataset_required',
+            message: 'get_agent_passport requires a "dataset" argument naming which dataset to build a passport for.',
+            availableDatasets: getDatasets(state).map((d) => d.name || d.table),
+            agentConsumable: false,
+          }, null, 2),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const ds = findDataset(state, args.dataset);
+  if (!ds) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            kind: 'dataglow-agent-passport',
+            error: 'dataset_not_found',
+            message: `Dataset "${args.dataset}" not found in the gate state.`,
+            availableDatasets: getDatasets(state).map((d) => d.name || d.table),
+            agentConsumable: false,
+          }, null, 2),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const result = computeForDataset(ds);
+  const { gate } = result;
+
+  const passport = {
+    kind: 'dataglow-agent-passport',
+    schemaVersion: 1,
+    dataset: ds.name || ds.table,
+    exportedAt: state.exportedAt || null,
+    readinessGate: {
+      agentConsumable: gate.agentConsumable,
+      score: gate.score,
+      threshold: gate.threshold,
+      failingLayers: gate.failingLayers,
+    },
+    semanticLayer: buildSemanticLayerSection(ds),
+    aiTouchLedger: buildAiTouchLedgerSection(state),
+    verifiableCheckSeal: buildVerifiableCheckSealSection(state),
+    disclaimer:
+      'Composed from existing, already-tested DataGlow modules (Readiness Gate, Semantic ' +
+      'Layer, AI Touch Ledger, Verifiable Check Seal) at export time. Not a certification and ' +
+      'not a substitute for your own judgment — DataGlow reduces risk, it does not eliminate it. ' +
+      'Re-export gate state after any new validation run to refresh this passport.',
+  };
+
+  return {
+    content: [{ type: 'text', text: JSON.stringify(passport, null, 2) }],
+    isError: !gate.agentConsumable,
+  };
+}
+
 // ── Resources ─────────────────────────────────────────────────
 
 function buildResourceUri(type, datasetName) {
@@ -534,12 +730,13 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [CHECK_READINESS_TOOL],
+  tools: [CHECK_READINESS_TOOL, AGENT_PASSPORT_TOOL],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
   if (name === 'check_readiness') return handleCheckReadiness(args);
+  if (name === 'get_agent_passport') return handleGetAgentPassport(args);
   return {
     content: [{ type: 'text', text: 'Unknown tool: ' + name }],
     isError: true,

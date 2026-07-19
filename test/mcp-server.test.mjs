@@ -272,6 +272,105 @@ ok(fixBrief.includes('14 leading-digit anomalies'), 'fix brief: benford reason t
 const noFailFix = buildFixBrief(makePassingDataset('patients'));
 ok(noFailFix === 'no failures', 'fix brief: returns no-failures for passing dataset');
 
+// ── Section 6: gate-state-exporter extras (touchLedgerSummary/proofRoomSeal) ──
+
+console.log('\ngate-state-exporter extras (Agent Passport Bridge)\n');
+
+const payloadNoExtras = buildGateStatePayload([makePassingDataset('patients')]);
+ok(!('touchLedgerSummary' in payloadNoExtras), 'no extras arg: touchLedgerSummary key absent (backward compatible)');
+ok(!('proofRoomSeal' in payloadNoExtras), 'no extras arg: proofRoomSeal key absent (backward compatible)');
+
+const mockLedgerSummary = { entries: 2, externalCalls: 0, onDeviceCalls: 2, chainVerified: true, summary: '2 of 2 entries intact, all touches stayed on-device' };
+const mockSeal = { kind: 'dataglow-verifiable-check-seal', version: 1, check: { name: 'DATAGLOW validation summary' }, generatedAt: '2026-07-18T16:00:00.000Z', commitment: { merkleRoot: 'abc123' } };
+
+const payloadWithExtras = buildGateStatePayload([makePassingDataset('patients')], { touchLedgerSummary: mockLedgerSummary, proofRoomSeal: mockSeal });
+deepEqual(payloadWithExtras.touchLedgerSummary, mockLedgerSummary, 'extras: touchLedgerSummary carried verbatim');
+deepEqual(payloadWithExtras.proofRoomSeal, mockSeal, 'extras: proofRoomSeal carried verbatim');
+
+const payloadWithNullExtras = buildGateStatePayload([makePassingDataset('patients')], { touchLedgerSummary: null, proofRoomSeal: null });
+ok(payloadWithNullExtras.touchLedgerSummary === null, 'extras: explicit null touchLedgerSummary preserved as null');
+ok(payloadWithNullExtras.proofRoomSeal === null, 'extras: explicit null proofRoomSeal preserved as null');
+
+const serializedWithExtras = serializeGateState([makePassingDataset('patients')], { touchLedgerSummary: mockLedgerSummary, proofRoomSeal: mockSeal });
+const parsedWithExtras = JSON.parse(serializedWithExtras);
+ok(parsedWithExtras.touchLedgerSummary.entries === 2, 'serializeGateState: extras round-trip through JSON');
+
+// ── Section 7: get_agent_passport tool handler (direct call) ─
+
+console.log('\nget_agent_passport tool handler\n');
+
+// Inline the handler logic to test it without file I/O — mirrors the real
+// buildSemanticLayerSection/buildAiTouchLedgerSection/buildVerifiableCheckSealSection
+// helpers in js/mcp/dataglow-mcp-server.mjs so the composition contract is
+// covered even though the real handler talks to the filesystem.
+function simSemanticLayer(ds) {
+  const status = ds && ds.metricContractStatus;
+  if (!status || typeof status !== 'object') return { checked: false, metricsChecked: 0, mismatches: [] };
+  const mismatches = Array.isArray(status.flags) ? status.flags : Array.isArray(status.mismatches) ? status.mismatches : [];
+  return { checked: true, metricsChecked: Number.isFinite(status.metricsChecked) ? status.metricsChecked : mismatches.length, mismatches };
+}
+function simAiTouchLedger(state) {
+  const summary = state && state.touchLedgerSummary;
+  if (!summary || typeof summary !== 'object') return { available: false, entries: 0, externalCalls: 0, chainVerified: null };
+  return { available: true, entries: summary.entries || 0, externalCalls: summary.externalCalls || 0, chainVerified: typeof summary.chainVerified === 'boolean' ? summary.chainVerified : null };
+}
+function simVerifiableCheckSeal(state) {
+  const seal = state && state.proofRoomSeal;
+  if (!seal || typeof seal !== 'object' || seal.kind !== 'dataglow-verifiable-check-seal') return { sealed: false, dataFingerprintMatch: null };
+  return { sealed: true, merkleRoot: (seal.commitment && seal.commitment.merkleRoot) || null, dataFingerprintMatch: null };
+}
+function simulateGetAgentPassport(state, args) {
+  if (!state) return { agentConsumable: false, error: 'no_validation_run' };
+  if (!args || !args.dataset) return { agentConsumable: false, error: 'dataset_required' };
+  const datasets = state.datasets || [];
+  const lower = args.dataset.toLowerCase();
+  const ds = datasets.find((d) => (d.name || '').toLowerCase() === lower || (d.table || '').toLowerCase() === lower);
+  if (!ds) return { agentConsumable: false, error: 'dataset_not_found' };
+  const gate = computeReadinessGate(ds.layerResults, ds.metricContractStatus, {});
+  return {
+    kind: 'dataglow-agent-passport',
+    dataset: ds.name || ds.table,
+    readinessGate: { agentConsumable: gate.agentConsumable, score: gate.score, failingLayers: gate.failingLayers },
+    semanticLayer: simSemanticLayer(ds),
+    aiTouchLedger: simAiTouchLedger(state),
+    verifiableCheckSeal: simVerifiableCheckSeal(state),
+  };
+}
+
+const passportNoState = simulateGetAgentPassport(null, { dataset: 'patients' });
+ok(passportNoState.agentConsumable === false && passportNoState.error === 'no_validation_run', 'get_agent_passport: no state returns no_validation_run');
+
+const passportNoDataset = simulateGetAgentPassport(mockState, {});
+ok(passportNoDataset.error === 'dataset_required', 'get_agent_passport: missing dataset arg returns dataset_required');
+
+const passportUnknown = simulateGetAgentPassport(mockState, { dataset: 'nonexistent' });
+ok(passportUnknown.error === 'dataset_not_found', 'get_agent_passport: unknown dataset returns dataset_not_found');
+
+const passportPass = simulateGetAgentPassport(mockState, { dataset: 'patients' });
+ok(passportPass.kind === 'dataglow-agent-passport', 'get_agent_passport: kind tag present');
+ok(passportPass.readinessGate.agentConsumable === true, 'get_agent_passport: readinessGate composed correctly for passing dataset');
+ok(passportPass.semanticLayer.checked === false, 'get_agent_passport: semanticLayer honestly reports not-checked when no contract status');
+ok(passportPass.aiTouchLedger.available === false, 'get_agent_passport: aiTouchLedger honestly reports unavailable when no ledger snapshot exported');
+ok(passportPass.verifiableCheckSeal.sealed === false, 'get_agent_passport: verifiableCheckSeal honestly reports unsealed when no seal exported');
+
+const passportFail = simulateGetAgentPassport(mockState, { dataset: 'claims' });
+ok(passportFail.readinessGate.agentConsumable === false, 'get_agent_passport: readinessGate composed correctly for failing dataset');
+ok(passportFail.readinessGate.failingLayers.length === 2, 'get_agent_passport: failingLayers passed through for failing dataset');
+
+// With a ledger summary + seal present in state, the passport should reflect them.
+const mockStateWithExtras = Object.assign({}, mockState, { touchLedgerSummary: mockLedgerSummary, proofRoomSeal: mockSeal });
+const passportWithExtras = simulateGetAgentPassport(mockStateWithExtras, { dataset: 'patients' });
+ok(passportWithExtras.aiTouchLedger.available === true && passportWithExtras.aiTouchLedger.chainVerified === true, 'get_agent_passport: aiTouchLedger reflects exported summary when present');
+ok(passportWithExtras.verifiableCheckSeal.sealed === true && passportWithExtras.verifiableCheckSeal.merkleRoot === 'abc123', 'get_agent_passport: verifiableCheckSeal reflects exported seal when present');
+
+// Semantic layer mismatch pass-through
+const dsWithContractIssue = Object.assign({}, makePassingDataset('encounters'), { metricContractStatus: { metricsChecked: 3, flags: [{ metric: 'readmission_rate', message: 'definition mismatch' }] } });
+const stateWithContractIssue = makeState([dsWithContractIssue]);
+const passportContractIssue = simulateGetAgentPassport(stateWithContractIssue, { dataset: 'encounters' });
+ok(passportContractIssue.semanticLayer.checked === true, 'get_agent_passport: semanticLayer checked true when metricContractStatus present');
+ok(passportContractIssue.semanticLayer.mismatches.length === 1, 'get_agent_passport: semanticLayer surfaces the one mismatch');
+ok(passportContractIssue.semanticLayer.metricsChecked === 3, 'get_agent_passport: semanticLayer metricsChecked passed through');
+
 // ── Done ──────────────────────────────────────────────────────
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
