@@ -259,5 +259,41 @@
       "notTouched": "NCCI layer is additive-only (new file + one call site using the existing per-layer .catch() pattern, no existing layer logic changed, no flag needed since it's a read-only check). Mobile fix is CSS-only, scoped to the existing max-width:480px block, desktop regression-verified unchanged via Playwright. Doc note touched zero source code. All three independently diff-reviewed before the combined confirm_action, not just trusted on green CI."
     },
     "outcome": "shipped-live"
+  },
+  {
+    "id": "chk_20260719_3",
+    "startedAt": "2026-07-19T08:56:00Z",
+    "endedAt": "2026-07-19T09:45:00Z",
+    "trigger": "run-end",
+    "title": "Pivot Table Batch 1 (Excel-style pivot builder) merged dark \u2014 new pivotTable flag, defaults false",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 0,
+      "orphanBranches": 0,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 0,
+      "orphanBranches": 0,
+      "darkFlags": 6,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 15,
+      "additions": 984,
+      "deletions": 5
+    },
+    "commits": [
+      "aabb47e"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/380",
+    "verification": {
+      "testsRun": 179,
+      "testsPassed": 179,
+      "notTouched": "Additive-only, follows the same dark-flag-tab pattern as Glow Canvas: new pivot tab id, new table icon, one flag-gate line in getVisibleTabIds(), one switchTab hook, one new panel section. New pivotTable flag defaults false \u2014 tab never appears in the bar, never a dead click target, panel stays empty. Only non-dark change is a pure correctness fix in utils.js's el() (falsy/boolean attrs no longer produce broken attr=\"false\" output), verified via full suite still passing. Playwright QA (21/21) run with flag temporarily true LOCALLY ONLY, reverted to false before commit and re-confirmed on main post-merge. tauri-smoke and all 59 CI jobs green; merge-tree pre-check CLEAN."
+    },
+    "outcome": "shipped-dark"
   }
 ]
