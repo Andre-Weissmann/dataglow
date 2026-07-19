@@ -125,17 +125,15 @@
 
   /* Wordmark */
   #ceremony-wordmark {
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-    color: var(--text);
-    margin-bottom: 8px;
+    width: 220px;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 16px;
     position: relative;
     z-index: 1;
   }
-  #ceremony-wordmark span {
-    color: var(--primary);
-  }
+
 
   /* Tagline */
   #ceremony-tagline {
@@ -405,13 +403,10 @@
     align-items: center;
   }
   #nav-logo-img {
-    height: 32px;
+    height: 28px;
     width: auto;
     object-fit: contain;
     display: block;
-    background: #1a1a1a;
-    border-radius: 6px;
-    padding: 3px 8px;
   }
   #nav-views {
     display: flex;
@@ -2129,7 +2124,7 @@
   <button id="ceremony-theme-btn" title="Toggle dark mode" aria-label="Toggle dark mode">&#9681;</button>
 
   <div id="ceremony-screen">
-    <p id="ceremony-wordmark">data<span>glow</span></p>
+    <img id="ceremony-wordmark" src="dataglow-logo.png" alt="DataGlow" />
     <p id="ceremony-tagline">Your data. Understood. Instantly. Privately.</p>
 
     <div id="drop-zone">
@@ -6348,6 +6343,7 @@ var InstantInsight = (function () {
     }
     // Enable NL query bar now that we have data
     nlEnableQueryBar(dataset);
+
   }
 
   function escapeHtmlText(s) {
