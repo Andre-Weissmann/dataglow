@@ -1164,6 +1164,210 @@
     background: rgba(1, 105, 111, 0.08);
   }
 
+  #agent-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #feature-settings-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  #feature-settings-btn:hover {
+    background: rgba(1, 105, 111, 0.08);
+    border-color: var(--primary);
+  }
+  #feature-settings-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+  #feature-settings-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  /* ============================================================
+     11. FEATURE SETTINGS DRAWER
+     ------------------------------------------------------------
+     Slide-in drawer from the right, same pattern family as the
+     ambient validation rail / SQL overlay but anchored full-height
+     on the right edge of the viewport.
+     ============================================================ */
+  #feature-settings-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(20, 19, 17, 0.45);
+    z-index: 200;
+  }
+  #feature-settings-overlay.hidden {
+    display: none;
+  }
+  #feature-settings-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    max-width: 92vw;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    box-shadow: -16px 0 40px rgba(0, 0, 0, 0.25);
+    z-index: 201;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 220ms ease-out;
+  }
+  #feature-settings-drawer.hidden {
+    display: none;
+  }
+  #feature-settings-drawer.drawer-open {
+    transform: translateX(0);
+  }
+  #feature-settings-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #feature-settings-title {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  #feature-settings-subtitle {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  #feature-settings-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-muted);
+    padding: 4px;
+    flex-shrink: 0;
+  }
+  #feature-settings-close:hover {
+    color: var(--text);
+  }
+  #feature-settings-close:focus-visible,
+  .feature-toggle-input:focus-visible + .feature-toggle-track {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  #feature-settings-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 20px 24px;
+  }
+  .feature-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .feature-row:last-child {
+    border-bottom: none;
+  }
+  .feature-row-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .feature-row-name-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .feature-row-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .feature-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1.5;
+  }
+  .feature-badge-tauri {
+    background: rgba(1, 105, 111, 0.12);
+    color: var(--primary);
+    border: 1px solid var(--primary);
+  }
+  .feature-badge-beta {
+    background: rgba(150, 66, 25, 0.1);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+  }
+  .feature-row-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .feature-toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .feature-toggle-input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .feature-toggle-track {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--border);
+    border-radius: 22px;
+    transition: background-color 150ms ease-out;
+  }
+  .feature-toggle-track::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: transform 150ms ease-out;
+  }
+  .feature-toggle-input:checked + .feature-toggle-track {
+    background: var(--primary);
+  }
+  .feature-toggle-input:checked + .feature-toggle-track::before {
+    transform: translateX(18px);
+  }
+
   /* Scrollbar niceties */
   ::-webkit-scrollbar {
     width: 10px;
@@ -1350,6 +1554,12 @@
       <span id="tauri-db-chip" class="hidden">Native DB</span>
       <div id="tauri-connections-panel" class="hidden"></div>
       <!-- /FEATURE: tauriConnector -->
+      <div id="agent-bar-right">
+        <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
+          <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
+          <span id="feature-settings-label">Features</span>
+        </button>
+      </div>
       <div id="agent-popover" class="hidden">
         <p id="agent-popover-text"></p>
         <div id="agent-popover-actions">
@@ -1358,6 +1568,25 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ============================================================
+       FEATURE SETTINGS DRAWER (gear icon in agent bar)
+       ------------------------------------------------------------
+       Always available regardless of any feature flag state. Lets
+       the user flip FEATURE_FLAGS from the UI instead of editing
+       code. Persists to sessionStorage only (never localStorage).
+       ============================================================ -->
+  <div id="feature-settings-overlay" class="hidden"></div>
+  <div id="feature-settings-drawer" class="hidden" role="dialog" aria-modal="true" aria-labelledby="feature-settings-title">
+    <div id="feature-settings-header">
+      <div>
+        <h2 id="feature-settings-title">DataGlow Features</h2>
+        <p id="feature-settings-subtitle">Enable experimental and advanced capabilities</p>
+      </div>
+      <button id="feature-settings-close" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div id="feature-settings-list"></div>
   </div>
 
   <!-- ============================================================
@@ -2761,11 +2990,35 @@
      the event-listener sections below for each feature's wiring.
      ============================================================ */
   var FEATURE_FLAGS = {
-    proofExport: false,
-    dataglowRooms: false,
-    natsConnector: false,
-    tauriConnector: false
+    proofExport: true,
+    dataglowRooms: true,
+    natsConnector: true,
+    tauriConnector: true,
+    questionPrompter: false,
+    portfolioNarrativeAssembler: false
   };
+
+  /* Restore any previous-session overrides (sessionStorage ONLY -- never
+     localStorage/cookies) BEFORE any feature is wired below, so the very
+     first render already reflects the user's last toggle choices. See the
+     FEATURE SETTINGS PANEL section further down for the write side
+     (saveFeatureFlagsToSession) and the in-app toggle UI. */
+  var FEATURE_SETTINGS_STORAGE_KEY = 'dataglow.featureFlags';
+  (function restoreFeatureFlagsFromSessionEarly() {
+    try {
+      var raw = window.sessionStorage.getItem(FEATURE_SETTINGS_STORAGE_KEY);
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      if (!saved || typeof saved !== 'object') return;
+      Object.keys(FEATURE_FLAGS).forEach(function (key) {
+        if (Object.prototype.hasOwnProperty.call(saved, key) && typeof saved[key] === 'boolean') {
+          FEATURE_FLAGS[key] = saved[key];
+        }
+      });
+    } catch (err) {
+      // Sandbox may block storage entirely -- fail open with the defaults above.
+    }
+  })();
 
 
 
@@ -2889,6 +3142,13 @@
   /* FEATURE: tauriConnector */
   var tauriDbChip = $('tauri-db-chip');
   var tauriConnectionsPanel = $('tauri-connections-panel');
+
+  /* FEATURE SETTINGS DRAWER (always available; not itself feature-flagged) */
+  var featureSettingsBtn = $('feature-settings-btn');
+  var featureSettingsOverlay = $('feature-settings-overlay');
+  var featureSettingsDrawer = $('feature-settings-drawer');
+  var featureSettingsClose = $('feature-settings-close');
+  var featureSettingsList = $('feature-settings-list');
 
   var sqlOverlay = $('sql-overlay');
   var sqlInput = $('sql-input');
@@ -4138,11 +4398,20 @@
     proofExportBtn.title = 'Export Proof';
   }
 
-  if (FEATURE_FLAGS.proofExport) {
-    proofExportWrapper.classList.remove('hidden');
-    updateProofExportButtonState();
+  function applyProofExportVisibility() {
+    if (FEATURE_FLAGS.proofExport) {
+      proofExportWrapper.classList.remove('hidden');
+      updateProofExportButtonState();
+    } else {
+      proofExportWrapper.classList.add('hidden');
+    }
+  }
+
+  (function bindProofExportFeature() {
+    applyProofExportVisibility();
 
     proofExportBtn.addEventListener('click', function () {
+      if (!FEATURE_FLAGS.proofExport) return;
       var dataset = getActiveDataset();
       if (!dataset || !state.currentStoryDoc) return;
 
@@ -4190,15 +4459,25 @@
         metadata: { format: 'proof' }
       });
     });
-  }
+  })();
 
   /* ============================================================
      FEATURE: dataglowRooms
      ------------------------------------------------------------
      "Create Room" / "Import Room" buttons in Story View.
      ============================================================ */
-  if (FEATURE_FLAGS.dataglowRooms) {
-    storyShareSection.classList.remove('hidden');
+  function applyDataglowRoomsVisibility() {
+    if (FEATURE_FLAGS.dataglowRooms) {
+      storyShareSection.classList.remove('hidden');
+    } else {
+      storyShareSection.classList.add('hidden');
+      roomCreateForm.classList.add('hidden');
+      roomImportPanel.classList.add('hidden');
+    }
+  }
+
+  (function bindDataglowRoomsFeature() {
+    applyDataglowRoomsVisibility();
 
     roomCreateBtn.addEventListener('click', function () {
       roomImportPanel.classList.add('hidden');
@@ -4297,15 +4576,24 @@
     roomImportCloseBtn.addEventListener('click', function () {
       roomImportPanel.classList.add('hidden');
     });
-  }
+  })();
 
   /* ============================================================
      FEATURE: natsConnector
      ------------------------------------------------------------
      "Live Stream (NATS)" option alongside the file drop zone.
      ============================================================ */
-  if (FEATURE_FLAGS.natsConnector) {
-    natsSourceWrapper.classList.remove('hidden');
+  function applyNatsConnectorVisibility() {
+    if (FEATURE_FLAGS.natsConnector) {
+      natsSourceWrapper.classList.remove('hidden');
+    } else {
+      natsSourceWrapper.classList.add('hidden');
+      natsConfigForm.classList.add('hidden');
+    }
+  }
+
+  (function bindNatsConnectorFeature() {
+    applyNatsConnectorVisibility();
 
     function renderNATSConnectionGuide() {
       var config = {
@@ -4347,7 +4635,7 @@
       natsConnectStatus.classList.add('ready');
       natsConnectStatus.textContent = 'Ready to receive';
     });
-  }
+  })();
 
   /* ============================================================
      FEATURE: tauriConnector
@@ -4355,9 +4643,21 @@
      "Native DB" status chip in the agent bar. Hidden entirely in
      a standard browser; only shown when window.__TAURI__ exists.
      ============================================================ */
-  if (FEATURE_FLAGS.tauriConnector && typeof window !== 'undefined' && window.__TAURI__) {
-    tauriDbChip.classList.remove('hidden');
-    tauriDbChip.textContent = 'Native DB';
+  var tauriIsRuntimeAvailable = typeof window !== 'undefined' && !!window.__TAURI__;
+
+  function applyTauriConnectorVisibility() {
+    if (FEATURE_FLAGS.tauriConnector && tauriIsRuntimeAvailable) {
+      tauriDbChip.classList.remove('hidden');
+      tauriDbChip.textContent = 'Native DB';
+    } else {
+      tauriDbChip.classList.add('hidden');
+      tauriConnectionsPanel.classList.add('hidden');
+    }
+  }
+
+  (function bindTauriConnectorFeature() {
+    applyTauriConnectorVisibility();
+    if (!tauriIsRuntimeAvailable) return;
 
     var tauriConnectorManagerState = ConnectorManager.createConnectorManager();
 
@@ -4375,6 +4675,7 @@
     }
 
     tauriDbChip.addEventListener('click', function () {
+      if (!FEATURE_FLAGS.tauriConnector) return;
       var isHidden = tauriConnectionsPanel.classList.contains('hidden');
       if (isHidden) {
         renderTauriConnectionsPanel();
@@ -4383,7 +4684,217 @@
         tauriConnectionsPanel.classList.add('hidden');
       }
     });
+  })();
+
+
+
+  /* ============================================================
+     FEATURE SETTINGS PANEL
+     ------------------------------------------------------------
+     In-app drawer that lets the user flip FEATURE_FLAGS without
+     editing code. Always available regardless of any flag's own
+     state. Persists to sessionStorage ONLY (never localStorage --
+     it is blocked in the sandbox). Toggling re-runs the same
+     apply*Visibility() functions the boot sequence already uses,
+     so a change takes effect immediately with no page reload.
+     ============================================================ */
+  var FEATURE_META = [
+    {
+      key: 'proofExport',
+      name: 'Proof Export',
+      description: 'Export a cryptographically verifiable .proof bundle from any validated dataset. Share findings with full integrity chain.',
+      badges: [],
+      apply: function () { applyProofExportVisibility(); }
+    },
+    {
+      key: 'dataglowRooms',
+      name: 'DataGlow Rooms',
+      description: 'Create and import signed findings JSON. Share what you found \u2014 without sharing the raw data.',
+      badges: [],
+      apply: function () { applyDataglowRoomsVisibility(); }
+    },
+    {
+      key: 'natsConnector',
+      name: 'Live Stream (NATS)',
+      description: 'Connect to a local NATS server via WebSocket to validate live event streams in real time.',
+      badges: [],
+      apply: function () { applyNatsConnectorVisibility(); }
+    },
+    {
+      key: 'tauriConnector',
+      name: 'Native Database',
+      description: 'Connect directly to Postgres, MySQL, or SQLite from the desktop app without any cloud intermediary.',
+      badges: ['tauri'],
+      apply: function () { applyTauriConnectorVisibility(); }
+    },
+    {
+      key: 'questionPrompter',
+      name: 'Question Prompter',
+      description: 'Surface business questions from your data automatically. Includes pre-upload, post-validation, and streaming modes.',
+      badges: ['beta'],
+      apply: function () { /* no canvas UI wired yet -- flag state only */ }
+    },
+    {
+      key: 'portfolioNarrativeAssembler',
+      name: 'Portfolio Narrative',
+      description: 'Automatically assemble a portfolio-ready narrative from your validation findings and story.',
+      badges: ['beta'],
+      apply: function () { /* no canvas UI wired yet -- flag state only */ }
+    }
+  ];
+
+  /* ------------------------------------------------------------
+     sessionStorage persistence
+     ------------------------------------------------------------
+     The READ side (restoreFeatureFlagsFromSessionEarly) already ran once,
+     right after FEATURE_FLAGS was declared, so first render is correct.
+     This is the WRITE side, called whenever a toggle changes.
+     ------------------------------------------------------------ */
+  function saveFeatureFlagsToSession() {
+    try {
+      var toSave = {};
+      FEATURE_META.forEach(function (meta) {
+        toSave[meta.key] = !!FEATURE_FLAGS[meta.key];
+      });
+      window.sessionStorage.setItem(FEATURE_SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
+    } catch (err) {
+      // sessionStorage unavailable -- toggles still work for this page life,
+      // they simply won't persist across reloads. Never throw.
+    }
   }
+
+  /* ------------------------------------------------------------
+     Panel rendering
+     ------------------------------------------------------------ */
+  function featureBadgeHTML(badge) {
+    if (badge === 'tauri') return '<span class="feature-badge feature-badge-tauri">Requires Tauri</span>';
+    if (badge === 'beta') return '<span class="feature-badge feature-badge-beta">Beta</span>';
+    return '';
+  }
+
+  function escapeFeatureHTML(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderFeatureSettingsList() {
+    var html = FEATURE_META.map(function (meta) {
+      var checked = FEATURE_FLAGS[meta.key] ? ' checked' : '';
+      var badgesHTML = meta.badges.map(featureBadgeHTML).join('');
+      var inputId = 'feature-toggle-' + meta.key;
+      return (
+        '<div class="feature-row" data-feature-key="' + meta.key + '">' +
+          '<div class="feature-row-copy">' +
+            '<div class="feature-row-name-line">' +
+              '<span class="feature-row-name">' + escapeFeatureHTML(meta.name) + '</span>' +
+              badgesHTML +
+            '</div>' +
+            '<p class="feature-row-desc">' + escapeFeatureHTML(meta.description) + '</p>' +
+          '</div>' +
+          '<label class="feature-toggle" for="' + inputId + '">' +
+            '<input type="checkbox" class="feature-toggle-input" id="' + inputId + '" data-feature-key="' + meta.key + '"' + checked + ' aria-label="' + escapeFeatureHTML(meta.name) + '">' +
+            '<span class="feature-toggle-track" aria-hidden="true"></span>' +
+          '</label>' +
+        '</div>'
+      );
+    }).join('');
+    featureSettingsList.innerHTML = html;
+
+    FEATURE_META.forEach(function (meta) {
+      var input = $('feature-toggle-' + meta.key);
+      if (!input) return;
+      input.addEventListener('change', function () {
+        FEATURE_FLAGS[meta.key] = input.checked;
+        saveFeatureFlagsToSession();
+        meta.apply();
+        setAgentStatus((meta.name) + (input.checked ? ' enabled.' : ' disabled.'));
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------
+     Open / close + keyboard accessibility
+     ------------------------------------------------------------ */
+  var featureSettingsLastFocusedEl = null;
+
+  function getFeatureDrawerFocusable() {
+    return Array.prototype.slice.call(
+      featureSettingsDrawer.querySelectorAll('button, input, [tabindex]:not([tabindex="-1"])')
+    ).filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+  }
+
+  function openFeatureSettingsDrawer() {
+    featureSettingsLastFocusedEl = document.activeElement;
+    renderFeatureSettingsList();
+    featureSettingsOverlay.classList.remove('hidden');
+    featureSettingsDrawer.classList.remove('hidden');
+    featureSettingsBtn.setAttribute('aria-expanded', 'true');
+    /* Force reflow so the transform transition plays on open. */
+    void featureSettingsDrawer.offsetWidth;
+    featureSettingsDrawer.classList.add('drawer-open');
+    setTimeout(function () {
+      var focusables = getFeatureDrawerFocusable();
+      if (focusables.length) focusables[0].focus();
+      else featureSettingsClose.focus();
+    }, 0);
+  }
+
+  function closeFeatureSettingsDrawer() {
+    featureSettingsDrawer.classList.remove('drawer-open');
+    featureSettingsBtn.setAttribute('aria-expanded', 'false');
+    setTimeout(function () {
+      featureSettingsOverlay.classList.add('hidden');
+      featureSettingsDrawer.classList.add('hidden');
+    }, 220);
+    if (featureSettingsLastFocusedEl && typeof featureSettingsLastFocusedEl.focus === 'function') {
+      featureSettingsLastFocusedEl.focus();
+    } else {
+      featureSettingsBtn.focus();
+    }
+  }
+
+  function isFeatureDrawerOpen() {
+    return featureSettingsDrawer.classList.contains('drawer-open');
+  }
+
+  featureSettingsBtn.addEventListener('click', function () {
+    if (isFeatureDrawerOpen()) closeFeatureSettingsDrawer();
+    else openFeatureSettingsDrawer();
+  });
+  featureSettingsClose.addEventListener('click', closeFeatureSettingsDrawer);
+  featureSettingsOverlay.addEventListener('click', closeFeatureSettingsDrawer);
+
+  document.addEventListener('keydown', function (e) {
+    if (!isFeatureDrawerOpen()) return;
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFeatureSettingsDrawer();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      var focusables = getFeatureDrawerFocusable();
+      if (!focusables.length) return;
+      var first = focusables[0];
+      var last = focusables[focusables.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
+
+  /* Apply any session-restored flag state to the DOM at boot, after all
+     apply*Visibility() functions above have been defined. */
+  FEATURE_META.forEach(function (meta) { meta.apply(); });
 
 
   /* ============================================================
