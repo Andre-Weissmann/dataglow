@@ -3360,6 +3360,27 @@
       ]
     },
     {
+      "id": "mcp-agent-passport-bridge",
+      "platforms": [
+        "desktop"
+      ],
+      "area": "MCP (Model Context Protocol) interface",
+      "name": "Agent Passport Bridge (get_agent_passport tool)",
+      "files": [
+        "js/mcp/dataglow-mcp-server.mjs",
+        "js/mcp/gate-state-exporter.js"
+      ],
+      "platformsByFile": {
+        "js/mcp/dataglow-mcp-server.mjs": [
+          "desktop"
+        ],
+        "js/mcp/gate-state-exporter.js": [
+          "browser",
+          "desktop"
+        ]
+      }
+    },
+    {
       "id": "polyglot-autocomplete",
       "platforms": [
         "browser",

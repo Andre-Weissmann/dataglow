@@ -57,7 +57,7 @@ import * as driftForecast from '../drift/drift-forecast.js';
 import { DriftWatchdog, formatWatchdogAlert } from '../ambient/drift-watchdog.js';
 import * as expectedRange from '../validation/expected-range.js';
 import * as ledger from '../provenance/assumption-ledger.js';
-import { createTouchLedger, summarizeTouchLedger, exportTouchLedger } from '../provenance/ai-touch-ledger.js';
+import { createTouchLedger, summarizeTouchLedger, verifyTouchLedger, exportTouchLedger } from '../provenance/ai-touch-ledger.js';
 import * as provenance from '../provenance/provenance.js';
 import * as sdProof from '../provenance/selective-disclosure-proof.js';
 import * as portableReceipt from '../provenance/portable-receipt.js';
@@ -4318,6 +4318,15 @@ function renderGuardedCopilotTab() {
 // function is the second, inner gate matching the meeting/diplomacy precedent,
 // and it renders nothing until a dataset is loaded.
 let proofRoomSeal = null;
+// Read-only accessor so other sections of this file (the MCP gate-state export
+// handler, Agent Passport Bridge batch) can read whatever seal has already been
+// minted this session without duplicating the module-scoped variable or forcing
+// a fresh seal to be created just for export. Returns null if the Proof Room
+// tab has never been opened / no seal minted yet — an honest "not available",
+// never a fabricated placeholder.
+function getProofRoomSealForExport() {
+  return proofRoomSeal || null;
+}
 // Build (or reuse) a seal over the latest validation summary for the composed
 // seal + beam steps. Reuses the EXISTING sealCheckResult() verbatim — no new
 // crypto. The "result" is a display roll-up of the real per-layer statuses
@@ -8934,15 +8943,33 @@ function initSettings() {
     }
     const exportBtn = $('#btn-export-gate-state');
     if (exportBtn) {
-      exportBtn.addEventListener('click', () => {
+      exportBtn.addEventListener('click', async () => {
         try {
           const { serializeGateState } = window.__dataglow_mcp_exporter__ || {};
           const datasetsWithResults = (state.datasets || []).map(function(ds) {
             return Object.assign({}, ds, { layerResults: state.lastLayerResults && state.lastLayerResults[ds.table] ? state.lastLayerResults[ds.table] : {} });
           });
+          // Agent Passport Bridge (batch: MCP get_agent_passport tool): carry the
+          // existing global AI Touch Ledger and the existing Proof Room seal (if
+          // any has been minted this session) alongside the gate state, so the
+          // MCP server can compose a passport without recomputing anything.
+          // Both calls reuse already-tested functions verbatim.
+          const ledgerEntries = aiTouchLedger.getEntries ? aiTouchLedger.getEntries() : [];
+          const chainCheck = await verifyTouchLedger(ledgerEntries);
+          const touchLedgerSummary = {
+            entries: ledgerEntries.length,
+            externalCalls: ledgerEntries.filter((e) => !e.rejected && e.location === 'external').length,
+            onDeviceCalls: ledgerEntries.filter((e) => !e.rejected && e.location === 'ondevice').length,
+            chainVerified: chainCheck.valid,
+            summary: summarizeTouchLedger(ledgerEntries),
+          };
+          const extras = {
+            touchLedgerSummary,
+            proofRoomSeal: getProofRoomSealForExport(),
+          };
           const json = serializeGateState
-            ? serializeGateState(datasetsWithResults)
-            : JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), datasets: datasetsWithResults }, null, 2);
+            ? serializeGateState(datasetsWithResults, extras)
+            : JSON.stringify(Object.assign({ version: 1, exportedAt: new Date().toISOString(), datasets: datasetsWithResults }, extras), null, 2);
           const blob = new Blob([json], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
