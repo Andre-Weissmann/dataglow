@@ -1,0 +1,77 @@
+[
+  {
+    "id": "hc_001",
+    "source": "HIPAA §164.514(b)(2) — Safe Harbor",
+    "text": "The HIPAA Privacy Rule's Safe Harbor method de-identifies protected health information by removing 18 categories of identifiers, including names, geographic subdivisions smaller than a state, all elements of dates (except year) directly related to an individual, phone and fax numbers, email addresses, Social Security numbers, medical record numbers, and full-face photographs. Once all 18 identifiers are removed and the covered entity has no actual knowledge the remaining information could identify the individual, the data is no longer considered PHI. This method is one of two permitted de-identification approaches under the Privacy Rule."
+  },
+  {
+    "id": "hc_002",
+    "source": "HIPAA §164.502(b) — Minimum Necessary Rule",
+    "text": "The HIPAA minimum necessary standard requires covered entities to limit uses, disclosures, and requests for protected health information to the minimum amount reasonably necessary to accomplish the intended purpose. It applies to routine and non-routine disclosures alike, though it does not apply to disclosures to the individual, for treatment purposes, or those required by law. Organizations typically implement role-based access controls to operationalize this rule."
+  },
+  {
+    "id": "hc_003",
+    "source": "HIPAA §160.103 — Definition of PHI",
+    "text": "Protected Health Information (PHI) is individually identifiable health information transmitted or maintained by a covered entity or business associate, in any form or medium, that relates to an individual's past, present, or future physical or mental health condition, the provision of health care, or payment for health care. Information becomes 'individually identifiable' when it either identifies the person or provides a reasonable basis to believe it can be used to identify them. De-identified data that meets the Safe Harbor or Expert Determination standard is excluded from the definition of PHI."
+  },
+  {
+    "id": "hc_004",
+    "source": "ICD-10-CM Official Guidelines for Coding and Reporting",
+    "text": "ICD-10-CM codes are alphanumeric, ranging from 3 to 7 characters, with the first character always a letter, the second a number, and the remaining characters a mix of letters and numbers. The structure moves from general to specific: category (first 3 characters), etiology/anatomic site/severity (characters 4-6), and an extension character (7th) used for things like injury encounter type (initial, subsequent, sequela). A decimal point follows the third character to separate the category from further subdivisions, e.g., S72.001A for a displaced fracture of the right femoral head, initial encounter."
+  },
+  {
+    "id": "hc_005",
+    "source": "CMS Diagnosis Related Groups (DRG/MS-DRG)",
+    "text": "A Diagnosis Related Group (DRG), specifically the Medicare Severity DRG (MS-DRG) used by CMS, is a classification system that groups inpatient hospital stays with similar clinical characteristics and expected resource use into a single payment category. Assignment depends on the principal diagnosis, secondary diagnoses (comorbidities/complications), procedures performed, patient age, sex, and discharge status. DRGs underpin Medicare's Inpatient Prospective Payment System (IPPS), under which hospitals receive a fixed payment per DRG regardless of actual costs incurred, creating an incentive for efficient care delivery."
+  },
+  {
+    "id": "hc_006",
+    "source": "CMS 837P Professional Claim / ASC X12 837",
+    "text": "The 837P (Professional) is the ASC X12 electronic transaction standard used to submit outpatient and professional health care claims to payers, including Medicare and Medicaid. A valid 837P submission requires the rendering and billing provider NPIs, patient demographic and insurance information, diagnosis codes (ICD-10-CM) linked to specific service lines, CPT/HCPCS procedure codes with modifiers, units of service, and charge amounts. CMS requires claims to comply with HIPAA transaction standards, and claims failing front-end edits (e.g., invalid NPI, mismatched diagnosis pointers) are rejected before adjudication."
+  },
+  {
+    "id": "hc_007",
+    "source": "NCQA HEDIS (Healthcare Effectiveness Data and Information Set)",
+    "text": "HEDIS, maintained by the National Committee for Quality Assurance (NCQA), is a standardized set of performance measures used by health plans to assess quality of care and service across domains such as effectiveness of care, access/availability, and utilization. Each HEDIS measure defines a specific denominator (eligible population) and numerator (population that met the measure, e.g., received a required screening) computed from administrative claims and/or medical record review. Health plans report HEDIS results annually, and the measures are widely used in Medicare Advantage Star Ratings and NCQA health plan accreditation."
+  },
+  {
+    "id": "hc_008",
+    "source": "CMS Hospital Readmissions Reduction Program (HRRP) — 30-Day Readmission",
+    "text": "CMS defines an unplanned 30-day readmission as an inpatient admission to any acute care hospital within 30 days of discharge from an index admission, for reasons not classified as a planned readmission. The Hospital Readmissions Reduction Program tracks condition-specific readmission rates (e.g., heart failure, pneumonia, COPD, hip/knee replacement) and reduces Medicare payments to hospitals with higher-than-expected risk-adjusted readmission rates. The 30-day window starts at the date of discharge, not the date of the index admission, and readmissions to the same or a different hospital both count."
+  },
+  {
+    "id": "hc_009",
+    "source": "NCCI (National Correct Coding Initiative) — CMS",
+    "text": "The National Correct Coding Initiative (NCCI), developed and maintained by CMS, defines Procedure-to-Procedure (PTP) edits that identify pairs of CPT/HCPCS codes that should not be billed together for the same patient on the same date of service because one procedure is considered a component of the other, or the combination is medically unlikely. NCCI edits carry a Correct Coding Modifier Indicator (CCMI) of 0 (never billable together), 1 (billable together only with an appropriate modifier such as -59), or 9 (edit not applicable). NCCI also includes Medically Unlikely Edits (MUEs) that cap the number of units of a service billable for one patient on one day."
+  },
+  {
+    "id": "hc_010",
+    "source": "Medicare Part A vs. Part B — Social Security Act Title XVIII",
+    "text": "Medicare Part A (Hospital Insurance) covers inpatient hospital stays, skilled nursing facility care, hospice, and some home health services, and is generally premium-free for those with sufficient work history, financed through payroll taxes. Medicare Part B (Medical Insurance) covers outpatient services, physician visits, durable medical equipment, and preventive services, and requires a monthly premium plus an annual deductible and typically 20% coinsurance. Part A claims are billed on the UB-04/837I institutional format, while Part B claims use the CMS-1500/837P professional format."
+  },
+  {
+    "id": "hc_011",
+    "source": "Medicaid Managed Care — 42 CFR Part 438",
+    "text": "Under Medicaid managed care, states contract with Managed Care Organizations (MCOs) that receive a fixed per-member-per-month capitation payment to cover enrollees' health services, and the MCO — not the state directly — adjudicates and pays provider claims. Federal regulations at 42 CFR Part 438 require MCOs to meet network adequacy, claims payment timeliness (commonly 90% of clean claims paid within 30 days), and encounter data reporting standards so states can monitor utilization and quality. Encounter data submitted by MCOs to state Medicaid agencies mirrors fee-for-service claim formats (837 transactions) even though no direct state payment occurs per claim."
+  },
+  {
+    "id": "hc_012",
+    "source": "CPT (Current Procedural Terminology) — American Medical Association",
+    "text": "CPT codes, maintained by the American Medical Association, are five-character codes (numeric or alphanumeric Category I/II/III) used to describe medical, surgical, and diagnostic services for billing purposes. Category I codes (5 digits, e.g., 99213 for an office visit) represent standard, widely performed procedures organized into six sections: Evaluation and Management, Anesthesia, Surgery, Radiology, Pathology/Laboratory, and Medicine. Two-digit modifiers (e.g., -25, -59) can be appended to a CPT code to indicate a service was distinct or altered in some way without changing its core definition."
+  },
+  {
+    "id": "hc_013",
+    "source": "National Provider Identifier (NPI) — 45 CFR Part 162",
+    "text": "The National Provider Identifier (NPI) is a unique 10-digit identification number issued by CMS's National Plan and Provider Enumeration System (NPPES) to individual health care providers (Type 1) and organizations (Type 2), mandated under HIPAA's administrative simplification provisions. Covered entities must use the NPI in all standard electronic transactions, including claims, and the tenth digit is a check digit computed using the Luhn algorithm to detect transmission errors. Claims submitted without a valid, active NPI for the rendering and billing provider are rejected at the front-end edit stage."
+  },
+  {
+    "id": "hc_014",
+    "source": "HIPAA Breach Notification Rule — 45 CFR §§164.400-414",
+    "text": "The HIPAA Breach Notification Rule requires covered entities to notify affected individuals, the Secretary of Health and Human Services, and in some cases the media, following discovery of a breach of unsecured protected health information, unless a risk assessment demonstrates a low probability that the PHI was compromised. Notification to affected individuals must occur without unreasonable delay and no later than 60 days after discovery, and breaches affecting 500 or more individuals must be reported to HHS and prominent media outlets within the same 60-day window. Breaches affecting fewer than 500 individuals can be reported to HHS annually via its breach portal."
+  },
+  {
+    "id": "hc_015",
+    "source": "HIPAA §164.514(b)(1) — Expert Determination Method",
+    "text": "The Expert Determination method is the second HIPAA-recognized de-identification approach, under which a qualified expert with appropriate statistical and scientific knowledge applies generally accepted methods to determine that the risk of re-identifying an individual from the data is very small. The expert must document the analysis and methods used to reach this conclusion, including consideration of the recipient's ability to independently or in combination with other available information identify a subject. Unlike Safe Harbor's fixed checklist, Expert Determination allows retention of more granular data elements (e.g., specific dates or geographic detail) when statistically justified."
+  }
+]
