@@ -1,0 +1,1880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataGlow Canvas</title>
+<style>
+  /* ============================================================
+     1. RESET + BASE
+     ============================================================ */
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #28251D;
+    background: #F7F6F2;
+    height: 100vh;
+    overflow: hidden;
+  }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+  input {
+    font-family: inherit;
+  }
+  .hidden {
+    display: none !important;
+  }
+
+  /* ============================================================
+     CSS custom properties — light theme defaults
+     ============================================================ */
+  :root {
+    --bg: #F7F6F2;
+    --surface: #F9F8F5;
+    --border: #D4D1CA;
+    --text: #28251D;
+    --text-muted: #7A7974;
+    --primary: #01696F;
+    --primary-hover: #0C4E54;
+    --warning: #964219;
+    --error: #A12C7B;
+    --success: #437A22;
+    --drop-border-rest: #C9C6BE;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --row-warning-bg: rgba(150, 66, 25, 0.08);
+    --row-error-bg: rgba(161, 44, 123, 0.08);
+    --grid-row-bg: #ffffff;
+  }
+
+  [data-theme="dark"] {
+    --bg: #171614;
+    --surface: #1C1B19;
+    --border: #34322E;
+    --text: #CDCCCA;
+    --text-muted: #8B8983;
+    --primary: #1BA1A8;
+    --primary-hover: #3ec2c9;
+    --warning: #D08A5B;
+    --error: #E06BB8;
+    --success: #7FBF57;
+    --drop-border-rest: #4A4842;
+    --row-warning-bg: rgba(208, 138, 91, 0.12);
+    --row-error-bg: rgba(224, 107, 184, 0.12);
+    --grid-row-bg: #201F1C;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  /* ============================================================
+     2. CEREMONY SCREEN
+     ============================================================ */
+  #ceremony-screen {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    position: relative;
+  }
+
+  /* ============================================================
+     3. DROP ZONE
+     ============================================================ */
+  #drop-zone {
+    width: 640px;
+    max-width: 90vw;
+    height: 360px;
+    border: 2px dashed var(--drop-border-rest);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    background: transparent;
+    transition: border-color 300ms ease-out, background-color 300ms ease-out, box-shadow 300ms ease-out;
+    position: relative;
+  }
+  #drop-zone.drag-over {
+    border-color: var(--primary);
+    background-color: rgba(1, 105, 111, 0.06);
+    box-shadow: 0 0 0 3px rgba(1, 105, 111, 0.08);
+  }
+  #drop-zone.pulse {
+    border-color: var(--primary);
+    box-shadow: 0 0 24px rgba(1, 105, 111, 0.35);
+  }
+  #drop-zone.fade-out {
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+    pointer-events: none;
+  }
+
+  #drop-text {
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--text);
+    margin: 0 0 16px 0;
+  }
+  #drop-formats {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  #drop-zone-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 24px;
+  }
+
+  /* ============================================================
+     4. SEQUENCED REVEAL ELEMENTS
+     ============================================================ */
+  #reveal-file-name {
+    margin-top: 20px;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+    opacity: 0;
+    transition: opacity 400ms ease-out;
+    text-align: center;
+  }
+  #reveal-file-name.show {
+    opacity: 1;
+  }
+
+  #reveal-progress-bar {
+    margin-top: 10px;
+    width: 400px;
+    max-width: 80vw;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 200ms ease-out;
+  }
+  #reveal-progress-bar.show {
+    opacity: 1;
+  }
+  #progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary);
+    transition: width 600ms ease-out;
+  }
+
+  #reveal-counts {
+    margin-top: 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+  }
+  #reveal-counts.show {
+    opacity: 1;
+  }
+  #row-count-display {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  #col-count-display {
+    font-size: 18px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+  }
+  #col-count-display.show {
+    opacity: 1;
+  }
+
+  #reveal-health-dots {
+    margin-top: 18px;
+    display: flex;
+    gap: 8px;
+    min-height: 12px;
+  }
+  .reveal-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    opacity: 0;
+    transform: scale(0.5);
+    transition: opacity 200ms ease-out, transform 200ms ease-out;
+  }
+  .reveal-dot.show {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .dot-green { background: var(--success); }
+  .dot-amber { background: var(--warning); }
+  .dot-red { background: var(--error); }
+
+  #reveal-finding {
+    margin-top: 24px;
+    max-width: 560px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text);
+    opacity: 0;
+    transition: opacity 400ms ease-out;
+    padding: 0 16px;
+  }
+  #reveal-finding.show {
+    opacity: 1;
+  }
+  #finding-expand {
+    background: none;
+    border: none;
+    color: var(--primary);
+    text-decoration: underline;
+    font-size: 14px;
+    padding: 0;
+    margin-left: 4px;
+  }
+  #finding-expand:hover {
+    color: var(--primary-hover);
+  }
+
+  /* ============================================================
+     5. TOP NAV
+     ============================================================ */
+  #top-nav {
+    height: 48px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    background: var(--surface);
+  }
+  #nav-brand {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--primary);
+    letter-spacing: -0.2px;
+  }
+  #nav-views {
+    display: flex;
+    gap: 4px;
+  }
+  .nav-btn {
+    background: none;
+    border: none;
+    padding: 8px 14px;
+    font-size: 14px;
+    color: var(--text-muted);
+    border-radius: 6px;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  .nav-btn:hover {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--text);
+  }
+  .nav-btn.active {
+    color: var(--primary);
+    font-weight: 600;
+  }
+  #nav-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #theme-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 150ms ease-out;
+  }
+  #theme-toggle:hover {
+    background: rgba(1, 105, 111, 0.08);
+  }
+
+  /* ============================================================
+     6. TAB STRIP
+     ============================================================ */
+  #tab-strip {
+    height: 36px;
+    min-height: 36px;
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: thin;
+  }
+  .tab-btn {
+    min-width: 120px;
+    max-width: 220px;
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border);
+    border-bottom: 2px solid transparent;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 150ms ease-out, border-color 150ms ease-out;
+  }
+  .tab-btn:hover {
+    color: var(--text);
+    background: rgba(1, 105, 111, 0.05);
+  }
+  .tab-btn.active {
+    color: var(--text);
+    font-weight: 600;
+    border-bottom-color: var(--primary);
+  }
+  .tab-health-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #tab-add {
+    width: 36px;
+    min-width: 36px;
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 16px;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  #tab-add:hover {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--primary);
+  }
+
+  /* ============================================================
+     7. MAIN SURFACE
+     ============================================================ */
+  #main-surface {
+    display: flex;
+    flex-direction: row;
+    height: calc(100vh - 48px - 36px - 40px);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* ============================================================
+     8. GRID VIEW
+     ============================================================ */
+  #grid-view {
+    flex-direction: column;
+  }
+  #formula-bar {
+    height: 36px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #formula-cell-ref {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 32px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    text-align: center;
+  }
+  #formula-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+    font-family: var(--mono);
+  }
+  #grid-container {
+    flex: 1;
+    overflow: auto;
+    background: var(--grid-row-bg);
+    position: relative;
+  }
+  #grid-table-wrapper {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+  }
+  #grid-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  #grid-thead {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  #grid-thead th {
+    background: var(--surface);
+    border-bottom: 2px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 0;
+    text-align: left;
+    white-space: nowrap;
+    min-width: 120px;
+  }
+  .col-header-inner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+  .col-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .col-type-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+  }
+  .health-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity 150ms ease-out, transform 150ms ease-out;
+  }
+  .health-dot.show {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .health-dot.dot-green { background: var(--success); }
+  .health-dot.dot-amber { background: var(--warning); }
+  .health-dot.dot-red { background: var(--error); }
+
+  #grid-tbody td {
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 6px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 260px;
+    color: var(--text);
+  }
+  #grid-tbody tr {
+    background: var(--grid-row-bg);
+    position: relative;
+    transition: background-color 150ms ease-out;
+  }
+  #grid-tbody tr:hover {
+    filter: brightness(0.98);
+  }
+  #grid-tbody tr.row-warning {
+    background-color: var(--row-warning-bg);
+    cursor: pointer;
+  }
+  #grid-tbody tr.row-error {
+    background-color: var(--row-error-bg);
+    cursor: pointer;
+  }
+  #grid-tbody tr.row-warning.row-active,
+  #grid-tbody tr.row-error.row-active {
+    box-shadow: inset 2px 0 0 0 currentColor;
+  }
+  #grid-tbody tr.row-warning.row-active { color: var(--warning); }
+  #grid-tbody tr.row-error.row-active { color: var(--error); }
+  #grid-tbody tr.row-warning.row-active td,
+  #grid-tbody tr.row-error.row-active td {
+    color: var(--text);
+  }
+
+  .cell-empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  #status-bar {
+    height: 28px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .status-sep {
+    color: var(--border);
+  }
+  #status-validation {
+    cursor: pointer;
+    color: var(--primary);
+  }
+  #status-validation:hover {
+    text-decoration: underline;
+  }
+  #status-filename {
+    cursor: text;
+  }
+
+  /* ============================================================
+     STORY / JOIN PLACEHOLDERS
+     ============================================================ */
+  #story-view, #join-view {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  #story-placeholder h2, #join-placeholder h2 {
+    color: var(--text);
+    font-size: 22px;
+    margin-bottom: 8px;
+  }
+
+  /* ============================================================
+     9. AMBIENT VALIDATION RAIL
+     ============================================================ */
+  #validation-rail {
+    height: 100%;
+    flex-shrink: 0;
+    position: relative;
+    display: flex;
+    z-index: 10;
+  }
+
+  #rail-strip {
+    width: 8px;
+    height: 100%;
+    background: var(--success);
+    cursor: pointer;
+    transition: width 200ms ease-out, opacity 150ms ease-out;
+    flex-shrink: 0;
+  }
+  #rail-strip.strip-amber { background: var(--warning); }
+  #rail-strip.strip-red { background: var(--error); }
+  #rail-strip.strip-critical {
+    animation: pulse-critical 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse-critical {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(161, 44, 123, 0.5); }
+    50% { box-shadow: 0 0 8px 2px rgba(161, 44, 123, 0.8); }
+  }
+
+  #rail-panel {
+    width: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    transition: width 200ms ease-out;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #validation-rail.rail-expanded #rail-panel {
+    width: 320px;
+  }
+  #validation-rail.rail-expanded #rail-strip {
+    width: 0;
+    opacity: 0;
+  }
+
+  #rail-header {
+    height: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #rail-title {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  #rail-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--text-muted);
+    line-height: 1;
+    padding: 4px;
+  }
+  #rail-close:hover {
+    color: var(--text);
+  }
+  #rail-findings {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .finding-item {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-muted);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: var(--bg);
+    transition: opacity 150ms ease-out, max-height 150ms ease-out;
+  }
+  .finding-item.severity-warning { border-left-color: var(--warning); }
+  .finding-item.severity-error { border-left-color: var(--error); }
+  .finding-item.severity-critical {
+    border-left-color: var(--error);
+    animation: pulse-critical 1.2s ease-in-out infinite;
+  }
+  .finding-item.fading-out {
+    opacity: 0;
+    max-height: 0;
+    padding: 0;
+    margin-bottom: 0;
+    overflow: hidden;
+  }
+  .finding-sentence {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .finding-text {
+    flex: 1;
+  }
+  .finding-severity-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 4px;
+    display: block;
+  }
+  .severity-warning .finding-severity-label { color: var(--warning); }
+  .severity-error .finding-severity-label { color: var(--error); }
+  .severity-critical .finding-severity-label { color: var(--error); }
+  .finding-chevron {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 2px 4px;
+    flex-shrink: 0;
+    transition: transform 150ms ease-out;
+  }
+  .finding-chevron.expanded {
+    transform: rotate(90deg);
+  }
+  .finding-detail {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+    display: none;
+  }
+  .finding-detail.show {
+    display: block;
+  }
+  .finding-detail .rule-name {
+    font-family: var(--mono);
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .finding-detail pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    overflow-x: auto;
+    margin: 0 0 6px 0;
+    color: var(--text);
+  }
+
+  /* ============================================================
+     10. AGENT BAR
+     ============================================================ */
+  #agent-bar {
+    height: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    position: relative;
+    z-index: 20;
+  }
+  #agent-status {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  #agent-popover {
+    position: absolute;
+    bottom: 48px;
+    left: 16px;
+    width: 300px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    padding: 14px;
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  #agent-popover.visible {
+    opacity: 1;
+  }
+  #agent-popover-text {
+    font-size: 13px;
+    color: var(--text);
+    margin: 0 0 10px 0;
+    line-height: 1.5;
+  }
+  #agent-popover-actions {
+    display: flex;
+    gap: 8px;
+  }
+  #agent-popover-actions button {
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+  #agent-fix {
+    background: var(--primary) !important;
+    color: #fff !important;
+    border-color: var(--primary) !important;
+  }
+  #agent-fix:hover {
+    background: var(--primary-hover) !important;
+  }
+  #agent-explain:hover {
+    background: rgba(1, 105, 111, 0.08);
+  }
+
+  /* Scrollbar niceties */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ============================================================
+       CEREMONY SCREEN (shown on first load)
+       ============================================================ -->
+  <div id="ceremony-screen">
+    <div id="drop-zone">
+      <p id="drop-text">Drop your data here.</p>
+      <p id="drop-formats">CSV · XLSX · JSON · Parquet · PDF · MP3 / WAV (transcribed) · MP4 (coming soon)</p>
+      <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.xlsx,.parquet">
+    </div>
+    <div id="reveal-file-name" class="hidden"></div>
+    <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
+    <div id="reveal-counts" class="hidden">
+      <span id="row-count-display">0 rows</span>
+      <span id="col-count-display"></span>
+    </div>
+    <div id="reveal-health-dots"></div>
+    <div id="reveal-finding" class="hidden">
+      <span id="finding-text"></span>
+      <button id="finding-expand">Here is what that means.</button>
+    </div>
+    <p id="drop-zone-hint">or click to browse files &middot; <span id="try-example-link" style="text-decoration:underline; cursor:pointer;">Try an example</span></p>
+  </div>
+
+  <!-- ============================================================
+       CANVAS (hidden until ceremony completes)
+       ============================================================ -->
+  <div id="canvas" class="hidden">
+    <!-- Top nav -->
+    <nav id="top-nav">
+      <div id="nav-brand">DataGlow</div>
+      <div id="nav-views">
+        <button class="nav-btn active" data-view="grid">Grid</button>
+        <button class="nav-btn" data-view="story">Story</button>
+        <button class="nav-btn" data-view="join">Join</button>
+      </div>
+      <div id="nav-right">
+        <button id="theme-toggle" title="Toggle dark mode">&#9681;</button>
+      </div>
+    </nav>
+
+    <!-- Tab strip -->
+    <div id="tab-strip">
+      <!-- tabs injected here -->
+      <button id="tab-add" title="Add another file">+</button>
+    </div>
+
+    <!-- Main surface -->
+    <div id="main-surface">
+      <!-- Grid view -->
+      <div id="grid-view" class="view active">
+        <!-- Formula bar -->
+        <div id="formula-bar">
+          <span id="formula-cell-ref">A1</span>
+          <input id="formula-input" type="text" placeholder="Enter a formula or value..." autocomplete="off" />
+        </div>
+        <!-- Grid container -->
+        <div id="grid-container">
+          <div id="grid-table-wrapper">
+            <table id="grid-table">
+              <thead id="grid-thead"></thead>
+              <tbody id="grid-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Status bar -->
+        <div id="status-bar">
+          <span id="status-rows"></span>
+          <span class="status-sep">|</span>
+          <span id="status-cols"></span>
+          <span class="status-sep">|</span>
+          <span id="status-validation"></span>
+          <span class="status-sep">|</span>
+          <span id="status-filename"></span>
+        </div>
+      </div>
+
+      <!-- Story view placeholder -->
+      <div id="story-view" class="view hidden">
+        <div id="story-placeholder">
+          <h2>Story View</h2>
+          <p>One-click shift from grid to narrative. Coming in the next release.</p>
+        </div>
+      </div>
+
+      <!-- Join view placeholder -->
+      <div id="join-view" class="view hidden">
+        <div id="join-placeholder">
+          <h2>Join Panel</h2>
+          <p>Visual join builder for multi-dataset analysis. Coming in the next release.</p>
+        </div>
+      </div>
+
+      <!-- Ambient Validation Rail -->
+      <div id="validation-rail" class="rail-collapsed">
+        <div id="rail-strip" title="Click to expand validation findings"></div>
+        <div id="rail-panel">
+          <div id="rail-header">
+            <span id="rail-title">Validation</span>
+            <button id="rail-close">&times;</button>
+          </div>
+          <div id="rail-findings"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent presence line -->
+    <div id="agent-bar">
+      <span id="agent-status">Ready.</span>
+      <div id="agent-popover" class="hidden">
+        <p id="agent-popover-text"></p>
+        <div id="agent-popover-actions">
+          <button id="agent-fix">Fix this</button>
+          <button id="agent-explain">Tell me more</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============================================================
+     STATE
+     ============================================================ */
+  var state = {
+    datasets: [],        // { id, name, columns:[{name,type}], rows:[[...]], findings:[], columnStats:[], score }
+    activeDatasetId: null,
+    railOpen: false,
+    activeFindingRowIndex: null
+  };
+  var datasetCounter = 0;
+
+  /* ============================================================
+     DOM SHORTCUTS
+     ============================================================ */
+  var $ = function (id) { return document.getElementById(id); };
+
+  var ceremonyScreen = $('ceremony-screen');
+  var dropZone = $('drop-zone');
+  var fileInput = $('file-input');
+  var canvas = $('canvas');
+
+  var revealFileName = $('reveal-file-name');
+  var revealProgressBar = $('reveal-progress-bar');
+  var progressFill = $('progress-fill');
+  var revealCounts = $('reveal-counts');
+  var rowCountDisplay = $('row-count-display');
+  var colCountDisplay = $('col-count-display');
+  var revealHealthDots = $('reveal-health-dots');
+  var revealFinding = $('reveal-finding');
+  var findingText = $('finding-text');
+  var findingExpand = $('finding-expand');
+  var tryExampleLink = $('try-example-link');
+
+  var tabStrip = $('tab-strip');
+  var tabAdd = $('tab-add');
+
+  var gridThead = $('grid-thead');
+  var gridTbody = $('grid-tbody');
+  var statusRows = $('status-rows');
+  var statusCols = $('status-cols');
+  var statusValidation = $('status-validation');
+  var statusFilename = $('status-filename');
+
+  var validationRail = $('validation-rail');
+  var railStrip = $('rail-strip');
+  var railPanel = $('rail-panel');
+  var railFindings = $('rail-findings');
+  var railClose = $('rail-close');
+
+  var agentStatus = $('agent-status');
+  var agentPopover = $('agent-popover');
+  var agentPopoverText = $('agent-popover-text');
+  var agentFixBtn = $('agent-fix');
+  var agentExplainBtn = $('agent-explain');
+
+  var themeToggle = $('theme-toggle');
+
+  /* ============================================================
+     CSV PARSER (inline, minimal, handles quoted fields)
+     ============================================================ */
+  function parseCSV(text) {
+    var rows = [];
+    var row = [];
+    var field = '';
+    var inQuotes = false;
+    var i = 0;
+    var len = text.length;
+
+    // Normalize line endings
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    len = text.length;
+
+    while (i < len) {
+      var ch = text[i];
+
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') {
+            field += '"';
+            i += 2;
+            continue;
+          } else {
+            inQuotes = false;
+            i++;
+            continue;
+          }
+        } else {
+          field += ch;
+          i++;
+          continue;
+        }
+      } else {
+        if (ch === '"') {
+          inQuotes = true;
+          i++;
+          continue;
+        } else if (ch === ',') {
+          row.push(field);
+          field = '';
+          i++;
+          continue;
+        } else if (ch === '\n') {
+          row.push(field);
+          rows.push(row);
+          row = [];
+          field = '';
+          i++;
+          continue;
+        } else {
+          field += ch;
+          i++;
+          continue;
+        }
+      }
+    }
+    // Push last field/row if any content remains
+    if (field.length > 0 || row.length > 0) {
+      row.push(field);
+      rows.push(row);
+    }
+    // Drop trailing empty rows (from trailing newline)
+    while (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') {
+      rows.pop();
+    }
+    return rows;
+  }
+
+  function detectType(values) {
+    // values: array of raw strings for a column, excluding header
+    var allNumeric = true;
+    var allInt = true;
+    var allBool = true;
+    var allDate = true;
+    var nonEmptyCount = 0;
+
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      if (v === '' || v === null || v === undefined) continue;
+      nonEmptyCount++;
+      if (allNumeric && isNaN(Number(v))) allNumeric = false;
+      if (allInt && (isNaN(Number(v)) || v.indexOf('.') !== -1)) allInt = false;
+      if (allBool && !/^(true|false)$/i.test(v)) allBool = false;
+      if (allDate && isNaN(Date.parse(v))) allDate = false;
+    }
+
+    if (nonEmptyCount === 0) return 'STR';
+    if (allBool) return 'BOOL';
+    if (allInt) return 'INT';
+    if (allNumeric) return 'FLOAT';
+    if (allDate) return 'DATE';
+    return 'STR';
+  }
+
+  function buildDatasetFromRows(rawRows, filename) {
+    if (!rawRows.length) {
+      return { columns: [], rows: [] };
+    }
+    var header = rawRows[0];
+    var dataRows = rawRows.slice(1);
+
+    var columns = header.map(function (name, idx) {
+      var colValues = dataRows.map(function (r) { return r[idx] !== undefined ? r[idx] : ''; });
+      return { name: name || ('Column' + (idx + 1)), type: detectType(colValues) };
+    });
+
+    // Normalize row lengths
+    var rows = dataRows.map(function (r) {
+      var out = [];
+      for (var i = 0; i < columns.length; i++) {
+        out.push(r[i] !== undefined ? r[i] : '');
+      }
+      return out;
+    });
+
+    return { columns: columns, rows: rows };
+  }
+
+  /* ============================================================
+     MOCK VALIDATION
+     ============================================================ */
+  function runMockValidation(dataset) {
+    var columns = dataset.columns;
+    var rows = dataset.rows;
+    var findings = [];
+    var rowFlags = rows.map(function () { return { warning: false, error: false }; });
+    var columnHealth = columns.map(function () { return 'green'; });
+
+    columns.forEach(function (col, colIdx) {
+      var emptyCount = 0;
+      rows.forEach(function (r) {
+        var v = r[colIdx];
+        if (v === '' || v === null || v === undefined) emptyCount++;
+      });
+      var emptyPct = rows.length ? (emptyCount / rows.length) * 100 : 0;
+
+      if (emptyPct > 20) {
+        columnHealth[colIdx] = 'red';
+        findings.push({
+          severity: 'error',
+          column: col.name,
+          rowCount: emptyCount,
+          message: '`' + col.name + '` has ' + emptyCount + ' null values (' + emptyPct.toFixed(0) + '%).',
+          rule: 'null_threshold_v2',
+          sql: 'SELECT * FROM dataset WHERE ' + col.name + ' IS NULL OR ' + col.name + ' = \'\';',
+          citation: null
+        });
+        rows.forEach(function (r, ri) {
+          if (r[colIdx] === '' || r[colIdx] === null || r[colIdx] === undefined) rowFlags[ri].error = true;
+        });
+      } else if (emptyPct > 5) {
+        if (columnHealth[colIdx] === 'green') columnHealth[colIdx] = 'amber';
+        findings.push({
+          severity: 'warning',
+          column: col.name,
+          rowCount: emptyCount,
+          message: emptyCount + ' rows in `' + col.name + '` are missing a value (' + emptyPct.toFixed(0) + '%).',
+          rule: 'null_threshold_v2',
+          sql: 'SELECT * FROM dataset WHERE ' + col.name + ' IS NULL OR ' + col.name + ' = \'\';',
+          citation: null
+        });
+        rows.forEach(function (r, ri) {
+          if (r[colIdx] === '' || r[colIdx] === null || r[colIdx] === undefined) rowFlags[ri].warning = true;
+        });
+      }
+
+      // Numeric negative-value check
+      if (col.type === 'INT' || col.type === 'FLOAT') {
+        var negRows = [];
+        rows.forEach(function (r, ri) {
+          var raw = r[colIdx];
+          if (raw !== '' && !isNaN(Number(raw)) && Number(raw) < 0) {
+            negRows.push(ri);
+          }
+        });
+        if (negRows.length) {
+          if (columnHealth[colIdx] === 'green') columnHealth[colIdx] = 'amber';
+          var firstNeg = negRows[0];
+          findings.push({
+            severity: 'warning',
+            column: col.name,
+            rowCount: negRows.length,
+            message: '`' + col.name + '` at row ' + (firstNeg + 1) + ' is negative (' + rows[firstNeg][colIdx] + '). ' + negRows.length + ' row(s) affected. Suggested fix: take absolute value.',
+            rule: 'no_negative_currency_v2',
+            sql: 'SELECT * FROM dataset WHERE ' + col.name + ' < 0;',
+            citation: null
+          });
+          negRows.forEach(function (ri) { rowFlags[ri].warning = true; });
+        }
+      }
+    });
+
+    // Sort findings: error first, then warning
+    findings.sort(function (a, b) {
+      var order = { critical: 0, error: 1, warning: 2 };
+      return order[a.severity] - order[b.severity];
+    });
+
+    var cleanRows = rowFlags.filter(function (f) { return !f.warning && !f.error; }).length;
+    var score = rows.length ? Math.round((cleanRows / rows.length) * 100) : 100;
+
+    return { findings: findings, rowFlags: rowFlags, columnHealth: columnHealth, score: score };
+  }
+
+  /* ============================================================
+     SEQUENCED REVEAL
+     ============================================================ */
+  function resetRevealUI() {
+    revealFileName.classList.add('hidden');
+    revealFileName.classList.remove('show');
+    revealFileName.textContent = '';
+
+    revealProgressBar.classList.add('hidden');
+    revealProgressBar.classList.remove('show');
+    progressFill.style.width = '0%';
+
+    revealCounts.classList.add('hidden');
+    revealCounts.classList.remove('show');
+    rowCountDisplay.textContent = '0 rows';
+    colCountDisplay.textContent = '';
+    colCountDisplay.classList.remove('show');
+
+    revealHealthDots.innerHTML = '';
+
+    revealFinding.classList.add('hidden');
+    revealFinding.classList.remove('show');
+    findingText.textContent = '';
+
+    dropZone.classList.remove('fade-out', 'pulse', 'drag-over');
+  }
+
+  function animateCountUp(el, target, duration) {
+    var startTime = null;
+    function step(timestamp) {
+      if (startTime === null) startTime = timestamp;
+      var elapsed = timestamp - startTime;
+      var progress = Math.min(elapsed / duration, 1);
+      var current = Math.floor(progress * target);
+      el.textContent = current.toLocaleString() + ' row' + (current === 1 ? '' : 's');
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        el.textContent = target.toLocaleString() + ' row' + (target === 1 ? '' : 's');
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function runSequencedReveal(dataset, filename) {
+    resetRevealUI();
+
+    var validation = runMockValidation(dataset);
+    dataset.findings = validation.findings;
+    dataset.rowFlags = validation.rowFlags;
+    dataset.columnHealth = validation.columnHealth;
+    dataset.score = validation.score;
+
+    // STEP 1 (0ms): pulse drop zone border teal for 300ms
+    dropZone.classList.add('pulse');
+    setTimeout(function () {
+      dropZone.classList.remove('pulse');
+    }, 300);
+
+    // STEP 2 (300ms): show filename, start progress bar fill
+    setTimeout(function () {
+      revealFileName.textContent = filename;
+      revealFileName.classList.remove('hidden');
+      requestAnimationFrame(function () { revealFileName.classList.add('show'); });
+
+      revealProgressBar.classList.remove('hidden');
+      requestAnimationFrame(function () { revealProgressBar.classList.add('show'); });
+      // trigger width transition
+      setTimeout(function () { progressFill.style.width = '100%'; }, 30);
+    }, 300);
+
+    // STEP 3 (900ms): animate row count up
+    setTimeout(function () {
+      revealCounts.classList.remove('hidden');
+      requestAnimationFrame(function () { revealCounts.classList.add('show'); });
+      animateCountUp(rowCountDisplay, dataset.rows.length, 650);
+    }, 900);
+
+    // STEP 4 (1100ms): fade in column count
+    setTimeout(function () {
+      colCountDisplay.textContent = '\u00D7 ' + dataset.columns.length + ' columns';
+      colCountDisplay.classList.add('show');
+    }, 1100);
+
+    // STEP 5 (1300ms): health dots one by one, 100ms apart
+    var dotStart = 1300;
+    dataset.columns.forEach(function (col, idx) {
+      var dot = document.createElement('div');
+      dot.className = 'reveal-dot dot-' + (dataset.columnHealth[idx] === 'green' ? 'green' : dataset.columnHealth[idx] === 'amber' ? 'amber' : 'red');
+      revealHealthDots.appendChild(dot);
+      setTimeout(function () {
+        dot.classList.add('show');
+      }, dotStart + idx * 100);
+    });
+
+    // STEP 6: show finding sentence after all dots have appeared
+    var findingDelay = dotStart + dataset.columns.length * 100 + 150;
+    setTimeout(function () {
+      var sentence = buildFindingSentence(dataset);
+      findingText.textContent = sentence;
+      revealFinding.classList.remove('hidden');
+      requestAnimationFrame(function () { revealFinding.classList.add('show'); });
+    }, findingDelay);
+
+    // STEP 7: hide ceremony, show canvas, render grid
+    var finalDelay = findingDelay + 400;
+    setTimeout(function () {
+      completeCeremony(dataset, filename);
+    }, finalDelay);
+  }
+
+  function buildFindingSentence(dataset) {
+    var errorCount = dataset.findings.filter(function (f) { return f.severity === 'error'; }).length;
+    var warningCount = dataset.findings.filter(function (f) { return f.severity === 'warning'; }).length;
+    var total = errorCount + warningCount;
+
+    if (total === 0) {
+      return 'No quality issues found. This dataset looks clean.';
+    }
+    var top = dataset.findings[0];
+    return total + ' column' + (total === 1 ? '' : 's') + ' flagged with quality issues. The most important: ' + top.message;
+  }
+
+  function completeCeremony(dataset, filename) {
+    ceremonyScreen.classList.add('hidden');
+    canvas.classList.remove('hidden');
+
+    datasetCounter++;
+    var id = 'ds-' + datasetCounter;
+    dataset.id = id;
+    dataset.name = filename;
+    state.datasets.push(dataset);
+    state.activeDatasetId = id;
+
+    addTab(filename, id);
+    renderGrid(dataset);
+  }
+
+  /* ============================================================
+     GRID RENDERING
+     ============================================================ */
+  function getActiveDataset() {
+    return state.datasets.find(function (d) { return d.id === state.activeDatasetId; });
+  }
+
+  function renderGrid(dataset) {
+    setAgentStatus('Analyzing your data...');
+
+    gridThead.innerHTML = '';
+    gridTbody.innerHTML = '';
+
+    var headRow = document.createElement('tr');
+    dataset.columns.forEach(function (col, idx) {
+      var th = document.createElement('th');
+      var inner = document.createElement('div');
+      inner.className = 'col-header-inner';
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'col-name';
+      nameSpan.textContent = col.name;
+      nameSpan.title = 'Double-click to rename';
+
+      var typeChip = document.createElement('span');
+      typeChip.className = 'col-type-chip';
+      typeChip.textContent = col.type;
+
+      var dot = document.createElement('span');
+      var healthClass = dataset.columnHealth ? dataset.columnHealth[idx] : 'green';
+      dot.className = 'health-dot dot-' + (healthClass === 'green' ? 'green' : healthClass === 'amber' ? 'amber' : 'red');
+      dot.dataset.colIndex = idx;
+
+      inner.appendChild(nameSpan);
+      inner.appendChild(typeChip);
+      inner.appendChild(dot);
+      th.appendChild(inner);
+      headRow.appendChild(th);
+
+      // stagger health dot appearance, 80-120ms apart
+      setTimeout(function () {
+        dot.classList.add('show');
+      }, idx * 100);
+
+      dot.addEventListener('mouseenter', function () {
+        showAgentPopoverForColumn(dataset, col, idx, healthClass);
+      });
+      dot.addEventListener('mouseleave', function () {
+        hideAgentPopoverSoon();
+      });
+    });
+    gridThead.appendChild(headRow);
+
+    dataset.rows.forEach(function (row, rowIdx) {
+      var tr = document.createElement('tr');
+      var flags = dataset.rowFlags ? dataset.rowFlags[rowIdx] : { warning: false, error: false };
+      if (flags.error) tr.classList.add('row-error');
+      else if (flags.warning) tr.classList.add('row-warning');
+
+      row.forEach(function (cellVal) {
+        var td = document.createElement('td');
+        if (cellVal === '' || cellVal === null || cellVal === undefined) {
+          td.textContent = '\u2014';
+          td.classList.add('cell-empty');
+        } else {
+          td.textContent = cellVal;
+        }
+        tr.appendChild(td);
+      });
+
+      if (flags.warning || flags.error) {
+        tr.addEventListener('click', function () {
+          openRailForRow(dataset, rowIdx);
+        });
+      }
+
+      gridTbody.appendChild(tr);
+    });
+
+    updateStatusBar(dataset);
+    populateRail(dataset.findings, dataset);
+
+    setTimeout(function () {
+      var issueCount = dataset.findings.length;
+      if (issueCount > 0) {
+        setAgentStatus('Ready. ' + issueCount + ' issue' + (issueCount === 1 ? '' : 's') + ' found. Hover a flagged column to see.');
+      } else {
+        setAgentStatus('Ready. No issues found.');
+      }
+    }, 800);
+  }
+
+  function updateStatusBar(dataset) {
+    statusRows.textContent = dataset.rows.length.toLocaleString() + ' rows';
+    statusCols.textContent = dataset.columns.length + ' columns';
+    statusValidation.textContent = 'Validation: ' + dataset.score + '%';
+    statusFilename.textContent = dataset.name;
+  }
+
+  /* ============================================================
+     VALIDATION RAIL
+     ============================================================ */
+  function railColorForDataset(dataset) {
+    var hasError = dataset.findings.some(function (f) { return f.severity === 'error' || f.severity === 'critical'; });
+    var hasWarning = dataset.findings.some(function (f) { return f.severity === 'warning'; });
+    if (hasError) return 'red';
+    if (hasWarning) return 'amber';
+    return 'green';
+  }
+
+  function populateRail(findings, dataset) {
+    railFindings.innerHTML = '';
+
+    var color = railColorForDataset(dataset);
+    railStrip.className = '';
+    if (color === 'amber') railStrip.classList.add('strip-amber');
+    if (color === 'red') railStrip.classList.add('strip-red');
+
+    if (!findings.length) {
+      var empty = document.createElement('div');
+      empty.className = 'finding-item';
+      empty.innerHTML = '<span class="finding-severity-label" style="color:var(--success)">Clean</span><div class="finding-sentence"><span class="finding-text">No validation issues found in this dataset.</span></div>';
+      railFindings.appendChild(empty);
+      return;
+    }
+
+    findings.forEach(function (finding, idx) {
+      var item = document.createElement('div');
+      item.className = 'finding-item severity-' + finding.severity;
+      item.dataset.findingIndex = idx;
+
+      var sentenceWrap = document.createElement('div');
+      sentenceWrap.className = 'finding-sentence';
+
+      var textWrap = document.createElement('div');
+      textWrap.style.flex = '1';
+
+      var label = document.createElement('span');
+      label.className = 'finding-severity-label';
+      label.textContent = finding.severity;
+      textWrap.appendChild(label);
+
+      var textSpan = document.createElement('span');
+      textSpan.className = 'finding-text';
+      textSpan.textContent = finding.message;
+      textWrap.appendChild(textSpan);
+
+      var chevron = document.createElement('button');
+      chevron.className = 'finding-chevron';
+      chevron.textContent = '\u203A';
+      chevron.title = 'Expand detail';
+
+      sentenceWrap.appendChild(textWrap);
+      sentenceWrap.appendChild(chevron);
+
+      var detail = document.createElement('div');
+      detail.className = 'finding-detail';
+      var ruleLine = document.createElement('div');
+      ruleLine.className = 'rule-name';
+      ruleLine.textContent = 'Rule: ' + finding.rule;
+      var sqlPre = document.createElement('pre');
+      sqlPre.textContent = finding.sql;
+      detail.appendChild(ruleLine);
+      detail.appendChild(sqlPre);
+      if (finding.citation) {
+        var citeP = document.createElement('p');
+        citeP.textContent = finding.citation;
+        detail.appendChild(citeP);
+      } else {
+        var noCite = document.createElement('p');
+        noCite.style.fontStyle = 'italic';
+        noCite.textContent = 'No knowledge-base citation available yet.';
+        detail.appendChild(noCite);
+      }
+
+      chevron.addEventListener('click', function () {
+        detail.classList.toggle('show');
+        chevron.classList.toggle('expanded');
+      });
+
+      item.appendChild(sentenceWrap);
+      item.appendChild(detail);
+      railFindings.appendChild(item);
+    });
+  }
+
+  function openRail() {
+    validationRail.classList.remove('rail-collapsed');
+    validationRail.classList.add('rail-expanded');
+    state.railOpen = true;
+  }
+
+  function closeRail() {
+    validationRail.classList.remove('rail-expanded');
+    validationRail.classList.add('rail-collapsed');
+    state.railOpen = false;
+    clearActiveRowHighlight();
+  }
+
+  function toggleRail() {
+    if (state.railOpen) closeRail();
+    else openRail();
+  }
+
+  function clearActiveRowHighlight() {
+    var active = gridTbody.querySelector('tr.row-active');
+    if (active) active.classList.remove('row-active');
+    state.activeFindingRowIndex = null;
+  }
+
+  function openRailForRow(dataset, rowIdx) {
+    clearActiveRowHighlight();
+    var rows = gridTbody.querySelectorAll('tr');
+    var tr = rows[rowIdx];
+    if (tr) {
+      tr.classList.add('row-active');
+      state.activeFindingRowIndex = rowIdx;
+    }
+    openRail();
+    // scroll rail findings to top (mock — since findings aren't strictly row-indexed in this demo)
+    railFindings.scrollTop = 0;
+    if (tr) {
+      tr.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  /* ============================================================
+     TAB STRIP
+     ============================================================ */
+  function addTab(name, datasetId) {
+    var btn = document.createElement('button');
+    btn.className = 'tab-btn active';
+    btn.dataset.datasetId = datasetId;
+
+    var dataset = state.datasets.find(function (d) { return d.id === datasetId; });
+    var color = dataset ? railColorForDataset(dataset) : 'green';
+
+    var dot = document.createElement('span');
+    dot.className = 'tab-health-dot dot-' + color;
+    dot.style.background = color === 'green' ? 'var(--success)' : color === 'amber' ? 'var(--warning)' : 'var(--error)';
+
+    var label = document.createElement('span');
+    label.className = 'tab-label';
+    label.textContent = name;
+
+    btn.appendChild(dot);
+    btn.appendChild(label);
+
+    // Deactivate other tabs
+    var existingTabs = tabStrip.querySelectorAll('.tab-btn');
+    existingTabs.forEach(function (t) { t.classList.remove('active'); });
+
+    tabStrip.insertBefore(btn, tabAdd);
+
+    btn.addEventListener('click', function () {
+      switchToTab(datasetId);
+    });
+  }
+
+  function switchToTab(datasetId) {
+    state.activeDatasetId = datasetId;
+    var tabs = tabStrip.querySelectorAll('.tab-btn');
+    tabs.forEach(function (t) {
+      t.classList.toggle('active', t.dataset.datasetId === datasetId);
+    });
+    var dataset = getActiveDataset();
+    if (dataset) {
+      closeRail();
+      renderGrid(dataset);
+    }
+  }
+
+  tabAdd.addEventListener('click', function () {
+    // show ceremony screen again to drop another file
+    canvas.classList.add('hidden');
+    ceremonyScreen.classList.remove('hidden');
+    resetRevealUI();
+    setAgentStatus('Ready.');
+  });
+
+  /* ============================================================
+     VIEW SWITCHING
+     ============================================================ */
+  var navBtns = document.querySelectorAll('.nav-btn');
+  navBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navBtns.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var view = btn.dataset.view;
+      document.querySelectorAll('.view').forEach(function (v) {
+        v.classList.add('hidden');
+        v.classList.remove('active');
+      });
+      var target = $(view + '-view');
+      if (target) {
+        target.classList.remove('hidden');
+        target.classList.add('active');
+      }
+    });
+  });
+
+  /* ============================================================
+     AGENT BAR
+     ============================================================ */
+  function setAgentStatus(text) {
+    agentStatus.textContent = text;
+  }
+
+  var popoverHideTimer = null;
+
+  function showAgentPopoverForColumn(dataset, col, colIdx, healthClass) {
+    if (popoverHideTimer) {
+      clearTimeout(popoverHideTimer);
+      popoverHideTimer = null;
+    }
+    var related = dataset.findings.filter(function (f) { return f.column === col.name; });
+    var msg;
+    if (related.length) {
+      msg = related[0].message + (related.length > 1 ? ' (' + (related.length - 1) + ' more issue' + (related.length - 1 === 1 ? '' : 's') + ' in this column.)' : '');
+    } else {
+      msg = '`' + col.name + '` looks healthy \u2014 no validation issues detected in this column.';
+    }
+    agentPopoverText.textContent = msg;
+    agentPopover.classList.remove('hidden');
+    requestAnimationFrame(function () { agentPopover.classList.add('visible'); });
+
+    agentFixBtn.onclick = function () {
+      setAgentStatus('Proposed a fix for `' + col.name + '`. (Diff overlay scaffold \u2014 full wiring pending validation spine integration.)');
+      hideAgentPopoverNow();
+    };
+    agentExplainBtn.onclick = function () {
+      openRail();
+      hideAgentPopoverNow();
+    };
+  }
+
+  function hideAgentPopoverSoon() {
+    popoverHideTimer = setTimeout(hideAgentPopoverNow, 200);
+  }
+
+  function hideAgentPopoverNow() {
+    agentPopover.classList.remove('visible');
+    setTimeout(function () { agentPopover.classList.add('hidden'); }, 150);
+  }
+
+  agentPopover.addEventListener('mouseenter', function () {
+    if (popoverHideTimer) {
+      clearTimeout(popoverHideTimer);
+      popoverHideTimer = null;
+    }
+  });
+  agentPopover.addEventListener('mouseleave', function () {
+    hideAgentPopoverSoon();
+  });
+
+  /* ============================================================
+     RAIL EVENT WIRING
+     ============================================================ */
+  railStrip.addEventListener('click', toggleRail);
+  railClose.addEventListener('click', closeRail);
+  statusValidation.addEventListener('click', toggleRail);
+
+  /* ============================================================
+     DARK MODE TOGGLE
+     ============================================================ */
+  themeToggle.addEventListener('click', function () {
+    var current = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = current === 'dark' ? 'light' : 'dark';
+  });
+
+  /* ============================================================
+     FILE DROP HANDLING
+     ============================================================ */
+  ['dragover', 'dragenter'].forEach(function (evt) {
+    dropZone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+  });
+
+  ['dragleave', 'dragend'].forEach(function (evt) {
+    dropZone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+    });
+  });
+
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) {
+      handleFileDrop(files);
+    }
+  });
+
+  dropZone.addEventListener('click', function () {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files && fileInput.files.length) {
+      handleFileDrop(fileInput.files);
+    }
+  });
+
+  tryExampleLink.addEventListener('click', function (e) {
+    e.stopPropagation();
+    loadExampleDataset();
+  });
+
+  function handleFileDrop(files) {
+    var file = files[0]; // ceremony handles first file; multi-file batch is out of scope for this shell pass
+    var name = file.name;
+    var ext = name.split('.').pop().toLowerCase();
+
+    if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        var text = e.target.result;
+        var rawRows = parseCSV(text);
+        var dataset = buildDatasetFromRows(rawRows, name);
+        runSequencedReveal(dataset, name);
+      };
+      reader.readAsText(file);
+    } else if (ext === 'json') {
+      var jreader = new FileReader();
+      jreader.onload = function (e) {
+        try {
+          var json = JSON.parse(e.target.result);
+          var dataset = buildDatasetFromJSON(json);
+          runSequencedReveal(dataset, name);
+        } catch (err) {
+          alert('Could not parse JSON file: ' + err.message);
+        }
+      };
+      jreader.readAsText(file);
+    } else {
+      // Binary formats (XLSX / Parquet) — mark as binary, not parsed in this shell pass.
+      // Real parsing wires in via drop-zone-router.js (PR L).
+      var dataset = {
+        columns: [
+          { name: 'file', type: 'STR' },
+          { name: 'status', type: 'STR' }
+        ],
+        rows: [
+          [name, 'Binary format detected \u2014 full parsing pending drop-zone-router.js integration (PR L).']
+        ]
+      };
+      runSequencedReveal(dataset, name);
+    }
+  }
+
+  function buildDatasetFromJSON(json) {
+    var arr = Array.isArray(json) ? json : (json.data && Array.isArray(json.data) ? json.data : [json]);
+    if (!arr.length) return { columns: [], rows: [] };
+
+    var colNames = [];
+    arr.forEach(function (obj) {
+      if (obj && typeof obj === 'object') {
+        Object.keys(obj).forEach(function (k) {
+          if (colNames.indexOf(k) === -1) colNames.push(k);
+        });
+      }
+    });
+
+    var columns = colNames.map(function (name) {
+      var vals = arr.map(function (obj) {
+        var v = obj && obj[name] !== undefined ? obj[name] : '';
+        return v === null ? '' : String(v);
+      });
+      return { name: name, type: detectType(vals) };
+    });
+
+    var rows = arr.map(function (obj) {
+      return colNames.map(function (name) {
+        var v = obj && obj[name] !== undefined ? obj[name] : '';
+        return v === null ? '' : String(v);
+      });
+    });
+
+    return { columns: columns, rows: rows };
+  }
+
+  function loadExampleDataset() {
+    var csv = 'claim_id,patient_id,claim_amount,zip_code,status\n' +
+      '1001,P-2001,340.50,60614,paid\n' +
+      '1002,P-2002,-120.00,60615,paid\n' +
+      '1003,P-2003,89.99,6061,paid\n' +
+      '1004,,215.00,60614,pending\n' +
+      '1005,P-2005,410.25,60622,paid\n' +
+      '1006,P-2006,,60622,denied\n' +
+      '1007,P-2007,75.00,60608,paid\n' +
+      '1008,P-2008,60.10,60608,paid\n' +
+      '1009,P-2009,-15.75,60609,paid\n' +
+      '1010,P-2010,120.00,60610,paid\n';
+    var rawRows = parseCSV(csv);
+    var dataset = buildDatasetFromRows(rawRows, 'claims_example.csv');
+    runSequencedReveal(dataset, 'claims_example.csv');
+  }
+
+  /* ============================================================
+     FORMULA BAR (scaffold — cell selection wiring pending Univer)
+     ============================================================ */
+  var formulaInput = $('formula-input');
+  gridTbody.addEventListener('click', function (e) {
+    var td = e.target.closest('td');
+    if (!td) return;
+    var tr = td.parentElement;
+    var rowIdx = Array.prototype.indexOf.call(gridTbody.children, tr);
+    var colIdx = Array.prototype.indexOf.call(tr.children, td);
+    var colLetter = String.fromCharCode(65 + (colIdx % 26));
+    $('formula-cell-ref').textContent = colLetter + (rowIdx + 2); // +2: header is row 1
+    formulaInput.value = td.textContent === '\u2014' ? '' : td.textContent;
+  });
+
+})();
+</script>
+</body>
+</html>
