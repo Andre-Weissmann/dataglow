@@ -1303,7 +1303,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Proof Export — .proof bundle, four-hash integrity chain (Feature 12)",
+      "name": "Proof Export \u2014 .proof bundle, four-hash integrity chain (Feature 12)",
       "files": [
         "js/proof/proof-builder.js"
       ],
@@ -2840,6 +2840,108 @@
         {
           "file": "js/grid/grid-bridge.js",
           "name": "typeToChip"
+        }
+      ]
+    },
+    {
+      "id": "app-shell-grid-pivot-engine",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "DataGlow Grid pivot engine (Univer pivot tables, builds on the grid bridge)",
+      "files": [
+        "js/grid/pivot-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/grid/pivot-engine.js",
+          "name": "buildPivotDescriptor"
+        },
+        {
+          "file": "js/grid/pivot-engine.js",
+          "name": "computePivotValues"
+        },
+        {
+          "file": "js/grid/pivot-engine.js",
+          "name": "formatPivotValue"
+        },
+        {
+          "file": "js/grid/pivot-engine.js",
+          "name": "pivotToGridDataset"
+        },
+        {
+          "file": "js/grid/pivot-engine.js",
+          "name": "validatePivotConfig"
+        }
+      ]
+    },
+    {
+      "id": "app-shell-grid-formula-bridge",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "DataGlow Grid formula bridge (Excel formula \u2194 DuckDB SQL, documentation/audit layer)",
+      "files": [
+        "js/grid/formula-bridge.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/grid/formula-bridge.js",
+          "name": "FORMULA_SQL_MAP"
+        },
+        {
+          "file": "js/grid/formula-bridge.js",
+          "name": "isFormulaSupported"
+        },
+        {
+          "file": "js/grid/formula-bridge.js",
+          "name": "getFormulaSQL"
+        },
+        {
+          "file": "js/grid/formula-bridge.js",
+          "name": "buildFormulaAudit"
+        },
+        {
+          "file": "js/grid/formula-bridge.js",
+          "name": "validateFormulaResult"
+        }
+      ]
+    },
+    {
+      "id": "app-shell-grid-validation-coloring",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & data engine",
+      "name": "DataGlow Grid validation coloring (cell/row-level styling, agent diff overlay)",
+      "files": [
+        "js/grid/validation-coloring.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/grid/validation-coloring.js",
+          "name": "computeCellStyles"
+        },
+        {
+          "file": "js/grid/validation-coloring.js",
+          "name": "SEVERITY_COLORS"
+        },
+        {
+          "file": "js/grid/validation-coloring.js",
+          "name": "buildDiffOverlay"
+        },
+        {
+          "file": "js/grid/validation-coloring.js",
+          "name": "cellStylesToUniverFormat"
+        },
+        {
+          "file": "js/grid/validation-coloring.js",
+          "name": "computeRowHealth"
         }
       ]
     },
