@@ -648,6 +648,156 @@
   }
 
   /* ============================================================
+     FEATURE-FLAGGED MODULE WIRING (proofExport, dataglowRooms,
+     natsConnector, tauriConnector) — see FEATURE_FLAGS in <script>.
+     ============================================================ */
+  .proof {
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
+  .proof:hover:not(:disabled) {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--primary);
+  }
+  .proof:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  #story-share-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rooms-btn {
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
+  .rooms-btn:hover {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--primary);
+  }
+  #room-create-form, #room-import-panel {
+    position: absolute;
+    top: 44px;
+    right: 16px;
+    width: 320px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    padding: 14px;
+    z-index: 30;
+    font-size: 13px;
+  }
+  #room-create-form label, #room-import-panel label {
+    display: block;
+    margin-bottom: 8px;
+  }
+  #room-create-form input {
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  #room-describe-output {
+    white-space: pre-wrap;
+    font-family: monospace;
+    font-size: 12px;
+    max-height: 240px;
+    overflow: auto;
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
+  #nats-source-option {
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+  }
+  #nats-source-option:hover {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--primary);
+  }
+  #nats-config-form {
+    margin-top: 12px;
+    font-size: 13px;
+  }
+  #nats-config-form label {
+    display: block;
+    margin-bottom: 8px;
+  }
+  #nats-config-form input {
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  #nats-connection-guide {
+    white-space: pre-wrap;
+    font-family: monospace;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 10px;
+  }
+  #nats-connect-status {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  #nats-connect-status.error {
+    color: #c0392b;
+  }
+  #nats-connect-status.ready {
+    color: var(--primary);
+  }
+  #tauri-db-chip {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  #tauri-db-chip:hover {
+    background: rgba(1, 105, 111, 0.08);
+    color: var(--primary);
+  }
+  #tauri-connections-panel {
+    position: absolute;
+    bottom: 48px;
+    right: 16px;
+    width: 300px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    padding: 14px;
+    font-size: 13px;
+    z-index: 30;
+  }
+
+  /* ============================================================
      SQL MODE OVERLAY (Cmd+` / Ctrl+`)
      ============================================================ */
   #sql-overlay {
@@ -1052,6 +1202,26 @@
     </div>
     <div id="return-use-banner" class="hidden"></div>
     <p id="drop-zone-hint">or click to browse files &middot; <span id="try-example-link" style="text-decoration:underline; cursor:pointer;">Try an example</span></p>
+
+    <!-- FEATURE: natsConnector -->
+    <div id="nats-source-wrapper" class="hidden">
+      <button id="nats-source-option">Live Stream (NATS)</button>
+      <div id="nats-config-form" class="hidden">
+        <label>WebSocket URL
+          <input type="text" id="nats-url-input" value="ws://localhost:4221" placeholder="ws://localhost:4221" />
+        </label>
+        <label>Subject pattern
+          <input type="text" id="nats-subject-input" value="metrics.&gt;" placeholder="metrics.&gt;" />
+        </label>
+        <label>Batch size
+          <input type="number" id="nats-batchsize-input" value="100" min="1" max="10000" />
+        </label>
+        <pre id="nats-connection-guide"></pre>
+        <button id="nats-connect-btn">Connect</button>
+        <div id="nats-connect-status"></div>
+      </div>
+    </div>
+    <!-- /FEATURE: natsConnector -->
   </div>
 
   <!-- ============================================================
@@ -1120,6 +1290,36 @@
           </div>
           <iframe id="story-frame" class="hidden" title="Story narrative"></iframe>
         </div>
+
+        <!-- FEATURE: proofExport -->
+        <div id="proof-export-wrapper" class="hidden">
+          <button id="proof-export-btn" class="proof" disabled title="Generate a story first">Export Proof</button>
+        </div>
+        <!-- /FEATURE: proofExport -->
+
+        <!-- FEATURE: dataglowRooms -->
+        <div id="story-share-section" class="hidden">
+          <button id="room-create-btn" class="rooms-btn">Create Room</button>
+          <button id="room-import-btn" class="rooms-btn">Import Room</button>
+          <input type="file" id="room-import-file-input" class="hidden" accept=".json,.room.json">
+
+          <div id="room-create-form" class="hidden">
+            <label>Room Name
+              <input type="text" id="room-name-input" placeholder="Q3 Claims Review" />
+            </label>
+            <label>Created By
+              <input type="text" id="room-created-by-input" placeholder="Your name" />
+            </label>
+            <button id="room-create-confirm-btn" class="rooms-btn">Create &amp; Download</button>
+            <button id="room-create-cancel-btn" class="rooms-btn">Cancel</button>
+          </div>
+
+          <div id="room-import-panel" class="hidden">
+            <div id="room-describe-output"></div>
+            <button id="room-import-close-btn" class="rooms-btn">Close</button>
+          </div>
+        </div>
+        <!-- /FEATURE: dataglowRooms -->
       </div>
 
       <!-- Join view placeholder -->
@@ -1146,6 +1346,10 @@
     <!-- Agent presence line -->
     <div id="agent-bar">
       <span id="agent-status">Ready.</span>
+      <!-- FEATURE: tauriConnector -->
+      <span id="tauri-db-chip" class="hidden">Native DB</span>
+      <div id="tauri-connections-panel" class="hidden"></div>
+      <!-- /FEATURE: tauriConnector -->
       <div id="agent-popover" class="hidden">
         <p id="agent-popover-text"></p>
         <div id="agent-popover-actions">
@@ -2134,6 +2338,437 @@
   })();
 
 
+  /* ---- from js/proof/proof-builder.js ---- */
+  var ProofBuilder = (function () {
+    function djb2(str) {
+      var hash = 5381;
+      var s = String(str == null ? '' : str);
+      for (var i = 0; i < s.length; i++) {
+        hash = ((hash * 33) ^ s.charCodeAt(i)) >>> 0;
+      }
+      return hash.toString(16);
+    }
+
+    function canExportProof(validationFindings) {
+      var findings = Array.isArray(validationFindings) ? validationFindings : [];
+      for (var i = 0; i < findings.length; i++) {
+        var f = findings[i];
+        if (f && f.severity === 'critical' && f.status !== 'resolved') {
+          return { allowed: false, blockedBy: f };
+        }
+      }
+      return { allowed: true, blockedBy: null };
+    }
+
+    function safeCall(fn, args, fallback) {
+      if (typeof fn !== 'function') return fallback;
+      try {
+        return fn.apply(null, args);
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    function buildProof(session, deps) {
+      var s = session || {};
+      var d = deps || {};
+      var memorySummary = safeCall(d.summarizeMemory, [s.memoryStore], null);
+      var memoryTimeline = safeCall(d.generateTimeline, [s.memoryStore], null);
+      var provenanceHash = safeCall(d.computeProvenanceHash, [s.memoryStore], null);
+      var memoryNDJSON = safeCall(d.exportNDJSON, [s.memoryStore], null);
+      var storyHash = safeCall(d.computeStoryHash, [s.storyDoc], null);
+      var storyMarkdown = safeCall(d.renderMarkdown, [s.storyDoc], null);
+
+      return {
+        formatVersion: 1,
+        format: 'dataglow-proof',
+        generatedAt: s.generatedAt || new Date().toISOString(),
+        toolVersion: s.toolVersion || 'dataglow-canvas',
+        datasetName: s.datasetName || null,
+        rowCount: s.rowCount || 0,
+        columnCount: s.columnCount || 0,
+        sourceFileHash: s.sourceFileHash || null,
+        validationFindings: Array.isArray(s.validationFindings) ? s.validationFindings : [],
+        memorySummary: memorySummary,
+        memoryTimeline: memoryTimeline,
+        memoryProvenanceHash: provenanceHash,
+        memoryNDJSON: memoryNDJSON,
+        storyHash: storyHash,
+        storyMarkdown: storyMarkdown,
+        signature: djb2(JSON.stringify({
+          datasetName: s.datasetName || null,
+          rowCount: s.rowCount || 0,
+          sourceFileHash: s.sourceFileHash || null,
+          storyHash: storyHash,
+          provenanceHash: provenanceHash
+        }))
+      };
+    }
+
+    function serializeProof(proofPackage) {
+      var withComment = Object.assign(
+        { _comment: 'DataGlow Proof Package \u2014 see docs/proof-export.md' },
+        proofPackage || {}
+      );
+      return JSON.stringify(withComment, null, 2);
+    }
+
+    function verifyProof(proofPackage) {
+      var p = proofPackage || {};
+      var checks = {
+        hasSignature: Boolean(p.signature),
+        hasDatasetName: Boolean(p.datasetName),
+        signatureMatches: p.signature === djb2(JSON.stringify({
+          datasetName: p.datasetName || null,
+          rowCount: p.rowCount || 0,
+          sourceFileHash: p.sourceFileHash || null,
+          storyHash: p.storyHash || null,
+          provenanceHash: p.memoryProvenanceHash || null
+        }))
+      };
+      var valid = checks.hasSignature && checks.hasDatasetName && checks.signatureMatches;
+      return { valid: valid, checks: checks };
+    }
+
+    function generateVerificationReport(verifyResult, proofPackage) {
+      var v = verifyResult || {};
+      var p = proofPackage || {};
+      var lines = [
+        'DataGlow Proof Verification Report',
+        '-----------------------------------',
+        'Dataset: ' + (p.datasetName || 'unknown'),
+        'Valid: ' + (v.valid ? 'YES' : 'NO')
+      ];
+      if (v.checks) {
+        Object.keys(v.checks).forEach(function (k) {
+          lines.push('  ' + k + ': ' + v.checks[k]);
+        });
+      }
+      return lines.join('\n');
+    }
+
+    return {
+      djb2: djb2,
+      canExportProof: canExportProof,
+      buildProof: buildProof,
+      serializeProof: serializeProof,
+      verifyProof: verifyProof,
+      generateVerificationReport: generateVerificationReport
+    };
+  })();
+
+  /* ---- from js/rooms/rooms-builder.js ---- */
+  var RoomsBuilder = (function () {
+    var ROOM_VERSION = 1;
+    var ROOM_FORMAT = 'dataglow-room';
+
+    function djb2(str) {
+      var hash = 5381;
+      var s = String(str == null ? '' : str);
+      for (var i = 0; i < s.length; i++) {
+        hash = ((hash * 33) ^ s.charCodeAt(i)) >>> 0;
+      }
+      return hash.toString(16);
+    }
+
+    function createRoom(session, options) {
+      var s = session || {};
+      var opts = options || {};
+      var includeTimeline = opts.includeTimeline !== undefined ? opts.includeTimeline : true;
+      var includeMemoryNDJSON = opts.includeMemoryNDJSON !== undefined ? opts.includeMemoryNDJSON : true;
+
+      var room = {
+        formatVersion: ROOM_VERSION,
+        format: ROOM_FORMAT,
+        roomName: s.roomName || 'Untitled Room',
+        createdBy: s.createdBy || 'Unknown',
+        createdAt: s.createdAt || new Date().toISOString(),
+        sourceFileHash: s.sourceFileHash || null,
+        datasetName: s.datasetName || null,
+        rowCount: s.rowCount || 0,
+        columnCount: s.columnCount || 0,
+        findings: Array.isArray(s.findings) ? s.findings : [],
+        storySummary: s.storySummary || null,
+        proofHash: s.proofHash || null
+      };
+      if (includeTimeline) room.memoryTimeline = s.memoryTimeline || null;
+      if (includeMemoryNDJSON) room.memoryNDJSON = s.memoryNDJSON || null;
+
+      room.signature = djb2(JSON.stringify({
+        roomName: room.roomName,
+        createdBy: room.createdBy,
+        datasetName: room.datasetName,
+        sourceFileHash: room.sourceFileHash,
+        rowCount: room.rowCount
+      }));
+
+      return room;
+    }
+
+    function verifyRoom(room) {
+      var r = room || {};
+      if (r.format !== ROOM_FORMAT) {
+        return { valid: false, reason: 'Not a dataglow-room object.' };
+      }
+      var expected = djb2(JSON.stringify({
+        roomName: r.roomName,
+        createdBy: r.createdBy,
+        datasetName: r.datasetName,
+        sourceFileHash: r.sourceFileHash,
+        rowCount: r.rowCount
+      }));
+      if (r.signature !== expected) {
+        return { valid: false, reason: 'Signature mismatch.' };
+      }
+      return { valid: true, reason: null };
+    }
+
+    function isSameDataset(roomA, roomB) {
+      if (!roomA || !roomB) return false;
+      return roomA.sourceFileHash && roomA.sourceFileHash === roomB.sourceFileHash;
+    }
+
+    function mergeRooms(roomA, roomB, options) {
+      var opts = options || {};
+      var merged = Object.assign({}, roomA, {
+        findings: [].concat(roomA && roomA.findings ? roomA.findings : [], roomB && roomB.findings ? roomB.findings : [])
+      }, opts.overrides || {});
+      merged.signature = djb2(JSON.stringify({
+        roomName: merged.roomName,
+        createdBy: merged.createdBy,
+        datasetName: merged.datasetName,
+        sourceFileHash: merged.sourceFileHash,
+        rowCount: merged.rowCount
+      }));
+      return merged;
+    }
+
+    function serializeRoom(room) {
+      return JSON.stringify(room, null, 2);
+    }
+
+    function deserializeRoom(json) {
+      var errors = [];
+      var room = null;
+      try {
+        room = JSON.parse(json);
+      } catch (e) {
+        return { room: null, valid: false, errors: ['Invalid JSON: ' + e.message] };
+      }
+      if (!room || typeof room !== 'object') {
+        errors.push('Parsed value is not an object.');
+      } else {
+        if (room.format !== ROOM_FORMAT) errors.push('Missing or invalid "format" field.');
+        if (!room.roomName) errors.push('Missing "roomName" field.');
+      }
+      return { room: room, valid: errors.length === 0, errors: errors };
+    }
+
+    function describeRoom(room) {
+      var r = room || {};
+      var verification = verifyRoom(r);
+      var lines = [
+        'Room: ' + (r.roomName || 'Untitled Room'),
+        'Created by: ' + (r.createdBy || 'Unknown'),
+        'Created at: ' + (r.createdAt || 'unknown'),
+        'Dataset: ' + (r.datasetName || 'unknown') + ' (' + (r.rowCount || 0) + ' rows, ' + (r.columnCount || 0) + ' cols)',
+        'Findings: ' + (Array.isArray(r.findings) ? r.findings.length : 0),
+        'Signature valid: ' + (verification.valid ? 'YES' : 'NO (' + (verification.reason || 'unknown') + ')')
+      ];
+      if (r.storySummary) lines.push('Story summary: ' + r.storySummary);
+      return lines.join('\n');
+    }
+
+    return {
+      ROOM_VERSION: ROOM_VERSION,
+      ROOM_FORMAT: ROOM_FORMAT,
+      createRoom: createRoom,
+      verifyRoom: verifyRoom,
+      isSameDataset: isSameDataset,
+      mergeRooms: mergeRooms,
+      serializeRoom: serializeRoom,
+      deserializeRoom: deserializeRoom,
+      describeRoom: describeRoom
+    };
+  })();
+
+  /* ---- from js/nats/nats-message-parser.js (validateNATSConfig only) ---- */
+  var NATSMessageParser = (function () {
+    function validateNATSConfig(config) {
+      var errors = [];
+      var cfg = config || {};
+
+      if (typeof cfg.url !== 'string' || cfg.url.trim().length === 0) {
+        errors.push('url is required.');
+      } else if (!/^wss?:\/\//.test(cfg.url)) {
+        errors.push('url must start with ws:// or wss://.');
+      }
+
+      if (typeof cfg.subject !== 'string' || cfg.subject.trim().length === 0) {
+        errors.push('subject is required and must be non-empty.');
+      }
+
+      if (cfg.batchSize !== undefined) {
+        if (typeof cfg.batchSize !== 'number' || !isFinite(cfg.batchSize)) {
+          errors.push('batchSize must be a number.');
+        } else if (cfg.batchSize < 1 || cfg.batchSize > 10000) {
+          errors.push('batchSize must be between 1 and 10000.');
+        }
+      }
+
+      if (cfg.batchIntervalMs !== undefined) {
+        if (typeof cfg.batchIntervalMs !== 'number' || !isFinite(cfg.batchIntervalMs)) {
+          errors.push('batchIntervalMs must be a number.');
+        } else if (cfg.batchIntervalMs < 100 || cfg.batchIntervalMs > 60000) {
+          errors.push('batchIntervalMs must be between 100 and 60000.');
+        }
+      }
+
+      return { valid: errors.length === 0, errors: errors };
+    }
+
+    return {
+      validateNATSConfig: validateNATSConfig
+    };
+  })();
+
+  /* ---- from js/nats/nats-bridge.js (generateConnectionGuide only) ---- */
+  var NATSBridge = (function () {
+    function generateConnectionGuide(config) {
+      var cfg = config || {};
+      var url = cfg.url || 'ws://localhost:4221';
+      var subject = cfg.subject || 'metrics.>';
+
+      return [
+        '1. Install NATS Server: brew install nats-server (macOS) / see nats.io',
+        '2. Start with WebSocket: nats-server -p 4222 -m 8222 --websocket --websocket-port 4221',
+        '3. Publish test message: nats pub ' + subject + ' \'{"col1": 1, "col2": "test"}\'',
+        '4. DataGlow connects to: ' + url
+      ].join('\n');
+    }
+
+    return {
+      generateConnectionGuide: generateConnectionGuide
+    };
+  })();
+
+  /* ---- from js/connectors/connector-manager.js ---- */
+  var ConnectorManager = (function () {
+    function createConnectorManager() {
+      return {
+        connections: {},
+        activeConnectionId: null
+      };
+    }
+
+    function sanitizeConfigForStorage(config) {
+      var cfg = config && typeof config === 'object' ? config : {};
+      var out = {};
+      Object.keys(cfg).forEach(function (k) {
+        if (k === 'password') return;
+        var v = cfg[k];
+        if (k === 'username' && typeof v === 'string' && v.length > 0) {
+          out[k] = v.length <= 2 ? '***' : (v[0] + '***' + v[v.length - 1]);
+          return;
+        }
+        out[k] = v;
+      });
+      if (cfg.password !== undefined) out.password = '***';
+      return out;
+    }
+
+    function registerConnection(manager, connectionId, config, schema) {
+      var current = manager || createConnectorManager();
+      var sanitized = sanitizeConfigForStorage(config);
+
+      var newConnections = Object.assign({}, current.connections);
+      newConnections[connectionId] = {
+        config: sanitized,
+        schema: Array.isArray(schema) ? schema : [],
+        status: 'connected'
+      };
+
+      return {
+        connections: newConnections,
+        activeConnectionId: current.activeConnectionId || connectionId
+      };
+    }
+
+    function getActiveConnection(manager) {
+      var current = manager || createConnectorManager();
+      if (!current.activeConnectionId) return null;
+      var entry = current.connections[current.activeConnectionId];
+      if (!entry) return null;
+      return { connectionId: current.activeConnectionId, config: entry.config, schema: entry.schema };
+    }
+
+    function setActiveConnection(manager, connectionId) {
+      var current = manager || createConnectorManager();
+      if (!current.connections[connectionId]) {
+        return { connections: Object.assign({}, current.connections), activeConnectionId: current.activeConnectionId };
+      }
+      return { connections: Object.assign({}, current.connections), activeConnectionId: connectionId };
+    }
+
+    function removeConnection(manager, connectionId) {
+      var current = manager || createConnectorManager();
+      var newConnections = Object.assign({}, current.connections);
+      delete newConnections[connectionId];
+
+      var newActive = current.activeConnectionId;
+      if (newActive === connectionId) {
+        var remainingIds = Object.keys(newConnections);
+        newActive = remainingIds.length > 0 ? remainingIds[0] : null;
+      }
+
+      return { connections: newConnections, activeConnectionId: newActive };
+    }
+
+    function listConnections(manager) {
+      var current = manager || createConnectorManager();
+      return Object.keys(current.connections).map(function (connectionId) {
+        var entry = current.connections[connectionId];
+        return {
+          connectionId: connectionId,
+          config: entry.config,
+          tableCount: Array.isArray(entry.schema) ? entry.schema.length : 0,
+          status: entry.status || 'connected'
+        };
+      });
+    }
+
+    function hasActiveConnection(manager) {
+      var current = manager || createConnectorManager();
+      return Boolean(current.activeConnectionId && current.connections[current.activeConnectionId]);
+    }
+
+    return {
+      createConnectorManager: createConnectorManager,
+      registerConnection: registerConnection,
+      getActiveConnection: getActiveConnection,
+      setActiveConnection: setActiveConnection,
+      removeConnection: removeConnection,
+      listConnections: listConnections,
+      hasActiveConnection: hasActiveConnection
+    };
+  })();
+
+  /* ============================================================
+     FEATURE FLAGS
+     ------------------------------------------------------------
+     All default false. Flip to true to enable a wired-in module.
+     See <!-- FEATURE: name --> comments in the markup above and
+     the event-listener sections below for each feature's wiring.
+     ============================================================ */
+  var FEATURE_FLAGS = {
+    proofExport: false,
+    dataglowRooms: false,
+    natsConnector: false,
+    tauriConnector: false
+  };
+
+
+
   /* ============================================================
      STATE
      ============================================================ */
@@ -2221,6 +2856,39 @@
   var storyFrame = $('story-frame');
   var storyExportMdBtn = $('story-export-md');
   var storyExportPdfBtn = $('story-export-pdf');
+
+  /* FEATURE: proofExport */
+  var proofExportWrapper = $('proof-export-wrapper');
+  var proofExportBtn = $('proof-export-btn');
+
+  /* FEATURE: dataglowRooms */
+  var storyShareSection = $('story-share-section');
+  var roomCreateBtn = $('room-create-btn');
+  var roomImportBtn = $('room-import-btn');
+  var roomImportFileInput = $('room-import-file-input');
+  var roomCreateForm = $('room-create-form');
+  var roomNameInput = $('room-name-input');
+  var roomCreatedByInput = $('room-created-by-input');
+  var roomCreateConfirmBtn = $('room-create-confirm-btn');
+  var roomCreateCancelBtn = $('room-create-cancel-btn');
+  var roomImportPanel = $('room-import-panel');
+  var roomDescribeOutput = $('room-describe-output');
+  var roomImportCloseBtn = $('room-import-close-btn');
+
+  /* FEATURE: natsConnector */
+  var natsSourceWrapper = $('nats-source-wrapper');
+  var natsSourceOption = $('nats-source-option');
+  var natsConfigForm = $('nats-config-form');
+  var natsUrlInput = $('nats-url-input');
+  var natsSubjectInput = $('nats-subject-input');
+  var natsBatchSizeInput = $('nats-batchsize-input');
+  var natsConnectionGuide = $('nats-connection-guide');
+  var natsConnectBtn = $('nats-connect-btn');
+  var natsConnectStatus = $('nats-connect-status');
+
+  /* FEATURE: tauriConnector */
+  var tauriDbChip = $('tauri-db-chip');
+  var tauriConnectionsPanel = $('tauri-connections-panel');
 
   var sqlOverlay = $('sql-overlay');
   var sqlInput = $('sql-input');
@@ -3363,6 +4031,7 @@
       storyEmpty.classList.remove('hidden');
       storyFrame.classList.add('hidden');
       state.currentStoryDoc = null;
+      if (FEATURE_FLAGS.proofExport) updateProofExportButtonState();
       return;
     }
 
@@ -3385,6 +4054,8 @@
     storyEmpty.classList.add('hidden');
     storyFrame.classList.remove('hidden');
     storyFrame.srcdoc = html;
+
+    if (FEATURE_FLAGS.proofExport) updateProofExportButtonState();
   }
 
   navBtns.forEach(function (btn) {
@@ -3438,6 +4109,282 @@
       });
     }
   });
+
+  /* ============================================================
+     FEATURE: proofExport
+     ------------------------------------------------------------
+     "Export Proof" button in Story View. Disabled until a story
+     has been generated and no unresolved Critical findings remain.
+     ============================================================ */
+  function updateProofExportButtonState() {
+    if (!FEATURE_FLAGS.proofExport) return;
+    var dataset = getActiveDataset();
+
+    if (!state.currentStoryDoc) {
+      proofExportBtn.disabled = true;
+      proofExportBtn.title = 'Generate a story first';
+      return;
+    }
+
+    var findings = dataset ? (dataset.findings || []) : [];
+    var check = ProofBuilder.canExportProof(findings);
+    if (!check.allowed) {
+      proofExportBtn.disabled = true;
+      proofExportBtn.title = 'Resolve all Critical findings to unlock proof export';
+      return;
+    }
+
+    proofExportBtn.disabled = false;
+    proofExportBtn.title = 'Export Proof';
+  }
+
+  if (FEATURE_FLAGS.proofExport) {
+    proofExportWrapper.classList.remove('hidden');
+    updateProofExportButtonState();
+
+    proofExportBtn.addEventListener('click', function () {
+      var dataset = getActiveDataset();
+      if (!dataset || !state.currentStoryDoc) return;
+
+      var findings = dataset.findings || [];
+      var check = ProofBuilder.canExportProof(findings);
+      if (!check.allowed) return;
+
+      var proofPackage = ProofBuilder.buildProof({
+        validationFindings: findings,
+        memoryStore: state.memoryStore,
+        storyDoc: state.currentStoryDoc,
+        datasetName: dataset.name,
+        rowCount: dataset.rows.length,
+        columnCount: dataset.columns.length,
+        sourceFileHash: dataset.fileHash,
+        generatedAt: new Date().toISOString(),
+        toolVersion: 'dataglow-canvas'
+      }, {
+        summarizeMemory: InstitutionalMemory.summarizeMemory,
+        generateTimeline: InstitutionalMemory.generateTimeline,
+        computeProvenanceHash: InstitutionalMemory.computeProvenanceHash,
+        computeStoryHash: StoryBuilder.computeStoryHash,
+        renderMarkdown: StoryBuilder.renderMarkdown
+      });
+
+      var serialized = ProofBuilder.serializeProof(proofPackage);
+      var blob = new Blob([serialized], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var timestamp = Date.now();
+      var safeName = dataset.name.replace(/\.[^.]+$/, '');
+      a.href = url;
+      a.download = 'dataglow-' + safeName + '-' + timestamp + '.proof';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.STORY_EXPORTED,
+        actor: 'human',
+        datasetId: dataset.id,
+        column: null,
+        reason: 'Exported Proof Package.',
+        metadata: { format: 'proof' }
+      });
+    });
+  }
+
+  /* ============================================================
+     FEATURE: dataglowRooms
+     ------------------------------------------------------------
+     "Create Room" / "Import Room" buttons in Story View.
+     ============================================================ */
+  if (FEATURE_FLAGS.dataglowRooms) {
+    storyShareSection.classList.remove('hidden');
+
+    roomCreateBtn.addEventListener('click', function () {
+      roomImportPanel.classList.add('hidden');
+      roomCreateForm.classList.remove('hidden');
+      roomNameInput.value = '';
+      roomCreatedByInput.value = '';
+      roomNameInput.focus();
+    });
+
+    roomCreateCancelBtn.addEventListener('click', function () {
+      roomCreateForm.classList.add('hidden');
+    });
+
+    roomCreateConfirmBtn.addEventListener('click', function () {
+      var dataset = getActiveDataset();
+      if (!dataset) return;
+
+      var roomName = (roomNameInput.value || '').trim() || 'Untitled Room';
+      var createdBy = (roomCreatedByInput.value || '').trim() || 'Unknown';
+
+      var storySummary = state.currentStoryDoc ? StoryBuilder.renderMarkdown(state.currentStoryDoc) : null;
+      var memoryTimeline = InstitutionalMemory.generateTimeline(state.memoryStore);
+      var proofHash = state.currentStoryDoc ? StoryBuilder.computeStoryHash(state.currentStoryDoc) : null;
+
+      var room = RoomsBuilder.createRoom({
+        findings: dataset.findings || [],
+        roomName: roomName,
+        createdBy: createdBy,
+        createdAt: new Date().toISOString(),
+        sourceFileHash: dataset.fileHash,
+        datasetName: dataset.name,
+        rowCount: dataset.rows.length,
+        columnCount: dataset.columns.length,
+        memoryTimeline: memoryTimeline,
+        storySummary: storySummary,
+        proofHash: proofHash
+      });
+
+      var serialized = RoomsBuilder.serializeRoom(room);
+      var blob = new Blob([serialized], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var safeRoomName = roomName.replace(/[^a-z0-9_-]+/gi, '_');
+      a.href = url;
+      a.download = safeRoomName + '.room.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      roomCreateForm.classList.add('hidden');
+
+      state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+        type: InstitutionalMemory.RECORD_TYPES.STORY_EXPORTED,
+        actor: 'human',
+        datasetId: dataset.id,
+        column: null,
+        reason: 'Created DataGlow Room "' + roomName + '".',
+        metadata: { format: 'room' }
+      });
+    });
+
+    roomImportBtn.addEventListener('click', function () {
+      roomCreateForm.classList.add('hidden');
+      roomImportFileInput.click();
+    });
+
+    roomImportFileInput.addEventListener('change', function () {
+      var file = roomImportFileInput.files && roomImportFileInput.files[0];
+      if (!file) return;
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        var text = String(reader.result || '');
+        var result = RoomsBuilder.deserializeRoom(text);
+
+        roomImportPanel.classList.remove('hidden');
+
+        if (!result.valid) {
+          roomDescribeOutput.textContent = 'Failed to import room: ' + result.errors.join('; ');
+          return;
+        }
+
+        var verification = RoomsBuilder.verifyRoom(result.room);
+        if (!verification.valid) {
+          roomDescribeOutput.textContent = 'Room signature invalid: ' + (verification.reason || 'unknown reason');
+          return;
+        }
+
+        roomDescribeOutput.textContent = RoomsBuilder.describeRoom(result.room);
+      };
+      reader.readAsText(file);
+      roomImportFileInput.value = '';
+    });
+
+    roomImportCloseBtn.addEventListener('click', function () {
+      roomImportPanel.classList.add('hidden');
+    });
+  }
+
+  /* ============================================================
+     FEATURE: natsConnector
+     ------------------------------------------------------------
+     "Live Stream (NATS)" option alongside the file drop zone.
+     ============================================================ */
+  if (FEATURE_FLAGS.natsConnector) {
+    natsSourceWrapper.classList.remove('hidden');
+
+    function renderNATSConnectionGuide() {
+      var config = {
+        url: natsUrlInput.value || 'ws://localhost:4221',
+        subject: natsSubjectInput.value || 'metrics.>'
+      };
+      natsConnectionGuide.textContent = NATSBridge.generateConnectionGuide(config);
+    }
+
+    natsSourceOption.addEventListener('click', function () {
+      var isHidden = natsConfigForm.classList.contains('hidden');
+      if (isHidden) {
+        natsConfigForm.classList.remove('hidden');
+        renderNATSConnectionGuide();
+      } else {
+        natsConfigForm.classList.add('hidden');
+      }
+    });
+
+    natsUrlInput.addEventListener('input', renderNATSConnectionGuide);
+    natsSubjectInput.addEventListener('input', renderNATSConnectionGuide);
+
+    natsConnectBtn.addEventListener('click', function () {
+      var config = {
+        url: natsUrlInput.value || '',
+        subject: natsSubjectInput.value || '',
+        batchSize: Number(natsBatchSizeInput.value) || 100
+      };
+
+      var result = NATSMessageParser.validateNATSConfig(config);
+      natsConnectStatus.classList.remove('error', 'ready');
+
+      if (!result.valid) {
+        natsConnectStatus.classList.add('error');
+        natsConnectStatus.textContent = result.errors.join(' ');
+        return;
+      }
+
+      natsConnectStatus.classList.add('ready');
+      natsConnectStatus.textContent = 'Ready to receive';
+    });
+  }
+
+  /* ============================================================
+     FEATURE: tauriConnector
+     ------------------------------------------------------------
+     "Native DB" status chip in the agent bar. Hidden entirely in
+     a standard browser; only shown when window.__TAURI__ exists.
+     ============================================================ */
+  if (FEATURE_FLAGS.tauriConnector && typeof window !== 'undefined' && window.__TAURI__) {
+    tauriDbChip.classList.remove('hidden');
+    tauriDbChip.textContent = 'Native DB';
+
+    var tauriConnectorManagerState = ConnectorManager.createConnectorManager();
+
+    function renderTauriConnectionsPanel() {
+      var connections = ConnectorManager.listConnections(tauriConnectorManagerState);
+      if (connections.length === 0) {
+        tauriConnectionsPanel.innerHTML = '<p>No active native database connections.</p>';
+        return;
+      }
+      var html = connections.map(function (c) {
+        return '<p><strong>' + (c.config && c.config.database ? c.config.database : c.connectionId) +
+          '</strong> \u2014 ' + c.status + ' (' + c.tableCount + ' tables)</p>';
+      }).join('');
+      tauriConnectionsPanel.innerHTML = html;
+    }
+
+    tauriDbChip.addEventListener('click', function () {
+      var isHidden = tauriConnectionsPanel.classList.contains('hidden');
+      if (isHidden) {
+        renderTauriConnectionsPanel();
+        tauriConnectionsPanel.classList.remove('hidden');
+      } else {
+        tauriConnectionsPanel.classList.add('hidden');
+      }
+    });
+  }
+
 
   /* ============================================================
      SQL MODE (Tier 3 overlay — Cmd+`/Ctrl+`)
