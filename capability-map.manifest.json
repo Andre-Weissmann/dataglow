@@ -1255,6 +1255,48 @@
       ]
     },
     {
+      "id": "rooms-builder",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "DataGlow Rooms",
+      "name": "Async collaboration via signed findings JSON (Feature 11)",
+      "files": [
+        "js/rooms/rooms-builder.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "createRoom"
+        },
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "verifyRoom"
+        },
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "mergeRooms"
+        },
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "serializeRoom"
+        },
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "deserializeRoom"
+        },
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "describeRoom"
+        },
+        {
+          "file": "js/rooms/rooms-builder.js",
+          "name": "isSameDataset"
+        }
+      ]
+    },
+    {
       "id": "provenance-proof-export",
       "platforms": [
         "browser",
