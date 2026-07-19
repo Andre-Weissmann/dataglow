@@ -28,6 +28,11 @@
 # job-ci-batch-*.yml file has spare room, rather than creating a new
 # job-<name>.yml + a new `uses:` line in test.yml. See the DataGlow CI
 # Architect note in test.yml's header for the standing guardrail.
+#
+# 2026-07-19: added `prompt-eval` (Prompt Eval Harness for Guarded Copilot and
+# Query Sentinel, test/prompt-eval/runner.js) here per that guardrail — this
+# batch had the most spare headroom of the five. Node built-ins only, no
+# `npm ci` needed for this job.
 
 name: CI batch 05
 
@@ -213,3 +218,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:checkseal
+
+  prompt-eval:
+    name: Prompt Eval Harness (Guarded Copilot + Query Sentinel mock regression)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node test/prompt-eval/runner.js
