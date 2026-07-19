@@ -7,6 +7,33 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 08:16 CT] Fix #2 merged — referential-integrity discoverability hint (PR #369)
+
+**What was asked:** Continue the DataGlow real-data-readiness plan (from the 2026-07-17 readiness audit).
+Fix #2 addressed a discoverability gap: the cross-table referential-integrity check
+(`crossTableReferentialIntegrity`, already enabled) worked correctly once 2+ related tables were loaded,
+but a single-table analyst had no signal the capability existed or that loading a second file would
+unlock it.
+
+**What was built:** An informational-only finding (`severity: 'info'`, `kind:
+'referential_integrity_locked'`) that fires only when FK-shaped columns exist and zero other datasets are
+loaded, naming the actual column(s) that would benefit. Never changes pass/warn/fail status —
+`summarizeUnitTests` tracks info findings separately and now surfaces them in `detail` even on an
+otherwise-clean pass, where they were previously dropped by the null-detail shortcut. 4 new tests added
+(hint fires; doesn't fire when a second table exists but doesn't match; doesn't fire when the flag is
+off; doesn't fire when there are no FK-shaped columns) — all passing alongside the unaffected 88+26+12+21
+regression suites.
+
+**Safety assessment presented before merge:** 3 files changed (87 additions / 3 deletions), purely
+additive to an existing already-enabled flag path, no new flag introduced, no data mutation, no scope
+creep beyond the stated discoverability gap. Independently read the full diff (not just trusted green
+CI) before presenting the assessment. All 69 CI checks green, `mergeStateStatus: CLEAN`.
+
+**Outcome:** Merged (squash) into main at `b60135e`, branch deleted. Explicit `confirm_action` approval
+obtained before merge per standing rule.
+
+---
+
 ## [2026-07-18 14:22 CT] Wiki documentation debt cleared — 38 new capability-map pages, 41 issues closed (PR #366, merged)
 
 **What was asked:** Fix issue #299 (CI failure on main: tests) and address the accumulated "Wiki page needed"
