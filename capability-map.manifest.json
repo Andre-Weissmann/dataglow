@@ -1424,6 +1424,38 @@
       ]
     },
     {
+      "id": "pivot-table",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Language runtimes & visualization",
+      "name": "Pivot Table (Batch 1: tap-to-add Rows/Columns/Values wells over real DuckDB PIVOT/GROUP BY SQL)",
+      "files": [
+        "js/pivot/pivot-builder.js",
+        "js/runtimes-viz/pivot-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/pivot/pivot-builder.js",
+          "name": "buildPivotQuery"
+        },
+        {
+          "file": "js/pivot/pivot-builder.js",
+          "name": "buildGroupBySQL"
+        },
+        {
+          "file": "js/pivot/pivot-builder.js",
+          "name": "buildPivotSQL"
+        },
+        {
+          "file": "js/runtimes-viz/pivot-ui.js",
+          "name": "renderPivotTab"
+        }
+      ]
+    },
+    {
       "id": "drill-floor",
       "platforms": [
         "browser",

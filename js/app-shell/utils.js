@@ -11,6 +11,8 @@ export function el(tag, attrs = {}, children = []) {
     if (k === 'class') node.className = v;
     else if (k === 'html') node.innerHTML = v;
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+    else if (v === null || v === undefined || v === false) { /* omit falsy/nullish boolean-style attrs */ }
+    else if (v === true) node.setAttribute(k, '');
     else node.setAttribute(k, v);
   }
   for (const c of [].concat(children)) {

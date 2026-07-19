@@ -26,6 +26,7 @@ import { buildBeamUrl } from '../provenance/trust-beam.js';
 import { classifyGroupedConfidence, summarizeGroupedConfidence, cohensD } from '../rigor/statistical-rigor.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
+import { renderPivotTab } from '../runtimes-viz/pivot-ui.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
 import * as drillFloorData from '../drill-floor/drill-floor-data.js';
 import * as drillDiff from '../drill-floor/drill-diff.js';
@@ -173,6 +174,7 @@ const TAB_META = {
   diff: { label: 'Diff', icon: 'git-compare' },
   visualize: { label: 'Visualize', icon: 'pie-chart' },
   glowcanvas: { label: 'Glow Canvas', icon: 'grid' },
+  pivot: { label: 'Pivot', icon: 'table' },
   drillfloor: { label: 'Drill Floor', icon: 'target' },
   cleaningcrew: { label: 'Cleaning Crew', icon: 'sparkles' },
   story: { label: 'Story', icon: 'book-open' },
@@ -213,6 +215,7 @@ const ICONS = {
   'git-branch': '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   users: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+  table: '<rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>',
 };
 
 function iconSvg(name, size = 15) {
@@ -261,6 +264,7 @@ function getVisibleTabIds() {
     && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
     && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
     && (tabId !== 'glowcanvas' || isEnabled('glowCanvas'))
+    && (tabId !== 'pivot' || isEnabled('pivotTable'))
     && (tabId !== 'joinbuilder' || isEnabled('joinBuilder'))
     && (tabId !== 'nlsql' || isEnabled('nlSql'))
     && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
@@ -305,6 +309,10 @@ function renderTabBar() {
   // glowCanvas flag off (its shipped default) it is never added to the bar,
   // never a dead click target, and #panel-glowcanvas stays empty (see
   // renderGlowCanvasTab). It gates ONLY this multi-chart dashboard surface.
+  // The 'pivot' tab follows the same dark-by-default gate: with the
+  // pivotTable flag off (its shipped default) it is never added to the bar,
+  // never a dead click target, and #panel-pivot stays empty (see
+  // renderPivotTab in runtimes-viz/pivot-ui.js).
   const visibleTabOrder = getVisibleTabIds();
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
@@ -388,6 +396,7 @@ function switchTab(tabId) {
   if (tabId === 'crucible') renderCrucibleTab();
   if (tabId === 'copilot') renderGuardedCopilotTab();
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
+  if (tabId === 'pivot') renderPivotTab('pivot-body', state.datasets || []);
   if (tabId === 'joinbuilder') renderJoinBuilderTab();
   if (tabId === 'nlsql') renderNLSQLTab();
   if (tabId === 'dvc') renderDVCTab();

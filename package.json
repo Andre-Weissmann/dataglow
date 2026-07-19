@@ -129,6 +129,7 @@
     "test:glowcanvas": "node test/glow-canvas.test.mjs",
     "test:drillfloor": "node test/drill-floor.test.mjs",
     "test:drilldiff": "node test/drill-diff.test.mjs",
+    "test:pivot": "node --import ./test/duckdb-loader-hook.mjs test/pivot-builder.test.mjs",
     "test:cleaningcrew": "node test/cleaning-crew-profiler.test.mjs",
     "test:proficiencysignal": "node test/proficiency-signal.test.mjs",
     "test:glowpath": "node test/glow-path.test.mjs",
