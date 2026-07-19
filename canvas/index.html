@@ -397,16 +397,21 @@
     border-bottom: 1px solid var(--border);
     padding: 0 16px;
     background: var(--surface);
+    position: relative;
+    z-index: 25;
   }
   #nav-brand {
     display: flex;
     align-items: center;
   }
   #nav-logo-img {
-    height: 28px;
+    height: 32px;
     width: auto;
     object-fit: contain;
     display: block;
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 3px 8px;
   }
   #nav-views {
     display: flex;
@@ -2154,7 +2159,7 @@
 
     <!-- FEATURE: natsConnector -->
     <div id="nats-source-wrapper" class="hidden">
-      <button id="nats-source-option">Live Stream (NATS)</button>
+      <button id="nats-source-option" class="hidden">Live Stream (NATS)</button>
       <div id="nats-config-form" class="hidden">
         <label>WebSocket URL
           <input type="text" id="nats-url-input" value="ws://localhost:4221" placeholder="ws://localhost:4221" />
@@ -2173,7 +2178,7 @@
     <!-- /FEATURE: natsConnector -->
   </div>
 
-    <!-- Top nav -->
+  <!-- Top nav (inside #canvas) -->
     <nav id="top-nav">
       <div id="nav-brand">
         <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
@@ -4348,7 +4353,7 @@
  * NLAnswer: { answer, sql, type, confidence, error }
  */
 
-export var NLEngine = (function () {
+var NLEngine = (function () {
   'use strict';
 
   // ── helpers ───────────────────────────────────────────────────────────────
