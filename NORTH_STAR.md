@@ -1635,6 +1635,22 @@ build-time check inside the skill's own workflow, not a cron/scheduled job. The 
 part of its hygiene-debt tracking, so the number is visible between runs too. This should prevent this
 wall from ever being hit a third time.
 
+## Positioning note: the four analytics categories (descriptive/diagnostic/predictive/prescriptive) — where DataGlow sits (2026-07-19, docs-only)
+
+**Prompted by an external reference** ([Maven Analytics' "Data Literacy Foundations" course](https://mavenanalytics.io/course/data-literacy-foundations), which frames analytics as four categories used *in combination*, not a linear maturity ladder analysts "graduate" through). Verified against the real codebase (`grep`-confirmed module list below) rather than asserted from memory — this is a snapshot as of 2026-07-19, re-verify if the module list below has since changed.
+
+**Descriptive — "what happened."** DataGlow's deepest, most mature area. The SQL/Query tab (`js/app-shell/duckdb-engine.js`), Clean tab (`js/cleaning/*`), Visualize tab, and the 23-layer Validate suite (`js/validation/validation.js` orchestrator + standalone layer modules) all describe the dataset as it stands — profiling, distribution checks, duplicate/missingness detection.
+
+**Diagnostic — "why did it happen."** Real, purpose-built modules exist: `js/analysis-robustness/devils-advocate.js` (bootstrap resampling + subgroup leave-one-out checks testing whether a headline finding actually holds up), `js/analysis-robustness/robustness-verdict.js`'s `mapAssumptionSensitivity` (finds which rows/segments are driving an A-vs-B gap) and `robustnessVerdict` (folds that into a fixed `robust`/`fragile`/`inconclusive` call), and `js/rigor/statistical-rigor.js`'s `detectSimpsonsParadox` (flags when an aggregate trend reverses at the segment level). Query Sentinel and the Local Analysis Contract also push toward diagnostic thinking by flagging *why* a query result might be misleading (fan-out, non-additive GROUP BY).
+
+**Predictive — "what will happen next."** Present but narrower than the above two. `js/drift/drift-forecast.js` (Holt's exponential smoothing forecasting whether a new upload falls outside the expected trend band — escalates validation layer 18, Distributional Fingerprint Drift) and `js/anomaly/predictive-anomaly.js` (kNN/Gower row-level outlier prediction). There is no general-purpose regression/ML forecasting workbench — this is "is this new data drifting from what we'd expect," not "predict next quarter's revenue."
+
+**Prescriptive — "what's the best course of action."** The thinnest category, and mostly advisory rather than genuinely prescriptive. Nothing computes an optimal decision with a cost/benefit tradeoff. Closest analogues: The Crucible's adversarial validator can *escalate* a proposed data change for human review (`js/validation/crucible-orchestrator.js` — decision is `accept` or `escalate`, never an optimization), and `js/provenance/revert-eligibility.js` can *propose* an inert, inspectable undo. Both are "should a human look at this" flags, not "here is the optimal action."
+
+**Explicitly out of scope, and correctly so:** a LinkedIn post surfaced the same week (Tableau Cloud Manager's multi-tenant capacity management — allocating a shared server-side resource pool of extract/API/subscription concurrency across many "sites") is a different product category entirely, not a DataGlow gap. DataGlow has no multi-tenant server to manage capacity for — it runs entirely client-side (DuckDB-WASM in-browser or the Tauri desktop shell), so there is no shared compute pool, no per-site concurrency limit, and no fleet-of-users admin console to build. This is architectural, not a missing feature.
+
+**Takeaway for positioning, not a call to "fill the gap" reflexively:** DataGlow is a data-quality and trust platform, not an analytics-maturity-ladder product. It is not trying to make users "graduate" from descriptive to prescriptive — consistent with the Maven Analytics framing that these four categories coexist rather than supersede each other. The correct read is that descriptive and diagnostic (the two nearly every real analysis actually leans on) are the deepest and most trustworthy layers on purpose, with predictive/prescriptive as real but intentionally thinner additions on top — not an unfinished ladder.
+
 ## Shipped (live, all three flags on): Query Sentinel
 
 **Concept:** a three-batch SQL-tab trust layer, built and merged dark in one continuous autonomous run
