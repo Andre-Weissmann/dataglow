@@ -169,7 +169,8 @@
     "screenshot:grades": "node test/_screenshot-grades.mjs",
     "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
     "screenshot:missingness": "node test/_screenshot-missingness.mjs",
-    "test:mcp": "node test/mcp-server.test.mjs"
+    "test:mcp": "node test/mcp-server.test.mjs",
+    "test:streamingvalidator": "node test/streaming/streaming-validator.test.js"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
