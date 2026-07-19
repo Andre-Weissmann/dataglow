@@ -1380,6 +1380,37 @@
     background: var(--border);
     border-radius: 5px;
   }
+
+  /* Format badges — shown on each file tab once loaded */
+  .format-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    margin-left: 6px;
+    vertical-align: middle;
+    opacity: 0.75;
+  }
+  .format-badge--csv, .format-badge--tsv { background: #1B474D22; color: #1B474D; }
+  .format-badge--json, .format-badge--ndjson { background: #D1990022; color: #8a6200; }
+  .format-badge--xlsx { background: #43811422; color: #437A22; }
+  .format-badge--parquet, .format-badge--arrow, .format-badge--feather { background: #006A9422; color: #006494; }
+  .format-badge--pdf { background: #A12C4422; color: #A12C44; }
+  .format-badge--audio { background: #7A39BB22; color: #7A39BB; }
+  .format-badge--video { background: #96421922; color: #964219; }
+  .format-badge--txt, .format-badge--log { background: #7A797422; color: #7A7974; }
+  .format-badge--xml { background: #DA710122; color: #DA7101; }
+  .dark .format-badge--csv, .dark .format-badge--tsv { background: #BCE2E722; color: #BCE2E7; }
+  .dark .format-badge--json, .dark .format-badge--ndjson { background: #FFC55322; color: #FFC553; }
+  .dark .format-badge--xlsx { background: #6DAA4522; color: #6DAA45; }
+  .dark .format-badge--parquet, .dark .format-badge--arrow, .dark .format-badge--feather { background: #5591C722; color: #5591C7; }
+  .dark .format-badge--pdf { background: #D163A722; color: #D163A7; }
+  .dark .format-badge--audio { background: #A86FDF22; color: #A86FDF; }
+  .dark .format-badge--video { background: #BB653B22; color: #BB653B; }
+  .dark .format-badge--txt, .dark .format-badge--log { background: #79787622; color: #797876; }
+  .dark .format-badge--xml { background: #FDAB4322; color: #FDAB43; }
 </style>
 </head>
 <body>
@@ -1390,8 +1421,8 @@
   <div id="ceremony-screen">
     <div id="drop-zone">
       <p id="drop-text">Drop your data here.</p>
-      <p id="drop-formats">CSV · XLSX · JSON · Parquet · PDF · MP3 / WAV (transcribed) · MP4 (coming soon)</p>
-      <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.xlsx,.parquet">
+      <p id="drop-formats">CSV · TSV · JSON · NDJSON · XLSX · Parquet · PDF · TXT · LOG · Arrow · Feather · Audio · Video</p>
+      <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
     <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
@@ -1633,11 +1664,15 @@
   var DropZoneRouter = (function () {
     var FORMAT_HANDLERS = {
       csv: 'duckdb', tsv: 'duckdb', json: 'duckdb', ndjson: 'duckdb', parquet: 'duckdb',
-      xlsx: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs', unknown: 'unknown'
+      xlsx: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs',
+      txt: 'duckdb', log: 'duckdb', arrow: 'duckdb', feather: 'duckdb', xml: 'rag',
+      unknown: 'unknown'
     };
     var FORMAT_ICONS = {
       csv: 'table', tsv: 'table', json: 'table', ndjson: 'table', parquet: 'table',
-      xlsx: 'grid', pdf: 'document', audio: 'audio', video: 'video', unknown: 'unknown'
+      xlsx: 'grid', pdf: 'document', audio: 'audio', video: 'video',
+      txt: 'table', log: 'table', arrow: 'table', feather: 'table', xml: 'document',
+      unknown: 'unknown'
     };
     var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac'];
     var VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm'];
@@ -1686,6 +1721,18 @@
       if (mime.indexOf('video/') === 0) {
         return { format: 'video', confidence: 'medium', handler: handlerForFormat('video') };
       }
+      // Arrow IPC / Feather v2 — magic bytes "ARROW1\0\0" (first 6 bytes)
+      if (firstBytes && firstBytes.length >= 6) {
+        var arrowMagic = [0x41, 0x52, 0x52, 0x4F, 0x57, 0x31]; // "ARROW1"
+        var isArrowMagic = true;
+        for (var ai = 0; ai < arrowMagic.length; ai++) {
+          if (firstBytes[ai] !== arrowMagic[ai]) { isArrowMagic = false; break; }
+        }
+        if (isArrowMagic) {
+          return { format: 'arrow', confidence: 'high', handler: handlerForFormat('arrow') };
+        }
+      }
+
       if (ext === '.tsv') return { format: 'tsv', confidence: 'low', handler: handlerForFormat('tsv') };
       if (ext === '.parquet') return { format: 'parquet', confidence: 'low', handler: handlerForFormat('parquet') };
       if (ext === '.csv') return { format: 'csv', confidence: 'low', handler: handlerForFormat('csv') };
@@ -1693,6 +1740,10 @@
       if (ext === '.ndjson') return { format: 'json', confidence: 'low', handler: handlerForFormat('json') };
       if (ext === '.xlsx') return { format: 'xlsx', confidence: 'low', handler: handlerForFormat('xlsx') };
       if (ext === '.pdf') return { format: 'pdf', confidence: 'low', handler: handlerForFormat('pdf') };
+      if (ext === '.txt' || ext === '.log') return { format: 'txt', confidence: 'low', handler: handlerForFormat('txt') };
+      if (ext === '.arrow') return { format: 'arrow', confidence: 'low', handler: handlerForFormat('arrow') };
+      if (ext === '.feather') return { format: 'feather', confidence: 'low', handler: handlerForFormat('feather') };
+      if (ext === '.xml') return { format: 'xml', confidence: 'low', handler: handlerForFormat('xml') };
       if (AUDIO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'audio', confidence: 'low', handler: handlerForFormat('audio') };
       if (VIDEO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'video', confidence: 'low', handler: handlerForFormat('video') };
 
@@ -1770,6 +1821,175 @@
       buildDropManifest: buildDropManifest,
       routeDropManifest: routeDropManifest,
       buildTabDescriptor: buildTabDescriptor
+    };
+  })();
+
+  /* ---- from js/ingestion/text-line-parser.js ---- */
+  var TextLineParser = (function () {
+    function parseTextLines(text, opts) {
+      opts = opts || {};
+      var skipEmpty = opts.skipEmpty || false;
+      var maxLines = opts.maxLines || 500000;
+      if (typeof text !== 'string') return { rows: [], lineCount: 0, skippedEmpty: 0 };
+
+      var raw = text.split('\n');
+      var rows = [];
+      var skippedEmpty = 0;
+
+      for (var i = 0; i < raw.length && rows.length < maxLines; i++) {
+        var content = raw[i].replace(/\r$/, '');
+        if (skipEmpty && content.trim() === '') {
+          skippedEmpty++;
+          continue;
+        }
+        rows.push({ line_number: i + 1, content: content });
+      }
+
+      return { rows: rows, lineCount: raw.length, skippedEmpty: skippedEmpty };
+    }
+
+    function inferTextKind(sampleLines) {
+      if (!Array.isArray(sampleLines) || sampleLines.length === 0) return 'unknown';
+      var sample = sampleLines.slice(0, 20);
+      var tsPattern = /^\d{4}-\d{2}-\d{2}|^\[\d{2}[:/]\d{2}/;
+      var severityPattern = /\b(INFO|WARN|WARNING|ERROR|DEBUG|CRITICAL|FATAL|TRACE)\b/i;
+      var delimPattern = /\t|,(?=\S)/;
+      var tsHits = 0, sevHits = 0, delimHits = 0;
+      for (var i = 0; i < sample.length; i++) {
+        var line = sample[i];
+        if (tsPattern.test(line)) tsHits++;
+        if (severityPattern.test(line)) sevHits++;
+        if (delimPattern.test(line)) delimHits++;
+      }
+      if (tsHits >= 3 || sevHits >= 3) return 'log';
+      if (delimHits >= Math.floor(sample.length * 0.7)) return 'delimited';
+      var allLong = sample.every(function (l) { return l.trim().length > 40; });
+      if (allLong) return 'prose';
+      return 'unknown';
+    }
+
+    function buildTextDataset(parsed, fileName, kind) {
+      return {
+        columns: ['line_number', 'content'],
+        rows: parsed.rows,
+        meta: {
+          source: fileName,
+          format: 'txt',
+          kind: kind,
+          lineCount: parsed.lineCount,
+          skippedEmpty: parsed.skippedEmpty || 0,
+          note: kind === 'log'
+            ? 'Log file detected — timestamps and severity levels present. Query content for patterns.'
+            : kind === 'delimited'
+            ? 'Delimited text detected — consider renaming to .csv or .tsv for richer column parsing.'
+            : 'Plain text loaded as line-numbered rows. Use SQL LIKE/REGEXP on content column.'
+        }
+      };
+    }
+
+    return {
+      parseTextLines: parseTextLines,
+      inferTextKind: inferTextKind,
+      buildTextDataset: buildTextDataset
+    };
+  })();
+
+  /* ---- from js/ingestion/json-flattener.js ---- */
+  var JsonFlattener = (function () {
+    function isPlainObj(v) {
+      return v !== null && typeof v === 'object' && !Array.isArray(v);
+    }
+
+    function flattenObj(obj, maxDepth, prefix, depth) {
+      prefix = prefix || '';
+      depth = depth || 0;
+      if (!isPlainObj(obj)) return { value: obj };
+      var out = {};
+      Object.keys(obj).forEach(function (k) {
+        var v = obj[k];
+        var key = prefix ? (prefix + '.' + k) : k;
+        if (isPlainObj(v) && depth < maxDepth) {
+          var nested = flattenObj(v, maxDepth, key, depth + 1);
+          Object.keys(nested).forEach(function (nk) { out[nk] = nested[nk]; });
+        } else if (Array.isArray(v)) {
+          out[key] = JSON.stringify(v);
+        } else {
+          out[key] = v == null ? null : v;
+        }
+      });
+      return out;
+    }
+
+    function findFirstArrayPath(obj, maxDepth, prefix, depth) {
+      prefix = prefix || '';
+      depth = depth || 0;
+      if (depth > maxDepth) return null;
+      var keys = Object.keys(obj);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var v = obj[k];
+        var path = prefix ? (prefix + '.' + k) : k;
+        if (Array.isArray(v) && v.length > 0 && isPlainObj(v[0])) return { path: path, value: v };
+        if (isPlainObj(v)) {
+          var found = findFirstArrayPath(v, maxDepth, path, depth + 1);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    function flattenJson(parsed, opts) {
+      opts = opts || {};
+      var maxDepth = opts.maxDepth || 4;
+      var maxRows = opts.maxRows || 200000;
+
+      if (Array.isArray(parsed) && parsed.length > 0 && isPlainObj(parsed[0])) {
+        var rows = parsed.slice(0, maxRows).map(function (r) { return flattenObj(r, maxDepth); });
+        return { rows: rows, path: '(root array)', confidence: 'high', warning: null };
+      }
+
+      if (Array.isArray(parsed) && parsed.length > 0 && !isPlainObj(parsed[0])) {
+        var rows2 = parsed.slice(0, maxRows).map(function (v, i) { return { index: i, value: v == null ? null : String(v) }; });
+        return { rows: rows2, path: '(root array of scalars)', confidence: 'medium', warning: 'Array of scalar values — each entry becomes a row with index + value columns.' };
+      }
+
+      if (isPlainObj(parsed)) {
+        var found = findFirstArrayPath(parsed, maxDepth);
+        if (found) {
+          var rows3 = found.value.slice(0, maxRows).map(function (r) { return flattenObj(r, maxDepth); });
+          return { rows: rows3, path: found.path, confidence: 'medium', warning: 'Extracted rows from "' + found.path + '". Other keys in the envelope were discarded.' };
+        }
+        return { rows: [flattenObj(parsed, maxDepth)], path: '(root object)', confidence: 'low', warning: 'Single JSON object — treated as one row. Consider if this is an API envelope.' };
+      }
+
+      return { rows: [], path: '', confidence: 'low', warning: 'Could not extract rows from this JSON structure.' };
+    }
+
+    function parseJsonOrNdjson(text) {
+      if (typeof text !== 'string' || text.trim() === '') {
+        return { parsed: null, isNdjson: false, error: 'Empty input' };
+      }
+      try {
+        return { parsed: JSON.parse(text), isNdjson: false, error: null };
+      } catch (e1) {}
+      try {
+        var lines = text.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return !!l; });
+        var rows = lines.map(function (l) { return JSON.parse(l); });
+        if (rows.length > 0 && rows.every(isPlainObj)) {
+          return { parsed: rows, isNdjson: true, error: null };
+        }
+      } catch (e2) {}
+      return { parsed: null, isNdjson: false, error: 'Could not parse as JSON or NDJSON' };
+    }
+
+    function jsonNeedsFlattening(format) {
+      return format === 'json' || format === 'ndjson';
+    }
+
+    return {
+      flattenJson: flattenJson,
+      parseJsonOrNdjson: parseJsonOrNdjson,
+      jsonNeedsFlattening: jsonNeedsFlattening
     };
   })();
 
@@ -3626,7 +3846,7 @@
       metadata: { filename: filename, rowCount: dataset.rows.length, colCount: dataset.columns.length, fileHash: dataset.fileHash }
     });
 
-    addTab(filename, id);
+    addTab(filename, id, dataset.format);
     renderGrid(dataset);
   }
 
@@ -3900,7 +4120,7 @@
   /* ============================================================
      TAB STRIP
      ============================================================ */
-  function addTab(name, datasetId) {
+  function addTab(name, datasetId, format) {
     var btn = document.createElement('button');
     btn.className = 'tab-btn active';
     btn.dataset.datasetId = datasetId;
@@ -3918,6 +4138,14 @@
 
     btn.appendChild(dot);
     btn.appendChild(label);
+
+    var fmt = format || (dataset && dataset.format);
+    if (fmt) {
+      var badge = document.createElement('span');
+      badge.className = 'format-badge format-badge--' + fmt;
+      badge.textContent = fmt;
+      btn.appendChild(badge);
+    }
 
     // Deactivate other tabs
     var existingTabs = tabStrip.querySelectorAll('.tab-btn');
@@ -4137,24 +4365,35 @@
   function routeDroppedFile(file, name, format, fileHash, seenBefore, advance) {
     var fmt = (format && format.format) || 'unknown';
 
-    if (fmt === 'csv' || fmt === 'tsv' || fmt === 'text') {
+    if (fmt === 'csv' || fmt === 'tsv' || fmt === 'text' || fmt === 'txt' || fmt === 'log') {
       var reader = new FileReader();
       reader.onload = function (e) {
         var text = e.target.result;
-        var rawRows = parseCSV(text);
-        var dataset = buildDatasetFromRows(rawRows, name);
+        var dataset;
+        if (fmt === 'txt' || fmt === 'log') {
+          var parsedText = TextLineParser.parseTextLines(text);
+          var kind = TextLineParser.inferTextKind(text.split('\n').slice(0, 20));
+          var textDs = TextLineParser.buildTextDataset(parsedText, name, kind);
+          dataset = buildDatasetFromRows([textDs.columns].concat(textDs.rows.map(function (r) { return [String(r.line_number), r.content]; })), name);
+        } else {
+          var rawRows = parseCSV(text);
+          dataset = buildDatasetFromRows(rawRows, name);
+        }
         dataset.fileHash = fileHash;
+        dataset.format = fmt;
         runSequencedReveal(dataset, name, seenBefore);
         advance();
       };
       reader.readAsText(file);
-    } else if (fmt === 'json') {
+    } else if (fmt === 'json' || fmt === 'ndjson') {
       var jreader = new FileReader();
       jreader.onload = function (e) {
         try {
-          var json = JSON.parse(e.target.result);
+          var parsedJson = JsonFlattener.parseJsonOrNdjson(e.target.result);
+          var json = parsedJson.parsed !== null ? parsedJson.parsed : JSON.parse(e.target.result);
           var dataset = buildDatasetFromJSON(json);
           dataset.fileHash = fileHash;
+          dataset.format = parsedJson.isNdjson ? 'ndjson' : 'json';
           runSequencedReveal(dataset, name, seenBefore);
         } catch (err) {
           alert('Could not parse JSON file: ' + err.message);
@@ -4163,9 +4402,10 @@
       };
       jreader.readAsText(file);
     } else {
-      // Binary formats (XLSX / Parquet / PDF / etc.) — routed & labeled via
-      // drop-zone-router.js's format detection, but not parsed in this shell
-      // pass. Real binary parsing (Univer/DuckDB-WASM) is out of scope for PR S.
+      // Binary formats (XLSX / Parquet / PDF / Arrow / Feather / etc.) — routed
+      // & labeled via drop-zone-router.js's format detection, but not parsed in
+      // this shell pass. Real binary parsing (Univer/DuckDB-WASM) is out of
+      // scope for PR S / PR AC.
       var dataset = {
         columns: [
           { name: 'file', type: 'STR' },
@@ -4174,7 +4414,8 @@
         rows: [
           [name, (fmt || 'binary') + ' format detected \u2014 full parsing pending future integration.']
         ],
-        fileHash: fileHash
+        fileHash: fileHash,
+        format: fmt
       };
       runSequencedReveal(dataset, name, seenBefore);
       advance();
