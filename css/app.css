@@ -562,8 +562,29 @@
   #room-ui-host [data-testid="room-pill"] { padding: 4px 4px !important; gap: 4px !important; }
   #room-ui-host [data-testid="room-pill-action"] { padding: 2px 8px !important; }
   #room-ui-host [data-testid="room-ui-wrap"] { gap: 4px !important; }
-  .tabbar { padding: 0 var(--space-2); }
-  .tab { padding: var(--space-2) var(--space-3); }
+  /* Fix #7 (readiness audit, 2026-07-19): sub-480px .tab touch targets measured
+     ~38px tall (space-2/space-3 padding + --text-sm line box), under the WCAG
+     2.5.5 / iOS HIG 44px minimum tap-target guideline. Bumping vertical padding
+     to var(--space-3) (12px top+bottom) pushes the real hit area to ~44px+ at
+     the smallest --text-sm clamp value, without touching desktop (this rule is
+     scoped to the existing max-width:480px block only) or the tab's own font
+     size/icon size, so no layout reflow beyond a few px of extra row height.
+     Horizontal padding left at --space-3 (unchanged) to avoid re-squeezing an
+     already-tight mobile tab bar. */
+  .tabbar { padding: 0 var(--space-2); position: relative; }
+  .tab { padding: var(--space-3) var(--space-3); min-height: 44px; }
+
+  /* Scroll affordance: .tabbar overflow-x:auto (base rule, line ~57) has no
+     visual hint that it scrolls, so tabs past the fold were previously
+     discoverable only by accident. A CSS-only edge fade (mask-image gradient)
+     signals "more content" on the trailing edge with zero new DOM/JS — it
+     degrades to a plain unmasked bar in any browser without mask-image
+     support, never breaking layout. Faded on both edges since the bar can
+     scroll in either direction once the active tab isn't the first one. */
+  .tabbar {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black var(--space-3), black calc(100% - var(--space-4)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, black var(--space-3), black calc(100% - var(--space-4)), transparent 100%);
+  }
 }
 
 /* ============================================================
