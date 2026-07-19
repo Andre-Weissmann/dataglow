@@ -3831,7 +3831,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Live API / Webhook feed — REST endpoint fetch with polling, auto-normalization",
+      "name": "Live API / Webhook feed \u2014 REST endpoint fetch with polling, auto-normalization",
       "files": [
         "js/ingestion/api-feed.js"
       ],
@@ -4126,6 +4126,25 @@
         {
           "file": "js/ingestion/image-ocr.js",
           "name": "isImageFile"
+        }
+      ]
+    },
+    {
+      "id": "instant-insight",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Insight & discovery",
+      "name": "Instant Insight (PR AF \u2014 surfaces the single most interesting statistical finding on file load, zero LLM, pure heuristics)",
+      "files": [
+        "js/insight/insight-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/insight/insight-engine.js",
+          "name": "InstantInsight"
         }
       ]
     }
