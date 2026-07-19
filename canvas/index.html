@@ -367,6 +367,28 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .tab-status-transcribing {
+    font-size: 10px;
+    font-style: italic;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .ocr-confidence-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .ocr-confidence-badge--high { background: #43811422; color: #437A22; }
+  .ocr-confidence-badge--medium { background: #D1990022; color: #8a6200; }
+  .ocr-confidence-badge--low { background: #96421922; color: #964219; }
+  .ocr-confidence-badge--poor { background: #A12C4422; color: #A12C44; }
+  .dark .ocr-confidence-badge--high { background: #6DAA4522; color: #6DAA45; }
+  .dark .ocr-confidence-badge--medium { background: #FFC55322; color: #FFC553; }
+  .dark .ocr-confidence-badge--low { background: #BB653B22; color: #BB653B; }
+  .dark .ocr-confidence-badge--poor { background: #D163A722; color: #D163A7; }
   #tab-add {
     width: 36px;
     min-width: 36px;
@@ -1402,6 +1424,7 @@
   .format-badge--video { background: #96421922; color: #964219; }
   .format-badge--txt, .format-badge--log { background: #7A797422; color: #7A7974; }
   .format-badge--xml { background: #DA710122; color: #DA7101; }
+  .format-badge--image { background: #20808D22; color: #20808D; }
   .dark .format-badge--csv, .dark .format-badge--tsv { background: #BCE2E722; color: #BCE2E7; }
   .dark .format-badge--json, .dark .format-badge--ndjson { background: #FFC55322; color: #FFC553; }
   .dark .format-badge--xlsx { background: #6DAA4522; color: #6DAA45; }
@@ -1411,6 +1434,7 @@
   .dark .format-badge--video { background: #BB653B22; color: #BB653B; }
   .dark .format-badge--txt, .dark .format-badge--log { background: #79787622; color: #797876; }
   .dark .format-badge--xml { background: #FDAB4322; color: #FDAB43; }
+  .dark .format-badge--image { background: #4F98A322; color: #4F98A3; }
 </style>
 </head>
 <body>
@@ -1421,8 +1445,8 @@
   <div id="ceremony-screen">
     <div id="drop-zone">
       <p id="drop-text">Drop your data here.</p>
-      <p id="drop-formats">CSV · TSV · JSON · NDJSON · XLSX · Parquet · PDF · TXT · LOG · Arrow · Feather · Audio · Video</p>
-      <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml">
+      <p id="drop-formats">CSV · TSV · JSON · NDJSON · XLSX · Parquet · PDF · TXT · LOG · Arrow · Feather · Audio · Video · PNG · JPG · WEBP · BMP · GIF (OCR)</p>
+      <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
     <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
@@ -1666,16 +1690,19 @@
       csv: 'duckdb', tsv: 'duckdb', json: 'duckdb', ndjson: 'duckdb', parquet: 'duckdb',
       xlsx: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs',
       txt: 'duckdb', log: 'duckdb', arrow: 'duckdb', feather: 'duckdb', xml: 'rag',
+      image: 'ocr',
       unknown: 'unknown'
     };
     var FORMAT_ICONS = {
       csv: 'table', tsv: 'table', json: 'table', ndjson: 'table', parquet: 'table',
       xlsx: 'grid', pdf: 'document', audio: 'audio', video: 'video',
       txt: 'table', log: 'table', arrow: 'table', feather: 'table', xml: 'document',
+      image: 'document',
       unknown: 'unknown'
     };
     var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac'];
     var VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm'];
+    var IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'];
 
     function extOf(fileName) {
       var m = /\.[^./\\]+$/.exec(fileName || '');
@@ -1732,6 +1759,21 @@
           return { format: 'arrow', confidence: 'high', handler: handlerForFormat('arrow') };
         }
       }
+      // Image magic bytes: PNG (89 50 4E 47), JPEG (FF D8 FF), BMP (42 4D), GIF (47 49 46)
+      if (firstBytes && firstBytes.length >= 4) {
+        if (firstBytes[0] === 0x89 && firstBytes[1] === 0x50 && firstBytes[2] === 0x4E && firstBytes[3] === 0x47) {
+          return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+        }
+        if (firstBytes[0] === 0xFF && firstBytes[1] === 0xD8 && firstBytes[2] === 0xFF) {
+          return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+        }
+        if (firstBytes[0] === 0x42 && firstBytes[1] === 0x4D) {
+          return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+        }
+        if (firstBytes[0] === 0x47 && firstBytes[1] === 0x49 && firstBytes[2] === 0x46) {
+          return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+        }
+      }
 
       if (ext === '.tsv') return { format: 'tsv', confidence: 'low', handler: handlerForFormat('tsv') };
       if (ext === '.parquet') return { format: 'parquet', confidence: 'low', handler: handlerForFormat('parquet') };
@@ -1746,6 +1788,7 @@
       if (ext === '.xml') return { format: 'xml', confidence: 'low', handler: handlerForFormat('xml') };
       if (AUDIO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'audio', confidence: 'low', handler: handlerForFormat('audio') };
       if (VIDEO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'video', confidence: 'low', handler: handlerForFormat('video') };
+      if (IMAGE_EXTS.indexOf(ext) !== -1) return { format: 'image', confidence: 'low', handler: handlerForFormat('image') };
 
       return { format: 'unknown', confidence: 'low', handler: 'unknown' };
     }
@@ -1797,7 +1840,7 @@
     }
 
     function routeDropManifest(manifest) {
-      var plan = { duckdbFiles: [], univerFiles: [], ragFiles: [], transcriptionFiles: [], webCodecsFiles: [], unknownFiles: [] };
+      var plan = { duckdbFiles: [], univerFiles: [], ragFiles: [], transcriptionFiles: [], webCodecsFiles: [], ocrFiles: [], unknownFiles: [] };
       var items = (manifest && manifest.items) || [];
       items.forEach(function (item) {
         switch (item.handler) {
@@ -1806,6 +1849,7 @@
           case 'rag': plan.ragFiles.push(item); break;
           case 'whisper': plan.transcriptionFiles.push(item); break;
           case 'webcodecs': plan.webCodecsFiles.push(item); break;
+          case 'ocr': plan.ocrFiles.push(item); break;
           default: plan.unknownFiles.push(item);
         }
       });
@@ -1891,6 +1935,138 @@
       parseTextLines: parseTextLines,
       inferTextKind: inferTextKind,
       buildTextDataset: buildTextDataset
+    };
+  })();
+
+  /* ---- from js/ingestion/image-ocr.js ---- */
+  var ImageOcr = (function () {
+    var IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'];
+
+    function isImageFile(fileName) {
+      if (typeof fileName !== 'string') return false;
+      var ext = /\.[^./\\]+$/.exec(fileName.toLowerCase());
+      return ext ? IMAGE_EXTENSIONS.indexOf(ext[0]) !== -1 : false;
+    }
+
+    function parseOcrText(rawText, opts) {
+      opts = opts || {};
+      var skipEmpty = opts.skipEmpty === undefined ? true : opts.skipEmpty;
+      if (typeof rawText !== 'string') return { rows: [], lineCount: 0, skippedEmpty: 0 };
+      var lines = rawText.split('\n');
+      var rows = [];
+      var skippedEmpty = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var content = lines[i].replace(/\r$/, '');
+        if (skipEmpty && content.trim() === '') { skippedEmpty++; continue; }
+        rows.push({ line_number: rows.length + 1, content: content });
+      }
+      return { rows: rows, lineCount: lines.length, skippedEmpty: skippedEmpty };
+    }
+
+    function inferOcrKind(lines) {
+      if (!Array.isArray(lines) || lines.length === 0) return 'unknown';
+      var sample = lines.slice(0, 30).map(function (l) { return (typeof l === 'string' ? l : (l.content || '')); });
+      var tabularPattern = /\s{2,}|\t|\|/;
+      var formPattern = /:\s*$|:\s+\w/;
+      var codePattern = /^\s*(def |function |SELECT |FROM |import |var |const |let |if \(|for \()/i;
+      var numericPattern = /^\s*[\d,.$%()+-]+\s*$/;
+      var tabHits = 0, formHits = 0, codeHits = 0, numHits = 0;
+      for (var i = 0; i < sample.length; i++) {
+        var line = sample[i];
+        if (tabularPattern.test(line)) tabHits++;
+        if (formPattern.test(line)) formHits++;
+        if (codePattern.test(line)) codeHits++;
+        if (numericPattern.test(line)) numHits++;
+      }
+      if (codeHits >= 3) return 'code';
+      if (tabHits >= Math.floor(sample.length * 0.4) || numHits >= Math.floor(sample.length * 0.4)) return 'table';
+      if (formHits >= 3) return 'form';
+      var allLong = sample.every(function (l) { return l.trim().length > 30; });
+      if (allLong) return 'prose';
+      return 'mixed';
+    }
+
+    function scoreOcrConfidence(confidences) {
+      if (!Array.isArray(confidences) || confidences.length === 0) {
+        return { mean: 0, low: 0, grade: 'poor' };
+      }
+      var nums = confidences.filter(function (n) { return typeof n === 'number' && n >= 0; });
+      if (nums.length === 0) return { mean: 0, low: 0, grade: 'poor' };
+      var mean = nums.reduce(function (a, b) { return a + b; }, 0) / nums.length;
+      var low = Math.min.apply(Math, nums);
+      var grade = mean >= 85 ? 'high' : mean >= 70 ? 'medium' : mean >= 50 ? 'low' : 'poor';
+      return { mean: Math.round(mean * 10) / 10, low: Math.round(low * 10) / 10, grade: grade };
+    }
+
+    function buildOcrDataset(parsed, fileName, kind, confidenceScore) {
+      var gradeNote = {
+        high: 'OCR confidence is high — text extraction is reliable.',
+        medium: 'OCR confidence is moderate — review extracted text for accuracy.',
+        low: 'OCR confidence is low — image may be blurry or low-resolution. Verify key values.',
+        poor: 'OCR confidence is very low — consider using a higher-resolution image.'
+      };
+      var grade = (confidenceScore && confidenceScore.grade) || 'poor';
+      return {
+        columns: ['line_number', 'content'],
+        rows: parsed.rows,
+        meta: {
+          source: fileName,
+          format: 'image',
+          kind: kind,
+          lineCount: parsed.lineCount,
+          skippedEmpty: parsed.skippedEmpty,
+          ocrConfidence: confidenceScore,
+          note: 'Image OCR (Tesseract.js, client-side). ' + gradeNote[grade] + ' Content detected as: ' + kind + '.'
+        }
+      };
+    }
+
+    // ---- Browser-only: Tesseract.js CDN loader + OCR runner ----
+    var TESSERACT_CDN_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    var _tesseractLoadPromise = null;
+
+    function ensureTesseract() {
+      if (typeof window !== 'undefined' && window.Tesseract) {
+        return Promise.resolve(window.Tesseract);
+      }
+      if (_tesseractLoadPromise) return _tesseractLoadPromise;
+      _tesseractLoadPromise = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = TESSERACT_CDN_URL;
+        script.onload = function () {
+          if (window.Tesseract) resolve(window.Tesseract);
+          else reject(new Error('Tesseract.js loaded but window.Tesseract is missing'));
+        };
+        script.onerror = function () {
+          reject(new Error('Failed to load Tesseract.js from CDN'));
+        };
+        document.head.appendChild(script);
+      });
+      return _tesseractLoadPromise;
+    }
+
+    // Runs OCR on an image File/Blob entirely client-side (Web Worker under the
+    // hood, courtesy of Tesseract.js). Zero upload: bytes never leave the device.
+    function runOcr(imageFile) {
+      return ensureTesseract().then(function (Tesseract) {
+        return Tesseract.recognize(imageFile, 'eng').then(function (result) {
+          var data = result && result.data ? result.data : {};
+          var words = data.words || [];
+          var confidences = words.map(function (w) { return w.confidence; });
+          return { text: data.text || '', confidences: confidences };
+        });
+      });
+    }
+
+    return {
+      IMAGE_EXTENSIONS: IMAGE_EXTENSIONS,
+      isImageFile: isImageFile,
+      parseOcrText: parseOcrText,
+      inferOcrKind: inferOcrKind,
+      scoreOcrConfidence: scoreOcrConfidence,
+      buildOcrDataset: buildOcrDataset,
+      ensureTesseract: ensureTesseract,
+      runOcr: runOcr
     };
   })();
 
@@ -4147,6 +4323,16 @@
       btn.appendChild(badge);
     }
 
+    // Image OCR tabs show a subtle confidence-grade indicator in the same
+    // position as the format badge (right after it).
+    if (dataset && dataset.ocrConfidence && dataset.ocrConfidence.grade) {
+      var confBadge = document.createElement('span');
+      confBadge.className = 'ocr-confidence-badge ocr-confidence-badge--' + dataset.ocrConfidence.grade;
+      confBadge.textContent = dataset.ocrConfidence.grade;
+      confBadge.title = 'OCR confidence: ' + dataset.ocrConfidence.mean + '% mean (Tesseract.js)';
+      btn.appendChild(confBadge);
+    }
+
     // Deactivate other tabs
     var existingTabs = tabStrip.querySelectorAll('.tab-btn');
     existingTabs.forEach(function (t) { t.classList.remove('active'); });
@@ -4401,6 +4587,36 @@
         advance();
       };
       jreader.readAsText(file);
+    } else if (fmt === 'image') {
+      // Image OCR (Tesseract.js, client-side, zero upload). The image bytes
+      // never leave the browser — Tesseract.js runs as a Web Worker. Show a
+      // "transcribing" status while OCR runs, then reveal the resulting
+      // {line_number, content} dataset exactly like text-line-parser output.
+      setAgentStatus('Transcribing image with Tesseract.js (on-device OCR)\u2026');
+      var pendingTabId = 'ocr-pending-' + fileHash;
+      addPendingTab(pendingTabId, name);
+
+      ImageOcr.runOcr(file).then(function (ocrResult) {
+        var parsedOcr = ImageOcr.parseOcrText(ocrResult.text);
+        var kind = ImageOcr.inferOcrKind(parsedOcr.rows);
+        var confidence = ImageOcr.scoreOcrConfidence(ocrResult.confidences);
+        var ocrDs = ImageOcr.buildOcrDataset(parsedOcr, name, kind, confidence);
+        var dataset = buildDatasetFromRows([ocrDs.columns].concat(ocrDs.rows.map(function (r) { return [String(r.line_number), r.content]; })), name);
+        dataset.fileHash = fileHash;
+        dataset.format = fmt;
+        dataset.ocrConfidence = confidence;
+        dataset.ocrKind = kind;
+        dataset.ocrNote = ocrDs.meta.note;
+        removePendingTab(pendingTabId);
+        setAgentStatus('OCR complete \u2014 confidence: ' + confidence.grade + '.');
+        runSequencedReveal(dataset, name, seenBefore);
+        advance();
+      }).catch(function (err) {
+        removePendingTab(pendingTabId);
+        setAgentStatus('OCR failed: ' + err.message);
+        alert('Could not OCR image: ' + err.message);
+        advance();
+      });
     } else {
       // Binary formats (XLSX / Parquet / PDF / Arrow / Feather / etc.) — routed
       // & labeled via drop-zone-router.js's format detection, but not parsed in
@@ -4420,6 +4636,43 @@
       runSequencedReveal(dataset, name, seenBefore);
       advance();
     }
+  }
+
+  // A lightweight "transcribing" placeholder tab shown in the tab strip while
+  // an async ingestion (OCR, and in the future Whisper transcription) is in
+  // flight. Reuses the same tab-strip markup as a real tab so the visual
+  // language stays consistent; removed once the real tab is added by
+  // completeCeremony() → addTab().
+  function addPendingTab(pendingId, displayName) {
+    if (!tabStrip || !tabAdd) return;
+    var btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.dataset.pendingId = pendingId;
+    btn.disabled = true;
+
+    var dot = document.createElement('span');
+    dot.className = 'tab-health-dot dot-amber';
+    dot.style.background = 'var(--warning)';
+
+    var label = document.createElement('span');
+    label.className = 'tab-label';
+    label.textContent = displayName;
+
+    var status = document.createElement('span');
+    status.className = 'tab-status-transcribing';
+    status.textContent = 'transcribing\u2026';
+
+    btn.appendChild(dot);
+    btn.appendChild(label);
+    btn.appendChild(status);
+
+    tabStrip.insertBefore(btn, tabAdd);
+  }
+
+  function removePendingTab(pendingId) {
+    if (!tabStrip) return;
+    var btn = tabStrip.querySelector('[data-pending-id="' + pendingId + '"]');
+    if (btn) btn.remove();
   }
 
 

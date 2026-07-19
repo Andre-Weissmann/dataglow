@@ -4038,6 +4038,41 @@
           "name": "QUESTION_TEMPLATES"
         }
       ]
+    },
+    {
+      "id": "ingestion-image-ocr",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Image OCR \u2014 Tesseract.js client-side text extraction from PNG/JPG/WEBP/BMP/GIF",
+      "files": [
+        "js/ingestion/image-ocr.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ingestion/image-ocr.js",
+          "name": "parseOcrText"
+        },
+        {
+          "file": "js/ingestion/image-ocr.js",
+          "name": "inferOcrKind"
+        },
+        {
+          "file": "js/ingestion/image-ocr.js",
+          "name": "scoreOcrConfidence"
+        },
+        {
+          "file": "js/ingestion/image-ocr.js",
+          "name": "buildOcrDataset"
+        },
+        {
+          "file": "js/ingestion/image-ocr.js",
+          "name": "isImageFile"
+        }
+      ]
     }
   ]
 }

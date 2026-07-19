@@ -43,9 +43,9 @@
 // Types (JSDoc only — no runtime overhead)
 // ---------------------------------------------------------------
 /**
- * @typedef {'csv'|'tsv'|'xlsx'|'json'|'ndjson'|'parquet'|'pdf'|'audio'|'video'|'txt'|'arrow'|'feather'|'xml'|'unknown'} FileFormat
+ * @typedef {'csv'|'tsv'|'xlsx'|'json'|'ndjson'|'parquet'|'pdf'|'audio'|'video'|'txt'|'arrow'|'feather'|'xml'|'image'|'unknown'} FileFormat
  * @typedef {'high'|'medium'|'low'} Confidence
- * @typedef {'duckdb'|'univer'|'rag'|'whisper'|'webcodecs'|'unknown'} Handler
+ * @typedef {'duckdb'|'univer'|'rag'|'whisper'|'webcodecs'|'ocr'|'unknown'} Handler
  * @typedef {{ format: FileFormat, confidence: Confidence, handler: Handler }} FormatDetection
  * @typedef {{ name: string, mimeType: string, size: number, firstBytes: Uint8Array }} DroppedFile
  * @typedef {{
@@ -58,7 +58,7 @@
  * }} DropManifest
  * @typedef {{
  *   duckdbFiles: ManifestItem[], univerFiles: ManifestItem[], ragFiles: ManifestItem[],
- *   transcriptionFiles: ManifestItem[], webCodecsFiles: ManifestItem[], unknownFiles: ManifestItem[]
+ *   transcriptionFiles: ManifestItem[], webCodecsFiles: ManifestItem[], ocrFiles: ManifestItem[], unknownFiles: ManifestItem[]
  * }} RoutingPlan
  * @typedef {{ name: string, type: string }} ColumnDef
  * @typedef {{ tabId: string, displayName: string, columns: ColumnDef[] }} LoadedDataset
@@ -92,6 +92,7 @@ const FORMAT_HANDLERS = /** @type {Record<FileFormat, Handler>} */ ({
   arrow: 'duckdb',
   feather: 'duckdb',
   xml: 'rag',
+  image: 'ocr',
   unknown: 'unknown',
 });
 
@@ -111,11 +112,13 @@ const FORMAT_ICONS = /** @type {Record<FileFormat, TabIcon>} */ ({
   arrow: 'table',
   feather: 'table',
   xml: 'document',
+  image: 'document',
   unknown: 'unknown',
 });
 
 const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac'];
 const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm'];
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'];
 
 // ---------------------------------------------------------------
 // Small helpers
@@ -184,6 +187,25 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
       return { format: 'arrow', confidence: 'high', handler: handlerForFormat('arrow') };
     }
   }
+  // Image magic bytes
+  if (firstBytes && firstBytes.length >= 4) {
+    // PNG magic: 89 50 4E 47
+    if (firstBytes[0] === 0x89 && firstBytes[1] === 0x50 && firstBytes[2] === 0x4E && firstBytes[3] === 0x47) {
+      return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+    }
+    // JPEG magic: FF D8 FF
+    if (firstBytes[0] === 0xFF && firstBytes[1] === 0xD8 && firstBytes[2] === 0xFF) {
+      return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+    }
+    // BMP magic: 42 4D
+    if (firstBytes[0] === 0x42 && firstBytes[1] === 0x4D) {
+      return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+    }
+    // GIF magic: 47 49 46
+    if (firstBytes[0] === 0x47 && firstBytes[1] === 0x49 && firstBytes[2] === 0x46) {
+      return { format: 'image', confidence: 'high', handler: handlerForFormat('image') };
+    }
+  }
 
   // ---- 2. MIME type fallbacks ----
   if (mime === 'text/csv') {
@@ -229,6 +251,9 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
   if (VIDEO_EXTENSIONS.includes(ext)) {
     return { format: 'video', confidence: 'low', handler: handlerForFormat('video') };
   }
+  if (IMAGE_EXTS.includes(ext)) {
+    return { format: 'image', confidence: 'low', handler: handlerForFormat('image') };
+  }
   if (ext === '.txt' || ext === '.log') {
     return { format: 'txt', confidence: 'low', handler: handlerForFormat('txt') };
   }
@@ -254,6 +279,15 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
  */
 export function jsonNeedsFlattening(format) {
   return format === 'json' || format === 'ndjson';
+}
+
+/**
+ * Whether a detected format is the image/OCR format.
+ * @param {FileFormat} format
+ * @returns {boolean}
+ */
+export function isImageFormat(format) {
+  return format === 'image';
 }
 
 // ---------------------------------------------------------------
@@ -336,6 +370,7 @@ export function routeDropManifest(manifest) {
     ragFiles: [],
     transcriptionFiles: [],
     webCodecsFiles: [],
+    ocrFiles: [],
     unknownFiles: [],
   };
 
@@ -356,6 +391,9 @@ export function routeDropManifest(manifest) {
         break;
       case 'webcodecs':
         plan.webCodecsFiles.push(item);
+        break;
+      case 'ocr':
+        plan.ocrFiles.push(item);
         break;
       default:
         plan.unknownFiles.push(item);
