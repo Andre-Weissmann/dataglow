@@ -137,6 +137,11 @@ export const MICRO_LESSONS = {
     practitioner: 'Flags vital-sign values outside general human physiological ranges — a data-plausibility check, not medical advice.',
     expert: 'Bounds vitals against population physiological limits; a plausibility heuristic, never a clinical determination.',
   },
+  ncci_ptp_validation: {
+    beginner: 'For medical billing data, it flags when two procedure codes billed for the same visit are ones Medicare says should not normally be billed together.',
+    practitioner: "Flags same-patient/same-date CPT/HCPCS pairs that CMS's National Correct Coding Initiative (NCCI) names as a Procedure-to-Procedure conflict — a curated subset of documented edit pairs, not the full quarterly CMS edit file.",
+    expert: 'NCCI PTP modifier-indicator-0 pair detection over same date-of-service claim lines; skips automatically when CPT/HCPCS or date-of-service columns are absent.',
+  },
   upper_bound_sanity: {
     beginner: 'Catches values that break their own definition, like a percentage above 100 or a probability over 1.',
     practitioner: "Flags values outside a column's definitional bounds — percentages beyond 0–100, probabilities outside 0–1.",
