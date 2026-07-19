@@ -3573,6 +3573,10 @@
         {
           "file": "js/drop-zone/drop-zone-router.js",
           "name": "buildTabDescriptor"
+        },
+        {
+          "file": "js/drop-zone/drop-zone-router.js",
+          "name": "jsonNeedsFlattening"
         }
       ]
     },
@@ -3744,6 +3748,58 @@
         {
           "file": "js/pdf/pdfjs-extractor.scaffold.js",
           "name": "extractPDFText"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-text-line-parser",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Text / Log line parser \u2014 .txt and .log to queryable rows",
+      "files": [
+        "js/ingestion/text-line-parser.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ingestion/text-line-parser.js",
+          "name": "parseTextLines"
+        },
+        {
+          "file": "js/ingestion/text-line-parser.js",
+          "name": "inferTextKind"
+        },
+        {
+          "file": "js/ingestion/text-line-parser.js",
+          "name": "buildTextDataset"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-json-flattener",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Semi-structured JSON flattener \u2014 nested JSON, FHIR bundles, API envelopes",
+      "files": [
+        "js/ingestion/json-flattener.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ingestion/json-flattener.js",
+          "name": "flattenJson"
+        },
+        {
+          "file": "js/ingestion/json-flattener.js",
+          "name": "parseJsonOrNdjson"
+        },
+        {
+          "file": "js/ingestion/json-flattener.js",
+          "name": "jsonNeedsFlattening"
         }
       ]
     },

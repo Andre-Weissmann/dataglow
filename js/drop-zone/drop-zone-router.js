@@ -43,7 +43,7 @@
 // Types (JSDoc only — no runtime overhead)
 // ---------------------------------------------------------------
 /**
- * @typedef {'csv'|'tsv'|'xlsx'|'json'|'ndjson'|'parquet'|'pdf'|'audio'|'video'|'unknown'} FileFormat
+ * @typedef {'csv'|'tsv'|'xlsx'|'json'|'ndjson'|'parquet'|'pdf'|'audio'|'video'|'txt'|'arrow'|'feather'|'xml'|'unknown'} FileFormat
  * @typedef {'high'|'medium'|'low'} Confidence
  * @typedef {'duckdb'|'univer'|'rag'|'whisper'|'webcodecs'|'unknown'} Handler
  * @typedef {{ format: FileFormat, confidence: Confidence, handler: Handler }} FormatDetection
@@ -87,6 +87,11 @@ const FORMAT_HANDLERS = /** @type {Record<FileFormat, Handler>} */ ({
   pdf: 'rag',
   audio: 'whisper',
   video: 'webcodecs',
+  txt: 'duckdb',
+  log: 'duckdb',
+  arrow: 'duckdb',
+  feather: 'duckdb',
+  xml: 'rag',
   unknown: 'unknown',
 });
 
@@ -101,6 +106,11 @@ const FORMAT_ICONS = /** @type {Record<FileFormat, TabIcon>} */ ({
   pdf: 'document',
   audio: 'audio',
   video: 'video',
+  txt: 'table',
+  log: 'table',
+  arrow: 'table',
+  feather: 'table',
+  xml: 'document',
   unknown: 'unknown',
 });
 
@@ -167,6 +177,13 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
   if (bytesStartWithPK(firstBytes) && ext === '.xlsx') {
     return { format: 'xlsx', confidence: 'high', handler: handlerForFormat('xlsx') };
   }
+  // Arrow IPC / Feather v2 — magic bytes "ARROW1\0\0" (first 6 bytes)
+  if (firstBytes && firstBytes.length >= 6) {
+    const arrowMagic = [0x41, 0x52, 0x52, 0x4F, 0x57, 0x31]; // "ARROW1"
+    if (arrowMagic.every((b, i) => firstBytes[i] === b)) {
+      return { format: 'arrow', confidence: 'high', handler: handlerForFormat('arrow') };
+    }
+  }
 
   // ---- 2. MIME type fallbacks ----
   if (mime === 'text/csv') {
@@ -212,8 +229,31 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
   if (VIDEO_EXTENSIONS.includes(ext)) {
     return { format: 'video', confidence: 'low', handler: handlerForFormat('video') };
   }
+  if (ext === '.txt' || ext === '.log') {
+    return { format: 'txt', confidence: 'low', handler: handlerForFormat('txt') };
+  }
+  if (ext === '.arrow') {
+    return { format: 'arrow', confidence: 'low', handler: handlerForFormat('arrow') };
+  }
+  if (ext === '.feather') {
+    return { format: 'feather', confidence: 'low', handler: handlerForFormat('feather') };
+  }
+  if (ext === '.xml') {
+    return { format: 'xml', confidence: 'low', handler: handlerForFormat('xml') };
+  }
 
   return { format: 'unknown', confidence: 'low', handler: 'unknown' };
+}
+
+/**
+ * Whether a JSON file needs pre-processing through the JSON flattener before
+ * DuckDB ingestion. Currently always true — the flattener is a passthrough for
+ * already-flat arrays and adds normalization for all other shapes.
+ * @param {FileFormat} format
+ * @returns {boolean}
+ */
+export function jsonNeedsFlattening(format) {
+  return format === 'json' || format === 'ndjson';
 }
 
 // ---------------------------------------------------------------
