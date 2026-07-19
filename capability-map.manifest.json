@@ -2597,6 +2597,29 @@
       ]
     },
     {
+      "id": "narrative-overconfidence-guard",
+      "area": "Analysis robustness",
+      "name": "Narrative Overconfidence Guard — verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/rigor/narrative-overconfidence-guard.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/rigor/narrative-overconfidence-guard.js",
+          "name": "checkNarrativeOverconfidence"
+        },
+        {
+          "file": "js/rigor/narrative-overconfidence-guard.js",
+          "name": "describeOverconfidenceFinding"
+        }
+      ]
+    },
+    {
       "id": "app-shell-duckdb-config",
       "platforms": [
         "browser",

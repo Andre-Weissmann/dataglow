@@ -24,6 +24,7 @@ import { sealCheckResult, verifySeal, renderSealSummaryLines, exportSealAsJSON }
 import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } from '../provenance/zk-threshold-proof.js';
 import { buildBeamUrl } from '../provenance/trust-beam.js';
 import { classifyGroupedConfidence, summarizeGroupedConfidence, cohensD } from '../rigor/statistical-rigor.js';
+import { checkNarrativeOverconfidence, describeOverconfidenceFinding } from '../rigor/narrative-overconfidence-guard.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import { renderPivotTab } from '../runtimes-viz/pivot-ui.js';
@@ -8772,6 +8773,7 @@ function initStoryTab() {
         source === 'local-fallback' ? 'Rule-based (fallback)' :
         story.MODEL_PROVIDERS.find(p => p.id === provider)?.name || provider;
       renderStoryClaims(state.lastQueryResult);
+      renderNarrativeOverconfidencePanel(state.lastStory, state.lastQueryResult);
     } catch (err) {
       toast('Story generation failed: ' + err.message, 'error');
     } finally {
@@ -8798,6 +8800,42 @@ function renderStoryClaims(queryResult) {
       el('span', { style: 'flex:1;' }, c.text),
       el('span', { class: `badge ${gradeClass[conf.grade] || ''}`, style: 'flex:none;', 'data-testid': `claim-badge-${c.kind}` }, `${conf.grade} · n=${conf.n} · ${pctMissing}% missing`),
     ]));
+  }
+}
+
+// Narrative Overconfidence Guard (feature-flagged: narrativeOverconfidenceGuard,
+// default false): checks the just-generated Story text against the SAME
+// per-claim confidence grades renderStoryClaims() already displays, so a
+// model (on-device or external) that ignores its own hedge instruction on a
+// weak (grade C/D) claim is caught and surfaced rather than silently trusted.
+// With the flag off this function is never called (see the call site above,
+// gated at the single call site rather than inside this function, matching
+// the flag-if-visible-behavior-change convention: no import cost paid, no
+// query run, no DOM write at all when off).
+function renderNarrativeOverconfidencePanel(storyText, queryResult) {
+  if (!isEnabled('narrativeOverconfidenceGuard')) return;
+  const wrap = $('#story-overconfidence-guard');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (!queryResult) { wrap.style.display = 'none'; return; }
+  const claims = story.buildStoryClaims(queryResult);
+  const { status, findings } = checkNarrativeOverconfidence(storyText, claims);
+  if (status === 'idle') { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  wrap.appendChild(el('div', { style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:var(--space-2);' }, 'Narrative Overconfidence Guard'));
+  if (status === 'pass') {
+    wrap.appendChild(el('div', { class: 'validation-status pass', 'data-testid': 'overconfidence-guard-pass' }, [
+      el('span', { class: 'status-dot pass' }, ''),
+      ' This narrative\'s wording matches its own confidence grades — no weak claim is stated more confidently than its evidence supports.',
+    ]));
+    return;
+  }
+  wrap.appendChild(el('div', { class: 'validation-status warn', style: 'margin-bottom:var(--space-2);', 'data-testid': 'overconfidence-guard-warn' }, [
+    el('span', { class: 'status-dot warn' }, ''),
+    ` ${findings.length} weak claim${findings.length === 1 ? '' : 's'} may be stated more confidently than the data supports:`,
+  ]));
+  for (const f of findings) {
+    wrap.appendChild(el('div', { style: 'font-size:var(--text-sm); padding:var(--space-1) 0; color:var(--color-text-muted);', 'data-testid': `overconfidence-finding-${f.claimKind}-${f.issue}` }, describeOverconfidenceFinding(f)));
   }
 }
 
