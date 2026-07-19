@@ -3804,6 +3804,40 @@
       ]
     },
     {
+      "id": "ingestion-api-feed",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "Live API / Webhook feed — REST endpoint fetch with polling, auto-normalization",
+      "files": [
+        "js/ingestion/api-feed.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ingestion/api-feed.js",
+          "name": "validateFeedUrl"
+        },
+        {
+          "file": "js/ingestion/api-feed.js",
+          "name": "parseHeadersString"
+        },
+        {
+          "file": "js/ingestion/api-feed.js",
+          "name": "normalizeApiResponse"
+        },
+        {
+          "file": "js/ingestion/api-feed.js",
+          "name": "buildPollSchedule"
+        },
+        {
+          "file": "js/ingestion/api-feed.js",
+          "name": "buildFeedDataset"
+        }
+      ]
+    },
+    {
       "id": "nats-websocket-bridge",
       "platforms": [
         "browser",
