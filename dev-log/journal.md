@@ -7,6 +7,76 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 13:38 CT] Agent Passport Bridge — get_agent_passport MCP tool (PR #415)
+
+**What was asked:** "Build it" — go ahead with the Agent Passport Bridge concept (drafted/previewed in a
+prior session): a new MCP tool that composes DataGlow's four existing trust signals (Readiness Gate,
+Semantic Layer, AI Touch Ledger, Verifiable Check Seal) into one JSON object for external MCP-calling
+agents (Claude Code, Cursor, etc.) to consume in a single call instead of four.
+
+**What was built:** `get_agent_passport(dataset)` in `js/mcp/dataglow-mcp-server.mjs`, registered
+alongside `check_readiness` in `ListToolsRequestSchema`/`CallToolRequestSchema`. Composes:
+1. `readinessGate` — the exact same `computeForDataset()`/`computeReadinessGate()` call `check_readiness`
+   already uses. No new logic.
+2. `semanticLayer` — reflects `ds.metricContractStatus` as exported. Honestly reports `checked:false`
+   when absent (confirmed by repo inspection: `metricContractStatus` is currently never assigned in
+   `main.js` today, only read at export time — so this section will report "not checked" for essentially
+   all real-world exports until that UI wiring is completed in a future batch. Disclosed, not hidden.).
+3. `aiTouchLedger` — reflects a new `touchLedgerSummary` field carried through the gate-state export,
+   built from the existing global ledger via already-tested `summarizeTouchLedger()`/`verifyTouchLedger()`.
+4. `verifiableCheckSeal` — reflects a new `proofRoomSeal` field carried through the export, copied
+   verbatim from the session's cached seal (if any minted this session). `dataFingerprintMatch` is always
+   reported `null` — the MCP server has no access to raw source data to independently re-verify, and this
+   is stated explicitly in the tool's own output rather than fabricated as a pass.
+
+To carry the two new session-level (not per-dataset) fields, `js/mcp/gate-state-exporter.js`'s
+`buildGateStatePayload`/`serializeGateState` gained an optional, backward-compatible second `extras`
+parameter — omitting it reproduces the exact pre-existing payload shape byte-for-byte. The Settings tab's
+"Export Gate State" button (`js/app-shell/main.js`, itself only rendered when `mcpInterface` is on) now
+computes `touchLedgerSummary` and reads the cached seal via a new read-only `getProofRoomSealForExport()`
+accessor, passing both as `extras`.
+
+New `agentPassportBridge` flag added, default `false`. Depends on `mcpInterface` (also currently `false`
+on `main`) for the Settings-tab export button to be visible at all.
+
+**Ships dark:** flag off. Zero new checks, crypto, or scoring — pure composition of already-tested outputs.
+The tool itself is always registered in `ListToolsRequestSchema` (matching `check_readiness`'s own
+always-registered pattern) — the flag/dependency chain gates whether the *exported data it reads* is
+populated with real ledger/seal values, not whether the tool exists. This is a deliberate, disclosed
+design choice mirroring the existing tool, not an inconsistency.
+
+**Tests:** 81/81 passing in `test/mcp-server.test.mjs` (59 pre-existing + 22 new) — exporter `extras`
+backward-compatibility/verbatim-carry/null-handling/JSON-round-trip, and the new tool's composition logic
+across no-state/missing-dataset/unknown-dataset/passing/failing/ledger-and-seal-present/
+contract-mismatch-present cases. Independently re-run on fresh `main` post-merge, not just trusted from CI.
+
+**CI:** 63/64 checks passed on PR #415, including `tauri-smoke`. The one failure — "Prompt Eval Harness
+(Guarded Copilot + Query Sentinel mock regression)" — was independently confirmed to be a pre-existing
+failure already present on `main`'s own most recent full CI run, predating this branch; this PR's diff
+never touches Guarded Copilot or Query Sentinel code. Not a regression from this change, and not silently
+ignored — checked and stated explicitly before the merge confirm.
+
+**Merge:** explicit `confirm_action` obtained before merging (squash, `main` fast-forwarded 20295ea →
+d879d64 — the concurrent session had also merged an unrelated Universal Ingestion wave in between; both
+landed together on `main` via the same fast-forward, no conflict). Flag confirmed `false` on `main`
+immediately post-merge.
+
+**Lesson:** the honest "not yet wired" disclosure pattern (semanticLayer's `checked:false` note, the
+seal's `dataFingerprintMatch:null` note) is worth carrying forward as a standing convention for any future
+composition tool — saying plainly what a signal *can't* claim is more valuable to an external agent than
+silently omitting the caveat.
+
+**Cross-platform impact:** primarily desktop. `js/mcp/dataglow-mcp-server.mjs` is Node.js stdio-server
+code that only runs in the Tauri desktop shell or a manually-run local Node process — the browser and
+PWA/mobile builds cannot host an MCP stdio server, so that file's change is desktop-only. The other two
+changed files are browser+desktop: `js/mcp/gate-state-exporter.js` is pure browser-side logic, and the
+`main.js` edit lives inside the Settings tab's Export Gate State button, which renders in the browser (and
+by extension the byte-identical Tauri desktop build) but not in a way the current PWA/mobile experience
+surfaces differently — no platform-specific API is used, so this is not a case of unlocking a new platform,
+just extending an existing desktop-facing MCP workflow.
+
+---
+
 ## [2026-07-19 11:58 CT] Portfolio Narrative assembler wired to UI (PR #406) + Command Deck nav coverage fix (PR #409)
 
 **What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Wire the already-merged

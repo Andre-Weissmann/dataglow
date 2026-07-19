@@ -49,8 +49,18 @@ invisibly, with zero new approval friction for humans, and a hard stop only for 
    `analyze_validated_dataset` and `fix_failing_layers` prompt templates. Config snippets for Claude Code
    and Cursor in the server file header. `gate-state-exporter.js` writes `dataglow-gate-state.json` from the
    browser app; Settings tab Export Gate State button (flag-gated: `mcpInterface`). 59/59 tests passing.)
+5. **Agent Passport Bridge: compose the gate with three other trust signals into one MCP call.** (DONE —
+   PR #415, new `get_agent_passport(dataset)` tool alongside `check_readiness`. Composes the same readiness
+   gate verdict with Semantic Layer metric-contract status, AI Touch Ledger chain-verification, and
+   Verifiable Check Seal status — zero new checks/crypto/scoring, pure composition of already-tested
+   outputs, each honestly reported as unavailable/not-checked/unsealed rather than defaulted to a pass
+   when the underlying signal wasn't exported. `gate-state-exporter.js` gained a backward-compatible
+   `extras` param to carry the two session-level (ledger/seal) fields through the export. New
+   `agentPassportBridge` flag, default OFF, depends on `mcpInterface`. 81/81 tests passing (59 existing +
+   22 new). Follow-up noted: `metricContractStatus` is not yet assigned anywhere in `main.js` today, only
+   read at export time — wiring that up is a separate future batch, not part of this one.)
 
-**AI Readiness Gate concept: ALL 4 BATCHES COMPLETE. ✅**
+**AI Readiness Gate concept: ALL 4 ORIGINAL BATCHES COMPLETE, PLUS Batch 5 (Agent Passport Bridge). ✅**
 
 ---
 
