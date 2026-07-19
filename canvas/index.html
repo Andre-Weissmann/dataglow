@@ -81,19 +81,26 @@
   /* ============================================================
      2. CEREMONY SCREEN
      ============================================================ */
+  /* ── Canvas-first: ceremony screen is now an overlay INSIDE #canvas ── */
   #ceremony-screen {
-    height: 100vh;
-    width: 100vw;
+    position: absolute;
+    inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     background: var(--bg);
-    position: relative;
+    z-index: 20;
+    transition: opacity 400ms ease-out, transform 400ms ease-out;
     overflow: hidden;
   }
+  #ceremony-screen.dissolve-out {
+    opacity: 0;
+    transform: scale(0.98);
+    pointer-events: none;
+  }
 
-  /* Ambient glow orb behind drop zone */
+  /* Ambient glow orb */
   #ceremony-screen::before {
     content: '';
     position: absolute;
@@ -110,6 +117,10 @@
   @keyframes orb-breathe {
     0%, 100% { transform: scale(1); opacity: 0.7; }
     50% { transform: scale(1.08); opacity: 1; }
+  }
+
+  #canvas {
+    position: relative;
   }
 
   /* Wordmark */
@@ -249,24 +260,8 @@
   }
 
   /* Theme toggle on ceremony screen */
-  #ceremony-theme-btn {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 6px 10px;
-    font-size: 14px;
-    color: var(--text-muted);
-    cursor: pointer;
-    z-index: 10;
-    transition: border-color 200ms, color 200ms;
-  }
-  #ceremony-theme-btn:hover {
-    border-color: var(--primary);
-    color: var(--text);
-  }
+  /* ceremony-theme-btn hidden — canvas nav bar theme toggle handles it now */
+  #ceremony-theme-btn { display: none; }
 
   /* ============================================================
      4. SEQUENCED REVEAL ELEMENTS
@@ -331,27 +326,9 @@
     opacity: 1;
   }
 
-  #reveal-health-dots {
-    margin-top: 18px;
-    display: flex;
-    gap: 8px;
-    min-height: 12px;
-  }
-  .reveal-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: opacity 200ms ease-out, transform 200ms ease-out;
-  }
-  .reveal-dot.show {
-    opacity: 1;
-    transform: scale(1);
-  }
-  .dot-green { background: var(--success); }
-  .dot-amber { background: var(--warning); }
-  .dot-red { background: var(--error); }
+  /* Health dots removed — PR AF.2 Jobs edit */
+  #reveal-health-dots { display: none; }
+  .reveal-dot { display: none; }
 
   #reveal-finding {
     margin-top: 24px;
@@ -627,6 +604,31 @@
     overflow: auto;
     background: var(--grid-row-bg);
     position: relative;
+  }
+
+  /* Ghost grid — shimmer rows visible before any data loads */
+  .ghost-row td {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+  }
+  .ghost-cell {
+    height: 14px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: ghost-shimmer 1.8s ease-in-out infinite;
+    opacity: 0.4;
+  }
+  @keyframes ghost-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .ghost-header {
+    height: 15px;
+    border-radius: 3px;
+    background: var(--border);
+    opacity: 0.35;
+    margin: 2px 0;
   }
   #grid-table-wrapper {
     width: 100%;
@@ -1824,6 +1826,10 @@
 <body>
 
   <!-- ============================================================
+       CANVAS — always visible; ceremony overlay sits on top until data loads
+       ============================================================ -->
+  <div id="canvas">
+    <!-- ============================================================
        CEREMONY SCREEN (shown on first load)
        ============================================================ -->
   <!-- Theme toggle visible on ceremony screen -->
@@ -1879,10 +1885,6 @@
     <!-- /FEATURE: natsConnector -->
   </div>
 
-  <!-- ============================================================
-       CANVAS (hidden until ceremony completes)
-       ============================================================ -->
-  <div id="canvas" class="hidden">
     <!-- Top nav -->
     <nav id="top-nav">
       <div id="nav-brand">data<span style="color:var(--primary)">glow</span></div>
@@ -4592,6 +4594,45 @@ var InstantInsight = (function () {
   var tabStrip = $('tab-strip');
   var tabAdd = $('tab-add');
 
+  // ── Canvas-first: paint ghost grid so the platform looks alive before data ──
+  (function paintGhostGrid() {
+    var colWidths = [120, 90, 160, 80, 110, 95, 140, 75];
+    var thead = $('grid-thead');
+    var tbody = $('grid-tbody');
+    if (!thead || !tbody) return;
+
+    // Ghost header
+    var hRow = document.createElement('tr');
+    colWidths.forEach(function (w) {
+      var th = document.createElement('th');
+      th.style.width = w + 'px';
+      th.style.padding = '10px 12px';
+      var ghost = document.createElement('div');
+      ghost.className = 'ghost-header';
+      ghost.style.width = Math.floor(w * 0.6) + 'px';
+      th.appendChild(ghost);
+      hRow.appendChild(th);
+    });
+    thead.appendChild(hRow);
+
+    // Ghost rows
+    for (var r = 0; r < 14; r++) {
+      var row = document.createElement('tr');
+      row.className = 'ghost-row';
+      colWidths.forEach(function (w) {
+        var td = document.createElement('td');
+        var cell = document.createElement('div');
+        cell.className = 'ghost-cell';
+        var cellW = Math.floor(w * (0.4 + Math.random() * 0.45));
+        cell.style.width = cellW + 'px';
+        cell.style.animationDelay = (Math.random() * 0.8).toFixed(2) + 's';
+        td.appendChild(cell);
+        row.appendChild(td);
+      });
+      tbody.appendChild(row);
+    }
+  })();
+
   var gridThead = $('grid-thead');
   var gridTbody = $('grid-tbody');
   var statusRows = $('status-rows');
@@ -5090,19 +5131,11 @@ var InstantInsight = (function () {
       colCountDisplay.classList.add('show');
     }, 1100);
 
-    // STEP 5 (1300ms): health dots one by one, 100ms apart
-    var dotStart = 1300;
-    dataset.columns.forEach(function (col, idx) {
-      var dot = document.createElement('div');
-      dot.className = 'reveal-dot dot-' + (dataset.columnHealth[idx] === 'green' ? 'green' : dataset.columnHealth[idx] === 'amber' ? 'amber' : 'red');
-      revealHealthDots.appendChild(dot);
-      setTimeout(function () {
-        dot.classList.add('show');
-      }, dotStart + idx * 100);
-    });
+    // STEP 5 removed — health dots cut (Jobs edit: insight sentence is the reveal)
 
     // STEP 6: Instant Insight — surface the single most interesting finding
-    var findingDelay = dotStart + dataset.columns.length * 100 + 150;
+    // Delay is now fixed: 1400ms after row count appears, giving a beat of silence
+    var findingDelay = 1400;
     setTimeout(function () {
       var insight = InstantInsight.analyze(dataset);
       var sentence = insight.sentence;
@@ -5116,8 +5149,8 @@ var InstantInsight = (function () {
       requestAnimationFrame(function () { revealFinding.classList.add('show'); });
     }, findingDelay);
 
-    // STEP 7: hide ceremony, show canvas, render grid
-    var finalDelay = findingDelay + 400;
+    // STEP 7: dissolve ceremony overlay, reveal grid — 600ms after insight appears
+    var finalDelay = findingDelay + 600;
     setTimeout(function () {
       completeCeremony(dataset, filename);
     }, finalDelay);
@@ -5130,8 +5163,12 @@ var InstantInsight = (function () {
   }
 
   function completeCeremony(dataset, filename) {
-    ceremonyScreen.classList.add('hidden');
-    canvas.classList.remove('hidden');
+    // Canvas-first: canvas is already visible — dissolve the overlay
+    ceremonyScreen.classList.add('dissolve-out');
+    setTimeout(function () {
+      ceremonyScreen.classList.add('hidden');
+      ceremonyScreen.classList.remove('dissolve-out');
+    }, 420);
 
     datasetCounter++;
     var id = 'ds-' + datasetCounter;
@@ -5186,6 +5223,14 @@ var InstantInsight = (function () {
   }
 
   function renderGrid(dataset) {
+    // Clear ghost rows on first real render
+    var ghostRows = gridTbody.querySelectorAll('.ghost-row');
+    ghostRows.forEach(function (r) { r.remove(); });
+    var ghostHeaders = gridThead.querySelectorAll('tr');
+    // Only clear if it's a ghost header (contains .ghost-header divs)
+    ghostHeaders.forEach(function (r) {
+      if (r.querySelector('.ghost-header')) r.remove();
+    });
     setAgentStatus('Analyzing your data...');
 
     gridThead.innerHTML = '';
@@ -5509,9 +5554,8 @@ var InstantInsight = (function () {
   }
 
   tabAdd.addEventListener('click', function () {
-    // show ceremony screen again to drop another file
-    canvas.classList.add('hidden');
-    ceremonyScreen.classList.remove('hidden');
+    // Canvas-first: show ceremony overlay again for next file
+    ceremonyScreen.classList.remove('hidden', 'dissolve-out');
     resetRevealUI();
     setAgentStatus('Ready.');
   });
