@@ -7,6 +7,66 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 16:52 CT] Metric Contracts Batch 4 — agent-access rules, read gate (PR #426)
+
+**What was asked:** "Continue with the plan. Build stuff in the plan list. Let me know when I need to
+enable features to true." Reviewed `NORTH_STAR.md`'s backlog and picked item 2: "Machine-readable Metric
+Contracts extended with agent-access rules (who/what is authorized to query a given metric) — partially
+exists, could be deepened." Confirmed via grep that zero agent-access concept existed anywhere in
+`js/metrics/metric-contracts.js` or `js/nl-sql/metric-contracts.js` before this PR.
+
+**What was built:** `js/metrics/metric-access-rules.js` — `MetricAccessRule` (a per-metric allow-list of
+agent/source identifiers, or the explicit `ANY_AGENT` wildcard, permitted to QUERY — read — a metric's
+computed value) and `MetricAccessRuleRegistry` (keyed by metric id, current-state — `setRule()` replaces
+rather than appends, unlike the write-side `MetricContractHistory`). `isAuthorized(metricId, agentId)` is
+the one pure predicate a future call site would use. Deliberately distinct from
+`js/agents/agent-action-firewall.js`, which governs WRITE-side mutations and always needs human
+confirmation — this governs READS, a different axis entirely. A metric with no rule ever configured
+defaults to unrestricted access, so shipping this changed nothing for any existing metric.
+
+**Scope, this PR:** pure logic only, same identity-split precedent as Batch 1. No UI (a future batch adds
+an editor inside the Metric Studio contract view). Not wired into any real query path (NL-SQL execution,
+MCP interface, Query Sentinel) — `isAuthorized()` has no caller anywhere in the app yet. Ships behind a
+new flag, `metricAccessRules`, default `false`/dark; being pure logic with no caller, the flag is inert
+regardless of its value today.
+
+**CI catch, fixed before merge:** the Capability-map drift detector (`ci-batch-01 / Capability-map drift
+detector`) correctly failed the first push — `js/metrics/metric-access-rules.js` had no capability-map
+entry. Added the matching `capability-map.manifest.json` entry (platforms `browser`+`desktop`, matching
+its `metric-contracts.js`/`metric-studio.js` siblings) and a `docs/capability-map.md` prose entry as
+Batch 4, then re-verified `test/capability-drift.test.mjs` locally (24/24, was 23/24) before pushing the
+fix. This is exactly the kind of real, actionable CI signal the drift detector exists to catch.
+
+**Test evidence:** 34/34 new tests (`test/metric-access-rules.test.mjs`). Independently re-verified
+myself, not just CI: re-ran `metric-contracts.test.mjs` (21/21) and `capability-drift.test.mjs` (24/24)
+for regressions — none found.
+
+**CI:** all jobs passed except `Prompt Eval Harness`, confirmed via direct log inspection to be a
+pre-existing failure already on `main` (a `require()` vs. ES-module mismatch in
+`test/prompt-eval/runner.js`, unrelated to this diff) — the same known, tracked-across-every-PR failure
+noted in prior entries.
+
+**Merge:** `main` gained one interleaving commit (PR #427, Natural Language Query Bar, from the user's
+other concurrent session) between branch and merge — confirmed zero file overlap (`canvas/index.html` +
+a logo image only) before merging. Explicit `confirm_action` obtained, stating the full safety assessment,
+before squash-merging (`main` fast-forwarded `4adfd29` → `1d0a5ef`; PR #428, Chart Layer, from the same
+other session, landed on top in the interim but is likewise disjoint).
+
+**No flag enabled by this merge.** `metricAccessRules` stays `false`/dark — flipping it to `true` is its
+own separate, later, explicitly-confirmed decision per standing convention. Directly answers the user's
+"let me know when I need to enable features to true" ask: nothing needs enabling from this PR yet, since
+the module has no caller to activate.
+
+**Cross-platform impact:** pure logic, no platform-specific API — reaches web, the Tauri desktop shell,
+and the PWA/mobile build identically the moment (in a future batch) something actually calls
+`isAuthorized()`. Zero observable effect on any platform today.
+
+**Lesson for next time:** the capability-map drift detector is now a reliable, cheap pre-merge check for
+"did I forget to document a new module" — worth running `node test/capability-drift.test.mjs` locally
+before first push, not just after CI flags it, to save a round-trip.
+
+---
+
 ## [2026-07-19 14:25 CT] FLAG ENABLE: 7 flags flipped live (PR #419)
 
 **What was asked:** After a status readout of all 9 disabled flags (what each does, when built, current state), explicit go-ahead to enable 7 named flags: `agentPassportBridge`, `pivotTable`, `narrativeOverconfidenceGuard`, `portfolioNarrativeAssembler`, `mcpInterface`, `openFloorSandboxTwin`, `meetingScribeLiveCapture`.
