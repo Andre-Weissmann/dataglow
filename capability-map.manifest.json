@@ -4193,6 +4193,101 @@
           "name": "PublishEngine"
         }
       ]
+    },
+    {
+      "id": "chart-engine",
+      "area": "Visualization",
+      "name": "Chart Layer (PR AI — auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/chart/chart-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/chart/chart-engine.js",
+          "name": "ChartEngine"
+        }
+      ]
+    },
+    {
+      "id": "export-engine",
+      "area": "Sharing & collaboration",
+      "name": "Export Everything (PR AJ — CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/export/export-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/export/export-engine.js",
+          "name": "ExportEngine"
+        }
+      ]
+    },
+    {
+      "id": "column-editor",
+      "area": "Data grid & editing",
+      "name": "Smart Column Editor (PR AK — inline rename, type cycle, add column with formula, clean-name suggestions)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/columns/column-editor.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/columns/column-editor.js",
+          "name": "ColumnEditor"
+        }
+      ]
+    },
+    {
+      "id": "join-builder",
+      "area": "Data grid & editing",
+      "name": "Multi-file Join Builder (PR AL — auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/join/join-builder.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/join/join-builder.js",
+          "name": "JoinBuilder"
+        }
+      ]
+    },
+    {
+      "id": "anomaly-timeline",
+      "area": "Validation & data quality",
+      "name": "Anomaly Timeline (PR AM — spike/drop/gap/duplicate/shift detection in the validation rail)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/anomaly/anomaly-timeline.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/anomaly/anomaly-timeline.js",
+          "name": "AnomalyTimeline"
+        }
+      ]
     }
   ]
 }
