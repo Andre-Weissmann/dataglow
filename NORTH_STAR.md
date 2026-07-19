@@ -1947,3 +1947,108 @@ more and more"). The current `dataglow-development` skill (Step 6) logs learning
 and lets the user manually trigger "edit dataglow development," but it does not yet have the skill
 proactively proposing edits to its own SKILL.md based on what it's learned. Worth considering in a future
 `dataglow-development` or `dataglow-brainstorm` round — not built as part of this documentation-only commit.
+
+---
+
+## Enterprise-readiness audit (2026-07-19 — "easy transition later" scoping pass)
+
+Triggered by the user asking, in plain terms: what if a hospital wants this for real, or a company
+wants multiple seats — not "build that now," but "what can we do now so it's an easy transition later,
+without overbuilding for users that don't exist yet." This is a lightweight architecture audit against
+the real repo at `6f98e72` (post the 7-flag enable batch), not a build. No source code changed.
+
+### Finding 1 — Core logic modules are already server-portable; the app-shell layer is not
+
+Audited every top-level `js/*` directory for `window.`/`document.`/`localStorage`/`sessionStorage`/
+`indexedDB`/`navigator.` references. Result: the large majority of modules (validation, cleaning, gate,
+rigor, privacy, drift, anomaly, relational, grades, federated, equity, teaching, rooms, gate, packs,
+pdf, video, and more — 40+ of ~60 module directories) have **zero** browser-global references. This
+confirms the "pure, Node-testable logic" pattern named consistently across PR descriptions in this log
+is a real, repo-wide property, not a one-off claim.
+
+Of the ~20 files that do reference browser globals, on inspection none are a real logic/portability
+problem:
+- `js/validation/semantic-layer.js` — a comment only, no actual browser-API call.
+- `js/provenance/portable-receipt.js` — an exported, self-contained standalone verification HTML/JS
+  snippet, designed by nature to run in a browser when embedded in an exported receipt; not core logic.
+- `js/cleaning-crew/pdf-profiler.js` — legitimately loads PDF.js from a CDN via `document.createElement`;
+  a genuine but narrow and expected browser dependency (PDF parsing needs a DOM-capable runtime).
+- The rest are concentrated in `js/app-shell/` (6/18 files) and `js/runtimes-viz/` (5/5 files) — exactly
+  where you'd expect UI rendering to live, not misplaced logic.
+
+**Conclusion: a future server tier could wrap the existing validation/cleaning/story/rigor modules with
+close to zero rewrite.** The real work of "add a server" would be almost entirely new code (an API
+layer, persistence, auth) plumbed on top of what exists, not a rewrite of what exists. This is the single
+most reassuring finding of this audit — the local-first choice was not architecturally locked-in in a way
+that blocks a future opt-in server tier.
+
+### Finding 2 — Zero multi-tenancy concept anywhere; state is single-user-shaped by default
+
+Grepped the entire `js/` tree for `userId`/`orgId`/`tenantId`/`ownerId` (and snake_case variants):
+**zero matches, anywhere.** This is expected for a local-first single-user tool, but it does mean nothing
+today distinguishes "whose data is this" even implicitly. Two different state patterns exist side by
+side, and they matter differently for a future retrofit:
+- `js/memory/institutional-memory.js` already uses a **factory** (`createMemoryStore(options)`) —
+  already instantiable per-session, which is the multi-user-friendly shape. Adding a `userId`/`sessionId`
+  to the options bag later is a small, additive change, not a rewrite.
+- `js/validation/semantic-layer.js` uses a **module-level singleton** (`const registry = new Map()`) —
+  if this ran on a shared server today, every concurrent user's registered metrics would collide in one
+  global map. Cheap to fix now-ish (wrap in the same factory pattern institutional-memory.js already
+  uses) rather than later once something actually depends on the singleton shape.
+- `js/app-shell/main.js` holds real app state on `window.__dataglow*` globals (`__dataglowLastValidation`,
+  `__dataglowAuditLog`, `__dataglowLastCleanIssues`, etc.) — genuinely single-window, single-user by
+  construction. This is fine and expected for the current browser app; it's simply confirmation that any
+  future multi-user work concentrates in the app-shell/session layer, not the logic layer underneath it.
+
+**Conclusion:** IDs already exist for individual objects (`issue.id`, `issueId` references in audit-log
+entries, `crypto.randomUUID`-style generation in several modules) but are scoped to "this session's
+data," never to a user or org. No rename/rewrite is needed to add that scope later — it's an additive
+field, not a breaking change — but `semantic-layer.js`'s singleton registry is the one piece of core
+logic that would need an actual code change (not just a new field) before it could safely serve more
+than one user at a time.
+
+### Finding 3 — Licensing gap: MIT license does not protect a future commercial/team offering
+
+`LICENSE` is a standard MIT license (copyright Andre Weissmann, 2026), plus a clear, well-organized
+section crediting vendored/CDN third-party libraries (DuckDB-WASM, Apache Arrow, tslib, FlatBuffers,
+Plotly.js, SheetJS, Pyodide, WebR) with their own licenses — that attribution section is in good shape
+and needs no change.
+
+The MIT grant on DataGlow's own code, though, is unrestricted: "permission... to use, copy, modify,
+merge, publish, distribute, sublicense, and/or **sell** copies of the Software... without restriction."
+Concretely, this means anyone — including a hospital or a competing company — could already legally fork
+the current public repo, deploy it internally or resell it, and owe nothing back to the user. This
+directly conflicts with the "companies wanting to use it" long-term goal named in this conversation: the
+current license doesn't distinguish "free for individuals" from "commercial/team use," so there is no
+license-level lever to negotiate from later.
+
+**This is the one finding from this audit that is worth resolving before, not after, the fact** — unlike
+the code-architecture findings above (which are cheap to retrofit later because the code is already
+decoupled), a license change *after* the code is already public and forked by others is much harder to
+walk back than choosing the right license now. Common paths worth considering (not decided here — this
+is a scoping note, not a decision):
+- A dual-license model (e.g. AGPL or a source-available/BSL-style license for the core, with a separate
+  commercial license offered directly for teams/hospitals) — protects against silent commercial reuse
+  while keeping the code genuinely open for individuals and portfolio visibility.
+- Keeping MIT but adding a clear, separate `COMMERCIAL.md`/trademark note is weaker — MIT's grant can't
+  be un-granted for code already released under it, so this only affects future releases, not what's
+  already public.
+
+### What this audit deliberately did NOT do
+
+- No code was changed. No license was changed. No `userId`/`orgId` field was added anywhere.
+- No decision was made on which licensing path to take — that's a real decision for the user, informed
+  by this finding, not something to default into via a documentation commit.
+- Did not scope actual SSO/auth/billing/admin-dashboard work — per the user's own framing, that's
+  explicitly deferred until a real hospital/team customer exists and its actual needs are known.
+
+### Recommended next steps (not built, for a future round)
+
+1. Decide the licensing path (dual-license vs. status quo) — the one item with a real now-vs.-later cost
+   asymmetry. Low engineering cost, needs a real decision from the user first.
+2. Retrofit `semantic-layer.js`'s singleton registry into the same factory pattern
+   `institutional-memory.js` already uses — small, cheap, removes the one real multi-user collision risk
+   found in core logic.
+3. When a real server tier is eventually scoped, treat `serverOffload`'s existing flag/stub
+   (`js/app-shell/duckdb-config.js` #8) as the literal starting point — it is already named, already
+   documented as opt-in-only/never-default, and already the intended seed of this exact feature.
