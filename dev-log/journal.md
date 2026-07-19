@@ -7,6 +7,52 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 08:55 CT] Fix #6, Fix #7, and analytics-positioning doc note merged (PRs #371, #372, #373)
+
+**What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Three independent items,
+reviewed and merged together after all three reached green CI: fix #6 (NCCI same-day procedure conflict
+detection), fix #7 (mobile touch-target sizing), and a docs-only positioning note prompted by a Maven
+Analytics course reference the user shared.
+
+**Fix #6 — NCCI Same-Day Procedure Conflict Check (PR #371):** New 23rd standalone validation layer
+(`js/validation/ncci-ptp-validator.js`) flags claims billing two CPT/HCPCS procedure codes for the same
+patient on the same date of service that CMS's National Correct Coding Initiative names as a
+Procedure-to-Procedure conflict pair. Curated, non-exhaustive coverage of well-documented modifier-
+indicator-0 pairs — explicitly not a replacement for CMS's full quarterly PTP edit files. Self-skips
+(`idle`) on non-claims datasets (no procedure/patient/service-date columns detected). Purely additive to
+`validation.js` — one new import, one `LAYER_DEFS` entry, one call site using the same `.catch()` pattern
+as every sibling layer; zero existing layer logic touched. 28 new tests, plus 3 CI-only consistency-gate
+fixes discovered after the initial push (golden fixture regen, capability-map entry, micro-lesson entry —
+all the same "new layer trips a hardcoded gate" class already seen twice before). All affected suites
+re-verified locally before push: NCCI 28/28, validation-layers 88/88, trust-collaboration-suite 34/34,
+capdrift 24/24, microlessons 19/19, golden 10/10.
+
+**Fix #7 — Mobile touch-target sizing (PR #372):** Sub-480px `.tab` elements measured ~38px tall, under
+the WCAG 2.5.5 / iOS HIG 44px minimum. Bumped vertical padding to `var(--space-3)` inside the existing
+`max-width:480px` media query only; added a CSS-only `mask-image` edge-fade scroll affordance on
+`.tabbar` since it scrolls with no prior visual hint. Single file (`css/app.css`), scoped entirely to the
+mobile block. Live-verified via Playwright: iPhone 14 viewport — all 5 tabs measure exactly 44px tall;
+1280px desktop viewport confirmed unchanged (41.25px), proving the fix didn't leak outside its scope.
+
+**Doc note — analytics-category positioning (PR #373):** Prompted by the user sharing the Maven
+Analytics "Data Literacy Foundations" four-category framework (descriptive/diagnostic/predictive/
+prescriptive). Every cited module/function name grep-verified against the real codebase before writing
+(no unverified claims). Also folded in an answer to a separate LinkedIn post about Tableau Cloud Manager's
+capacity management — correctly ruled N/A architecturally, since DataGlow has no multi-tenant server.
+Docs-only, single file, 16 lines added / 0 deleted.
+
+**Safety assessment presented before merge:** all three independently diff-reviewed (not just trusted
+green CI) before the merge request. #371: new-layer-only change, same defensive pattern as every sibling
+layer, no flag needed since it's a read-only validation check. #372: CSS-only, single file, scoped to an
+existing media query, desktop regression-tested. #373: docs-only, zero source code. All 61/61 CI checks
+green on each, `mergeStateStatus: CLEAN`.
+
+**Outcome:** All three merged (squash) into main — #371 at `70a30ba`, #372 at `3d1fe9f`, #373 at
+`1eac53b`. Branches deleted. Explicit `confirm_action` approval obtained (single combined confirm
+covering all three, each with its own stated safety assessment) before merge per standing rule.
+
+---
+
 ## [2026-07-19 08:16 CT] Fix #2 merged — referential-integrity discoverability hint (PR #369)
 
 **What was asked:** Continue the DataGlow real-data-readiness plan (from the 2026-07-17 readiness audit).

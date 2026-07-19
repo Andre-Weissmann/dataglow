@@ -221,5 +221,43 @@
       "notTouched": "Purely additive info-severity finding riding the existing crossTableReferentialIntegrity flag (already enabled) \u2014 never changes pass/warn/fail status, no new flag introduced. Independently re-read the full diff before merge, not just trusted green CI."
     },
     "outcome": "shipped-live"
+  },
+  {
+    "id": "chk_20260719_2",
+    "startedAt": "2026-07-19T08:16:00Z",
+    "endedAt": "2026-07-19T08:55:00Z",
+    "trigger": "run-end",
+    "title": "Fix #6 (NCCI same-day procedure conflict), Fix #7 (mobile 44px touch targets), analytics-positioning doc note \u2014 all merged, no new flags",
+    "before": {
+      "openPRs": 3,
+      "openIssues": 0,
+      "orphanBranches": 0,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 0,
+      "orphanBranches": 0,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 14,
+      "additions": 590,
+      "deletions": 8
+    },
+    "commits": [
+      "70a30ba",
+      "3d1fe9f",
+      "1eac53b"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/371",
+    "verification": {
+      "testsRun": 173,
+      "testsPassed": 173,
+      "notTouched": "NCCI layer is additive-only (new file + one call site using the existing per-layer .catch() pattern, no existing layer logic changed, no flag needed since it's a read-only check). Mobile fix is CSS-only, scoped to the existing max-width:480px block, desktop regression-verified unchanged via Playwright. Doc note touched zero source code. All three independently diff-reviewed before the combined confirm_action, not just trusted on green CI."
+    },
+    "outcome": "shipped-live"
   }
 ]
