@@ -6,7 +6,8 @@
     "docs/capability-map/validation-layers.md",
     "docs/webhook-mode.md",
     "README.md",
-    "docs/institutional-memory.md"
+    "docs/institutional-memory.md",
+    "docs/nats-bridge.md"
   ],
   "capabilities": [
     {
@@ -3742,6 +3743,73 @@
         {
           "file": "js/pdf/pdfjs-extractor.scaffold.js",
           "name": "extractPDFText"
+        }
+      ]
+    },
+    {
+      "id": "nats-websocket-bridge",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Ambient & real-time",
+      "name": "NATS WebSocket Bridge",
+      "files": [
+        "js/nats/nats-message-parser.js",
+        "js/nats/nats-bridge.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/nats/nats-message-parser.js",
+          "name": "detectNATSFormat"
+        },
+        {
+          "file": "js/nats/nats-message-parser.js",
+          "name": "parseNATSMessage"
+        },
+        {
+          "file": "js/nats/nats-message-parser.js",
+          "name": "parseNATSBatch"
+        },
+        {
+          "file": "js/nats/nats-message-parser.js",
+          "name": "inferNATSSchema"
+        },
+        {
+          "file": "js/nats/nats-message-parser.js",
+          "name": "buildSubjectFilter"
+        },
+        {
+          "file": "js/nats/nats-message-parser.js",
+          "name": "validateNATSConfig"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "createNATSSession"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "processBatch"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "buildRailUpdate"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "summarizeNATSSession"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "computeBatchDrift"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "resetBaseline"
+        },
+        {
+          "file": "js/nats/nats-bridge.js",
+          "name": "generateConnectionGuide"
         }
       ]
     }
