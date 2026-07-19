@@ -165,6 +165,61 @@ async function main() {
     const findings = results.unit_tests.findings || [];
     assert.equal(findings.filter(f => f.kind === 'orphan_reference').length, 0, 'no candidate table available — must not throw or false-positive');
   });
+  await okAsync('discoverability fix: single table only, FK-shaped column present -> informational hint naming the column, no fail/warn', async () => {
+    state.datasets = [{ name: 'claims', table: 't_claims_e2e', rowCount: 3, cols: claimsCols, loadedAt: Date.now() }];
+    resetFlags();
+    configureFlags({ [CROSS_TABLE_REFERENTIAL_FLAG]: { enabled: true } });
+    const claimsDs = { table: 't_claims_e2e', cols: claimsCols, rowCount: 3, name: 'claims' };
+    const results = await validation.runAllLayers(claimsDs, {});
+    const findings = results.unit_tests.findings || [];
+    const hint = findings.find(f => f.kind === 'referential_integrity_locked');
+    assert.ok(hint, 'expected a referential_integrity_locked hint finding, got: ' + JSON.stringify(findings.map(f => f.kind)));
+    assert.equal(hint.severity, 'info', 'hint must be informational, not fail/warn');
+    assert.ok(hint.text.includes('patient_id'), 'hint must name the actual FK-shaped column, got: ' + hint.text);
+    assert.deepEqual(hint.meta.fkColumns, ['patient_id']);
+    // Status must stay pass/clean — an informational hint on an otherwise-clean
+    // single-table load must never look like a defect to the analyst.
+    assert.equal(results.unit_tests.status, 'pass', 'a single clean table with only an informational hint must still report status pass');
+    assert.ok(Array.isArray(results.unit_tests.detail) && results.unit_tests.detail.some(t => t.includes('patient_id')), 'the hint text must be visible in detail even though status is pass');
+  });
+
+  await okAsync('discoverability fix: second table loaded but no genuine FK match found -> no hint (the "no other dataset loaded" case is the only one that fires it)', async () => {
+    await createTableFromObjects('t_unrelated_e2e', [{ vendor_id: 'V1', name: 'Acme' }]);
+    const unrelatedCols = await colsOf('t_unrelated_e2e');
+    state.datasets = [
+      { name: 'unrelated', table: 't_unrelated_e2e', rowCount: 1, cols: unrelatedCols, loadedAt: Date.now() },
+      { name: 'claims', table: 't_claims_e2e', rowCount: 3, cols: claimsCols, loadedAt: Date.now() },
+    ];
+    resetFlags();
+    configureFlags({ [CROSS_TABLE_REFERENTIAL_FLAG]: { enabled: true } });
+    const claimsDs = { table: 't_claims_e2e', cols: claimsCols, rowCount: 3, name: 'claims' };
+    const results = await validation.runAllLayers(claimsDs, {});
+    const findings = results.unit_tests.findings || [];
+    assert.equal(findings.filter(f => f.kind === 'referential_integrity_locked').length, 0, 'the locked-hint only fires when zero OTHER datasets are loaded at all, not when a match merely fails to resolve');
+  });
+
+  await okAsync('discoverability fix: flag OFF (shipped default) -> no hint even with a single table and FK-shaped columns present', async () => {
+    state.datasets = [{ name: 'claims', table: 't_claims_e2e', rowCount: 3, cols: claimsCols, loadedAt: Date.now() }];
+    resetFlags();
+    configureFlags({ [CROSS_TABLE_REFERENTIAL_FLAG]: { enabled: false } });
+    const claimsDs = { table: 't_claims_e2e', cols: claimsCols, rowCount: 3, name: 'claims' };
+    const results = await validation.runAllLayers(claimsDs, {});
+    const findings = results.unit_tests.findings || [];
+    assert.equal(findings.filter(f => f.kind === 'referential_integrity_locked').length, 0, 'flag off must suppress the hint too, consistent with the rest of this feature being fully flag-gated');
+  });
+
+  await okAsync('discoverability fix: no FK-shaped columns at all -> no hint (nothing to unlock)', async () => {
+    await createTableFromObjects('t_no_fk_e2e', [{ record_id: 'R1', amount: 10 }]);
+    const noFkCols = await colsOf('t_no_fk_e2e');
+    state.datasets = [{ name: 'no_fk', table: 't_no_fk_e2e', rowCount: 1, cols: noFkCols, loadedAt: Date.now() }];
+    resetFlags();
+    configureFlags({ [CROSS_TABLE_REFERENTIAL_FLAG]: { enabled: true } });
+    const ds = { table: 't_no_fk_e2e', cols: noFkCols, rowCount: 1, name: 'no_fk' };
+    const results = await validation.runAllLayers(ds, {});
+    const findings = results.unit_tests.findings || [];
+    assert.equal(findings.filter(f => f.kind === 'referential_integrity_locked').length, 0, 'a table with no _id-suffixed column beyond the key has nothing to hint about');
+  });
+
 
   await closeConnection();
   console.log(`\n${pass} passed, ${fail} failed`);

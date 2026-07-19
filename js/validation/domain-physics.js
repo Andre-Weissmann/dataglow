@@ -45,14 +45,20 @@ import { MEDICAL_DISCLAIMER } from './health-standards.js';
 export function summarizeUnitTests(findings = []) {
   const fails = findings.filter(f => f.severity === 'fail');
   const warns = findings.filter(f => f.severity === 'warn');
+  // Readiness-audit fix #2 (2026-07-17): purely informational findings (e.g.
+  // "load a related file to unlock referential integrity checking") never
+  // change pass/warn/fail status — they're not a defect — but must still be
+  // visible to the analyst instead of silently dropped by the null-detail
+  // pass-case below.
+  const infos = findings.filter(f => f.severity === 'info');
   const ts = Date.now();
   if (fails.length === 0 && warns.length === 0) {
-    return { status: 'pass', summary: 'All 5 unit tests passed — no negatives, future dates, blank keys, duplicates, or broken references.', detail: null, ts };
+    return { status: 'pass', summary: 'All 5 unit tests passed — no negatives, future dates, blank keys, duplicates, or broken references.', detail: infos.length ? infos.map(i => i.text) : null, ts };
   }
   if (fails.length === 0) {
-    return { status: 'warn', summary: `${warns.length} date column(s) show a pattern consistent with de-identification date-shifting — review, don't assume a defect.`, detail: warns.map(w => w.text), ts };
+    return { status: 'warn', summary: `${warns.length} date column(s) show a pattern consistent with de-identification date-shifting — review, don't assume a defect.`, detail: [...warns.map(w => w.text), ...infos.map(i => i.text)], ts };
   }
-  return { status: 'fail', summary: `${fails.length} issue(s) found`, detail: [...fails.map(f => f.text), ...warns.map(w => w.text)], ts };
+  return { status: 'fail', summary: `${fails.length} issue(s) found`, detail: [...fails.map(f => f.text), ...warns.map(w => w.text), ...infos.map(i => i.text)], ts };
 }
 
 // Date-like detection kept in lock-step with the Unit Test Layer's own column
