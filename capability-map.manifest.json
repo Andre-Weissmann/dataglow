@@ -4,6 +4,7 @@
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
+    "docs/webhook-mode.md",
     "README.md"
   ],
   "capabilities": [
@@ -3116,6 +3117,43 @@
         { "file": "js/agents/meeting-synthesis.js", "name": "buildSynthesisPrompt" },
         { "file": "js/agents/meeting-synthesis.js", "name": "summarizeMeetingSynthesis" },
         { "file": "js/agents/meeting-synthesis.js", "name": "isSynthesisAvailable" }
+      ]
+    },
+    {
+      "id": "streaming-validator",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Ambient & real-time",
+      "name": "Streaming validator (micro-batch drift core)",
+      "files": [
+        "js/streaming/streaming-validator.js"
+      ],
+      "symbols": [
+        { "file": "js/streaming/streaming-validator.js", "name": "runStreamingValidation" },
+        { "file": "js/streaming/streaming-validator.js", "name": "checkSchemaDrift" },
+        { "file": "js/streaming/streaming-validator.js", "name": "checkValueDrift" },
+        { "file": "js/streaming/streaming-validator.js", "name": "checkArrivalAnomaly" }
+      ]
+    },
+    {
+      "id": "validation-webhook-mode",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Ambient & real-time",
+      "name": "Validation Webhook Mode",
+      "files": [
+        "js/webhook/webhook-handler.js",
+        "js/webhook/service-worker-relay.js"
+      ],
+      "symbols": [
+        { "file": "js/webhook/webhook-handler.js", "name": "parseWebhookPayload" },
+        { "file": "js/webhook/webhook-handler.js", "name": "buildValidationRequest" },
+        { "file": "js/webhook/webhook-handler.js", "name": "buildWebhookResponse" },
+        { "file": "js/webhook/webhook-handler.js", "name": "processWebhookBatch" }
       ]
     }
   ]
