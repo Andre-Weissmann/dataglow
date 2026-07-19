@@ -7,6 +7,34 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 14:25 CT] FLAG ENABLE: 7 flags flipped live (PR #419)
+
+**What was asked:** After a status readout of all 9 disabled flags (what each does, when built, current state), explicit go-ahead to enable 7 named flags: `agentPassportBridge`, `pivotTable`, `narrativeOverconfidenceGuard`, `portfolioNarrativeAssembler`, `mcpInterface`, `openFloorSandboxTwin`, `meetingScribeLiveCapture`.
+
+**This is logged as its own distinct event, separate from any build/merge entry** — per the standing rule that flag enable is always a separately-logged action even when the user bundles multiple flags into one confirm.
+
+**What changed:** `flags.manifest.json` only — 7 flags flipped `false → true`. Zero source code touched (confirmed via `git diff main...feat/enable-seven-flags-2026-07-19 --stat`: 1 file, 7 insertions/7 deletions).
+
+**User-visible effect, immediately live:**
+- New **Pivot** tab (Excel-style pivot builder, tap-to-add rows/columns/values, real DuckDB SQL underneath)
+- New **Portfolio** tab (assembles Problem Framer + Story + Clean summary + recommendation into one shareable write-up)
+- New card under the Story tab's Narrative Consistency Check: the Narrative Overconfidence Guard, flagging overconfident language on grade C/D claims
+- New "Start live capture" / "Stop" mic button pair on the Meeting Scribe tab (on-device WebGPU speech-to-text, browser-only, never leaves the device)
+- Settings tab's Export Gate State button now populates `touchLedgerSummary`/`proofRoomSeal` extras (`mcpInterface` + `agentPassportBridge`); the `get_agent_passport` MCP tool now returns real composed data instead of an always-empty/unavailable shape
+- `openFloorSandboxTwin`: no observable change — no UI or call site exists yet, so this flip has zero visible effect today
+
+**Explicitly NOT enabled (not requested by the user):** `conversationalPackBuilderVoice` (blocked on picking a permissively-licensed on-device STT model — no paid API keys), `serverOffload` (documented as "NEVER enabled by default" — DataGlow is local-first; would need its own explicit override conversation if ever requested).
+
+**Test evidence:** each feature's own test suite re-run independently post-flip (not just trusted from before the flag existed): mcp-server 81/81, pivot-builder 27/27, narrative-overconfidence-guard 29/29, portfolio-narrative-assembler 57/57, sandbox-twin 40/40, live-transcript-capture 28/28 — 262/262, 0 failures.
+
+**CI:** 63/64 checks passed on PR #419, including `e2e-smoke` (real Chrome — directly exercises the newly-visible tabs) and `tauri-smoke`. The 1 failure (Prompt Eval Harness) is the same pre-existing, unrelated failure tracked across every PR this session.
+
+**Merge:** explicit `confirm_action` obtained before merging (squash, `main` fast-forwarded 63ba1fa → 6f98e72, clean fast-forward with no interleaving this time).
+
+**Cross-platform impact:** all 4 visible changes (Pivot, Portfolio, Overconfidence Guard, Meeting Scribe live capture) ship from the single shared web codebase, so they reach web, the Tauri desktop shell, and the PWA/mobile build identically — confirmed no platform-specific API gates any of them except the live-capture mic button's own internal `isSpeechCaptureAvailable()` check (requires `getUserMedia` + WebGPU, a runtime capability check, not a build-time platform fork). The MCP-related flags (`mcpInterface`, `agentPassportBridge`) remain desktop-only in practice, since only the Tauri/local-Node environment can host the stdio MCP server.
+
+---
+
 ## [2026-07-19 13:38 CT] Agent Passport Bridge — get_agent_passport MCP tool (PR #415)
 
 **What was asked:** "Build it" — go ahead with the Agent Passport Bridge concept (drafted/previewed in a
