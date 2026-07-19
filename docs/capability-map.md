@@ -527,3 +527,33 @@ The question-first analysis layer: DataGlow generates 3–7 contextually relevan
 - **Symbol:** `PublishEngine`
 - **What it does:** Packages active dataset (up to 2,000 rows) + findings + insight sentence into a gzip-compressed, base64url-encoded URL fragment. The recipient opens `snapshot.html#share=<encoded>` — a standalone read-only viewer that decodes and renders the data client-side. No server. No upload. Zero raw data transmitted.
 - **Platforms:** browser, desktop, mobile
+
+### Chart Layer (PR AI)
+- **File:** `js/chart/chart-engine.js`
+- **Symbol:** `ChartEngine.renderAll(dataset, containerEl)`, `ChartEngine.clear(containerEl)`
+- **What it does:** Auto-generates charts from any dataset with no clicks required — picks the right chart type per column automatically: bar chart (categorical × numeric, top 10 groups), histogram (numeric distribution), donut chart (low-cardinality categorical, ≤8 unique values), line chart (date/time × numeric trend). Renders with Canvas 2D, zero external dependencies, using DataGlow's own design-token palette.
+- **Platforms:** browser, desktop, mobile
+
+### Export Everything (PR AJ)
+- **File:** `js/export/export-engine.js`
+- **Symbol:** `ExportEngine.exportCSV`, `ExportEngine.exportChartPNG`, `ExportEngine.exportPDF`
+- **What it does:** Three export formats — CSV, chart PNG, and PDF report — all generated and downloaded fully client-side. No server round-trip, no upload of any row of data, consistent with DataGlow's zero-upload posture.
+- **Platforms:** browser, desktop, mobile
+
+### Smart Column Editor (PR AK)
+- **File:** `js/columns/column-editor.js`
+- **Symbol:** `ColumnEditor.attachToGrid(dataset, gridThead, onDatasetChange)`, `ColumnEditor.suggestCleanNames(columns)`
+- **What it does:** Inline column editing directly in the grid header: double-click a column name to rename it, click its type chip to cycle text → number → date → boolean, or use the trailing "+" button to add a new column (constant value or formula). `suggestCleanNames` proposes tidied names for messy source headers (snake_case/camelCase → Title Case, stray numeric prefixes/suffixes stripped).
+- **Platforms:** browser, desktop, mobile
+
+### Multi-file Join Builder (PR AL)
+- **File:** `js/join/join-builder.js`
+- **Symbol:** `JoinBuilder.render(containerEl, datasets, onJoinComplete)`, `JoinBuilder.suggestKey(colsA, colsB)`
+- **What it does:** Drag two loaded datasets in and DataGlow suggests the join key automatically (exact name match first, then similar-name/value-overlap heuristics, each tagged with a confidence level). Supports INNER, LEFT, RIGHT, and FULL OUTER joins with a live result preview; the joined result is added back into the workspace as a new dataset via `onJoinComplete`.
+- **Platforms:** browser, desktop, mobile
+
+### Anomaly Timeline (PR AM)
+- **File:** `js/anomaly/anomaly-timeline.js`
+- **Symbol:** `AnomalyTimeline.detect(dataset)`, `AnomalyTimeline.render(report, containerEl)`
+- **What it does:** Pinpoints exactly when a metric changed in the validation rail — the exact row/date where a value spiked, dropped, went missing, or crossed a threshold (statistical z-score/stddev-based detection, severity-ranked: critical/high/medium/low). Surfaces a structured `AnomalyReport` (`events[]` + a plain-English `summary`) rather than just a flat outlier list.
+- **Platforms:** browser, desktop, mobile
