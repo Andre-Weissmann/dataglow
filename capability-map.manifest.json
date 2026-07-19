@@ -3899,6 +3899,42 @@
           "name": "hasActiveConnection"
         }
       ]
+    },
+    {
+      "id": "portfolio-narrative-assembler",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Narrative & storytelling",
+      "name": "Portfolio Narrative assembler (stitches Problem Framer + Story + Clean summary + recommendation into one exportable write-up)",
+      "files": [
+        "js/portfolio/narrative-assembler.js",
+        "js/portfolio/portfolio-ui.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/portfolio/narrative-assembler.js",
+          "name": "buildCleaningSummary"
+        },
+        {
+          "file": "js/portfolio/narrative-assembler.js",
+          "name": "buildNarrativeDocument"
+        },
+        {
+          "file": "js/portfolio/narrative-assembler.js",
+          "name": "renderNarrativeMarkdown"
+        },
+        {
+          "file": "js/portfolio/narrative-assembler.js",
+          "name": "validateNarrativeDocument"
+        },
+        {
+          "file": "js/portfolio/portfolio-ui.js",
+          "name": "renderPortfolioTab"
+        }
+      ]
     }
   ]
 }

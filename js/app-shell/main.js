@@ -25,6 +25,7 @@ import { proveZeroCriticalIssues, verifyZeroProof, countCriticalContractFlags } 
 import { buildBeamUrl } from '../provenance/trust-beam.js';
 import { classifyGroupedConfidence, summarizeGroupedConfidence, cohensD } from '../rigor/statistical-rigor.js';
 import { checkNarrativeOverconfidence, describeOverconfidenceFinding } from '../rigor/narrative-overconfidence-guard.js';
+import { renderPortfolioTab } from '../portfolio/portfolio-ui.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import { renderPivotTab } from '../runtimes-viz/pivot-ui.js';
@@ -190,6 +191,7 @@ const TAB_META = {
   joinbuilder: { label: 'Join Builder', icon: 'join' },
   nlsql: { label: 'AI', icon: 'message-square' },
   dvc: { label: 'Versions', icon: 'git-branch' },
+  portfolio: { label: 'Portfolio', icon: 'book-open' },
   // council merged into AI tab -- no standalone tab
 };
 
@@ -271,7 +273,8 @@ function getVisibleTabIds() {
     && (tabId !== 'dvc' || isEnabled('dataVersionControl'))
     && tabId !== 'council' // council merged into AI tab
     && (tabId !== 'drillfloor' || isEnabled('drillFloor'))
-    && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew')));
+    && (tabId !== 'cleaningcrew' || isEnabled('cleaningCrew'))
+    && (tabId !== 'portfolio' || isEnabled('portfolioNarrativeAssembler')));
 }
 
 function renderTabBar() {
@@ -314,6 +317,10 @@ function renderTabBar() {
   // pivotTable flag off (its shipped default) it is never added to the bar,
   // never a dead click target, and #panel-pivot stays empty (see
   // renderPivotTab in runtimes-viz/pivot-ui.js).
+  // The 'portfolio' tab follows the same dark-by-default gate: with the
+  // portfolioNarrativeAssembler flag off (its shipped default) it is never
+  // added to the bar, never a dead click target, and #panel-portfolio stays
+  // empty (see renderPortfolioTab in portfolio/portfolio-ui.js).
   const visibleTabOrder = getVisibleTabIds();
 
   // Shared per-tab element builder — IDENTICAL markup/handlers whether the
@@ -398,6 +405,7 @@ function switchTab(tabId) {
   if (tabId === 'copilot') renderGuardedCopilotTab();
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
   if (tabId === 'pivot') renderPivotTab('pivot-body', state.datasets || []);
+  if (tabId === 'portfolio') renderPortfolioTab('portfolio-body', { problemFramer, getActiveDataset, clean, describeOverconfidenceFinding });
   if (tabId === 'joinbuilder') renderJoinBuilderTab();
   if (tabId === 'nlsql') renderNLSQLTab();
   if (tabId === 'dvc') renderDVCTab();
@@ -2890,6 +2898,11 @@ async function scanClean() {
   const issues = await clean.scanForIssues(ds.table, ds.cols);
   const auditLog = [];
   window.__dataglowAuditLog = auditLog;
+  // Portfolio Narrative tab (dark behind portfolioNarrativeAssembler) reads
+  // this same issues array via window.__dataglowLastCleanIssues rather than
+  // re-running scanForIssues() itself -- same non-mutating read this Clean
+  // tab already did, captured here so it's available without a second scan.
+  window.__dataglowLastCleanIssues = issues;
 
   if (issues.length === 0) {
     resultsEl.innerHTML = '<div class="card" style="padding:var(--space-6); text-align:center;"><div style="font-size:var(--text-lg); font-weight:600; color:var(--color-grade-a); margin-bottom:4px;">No issues found</div><div style="color:var(--color-text-muted); font-size:var(--text-sm);">This dataset looks clean.</div></div>';
@@ -8820,6 +8833,13 @@ function renderNarrativeOverconfidencePanel(storyText, queryResult) {
   if (!queryResult) { wrap.style.display = 'none'; return; }
   const claims = story.buildStoryClaims(queryResult);
   const { status, findings } = checkNarrativeOverconfidence(storyText, claims);
+  // Portfolio Narrative tab (dark behind portfolioNarrativeAssembler) reads
+  // this same result via window.__dataglowLastOverconfidence rather than
+  // re-running checkNarrativeOverconfidence() itself -- one check, one
+  // owner, same as this panel. Only ever set here, alongside this panel's
+  // own render, so the two surfaces can never show different findings for
+  // the same story text.
+  window.__dataglowLastOverconfidence = { status, findings };
   if (status === 'idle') { wrap.style.display = 'none'; return; }
   wrap.style.display = '';
   wrap.appendChild(el('div', { style: 'font-weight:600; font-size:var(--text-sm); margin-bottom:var(--space-2);' }, 'Narrative Overconfidence Guard'));
