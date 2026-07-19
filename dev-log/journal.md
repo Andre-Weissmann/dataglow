@@ -7,6 +7,65 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 09:45 CT] Pivot Table Batch 1 merged, dark (PR #380)
+
+**What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Item 9 of the day's
+12-item plan — build an Excel-style Pivot Table UI, since none existed (a direct gap: DataGlow could run
+SQL GROUP BY queries but had no drag/tap-and-drop pivot builder a non-SQL analyst could use directly).
+
+**What was built:** `js/pivot/pivot-builder.js` — pure, Node-testable logic module (zero DOM/browser
+globals). Generates real DuckDB SQL from a `{sourceTable, rows, columns, values}` config:
+`buildGroupBySQL()` for a Rows-only summary, `buildPivotSQL()` for a real DuckDB
+`PIVOT ... ON ... USING ... GROUP BY` cross-tab when a Columns well is populated, `buildPivotQuery()` as
+the single dispatch+validate entry point, plus `classifyColumns()`/`validateConfig()`/`quoteIdent()`/
+`buildCardinalityCheckSQL()` (a pre-flight distinct-combination count capped at `MAX_PIVOT_CARDINALITY=200`
+to refuse silently generating a pivot with an unusable number of result columns). Deliberately reuses the
+existing DuckDB-WASM engine instead of a second, parallel JS aggregation implementation, so pivot numbers
+are provably the same numbers the SQL tab would produce for an equivalent hand-written query.
+`js/runtimes-viz/pivot-ui.js` — thin browser renderer: a tap-to-add chip picker for Rows/Columns/Values
+(never native HTML5 drag-and-drop, since DataGlow is mobile-primary and drag-and-drop is a poor touch
+fit), a Run Pivot button, and a result table reusing the SQL tab's `.result-table` styling. Wired into
+`main.js`/`state.js`/`index.html`/`command-deck-nav.js` following the exact established dark-flag-tab
+pattern already used for Glow Canvas — new `pivot` tab id, new `table` icon, one flag-gate line in
+`getVisibleTabIds()`, a `switchTab` hook. Ships dark: `pivotTable` flag defaults `false`.
+
+**Bonus fix caught along the way:** `js/app-shell/utils.js`'s `el()` helper previously let falsy/boolean
+attribute values (`false`/`null`/`undefined`) fall through to `node.setAttribute(k, v)`, producing broken
+attributes like `attr="false"`. Added an explicit branch: falsy/nullish values are omitted, `true` becomes
+an empty-string attribute. Purely additive — verified via the full local suite that no existing
+string/number attribute usage changed behavior.
+
+**Process note (own lesson, logged honestly):** mid-build, an earlier `git reset --hard origin/main` in
+this same session wiped uncommitted CSS/wiring work on a different local branch (tracked-file changes
+only — new/untracked files like the pure logic module and test file survived). The wiring had to be
+redone from scratch, and the first redo of `css/app.css`'s pivot styles used class names from memory that
+didn't match what `pivot-ui.js` actually references — caught only by grep-diffing used-vs-defined classes
+before QA, not by visual inspection alone. Corrected before commit. Lesson already added to standing
+instructions: commit or stash uncommitted tracked-file work before any `git reset --hard`; verify redone
+styling/markup against the actual surviving source file, never from memory.
+
+**Test evidence (independently re-verified, not just trusted from CI):** Full local suite: 152/152
+existing `test:*` scripts pass. New `test:pivot` (added — the script was missing despite the test file
+already existing): 27/27 pass, real generated SQL executed against a real in-test DuckDB table, not
+string-matching. Playwright QA (`scripts/qa_pivot_table.mjs`), flag temporarily flipped `true` locally
+only for the run: 21/21 checks pass on desktop + mobile (375px) — 44px touch targets confirmed on
+`.pivot-chip`/`.pivot-well-focus-btn`/run button, zero console errors, no horizontal overflow. Screenshots
+visually inspected — clean layout matching the app's established design language, correct pivot math
+(North/Aetna=300, North/Cigna=50, South/Aetna=300, South/Cigna=300). Caught and fixed a stale
+`#pivot-table-body` locator in the QA script itself during this run (real id is `#pivot-body`). Flag
+reverted to `false` before commit — confirmed in the staged diff and re-confirmed on `main` post-merge.
+CI: all 59 jobs green including `tauri-smoke` (6m17s). Merge-tree pre-check: `mergeStateStatus: CLEAN`.
+
+**Safety assessment presented before merge:** additive-only; zero existing tab/module/flag behavior
+changed; blast radius limited to one new flag (defaults `false`), one new tab id, one new panel section;
+the one non-dark change (the `el()` fix) is a pure correctness fix with no observable behavior change,
+verified by the full suite still passing.
+
+**Outcome:** Merged (squash) into `main` at `aabb47e`. Branch `feat/pivot-table-batch1` deleted.
+`pivotTable` remains `false` on `main` — going live is a separate, explicit decision still pending.
+
+---
+
 ## [2026-07-19 08:55 CT] Fix #6, Fix #7, and analytics-positioning doc note merged (PRs #371, #372, #373)
 
 **What was asked:** Continue the DataGlow real-data-readiness plan (2026-07-19). Three independent items,
