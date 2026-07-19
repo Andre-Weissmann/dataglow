@@ -173,3 +173,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:streamingvalidator
+
+  tauri-live-connector:
+    name: Tauri Live Connector Layer (JS bridge + connector manager, pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:tauriconnector
+      - run: npm run test:connectormanager

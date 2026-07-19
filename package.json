@@ -171,7 +171,9 @@
     "screenshot:upperbound": "node test/_screenshot-upperbound.mjs",
     "screenshot:missingness": "node test/_screenshot-missingness.mjs",
     "test:mcp": "node test/mcp-server.test.mjs",
-    "test:streamingvalidator": "node test/streaming/streaming-validator.test.js"
+    "test:streamingvalidator": "node test/streaming/streaming-validator.test.js",
+    "test:tauriconnector": "node test/connectors/tauri-connector.test.js",
+    "test:connectormanager": "node test/connectors/connector-manager.test.js"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

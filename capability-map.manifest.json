@@ -7,7 +7,8 @@
     "docs/webhook-mode.md",
     "README.md",
     "docs/institutional-memory.md",
-    "docs/nats-bridge.md"
+    "docs/nats-bridge.md",
+    "docs/tauri-connector.md"
   ],
   "capabilities": [
     {
@@ -3810,6 +3811,92 @@
         {
           "file": "js/nats/nats-bridge.js",
           "name": "generateConnectionGuide"
+        }
+      ]
+    },
+    {
+      "id": "tauri-live-connector",
+      "platforms": [
+        "desktop"
+      ],
+      "area": "Ambient & real-time",
+      "name": "Tauri Live Connector Layer",
+      "files": [
+        "js/connectors/tauri-connector.js",
+        "js/connectors/connector-manager.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "validateConnectorConfig"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "sanitizeConfig"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "buildConnectCall"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "connect"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "buildQueryCall"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "query"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "buildStreamCall"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "disconnect"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "queryResultToGridDataset"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "describeConnection"
+        },
+        {
+          "file": "js/connectors/tauri-connector.js",
+          "name": "TAURI_COMMANDS"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "createConnectorManager"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "registerConnection"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "getActiveConnection"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "setActiveConnection"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "removeConnection"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "listConnections"
+        },
+        {
+          "file": "js/connectors/connector-manager.js",
+          "name": "hasActiveConnection"
         }
       ]
     }
