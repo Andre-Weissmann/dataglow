@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DataGlow Canvas</title>
+<title>DataGlow — Your data, understood.</title>
 <style>
   /* ============================================================
      1. RESET + BASE
@@ -90,57 +90,182 @@
     justify-content: center;
     background: var(--bg);
     position: relative;
+    overflow: hidden;
+  }
+
+  /* Ambient glow orb behind drop zone */
+  #ceremony-screen::before {
+    content: '';
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(1,105,111,0.07) 0%, transparent 70%);
+    pointer-events: none;
+    animation: orb-breathe 6s ease-in-out infinite;
+  }
+  [data-theme="dark"] #ceremony-screen::before {
+    background: radial-gradient(circle, rgba(27,161,168,0.10) 0%, transparent 70%);
+  }
+  @keyframes orb-breathe {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.08); opacity: 1; }
+  }
+
+  /* Wordmark */
+  #ceremony-wordmark {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--text);
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 1;
+  }
+  #ceremony-wordmark span {
+    color: var(--primary);
+  }
+
+  /* Tagline */
+  #ceremony-tagline {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin: 0 0 40px 0;
+    letter-spacing: 0.01em;
+    position: relative;
+    z-index: 1;
   }
 
   /* ============================================================
      3. DROP ZONE
      ============================================================ */
   #drop-zone {
-    width: 640px;
-    max-width: 90vw;
-    height: 360px;
-    border: 2px dashed var(--drop-border-rest);
-    border-radius: 16px;
+    width: 560px;
+    max-width: 88vw;
+    height: 280px;
+    border: 1.5px dashed var(--drop-border-rest);
+    border-radius: 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 24px;
-    background: transparent;
-    transition: border-color 300ms ease-out, background-color 300ms ease-out, box-shadow 300ms ease-out;
+    padding: 32px 40px;
+    background: var(--surface);
+    transition: border-color 250ms ease-out, background-color 250ms ease-out, box-shadow 250ms ease-out, transform 250ms ease-out;
     position: relative;
+    z-index: 1;
+    cursor: pointer;
+  }
+  #drop-zone:hover {
+    border-color: var(--primary);
+    background: rgba(1, 105, 111, 0.03);
+    box-shadow: 0 8px 40px rgba(1, 105, 111, 0.10);
+    transform: translateY(-2px);
+  }
+  [data-theme="dark"] #drop-zone:hover {
+    background: rgba(27, 161, 168, 0.05);
+    box-shadow: 0 8px 40px rgba(27, 161, 168, 0.12);
   }
   #drop-zone.drag-over {
     border-color: var(--primary);
-    background-color: rgba(1, 105, 111, 0.06);
-    box-shadow: 0 0 0 3px rgba(1, 105, 111, 0.08);
+    border-style: solid;
+    background-color: rgba(1, 105, 111, 0.05);
+    box-shadow: 0 0 0 4px rgba(1, 105, 111, 0.10), 0 12px 48px rgba(1, 105, 111, 0.15);
+    transform: translateY(-3px);
   }
   #drop-zone.pulse {
     border-color: var(--primary);
-    box-shadow: 0 0 24px rgba(1, 105, 111, 0.35);
+    border-style: solid;
+    box-shadow: 0 0 32px rgba(1, 105, 111, 0.30);
   }
   #drop-zone.fade-out {
     opacity: 0;
-    transition: opacity 300ms ease-out;
+    transform: scale(0.97) translateY(-4px);
+    transition: opacity 350ms ease-out, transform 350ms ease-out;
     pointer-events: none;
   }
 
+  /* Drop zone icon */
+  #drop-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+    opacity: 0.35;
+    transition: opacity 250ms ease-out, transform 250ms ease-out;
+  }
+  #drop-zone:hover #drop-icon,
+  #drop-zone.drag-over #drop-icon {
+    opacity: 0.65;
+    transform: translateY(-3px);
+  }
+
   #drop-text {
-    font-size: 20px;
-    font-weight: 400;
+    font-size: 18px;
+    font-weight: 500;
     color: var(--text);
-    margin: 0 0 16px 0;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.2px;
   }
   #drop-formats {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-muted);
     margin: 0;
+    line-height: 1.6;
   }
   #drop-zone-hint {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-muted);
-    margin-top: 24px;
+    margin-top: 20px;
+    position: relative;
+    z-index: 1;
+  }
+  #drop-zone-hint a,
+  #drop-zone-hint span[style] {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  #drop-zone-hint a:hover,
+  #drop-zone-hint span[style]:hover {
+    text-decoration: underline;
+  }
+
+  /* Privacy assurance line */
+  #ceremony-privacy {
+    margin-top: 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.7;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  #ceremony-privacy::before {
+    content: '🔒';
+    font-size: 10px;
+  }
+
+  /* Theme toggle on ceremony screen */
+  #ceremony-theme-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+    color: var(--text-muted);
+    cursor: pointer;
+    z-index: 10;
+    transition: border-color 200ms, color 200ms;
+  }
+  #ceremony-theme-btn:hover {
+    border-color: var(--primary);
+    color: var(--text);
   }
 
   /* ============================================================
@@ -270,29 +395,32 @@
   #nav-brand {
     font-weight: 700;
     font-size: 15px;
-    color: var(--primary);
-    letter-spacing: -0.2px;
+    color: var(--text);
+    letter-spacing: -0.3px;
   }
   #nav-views {
     display: flex;
-    gap: 4px;
+    gap: 2px;
   }
   .nav-btn {
     background: none;
     border: none;
-    padding: 8px 14px;
-    font-size: 14px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text-muted);
     border-radius: 6px;
     transition: background-color 150ms ease-out, color 150ms ease-out;
+    letter-spacing: 0.01em;
   }
   .nav-btn:hover {
-    background: rgba(1, 105, 111, 0.08);
+    background: rgba(1, 105, 111, 0.07);
     color: var(--text);
   }
   .nav-btn.active {
     color: var(--primary);
     font-weight: 600;
+    background: rgba(1, 105, 111, 0.06);
   }
   #nav-right {
     display: flex;
@@ -1669,10 +1797,21 @@
   <!-- ============================================================
        CEREMONY SCREEN (shown on first load)
        ============================================================ -->
+  <!-- Theme toggle visible on ceremony screen -->
+  <button id="ceremony-theme-btn" title="Toggle dark mode" aria-label="Toggle dark mode">&#9681;</button>
+
   <div id="ceremony-screen">
+    <p id="ceremony-wordmark">data<span>glow</span></p>
+    <p id="ceremony-tagline">Your data. Understood. Instantly. Privately.</p>
+
     <div id="drop-zone">
-      <p id="drop-text">Drop your data here.</p>
-      <p id="drop-formats">CSV · TSV · JSON · NDJSON · XLSX · Parquet · PDF · TXT · LOG · Arrow · Feather · Audio · Video · PNG · JPG · WEBP · BMP · GIF (OCR)</p>
+      <svg id="drop-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="8" y="14" width="32" height="22" rx="3" stroke="currentColor" stroke-width="1.8" fill="none"/>
+        <path d="M24 22v8M20 26l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+      <p id="drop-text">Drop anything here.</p>
+      <p id="drop-formats">Every format. Any size. Zero uploads.</p>
       <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
@@ -1687,7 +1826,8 @@
       <button id="finding-expand">Here is what that means.</button>
     </div>
     <div id="return-use-banner" class="hidden"></div>
-    <p id="drop-zone-hint">or click to browse files &middot; <span id="try-example-link" style="text-decoration:underline; cursor:pointer;">Try an example</span></p>
+    <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load an example dataset</span></p>
+    <p id="ceremony-privacy">Your data never leaves this tab</p>
 
     <!-- FEATURE: natsConnector -->
     <div id="nats-source-wrapper" class="hidden">
@@ -1716,7 +1856,7 @@
   <div id="canvas" class="hidden">
     <!-- Top nav -->
     <nav id="top-nav">
-      <div id="nav-brand">DataGlow</div>
+      <div id="nav-brand">data<span style="color:var(--primary)">glow</span></div>
       <div id="nav-views">
         <button class="nav-btn active" data-view="grid">Grid</button>
         <button class="nav-btn" data-view="story">Story</button>
@@ -3823,8 +3963,8 @@
     dataglowRooms: true,
     natsConnector: true,
     tauriConnector: true,
-    questionPrompter: false,
-    portfolioNarrativeAssembler: false
+    questionPrompter: true,
+    portfolioNarrativeAssembler: true
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -4937,6 +5077,24 @@
   /* ============================================================
      DARK MODE TOGGLE
      ============================================================ */
+  // Ceremony screen theme toggle (mirrors the in-canvas toggle)
+  var ceremonyThemeBtn = $('ceremony-theme-btn');
+  if (ceremonyThemeBtn) {
+    ceremonyThemeBtn.addEventListener('click', function () {
+      var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    });
+  }
+
+  // Browse-link (ceremony screen "browse files" text)
+  var browseLink = $('browse-link');
+  if (browseLink) {
+    browseLink.addEventListener('click', function () {
+      var fi = $('file-input');
+      if (fi) fi.click();
+    });
+  }
+
   themeToggle.addEventListener('click', function () {
     var current = document.documentElement.dataset.theme;
     document.documentElement.dataset.theme = current === 'dark' ? 'light' : 'dark';
