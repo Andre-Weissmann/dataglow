@@ -503,3 +503,9 @@ The question-first analysis layer: DataGlow generates 3–7 contextually relevan
 - **Symbol:** `InstantInsight.analyze(dataset)`
 - **What it does:** Profiles every column on file load using pure statistical heuristics (outlier detection, skew, dominant categories, group concentration, correlations, duplicates). Surfaces the single most interesting finding as one plain-English sentence. No LLM. No server. Runs in under 100ms on datasets up to 10,000 rows.
 - **Platforms:** browser, desktop, mobile
+
+### Publish Button (PR AG)
+- **Files:** `js/publish/publish-engine.js`, `canvas/snapshot.html`
+- **Symbol:** `PublishEngine`
+- **What it does:** Packages active dataset (up to 2,000 rows) + findings + insight sentence into a gzip-compressed, base64url-encoded URL fragment. The recipient opens `snapshot.html#share=<encoded>` — a standalone read-only viewer that decodes and renders the data client-side. No server. No upload. Zero raw data transmitted.
+- **Platforms:** browser, desktop, mobile
