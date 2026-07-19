@@ -1053,6 +1053,12 @@
           <div class="sidebar-heading" style="margin-bottom:var(--space-2);">Narrative Consistency Check</div>
           <div id="story-consistency"></div>
         </div>
+        <!-- Narrative Overconfidence Guard (feature-flagged: narrativeOverconfidenceGuard,
+             default false). Hidden entirely when the flag is off; renderNarrativeOverconfidencePanel()
+             only ever writes into this div when the flag is on, so with the flag off
+             this div stays empty and display:none forever, matching every other
+             dark-flagged card in this tab. -->
+        <div id="story-overconfidence-guard" class="card" style="display:none; padding:var(--space-4); margin-top:var(--space-4);"></div>
       </div>
 
       <!-- AI Touch Ledger (feature-flagged: aiTouchLedger, default false). Modeled
