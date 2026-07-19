@@ -389,6 +389,12 @@
   .dark .ocr-confidence-badge--medium { background: #FFC55322; color: #FFC553; }
   .dark .ocr-confidence-badge--low { background: #BB653B22; color: #BB653B; }
   .dark .ocr-confidence-badge--poor { background: #D163A722; color: #D163A7; }
+  .tab-label-wrap {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
   #tab-add {
     width: 36px;
     min-width: 36px;
@@ -1435,6 +1441,227 @@
   .dark .format-badge--txt, .dark .format-badge--log { background: #79787622; color: #797876; }
   .dark .format-badge--xml { background: #FDAB4322; color: #FDAB43; }
   .dark .format-badge--image { background: #4F98A322; color: #4F98A3; }
+  .format-badge--api { background: #DA710122; color: #DA7101; }
+  .dark .format-badge--api { background: #FDAB4322; color: #FDAB43; }
+  .live-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #437A22; margin-right: 6px; animation: pulse-live 1.5s ease-in-out infinite; }
+  @keyframes pulse-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .dark .live-indicator { background: #6DAA45; }
+
+  /* ============================================================
+     LIVE API FEED BUTTON + PANEL (agent bar)
+     ------------------------------------------------------------
+     Same slide-in drawer pattern as the Feature Settings drawer
+     above, anchored to the right edge of the viewport.
+     ============================================================ */
+  #live-feed-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  #live-feed-btn:hover {
+    background: rgba(1, 105, 111, 0.08);
+    border-color: var(--primary);
+  }
+  #live-feed-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+  #live-feed-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+  #live-feed-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(20, 19, 17, 0.45);
+    z-index: 200;
+  }
+  #live-feed-overlay.hidden {
+    display: none;
+  }
+  #live-feed-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 420px;
+    max-width: 92vw;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    box-shadow: -16px 0 40px rgba(0, 0, 0, 0.25);
+    z-index: 201;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 220ms ease-out;
+  }
+  #live-feed-drawer.hidden {
+    display: none;
+  }
+  #live-feed-drawer.drawer-open {
+    transform: translateX(0);
+  }
+  #live-feed-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  #live-feed-title {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  #live-feed-subtitle {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  #live-feed-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-muted);
+    padding: 4px;
+    flex-shrink: 0;
+  }
+  #live-feed-close:hover {
+    color: var(--text);
+  }
+  #live-feed-close:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  #live-feed-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px 24px;
+  }
+  .live-feed-field {
+    margin-bottom: 14px;
+  }
+  .live-feed-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .live-feed-label-optional {
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  #live-feed-url-input,
+  #live-feed-headers-input,
+  #live-feed-body-input,
+  #live-feed-method-select,
+  #live-feed-poll-select {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+  #live-feed-headers-input,
+  #live-feed-body-input {
+    min-height: 64px;
+    resize: vertical;
+  }
+  .live-feed-row {
+    display: flex;
+    gap: 10px;
+  }
+  .live-feed-row > .live-feed-field {
+    flex: 1;
+  }
+  #live-feed-headers-toggle {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 12px;
+    padding: 0;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  #live-feed-headers-toggle:hover {
+    text-decoration: underline;
+  }
+  #live-feed-headers-wrapper.collapsed {
+    display: none;
+  }
+  #live-feed-mode-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  #live-feed-mode-wrapper.hidden {
+    display: none;
+  }
+  #live-feed-error {
+    font-size: 12px;
+    color: var(--error);
+    margin: -6px 0 14px 0;
+  }
+  #live-feed-error.hidden {
+    display: none;
+  }
+  #live-feed-fetch-btn {
+    width: 100%;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #live-feed-fetch-btn:hover {
+    background: var(--primary-hover);
+  }
+  #live-feed-fetch-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  #live-feed-status {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    min-height: 16px;
+  }
+  .tab-live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    margin-right: 4px;
+    animation: pulse-live 1.5s ease-in-out infinite;
+    vertical-align: middle;
+  }
+  .tab-subtitle {
+    font-size: 9px;
+    color: var(--text-muted);
+    display: block;
+    margin-top: -2px;
+  }
 </style>
 </head>
 <body>
@@ -1610,6 +1837,10 @@
       <div id="tauri-connections-panel" class="hidden"></div>
       <!-- /FEATURE: tauriConnector -->
       <div id="agent-bar-right">
+        <button id="live-feed-btn" title="Live API Feed" aria-haspopup="true" aria-controls="live-feed-drawer" aria-expanded="false">
+          <span id="live-feed-icon" aria-hidden="true">&#9889;</span>
+          <span id="live-feed-label">Live Feed</span>
+        </button>
         <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -1642,6 +1873,76 @@
       <button id="feature-settings-close" title="Close" aria-label="Close">&times;</button>
     </div>
     <div id="feature-settings-list"></div>
+  </div>
+
+  <!-- ============================================================
+       LIVE API FEED DRAWER (lightning bolt icon in agent bar)
+       ------------------------------------------------------------
+       Same slide-in drawer pattern as the Feature Settings drawer.
+       Connects to any REST endpoint or webhook — the fetch() call
+       happens here, in the browser, then flows through the exact
+       same buildDatasetFromJSON + runRealValidation pipeline every
+       dropped file uses.
+       ============================================================ -->
+  <div id="live-feed-overlay" class="hidden"></div>
+  <div id="live-feed-drawer" class="hidden" role="dialog" aria-modal="true" aria-labelledby="live-feed-title">
+    <div id="live-feed-header">
+      <div>
+        <h2 id="live-feed-title">Live API Feed</h2>
+        <p id="live-feed-subtitle">Connect to any REST endpoint &mdash; data stays in your browser</p>
+      </div>
+      <button id="live-feed-close" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div id="live-feed-body">
+      <div class="live-feed-field">
+        <label class="live-feed-label" for="live-feed-url-input">URL</label>
+        <input type="text" id="live-feed-url-input" placeholder="https://api.example.com/data" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="live-feed-row">
+        <div class="live-feed-field">
+          <label class="live-feed-label" for="live-feed-method-select">Method</label>
+          <select id="live-feed-method-select">
+            <option value="GET" selected>GET</option>
+            <option value="POST">POST</option>
+          </select>
+        </div>
+        <div class="live-feed-field">
+          <label class="live-feed-label" for="live-feed-poll-select">Poll interval</label>
+          <select id="live-feed-poll-select">
+            <option value="0" selected>One-time fetch</option>
+            <option value="5000">Every 5s</option>
+            <option value="15000">Every 15s</option>
+            <option value="30000">Every 30s</option>
+            <option value="60000">Every 1 min</option>
+            <option value="300000">Every 5 min</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="live-feed-field">
+        <button id="live-feed-headers-toggle" type="button" aria-expanded="false" aria-controls="live-feed-headers-wrapper">Headers (optional) &#9662;</button>
+        <div id="live-feed-headers-wrapper" class="collapsed">
+          <textarea id="live-feed-headers-input" placeholder="Authorization: Bearer token&#10;Content-Type: application/json" spellcheck="false"></textarea>
+        </div>
+      </div>
+
+      <div class="live-feed-field hidden" id="live-feed-body-field">
+        <label class="live-feed-label" for="live-feed-body-input">Body <span class="live-feed-label-optional">(POST only)</span></label>
+        <textarea id="live-feed-body-input" placeholder='{&quot;key&quot;: &quot;value&quot;}' spellcheck="false"></textarea>
+      </div>
+
+      <div id="live-feed-mode-wrapper" class="live-feed-field hidden">
+        <span>On refetch:</span>
+        <label><input type="radio" name="live-feed-mode" value="replace" checked> Replace</label>
+        <label><input type="radio" name="live-feed-mode" value="append"> Append</label>
+      </div>
+
+      <p id="live-feed-error" class="hidden"></p>
+
+      <button id="live-feed-fetch-btn" type="button">Fetch</button>
+      <div id="live-feed-status"></div>
+    </div>
   </div>
 
   <!-- ============================================================
@@ -2166,6 +2467,138 @@
       flattenJson: flattenJson,
       parseJsonOrNdjson: parseJsonOrNdjson,
       jsonNeedsFlattening: jsonNeedsFlattening
+    };
+  })();
+
+  /* ---- from js/ingestion/api-feed.js ---- */
+  var ApiFeed = (function () {
+    var FEED_METHODS = ['GET', 'POST'];
+    var POLL_INTERVALS_MS = [0, 5000, 15000, 30000, 60000, 300000];
+    var POLL_LABELS = ['One-time fetch', 'Every 5s', 'Every 15s', 'Every 30s', 'Every 1 min', 'Every 5 min'];
+
+    function isPlainObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+
+    function validateFeedUrl(url) {
+      if (typeof url !== 'string' || url.trim() === '') {
+        return { valid: false, error: 'URL is required', normalized: null };
+      }
+      var trimmed = url.trim();
+      var parsed;
+      try { parsed = new URL(trimmed); } catch (e1) {
+        try { parsed = new URL('https://' + trimmed); }
+        catch (e2) { return { valid: false, error: 'Invalid URL format', normalized: null }; }
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { valid: false, error: 'Only HTTP and HTTPS endpoints are supported', normalized: null };
+      }
+      return { valid: true, error: null, normalized: parsed.href };
+    }
+
+    function parseHeadersString(raw) {
+      if (typeof raw !== 'string' || raw.trim() === '') return {};
+      var out = {};
+      raw.split('\n').forEach(function (line) {
+        var colon = line.indexOf(':');
+        if (colon < 1) return;
+        var key = line.slice(0, colon).trim();
+        var val = line.slice(colon + 1).trim();
+        if (key && val) out[key] = val;
+      });
+      return out;
+    }
+
+    function flattenObjShallow(obj, maxDepth, prefix, depth) {
+      prefix = prefix || '';
+      depth = depth || 0;
+      if (!isPlainObj(obj)) return { value: obj };
+      var out = {};
+      Object.keys(obj).forEach(function (k) {
+        var v = obj[k];
+        var key = prefix ? (prefix + '.' + k) : k;
+        if (isPlainObj(v) && depth < maxDepth) {
+          var nested = flattenObjShallow(v, maxDepth, key, depth + 1);
+          Object.keys(nested).forEach(function (nk) { out[nk] = nested[nk]; });
+        } else if (Array.isArray(v)) {
+          out[key] = JSON.stringify(v);
+        } else {
+          out[key] = v == null ? null : v;
+        }
+      });
+      return out;
+    }
+
+    function findFirstArray(obj, maxDepth, prefix, depth) {
+      prefix = prefix || '';
+      depth = depth || 0;
+      if (depth > maxDepth) return null;
+      var keys = Object.keys(obj);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var v = obj[k];
+        var path = prefix ? (prefix + '.' + k) : k;
+        if (Array.isArray(v) && v.length > 0 && isPlainObj(v[0])) return { path: path, value: v };
+        if (isPlainObj(v)) {
+          var found = findFirstArray(v, maxDepth, path, depth + 1);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    function normalizeApiResponse(parsed, opts) {
+      opts = opts || {};
+      var maxRows = opts.maxRows || 200000;
+
+      if (Array.isArray(parsed) && parsed.length > 0 && isPlainObj(parsed[0])) {
+        var rows = parsed.slice(0, maxRows).map(function (r) { return flattenObjShallow(r, 4); });
+        return { rows: rows, path: '(root array)', confidence: 'high', warning: null };
+      }
+      if (isPlainObj(parsed)) {
+        var found = findFirstArray(parsed, 4);
+        if (found) {
+          var rows2 = found.value.slice(0, maxRows).map(function (r) { return flattenObjShallow(r, 4); });
+          return { rows: rows2, path: found.path, confidence: 'medium', warning: 'Rows extracted from "' + found.path + '".' };
+        }
+        return { rows: [flattenObjShallow(parsed, 4)], path: '(root object)', confidence: 'low', warning: 'Single object — treated as one row.' };
+      }
+      return { rows: [], path: '', confidence: 'low', warning: 'Could not extract rows from API response.' };
+    }
+
+    function buildPollSchedule(intervalMs, method, url, headers) {
+      var labelIdx = POLL_INTERVALS_MS.indexOf(intervalMs);
+      return {
+        intervalMs: intervalMs,
+        label: labelIdx >= 0 ? POLL_LABELS[labelIdx] : ('Every ' + (intervalMs / 1000) + 's'),
+        method: FEED_METHODS.indexOf(method) !== -1 ? method : 'GET',
+        url: url,
+        headers: headers || {},
+        isOneShot: intervalMs === 0
+      };
+    }
+
+    function buildFeedDataset(rows, url, pollSchedule, fetchedAt) {
+      return {
+        columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+        rows: rows,
+        meta: {
+          source: url,
+          format: 'api',
+          fetchedAt: fetchedAt || new Date().toISOString(),
+          pollSchedule: pollSchedule.label,
+          note: 'Live API feed from ' + url + '. ' + (pollSchedule.isOneShot ? 'One-time fetch.' : 'Auto-refreshes ' + pollSchedule.label + '.')
+        }
+      };
+    }
+
+    return {
+      FEED_METHODS: FEED_METHODS,
+      POLL_INTERVALS_MS: POLL_INTERVALS_MS,
+      POLL_LABELS: POLL_LABELS,
+      validateFeedUrl: validateFeedUrl,
+      parseHeadersString: parseHeadersString,
+      normalizeApiResponse: normalizeApiResponse,
+      buildPollSchedule: buildPollSchedule,
+      buildFeedDataset: buildFeedDataset
     };
   })();
 
@@ -3546,6 +3979,24 @@
   var featureSettingsClose = $('feature-settings-close');
   var featureSettingsList = $('feature-settings-list');
 
+  /* LIVE API FEED DRAWER (always available; not itself feature-flagged) */
+  var liveFeedBtn = $('live-feed-btn');
+  var liveFeedOverlay = $('live-feed-overlay');
+  var liveFeedDrawer = $('live-feed-drawer');
+  var liveFeedClose = $('live-feed-close');
+  var liveFeedUrlInput = $('live-feed-url-input');
+  var liveFeedMethodSelect = $('live-feed-method-select');
+  var liveFeedPollSelect = $('live-feed-poll-select');
+  var liveFeedHeadersToggle = $('live-feed-headers-toggle');
+  var liveFeedHeadersWrapper = $('live-feed-headers-wrapper');
+  var liveFeedHeadersInput = $('live-feed-headers-input');
+  var liveFeedBodyField = $('live-feed-body-field');
+  var liveFeedBodyInput = $('live-feed-body-input');
+  var liveFeedModeWrapper = $('live-feed-mode-wrapper');
+  var liveFeedError = $('live-feed-error');
+  var liveFeedFetchBtn = $('live-feed-fetch-btn');
+  var liveFeedStatus = $('live-feed-status');
+
   var sqlOverlay = $('sql-overlay');
   var sqlInput = $('sql-input');
   var sqlRunBtn = $('sql-run');
@@ -4296,7 +4747,8 @@
   /* ============================================================
      TAB STRIP
      ============================================================ */
-  function addTab(name, datasetId, format) {
+  function addTab(name, datasetId, format, opts) {
+    opts = opts || {};
     var btn = document.createElement('button');
     btn.className = 'tab-btn active';
     btn.dataset.datasetId = datasetId;
@@ -4308,12 +4760,29 @@
     dot.className = 'tab-health-dot dot-' + color;
     dot.style.background = color === 'green' ? 'var(--success)' : color === 'amber' ? 'var(--warning)' : 'var(--error)';
 
+    var labelWrap = document.createElement('span');
+    labelWrap.className = 'tab-label-wrap';
+
     var label = document.createElement('span');
     label.className = 'tab-label';
     label.textContent = name;
+    labelWrap.appendChild(label);
+
+    if (opts.subtitle) {
+      var subtitle = document.createElement('span');
+      subtitle.className = 'tab-subtitle';
+      subtitle.textContent = opts.subtitle;
+      labelWrap.appendChild(subtitle);
+    }
 
     btn.appendChild(dot);
-    btn.appendChild(label);
+    if (opts.live) {
+      var liveDot = document.createElement('span');
+      liveDot.className = 'tab-live-dot';
+      liveDot.title = 'Polling for live updates';
+      btn.appendChild(liveDot);
+    }
+    btn.appendChild(labelWrap);
 
     var fmt = format || (dataset && dataset.format);
     if (fmt) {
@@ -4342,6 +4811,8 @@
     btn.addEventListener('click', function () {
       switchToTab(datasetId);
     });
+
+    return btn;
   }
 
   function switchToTab(datasetId) {
@@ -5385,6 +5856,262 @@
       }
     }
   });
+
+
+  /* ============================================================
+     LIVE API FEED DRAWER (lightning bolt icon in agent bar)
+     ------------------------------------------------------------
+     Connects to any REST endpoint or webhook. The fetch() call is
+     made directly from the browser (zero-upload guarantee — no
+     DataGlow server ever proxies or stores the response). The
+     parsed JSON/text is handed to js/ingestion/api-feed.js's pure
+     logic (validateFeedUrl / normalizeApiResponse / buildPollSchedule
+     / buildFeedDataset, mirrored above as ApiFeed) and the resulting
+     rows flow through buildDatasetFromJSON + runRealValidation —
+     the exact same pipeline a dropped file uses.
+     ============================================================ */
+  var liveFeedLastFocusedEl = null;
+  var liveFeedPollTimers = {}; // datasetId -> interval handle
+  var liveFeedTabMeta = {};    // datasetId -> { url, mode, subtitleEl }
+
+  function getLiveFeedDrawerFocusable() {
+    return Array.prototype.slice.call(
+      liveFeedDrawer.querySelectorAll('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')
+    ).filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+  }
+
+  function openLiveFeedDrawer() {
+    liveFeedLastFocusedEl = document.activeElement;
+    liveFeedError.classList.add('hidden');
+    liveFeedError.textContent = '';
+    liveFeedStatus.textContent = '';
+    liveFeedOverlay.classList.remove('hidden');
+    liveFeedDrawer.classList.remove('hidden');
+    liveFeedBtn.setAttribute('aria-expanded', 'true');
+    void liveFeedDrawer.offsetWidth;
+    liveFeedDrawer.classList.add('drawer-open');
+    setTimeout(function () {
+      if (liveFeedUrlInput) liveFeedUrlInput.focus();
+    }, 0);
+  }
+
+  function closeLiveFeedDrawer() {
+    liveFeedDrawer.classList.remove('drawer-open');
+    liveFeedBtn.setAttribute('aria-expanded', 'false');
+    setTimeout(function () {
+      liveFeedOverlay.classList.add('hidden');
+      liveFeedDrawer.classList.add('hidden');
+    }, 220);
+    if (liveFeedLastFocusedEl && typeof liveFeedLastFocusedEl.focus === 'function') {
+      liveFeedLastFocusedEl.focus();
+    } else {
+      liveFeedBtn.focus();
+    }
+  }
+
+  function isLiveFeedDrawerOpen() {
+    return liveFeedDrawer.classList.contains('drawer-open');
+  }
+
+  liveFeedBtn.addEventListener('click', function () {
+    if (isLiveFeedDrawerOpen()) closeLiveFeedDrawer();
+    else openLiveFeedDrawer();
+  });
+  liveFeedClose.addEventListener('click', closeLiveFeedDrawer);
+  liveFeedOverlay.addEventListener('click', closeLiveFeedDrawer);
+
+  document.addEventListener('keydown', function (e) {
+    if (!isLiveFeedDrawerOpen()) return;
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeLiveFeedDrawer();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      var focusables = getLiveFeedDrawerFocusable();
+      if (!focusables.length) return;
+      var first = focusables[0];
+      var last = focusables[focusables.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
+
+  /* Headers textarea is collapsible. */
+  liveFeedHeadersToggle.addEventListener('click', function () {
+    var collapsed = liveFeedHeadersWrapper.classList.toggle('collapsed');
+    liveFeedHeadersToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  });
+
+  /* Body textarea + append/replace toggle only make sense for POST / polling. */
+  function refreshLiveFeedFormVisibility() {
+    var isPost = liveFeedMethodSelect.value === 'POST';
+    liveFeedBodyField.classList.toggle('hidden', !isPost);
+
+    var pollMs = parseInt(liveFeedPollSelect.value, 10) || 0;
+    liveFeedModeWrapper.classList.toggle('hidden', pollMs === 0);
+  }
+  liveFeedMethodSelect.addEventListener('change', refreshLiveFeedFormVisibility);
+  liveFeedPollSelect.addEventListener('change', refreshLiveFeedFormVisibility);
+  refreshLiveFeedFormVisibility();
+
+  function showLiveFeedError(msg) {
+    liveFeedError.textContent = msg;
+    liveFeedError.classList.remove('hidden');
+  }
+  function clearLiveFeedError() {
+    liveFeedError.textContent = '';
+    liveFeedError.classList.add('hidden');
+  }
+
+  function currentLiveFeedMode() {
+    var checked = liveFeedDrawer.querySelector('input[name="live-feed-mode"]:checked');
+    return checked ? checked.value : 'replace';
+  }
+
+  /* Ingest a live-feed API response through the exact same pipeline a
+     dropped file uses: buildDatasetFromJSON -> runRealValidation ->
+     addTab/renderGrid (see routeDroppedFile's 'json'/'ndjson' branch). */
+  function ingestLiveFeedRows(rows, url, pollSchedule, datasetId) {
+    var jsonShapedRows = rows; // already flat objects from ApiFeed.normalizeApiResponse
+    var dataset = buildDatasetFromJSON(jsonShapedRows);
+    var validation = runRealValidation(dataset);
+    dataset.findings = validation.findings;
+    dataset.rowFlags = validation.rowFlags;
+    dataset.columnHealth = validation.columnHealth;
+    dataset.score = validation.score;
+    dataset.streamingResult = validation.streamingResult;
+    dataset.format = 'api';
+    dataset.fileHash = fileSeenHash(url, jsonShapedRows.length);
+
+    var hostname;
+    try { hostname = new URL(url).hostname; } catch (e) { hostname = url; }
+
+    if (datasetId) {
+      // Existing tab being refreshed by polling — replace or append rows.
+      var existing = state.datasets.find(function (d) { return d.id === datasetId; });
+      if (existing) {
+        if (currentLiveFeedMode() === 'append') {
+          dataset.rows = existing.rows.concat(dataset.rows);
+          var revalidated = runRealValidation(dataset);
+          dataset.findings = revalidated.findings;
+          dataset.rowFlags = revalidated.rowFlags;
+          dataset.columnHealth = revalidated.columnHealth;
+          dataset.score = revalidated.score;
+        }
+        dataset.id = datasetId;
+        dataset.name = existing.name;
+        var idx = state.datasets.indexOf(existing);
+        state.datasets[idx] = dataset;
+
+        var tabBtn = tabStrip.querySelector('.tab-btn[data-dataset-id="' + datasetId + '"]');
+        if (tabBtn) {
+          var subtitleEl = tabBtn.querySelector('.tab-subtitle');
+          if (subtitleEl) subtitleEl.textContent = 'Fetched ' + new Date().toLocaleTimeString();
+        }
+        if (state.activeDatasetId === datasetId) renderGrid(dataset);
+        return datasetId;
+      }
+    }
+
+    datasetCounter++;
+    var id = 'ds-' + datasetCounter;
+    dataset.id = id;
+    dataset.name = hostname;
+    state.datasets.push(dataset);
+    state.activeDatasetId = id;
+
+    state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+      type: InstitutionalMemory.RECORD_TYPES.FILE_LOADED,
+      actor: 'human',
+      datasetId: id,
+      column: null,
+      reason: 'Live API feed "' + url + '" loaded (' + dataset.rows.length + ' rows x ' + dataset.columns.length + ' cols).',
+      metadata: { url: url, rowCount: dataset.rows.length, colCount: dataset.columns.length }
+    });
+
+    if (canvas.classList.contains('hidden')) {
+      ceremonyScreen.classList.add('hidden');
+      canvas.classList.remove('hidden');
+    }
+
+    addTab(hostname, id, 'api', {
+      live: !pollSchedule.isOneShot,
+      subtitle: 'Fetched ' + new Date().toLocaleTimeString()
+    });
+    switchToTab(id);
+    setAgentStatus('Live feed loaded from ' + hostname + ' (' + dataset.rows.length + ' rows).');
+    return id;
+  }
+
+  function startLiveFeedPolling(datasetId, pollSchedule, headers, method, body) {
+    if (pollSchedule.isOneShot) return;
+    if (liveFeedPollTimers[datasetId]) clearInterval(liveFeedPollTimers[datasetId]);
+    liveFeedPollTimers[datasetId] = setInterval(function () {
+      performLiveFetch(pollSchedule.url, method, headers, body, pollSchedule, datasetId);
+    }, pollSchedule.intervalMs);
+  }
+
+  function performLiveFetch(url, method, headers, body, pollSchedule, existingDatasetId) {
+    var fetchOpts = { method: method, headers: headers };
+    if (method === 'POST' && body) fetchOpts.body = body;
+
+    return fetch(url, fetchOpts)
+      .then(function (resp) {
+        return resp.text().then(function (text) {
+          var parsed;
+          try { parsed = JSON.parse(text); }
+          catch (e) { parsed = text; }
+          var norm = ApiFeed.normalizeApiResponse(parsed);
+          if (!norm.rows.length) {
+            liveFeedStatus.textContent = norm.warning || 'No rows found in response.';
+            return null;
+          }
+          var newId = ingestLiveFeedRows(norm.rows, url, pollSchedule, existingDatasetId);
+          liveFeedStatus.textContent = 'Fetched ' + norm.rows.length + ' row(s) from ' + url + ' at ' + new Date().toLocaleTimeString() + '.';
+          return newId;
+        });
+      })
+      .catch(function (err) {
+        liveFeedStatus.textContent = 'Fetch failed: ' + err.message;
+        return null;
+      });
+  }
+
+  liveFeedFetchBtn.addEventListener('click', function () {
+    clearLiveFeedError();
+    var check = ApiFeed.validateFeedUrl(liveFeedUrlInput.value);
+    if (!check.valid) {
+      showLiveFeedError(check.error);
+      return;
+    }
+    var url = check.normalized;
+    var method = liveFeedMethodSelect.value;
+    var headers = ApiFeed.parseHeadersString(liveFeedHeadersInput.value);
+    var body = liveFeedBodyInput.value.trim() || null;
+    var pollMs = parseInt(liveFeedPollSelect.value, 10) || 0;
+    var pollSchedule = ApiFeed.buildPollSchedule(pollMs, method, url, headers);
+
+    liveFeedFetchBtn.disabled = true;
+    liveFeedStatus.textContent = 'Fetching ' + url + ' ...';
+
+    performLiveFetch(url, method, headers, body, pollSchedule, null).then(function (newDatasetId) {
+      liveFeedFetchBtn.disabled = false;
+      if (newDatasetId && !pollSchedule.isOneShot) {
+        startLiveFeedPolling(newDatasetId, pollSchedule, headers, method, body);
+      }
+      if (newDatasetId) closeLiveFeedDrawer();
+    });
+  });
+
 
   /* Apply any session-restored flag state to the DOM at boot, after all
      apply*Visibility() functions above have been defined. */
