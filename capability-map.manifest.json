@@ -1255,6 +1255,40 @@
       ]
     },
     {
+      "id": "provenance-proof-export",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Proof Export — .proof bundle, four-hash integrity chain (Feature 12)",
+      "files": [
+        "js/proof/proof-builder.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/proof/proof-builder.js",
+          "name": "buildProof"
+        },
+        {
+          "file": "js/proof/proof-builder.js",
+          "name": "canExportProof"
+        },
+        {
+          "file": "js/proof/proof-builder.js",
+          "name": "serializeProof"
+        },
+        {
+          "file": "js/proof/proof-builder.js",
+          "name": "verifyProof"
+        },
+        {
+          "file": "js/proof/proof-builder.js",
+          "name": "generateVerificationReport"
+        }
+      ]
+    },
+    {
       "id": "privacy-synthetic",
       "platforms": [
         "browser",
