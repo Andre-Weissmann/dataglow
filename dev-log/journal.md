@@ -7,6 +7,62 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-07-19 22:14 CT] Capability-map drift cleanup — 6 modules from the concurrent session (PR #434, #439, #441)
+
+**What was asked:** "Log this checkpoint" / cleanup request after flagging that the other concurrent
+session's fast-shipping (5+ PRs in under an hour: charts, export, anomaly detection, column editor, join
+builder) had left `main`'s capability-map drift-detector gate failing with undocumented modules. The user
+confirmed the other session is a legitimate collaborator ("the other session is helping out with
+dataglow") and asked to have the map cleaned up.
+
+**What was built — reactive documentation, not a feature build.** Across three sequential PRs (each one
+needed because `main` kept advancing mid-cleanup with yet more new modules from the other session):
+
+- **PR #434** — documented 5 modules: `js/chart/chart-engine.js` (`ChartEngine`, Chart Layer, PR AI),
+  `js/export/export-engine.js` (`ExportEngine`, Export Everything, PR AJ), `js/columns/column-editor.js`
+  (`ColumnEditor`, Smart Column Editor, PR AK), `js/join/join-builder.js` (`JoinBuilder`, Multi-file Join
+  Builder, PR AL), `js/anomaly/anomaly-timeline.js` (`AnomalyTimeline`, Anomaly Timeline, PR AM). Pure
+  docs — `capability-map.manifest.json` + `docs/capability-map.md` only, zero source touched.
+- **PR #439** — documented a 6th module that landed in the interim: `js/dashboard/dashboard-engine.js`
+  (`DashboardEngine`, Dashboard View, PR AN — readiness-gated KPI cards, RAG-colored, capped chart types).
+  Pure docs again.
+- **PR #441** — documented a 7th module, `js/grid/canvas-grid.js` (`CanvasGrid`, High-Performance Canvas
+  Grid, PR AO — pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps). **This one also included one
+  real source line**: the standalone file was missing the `export` keyword on `CanvasGrid` (every sibling
+  module uses `export var X = ...`; this one shipped as bare `var X = ...`), which is what the drift
+  gate's symbol check actually caught. Confirmed via repo-wide search that this standalone file is not
+  `import`-ed anywhere — `canvas/index.html` maintains its own separately-inlined copy without `export`,
+  correct for a plain `<script>` context — so adding `export` here is zero runtime/behavior impact,
+  affecting only the reference copy.
+
+**Test evidence:** `node test/capability-drift.test.mjs` run locally before every push — 24/24 after each
+of the three fixes (was 23/24 each time it regressed). Each PR verified independently, not just trusted
+from a prior run.
+
+**CI:** all jobs passed on all three PRs except the same known, pre-existing `Prompt Eval Harness`
+failure (unrelated `require()`/ES-module mismatch in `test/prompt-eval/runner.js`, already broken on
+`main` before this work). Explicit `confirm_action` obtained before every one of the three merges — no
+exception made for the docs-only ones, per standing rule.
+
+**No flags touched.** This was purely closing a documentation gap left by someone else's fast shipping,
+not a feature or behavior change anywhere.
+
+**Pattern noticed — worth naming explicitly:** the other concurrent session is shipping fast enough that
+a capability-map cleanup PR is very likely to be stale by the time it merges. This run needed three
+sequential fixes because `main` moved forward with a new undocumented module after each of the first two
+merges landed. As of this entry, `main` has already moved again with three more new files
+(`js/dashboard/findings-rail.js`, `js/nl/nl-engine.js`, `js/sql/sql-engine.js`) — at least `sql-engine.js`
+confirmed still undocumented, drift gate failing again. **Lesson for next time:** for a fast-moving
+concurrent-session gap like this, batch-check for ALL currently-undocumented modules in one pass right
+before branching (not just the ones known about at task start), since sequential single-module PRs will
+keep chasing a moving target one file at a time.
+
+**Cross-platform impact:** none — pure documentation (plus the one inert export-keyword fix). All 7
+documented modules are tagged `browser`/`desktop`/`mobile` per their own header comments; no new
+platform-specific behavior introduced by this cleanup itself.
+
+---
+
 ## [2026-07-19 16:52 CT] Metric Contracts Batch 4 — agent-access rules, read gate (PR #426)
 
 **What was asked:** "Continue with the plan. Build stuff in the plan list. Let me know when I need to

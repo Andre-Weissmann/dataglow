@@ -19,7 +19,7 @@
  *   FindingsRail.clear(containerEl)
  */
 
-var FindingsRail = (function () {
+export var FindingsRail = (function () {
   'use strict';
 
   // ── Helpers ───────────────────────────────────────────────────────────────
