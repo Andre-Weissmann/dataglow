@@ -22419,8 +22419,10 @@ var InstantInsight = (function () {
   function showDrawer(ds) {
     var drawer = $('questions-drawer');
     if (!drawer) return;
-    var questions = generateQuestions(ds);
-    renderDrawer(questions, ds);
+    if (ds) {
+      var questions = generateQuestions(ds);
+      renderDrawer(questions, ds);
+    }
     drawer.classList.add('open');
   }
 
@@ -23034,7 +23036,7 @@ var InstantInsight = (function () {
     dismissBrief();
     showProgressBar();
     if (window.QuestionPrompter && typeof window.QuestionPrompter.show === 'function') {
-      window.QuestionPrompter.show();
+      window.QuestionPrompter.show(currentDataset);
     }
     if (window.LevelSystem && typeof window.LevelSystem.addXP === 'function') {
       window.LevelSystem.addXP('mission_accepted', 15);
