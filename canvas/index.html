@@ -1138,7 +1138,7 @@
 
   /* ============================================================
      FEATURE-FLAGGED MODULE WIRING (proofExport, dataglowRooms,
-     natsConnector, tauriConnector) — see FEATURE_FLAGS in <script>.
+     natsConnector, tauriConnector) — see FEATURE_FLAGS in the script block.
      ============================================================ */
   .proof {
     font-size: 13px;
@@ -1529,7 +1529,10 @@
   .dash-chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
   .dash-chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
   .dash-chart-q { font-size: 12px; font-weight: 600; color: var(--primary); }
-  .dash-chart-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .dash-chart-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 1px; }
+  .dash-chart-insight { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .dash-chart-insight strong { color: var(--primary); }
+  .dash-chart-q { font-size: 11px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
   .dash-chart-wrap { position: relative; height: 200px; margin-top: 6px; }
 
   /* Footer */
@@ -3989,8 +3992,7 @@
      INLINED PURE-LOGIC MODULES (zero-build-step compatibility)
      ------------------------------------------------------------
      The functions below are copied inline from the repo's pure-logic
-     js/ modules so this single self-contained HTML file has no <script
-     src="..."> dependency on a server. Each block names its source file.
+     js/ modules so this single self-contained HTML file has no <scr​ipt src="..."> dependency on a server. Each block names its source file.
      Keep behavior identical to the source module; do not "improve" the
      logic here without porting the change back to js/.
      ============================================================ */
@@ -7467,7 +7469,7 @@ var NLEngine = (function () {
 
       if (!result) {
         result = {
-          answer: "I understood your question but couldn't find the right columns to answer it. Try asking about a specific column name — for example: \"what is the total " + (dataset.columns[0] || 'value') + "?\"",
+          answer: "I understood your question but couldn't find the right columns to answer it. Try asking about a specific column name — for example: \"what is the total " + ((dataset.columns[0] && dataset.columns[0].name) || 'value') + "?\"",
           sql: '',
           type: 'unclear', confidence: 0.2
         };
@@ -11095,7 +11097,7 @@ var DashboardEngine = (function () {
       var ci=catIdxs[0], mi=numIdxs[0], g={};
       rows.forEach(function(r){ var k=String(getVal(r,ci)||'Unknown'); if(!g[k]) g[k]={sum:0,n:0}; var v=getVal(r,mi); if(isNum(v)){g[k].sum+=toNum(v);g[k].n++;} });
       var s=Object.keys(g).map(function(k){return{label:k,value:g[k].n?g[k].sum/g[k].n:0};}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
-      if (s.length>=2) charts.push({type:'bar',title:'Avg '+cols[mi].name+' by '+cols[ci].name,data:s,question:'Which '+cols[ci].name+' has the highest avg '+cols[mi].name+'?'});
+      if (s.length>=2) charts.push({type:'bar',title:'Avg '+cols[mi].name+' by '+cols[ci].name,data:s,question:'Which '+cols[ci].name+' has the highest avg '+cols[mi].name+'?',_xLabel:cols[ci].name,_yLabel:'Avg '+cols[mi].name});
     }
 
     // 2. Count by category
@@ -11103,7 +11105,7 @@ var DashboardEngine = (function () {
       var ci2=catIdxs.length>1?catIdxs[1]:catIdxs[0], freq={};
       rows.forEach(function(r){ var k=String(getVal(r,ci2)||'Unknown'); freq[k]=(freq[k]||0)+1; });
       var fs=Object.keys(freq).map(function(k){return{label:k,value:freq[k]};}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
-      if (fs.length>=2&&(catIdxs.length>1||charts.length===0)) charts.push({type:'bar',title:'Count by '+cols[ci2].name,data:fs,question:'How many records per '+cols[ci2].name+'?'});
+      if (fs.length>=2&&(catIdxs.length>1||charts.length===0)) charts.push({type:'bar',title:'Count by '+cols[ci2].name,data:fs,question:'How many records per '+cols[ci2].name+'?',_xLabel:cols[ci2].name,_yLabel:'Count'});
     }
 
     // 3. Time series line (date col + metric col)
@@ -11111,7 +11113,7 @@ var DashboardEngine = (function () {
       var di=dateIdxs[0], mi2=numIdxs[0], tg={};
       rows.forEach(function(r){ var d=new Date(String(getVal(r,di)||'')); if(isNaN(d)) return; var k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); if(!tg[k])tg[k]={sum:0,n:0}; var v=getVal(r,mi2); if(isNum(v)){tg[k].sum+=toNum(v);tg[k].n++;} });
       var ts=Object.keys(tg).sort().map(function(k){return{label:k,value:tg[k].n?tg[k].sum/tg[k].n:0};});
-      if (ts.length>=2) charts.push({type:'line',title:cols[mi2].name+' trend over time',data:ts,question:'How has '+cols[mi2].name+' trended over time?'});
+      if (ts.length>=2) charts.push({type:'line',title:cols[mi2].name+' trend over time',data:ts,question:'How has '+cols[mi2].name+' trended over time?',_xLabel:'Date',_yLabel:cols[mi2].name});
     }
 
     // 4. Distribution histogram of primary numeric col
@@ -11121,7 +11123,7 @@ var DashboardEngine = (function () {
       if (hv.length>=5) {
         var mn=Math.min.apply(null,hv), mx=Math.max.apply(null,hv), binCnt=Math.min(8,Math.ceil(Math.sqrt(hv.length))), bw=(mx-mn)/binCnt||1;
         var bd=[]; for(var b=0;b<binCnt;b++){ var lo=mn+b*bw,hi=mn+(b+1)*bw; bd.push({label:fmtNum(lo)+'\u2013'+fmtNum(hi),value:hv.filter(function(v){return v>=lo&&(b===binCnt-1?v<=hi:v<hi);}).length}); }
-        if (bd.length>1) charts.push({type:'bar',title:'Distribution: '+cols[hci].name,data:bd,question:'What is the distribution of '+cols[hci].name+'?'});
+        if (bd.length>1) charts.push({type:'bar',title:'Distribution: '+cols[hci].name,data:bd,question:'What is the distribution of '+cols[hci].name+'?',_xLabel:cols[hci].name,_yLabel:'Count'});
       }
     }
 
@@ -11130,7 +11132,7 @@ var DashboardEngine = (function () {
       var ci5=catIdxs[0], mi5=numIdxs[1], g5={};
       rows.forEach(function(r){ var k=String(getVal(r,ci5)||'Unknown'); if(!g5[k])g5[k]={sum:0,n:0}; var v=getVal(r,mi5); if(isNum(v)){g5[k].sum+=toNum(v);g5[k].n++;} });
       var s5=Object.keys(g5).map(function(k){return{label:k,value:g5[k].n?g5[k].sum/g5[k].n:0};}).sort(function(a,b){return b.value-a.value;}).slice(0,8);
-      if (s5.length>=2) charts.push({type:'bar',title:'Avg '+cols[mi5].name+' by '+cols[ci5].name,data:s5,question:'How does '+cols[mi5].name+' compare across '+cols[ci5].name+'?'});
+      if (s5.length>=2) charts.push({type:'bar',title:'Avg '+cols[mi5].name+' by '+cols[ci5].name,data:s5,question:'How does '+cols[mi5].name+' compare across '+cols[ci5].name+'?',_xLabel:cols[ci5].name,_yLabel:'Avg '+cols[mi5].name});
     }
 
     return charts.slice(0,6);
@@ -11179,8 +11181,10 @@ var DashboardEngine = (function () {
         indexAxis:isHoriz?'y':'x',
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:function(ctx){return fmtNum(ctx.parsed[isHoriz?'x':'y']);}}} },
         scales:{
-          x:{ grid:{color:gc,lineWidth:0.5}, ticks:{color:tc,font:{size:10},maxRotation:isHoriz?0:35,maxTicksLimit:8} },
-          y:{ grid:{color:gc,lineWidth:0.5}, ticks:{color:tc,font:{size:10},callback:function(v){return fmtNum(v);}} }
+          x:{ grid:{color:gc,lineWidth:0.5}, ticks:{color:tc,font:{size:10},maxRotation:isHoriz?0:35,maxTicksLimit:8},
+              title:{ display:!isHoriz, text:chart._xLabel||'', color:tc, font:{size:10}, padding:{top:4} } },
+          y:{ grid:{color:gc,lineWidth:0.5}, ticks:{color:tc,font:{size:10},callback:function(v){return fmtNum(v);}},
+              title:{ display:isHoriz||true, text:chart._yLabel||'', color:tc, font:{size:10}, padding:{bottom:4} } }
         }
       }
     };
@@ -11375,11 +11379,13 @@ var DashboardEngine = (function () {
       var cg=document.createElement('div'); cg.className='dash-chart-grid';
       charts.forEach(function(chart){
         var card=document.createElement('div'); card.className='dash-chart-card';
-        var q=document.createElement('div'); q.className='dash-chart-q'; q.textContent=chart.question;
-        var t=document.createElement('div'); t.className='dash-chart-title'; t.textContent=chart.title;
+        var q=document.createElement('div'); q.className='dash-chart-title'; q.textContent=chart.question;
+        var topD=chart.data[0];
+        var insightTxt = topD ? 'Top: ' + String(topD.label).substring(0,22) + ' · ' + fmtNum(topD.value) : chart.title;
+        var ins=document.createElement('div'); ins.className='dash-chart-insight'; ins.innerHTML=insightTxt;
         var cw=document.createElement('div'); cw.className='dash-chart-wrap';
         var canvas=document.createElement('canvas');
-        cw.appendChild(canvas); card.appendChild(q); card.appendChild(t); card.appendChild(cw); cg.appendChild(card);
+        cw.appendChild(canvas); card.appendChild(q); card.appendChild(ins); card.appendChild(cw); cg.appendChild(card);
         loadChartJs().then(function(){ renderChartCanvas(canvas,chart,isDark); });
       });
       dash.appendChild(cg);
