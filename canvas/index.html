@@ -3507,11 +3507,11 @@
 .nl-pulse { animation: dg-pulse-ring 1.2s ease 2; }
 
 /* ---- #45 Level System ---- */
-#xp-bar-wrap { display:flex; align-items:center; gap:8px; padding:0 10px; flex-shrink:0; }
-#xp-level-badge { font-size:10px; font-weight:800; color:var(--primary); white-space:nowrap; letter-spacing:0.01em; }
-#xp-progress-track { width:64px; height:4px; background:var(--surface-alt); border-radius:2px; overflow:hidden; flex-shrink:0; }
-#xp-progress-fill { height:100%; background:var(--primary); border-radius:2px; transition:width 0.6s ease; width:0%; }
-#xp-count-label { font-size:10px; color:var(--text-muted); white-space:nowrap; }
+
+
+
+
+
 #levelup-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:20000; display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px; pointer-events:none; }
 #levelup-overlay.show { display:flex; animation:dg-levelup 2.6s ease forwards; }
 @keyframes dg-levelup { 0%{opacity:0;} 12%{opacity:1;} 75%{opacity:1;} 100%{opacity:0;} }
@@ -4840,11 +4840,6 @@
         <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
       </div>
       <div id="nav-views">
-        <div id="xp-bar-wrap">
-          <span id="xp-level-badge">Lv.1 Apprentice</span>
-          <div id="xp-progress-track"><div id="xp-progress-fill" style="width:0%"></div></div>
-          <span id="xp-count-label">0 XP</span>
-        </div>
         <button class="nav-btn active" data-view="data">Data</button>
         <button class="nav-btn" data-view="analyze">Analyze</button>
         <button class="nav-btn" data-view="share">Share</button>
