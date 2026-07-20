@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DataGlow">
-<title>DataGlow — Your data, understood.</title>
+<title>DataGlow  -  Your data, understood.</title>
 <style>
   /* ============================================================
      1. RESET + BASE
@@ -3506,6 +3506,127 @@
 }
 .nl-pulse { animation: dg-pulse-ring 1.2s ease 2; }
 
+/* ---- #45 Level System ---- */
+#xp-bar-wrap { display:flex; align-items:center; gap:8px; padding:0 10px; flex-shrink:0; }
+#xp-level-badge { font-size:10px; font-weight:800; color:var(--primary); white-space:nowrap; letter-spacing:0.01em; }
+#xp-progress-track { width:64px; height:4px; background:var(--surface-alt); border-radius:2px; overflow:hidden; flex-shrink:0; }
+#xp-progress-fill { height:100%; background:var(--primary); border-radius:2px; transition:width 0.6s ease; width:0%; }
+#xp-count-label { font-size:10px; color:var(--text-muted); white-space:nowrap; }
+#levelup-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:20000; display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px; pointer-events:none; }
+#levelup-overlay.show { display:flex; animation:dg-levelup 2.6s ease forwards; }
+@keyframes dg-levelup { 0%{opacity:0;} 12%{opacity:1;} 75%{opacity:1;} 100%{opacity:0;} }
+#levelup-star { font-size:56px; }
+#levelup-title { font-size:52px; font-weight:900; color:#fff; letter-spacing:-0.03em; text-align:center; line-height:1; }
+#levelup-sub { font-size:22px; color:rgba(255,255,255,0.65); text-align:center; font-weight:600; }
+#badges-panel { position:fixed; bottom:50px; right:16px; width:320px; max-height:480px; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; display:none; flex-direction:column; z-index:9989; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+#badges-panel.open { display:flex; }
+.badges-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 10px; border-bottom:1px solid var(--border); }
+.badges-header-title { font-size:14px; font-weight:700; color:var(--text); }
+.badges-close-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; line-height:1; }
+.badges-list { overflow-y:auto; flex:1; padding:12px; display:flex; flex-direction:column; gap:8px; }
+.badge-item { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; background:var(--surface-alt); opacity:0.4; border:1px solid transparent; }
+.badge-item.earned { opacity:1; border-color:rgba(27,161,168,0.25); background:rgba(27,161,168,0.06); }
+.badge-icon { font-size:20px; flex-shrink:0; color:var(--primary); }
+.badge-label { font-size:12px; font-weight:700; color:var(--text); }
+.badge-desc { font-size:10px; color:var(--text-muted); margin-top:1px; }
+
+/* ---- #42 Domain Case Library ---- */
+#cases-view { display:none; flex-direction:column; height:100%; overflow:hidden; }
+#cases-view.active { display:flex; }
+.cases-toolbar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.cases-search { flex:1; min-width:140px; background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:7px 12px; font-size:12px; color:var(--text); outline:none; font-family:inherit; }
+.cases-search::placeholder { color:var(--text-muted); }
+.cases-filter-btn { background:none; border:1px solid var(--border); border-radius:20px; color:var(--text-muted); padding:5px 14px; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; font-family:inherit; }
+.cases-filter-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.cases-grid { flex:1; overflow-y:auto; padding:14px; display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; align-content:start; }
+.case-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:8px; transition:border-color 0.15s, box-shadow 0.15s; }
+.case-card:hover { border-color:var(--primary); box-shadow:0 4px 16px rgba(0,0,0,0.15); }
+.case-tags { display:flex; gap:6px; flex-wrap:wrap; }
+.case-tag { font-size:9px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; padding:2px 8px; border-radius:20px; }
+.case-tag.healthcare { background:rgba(27,161,168,0.12); color:var(--primary); }
+.case-tag.finance { background:rgba(150,66,25,0.1); color:#964219; }
+.case-tag.hr { background:rgba(67,122,34,0.1); color:#437A22; }
+.case-tag.beginner { background:rgba(67,122,34,0.1); color:#437A22; }
+.case-tag.intermediate { background:rgba(150,66,25,0.1); color:#964219; }
+.case-tag.advanced { background:rgba(161,44,123,0.1); color:#A12C7B; }
+.case-title { font-size:13px; font-weight:700; color:var(--text); line-height:1.3; }
+.case-desc { font-size:11px; color:var(--text-muted); line-height:1.5; flex:1; }
+.case-run-btn { align-self:flex-end; background:var(--primary); color:#fff; border:none; border-radius:8px; padding:7px 16px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; }
+.case-run-btn:hover { opacity:0.88; }
+#case-guide { position:fixed; top:0; right:0; width:300px; height:100vh; background:var(--surface); border-left:1px solid var(--border); z-index:900; display:none; flex-direction:column; box-shadow:-4px 0 24px rgba(0,0,0,0.25); }
+#case-guide.open { display:flex; }
+.cg-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); }
+.cg-title { font-size:13px; font-weight:700; color:var(--text); flex:1; padding-right:8px; line-height:1.3; }
+.cg-close { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; }
+.cg-steps { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
+.cg-step { border-radius:8px; padding:12px; border:1px solid var(--border); background:var(--surface-alt); opacity:0.5; }
+.cg-step.active { opacity:1; border-color:var(--primary); background:rgba(27,161,168,0.06); }
+.cg-step-num { font-size:9px; font-weight:800; letter-spacing:0.08em; color:var(--primary); text-transform:uppercase; margin-bottom:4px; }
+.cg-step-insight { font-size:11px; color:var(--text-muted); line-height:1.5; margin-bottom:8px; }
+.cg-step-sql { font-family:monospace; font-size:10px; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:6px 8px; overflow-x:auto; white-space:pre; display:block; }
+.cg-next-btn { margin:12px 16px; background:var(--primary); color:#fff; border:none; border-radius:8px; padding:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+.cg-next-btn:disabled { opacity:0.4; cursor:default; }
+
+/* ---- #46 OSCE ---- */
+#osce-modal { position:fixed; inset:0; background:var(--background); z-index:15000; display:none; flex-direction:column; overflow:hidden; }
+#osce-modal.open { display:flex; }
+.osce-topbar { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.osce-logo { font-size:11px; font-weight:900; letter-spacing:0.15em; color:var(--primary); text-transform:uppercase; }
+.osce-scenario-title { font-size:13px; font-weight:700; color:var(--text); flex:1; }
+.osce-score-badge { font-size:14px; font-weight:800; color:var(--primary); background:rgba(27,161,168,0.1); border:1px solid rgba(27,161,168,0.3); border-radius:8px; padding:4px 14px; }
+.osce-close-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text-muted); padding:5px 12px; font-size:12px; cursor:pointer; font-family:inherit; }
+.osce-close-btn:hover { color:var(--text); border-color:var(--text-muted); }
+#osce-select-screen { flex:1; overflow-y:auto; padding:40px 24px; display:flex; flex-direction:column; align-items:center; gap:24px; }
+.osce-select-title { font-size:28px; font-weight:900; color:var(--text); letter-spacing:-0.02em; text-align:center; }
+.osce-select-sub { font-size:14px; color:var(--text-muted); text-align:center; max-width:500px; line-height:1.6; }
+.osce-scenario-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:16px; width:100%; max-width:900px; }
+.osce-scenario-card { background:var(--surface); border:1.5px solid var(--border); border-radius:16px; padding:24px; cursor:pointer; transition:all 0.18s; display:flex; flex-direction:column; gap:10px; }
+.osce-scenario-card:hover { border-color:var(--primary); box-shadow:0 8px 28px rgba(0,0,0,0.2); transform:translateY(-2px); }
+.osce-card-label { font-size:9px; font-weight:800; letter-spacing:0.12em; color:var(--primary); text-transform:uppercase; }
+.osce-card-title { font-size:16px; font-weight:800; color:var(--text); line-height:1.3; letter-spacing:-0.01em; }
+.osce-card-brief { font-size:12px; color:var(--text-muted); line-height:1.6; }
+.osce-card-meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+.osce-meta-tag { font-size:10px; font-weight:700; padding:3px 10px; border-radius:20px; }
+.osce-meta-intermediate { background:rgba(150,66,25,0.1); color:#964219; }
+.osce-meta-advanced { background:rgba(161,44,123,0.1); color:#A12C7B; }
+.osce-meta-pts { background:rgba(27,161,168,0.1); color:var(--primary); }
+#osce-session { flex:1; display:none; overflow:hidden; }
+#osce-session.open { display:flex; }
+#osce-sql-pane { flex:6; display:flex; flex-direction:column; border-right:1px solid var(--border); overflow:hidden; }
+.osce-sql-label { font-size:9px; font-weight:800; letter-spacing:0.1em; color:var(--text-muted); text-transform:uppercase; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--surface-alt); flex-shrink:0; }
+#osce-sql-editor { flex:1; border:none; background:var(--surface-alt); color:var(--text); font-family:monospace; font-size:13px; padding:14px; resize:none; outline:none; min-height:0; }
+.osce-sql-actions { display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.osce-run-btn { background:var(--primary); color:#fff; border:none; border-radius:6px; padding:7px 20px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+.osce-run-hint { font-size:10px; color:var(--text-muted); }
+#osce-result-pane { flex:1; overflow-y:auto; border-top:1px solid var(--border); background:var(--surface-alt); padding:10px; min-height:80px; max-height:220px; font-size:11px; color:var(--text); }
+#osce-sql-pane-wrap { flex:6; display:flex; flex-direction:column; overflow:hidden; }
+#osce-station-pane { flex:4; display:flex; flex-direction:column; overflow-y:auto; }
+.osce-station-header { padding:16px 18px 10px; border-bottom:1px solid var(--border); }
+.osce-station-num { font-size:9px; font-weight:800; letter-spacing:0.1em; color:var(--primary); text-transform:uppercase; margin-bottom:4px; }
+.osce-station-task { font-size:13px; font-weight:700; color:var(--text); line-height:1.4; margin-bottom:8px; }
+.osce-station-body { padding:14px 18px; display:flex; flex-direction:column; gap:10px; flex:1; }
+.osce-hint-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text-muted); font-size:11px; padding:6px 12px; cursor:pointer; font-family:inherit; }
+.osce-hint-btn:hover { border-color:var(--primary); color:var(--primary); }
+#osce-hint-box { display:none; background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:11px; color:var(--text-muted); font-family:monospace; line-height:1.6; white-space:pre-wrap; }
+#osce-hint-box.open { display:block; }
+.osce-check-btn { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
+.osce-check-btn:hover { opacity:0.88; }
+#osce-feedback { border-radius:8px; padding:12px 14px; font-size:12px; line-height:1.6; display:none; }
+#osce-feedback.pass { background:rgba(67,122,34,0.1); border:1px solid rgba(67,122,34,0.3); color:#437A22; display:block; }
+#osce-feedback.fail { background:rgba(161,44,123,0.08); border:1px solid rgba(161,44,123,0.25); color:#A12C7B; display:block; }
+.osce-next-btn { background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:9px 20px; font-size:12px; font-weight:700; color:var(--text); cursor:pointer; font-family:inherit; display:none; }
+.osce-next-btn.show { display:block; }
+.osce-progress-dots { display:flex; gap:6px; padding:12px 18px; border-top:1px solid var(--border); }
+.osce-dot { width:8px; height:8px; border-radius:50%; background:var(--border); }
+.osce-dot.done { background:var(--primary); }
+.osce-dot.active { background:var(--primary); box-shadow:0 0 0 3px rgba(27,161,168,0.25); }
+#osce-results-screen { display:none; flex:1; align-items:center; justify-content:center; flex-direction:column; gap:16px; padding:40px; text-align:center; }
+#osce-results-screen.open { display:flex; }
+.osce-final-score { font-size:72px; font-weight:900; color:var(--primary); letter-spacing:-0.04em; line-height:1; }
+.osce-final-grade { font-size:24px; font-weight:700; color:var(--text); }
+.osce-final-feedback { font-size:14px; color:var(--text-muted); max-width:480px; line-height:1.7; }
+.osce-restart-btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:12px 32px; font-size:14px; font-weight:700; cursor:pointer; margin-top:8px; font-family:inherit; }
+
 </style>
 </head>
 <body>
@@ -3600,6 +3721,11 @@
         <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
       </div>
       <div id="nav-views">
+        <div id="xp-bar-wrap">
+          <span id="xp-level-badge">Lv.1 Apprentice</span>
+          <div id="xp-progress-track"><div id="xp-progress-fill" style="width:0%"></div></div>
+          <span id="xp-count-label">0 XP</span>
+        </div>
         <button class="nav-btn active" data-view="data">Data</button>
         <button class="nav-btn" data-view="analyze">Analyze</button>
         <button class="nav-btn" data-view="share">Share</button>
@@ -3733,6 +3859,7 @@
           <button class="analyze-pill" data-panel="excel-view">Excel</button>
           <button class="analyze-pill" data-panel="stats-view">Stats</button>
           <button class="analyze-pill" data-panel="arena-view">Arena</button>
+          <button class="analyze-pill" data-panel="cases-view">Cases</button>
         </div>
         <!-- Panels -->
         <div id="charts-view" class="analyze-panel active">
@@ -4042,6 +4169,8 @@
           <span id="live-feed-label">Live Feed</span>
         </button>
         <button class="skills-trigger-btn" id="skills-trigger-btn" title="Your Skills">Skills</button>
+        <button class="skills-trigger-btn" id="badges-trigger-btn" title="Your Badges">Badges</button>
+        <button class="skills-trigger-btn" id="osce-trigger-btn" title="Clinical Data Exam">OSCE</button>
         <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -4401,7 +4530,7 @@
       if (mime.indexOf('video/') === 0) {
         return { format: 'video', confidence: 'medium', handler: handlerForFormat('video') };
       }
-      // Arrow IPC / Feather v2 — magic bytes "ARROW1\0\0" (first 6 bytes)
+      // Arrow IPC / Feather v2  -  magic bytes "ARROW1\0\0" (first 6 bytes)
       if (firstBytes && firstBytes.length >= 6) {
         var arrowMagic = [0x41, 0x52, 0x52, 0x4F, 0x57, 0x31]; // "ARROW1"
         var isArrowMagic = true;
@@ -4576,9 +4705,9 @@
           lineCount: parsed.lineCount,
           skippedEmpty: parsed.skippedEmpty || 0,
           note: kind === 'log'
-            ? 'Log file detected — timestamps and severity levels present. Query content for patterns.'
+            ? 'Log file detected  -  timestamps and severity levels present. Query content for patterns.'
             : kind === 'delimited'
-            ? 'Delimited text detected — consider renaming to .csv or .tsv for richer column parsing.'
+            ? 'Delimited text detected  -  consider renaming to .csv or .tsv for richer column parsing.'
             : 'Plain text loaded as line-numbered rows. Use SQL LIKE/REGEXP on content column.'
         }
       };
@@ -4653,10 +4782,10 @@
 
     function buildOcrDataset(parsed, fileName, kind, confidenceScore) {
       var gradeNote = {
-        high: 'OCR confidence is high — text extraction is reliable.',
-        medium: 'OCR confidence is moderate — review extracted text for accuracy.',
-        low: 'OCR confidence is low — image may be blurry or low-resolution. Verify key values.',
-        poor: 'OCR confidence is very low — consider using a higher-resolution image.'
+        high: 'OCR confidence is high  -  text extraction is reliable.',
+        medium: 'OCR confidence is moderate  -  review extracted text for accuracy.',
+        low: 'OCR confidence is low  -  image may be blurry or low-resolution. Verify key values.',
+        poor: 'OCR confidence is very low  -  consider using a higher-resolution image.'
       };
       var grade = (confidenceScore && confidenceScore.grade) || 'poor';
       return {
@@ -4779,7 +4908,7 @@
 
       if (Array.isArray(parsed) && parsed.length > 0 && !isPlainObj(parsed[0])) {
         var rows2 = parsed.slice(0, maxRows).map(function (v, i) { return { index: i, value: v == null ? null : String(v) }; });
-        return { rows: rows2, path: '(root array of scalars)', confidence: 'medium', warning: 'Array of scalar values — each entry becomes a row with index + value columns.' };
+        return { rows: rows2, path: '(root array of scalars)', confidence: 'medium', warning: 'Array of scalar values  -  each entry becomes a row with index + value columns.' };
       }
 
       if (isPlainObj(parsed)) {
@@ -4788,7 +4917,7 @@
           var rows3 = found.value.slice(0, maxRows).map(function (r) { return flattenObj(r, maxDepth); });
           return { rows: rows3, path: found.path, confidence: 'medium', warning: 'Extracted rows from "' + found.path + '". Other keys in the envelope were discarded.' };
         }
-        return { rows: [flattenObj(parsed, maxDepth)], path: '(root object)', confidence: 'low', warning: 'Single JSON object — treated as one row. Consider if this is an API envelope.' };
+        return { rows: [flattenObj(parsed, maxDepth)], path: '(root object)', confidence: 'low', warning: 'Single JSON object  -  treated as one row. Consider if this is an API envelope.' };
       }
 
       return { rows: [], path: '', confidence: 'low', warning: 'Could not extract rows from this JSON structure.' };
@@ -4911,7 +5040,7 @@
           var rows2 = found.value.slice(0, maxRows).map(function (r) { return flattenObjShallow(r, 4); });
           return { rows: rows2, path: found.path, confidence: 'medium', warning: 'Rows extracted from "' + found.path + '".' };
         }
-        return { rows: [flattenObjShallow(parsed, 4)], path: '(root object)', confidence: 'low', warning: 'Single object — treated as one row.' };
+        return { rows: [flattenObjShallow(parsed, 4)], path: '(root object)', confidence: 'low', warning: 'Single object  -  treated as one row.' };
       }
       return { rows: [], path: '', confidence: 'low', warning: 'Could not extract rows from API response.' };
     }
@@ -5107,12 +5236,12 @@
           var count = r.metadata && r.metadata.count !== undefined ? r.metadata.count : null;
           var col = r.column ? (' in ' + r.column) : '';
           var countStr = count !== null ? (count + ' ') : '';
-          var reason = r.reason ? (' — ' + r.reason) : '';
-          return 'Agent fixed ' + countStr + 'values' + col + ' — accepted by analyst (' + ts + ')' + reason;
+          var reason = r.reason ? ('  -  ' + r.reason) : '';
+          return 'Agent fixed ' + countStr + 'values' + col + '  -  accepted by analyst (' + ts + ')' + reason;
         }
         case RECORD_TYPES.AGENT_FIX_DISMISSED: {
           var col2 = r.column ? (' in ' + r.column) : '';
-          var reason2 = r.reason ? (' — ' + r.reason) : '';
+          var reason2 = r.reason ? ('  -  ' + r.reason) : '';
           return 'Agent fix' + col2 + ' dismissed by analyst (' + ts + ')' + reason2;
         }
         case RECORD_TYPES.MANUAL_EDIT: {
@@ -5122,12 +5251,12 @@
         }
         case RECORD_TYPES.VALIDATION_RESOLVED: {
           var col4 = r.column ? (' on ' + r.column) : '';
-          var reason4 = r.reason ? (' — ' + r.reason) : '';
+          var reason4 = r.reason ? ('  -  ' + r.reason) : '';
           return 'Validation issue' + col4 + ' resolved by ' + who.toLowerCase() + ' (' + ts + ')' + reason4;
         }
         case RECORD_TYPES.VALIDATION_DISMISSED: {
           var col5 = r.column ? (' on ' + r.column) : '';
-          var reason5 = r.reason ? (' — ' + r.reason) : '';
+          var reason5 = r.reason ? ('  -  ' + r.reason) : '';
           return 'Validation issue' + col5 + ' dismissed by ' + who.toLowerCase() + ' (' + ts + ')' + reason5;
         }
         case RECORD_TYPES.SQL_QUERY: {
@@ -5333,7 +5462,7 @@
         return label + ': ' + top.message;
       }
       if (findingsContent && findingsContent.items && findingsContent.items.length === 0) {
-        return 'No validation issues were found — this dataset is clean.';
+        return 'No validation issues were found  -  this dataset is clean.';
       }
       return 'This dataset has no standout issues to report.';
     }
@@ -5411,7 +5540,7 @@
           lines.push('');
           lines.push('Top issues:');
           c.topIssues.forEach(function (issue) {
-            lines.push('- **' + issue.severity + '** — ' + issue.column + ': ' + issue.message);
+            lines.push('- **' + issue.severity + '**  -  ' + issue.column + ': ' + issue.message);
           });
         }
       }
@@ -5427,7 +5556,7 @@
         lines.push('| Severity | Column | Issue | Rows Affected |');
         lines.push('|---|---|---|---|');
         items.forEach(function (item) {
-          lines.push('| ' + escapeMarkdownCell(item.severity) + ' | ' + escapeMarkdownCell(item.column) + ' | ' + escapeMarkdownCell(item.message) + ' | ' + (item.rowsAffected != null ? item.rowsAffected : '—') + ' |');
+          lines.push('| ' + escapeMarkdownCell(item.severity) + ' | ' + escapeMarkdownCell(item.column) + ' | ' + escapeMarkdownCell(item.message) + ' | ' + (item.rowsAffected != null ? item.rowsAffected : ' - ') + ' |');
         });
       }
       lines.push('');
@@ -5454,7 +5583,7 @@
           lines.push('```sql');
           lines.push(q.sql || '');
           lines.push('```');
-          var meta = [q.timestamp, q.note].filter(Boolean).join(' — ');
+          var meta = [q.timestamp, q.note].filter(Boolean).join('  -  ');
           if (meta) lines.push('*' + meta + '*');
           lines.push('');
         });
@@ -5512,7 +5641,7 @@
 
       var topIssuesHtml = (summaryContent.topIssues || [])
         .map(function (issue) {
-          return '<li><span style="color:' + severityColor(issue.severity) + '; font-weight:600;">' + escapeHtml(issue.severity) + '</span> — ' + escapeHtml(issue.column) + ': ' + escapeHtml(issue.message) + '</li>';
+          return '<li><span style="color:' + severityColor(issue.severity) + '; font-weight:600;">' + escapeHtml(issue.severity) + '</span>  -  ' + escapeHtml(issue.column) + ': ' + escapeHtml(issue.message) + '</li>';
         }).join('\n');
 
       var findingsRowsHtml = findingsItems.length === 0
@@ -5523,7 +5652,7 @@
             '<td style="padding:8px 12px; color:' + severityColor(item.severity) + '; font-weight:600;">' + escapeHtml(item.severity) + '</td>' +
             '<td style="padding:8px 12px;">' + escapeHtml(item.column) + '</td>' +
             '<td style="padding:8px 12px;">' + escapeHtml(item.message) + '</td>' +
-            '<td style="padding:8px 12px; text-align:right;">' + (item.rowsAffected != null ? escapeHtml(item.rowsAffected) : '—') + '</td>' +
+            '<td style="padding:8px 12px; text-align:right;">' + (item.rowsAffected != null ? escapeHtml(item.rowsAffected) : ' - ') + '</td>' +
           '</tr>';
         }).join('\n');
 
@@ -5535,7 +5664,7 @@
         '<h2 style="color:' + COLOR_PRIMARY + '; border-bottom:1px solid #ddd; padding-bottom:4px;">SQL Audit</h2>' +
         sqlQueries.map(function (q) {
           return '<pre style="background:#1e1e1e; color:#f5f5f5; padding:12px; border-radius:4px; overflow-x:auto; font-size:12px;"><code>' + escapeHtml(q.sql) + '</code></pre>' +
-            '<p style="color:#888; font-size:12px; margin-top:-4px;">' + escapeHtml([q.timestamp, q.note].filter(Boolean).join(' — ')) + '</p>';
+            '<p style="color:#888; font-size:12px; margin-top:-4px;">' + escapeHtml([q.timestamp, q.note].filter(Boolean).join('  -  ')) + '</p>';
         }).join('\n');
 
       return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<title>' + escapeHtml(doc.title || 'DataGlow Story') + '</title>\n<style>\n' +
@@ -5660,7 +5789,7 @@ var OPFSEngine = window.OPFSEngine = {
     await aw.close();
   },
 
-  // Workspace Profile — domain expertise
+  // Workspace Profile  -  domain expertise
   async saveProfile(profile) {
     if (!this._root) return false;
     try {
@@ -5765,7 +5894,7 @@ function saveWorkspaceProfile() {
     // Refresh question seeds with new profile
     window._workspaceProfile = profile;
     closeWorkspaceProfile();
-    showToast('Profile saved — question seeds updated', 'success');
+    showToast('Profile saved  -  question seeds updated', 'success');
   });
 }
 window.saveWorkspaceProfile = saveWorkspaceProfile;
@@ -5783,7 +5912,7 @@ document.addEventListener('click', function(e) {
 // Load profile + guard disk space on startup
 OPFSEngine.init().then(function(ok) {
   if (!ok) {
-    console.warn('[DataGlow] OPFS unavailable — session-only mode');
+    console.warn('[DataGlow] OPFS unavailable  -  session-only mode');
     return;
   }
   // Restore workspace profile
@@ -5888,7 +6017,7 @@ window.deleteSavedDataset = async function(key) {
   showToast('Dataset deleted', 'success');
 };
 
-// Save current dataset to OPFS — called from toolbar
+// Save current dataset to OPFS  -  called from toolbar
 window.saveCurrentDataset = async function() {
   var ds = window.getActiveDataset ? window.getActiveDataset() : null;
   if (!ds) { showToast('No active dataset to save', 'error'); return; }
@@ -5913,7 +6042,7 @@ window.saveCurrentDataset = async function() {
   try {
     var ok = await OPFSEngine.saveDataset(ds.name, ds.rows, ds.columns);
     if (ok) {
-      showToast('Saved: ' + ds.name + ' — will persist across refreshes', 'success');
+      showToast('Saved: ' + ds.name + '  -  will persist across refreshes', 'success');
     } else {
       showToast('Storage unavailable. Dataset is active this session only.', 'error');
     }
@@ -6177,7 +6306,7 @@ var CardinalityDetector = window.CardinalityDetector = {
         ? 'Consider aggregating ' + (dsB.name||'right') + ' first (e.g. GROUP BY ' + keyB + ') then joining, to avoid row explosion.'
         : 'Moderate fan-out. Verify the result row count matches your expectations.';
     } else {
-      // N:N — most dangerous
+      // N:N  -  most dangerous
       type = 'N:N';
       severity = 'danger';
       var leftDup  = leftTotal  - leftUnique;
@@ -6185,7 +6314,7 @@ var CardinalityDetector = window.CardinalityDetector = {
       message = 'Many-to-many join detected. Both sides have duplicate key values (' +
         leftDup.toLocaleString() + ' duplicate' + (leftDup!==1?'s':'') + ' on left, ' +
         rightDup.toLocaleString() + ' duplicate' + (rightDup!==1?'s':'') + ' on right). ' +
-        'This will create a row explosion — potentially ' + Math.round(fanOutRatio) + 'x your current row count.';
+        'This will create a row explosion  -  potentially ' + Math.round(fanOutRatio) + 'x your current row count.';
       suggestion = 'Deduplicate one or both sides before joining. A many-to-many join is almost always a sign of a data model problem.';
     }
 
@@ -6263,7 +6392,7 @@ var SQLErrorTranslator = window.SQLErrorTranslator = {
       });
     }
 
-    // Column not found — suggest closest match
+    // Column not found  -  suggest closest match
     var colNotFound = msg.match(/(?:Referenced column|Column)\s+["']?([^"'\s]+)["']?\s+(?:not found|does not exist)/i);
     if (colNotFound) {
       var bad = colNotFound[1];
@@ -6390,7 +6519,7 @@ var PythonErrorTranslator = window.PythonErrorTranslator = {
     var msg = String(rawMsg);
     columns = columns || [];
 
-    // AttributeError — wrong method name
+    // AttributeError  -  wrong method name
     var attrErr = msg.match(/AttributeError.*has no attribute ['"]([^'"]+)['"]/);
     if (attrErr) {
       return {
@@ -6401,7 +6530,7 @@ var PythonErrorTranslator = window.PythonErrorTranslator = {
       };
     }
 
-    // KeyError — wrong column name
+    // KeyError  -  wrong column name
     var keyErr = msg.match(/KeyError:\s*['"]?([^'"]+)['"]?/);
     if (keyErr) {
       var bad = keyErr[1].trim();
@@ -6423,7 +6552,7 @@ var PythonErrorTranslator = window.PythonErrorTranslator = {
         title: 'Variable not defined',
         plain: '"' + nameErr[1] + '" has not been created yet.',
         suggestion: nameErr[1] === 'df' || nameErr[1] === 'dg'
-          ? 'Start with: df = dg.df()  — this loads your active dataset as a pandas DataFrame.'
+          ? 'Start with: df = dg.df()   -  this loads your active dataset as a pandas DataFrame.'
           : 'Make sure you have defined "' + nameErr[1] + '" in a previous line.',
         raw: msg
       };
@@ -6532,11 +6661,11 @@ var MemoryGuard = window.MemoryGuard = (function() {
       var body  = document.getElementById('dg-mem-body');
       if (level === 'danger') {
         banner.className = 'danger';
-        if (title) title.textContent = 'Critical memory usage — ' + mb + ' MB used';
+        if (title) title.textContent = 'Critical memory usage  -  ' + mb + ' MB used';
         if (body) body.textContent = 'The browser is near its limit. Export your work and refresh the page before it crashes.';
       } else {
         banner.className = '';
-        if (title) title.textContent = 'High memory usage — ' + mb + ' MB used';
+        if (title) title.textContent = 'High memory usage  -  ' + mb + ' MB used';
         if (body) body.textContent = 'Large datasets are using significant memory. Consider filtering your data or closing unused datasets.';
       }
     },
@@ -6548,7 +6677,7 @@ var MemoryGuard = window.MemoryGuard = (function() {
       setTimeout(function() { _dismissed = false; }, 5 * 60 * 1000);
     },
 
-    // Call this after loading large file — immediate check
+    // Call this after loading large file  -  immediate check
     checkNow: function() {
       _dismissed = false;
       var mb = getMB();
@@ -6559,10 +6688,10 @@ var MemoryGuard = window.MemoryGuard = (function() {
 
 // ═══════════════════════════════════════════════════════════════════════
 // 4. ERROR BOUNDARY WRAPPER
-// Wraps any function call — catches errors, renders friendly UI
+// Wraps any function call  -  catches errors, renders friendly UI
 // ═══════════════════════════════════════════════════════════════════════
 var ErrorBoundary = window.ErrorBoundary = {
-  // Wrap a sync or async function — on error, render into containerEl
+  // Wrap a sync or async function  -  on error, render into containerEl
   wrap: function(fn, containerEl, retryFn) {
     try {
       var result = fn();
@@ -7378,7 +7507,7 @@ var NLEngine = (function () {
       type: 'top',
       direction: 'asc'
     },
-    // AVERAGE / MEAN — before COUNT so "average claim count" resolves to avg not count
+    // AVERAGE / MEAN  -  before COUNT so "average claim count" resolves to avg not count
     {
       pattern: /\b(average|avg|mean|typical)\b/i,
       type: 'avg'
@@ -7463,7 +7592,7 @@ var NLEngine = (function () {
     var valueCol = mentionedCols.find(function (c) { return numCols_.includes(c); }) || numCols_[0];
 
     if (!groupCol && !valueCol) {
-      // No grouping — just find max/min value across all numeric cols
+      // No grouping  -  just find max/min value across all numeric cols
       if (!numCols_.length) return null;
       var col = numCols_[0];
       var vals = rows.map(function (r) { return r[col]; }).filter(isNum).map(num);
@@ -7809,7 +7938,7 @@ var NLEngine = (function () {
 
       if (!result) {
         result = {
-          answer: "I understood your question but couldn't find the right columns to answer it. Try asking about a specific column name — for example: \"what is the total " + ((dataset.columns[0] && dataset.columns[0].name) || 'value') + "?\"",
+          answer: "I understood your question but couldn't find the right columns to answer it. Try asking about a specific column name  -  for example: \"what is the total " + ((dataset.columns[0] && dataset.columns[0].name) || 'value') + "?\"",
           sql: '',
           type: 'unclear', confidence: 0.2
         };
@@ -7820,7 +7949,7 @@ var NLEngine = (function () {
   }
 
   // Generate 4 contextual example questions based on the actual columns
-  // ── Smart question seeder — column-aware, data-specific ─────────────────
+  // ── Smart question seeder  -  column-aware, data-specific ─────────────────
   function getSuggestions(dataset) {
     // Use workspace profile to enhance domain detection
     var _prof = window._workspaceProfile;
@@ -8135,7 +8264,7 @@ var ChartEngine = (function () {
       ctx.closePath();
       ctx.fill();
 
-      // X label — truncate
+      // X label  -  truncate
       var lbl = g.key.length > 8 ? g.key.slice(0, 7) + '…' : g.key;
       var cx2 = bx + barW / 2;
       ctx.save();
@@ -8366,7 +8495,7 @@ var ChartEngine = (function () {
     var dateCols_ = dateCols(dataset);
     var charts = [];
 
-    // 1. Trend lines — date × numeric
+    // 1. Trend lines  -  date × numeric
     dateCols_.forEach(function (dc) {
       numCols_.slice(0, 2).forEach(function (nc) {
         var card = renderLine(dataset, dc, nc);
@@ -8374,7 +8503,7 @@ var ChartEngine = (function () {
       });
     });
 
-    // 2. Bar charts — categorical × numeric (top 3 pairs)
+    // 2. Bar charts  -  categorical × numeric (top 3 pairs)
     var barCount = 0;
     catCols_.forEach(function (cc) {
       if (barCount >= 3) return;
@@ -8387,14 +8516,14 @@ var ChartEngine = (function () {
       });
     });
 
-    // 3. Count bar — categorical with no numeric pair
+    // 3. Count bar  -  categorical with no numeric pair
     if (barCount === 0 && catCols_.length) {
       var cc = catCols_[0];
       var card = renderBar(dataset, cc, cc, 'count');
       if (card) charts.push(card);
     }
 
-    // 4. Donut — low-cardinality categoricals
+    // 4. Donut  -  low-cardinality categoricals
     catCols_.slice(0, 2).forEach(function (cc) {
       var uci = colIdx(dataset, cc); var uniq = new Set(dataset.rows.map(function (r) { return uci >= 0 ? r[uci] : r[cc]; })).size;
       if (uniq >= 2 && uniq <= 8) {
@@ -8403,7 +8532,7 @@ var ChartEngine = (function () {
       }
     });
 
-    // 5. Histograms — numeric distributions
+    // 5. Histograms  -  numeric distributions
     numCols_.slice(0, 3).forEach(function (nc) {
       var card = renderHistogram(dataset, nc);
       if (card) charts.push(card);
@@ -8548,7 +8677,7 @@ var ExportEngine = (function () {
   }
 
   // ── PDF report ────────────────────────────────────────────────────────────
-  // Pure Canvas 2D PDF writer — no jsPDF, no server. Generates a real PDF
+  // Pure Canvas 2D PDF writer  -  no jsPDF, no server. Generates a real PDF
   // using manual PDF syntax (cross-reference table, content streams).
   function exportPDF(dataset, filename) {
     if (!dataset || !dataset.rows || !dataset.rows.length) return;
@@ -8896,10 +9025,10 @@ var ColumnEditor = (function () {
           expr = expr.split('{' + name + '}').join('"' + String(val).replace(/"/g, '\\"') + '"');
         }
       });
-      // Evaluate only arithmetic + string ops — guard against code injection
+      // Evaluate only arithmetic + string ops  -  guard against code injection
       // Allow: numbers, strings, +, -, *, /, %, (, ), ., Math.*
       if (/[^0-9\s\+\-\*\/\%\(\)\.\"\'\,]/.test(expr.replace(/Math\.\w+/g, ''))) {
-        return expr; // not safe to eval — return as-is
+        return expr; // not safe to eval  -  return as-is
       }
       // eslint-disable-next-line no-new-func
       var result = Function('"use strict"; return (' + expr + ')')();
@@ -8943,7 +9072,7 @@ var ColumnEditor = (function () {
             });
             if (dataset.columnHealth) {
               var keys = Object.keys(dataset.columnHealth);
-              // columnHealth is indexed by position — no rename needed
+              // columnHealth is indexed by position  -  no rename needed
             }
           }
           var newSpan = document.createElement('span');
@@ -9125,7 +9254,7 @@ var ColumnEditor = (function () {
     }
   }
 
-  // helper — re-attach rename listener after commit
+  // helper  -  re-attach rename listener after commit
   function attachRenameListener(span, idx, dataset, gridThead, onDatasetChange) {
     span.addEventListener('dblclick', function (e) {
       e.stopPropagation();
@@ -9216,7 +9345,7 @@ var JoinBuilder = (function () {
       }
     }
 
-    // 4. Overlap in values — sample first 30 rows
+    // 4. Overlap in values  -  sample first 30 rows
     if (rowsA && rowsB) {
       var sampleA = rowsA.slice(0, 30);
       var sampleB = rowsB.slice(0, 30);
@@ -9237,7 +9366,7 @@ var JoinBuilder = (function () {
     }
 
     // 5. Fallback: first column of each
-    return { keyA: namesA[0] || '', keyB: namesB[0] || '', confidence: 'none', reason: 'No match found — select manually' };
+    return { keyA: namesA[0] || '', keyB: namesB[0] || '', confidence: 'none', reason: 'No match found  -  select manually' };
   }
 
   // ── Join execution ─────────────────────────────────────────────────────────
@@ -9253,7 +9382,7 @@ var JoinBuilder = (function () {
       indexB[k].push(row);
     });
 
-    // Merged column list — avoid duplicates (keyB becomes keyA)
+    // Merged column list  -  avoid duplicates (keyB becomes keyA)
     var colsA = dsA.columns.map(function (c) { return c.name; });
     var colsB = dsB.columns
       .filter(function (c) { return c.name !== keyB; })
@@ -9334,7 +9463,7 @@ var JoinBuilder = (function () {
           '<div class="join-empty">',
           '  <div class="join-empty-icon">&#8644;</div>',
           '  <div class="join-empty-title">Drop two files to join them</div>',
-          '  <div class="join-empty-sub">Load your first file, then drop a second — DataGlow will suggest the join key automatically.</div>',
+          '  <div class="join-empty-sub">Load your first file, then drop a second  -  DataGlow will suggest the join key automatically.</div>',
           '</div>'
         ].join('');
         return;
@@ -9351,7 +9480,7 @@ var JoinBuilder = (function () {
         return;
       }
 
-      // Two or more datasets — render the builder
+      // Two or more datasets  -  render the builder
       var dsNames = datasets.map(function (d, i) {
         return '<option value="' + i + '">' + escHtml(d.name) + '</option>';
       });
@@ -9478,7 +9607,7 @@ var JoinBuilder = (function () {
         // Store result for Run Join
         table._result = result;
 
-        // ── Cardinality check — warn before fan-out join runs ───────────
+        // ── Cardinality check  -  warn before fan-out join runs ───────────
         var cardWrap = containerEl.querySelector('#cardinality-warning-wrap');
         if (!cardWrap) {
           cardWrap = document.createElement('div');
@@ -9609,7 +9738,7 @@ var AnomalyTimeline = (function () {
     var values = nums.map(function (n) { return n.v; });
     var avg = mean(values);
     var sd  = stddev(values, avg);
-    if (sd === 0) return; // constant — no anomalies
+    if (sd === 0) return; // constant  -  no anomalies
 
     // Z-score each value
     nums.forEach(function (n) {
@@ -9836,7 +9965,7 @@ var AnomalyTimeline = (function () {
     var summary = events.length === 0
       ? 'No anomalies detected. Your data looks clean.'
       : events.length + ' anomal' + (events.length === 1 ? 'y' : 'ies') + ' found' +
-        (critCount ? ' — ' + critCount + ' critical' : '') +
+        (critCount ? '  -  ' + critCount + ' critical' : '') +
         (highCount ? ', ' + highCount + ' high-severity' : '') + '.';
 
     return { events: events, summary: summary };
@@ -10532,7 +10661,7 @@ var CanvasGrid = (function () {
 var SQLEngine = (function () {
   'use strict';
 
-  // DuckDB-WASM CDN (ESM bundle — loads via dynamic import in init)
+  // DuckDB-WASM CDN (ESM bundle  -  loads via dynamic import in init)
   var DUCKDB_CDN = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
 
   var SQL_KEYWORDS = [
@@ -10581,7 +10710,7 @@ var SQLEngine = (function () {
       suggestions.push('LIMIT 0 returns no rows by design. Increase your LIMIT value.');
     }
     if (dataset && dataset.rows && dataset.rows.length > 0) {
-      suggestions.push('The table has ' + dataset.rows.length.toLocaleString() + ' rows — try SELECT * FROM "' + safeTableName(dataset.name) + '" LIMIT 5 to verify access.');
+      suggestions.push('The table has ' + dataset.rows.length.toLocaleString() + ' rows  -  try SELECT * FROM "' + safeTableName(dataset.name) + '" LIMIT 5 to verify access.');
     }
     return suggestions.length ? suggestions[0] : null;
   }
@@ -10942,7 +11071,7 @@ var FindingsRail = (function () {
 
   // ── Finding generators ────────────────────────────────────────────────────
 
-  // 1. Summary card — overall data health
+  // 1. Summary card  -  overall data health
   function findingSummary(dataset) {
     var totalRows = dataset.rows.length;
     var totalCols = dataset.columns.length;
@@ -11057,7 +11186,7 @@ var FindingsRail = (function () {
         headline: headline,
         detail: detail,
         action: action,
-        provenance: col.name + ' — ' + vals.length + ' values, ' + outlierRows.length + ' outliers',
+        provenance: col.name + '  -  ' + vals.length + ' values, ' + outlierRows.length + ' outliers',
         rootCause: topDriver ? (titleCase(topDriver.colName) + ' = "' + topDriver.groupName + '"') : null,
         json: {
           type: 'anomaly',
@@ -11100,7 +11229,7 @@ var FindingsRail = (function () {
         headline: headline,
         detail: detail,
         action: action,
-        provenance: col.name + ' — ' + nullCount + '/' + dataset.rows.length + ' rows null',
+        provenance: col.name + '  -  ' + nullCount + '/' + dataset.rows.length + ' rows null',
         json: {
           type: 'missing',
           column: col.name,
@@ -11148,7 +11277,7 @@ var FindingsRail = (function () {
         headline: headline,
         detail: detail,
         action: action,
-        provenance: col.name + ' — rows 1-' + mid + ' vs ' + (mid+1) + '-' + dataset.rows.length,
+        provenance: col.name + '  -  rows 1-' + mid + ' vs ' + (mid+1) + '-' + dataset.rows.length,
         json: {
           type: 'kpi_trend',
           column: col.name,
@@ -11587,7 +11716,7 @@ var DashboardEngine = (function () {
       '<button class="dash-export-btn" id="dash-csv-btn">&#8681; Export CSV</button></div>';
     dash.appendChild(hdr);
 
-    // Findings Rail (PR AU) — above KPI row
+    // Findings Rail (PR AU)  -  above KPI row
     var frContainer = document.createElement('div');
     frContainer.id = 'findings-rail-container';
     if (typeof FindingsRail !== 'undefined') {
@@ -11613,7 +11742,7 @@ var DashboardEngine = (function () {
         var ragC=kpi.delta>0.05?RAG.green:kpi.delta<-0.05?RAG.red:RAG.gray;
         var arrow=kpi.delta>0?'\u2191':kpi.delta<0?'\u2193':'\u2192';
 
-        // What-if hint — shows once, first card only
+        // What-if hint  -  shows once, first card only
         var hintHtml = (i===0 && _whatIfFirstLoad)
           ? '<div class="kpi-whatif-hint">Click any number to model a scenario</div>'
           : '';
@@ -12252,7 +12381,7 @@ var InstantInsight = (function () {
             type: 'outliers',
             profile: p,
             sentence: pct(p.outlierCount, p.count) + ' of ' + titleCase(p.col) +
-              ' values are extreme outliers — the highest reaches ' + formatNum(p.max) +
+              ' values are extreme outliers  -  the highest reaches ' + formatNum(p.max) +
               ' against a typical value of ' + formatNum(p.median) + '.'
           });
         }
@@ -12263,7 +12392,7 @@ var InstantInsight = (function () {
             score: 60 + Math.min(p.topSkew * 2, 20),
             type: 'skew',
             profile: p,
-            sentence: titleCase(p.col) + ' is heavily skewed — the top value (' +
+            sentence: titleCase(p.col) + ' is heavily skewed  -  the top value (' +
               formatNum(p.max) + ') is ' + Math.round(p.topSkew) +
               'x higher than the 95th percentile (' + formatNum(p.p95) + ').'
           });
@@ -12276,7 +12405,7 @@ var InstantInsight = (function () {
             type: 'zero_heavy',
             profile: p,
             sentence: pct(Math.round(p.zeroPct * p.count), p.count) +
-              ' of ' + titleCase(p.col) + ' entries are zero — only ' +
+              ' of ' + titleCase(p.col) + ' entries are zero  -  only ' +
               pct(Math.round((1 - p.zeroPct) * p.count), p.count) + ' have an actual value.'
           });
         }
@@ -12289,7 +12418,7 @@ var InstantInsight = (function () {
             type: 'negatives',
             profile: p,
             sentence: pct(Math.round(p.negPct * p.count), p.count) +
-              ' of ' + titleCase(p.col) + ' values are negative — ' +
+              ' of ' + titleCase(p.col) + ' values are negative  -  ' +
               'this may indicate refunds, adjustments, or data errors worth investigating.'
           });
         }
@@ -12301,7 +12430,7 @@ var InstantInsight = (function () {
             type: 'range',
             profile: p,
             sentence: titleCase(p.col) + ' spans from ' + formatNum(p.min) +
-              ' to ' + formatNum(p.max) + ' — a ' + formatNum(p.range) +
+              ' to ' + formatNum(p.max) + '  -  a ' + formatNum(p.range) +
               ' range with a median of ' + formatNum(p.median) + '.'
           });
         }
@@ -12315,7 +12444,7 @@ var InstantInsight = (function () {
             type: 'dominant_category',
             profile: p,
             sentence: pct(p.topCount, p.count) + ' of rows in ' + titleCase(p.col) +
-              ' are "' + p.topVal + '" — one value dominates the entire dataset.'
+              ' are "' + p.topVal + '"  -  one value dominates the entire dataset.'
           });
         }
 
@@ -12325,7 +12454,7 @@ var InstantInsight = (function () {
             score: 52,
             type: 'binary',
             profile: p,
-            sentence: titleCase(p.col) + ' is binary — "' + p.topVal + '" (' +
+            sentence: titleCase(p.col) + ' is binary  -  "' + p.topVal + '" (' +
               pct(p.topCount, p.count) + ') vs "' + p.secondVal + '" (' +
               pct(p.secondCount, p.count) + ').'
           });
@@ -12342,7 +12471,7 @@ var InstantInsight = (function () {
           score: ci.score,
           type: 'correlation',
           sentence: 'When ' + titleCase(ci.colA) + ' increases, ' +
-            titleCase(ci.colB) + ' ' + ci.direction + ' with it — ' +
+            titleCase(ci.colB) + ' ' + ci.direction + ' with it  -  ' +
             'a strong correlation (r = ' + ci.r.toFixed(2) + ').'
         });
       }
@@ -12353,7 +12482,7 @@ var InstantInsight = (function () {
           type: 'group_concentration',
           sentence: '"' + ci.topGroup + '" accounts for ' +
             pct(Math.round(ci.topPct * 100) / 100 * (rows.length), rows.length) +
-            ' — ' + pct(ci.topPct, 1) + ' of total ' + titleCase(ci.numCol) +
+            '  -  ' + pct(ci.topPct, 1) + ' of total ' + titleCase(ci.numCol) +
             ' across all ' + titleCase(ci.catCol) + ' groups.'
         });
       }
@@ -12371,7 +12500,7 @@ var InstantInsight = (function () {
       candidates.push({
         score: 60,
         type: 'null_heavy',
-        sentence: nullCols.length + ' columns have more than 30% missing values — ' +
+        sentence: nullCols.length + ' columns have more than 30% missing values  -  ' +
           'including ' + titleCase(nullCols[0].col) + ' and ' + titleCase(nullCols[1].col) + '.'
       });
     }
@@ -12389,7 +12518,7 @@ var InstantInsight = (function () {
         score: 68,
         type: 'duplicates',
         sentence: dupCount + ' duplicate row' + (dupCount === 1 ? '' : 's') +
-          ' found (' + pct(dupCount, totalRows) + ' of the dataset) — ' +
+          ' found (' + pct(dupCount, totalRows) + ' of the dataset)  -  ' +
           'these may skew your analysis.'
       });
     }
@@ -13116,9 +13245,9 @@ var InstantInsight = (function () {
       colCountDisplay.classList.add('show');
     }, 1100);
 
-    // STEP 5 removed — health dots cut (Jobs edit: insight sentence is the reveal)
+    // STEP 5 removed  -  health dots cut (Jobs edit: insight sentence is the reveal)
 
-    // STEP 6: Instant Insight — surface the single most interesting finding
+    // STEP 6: Instant Insight  -  surface the single most interesting finding
     // Delay is now fixed: 1400ms after row count appears, giving a beat of silence
     var findingDelay = 1400;
     setTimeout(function () {
@@ -13134,7 +13263,7 @@ var InstantInsight = (function () {
       requestAnimationFrame(function () { revealFinding.classList.add('show'); });
     }, findingDelay);
 
-    // STEP 7: dissolve ceremony overlay, reveal grid — 600ms after insight appears
+    // STEP 7: dissolve ceremony overlay, reveal grid  -  600ms after insight appears
     var finalDelay = findingDelay + 600;
     setTimeout(function () {
       completeCeremony(dataset, filename);
@@ -13148,7 +13277,7 @@ var InstantInsight = (function () {
   }
 
   function completeCeremony(dataset, filename) {
-    // Canvas-first: canvas is already visible — dissolve the overlay
+    // Canvas-first: canvas is already visible  -  dissolve the overlay
     ceremonyScreen.classList.add('dissolve-out');
     setTimeout(function () {
       ceremonyScreen.classList.add('hidden');
@@ -13267,7 +13396,7 @@ var InstantInsight = (function () {
 
   function renderGrid(dataset) {
     // Clear ghost rows / headers from the old DOM table (still in HTML for
-    // fallback compatibility — hidden by the canvas mount but kept so that
+    // fallback compatibility  -  hidden by the canvas mount but kept so that
     // any code referencing gridThead/gridTbody never throws)
     if (gridTbody) {
       gridTbody.querySelectorAll('.ghost-row').forEach(function (r) { r.remove(); });
@@ -13289,7 +13418,7 @@ var InstantInsight = (function () {
     }
 
     if (_canvasGridInstance) {
-      // Dataset swap — keep existing canvas, just update data
+      // Dataset swap  -  keep existing canvas, just update data
       _canvasGridInstance.update(dataset);
     } else {
       // First mount
@@ -13333,7 +13462,7 @@ var InstantInsight = (function () {
         var headRow = document.createElement('tr');
         dataset.columns.forEach(function (col) {
           var th = document.createElement('th');
-          th.style.display = 'none'; // invisible — canvas draws the real header
+          th.style.display = 'none'; // invisible  -  canvas draws the real header
           headRow.appendChild(th);
         });
         gridThead.appendChild(headRow);
@@ -13505,7 +13634,7 @@ var InstantInsight = (function () {
       state.activeFindingRowIndex = rowIdx;
     }
     openRail();
-    // scroll rail findings to top (mock — since findings aren't strictly row-indexed in this demo)
+    // scroll rail findings to top (mock  -  since findings aren't strictly row-indexed in this demo)
     railFindings.scrollTop = 0;
     if (tr) {
       tr.scrollIntoView({ block: 'nearest' });
@@ -13858,7 +13987,7 @@ var InstantInsight = (function () {
         result.columns.forEach(function (col) {
           var td = document.createElement('td');
           var v = row[col.name];
-          td.textContent = (v === null || v === undefined || v === '') ? '—' : String(v);
+          td.textContent = (v === null || v === undefined || v === '') ? ' - ' : String(v);
           tr.appendChild(td);
         });
         svTbody.appendChild(tr);
@@ -13898,7 +14027,7 @@ var InstantInsight = (function () {
         if (result && result.columns) {
           svRenderResult(result);
         } else {
-          // engine calls onResultReady internally — re-read from engine
+          // engine calls onResultReady internally  -  re-read from engine
           var res = engine.getLastResult ? engine.getLastResult() : null;
           if (res) svRenderResult(res);
         }
@@ -14067,7 +14196,7 @@ var InstantInsight = (function () {
         var tr = document.createElement('tr');
         row.forEach(function (v) {
           var td = document.createElement('td');
-          td.textContent = (v === null || v === undefined) ? '—' : String(v);
+          td.textContent = (v === null || v === undefined) ? ' - ' : String(v);
           tr.appendChild(td);
         });
         pyTbody.appendChild(tr);
@@ -14709,7 +14838,7 @@ var InstantInsight = (function () {
       jreader.readAsText(file);
     } else if (fmt === 'image') {
       // Image OCR (Tesseract.js, client-side, zero upload). The image bytes
-      // never leave the browser — Tesseract.js runs as a Web Worker. Show a
+      // never leave the browser  -  Tesseract.js runs as a Web Worker. Show a
       // "transcribing" status while OCR runs, then reveal the resulting
       // {line_number, content} dataset exactly like text-line-parser output.
       setAgentStatus('Transcribing image with Tesseract.js (on-device OCR)\u2026');
@@ -14738,7 +14867,7 @@ var InstantInsight = (function () {
         advance();
       });
     } else {
-      // Binary formats (XLSX / Parquet / PDF / Arrow / Feather / etc.) — routed
+      // Binary formats (XLSX / Parquet / PDF / Arrow / Feather / etc.)  -  routed
       // & labeled via drop-zone-router.js's format detection, but not parsed in
       // this shell pass. Real binary parsing (Univer/DuckDB-WASM) is out of
       // scope for PR S / PR AC.
@@ -14828,7 +14957,7 @@ var InstantInsight = (function () {
   }
 
   function loadExampleDataset() {
-    // Show sample picker — includes built-in claims demo + SynPUF Medicare datasets
+    // Show sample picker  -  includes built-in claims demo + SynPUF Medicare datasets
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;';
     var box = document.createElement('div');
@@ -14911,7 +15040,7 @@ var InstantInsight = (function () {
           }
           return vals;
         }
-        // Multi-column range — flatten
+        // Multi-column range  -  flatten
         var vals2 = [];
         for (var row = Math.max(0, r1); row <= Math.min(r2, dataset.rows.length - 1); row++) {
           for (var col = c1; col <= c2; col++) {
@@ -14975,7 +15104,7 @@ var InstantInsight = (function () {
           return fmt(nums.reduce(function (a, b) { return a + Math.pow(b - m2, 2); }, 0) / nums.length);
         }
         case 'ROUND': {
-          // ROUND(range, digits) — range is single cell
+          // ROUND(range, digits)  -  range is single cell
           var parts = args.split(',');
           if (parts.length < 2) return '#ARG!';
           var v = parseRange(parts[0].trim(), dataset);
@@ -15007,10 +15136,10 @@ var InstantInsight = (function () {
           return fmt(sTotal);
         }
         case 'IF': {
-          // IF(condition, true_val, false_val) — basic: IF(A1>0, "yes", "no")
-          return '#IF not supported in bar — use SQL for conditional logic';
+          // IF(condition, true_val, false_val)  -  basic: IF(A1>0, "yes", "no")
+          return '#IF not supported in bar  -  use SQL for conditional logic';
         }
-        default: return '#NAME? — unknown function: ' + name;
+        default: return '#NAME?  -  unknown function: ' + name;
       }
     }
 
@@ -15876,7 +16005,7 @@ var InstantInsight = (function () {
     try { hostname = new URL(url).hostname; } catch (e) { hostname = url; }
 
     if (datasetId) {
-      // Existing tab being refreshed by polling — replace or append rows.
+      // Existing tab being refreshed by polling  -  replace or append rows.
       var existing = state.datasets.find(function (d) { return d.id === datasetId; });
       if (existing) {
         if (currentLiveFeedMode() === 'append') {
@@ -16098,7 +16227,7 @@ var InstantInsight = (function () {
       result.columns.forEach(function (col) {
         var td = document.createElement('td');
         var v = row[col.name];
-        td.textContent = (v === null || v === undefined || v === '') ? '—' : String(v);
+        td.textContent = (v === null || v === undefined || v === '') ? ' - ' : String(v);
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -16710,11 +16839,11 @@ var InstantInsight = (function () {
     ];
 
     var ERROR_MESSAGES = {
-      '#ERROR:': 'Formula could not be evaluated — check your function name and range.',
-      '#EXPR?':  'Expression syntax error — check parentheses and operators.',
-      '#DIV/0':  'Division by zero — the denominator resolved to 0.',
-      '#VALUE':  'Wrong value type — a text cell was used where a number is expected.',
-      '#REF':    'Cell reference is out of range — check your row/column letters.'
+      '#ERROR:': 'Formula could not be evaluated  -  check your function name and range.',
+      '#EXPR?':  'Expression syntax error  -  check parentheses and operators.',
+      '#DIV/0':  'Division by zero  -  the denominator resolved to 0.',
+      '#VALUE':  'Wrong value type  -  a text cell was used where a number is expected.',
+      '#REF':    'Cell reference is out of range  -  check your row/column letters.'
     };
 
     function plainError(raw) {
@@ -17047,7 +17176,7 @@ var InstantInsight = (function () {
             pyInput.value = code;
             pyInput.focus();
             nlInput.value = '';
-            window.showToast && window.showToast('Code generated — review and press Run.', 'success');
+            window.showToast && window.showToast('Code generated  -  review and press Run.', 'success');
             return;
           }
         }
@@ -17056,7 +17185,7 @@ var InstantInsight = (function () {
       pyInput.value = '# "' + query + '"\ndf = dg.df()\n# Explore your data\nprint(df.head())\nprint(df.dtypes)';
       pyInput.focus();
       nlInput.value = '';
-      window.showToast && window.showToast('Generic starter inserted — edit to match your question.', 'info');
+      window.showToast && window.showToast('Generic starter inserted  -  edit to match your question.', 'info');
     });
 
     nlInput.addEventListener('keydown', function (e) {
@@ -17104,7 +17233,7 @@ var InstantInsight = (function () {
 
     saveBtn.addEventListener('click', function () {
       var code = pyInput.value.trim();
-      if (!code) { window.showToast && window.showToast('Nothing to save — write a script first.', 'warn'); return; }
+      if (!code) { window.showToast && window.showToast('Nothing to save  -  write a script first.', 'warn'); return; }
       _savedScript = code;
       _savedLabel  = 'Script ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (saveName) saveName.textContent = '  Saved: ' + _savedLabel;
@@ -17180,7 +17309,7 @@ var InstantInsight = (function () {
   (function () {
     'use strict';
     // Verify existing cell arithmetic works by testing a simple case
-    // No additional code needed — FormulaEngine already handles =A1+B1 patterns
+    // No additional code needed  -  FormulaEngine already handles =A1+B1 patterns
     // This IIFE documents that #25 is satisfied by the existing implementation
     window._a1RefsSupported = true;
   })();
@@ -17286,7 +17415,7 @@ var InstantInsight = (function () {
   (function () {
     'use strict';
 
-    // Excel view — goto data btn
+    // Excel view  -  goto data btn
     var gotoDataBtn = document.getElementById('excel-view-goto-data');
     if (gotoDataBtn) {
       gotoDataBtn.addEventListener('click', function () {
@@ -17295,7 +17424,7 @@ var InstantInsight = (function () {
       });
     }
 
-    // R view — WebR progressive loader
+    // R view  -  WebR progressive loader
     var rInput   = document.getElementById('r-input');
     var rRunBtn  = document.getElementById('r-run-btn');
     var rOutput  = document.getElementById('r-output');
@@ -17983,7 +18112,7 @@ var InstantInsight = (function () {
           var rStr=(r===null?'N/A':(r>=0?'+':'')+r.toFixed(2));
           var bg=r===null?'transparent':corrColor(r);
           var textColor=Math.abs(r||0)>0.4?'#fff':'var(--text)';
-          var tip=r!==null?('r = '+r.toFixed(2)+' — '+corrStrengthLabel(r)):'Not enough data';
+          var tip=r!==null?('r = '+r.toFixed(2)+'  -  '+corrStrengthLabel(r)):'Not enough data';
           tip=tip.replace(/\u2014/g,' - ');
           html+='<td style="background:'+bg+';color:'+textColor+';" data-tip="'+escH(tip)+'" title="'+escH(tip)+'">'+rStr+'</td>';
         });
@@ -19248,6 +19377,1220 @@ var InstantInsight = (function () {
 
   })();
 
+
+/* ---- #45 Level System ---- */
+  (function () {
+    'use strict';
+
+    var LEVELS = [
+      {n:1,  title:'Apprentice',      xp:0},
+      {n:2,  title:'Analyst',         xp:100},
+      {n:3,  title:'Investigator',    xp:300},
+      {n:4,  title:'Explorer',        xp:600},
+      {n:5,  title:'Practitioner',    xp:1000},
+      {n:6,  title:'Specialist',      xp:1500},
+      {n:7,  title:'Craftsman',       xp:2200},
+      {n:8,  title:'Expert',          xp:3000},
+      {n:9,  title:'Master',          xp:4000},
+      {n:10, title:'Architect',       xp:5500},
+      {n:11, title:'Visionary',       xp:7500},
+      {n:12, title:'Pioneer',         xp:10000},
+      {n:13, title:'Luminary',        xp:13500},
+      {n:14, title:'Legend',          xp:18000},
+      {n:15, title:'DataGlow Elite',  xp:25000}
+    ];
+
+    var BADGES = [
+      {id:'first_light',   icon:'sunrise',  label:'First Light',         desc:'Load your first dataset'},
+      {id:'sql_initiate',  icon:'database', label:'SQL Initiate',        desc:'Run your first SQL query'},
+      {id:'chart_maker',   icon:'bar-chart',label:'Chart Maker',         desc:'Generate your first chart'},
+      {id:'py_starter',    icon:'code',     label:'Python Starter',      desc:'Run your first Python script'},
+      {id:'stats_explorer',icon:'activity', label:'Stats Explorer',      desc:'Complete all 3 stat modes'},
+      {id:'data_detective',icon:'search',   label:'Data Detective',      desc:'Find a data quality issue'},
+      {id:'dojo_student',  icon:'zap',      label:'Dojo Student',        desc:'Use Window Dojo 3 times'},
+      {id:'arena_champ',   icon:'layers',   label:'Arena Champion',      desc:'Run an Arena comparison'},
+      {id:'polyglot',      icon:'globe',    label:'Polyglot',            desc:'Use SQL, Python, and R in one session'},
+      {id:'perfectionist', icon:'star',     label:'Perfectionist',       desc:'Achieve a data quality score of 100'}
+    ];
+
+    var XP_EVENTS = {
+      load_dataset:   10,
+      run_sql:        15,
+      build_chart:    5,
+      run_python:     20,
+      run_r:          20,
+      run_correlation:25,
+      run_regression: 25,
+      run_hypothesis: 25,
+      use_dojo:       15,
+      use_arena:      10,
+      use_excel:      5,
+      quality_90:     30,
+      skill_unlock:   50
+    };
+
+    var prog = { xp:0, level:1, badges:[], streak:0, lastDate:null, sessionBadges:[], xpLog:[] };
+    var sessionUsed = { sql:false, python:false, r:false };
+    var statsDone = { corr:false, reg:false, hyp:false };
+
+    function saveXP() {
+      try {
+        if (window.OPFSEngine && window.OPFSEngine._supported) {
+          window.OPFSEngine.saveDataset('__xp__', [JSON.stringify(prog)], [{name:'d',type:'STR'}]).catch(function(){});
+        }
+      } catch(e){}
+    }
+
+    function loadXP() {
+      try {
+        if (window.OPFSEngine && window.OPFSEngine._supported) {
+          window.OPFSEngine.loadDataset('__xp__').then(function(ds) {
+            if (ds && ds.rows && ds.rows[0] && ds.rows[0][0]) {
+              try {
+                var p = JSON.parse(ds.rows[0][0]);
+                prog.xp = p.xp||0; prog.level = p.level||1;
+                prog.badges = p.badges||[]; prog.streak = p.streak||0;
+                prog.lastDate = p.lastDate||null; prog.xpLog = p.xpLog||[];
+                prog.sessionBadges = [];
+              } catch(e){}
+              updateStreak();
+              updateXPBar();
+              renderBadgesPanel();
+            }
+          }).catch(function(){});
+        }
+      } catch(e){}
+    }
+
+    function updateStreak() {
+      var today = new Date().toISOString().slice(0,10);
+      if (!prog.lastDate) { prog.streak = 1; prog.lastDate = today; return; }
+      if (prog.lastDate === today) return;
+      var last = new Date(prog.lastDate);
+      var diff = Math.round((new Date(today) - last) / 86400000);
+      if (diff === 1) {
+        prog.streak++;
+        var milestones = [3,7,14,30];
+        if (milestones.indexOf(prog.streak) >= 0) {
+          window.showToast && window.showToast(prog.streak + '-day streak! Keep it up.', 'success');
+        }
+      } else {
+        prog.streak = 1;
+      }
+      prog.lastDate = today;
+    }
+
+    function getLevelForXP(xp) {
+      var lvl = LEVELS[0];
+      for (var i = 0; i < LEVELS.length; i++) {
+        if (xp >= LEVELS[i].xp) lvl = LEVELS[i];
+        else break;
+      }
+      return lvl;
+    }
+
+    function getNextLevel(lvl) {
+      for (var i = 0; i < LEVELS.length; i++) {
+        if (LEVELS[i].n === lvl.n + 1) return LEVELS[i];
+      }
+      return null;
+    }
+
+    function addXP(eventKey, amount) {
+      var pts = amount !== undefined ? amount : (XP_EVENTS[eventKey] || 0);
+      if (!pts) return;
+      var oldLvl = getLevelForXP(prog.xp);
+      prog.xp += pts;
+      prog.xpLog.unshift({event: eventKey, xp: pts, ts: Date.now()});
+      if (prog.xpLog.length > 20) prog.xpLog.length = 20;
+      var newLvl = getLevelForXP(prog.xp);
+      if (newLvl.n > oldLvl.n) {
+        prog.level = newLvl.n;
+        showLevelUp(newLvl);
+      }
+      updateXPBar();
+      saveXP();
+    }
+
+    function showLevelUp(lvl) {
+      var overlay = document.getElementById('levelup-overlay');
+      var titleEl = document.getElementById('levelup-title');
+      var subEl = document.getElementById('levelup-sub');
+      if (!overlay) return;
+      if (titleEl) titleEl.textContent = 'Level Up! Level ' + lvl.n;
+      if (subEl) subEl.textContent = 'You are now Level ' + lvl.n + ' - ' + lvl.title;
+      overlay.classList.add('show');
+      setTimeout(function() { overlay.classList.remove('show'); }, 2600);
+    }
+
+    function awardBadge(id) {
+      if (prog.badges.indexOf(id) >= 0) return;
+      prog.badges.push(id);
+      prog.sessionBadges.push(id);
+      var badge = BADGES.find(function(b){ return b.id === id; });
+      if (badge) {
+        window.showToast && window.showToast('Badge: ' + badge.label + ' - ' + badge.desc, 'success');
+      }
+      renderBadgesPanel();
+      saveXP();
+    }
+
+    function updateXPBar() {
+      var lvl = getLevelForXP(prog.xp);
+      var next = getNextLevel(lvl);
+      var badge = document.getElementById('xp-level-badge');
+      var fill = document.getElementById('xp-progress-fill');
+      var count = document.getElementById('xp-count-label');
+      if (badge) badge.textContent = 'Lv.' + lvl.n + ' ' + lvl.title;
+      if (fill) {
+        var pct = next ? Math.min(100, Math.round((prog.xp - lvl.xp) / (next.xp - lvl.xp) * 100)) : 100;
+        fill.style.width = pct + '%';
+      }
+      if (count) count.textContent = prog.xp.toLocaleString() + ' XP' + (prog.streak > 1 ? ' - ' + prog.streak + 'd' : '');
+    }
+
+    function renderBadgesPanel() {
+      var list = document.getElementById('badges-list');
+      if (!list) return;
+      list.innerHTML = BADGES.map(function(b) {
+        var earned = prog.badges.indexOf(b.id) >= 0;
+        return '<div class="badge-item' + (earned ? ' earned' : '') + '">' +
+          '<div class="badge-icon">' + (earned ? '&#x2605;' : '&#x25CB;') + '</div>' +
+          '<div class="badge-info">' +
+          '<div class="badge-label">' + b.label + '</div>' +
+          '<div class="badge-desc">' + b.desc + '</div>' +
+          '</div></div>';
+      }).join('');
+    }
+
+    // Event hooks
+    document.addEventListener('dataglow:dataset-loaded', function(e) {
+      addXP('load_dataset');
+      awardBadge('first_light');
+      updateStreak();
+      var ds = e.detail && (e.detail.dataset || e.detail);
+      if (ds && ds.score >= 90) addXP('quality_90');
+      if (ds && ds.score >= 100) awardBadge('perfectionist');
+      var hasIssue = ds && ds.findings && ds.findings.length > 0 && ds.score < 80;
+      if (hasIssue) awardBadge('data_detective');
+    });
+
+    // SQL
+    var sqlRunBtn = document.getElementById('sql-view-run') || document.getElementById('sql-run');
+    if (sqlRunBtn) sqlRunBtn.addEventListener('click', function() {
+      addXP('run_sql'); awardBadge('sql_initiate'); sessionUsed.sql = true; checkPolyglot();
+    });
+
+    // Charts
+    document.addEventListener('dataglow:chart-rendered', function() { addXP('build_chart'); awardBadge('chart_maker'); });
+    var chartsPill = document.querySelector('[data-panel="charts-view"]');
+    if (chartsPill) chartsPill.addEventListener('click', function() { addXP('build_chart'); awardBadge('chart_maker'); });
+
+    // Python
+    var pyRunBtn = document.getElementById('py-view-run') || document.getElementById('py-run');
+    if (pyRunBtn) pyRunBtn.addEventListener('click', function() {
+      addXP('run_python'); awardBadge('py_starter'); sessionUsed.python = true; checkPolyglot();
+    });
+
+    // R
+    var rRunBtn = document.getElementById('r-run-btn') || document.querySelector('.r-run-btn');
+    if (rRunBtn) rRunBtn.addEventListener('click', function() {
+      addXP('run_r'); sessionUsed.r = true; checkPolyglot();
+    });
+
+    // Stats
+    var corrBtn = document.getElementById('stats-run-corr') || document.querySelector('[data-stats="corr"]');
+    if (corrBtn) corrBtn.addEventListener('click', function() { addXP('run_correlation'); statsDone.corr=true; checkStats(); });
+    var regRunBtn = document.getElementById('stats-reg-run');
+    if (regRunBtn) regRunBtn.addEventListener('click', function() { addXP('run_regression'); statsDone.reg=true; checkStats(); });
+    var hypRunBtn = document.getElementById('stats-hyp-run');
+    if (hypRunBtn) hypRunBtn.addEventListener('click', function() { addXP('run_hypothesis'); statsDone.hyp=true; checkStats(); });
+    var chiRunBtn = document.getElementById('stats-chi-run');
+    if (chiRunBtn) chiRunBtn.addEventListener('click', function() { addXP('run_hypothesis'); statsDone.hyp=true; checkStats(); });
+
+    // Dojo
+    var dojoCount = 0;
+    var dojoRunBtn = document.getElementById('dojo-run-btn') || document.querySelector('.dojo-run-btn');
+    if (dojoRunBtn) dojoRunBtn.addEventListener('click', function() {
+      addXP('use_dojo'); dojoCount++;
+      if (dojoCount >= 3) awardBadge('dojo_student');
+    });
+
+    // Arena
+    var arenaRunBoth = document.getElementById('arena-run-both');
+    if (arenaRunBoth) arenaRunBoth.addEventListener('click', function() { addXP('use_arena'); awardBadge('arena_champ'); });
+
+    // Excel
+    var excelPill = document.querySelector('[data-panel="excel-view"]');
+    if (excelPill) excelPill.addEventListener('click', function() { addXP('use_excel'); });
+
+    // Skill unlock XP bonus
+    document.addEventListener('dataglow:skill-unlocked', function() { addXP('skill_unlock'); });
+
+    function checkPolyglot() {
+      if (sessionUsed.sql && sessionUsed.python && sessionUsed.r) awardBadge('polyglot');
+    }
+    function checkStats() {
+      if (statsDone.corr && statsDone.reg && statsDone.hyp) awardBadge('stats_explorer');
+    }
+
+    // Panel open/close
+    var badgesPanel = document.getElementById('badges-panel');
+    var badgesTrigger = document.getElementById('badges-trigger-btn');
+    var badgesClose = document.getElementById('badges-close-btn');
+    if (badgesTrigger) badgesTrigger.addEventListener('click', function() {
+      if (badgesPanel) { badgesPanel.classList.toggle('open'); renderBadgesPanel(); }
+    });
+    if (badgesClose) badgesClose.addEventListener('click', function() {
+      if (badgesPanel) badgesPanel.classList.remove('open');
+    });
+
+    // Expose
+    window.LevelSystem = { addXP: addXP, awardBadge: awardBadge, prog: prog };
+
+    // Load saved XP on start
+    setTimeout(loadXP, 600);
+    setTimeout(updateXPBar, 800);
+
+  })();
+
+/* ---- #42 Domain Case Library ---- */
+(function () {
+  'use strict';
+
+  var CASES = [
+    {
+      id: 'los-by-diagnosis',
+      domain: 'healthcare',
+      difficulty: 'beginner',
+      title: 'Average Length of Stay by Diagnosis',
+      desc: 'Which diagnoses drive the longest hospitalizations?',
+      steps: [
+        { sql: 'SELECT dx_primary, ROUND(AVG(los_days), 1) as avg_los, COUNT(*) as claims FROM your_table GROUP BY dx_primary ORDER BY avg_los DESC LIMIT 10', insight: 'Which diagnosis codes drive the longest hospitalizations?' },
+        { sql: 'SELECT facility_state, ROUND(AVG(los_days), 1) as avg_los FROM your_table GROUP BY facility_state ORDER BY avg_los DESC', insight: 'Do certain states show longer stays?' }
+      ]
+    },
+    {
+      id: 'claims-payment-outliers',
+      domain: 'healthcare',
+      difficulty: 'intermediate',
+      title: 'Claims Payment Outlier Detection',
+      desc: 'Which claims deviate most from average payment?',
+      steps: [
+        { sql: 'SELECT CLM_ID, pmt_amt_usd, AVG(pmt_amt_usd) OVER () as avg_pmt, pmt_amt_usd - AVG(pmt_amt_usd) OVER () as deviation FROM your_table ORDER BY deviation DESC LIMIT 20', insight: 'Which claims deviate most from average payment?' },
+        { sql: 'SELECT dx_primary, COUNT(*) as claim_count, ROUND(AVG(pmt_amt_usd),2) as avg_pmt, MAX(pmt_amt_usd) as max_pmt FROM your_table GROUP BY dx_primary HAVING COUNT(*) >= 3 ORDER BY avg_pmt DESC', insight: 'High-cost diagnosis groups vs typical payment profiles.' }
+      ]
+    },
+    {
+      id: 'readmission-risk',
+      domain: 'healthcare',
+      difficulty: 'advanced',
+      title: 'Readmission Risk Pattern',
+      desc: 'Spot patients with repeat admissions and gaps between stays.',
+      steps: [
+        { sql: 'SELECT bene_id, COUNT(*) as admissions, MIN(adm_date) as first_admit, MAX(adm_date) as last_admit FROM your_table GROUP BY bene_id HAVING COUNT(*) > 1 ORDER BY admissions DESC LIMIT 15', insight: 'Patients with multiple admissions - potential readmission risk.' },
+        { sql: 'SELECT bene_id, adm_date, disch_date, los_days, dx_primary, LAG(disch_date) OVER (PARTITION BY bene_id ORDER BY adm_date) as prev_discharge FROM your_table ORDER BY bene_id, adm_date', insight: 'Days between discharge and re-admission by patient.' }
+      ]
+    },
+    {
+      id: 'revenue-by-category',
+      domain: 'finance',
+      difficulty: 'beginner',
+      title: 'Revenue by Category',
+      desc: 'Which categories drive the most revenue?',
+      steps: [
+        { sql: 'SELECT category, ROUND(SUM(amount),2) as total_revenue, COUNT(*) as transactions FROM your_table GROUP BY category ORDER BY total_revenue DESC', insight: 'Which categories drive the most revenue?' },
+        { sql: 'SELECT category, ROUND(AVG(amount),2) as avg_txn, MIN(amount) as min_txn, MAX(amount) as max_txn FROM your_table GROUP BY category', insight: 'Transaction size distribution by category.' }
+      ]
+    },
+    {
+      id: 'monthly-trend',
+      domain: 'finance',
+      difficulty: 'intermediate',
+      title: 'Monthly Trend Analysis',
+      desc: 'Track month-over-month revenue trend and growth rate.',
+      steps: [
+        { sql: "SELECT SUBSTR(CAST(date_col AS VARCHAR), 1, 7) as month, ROUND(SUM(amount),2) as revenue, COUNT(*) as txns FROM your_table GROUP BY month ORDER BY month", insight: 'Month-over-month revenue trend.' },
+        { sql: "SELECT month, revenue, LAG(revenue) OVER (ORDER BY month) as prev_month, ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) / NULLIF(LAG(revenue) OVER (ORDER BY month),0) * 100, 1) as pct_change FROM (SELECT SUBSTR(CAST(date_col AS VARCHAR),1,7) as month, ROUND(SUM(amount),2) as revenue FROM your_table GROUP BY month) ORDER BY month", insight: 'Growth rate month over month.' }
+      ]
+    },
+    {
+      id: 'txn-anomaly',
+      domain: 'finance',
+      difficulty: 'advanced',
+      title: 'Anomaly Detection in Transactions',
+      desc: 'Find transactions that deviate sharply from typical patterns.',
+      steps: [
+        { sql: 'SELECT *, ABS(amount - AVG(amount) OVER ()) / NULLIF(STDDEV(amount) OVER (), 0) as z_score FROM your_table ORDER BY z_score DESC LIMIT 20', insight: 'Transactions more than 2 standard deviations from the mean.' },
+        { sql: 'SELECT EXTRACT(DOW FROM CAST(date_col AS DATE)) as day_of_week, COUNT(*) as txns, ROUND(AVG(amount),2) as avg_amt FROM your_table GROUP BY day_of_week ORDER BY day_of_week', insight: 'Transaction patterns by day of week.' }
+      ]
+    },
+    {
+      id: 'headcount-by-dept',
+      domain: 'hr',
+      difficulty: 'beginner',
+      title: 'Headcount by Department',
+      desc: 'Team sizes and average compensation by department.',
+      steps: [
+        { sql: 'SELECT department, COUNT(*) as headcount, ROUND(AVG(salary),2) as avg_salary FROM your_table GROUP BY department ORDER BY headcount DESC', insight: 'Team sizes and average compensation by department.' },
+        { sql: 'SELECT department, MIN(salary) as min_sal, MAX(salary) as max_sal, MAX(salary) - MIN(salary) as sal_range FROM your_table GROUP BY department ORDER BY sal_range DESC', insight: 'Pay range spread - wide spreads may indicate leveling inconsistencies.' }
+      ]
+    },
+    {
+      id: 'attrition-risk',
+      domain: 'hr',
+      difficulty: 'intermediate',
+      title: 'Attrition Risk Analysis',
+      desc: 'Which tenure bands and departments carry the highest attrition risk?',
+      steps: [
+        { sql: "SELECT tenure_years, COUNT(*) as employees, SUM(CASE WHEN status = 'left' THEN 1 ELSE 0 END) as attrited, ROUND(SUM(CASE WHEN status = 'left' THEN 1 ELSE 0 END)*100.0/COUNT(*),1) as attrition_rate FROM your_table GROUP BY tenure_years ORDER BY tenure_years", insight: 'Which tenure band has the highest attrition?' },
+        { sql: "SELECT department, ROUND(AVG(satisfaction_score),2) as avg_satisfaction, SUM(CASE WHEN status='left' THEN 1 ELSE 0 END)*100/COUNT(*) as attrition_pct FROM your_table GROUP BY department ORDER BY avg_satisfaction", insight: 'Departments with low satisfaction correlate with high attrition.' }
+      ]
+    },
+    {
+      id: 'ops-throughput',
+      domain: 'hr',
+      difficulty: 'advanced',
+      title: 'Operations Throughput',
+      desc: 'Which process steps consume the most time, and where do the worst cases pile up?',
+      steps: [
+        { sql: 'SELECT process_step, ROUND(AVG(duration_mins),1) as avg_mins, COUNT(*) as volume, ROUND(AVG(duration_mins)*COUNT(*),0) as total_mins FROM your_table GROUP BY process_step ORDER BY total_mins DESC', insight: 'Which process steps consume the most time overall?' },
+        { sql: 'SELECT process_step, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_mins) as median_mins, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_mins) as p95_mins FROM your_table GROUP BY process_step ORDER BY p95_mins DESC', insight: 'P95 latency - where do the worst 5% of cases pile up?' }
+      ]
+    }
+  ];
+
+  var activeCase = null;
+  var activeStepIdx = 0;
+
+  function domainLabel(d) {
+    if (d === 'healthcare') return 'Healthcare';
+    if (d === 'finance') return 'Finance';
+    if (d === 'hr') return 'HR';
+    return d;
+  }
+
+  function difficultyLabel(d) {
+    if (d === 'beginner') return 'Beginner';
+    if (d === 'intermediate') return 'Intermediate';
+    if (d === 'advanced') return 'Advanced';
+    return d;
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function renderCards(filterDomain, searchTerm) {
+    var grid = document.getElementById('cases-grid');
+    if (!grid) return;
+    var term = (searchTerm || '').toLowerCase().trim();
+    var list = CASES.filter(function (c) {
+      var domainOk = !filterDomain || filterDomain === 'all' || c.domain === filterDomain;
+      if (!domainOk) return false;
+      if (!term) return true;
+      var hay = (c.title + ' ' + c.desc + ' ' + c.domain + ' ' + c.difficulty).toLowerCase();
+      return hay.indexOf(term) !== -1;
+    });
+    if (!list.length) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:12px;padding:24px;">No cases match your search.</div>';
+      return;
+    }
+    grid.innerHTML = list.map(function (c, i) {
+      var idx = CASES.indexOf(c);
+      return '<div class="case-card">' +
+        '<div class="case-tags">' +
+          '<span class="case-tag ' + c.domain + '">' + escapeHtml(domainLabel(c.domain)) + '</span>' +
+          '<span class="case-tag ' + c.difficulty + '">' + escapeHtml(difficultyLabel(c.difficulty)) + '</span>' +
+        '</div>' +
+        '<div class="case-title">' + escapeHtml(c.title) + '</div>' +
+        '<div class="case-desc">' + escapeHtml(c.desc) + '</div>' +
+        '<button class="case-run-btn" data-case-idx="' + idx + '">Run Case</button>' +
+      '</div>';
+    }).join('');
+    grid.querySelectorAll('.case-run-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = parseInt(btn.getAttribute('data-case-idx'), 10);
+        runCase(CASES[idx]);
+      });
+    });
+  }
+
+  function getActiveTableName() {
+    var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+    if (!ds) return 'your_table';
+    if (window.SQLEngine && typeof window.SQLEngine.safeTableName === 'function') {
+      return window.SQLEngine.safeTableName(ds.name);
+    }
+    return (ds.name || 'data').replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+
+  function fuzzyMatchColumn(columns, placeholder) {
+    // columns: [{name,type}]
+    var names = columns.map(function (c) { return c.name; });
+    var lowerNames = names.map(function (n) { return n.toLowerCase(); });
+    var target = placeholder.toLowerCase();
+
+    // exact match first
+    var exactIdx = lowerNames.indexOf(target);
+    if (exactIdx !== -1) return names[exactIdx];
+
+    // synonym map for common placeholders
+    var synonyms = {
+      'dx_primary': ['diagnosis', 'dx', 'diagnosis_code', 'primary_diagnosis'],
+      'los_days': ['length_of_stay', 'los', 'stay_days'],
+      'facility_state': ['state', 'provider_state', 'hospital_state'],
+      'clm_id': ['claim_id', 'claimid', 'clm'],
+      'pmt_amt_usd': ['payment_amount', 'pmt_amt', 'amount_paid', 'paid_amount'],
+      'bene_id': ['beneficiary_id', 'patient_id', 'member_id'],
+      'adm_date': ['admission_date', 'admit_date'],
+      'disch_date': ['discharge_date', 'disch'],
+      'category': ['type', 'txn_category', 'transaction_category'],
+      'amount': ['amt', 'value', 'total', 'transaction_amount'],
+      'date_col': ['date', 'txn_date', 'transaction_date', 'created_at'],
+      'department': ['dept', 'team', 'division'],
+      'salary': ['comp', 'compensation', 'pay', 'base_salary'],
+      'tenure_years': ['tenure', 'years_of_service', 'years_employed'],
+      'status': ['employment_status', 'active_status'],
+      'satisfaction_score': ['satisfaction', 'engagement_score'],
+      'process_step': ['step', 'stage', 'process_stage'],
+      'duration_mins': ['duration', 'duration_minutes', 'time_mins', 'minutes']
+    };
+
+    var candidates = synonyms[target] || [];
+    for (var i = 0; i < candidates.length; i++) {
+      var cIdx = lowerNames.indexOf(candidates[i]);
+      if (cIdx !== -1) return names[cIdx];
+    }
+
+    // partial/contains match
+    for (var j = 0; j < lowerNames.length; j++) {
+      if (lowerNames[j].indexOf(target) !== -1 || target.indexOf(lowerNames[j]) !== -1) {
+        return names[j];
+      }
+    }
+    for (var k = 0; k < candidates.length; k++) {
+      for (var m = 0; m < lowerNames.length; m++) {
+        if (lowerNames[m].indexOf(candidates[k]) !== -1) return names[m];
+      }
+    }
+
+    return null; // no match, leave placeholder as-is
+  }
+
+  function resolveSql(sql) {
+    var tableName = getActiveTableName();
+    var resolved = sql.replace(/your_table/g, tableName);
+
+    var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+    var columns = (ds && ds.columns) ? ds.columns : [];
+    if (!columns.length) return resolved;
+
+    var placeholders = ['dx_primary', 'los_days', 'facility_state', 'clm_id', 'pmt_amt_usd',
+      'bene_id', 'adm_date', 'disch_date', 'category', 'amount', 'date_col',
+      'department', 'salary', 'tenure_years', 'status', 'satisfaction_score',
+      'process_step', 'duration_mins'];
+
+    placeholders.forEach(function (ph) {
+      var re = new RegExp('\\b' + ph + '\\b', 'g');
+      if (re.test(resolved)) {
+        var match = fuzzyMatchColumn(columns, ph);
+        if (match && match.toLowerCase() !== ph.toLowerCase()) {
+          resolved = resolved.replace(new RegExp('\\b' + ph + '\\b', 'g'), match);
+        }
+      }
+    });
+
+    return resolved;
+  }
+
+  function renderCaseGuide() {
+    var stepsEl = document.getElementById('cg-steps');
+    var titleEl = document.getElementById('cg-title');
+    var nextBtn = document.getElementById('cg-next-btn');
+    if (!stepsEl || !activeCase) return;
+    titleEl.textContent = activeCase.title;
+    stepsEl.innerHTML = activeCase.steps.map(function (step, i) {
+      var isActive = i === activeStepIdx;
+      var resolved = resolveSql(step.sql);
+      return '<div class="cg-step' + (isActive ? ' active' : '') + '">' +
+        '<div class="cg-step-num">Step ' + (i + 1) + ' of ' + activeCase.steps.length + '</div>' +
+        '<div class="cg-step-insight">' + escapeHtml(step.insight) + '</div>' +
+        '<code class="cg-step-sql">' + escapeHtml(resolved) + '</code>' +
+      '</div>';
+    }).join('');
+    if (nextBtn) {
+      nextBtn.disabled = activeStepIdx >= activeCase.steps.length - 1;
+      nextBtn.textContent = activeStepIdx >= activeCase.steps.length - 1 ? 'Case Complete' : 'Next Step';
+    }
+  }
+
+  function openCaseGuide() {
+    var guide = document.getElementById('case-guide');
+    if (guide) guide.classList.add('open');
+  }
+
+  function closeCaseGuide() {
+    var guide = document.getElementById('case-guide');
+    if (guide) guide.classList.remove('open');
+  }
+
+  function runStep(stepIdx) {
+    if (!activeCase) return;
+    activeStepIdx = stepIdx;
+    var step = activeCase.steps[stepIdx];
+    var resolved = resolveSql(step.sql);
+    var input = document.getElementById('sql-view-input');
+    if (input) input.value = resolved;
+    renderCaseGuide();
+    var runBtn = document.getElementById('sql-view-run');
+    if (runBtn) runBtn.click();
+    if (window.SkillTracker && typeof window.SkillTracker.track === 'function') {
+      window.SkillTracker.track('run_case_step');
+    }
+  }
+
+  function runCase(caseObj) {
+    activeCase = caseObj;
+    activeStepIdx = 0;
+
+    var sqlPill = document.querySelector('[data-panel="sql-view"]');
+    if (sqlPill) sqlPill.click();
+
+    setTimeout(function () {
+      runStep(0);
+      openCaseGuide();
+    }, 60);
+
+    if (window.SkillTracker && typeof window.SkillTracker.track === 'function') {
+      window.SkillTracker.track('run_case');
+    }
+    if (typeof window.showToast === 'function') {
+      window.showToast('Running case: ' + caseObj.title, 'info');
+    }
+  }
+  window.runDomainCase = runCase;
+
+  function init() {
+    renderCards('all', '');
+
+    var searchInput = document.getElementById('cases-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        var activeFilterBtn = document.querySelector('.cases-filter-btn.active');
+        var domain = activeFilterBtn ? activeFilterBtn.getAttribute('data-domain') : 'all';
+        renderCards(domain, searchInput.value);
+      });
+    }
+
+    document.querySelectorAll('.cases-filter-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.cases-filter-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var searchEl = document.getElementById('cases-search');
+        renderCards(btn.getAttribute('data-domain'), searchEl ? searchEl.value : '');
+      });
+    });
+
+    var cgClose = document.getElementById('cg-close');
+    if (cgClose) cgClose.addEventListener('click', closeCaseGuide);
+
+    var cgNext = document.getElementById('cg-next-btn');
+    if (cgNext) {
+      cgNext.addEventListener('click', function () {
+        if (!activeCase) return;
+        if (activeStepIdx < activeCase.steps.length - 1) {
+          runStep(activeStepIdx + 1);
+        }
+      });
+    }
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(init, 0);
+  } else {
+    document.addEventListener('DOMContentLoaded', init);
+  }
+})();
+
+/* ---- #46 OSCE (Objective Structured Clinical Examination) ---- */
+(function () {
+  'use strict';
+
+  // ---- Dataset used for all OSCE scenarios: SynPUF Inpatient Claims ----
+  var OSCE_FALLBACK_COLUMNS = [
+    {"name":"CLM_ID","type":"STR"},{"name":"BENE_ID","type":"STR"},{"name":"ADM_DATE","type":"DATE"},
+    {"name":"DISCH_DATE","type":"DATE"},{"name":"LOS_DAYS","type":"INT"},{"name":"DX_PRIMARY","type":"STR"},
+    {"name":"DX_SECONDARY","type":"INT"},{"name":"PROC_PRIMARY","type":"INT"},{"name":"DRG_CODE","type":"INT"},
+    {"name":"PMT_AMT_USD","type":"FLOAT"},{"name":"FACILITY_STATE","type":"STR"}
+  ];
+
+  function getOsceDataset() {
+    // Prefer the live SynPUF inpatient dataset if the sample lib is loaded
+    if (window.SYNPUF_DATASETS) {
+      for (var i = 0; i < window.SYNPUF_DATASETS.length; i++) {
+        if (window.SYNPUF_DATASETS[i].name === 'synpuf_inpatient') {
+          var src = window.SYNPUF_DATASETS[i];
+          return { name: 'synpuf_inpatient', columns: src.columns, rows: src.rows };
+        }
+      }
+    }
+    // Otherwise use whatever is active if it looks like the inpatient shape
+    var active = window.getActiveDataset && window.getActiveDataset();
+    if (active && active.columns && active.columns.some(function (c) { return /LOS_DAYS|los_days/i.test(c.name); })) {
+      return active;
+    }
+    // Last resort: minimal built-in fallback (kept tiny on purpose)
+    return { name: 'synpuf_inpatient', columns: OSCE_FALLBACK_COLUMNS, rows: [] };
+  }
+
+  function osceTableName() {
+    if (window.SQLEngine && typeof window.SQLEngine.safeTableName === 'function') {
+      return window.SQLEngine.safeTableName(osceState.dataset.name);
+    }
+    return (osceState.dataset.name || 'synpuf_inpatient').replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+
+  // ---- Scenario definitions ----
+  var SCENARIOS = [
+    {
+      title: 'The High-Cost Admissions Investigation',
+      difficulty: 'Intermediate',
+      brief: 'You are a data analyst at a regional health system. The CFO reports that inpatient costs rose 18% last quarter. Identify the top drivers.',
+      stations: [
+        {
+          task: 'Identify which diagnosis codes have the highest average payment. Group the claims by primary diagnosis and sort by average payment amount, descending.',
+          points: 20,
+          hint: 'SELECT dx_primary, ROUND(AVG(pmt_amt_usd),2) as avg_pmt, COUNT(*) as n FROM your_table GROUP BY dx_primary ORDER BY avg_pmt DESC LIMIT 10',
+          expectedCols: ['dx_primary', 'pmt'],
+          clinicalPass: 'Your query correctly identified the top diagnosis groups by average payment - a solid first step in isolating cost drivers.',
+          clinicalFail: 'The task requires grouping claims by primary diagnosis and ranking by average payment. Review the GROUP BY and ORDER BY clauses.'
+        },
+        {
+          task: 'Find patients with multiple admissions (potential readmissions). Group by beneficiary and filter to those with more than one admission.',
+          points: 20,
+          hint: 'SELECT bene_id, COUNT(*) as admissions FROM your_table GROUP BY bene_id HAVING COUNT(*) > 1 ORDER BY admissions DESC',
+          expectedCols: ['bene_id', 'admissions'],
+          clinicalPass: 'Well identified. Repeat admissions are a classic signal of unmanaged chronic disease or care-transition gaps that inflate costs.',
+          clinicalFail: 'This station needs a GROUP BY on the beneficiary id with a HAVING clause to isolate patients with more than one admission.'
+        },
+        {
+          task: 'Compute length-of-stay outliers (more than 2 standard deviations above the mean). Return the outlier claims.',
+          points: 30,
+          hint: 'SELECT clm_id, los_days, ROUND(AVG(los_days) OVER (), 1) as avg_los FROM your_table WHERE los_days > (SELECT AVG(los_days) + 2*STDDEV(los_days) FROM your_table) ORDER BY los_days DESC',
+          expectedCols: ['clm_id', 'los_days'],
+          clinicalPass: 'Excellent statistical reasoning. Outlier length-of-stay cases are frequently the single largest cost driver in an inpatient population.',
+          clinicalFail: 'This station calls for a statistical outlier definition: compare LOS to the mean plus two standard deviations, typically via a subquery or window function.'
+        },
+        {
+          task: 'Examine geographic payment variation. Group claims by facility state and rank by average payment.',
+          points: 30,
+          hint: 'SELECT facility_state, ROUND(AVG(pmt_amt_usd),2) as avg_pmt, COUNT(*) as claims FROM your_table GROUP BY facility_state ORDER BY avg_pmt DESC',
+          expectedCols: ['facility_state', 'pmt'],
+          clinicalPass: 'Correct. Geographic variation in payment often reflects differences in case mix, facility contracts, or regional cost-of-care - worth flagging to the CFO.',
+          clinicalFail: 'Group by facility state and order by average payment to reveal geographic cost variation.'
+        }
+      ]
+    },
+    {
+      title: 'The Discharge Quality Audit',
+      difficulty: 'Intermediate',
+      brief: 'Quality team flagged 30 patients for potentially premature discharges. Investigate the data for length-of-stay and readmission patterns.',
+      stations: [
+        {
+          task: 'Find all admissions with length of stay under 2 days, grouped by diagnosis.',
+          points: 25,
+          hint: 'SELECT dx_primary, COUNT(*) as short_stays FROM your_table WHERE los_days < 2 GROUP BY dx_primary ORDER BY short_stays DESC',
+          expectedCols: ['dx_primary', 'los_days'],
+          clinicalPass: 'Good work isolating short-stay admissions by diagnosis - a key screen for potentially premature discharge.',
+          clinicalFail: 'Filter to los_days < 2 and group by primary diagnosis to surface which conditions have the most short-stay admissions.'
+        },
+        {
+          task: 'Identify same-day admits and discharges (admission date equals discharge date, or LOS = 0).',
+          points: 25,
+          hint: 'SELECT clm_id, bene_id, adm_date, disch_date FROM your_table WHERE los_days = 0 OR adm_date = disch_date',
+          expectedCols: ['clm_id', 'adm_date'],
+          clinicalPass: 'Correctly flagged same-day cases - these deserve the closest clinical review for discharge appropriateness.',
+          clinicalFail: 'Look for claims where los_days = 0 or adm_date equals disch_date to find same-day admit-discharge pairs.'
+        },
+        {
+          task: 'Find patients admitted multiple times within 30 days of each other (a readmission pattern).',
+          points: 25,
+          hint: 'SELECT bene_id, COUNT(*) as admissions FROM your_table GROUP BY bene_id HAVING COUNT(*) > 1 ORDER BY admissions DESC',
+          expectedCols: ['bene_id', 'admissions'],
+          clinicalPass: 'This readmission signal is exactly what the quality team needs to cross-reference against the short-stay list.',
+          clinicalFail: 'Group by beneficiary and use HAVING COUNT(*) > 1 as a proxy for repeat admissions, then examine date proximity.'
+        },
+        {
+          task: 'Build a risk-stratified view: classify each claim as LOW, MEDIUM, or HIGH risk based on LOS and payment amount.',
+          points: 25,
+          hint: "SELECT clm_id, los_days, pmt_amt_usd, CASE WHEN los_days < 2 THEN 'HIGH' WHEN los_days < 5 THEN 'MEDIUM' ELSE 'LOW' END as risk_tier FROM your_table",
+          expectedCols: ['risk', 'los_days'],
+          clinicalPass: 'A clean risk stratification. This CASE-based tiering is exactly how quality teams triage cases for chart review.',
+          clinicalFail: 'Use a CASE expression on los_days (and optionally pmt_amt_usd) to bucket each claim into LOW, MEDIUM, or HIGH risk.'
+        }
+      ]
+    },
+    {
+      title: 'The Benchmark Analysis',
+      difficulty: 'Advanced',
+      brief: 'The medical director wants to know how this facility compares to national benchmarks for length of stay and cost by DRG.',
+      stations: [
+        {
+          task: 'Summarize length of stay and cost by DRG code.',
+          points: 25,
+          hint: 'SELECT drg_code, ROUND(AVG(los_days),1) as avg_los, ROUND(AVG(pmt_amt_usd),2) as avg_pmt, COUNT(*) as n FROM your_table GROUP BY drg_code ORDER BY avg_pmt DESC',
+          expectedCols: ['drg_code', 'los_days'],
+          clinicalPass: 'Solid DRG-level summary - this is the baseline table needed for any benchmark comparison.',
+          clinicalFail: 'Group by drg_code and aggregate both los_days and pmt_amt_usd (e.g. AVG) to build the benchmark summary.'
+        },
+        {
+          task: 'Identify DRG codes with average length of stay greater than 10 days.',
+          points: 25,
+          hint: 'SELECT drg_code, ROUND(AVG(los_days),1) as avg_los FROM your_table GROUP BY drg_code HAVING AVG(los_days) > 10 ORDER BY avg_los DESC',
+          expectedCols: ['drg_code', 'los_days'],
+          clinicalPass: 'Correct use of HAVING to filter aggregated LOS - these DRGs warrant deeper utilization review.',
+          clinicalFail: 'Group by drg_code, then use HAVING AVG(los_days) > 10 to filter to the long-stay DRG groups.'
+        },
+        {
+          task: 'Find DRG-cost outliers: claims where payment exceeds 2x the average payment for that DRG.',
+          points: 25,
+          hint: 'SELECT t.clm_id, t.drg_code, t.pmt_amt_usd FROM your_table t JOIN (SELECT drg_code, AVG(pmt_amt_usd) as avg_pmt FROM your_table GROUP BY drg_code) b ON t.drg_code = b.drg_code WHERE t.pmt_amt_usd > 2 * b.avg_pmt',
+          expectedCols: ['drg_code', 'pmt'],
+          clinicalPass: 'This is advanced but correct: comparing each claim to its own DRG-level benchmark isolates true cost outliers, not just high-cost DRGs overall.',
+          clinicalFail: 'This requires comparing each claim payment to the average payment for its own DRG group - typically a self-join or window function with a 2x threshold.'
+        },
+        {
+          task: 'Rank DRG codes by efficiency: payment per length-of-stay day.',
+          points: 25,
+          hint: 'SELECT drg_code, ROUND(AVG(pmt_amt_usd)/AVG(los_days),2) as pmt_per_day FROM your_table GROUP BY drg_code ORDER BY pmt_per_day DESC',
+          expectedCols: ['drg_code', 'pmt'],
+          clinicalPass: 'A well-formed efficiency metric - payment per LOS day is a standard way to compare DRGs of very different acuity.',
+          clinicalFail: 'Compute a ratio of average payment to average LOS per drg_code, then rank the results.'
+        }
+      ]
+    }
+  ];
+
+  // ---- State ----
+  var osceState = {
+    scenarioIdx: -1,
+    stationIdx: 0,
+    score: 0,
+    potentialLost: 0,
+    dataset: null,
+    stationResults: [], // {passed, score}
+    hintUsed: []
+  };
+
+  function totalPoints(scenario) {
+    return scenario.stations.reduce(function (sum, s) { return sum + s.points; }, 0);
+  }
+
+  // ---- DOM refs (looked up lazily since modal is injected once at load) ----
+  function $(id) { return document.getElementById(id); }
+
+  function openOSCE() {
+    var modal = $('osce-modal');
+    if (!modal) return;
+    modal.classList.add('open');
+    showSelectScreen();
+    window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('open_osce');
+  }
+
+  function closeOSCE() {
+    var modal = $('osce-modal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  function showSelectScreen() {
+    $('osce-select-screen').style.display = 'flex';
+    $('osce-session').classList.remove('open');
+    $('osce-results-screen').classList.remove('open');
+    renderScenarioCards();
+  }
+
+  function renderScenarioCards() {
+    var wrap = $('osce-scenario-cards');
+    if (!wrap) return;
+    wrap.innerHTML = SCENARIOS.map(function (sc, i) {
+      var briefSentences = sc.brief.split(/(?<=[.])\s+/).slice(0, 2).join(' ');
+      var diffClass = sc.difficulty === 'Advanced' ? 'osce-meta-advanced' : 'osce-meta-intermediate';
+      return '' +
+        '<div class="osce-scenario-card" data-idx="' + i + '">' +
+          '<div class="osce-card-label">Scenario ' + (i + 1) + '</div>' +
+          '<div class="osce-card-title">' + sc.title + '</div>' +
+          '<div class="osce-card-brief">' + briefSentences + '</div>' +
+          '<div class="osce-card-meta">' +
+            '<span class="osce-meta-tag ' + diffClass + '">' + sc.difficulty + '</span>' +
+            '<span class="osce-meta-tag osce-meta-pts">' + totalPoints(sc) + ' pts</span>' +
+            '<span class="osce-meta-tag osce-meta-pts">4 stations</span>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+    wrap.querySelectorAll('.osce-scenario-card').forEach(function (card) {
+      card.addEventListener('click', function () {
+        startScenario(parseInt(card.getAttribute('data-idx'), 10));
+      });
+    });
+  }
+
+  function startScenario(idx) {
+    var scenario = SCENARIOS[idx];
+    if (!scenario) return;
+    osceState.scenarioIdx = idx;
+    osceState.stationIdx = 0;
+    osceState.score = 0;
+    osceState.dataset = getOsceDataset();
+    osceState.stationResults = scenario.stations.map(function () { return null; });
+    osceState.hintUsed = scenario.stations.map(function () { return false; });
+
+    $('osce-select-screen').style.display = 'none';
+    $('osce-results-screen').classList.remove('open');
+    $('osce-session').classList.add('open');
+    $('osce-scenario-title').textContent = scenario.title;
+    updateScoreDisplay(scenario);
+    loadStation();
+    window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('start_osce_scenario');
+  }
+
+  function updateScoreDisplay(scenario) {
+    $('osce-score-display').textContent = osceState.score + ' / ' + totalPoints(scenario);
+  }
+
+  function loadStation() {
+    var scenario = SCENARIOS[osceState.scenarioIdx];
+    var station = scenario.stations[osceState.stationIdx];
+    $('osce-station-num').textContent = 'Station ' + (osceState.stationIdx + 1) + ' of ' + scenario.stations.length;
+    $('osce-station-task').textContent = station.task;
+    $('osce-sql-editor').value = '';
+    $('osce-result-pane').textContent = 'Results will appear here after running your query.';
+    var hintBox = $('osce-hint-box');
+    hintBox.classList.remove('open');
+    hintBox.textContent = '';
+    $('osce-hint-btn').disabled = false;
+    $('osce-hint-btn').textContent = 'Show hint (-5 pts)';
+    var fb = $('osce-feedback');
+    fb.className = '';
+    fb.textContent = '';
+    fb.style.display = 'none';
+    $('osce-next-btn').classList.remove('show');
+    renderProgressDots(scenario);
+  }
+
+  function renderProgressDots(scenario) {
+    var wrap = $('osce-progress-dots');
+    if (!wrap) return;
+    wrap.innerHTML = scenario.stations.map(function (s, i) {
+      var cls = 'osce-dot';
+      if (osceState.stationResults[i] !== null) cls += ' done';
+      if (i === osceState.stationIdx) cls += ' active';
+      return '<span class="' + cls + '"></span>';
+    }).join('');
+  }
+
+  // ---- Query execution ----
+  function resolveSql(sql) {
+    var tbl = osceTableName();
+    return sql.replace(/your_table/gi, tbl);
+  }
+
+  function runOsceSql(sql) {
+    // Returns a Promise resolving to {cols, rows} or rejecting with an error
+    var ds = osceState.dataset;
+    var resolvedSql = resolveSql(sql);
+    if (window.SQLEngine && typeof window.SQLEngine.query === 'function') {
+      return window.SQLEngine.query(resolvedSql, ds).then(function (result) {
+        return { cols: result.cols || result.columns || [], rows: result.rows || [] };
+      });
+    }
+    // Fallback: no live SQL engine available - run a very small local
+    // interpreter that supports the handful of GROUP BY / WHERE patterns
+    // used across OSCE stations, so grading still functions offline.
+    return Promise.resolve(mockRunSql(sql, ds));
+  }
+
+  function colIndex(ds, name) {
+    for (var i = 0; i < ds.columns.length; i++) {
+      if (ds.columns[i].name.toLowerCase() === name.toLowerCase()) return i;
+    }
+    return -1;
+  }
+
+  function mockRunSql(sql, ds) {
+    // Extremely lightweight heuristic executor: not a real SQL parser.
+    // It looks at GROUP BY / column mentions in the query text and
+    // produces a plausible aggregated result set from the real dataset
+    // rows so the OSCE grading logic has something real to evaluate.
+    var lower = sql.toLowerCase();
+    if (!ds.rows || !ds.rows.length) {
+      return { cols: ds.columns.map(function (c) { return c.name; }), rows: [] };
+    }
+    var groupMatch = /group by\s+([a-z0-9_,\s]+?)(order by|having|limit|$)/i.exec(sql);
+    if (groupMatch) {
+      var groupCols = groupMatch[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      var idxs = groupCols.map(function (c) { return colIndex(ds, c); }).filter(function (i) { return i >= 0; });
+      if (idxs.length) {
+        var pmtIdx = colIndex(ds, 'pmt_amt_usd');
+        var losIdx = colIndex(ds, 'los_days');
+        var groups = {};
+        ds.rows.forEach(function (r) {
+          var key = idxs.map(function (i) { return r[i]; }).join('|');
+          if (!groups[key]) groups[key] = { keyVals: idxs.map(function (i) { return r[i]; }), n: 0, pmtSum: 0, losSum: 0 };
+          groups[key].n++;
+          if (pmtIdx >= 0) groups[key].pmtSum += Number(r[pmtIdx]) || 0;
+          if (losIdx >= 0) groups[key].losSum += Number(r[losIdx]) || 0;
+        });
+        var cols = groupCols.slice();
+        if (pmtIdx >= 0) cols.push('avg_pmt');
+        if (losIdx >= 0) cols.push('avg_los');
+        cols.push('n');
+        var rows = Object.keys(groups).map(function (k) {
+          var g = groups[k];
+          var row = g.keyVals.slice();
+          if (pmtIdx >= 0) row.push(Math.round((g.pmtSum / g.n) * 100) / 100);
+          if (losIdx >= 0) row.push(Math.round((g.losSum / g.n) * 10) / 10);
+          row.push(g.n);
+          return row;
+        });
+        if (/having\s+count\(\*\)\s*>\s*1/i.test(sql)) {
+          rows = rows.filter(function (r) { return r[r.length - 1] > 1; });
+        }
+        rows.sort(function (a, b) { return b[b.length - 2] - a[a.length - 2]; });
+        return { cols: cols, rows: rows.slice(0, 50) };
+      }
+    }
+    // No GROUP BY understood - just return raw rows so the query "runs"
+    return { cols: ds.columns.map(function (c) { return c.name; }), rows: ds.rows.slice(0, 50) };
+  }
+
+  function renderResultPane(result, error) {
+    var pane = $('osce-result-pane');
+    if (error) {
+      pane.innerHTML = '<div style="color:var(--error,#A12C7B);">Error: ' + escapeHtml(String(error).substring(0, 200)) + '</div>';
+      return;
+    }
+    if (!result || !result.rows || !result.rows.length) {
+      pane.textContent = 'Query ran successfully but returned no rows.';
+      return;
+    }
+    var cols = result.cols || [];
+    var thead = '<tr>' + cols.map(function (c) { return '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);">' + escapeHtml(String(c)) + '</th>'; }).join('') + '</tr>';
+    var tbody = result.rows.slice(0, 30).map(function (r) {
+      return '<tr>' + cols.map(function (c, i) { return '<td style="padding:3px 6px;border-bottom:1px solid var(--border);">' + escapeHtml(r[i] === null || r[i] === undefined ? '' : String(r[i]).substring(0, 60)) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    pane.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>' +
+      '<div style="margin-top:6px;color:var(--text-muted);">' + result.rows.length + ' row' + (result.rows.length !== 1 ? 's' : '') + '</div>';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function runQueryClicked() {
+    var sql = $('osce-sql-editor').value;
+    if (!sql || !sql.trim()) {
+      $('osce-result-pane').textContent = 'Write a query first.';
+      return;
+    }
+    $('osce-result-pane').textContent = 'Running...';
+    runOsceSql(sql).then(function (result) {
+      renderResultPane(result, null);
+      osceState._lastResult = result;
+    }).catch(function (err) {
+      renderResultPane(null, err);
+      osceState._lastResult = null;
+    });
+  }
+
+  // ---- Grading ----
+  function evaluateResult(result, station) {
+    if (!result || !result.rows || result.rows.length === 0) {
+      return { score: 0, msg: 'Query returned no results. Check your table name and column names, then try again.' };
+    }
+    var score = 10; // base credit for a running query with rows
+    var cols = (result.cols || []).map(function (c) { return String(c).toLowerCase(); });
+    var hits = 0;
+    (station.expectedCols || []).forEach(function (ec) {
+      if (cols.some(function (c) { return c.indexOf(ec.toLowerCase()) >= 0; })) hits++;
+    });
+    if (station.expectedCols && station.expectedCols.length > 0) {
+      score += Math.round(hits / station.expectedCols.length * (station.points - 10));
+    } else {
+      score = station.points;
+    }
+    if (result.rows.length <= 1 && station.task.toLowerCase().indexOf('group') === -1) {
+      // small penalty is not applied - single-row results are valid for some stations
+    }
+    score = Math.min(score, station.points);
+    var msg;
+    if (score >= station.points * 0.8) {
+      msg = station.clinicalPass || 'Well done. Your query correctly addresses the station objective.';
+    } else if (hits > 0) {
+      msg = 'Partial credit. Your query runs but may be missing some columns or groupings. ' + (station.clinicalFail || '');
+    } else {
+      msg = station.clinicalFail || 'Your query runs but does not appear to address the station task. Review the station description.';
+    }
+    return { score: score, msg: msg };
+  }
+
+  function checkAnswerClicked() {
+    var sql = $('osce-sql-editor').value;
+    var scenario = SCENARIOS[osceState.scenarioIdx];
+    var station = scenario.stations[osceState.stationIdx];
+    if (!sql || !sql.trim()) {
+      showFeedback(false, 'Write a SQL query addressing the station task before checking your answer.');
+      return;
+    }
+    $('osce-check-btn').disabled = true;
+    runOsceSql(sql).then(function (result) {
+      renderResultPane(result, null);
+      var evalResult = evaluateResult(result, station);
+      var hintPenalty = osceState.hintUsed[osceState.stationIdx] ? 5 : 0;
+      var finalScore = Math.max(0, evalResult.score - hintPenalty);
+      osceState.stationResults[osceState.stationIdx] = finalScore;
+      recomputeScore(scenario);
+      var passed = finalScore >= station.points * 0.6;
+      var msg = evalResult.msg + ' (' + finalScore + ' / ' + station.points + ' points' + (hintPenalty ? ', hint penalty applied' : '') + ')';
+      showFeedback(passed, msg);
+      renderProgressDots(scenario);
+      $('osce-check-btn').disabled = false;
+      $('osce-next-btn').classList.add('show');
+      $('osce-next-btn').textContent = (osceState.stationIdx < scenario.stations.length - 1) ? 'Next Station' : 'Finish OSCE';
+    }).catch(function (err) {
+      renderResultPane(null, err);
+      showFeedback(false, 'Your query failed to run: ' + String(err).substring(0, 150) + '. Review the SQL syntax and try again.');
+      osceState.stationResults[osceState.stationIdx] = 0;
+      recomputeScore(scenario);
+      renderProgressDots(scenario);
+      $('osce-check-btn').disabled = false;
+      $('osce-next-btn').classList.add('show');
+      $('osce-next-btn').textContent = (osceState.stationIdx < scenario.stations.length - 1) ? 'Next Station' : 'Finish OSCE';
+    });
+  }
+
+  function recomputeScore(scenario) {
+    osceState.score = osceState.stationResults.reduce(function (sum, s) { return sum + (s || 0); }, 0);
+    updateScoreDisplay(scenario);
+  }
+
+  function showFeedback(passed, msg) {
+    var fb = $('osce-feedback');
+    fb.className = passed ? 'pass' : 'fail';
+    fb.textContent = msg;
+  }
+
+  function showHintClicked() {
+    var scenario = SCENARIOS[osceState.scenarioIdx];
+    var station = scenario.stations[osceState.stationIdx];
+    var box = $('osce-hint-box');
+    box.textContent = station.hint;
+    box.classList.add('open');
+    if (!osceState.hintUsed[osceState.stationIdx]) {
+      osceState.hintUsed[osceState.stationIdx] = true;
+      $('osce-hint-btn').textContent = 'Hint used (-5 pts applied at scoring)';
+    }
+    $('osce-hint-btn').disabled = true;
+  }
+
+  function nextStationClicked() {
+    var scenario = SCENARIOS[osceState.scenarioIdx];
+    if (osceState.stationIdx < scenario.stations.length - 1) {
+      osceState.stationIdx++;
+      loadStation();
+    } else {
+      finishOSCE();
+    }
+  }
+
+  function gradeFor(pct) {
+    if (pct >= 90) return 'Distinction';
+    if (pct >= 70) return 'Pass';
+    if (pct >= 50) return 'Near Pass';
+    return 'Refer';
+  }
+
+  function finishOSCE() {
+    var scenario = SCENARIOS[osceState.scenarioIdx];
+    var total = totalPoints(scenario);
+    var pct = Math.round((osceState.score / total) * 100);
+    var grade = gradeFor(pct);
+    $('osce-session').classList.remove('open');
+    $('osce-results-screen').classList.add('open');
+    $('osce-final-score').textContent = osceState.score + ' / ' + total;
+    $('osce-final-grade').textContent = grade;
+    var feedback;
+    if (grade === 'Distinction') {
+      feedback = 'Outstanding clinical data analysis. You consistently identified the right groupings, filters, and statistical thresholds needed to investigate ' + scenario.title.toLowerCase() + '. This is examiner-level performance.';
+    } else if (grade === 'Pass') {
+      feedback = 'Solid performance. Your approach to ' + scenario.title.toLowerCase() + ' covered most of the key investigative steps, with room to sharpen precision on some stations.';
+    } else if (grade === 'Near Pass') {
+      feedback = 'You demonstrated some of the right instincts for ' + scenario.title.toLowerCase() + ', but several stations need a more rigorous query approach. Review the hints and try again.';
+    } else {
+      feedback = 'This attempt did not meet the bar for independent clinical data analysis on ' + scenario.title.toLowerCase() + '. Revisit the GROUP BY, HAVING, and statistical concepts used in the hints, then retake the scenario.';
+    }
+    $('osce-final-feedback').textContent = feedback;
+    window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('finish_osce_scenario');
+    if (typeof window.showToast === 'function') {
+      window.showToast('OSCE complete: ' + grade + ' (' + pct + '%)', grade === 'Refer' ? 'warn' : 'success');
+    }
+  }
+
+  function restartClicked() {
+    $('osce-results-screen').classList.remove('open');
+    showSelectScreen();
+  }
+
+  // ---- Wiring ----
+  function wireOsce() {
+    var trigger = document.getElementById('osce-trigger-btn');
+    if (trigger) trigger.addEventListener('click', openOSCE);
+
+    var closeBtn = document.getElementById('osce-close-btn');
+    if (closeBtn) closeBtn.addEventListener('click', closeOSCE);
+
+    var runBtn = document.getElementById('osce-run-btn');
+    if (runBtn) runBtn.addEventListener('click', runQueryClicked);
+
+    var editor = document.getElementById('osce-sql-editor');
+    if (editor) {
+      editor.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          runQueryClicked();
+        }
+      });
+    }
+
+    var hintBtn = document.getElementById('osce-hint-btn');
+    if (hintBtn) hintBtn.addEventListener('click', showHintClicked);
+
+    var checkBtn = document.getElementById('osce-check-btn');
+    if (checkBtn) checkBtn.addEventListener('click', checkAnswerClicked);
+
+    var nextBtn = document.getElementById('osce-next-btn');
+    if (nextBtn) nextBtn.addEventListener('click', nextStationClicked);
+
+    var restartBtn = document.getElementById('osce-restart-btn');
+    if (restartBtn) restartBtn.addEventListener('click', restartClicked);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireOsce);
+  } else {
+    wireOsce();
+  }
+
+  // Expose a small public surface for debugging / other features
+  window.OSCE = {
+    open: openOSCE,
+    close: closeOSCE,
+    scenarios: SCENARIOS
+  };
+})();
 })();
 </script>
 <div id="pwa-install-banner">
@@ -19297,6 +20640,96 @@ var InstantInsight = (function () {
       </button>
     </div>
     <button class="spotlight-skip" id="spotlight-skip">I will explore on my own</button>
+  </div>
+</div>
+<!-- #45 Level System: Level-up overlay -->
+<div id="levelup-overlay">
+  <div class="levelup-star" id="levelup-star">&#9733;</div>
+  <div id="levelup-title">Level Up!</div>
+  <div id="levelup-sub">You are now Level 2 - Analyst</div>
+</div>
+
+<!-- #45 Level System: Badges Panel -->
+<div id="badges-panel">
+  <div class="badges-header">
+    <span class="badges-header-title">Your Badges</span>
+    <button class="badges-close-btn" id="badges-close-btn">x</button>
+  </div>
+  <div class="badges-list" id="badges-list"></div>
+</div>
+
+<!-- #42 Domain Case Library -->
+<div id="cases-view" class="analyze-panel hidden">
+  <div class="cases-toolbar">
+    <input type="text" class="cases-search" id="cases-search" placeholder="Search cases by title, domain, or keyword...">
+    <button class="cases-filter-btn active" data-domain="all">All</button>
+    <button class="cases-filter-btn" data-domain="healthcare">Healthcare</button>
+    <button class="cases-filter-btn" data-domain="finance">Finance</button>
+    <button class="cases-filter-btn" data-domain="hr">HR</button>
+  </div>
+  <div class="cases-grid" id="cases-grid"></div>
+</div>
+
+<!-- #42 Domain Case Library: Case Guide sidebar -->
+<div id="case-guide">
+  <div class="cg-header">
+    <span class="cg-title" id="cg-title">Case Guide</span>
+    <button class="cg-close" id="cg-close">&times;</button>
+  </div>
+  <div class="cg-steps" id="cg-steps"></div>
+  <button class="cg-next-btn" id="cg-next-btn">Next Step</button>
+</div>
+
+
+<!-- ---- #46 OSCE (Objective Structured Clinical Examination) ---- -->
+<div id="osce-modal">
+  <!-- Top bar -->
+  <div class="osce-topbar">
+    <span class="osce-logo">OSCE</span>
+    <span class="osce-scenario-title" id="osce-scenario-title">Clinical Data Analysis Examination</span>
+    <span class="osce-score-badge" id="osce-score-display">0 / 100</span>
+    <button class="osce-close-btn" id="osce-close-btn">Exit OSCE</button>
+  </div>
+  <!-- Scenario selection -->
+  <div id="osce-select-screen">
+    <div class="osce-select-title">Choose a Clinical Scenario</div>
+    <div class="osce-select-sub">Each scenario presents a real healthcare data challenge. You will be graded across 4 stations. Use SQL to investigate. Hints are available but cost points.</div>
+    <div class="osce-scenario-cards" id="osce-scenario-cards"></div>
+  </div>
+  <!-- Active session -->
+  <div id="osce-session">
+    <!-- SQL pane -->
+    <div id="osce-sql-pane-wrap">
+      <div class="osce-sql-label">Your SQL</div>
+      <textarea id="osce-sql-editor" spellcheck="false" placeholder="Write your SQL query here..."></textarea>
+      <div class="osce-sql-actions">
+        <button class="osce-run-btn" id="osce-run-btn">Run Query</button>
+        <span class="osce-run-hint">Ctrl+Enter</span>
+      </div>
+      <div id="osce-result-pane">Results will appear here after running your query.</div>
+    </div>
+    <!-- Station pane -->
+    <div id="osce-station-pane">
+      <div class="osce-station-header">
+        <div class="osce-station-num" id="osce-station-num">Station 1 of 4</div>
+        <div class="osce-station-task" id="osce-station-task"></div>
+      </div>
+      <div class="osce-station-body">
+        <button class="osce-hint-btn" id="osce-hint-btn">Show hint (-5 pts)</button>
+        <div id="osce-hint-box"></div>
+        <button class="osce-check-btn" id="osce-check-btn">Check Answer</button>
+        <div id="osce-feedback"></div>
+        <button class="osce-next-btn" id="osce-next-btn">Next Station</button>
+      </div>
+      <div class="osce-progress-dots" id="osce-progress-dots"></div>
+    </div>
+  </div>
+  <!-- Results screen -->
+  <div id="osce-results-screen">
+    <div class="osce-final-score" id="osce-final-score">0</div>
+    <div class="osce-final-grade" id="osce-final-grade">Pass</div>
+    <div class="osce-final-feedback" id="osce-final-feedback"></div>
+    <button class="osce-restart-btn" id="osce-restart-btn">Try Another Scenario</button>
   </div>
 </div>
 </body>
