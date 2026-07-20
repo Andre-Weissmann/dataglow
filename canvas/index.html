@@ -20732,21 +20732,7 @@ var InstantInsight = (function () {
       return null;
     }
 
-    function addXP(eventKey, amount) {
-      var pts = amount !== undefined ? amount : (XP_EVENTS[eventKey] || 0);
-      if (!pts) return;
-      var oldLvl = getLevelForXP(prog.xp);
-      prog.xp += pts;
-      prog.xpLog.unshift({event: eventKey, xp: pts, ts: Date.now()});
-      if (prog.xpLog.length > 20) prog.xpLog.length = 20;
-      var newLvl = getLevelForXP(prog.xp);
-      if (newLvl.n > oldLvl.n) {
-        prog.level = newLvl.n;
-        showLevelUp(newLvl);
-      }
-      updateXPBar();
-      saveXP();
-    }
+    function addXP(eventKey, amount) { return; }
 
     function showLevelUp(lvl) {
       var overlay = document.getElementById('levelup-overlay');
@@ -27649,9 +27635,7 @@ var DataGlowMirror = (function() {
           if (newAlerts[k].severity === 'critical') { criticalCount++; }
         }
         if (criticalCount > 0 && window.LevelSystem && typeof window.LevelSystem.addXP === 'function') {
-          for (var c = 0; c < criticalCount; c++) {
-            window.LevelSystem.addXP('autopilot', 5);
-          }
+
         }
         if (window.DataGlowMirror && typeof window.DataGlowMirror.observe === 'function') {
           window.DataGlowMirror.observe('autopilot_check', { alertCount: newAlerts.length });
