@@ -3910,6 +3910,53 @@
 .ppv-verify-btn { width:100%; background:var(--primary); color:#fff; border:none; border-radius:8px; padding:12px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; margin-top:12px; }
 .ppv-open-btn { width:100%; background:none; border:1px solid var(--border); border-radius:8px; padding:11px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; margin-top:6px; color:var(--text); }
 
+/* ---- #52 DataGlow Projects ---- */
+#projects-panel { position:fixed; inset:0; background:var(--background); z-index:14000; display:none; flex-direction:column; }
+#projects-panel.open { display:flex; }
+.proj-topbar { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.proj-logo { font-size:11px; font-weight:900; letter-spacing:0.15em; color:var(--primary); text-transform:uppercase; }
+.proj-title { font-size:15px; font-weight:700; color:var(--text); flex:1; }
+.proj-new-btn { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:8px 18px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+.proj-close-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text-muted); padding:5px 12px; font-size:12px; cursor:pointer; font-family:inherit; }
+.proj-layout { display:grid; grid-template-columns:220px 1fr; flex:1; overflow:hidden; }
+@media(max-width:700px) { .proj-layout { grid-template-columns:1fr; } }
+.proj-sidebar { border-right:1px solid var(--border); padding:20px 16px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
+.proj-active-label { font-size:9px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); }
+.proj-active-card { background:var(--surface-alt); border:1px solid var(--primary); border-radius:10px; padding:14px; }
+.proj-active-name { font-size:14px; font-weight:800; color:var(--text); margin-bottom:4px; }
+.proj-active-meta { font-size:11px; color:var(--text-muted); margin-bottom:10px; }
+.proj-sidebar-btn { width:100%; background:none; border:1px solid var(--border); border-radius:7px; padding:8px; font-size:11px; font-weight:700; color:var(--text); cursor:pointer; font-family:inherit; margin-bottom:4px; text-align:left; }
+.proj-sidebar-btn:hover { border-color:var(--primary); color:var(--primary); }
+.proj-sidebar-btn.danger:hover { border-color:#A13544; color:#A13544; }
+.proj-main { overflow-y:auto; padding:20px; }
+.proj-main-title { font-size:13px; font-weight:800; color:var(--text); margin-bottom:14px; letter-spacing:-0.01em; }
+.proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+.proj-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; cursor:pointer; position:relative; transition:border-color 0.15s; }
+.proj-card:hover { border-color:var(--primary); }
+.proj-card.archived { opacity:0.5; }
+.proj-card-domain { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; flex-shrink:0; }
+.proj-card-name { font-size:13px; font-weight:800; color:var(--text); margin-bottom:6px; }
+.proj-card-meta { font-size:11px; color:var(--text-muted); line-height:1.5; }
+.proj-card-score { display:inline-block; font-size:9px; font-weight:800; padding:2px 7px; border-radius:20px; background:rgba(79,152,163,0.12); color:var(--primary); margin-top:6px; }
+.proj-card-menu { position:absolute; top:10px; right:10px; background:none; border:none; color:var(--text-muted); font-size:16px; cursor:pointer; padding:2px 6px; border-radius:4px; }
+.proj-card-menu:hover { background:var(--surface-alt); }
+.proj-card-menu-dropdown { position:absolute; top:30px; right:8px; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:4px; z-index:100; display:none; min-width:120px; box-shadow:0 4px 20px rgba(0,0,0,0.15); }
+.proj-card-menu-dropdown.open { display:block; }
+.proj-menu-item { display:block; width:100%; background:none; border:none; text-align:left; padding:7px 12px; font-size:12px; color:var(--text); cursor:pointer; font-family:inherit; border-radius:6px; }
+.proj-menu-item:hover { background:var(--surface-alt); }
+.proj-menu-item.danger { color:#A13544; }
+.proj-new-form { background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px; display:none; }
+.proj-new-form.open { display:block; }
+.proj-new-form input { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:9px 12px; font-size:13px; color:var(--text); font-family:inherit; margin-bottom:10px; box-sizing:border-box; }
+.proj-new-form select { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:9px 12px; font-size:13px; color:var(--text); font-family:inherit; margin-bottom:10px; box-sizing:border-box; }
+.proj-new-confirm { background:var(--primary); color:#fff; border:none; border-radius:7px; padding:9px 20px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+.proj-storage-bar { padding:12px 20px; border-top:1px solid var(--border); font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:10px; background:var(--surface); flex-shrink:0; }
+.proj-storage-fill { height:4px; border-radius:2px; background:var(--primary); }
+.proj-storage-track { flex:1; height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+.proj-empty { text-align:center; padding:60px 20px; color:var(--text-muted); }
+.proj-empty-icon { font-size:36px; margin-bottom:12px; }
+.proj-empty-text { font-size:14px; }
+
 </style>
 </head>
 <body>
@@ -3936,14 +3983,24 @@
     <p id="ceremony-tagline">Your data. Understood. Instantly. Privately.</p>
 
     <div id="drop-zone">
+      <div id="resume-banner" style="display:none;background:var(--surface);border:1px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px;align-items:center;gap:12px;">
+        <span style="font-size:18px;">&#128193;</span>
+        <div style="flex:1;">
+          <div id="resume-proj-name" style="font-size:13px;font-weight:800;color:var(--text);">Continue: Inpatient Claims Analysis</div>
+          <div id="resume-proj-meta" style="font-size:11px;color:var(--text-muted);">3 datasets - Last modified 2 hours ago</div>
+        </div>
+        <button id="resume-btn" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Resume</button>
+        <button id="resume-dismiss-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px;">x</button>
+      </div>
+      
       <svg id="drop-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <rect x="8" y="14" width="32" height="22" rx="3" stroke="currentColor" stroke-width="1.8" fill="none"/>
         <path d="M24 22v8M20 26l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
-      <p id="drop-text">Drop anything here.</p>
+      <p id="drop-text">Drop files here (CSV, TSV, JSON) - multiple files supported</p>
       <p id="drop-formats">Every format. Any size. Zero uploads.</p>
-      <input type="file" id="file-input" class="hidden" accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
+      <input type="file" id="file-input" class="hidden" multiple accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
     <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
@@ -4475,7 +4532,9 @@
         <button class="skills-trigger-btn" id="witness-trigger-btn" title="PHI/PII De-identification">Witness</button>
         <button class="skills-trigger-btn" id="passport-trigger-btn" title="Your DataGlow Passport">Passport</button>
         <button class="skills-trigger-btn" id="story-trigger-btn" title="Generate Portfolio Narrative">Story</button>
-        <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
+        <button class="skills-trigger-btn" id="projects-trigger-btn" title="Your DataGlow Projects">Projects</button>
+<button class="skills-trigger-btn" id="notes-trigger-btn" title="Project Notes">Notes</button>
+<button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
         </button>
@@ -24029,6 +24088,759 @@ var InstantInsight = (function () {
   };
 
 })();
+
+/* ---- #52 DataGlow Projects ---- */
+(function(){
+  function domainColor(d) {
+    return d === 'healthcare' ? '#4F98A3' : d === 'finance' ? '#1B474D' : d === 'hr' ? '#7A39BB' : '#7A7974';
+  }
+
+  var ProjectEngine = window.ProjectEngine = {
+    _projects: [],
+
+    async init() {
+      await OPFSEngine.init();
+      await this.loadAll();
+    },
+
+    async loadAll() {
+      try {
+        var fh = await OPFSEngine._root.getFileHandle('_projects.json');
+        var file = await fh.getFile();
+        this._projects = JSON.parse(await file.text());
+      } catch(e) { this._projects = []; }
+    },
+
+    async saveAll() {
+      if (!OPFSEngine._root) return;
+      var fh = await OPFSEngine._root.getFileHandle('_projects.json', { create: true });
+      var aw = await fh.createWritable();
+      await aw.write(JSON.stringify(this._projects));
+      await aw.close();
+    },
+
+    async createProject(name, domain) {
+      var proj = {
+        id: 'proj_' + Date.now(),
+        name: name,
+        domain: domain || 'general',
+        color: domainColor(domain),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        status: 'active',
+        datasetKeys: [],
+        datasetNames: [],
+        avgScore: 0,
+        sqlHistory: [],
+        notes: '',
+        xpEarned: 0,
+        missionResults: null
+      };
+      this._projects.unshift(proj);
+      await this.saveAll();
+      return proj;
+    },
+
+    async saveCurrentSession(projectId) {
+      var proj = this._projects.find(function(p){ return p.id === projectId; });
+      if (!proj || !window.state) return;
+      var datasets = window.state.datasets || [];
+      var keys = [];
+      var names = [];
+      for (var i = 0; i < datasets.length; i++) {
+        var ds = datasets[i];
+        var key = (ds.name || 'dataset').replace(/[^a-zA-Z0-9_-]/g, '_');
+        await OPFSEngine.saveDataset(ds.name, ds.rows, ds.columns);
+        keys.push(key);
+        names.push(ds.name);
+      }
+      proj.datasetKeys = keys;
+      proj.datasetNames = names;
+      proj.updatedAt = Date.now();
+      var scores = datasets.map(function(d){ return d.score || 0; });
+      proj.avgScore = scores.length ? Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length) : 0;
+      await this.saveAll();
+      return proj;
+    },
+
+    async updateProject(id, patch) {
+      var proj = this._projects.find(function(p){ return p.id === id; });
+      if (!proj) return;
+      Object.assign(proj, patch, { updatedAt: Date.now() });
+      await this.saveAll();
+    },
+
+    async deleteProject(id) {
+      this._projects = this._projects.filter(function(p){ return p.id !== id; });
+      await this.saveAll();
+    },
+
+    getAll() { return this._projects; },
+    getActive() { return this._projects.find(function(p){ return p.status === 'active' && p._isCurrent; }) || null; }
+  };
+
+  window._activeProjectId = window._activeProjectId || null;
+
+  function fmtDate(ts) {
+    if (!ts) return 'never';
+    var diff = Date.now() - ts;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    return new Date(ts).toLocaleDateString();
+  }
+
+  function domainLabel(d) {
+    return d === 'healthcare' ? 'Healthcare' : d === 'finance' ? 'Finance' : d === 'hr' ? 'HR' : 'General';
+  }
+
+  function closeAllMenus() {
+    document.querySelectorAll('.proj-card-menu-dropdown.open').forEach(function(el){ el.classList.remove('open'); });
+  }
+
+  function renderProjectGrid() {
+    var grid = document.getElementById('proj-grid');
+    if (!grid) return;
+    var projects = ProjectEngine.getAll().slice();
+    projects.sort(function(a, b){
+      if (a.status !== b.status) return a.status === 'archived' ? 1 : -1;
+      return b.updatedAt - a.updatedAt;
+    });
+    if (!projects.length) {
+      grid.innerHTML = '<div class="proj-empty"><div class="proj-empty-icon">&#128193;</div><div class="proj-empty-text">No projects yet. Create one to get started.</div></div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
+      var archivedClass = p.status === 'archived' ? ' archived' : '';
+      var statusLabel = p.status === 'archived' ? 'Archived' : 'Active';
+      html += '<div class="proj-card' + archivedClass + '" data-id="' + p.id + '">';
+      html += '<button class="proj-card-menu" data-menu-id="' + p.id + '">&#8942;</button>';
+      html += '<div class="proj-card-menu-dropdown" id="proj-menu-' + p.id + '">';
+      html += '<button class="proj-menu-item" data-action="open" data-id="' + p.id + '">Open</button>';
+      html += '<button class="proj-menu-item" data-action="rename" data-id="' + p.id + '">Rename</button>';
+      html += '<button class="proj-menu-item" data-action="duplicate" data-id="' + p.id + '">Duplicate</button>';
+      html += '<button class="proj-menu-item" data-action="archive" data-id="' + p.id + '">' + (p.status === 'archived' ? 'Unarchive' : 'Archive') + '</button>';
+      html += '<button class="proj-menu-item danger" data-action="delete" data-id="' + p.id + '">Delete</button>';
+      html += '</div>';
+      html += '<div class="proj-card-name" data-name-id="' + p.id + '"><span class="proj-card-domain" style="background:' + p.color + '"></span>' + escapeHtml(p.name) + '</div>';
+      html += '<div class="proj-card-meta">' + (p.datasetKeys ? p.datasetKeys.length : 0) + ' datasets &middot; ' + domainLabel(p.domain) + '<br>Modified ' + fmtDate(p.updatedAt) + ' &middot; ' + statusLabel + '</div>';
+      html += '<div class="proj-card-score">Score ' + (p.avgScore || 0) + '</div>';
+      html += '</div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  function escapeHtml(s) {
+    var div = document.createElement('div');
+    div.textContent = s == null ? '' : String(s);
+    return div.innerHTML;
+  }
+
+  function renderActiveSection() {
+    var nameEl = document.getElementById('proj-active-name');
+    var metaEl = document.getElementById('proj-active-meta');
+    if (!nameEl || !metaEl) return;
+    var proj = window._activeProjectId ? ProjectEngine.getAll().find(function(p){ return p.id === window._activeProjectId; }) : null;
+    if (proj) {
+      nameEl.textContent = proj.name;
+      metaEl.innerHTML = domainLabel(proj.domain) + ' &middot; ' + (proj.datasetKeys ? proj.datasetKeys.length : 0) + ' datasets<br>Modified ' + fmtDate(proj.updatedAt);
+    } else {
+      nameEl.textContent = 'No Project Active';
+      metaEl.textContent = 'Drop files to start, or open a project below.';
+    }
+  }
+
+  async function refreshStorageBar() {
+    var textEl = document.getElementById('proj-storage-text');
+    var fillEl = document.getElementById('proj-storage-fill');
+    if (!textEl) return;
+    try {
+      var usage = await OPFSEngine.getUsage();
+      if (usage) {
+        textEl.textContent = 'Using ' + usage.usedMB.toFixed(1) + ' MB of ' + usage.quotaMB.toFixed(0) + ' MB browser storage';
+        if (fillEl) fillEl.style.width = Math.min(100, usage.pct || 0) + '%';
+      } else {
+        textEl.textContent = 'Storage usage unavailable';
+      }
+    } catch(e) {
+      textEl.textContent = 'Storage usage unavailable';
+    }
+  }
+
+  async function openProject(projectId) {
+    var proj = ProjectEngine.getAll().find(function(p){ return p.id === projectId; });
+    if (!proj) return;
+    if (!window.state) window.state = {};
+    if (!window.state.datasets) window.state.datasets = [];
+    var restored = 0;
+    for (var i = 0; i < (proj.datasetKeys || []).length; i++) {
+      var key = proj.datasetKeys[i];
+      try {
+        var data = await OPFSEngine.loadDataset(key);
+        if (data) {
+          var ds = {
+            id: 'ds-proj-' + Date.now() + '-' + Math.random().toString(36).slice(2,6),
+            name: data.name,
+            columns: data.columns,
+            rows: data.rows,
+            findings: [],
+            score: 0,
+            columnStats: []
+          };
+          window.state.datasets.push(ds);
+          window.state.activeDatasetId = ds.id;
+          document.dispatchEvent(new CustomEvent('dataglow:dataset-loaded', { detail: { dataset: ds } }));
+          restored++;
+        }
+      } catch(e) {}
+    }
+    window._activeProjectId = projectId;
+    if (window.showToast) window.showToast('Project \'' + proj.name + '\' loaded - ' + restored + ' datasets restored', 'success');
+    if (window.LevelSystem && window.LevelSystem.addXP) window.LevelSystem.addXP('open_project', 10);
+    renderActiveSection();
+    closePanel();
+  }
+
+  async function saveCurrentAsProject(name, domain) {
+    var proj;
+    if (window._activeProjectId) {
+      proj = ProjectEngine.getAll().find(function(p){ return p.id === window._activeProjectId; });
+    }
+    if (!proj) {
+      proj = await ProjectEngine.createProject(name || 'Untitled Project', domain || 'general');
+      window._activeProjectId = proj.id;
+    }
+    await ProjectEngine.saveCurrentSession(proj.id);
+    renderProjectGrid();
+    renderActiveSection();
+    refreshStorageBar();
+    return proj;
+  }
+
+  function openPanel() {
+    var panel = document.getElementById('projects-panel');
+    if (!panel) return;
+    panel.classList.add('open');
+    ProjectEngine.init().then(function(){
+      renderProjectGrid();
+      renderActiveSection();
+      refreshStorageBar();
+    });
+  }
+
+  function closePanel() {
+    var panel = document.getElementById('projects-panel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    closeAllMenus();
+    var form = document.getElementById('proj-new-form');
+    if (form) form.classList.remove('open');
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    wireUp();
+  });
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(wireUp, 0);
+  }
+
+  function wireUp() {
+    var triggerBtn = document.getElementById('projects-trigger-btn');
+    if (triggerBtn && !triggerBtn._wired) {
+      triggerBtn._wired = true;
+      triggerBtn.addEventListener('click', function(){
+        openPanel();
+      });
+    }
+
+    var closeBtn = document.getElementById('proj-panel-close-btn');
+    if (closeBtn && !closeBtn._wired) {
+      closeBtn._wired = true;
+      closeBtn.addEventListener('click', function(){
+        closePanel();
+      });
+    }
+
+    var newBtn = document.getElementById('proj-new-btn');
+    if (newBtn && !newBtn._wired) {
+      newBtn._wired = true;
+      newBtn.addEventListener('click', function(){
+        var form = document.getElementById('proj-new-form');
+        if (form) form.classList.toggle('open');
+      });
+    }
+
+    var confirmBtn = document.getElementById('proj-confirm-btn');
+    if (confirmBtn && !confirmBtn._wired) {
+      confirmBtn._wired = true;
+      confirmBtn.addEventListener('click', async function(){
+        var nameInput = document.getElementById('proj-name-input');
+        var domainSelect = document.getElementById('proj-domain-select');
+        var name = (nameInput && nameInput.value || '').trim();
+        if (!name) {
+          if (window.showToast) window.showToast('Enter a project name first', 'warn');
+          return;
+        }
+        var domain = domainSelect ? domainSelect.value : 'general';
+        var proj = await ProjectEngine.createProject(name, domain);
+        window._activeProjectId = proj.id;
+        if (nameInput) nameInput.value = '';
+        var form = document.getElementById('proj-new-form');
+        if (form) form.classList.remove('open');
+        renderProjectGrid();
+        renderActiveSection();
+        refreshStorageBar();
+        if (window.showToast) window.showToast('Project created. Drop files to begin.', 'success');
+        closePanel();
+      });
+    }
+
+    var saveBtn = document.getElementById('proj-save-btn');
+    if (saveBtn && !saveBtn._wired) {
+      saveBtn._wired = true;
+      saveBtn.addEventListener('click', async function(){
+        if (window._activeProjectId) {
+          await saveCurrentAsProject();
+          if (window.showToast) window.showToast('Project saved', 'success');
+        } else {
+          var form = document.getElementById('proj-new-form');
+          if (form) form.classList.add('open');
+        }
+      });
+    }
+
+    var addFilesBtn = document.getElementById('proj-add-files-btn');
+    if (addFilesBtn && !addFilesBtn._wired) {
+      addFilesBtn._wired = true;
+      addFilesBtn.addEventListener('click', function(){
+        if (!window._activeProjectId) {
+          if (window.showToast) window.showToast('Open or create a project first', 'warn');
+          return;
+        }
+        var input = document.getElementById('proj-file-input');
+        if (input) input.click();
+      });
+    }
+
+    var fileInput = document.getElementById('proj-file-input');
+    if (fileInput && !fileInput._wired) {
+      fileInput._wired = true;
+      fileInput.addEventListener('change', function(e){
+        var files = e.target.files;
+        if (!files || !files.length) return;
+        if (typeof window.handleFile === 'function') {
+          for (var i = 0; i < files.length; i++) {
+            window.handleFile(files[i]);
+          }
+        } else {
+          if (window.showToast) window.showToast('Drag files onto the drop zone to add them to this project.', 'info');
+        }
+        fileInput.value = '';
+      });
+    }
+
+    var closeSessionBtn = document.getElementById('proj-close-session-btn');
+    if (closeSessionBtn && !closeSessionBtn._wired) {
+      closeSessionBtn._wired = true;
+      closeSessionBtn.addEventListener('click', function(){
+        window._activeProjectId = null;
+        if (window.state) window.state.datasets = [];
+        renderActiveSection();
+        if (window.showToast) window.showToast('Project closed', 'info');
+        closePanel();
+      });
+    }
+
+    var grid = document.getElementById('proj-grid');
+    if (grid && !grid._wired) {
+      grid._wired = true;
+      grid.addEventListener('click', async function(e){
+        var menuBtn = e.target.closest('.proj-card-menu');
+        if (menuBtn) {
+          e.stopPropagation();
+          var id = menuBtn.getAttribute('data-menu-id');
+          var dropdown = document.getElementById('proj-menu-' + id);
+          var wasOpen = dropdown && dropdown.classList.contains('open');
+          closeAllMenus();
+          if (dropdown && !wasOpen) dropdown.classList.add('open');
+          return;
+        }
+        var menuItem = e.target.closest('.proj-menu-item');
+        if (menuItem) {
+          e.stopPropagation();
+          var action = menuItem.getAttribute('data-action');
+          var pid = menuItem.getAttribute('data-id');
+          closeAllMenus();
+          if (action === 'open') {
+            await openProject(pid);
+          } else if (action === 'rename') {
+            startRename(pid);
+          } else if (action === 'duplicate') {
+            await duplicateProject(pid);
+          } else if (action === 'archive') {
+            await toggleArchive(pid);
+          } else if (action === 'delete') {
+            await deleteProjectConfirm(pid);
+          }
+          return;
+        }
+        var nameDiv = e.target.closest('.proj-card-name');
+        if (nameDiv && nameDiv.tagName !== 'INPUT') {
+          var nid = nameDiv.getAttribute('data-name-id');
+          if (nid) startRename(nid);
+          return;
+        }
+        var card = e.target.closest('.proj-card');
+        if (card) {
+          var cid = card.getAttribute('data-id');
+          if (cid) await openProject(cid);
+        }
+      });
+    }
+
+    document.addEventListener('click', function(e){
+      if (!e.target.closest('.proj-card-menu') && !e.target.closest('.proj-card-menu-dropdown')) {
+        closeAllMenus();
+      }
+    });
+
+    document.addEventListener('dataglow:dataset-loaded', function(e){
+      if (window._activeProjectId) {
+        ProjectEngine.saveCurrentSession(window._activeProjectId).then(function(){
+          renderActiveSection();
+          if (document.getElementById('projects-panel') && document.getElementById('projects-panel').classList.contains('open')) {
+            renderProjectGrid();
+            refreshStorageBar();
+          }
+        });
+      }
+    });
+  }
+
+  function startRename(id) {
+    var nameDiv = document.querySelector('.proj-card-name[data-name-id="' + id + '"]');
+    if (!nameDiv) return;
+    var proj = ProjectEngine.getAll().find(function(p){ return p.id === id; });
+    if (!proj) return;
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = proj.name;
+    input.style.width = '100%';
+    input.style.fontSize = '13px';
+    input.style.fontWeight = '800';
+    input.style.fontFamily = 'inherit';
+    input.style.background = 'var(--surface)';
+    input.style.border = '1px solid var(--primary)';
+    input.style.borderRadius = '6px';
+    input.style.padding = '4px 6px';
+    input.style.color = 'var(--text)';
+    input.style.boxSizing = 'border-box';
+    nameDiv.replaceWith(input);
+    input.focus();
+    input.select();
+    function commit() {
+      var newName = input.value.trim() || proj.name;
+      ProjectEngine.updateProject(id, { name: newName }).then(function(){
+        renderProjectGrid();
+        renderActiveSection();
+      });
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    });
+  }
+
+  async function duplicateProject(id) {
+    var proj = ProjectEngine.getAll().find(function(p){ return p.id === id; });
+    if (!proj) return;
+    var copy = JSON.parse(JSON.stringify(proj));
+    copy.id = 'proj_' + Date.now();
+    copy.name = proj.name + ' (Copy)';
+    copy.createdAt = Date.now();
+    copy.updatedAt = Date.now();
+    ProjectEngine._projects.unshift(copy);
+    await ProjectEngine.saveAll();
+    renderProjectGrid();
+    refreshStorageBar();
+    if (window.showToast) window.showToast('Project duplicated', 'success');
+  }
+
+  async function toggleArchive(id) {
+    var proj = ProjectEngine.getAll().find(function(p){ return p.id === id; });
+    if (!proj) return;
+    var newStatus = proj.status === 'archived' ? 'active' : 'archived';
+    await ProjectEngine.updateProject(id, { status: newStatus });
+    renderProjectGrid();
+    if (window.showToast) window.showToast(newStatus === 'archived' ? 'Project archived' : 'Project unarchived', 'info');
+  }
+
+  async function deleteProjectConfirm(id) {
+    var proj = ProjectEngine.getAll().find(function(p){ return p.id === id; });
+    if (!proj) return;
+    await ProjectEngine.deleteProject(id);
+    if (window._activeProjectId === id) window._activeProjectId = null;
+    renderProjectGrid();
+    renderActiveSection();
+    refreshStorageBar();
+    if (window.showToast) window.showToast('Project deleted', 'info');
+  }
+})();
+(function() {
+  'use strict';
+
+  /* ============================================================
+     FEATURE #53 SUPPORT: multi-file batch feedback
+     The core drop zone already sequences multiple files through
+     handleFileDrop/processNextDroppedFile. This wrapper just adds
+     a lightweight batch counter + toast + XP hook when more than
+     one file is dropped at once, matching the requested UX.
+     ============================================================ */
+  (function wireMultiFileBatchFeedback() {
+    var dz = document.getElementById('drop-zone');
+    if (!dz) return;
+    dz.addEventListener('drop', function(e) {
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || files.length < 2) return;
+      var supported = Array.prototype.filter.call(files, function(f) {
+        return /\.(csv|tsv|json|ndjson)$/i.test(f.name);
+      });
+      var total = files.length;
+      if (window.showToast) {
+        window.showToast('Loading ' + total + ' files...', 'info');
+      }
+      setTimeout(function() {
+        if (window.showToast) {
+          window.showToast(total + ' files queued for import', 'success');
+        }
+        if (window.LevelSystem && window.LevelSystem.addXP && total > 2) {
+          window.LevelSystem.addXP('multi_file_load', total * 3);
+        }
+      }, 500);
+    }, true);
+  })();
+
+  /* ============================================================
+     FEATURE #54: Project Notes
+     ============================================================ */
+  var notesTriggerBtn = document.getElementById('notes-trigger-btn');
+  var notesDrawer = document.getElementById('notes-drawer');
+  var notesCloseBtn = document.getElementById('notes-close-btn');
+  var notesTextarea = document.getElementById('notes-textarea');
+  var notesCopyBtn = document.getElementById('notes-copy-btn');
+  var notesClearBtn = document.getElementById('notes-clear-btn');
+  var notesSaveStatus = document.getElementById('notes-save-status');
+  var notesProjectLabel = document.getElementById('notes-project-label');
+
+  var NOTES_PREFIX = '__dg_notes__';
+  var notesSaveTimer = null;
+  var notesStatusTimer = null;
+
+  function currentNotesProjectId() {
+    return (window._activeProjectId) || 'default';
+  }
+
+  function notesStorageKey() {
+    return NOTES_PREFIX + currentNotesProjectId();
+  }
+
+  function notesUpdateProjectLabel() {
+    if (!notesProjectLabel) return;
+    if (window._activeProjectId && window.ProjectEngine && window.ProjectEngine.getAll) {
+      var proj = window.ProjectEngine.getAll().find(function(p) { return p.id === window._activeProjectId; });
+      notesProjectLabel.textContent = proj ? proj.name : 'No active project';
+    } else {
+      notesProjectLabel.textContent = 'No active project';
+    }
+  }
+
+  function notesLoad() {
+    if (!notesTextarea) return;
+    var raw = null;
+    try { raw = sessionStorage.getItem(notesStorageKey()); } catch (e) { raw = null; }
+    notesTextarea.value = raw || '';
+    notesUpdateProjectLabel();
+    notesSetStatusIdle();
+  }
+
+  function notesSetStatusIdle() {
+    if (!notesSaveStatus) return;
+    var raw = null;
+    try { raw = sessionStorage.getItem(notesStorageKey()); } catch (e) { raw = null; }
+    if (raw) {
+      notesSaveStatus.textContent = 'Saved';
+    } else {
+      notesSaveStatus.textContent = '';
+    }
+  }
+
+  function notesSave() {
+    if (!notesTextarea) return;
+    try {
+      sessionStorage.setItem(notesStorageKey(), notesTextarea.value);
+    } catch (e) {}
+    if (notesSaveStatus) {
+      notesSaveStatus.textContent = 'Saved';
+      if (notesStatusTimer) clearTimeout(notesStatusTimer);
+      notesStatusTimer = setTimeout(function() {
+        var now = new Date();
+        var hh = now.getHours();
+        var mm = now.getMinutes();
+        var mmStr = mm < 10 ? '0' + mm : String(mm);
+        if (notesSaveStatus) notesSaveStatus.textContent = 'Last saved ' + hh + ':' + mmStr;
+      }, 2000);
+    }
+  }
+
+  function notesOpen() {
+    if (!notesDrawer) return;
+    notesLoad();
+    notesDrawer.style.right = '0';
+  }
+
+  function notesClose() {
+    if (!notesDrawer) return;
+    notesDrawer.style.right = '-340px';
+  }
+
+  function notesToggle() {
+    if (!notesDrawer) return;
+    var isOpen = notesDrawer.style.right === '0px' || notesDrawer.style.right === '0';
+    if (isOpen) { notesClose(); } else { notesOpen(); }
+  }
+
+  if (notesTriggerBtn) {
+    notesTriggerBtn.addEventListener('click', notesToggle);
+  }
+  if (notesCloseBtn) {
+    notesCloseBtn.addEventListener('click', notesClose);
+  }
+  if (notesTextarea) {
+    notesTextarea.addEventListener('input', function() {
+      if (notesSaveTimer) clearTimeout(notesSaveTimer);
+      notesSaveTimer = setTimeout(notesSave, 1000);
+    });
+  }
+  if (notesCopyBtn) {
+    notesCopyBtn.addEventListener('click', function() {
+      if (!notesTextarea) return;
+      var doCopyFallback = function() {
+        try {
+          notesTextarea.select();
+          document.execCommand('copy');
+        } catch (e) {}
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(notesTextarea.value).catch(doCopyFallback);
+      } else {
+        doCopyFallback();
+      }
+      var originalLabel = notesCopyBtn.textContent;
+      notesCopyBtn.textContent = 'Copied!';
+      setTimeout(function() { notesCopyBtn.textContent = originalLabel; }, 1500);
+    });
+  }
+  if (notesClearBtn) {
+    notesClearBtn.addEventListener('click', function() {
+      if (!notesTextarea) return;
+      notesTextarea.value = '';
+      try { sessionStorage.removeItem(notesStorageKey()); } catch (e) {}
+      if (notesSaveStatus) notesSaveStatus.textContent = '';
+    });
+  }
+
+  document.addEventListener('dataglow:mission-accepted', function() {
+    notesLoad();
+  });
+
+  var __dgLastNotesProjectId = window._activeProjectId || null;
+  setInterval(function() {
+    var cur = window._activeProjectId || null;
+    if (cur !== __dgLastNotesProjectId) {
+      __dgLastNotesProjectId = cur;
+      notesLoad();
+    }
+  }, 1000);
+
+  window.ProjectNotes = {
+    open: notesOpen,
+    close: notesClose,
+    save: notesSave,
+    load: notesLoad
+  };
+
+  /* ============================================================
+     FEATURE #55: Resume Last Project
+     ============================================================ */
+  function dgTimeAgo(ts) {
+    var diff = Date.now() - ts;
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' minute' + (mins > 1 ? 's' : '') + ' ago';
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + ' hour' + (hrs > 1 ? 's' : '') + ' ago';
+    var days = Math.floor(hrs / 24);
+    return days + ' day' + (days > 1 ? 's' : '') + ' ago';
+  }
+
+  function dgResumeOpenProject(projectId) {
+    if (window.ProjectEngine && typeof window.ProjectEngine.openProject === 'function') {
+      window.ProjectEngine.openProject(projectId);
+      return;
+    }
+    if (window.showToast) window.showToast('Restoring project...', 'info');
+    setTimeout(function() {
+      if (window.ProjectEngine && typeof window.ProjectEngine.openProject === 'function') {
+        window.ProjectEngine.openProject(projectId);
+      } else {
+        document.dispatchEvent(new CustomEvent('dataglow:resume-project-request', { detail: { projectId: projectId } }));
+        var projectsBtn = document.getElementById('projects-trigger-btn');
+        if (projectsBtn) projectsBtn.click();
+        setTimeout(function() {
+          var card = document.querySelector('.proj-card[data-id="' + projectId + '"]');
+          if (card) card.click();
+        }, 300);
+      }
+    }, 500);
+  }
+
+  function showResumeBanner() {
+    if (!window.ProjectEngine || typeof window.ProjectEngine.getAll !== 'function') return;
+    var projects = window.ProjectEngine.getAll().filter(function(p) {
+      return p.status !== 'archived' && p.datasetKeys && p.datasetKeys.length > 0;
+    });
+    if (!projects.length) return;
+    var last = projects[0];
+    var dismissed = null;
+    try { dismissed = sessionStorage.getItem('__dg_resume_dismissed_' + last.id + '__'); } catch (e) { dismissed = null; }
+    if (dismissed) return;
+    var banner = document.getElementById('resume-banner');
+    if (!banner) return;
+    var nameEl = document.getElementById('resume-proj-name');
+    var metaEl = document.getElementById('resume-proj-meta');
+    if (nameEl) nameEl.textContent = 'Continue: ' + last.name;
+    if (metaEl) metaEl.textContent = (last.datasetKeys.length) + ' dataset' + (last.datasetKeys.length !== 1 ? 's' : '') + ' - Last modified ' + dgTimeAgo(last.updatedAt);
+    banner.style.display = 'flex';
+    var resumeBtn = document.getElementById('resume-btn');
+    var dismissBtn = document.getElementById('resume-dismiss-btn');
+    if (resumeBtn) {
+      resumeBtn.onclick = function() {
+        banner.style.display = 'none';
+        dgResumeOpenProject(last.id);
+      };
+    }
+    if (dismissBtn) {
+      dismissBtn.onclick = function() {
+        banner.style.display = 'none';
+        try { sessionStorage.setItem('__dg_resume_dismissed_' + last.id + '__', '1'); } catch (e) {}
+      };
+    }
+  }
+
+  setTimeout(showResumeBanner, 1500);
+})();
 })();
 </script>
 <div id="pwa-install-banner">
@@ -24389,6 +25201,62 @@ var InstantInsight = (function () {
     <div class="ppv-stats" id="ppv-stats"></div>
     <button class="ppv-verify-btn" id="ppv-verify-btn">Verify Credential</button>
     <button class="ppv-open-btn" onclick="location.hash=''">Open DataGlow</button>
+  </div>
+</div>
+<div id="projects-panel">
+  <div class="proj-topbar">
+    <span class="proj-logo">Projects</span>
+    <span class="proj-title">DataGlow Projects</span>
+    <button class="proj-new-btn" id="proj-new-btn">+ New Project</button>
+    <button class="proj-close-btn" id="proj-panel-close-btn">Close</button>
+  </div>
+  <div class="proj-layout">
+    <aside class="proj-sidebar">
+      <div class="proj-active-label">Active Project</div>
+      <div id="proj-active-card">
+        <div class="proj-active-card">
+          <div class="proj-active-name" id="proj-active-name">No Project Active</div>
+          <div class="proj-active-meta" id="proj-active-meta">Drop files to start, or open a project below.</div>
+          <button class="proj-sidebar-btn" id="proj-save-btn">Save Session as Project</button>
+          <button class="proj-sidebar-btn" id="proj-add-files-btn">Add Files to Project</button>
+          <button class="proj-sidebar-btn danger" id="proj-close-session-btn">Close Project</button>
+        </div>
+      </div>
+    </aside>
+    <div class="proj-main">
+      <div class="proj-new-form" id="proj-new-form">
+        <input type="text" id="proj-name-input" placeholder="Project name (e.g. Inpatient Claims Q3)" maxlength="60" />
+        <select id="proj-domain-select">
+          <option value="general">General Analytics</option>
+          <option value="healthcare">Healthcare</option>
+          <option value="finance">Finance</option>
+          <option value="hr">HR / People Analytics</option>
+        </select>
+        <button class="proj-new-confirm" id="proj-confirm-btn">Create Project</button>
+      </div>
+      <div class="proj-main-title">Project Library</div>
+      <div class="proj-grid" id="proj-grid"></div>
+    </div>
+  </div>
+  <div class="proj-storage-bar" id="proj-storage-bar">
+    <span id="proj-storage-text">Checking storage...</span>
+    <div class="proj-storage-track"><div class="proj-storage-fill" id="proj-storage-fill" style="width:0%"></div></div>
+  </div>
+</div>
+<input type="file" id="proj-file-input" accept=".csv,.tsv,.json,.parquet" multiple style="display:none" />
+<div id="notes-drawer" style="position:fixed;top:0;right:-340px;width:320px;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:12000;display:flex;flex-direction:column;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);box-shadow:-4px 0 20px rgba(0,0,0,0.1);">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <span style="font-size:10px;font-weight:900;letter-spacing:0.15em;color:var(--primary);text-transform:uppercase;flex:1;">Project Notes</span>
+    <span id="notes-save-status" style="font-size:10px;color:var(--text-muted);"></span>
+    <button id="notes-close-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:0 4px;">x</button>
+  </div>
+  <div style="padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div id="notes-project-label" style="font-size:10px;color:var(--text-muted);">No active project</div>
+  </div>
+  <textarea id="notes-textarea" placeholder="Type your notes here... Analysis observations, questions to investigate, decisions made." style="flex:1;border:none;background:transparent;padding:14px;font-size:13px;color:var(--text);font-family:inherit;resize:none;outline:none;line-height:1.6;"></textarea>
+  <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;">
+    <button id="notes-copy-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text);cursor:pointer;font-family:inherit;">Copy</button>
+    <button id="notes-clear-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text-muted);cursor:pointer;font-family:inherit;">Clear</button>
   </div>
 </div>
 </body>
