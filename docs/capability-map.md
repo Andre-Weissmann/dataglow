@@ -569,3 +569,21 @@ The question-first analysis layer: DataGlow generates 3–7 contextually relevan
 - **Symbol:** `CanvasGrid.mount(containerEl, dataset, opts)`
 - **What it does:** Pure HTML5 Canvas grid renderer built to replace the DOM grid at scale — no per-cell DOM nodes, no React, zero dependencies. Renders 1M+ rows at 60fps via virtual scrolling (only the visible ~20–40 rows are drawn; scroll position determines what's redrawn). Sticky header canvas, row warning/error stripes, column health dots, and click-to-select / double-click-to-rename behavior mirror the existing DOM grid so it's a drop-in upgrade path, not a second grid concept.
 - **Platforms:** browser, desktop, mobile
+
+### Findings Rail (PR AU)
+- **File:** `js/dashboard/findings-rail.js`
+- **Symbol:** `FindingsRail.render(dataset, containerEl)`, `FindingsRail.clear(containerEl)`
+- **What it does:** Sits above the KPI cards in the dashboard view and produces 3–5 ranked, plain-English insight cards from the dataset's existing validation findings + stats — each with a context-anchored headline (anomaly-first when triggered), a "why this matters" sentence, a root-cause decomposition when an anomaly is present, a suggested next step, a provenance tag (which column/rows), and a JSON export in a `<details>` tag for agent consumption. Zero external dependencies; all synchronous over data already in memory.
+- **Platforms:** browser, desktop, mobile
+
+### Natural Language to Everything (PR AH)
+- **File:** `js/nl/nl-engine.js`
+- **Symbol:** `NLEngine.ask(question, dataset)`, `NLEngine.getSuggestions(dataset)`
+- **What it does:** Converts plain-English questions into deterministic DuckDB-style queries over the in-memory dataset and renders the answer as a sentence. Zero LLM, zero server — pure keyword-pattern matching + aggregation logic, so it never hallucinates: it either runs a real query and returns the exact answer, or explicitly says it didn't understand the question. `getSuggestions` surfaces 4 example questions tailored to the loaded dataset.
+- **Platforms:** browser, desktop, mobile
+
+### Real SQL Engine (PR AO)
+- **File:** `js/sql/sql-engine.js`
+- **Symbol:** `SQLEngine.init(containerEl, getDatasets, opts)`
+- **What it does:** Powers the SQL Mode overlay with real DuckDB-WASM execution (not a mock) — each loaded file becomes its own queryable table. Includes a schema sidebar (table/column names + types), smart autocomplete (columns, table names, SQL keywords, functions), navigable query history (last 20, ↑↓), an EXPLAIN plan toggle, plain-English error translation, CSV export of results, and an AI-free heuristic suggestion when a query returns 0 rows.
+- **Platforms:** browser, desktop, mobile

@@ -4326,6 +4326,63 @@
           "name": "CanvasGrid"
         }
       ]
+    },
+    {
+      "id": "findings-rail",
+      "area": "Validation & data quality",
+      "name": "Findings Rail (PR AU — ranked, plain-English insight cards above the dashboard KPI row)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/dashboard/findings-rail.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/dashboard/findings-rail.js",
+          "name": "FindingsRail"
+        }
+      ]
+    },
+    {
+      "id": "nl-engine",
+      "area": "Query & analysis",
+      "name": "Natural Language to Everything (PR AH — plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/nl/nl-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/nl/nl-engine.js",
+          "name": "NLEngine"
+        }
+      ]
+    },
+    {
+      "id": "sql-engine",
+      "area": "Query & analysis",
+      "name": "Real SQL Engine (PR AO — SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/sql/sql-engine.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/sql/sql-engine.js",
+          "name": "SQLEngine"
+        }
+      ]
     }
   ]
 }
