@@ -22797,12 +22797,10 @@ var InstantInsight = (function () {
 
     if (dsId != null) markSeen(dsId);
 
-    if (typeof window._dgSpotlight === 'function') {
-      window._dgSpotlight = function () {};
-    }
   }
 
   function init() {
+    window._dgSpotlight = function () {};
     var acceptBtn = $('mb-accept-btn');
     if (acceptBtn) acceptBtn.addEventListener('click', acceptMission);
 
