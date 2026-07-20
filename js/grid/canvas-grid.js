@@ -24,7 +24,7 @@
  *   instance.scrollToRow(idx)
  */
 
-var CanvasGrid = (function () {
+export var CanvasGrid = (function () {
   'use strict';
 
   // ── Design tokens (keep in sync with CSS vars) ────────────────────────────

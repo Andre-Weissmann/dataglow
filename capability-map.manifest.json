@@ -4307,6 +4307,25 @@
           "name": "DashboardEngine"
         }
       ]
+    },
+    {
+      "id": "canvas-grid",
+      "area": "Data grid & editing",
+      "name": "High-Performance Canvas Grid (PR AO — pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/grid/canvas-grid.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/grid/canvas-grid.js",
+          "name": "CanvasGrid"
+        }
+      ]
     }
   ]
 }

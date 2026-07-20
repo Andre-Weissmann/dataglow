@@ -563,3 +563,9 @@ The question-first analysis layer: DataGlow generates 3–7 contextually relevan
 - **Symbol:** `DashboardEngine`
 - **What it does:** Research-grounded auto-dashboard: gates on data readiness (null rates, duplicates, row count, type consistency) before rendering, then lays out 3–4 KPI cards in a top-row Z-pattern, each with the three-in-one anatomy (headline + sparkline + delta badge). Uses a fixed RAG color system (green/amber/red, never inverted) and caps at 6 charts total, bar/line only (no pie, no 3D, no dual-axis, per its own documented layout rules). Outliers are flagged, never silently removed. CSV export is surfaced front and center.
 - **Platforms:** browser, desktop, mobile
+
+### High-Performance Canvas Grid (PR AO)
+- **File:** `js/grid/canvas-grid.js`
+- **Symbol:** `CanvasGrid.mount(containerEl, dataset, opts)`
+- **What it does:** Pure HTML5 Canvas grid renderer built to replace the DOM grid at scale — no per-cell DOM nodes, no React, zero dependencies. Renders 1M+ rows at 60fps via virtual scrolling (only the visible ~20–40 rows are drawn; scroll position determines what's redrawn). Sticky header canvas, row warning/error stripes, column health dots, and click-to-select / double-click-to-rename behavior mirror the existing DOM grid so it's a drop-in upgrade path, not a second grid concept.
+- **Platforms:** browser, desktop, mobile
