@@ -3957,6 +3957,168 @@
 .proj-empty-icon { font-size:36px; margin-bottom:12px; }
 .proj-empty-text { font-size:14px; }
 
+/* ================= UX 2.0: Analyze Sidebar Layout ================= */
+#analyze-view {
+  display: flex !important;
+  flex-direction: row !important;
+  overflow: hidden;
+}
+
+#analyze-sidebar {
+  width: 200px;
+  min-width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px 0;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+#analyze-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Hide the old pills bar - sidebar replaces it */
+#analyze-pills-bar {
+  display: none !important;
+}
+
+/* Sidebar section labels */
+.sidebar-section-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 14px 16px 6px;
+  margin-top: 4px;
+}
+.sidebar-section-label:first-child {
+  margin-top: 0;
+  padding-top: 8px;
+}
+
+/* Sidebar nav items */
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  border-left: 2px solid transparent;
+  transition: background 0.12s, color 0.12s;
+  line-height: 1.2;
+}
+.sidebar-nav-item:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+.sidebar-nav-item.active {
+  background: var(--surface-alt);
+  color: var(--primary);
+  border-left-color: var(--primary);
+  font-weight: 700;
+}
+.sidebar-nav-item .sni-icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.sidebar-nav-item .sni-label {
+  flex: 1;
+}
+.sidebar-nav-item .sni-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.sidebar-nav-item.active .sni-badge {
+  background: rgba(79,152,163,0.12);
+  color: var(--primary);
+  border-color: transparent;
+}
+
+/* Questions prompt area at bottom of sidebar */
+#sidebar-questions-prompt {
+  margin-top: auto;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+#sidebar-ask-btn {
+  width: 100%;
+  background: rgba(79,152,163,0.1);
+  border: 1px solid rgba(79,152,163,0.3);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+#sidebar-ask-btn:hover {
+  background: rgba(79,152,163,0.18);
+}
+#sidebar-ask-count {
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-left: auto;
+}
+
+/* Divider between sections */
+.sidebar-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 12px;
+}
+
+/* Mobile: collapse sidebar to icon strip */
+@media (max-width: 700px) {
+  #analyze-sidebar {
+    width: 48px;
+    min-width: 48px;
+    padding: 8px 0;
+  }
+  .sidebar-section-label { display: none; }
+  .sidebar-divider { margin: 4px 8px; }
+  .sni-label { display: none; }
+  .sni-badge { display: none; }
+  .sidebar-nav-item { padding: 10px; justify-content: center; }
+  .sni-icon { font-size: 16px; width: auto; }
+  #sidebar-questions-prompt { padding: 8px 4px; }
+  #sidebar-ask-btn { justify-content: center; padding: 8px; }
+  #sidebar-ask-btn span:not(.sni-icon) { display: none; }
+  #sidebar-ask-count { display: none; }
+}
+
 </style>
 </head>
 <body>
@@ -4196,6 +4358,85 @@
 
       <!-- ANALYZE TAB -->
       <div id="analyze-view" class="view hidden">
+        <nav id="analyze-sidebar">
+
+          <div class="sidebar-section-label">Explore</div>
+          <button class="sidebar-nav-item active" data-panel="charts-view">
+            <span class="sni-icon">&#128200;</span>
+            <span class="sni-label">Charts</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="dashboard-view">
+            <span class="sni-icon">&#9783;</span>
+            <span class="sni-label">Dashboard</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="sql-view">
+            <span class="sni-icon">&#128196;</span>
+            <span class="sni-label">SQL</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="python-view">
+            <span class="sni-icon">&#128013;</span>
+            <span class="sni-label">Python</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="r-view">
+            <span class="sni-icon">&#128202;</span>
+            <span class="sni-label">R</span>
+            <span class="sni-badge">stats</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="excel-view">
+            <span class="sni-icon">&#128218;</span>
+            <span class="sni-label">Excel</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="stats-view">
+            <span class="sni-icon">&#8767;</span>
+            <span class="sni-label">Statistics</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="arena-view">
+            <span class="sni-icon">&#9878;</span>
+            <span class="sni-label">Arena</span>
+            <span class="sni-badge">AI</span>
+          </button>
+
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-section-label">Validate</div>
+          <button class="sidebar-nav-item" data-panel="review-view">
+            <span class="sni-icon">&#10003;</span>
+            <span class="sni-label">Peer Review</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-witness-btn">
+            <span class="sni-icon">&#128274;</span>
+            <span class="sni-label">Witness</span>
+            <span class="sni-badge">PHI</span>
+          </button>
+
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-section-label">Share</div>
+          <button class="sidebar-nav-item" data-panel="cases-view">
+            <span class="sni-icon">&#128203;</span>
+            <span class="sni-label">Case Library</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-osce-btn">
+            <span class="sni-icon">&#127891;</span>
+            <span class="sni-label">OSCE Exam</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-story-btn">
+            <span class="sni-icon">&#128196;</span>
+            <span class="sni-label">Narrative</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-passport-btn">
+            <span class="sni-icon">&#127981;</span>
+            <span class="sni-label">Passport</span>
+          </button>
+
+          <div id="sidebar-questions-prompt">
+            <button id="sidebar-ask-btn">
+              <span class="sni-icon">&#10067;</span>
+              <span>Questions</span>
+              <span id="sidebar-ask-count">0</span>
+            </button>
+          </div>
+
+        </nav>
+
         <!-- Analyze pills: Charts · Dashboard · SQL · Python -->
         <div id="analyze-pills-bar">
           <button class="analyze-pill active" data-panel="charts-view">Charts</button>
@@ -4208,7 +4449,8 @@
           <button class="analyze-pill" data-panel="arena-view">Arena</button>
           <button class="analyze-pill" data-panel="cases-view">Cases</button>
           <button class="analyze-pill" data-panel="review-view">Review</button>
-        </div>
+        </div><div id="analyze-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0;">
+        
         <!-- Panels -->
         <div id="charts-view" class="analyze-panel active">
         <div id="chart-grid" class="chart-grid"></div>
@@ -4415,7 +4657,8 @@
           </div>
         </div>
       </div>
-      </div>
+      
+        </div></div>
 
       <!-- SHARE TAB -->
       <div id="share-view" class="view hidden">
@@ -24841,6 +25084,90 @@ var InstantInsight = (function () {
 
   setTimeout(showResumeBanner, 1500);
 })();
+})();
+
+// ================= UX 2.0: Analyze Sidebar Layout =================
+(function () {
+  function ready(fn) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fn);
+    } else {
+      fn();
+    }
+  }
+
+  ready(function () {
+    // Mirror activateAnalyzePanel - update sidebar active state
+    function updateSidebarActive(panelId) {
+      document.querySelectorAll('.sidebar-nav-item[data-panel]').forEach(function (btn) {
+        btn.classList.toggle('active', btn.dataset.panel === panelId);
+      });
+    }
+
+    // Wire sidebar nav items with data-panel by clicking the matching
+    // hidden analyze-pill, which already triggers activateAnalyzePanel.
+    document.querySelectorAll('.sidebar-nav-item[data-panel]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var panelId = btn.dataset.panel;
+        var pill = document.querySelector('.analyze-pill[data-panel="' + panelId + '"]');
+        if (pill) {
+          pill.click();
+        }
+        updateSidebarActive(panelId);
+      });
+    });
+
+    // Keep sidebar active state in sync whenever the underlying pills change.
+    document.querySelectorAll('.analyze-pill[data-panel]').forEach(function (pill) {
+      pill.addEventListener('click', function () {
+        updateSidebarActive(pill.dataset.panel);
+      });
+    });
+
+    // Wire sidebar buttons WITHOUT data-panel to their respective trigger buttons.
+    var proxyMap = {
+      'sidebar-witness-btn': 'witness-trigger-btn',
+      'sidebar-osce-btn': 'osce-trigger-btn',
+      'sidebar-story-btn': 'story-trigger-btn',
+      'sidebar-passport-btn': 'passport-trigger-btn'
+    };
+    Object.keys(proxyMap).forEach(function (sidebarId) {
+      var sidebarBtn = document.getElementById(sidebarId);
+      var targetBtn = document.getElementById(proxyMap[sidebarId]);
+      if (sidebarBtn && targetBtn) {
+        sidebarBtn.addEventListener('click', function () {
+          targetBtn.click();
+        });
+      }
+    });
+
+    // Wire #sidebar-ask-btn to click #questions-trigger-btn
+    var askBtn = document.getElementById('sidebar-ask-btn');
+    var questionsBtn = document.getElementById('questions-trigger-btn');
+    if (askBtn && questionsBtn) {
+      askBtn.addEventListener('click', function () {
+        questionsBtn.click();
+      });
+    }
+
+    // Update #sidebar-ask-count whenever QuestionPrompter generates questions.
+    document.addEventListener('dataglow:dataset-loaded', function () {
+      setTimeout(function () {
+        var list = document.getElementById('questions-list');
+        var count = list ? list.querySelectorAll('.qp-card').length : 0;
+        var badge = document.getElementById('sidebar-ask-count');
+        if (badge) {
+          badge.textContent = String(count);
+        }
+      }, 1000);
+    });
+
+    // Initialize sidebar active state from whichever pill is currently active.
+    var initialPill = document.querySelector('.analyze-pill.active');
+    if (initialPill) {
+      updateSidebarActive(initialPill.dataset.panel);
+    }
+  });
 })();
 </script>
 <div id="pwa-install-banner">
