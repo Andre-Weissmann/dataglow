@@ -4119,6 +4119,272 @@
   #sidebar-ask-count { display: none; }
 }
 
+/* ---- Feature #34: Browser LLM status chip ---- */
+#llm-status-chip {
+  position: fixed;
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 500;
+  white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  transition: opacity 0.3s;
+}
+#llm-status-chip.hidden { display: none !important; }
+#llm-status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+}
+#llm-status-chip.ready #llm-status-dot { background: var(--success); }
+#llm-progress-bar {
+  width: 80px; height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+#llm-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 0.3s;
+}
+#llm-status-chip.ready #llm-progress-bar { display: none; }
+#llm-trigger-btn { font-size: 15px; line-height: 1; }
+
+/* ---- Feature M2: Mirror (Shadow Analyst) ---- */
+#mirror-feed {
+  position: fixed;
+  bottom: 56px;
+  left: 16px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 400;
+  pointer-events: none;
+}
+.mirror-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  pointer-events: all;
+  animation: mirror-in 0.25s ease;
+  position: relative;
+}
+@keyframes mirror-in {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.mirror-card-fade {
+  animation: mirror-out 0.4s ease forwards;
+}
+@keyframes mirror-out {
+  to { opacity: 0; transform: translateX(-16px); }
+}
+.mirror-card-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+.mirror-card-text {
+  line-height: 1.4;
+  color: var(--text);
+}
+.mirror-card-dismiss {
+  position: absolute;
+  top: 6px; right: 8px;
+  background: none; border: none;
+  font-size: 12px; color: var(--text-muted);
+  cursor: pointer; padding: 2px;
+  font-family: inherit;
+}
+@media (max-width: 700px) {
+  #mirror-feed { display: none; }
+}
+
+/* ==========================================================
+   MOBILE UX FIX (Batch 10) - Steve Jobs philosophy:
+   ONE thing on screen at a time on mobile.
+   ========================================================== */
+@media (max-width: 700px) {
+  /* Hide the icon strip completely */
+  #analyze-sidebar { display: none !important; }
+
+  /* Mobile tools trigger bar at top of analyze content */
+  #analyze-tools-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    gap: 10px;
+  }
+  #analyze-tools-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #analyze-active-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-left: auto;
+  }
+
+  /* Bottom sheet overlay */
+  #tools-sheet-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 15000;
+  }
+  #tools-sheet-overlay.open { display: block; }
+
+  /* Bottom sheet panel */
+  #tools-sheet {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    max-height: 80vh;
+    background: var(--background);
+    border-radius: 18px 18px 0 0;
+    z-index: 15001;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    overflow: hidden;
+  }
+  #tools-sheet-overlay.open #tools-sheet { transform: translateY(0); }
+
+  .tools-sheet-handle {
+    width: 36px; height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 12px auto 0;
+    flex-shrink: 0;
+  }
+  .tools-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tools-sheet-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .tools-sheet-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-family: inherit;
+  }
+  .tools-sheet-body {
+    overflow-y: auto;
+    padding: 8px 0 32px;
+    flex: 1;
+  }
+
+  /* Full-width items in the sheet */
+  #tools-sheet .sidebar-section-label { display: block; }
+  #tools-sheet .sidebar-nav-item {
+    padding: 14px 24px;
+    font-size: 15px;
+    border-left: none;
+    border-bottom: 1px solid var(--border);
+  }
+  #tools-sheet .sidebar-nav-item .sni-label { display: block; }
+  #tools-sheet .sidebar-nav-item .sni-badge { display: inline; }
+  #tools-sheet .sidebar-divider { margin: 4px 20px; }
+
+  /* Hide non-essential agent bar buttons on mobile */
+  #live-feed-btn,
+  #skills-trigger-btn,
+  #badges-trigger-btn,
+  #osce-trigger-btn,
+  #takehome-trigger-btn,
+  #story-trigger-btn,
+  #feature-settings-btn {
+    display: none !important;
+  }
+
+  /* Make remaining buttons slightly larger touch targets */
+  #agent-bar-right .agent-bar-btn,
+  #agent-bar-right button {
+    min-height: 36px;
+    min-width: 36px;
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  /* More button */
+  #agent-bar-more-btn {
+    display: flex !important;
+  }
+
+  #notes-drawer,
+  #questions-drawer {
+    width: 100% !important;
+    left: 0 !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+    border-radius: 18px 18px 0 0;
+    top: auto !important;
+    bottom: 0 !important;
+    height: 85vh !important;
+    max-height: 85vh !important;
+  }
+
+  /* Projects panel already full-screen (position:fixed; inset:0) - good */
+  /* Just ensure it has proper safe area padding at bottom */
+  #projects-panel {
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+  }
+}
+
+@media (min-width: 701px) {
+  /* Hide mobile-only elements on desktop */
+  #analyze-tools-bar { display: none; }
+  #tools-sheet-overlay { display: none !important; }
+  #agent-bar-more-btn { display: none !important; }
+}
+
 </style>
 </head>
 <body>
@@ -4450,6 +4716,23 @@
           <button class="analyze-pill" data-panel="cases-view">Cases</button>
           <button class="analyze-pill" data-panel="review-view">Review</button>
         </div><div id="analyze-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0;">
+<div id="analyze-tools-bar">
+  <button id="analyze-tools-trigger">&#9776; Tools</button>
+  <span id="analyze-active-label">Charts</span>
+</div>
+<div id="tools-sheet-overlay">
+  <div id="tools-sheet">
+    <div class="tools-sheet-handle"></div>
+    <div class="tools-sheet-header">
+      <span class="tools-sheet-title">Analyze Tools</span>
+      <button class="tools-sheet-close" id="tools-sheet-close-btn">&#x2715;</button>
+    </div>
+    <div class="tools-sheet-body" id="tools-sheet-body">
+      <!-- Cloned from sidebar on init -->
+    </div>
+  </div>
+</div>
+
         
         <!-- Panels -->
         <div id="charts-view" class="analyze-panel active">
@@ -4777,6 +5060,8 @@
         <button class="skills-trigger-btn" id="story-trigger-btn" title="Generate Portfolio Narrative">Story</button>
         <button class="skills-trigger-btn" id="projects-trigger-btn" title="Your DataGlow Projects">Projects</button>
 <button class="skills-trigger-btn" id="notes-trigger-btn" title="Project Notes">Notes</button>
+<button id="llm-trigger-btn" title="Browser AI">&#129504;</button>
+<button id="agent-bar-more-btn" title="More tools">&#8943;</button>
 <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -25170,6 +25455,602 @@ var InstantInsight = (function () {
       updateSidebarActive(initialPill.dataset.panel);
     }
   });
+
+/* ---- from js/features/browser-llm.js ---- */
+/* ---- Feature #34: Browser LLM Engine (WebLLM / MLC-AI) ---- */
+var BrowserLLM = (function() {
+  'use strict';
+
+  var _engine = null;
+  var _loading = false;
+  var _ready = false;
+  var _queue = [];
+  var _modelId = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
+
+  var WEBLLM_CDN = 'https://esm.run/@mlc-ai/web-llm@0.2.73';
+
+  var _progressCallbacks = [];
+
+  function onProgress(cb) { _progressCallbacks.push(cb); }
+
+  function _emitProgress(p) {
+    _progressCallbacks.forEach(function(cb) { try { cb(p); } catch(e){} });
+  }
+
+  function isWebGPUSupported() {
+    return !!(navigator.gpu);
+  }
+
+  function _dynamicImport(url) {
+    return new Promise(function(resolve, reject) {
+      var script = document.createElement('script');
+      script.type = 'module';
+      var blob = new Blob([
+        'import * as m from "' + url + '"; window.__webllm_module__ = m;'
+      ], { type: 'application/javascript' });
+      var blobUrl = URL.createObjectURL(blob);
+      script.src = blobUrl;
+      script.onload = function() { URL.revokeObjectURL(blobUrl); resolve(window.__webllm_module__); };
+      script.onerror = function(e) { URL.revokeObjectURL(blobUrl); reject(e); };
+      document.head.appendChild(script);
+    });
+  }
+
+  function loadEngine() {
+    if (_ready) return Promise.resolve(_engine);
+    if (_loading) {
+      return new Promise(function(res, rej) { _queue.push({ res: res, rej: rej }); });
+    }
+    _loading = true;
+
+    if (!isWebGPUSupported()) {
+      _loading = false;
+      var err = new Error('WebGPU not supported in this browser');
+      _queue.forEach(function(q) { q.rej(err); });
+      _queue = [];
+      return Promise.reject(err);
+    }
+
+    return _dynamicImport(WEBLLM_CDN).then(function(webllm) {
+      return webllm.CreateMLCEngine(_modelId, {
+        initProgressCallback: function(progress) {
+          _emitProgress({
+            type: 'loading',
+            text: progress.text || 'Loading model...',
+            progress: progress.progress || 0
+          });
+        }
+      });
+    }).then(function(engine) {
+      _engine = engine;
+      _ready = true;
+      _loading = false;
+      _emitProgress({ type: 'ready', text: 'Model ready' });
+      _queue.forEach(function(q) { q.res(engine); });
+      _queue = [];
+      return engine;
+    }).catch(function(err) {
+      _loading = false;
+      _queue.forEach(function(q) { q.rej(err); });
+      _queue = [];
+      throw err;
+    });
+  }
+
+  function generate(prompt, opts) {
+    opts = opts || {};
+    return loadEngine().then(function(engine) {
+      var messages = [
+        { role: 'system', content: opts.system || 'You are a helpful data analyst assistant. Be concise.' },
+        { role: 'user', content: prompt }
+      ];
+      return engine.chat.completions.create({
+        messages: messages,
+        max_tokens: opts.maxTokens || 300,
+        temperature: opts.temperature != null ? opts.temperature : 0.3,
+        stream: false
+      });
+    }).then(function(response) {
+      return response.choices[0].message.content;
+    });
+  }
+
+  function generateDataQuestions(ds) {
+    if (!ds || !ds.columns) return Promise.resolve(null);
+    var colNames = ds.columns.map(function(c) { return c.name + '(' + c.type + ')'; }).join(', ');
+    var sampleRow = ds.rows && ds.rows[0] ? ds.rows[0].slice(0,6).join(', ') : 'N/A';
+    var rowCount = ds.rows ? ds.rows.length : 0;
+
+    var prompt = 'Dataset: ' + (ds.name || 'data') + '\n' +
+      'Columns: ' + colNames + '\n' +
+      'Sample row: ' + sampleRow + '\n' +
+      'Row count: ' + rowCount + '\n\n' +
+      'Generate 5 specific, insightful analytical questions a data analyst should ask about this dataset. ' +
+      'Each question should be actionable (answerable with SQL or a chart). ' +
+      'Format as a JSON array of objects with keys: "text" (the question), "category" (TREND/DISTRIBUTION/QUALITY/OUTLIER/CORRELATION), "tool" (SQL/CHARTS/STATS). ' +
+      'Return ONLY the JSON array, no other text.';
+
+    return generate(prompt, { maxTokens: 500, temperature: 0.4 }).then(function(raw) {
+      try {
+        var start = raw.indexOf('[');
+        var end = raw.lastIndexOf(']') + 1;
+        return JSON.parse(raw.slice(start, end));
+      } catch(e) {
+        return null;
+      }
+    });
+  }
+
+  function explainSQLResult(sql, rowCount, colNames) {
+    var prompt = 'SQL query: ' + sql.slice(0, 300) + '\n' +
+      'Result: ' + rowCount + ' rows, columns: ' + colNames.slice(0,5).join(', ') + '\n' +
+      'Explain this result in 1-2 plain English sentences a business stakeholder would understand.';
+    return generate(prompt, { maxTokens: 120, temperature: 0.2 });
+  }
+
+  return {
+    isWebGPUSupported: isWebGPUSupported,
+    isReady: function() { return _ready; },
+    isLoading: function() { return _loading; },
+    onProgress: onProgress,
+    load: loadEngine,
+    generate: generate,
+    generateDataQuestions: generateDataQuestions,
+    explainSQLResult: explainSQLResult
+  };
+})();
+
+window.BrowserLLM = BrowserLLM;
+
+/* ---- from js/features/browser-llm-wiring.js ---- */
+(function() {
+  'use strict';
+
+  BrowserLLM.onProgress(function(p) {
+    var chip = document.getElementById('llm-status-chip');
+    var dot = document.getElementById('llm-status-dot');
+    var txt = document.getElementById('llm-status-text');
+    var fill = document.getElementById('llm-progress-fill');
+
+    if (!chip) return;
+    chip.style.display = 'flex';
+
+    if (p.type === 'loading') {
+      chip.classList.remove('hidden');
+      chip.classList.remove('ready');
+      if (txt) txt.textContent = p.text.slice(0,40);
+      if (fill) fill.style.width = Math.round((p.progress||0)*100) + '%';
+    } else if (p.type === 'ready') {
+      chip.classList.add('ready');
+      if (txt) txt.textContent = 'AI Ready';
+      setTimeout(function() { chip.classList.add('hidden'); }, 3000);
+      var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+      if (ds && window.QuestionPrompter) {
+        BrowserLLM.generateDataQuestions(ds).then(function(qs) {
+          if (qs && qs.length && window.QuestionPrompter) {
+            window._llmQuestions = qs;
+            if (typeof window.showToast === 'function') {
+              window.showToast('AI generated ' + qs.length + ' new questions for your data', 'info');
+            }
+          }
+        }).catch(function() {});
+      }
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    var runBtn = e.target.closest ? e.target.closest('#sql-view-run') : null;
+    if (!runBtn || !BrowserLLM.isReady()) return;
+    setTimeout(function() {
+      var input = document.getElementById('sql-view-input');
+      if (!input || !input.value.trim()) return;
+      var sql = input.value.trim();
+      BrowserLLM.explainSQLResult(sql, 0, []).then(function(explanation) {
+        if (explanation && typeof window.showToast === 'function') window.showToast(explanation, 'info');
+      }).catch(function() {});
+    }, 1500);
+  });
+
+  document.addEventListener('dataglow:dataset-loaded', function() {
+    if (!BrowserLLM.isReady() && !BrowserLLM.isLoading()) {
+      BrowserLLM.load().catch(function(e) {
+        console.warn('BrowserLLM load failed:', e.message);
+      });
+    }
+  }, { once: true });
+
+  function _updateTriggerBtnState() {
+    var btn = document.getElementById('llm-trigger-btn');
+    if (!btn) return;
+    if (BrowserLLM.isReady()) btn.title = 'Browser AI - Ready';
+    else if (BrowserLLM.isLoading()) btn.title = 'Browser AI - Loading...';
+    else btn.title = 'Browser AI - Click to load';
+  }
+
+  BrowserLLM.onProgress(_updateTriggerBtnState);
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest ? e.target.closest('#llm-trigger-btn') : null;
+    if (!btn) return;
+    var chip = document.getElementById('llm-status-chip');
+    if (!chip) return;
+    if (chip.classList.contains('hidden')) {
+      chip.classList.remove('hidden');
+      var txt = document.getElementById('llm-status-text');
+      if (BrowserLLM.isReady()) {
+        chip.classList.add('ready');
+        if (txt) txt.textContent = 'AI Ready';
+        setTimeout(function() { chip.classList.add('hidden'); }, 3000);
+      } else if (BrowserLLM.isLoading()) {
+        if (txt) txt.textContent = 'Loading model...';
+      } else {
+        if (!BrowserLLM.isWebGPUSupported()) {
+          if (txt) txt.textContent = 'WebGPU not supported';
+          setTimeout(function() { chip.classList.add('hidden'); }, 3000);
+        } else {
+          if (txt) txt.textContent = 'Starting AI...';
+          BrowserLLM.load().catch(function(e) {
+            if (txt) txt.textContent = 'AI load failed';
+            console.warn('BrowserLLM load failed:', e.message);
+          });
+        }
+      }
+    } else {
+      chip.classList.add('hidden');
+    }
+  });
+})();
+
+/* ---- from js/features/mirror.js ---- */
+/* ---- Feature M2: Mirror (Shadow Analyst) ---- */
+var DataGlowMirror = (function() {
+  'use strict';
+
+  var MAX_CARDS = 3;
+  var AUTO_DISMISS_MS = 7000;
+  var _cards = [];
+  var _lastAction = null;
+  var _enabled = true;
+
+  var RULE_BASED = {
+    sql_run: [
+      'Query executed. Check if the result shape matches your hypothesis before drawing conclusions.',
+      'Good instinct running that query. Look at the row count vs your expectations.',
+      'SQL ran. If you see unexpected NULLs, check your JOIN conditions.'
+    ],
+    chart_view: [
+      'Charts panel opened. Look for the shape of distribution before checking individual values.',
+      'Visualizing data is step one. What outlier do you see that the average would hide?'
+    ],
+    analyze_switch: [
+      'Switched analysis tools. Each tool reveals a different dimension of the same story.',
+      'Good workflow. Different tools surface different patterns in the same dataset.'
+    ],
+    dataset_load: [
+      'New dataset loaded. First question: what time period does this cover?',
+      'Data landed. Check row count vs what was expected from the source.',
+      'Dataset in. What is the grain of this data - one row per what?'
+    ],
+    peer_review: [
+      'Running peer review. The most important check is whether your assumptions are documented.'
+    ]
+  };
+
+  function getRuleBased(key) {
+    var arr = RULE_BASED[key];
+    if (!arr || !arr.length) return null;
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+
+  function showObservation(label, text) {
+    if (!_enabled) return;
+    var feed = document.getElementById('mirror-feed');
+    if (!feed) return;
+
+    var card = document.createElement('div');
+    card.className = 'mirror-card';
+
+    var lbl = document.createElement('div');
+    lbl.className = 'mirror-card-label';
+    lbl.textContent = 'Mirror';
+
+    var body = document.createElement('div');
+    body.className = 'mirror-card-text';
+    body.textContent = text;
+
+    var dismiss = document.createElement('button');
+    dismiss.className = 'mirror-card-dismiss';
+    dismiss.textContent = String.fromCharCode(215);
+    dismiss.addEventListener('click', function() { removeCard(card); });
+
+    card.appendChild(lbl);
+    card.appendChild(body);
+    card.appendChild(dismiss);
+    feed.appendChild(card);
+    _cards.push(card);
+
+    while (_cards.length > MAX_CARDS) {
+      removeCard(_cards[0]);
+    }
+
+    setTimeout(function() { removeCard(card); }, AUTO_DISMISS_MS);
+
+    if (window.LevelSystem) window.LevelSystem.addXP('mirror_observation', 2);
+  }
+
+  function removeCard(card) {
+    if (!card || !card.parentNode) return;
+    card.classList.add('mirror-card-fade');
+    setTimeout(function() {
+      if (card.parentNode) card.parentNode.removeChild(card);
+      var idx = _cards.indexOf(card);
+      if (idx > -1) _cards.splice(idx, 1);
+    }, 420);
+  }
+
+  function observe(actionKey, context) {
+    if (_lastAction === actionKey) return;
+    _lastAction = actionKey;
+    setTimeout(function() { if (_lastAction === actionKey) _lastAction = null; }, 3000);
+
+    if (window.BrowserLLM && window.BrowserLLM.isReady() && context && context.ds) {
+      var ds = context.ds;
+      var colList = ds.columns ? ds.columns.slice(0,6).map(function(c){return c.name;}).join(', ') : '';
+      var prompt = 'A data analyst just performed action: "' + actionKey.replace(/_/g,' ') + '" on a dataset with columns: ' + colList + '.\n' +
+        'Give one short (max 20 words) insightful observation or question a senior analyst would make. Be specific to the columns if possible. No preamble.';
+
+      window.BrowserLLM.generate(prompt, { maxTokens: 60, temperature: 0.6 })
+        .then(function(text) {
+          if (text && text.trim()) showObservation('Mirror', text.trim());
+          else showObservation('Mirror', getRuleBased(actionKey) || '');
+        })
+        .catch(function() {
+          showObservation('Mirror', getRuleBased(actionKey) || '');
+        });
+    } else {
+      var msg = getRuleBased(actionKey);
+      if (msg) showObservation('Mirror', msg);
+    }
+  }
+
+  function init() {
+    document.addEventListener('click', function(e) {
+      var runBtn = e.target.closest ? e.target.closest('#sql-view-run') : null;
+      if (runBtn) {
+        setTimeout(function() {
+          var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+          observe('sql_run', { ds: ds });
+        }, 800);
+      }
+      var pill = e.target.closest ? e.target.closest('.analyze-pill') : null;
+      if (pill) {
+        var p = pill.dataset.panel;
+        if (p === 'review-view') observe('peer_review', {});
+        else if (p === 'charts-view') observe('chart_view', {});
+        else observe('analyze_switch', {});
+      }
+    });
+
+    document.addEventListener('dataglow:dataset-loaded', function(e) {
+      var ds = e.detail && e.detail.dataset;
+      setTimeout(function() { observe('dataset_load', { ds: ds }); }, 2000);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  window.DataGlowMirror = { observe: observe, show: showObservation };
+  return { observe: observe, show: showObservation };
+})();
+
+(function() {
+  'use strict';
+  function initMobileToolsSheet() {
+    var trigger = document.getElementById('analyze-tools-trigger');
+    var overlay = document.getElementById('tools-sheet-overlay');
+    var closeBtn = document.getElementById('tools-sheet-close-btn');
+    var sheetBody = document.getElementById('tools-sheet-body');
+    var activeLabel = document.getElementById('analyze-active-label');
+
+    if (!trigger || !overlay || !sheetBody) return;
+
+    // Clone sidebar content into sheet on first open
+    var cloned = false;
+    function cloneSidebar() {
+      if (cloned) return;
+      cloned = true;
+      var sidebar = document.getElementById('analyze-sidebar');
+      if (!sidebar) return;
+      sheetBody.innerHTML = sidebar.innerHTML;
+      // Wire items in the sheet
+      sheetBody.querySelectorAll('.sidebar-nav-item[data-panel]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var panelId = btn.dataset.panel;
+          // Click matching hidden pill
+          var pill = document.querySelector('.analyze-pill[data-panel="' + panelId + '"]');
+          if (pill) pill.click();
+          // Update active label
+          var label = btn.querySelector('.sni-label');
+          if (label && activeLabel) activeLabel.textContent = label.textContent.trim();
+          closeSheet();
+        });
+      });
+      // Wire non-panel buttons (Witness, OSCE, Story, Passport, Questions)
+      var delegations = {
+        'sidebar-witness-btn': 'witness-trigger-btn',
+        'sidebar-osce-btn': 'osce-trigger-btn',
+        'sidebar-story-btn': 'story-trigger-btn',
+        'sidebar-passport-btn': 'passport-trigger-btn',
+        'sidebar-ask-btn': 'questions-trigger-btn'
+      };
+      Object.keys(delegations).forEach(function(sheetBtnId) {
+        // Find by id in the cloned content
+        sheetBody.querySelectorAll('button').forEach(function(b) {
+          if (b.id === sheetBtnId) {
+            b.id = sheetBtnId + '-sheet'; // avoid duplicate IDs
+            b.addEventListener('click', function() {
+              var real = document.getElementById(delegations[sheetBtnId]);
+              if (real) real.click();
+              closeSheet();
+            });
+          }
+        });
+      });
+    }
+
+    function openSheet() { cloneSidebar(); overlay.classList.add('open'); }
+    function closeSheet() { overlay.classList.remove('open'); }
+
+    trigger.addEventListener('click', openSheet);
+    if (closeBtn) closeBtn.addEventListener('click', closeSheet);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeSheet(); });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMobileToolsSheet);
+  } else {
+    initMobileToolsSheet();
+  }
+})();
+
+(function() {
+  'use strict';
+  function initAgentBarMoreSheet() {
+    var moreBtn = document.getElementById('agent-bar-more-btn');
+    if (!moreBtn) return;
+
+    var hiddenIds = [
+      'live-feed-btn',
+      'skills-trigger-btn',
+      'badges-trigger-btn',
+      'osce-trigger-btn',
+      'takehome-trigger-btn',
+      'story-trigger-btn',
+      'feature-settings-btn'
+    ];
+
+    var overlay = document.createElement('div');
+    overlay.id = 'agent-more-sheet-overlay';
+    overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:15000;';
+
+    var sheet = document.createElement('div');
+    sheet.id = 'agent-more-sheet';
+    sheet.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:70vh;background:var(--background);border-radius:18px 18px 0 0;z-index:15001;display:flex;flex-direction:column;transform:translateY(100%);transition:transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);overflow:hidden;';
+
+    var handle = document.createElement('div');
+    handle.style.cssText = 'width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0;flex-shrink:0;';
+    sheet.appendChild(handle);
+
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 20px 10px;border-bottom:1px solid var(--border);flex-shrink:0;';
+    var title = document.createElement('span');
+    title.textContent = 'More Tools';
+    title.style.cssText = 'font-size:14px;font-weight:800;color:var(--text);';
+    var closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '&#x2715;';
+    closeBtn.style.cssText = 'background:none;border:none;font-size:18px;color:var(--text-muted);cursor:pointer;padding:4px;font-family:inherit;';
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    sheet.appendChild(header);
+
+    var body = document.createElement('div');
+    body.style.cssText = 'overflow-y:auto;padding:8px 0 32px;flex:1;';
+    sheet.appendChild(body);
+
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+
+    var populated = false;
+    function populate() {
+      if (populated) return;
+      populated = true;
+      hiddenIds.forEach(function(id) {
+        var original = document.getElementById(id);
+        if (!original) return;
+        var row = document.createElement('button');
+        row.textContent = original.getAttribute('title') || original.textContent || id;
+        row.style.cssText = 'display:block;width:100%;text-align:left;padding:14px 24px;font-size:15px;border:none;border-bottom:1px solid var(--border);background:none;color:var(--text);font-family:inherit;cursor:pointer;';
+        row.addEventListener('click', function() {
+          original.click();
+          closeMoreSheet();
+        });
+        body.appendChild(row);
+      });
+    }
+
+    function openMoreSheet() {
+      populate();
+      overlay.style.display = 'block';
+      requestAnimationFrame(function() {
+        sheet.style.transform = 'translateY(0)';
+      });
+    }
+    function closeMoreSheet() {
+      sheet.style.transform = 'translateY(100%)';
+      setTimeout(function() {
+        overlay.style.display = 'none';
+      }, 280);
+    }
+
+    moreBtn.addEventListener('click', openMoreSheet);
+    closeBtn.addEventListener('click', closeMoreSheet);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeMoreSheet(); });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAgentBarMoreSheet);
+  } else {
+    initAgentBarMoreSheet();
+  }
+})();
+
+(function() {
+  'use strict';
+  // Add backdrop to drawers on mobile
+  function initDrawerBackdrops() {
+    var drawerIds = ['notes-drawer', 'questions-drawer'];
+    drawerIds.forEach(function(id) {
+      var drawer = document.getElementById(id);
+      if (!drawer) return;
+      var backdrop = document.createElement('div');
+      backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:799;display:none;';
+      backdrop.id = id + '-backdrop';
+      document.body.appendChild(backdrop);
+
+      function isDrawerOpen() {
+        if (drawer.classList.contains('open')) return true;
+        var r = drawer.style.right;
+        if (r === '0' || r === '0px') return true;
+        return false;
+      }
+
+      function refresh() {
+        var isOpen = isDrawerOpen();
+        backdrop.style.display = isOpen ? 'block' : 'none';
+        backdrop.style.zIndex = id === 'questions-drawer' ? '799' : '12999';
+      }
+
+      var obs = new MutationObserver(refresh);
+      obs.observe(drawer, { attributes: true, attributeFilter: ['class', 'style'] });
+      refresh();
+
+      backdrop.addEventListener('click', function() {
+        drawer.classList.remove('open');
+        drawer.style.right = '-340px';
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDrawerBackdrops);
+  } else {
+    initDrawerBackdrops();
+  }
+})();
 })();
 </script>
 <div id="pwa-install-banner">
@@ -25588,5 +26469,14 @@ var InstantInsight = (function () {
     <button id="notes-clear-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text-muted);cursor:pointer;font-family:inherit;">Clear</button>
   </div>
 </div>
+
+<!-- ---- Feature #34: Browser LLM status chip ---- -->
+<div id="llm-status-chip" class="hidden">
+  <span id="llm-status-dot"></span>
+  <span id="llm-status-text">AI Loading...</span>
+  <div id="llm-progress-bar"><div id="llm-progress-fill"></div></div>
+</div>
+<!-- ---- Feature M2: Mirror feed ---- -->
+<div id="mirror-feed" aria-live="polite"></div>
 </body>
 </html>
