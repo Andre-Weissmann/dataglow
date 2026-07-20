@@ -412,6 +412,47 @@
     display: flex;
     gap: 2px;
   }
+
+  /* ── 3-Tab Architecture (Steve Jobs) ─────────────────────────────────── */
+  /* Data/Analyze/Share are the only top-level views */
+  #data-view, #analyze-view, #share-view {
+    display: flex; flex-direction: column; height: 100%; overflow: hidden;
+  }
+  /* tab-panel: sub-panels inside Data tab (grid, join) */
+  .tab-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .tab-panel.hidden { display: none; }
+  /* Merge bar */
+  #data-merge-bar { flex-shrink: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+  #data-merge-btn {
+    font-size: 12px; padding: 4px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--primary); cursor: pointer; font-weight: 600;
+  }
+  #data-merge-btn:hover { background: var(--bg); border-color: var(--primary); }
+  /* Analyze pills bar */
+  #analyze-pills-bar {
+    display: flex; gap: 4px; padding: 8px 14px 0; flex-shrink: 0;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+  }
+  .analyze-pill {
+    font-size: 12px; font-weight: 600; padding: 6px 16px; border-radius: 8px 8px 0 0;
+    border: 1px solid transparent; border-bottom: none;
+    background: transparent; color: var(--text-muted); cursor: pointer;
+    transition: color .15s, background .15s;
+  }
+  .analyze-pill:hover { color: var(--text); background: var(--surface); }
+  .analyze-pill.active {
+    color: var(--text); background: var(--surface);
+    border-color: var(--border); border-bottom-color: var(--surface);
+    margin-bottom: -1px; z-index: 1; position: relative;
+  }
+  /* analyze-panel: Charts / Dashboard / SQL / Python */
+  .analyze-panel { flex: 1; overflow: auto; display: flex; flex-direction: column; min-height: 0; }
+  .analyze-panel.hidden { display: none; }
+  /* share-panel */
+  .share-panel { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+  .share-panel.hidden { display: none; }
+
   .nav-btn {
     background: none;
     border: none;
@@ -743,6 +784,12 @@
     background: var(--bg);
     text-align: center;
   }
+  #formula-fn-hint {
+    font-size: 12px; font-weight: 700; color: var(--primary); padding: 0 8px;
+    cursor: default; opacity: 0.7; flex-shrink: 0; font-style: italic;
+    user-select: none;
+  }
+  #formula-fn-hint:hover { opacity: 1; }
   #formula-input {
     flex: 1;
     border: none;
@@ -1284,6 +1331,170 @@
   .dash-btn-secondary:hover { color: var(--text); border-color: var(--text-muted); }
 
   /* Dashboard root */
+
+  /* ── Findings Rail (PR AU) ────────────────────────────────────────────── */
+  .fr-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .fr-header-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); }
+  .fr-header-count { font-size:11px; color:var(--text-faint); }
+  .fr-list { display:flex; flex-direction:column; gap:10px; margin-bottom:6px; }
+  .fr-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:6px; }
+  .fr-card-ok    { border-left:3px solid #16A34A; }
+  .fr-card-warning { border-left:3px solid #D97706; }
+  .fr-card-error { border-left:3px solid #DC2626; }
+  .fr-card-anomaly { border-left:3px solid #4F98A3; }
+  .fr-card-up    { border-left:3px solid #16A34A; }
+  .fr-card-down  { border-left:3px solid #DC2626; }
+  .fr-card-header { display:flex; align-items:flex-start; gap:8px; }
+  .fr-icon { flex-shrink:0; margin-top:1px; }
+  .fr-headline { font-size:13px; font-weight:600; color:var(--text); line-height:1.4; }
+  .fr-detail { font-size:12px; color:var(--text-muted); margin:0; line-height:1.5; }
+  .fr-root-cause { font-size:11.5px; color:var(--text-muted); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:4px 8px; }
+  .fr-rc-label { font-weight:600; color:var(--primary); margin-right:4px; }
+  .fr-action { font-size:11.5px; color:var(--text-muted); }
+  .fr-action-label { font-weight:600; color:var(--text); margin-right:4px; }
+  .fr-provenance { font-size:10.5px; color:var(--text-faint); font-family:Consolas,"Courier New",monospace; }
+  .fr-json-block { margin-top:2px; }
+  .fr-json-toggle { font-size:10.5px; color:var(--text-faint); cursor:pointer; user-select:none; font-family:Consolas,"Courier New",monospace; list-style:none; }
+  .fr-json-toggle::-webkit-details-marker { display:none; }
+  .fr-json-pre { font-size:10.5px; font-family:Consolas,"Courier New",monospace; color:var(--text-muted); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; margin-top:6px; overflow-x:auto; white-space:pre; max-height:140px; overflow-y:auto; }
+  .fr-empty { font-size:13px; color:var(--text-faint); text-align:center; padding:24px 0; }
+  .fr-clean-footer { font-size:12px; color:var(--text-faint); text-align:center; padding:6px 0 2px; }
+  #findings-rail-container { margin-bottom:4px; }
+
+
+  /* ── SQL View Tab (PR AQ) ─────────────────────────────────────────────── */
+  #sql-view, #python-view { overflow: auto; height: 100%; }
+  #sql-view-inner, #python-view-inner {
+    display: flex; flex-direction: column; height: 100%;
+    background: var(--bg); font-family: system-ui, sans-serif;
+  }
+  #sql-view-header, #py-view-header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px 8px;
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  #sql-view-title, #py-view-title {
+    font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: .01em;
+  }
+  #sql-view-badge, #py-view-badge {
+    font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
+    background: var(--primary); color: #fff; text-transform: uppercase; letter-spacing: .05em;
+  }
+  #sql-view-actions, #py-view-actions { margin-left: auto; display: flex; gap: 8px; }
+  #sql-view-history-btn, #sql-view-export-btn, #py-view-export-btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer;
+  }
+  #sql-view-history-btn:hover, #sql-view-export-btn:hover, #py-view-export-btn:hover {
+    background: var(--border);
+  }
+  #sql-view-body, #py-view-body {
+    display: flex; flex: 1; overflow: hidden; min-height: 0;
+  }
+  #sql-view-schema-panel, #py-view-schema-panel {
+    width: 200px; min-width: 160px; border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 10px 0; flex-shrink: 0;
+  }
+  #sql-view-schema-title, #py-view-schema-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-faint); padding: 0 12px 8px;
+  }
+  .sv-schema-table { margin-bottom: 10px; }
+  .sv-schema-tbl-name {
+    font-size: 11.5px; font-weight: 700; color: var(--primary); padding: 3px 12px;
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: Consolas, "Courier New", monospace;
+  }
+  .sv-schema-tbl-name:hover { background: var(--surface); }
+  .sv-schema-col {
+    display: flex; justify-content: space-between; padding: 2px 12px 2px 20px;
+    font-size: 10.5px; color: var(--text-muted); cursor: pointer;
+    font-family: Consolas, "Courier New", monospace;
+  }
+  .sv-schema-col:hover { background: var(--surface); color: var(--text); }
+  .sv-schema-col-type { color: var(--text-faint); font-size: 10px; }
+  .sv-schema-ds-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-muted); margin: 2px 12px; display: inline-block; cursor: pointer;
+  }
+  .sv-schema-ds-badge:hover { background: var(--border); }
+  #sql-view-editor-pane, #py-view-editor-pane {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+  }
+  #sql-view-suggestions-bar, #py-view-suggestions-bar {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; min-height: 28px;
+  }
+  .sv-suggestion-chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+    cursor: pointer; white-space: nowrap;
+  }
+  .sv-suggestion-chip:hover { border-color: var(--primary); color: var(--primary); }
+  #sql-view-textarea-wrap, #py-view-textarea-wrap {
+    flex: 1; min-height: 120px; max-height: 340px; padding: 8px 12px; display: flex;
+  }
+  #sql-view-input, #py-view-input {
+    flex: 1; width: 100%; resize: none; font-family: Consolas, "Courier New", monospace;
+    font-size: 13px; line-height: 1.6; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    outline: none; tab-size: 2;
+  }
+  #sql-view-input:focus, #py-view-input:focus { border-color: var(--primary); }
+  #sql-view-actions-row, #py-view-actions-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  #sql-view-run, #py-view-run {
+    font-size: 12px; font-weight: 600; padding: 6px 16px; border-radius: 8px;
+    background: var(--primary); color: #fff; border: none; cursor: pointer;
+  }
+  #sql-view-run:hover, #py-view-run:hover { opacity: .88; }
+  #sql-view-shortcut, #py-view-shortcut { font-size: 11px; color: var(--text-faint); }
+  #py-view-load-status { font-size: 11px; color: var(--text-faint); margin-left: auto; }
+  #sql-view-status, #py-view-status {
+    font-size: 12px; padding: 4px 14px; min-height: 22px;
+    color: var(--text-muted); flex-shrink: 0;
+  }
+  #sql-view-status.success { color: #16A34A; }
+  #sql-view-status.error, #py-view-status.error { color: #DC2626; }
+  #sql-view-results-wrapper, #py-result-wrap {
+    flex: 1; overflow: auto; border-top: 1px solid var(--border); min-height: 0;
+  }
+  #sql-view-results-table, #py-result-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    font-family: Consolas, "Courier New", monospace;
+  }
+  #sql-view-results-thead th, #py-result-thead th {
+    position: sticky; top: 0; background: var(--surface); color: var(--text-muted);
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap;
+  }
+  #sql-view-results-tbody td, #py-result-tbody td {
+    padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--text);
+    white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  }
+  #sql-view-results-tbody tr:hover td, #py-result-tbody tr:hover td { background: var(--surface); }
+  #sql-view-history-panel {
+    position: absolute; top: 40px; right: 16px; width: 340px; max-height: 280px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.14); z-index: 90; overflow-y: auto; padding: 8px 0;
+  }
+  #sql-view-history-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-muted); padding: 4px 14px 8px; display: flex; justify-content: space-between;
+  }
+  #sql-view-history-close { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 14px; }
+  .sv-history-item {
+    padding: 6px 14px; font-size: 11.5px; font-family: Consolas, monospace;
+    color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sv-history-item:hover { background: var(--bg); }
+  #py-output-wrap { flex: 1; overflow: auto; border-top: 1px solid var(--border); min-height: 0; }
+  #py-output {
+    font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 1.6;
+    color: var(--text); padding: 12px 14px; margin: 0; white-space: pre-wrap; word-break: break-word;
+  }
+
   .dash-root { padding: 20px 24px 48px; display: flex; flex-direction: column; gap: 18px; }
   .dash-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .dash-hdr-left { display: flex; flex-direction: column; gap: 3px; }
@@ -2835,11 +3046,9 @@
         <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
       </div>
       <div id="nav-views">
-        <button class="nav-btn active" data-view="grid">Grid</button>
-        <button class="nav-btn" data-view="charts">Charts</button>
-        <button class="nav-btn" data-view="story">Story</button>
-        <button class="nav-btn" data-view="join">Join</button>
-        <button class="nav-btn" data-view="dashboard">Dashboard</button>
+        <button class="nav-btn active" data-view="data">Data</button>
+        <button class="nav-btn" data-view="analyze">Analyze</button>
+        <button class="nav-btn" data-view="share">Share</button>
       </div>
       <div id="nav-right">
         <button id="publish-btn" title="Share this analysis" disabled>
@@ -2889,11 +3098,23 @@
     <!-- Main surface -->
     <div id="main-surface">
       <!-- Grid view -->
-      <div id="grid-view" class="view active">
+      <!-- DATA TAB -->
+      <div id="data-view" class="view active">
+        <!-- Merge datasets button (replaces Join tab) -->
+        <div id="data-merge-bar" class="hidden">
+          <button id="data-merge-btn">+ Merge datasets</button>
+        </div>
+        <!-- Join builder (shown when merge btn clicked) -->
+        <div id="join-view" class="tab-panel hidden">
+        <div id="join-view-inner"></div>
+      </div>
+        <!-- Main grid -->
+        <div id="grid-view" class="tab-panel active">
         <!-- Formula bar -->
         <div id="formula-bar">
           <span id="formula-cell-ref">A1</span>
-          <input id="formula-input" type="text" placeholder="Enter a formula or value..." autocomplete="off" />
+          <input id="formula-input" type="text" placeholder="=SUM(B2:B100) or type a value..." autocomplete="off" />
+          <span id="formula-fn-hint" title="Supported: SUM, AVG, COUNT, COUNTA, MAX, MIN, MEDIAN, STDEV, ROUND, COUNTIF, SUMIF">ƒx</span>
         </div>
         <!-- Grid container -->
         <div id="grid-container">
@@ -2915,13 +3136,106 @@
           <span id="status-filename"></span>
         </div>
       </div>
-
-      <!-- Story view: real generated narrative (story-builder.js) -->
-      <div id="charts-view" class="view hidden">
-        <div id="chart-grid" class="chart-grid"></div>
       </div>
 
-      <div id="story-view" class="view hidden">
+      <!-- ANALYZE TAB -->
+      <div id="analyze-view" class="view hidden">
+        <!-- Analyze pills: Charts · Dashboard · SQL · Python -->
+        <div id="analyze-pills-bar">
+          <button class="analyze-pill active" data-panel="charts-view">Charts</button>
+          <button class="analyze-pill" data-panel="dashboard-view">Dashboard</button>
+          <button class="analyze-pill" data-panel="sql-view">SQL</button>
+          <button class="analyze-pill" data-panel="python-view">Python</button>
+        </div>
+        <!-- Panels -->
+        <div id="charts-view" class="analyze-panel active">
+        <div id="chart-grid" class="chart-grid"></div>
+      </div>
+        <div id="dashboard-view" class="analyze-panel hidden">
+        <div id="dashboard-view-inner"></div>
+      </div>
+        <div id="sql-view" class="analyze-panel hidden">
+        <div id="sql-view-inner">
+          <div id="sql-view-header">
+            <span id="sql-view-title">SQL Editor</span>
+            <span id="sql-view-badge">DuckDB-WASM</span>
+            <div id="sql-view-actions">
+              <button id="sql-view-history-btn" title="Query history (up/down arrows)">History</button>
+              <button id="sql-view-export-btn" class="hidden" title="Export results as CSV">Export CSV</button>
+            </div>
+          </div>
+          <div id="sql-view-body">
+            <div id="sql-view-schema-panel">
+              <div id="sql-view-schema-title">Schema</div>
+              <div id="sql-view-schema-list"></div>
+            </div>
+            <div id="sql-view-editor-pane">
+              <div id="sql-view-suggestions-bar"></div>
+              <div id="sql-view-textarea-wrap">
+                <textarea id="sql-view-input" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+              </div>
+              <div id="sql-view-actions-row">
+                <button id="sql-view-run">&#9654; Run</button>
+                <span id="sql-view-shortcut">Ctrl+Enter</span>
+              </div>
+              <div id="sql-view-status"></div>
+              <div id="sql-view-results-wrapper">
+                <table id="sql-view-results-table">
+                  <thead id="sql-view-results-thead"></thead>
+                  <tbody id="sql-view-results-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div id="sql-view-history-panel" class="hidden">
+            <div id="sql-view-history-title">Recent queries <button id="sql-view-history-close">&times;</button></div>
+            <div id="sql-view-history-list"></div>
+          </div>
+        </div>
+      </div>
+        <div id="python-view" class="analyze-panel hidden">
+        <div id="python-view-inner">
+          <div id="py-view-header">
+            <span id="py-view-title">Python REPL</span>
+            <span id="py-view-badge">Pyodide + pandas</span>
+            <div id="py-view-actions">
+              <button id="py-view-export-btn" class="hidden" title="Export result as CSV">Export CSV</button>
+            </div>
+          </div>
+          <div id="py-view-body">
+            <div id="py-view-schema-panel">
+              <div id="py-view-schema-title">Datasets</div>
+              <div id="py-view-schema-list"></div>
+            </div>
+            <div id="py-view-editor-pane">
+              <div id="py-view-suggestions-bar"></div>
+              <div id="py-view-textarea-wrap">
+                <textarea id="py-view-input" placeholder="import pandas as pd&#10;&#10;# Your datasets are pre-loaded&#10;# df = pd.DataFrame(dg.get_dataset())&#10;print(df.describe())" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+              </div>
+              <div id="py-view-actions-row">
+                <button id="py-view-run">&#9654; Run</button>
+                <span id="py-view-shortcut">Ctrl+Enter</span>
+                <span id="py-view-load-status"></span>
+              </div>
+              <div id="py-view-status"></div>
+              <div id="py-output-wrap">
+                <pre id="py-output"></pre>
+              </div>
+              <div id="py-result-wrap" class="hidden">
+                <table id="py-result-table">
+                  <thead id="py-result-thead"></thead>
+                  <tbody id="py-result-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- SHARE TAB -->
+      <div id="share-view" class="view hidden">
+        <div id="story-view" class="share-panel active">
         <div id="story-toolbar">
           <button id="story-export-md">Export Markdown</button>
           <button id="story-export-pdf">Export PDF</button>
@@ -2964,15 +3278,6 @@
         </div>
         <!-- /FEATURE: dataglowRooms -->
       </div>
-
-      <!-- Join view — PR AL -->
-      <div id="join-view" class="view hidden">
-        <div id="join-view-inner"></div>
-      </div>
-
-      <!-- Dashboard view — PR AN -->
-      <div id="dashboard-view" class="view hidden">
-        <div id="dashboard-view-inner"></div>
       </div>
 
       <!-- Ambient Validation Rail -->
@@ -5593,40 +5898,95 @@ var NLEngine = (function () {
   }
 
   // Generate 4 contextual example questions based on the actual columns
+  // ── Smart question seeder — column-aware, data-specific ─────────────────
   function getSuggestions(dataset) {
     if (!dataset || !dataset.columns || !dataset.columns.length) {
       return [
         'How many rows are there?',
-        'What columns are in this dataset?',
         'Are there any missing values?',
+        'What does this data contain?',
         'What is the distribution of the first column?'
       ];
     }
 
     var suggestions = [];
-    var numCols_ = numericCols(dataset);
-    var catCols_ = categoricalCols(dataset);
+    var numCols_  = numericCols(dataset);
+    var catCols_  = categoricalCols(dataset);
+    var rows      = dataset.rows;
+    var cols      = dataset.columns;
 
-    if (catCols_.length >= 1) {
-      suggestions.push('What is the distribution of ' + catCols_[0] + '?');
+    // Detect domain hints from column names
+    var allNames  = cols.map(function (c) { return c.name.toLowerCase(); }).join(' ');
+    var isHealth  = /claim|diagnosis|patient|icd|provider|admit|discharge|procedure|cpt|drg|npi|member|rx|pharmacy/.test(allNames);
+    var isFinance = /revenue|amount|cost|price|sale|profit|margin|spend|budget|invoice|payment|charge/.test(allNames);
+    var isSales   = /order|customer|product|region|territory|rep|quota|pipeline|lead|deal|account/.test(allNames);
+    var isHR      = /employee|salary|department|hire|tenure|headcount|role|position|manager|review/.test(allNames);
+    var hasDate   = cols.some(function (c) {
+      var ci = cols.indexOf(c);
+      var sample = rows.slice(0, 6).map(function (r) { return String(r[ci] || ''); });
+      return sample.some(function (v) { return /^\d{4}[-/]/.test(v) || /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(v); });
+    });
+
+    // Domain-specific questions
+    if (isHealth && catCols_.length && numCols_.length) {
+      var provCol = cols.find(function (c) { return /provider|physician|npi|doctor/.test(c.name.toLowerCase()); });
+      var claimCol = cols.find(function (c) { return /claim|amount|charge|cost/.test(c.name.toLowerCase()); });
+      var dxCol = cols.find(function (c) { return /diag|icd|dx|code/.test(c.name.toLowerCase()); });
+      if (provCol && claimCol) suggestions.push('Which provider has the highest average ' + claimCol.name + '?');
+      if (dxCol) suggestions.push('What are the most common diagnosis codes?');
+      if (claimCol) suggestions.push('Are there any unusually large claims worth reviewing?');
+      if (hasDate && claimCol) suggestions.push('How has ' + claimCol.name + ' trended over time?');
     }
-    if (catCols_.length >= 1 && numCols_.length >= 1) {
+
+    if (isFinance && numCols_.length) {
+      var amtCol = cols.find(function (c) { return /amount|revenue|sale|cost|price/.test(c.name.toLowerCase()); });
+      if (amtCol && catCols_.length) suggestions.push('Which ' + catCols_[0] + ' drives the most ' + amtCol.name + '?');
+      if (amtCol) suggestions.push('What is the total ' + amtCol.name + ' and how does it vary?');
+      if (hasDate && amtCol) suggestions.push('Show me the monthly trend for ' + amtCol.name);
+    }
+
+    if (isSales && catCols_.length && numCols_.length) {
+      var valCol = cols.find(function (c) { return /revenue|amount|deal|value|sale/.test(c.name.toLowerCase()); });
+      var regCol = cols.find(function (c) { return /region|territory|area|market/.test(c.name.toLowerCase()); });
+      if (regCol && valCol) suggestions.push('Which region has the highest ' + valCol.name + '?');
+      suggestions.push('Who are the top 10 customers by ' + (valCol ? valCol.name : numCols_[0]) + '?');
+    }
+
+    if (isHR && catCols_.length && numCols_.length) {
+      var salCol = cols.find(function (c) { return /salary|pay|compensation|wage/.test(c.name.toLowerCase()); });
+      var deptCol = cols.find(function (c) { return /dept|department|team|group/.test(c.name.toLowerCase()); });
+      if (deptCol && salCol) suggestions.push('Which department has the highest average ' + salCol.name + '?');
+      if (salCol) suggestions.push('What is the salary distribution across the organization?');
+    }
+
+    // Universal smart questions based on column shape
+    if (catCols_.length >= 1 && numCols_.length >= 1 && suggestions.length < 5) {
       suggestions.push('Which ' + catCols_[0] + ' has the highest ' + numCols_[0] + '?');
     }
-    if (numCols_.length >= 1) {
-      suggestions.push('What is the total ' + numCols_[0] + '?');
+    if (numCols_.length >= 2 && suggestions.length < 5) {
+      suggestions.push('Is there a relationship between ' + numCols_[0] + ' and ' + numCols_[1] + '?');
     }
-    if (catCols_.length >= 1) {
-      suggestions.push('How many unique values are in ' + catCols_[0] + '?');
+    if (catCols_.length >= 1 && suggestions.length < 5) {
+      suggestions.push('What is the breakdown of ' + catCols_[0] + '?');
     }
-    if (suggestions.length < 4) {
-      suggestions.push('Are there any missing values?');
+    if (numCols_.length >= 1 && suggestions.length < 5) {
+      suggestions.push('Are there any outliers in ' + numCols_[0] + '?');
     }
-    if (suggestions.length < 4) {
-      suggestions.push('How many rows are there?');
+    if (hasDate && numCols_.length >= 1 && suggestions.length < 5) {
+      suggestions.push('How has ' + numCols_[0] + ' changed over time?');
     }
 
-    return suggestions.slice(0, 4);
+    // Always-useful fallbacks
+    if (suggestions.length < 3) suggestions.push('Are there any missing values?');
+    if (suggestions.length < 3) suggestions.push('Show me a summary of this dataset');
+
+    // Deduplicate and return top 5
+    var seen = {};
+    return suggestions.filter(function (s) {
+      if (seen[s]) return false;
+      seen[s] = true;
+      return true;
+    }).slice(0, 5);
   }
 
   return { ask: ask, getSuggestions: getSuggestions };
@@ -5691,27 +6051,52 @@ var ChartEngine = (function () {
       return /^\d{4}[-/]/.test(v) || /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(v);
     }).length >= 3;
   }
+  // colIndex: get array index for a column name
+  function colIdx(dataset, name) {
+    for (var i = 0; i < dataset.columns.length; i++) {
+      if (dataset.columns[i].name === name) return i;
+    }
+    return -1;
+  }
+  // getR: get cell value from an array row by column name
+  function getR(dataset, row, colName) {
+    var idx = colIdx(dataset, colName);
+    return idx >= 0 ? row[idx] : undefined;
+  }
+
   function numericCols(dataset) {
     return dataset.columns.filter(function (col) {
-      var sample = dataset.rows.slice(0, 20).filter(function (r) { return isNum(r[col]); });
+      var ci = colIdx(dataset, col.name);
+      var sample = dataset.rows.slice(0, 20).filter(function (r) { return isNum(r[ci]); });
       return sample.length >= 5;
-    });
+    }).map(function (col) { return col.name; });
   }
   function categoricalCols(dataset) {
     return dataset.columns.filter(function (col) {
-      var sample = dataset.rows.slice(0, 20).filter(function (r) { return isNum(r[col]); });
+      var ci = colIdx(dataset, col.name);
+      var sample = dataset.rows.slice(0, 20).filter(function (r) { return isNum(r[ci]); });
       return sample.length < 5;
-    });
+    }).map(function (col) { return col.name; });
   }
   function dateCols(dataset) {
-    return dataset.columns.filter(function (col) { return isDate(col, dataset.rows); });
+    return dataset.columns.filter(function (col) {
+      var ci = colIdx(dataset, col.name);
+      var sample = dataset.rows.slice(0, 8).map(function (r) { return String(r[ci] || ''); });
+      return sample.filter(function (v) {
+        return /^\d{4}[-/]/.test(v) || /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(v);
+      }).length >= 3;
+    }).map(function (col) { return col.name; });
   }
-  function groupBy(rows, groupCol, valueCol, agg) {
+  function groupBy(rows, groupCol, valueCol, agg, dataset) {
+    var gci = dataset ? colIdx(dataset, groupCol) : -1;
+    var vci = dataset ? colIdx(dataset, valueCol) : -1;
     var g = {};
     rows.forEach(function (r) {
-      var k = String(r[groupCol] == null ? '(blank)' : r[groupCol]).trim();
+      var gv = (gci >= 0) ? r[gci] : r[groupCol];
+      var vv = (vci >= 0) ? r[vci] : r[valueCol];
+      var k = String(gv == null ? '(blank)' : gv).trim();
       if (!g[k]) g[k] = [];
-      g[k].push(r[valueCol]);
+      g[k].push(vv);
     });
     return Object.keys(g).map(function (k) {
       var vals = g[k].filter(isNum).map(num);
@@ -5771,7 +6156,7 @@ var ChartEngine = (function () {
 
   // ── BAR CHART ─────────────────────────────────────────────────────────────
   function renderBar(dataset, groupCol, valueCol, agg) {
-    var groups = groupBy(dataset.rows, groupCol, valueCol, agg);
+    var groups = groupBy(dataset.rows, groupCol, valueCol, agg, dataset);
     groups.sort(function (a, b) { return b.value - a.value; });
     var top = groups.slice(0, 10);
     if (!top.length) return null;
@@ -5839,7 +6224,7 @@ var ChartEngine = (function () {
 
   // ── HISTOGRAM ─────────────────────────────────────────────────────────────
   function renderHistogram(dataset, col) {
-    var vals = dataset.rows.map(function (r) { return r[col]; }).filter(isNum).map(num);
+    var vals = dataset.rows.map(function (r) { var ci = colIdx(dataset, col); return ci >= 0 ? r[ci] : r[col]; }).filter(isNum).map(num);
     if (vals.length < 5) return null;
 
     var minV = Math.min.apply(null, vals), maxV = Math.max.apply(null, vals);
@@ -5896,9 +6281,11 @@ var ChartEngine = (function () {
 
   // ── DONUT CHART ───────────────────────────────────────────────────────────
   function renderDonut(dataset, col) {
+    var dci = colIdx(dataset, col);
     var freq = {};
     dataset.rows.forEach(function (r) {
-      var k = String(r[col] == null ? '(blank)' : r[col]).trim();
+      var rv = dci >= 0 ? r[dci] : r[col];
+      var k = String(rv == null ? '(blank)' : rv).trim();
       freq[k] = (freq[k] || 0) + 1;
     });
     var entries = Object.keys(freq).map(function (k) { return { key: k, n: freq[k] }; });
@@ -6064,7 +6451,7 @@ var ChartEngine = (function () {
     var barCount = 0;
     catCols_.forEach(function (cc) {
       if (barCount >= 3) return;
-      var uniq = new Set(dataset.rows.map(function (r) { return r[cc]; })).size;
+      var uci = colIdx(dataset, cc); var uniq = new Set(dataset.rows.map(function (r) { return uci >= 0 ? r[uci] : r[cc]; })).size;
       if (uniq < 2 || uniq > 30) return;
       numCols_.slice(0, 1).forEach(function (nc) {
         var agg = /rate|pct|percent|ratio/i.test(nc) ? 'avg' : 'sum';
@@ -6082,7 +6469,7 @@ var ChartEngine = (function () {
 
     // 4. Donut — low-cardinality categoricals
     catCols_.slice(0, 2).forEach(function (cc) {
-      var uniq = new Set(dataset.rows.map(function (r) { return r[cc]; })).size;
+      var uci = colIdx(dataset, cc); var uniq = new Set(dataset.rows.map(function (r) { return uci >= 0 ? r[uci] : r[cc]; })).size;
       if (uniq >= 2 && uniq <= 8) {
         var card = renderDonut(dataset, cc);
         if (card) charts.push(card);
@@ -8537,6 +8924,385 @@ var SQLEngine = (function () {
 })();
   /* ---- end sql-engine.js ---- */
 
+  /* ---- from js/dashboard/findings-rail.js ---- */
+/**
+ * findings-rail.js — DataGlow Findings Rail (PR AU)
+ *
+ * The Findings Rail sits above the KPI cards in the dashboard view.
+ * It reads the dataset's validation findings + stats and produces
+ * 3-5 ranked, plain-English insight cards, each containing:
+ *   - A context-anchored headline (anomaly-first when triggered)
+ *   - A "why this matters" sentence
+ *   - A root-cause decomposition when an anomaly is present
+ *   - A one-line suggested next step
+ *   - A provenance tag (which column + which rows)
+ *   - A JSON export in a <details> tag for agent consumption
+ *
+ * Zero external dependencies. All compute is synchronous over data
+ * already in browser memory. Nothing is transmitted.
+ *
+ * Public API:
+ *   FindingsRail.render(dataset, containerEl)
+ *   FindingsRail.clear(containerEl)
+ */
+
+var FindingsRail = (function () {
+  'use strict';
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function fmt(n) {
+    if (n === null || n === undefined || isNaN(n)) return 'N/A';
+    var abs = Math.abs(n);
+    if (abs >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    if (n !== Math.floor(n)) return parseFloat(n.toFixed(2)).toLocaleString();
+    return n.toLocaleString();
+  }
+  function pct(n) { return (n >= 0 ? '+' : '') + n.toFixed(1) + '%'; }
+  function isNum(v) { return v !== null && v !== undefined && v !== '' && !isNaN(parseFloat(v)) && isFinite(v); }
+  function num(v)  { return parseFloat(v); }
+  function colIdx(dataset, name) {
+    for (var i = 0; i < dataset.columns.length; i++) {
+      if (dataset.columns[i].name === name) return i;
+    }
+    return -1;
+  }
+  function colVals(dataset, colName) {
+    var ci = colIdx(dataset, colName);
+    if (ci < 0) return [];
+    return dataset.rows.map(function (r) { return r[ci]; });
+  }
+  function numVals(dataset, colName) {
+    return colVals(dataset, colName).filter(isNum).map(num);
+  }
+  function mean(arr) {
+    if (!arr.length) return 0;
+    return arr.reduce(function (s, v) { return s + v; }, 0) / arr.length;
+  }
+  function stddev(arr) {
+    if (arr.length < 2) return 0;
+    var m = mean(arr);
+    return Math.sqrt(arr.reduce(function (s, v) { return s + Math.pow(v - m, 2); }, 0) / arr.length);
+  }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function titleCase(s) {
+    return s.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  // ── Finding generators ────────────────────────────────────────────────────
+
+  // 1. Summary card — overall data health
+  function findingSummary(dataset) {
+    var totalRows = dataset.rows.length;
+    var totalCols = dataset.columns.length;
+    var findings  = dataset.findings || [];
+    var errors    = (dataset.rowFlags || []).filter(function (f) { return f && f.error; }).length;
+    var warnings  = (dataset.rowFlags || []).filter(function (f) { return f && f.warning; }).length;
+    var score     = dataset.score != null ? dataset.score : null;
+
+    var scoreLabel = score !== null
+      ? (score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : score >= 60 ? 'Fair' : 'Poor')
+      : null;
+
+    var headline, detail, action;
+    if (errors === 0 && warnings === 0) {
+      headline = totalRows.toLocaleString() + ' rows, ' + totalCols + ' columns, no issues found.';
+      detail   = 'Every value passed validation. This dataset is ready for analysis and dashboard delivery.';
+      action   = 'You can proceed directly to SQL queries or the Dashboard view.';
+    } else if (errors > 0) {
+      headline = errors.toLocaleString() + ' row' + (errors === 1 ? '' : 's') + ' with errors detected.';
+      detail   = 'Errors prevent reliable aggregation. Fix or exclude these rows before sharing results.';
+      action   = 'Open the Validation Rail to see which rows are affected and why.';
+    } else {
+      headline = warnings.toLocaleString() + ' row' + (warnings === 1 ? '' : 's') + ' flagged for review.';
+      detail   = 'Warnings do not block analysis but may skew averages and totals if left in.';
+      action   = 'Review flagged rows in the Validation Rail. Consider filtering them before aggregating.';
+    }
+
+    return {
+      id: 'summary',
+      priority: 1,
+      icon: errors > 0 ? 'error' : warnings > 0 ? 'warning' : 'ok',
+      headline: headline,
+      detail: detail,
+      action: action,
+      provenance: totalRows + ' rows across ' + totalCols + ' columns',
+      scoreLabel: scoreLabel,
+      score: score,
+      json: {
+        type: 'summary',
+        rows: totalRows,
+        columns: totalCols,
+        errors: errors,
+        warnings: warnings,
+        score: score
+      }
+    };
+  }
+
+  // 2. Anomaly finding for each numeric column
+  function findingAnomalies(dataset) {
+    var results = [];
+    dataset.columns.forEach(function (col, ci) {
+      if (col.type !== 'INT' && col.type !== 'FLOAT' &&
+          col.type !== 'number' && col.type !== 'integer' && col.type !== 'float' && col.type !== 'double') return;
+
+      var vals = dataset.rows.map(function (r) { return r[ci]; }).filter(isNum).map(num);
+      if (vals.length < 5) return;
+
+      var m   = mean(vals);
+      var sd  = stddev(vals);
+      if (sd === 0) return;
+
+      // Find outlier rows
+      var outlierRows = [];
+      dataset.rows.forEach(function (r, ri) {
+        var v = r[ci];
+        if (!isNum(v)) return;
+        var z = Math.abs((num(v) - m) / sd);
+        if (z > 2.5) outlierRows.push({ rowIdx: ri, value: num(v), z: z });
+      });
+
+      if (!outlierRows.length) return;
+
+      // Root-cause: which categorical column best explains outliers?
+      var catDrivers = [];
+      dataset.columns.forEach(function (catCol, cci) {
+        if (cci === ci) return;
+        if (catCol.type === 'INT' || catCol.type === 'FLOAT' ||
+            catCol.type === 'number' || catCol.type === 'float' || catCol.type === 'integer') return;
+        var outlierKeys = outlierRows.map(function (o) { return String(dataset.rows[o.rowIdx][cci]); });
+        var allKeys     = dataset.rows.map(function (r) { return String(r[cci]); });
+        // Check if outliers concentrate in one group
+        var freq = {};
+        outlierKeys.forEach(function (k) { freq[k] = (freq[k] || 0) + 1; });
+        var topKey = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; })[0];
+        if (!topKey) return;
+        var topCount   = freq[topKey];
+        var totalInGrp = allKeys.filter(function (k) { return k === topKey; }).length;
+        if (topCount / outlierRows.length >= 0.5 && totalInGrp > 0) {
+          catDrivers.push({ colName: catCol.name, groupName: topKey, count: topCount, groupTotal: totalInGrp });
+        }
+      });
+
+      var topDriver = catDrivers.length ? catDrivers[0] : null;
+      var direction = outlierRows[0].value > m ? 'above' : 'below';
+      var extreme   = outlierRows.reduce(function (a, b) { return b.z > a.z ? b : a; });
+
+      var headline = titleCase(col.name) + ': ' + outlierRows.length + ' outlier' +
+        (outlierRows.length === 1 ? '' : 's') + ' detected (' + direction + ' average).';
+      var detail = 'Average ' + titleCase(col.name) + ' is ' + fmt(m) +
+        '. The extreme value is ' + fmt(extreme.value) + ' (' + extreme.z.toFixed(1) + '\u03c3 from mean).';
+      var action = topDriver
+        ? 'Investigate rows where ' + titleCase(topDriver.colName) + ' = "' + topDriver.groupName +
+          '" (' + topDriver.count + ' of ' + outlierRows.length + ' outliers cluster there).'
+        : 'Filter for rows with ' + titleCase(col.name) + ' outside ' + fmt(m - 2*sd) +
+          ' to ' + fmt(m + 2*sd) + ' and validate manually.';
+
+      results.push({
+        id: 'anomaly-' + col.name,
+        priority: 2,
+        icon: 'anomaly',
+        headline: headline,
+        detail: detail,
+        action: action,
+        provenance: col.name + ' — ' + vals.length + ' values, ' + outlierRows.length + ' outliers',
+        rootCause: topDriver ? (titleCase(topDriver.colName) + ' = "' + topDriver.groupName + '"') : null,
+        json: {
+          type: 'anomaly',
+          column: col.name,
+          mean: parseFloat(m.toFixed(4)),
+          stddev: parseFloat(sd.toFixed(4)),
+          outlierCount: outlierRows.length,
+          extremeValue: extreme.value,
+          driver: topDriver
+        }
+      });
+    });
+    return results;
+  }
+
+  // 3. Missing data finding
+  function findingMissing(dataset) {
+    var results = [];
+    dataset.columns.forEach(function (col, ci) {
+      var nullCount = dataset.rows.filter(function (r) {
+        var v = r[ci];
+        return v === null || v === undefined || v === '';
+      }).length;
+      var pctMiss = nullCount / dataset.rows.length;
+      if (pctMiss < 0.05) return; // ignore < 5%
+
+      var headline = titleCase(col.name) + ': ' + nullCount.toLocaleString() +
+        ' missing values (' + (pctMiss * 100).toFixed(0) + '% of rows).';
+      var detail = pctMiss >= 0.3
+        ? 'Over 30% of ' + titleCase(col.name) + ' is blank. This column may be unreliable for aggregations.'
+        : 'Scattered nulls in ' + titleCase(col.name) + ' will produce understated counts and averages.';
+      var action = pctMiss >= 0.5
+        ? 'Consider dropping this column or imputing with a default value before analysis.'
+        : 'Filter out nulls with WHERE "' + col.name + '" IS NOT NULL before aggregating.';
+
+      results.push({
+        id: 'missing-' + col.name,
+        priority: 3,
+        icon: 'warning',
+        headline: headline,
+        detail: detail,
+        action: action,
+        provenance: col.name + ' — ' + nullCount + '/' + dataset.rows.length + ' rows null',
+        json: {
+          type: 'missing',
+          column: col.name,
+          nullCount: nullCount,
+          totalRows: dataset.rows.length,
+          pctMissing: parseFloat((pctMiss * 100).toFixed(1))
+        }
+      });
+    });
+    return results.slice(0, 2); // max 2 missing findings
+  }
+
+  // 4. Context-anchored KPI finding (trailing comparison)
+  function findingKPIContext(dataset) {
+    var results = [];
+    var numCols = dataset.columns.filter(function (col, ci) {
+      var vals = dataset.rows.map(function (r) { return r[ci]; }).filter(isNum);
+      return vals.length >= dataset.rows.length * 0.6;
+    });
+    if (numCols.length === 0) return results;
+
+    // Split into first half vs second half
+    var mid = Math.floor(dataset.rows.length / 2);
+    var firstHalf  = dataset.rows.slice(0, mid);
+    var secondHalf = dataset.rows.slice(mid);
+
+    numCols.slice(0, 2).forEach(function (col) {
+      var ci = dataset.columns.indexOf(col);
+      var v1 = mean(firstHalf.map(function (r) { return r[ci]; }).filter(isNum).map(num));
+      var v2 = mean(secondHalf.map(function (r) { return r[ci]; }).filter(isNum).map(num));
+      if (!v1 || !v2 || v1 === 0) return;
+      var delta = ((v2 - v1) / Math.abs(v1)) * 100;
+      if (Math.abs(delta) < 3) return; // ignore tiny changes
+
+      var dir = delta > 0 ? 'increased' : 'decreased';
+      var headline = titleCase(col.name) + ' ' + dir + ' ' + Math.abs(delta).toFixed(1) +
+        '% from first half to second half of the dataset.';
+      var detail = 'First-half average: ' + fmt(v1) + '. Second-half average: ' + fmt(v2) + '.';
+      var action = 'Sort by a date column and re-run for a time-series trend. This comparison is row-order based.';
+
+      results.push({
+        id: 'kpi-trend-' + col.name,
+        priority: 4,
+        icon: delta > 0 ? 'up' : 'down',
+        headline: headline,
+        detail: detail,
+        action: action,
+        provenance: col.name + ' — rows 1-' + mid + ' vs ' + (mid+1) + '-' + dataset.rows.length,
+        json: {
+          type: 'kpi_trend',
+          column: col.name,
+          firstHalfMean: parseFloat(v1.toFixed(4)),
+          secondHalfMean: parseFloat(v2.toFixed(4)),
+          deltaPercent: parseFloat(delta.toFixed(2))
+        }
+      });
+    });
+    return results;
+  }
+
+  // ── Render a single finding card ─────────────────────────────────────────
+  function iconSVG(type) {
+    var icons = {
+      ok:      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#16A34A" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="#16A34A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      warning: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2L14.5 13.5H1.5L8 2Z" stroke="#D97706" stroke-width="1.5" stroke-linejoin="round"/><line x1="8" y1="6.5" x2="8" y2="9.5" stroke="#D97706" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.75" fill="#D97706"/></svg>',
+      error:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#DC2626" stroke-width="1.5"/><line x1="5.5" y1="5.5" x2="10.5" y2="10.5" stroke="#DC2626" stroke-width="1.5" stroke-linecap="round"/><line x1="10.5" y1="5.5" x2="5.5" y2="10.5" stroke="#DC2626" stroke-width="1.5" stroke-linecap="round"/></svg>',
+      anomaly: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 10l3-5 3 3 2-4 4 6" stroke="#4F98A3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      up:      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 12V4M4 8l4-4 4 4" stroke="#16A34A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      down:    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v8M4 8l4 4 4-4" stroke="#DC2626" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    };
+    return icons[type] || icons.ok;
+  }
+
+  function renderCard(finding) {
+    var card = document.createElement('div');
+    card.className = 'fr-card fr-card-' + finding.icon;
+
+    var jsonStr = JSON.stringify(finding.json, null, 2);
+
+    card.innerHTML =
+      '<div class="fr-card-header">' +
+        '<span class="fr-icon">' + iconSVG(finding.icon) + '</span>' +
+        '<span class="fr-headline">' + escHtml(finding.headline) + '</span>' +
+      '</div>' +
+      '<p class="fr-detail">' + escHtml(finding.detail) + '</p>' +
+      (finding.rootCause
+        ? '<div class="fr-root-cause"><span class="fr-rc-label">Driver:</span> ' + escHtml(finding.rootCause) + '</div>'
+        : '') +
+      '<div class="fr-action"><span class="fr-action-label">Next step:</span> ' + escHtml(finding.action) + '</div>' +
+      '<details class="fr-json-block">' +
+        '<summary class="fr-json-toggle">{ } metric contract</summary>' +
+        '<pre class="fr-json-pre">' + escHtml(jsonStr) + '</pre>' +
+      '</details>' +
+      '<div class="fr-provenance">' + escHtml(finding.provenance) + '</div>';
+
+    return card;
+  }
+
+  // ── Main render ───────────────────────────────────────────────────────────
+  function render(dataset, containerEl) {
+    if (!containerEl) return;
+    containerEl.innerHTML = '';
+
+    if (!dataset || !dataset.rows || !dataset.rows.length) {
+      containerEl.innerHTML = '<div class="fr-empty">Drop a dataset to see findings.</div>';
+      return;
+    }
+
+    // Collect all findings
+    var all = [];
+    all.push(findingSummary(dataset));
+    findingAnomalies(dataset).forEach(function (f) { all.push(f); });
+    findingMissing(dataset).forEach(function (f) { all.push(f); });
+    findingKPIContext(dataset).forEach(function (f) { all.push(f); });
+
+    // Sort by priority, cap at 5
+    all.sort(function (a, b) { return a.priority - b.priority; });
+    var shown = all.slice(0, 5);
+
+    // Rail header
+    var header = document.createElement('div');
+    header.className = 'fr-header';
+    header.innerHTML =
+      '<span class="fr-header-title">Findings</span>' +
+      '<span class="fr-header-count">' + shown.length + ' insight' + (shown.length === 1 ? '' : 's') + '</span>';
+    containerEl.appendChild(header);
+
+    // Cards
+    var list = document.createElement('div');
+    list.className = 'fr-list';
+    shown.forEach(function (f) { list.appendChild(renderCard(f)); });
+    containerEl.appendChild(list);
+
+    // "No anomalies" footer when clean
+    if (shown.length === 1 && shown[0].id === 'summary' && shown[0].icon === 'ok') {
+      var footer = document.createElement('div');
+      footer.className = 'fr-clean-footer';
+      footer.textContent = 'No anomalies or data quality issues detected. Proceed with confidence.';
+      containerEl.appendChild(footer);
+    }
+  }
+
+  function clear(containerEl) {
+    if (containerEl) containerEl.innerHTML = '';
+  }
+
+  return { render: render, clear: clear };
+})();
+
+  /* ---- end findings-rail.js ---- */
+
   /* ---- from js/dashboard/dashboard-engine.js ---- */
 /**
  * dashboard-engine.js — DataGlow Dashboard View (PR AN)
@@ -8869,6 +9635,14 @@ var DashboardEngine = (function () {
       (report.warnings.length?'<span class="dash-quality-badge warn">&#9888; '+report.warnings.length+' note'+(report.warnings.length>1?'s':'')+'</span>':'<span class="dash-quality-badge ok">&#10003; Quality passed</span>')+
       '<button class="dash-export-btn" id="dash-csv-btn">&#8681; Export CSV</button></div>';
     dash.appendChild(hdr);
+
+    // Findings Rail (PR AU) — above KPI row
+    var frContainer = document.createElement('div');
+    frContainer.id = 'findings-rail-container';
+    if (typeof FindingsRail !== 'undefined') {
+      FindingsRail.render(dataset, frContainer);
+    }
+    dash.appendChild(frContainer);
 
     // KPI row (3-4 max)
     if (kpis.length) {
@@ -10386,7 +11160,7 @@ var InstantInsight = (function () {
             if (isNaN(rowIdx)) return;
             // Switch to grid view
             document.querySelectorAll('.nav-btn').forEach(function (b) { b.classList.remove('active'); });
-            var gb = document.querySelector('[data-view="grid"]');
+            var gb = document.querySelector('[data-view="data"]');
             if (gb) gb.classList.add('active');
             document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); v.classList.remove('active'); });
             var gv = $('grid-view');
@@ -10821,66 +11595,584 @@ var InstantInsight = (function () {
     exportPanelOpen = false; exportPanel.classList.add('hidden');
   });
 
-    var navBtns = document.querySelectorAll('.nav-btn');
+    // ── 3-Tab Nav Switcher ───────────────────────────────────────────────────
+  var navBtns = document.querySelectorAll('.nav-btn');
+
+  function activateAnalyzePanel(panelId) {
+    document.querySelectorAll('.analyze-panel').forEach(function (p) {
+      p.classList.remove('active'); p.classList.add('hidden');
+    });
+    document.querySelectorAll('.analyze-pill').forEach(function (p) { p.classList.remove('active'); });
+    var panel = $(panelId);
+    if (panel) { panel.classList.remove('hidden'); panel.classList.add('active'); }
+    var pill = document.querySelector('[data-panel="' + panelId + '"]');
+    if (pill) pill.classList.add('active');
+
+    if (panelId === 'charts-view') {
+      var cg = $('chart-grid');
+      if (cg && typeof ChartEngine !== 'undefined') {
+        ChartEngine.renderAll(typeof getActiveDataset === 'function' ? getActiveDataset() : null, cg);
+      }
+    }
+    if (panelId === 'dashboard-view') {
+      var dv = $('dashboard-view-inner');
+      if (dv && typeof DashboardEngine !== 'undefined') {
+        DashboardEngine.render(typeof getActiveDataset === 'function' ? getActiveDataset() : null, dv);
+      }
+    }
+    if (panelId === 'sql-view') {
+      if (typeof window._svRefresh === 'function') window._svRefresh();
+    }
+    if (panelId === 'python-view') {
+      if (typeof window._pyRefresh === 'function') window._pyRefresh();
+    }
+  }
+
+  // Wire analyze pills
+  document.querySelectorAll('.analyze-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      activateAnalyzePanel(pill.dataset.panel);
+    });
+  });
+
+  // Wire top-level 3 tabs
   navBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       navBtns.forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       var view = btn.dataset.view;
       document.querySelectorAll('.view').forEach(function (v) {
-        v.classList.add('hidden');
-        v.classList.remove('active');
+        v.classList.add('hidden'); v.classList.remove('active');
       });
       var target = $(view + '-view');
-      if (target) {
-        target.classList.remove('hidden');
-        target.classList.add('active');
+      if (target) { target.classList.remove('hidden'); target.classList.add('active'); }
+
+      // Analyze tab: activate the last-active or default Charts pill
+      if (view === 'analyze') {
+        var activePill = document.querySelector('.analyze-pill.active');
+        var panelId = activePill ? activePill.dataset.panel : 'charts-view';
+        activateAnalyzePanel(panelId);
       }
-      // Render charts when Charts tab is activated
-      if (view === 'charts') {
-        var cg = $('chart-grid');
-        if (cg && typeof ChartEngine !== 'undefined') {
-          var ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
-          ChartEngine.renderAll(ds, cg);
-        }
+
+      // Data tab: show merge button if >1 dataset loaded
+      if (view === 'data') {
+        var mergeBar = $('data-merge-bar');
+        if (mergeBar) mergeBar.classList.toggle('hidden', state.datasets.length < 2);
       }
-      // Render dashboard when Dashboard tab is activated
-      if (view === 'dashboard') {
-        var dv = $('dashboard-view-inner');
-        if (dv && typeof DashboardEngine !== 'undefined') {
-          var dDs = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
-          DashboardEngine.render(dDs, dv);
-        }
-      }
-      // Render join builder when Join tab is activated
-      if (view === 'join') {
-        var jc = $('join-view-inner');
-        if (jc && typeof JoinBuilder !== 'undefined') {
-          if (!jc._joinInstance) {
-            jc._joinInstance = JoinBuilder.render(jc, function () { return state.datasets; }, function (result) {
-              // Run Join: add result as a new dataset and switch to grid
-              result.id = 'ds-join-' + Date.now();
-              result.fileHash = result.id;
-              result.columnHealth = null;
-              result.rowFlags = result.rows.map(function () { return { warning: false, error: false }; });
-              state.datasets.push(result);
-              state.activeDatasetId = result.id;
-              renderGrid(result);
-              // Switch to grid view
-              document.querySelectorAll('.nav-btn').forEach(function (b) { b.classList.remove('active'); });
-              var gridBtn = document.querySelector('[data-view="grid"]');
-              if (gridBtn) gridBtn.classList.add('active');
-              document.querySelectorAll('.view').forEach(function (v) { v.classList.add('hidden'); v.classList.remove('active'); });
-              var gridView = $('grid-view');
-              if (gridView) { gridView.classList.remove('hidden'); gridView.classList.add('active'); }
-            });
-          } else {
-            jc._joinInstance.refresh();
+    });
+  });
+
+  // Merge datasets button triggers join builder inside Data tab
+  var dataMergeBtn = $('data-merge-btn');
+  if (dataMergeBtn) {
+    dataMergeBtn.addEventListener('click', function () {
+      var joinPanel = $('join-view');
+      var gridPanel = $('grid-view');
+      if (joinPanel && gridPanel) {
+        var isOpen = !joinPanel.classList.contains('hidden');
+        joinPanel.classList.toggle('hidden', isOpen);
+        gridPanel.classList.toggle('hidden', !isOpen);
+        dataMergeBtn.textContent = isOpen ? '+ Merge datasets' : '✕ Close merge';
+        if (!isOpen) {
+          var jc = $('join-view-inner');
+          if (jc && typeof JoinBuilder !== 'undefined') {
+            if (!jc._joinInstance) {
+              jc._joinInstance = JoinBuilder.render(jc, function () { return state.datasets; }, function (result) {
+                result.id = 'ds-join-' + Date.now();
+                result.fileHash = result.id;
+                result.columnHealth = null;
+                result.rowFlags = result.rows.map(function () { return { warning: false, error: false }; });
+                state.datasets.push(result);
+                state.activeDatasetId = result.id;
+                renderGrid(result);
+                // Go back to grid
+                joinPanel.classList.add('hidden');
+                gridPanel.classList.remove('hidden');
+                dataMergeBtn.textContent = '+ Merge datasets';
+              });
+            } else {
+              jc._joinInstance.refresh();
+            }
           }
         }
       }
     });
-  });
+  }
+
+
+  /* ============================================================
+     SQL VIEW TAB (PR AQ) — full first-class SQL editor tab
+     ============================================================ */
+  (function () {
+    var svInput     = $('sql-view-input');
+    var svRun       = $('sql-view-run');
+    var svStatus    = $('sql-view-status');
+    var svThead     = $('sql-view-results-thead');
+    var svTbody     = $('sql-view-results-tbody');
+    var svExport    = $('sql-view-export-btn');
+    var svSchema    = $('sql-view-schema-list');
+    var svSuggBar   = $('sql-view-suggestions-bar');
+    var svHistBtn   = $('sql-view-history-btn');
+    var svHistPanel = $('sql-view-history-panel');
+    var svHistList  = $('sql-view-history-list');
+    var svHistClose = $('sql-view-history-close');
+    var _lastResult = null;
+    var _historyArr = [];
+    var _histIdx    = -1;
+    var _sqlEng     = null;
+
+    function getSVEngine() {
+      if (_sqlEng) return Promise.resolve(_sqlEng);
+      return getSQLEngine().then(function (e) { _sqlEng = e; return e; });
+    }
+
+    function svRefreshSchema() {
+      if (!svSchema) return;
+      svSchema.innerHTML = '';
+      state.datasets.forEach(function (ds) {
+        var tbl = SQLEngine.safeTableName(ds.name);
+        var block = document.createElement('div');
+        block.className = 'sv-schema-table';
+        var tblLabel = document.createElement('div');
+        tblLabel.className = 'sv-schema-tbl-name';
+        tblLabel.textContent = tbl;
+        tblLabel.title = 'Click to insert table name';
+        tblLabel.addEventListener('click', function () {
+          if (svInput) { svInput.value += '"' + tbl + '"'; svInput.focus(); }
+        });
+        block.appendChild(tblLabel);
+        ds.columns.forEach(function (col) {
+          var row = document.createElement('div');
+          row.className = 'sv-schema-col';
+          row.innerHTML = '<span>' + col.name + '</span><span class="sv-schema-col-type">' + (col.type || '') + '</span>';
+          row.title = 'Click to insert column name';
+          row.addEventListener('click', function () {
+            if (svInput) { svInput.value += '"' + col.name + '"'; svInput.focus(); }
+          });
+          block.appendChild(row);
+        });
+        svSchema.appendChild(block);
+      });
+    }
+
+    function svRefreshSuggestions() {
+      if (!svSuggBar) return;
+      svSuggBar.innerHTML = '';
+      var ds = getActiveDataset();
+      if (!ds || typeof SQLEngine.buildSmartSuggestions !== 'function') return;
+      var sugs = SQLEngine.buildSmartSuggestions(ds);
+      sugs.forEach(function (s) {
+        var chip = document.createElement('button');
+        chip.className = 'sv-suggestion-chip';
+        chip.textContent = s.label;
+        chip.title = s.sql;
+        chip.addEventListener('click', function () {
+          if (svInput) { svInput.value = s.sql; svInput.focus(); }
+        });
+        svSuggBar.appendChild(chip);
+      });
+    }
+
+    function svRenderResult(result) {
+      if (!svThead || !svTbody || !svStatus) return;
+      _lastResult = result;
+      svThead.innerHTML = '';
+      svTbody.innerHTML = '';
+      var headRow = document.createElement('tr');
+      result.columns.forEach(function (col) {
+        var th = document.createElement('th');
+        th.textContent = col.name;
+        headRow.appendChild(th);
+      });
+      svThead.appendChild(headRow);
+      result.rows.forEach(function (row) {
+        var tr = document.createElement('tr');
+        result.columns.forEach(function (col) {
+          var td = document.createElement('td');
+          var v = row[col.name];
+          td.textContent = (v === null || v === undefined || v === '') ? '—' : String(v);
+          tr.appendChild(td);
+        });
+        svTbody.appendChild(tr);
+      });
+      svStatus.className = 'success';
+      svStatus.textContent = result.rows.length.toLocaleString() + ' row' +
+        (result.rows.length === 1 ? '' : 's') + ' · ' + result.durationMs + 'ms · DuckDB-WASM';
+      if (svExport) svExport.classList.toggle('hidden', result.rows.length === 0);
+      if (result.rows.length === 0) {
+        svStatus.className = '';
+        var ds = getActiveDataset();
+        var hint = 'Query returned 0 rows.';
+        if (ds && /WHERE/i.test(svInput ? svInput.value : '')) hint += ' Try relaxing the WHERE clause.';
+        svStatus.textContent = hint;
+      }
+    }
+
+    function svRenderError(msg) {
+      if (!svStatus) return;
+      svStatus.className = 'error';
+      svStatus.textContent = msg;
+      if (svThead) svThead.innerHTML = '';
+      if (svTbody) svTbody.innerHTML = '';
+      if (svExport) svExport.classList.add('hidden');
+    }
+
+    async function svRunQuery() {
+      var sql = svInput && svInput.value.trim();
+      if (!sql) { if (svStatus) { svStatus.className = ''; svStatus.textContent = 'Enter a query.'; } return; }
+      if (!state.datasets.length) { if (svStatus) { svStatus.className = 'error'; svStatus.textContent = 'No dataset loaded. Drop a file first.'; } return; }
+      if (svStatus) { svStatus.className = ''; svStatus.textContent = 'Running…'; }
+      try {
+        var engine = await getSVEngine();
+        var result = await engine.runQuery(sql, state.datasets);
+        // runQuery fires onResultReady which calls renderSQLResult on the OLD overlay
+        // We need to intercept. Patch temporarily:
+        if (result && result.columns) {
+          svRenderResult(result);
+        } else {
+          // engine calls onResultReady internally — re-read from engine
+          var res = engine.getLastResult ? engine.getLastResult() : null;
+          if (res) svRenderResult(res);
+        }
+        // Push to history
+        _historyArr.unshift(sql);
+        if (_historyArr.length > 50) _historyArr.length = 50;
+        _histIdx = -1;
+        svRefreshHistory();
+      } catch (e) {
+        svRenderError(String(e));
+      }
+    }
+
+    function svRefreshHistory() {
+      if (!svHistList) return;
+      svHistList.innerHTML = '';
+      _historyArr.forEach(function (q) {
+        var item = document.createElement('div');
+        item.className = 'sv-history-item';
+        item.textContent = q;
+        item.addEventListener('click', function () {
+          if (svInput) { svInput.value = q; svInput.focus(); }
+          if (svHistPanel) svHistPanel.classList.add('hidden');
+        });
+        svHistList.appendChild(item);
+      });
+    }
+
+    // Wire run button
+    if (svRun) svRun.addEventListener('click', svRunQuery);
+
+    // Ctrl+Enter
+    if (svInput) {
+      svInput.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); svRunQuery(); }
+        // Up/Down for history nav
+        if (e.key === 'ArrowUp' && _historyArr.length) {
+          e.preventDefault();
+          _histIdx = Math.min(_histIdx + 1, _historyArr.length - 1);
+          svInput.value = _historyArr[_histIdx] || '';
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          _histIdx = Math.max(_histIdx - 1, -1);
+          svInput.value = _histIdx >= 0 ? (_historyArr[_histIdx] || '') : '';
+        }
+        // Tab inserts 2 spaces
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          var start = svInput.selectionStart; var end = svInput.selectionEnd;
+          svInput.value = svInput.value.substring(0, start) + '  ' + svInput.value.substring(end);
+          svInput.selectionStart = svInput.selectionEnd = start + 2;
+        }
+      });
+    }
+
+    // Export CSV
+    if (svExport) {
+      svExport.addEventListener('click', function () {
+        if (!_lastResult) return;
+        SQLEngine.exportResultsCSV(_lastResult.columns, _lastResult.rows);
+      });
+    }
+
+    // History toggle
+    if (svHistBtn && svHistPanel) {
+      svHistBtn.addEventListener('click', function () {
+        svHistPanel.classList.toggle('hidden');
+        svRefreshHistory();
+      });
+    }
+    if (svHistClose && svHistPanel) {
+      svHistClose.addEventListener('click', function () { svHistPanel.classList.add('hidden'); });
+    }
+
+    // Expose refresh for nav activation
+    window._svRefresh = function () {
+      svRefreshSchema();
+      svRefreshSuggestions();
+      getSVEngine().then(function (engine) {
+        state.datasets.forEach(function (ds) { engine.loadDataset(ds); });
+      });
+    };
+  })();
+
+  /* ============================================================
+     PYTHON VIEW TAB (PR AR) — Pyodide REPL
+     ============================================================ */
+  (function () {
+    var pyInput    = $('py-view-input');
+    var pyRun      = $('py-view-run');
+    var pyStatus   = $('py-view-status');
+    var pyOutput   = $('py-output');
+    var pyThead    = $('py-result-thead');
+    var pyTbody    = $('py-result-tbody');
+    var pyResultW  = $('py-result-wrap');
+    var pyExport   = $('py-view-export-btn');
+    var pyLoadStat = $('py-view-load-status');
+    var pySchList  = $('py-view-schema-list');
+    var pySuggBar  = $('py-view-suggestions-bar');
+    var _pyodide   = null;
+    var _pyLoading = false;
+    var _lastDf    = null;
+
+    // Python quick-start snippets
+    var PY_STARTERS = [
+      { label: 'Load dataset',     code: '# All your datasets are pre-loaded as DataFrames
+import pandas as pd
+df = dg.df()  # active dataset
+print(df.head())
+print(df.dtypes)' },
+      { label: 'Describe',         code: 'df = dg.df()
+print(df.describe())' },
+      { label: 'Group + average',  code: 'df = dg.df()
+# Replace col names with your columns
+result = df.groupby(df.columns[0])[df.columns[1]].mean().reset_index()
+dg.show(result)' },
+      { label: 'Null count',       code: 'df = dg.df()
+print(df.isnull().sum())' },
+      { label: 'Sort top 10',      code: 'df = dg.df()
+result = df.sort_values(df.columns[-1], ascending=False).head(10)
+dg.show(result)' },
+      { label: 'Correlation',      code: 'df = dg.df()
+print(df.select_dtypes(include="number").corr().round(3))' },
+    ];
+
+    function pyRefreshSchema() {
+      if (!pySchList) return;
+      pySchList.innerHTML = '';
+      state.datasets.forEach(function (ds) {
+        var badge = document.createElement('div');
+        badge.className = 'sv-schema-ds-badge';
+        badge.textContent = ds.name.replace(/\.[^.]+$/, '');
+        badge.title = ds.rows.length + ' rows, ' + ds.columns.length + ' cols. Click to insert load code.';
+        var safeName = 'df_' + SQLEngine.safeTableName(ds.name);
+        badge.addEventListener('click', function () {
+          if (pyInput) {
+            pyInput.value = 'df = dg.df("' + ds.name + '")
+print(df.head())';
+            pyInput.focus();
+          }
+        });
+        pySchList.appendChild(badge);
+        ds.columns.forEach(function (col) {
+          var row = document.createElement('div');
+          row.className = 'sv-schema-col';
+          row.innerHTML = '<span>' + col.name + '</span><span class="sv-schema-col-type">' + (col.type || '') + '</span>';
+          pySchList.appendChild(row);
+        });
+      });
+    }
+
+    function pyRefreshStarters() {
+      if (!pySuggBar) return;
+      pySuggBar.innerHTML = '';
+      PY_STARTERS.forEach(function (s) {
+        var chip = document.createElement('button');
+        chip.className = 'sv-suggestion-chip';
+        chip.textContent = s.label;
+        chip.addEventListener('click', function () {
+          if (pyInput) { pyInput.value = s.code; pyInput.focus(); }
+        });
+        pySuggBar.appendChild(chip);
+      });
+    }
+
+    function pyShowResult(dfData) {
+      // dfData: { columns: [...], rows: [[...], ...] }
+      if (!pyThead || !pyTbody || !pyResultW) return;
+      _lastDf = dfData;
+      pyThead.innerHTML = '';
+      pyTbody.innerHTML = '';
+      var headRow = document.createElement('tr');
+      dfData.columns.forEach(function (c) {
+        var th = document.createElement('th'); th.textContent = c; headRow.appendChild(th);
+      });
+      pyThead.appendChild(headRow);
+      dfData.rows.slice(0, 500).forEach(function (row) {
+        var tr = document.createElement('tr');
+        row.forEach(function (v) {
+          var td = document.createElement('td');
+          td.textContent = (v === null || v === undefined) ? '—' : String(v);
+          tr.appendChild(td);
+        });
+        pyTbody.appendChild(tr);
+      });
+      pyResultW.classList.remove('hidden');
+      if (pyExport) pyExport.classList.remove('hidden');
+    }
+
+    function loadPyodide() {
+      if (_pyodide) return Promise.resolve(_pyodide);
+      if (_pyLoading) return new Promise(function (resolve) {
+        var iv = setInterval(function () { if (_pyodide) { clearInterval(iv); resolve(_pyodide); } }, 200);
+      });
+      _pyLoading = true;
+      if (pyLoadStat) pyLoadStat.textContent = 'Loading Python runtime… (~10 MB, first run only)';
+
+      return new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js';
+        script.onload = function () {
+          window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/' }).then(function (py) {
+            // Load pandas + numpy
+            py.loadPackage(['pandas', 'numpy']).then(function () {
+              _pyodide = py;
+              if (pyLoadStat) pyLoadStat.textContent = 'Python ready';
+              resolve(py);
+            }).catch(reject);
+          }).catch(reject);
+        };
+        script.onerror = function () { reject(new Error('Failed to load Pyodide CDN.')); };
+        document.head.appendChild(script);
+      });
+    }
+
+    function buildDGHelper(py) {
+      // Inject DataGlow helper object into Pyodide so user can do dg.df() / dg.show()
+      var datasets = state.datasets;
+      var active = getActiveDataset();
+
+      // Build CSV strings for each dataset
+      datasets.forEach(function (ds) {
+        var safeName = 'dg_csv_' + SQLEngine.safeTableName(ds.name);
+        var header = ds.columns.map(function (c) { return JSON.stringify(c.name); }).join(',');
+        var rows = ds.rows.map(function (r) {
+          return ds.columns.map(function (col, ci) {
+            var v = r[ci];
+            if (v === null || v === undefined) return '';
+            return JSON.stringify(String(v));
+          }).join(',');
+        });
+        var csv = header + '
+' + rows.join('
+');
+        py.globals.set(safeName, csv);
+      });
+
+      var activeKey = active ? 'dg_csv_' + SQLEngine.safeTableName(active.name) : null;
+
+      // Define dg helper in Python
+      var helperCode = [
+        'import pandas as pd, io, json',
+        'class _DG:',
+        '    def df(self, name=None):',
+        '        import js',
+        '        if name is None:',
+        '            key = "' + (activeKey || '') + '"',
+        '        else:',
+        '            key = "dg_csv_" + "".join(c if c.isalnum() or c == "_" else "_" for c in name.rsplit(".", 1)[0])',
+        '        csv_str = js.globals[key] if hasattr(js, "globals") else getattr(js, key, None)',
+        '        if csv_str is None: raise ValueError("Dataset not found: " + str(name))',
+        '        return pd.read_csv(io.StringIO(str(csv_str)))',
+        '    def show(self, df):',
+        '        global _dg_show_result',
+        '        _dg_show_result = {',
+        '            "columns": list(df.columns),',
+        '            "rows": df.values.tolist()',
+        '        }',
+        'dg = _DG()',
+        '_dg_show_result = None',
+      ].join('
+');
+      py.runPython(helperCode);
+    }
+
+    async function pyRunCode() {
+      var code = pyInput && pyInput.value.trim();
+      if (!code) return;
+      if (pyStatus) { pyStatus.className = ''; pyStatus.textContent = 'Running…'; }
+      if (pyOutput) pyOutput.textContent = '';
+      if (pyResultW) pyResultW.classList.add('hidden');
+
+      try {
+        var py = await loadPyodide();
+        buildDGHelper(py);
+
+        // Capture stdout
+        py.runPython('import sys, io
+_stdout_buf = io.StringIO()
+sys.stdout = _stdout_buf');
+
+        var t0 = Date.now();
+        py.runPython(code);
+        var elapsed = Date.now() - t0;
+
+        // Get stdout
+        var out = py.runPython('_stdout_buf.getvalue()');
+        py.runPython('sys.stdout = sys.__stdout__');
+
+        if (pyOutput) pyOutput.textContent = out || '(No output)';
+        if (pyStatus) { pyStatus.className = 'success'; pyStatus.textContent = 'Done · ' + elapsed + 'ms'; }
+
+        // Check for dg.show() result
+        var showResult = py.runPython('_dg_show_result');
+        if (showResult) {
+          var dfData = showResult.toJs({ dict_converter: Object.fromEntries });
+          if (dfData && dfData.columns) pyShowResult(dfData);
+        }
+        if (pyLoadStat) pyLoadStat.textContent = 'Python ready';
+      } catch (e) {
+        if (pyStatus) { pyStatus.className = 'error'; pyStatus.textContent = String(e); }
+        if (pyLoadStat) pyLoadStat.textContent = 'Python ready';
+      }
+    }
+
+    if (pyRun) pyRun.addEventListener('click', pyRunCode);
+    if (pyInput) {
+      pyInput.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); pyRunCode(); }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          var s = pyInput.selectionStart, end = pyInput.selectionEnd;
+          pyInput.value = pyInput.value.substring(0, s) + '  ' + pyInput.value.substring(end);
+          pyInput.selectionStart = pyInput.selectionEnd = s + 2;
+        }
+      });
+    }
+
+    if (pyExport) {
+      pyExport.addEventListener('click', function () {
+        if (!_lastDf) return;
+        var lines = [_lastDf.columns.map(function (c) { return JSON.stringify(c); }).join(',')];
+        _lastDf.rows.forEach(function (r) {
+          lines.push(r.map(function (v) { return v === null ? '' : JSON.stringify(String(v)); }).join(','));
+        });
+        var blob = new Blob([lines.join('
+')], { type: 'text/csv' });
+        var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = 'python_result.csv'; a.click();
+      });
+    }
+
+    // Expose refresh for nav activation
+    window._pyRefresh = function () {
+      pyRefreshSchema();
+      pyRefreshStarters();
+    };
+
+    // Init starters on load
+    pyRefreshStarters();
+  })();
 
   /* ============================================================
      AGENT BAR
@@ -11472,6 +12764,176 @@ var InstantInsight = (function () {
   /* ============================================================
      FORMULA BAR (scaffold — cell selection wiring pending Univer)
      ============================================================ */
+
+  /* ============================================================
+     FORMULA ENGINE — Excel-style =SUM(), =AVG(), etc. in Grid
+     Runs when user types = in formula bar and presses Enter
+     ============================================================ */
+  var FormulaEngine = (function () {
+    'use strict';
+
+    // Parse A1-style range like B2:B100 or B:B
+    function parseRange(ref, dataset) {
+      // Single cell: A1
+      var singleCell = ref.match(/^([A-Z]+)([0-9]+)$/i);
+      if (singleCell) {
+        var ci = colLetterToIdx(singleCell[1]);
+        var ri = parseInt(singleCell[2], 10) - 2; // row 1 = header
+        if (ri < 0 || ri >= dataset.rows.length) return [];
+        var v = dataset.rows[ri][ci];
+        return v !== undefined ? [v] : [];
+      }
+      // Column range: B2:B100 or B:B
+      var colRange = ref.match(/^([A-Z]+)([0-9]*):([A-Z]+)([0-9]*)$/i);
+      if (colRange) {
+        var c1 = colLetterToIdx(colRange[1]);
+        var r1 = colRange[2] ? parseInt(colRange[2], 10) - 2 : 0;
+        var c2 = colLetterToIdx(colRange[3]);
+        var r2 = colRange[4] ? parseInt(colRange[4], 10) - 2 : dataset.rows.length - 1;
+        if (c1 === c2) {
+          // Same column range
+          var vals = [];
+          for (var i = Math.max(0, r1); i <= Math.min(r2, dataset.rows.length - 1); i++) {
+            vals.push(dataset.rows[i][c1]);
+          }
+          return vals;
+        }
+        // Multi-column range — flatten
+        var vals2 = [];
+        for (var row = Math.max(0, r1); row <= Math.min(r2, dataset.rows.length - 1); row++) {
+          for (var col = c1; col <= c2; col++) {
+            vals2.push(dataset.rows[row][col]);
+          }
+        }
+        return vals2;
+      }
+      return [];
+    }
+
+    function colLetterToIdx(letter) {
+      letter = letter.toUpperCase();
+      var idx = 0;
+      for (var i = 0; i < letter.length; i++) {
+        idx = idx * 26 + (letter.charCodeAt(i) - 64);
+      }
+      return idx - 1;
+    }
+
+    function toNums(vals) {
+      return vals.map(function (v) { return parseFloat(v); }).filter(function (n) { return !isNaN(n); });
+    }
+
+    function fmt(n) {
+      if (n === Math.floor(n)) return n.toLocaleString();
+      return parseFloat(n.toFixed(6)).toLocaleString();
+    }
+
+    // Evaluate a single function call: FN(range)
+    function evalFn(name, args, dataset) {
+      name = name.toUpperCase();
+      var vals = parseRange(args.trim(), dataset);
+      var nums = toNums(vals);
+
+      switch (name) {
+        case 'SUM':    return nums.length ? fmt(nums.reduce(function (a, b) { return a + b; }, 0)) : '0';
+        case 'AVERAGE':
+        case 'AVG':    return nums.length ? fmt(nums.reduce(function (a, b) { return a + b; }, 0) / nums.length) : '#DIV/0!';
+        case 'COUNT':  return nums.length.toString();
+        case 'COUNTA': return vals.filter(function (v) { return v !== null && v !== undefined && v !== ''; }).length.toString();
+        case 'MAX':    return nums.length ? fmt(Math.max.apply(null, nums)) : '#N/A';
+        case 'MIN':    return nums.length ? fmt(Math.min.apply(null, nums)) : '#N/A';
+        case 'STDEV':
+        case 'STDEVP': {
+          if (nums.length < 2) return '#N/A';
+          var mean = nums.reduce(function (a, b) { return a + b; }, 0) / nums.length;
+          var variance = nums.reduce(function (a, b) { return a + Math.pow(b - mean, 2); }, 0) / nums.length;
+          return fmt(Math.sqrt(variance));
+        }
+        case 'MEDIAN': {
+          if (!nums.length) return '#N/A';
+          var sorted = nums.slice().sort(function (a, b) { return a - b; });
+          var mid = Math.floor(sorted.length / 2);
+          return fmt(sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2);
+        }
+        case 'VAR':
+        case 'VARP': {
+          if (nums.length < 2) return '#N/A';
+          var m2 = nums.reduce(function (a, b) { return a + b; }, 0) / nums.length;
+          return fmt(nums.reduce(function (a, b) { return a + Math.pow(b - m2, 2); }, 0) / nums.length);
+        }
+        case 'ROUND': {
+          // ROUND(range, digits) — range is single cell
+          var parts = args.split(',');
+          if (parts.length < 2) return '#ARG!';
+          var v = parseRange(parts[0].trim(), dataset);
+          var d = parseInt(parts[1].trim(), 10);
+          var n = parseFloat(v[0]);
+          return isNaN(n) ? '#VALUE!' : fmt(parseFloat(n.toFixed(d)));
+        }
+        case 'COUNTIF': {
+          var cParts = args.split(',');
+          if (cParts.length < 2) return '#ARG!';
+          var cVals = parseRange(cParts[0].trim(), dataset);
+          var crit = cParts[1].trim().replace(/^["']|["']$/g, '');
+          var matches = cVals.filter(function (v) { return String(v) === crit; });
+          return matches.length.toString();
+        }
+        case 'SUMIF': {
+          var sParts = args.split(',');
+          if (sParts.length < 3) return '#ARG!';
+          var sRange = parseRange(sParts[0].trim(), dataset);
+          var sCrit  = sParts[1].trim().replace(/^["']|["']$/g, '');
+          var sSumR  = parseRange(sParts[2].trim(), dataset);
+          var sTotal = 0;
+          sRange.forEach(function (v, i) {
+            if (String(v) === sCrit && i < sSumR.length) {
+              var n3 = parseFloat(sSumR[i]);
+              if (!isNaN(n3)) sTotal += n3;
+            }
+          });
+          return fmt(sTotal);
+        }
+        case 'IF': {
+          // IF(condition, true_val, false_val) — basic: IF(A1>0, "yes", "no")
+          return '#IF not supported in bar — use SQL for conditional logic';
+        }
+        default: return '#NAME? — unknown function: ' + name;
+      }
+    }
+
+    // Main evaluate: handles =SUM(B2:B100), =AVG(C:C), arithmetic
+    function evaluate(formula, dataset) {
+      if (!formula || formula[0] !== '=') return null; // not a formula
+      var expr = formula.slice(1).trim();
+
+      // Function call pattern: FNNAME(args)
+      var fnMatch = expr.match(/^([A-Z]+)\s*\((.+)\)$/i);
+      if (fnMatch) {
+        try {
+          return evalFn(fnMatch[1], fnMatch[2], dataset);
+        } catch (e) {
+          return '#ERROR: ' + e.message;
+        }
+      }
+
+      // Simple arithmetic on cell refs: =A1+B1, =A1*2
+      var cellArith = expr.replace(/([A-Z]+[0-9]+)/gi, function (ref) {
+        var vals = parseRange(ref, dataset);
+        return vals.length ? (parseFloat(vals[0]) || 0) : 0;
+      });
+      try {
+        // eslint-disable-next-line no-eval
+        var result = Function('"use strict"; return (' + cellArith + ')')();
+        if (typeof result === 'number' && !isNaN(result)) return fmt(result);
+        return String(result);
+      } catch (e) {
+        return '#EXPR?';
+      }
+    }
+
+    return { evaluate: evaluate };
+  })();
+
   var formulaInput = $('formula-input');
   var formulaActiveRef = { rowIdx: null, colIdx: null, originalValue: '' };
 
@@ -11495,6 +12957,16 @@ var InstantInsight = (function () {
     var newValue = formulaInput.value;
     if (newValue === formulaActiveRef.originalValue) return;
 
+    // Excel-style formula evaluation
+    if (newValue && newValue[0] === '=') {
+      var computed = FormulaEngine.evaluate(newValue, dataset);
+      if (computed !== null) {
+        // Show result in formula bar, store formula as cell value display
+        formulaInput.value = computed;
+        newValue = computed;
+      }
+    }
+
     var col = dataset.columns[formulaActiveRef.colIdx];
     dataset.rows[formulaActiveRef.rowIdx][formulaActiveRef.colIdx] = newValue;
 
@@ -11515,6 +12987,28 @@ var InstantInsight = (function () {
     if (e.key === 'Enter') {
       e.preventDefault();
       commitFormulaEdit();
+    }
+    if (e.key === 'Escape') {
+      formulaInput.value = formulaActiveRef.originalValue || '';
+      formulaInput.blur();
+    }
+  });
+  // Live preview: show formula result in tooltip as user types
+  formulaInput.addEventListener('input', function () {
+    var val = formulaInput.value;
+    var hint = $('formula-fn-hint');
+    if (val && val[0] === '=') {
+      var ds = getActiveDataset();
+      if (ds) {
+        var preview = FormulaEngine.evaluate(val, ds);
+        if (hint && preview !== null) {
+          hint.textContent = '= ' + preview;
+          hint.style.opacity = '1';
+          hint.style.color = preview.startsWith('#') ? '#DC2626' : 'var(--primary)';
+        }
+      }
+    } else {
+      if (hint) { hint.textContent = 'fx'; hint.style.opacity = '0.7'; hint.style.color = 'var(--primary)'; }
     }
   });
   formulaInput.addEventListener('blur', commitFormulaEdit);
