@@ -2952,6 +2952,47 @@
     display: block;
     margin-top: -2px;
   }
+
+  /* Provenance Proof Panel */
+  .provenance-panel {
+    position:fixed; right:0; top:0; bottom:0; width:360px; max-width:94vw;
+    background:var(--surface); border-left:1px solid var(--border);
+    box-shadow:-8px 0 40px rgba(0,0,0,.22); z-index:9100;
+    display:flex; flex-direction:column;
+    transform:translateX(100%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+    overflow:hidden;
+  }
+  .provenance-panel.visible { transform:translateX(0); }
+  .prov-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); background:var(--bg); flex-shrink:0; }
+  .prov-title { font-size:14px; font-weight:700; color:var(--text); }
+  .prov-subtitle { font-size:11px; color:var(--text-muted); margin-top:2px; }
+  .prov-close { background:none; border:none; font-size:22px; color:var(--text-muted); cursor:pointer; padding:0 4px; line-height:1; }
+  .prov-close:hover { color:var(--text); }
+  .prov-body { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+  .prov-result-block { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:20px; text-align:center; }
+  .prov-result-label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+  .prov-result-value { font-size:2.4rem; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums; line-height:1.1; }
+  .prov-formula-chip { display:inline-block; background:color-mix(in srgb,var(--primary) 12%,transparent); color:var(--primary); font-size:12px; font-weight:700; font-family:monospace; border-radius:20px; padding:4px 12px; margin-top:10px; }
+  .prov-section-label { font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.08em; }
+  .prov-source-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .prov-source-icon { font-size:14px; }
+  .prov-source-text { font-size:13px; color:var(--text); font-weight:600; }
+  .prov-arrow { color:var(--text-muted); }
+  .prov-col-chip { background:color-mix(in srgb,var(--primary) 10%,transparent); color:var(--primary); font-size:11px; font-weight:600; padding:2px 9px; border-radius:6px; font-family:monospace; }
+  .prov-filter-chip { background:color-mix(in srgb,#D97706 10%,transparent); color:#D97706; font-size:11px; font-weight:600; padding:2px 9px; border-radius:6px; font-family:monospace; }
+  .prov-coverage-bar-wrap { background:var(--border); border-radius:4px; height:8px; overflow:hidden; }
+  .prov-coverage-bar-fill { background:var(--primary); height:8px; border-radius:4px; transition:width .6s ease; }
+  .prov-coverage-text { font-size:11px; color:var(--text-muted); margin:4px 0 0; }
+  .prov-bars { display:flex; flex-direction:column; gap:5px; }
+  .prov-bar-row { display:flex; align-items:center; gap:8px; }
+  .prov-bar-val { font-size:11px; color:var(--text-muted); font-family:monospace; width:70px; text-align:right; flex-shrink:0; }
+  .prov-bar-track { flex:1; height:7px; background:var(--border); border-radius:4px; overflow:hidden; }
+  .prov-bar-fill { height:7px; border-radius:4px; }
+  .prov-more { font-size:11px; color:var(--text-muted); margin:4px 0 0 78px; }
+  .prov-footer { font-size:10px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:12px; margin-top:4px; line-height:1.5; }
+  .dash-kpi-value[data-prov-id] { cursor:pointer; }
+  .dash-kpi-value[data-prov-id]:hover { text-decoration:underline; text-decoration-style:dotted; text-underline-offset:3px; }
+
 </style>
 </head>
 <body>
@@ -5103,6 +5144,325 @@ window.saveCurrentDataset = async function() {
 })();
 /* ---- end workspace-profile.js ---- */
 
+</script>
+
+<script>
+/* ---- from js/provenance/provenance-engine.js ---- */
+(function() {
+'use strict';
+
+var _registry = {};
+var _panelEl  = null;
+
+var ProvenanceEngine = window.ProvenanceEngine = {
+
+  register: function(id, record) {
+    _registry[id] = Object.assign({ ts: Date.now() }, record);
+    return id;
+  },
+
+  registerKPI: function(dataset, colIdx, agg) {
+    agg = agg || 'SUM';
+    var col = dataset.columns[colIdx];
+    if (!col) return null;
+    var rawValues = [];
+    var rowIndices = [];
+    dataset.rows.forEach(function(row, i) {
+      var v = row[colIdx];
+      if (v !== null && v !== undefined && v !== '' && !isNaN(parseFloat(v))) {
+        rawValues.push(parseFloat(v));
+        rowIndices.push(i);
+      }
+    });
+    var result = ProvenanceEngine._aggregate(agg, rawValues);
+    var safeName = col.name.replace(/[^a-zA-Z0-9]/g, '_');
+    var id = 'prov_' + agg + '_' + safeName + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    ProvenanceEngine.register(id, {
+      label: col.name, agg: agg, col: col.name, colType: col.type,
+      filter: null, rowIndices: rowIndices, rawValues: rawValues,
+      result: result, datasetName: dataset.name, totalRows: dataset.rows.length
+    });
+    return id;
+  },
+
+  _aggregate: function(agg, vals) {
+    if (!vals.length) return 0;
+    switch(agg) {
+      case 'SUM':    return vals.reduce(function(a,b){return a+b;},0);
+      case 'AVG':    return vals.reduce(function(a,b){return a+b;},0)/vals.length;
+      case 'COUNT':  return vals.length;
+      case 'MAX':    return Math.max.apply(null,vals);
+      case 'MIN':    return Math.min.apply(null,vals);
+      case 'MEDIAN': {
+        var s=[].concat(vals).sort(function(a,b){return a-b;});
+        var m=Math.floor(s.length/2);
+        return s.length%2?s[m]:(s[m-1]+s[m])/2;
+      }
+      default: return vals.reduce(function(a,b){return a+b;},0);
+    }
+  },
+
+  show: function(id) {
+    var rec = _registry[id];
+    if (!rec) return;
+    ProvenanceEngine._ensurePanel();
+    ProvenanceEngine._renderPanel(rec);
+    _panelEl.classList.remove('hidden');
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ _panelEl.classList.add('visible'); });
+    });
+  },
+
+  hide: function() {
+    if (_panelEl) {
+      _panelEl.classList.remove('visible');
+      setTimeout(function(){ if(_panelEl) _panelEl.classList.add('hidden'); }, 310);
+    }
+  },
+
+  _ensurePanel: function() {
+    if (_panelEl && document.body.contains(_panelEl)) return;
+    _panelEl = document.createElement('div');
+    _panelEl.id = 'provenance-panel';
+    _panelEl.className = 'provenance-panel hidden';
+    _panelEl.setAttribute('role','dialog');
+    _panelEl.setAttribute('aria-label','Proof chain');
+    document.body.appendChild(_panelEl);
+  },
+
+  _fmt: function(v) {
+    if (v === null || v === undefined) return 'null';
+    var n = parseFloat(v);
+    if (isNaN(n)) return String(v);
+    if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(2)+'B';
+    if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M';
+    if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(2)+'K';
+    return parseFloat(n.toFixed(4)).toString();
+  },
+
+  _renderPanel: function(rec) {
+    var fmt = ProvenanceEngine._fmt;
+    var vals = rec.rawValues || [];
+    var n = vals.length;
+    var shown = vals.slice(0,12);
+    var moreCount = n - shown.length;
+    var maxVal = shown.length ? Math.max.apply(null, shown.map(function(v){return Math.abs(v);})) : 1;
+    if (maxVal === 0) maxVal = 1;
+
+    var bars = shown.map(function(v) {
+      var pct = Math.round((Math.abs(v)/maxVal)*80);
+      var color = v >= 0 ? 'var(--primary)' : '#DC2626';
+      return '<div class="prov-bar-row">' +
+        '<span class="prov-bar-val">' + fmt(v) + '</span>' +
+        '<div class="prov-bar-track"><div class="prov-bar-fill" style="width:'+pct+'%;background:'+color+'"></div></div>' +
+        '</div>';
+    }).join('');
+
+    var formulaMap = { SUM:'SUM', AVG:'AVG', COUNT:'COUNT', MAX:'MAX', MIN:'MIN', MEDIAN:'MEDIAN' };
+    var formula = (formulaMap[rec.agg] || rec.agg) + '(' + rec.col + ')';
+    var usedRows = n;
+    var skippedRows = (rec.totalRows||0) - n;
+    var pctUsed = rec.totalRows ? Math.round((n/rec.totalRows)*100) : 100;
+
+    function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    _panelEl.innerHTML =
+      '<div class="prov-header">' +
+        '<div>' +
+          '<div class="prov-title">Proof Chain</div>' +
+          '<div class="prov-subtitle">Every number, fully explained</div>' +
+        '</div>' +
+        '<button class="prov-close" aria-label="Close">&times;</button>' +
+      '</div>' +
+      '<div class="prov-body">' +
+        '<div class="prov-result-block">' +
+          '<div class="prov-result-label">' + esc(rec.label) + '</div>' +
+          '<div class="prov-result-value">' + fmt(rec.result) + '</div>' +
+          '<div class="prov-formula-chip">' + esc(formula) + '</div>' +
+        '</div>' +
+        '<div class="prov-section-label">Source chain</div>' +
+        '<div class="prov-source-row">' +
+          '<span class="prov-source-icon">&#128196;</span>' +
+          '<span class="prov-source-text">' + esc(rec.datasetName||'Dataset') + '</span>' +
+          '<span class="prov-arrow">&#8594;</span>' +
+          '<span class="prov-col-chip">' + esc(rec.col) + '</span>' +
+          (rec.filter ? '<span class="prov-arrow">&#8594;</span><span class="prov-filter-chip">WHERE ' + esc(rec.filter) + '</span>' : '') +
+        '</div>' +
+        '<div class="prov-section-label">Row coverage</div>' +
+        '<div class="prov-coverage-bar-wrap"><div class="prov-coverage-bar-fill" style="width:'+pctUsed+'%"></div></div>' +
+        '<p class="prov-coverage-text">'+usedRows.toLocaleString()+' rows contributed &middot; '+skippedRows.toLocaleString()+' skipped (null / non-numeric) &middot; '+pctUsed+'% coverage</p>' +
+        '<div class="prov-section-label">Contributing values'+(moreCount>0?' (first 12 of '+n+')':'')+'</div>' +
+        '<div class="prov-bars">' + bars + '</div>' +
+        (moreCount>0?'<p class="prov-more">+ '+moreCount+' more values</p>':'') +
+        '<div class="prov-footer">Computed ' + new Date(rec.ts||Date.now()).toLocaleTimeString() + ' &middot; DataGlow Provenance v1 &middot; Data never left your browser</div>' +
+      '</div>';
+
+    _panelEl.querySelector('.prov-close').addEventListener('click', ProvenanceEngine.hide);
+  }
+};
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') ProvenanceEngine.hide();
+});
+
+})();
+/* ---- end provenance-engine.js ---- */
+
+/* ---- from js/join/cardinality-detector.js ---- */
+(function() {
+'use strict';
+
+/**
+ * CardinalityDetector — warns before a join creates fan-out row explosion.
+ *
+ * A fan-out join happens when the right-side key is not unique:
+ *   Left: 100 rows with patient_id values
+ *   Right: 500 rows with patient_id (multiple claims per patient)
+ *   INNER JOIN → 500+ result rows — silent data multiplication
+ *
+ * This is one of the most common and dangerous SQL mistakes.
+ * DataGlow catches it BEFORE the join runs and explains it plainly.
+ *
+ * Public API:
+ *   CardinalityDetector.analyze(dsA, dsB, keyA, keyB)
+ *     → { type, ratio, leftUnique, rightUnique, leftTotal, rightTotal,
+ *          message, severity, suggestion }
+ *
+ *   CardinalityDetector.renderWarning(analysis, containerEl)
+ *     → injects warning banner into containerEl (or clears it if safe)
+ */
+
+var CardinalityDetector = window.CardinalityDetector = {
+
+  analyze: function(dsA, dsB, keyA, keyB) {
+    if (!dsA || !dsB || !keyA || !keyB) return null;
+
+    var rowsA = dsA.rows || [];
+    var rowsB = dsB.rows || [];
+
+    // Count unique key values on each side
+    var uniqueA = new Set();
+    var uniqueB = new Set();
+    var freqB   = {};   // key → count of occurrences in B
+
+    rowsA.forEach(function(r) {
+      var v = r[keyA];
+      if (v !== null && v !== undefined) uniqueA.add(String(v));
+    });
+    rowsB.forEach(function(r) {
+      var v = r[keyB];
+      if (v !== null && v !== undefined) {
+        var k = String(v);
+        uniqueB.add(k);
+        freqB[k] = (freqB[k] || 0) + 1;
+      }
+    });
+
+    var leftTotal    = rowsA.length;
+    var rightTotal   = rowsB.length;
+    var leftUnique   = uniqueA.size;
+    var rightUnique  = uniqueB.size;
+
+    // Is the right-side key unique? (1-to-1 or many-to-1 from left's perspective)
+    var rightIsUnique  = rightUnique === rightTotal;
+    var leftIsUnique   = leftUnique  === leftTotal;
+
+    // Estimate output rows for INNER join (approximate fan-out)
+    var matchedLeftKeys = [...uniqueA].filter(function(k){ return freqB[k]; });
+    var estimatedOutputRows = matchedLeftKeys.reduce(function(sum, k){
+      return sum + freqB[k];
+    }, 0);
+
+    // Fan-out ratio: how many output rows per input left row
+    var fanOutRatio = leftTotal > 0 ? (estimatedOutputRows / leftTotal) : 1;
+
+    var type, severity, message, suggestion;
+
+    if (rightIsUnique && leftIsUnique) {
+      type = '1:1';
+      severity = 'safe';
+      message = 'One-to-one join. Each row matches at most one row on both sides.';
+      suggestion = 'This is the cleanest join type. No row duplication will occur.';
+    } else if (rightIsUnique && !leftIsUnique) {
+      type = 'N:1';
+      severity = 'safe';
+      message = 'Many-to-one join. Multiple ' + (dsA.name||'left') + ' rows share the same key, each matching one row in ' + (dsB.name||'right') + '.';
+      suggestion = 'Safe for aggregations. No unexpected row explosion.';
+    } else if (!rightIsUnique && leftIsUnique) {
+      type = '1:N';
+      severity = fanOutRatio > 5 ? 'warning' : 'caution';
+      var expandFmt = fanOutRatio >= 10
+        ? Math.round(fanOutRatio) + 'x more rows'
+        : parseFloat(fanOutRatio.toFixed(1)) + 'x more rows';
+      message = 'One-to-many join. Each ' + (dsA.name||'left') + ' row may match multiple ' + (dsB.name||'right') + ' rows, expanding the result to ~' + expandFmt + '.';
+      suggestion = fanOutRatio > 5
+        ? 'Consider aggregating ' + (dsB.name||'right') + ' first (e.g. GROUP BY ' + keyB + ') then joining, to avoid row explosion.'
+        : 'Moderate fan-out. Verify the result row count matches your expectations.';
+    } else {
+      // N:N — most dangerous
+      type = 'N:N';
+      severity = 'danger';
+      var leftDup  = leftTotal  - leftUnique;
+      var rightDup = rightTotal - rightUnique;
+      message = 'Many-to-many join detected. Both sides have duplicate key values (' +
+        leftDup.toLocaleString() + ' duplicate' + (leftDup!==1?'s':'') + ' on left, ' +
+        rightDup.toLocaleString() + ' duplicate' + (rightDup!==1?'s':'') + ' on right). ' +
+        'This will create a row explosion — potentially ' + Math.round(fanOutRatio) + 'x your current row count.';
+      suggestion = 'Deduplicate one or both sides before joining. A many-to-many join is almost always a sign of a data model problem.';
+    }
+
+    return {
+      type: type,
+      severity: severity,
+      ratio: fanOutRatio,
+      leftUnique: leftUnique,
+      rightUnique: rightUnique,
+      leftTotal: leftTotal,
+      rightTotal: rightTotal,
+      estimatedOutputRows: estimatedOutputRows,
+      matchedKeys: matchedLeftKeys.length,
+      message: message,
+      suggestion: suggestion
+    };
+  },
+
+  renderWarning: function(analysis, containerEl) {
+    if (!containerEl) return;
+
+    // Clear previous
+    var existing = containerEl.querySelector('.cardinality-banner');
+    if (existing) existing.remove();
+    if (!analysis || analysis.severity === 'safe') return;
+
+    var colors = {
+      caution: { bg: 'color-mix(in srgb,#D97706 10%,transparent)', border: '#D97706', icon: '&#9888;', label: 'Caution' },
+      warning: { bg: 'color-mix(in srgb,#EA580C 10%,transparent)', border: '#EA580C', icon: '&#9888;', label: 'Fan-out Warning' },
+      danger:  { bg: 'color-mix(in srgb,#DC2626 10%,transparent)', border: '#DC2626', icon: '&#128680;', label: 'Many-to-Many Danger' }
+    };
+    var c = colors[analysis.severity] || colors.caution;
+
+    var badge = { '1:N':'1 to Many', 'N:N':'Many to Many', 'N:1':'Many to 1', '1:1':'1 to 1' }[analysis.type] || analysis.type;
+
+    var banner = document.createElement('div');
+    banner.className = 'cardinality-banner';
+    banner.style.cssText = 'background:'+c.bg+';border:1px solid '+c.border+';border-radius:8px;padding:12px 14px;margin:12px 0;';
+    banner.innerHTML =
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+        '<span style="font-size:16px;">' + c.icon + '</span>' +
+        '<span style="font-size:12px;font-weight:700;color:'+c.border+';">' + c.label + '</span>' +
+        '<span style="margin-left:auto;font-size:10px;font-weight:700;background:'+c.border+';color:#fff;padding:2px 7px;border-radius:10px;">' + badge + '</span>' +
+      '</div>' +
+      '<p style="font-size:12px;color:var(--text);margin:0 0 6px;line-height:1.5;">' + analysis.message + '</p>' +
+      '<p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.4;"><strong>Suggestion:</strong> ' + analysis.suggestion + '</p>' +
+      (analysis.estimatedOutputRows > 0
+        ? '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Estimated output: ~' + analysis.estimatedOutputRows.toLocaleString() + ' rows &middot; Matched keys: ' + analysis.matchedKeys.toLocaleString() + '</div>'
+        : '');
+    containerEl.insertBefore(banner, containerEl.firstChild);
+  }
+};
+
+})();
+/* ---- end cardinality-detector.js ---- */
 </script>
 </body>\n</html>';
     }
@@ -7938,6 +8298,28 @@ var JoinBuilder = (function () {
 
         // Store result for Run Join
         table._result = result;
+
+        // ── Cardinality check — warn before fan-out join runs ───────────
+        var cardWrap = containerEl.querySelector('#cardinality-warning-wrap');
+        if (!cardWrap) {
+          cardWrap = document.createElement('div');
+          cardWrap.id = 'cardinality-warning-wrap';
+          // Insert above the preview table
+          var previewWrap = containerEl.querySelector('.join-preview-wrap');
+          if (previewWrap) previewWrap.parentNode.insertBefore(cardWrap, previewWrap);
+          else containerEl.appendChild(cardWrap);
+        }
+        if (window.CardinalityDetector && dsAIdx >= 0 && dsBIdx >= 0) {
+          var datasets = getDatasets();
+          var _dA = datasets[dsAIdx];
+          var _dB = datasets[dsBIdx];
+          var _kA = containerEl.querySelector('#join-key-a') && containerEl.querySelector('#join-key-a').value;
+          var _kB = containerEl.querySelector('#join-key-b') && containerEl.querySelector('#join-key-b').value;
+          if (_dA && _dB && _kA && _kB) {
+            var cardAnalysis = CardinalityDetector.analyze(_dA, _dB, _kA, _kB);
+            CardinalityDetector.renderWarning(cardAnalysis, cardWrap);
+          }
+        }
       }
 
       // ── Event wiring ───────────────────────────────────────────────────────
@@ -10035,7 +10417,14 @@ var DashboardEngine = (function () {
     // KPI row (3-4 max)
     if (kpis.length) {
       var kr=document.createElement('div'); kr.className='dash-kpi-row';
+            // Register provenance for each KPI upfront
       var _whatIfFirstLoad = !sessionStorage.getItem('dg_whatif_seen');
+      var _provIds = kpis.map(function(kpi) {
+        if (!dataset) return null;
+        var colIdx = dataset.columns.findIndex(function(c){ return c.name === kpi.name; });
+        if (colIdx < 0) return null;
+        return window.ProvenanceEngine ? ProvenanceEngine.registerKPI(dataset, colIdx, 'SUM') : null;
+      });
       kpis.forEach(function(kpi,i){
         var card=document.createElement('div'); card.className='dash-kpi-card'+(i===0?' primary':'');
         card.dataset.kpiName = kpi.name;
@@ -10051,16 +10440,22 @@ var DashboardEngine = (function () {
         card.innerHTML=
           '<div class="dash-kpi-label">'+escH(kpi.name)+'</div>'+
           '<div class="dash-kpi-value-wrap">'+
-            '<div class="dash-kpi-value" title="Click to enter a what-if scenario value">'+escH(kpi.value)+'</div>'+
+            '<div class="dash-kpi-value" title="Click to enter a what-if scenario value" ' + (_provIds[i] ? 'data-prov-id="'+_provIds[i]+'"' : '') + '>'+escH(kpi.value)+'</div>'+
             '<input class="kpi-whatif-input hidden" type="number" step="any" placeholder="Enter scenario value" aria-label="What-if value for '+escH(kpi.name)+'" />'+
           '</div>'+
           hintHtml+
           '<div class="dash-kpi-footer"><span class="dash-delta" style="background:'+ragC.bg+';color:'+ragC.text+'">'+arrow+' '+escH(kpi.deltaStr||'\u2014')+'</span><span class="dash-spark">'+sparkSVG(kpi.spark,ragC.dot)+'</span></div>'+
           '<div class="dash-kpi-sub">min '+escH(kpi.min)+' \u00b7 max '+escH(kpi.max)+'</div>';
 
-        // Click value to activate what-if input
+        // Click value to activate what-if input OR show provenance
         card.addEventListener('click', function(e) {
           if (e.target.classList.contains('kpi-whatif-input')) return;
+          // Provenance: if clicked directly on the value element with a prov-id
+          var valEl2 = card.querySelector('.dash-kpi-value');
+          if (e.target === valEl2 && valEl2.dataset.provId && window.ProvenanceEngine) {
+            ProvenanceEngine.show(valEl2.dataset.provId);
+            return;
+          }
           var valEl = card.querySelector('.dash-kpi-value');
           var inputEl = card.querySelector('.kpi-whatif-input');
           var hintEl = card.querySelector('.kpi-whatif-hint');
