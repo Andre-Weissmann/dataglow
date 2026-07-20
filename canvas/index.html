@@ -3058,6 +3058,81 @@
   .dg-error-suggestion { margin-top: 6px; color: var(--primary); font-size: 11px; font-weight: 600; cursor: pointer; }
   .dg-error-suggestion:hover { text-decoration: underline; }
 
+
+  /* ── #11 SQL Column Autocomplete ─────────────────────────────────── */
+  #sql-autocomplete {
+    position: absolute; z-index: 3000;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,.18);
+    max-height: 220px; overflow-y: auto; min-width: 180px; max-width: 320px;
+    font-size: 12px; font-family: monospace;
+  }
+  .sql-ac-item {
+    padding: 7px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    color: var(--text); border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    transition: background .12s;
+  }
+  .sql-ac-item:last-child { border-bottom: none; }
+  .sql-ac-item:hover, .sql-ac-item.active { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+  .sql-ac-badge {
+    font-size: 9px; font-family: sans-serif; font-weight: 700; padding: 1px 5px;
+    border-radius: 3px; flex-shrink: 0; letter-spacing: .03em; text-transform: uppercase;
+  }
+  .sql-ac-badge.col { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--primary); }
+  .sql-ac-badge.tbl { background: color-mix(in srgb, #DA7101 20%, transparent); color: #DA7101; }
+  .sql-ac-badge.kw  { background: color-mix(in srgb, #7A39BB 20%, transparent); color: #7A39BB; }
+  .sql-ac-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sql-textarea-wrap { position: relative; }
+
+  /* ── #16 Python Loading Progress ─────────────────────────────────── */
+  #py-progress-bar-wrap {
+    height: 2px; background: var(--border); border-radius: 1px;
+    margin: 6px 0 2px; overflow: hidden; transition: opacity .3s;
+  }
+  #py-progress-bar-wrap.hidden { opacity: 0; }
+  #py-progress-bar {
+    height: 100%; background: #3B82F6; border-radius: 1px;
+    width: 0%; transition: width .4s ease;
+  }
+  #py-progress-msg { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+
+  /* ── #21-23 Excel Formula Suggestions & Error ─────────────────────── */
+  #formula-suggestions {
+    position: absolute; z-index: 3000; left: 0; top: 100%;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,.18);
+    max-height: 240px; overflow-y: auto; min-width: 260px;
+    font-size: 12px;
+  }
+  .formula-sug-item {
+    padding: 8px 12px; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  }
+  .formula-sug-item:last-child { border-bottom: none; }
+  .formula-sug-item:hover, .formula-sug-item.active { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+  .formula-sug-name { font-weight: 700; font-family: monospace; color: var(--primary); }
+  .formula-sug-sig  { font-family: monospace; font-size: 11px; color: var(--text-muted); }
+  .formula-sug-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  #formula-bar { position: relative; }
+
+  #formula-error-bar {
+    font-size: 11px; color: #DC2626; padding: 3px 12px 4px;
+    background: color-mix(in srgb, #DC2626 8%, transparent);
+    border-top: 1px solid color-mix(in srgb, #DC2626 20%, transparent);
+    display: none;
+  }
+
+  /* ── #22 Formula function tooltip ─────────────────────────────────── */
+  .formula-fn-tooltip {
+    position: absolute; z-index: 3100; background: var(--surface-alt);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    font-size: 11px; color: var(--text); max-width: 280px; pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16); bottom: 110%; left: 0;
+  }
+  .formula-fn-tooltip strong { display: block; font-family: monospace; color: var(--primary); margin-bottom: 3px; }
+
+  /* ── #10 Vault V1 — vault icon styles ──────────────────────────────── */
+  .vault-icon { display: inline-block; vertical-align: middle; margin-right: 4px; }
+
 </style>
 </head>
 <body>
@@ -3243,7 +3318,9 @@
           <span id="formula-cell-ref">A1</span>
           <input id="formula-input" type="text" placeholder="=SUM(B2:B100) or type a value..." autocomplete="off" />
           <span id="formula-fn-hint" title="Supported: SUM, AVG, COUNT, COUNTA, MAX, MIN, MEDIAN, STDEV, ROUND, COUNTIF, SUMIF">ƒx</span>
+          <div id="formula-suggestions" style="display:none"></div>
         </div>
+        <div id="formula-error-bar"></div>
         <!-- Grid container -->
         <div id="grid-container">
           <div id="grid-table-wrapper">
@@ -3345,6 +3422,8 @@
                 <span id="py-view-shortcut">Ctrl+Enter</span>
                 <span id="py-view-load-status"></span>
               </div>
+              <div id="py-progress-msg" style="display:none"></div>
+              <div id="py-progress-bar-wrap" class="hidden"><div id="py-progress-bar"></div></div>
               <div id="py-view-status"></div>
               <div id="py-output-wrap">
                 <pre id="py-output"></pre>
@@ -3587,6 +3666,7 @@
           <div id="sql-suggestions-bar"></div>
           <div id="sql-textarea-wrap">
             <textarea id="sql-input" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+            <div id="sql-autocomplete" style="display:none"></div>
           </div>
           <div id="sql-actions">
             <button id="sql-run">&#9654; Run</button>
@@ -12539,7 +12619,7 @@ var InstantInsight = (function () {
   /* ============================================================
      GRID RENDERING
      ============================================================ */
-  function getActiveDataset() {
+  window.getActiveDataset = function getActiveDataset() {
     return state.datasets.find(function (d) { return d.id === state.activeDatasetId; });
   }
 
@@ -14305,6 +14385,7 @@ sys.stdout = _stdout_buf');
 
     return { evaluate: evaluate };
   })();
+  window.FormulaEngine = FormulaEngine;
 
   var formulaInput = $('formula-input');
   var formulaActiveRef = { rowIdx: null, colIdx: null, originalValue: '' };
@@ -15600,6 +15681,583 @@ sys.stdout = _stdout_buf');
     });
     sqlOpenObserver.observe(origSqlOpen, { attributes: true, attributeFilter: ['class'] });
   }
+
+
+  /* showToast global shim for cross-module calls */
+  if (!window.showToast) {
+    window.showToast = function(msg, type) {
+      var el = document.createElement('div');
+      var colors = { success: '#16a34a', error: '#dc2626', warn: '#d97706', info: '#0891b2' };
+      el.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:8px;font-size:13px;color:#fff;background:' + (colors[type] || colors.info) + ';box-shadow:0 4px 16px rgba(0,0,0,.18);pointer-events:none;transition:opacity .3s;max-width:320px;';
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(function(){ el.style.opacity='0'; setTimeout(function(){ el.remove(); }, 300); }, 3200);
+    };
+  }
+
+  /* ============================================================
+     BULK BUILD — #11, #13, #16, #21, #22, #23, #10
+     SQL Autocomplete · Smart Scaffolding · Python Progress
+     Excel Formula Suggestions · Tooltips · Errors · Vault Rename
+     ============================================================ */
+
+  /* ---- #11 SQL Column Autocomplete ---------------------------------- */
+  (function () {
+    'use strict';
+    var SQL_KEYWORDS = [
+      'SELECT','FROM','WHERE','GROUP BY','ORDER BY','HAVING','LIMIT','JOIN',
+      'LEFT JOIN','INNER JOIN','ON','AS','DISTINCT','COUNT','SUM','AVG','MAX','MIN',
+      'CASE','WHEN','THEN','ELSE','END','AND','OR','NOT','IN','IS NULL','IS NOT NULL',
+      'BETWEEN','LIKE','UNION','WITH','OVER','PARTITION BY','ROW_NUMBER','RANK',
+      'LAG','LEAD','NTILE','COALESCE','NULLIF','CAST','DATE_TRUNC','STRFTIME'
+    ];
+
+    function getDatasetTokens() {
+      var tokens = [];
+      if (window.state && window.state.datasets) {
+        window.state.datasets.forEach(function (ds) {
+          tokens.push({ name: ds.name || 'dataset', type: 'tbl' });
+          (ds.columns || []).forEach(function (col) {
+            tokens.push({ name: '"' + col.name + '"', type: 'col', raw: col.name });
+          });
+        });
+      }
+      SQL_KEYWORDS.forEach(function (kw) { tokens.push({ name: kw, type: 'kw' }); });
+      return tokens;
+    }
+
+    function getWordBefore(ta) {
+      var pos = ta.selectionStart;
+      var text = ta.value.slice(0, pos);
+      var m = /[\w"]+$/.exec(text);
+      return m ? m[0] : '';
+    }
+
+    function shouldTrigger(ta) {
+      var pos = ta.selectionStart;
+      var text = ta.value.slice(0, pos);
+      // Trigger after FROM  for table names
+      if (/\bFROM\s+$/i.test(text)) return { filter: '', tableOnly: true };
+      // Trigger on any word ≥1 char or after open-quote
+      var m = /([\w"]+)$/.exec(text);
+      if (m && m[0].length >= 1) return { filter: m[0].replace(/"/g, ''), tableOnly: false };
+      return null;
+    }
+
+    var acEl = document.getElementById('sql-autocomplete');
+    var sqlInp = document.getElementById('sql-input');
+    if (!acEl || !sqlInp) return;
+
+    var activeIdx = -1;
+    var currentItems = [];
+
+    function renderItems(items) {
+      currentItems = items;
+      activeIdx = -1;
+      acEl.innerHTML = '';
+      items.slice(0, 18).forEach(function (item, i) {
+        var div = document.createElement('div');
+        div.className = 'sql-ac-item';
+        div.innerHTML =
+          '<span class="sql-ac-badge ' + item.type + '">' + item.type + '</span>' +
+          '<span class="sql-ac-name">' + item.name + '</span>';
+        div.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          insertItem(item);
+        });
+        acEl.appendChild(div);
+      });
+      positionDropdown();
+      acEl.style.display = items.length ? 'block' : 'none';
+    }
+
+    function positionDropdown() {
+      var wrap = sqlInp.parentElement;
+      var rect = sqlInp.getBoundingClientRect();
+      var wrapRect = wrap.getBoundingClientRect();
+      // Approximate caret position using lineHeight and value up to cursor
+      var lines = sqlInp.value.slice(0, sqlInp.selectionStart).split('\n');
+      var lineH = 20;
+      var top = (lines.length * lineH) + 4;
+      acEl.style.top = top + 'px';
+      acEl.style.left = '8px';
+    }
+
+    function insertItem(item) {
+      var pos = sqlInp.selectionStart;
+      var text = sqlInp.value;
+      var before = text.slice(0, pos);
+      var after = text.slice(pos);
+      // Remove partial word before cursor
+      var wordMatch = /[\w"]*$/.exec(before);
+      var wordStart = wordMatch ? pos - wordMatch[0].length : pos;
+      // For keywords keep as-is, for cols insert quoted name
+      var insert = item.name;
+      sqlInp.value = text.slice(0, wordStart) + insert + after;
+      var newPos = wordStart + insert.length;
+      sqlInp.setSelectionRange(newPos, newPos);
+      sqlInp.focus();
+      hide();
+    }
+
+    function hide() {
+      acEl.style.display = 'none';
+      currentItems = [];
+      activeIdx = -1;
+    }
+
+    sqlInp.addEventListener('input', function () {
+      var trigger = shouldTrigger(sqlInp);
+      if (!trigger) { hide(); return; }
+      var tokens = getDatasetTokens();
+      var fl = trigger.filter.toLowerCase();
+      var matches = tokens.filter(function (t) {
+        if (trigger.tableOnly) return t.type === 'tbl';
+        if (!fl) return false;
+        return t.name.toLowerCase().replace(/"/g,'').startsWith(fl) ||
+               (t.raw && t.raw.toLowerCase().startsWith(fl));
+      });
+      // Deduplicate
+      var seen = {};
+      matches = matches.filter(function (t) {
+        var k = t.name; if (seen[k]) return false; seen[k] = true; return true;
+      });
+      // Sort: cols first, then tables, then keywords
+      matches.sort(function (a, b) {
+        var order = { col: 0, tbl: 1, kw: 2 };
+        return (order[a.type] || 9) - (order[b.type] || 9);
+      });
+      renderItems(matches);
+    });
+
+    sqlInp.addEventListener('keydown', function (e) {
+      if (acEl.style.display === 'none') return;
+      var items = acEl.querySelectorAll('.sql-ac-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, items.length - 1);
+        items.forEach(function (el, i) { el.classList.toggle('active', i === activeIdx); });
+        if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        items.forEach(function (el, i) { el.classList.toggle('active', i === activeIdx); });
+        if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        if (activeIdx >= 0 && currentItems[activeIdx]) {
+          e.preventDefault();
+          insertItem(currentItems[activeIdx]);
+        } else if (e.key === 'Tab' && currentItems.length === 1) {
+          e.preventDefault();
+          insertItem(currentItems[0]);
+        } else {
+          hide();
+        }
+      } else if (e.key === 'Escape') {
+        hide();
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!acEl.contains(e.target) && e.target !== sqlInp) hide();
+    });
+  })();
+
+  /* ---- #13 Smart Query Scaffolding --------------------------------- */
+  (function () {
+    'use strict';
+
+    var SEED_TEMPLATES = [
+      { pattern: /total|sum|revenue|amount/i, label: 'Total by group',
+        sql: function (ds, col) {
+          var numCol = ds.columns.find(function(c){ return c.type==='FLOAT'||c.type==='INT'; });
+          var grpCol = ds.columns.find(function(c){ return c.type==='STR'; });
+          if (!numCol || !grpCol) return null;
+          return 'SELECT "' + grpCol.name + '",
+       SUM("' + numCol.name + '") AS total
+FROM ' + ds.name + '
+GROUP BY 1
+ORDER BY total DESC
+LIMIT 20';
+        }},
+      { pattern: /average|avg|mean/i, label: 'Average by group',
+        sql: function (ds) {
+          var numCol = ds.columns.find(function(c){ return c.type==='FLOAT'||c.type==='INT'; });
+          var grpCol = ds.columns.find(function(c){ return c.type==='STR'; });
+          if (!numCol || !grpCol) return null;
+          return 'SELECT "' + grpCol.name + '",
+       ROUND(AVG("' + numCol.name + '"), 2) AS avg_value
+FROM ' + ds.name + '
+GROUP BY 1
+ORDER BY avg_value DESC';
+        }},
+      { pattern: /count|how many|frequency/i, label: 'Count by group',
+        sql: function (ds) {
+          var grpCol = ds.columns.find(function(c){ return c.type==='STR'; });
+          if (!grpCol) grpCol = ds.columns[0];
+          return 'SELECT "' + grpCol.name + '",
+       COUNT(*) AS count
+FROM ' + ds.name + '
+GROUP BY 1
+ORDER BY count DESC';
+        }},
+      { pattern: /top|rank|best|worst/i, label: 'Top N rows',
+        sql: function (ds) {
+          var numCol = ds.columns.find(function(c){ return c.type==='FLOAT'||c.type==='INT'; });
+          if (!numCol) return 'SELECT * FROM ' + ds.name + ' LIMIT 10';
+          return 'SELECT *
+FROM ' + ds.name + '
+ORDER BY "' + numCol.name + '" DESC
+LIMIT 10';
+        }},
+      { pattern: /trend|over time|by month|by date/i, label: 'Trend over time',
+        sql: function (ds) {
+          var dateCol = ds.columns.find(function(c){ return c.type==='DATE'; });
+          var numCol = ds.columns.find(function(c){ return c.type==='FLOAT'||c.type==='INT'; });
+          if (!dateCol || !numCol) return null;
+          return 'SELECT DATE_TRUNC('month', "' + dateCol.name + '") AS month,
+       SUM("' + numCol.name + '") AS total
+FROM ' + ds.name + '
+GROUP BY 1
+ORDER BY 1';
+        }},
+      { pattern: /duplicate|dupe|unique/i, label: 'Find duplicates',
+        sql: function (ds) {
+          var idCol = ds.columns[0];
+          return 'SELECT "' + idCol.name + '", COUNT(*) AS occurrences
+FROM ' + ds.name + '
+GROUP BY 1
+HAVING COUNT(*) > 1
+ORDER BY occurrences DESC';
+        }},
+      { pattern: /null|missing|blank/i, label: 'Missing values',
+        sql: function (ds) {
+          var checks = ds.columns.slice(0, 6).map(function(c) {
+            return 'SUM(CASE WHEN "' + c.name + '" IS NULL THEN 1 ELSE 0 END) AS missing_' + c.name.replace(/\W/g,'_');
+          });
+          return 'SELECT ' + checks.join(',
+       ') + '
+FROM ' + ds.name;
+        }},
+      { pattern: /window|rank|row_number|running/i, label: 'Window function',
+        sql: function (ds) {
+          var numCol = ds.columns.find(function(c){ return c.type==='FLOAT'||c.type==='INT'; });
+          var grpCol = ds.columns.find(function(c){ return c.type==='STR'; });
+          if (!numCol) return null;
+          var part = grpCol ? ('PARTITION BY "' + grpCol.name + '" ') : '';
+          return 'SELECT *,
+       ROW_NUMBER() OVER (' + part + 'ORDER BY "' + numCol.name + '" DESC) AS rank
+FROM ' + ds.name + '
+ORDER BY rank
+LIMIT 20';
+        }}
+    ];
+
+    // Seed chips rendered in sql-suggestions-bar
+    function refreshSeedChips() {
+      var bar = document.getElementById('sql-suggestions-bar');
+      if (!bar) return;
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) { bar.innerHTML = ''; return; }
+
+      bar.innerHTML = '';
+      var label = document.createElement('span');
+      label.style.cssText = 'font-size:11px;color:var(--text-faint);margin-right:6px;';
+      label.textContent = 'Try:';
+      bar.appendChild(label);
+
+      SEED_TEMPLATES.forEach(function (tmpl) {
+        var chip = document.createElement('button');
+        chip.className = 'suggestion-chip';
+        chip.textContent = tmpl.label;
+        chip.addEventListener('click', function () {
+          var inp = document.getElementById('sql-input');
+          if (!inp) return;
+          var generated = tmpl.sql(ds);
+          if (!generated) {
+            window.showToast && window.showToast('Not enough column variety to scaffold this query.', 'warn');
+            return;
+          }
+          inp.value = generated;
+          inp.focus();
+          inp.dispatchEvent(new Event('input'));
+        });
+        bar.appendChild(chip);
+      });
+    }
+
+    // Expose for SQL overlay open observer
+    window._refreshSeedChips = refreshSeedChips;
+
+    // Hook into dataset load events
+    document.addEventListener('dataglow:dataset-loaded', refreshSeedChips);
+    document.addEventListener('dataglow:dataset-switched', refreshSeedChips);
+
+    // Also refresh when SQL overlay becomes visible
+    var sqlOverlay = document.getElementById('sql-overlay');
+    if (sqlOverlay) {
+      var obs = new MutationObserver(function () {
+        if (!sqlOverlay.classList.contains('hidden')) refreshSeedChips();
+      });
+      obs.observe(sqlOverlay, { attributes: true, attributeFilter: ['class'] });
+    }
+  })();
+
+  /* ---- #16 Python Loading Progress --------------------------------- */
+  (function () {
+    'use strict';
+    var STAGES = [
+      { pct: 10, msg: 'Downloading Python runtime (~10 MB, one-time setup)...' },
+      { pct: 35, msg: 'Initializing Pyodide engine...' },
+      { pct: 60, msg: 'Loading pandas, numpy, standard library...' },
+      { pct: 85, msg: 'Mounting your datasets as DataFrames...' },
+      { pct: 100, msg: 'Python ready.' }
+    ];
+
+    var msgEl  = document.getElementById('py-progress-msg');
+    var barWrap = document.getElementById('py-progress-bar-wrap');
+    var barEl  = document.getElementById('py-progress-bar');
+    var statEl = document.getElementById('py-view-load-status');
+
+    function setStage(idx) {
+      if (!msgEl || !barEl || !barWrap) return;
+      var s = STAGES[Math.min(idx, STAGES.length - 1)];
+      msgEl.style.display = 'block';
+      msgEl.textContent = s.msg;
+      barWrap.classList.remove('hidden');
+      barEl.style.width = s.pct + '%';
+      if (s.pct === 100) {
+        setTimeout(function () {
+          msgEl.style.display = 'none';
+          barWrap.classList.add('hidden');
+          if (statEl) statEl.textContent = 'Python ready';
+        }, 1200);
+      }
+    }
+
+    // Patch existing pyLoadStat assignments to drive progress bar
+    var origRun = document.getElementById('py-view-run');
+    if (origRun) {
+      origRun.addEventListener('click', function () {
+        // If Pyodide not yet loaded, drive stages
+        if (!window._pyodide && !window._pyLoading) return;
+        if (window._pyLoading) {
+          var stage = 0;
+          setStage(stage++);
+          var timer = setInterval(function () {
+            if (!window._pyLoading) {
+              setStage(4);
+              clearInterval(timer);
+              return;
+            }
+            if (stage < 4) setStage(stage++);
+          }, 1800);
+        }
+      });
+    }
+
+    // Expose for external trigger
+    window._pyProgressStage = setStage;
+  })();
+
+  /* ---- #21-22-23 Excel Formula Suggestions + Tooltip + Errors ------- */
+  (function () {
+    'use strict';
+
+    var FORMULA_CATALOG = [
+      { name: 'SUM',     sig: 'SUM(B2:B100)',           desc: 'Adds all numbers in a range.' },
+      { name: 'AVG',     sig: 'AVG(B2:B100)',           desc: 'Returns the arithmetic mean.' },
+      { name: 'COUNT',   sig: 'COUNT(A2:A100)',         desc: 'Counts numeric cells.' },
+      { name: 'COUNTA',  sig: 'COUNTA(A2:A100)',        desc: 'Counts non-empty cells.' },
+      { name: 'MAX',     sig: 'MAX(B2:B100)',           desc: 'Returns the largest value.' },
+      { name: 'MIN',     sig: 'MIN(B2:B100)',           desc: 'Returns the smallest value.' },
+      { name: 'MEDIAN',  sig: 'MEDIAN(B2:B100)',        desc: 'Returns the middle value.' },
+      { name: 'STDEV',   sig: 'STDEV(B2:B100)',         desc: 'Standard deviation of a range.' },
+      { name: 'ROUND',   sig: 'ROUND(A1, 2)',           desc: 'Rounds to N decimal places.' },
+      { name: 'COUNTIF', sig: 'COUNTIF(A2:A100, "x")', desc: 'Counts cells matching a value.' },
+      { name: 'SUMIF',   sig: 'SUMIF(A2:A100, "x", B2:B100)', desc: 'Sums B where A matches value.' }
+    ];
+
+    var ERROR_MESSAGES = {
+      '#ERROR:': 'Formula could not be evaluated — check your function name and range.',
+      '#EXPR?':  'Expression syntax error — check parentheses and operators.',
+      '#DIV/0':  'Division by zero — the denominator resolved to 0.',
+      '#VALUE':  'Wrong value type — a text cell was used where a number is expected.',
+      '#REF':    'Cell reference is out of range — check your row/column letters.'
+    };
+
+    function plainError(raw) {
+      for (var key in ERROR_MESSAGES) {
+        if (raw && raw.startsWith(key)) return ERROR_MESSAGES[key];
+      }
+      return null;
+    }
+
+    var formulaInput = document.getElementById('formula-input');
+    var sugEl  = document.getElementById('formula-suggestions');
+    var errBar = document.getElementById('formula-error-bar');
+    var hintEl = document.getElementById('formula-fn-hint');
+    if (!formulaInput || !sugEl) return;
+
+    var acActiveIdx = -1;
+    var acItems = [];
+
+    function renderSuggestions(matches) {
+      acItems = matches;
+      acActiveIdx = -1;
+      sugEl.innerHTML = '';
+      matches.forEach(function (fn, i) {
+        var div = document.createElement('div');
+        div.className = 'formula-sug-item';
+        div.innerHTML =
+          '<div><span class="formula-sug-name">' + fn.name + '</span>' +
+          ' <span class="formula-sug-sig">' + fn.sig + '</span></div>' +
+          '<div class="formula-sug-desc">' + fn.desc + '</div>';
+        div.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          insertFormula(fn);
+        });
+        sugEl.appendChild(div);
+      });
+      sugEl.style.display = matches.length ? 'block' : 'none';
+    }
+
+    function hideSuggestions() {
+      sugEl.style.display = 'none';
+      acItems = [];
+      acActiveIdx = -1;
+    }
+
+    function insertFormula(fn) {
+      formulaInput.value = '=' + fn.name + '()';
+      // Position cursor inside parentheses
+      var pos = formulaInput.value.length - 1;
+      formulaInput.setSelectionRange(pos, pos);
+      formulaInput.focus();
+      hideSuggestions();
+    }
+
+    function showError(msg) {
+      if (!errBar) return;
+      errBar.textContent = msg;
+      errBar.style.display = 'block';
+    }
+
+    function hideError() {
+      if (!errBar) return;
+      errBar.style.display = 'none';
+    }
+
+    formulaInput.addEventListener('input', function () {
+      var val = formulaInput.value;
+      hideError();
+
+      // Trigger suggestions on "=" or "=F", "=SU" etc
+      if (val === '=') {
+        renderSuggestions(FORMULA_CATALOG);
+        return;
+      }
+      if (val.startsWith('=')) {
+        var typed = val.slice(1).toUpperCase();
+        var matches = FORMULA_CATALOG.filter(function (fn) { return fn.name.startsWith(typed); });
+        if (matches.length && !typed.includes('(')) {
+          renderSuggestions(matches);
+          return;
+        }
+      }
+      hideSuggestions();
+
+      // Live error detection
+      if (val && val[0] === '=') {
+        var ds = window.getActiveDataset && window.getActiveDataset();
+        if (ds && window.FormulaEngine) {
+          var result = window.FormulaEngine.evaluate(val, ds);
+          if (result !== null) {
+            var errMsg = plainError(String(result));
+            if (errMsg) showError(errMsg);
+          }
+        }
+      }
+    });
+
+    formulaInput.addEventListener('keydown', function (e) {
+      if (sugEl.style.display === 'none') return;
+      var rows = sugEl.querySelectorAll('.formula-sug-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        acActiveIdx = Math.min(acActiveIdx + 1, rows.length - 1);
+        rows.forEach(function (r, i) { r.classList.toggle('active', i === acActiveIdx); });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        acActiveIdx = Math.max(acActiveIdx - 1, 0);
+        rows.forEach(function (r, i) { r.classList.toggle('active', i === acActiveIdx); });
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        if (acActiveIdx >= 0 && acItems[acActiveIdx]) {
+          e.preventDefault();
+          insertFormula(acItems[acActiveIdx]);
+        } else if (acItems.length === 1) {
+          e.preventDefault();
+          insertFormula(acItems[0]);
+        }
+      } else if (e.key === 'Escape') {
+        hideSuggestions();
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!sugEl.contains(e.target) && e.target !== formulaInput) hideSuggestions();
+    });
+
+    /* ---- #22 Formula fn-hint hover tooltip ---- */
+    if (hintEl) {
+      var tooltip = null;
+      hintEl.addEventListener('mouseenter', function () {
+        var val = formulaInput.value;
+        if (!val || val[0] !== '=') return;
+        var fnMatch = val.slice(1).toUpperCase().match(/^([A-Z]+)/);
+        if (!fnMatch) return;
+        var fn = FORMULA_CATALOG.find(function (f) { return f.name === fnMatch[1]; });
+        if (!fn) return;
+        tooltip = document.createElement('div');
+        tooltip.className = 'formula-fn-tooltip';
+        tooltip.innerHTML = '<strong>' + fn.sig + '</strong>' + fn.desc;
+        hintEl.style.position = 'relative';
+        hintEl.appendChild(tooltip);
+      });
+      hintEl.addEventListener('mouseleave', function () {
+        if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+        tooltip = null;
+      });
+    }
+  })();
+
+  /* ---- #10 Vault V1 — rename Storage → Vault in nav/UI ------------- */
+  (function () {
+    'use strict';
+    // Run after DOM is settled
+    function applyVaultRename() {
+      // Nav buttons and panel headings that say "Storage"
+      document.querySelectorAll('button, span, div, h2, h3, label').forEach(function (el) {
+        if (el.children.length === 0 && el.textContent.trim() === 'Storage') {
+          el.textContent = 'Vault';
+        }
+        // Storage tab label
+        if (el.getAttribute && el.getAttribute('data-panel') === 'storage') {
+          el.setAttribute('data-panel', 'vault');
+        }
+      });
+      // Section headings inside the storage/vault panel
+      document.querySelectorAll('#storage-panel h2, #storage-panel h3, #opfs-panel h2').forEach(function (el) {
+        el.textContent = el.textContent.replace(/\bStorage\b/g, 'Vault').replace(/\bOPFS\b/g, 'Vault');
+      });
+    }
+    // Run immediately and after any dataset load (nav re-renders)
+    applyVaultRename();
+    document.addEventListener('dataglow:dataset-loaded', applyVaultRename);
+    setTimeout(applyVaultRename, 800);
+    setTimeout(applyVaultRename, 2000);
+  })();
+
 
 })();
 </script>
