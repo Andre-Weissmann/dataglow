@@ -1,0 +1,1932 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1BA1A8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DataGlow">
+<title>DataGlow  -  Your data, understood.</title>
+  <link rel="stylesheet" href="../src/css/main.css">
+
+</head>
+<body>
+
+  <!-- ============================================================
+       CANVAS - always visible; ceremony overlay sits on top until data loads
+       ============================================================ -->
+  <div id="canvas">
+<div id="mission-progress-bar">
+  <div class="mp-step active" id="mp-step-brief"><div class="mp-dot"></div><span class="mp-step-label">Brief</span><div class="mp-connector"></div></div>
+  <div class="mp-step" id="mp-step-explore"><div class="mp-dot"></div><span class="mp-step-label">Explore</span><div class="mp-connector"></div></div>
+  <div class="mp-step" id="mp-step-analyze"><div class="mp-dot"></div><span class="mp-step-label">Analyze</span><div class="mp-connector"></div></div>
+  <div class="mp-step" id="mp-step-review"><div class="mp-dot"></div><span class="mp-step-label">Review</span><div class="mp-connector"></div></div>
+  <div class="mp-step" id="mp-step-report"><div class="mp-dot"></div><span class="mp-step-label">Report</span></div>
+</div>
+    <!-- ============================================================
+       CEREMONY SCREEN (shown on first load)
+       ============================================================ -->
+  <!-- Theme toggle visible on ceremony screen -->
+  <button id="ceremony-theme-btn" title="Toggle dark mode" aria-label="Toggle dark mode">&#9681;</button>
+
+  <div id="ceremony-screen">
+    <img id="ceremony-wordmark" src="dataglow-logo.png" alt="DataGlow" />
+    <p id="ceremony-tagline">Your data. Understood. Instantly. Privately.</p>
+
+    <div id="drop-zone">
+      <div id="resume-banner" style="display:none;background:var(--surface);border:1px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px;align-items:center;gap:12px;">
+        <span style="font-size:18px;">&#128193;</span>
+        <div style="flex:1;">
+          <div id="resume-proj-name" style="font-size:13px;font-weight:800;color:var(--text);">Continue: Inpatient Claims Analysis</div>
+          <div id="resume-proj-meta" style="font-size:11px;color:var(--text-muted);">3 datasets - Last modified 2 hours ago</div>
+        </div>
+        <button id="resume-btn" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;">Resume</button>
+        <button id="resume-dismiss-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px;">x</button>
+      </div>
+      
+      <svg id="drop-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="8" y="14" width="32" height="22" rx="3" stroke="currentColor" stroke-width="1.8" fill="none"/>
+        <path d="M24 22v8M20 26l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+      <p id="drop-text">Drop files here (CSV, TSV, JSON) - multiple files supported</p>
+      <p id="drop-formats">Every format. Any size. Zero uploads.</p>
+      <input type="file" id="file-input" class="hidden" multiple accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
+    </div>
+    <div id="reveal-file-name" class="hidden"></div>
+    <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
+    <div id="reveal-counts" class="hidden">
+      <span id="row-count-display">0 rows</span>
+      <span id="col-count-display"></span>
+    </div>
+    <div id="reveal-health-dots"></div>
+    <div id="reveal-finding" class="hidden">
+      <span id="finding-text"></span>
+      <button id="finding-expand">Here is what that means.</button>
+    </div>
+    <div id="return-use-banner" class="hidden"></div>
+    <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load an example dataset</span></p>
+    <p id="ceremony-privacy">Your data never leaves this tab</p>
+
+    <!-- Export panel -->
+  <div id="export-panel" class="hidden">
+    <div id="export-panel-inner">
+      <div id="export-panel-header">
+        <span id="export-panel-title">Export</span>
+        <button id="export-panel-close" title="Close">&times;</button>
+      </div>
+      <div id="export-options">
+        <button class="export-option-btn" id="export-csv-btn">
+          <span class="export-icon">&#8595; CSV</span>
+          <span class="export-desc">Download raw data as a spreadsheet</span>
+        </button>
+        <button class="export-option-btn" id="export-png-btn">
+          <span class="export-icon">&#128247; PNG</span>
+          <span class="export-desc">Save all charts as a single image</span>
+        </button>
+        <button class="export-option-btn" id="export-pdf-btn">
+          <span class="export-icon">&#128196; PDF</span>
+          <span class="export-desc">Full analysis report with column stats</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURE: natsConnector -->
+    <div id="nats-source-wrapper" class="hidden">
+      <button id="nats-source-option" class="hidden">Live Stream (NATS)</button>
+      <div id="nats-config-form" class="hidden">
+        <label>WebSocket URL
+          <input type="text" id="nats-url-input" value="ws://localhost:4221" placeholder="ws://localhost:4221" />
+        </label>
+        <label>Subject pattern
+          <input type="text" id="nats-subject-input" value="metrics.&gt;" placeholder="metrics.&gt;" />
+        </label>
+        <label>Batch size
+          <input type="number" id="nats-batchsize-input" value="100" min="1" max="10000" />
+        </label>
+        <pre id="nats-connection-guide"></pre>
+        <button id="nats-connect-btn">Connect</button>
+        <div id="nats-connect-status"></div>
+      </div>
+    </div>
+    <!-- /FEATURE: natsConnector -->
+  </div>
+
+  <!-- Top nav (inside #canvas) -->
+    <nav id="top-nav">
+      <div id="nav-brand">
+        <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
+      </div>
+      <div id="nav-views">
+        <button class="nav-btn active" data-view="data">Data</button>
+        <button class="nav-btn" data-view="analyze">Analyze</button>
+        <button class="nav-btn" data-view="share">Share</button>
+      </div>
+      <div id="nav-right">
+        <button id="publish-btn" title="Share this analysis" disabled>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:5px;vertical-align:-1px">
+            <path d="M10 3L13 3M13 3L13 6M13 3L8.5 7.5M6.5 4H4C3.44772 4 3 4.44772 3 5V12C3 12.5523 3.44772 13 4 13H11C11.5523 13 12 12.5523 12 12V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Share
+        </button>
+        <button id="export-btn" title="Export data" disabled>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:5px;vertical-align:-1px">
+            <path d="M8 2v9M8 11l-3-3M8 11l3-3M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Export
+        </button>
+        <button id="save-dataset-btn" title="Save current dataset to browser storage" onclick="saveCurrentDataset()" style="display:none;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
+            <path d="M13 13H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8l2 2v7a1 1 0 0 1-1 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M5 13V9h6v4M5 3v3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Save
+        </button>
+        <button id="saved-datasets-btn" title="Open saved datasets" onclick="openSavedDatasets()" style="display:none;">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
+            <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="2" y="7" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="2" y="12" width="12" height="2" rx="1" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          Saved
+        </button>
+        <button id="profile-btn" title="Set your workspace profile" onclick="openWorkspaceProfile()">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
+            <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M2 14c0-3 2.686-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Profile
+        </button>
+        <button id="theme-toggle" title="Toggle dark mode">&#9681;</button>
+        <button class="privacy-badge" title="All analysis runs in your browser. Zero data leaves your device.&#10;&#10;DataGlow uses:&#10;- DuckDB-WASM (in-browser SQL)&#10;- Pyodide (in-browser Python)&#10;- WebR (in-browser R)&#10;&#10;No user data is ever uploaded to any server." onclick="showPrivacyAudit()">
+          <div class="privacy-badge-dot"></div>
+          100% Private
+        </button>
+      </div>
+    </nav>
+
+    <!-- Publish panel (hidden until publish-btn clicked) -->
+    <div id="publish-panel" class="hidden">
+      <div id="publish-panel-inner">
+        <div id="publish-panel-header">
+          <span id="publish-panel-title">Share Analysis</span>
+          <button id="publish-panel-close" aria-label="Close">&#x2715;</button>
+        </div>
+        <div id="publish-title-row">
+          <label for="publish-title-input">Title</label>
+          <input type="text" id="publish-title-input" placeholder="My Analysis" autocomplete="off" />
+        </div>
+        <div id="publish-url-row">
+          <input type="text" id="publish-url-display" readonly placeholder="Generating link..." autocomplete="off" />
+          <button id="publish-copy-btn" disabled>Copy Link</button>
+        </div>
+        <div id="publish-meta-row">
+          <span id="publish-meta-text"></span>
+        </div>
+        <p id="publish-privacy-note">Your data is encoded directly into the link. Nothing is uploaded to any server.</p>
+      </div>
+    </div>
+
+    <!-- Tab strip -->
+    <div id="tab-strip">
+      <!-- tabs injected here -->
+      <button id="tab-add" title="Add another file">+</button>
+    </div>
+
+    <!-- Main surface -->
+    <div id="main-surface">
+      <!-- Grid view -->
+      <!-- DATA TAB -->
+      <div id="data-view" class="view active">
+        <!-- Merge datasets button (replaces Join tab) -->
+        <div id="data-merge-bar" class="hidden">
+          <button id="data-merge-btn">+ Merge datasets</button>
+        </div>
+        <!-- Join builder (shown when merge btn clicked) -->
+        <div id="join-view" class="tab-panel hidden">
+        <div id="join-view-inner"></div>
+      </div>
+        <!-- Main grid -->
+        <div id="grid-view" class="tab-panel active">
+        <!-- Formula bar -->
+        <div id="formula-bar">
+          <span id="formula-cell-ref">A1</span>
+          <input id="formula-input" type="text" placeholder="=SUM(B2:B100) or type a value..." autocomplete="off" />
+          <span id="formula-fn-hint" title="Supported: SUM, AVG, COUNT, COUNTA, MAX, MIN, MEDIAN, STDEV, ROUND, COUNTIF, SUMIF">ƒx</span>
+          <div id="formula-suggestions" style="display:none"></div>
+          <span id="formula-ref-mode-hint">Click a cell to insert reference</span>
+        </div>
+        <div id="formula-error-bar"></div>
+        <!-- Grid container -->
+        <div id="grid-container">
+          <div id="grid-table-wrapper">
+            <table id="grid-table">
+              <thead id="grid-thead"></thead>
+              <tbody id="grid-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Status bar -->
+        <div id="status-bar">
+          <span id="status-rows"></span>
+          <span class="status-sep">|</span>
+          <span id="status-cols"></span>
+          <span class="status-sep">|</span>
+          <span id="status-validation"></span>
+          <span class="status-sep">|</span>
+          <span id="status-filename"></span>
+        </div>
+      </div>
+      </div>
+
+      <!-- ANALYZE TAB -->
+      <div id="analyze-view" class="view hidden">
+        <nav id="analyze-sidebar">
+
+          <div class="sidebar-section-label">Explore</div>
+          <button class="sidebar-nav-item active" data-panel="charts-view">
+            <span class="sni-icon">&#128200;</span>
+            <span class="sni-label">Charts</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="dashboard-view">
+            <span class="sni-icon">&#9783;</span>
+            <span class="sni-label">Dashboard</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="sql-view">
+            <span class="sni-icon">&#128196;</span>
+            <span class="sni-label">SQL</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="python-view">
+            <span class="sni-icon">&#128013;</span>
+            <span class="sni-label">Python</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="r-view">
+            <span class="sni-icon">&#128202;</span>
+            <span class="sni-label">R</span>
+            <span class="sni-badge">stats</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="excel-view">
+            <span class="sni-icon">&#128218;</span>
+            <span class="sni-label">Excel</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="stats-view">
+            <span class="sni-icon">&#8767;</span>
+            <span class="sni-label">Statistics</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="arena-view">
+            <span class="sni-icon">&#9878;</span>
+            <span class="sni-label">Arena</span>
+            <span class="sni-badge">AI</span>
+          </button>
+
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-section-label">Validate</div>
+          <button class="sidebar-nav-item" data-panel="review-view">
+            <span class="sni-icon">&#10003;</span>
+            <span class="sni-label">Peer Review</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-witness-btn">
+            <span class="sni-icon">&#128274;</span>
+            <span class="sni-label">Witness</span>
+            <span class="sni-badge">PHI</span>
+          </button>
+
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-section-label">Share</div>
+          <button class="sidebar-nav-item" data-panel="cases-view">
+            <span class="sni-icon">&#128203;</span>
+            <span class="sni-label">Case Library</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-osce-btn">
+            <span class="sni-icon">&#127891;</span>
+            <span class="sni-label">OSCE Exam</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-story-btn">
+            <span class="sni-icon">&#128196;</span>
+            <span class="sni-label">Narrative</span>
+          </button>
+
+          <div id="sidebar-questions-prompt">
+            <button id="sidebar-ask-btn">
+              <span class="sni-icon">&#10067;</span>
+              <span>Questions</span>
+              <span id="sidebar-ask-count">0</span>
+            </button>
+          </div>
+
+        </nav>
+
+        <!-- Analyze pills: Charts · Dashboard · SQL · Python -->
+        <div id="analyze-pills-bar">
+          <button class="analyze-pill active" data-panel="charts-view">Charts</button>
+          <button class="analyze-pill" data-panel="dashboard-view">Dashboard</button>
+          <button class="analyze-pill" data-panel="sql-view">SQL</button>
+          <button class="analyze-pill" data-panel="python-view">Python</button>
+          <button class="analyze-pill" data-panel="r-view">R</button>
+          <button class="analyze-pill" data-panel="excel-view">Excel</button>
+          <button class="analyze-pill" data-panel="stats-view">Stats</button>
+          <button class="analyze-pill" data-panel="arena-view">Arena</button>
+          <button class="analyze-pill" data-panel="cases-view">Cases</button>
+          <button class="analyze-pill" data-panel="review-view">Review</button>
+        </div><div id="analyze-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0;">
+<div id="analyze-tools-bar">
+  <button id="analyze-tools-trigger">&#9776; Tools</button>
+  <span id="analyze-active-label">Charts</span>
+</div>
+<div id="tools-sheet-overlay">
+  <div id="tools-sheet">
+    <div class="tools-sheet-handle"></div>
+    <div class="tools-sheet-header">
+      <span class="tools-sheet-title">Analyze Tools</span>
+      <button class="tools-sheet-close" id="tools-sheet-close-btn">&#x2715;</button>
+    </div>
+    <div class="tools-sheet-body" id="tools-sheet-body">
+      <!-- Cloned from sidebar on init -->
+    </div>
+  </div>
+</div>
+
+        
+        <!-- Panels -->
+        <div id="charts-view" class="analyze-panel active">
+        <div id="chart-grid" class="chart-grid"></div>
+      </div>
+        <div id="dashboard-view" class="analyze-panel hidden">
+        <div id="dashboard-view-inner"></div>
+      </div>
+        <div id="sql-view" class="analyze-panel hidden">
+        <div class="dojo-toggle-bar">
+          <button class="dojo-tab-btn active" id="dojo-editor-btn">Editor</button>
+          <button class="dojo-tab-btn" id="dojo-btn">Dojo &#10022;</button>
+        </div>
+        <div id="dojo-panel">
+          <div>
+            <div class="dojo-section-label">Pick a window function</div>
+            <div class="dojo-fn-grid" id="dojo-fn-grid">
+              <div class="dojo-fn-card active" data-fn="rank">Rank</div>
+              <div class="dojo-fn-card" data-fn="rownum">Row Number</div>
+              <div class="dojo-fn-card" data-fn="runsum">Running Total</div>
+              <div class="dojo-fn-card" data-fn="movavg">Moving Avg</div>
+              <div class="dojo-fn-card" data-fn="lag">Lag</div>
+              <div class="dojo-fn-card" data-fn="lead">Lead</div>
+              <div class="dojo-fn-card" data-fn="pct">% of Total</div>
+              <div class="dojo-fn-card" data-fn="drank">Dense Rank</div>
+            </div>
+            <div class="dojo-fn-desc" id="dojo-fn-desc" style="margin-top:8px;">Rank each row within a partition, giving the same rank to ties.</div>
+          </div>
+          <div class="dojo-controls" id="dojo-controls">
+            <div class="dojo-control-group" id="dojo-cg-partition">
+              <div class="dojo-control-label">Partition by (optional)</div>
+              <select class="dojo-select" id="dojo-partition"><option value="">(none)</option></select>
+            </div>
+            <div class="dojo-control-group" id="dojo-cg-order">
+              <div class="dojo-control-label">Order by</div>
+              <select class="dojo-select" id="dojo-orderby"><option value="">(select)</option></select>
+            </div>
+            <div class="dojo-control-group" id="dojo-cg-value">
+              <div class="dojo-control-label">Value column (numeric)</div>
+              <select class="dojo-select" id="dojo-valuecol"><option value="">(select)</option></select>
+            </div>
+          </div>
+          <div>
+            <div class="dojo-section-label">Generated SQL</div>
+            <div class="dojo-preview" id="dojo-preview">-- Select a function and columns above</div>
+          </div>
+          <button class="dojo-run-btn" id="dojo-run-btn">Run in SQL Editor</button>
+        </div>
+        <div id="sql-view-inner">
+          <div id="sql-view-header">
+            <span id="sql-view-title">SQL Editor</span>
+            <span id="sql-view-badge">DuckDB-WASM</span>
+            <div id="sql-view-actions">
+              <button id="sql-view-history-btn" title="Query history (up/down arrows)">History</button>
+              <button id="sql-view-export-btn" class="hidden" title="Export results as CSV">Export CSV</button>
+            </div>
+          </div>
+          <div id="sql-view-body">
+            <div id="sql-view-schema-panel">
+              <div id="sql-view-schema-title">Schema</div>
+              <div id="sql-view-schema-list"></div>
+            </div>
+            <div id="sql-view-editor-pane">
+              <div id="sql-view-suggestions-bar"></div>
+              <button id="sql-join-toggle-btn">+ JOIN helper</button>
+              <div id="sql-join-helper" class="hidden">
+                <div id="sql-join-helper-title">Build a JOIN</div>
+                <div class="join-helper-row">
+                  <select id="join-type-select" class="join-helper-select">
+                    <option value="INNER JOIN">INNER JOIN</option>
+                    <option value="LEFT JOIN">LEFT JOIN</option>
+                    <option value="RIGHT JOIN">RIGHT JOIN</option>
+                    <option value="FULL OUTER JOIN">FULL OUTER JOIN</option>
+                  </select>
+                  <select id="join-table-a" class="join-helper-select"><option value="">Table A</option></select>
+                  <span style="color:var(--text-muted);font-size:11px;">ON</span>
+                  <select id="join-col-a" class="join-helper-select"><option value="">Col A</option></select>
+                  <span style="color:var(--text-muted);font-size:11px;">=</span>
+                  <select id="join-table-b" class="join-helper-select"><option value="">Table B</option></select>
+                  <span style="color:var(--text-muted);font-size:11px;">.</span>
+                  <select id="join-col-b" class="join-helper-select"><option value="">Col B</option></select>
+                  <button id="sql-join-insert-btn">Insert SQL</button>
+                </div>
+              </div>
+              <div id="sql-view-textarea-wrap">
+                <textarea id="sql-view-input" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+              </div>
+              <div id="sql-view-actions-row">
+                <button id="sql-view-run">&#9654; Run</button>
+                <button id="sql-qb-toggle-btn" title="Open visual query builder">Builder</button>
+                <span id="sql-view-shortcut">Ctrl+Enter</span>
+              </div>
+              <div id="sql-view-status"></div>
+              <div id="sql-view-results-wrapper">
+                <table id="sql-view-results-table">
+                  <thead id="sql-view-results-thead"></thead>
+                  <tbody id="sql-view-results-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div id="sql-view-history-panel" class="hidden">
+            <div id="sql-view-history-title">Recent queries <button id="sql-view-history-close">&times;</button></div>
+            <div id="sql-view-history-list"></div>
+          </div>
+          <div id="sql-qb-panel" class="qb-panel">
+            <div class="qb-section">
+              <div class="qb-label">Table</div>
+              <select id="qb-table" class="qb-select" style="width:100%;"></select>
+            </div>
+            <div class="qb-section">
+              <div class="qb-label">Select Columns</div>
+              <div id="qb-columns" class="qb-col-grid"></div>
+            </div>
+            <div class="qb-section">
+              <div class="qb-label">Where (filters)</div>
+              <div id="qb-filters">
+                <div class="qb-filter-row">
+                  <select class="qb-select qb-fcol"><option value="">-- column --</option></select>
+                  <select class="qb-select qb-op"><option>=</option><option>!=</option><option>&gt;</option><option>&lt;</option><option>&gt;=</option><option>&lt;=</option><option>LIKE</option><option>IS NULL</option><option>IS NOT NULL</option></select>
+                  <input type="text" class="qb-input qb-val" placeholder="value" style="flex:1;" />
+                </div>
+                <div class="qb-filter-row">
+                  <select class="qb-select qb-fcol"><option value="">-- column --</option></select>
+                  <select class="qb-select qb-op"><option>=</option><option>!=</option><option>&gt;</option><option>&lt;</option><option>&gt;=</option><option>&lt;=</option><option>LIKE</option><option>IS NULL</option><option>IS NOT NULL</option></select>
+                  <input type="text" class="qb-input qb-val" placeholder="value" style="flex:1;" />
+                </div>
+                <div class="qb-filter-row">
+                  <select class="qb-select qb-fcol"><option value="">-- column --</option></select>
+                  <select class="qb-select qb-op"><option>=</option><option>!=</option><option>&gt;</option><option>&lt;</option><option>&gt;=</option><option>&lt;=</option><option>LIKE</option><option>IS NULL</option><option>IS NOT NULL</option></select>
+                  <input type="text" class="qb-input qb-val" placeholder="value" style="flex:1;" />
+                </div>
+              </div>
+            </div>
+            <div class="qb-section" style="display:flex;gap:12px;">
+              <div style="flex:1;">
+                <div class="qb-label">Group By</div>
+                <select id="qb-groupby" class="qb-select" style="width:100%;"><option value="">None</option></select>
+              </div>
+              <div style="flex:1;">
+                <div class="qb-label">Order By</div>
+                <div style="display:flex;gap:4px;">
+                  <select id="qb-orderby" class="qb-select" style="flex:1;"><option value="">None</option></select>
+                  <select id="qb-order-dir" class="qb-select" style="width:60px;"><option>DESC</option><option>ASC</option></select>
+                </div>
+              </div>
+              <div style="width:80px;">
+                <div class="qb-label">Limit</div>
+                <input type="number" id="qb-limit" class="qb-input" value="100" min="1" max="100000" style="width:100%;" />
+              </div>
+            </div>
+            <div class="qb-actions">
+              <button class="qb-apply-btn" id="qb-apply-btn">Apply SQL</button>
+              <button class="qb-close-btn" id="qb-close-btn">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+        <div id="python-view" class="analyze-panel hidden">
+        <div id="python-view-inner">
+          <div id="py-view-header">
+            <span id="py-view-title">Python REPL</span>
+            <span id="py-view-badge">Pyodide + pandas</span>
+            <div id="py-view-actions">
+              <button id="py-view-export-btn" class="hidden" title="Export result as CSV">Export CSV</button>
+            </div>
+          </div>
+          <div id="py-view-body">
+            <div id="py-view-schema-panel">
+              <div id="py-view-schema-title">Datasets</div>
+              <div id="py-view-schema-list"></div>
+            </div>
+            <div id="py-view-editor-pane">
+              <div id="py-view-suggestions-bar"></div>
+              <div id="py-nl-bar">
+                <input id="py-nl-input" type="text" placeholder="Describe what you want in plain English... (e.g. average sales by region)" autocomplete="off" />
+                <button id="py-nl-btn">Generate</button>
+              </div>
+              <div id="py-save-bar">
+                <button id="py-save-btn" title="Save this script">Save script</button>
+                <button id="py-rerun-btn" title="Rerun saved script on current dataset" disabled>Rerun saved</button>
+                <span id="py-save-name"></span>
+              </div>
+              <div id="py-view-textarea-wrap">
+                <textarea id="py-view-input" placeholder="import pandas as pd&#10;&#10;# Your datasets are pre-loaded&#10;# df = pd.DataFrame(dg.get_dataset())&#10;print(df.describe())" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+              </div>
+              <div id="py-view-actions-row">
+                <button id="py-view-run">&#9654; Run</button>
+                <span id="py-view-shortcut">Ctrl+Enter</span>
+                <span id="py-view-load-status"></span>
+              </div>
+              <div id="py-progress-msg" style="display:none"></div>
+              <div id="py-progress-bar-wrap" class="hidden"><div id="py-progress-bar"></div></div>
+              <div id="py-view-status"></div>
+              <div id="py-output-wrap">
+                <pre id="py-output"></pre>
+              </div>
+              <div id="py-result-wrap" class="hidden">
+                <table id="py-result-table">
+                  <thead id="py-result-thead"></thead>
+                  <tbody id="py-result-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+        <!-- #56 R panel -->
+        <div id="r-view" class="analyze-panel hidden">
+          <div id="r-view-inner" style="display:flex;flex-direction:column;height:100%;padding:12px;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-weight:700;font-size:13px;">R Console</span>
+              <span style="font-size:11px;color:var(--text-muted);background:var(--surface-alt);padding:2px 8px;border-radius:4px;">WebR</span>
+              <span id="r-load-status" style="font-size:11px;color:var(--text-faint);margin-left:auto;"></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Domain:</span>
+              <select id="r-domain-filter" style="background:var(--surface-alt);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:3px 8px;font-size:12px;font-family:inherit;cursor:pointer;">
+                <option value="all">All</option>
+                <option value="healthcare">Healthcare</option>
+                <option value="finance">Finance</option>
+                <option value="hr">HR</option>
+                <option value="sales">Sales</option>
+                <option value="ops">Ops</option>
+              </select>
+            </div>
+            <div id="r-suggestions-bar" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+            <textarea id="r-input" placeholder="# R runs entirely in your browser via WebR&#10;# Your datasets are available as data frames&#10;# Example: head(df)" style="flex:1;min-height:120px;font-family:monospace;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);resize:vertical;" spellcheck="false"></textarea>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button id="r-run-btn" style="padding:6px 18px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;cursor:pointer;">&#9654; Run</button>
+              <div id="r-progress-bar-wrap" style="flex:1;height:2px;background:var(--border);border-radius:1px;overflow:hidden;display:none;"><div id="r-progress-bar" style="height:100%;background:#3B82F6;width:0%;transition:width .4s;"></div></div>
+            </div>
+            <pre id="r-output" style="min-height:80px;max-height:260px;overflow:auto;background:var(--surface-alt);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;color:var(--text);white-space:pre-wrap;margin:0;"></pre>
+          </div>
+        </div>
+        <!-- #57 Excel panel in Analyze view -->
+        <div id="excel-view" class="analyze-panel hidden">
+          <div id="excel-view-inner" style="display:flex;flex-direction:column;height:100%;padding:0;">
+            <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+              <span style="font-weight:700;font-size:13px;">Excel Grid</span>
+              <span style="font-size:11px;color:var(--text-muted);">Same grid, same formula bar</span>
+              <button id="excel-view-goto-data" style="margin-left:auto;font-size:11px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-muted);cursor:pointer;">Open full Data view</button>
+            </div>
+            <div id="excel-view-msg" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">
+              The Excel-style grid is in the <strong>Data</strong> tab. Click <strong>Open full Data view</strong> above, or switch to the Data tab in the nav bar. Your dataset, formula bar, and all edits are there.
+            </div>
+          </div>
+        </div>
+        <!-- #40 Stats panel in Analyze view -->
+        <div id="stats-view" class="analyze-panel hidden">
+          <div class="stats-seg" id="stats-seg">
+            <button class="stats-seg-btn active" data-stats="corr">Correlation</button>
+            <button class="stats-seg-btn" data-stats="reg">Regression</button>
+            <button class="stats-seg-btn" data-stats="hyp">Hypothesis</button>
+          </div>
+
+          <!-- Correlation -->
+          <div class="stats-panel active" id="stats-corr-panel">
+            <div class="stats-card">
+              <div class="stats-card-title">Pearson Correlation Matrix</div>
+              <div id="stats-corr-output"><div class="stats-empty">Load a dataset with numeric columns to see correlations.</div></div>
+            </div>
+          </div>
+
+          <!-- Regression -->
+          <div class="stats-panel" id="stats-reg-panel">
+            <div class="stats-card">
+              <div class="stats-card-title">Linear Regression</div>
+              <div class="stats-row">
+                <span style="font-size:12px;color:var(--text-muted);">X (predictor)</span>
+                <select id="stats-reg-x" class="stats-select"><option value="">-- select --</option></select>
+                <span style="font-size:12px;color:var(--text-muted);">Y (outcome)</span>
+                <select id="stats-reg-y" class="stats-select"><option value="">-- select --</option></select>
+                <button class="stats-run-btn" id="stats-reg-run">Run</button>
+              </div>
+              <div id="stats-reg-output" style="margin-top:12px;"></div>
+            </div>
+          </div>
+
+          <!-- Hypothesis -->
+          <div class="stats-panel" id="stats-hyp-panel">
+            <div class="stats-card">
+              <div class="stats-card-title">Hypothesis Testing</div>
+              <div class="stats-row" style="margin-bottom:10px;">
+                <button class="stats-seg-btn active" id="hyp-t-btn" style="border:1px solid var(--border);border-radius:6px;padding:4px 12px;">T-test</button>
+                <button class="stats-seg-btn" id="hyp-chi-btn" style="border:1px solid var(--border);border-radius:6px;padding:4px 12px;">Chi-square</button>
+              </div>
+              <div id="hyp-t-controls">
+                <div class="stats-row">
+                  <span style="font-size:12px;color:var(--text-muted);">Column</span>
+                  <select id="stats-hyp-col" class="stats-select"><option value="">-- select --</option></select>
+                  <span style="font-size:12px;color:var(--text-muted);">Hypothesized mean</span>
+                  <input type="number" id="stats-hyp-mean" class="stats-input" value="0" step="any" />
+                  <button class="stats-run-btn" id="stats-hyp-run">Run T-test</button>
+                </div>
+              </div>
+              <div id="hyp-chi-controls" style="display:none;">
+                <div class="stats-row">
+                  <span style="font-size:12px;color:var(--text-muted);">Column A</span>
+                  <select id="stats-chi-a" class="stats-select"><option value="">-- select --</option></select>
+                  <span style="font-size:12px;color:var(--text-muted);">Column B</span>
+                  <select id="stats-chi-b" class="stats-select"><option value="">-- select --</option></select>
+                  <button class="stats-run-btn" id="stats-chi-run">Run Chi-square</button>
+                </div>
+              </div>
+              <div id="stats-hyp-output" style="margin-top:12px;"></div>
+            </div>
+          </div>
+        </div>
+        <div id="arena-view" class="analyze-panel hidden">
+          <div class="arena-header">
+            <div class="arena-title">Arena</div>
+            <div class="arena-sub">Run two queries side by side and compare results</div>
+          </div>
+          <div class="arena-columns">
+            <div class="arena-col">
+              <div class="arena-col-label">Query A</div>
+              <textarea class="arena-editor" id="arena-editor-a" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false">SELECT * FROM your_table LIMIT 10</textarea>
+              <div class="arena-run-row">
+                <button class="arena-run-btn" id="arena-run-a">Run A</button>
+                <span class="arena-status" id="arena-status-a"></span>
+              </div>
+              <div class="arena-results" id="arena-results-a"><div class="arena-empty">Run a query to see results</div></div>
+            </div>
+            <div class="arena-vs">vs</div>
+            <div class="arena-col">
+              <div class="arena-col-label">Query B</div>
+              <textarea class="arena-editor" id="arena-editor-b" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false">SELECT * FROM your_table LIMIT 10</textarea>
+              <div class="arena-run-row">
+                <button class="arena-run-btn" id="arena-run-b">Run B</button>
+                <span class="arena-status" id="arena-status-b"></span>
+              </div>
+              <div class="arena-results" id="arena-results-b"><div class="arena-empty">Run a query to see results</div></div>
+            </div>
+          </div>
+          <div class="arena-footer">
+            <button class="arena-run-both-btn" id="arena-run-both">Run Both</button>
+            <div class="arena-diff" id="arena-diff">Enter queries above and click Run Both to compare.</div>
+          </div>
+        </div>
+    <div id="sql-panel">
+      <div id="sql-panel-header">
+        <span id="sql-panel-title">SQL</span>
+        <span id="sql-engine-badge">DuckDB-WASM</span>
+        <div id="sql-header-actions">
+          <button id="sql-history-btn" title="Query history (↑↓)">History</button>
+          <button id="sql-export-btn" title="Export results as CSV" class="hidden">Export CSV</button>
+          <button id="sql-close">&times;</button>
+        </div>
+      </div>
+      <div id="sql-body">
+        <div id="sql-schema-panel">
+          <div id="sql-schema-title">Schema</div>
+          <div id="sql-schema-list"></div>
+        </div>
+        <div id="sql-editor-pane">
+          <div id="sql-suggestions-bar"></div>
+          <div id="sql-textarea-wrap">
+            <textarea id="sql-input" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+            <div id="sql-autocomplete" style="display:none"></div>
+          </div>
+          <div id="sql-actions">
+            <button id="sql-run">&#9654; Run</button>
+            <span id="sql-shortcut-hint">Ctrl+Enter</span>
+          </div>
+          <div id="sql-status"></div>
+          <div id="sql-results-wrapper">
+            <table id="sql-results-table">
+              <thead id="sql-results-thead"></thead>
+              <tbody id="sql-results-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="sql-history-panel" class="hidden">
+        <div id="sql-history-title">Recent queries <button id="sql-history-close">&times;</button></div>
+        <div id="sql-history-list"></div>
+      </div>
+    </div>
+  
+      
+        </div></div>
+
+      <!-- SHARE TAB -->
+      <div id="share-view" class="view hidden">
+        <div id="narrative-share-section">
+          <div id="narrative-share-card">
+            <div id="narrative-share-title">Portfolio Narrative</div>
+            <div id="narrative-share-desc">Turn this analysis session into a polished LinkedIn post, resume bullets, a GitHub README, or an executive brief.</div>
+            <button id="narrative-share-open-btn" class="narr-launch-btn">Generate Portfolio Story</button>
+          </div>
+        </div>
+
+        <div id="story-view" class="share-panel active">
+        <div id="story-toolbar">
+          <button id="story-export-md">Export Markdown</button>
+          <button id="story-export-pdf">Export PDF</button>
+        </div>
+        <div id="story-frame-wrapper">
+          <div id="story-empty">
+            <h2>Story View</h2>
+            <p>Drop a dataset to generate a narrative.</p>
+          </div>
+          <iframe id="story-frame" class="hidden" title="Story narrative"></iframe>
+        </div>
+
+        <!-- FEATURE: proofExport -->
+        <div id="proof-export-wrapper" class="hidden">
+          <button id="proof-export-btn" class="proof" disabled title="Generate a story first">Export Proof</button>
+        </div>
+        <!-- /FEATURE: proofExport -->
+
+        <!-- FEATURE: dataglowRooms -->
+        <div id="story-share-section" class="hidden">
+          <button id="room-create-btn" class="rooms-btn">Create Room</button>
+          <button id="room-import-btn" class="rooms-btn">Import Room</button>
+          <input type="file" id="room-import-file-input" class="hidden" accept=".json,.room.json">
+
+          <div id="room-create-form" class="hidden">
+            <label>Room Name
+              <input type="text" id="room-name-input" placeholder="Q3 Claims Review" />
+            </label>
+            <label>Created By
+              <input type="text" id="room-created-by-input" placeholder="Your name" />
+            </label>
+            <button id="room-create-confirm-btn" class="rooms-btn">Create &amp; Download</button>
+            <button id="room-create-cancel-btn" class="rooms-btn">Cancel</button>
+          </div>
+
+          <div id="room-import-panel" class="hidden">
+            <div id="room-describe-output"></div>
+            <button id="room-import-close-btn" class="rooms-btn">Close</button>
+          </div>
+        </div>
+        <!-- /FEATURE: dataglowRooms -->
+      </div>
+      </div>
+
+      <!-- Ambient Validation Rail -->
+      <div id="validation-rail" class="rail-collapsed">
+        <div id="rail-strip" title="Click to expand validation findings"></div>
+        <div id="rail-panel">
+          <div id="rail-header">
+            <span id="rail-title">Validation</span>
+            <button id="rail-close">&times;</button>
+          </div>
+          <div id="rail-findings"></div>
+          <div id="anomaly-section" class="hidden">
+            <div id="anomaly-section-title">Anomaly Timeline</div>
+            <div id="anomaly-container"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NL query bar (PR AH) + agent presence -->
+    <div id="nl-answer-bar" class="hidden">
+      <div id="nl-answer-content">
+        <span id="nl-answer-icon" aria-hidden="true"></span>
+        <span id="nl-answer-text"></span>
+        <button id="nl-answer-clear" aria-label="Clear answer" title="Clear">&#x2715;</button>
+      </div>
+      <div id="nl-suggestions" class="hidden"></div>
+    </div>
+
+    <div id="agent-bar">
+      <!-- NL query input -->
+      <div id="nl-query-wrap">
+        <span id="nl-query-icon" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M11 11L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <input type="text" id="nl-query-input" placeholder="Ask a question about your data..." autocomplete="off" />
+        <span id="nl-thinking" class="hidden" aria-live="polite">
+          <span class="nl-dot"></span><span class="nl-dot"></span><span class="nl-dot"></span>
+        </span>
+      </div>
+
+      <span id="agent-status" class="hidden">Ready.</span>
+      <!-- FEATURE: tauriConnector -->
+      <span id="tauri-db-chip" class="hidden">Native DB</span>
+      <div id="tauri-connections-panel" class="hidden"></div>
+      <!-- /FEATURE: tauriConnector -->
+      <div id="agent-bar-right">
+        <button id="live-feed-btn" title="Live API Feed" aria-haspopup="true" aria-controls="live-feed-drawer" aria-expanded="false">
+          <span id="live-feed-icon" aria-hidden="true">&#9889;</span>
+          <span id="live-feed-label">Live Feed</span>
+        </button>
+        <button class="skills-trigger-btn" id="skills-trigger-btn" title="Your Skills">Skills</button>
+        <button class="skills-trigger-btn" id="badges-trigger-btn" title="Your Badges">Badges</button>
+        <button class="skills-trigger-btn" id="osce-trigger-btn" title="Clinical Data Exam">OSCE</button>
+        <button class="skills-trigger-btn" id="takehome-trigger-btn" title="Generate Take-Home Case">Case</button>
+        <button class="skills-trigger-btn" id="questions-trigger-btn" title="Questions Worth Asking">?</button>
+        <button class="skills-trigger-btn" id="witness-trigger-btn" title="PHI/PII De-identification">Witness</button>
+        <button class="skills-trigger-btn" id="story-trigger-btn" title="Generate Portfolio Narrative">Story</button>
+        <button class="skills-trigger-btn" id="projects-trigger-btn" title="Your DataGlow Projects">Projects</button>
+<button class="skills-trigger-btn" id="notes-trigger-btn" title="Project Notes">Notes</button>
+<button id="llm-trigger-btn" title="Browser AI">&#129504;</button>
+<button id="vault-trigger-btn" title="Vault" class="agent-bar-btn">&#128452;</button>
+<button id="replay-trigger-btn" title="Record Session" class="agent-bar-btn">&#9654;</button>
+<button id="autopilot-trigger-btn" title="Autopilot - background data watchdog"><span class="autopilot-dot is-paused" id="autopilot-dot"></span><span>Autopilot</span></button>
+<button id="agent-bar-more-btn" title="More tools">&#8943;</button>
+<button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
+          <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
+          <span id="feature-settings-label">Features</span>
+        </button>
+      </div>
+      <div id="agent-popover" class="hidden">
+        <p id="agent-popover-text"></p>
+        <div id="agent-popover-actions">
+          <button id="agent-fix">Fix this</button>
+          <button id="agent-explain">Tell me more</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       FEATURE SETTINGS DRAWER (gear icon in agent bar)
+       ------------------------------------------------------------
+       Always available regardless of any feature flag state. Lets
+       the user flip FEATURE_FLAGS from the UI instead of editing
+       code. Persists to sessionStorage only (never localStorage).
+       ============================================================ -->
+  <div id="feature-settings-overlay" class="hidden"></div>
+  <div id="feature-settings-drawer" class="hidden" role="dialog" aria-modal="true" aria-labelledby="feature-settings-title">
+    <div id="feature-settings-header">
+      <div>
+        <h2 id="feature-settings-title">DataGlow Features</h2>
+        <p id="feature-settings-subtitle">Enable experimental and advanced capabilities</p>
+      </div>
+      <button id="feature-settings-close" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div id="feature-settings-list"></div>
+  </div>
+
+  <!-- ============================================================
+       LIVE API FEED DRAWER (lightning bolt icon in agent bar)
+       ------------------------------------------------------------
+       Same slide-in drawer pattern as the Feature Settings drawer.
+       Connects to any REST endpoint or webhook - the fetch() call
+       happens here, in the browser, then flows through the exact
+       same buildDatasetFromJSON + runRealValidation pipeline every
+       dropped file uses.
+       ============================================================ -->
+  <div id="live-feed-overlay" class="hidden"></div>
+  <div id="live-feed-drawer" class="hidden" role="dialog" aria-modal="true" aria-labelledby="live-feed-title">
+    <div id="live-feed-header">
+      <div>
+        <h2 id="live-feed-title">Live API Feed</h2>
+        <p id="live-feed-subtitle">Connect to any REST endpoint &mdash; data stays in your browser</p>
+      </div>
+      <button id="live-feed-close" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div id="live-feed-body">
+      <div class="live-feed-field">
+        <label class="live-feed-label" for="live-feed-url-input">URL</label>
+        <input type="text" id="live-feed-url-input" placeholder="https://api.example.com/data" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="live-feed-row">
+        <div class="live-feed-field">
+          <label class="live-feed-label" for="live-feed-method-select">Method</label>
+          <select id="live-feed-method-select">
+            <option value="GET" selected>GET</option>
+            <option value="POST">POST</option>
+          </select>
+        </div>
+        <div class="live-feed-field">
+          <label class="live-feed-label" for="live-feed-poll-select">Poll interval</label>
+          <select id="live-feed-poll-select">
+            <option value="0" selected>One-time fetch</option>
+            <option value="5000">Every 5s</option>
+            <option value="15000">Every 15s</option>
+            <option value="30000">Every 30s</option>
+            <option value="60000">Every 1 min</option>
+            <option value="300000">Every 5 min</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="live-feed-field">
+        <button id="live-feed-headers-toggle" type="button" aria-expanded="false" aria-controls="live-feed-headers-wrapper">Headers (optional) &#9662;</button>
+        <div id="live-feed-headers-wrapper" class="collapsed">
+          <textarea id="live-feed-headers-input" placeholder="Authorization: Bearer token&#10;Content-Type: application/json" spellcheck="false"></textarea>
+        </div>
+      </div>
+
+      <div class="live-feed-field hidden" id="live-feed-body-field">
+        <label class="live-feed-label" for="live-feed-body-input">Body <span class="live-feed-label-optional">(POST only)</span></label>
+        <textarea id="live-feed-body-input" placeholder='{&quot;key&quot;: &quot;value&quot;}' spellcheck="false"></textarea>
+      </div>
+
+      <div id="live-feed-mode-wrapper" class="live-feed-field hidden">
+        <span>On refetch:</span>
+        <label><input type="radio" name="live-feed-mode" value="replace" checked> Replace</label>
+        <label><input type="radio" name="live-feed-mode" value="append"> Append</label>
+      </div>
+
+      <p id="live-feed-error" class="hidden"></p>
+
+      <button id="live-feed-fetch-btn" type="button">Fetch</button>
+      <div id="live-feed-status"></div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SQL MODE OVERLAY - DuckDB-WASM (PR AO)
+       ============================================================ -->
+  
+
+<!-- #35 Skills Panel -->
+<div id="skills-panel">
+  <div class="skills-header">
+    <span class="skills-header-title">Your Skills</span>
+    <button class="skills-close-btn" id="skills-close-btn">x</button>
+  </div>
+  <div class="skills-list" id="skills-list"></div>
+</div>
+
+
+<!-- #45 Level System: Badges Panel -->
+<div id="badges-panel">
+  <div class="badges-header">
+    <span class="badges-header-title">Your Badges</span>
+    <button class="badges-close-btn" id="badges-close-btn">x</button>
+  </div>
+  <div class="badges-list" id="badges-list"></div>
+</div>
+
+  <script src="../src/js/main.js"></script>
+
+<div id="pwa-install-banner">
+  <div class="pwa-banner-text">
+    <div class="pwa-banner-title">Install DataGlow</div>
+    <div class="pwa-banner-sub">Add to home screen for offline access</div>
+  </div>
+  <button class="pwa-install-btn" id="pwa-install-btn">Install</button>
+  <button class="pwa-dismiss-btn" id="pwa-dismiss-btn" title="Dismiss">x</button>
+</div>
+- UX: Post-load Action Spotlight -->
+<div id="action-spotlight">
+  <div class="spotlight-card">
+    <div class="spotlight-headline" id="spotlight-headline">Ready.</div>
+    <div class="spotlight-badge"><span>&#10003;</span><span id="spotlight-name">Dataset loaded</span></div>
+    <div class="spotlight-sub">What do you want to do with it?</div>
+    <div class="spotlight-grid">
+      <button class="spotlight-btn" data-goto="charts-view">
+        <span class="spotlight-btn-icon">&#x1F4CA;</span>
+        <div><div class="spotlight-btn-label">Visualize</div>
+        <div class="spotlight-btn-desc">Auto-generate charts. See patterns instantly.</div></div>
+      </button>
+      <button class="spotlight-btn" data-goto="sql-view">
+        <span class="spotlight-btn-icon">&#x1F9EE;</span>
+        <div><div class="spotlight-btn-label">Query with SQL</div>
+        <div class="spotlight-btn-desc">Write SQL in your browser. No server needed.</div></div>
+      </button>
+      <button class="spotlight-btn" data-goto="dashboard-view">
+        <span class="spotlight-btn-icon">&#x26A1;</span>
+        <div><div class="spotlight-btn-label">See Findings</div>
+        <div class="spotlight-btn-desc">Quality score, KPIs, and AI-detected issues.</div></div>
+      </button>
+      <button class="spotlight-btn" data-goto="stats-view">
+        <span class="spotlight-btn-icon">&#x1F9EA;</span>
+        <div><div class="spotlight-btn-label">Run Statistics</div>
+        <div class="spotlight-btn-desc">Correlation, regression, hypothesis testing.</div></div>
+      </button>
+    </div>
+    <button class="spotlight-skip" id="spotlight-skip">I will explore on my own</button>
+  </div>
+</div>
+<!-- #45 Level System: Level-up overlay -->
+<div id="levelup-overlay">
+  <div class="levelup-star" id="levelup-star">&#9733;</div>
+  <div id="levelup-title">Level Up!</div>
+  <div id="levelup-sub">You are now Level 2 - Analyst</div>
+</div>
+
+
+
+<!-- #48 Peer Review -->
+<div id="review-view" class="analyze-panel hidden">
+  <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
+    <div class="review-feed" id="review-feed">
+      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+    </div>
+    <div class="review-scorecard">
+      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
+      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
+      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      <div class="review-severity-counts">
+        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+    </div>
+  </div>
+</div>
+
+<!-- #42 Domain Case Library -->
+<div id="cases-view" class="analyze-panel hidden">
+  <div class="cases-toolbar">
+    <input type="text" class="cases-search" id="cases-search" placeholder="Search cases by title, domain, or keyword...">
+    <button class="cases-filter-btn active" data-domain="all">All</button>
+    <button class="cases-filter-btn" data-domain="healthcare">Healthcare</button>
+    <button class="cases-filter-btn" data-domain="finance">Finance</button>
+    <button class="cases-filter-btn" data-domain="hr">HR</button>
+  </div>
+  <div class="cases-grid" id="cases-grid"></div>
+</div>
+
+<!-- #42 Domain Case Library: Case Guide sidebar -->
+<div id="case-guide">
+  <div class="cg-header">
+    <span class="cg-title" id="cg-title">Case Guide</span>
+    <button class="cg-close" id="cg-close">&times;</button>
+  </div>
+  <div class="cg-steps" id="cg-steps"></div>
+  <button class="cg-next-btn" id="cg-next-btn">Next Step</button>
+</div>
+
+
+<!-- ---- #46 OSCE (Objective Structured Clinical Examination) ---- -->
+<div id="osce-modal">
+  <!-- Top bar -->
+  <div class="osce-topbar">
+    <span class="osce-logo">OSCE</span>
+    <span class="osce-scenario-title" id="osce-scenario-title">Clinical Data Analysis Examination</span>
+    <span class="osce-score-badge" id="osce-score-display">0 / 100</span>
+    <button class="osce-close-btn" id="osce-close-btn">Exit OSCE</button>
+  </div>
+  <!-- Scenario selection -->
+  <div id="osce-select-screen">
+    <div class="osce-select-title">Choose a Clinical Scenario</div>
+    <div class="osce-select-sub">Each scenario presents a real healthcare data challenge. You will be graded across 4 stations. Use SQL to investigate. Hints are available but cost points.</div>
+    <div class="osce-scenario-cards" id="osce-scenario-cards"></div>
+  </div>
+  <!-- Active session -->
+  <div id="osce-session">
+    <!-- SQL pane -->
+    <div id="osce-sql-pane-wrap">
+      <div class="osce-sql-label">Your SQL</div>
+      <textarea id="osce-sql-editor" spellcheck="false" placeholder="Write your SQL query here..."></textarea>
+      <div class="osce-sql-actions">
+        <button class="osce-run-btn" id="osce-run-btn">Run Query</button>
+        <span class="osce-run-hint">Ctrl+Enter</span>
+      </div>
+      <div id="osce-result-pane">Results will appear here after running your query.</div>
+    </div>
+    <!-- Station pane -->
+    <div id="osce-station-pane">
+      <div class="osce-station-header">
+        <div class="osce-station-num" id="osce-station-num">Station 1 of 4</div>
+        <div class="osce-station-task" id="osce-station-task"></div>
+      </div>
+      <div class="osce-station-body">
+        <button class="osce-hint-btn" id="osce-hint-btn">Show hint (-5 pts)</button>
+        <div id="osce-hint-box"></div>
+        <button class="osce-check-btn" id="osce-check-btn">Check Answer</button>
+        <div id="osce-feedback"></div>
+        <button class="osce-next-btn" id="osce-next-btn">Next Station</button>
+      </div>
+      <div class="osce-progress-dots" id="osce-progress-dots"></div>
+    </div>
+  </div>
+  <!-- Results screen -->
+  <div id="osce-results-screen">
+    <div class="osce-final-score" id="osce-final-score">0</div>
+    <div class="osce-final-grade" id="osce-final-grade">Pass</div>
+    <div class="osce-final-feedback" id="osce-final-feedback"></div>
+    <button class="osce-restart-btn" id="osce-restart-btn">Try Another Scenario</button>
+  </div>
+</div>
+
+<!-- #49 Take-Home Case -->
+<div id="takehome-modal">
+  <div class="th-topbar">
+    <span class="th-topbar-title">Take-Home Case Builder</span>
+    <button class="th-close-btn" id="th-close-btn">Close</button>
+  </div>
+  <div id="th-gen-screen">
+    <div class="th-gen-form">
+      <div>
+        <div class="th-gen-title">Generate Take-Home Case</div>
+        <div class="th-gen-sub">Turn your loaded dataset into a professionally formatted analytics take-home case, ready to print, share, or submit as a portfolio piece.</div>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-role-select">Role Target</label>
+        <select class="th-select" id="th-role-select">
+          <option value="Data Analyst">Data Analyst</option>
+          <option value="Senior Analyst">Senior Analyst</option>
+          <option value="Analytics Engineer">Analytics Engineer</option>
+          <option value="Business Intelligence Analyst">Business Intelligence Analyst</option>
+          <option value="Healthcare Data Analyst">Healthcare Data Analyst</option>
+          <option value="Financial Analyst">Financial Analyst</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-difficulty-select">Difficulty</label>
+        <select class="th-select" id="th-difficulty-select">
+          <option value="Junior">Junior</option>
+          <option value="Mid-Level" selected>Mid-Level</option>
+          <option value="Senior">Senior</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-time-select">Time Limit</label>
+        <select class="th-select" id="th-time-select">
+          <option value="2 hours">2 hours</option>
+          <option value="4 hours" selected>4 hours</option>
+          <option value="8 hours">8 hours</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label">Focus Areas</label>
+        <div class="th-checkboxes" id="th-focus-checkboxes">
+          <label class="th-checkbox-label checked" data-focus="Data Quality"><input type="checkbox" checked>Data Quality</label>
+          <label class="th-checkbox-label checked" data-focus="Exploratory Analysis"><input type="checkbox" checked>Exploratory Analysis</label>
+          <label class="th-checkbox-label" data-focus="SQL Mastery"><input type="checkbox">SQL Mastery</label>
+          <label class="th-checkbox-label" data-focus="Statistical Analysis"><input type="checkbox">Statistical Analysis</label>
+          <label class="th-checkbox-label checked" data-focus="Business Insights"><input type="checkbox" checked>Business Insights</label>
+          <label class="th-checkbox-label" data-focus="Data Storytelling"><input type="checkbox">Data Storytelling</label>
+        </div>
+      </div>
+      <div class="th-field">
+        <label class="th-label">Hints</label>
+        <div class="th-toggle-row">
+          <button class="th-toggle on" id="th-hints-toggle"></button>
+          <span id="th-hints-toggle-label">Include hint callouts throughout the case</span>
+        </div>
+      </div>
+      <button class="th-gen-btn" id="th-generate-btn">Generate Case</button>
+    </div>
+  </div>
+  <div id="th-preview-screen">
+    <div class="th-preview-actions">
+      <button class="th-action-btn" id="th-back-btn">Back to Editor</button>
+      <button class="th-action-btn" id="th-copy-md-btn">Copy as Markdown</button>
+      <button class="th-action-btn" id="th-print-btn">Print / Save as PDF</button>
+      <button class="th-action-btn" id="th-share-btn">Share Link</button>
+    </div>
+    <div id="th-case-content"></div>
+  </div>
+</div>
+
+<div id="questions-drawer">
+  <div class="qd-header">
+    <div class="qd-title">Questions Worth Asking</div>
+    <div class="qd-subtitle" id="qd-subtitle">Load a dataset to generate questions.</div>
+  </div>
+  <div class="qd-list" id="qd-list">
+    <div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;">Load a dataset to generate analytical questions tailored to your data.</div>
+  </div>
+  <div class="qd-footer">
+    <button class="qd-dismiss" id="qd-dismiss-btn">Dismiss</button>
+  </div>
+</div>
+<div id="narrative-modal">
+  <div class="narr-box">
+    <div class="narr-header">
+      <span class="narr-title">Portfolio Narrative</span>
+      <button class="narr-close" id="narr-close-btn">&#x2715;</button>
+    </div>
+    <div class="narr-format-tabs">
+      <button class="narr-tab active" data-fmt="linkedin">LinkedIn Post</button>
+      <button class="narr-tab" data-fmt="resume">Resume Bullets</button>
+      <button class="narr-tab" data-fmt="github">GitHub README</button>
+      <button class="narr-tab" data-fmt="exec">Executive Brief</button>
+    </div>
+    <div class="narr-body">
+      <div class="narr-tone-row">
+        <span class="narr-tone-label">Tone:</span>
+        <button class="narr-tone-btn active" data-tone="professional">Professional</button>
+        <button class="narr-tone-btn" data-tone="conversational">Conversational</button>
+      </div>
+      <button class="narr-gen-btn" id="narr-gen-btn">Generate My Story</button>
+      <div class="narr-output" id="narr-output"></div>
+      <div class="narr-char-count" id="narr-char-count"></div>
+      <div class="narr-actions" id="narr-actions" style="display:none;">
+        <button class="narr-action-btn" id="narr-copy-btn">Copy</button>
+        <button class="narr-action-btn" id="narr-download-btn">Download .txt</button>
+        <button class="narr-action-btn" id="narr-newtab-btn">Open in New Tab</button>
+        <button class="narr-action-btn" id="narr-regen-btn">Regenerate</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="mission-brief-overlay">
+  <div class="mb-card">
+    <div class="mb-label">Mission Brief</div>
+    <div class="mb-classified">Classified</div>
+    <div class="mb-divider"></div>
+    <div class="mb-dataset-name" id="mb-dataset-name">Dataset</div>
+    <div class="mb-meta" id="mb-meta"></div>
+    <div class="mb-kpi-row">
+      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-trust-score">-</div><div class="mb-kpi-label">Trust Score</div></div>
+      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-issue-count">-</div><div class="mb-kpi-label">Issues Found</div></div>
+      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-domain-val">-</div><div class="mb-kpi-label">Domain</div></div>
+    </div>
+    <div class="mb-section-title">Your Mission</div>
+    <div class="mb-mission-text" id="mb-mission-text"></div>
+    <div class="mb-section-title">Suggested First Moves</div>
+    <div class="mb-moves" id="mb-moves"></div>
+    <div class="mb-actions">
+      <button class="mb-accept-btn" id="mb-accept-btn">Accept Mission</button>
+      <button class="mb-explore-btn" id="mb-explore-btn">I'll explore on my own</button>
+    </div>
+    <div class="mb-countdown" id="mb-countdown"></div>
+  </div>
+</div>
+<div id="witness-modal">
+  <div class="wit-topbar">
+    <span class="wit-logo">Witness</span>
+    <span class="wit-title" id="wit-modal-title">DataGlow Witness - PHI/PII De-identification</span>
+    <button class="wit-close-btn" id="wit-close-btn">Exit Witness</button>
+  </div>
+  <div class="wit-phases">
+    <div class="wit-phase-tab active" id="wit-tab-scan">1. Scan</div>
+    <div class="wit-phase-tab" id="wit-tab-configure">2. Configure</div>
+    <div class="wit-phase-tab" id="wit-tab-certificate">3. Certificate</div>
+  </div>
+  <div class="wit-body" id="wit-body">
+    <div class="wit-scan-header">PHI/PII Scanner</div>
+    <div class="wit-scan-sub">Open a dataset and click Scan to detect HIPAA Safe Harbor identifiers.</div>
+    <div id="wit-phi-list"></div>
+    <div class="wit-action-bar" id="wit-action-bar"></div>
+  </div>
+</div>
+<div id="projects-panel">
+  <div class="proj-topbar">
+    <span class="proj-logo">Projects</span>
+    <span class="proj-title">DataGlow Projects</span>
+    <button class="proj-new-btn" id="proj-new-btn">+ New Project</button>
+    <button class="proj-close-btn" id="proj-panel-close-btn">Close</button>
+  </div>
+  <div class="proj-layout">
+    <aside class="proj-sidebar">
+      <div class="proj-active-label">Active Project</div>
+      <div id="proj-active-card">
+        <div class="proj-active-card">
+          <div class="proj-active-name" id="proj-active-name">No Project Active</div>
+          <div class="proj-active-meta" id="proj-active-meta">Drop files to start, or open a project below.</div>
+          <button class="proj-sidebar-btn" id="proj-save-btn">Save Session as Project</button>
+          <button class="proj-sidebar-btn" id="proj-add-files-btn">Add Files to Project</button>
+          <button class="proj-sidebar-btn danger" id="proj-close-session-btn">Close Project</button>
+        </div>
+      </div>
+    </aside>
+    <div class="proj-main">
+      <div class="proj-new-form" id="proj-new-form">
+        <input type="text" id="proj-name-input" placeholder="Project name (e.g. Inpatient Claims Q3)" maxlength="60" />
+        <select id="proj-domain-select">
+          <option value="general">General Analytics</option>
+          <option value="healthcare">Healthcare</option>
+          <option value="finance">Finance</option>
+          <option value="hr">HR / People Analytics</option>
+        </select>
+        <button class="proj-new-confirm" id="proj-confirm-btn">Create Project</button>
+      </div>
+      <div class="proj-main-title">Project Library</div>
+      <div class="proj-grid" id="proj-grid"></div>
+    </div>
+  </div>
+  <div class="proj-storage-bar" id="proj-storage-bar">
+    <span id="proj-storage-text">Checking storage...</span>
+    <div class="proj-storage-track"><div class="proj-storage-fill" id="proj-storage-fill" style="width:0%"></div></div>
+  </div>
+</div>
+<input type="file" id="proj-file-input" accept=".csv,.tsv,.json,.parquet" multiple style="display:none" />
+<div id="notes-drawer" style="position:fixed;top:0;right:-340px;width:320px;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:12000;display:flex;flex-direction:column;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);box-shadow:-4px 0 20px rgba(0,0,0,0.1);">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <span style="font-size:10px;font-weight:900;letter-spacing:0.15em;color:var(--primary);text-transform:uppercase;flex:1;">Project Notes</span>
+    <span id="notes-save-status" style="font-size:10px;color:var(--text-muted);"></span>
+    <button id="notes-close-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:0 4px;">x</button>
+  </div>
+  <div style="padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div id="notes-project-label" style="font-size:10px;color:var(--text-muted);">No active project</div>
+  </div>
+  <textarea id="notes-textarea" placeholder="Type your notes here... Analysis observations, questions to investigate, decisions made." style="flex:1;border:none;background:transparent;padding:14px;font-size:13px;color:var(--text);font-family:inherit;resize:none;outline:none;line-height:1.6;"></textarea>
+  <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;">
+    <button id="notes-copy-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text);cursor:pointer;font-family:inherit;">Copy</button>
+    <button id="notes-clear-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text-muted);cursor:pointer;font-family:inherit;">Clear</button>
+  </div>
+</div>
+
+<!-- ---- Feature #34: Browser LLM status chip ---- -->
+<div id="llm-status-chip" class="hidden">
+  <span id="llm-status-dot"></span>
+  <span id="llm-status-text">AI Loading...</span>
+  <div id="llm-progress-bar"><div id="llm-progress-fill"></div></div>
+</div>
+<!-- ---- Feature M2: Mirror feed ---- -->
+<div id="mirror-feed" aria-live="polite"></div>
+
+<!-- ---- Vault V2-V7: SQL Templates, Transform Presets, Column Profiles, Peer Reviews, Query History, Export/Import ---- -->
+<div id="vault-modal" role="dialog" aria-modal="true" aria-labelledby="vault-modal-title">
+  <div class="vault-modal-inner">
+    <div class="vault-modal-header">
+      <h2 id="vault-modal-title">&#128452; DataGlow Vault</h2>
+      <button class="vault-modal-close-btn" id="vault-modal-close-btn" aria-label="Close Vault" title="Close">&times;</button>
+    </div>
+    <div id="vault-tabs" role="tablist">
+      <button class="vault-tab-btn active" data-vault-tab="sql" role="tab" aria-selected="true">SQL Templates</button>
+      <button class="vault-tab-btn" data-vault-tab="transform" role="tab" aria-selected="false">Transform Presets</button>
+      <button class="vault-tab-btn" data-vault-tab="profiles" role="tab" aria-selected="false">Column Profiles</button>
+      <button class="vault-tab-btn" data-vault-tab="reviews" role="tab" aria-selected="false">Peer Reviews</button>
+      <button class="vault-tab-btn" data-vault-tab="history" role="tab" aria-selected="false">Query History</button>
+      <button class="vault-tab-btn" data-vault-tab="io" role="tab" aria-selected="false">Export/Import</button>
+    </div>
+
+    <div class="vault-tab-panel active" data-vault-panel="sql">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-sql-search" placeholder="Search templates by name or tag...">
+        <button class="vault-action-btn" id="vault-sql-save-btn">Save Current Query</button>
+      </div>
+      <div class="vault-list" id="vault-sql-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="transform">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-transform-search" placeholder="Search transform presets...">
+        <button class="vault-action-btn" id="vault-transform-save-btn">Save New Preset</button>
+      </div>
+      <div class="vault-list" id="vault-transform-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="profiles">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-profile-search" placeholder="Search column profile snapshots...">
+        <button class="vault-action-btn" id="vault-profile-save-btn">Snapshot Active Dataset</button>
+      </div>
+      <div class="vault-list" id="vault-profile-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="reviews">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-review-search" placeholder="Search peer reviews by dataset name...">
+        <button class="vault-action-btn" id="vault-review-save-btn">Save Current Review</button>
+      </div>
+      <div class="vault-list" id="vault-review-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="history">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-history-search" placeholder="Search query history...">
+        <button class="vault-action-btn secondary" id="vault-history-clear-btn">Clear Unstarred</button>
+      </div>
+      <div class="vault-list" id="vault-history-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="io">
+      <div class="vault-io-summary" id="vault-io-summary">No vault data yet.</div>
+      <div class="vault-io-row">
+        <button class="vault-action-btn" id="vault-export-btn">Export Vault as JSON</button>
+        <button class="vault-action-btn secondary" id="vault-import-btn">Import Vault JSON</button>
+        <input type="file" id="vault-import-file-input" accept="application/json" style="display:none;">
+      </div>
+      <div id="vault-dropzone">Drag and drop a <code>dataglow-vault-*.json</code> file here to import, or use the button above.</div>
+    </div>
+  </div>
+</div>
+
+<div id="replay-modal">
+  <div class="replay-modal-inner">
+    <div class="replay-modal-header">
+      <span class="replay-modal-title">Session Replay</span>
+      <div class="replay-header-actions">
+        <button class="replay-record-toggle" id="replay-record-toggle-btn"><span class="replay-rec-dot"></span><span id="replay-record-toggle-label">Record</span></button>
+        <button class="replay-modal-close-btn" id="replay-modal-close-btn">&#x2715;</button>
+      </div>
+    </div>
+    <div class="replay-timeline" id="replay-timeline">
+      <div class="replay-empty-state" id="replay-empty-state">
+        <div class="replay-empty-icon">&#9654;</div>
+        <div>Start recording to capture your analysis session</div>
+      </div>
+    </div>
+    <div class="replay-narrative-box" id="replay-narrative-box"></div>
+    <div class="replay-modal-footer">
+      <button class="replay-footer-btn" id="replay-export-json-btn">Export JSON</button>
+      <button class="replay-footer-btn primary" id="replay-gen-narrative-btn">Generate Narrative</button>
+    </div>
+  </div>
+</div>
+  <div id="autopilot-panel" class="autopilot-panel hidden">
+    <div class="autopilot-header">
+      <span class="autopilot-title">Autopilot</span>
+      <label class="autopilot-toggle">
+        <input type="checkbox" id="autopilot-toggle-input" checked />
+        <span class="autopilot-toggle-track"></span>
+      </label>
+      <button id="autopilot-clear-btn">Clear all</button>
+      <button id="autopilot-close-btn">&#10005;</button>
+    </div>
+    <div id="autopilot-feed" class="autopilot-feed"></div>
+    <div class="autopilot-footer">
+      <span>Checks every 30s</span>
+      <span id="autopilot-last-checked">Never checked</span>
+    </div>
+  </div>
+</body>
+</html>- UX: Post-load Action Spotlight -->
+<div id="action-spotlight">
+  <div class="spotlight-card">
+    <div class="spotlight-headline" id="spotlight-headline">Ready.</div>
+    <div class="spotlight-badge"><span>&#10003;</span><span id="spotlight-name">Dataset loaded</span></div>
+    <div class="spotlight-sub">What do you want to do with it?</div>
+    <div class="spotlight-grid">
+      <button class="spotlight-btn" data-goto="charts-view">
+        <span class="spotlight-btn-icon">&#x1F4CA;</span>
+        <div><div class="spotlight-btn-label">Visualize</div>
+        <div class="spotlight-btn-desc">Auto-generate charts. See patterns instantly.</div></div>
+      </button>
+      <button class="spotlight-btn" data-goto="sql-view">
+        <span class="spotlight-btn-icon">&#x1F9EE;</span>
+        <div><div class="spotlight-btn-label">Query with SQL</div>
+        <div class="spotlight-btn-desc">Write SQL in your browser. No server needed.</div></div>
+      </button>
+      <button class="spotlight-btn" data-goto="dashboard-view">
+        <span class="spotlight-btn-icon">&#x26A1;</span>
+        <div><div class="spotlight-btn-label">See Findings</div>
+        <div class="spotlight-btn-desc">Quality score, KPIs, and AI-detected issues.</div></div>
+      </button>
+      <button class="spotlight-btn" data-goto="stats-view">
+        <span class="spotlight-btn-icon">&#x1F9EA;</span>
+        <div><div class="spotlight-btn-label">Run Statistics</div>
+        <div class="spotlight-btn-desc">Correlation, regression, hypothesis testing.</div></div>
+      </button>
+    </div>
+    <button class="spotlight-skip" id="spotlight-skip">I will explore on my own</button>
+  </div>
+</div>
+<!-- #45 Level System: Level-up overlay -->
+<div id="levelup-overlay">
+  <div class="levelup-star" id="levelup-star">&#9733;</div>
+  <div id="levelup-title">Level Up!</div>
+  <div id="levelup-sub">You are now Level 2 - Analyst</div>
+</div>
+
+<!-- #45 Level System: Badges Panel -->
+<div id="badges-panel">
+  <div class="badges-header">
+    <span class="badges-header-title">Your Badges</span>
+    <button class="badges-close-btn" id="badges-close-btn">x</button>
+  </div>
+  <div class="badges-list" id="badges-list"></div>
+</div>
+
+<!-- #48 Peer Review -->
+<div id="review-view" class="analyze-panel hidden">
+  <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
+    <div class="review-feed" id="review-feed">
+      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+    </div>
+    <div class="review-scorecard">
+      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
+      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
+      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      <div class="review-severity-counts">
+        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+    </div>
+  </div>
+</div>
+
+<!-- #42 Domain Case Library -->
+<div id="cases-view" class="analyze-panel hidden">
+  <div class="cases-toolbar">
+    <input type="text" class="cases-search" id="cases-search" placeholder="Search cases by title, domain, or keyword...">
+    <button class="cases-filter-btn active" data-domain="all">All</button>
+    <button class="cases-filter-btn" data-domain="healthcare">Healthcare</button>
+    <button class="cases-filter-btn" data-domain="finance">Finance</button>
+    <button class="cases-filter-btn" data-domain="hr">HR</button>
+  </div>
+  <div class="cases-grid" id="cases-grid"></div>
+</div>
+
+<!-- #42 Domain Case Library: Case Guide sidebar -->
+<div id="case-guide">
+  <div class="cg-header">
+    <span class="cg-title" id="cg-title">Case Guide</span>
+    <button class="cg-close" id="cg-close">&times;</button>
+  </div>
+  <div class="cg-steps" id="cg-steps"></div>
+  <button class="cg-next-btn" id="cg-next-btn">Next Step</button>
+</div>
+
+
+<!-- ---- #46 OSCE (Objective Structured Clinical Examination) ---- -->
+<div id="osce-modal">
+  <!-- Top bar -->
+  <div class="osce-topbar">
+    <span class="osce-logo">OSCE</span>
+    <span class="osce-scenario-title" id="osce-scenario-title">Clinical Data Analysis Examination</span>
+    <span class="osce-score-badge" id="osce-score-display">0 / 100</span>
+    <button class="osce-close-btn" id="osce-close-btn">Exit OSCE</button>
+  </div>
+  <!-- Scenario selection -->
+  <div id="osce-select-screen">
+    <div class="osce-select-title">Choose a Clinical Scenario</div>
+    <div class="osce-select-sub">Each scenario presents a real healthcare data challenge. You will be graded across 4 stations. Use SQL to investigate. Hints are available but cost points.</div>
+    <div class="osce-scenario-cards" id="osce-scenario-cards"></div>
+  </div>
+  <!-- Active session -->
+  <div id="osce-session">
+    <!-- SQL pane -->
+    <div id="osce-sql-pane-wrap">
+      <div class="osce-sql-label">Your SQL</div>
+      <textarea id="osce-sql-editor" spellcheck="false" placeholder="Write your SQL query here..."></textarea>
+      <div class="osce-sql-actions">
+        <button class="osce-run-btn" id="osce-run-btn">Run Query</button>
+        <span class="osce-run-hint">Ctrl+Enter</span>
+      </div>
+      <div id="osce-result-pane">Results will appear here after running your query.</div>
+    </div>
+    <!-- Station pane -->
+    <div id="osce-station-pane">
+      <div class="osce-station-header">
+        <div class="osce-station-num" id="osce-station-num">Station 1 of 4</div>
+        <div class="osce-station-task" id="osce-station-task"></div>
+      </div>
+      <div class="osce-station-body">
+        <button class="osce-hint-btn" id="osce-hint-btn">Show hint (-5 pts)</button>
+        <div id="osce-hint-box"></div>
+        <button class="osce-check-btn" id="osce-check-btn">Check Answer</button>
+        <div id="osce-feedback"></div>
+        <button class="osce-next-btn" id="osce-next-btn">Next Station</button>
+      </div>
+      <div class="osce-progress-dots" id="osce-progress-dots"></div>
+    </div>
+  </div>
+  <!-- Results screen -->
+  <div id="osce-results-screen">
+    <div class="osce-final-score" id="osce-final-score">0</div>
+    <div class="osce-final-grade" id="osce-final-grade">Pass</div>
+    <div class="osce-final-feedback" id="osce-final-feedback"></div>
+    <button class="osce-restart-btn" id="osce-restart-btn">Try Another Scenario</button>
+  </div>
+</div>
+
+<!-- #49 Take-Home Case -->
+<div id="takehome-modal">
+  <div class="th-topbar">
+    <span class="th-topbar-title">Take-Home Case Builder</span>
+    <button class="th-close-btn" id="th-close-btn">Close</button>
+  </div>
+  <div id="th-gen-screen">
+    <div class="th-gen-form">
+      <div>
+        <div class="th-gen-title">Generate Take-Home Case</div>
+        <div class="th-gen-sub">Turn your loaded dataset into a professionally formatted analytics take-home case, ready to print, share, or submit as a portfolio piece.</div>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-role-select">Role Target</label>
+        <select class="th-select" id="th-role-select">
+          <option value="Data Analyst">Data Analyst</option>
+          <option value="Senior Analyst">Senior Analyst</option>
+          <option value="Analytics Engineer">Analytics Engineer</option>
+          <option value="Business Intelligence Analyst">Business Intelligence Analyst</option>
+          <option value="Healthcare Data Analyst">Healthcare Data Analyst</option>
+          <option value="Financial Analyst">Financial Analyst</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-difficulty-select">Difficulty</label>
+        <select class="th-select" id="th-difficulty-select">
+          <option value="Junior">Junior</option>
+          <option value="Mid-Level" selected>Mid-Level</option>
+          <option value="Senior">Senior</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-time-select">Time Limit</label>
+        <select class="th-select" id="th-time-select">
+          <option value="2 hours">2 hours</option>
+          <option value="4 hours" selected>4 hours</option>
+          <option value="8 hours">8 hours</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label">Focus Areas</label>
+        <div class="th-checkboxes" id="th-focus-checkboxes">
+          <label class="th-checkbox-label checked" data-focus="Data Quality"><input type="checkbox" checked>Data Quality</label>
+          <label class="th-checkbox-label checked" data-focus="Exploratory Analysis"><input type="checkbox" checked>Exploratory Analysis</label>
+          <label class="th-checkbox-label" data-focus="SQL Mastery"><input type="checkbox">SQL Mastery</label>
+          <label class="th-checkbox-label" data-focus="Statistical Analysis"><input type="checkbox">Statistical Analysis</label>
+          <label class="th-checkbox-label checked" data-focus="Business Insights"><input type="checkbox" checked>Business Insights</label>
+          <label class="th-checkbox-label" data-focus="Data Storytelling"><input type="checkbox">Data Storytelling</label>
+        </div>
+      </div>
+      <div class="th-field">
+        <label class="th-label">Hints</label>
+        <div class="th-toggle-row">
+          <button class="th-toggle on" id="th-hints-toggle"></button>
+          <span id="th-hints-toggle-label">Include hint callouts throughout the case</span>
+        </div>
+      </div>
+      <button class="th-gen-btn" id="th-generate-btn">Generate Case</button>
+    </div>
+  </div>
+  <div id="th-preview-screen">
+    <div class="th-preview-actions">
+      <button class="th-action-btn" id="th-back-btn">Back to Editor</button>
+      <button class="th-action-btn" id="th-copy-md-btn">Copy as Markdown</button>
+      <button class="th-action-btn" id="th-print-btn">Print / Save as PDF</button>
+      <button class="th-action-btn" id="th-share-btn">Share Link</button>
+    </div>
+    <div id="th-case-content"></div>
+  </div>
+</div>
+
+<div id="questions-drawer">
+  <div class="qd-header">
+    <div class="qd-title">Questions Worth Asking</div>
+    <div class="qd-subtitle" id="qd-subtitle">Load a dataset to generate questions.</div>
+  </div>
+  <div class="qd-list" id="qd-list">
+    <div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;">Load a dataset to generate analytical questions tailored to your data.</div>
+  </div>
+  <div class="qd-footer">
+    <button class="qd-dismiss" id="qd-dismiss-btn">Dismiss</button>
+  </div>
+</div>
+<div id="narrative-modal">
+  <div class="narr-box">
+    <div class="narr-header">
+      <span class="narr-title">Portfolio Narrative</span>
+      <button class="narr-close" id="narr-close-btn">&#x2715;</button>
+    </div>
+    <div class="narr-format-tabs">
+      <button class="narr-tab active" data-fmt="linkedin">LinkedIn Post</button>
+      <button class="narr-tab" data-fmt="resume">Resume Bullets</button>
+      <button class="narr-tab" data-fmt="github">GitHub README</button>
+      <button class="narr-tab" data-fmt="exec">Executive Brief</button>
+    </div>
+    <div class="narr-body">
+      <div class="narr-tone-row">
+        <span class="narr-tone-label">Tone:</span>
+        <button class="narr-tone-btn active" data-tone="professional">Professional</button>
+        <button class="narr-tone-btn" data-tone="conversational">Conversational</button>
+      </div>
+      <button class="narr-gen-btn" id="narr-gen-btn">Generate My Story</button>
+      <div class="narr-output" id="narr-output"></div>
+      <div class="narr-char-count" id="narr-char-count"></div>
+      <div class="narr-actions" id="narr-actions" style="display:none;">
+        <button class="narr-action-btn" id="narr-copy-btn">Copy</button>
+        <button class="narr-action-btn" id="narr-download-btn">Download .txt</button>
+        <button class="narr-action-btn" id="narr-newtab-btn">Open in New Tab</button>
+        <button class="narr-action-btn" id="narr-regen-btn">Regenerate</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="mission-brief-overlay">
+  <div class="mb-card">
+    <div class="mb-label">Mission Brief</div>
+    <div class="mb-classified">Classified</div>
+    <div class="mb-divider"></div>
+    <div class="mb-dataset-name" id="mb-dataset-name">Dataset</div>
+    <div class="mb-meta" id="mb-meta"></div>
+    <div class="mb-kpi-row">
+      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-trust-score">-</div><div class="mb-kpi-label">Trust Score</div></div>
+      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-issue-count">-</div><div class="mb-kpi-label">Issues Found</div></div>
+      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-domain-val">-</div><div class="mb-kpi-label">Domain</div></div>
+    </div>
+    <div class="mb-section-title">Your Mission</div>
+    <div class="mb-mission-text" id="mb-mission-text"></div>
+    <div class="mb-section-title">Suggested First Moves</div>
+    <div class="mb-moves" id="mb-moves"></div>
+    <div class="mb-actions">
+      <button class="mb-accept-btn" id="mb-accept-btn">Accept Mission</button>
+      <button class="mb-explore-btn" id="mb-explore-btn">I'll explore on my own</button>
+    </div>
+    <div class="mb-countdown" id="mb-countdown"></div>
+  </div>
+</div>
+<div id="witness-modal">
+  <div class="wit-topbar">
+    <span class="wit-logo">Witness</span>
+    <span class="wit-title" id="wit-modal-title">DataGlow Witness - PHI/PII De-identification</span>
+    <button class="wit-close-btn" id="wit-close-btn">Exit Witness</button>
+  </div>
+  <div class="wit-phases">
+    <div class="wit-phase-tab active" id="wit-tab-scan">1. Scan</div>
+    <div class="wit-phase-tab" id="wit-tab-configure">2. Configure</div>
+    <div class="wit-phase-tab" id="wit-tab-certificate">3. Certificate</div>
+  </div>
+  <div class="wit-body" id="wit-body">
+    <div class="wit-scan-header">PHI/PII Scanner</div>
+    <div class="wit-scan-sub">Open a dataset and click Scan to detect HIPAA Safe Harbor identifiers.</div>
+    <div id="wit-phi-list"></div>
+    <div class="wit-action-bar" id="wit-action-bar"></div>
+  </div>
+</div>
+<div id="projects-panel">
+  <div class="proj-topbar">
+    <span class="proj-logo">Projects</span>
+    <span class="proj-title">DataGlow Projects</span>
+    <button class="proj-new-btn" id="proj-new-btn">+ New Project</button>
+    <button class="proj-close-btn" id="proj-panel-close-btn">Close</button>
+  </div>
+  <div class="proj-layout">
+    <aside class="proj-sidebar">
+      <div class="proj-active-label">Active Project</div>
+      <div id="proj-active-card">
+        <div class="proj-active-card">
+          <div class="proj-active-name" id="proj-active-name">No Project Active</div>
+          <div class="proj-active-meta" id="proj-active-meta">Drop files to start, or open a project below.</div>
+          <button class="proj-sidebar-btn" id="proj-save-btn">Save Session as Project</button>
+          <button class="proj-sidebar-btn" id="proj-add-files-btn">Add Files to Project</button>
+          <button class="proj-sidebar-btn danger" id="proj-close-session-btn">Close Project</button>
+        </div>
+      </div>
+    </aside>
+    <div class="proj-main">
+      <div class="proj-new-form" id="proj-new-form">
+        <input type="text" id="proj-name-input" placeholder="Project name (e.g. Inpatient Claims Q3)" maxlength="60" />
+        <select id="proj-domain-select">
+          <option value="general">General Analytics</option>
+          <option value="healthcare">Healthcare</option>
+          <option value="finance">Finance</option>
+          <option value="hr">HR / People Analytics</option>
+        </select>
+        <button class="proj-new-confirm" id="proj-confirm-btn">Create Project</button>
+      </div>
+      <div class="proj-main-title">Project Library</div>
+      <div class="proj-grid" id="proj-grid"></div>
+    </div>
+  </div>
+  <div class="proj-storage-bar" id="proj-storage-bar">
+    <span id="proj-storage-text">Checking storage...</span>
+    <div class="proj-storage-track"><div class="proj-storage-fill" id="proj-storage-fill" style="width:0%"></div></div>
+  </div>
+</div>
+<input type="file" id="proj-file-input" accept=".csv,.tsv,.json,.parquet" multiple style="display:none" />
+<div id="notes-drawer" style="position:fixed;top:0;right:-340px;width:320px;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:12000;display:flex;flex-direction:column;transition:right 0.25s cubic-bezier(0.4,0,0.2,1);box-shadow:-4px 0 20px rgba(0,0,0,0.1);">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <span style="font-size:10px;font-weight:900;letter-spacing:0.15em;color:var(--primary);text-transform:uppercase;flex:1;">Project Notes</span>
+    <span id="notes-save-status" style="font-size:10px;color:var(--text-muted);"></span>
+    <button id="notes-close-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:0 4px;">x</button>
+  </div>
+  <div style="padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div id="notes-project-label" style="font-size:10px;color:var(--text-muted);">No active project</div>
+  </div>
+  <textarea id="notes-textarea" placeholder="Type your notes here... Analysis observations, questions to investigate, decisions made." style="flex:1;border:none;background:transparent;padding:14px;font-size:13px;color:var(--text);font-family:inherit;resize:none;outline:none;line-height:1.6;"></textarea>
+  <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;">
+    <button id="notes-copy-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text);cursor:pointer;font-family:inherit;">Copy</button>
+    <button id="notes-clear-btn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--text-muted);cursor:pointer;font-family:inherit;">Clear</button>
+  </div>
+</div>
+
+<!-- ---- Feature #34: Browser LLM status chip ---- -->
+<div id="llm-status-chip" class="hidden">
+  <span id="llm-status-dot"></span>
+  <span id="llm-status-text">AI Loading...</span>
+  <div id="llm-progress-bar"><div id="llm-progress-fill"></div></div>
+</div>
+<!-- ---- Feature M2: Mirror feed ---- -->
+<div id="mirror-feed" aria-live="polite"></div>
+
+<!-- ---- Vault V2-V7: SQL Templates, Transform Presets, Column Profiles, Peer Reviews, Query History, Export/Import ---- -->
+<div id="vault-modal" role="dialog" aria-modal="true" aria-labelledby="vault-modal-title">
+  <div class="vault-modal-inner">
+    <div class="vault-modal-header">
+      <h2 id="vault-modal-title">&#128452; DataGlow Vault</h2>
+      <button class="vault-modal-close-btn" id="vault-modal-close-btn" aria-label="Close Vault" title="Close">&times;</button>
+    </div>
+    <div id="vault-tabs" role="tablist">
+      <button class="vault-tab-btn active" data-vault-tab="sql" role="tab" aria-selected="true">SQL Templates</button>
+      <button class="vault-tab-btn" data-vault-tab="transform" role="tab" aria-selected="false">Transform Presets</button>
+      <button class="vault-tab-btn" data-vault-tab="profiles" role="tab" aria-selected="false">Column Profiles</button>
+      <button class="vault-tab-btn" data-vault-tab="reviews" role="tab" aria-selected="false">Peer Reviews</button>
+      <button class="vault-tab-btn" data-vault-tab="history" role="tab" aria-selected="false">Query History</button>
+      <button class="vault-tab-btn" data-vault-tab="io" role="tab" aria-selected="false">Export/Import</button>
+    </div>
+
+    <div class="vault-tab-panel active" data-vault-panel="sql">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-sql-search" placeholder="Search templates by name or tag...">
+        <button class="vault-action-btn" id="vault-sql-save-btn">Save Current Query</button>
+      </div>
+      <div class="vault-list" id="vault-sql-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="transform">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-transform-search" placeholder="Search transform presets...">
+        <button class="vault-action-btn" id="vault-transform-save-btn">Save New Preset</button>
+      </div>
+      <div class="vault-list" id="vault-transform-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="profiles">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-profile-search" placeholder="Search column profile snapshots...">
+        <button class="vault-action-btn" id="vault-profile-save-btn">Snapshot Active Dataset</button>
+      </div>
+      <div class="vault-list" id="vault-profile-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="reviews">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-review-search" placeholder="Search peer reviews by dataset name...">
+        <button class="vault-action-btn" id="vault-review-save-btn">Save Current Review</button>
+      </div>
+      <div class="vault-list" id="vault-review-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="history">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-history-search" placeholder="Search query history...">
+        <button class="vault-action-btn secondary" id="vault-history-clear-btn">Clear Unstarred</button>
+      </div>
+      <div class="vault-list" id="vault-history-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="io">
+      <div class="vault-io-summary" id="vault-io-summary">No vault data yet.</div>
+      <div class="vault-io-row">
+        <button class="vault-action-btn" id="vault-export-btn">Export Vault as JSON</button>
+        <button class="vault-action-btn secondary" id="vault-import-btn">Import Vault JSON</button>
+        <input type="file" id="vault-import-file-input" accept="application/json" style="display:none;">
+      </div>
+      <div id="vault-dropzone">Drag and drop a <code>dataglow-vault-*.json</code> file here to import, or use the button above.</div>
+    </div>
+  </div>
+</div>
+
+<div id="replay-modal">
+  <div class="replay-modal-inner">
+    <div class="replay-modal-header">
+      <span class="replay-modal-title">Session Replay</span>
+      <div class="replay-header-actions">
+        <button class="replay-record-toggle" id="replay-record-toggle-btn"><span class="replay-rec-dot"></span><span id="replay-record-toggle-label">Record</span></button>
+        <button class="replay-modal-close-btn" id="replay-modal-close-btn">&#x2715;</button>
+      </div>
+    </div>
+    <div class="replay-timeline" id="replay-timeline">
+      <div class="replay-empty-state" id="replay-empty-state">
+        <div class="replay-empty-icon">&#9654;</div>
+        <div>Start recording to capture your analysis session</div>
+      </div>
+    </div>
+    <div class="replay-narrative-box" id="replay-narrative-box"></div>
+    <div class="replay-modal-footer">
+      <button class="replay-footer-btn" id="replay-export-json-btn">Export JSON</button>
+      <button class="replay-footer-btn primary" id="replay-gen-narrative-btn">Generate Narrative</button>
+    </div>
+  </div>
+</div>
+  <div id="autopilot-panel" class="autopilot-panel hidden">
+    <div class="autopilot-header">
+      <span class="autopilot-title">Autopilot</span>
+      <label class="autopilot-toggle">
+        <input type="checkbox" id="autopilot-toggle-input" checked />
+        <span class="autopilot-toggle-track"></span>
+      </label>
+      <button id="autopilot-clear-btn">Clear all</button>
+      <button id="autopilot-close-btn">&#10005;</button>
+    </div>
+    <div id="autopilot-feed" class="autopilot-feed"></div>
+    <div class="autopilot-footer">
+      <span>Checks every 30s</span>
+      <span id="autopilot-last-checked">Never checked</span>
+    </div>
+  </div>
+</body>
+</html>

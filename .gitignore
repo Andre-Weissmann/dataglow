@@ -1,7 +1,6 @@
-.DS_Store
+# Build artifacts
+canvas/index.html.bak_pre_refactor
+.build_tmp*
+
+# Node
 node_modules/
-*.log
-test/e2e-failure.png
-test/_upperbound-demo.csv
-test/_missingness-demo.csv
-docs/sbom.json
