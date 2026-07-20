@@ -1,0 +1,20 @@
+{
+  "name": "DataGlow",
+  "short_name": "DataGlow",
+  "description": "Local-first analytics, validation, and AI narrative-checking platform",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#171614",
+  "theme_color": "#1BA1A8",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%23171614'/><circle cx='256' cy='200' r='80' fill='none' stroke='%231BA1A8' stroke-width='28'/><path d='M120 360 Q256 260 392 360' fill='none' stroke='%231BA1A8' stroke-width='24' stroke-linecap='round'/><circle cx='180' cy='340' r='16' fill='%231BA1A8'/><circle cx='256' cy='310' r='16' fill='%231BA1A8'/><circle cx='332' cy='340' r='16' fill='%231BA1A8'/></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "screenshots": []
+}
