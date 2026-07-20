@@ -2993,6 +2993,71 @@
   .dash-kpi-value[data-prov-id] { cursor:pointer; }
   .dash-kpi-value[data-prov-id]:hover { text-decoration:underline; text-decoration-style:dotted; text-underline-offset:3px; }
 
+
+  /* ── Infrastructure: Loading States ─────────────────────────────────── */
+  .dg-spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--primary);
+    border-radius: 50%; animation: dg-spin .7s linear infinite; vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes dg-spin { to { transform: rotate(360deg); } }
+
+  .dg-skeleton {
+    background: linear-gradient(90deg, var(--border) 25%, color-mix(in srgb, var(--border) 60%, transparent) 50%, var(--border) 75%);
+    background-size: 200% 100%; animation: dg-skeleton-shimmer 1.4s ease-in-out infinite;
+    border-radius: 4px; height: 12px; display: block;
+  }
+  @keyframes dg-skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* SQL loading state */
+  #sql-status.loading { color: var(--text-muted); font-style: italic; }
+  #sql-status.loading::before { content: ''; display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: dg-spin .7s linear infinite; vertical-align: middle; margin-right: 5px; }
+
+  /* Python loading state */
+  #py-status.loading { color: var(--text-muted); font-style: italic; }
+  #py-status.loading::before { content: ''; display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--border); border-top-color: #3B82F6; border-radius: 50%; animation: dg-spin .7s linear infinite; vertical-align: middle; margin-right: 5px; }
+
+  /* ── Infrastructure: Error Boundary ─────────────────────────────────── */
+  .dg-error-boundary {
+    border: 1px solid color-mix(in srgb, #A12C7B 30%, transparent);
+    background: color-mix(in srgb, #A12C7B 6%, transparent);
+    border-radius: 10px; padding: 20px 24px; margin: 16px;
+    text-align: center;
+  }
+  .dg-error-boundary-icon { font-size: 28px; margin-bottom: 8px; }
+  .dg-error-boundary-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .dg-error-boundary-msg { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; font-family: monospace; word-break: break-word; }
+  .dg-error-boundary-retry { background: var(--primary); color: #fff; border: none; border-radius: 6px; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .dg-error-boundary-retry:hover { background: var(--primary-hover); }
+
+  /* ── Infrastructure: Memory Guard Banner ────────────────────────────── */
+  #dg-memory-guard {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid #D97706;
+    border-radius: 10px; padding: 10px 20px; z-index: 8500;
+    display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 20px rgba(0,0,0,.18);
+    font-size: 12px; color: var(--text); max-width: 480px; width: 90vw;
+    transition: opacity .3s; pointer-events: auto;
+  }
+  #dg-memory-guard.hidden { opacity: 0; pointer-events: none; }
+  #dg-memory-guard.danger { border-color: #DC2626; }
+  .dg-mem-icon { font-size: 18px; flex-shrink: 0; }
+  .dg-mem-text { flex: 1; line-height: 1.4; }
+  .dg-mem-text strong { display: block; margin-bottom: 2px; }
+  .dg-mem-dismiss { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; padding: 0 2px; flex-shrink: 0; }
+  .dg-mem-dismiss:hover { color: var(--text); }
+
+  /* ── Infrastructure: SQL/Python Error Translation ───────────────────── */
+  .dg-error-translated {
+    background: color-mix(in srgb, #A12C7B 8%, transparent);
+    border: 1px solid color-mix(in srgb, #A12C7B 25%, transparent);
+    border-radius: 8px; padding: 10px 14px; margin-top: 8px;
+    font-size: 12px; color: var(--text);
+  }
+  .dg-error-raw { font-family: monospace; font-size: 11px; color: var(--text-muted); margin-top: 6px; word-break: break-word; display: block; }
+  .dg-error-suggestion { margin-top: 6px; color: var(--primary); font-size: 11px; font-weight: 600; cursor: pointer; }
+  .dg-error-suggestion:hover { text-decoration: underline; }
+
 </style>
 </head>
 <body>
@@ -5464,6 +5529,413 @@ var CardinalityDetector = window.CardinalityDetector = {
 })();
 /* ---- end cardinality-detector.js ---- */
 </script>
+
+<script>
+/* ---- from js/infra/infrastructure.js ---- */
+(function() {
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+// 1. SQL ERROR TRANSLATOR
+// Converts raw DuckDB error messages into plain English with suggestions
+// ═══════════════════════════════════════════════════════════════════════
+var SQLErrorTranslator = window.SQLErrorTranslator = {
+  translate: function(rawMsg, datasets) {
+    if (!rawMsg) return null;
+    var msg = String(rawMsg);
+    var columns = [];
+    if (datasets && datasets.length) {
+      datasets.forEach(function(ds) {
+        (ds.columns || []).forEach(function(c) {
+          // Accept both column objects {name} and plain strings
+          columns.push(typeof c === 'string' ? c : (c.name || ''));
+        });
+      });
+    }
+
+    // Column not found — suggest closest match
+    var colNotFound = msg.match(/(?:Referenced column|Column)\s+["']?([^"'\s]+)["']?\s+(?:not found|does not exist)/i);
+    if (colNotFound) {
+      var bad = colNotFound[1];
+      var suggestion = SQLErrorTranslator._closest(bad, columns);
+      return {
+        title: 'Column not found',
+        plain: 'The column "' + bad + '" does not exist in your dataset.',
+        suggestion: suggestion ? 'Did you mean "' + suggestion + '"?' : 'Check the schema panel on the left for available column names.',
+        fix: suggestion ? '"' + suggestion + '"' : null,
+        raw: msg
+      };
+    }
+
+    // Table not found
+    var tblNotFound = msg.match(/(?:Table|Catalog Entry)\s+["']?([^"'\s]+)["']?\s+(?:not found|does not exist)/i);
+    if (tblNotFound) {
+      return {
+        title: 'Table not found',
+        plain: 'The table "' + tblNotFound[1] + '" is not loaded.',
+        suggestion: 'Load a dataset first, or check the table name in the schema panel.',
+        fix: null,
+        raw: msg
+      };
+    }
+
+    // Syntax error
+    if (/syntax error/i.test(msg) || /Parser Error/i.test(msg)) {
+      var near = msg.match(/near\s+"([^"]+)"/i);
+      return {
+        title: 'SQL syntax error',
+        plain: 'There is a syntax problem in your query' + (near ? ' near "' + near[1] + '"' : '') + '.',
+        suggestion: 'Check for missing commas, unmatched parentheses, or misspelled keywords like SELECT, FROM, WHERE, GROUP BY.',
+        fix: null,
+        raw: msg
+      };
+    }
+
+    // Type mismatch
+    if (/cannot be cast\|type mismatch\|conversion error\|invalid input syntax/i.test(msg)) {
+      return {
+        title: 'Data type mismatch',
+        plain: 'You are comparing or combining columns of incompatible types (e.g. text vs. number).',
+        suggestion: 'Use CAST(column AS INTEGER) or CAST(column AS VARCHAR) to convert types explicitly.',
+        fix: null,
+        raw: msg
+      };
+    }
+
+    // Division by zero
+    if (/division by zero/i.test(msg)) {
+      return {
+        title: 'Division by zero',
+        plain: 'Your query divides by a value that is zero or null in some rows.',
+        suggestion: 'Use NULLIF to protect: NULLIF(denominator, 0) returns NULL instead of crashing.',
+        fix: null,
+        raw: msg
+      };
+    }
+
+    // Ambiguous column
+    if (/ambiguous/i.test(msg)) {
+      return {
+        title: 'Ambiguous column name',
+        plain: 'The same column name exists in multiple tables. DuckDB does not know which one to use.',
+        suggestion: 'Qualify the column with the table name, e.g. table_name.column_name.',
+        fix: null,
+        raw: msg
+      };
+    }
+
+    // Out of memory
+    if (/out of memory\|memory limit\|not enough memory/i.test(msg)) {
+      return {
+        title: 'Not enough memory',
+        plain: 'This query tried to use more memory than the browser allows.',
+        suggestion: 'Add a LIMIT clause to reduce result size, or filter rows with a WHERE clause before aggregating.',
+        fix: null,
+        raw: msg
+      };
+    }
+
+    // Generic fallback
+    return {
+      title: 'Query error',
+      plain: 'Something went wrong running this query.',
+      suggestion: null,
+      fix: null,
+      raw: msg
+    };
+  },
+
+  // Levenshtein-based closest match
+  _closest: function(target, candidates) {
+    if (!candidates.length) return null;
+    var tl = target.toLowerCase();
+    var best = null, bestDist = Infinity;
+    candidates.forEach(function(c) {
+      var d = SQLErrorTranslator._lev(tl, c.toLowerCase());
+      if (d < bestDist) { bestDist = d; best = c; }
+    });
+    return bestDist <= 4 ? best : null;
+  },
+  _lev: function(a, b) {
+    var m = a.length, n = b.length;
+    var dp = [];
+    for (var i = 0; i <= m; i++) { dp[i] = [i]; }
+    for (var j = 0; j <= n; j++) { dp[0][j] = j; }
+    for (var i = 1; i <= m; i++) {
+      for (var j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      }
+    }
+    return dp[m][n];
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// 2. PYTHON ERROR TRANSLATOR
+// Converts raw Python/Pandas tracebacks into plain English
+// ═══════════════════════════════════════════════════════════════════════
+var PythonErrorTranslator = window.PythonErrorTranslator = {
+  translate: function(rawMsg, columns) {
+    if (!rawMsg) return null;
+    var msg = String(rawMsg);
+    columns = columns || [];
+
+    // AttributeError — wrong method name
+    var attrErr = msg.match(/AttributeError.*has no attribute ['"]([^'"]+)['"]/);
+    if (attrErr) {
+      return {
+        title: 'Attribute error',
+        plain: '"' + attrErr[1] + '" is not a valid method or property.',
+        suggestion: 'Check the spelling. Common pandas methods: .groupby(), .merge(), .pivot_table(), .describe(), .value_counts()',
+        raw: msg
+      };
+    }
+
+    // KeyError — wrong column name
+    var keyErr = msg.match(/KeyError:\s*['"]?([^'"]+)['"]?/);
+    if (keyErr) {
+      var bad = keyErr[1].trim();
+      var suggestion = SQLErrorTranslator._closest(bad, columns);
+      return {
+        title: 'Column not found',
+        plain: 'The column "' + bad + '" does not exist in this DataFrame.',
+        suggestion: suggestion
+          ? 'Did you mean "' + suggestion + '"? Available columns: ' + columns.slice(0,5).join(', ')
+          : 'Available columns: ' + (columns.length ? columns.slice(0,5).join(', ') : 'use dg.df().columns to list them'),
+        raw: msg
+      };
+    }
+
+    // NameError
+    var nameErr = msg.match(/NameError.*name ['"]([^'"]+)['"] is not defined/);
+    if (nameErr) {
+      return {
+        title: 'Variable not defined',
+        plain: '"' + nameErr[1] + '" has not been created yet.',
+        suggestion: nameErr[1] === 'df' || nameErr[1] === 'dg'
+          ? 'Start with: df = dg.df()  — this loads your active dataset as a pandas DataFrame.'
+          : 'Make sure you have defined "' + nameErr[1] + '" in a previous line.',
+        raw: msg
+      };
+    }
+
+    // IndentationError
+    if (/IndentationError/i.test(msg)) {
+      return {
+        title: 'Indentation error',
+        plain: 'Python requires consistent indentation (spaces, not tabs).',
+        suggestion: 'Use 4 spaces for each level of indentation. Check that all lines in a block are aligned.',
+        raw: msg
+      };
+    }
+
+    // SyntaxError
+    if (/SyntaxError/i.test(msg)) {
+      return {
+        title: 'Syntax error',
+        plain: 'Python cannot understand this code.',
+        suggestion: 'Check for missing colons after if/for/def, unmatched parentheses or quotes.',
+        raw: msg
+      };
+    }
+
+    // TypeError
+    var typeErr = msg.match(/TypeError[:\s]+(.+)/);
+    if (typeErr) {
+      return {
+        title: 'Type error',
+        plain: typeErr[1].replace(/\n.*/,'').trim(),
+        suggestion: 'You may be mixing strings and numbers, or calling a function with the wrong argument type.',
+        raw: msg
+      };
+    }
+
+    // Memory
+    if (/MemoryError\|out of memory/i.test(msg)) {
+      return {
+        title: 'Out of memory',
+        plain: 'This operation used more memory than the browser allows.',
+        suggestion: 'Try filtering the DataFrame first: df = df.head(10000) or df = df[df["column"] == value]',
+        raw: msg
+      };
+    }
+
+    return {
+      title: 'Python error',
+      plain: msg.split('\n').filter(function(l){ return l.trim(); }).pop() || msg,
+      suggestion: null,
+      raw: msg
+    };
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// 3. MEMORY GUARD
+// Watches WASM heap usage and warns before crash
+// ═══════════════════════════════════════════════════════════════════════
+var MemoryGuard = window.MemoryGuard = (function() {
+  var _banner = null;
+  var _dismissed = false;
+  var _interval = null;
+  var WARN_MB  = 3200;  // warn at 3.2GB used (4GB WASM limit)
+  var DANGER_MB = 3700; // danger at 3.7GB
+
+  function getMB() {
+    // Chrome exposes performance.memory (non-standard but widely used)
+    if (window.performance && window.performance.memory) {
+      return Math.round(window.performance.memory.usedJSHeapSize / 1024 / 1024);
+    }
+    return null;
+  }
+
+  function ensureBanner() {
+    if (_banner && document.body.contains(_banner)) return _banner;
+    _banner = document.createElement('div');
+    _banner.id = 'dg-memory-guard';
+    _banner.className = 'hidden';
+    _banner.innerHTML =
+      '<span class="dg-mem-icon">&#9888;</span>' +
+      '<span class="dg-mem-text"><strong id="dg-mem-title">Memory warning</strong><span id="dg-mem-body">Loading large data may cause the page to crash.</span></span>' +
+      '<button class="dg-mem-dismiss" title="Dismiss" onclick="MemoryGuard.dismiss()">&#215;</button>';
+    document.body.appendChild(_banner);
+    return _banner;
+  }
+
+  return {
+    start: function() {
+      if (_interval) return;
+      _interval = setInterval(function() {
+        if (_dismissed) return;
+        var mb = getMB();
+        if (mb === null) return;
+        if (mb >= DANGER_MB) {
+          MemoryGuard.show('danger', mb);
+        } else if (mb >= WARN_MB) {
+          MemoryGuard.show('warn', mb);
+        }
+      }, 10000); // check every 10s
+    },
+
+    show: function(level, mb) {
+      var banner = ensureBanner();
+      var title = document.getElementById('dg-mem-title');
+      var body  = document.getElementById('dg-mem-body');
+      if (level === 'danger') {
+        banner.className = 'danger';
+        if (title) title.textContent = 'Critical memory usage — ' + mb + ' MB used';
+        if (body) body.textContent = 'The browser is near its limit. Export your work and refresh the page before it crashes.';
+      } else {
+        banner.className = '';
+        if (title) title.textContent = 'High memory usage — ' + mb + ' MB used';
+        if (body) body.textContent = 'Large datasets are using significant memory. Consider filtering your data or closing unused datasets.';
+      }
+    },
+
+    dismiss: function() {
+      _dismissed = true;
+      if (_banner) _banner.className = 'hidden';
+      // Re-enable after 5 minutes for danger level
+      setTimeout(function() { _dismissed = false; }, 5 * 60 * 1000);
+    },
+
+    // Call this after loading large file — immediate check
+    checkNow: function() {
+      _dismissed = false;
+      var mb = getMB();
+      if (mb !== null && mb >= WARN_MB) MemoryGuard.show(mb >= DANGER_MB ? 'danger' : 'warn', mb);
+    }
+  };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+// 4. ERROR BOUNDARY WRAPPER
+// Wraps any function call — catches errors, renders friendly UI
+// ═══════════════════════════════════════════════════════════════════════
+var ErrorBoundary = window.ErrorBoundary = {
+  // Wrap a sync or async function — on error, render into containerEl
+  wrap: function(fn, containerEl, retryFn) {
+    try {
+      var result = fn();
+      if (result && typeof result.catch === 'function') {
+        result.catch(function(e) {
+          ErrorBoundary.render(containerEl, e, retryFn);
+        });
+      }
+      return result;
+    } catch(e) {
+      ErrorBoundary.render(containerEl, e, retryFn);
+    }
+  },
+
+  render: function(containerEl, err, retryFn) {
+    if (!containerEl) return;
+    var msg = err && err.message ? err.message : String(err);
+    var id = 'eb-retry-' + Date.now();
+    containerEl.innerHTML =
+      '<div class="dg-error-boundary">' +
+        '<div class="dg-error-boundary-icon">&#9888;&#65039;</div>' +
+        '<div class="dg-error-boundary-title">Something went wrong</div>' +
+        '<div class="dg-error-boundary-msg">' + String(msg).slice(0, 200) + '</div>' +
+        (retryFn
+          ? '<button class="dg-error-boundary-retry" id="' + id + '">Try again</button>'
+          : '') +
+      '</div>';
+    if (retryFn) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', function() {
+        containerEl.innerHTML = '';
+        ErrorBoundary.wrap(retryFn, containerEl, retryFn);
+      });
+    }
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// 5. LOADING STATE HELPERS
+// Show/hide skeleton and spinner states on any element
+// ═══════════════════════════════════════════════════════════════════════
+var LoadingStates = window.LoadingStates = {
+  // Show spinner text on a status element
+  setLoading: function(el, text) {
+    if (!el) return;
+    el.className = 'loading';
+    el.textContent = text || 'Loading…';
+  },
+
+  // Render skeleton rows into a container
+  skeleton: function(containerEl, rows, cols) {
+    if (!containerEl) return;
+    rows = rows || 3; cols = cols || 4;
+    var html = '';
+    for (var r = 0; r < rows; r++) {
+      html += '<div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);">';
+      for (var c = 0; c < cols; c++) {
+        var w = 60 + Math.random() * 80;
+        html += '<span class="dg-skeleton" style="width:' + Math.round(w) + 'px;"></span>';
+      }
+      html += '</div>';
+    }
+    containerEl.innerHTML = html;
+  },
+
+  clear: function(el) {
+    if (!el) return;
+    el.className = '';
+    el.textContent = '';
+  }
+};
+
+// Auto-start memory guard on page load
+document.addEventListener('DOMContentLoaded', function() {
+  MemoryGuard.start();
+});
+// Also start immediately if DOM already ready
+if (document.readyState !== 'loading') MemoryGuard.start();
+
+})();
+/* ---- end infrastructure.js ---- */
+</script>
+
 </body>\n</html>';
     }
 
@@ -11977,6 +12449,8 @@ var InstantInsight = (function () {
     dataset.id = id;
     dataset.name = filename;
     state.datasets.push(dataset);
+    // Memory guard check after large file loaded
+    if (window.MemoryGuard) setTimeout(function(){ MemoryGuard.checkNow(); }, 1500);
     state.activeDatasetId = id;
 
     // Remember this file (by content-agnostic name+size hash) so a future
@@ -12962,7 +13436,8 @@ print(df.head())';
     async function pyRunCode() {
       var code = pyInput && pyInput.value.trim();
       if (!code) return;
-      if (pyStatus) { pyStatus.className = ''; pyStatus.textContent = 'Running…'; }
+      if (pyStatus && window.LoadingStates) LoadingStates.setLoading(pyStatus, 'Running Python…');
+      else if (pyStatus) { pyStatus.className = ''; pyStatus.textContent = 'Running…'; }
       if (pyOutput) pyOutput.textContent = '';
       if (pyResultW) pyResultW.classList.add('hidden');
 
@@ -12994,7 +13469,42 @@ sys.stdout = _stdout_buf');
         }
         if (pyLoadStat) pyLoadStat.textContent = 'Python ready';
       } catch (e) {
-        if (pyStatus) { pyStatus.className = 'error'; pyStatus.textContent = String(e); }
+        var _rawErr = String(e);
+        if (window.PythonErrorTranslator && pyStatus) {
+          var _active = getActiveDataset();
+          var _cols = _active ? _active.columns.map(function(c){return c.name;}) : [];
+          var _t = PythonErrorTranslator.translate(_rawErr, _cols);
+          if (_t) {
+            pyStatus.className = 'error';
+            pyStatus.innerHTML = '';
+            var _wrap = document.createElement('div');
+            _wrap.className = 'dg-error-translated';
+            var _title = document.createElement('strong');
+            _title.textContent = _t.title;
+            _wrap.appendChild(_title);
+            var _plain = document.createElement('p');
+            _plain.style.cssText = 'margin:4px 0;font-size:12px;';
+            _plain.textContent = _t.plain;
+            _wrap.appendChild(_plain);
+            if (_t.suggestion) {
+              var _sug = document.createElement('div');
+              _sug.style.cssText = 'color:var(--primary);font-size:11px;font-weight:600;margin-top:4px;';
+              _sug.textContent = '→ ' + _t.suggestion;
+              _wrap.appendChild(_sug);
+            }
+            var _raw = document.createElement('span');
+            _raw.className = 'dg-error-raw';
+            _raw.textContent = _rawErr.split('\n').slice(-3).join(' | ');
+            _wrap.appendChild(_raw);
+            pyStatus.appendChild(_wrap);
+          } else {
+            pyStatus.className = 'error';
+            pyStatus.textContent = _rawErr;
+          }
+        } else if (pyStatus) {
+          pyStatus.className = 'error';
+          pyStatus.textContent = _rawErr;
+        }
         if (pyLoadStat) pyLoadStat.textContent = 'Python ready';
       }
     }
@@ -14872,11 +15382,51 @@ sys.stdout = _stdout_buf');
   function renderSQLError(msg) {
     var status = $('sql-status');
     if (!status) return;
-    status.className = 'error';
-    status.textContent = msg;
     $('sql-results-thead').innerHTML = '';
     $('sql-results-tbody').innerHTML = '';
     if ($('sql-export-btn')) $('sql-export-btn').classList.add('hidden');
+
+    // Try translated error first
+    if (window.SQLErrorTranslator) {
+      var t = SQLErrorTranslator.translate(msg, state.datasets);
+      if (t) {
+        status.className = 'error';
+        status.innerHTML = '';
+        var wrap = document.createElement('div');
+        wrap.className = 'dg-error-translated';
+        var title = document.createElement('strong');
+        title.textContent = t.title;
+        wrap.appendChild(title);
+        var plain = document.createElement('p');
+        plain.style.cssText = 'margin:4px 0;font-size:12px;';
+        plain.textContent = t.plain;
+        wrap.appendChild(plain);
+        if (t.suggestion) {
+          var sug = document.createElement('div');
+          sug.className = 'dg-error-suggestion';
+          sug.textContent = t.fix ? '→ ' + t.suggestion + ' (click to fix)' : '→ ' + t.suggestion;
+          if (t.fix) {
+            sug.addEventListener('click', function() {
+              var inp = $('sql-input');
+              if (inp) {
+                inp.value = inp.value.replace(new RegExp('"?' + t.fix.replace(/[.*+?^${}()|[\]\]/g,'\$&').replace(/^"|"$/g,'') + '"?', 'g'), t.fix);
+                inp.focus();
+              }
+            });
+          }
+          wrap.appendChild(sug);
+        }
+        var raw = document.createElement('span');
+        raw.className = 'dg-error-raw';
+        raw.textContent = t.raw;
+        wrap.appendChild(raw);
+        status.appendChild(wrap);
+        return;
+      }
+    }
+    // Fallback: plain text
+    status.className = 'error';
+    status.textContent = msg;
   }
 
   function refreshSQLSchema() {
@@ -14972,7 +15522,8 @@ sys.stdout = _stdout_buf');
     var status = $('sql-status');
     if (!sql) { if (status) status.textContent = 'Enter a query.'; return; }
     if (!state.datasets.length) { if (status) status.textContent = 'No dataset loaded. Drop a file first.'; return; }
-    if (status) { status.className = ''; status.textContent = 'Running…'; }
+    if (status && window.LoadingStates) LoadingStates.setLoading(status, 'Running query…');
+    else if (status) { status.className = ''; status.textContent = 'Running…'; }
     try {
       var engine = await getSQLEngine();
       await engine.runQuery(sql, state.datasets);
