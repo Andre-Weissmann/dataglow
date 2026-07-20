@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1BA1A8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DataGlow">
 <title>DataGlow — Your data, understood.</title>
 <style>
   /* ============================================================
@@ -3372,6 +3377,62 @@
 .dojo-run-btn:hover { opacity:0.85; }
 .dojo-fn-desc { font-size:12px; color:var(--text-muted); line-height:1.5; font-style:italic; }
 
+/* ---- #38 PWA Install Banner ---- */
+#pwa-install-banner { position:fixed; bottom:60px; right:16px; background:var(--surface); border:1px solid var(--primary); border-radius:12px; padding:14px 18px; display:none; align-items:center; gap:12px; box-shadow:0 4px 24px rgba(0,0,0,0.35); z-index:9998; max-width:280px; }
+#pwa-install-banner.visible { display:flex; }
+.pwa-banner-text { flex:1; }
+.pwa-banner-title { font-size:13px; font-weight:700; color:var(--text); margin-bottom:2px; }
+.pwa-banner-sub { font-size:11px; color:var(--text-muted); }
+.pwa-install-btn { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.pwa-install-btn:hover { opacity:0.85; }
+.pwa-dismiss-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px; padding:2px 4px; line-height:1; }
+
+/* ---- #35 Skill Progression ---- */
+#skills-panel { position:fixed; bottom:50px; right:16px; width:320px; max-height:480px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:0; overflow:hidden; display:none; flex-direction:column; z-index:9990; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+#skills-panel.open { display:flex; }
+.skills-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 10px; border-bottom:1px solid var(--border); }
+.skills-header-title { font-size:14px; font-weight:700; color:var(--text); }
+.skills-close-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; line-height:1; padding:2px; }
+.skills-list { overflow-y:auto; flex:1; padding:12px 18px; display:flex; flex-direction:column; gap:12px; }
+.skill-row { display:flex; flex-direction:column; gap:4px; }
+.skill-row-header { display:flex; justify-content:space-between; align-items:center; }
+.skill-name { font-size:12px; font-weight:700; color:var(--text); }
+.skill-tier { font-size:10px; font-weight:600; color:var(--primary); }
+.skill-bar-track { height:5px; background:var(--surface-alt); border-radius:3px; overflow:hidden; }
+.skill-bar-fill { height:100%; background:var(--primary); border-radius:3px; transition:width 0.4s ease; }
+.skill-sub { font-size:10px; color:var(--text-muted); }
+.skills-trigger-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text-muted); padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+.skills-trigger-btn:hover { color:var(--primary); border-color:var(--primary); }
+.skill-unlock-toast { display:inline-block; padding:2px 8px; background:rgba(27,161,168,0.15); border:1px solid var(--primary); border-radius:12px; font-size:10px; color:var(--primary); font-weight:700; margin-left:6px; }
+
+/* ---- #41 Arena ---- */
+#arena-view { display:none; flex-direction:column; gap:0; height:100%; overflow:hidden; }
+#arena-view.active { display:flex; }
+.arena-header { padding:12px 16px 8px; border-bottom:1px solid var(--border); }
+.arena-title { font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:2px; }
+.arena-sub { font-size:11px; color:var(--text-muted); }
+.arena-columns { display:grid; grid-template-columns:1fr auto 1fr; gap:0; flex:1; overflow:hidden; min-height:0; }
+.arena-col { display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--border); }
+.arena-col:last-child { border-right:none; }
+.arena-vs { display:flex; align-items:center; justify-content:center; width:36px; font-size:11px; font-weight:800; color:var(--text-muted); background:var(--surface-alt); border-left:1px solid var(--border); border-right:1px solid var(--border); flex-shrink:0; }
+.arena-col-label { font-size:10px; font-weight:800; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em; padding:8px 12px 4px; border-bottom:1px solid var(--border); background:var(--surface-alt); }
+.arena-editor { flex:0 0 120px; border:none; resize:none; background:var(--surface-alt); color:var(--text); font-family:var(--mono); font-size:12px; padding:10px 12px; outline:none; border-bottom:1px solid var(--border); width:100%; box-sizing:border-box; }
+.arena-run-row { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); }
+.arena-run-btn { background:var(--primary); color:#fff; border:none; border-radius:6px; padding:5px 14px; font-size:11px; font-weight:700; cursor:pointer; }
+.arena-run-btn:hover { opacity:0.85; }
+.arena-status { font-size:10px; color:var(--text-muted); }
+.arena-results { flex:1; overflow:auto; padding:8px; min-height:0; }
+.arena-result-table { border-collapse:collapse; font-size:11px; width:100%; }
+.arena-result-table th { padding:4px 8px; background:var(--surface-alt); color:var(--text-muted); font-weight:700; text-align:left; border-bottom:1px solid var(--border); position:sticky; top:0; }
+.arena-result-table td { padding:4px 8px; border-bottom:1px solid var(--border); color:var(--text); white-space:nowrap; }
+.arena-result-table tr:hover td { background:var(--surface-alt); }
+.arena-empty { padding:24px; text-align:center; color:var(--text-muted); font-size:12px; }
+.arena-footer { border-top:1px solid var(--border); padding:10px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.arena-run-both-btn { background:var(--surface-alt); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:6px 16px; font-size:12px; font-weight:600; cursor:pointer; }
+.arena-run-both-btn:hover { border-color:var(--primary); color:var(--primary); }
+.arena-diff { font-size:11px; color:var(--text-muted); flex:1; line-height:1.5; }
+.arena-diff strong { color:var(--text); }
+
 </style>
 </head>
 <body>
@@ -3598,6 +3659,7 @@
           <button class="analyze-pill" data-panel="r-view">R</button>
           <button class="analyze-pill" data-panel="excel-view">Excel</button>
           <button class="analyze-pill" data-panel="stats-view">Stats</button>
+          <button class="analyze-pill" data-panel="arena-view">Arena</button>
         </div>
         <!-- Panels -->
         <div id="charts-view" class="analyze-panel active">
@@ -3906,6 +3968,7 @@
           <span id="live-feed-icon" aria-hidden="true">&#9889;</span>
           <span id="live-feed-label">Live Feed</span>
         </button>
+        <button class="skills-trigger-btn" id="skills-trigger-btn" title="Your Skills">Skills</button>
         <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -4114,6 +4177,37 @@
               </div>
               <div id="stats-hyp-output" style="margin-top:12px;"></div>
             </div>
+          </div>
+        </div>
+        <div id="arena-view" class="analyze-panel hidden">
+          <div class="arena-header">
+            <div class="arena-title">Arena</div>
+            <div class="arena-sub">Run two queries side by side and compare results</div>
+          </div>
+          <div class="arena-columns">
+            <div class="arena-col">
+              <div class="arena-col-label">Query A</div>
+              <textarea class="arena-editor" id="arena-editor-a" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false">SELECT * FROM your_table LIMIT 10</textarea>
+              <div class="arena-run-row">
+                <button class="arena-run-btn" id="arena-run-a">Run A</button>
+                <span class="arena-status" id="arena-status-a"></span>
+              </div>
+              <div class="arena-results" id="arena-results-a"><div class="arena-empty">Run a query to see results</div></div>
+            </div>
+            <div class="arena-vs">vs</div>
+            <div class="arena-col">
+              <div class="arena-col-label">Query B</div>
+              <textarea class="arena-editor" id="arena-editor-b" placeholder="SELECT * FROM your_table LIMIT 10" spellcheck="false">SELECT * FROM your_table LIMIT 10</textarea>
+              <div class="arena-run-row">
+                <button class="arena-run-btn" id="arena-run-b">Run B</button>
+                <span class="arena-status" id="arena-status-b"></span>
+              </div>
+              <div class="arena-results" id="arena-results-b"><div class="arena-empty">Run a query to see results</div></div>
+            </div>
+          </div>
+          <div class="arena-footer">
+            <button class="arena-run-both-btn" id="arena-run-both">Run Both</button>
+            <div class="arena-diff" id="arena-diff">Enter queries above and click Run Both to compare.</div>
           </div>
         </div>
     <div id="sql-panel">
@@ -18429,9 +18523,508 @@ var InstantInsight = (function () {
     updateControlVisibility();
   })();
 
+/* ---- #38 PWA ---- */
+  (function () {
+    'use strict';
+
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js').then(function(reg) {
+          console.log('[DataGlow] SW registered, scope:', reg.scope);
+        }).catch(function(err) {
+          console.warn('[DataGlow] SW registration failed:', err);
+        });
+      });
+    }
+
+    // Install prompt
+    var deferredPrompt = null;
+    var banner = document.getElementById('pwa-install-banner');
+    var installBtn = document.getElementById('pwa-install-btn');
+    var dismissBtn = document.getElementById('pwa-dismiss-btn');
+
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      if (banner) banner.classList.add('visible');
+    });
+
+    if (installBtn) installBtn.addEventListener('click', function() {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function(result) {
+        if (result.outcome === 'accepted') {
+          window.showToast && window.showToast('DataGlow installed successfully.', 'success');
+        }
+        deferredPrompt = null;
+        if (banner) banner.classList.remove('visible');
+      });
+    });
+
+    if (dismissBtn) dismissBtn.addEventListener('click', function() {
+      if (banner) banner.classList.remove('visible');
+    });
+
+    // If already installed (standalone), show no banner
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      if (banner) banner.style.display = 'none';
+    }
+  })();
+
+/* ---- #35 Skill Progression ---- */
+  (function () {
+    'use strict';
+
+    var SKILL_DEFS = [
+      { id:'data_loading',    label:'Data Loading',    tiers:[{key:'load_file',   thresh:1,  label:'Novice'},{key:'load_3_files',  thresh:3,  label:'Practitioner'},{key:'load_10_files', thresh:10, label:'Expert'}] },
+      { id:'validation',      label:'Validation',      tiers:[{key:'run_validation',thresh:1, label:'Novice'},{key:'fix_finding',   thresh:3,  label:'Practitioner'},{key:'perfect_score', thresh:1,  label:'Expert'}] },
+      { id:'sql',             label:'SQL',             tiers:[{key:'run_sql',     thresh:1,  label:'Novice'},{key:'run_10_sql',    thresh:10, label:'Practitioner'},{key:'write_join',    thresh:1,  label:'Expert'}] },
+      { id:'charts',          label:'Charts',          tiers:[{key:'view_chart',  thresh:1,  label:'Novice'},{key:'customize_chart',thresh:3, label:'Practitioner'},{key:'multi_chart',   thresh:5,  label:'Expert'}] },
+      { id:'python',          label:'Python',          tiers:[{key:'run_python',  thresh:1,  label:'Novice'},{key:'run_10_python', thresh:10, label:'Practitioner'},{key:'save_python',   thresh:1,  label:'Expert'}] },
+      { id:'stats',           label:'Stats',           tiers:[{key:'run_correlation',thresh:1,label:'Novice'},{key:'run_regression',thresh:1, label:'Practitioner'},{key:'run_hypothesis',thresh:1, label:'Expert'}] },
+      { id:'dashboard',       label:'Dashboard',       tiers:[{key:'build_dashboard',thresh:1,label:'Novice'},{key:'translate_findings',thresh:1,label:'Practitioner'},{key:'export_csv', thresh:1,  label:'Expert'}] },
+      { id:'r_language',      label:'R Language',      tiers:[{key:'run_r',       thresh:1,  label:'Novice'},{key:'run_10_r',     thresh:10, label:'Practitioner'},{key:'use_domain_r',  thresh:1,  label:'Expert'}] },
+      { id:'window_fns',      label:'Window Functions',tiers:[{key:'open_dojo',   thresh:1,  label:'Novice'},{key:'run_window_fn', thresh:3, label:'Practitioner'},{key:'all_8_fns',     thresh:8,  label:'Expert'}] },
+      { id:'excel_mode',      label:'Excel Mode',      tiers:[{key:'use_excel',   thresh:1,  label:'Novice'},{key:'use_formula',  thresh:1,  label:'Practitioner'},{key:'use_10_formulas',thresh:10,label:'Expert'}] },
+      { id:'data_quality',    label:'Data Quality',    tiers:[{key:'score_80',    thresh:1,  label:'Novice'},{key:'score_90',     thresh:1,  label:'Practitioner'},{key:'score_100',     thresh:1,  label:'Expert'}] },
+      { id:'explorer',        label:'Explorer',        tiers:[{key:'datasets_3',  thresh:3,  label:'Novice'},{key:'datasets_10',  thresh:10, label:'Practitioner'},{key:'use_5_features', thresh:5, label:'Expert'}] }
+    ];
+
+    var progress = { actions: {}, unlocked: [] };
+
+    function save() {
+      try {
+        if (window.OPFSEngine && window.OPFSEngine._supported) {
+          window.OPFSEngine.saveDataset('__skills__', [JSON.stringify(progress)], [{name:'data',type:'STR'}]).catch(function(){});
+        }
+      } catch(e) {}
+    }
+
+    function load() {
+      try {
+        if (window.OPFSEngine && window.OPFSEngine._supported) {
+          window.OPFSEngine.loadDataset('__skills__').then(function(ds) {
+            if (ds && ds.rows && ds.rows[0] && ds.rows[0][0]) {
+              try { var p = JSON.parse(ds.rows[0][0]); progress.actions = p.actions||{}; progress.unlocked = p.unlocked||[]; } catch(e){}
+              renderSkills();
+            }
+          }).catch(function(){});
+        }
+      } catch(e) {}
+    }
+
+    function trackAction(key, count) {
+      count = count || 1;
+      progress.actions[key] = (progress.actions[key] || 0) + count;
+      checkUnlocks();
+      save();
+      renderSkills();
+    }
+
+    function checkUnlocks() {
+      SKILL_DEFS.forEach(function(skill) {
+        skill.tiers.forEach(function(tier, ti) {
+          var unlockKey = skill.id + '_t' + (ti + 1);
+          if (progress.unlocked.indexOf(unlockKey) >= 0) return;
+          var count = progress.actions[tier.key] || 0;
+          if (count >= tier.thresh) {
+            progress.unlocked.push(unlockKey);
+            var msg = tier.label === 'Expert'
+              ? 'Expert unlocked: ' + skill.label + '! You mastered it.'
+              : skill.label + ' ' + tier.label + ' unlocked!';
+            window.showToast && window.showToast(msg, tier.label === 'Expert' ? 'success' : 'info');
+          }
+        });
+      });
+    }
+
+    function getCurrentTier(skill) {
+      var tier = -1;
+      skill.tiers.forEach(function(t, i) {
+        if ((progress.actions[t.key] || 0) >= t.thresh) tier = i;
+      });
+      return tier; // -1 = not started, 0 = novice, 1 = practitioner, 2 = expert
+    }
+
+    function getNextTierProgress(skill) {
+      var cur = getCurrentTier(skill);
+      if (cur >= 2) return { pct: 100, label: 'Expert', sub: 'Fully mastered' };
+      var nextIdx = cur + 1;
+      var next = skill.tiers[nextIdx];
+      var have = progress.actions[next.key] || 0;
+      var need = next.thresh;
+      var pct = Math.min(100, Math.round(have / need * 100));
+      return { pct: pct, label: cur < 0 ? 'Not started' : skill.tiers[cur].label, next: next.label, sub: have + '/' + need + ' to ' + next.label };
+    }
+
+    function renderSkills() {
+      var list = document.getElementById('skills-list');
+      if (!list) return;
+      list.innerHTML = SKILL_DEFS.map(function(skill) {
+        var p = getNextTierProgress(skill);
+        var curTier = getCurrentTier(skill);
+        var tierLabel = curTier < 0 ? 'Not started' : skill.tiers[curTier].label;
+        var tierColor = curTier < 0 ? 'var(--text-muted)' : curTier === 2 ? '#6DAA45' : 'var(--primary)';
+        return '<div class="skill-row">' +
+          '<div class="skill-row-header">' +
+          '<span class="skill-name">' + skill.label + '</span>' +
+          '<span class="skill-tier" style="color:' + tierColor + ';">' + tierLabel + '</span>' +
+          '</div>' +
+          '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + p.pct + '%;"></div></div>' +
+          '<div class="skill-sub">' + (curTier >= 2 ? 'Fully mastered' : p.sub) + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    // Panel open/close
+    var panel = document.getElementById('skills-panel');
+    var triggerBtn = document.getElementById('skills-trigger-btn');
+    var closeBtn = document.getElementById('skills-close-btn');
+
+    if (triggerBtn) triggerBtn.addEventListener('click', function() {
+      if (panel) { panel.classList.toggle('open'); renderSkills(); }
+    });
+    if (closeBtn) closeBtn.addEventListener('click', function() {
+      if (panel) panel.classList.remove('open');
+    });
+
+    // Dataset loaded
+    document.addEventListener('dataglow:dataset-loaded', function(e) {
+      trackAction('load_file');
+      var ds = e.detail && (e.detail.dataset || e.detail);
+      var loadCount = progress.actions['load_file'] || 0;
+      if (loadCount >= 3) trackAction('load_3_files');
+      if (loadCount >= 10) trackAction('load_10_files');
+      if (ds && ds.score) {
+        if (ds.score >= 80) trackAction('score_80');
+        if (ds.score >= 90) trackAction('score_90');
+        if (ds.score >= 100) trackAction('score_100');
+      }
+      var dsCount = window.state && window.state.datasets ? window.state.datasets.length : 0;
+      if (dsCount >= 3) trackAction('datasets_3');
+      if (dsCount >= 10) trackAction('datasets_10');
+    });
+
+    // Validation run + findings fixed
+    document.addEventListener('dataglow:validation-run', function() {
+      trackAction('run_validation');
+    });
+    document.addEventListener('dataglow:finding-fixed', function() {
+      trackAction('fix_finding');
+    });
+
+    // SQL run
+    document.addEventListener('dataglow:sql-run', function(e) {
+      trackAction('run_sql');
+      if ((progress.actions['run_sql'] || 0) >= 10) trackAction('run_10_sql');
+      var sql = e.detail && e.detail.sql || '';
+      if (sql.toUpperCase().indexOf('JOIN') >= 0) trackAction('write_join');
+    });
+
+    // Fallback: watch the SQL run button click
+    var sqlRunBtn = document.getElementById('sql-view-run');
+    if (sqlRunBtn) sqlRunBtn.addEventListener('click', function() {
+      var input = document.getElementById('sql-view-input');
+      var sql = input ? input.value : '';
+      trackAction('run_sql');
+      if ((progress.actions['run_sql'] || 0) >= 10) trackAction('run_10_sql');
+      if (sql.toUpperCase().indexOf('JOIN') >= 0) trackAction('write_join');
+    });
+
+    // Python run
+    var pyRunBtn = document.getElementById('py-view-run');
+    if (pyRunBtn) pyRunBtn.addEventListener('click', function() {
+      trackAction('run_python');
+      if ((progress.actions['run_python'] || 0) >= 10) trackAction('run_10_python');
+    });
+
+    // Python save script
+    var pySaveBtn = document.getElementById('py-save-btn');
+    if (pySaveBtn) pySaveBtn.addEventListener('click', function() {
+      trackAction('save_python');
+    });
+
+    // R run
+    var rRunBtn = document.getElementById('r-run-btn');
+    if (rRunBtn) rRunBtn.addEventListener('click', function() {
+      trackAction('run_r');
+      if ((progress.actions['run_r'] || 0) >= 10) trackAction('run_10_r');
+    });
+
+    // Charts tab view + customize/multi tracking
+    var chartsPill = document.querySelector('[data-panel="charts-view"]');
+    if (chartsPill) chartsPill.addEventListener('click', function() { trackAction('view_chart'); });
+
+    document.addEventListener('dataglow:chart-customized', function() {
+      trackAction('customize_chart');
+    });
+    document.addEventListener('dataglow:chart-added', function() {
+      trackAction('multi_chart');
+    });
+
+    // Dashboard build
+    var dashBuildBtn = document.querySelector('.dash-btn-primary');
+    if (dashBuildBtn) dashBuildBtn.addEventListener('click', function() { trackAction('build_dashboard'); });
+
+    // Export CSV
+    var exportCsvBtn = document.getElementById('export-csv-btn');
+    if (exportCsvBtn) exportCsvBtn.addEventListener('click', function() { trackAction('export_csv'); });
+    var dashCsvBtn = document.getElementById('dash-csv-btn');
+    if (dashCsvBtn) dashCsvBtn.addEventListener('click', function() { trackAction('export_csv'); });
+
+    // Stats correlation / regression / hypothesis
+    var corrBtn = document.querySelector('[data-stats="corr"]');
+    if (corrBtn) corrBtn.addEventListener('click', function() { trackAction('run_correlation'); });
+    var regRunBtn = document.getElementById('stats-reg-run');
+    if (regRunBtn) regRunBtn.addEventListener('click', function() { trackAction('run_regression'); });
+    var hypRunBtn = document.getElementById('stats-hyp-run');
+    if (hypRunBtn) hypRunBtn.addEventListener('click', function() { trackAction('run_hypothesis'); });
+
+    // Dojo open + window function run + distinct fn coverage
+    var dojoBtn = document.getElementById('dojo-btn');
+    if (dojoBtn) dojoBtn.addEventListener('click', function() {
+      trackAction('open_dojo');
+    });
+
+    var dojoFnsSeen = {};
+    var dojoFnCount = 0;
+    document.querySelectorAll('#dojo-fn-grid .dojo-fn-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var fn = card.getAttribute('data-fn');
+        if (fn && !dojoFnsSeen[fn]) {
+          dojoFnsSeen[fn] = true;
+          dojoFnCount++;
+          if (dojoFnCount >= 8) trackAction('all_8_fns', 8);
+        }
+      });
+    });
+
+    var dojoRunBtn = document.getElementById('dojo-run-btn');
+    if (dojoRunBtn) dojoRunBtn.addEventListener('click', function() {
+      trackAction('run_window_fn');
+    });
+
+    // Excel pill + formula usage
+    var excelPill = document.querySelector('[data-panel="excel-view"]');
+    if (excelPill) excelPill.addEventListener('click', function() { trackAction('use_excel'); });
+
+    document.addEventListener('dataglow:formula-used', function() {
+      trackAction('use_formula');
+      if ((progress.actions['use_formula'] || 0) >= 10) trackAction('use_10_formulas');
+    });
+
+    var formulaBar = document.getElementById('formula-bar');
+    if (formulaBar) {
+      formulaBar.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          var val = formulaBar.value || (formulaBar.querySelector ? '' : '');
+          var text = formulaBar.value !== undefined ? formulaBar.value : '';
+          if (text && text.charAt(0) === '=') {
+            trackAction('use_formula');
+            if ((progress.actions['use_formula'] || 0) >= 10) trackAction('use_10_formulas');
+          }
+        }
+      });
+    }
+
+    // Business translate btn
+    var bizBtn = document.querySelector('.biz-translate-btn');
+    if (bizBtn) bizBtn.addEventListener('click', function() { trackAction('translate_findings'); });
+
+    // Explorer: feature diversity tracking
+    var featuresSeen = {};
+    var featuresSeenCount = 0;
+    ['charts-view','sql-view','python-view','r-view','excel-view','stats-view','dashboard-view'].forEach(function(panelName) {
+      var pill = document.querySelector('[data-panel="' + panelName + '"]');
+      if (pill) pill.addEventListener('click', function() {
+        if (!featuresSeen[panelName]) {
+          featuresSeen[panelName] = true;
+          featuresSeenCount++;
+          if (featuresSeenCount >= 5) trackAction('use_5_features');
+        }
+      });
+    });
+
+    // Load saved progress on startup
+    setTimeout(load, 500);
+
+    // Expose for external hooks
+    window.SkillTracker = { track: trackAction, progress: progress };
+  })();
+
+/* ---- #41 Arena ---- */
+  (function () {
+    'use strict';
+
+    var resultsA = null; // {cols, rows}
+    var resultsB = null;
+
+    function getTableName() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) return 'your_table';
+      if (window.SQLEngine && window.SQLEngine.safeTableName) return window.SQLEngine.safeTableName(ds.name);
+      return (ds.name || 'data').replace(/[^a-zA-Z0-9_]/g,'_');
+    }
+
+    function renderTable(data, container, statusEl) {
+      if (!data || !data.cols || !data.rows) {
+        container.innerHTML = '<div class="arena-empty">No results</div>';
+        return;
+      }
+      var rowCount = data.rows.length;
+      if (statusEl) statusEl.textContent = rowCount + ' row' + (rowCount !== 1 ? 's' : '');
+      var thead = '<tr>' + data.cols.map(function(c){ return '<th>' + c + '</th>'; }).join('') + '</tr>';
+      var tbody = data.rows.slice(0,200).map(function(r){
+        return '<tr>' + data.cols.map(function(c,i){ return '<td>' + (r[i] === null || r[i] === undefined ? '' : String(r[i]).substring(0,60)) + '</td>'; }).join('') + '</tr>';
+      }).join('');
+      container.innerHTML = '<table class="arena-result-table"><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>';
+    }
+
+    function buildDiff() {
+      var diffEl = document.getElementById('arena-diff');
+      if (!diffEl) return;
+      if (!resultsA || !resultsB) { diffEl.textContent = 'Run both queries to see a comparison.'; return; }
+      var parts = [];
+
+      // Row count
+      var ra = resultsA.rows.length, rb = resultsB.rows.length;
+      if (ra === rb) parts.push('<strong>' + ra + ' rows</strong> in both');
+      else parts.push('<strong>A: ' + ra + ' rows</strong>, <strong>B: ' + rb + ' rows</strong> (' + (ra > rb ? 'A has ' + (ra-rb) + ' more' : 'B has ' + (rb-ra) + ' more') + ')');
+
+      // Columns
+      var ca = resultsA.cols, cb = resultsB.cols;
+      if (ca.join(',') === cb.join(',')) {
+        parts.push('same ' + ca.length + ' columns');
+      } else {
+        var onlyA = ca.filter(function(c){ return cb.indexOf(c) < 0; });
+        var onlyB = cb.filter(function(c){ return ca.indexOf(c) < 0; });
+        if (onlyA.length) parts.push('A only: ' + onlyA.join(', '));
+        if (onlyB.length) parts.push('B only: ' + onlyB.join(', '));
+      }
+
+      // First shared column value overlap
+      var shared = ca.filter(function(c){ return cb.indexOf(c) >= 0; });
+      if (shared.length && ra > 0 && rb > 0) {
+        var col = shared[0];
+        var aVals = resultsA.rows.slice(0,20).map(function(r){ return String(r[ca.indexOf(col)]); });
+        var bVals = resultsB.rows.slice(0,20).map(function(r){ return String(r[cb.indexOf(col)]); });
+        var aSet = {}; aVals.forEach(function(v){ aSet[v]=1; });
+        var bSet = {}; bVals.forEach(function(v){ bSet[v]=1; });
+        var overlap = aVals.filter(function(v){ return bSet[v]; }).length;
+        var pct = Math.round(overlap / Math.max(aVals.length, bVals.length) * 100);
+        parts.push(col + ': ' + pct + '% value overlap (first 20 rows)');
+      }
+
+      diffEl.innerHTML = parts.join(' \u00b7 ');
+    }
+
+    function runQuery(sql, resultsEl, statusEl, label, callback) {
+      if (!sql.trim()) { resultsEl.innerHTML = '<div class="arena-empty">Enter a query above</div>'; return; }
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) { resultsEl.innerHTML = '<div class="arena-empty">Load a dataset first</div>'; return; }
+      if (statusEl) statusEl.textContent = 'Running...';
+
+      // Replace placeholder table name
+      var tbl = getTableName();
+      var resolvedSql = sql.replace(/your_table/g, tbl);
+
+      if (window.SQLEngine && window.SQLEngine.query) {
+        window.SQLEngine.query(resolvedSql, ds).then(function(result) {
+          var data = { cols: result.cols || result.columns || [], rows: result.rows || [] };
+          renderTable(data, resultsEl, statusEl);
+          callback(data);
+          buildDiff();
+        }).catch(function(err) {
+          resultsEl.innerHTML = '<div class="arena-empty" style="color:var(--error);">Error: ' + String(err).substring(0,120) + '</div>';
+          if (statusEl) statusEl.textContent = 'Error';
+          callback(null);
+        });
+      } else {
+        // Fallback: show all rows
+        var cols = ds.columns.map(function(c){ return c.name; });
+        var data = { cols: cols, rows: ds.rows.slice(0, 100) };
+        renderTable(data, resultsEl, statusEl);
+        callback(data);
+        buildDiff();
+      }
+    }
+
+    function wireUp() {
+      var editorA = document.getElementById('arena-editor-a');
+      var editorB = document.getElementById('arena-editor-b');
+      var resultsElA = document.getElementById('arena-results-a');
+      var resultsElB = document.getElementById('arena-results-b');
+      var statusA = document.getElementById('arena-status-a');
+      var statusB = document.getElementById('arena-status-b');
+      var runABtn = document.getElementById('arena-run-a');
+      var runBBtn = document.getElementById('arena-run-b');
+      var runBothBtn = document.getElementById('arena-run-both');
+
+      if (!editorA || !editorB) return;
+
+      // Auto-fill table name when dataset loads
+      document.addEventListener('dataglow:dataset-loaded', function() {
+        var tbl = getTableName();
+        editorA.value = 'SELECT * FROM ' + tbl + ' LIMIT 10';
+        editorB.value = 'SELECT * FROM ' + tbl + ' LIMIT 10';
+      });
+
+      if (runABtn) runABtn.addEventListener('click', function() {
+        runQuery(editorA.value, resultsElA, statusA, 'A', function(d) { resultsA = d; });
+      });
+      if (runBBtn) runBBtn.addEventListener('click', function() {
+        runQuery(editorB.value, resultsElB, statusB, 'B', function(d) { resultsB = d; });
+      });
+      if (runBothBtn) runBothBtn.addEventListener('click', function() {
+        runQuery(editorA.value, resultsElA, statusA, 'A', function(d) { resultsA = d; buildDiff(); });
+        runQuery(editorB.value, resultsElB, statusB, 'B', function(d) { resultsB = d; buildDiff(); });
+      });
+
+      // Ctrl+Enter to run in focused editor
+      [editorA, editorB].forEach(function(ed, idx) {
+        ed.addEventListener('keydown', function(e) {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (idx === 0) runABtn && runABtn.click();
+            else runBBtn && runBBtn.click();
+          }
+        });
+      });
+    }
+
+    // Wire up immediately and on Arena pill click
+    wireUp();
+    var arenaPill = document.querySelector('[data-panel="arena-view"]');
+    if (arenaPill) arenaPill.addEventListener('click', function() {
+      var tbl = getTableName();
+      var ea = document.getElementById('arena-editor-a');
+      var eb = document.getElementById('arena-editor-b');
+      if (ea && ea.value.indexOf('your_table') >= 0) ea.value = 'SELECT * FROM ' + tbl + ' LIMIT 10';
+      if (eb && eb.value.indexOf('your_table') >= 0) eb.value = 'SELECT * FROM ' + tbl + ' LIMIT 10';
+    });
+  })();
+
 
 
 })();
 </script>
+<div id="pwa-install-banner">
+  <div class="pwa-banner-text">
+    <div class="pwa-banner-title">Install DataGlow</div>
+    <div class="pwa-banner-sub">Add to home screen for offline access</div>
+  </div>
+  <button class="pwa-install-btn" id="pwa-install-btn">Install</button>
+  <button class="pwa-dismiss-btn" id="pwa-dismiss-btn" title="Dismiss">x</button>
+</div>
+<!-- #35 Skills Panel -->
+<div id="skills-panel">
+  <div class="skills-header">
+    <span class="skills-header-title">Your Skills</span>
+    <button class="skills-close-btn" id="skills-close-btn">x</button>
+  </div>
+  <div class="skills-list" id="skills-list"></div>
+</div>
+
 </body>
 </html>
