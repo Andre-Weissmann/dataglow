@@ -3300,6 +3300,78 @@
 }
 #sql-qb-toggle-btn:hover { color: var(--text); border-color: var(--text-muted); }
 
+/* ---- #40 Stats Module ---- */
+#stats-view { display:none; flex-direction:column; gap:16px; padding:16px; overflow-y:auto; height:100%; }
+#stats-view.active { display:flex; }
+.stats-seg { display:flex; gap:4px; background:var(--surface-alt); border-radius:8px; padding:3px; width:fit-content; margin-bottom:4px; }
+.stats-seg-btn { border:none; background:transparent; color:var(--text-muted); padding:5px 14px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+.stats-seg-btn.active { background:var(--surface); color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,0.15); }
+.stats-panel { display:none; flex-direction:column; gap:12px; }
+.stats-panel.active { display:flex; }
+.stats-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+.stats-card-title { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px; }
+.stats-result { font-size:14px; font-weight:600; color:var(--text); margin-bottom:4px; }
+.stats-sub { font-size:12px; color:var(--text-muted); line-height:1.5; }
+.stats-verdict { display:inline-block; margin-top:8px; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+.stats-verdict.sig { background:#0d2e0d; color:#4ade80; }
+.stats-verdict.ns { background:var(--surface-alt); color:var(--text-muted); }
+.corr-table { border-collapse:collapse; font-size:11px; width:100%; }
+.corr-table th { padding:4px 8px; color:var(--text-muted); font-weight:600; font-size:10px; text-align:center; }
+.corr-table td { padding:5px 8px; text-align:center; border-radius:4px; cursor:pointer; font-weight:600; font-size:11px; transition:opacity 0.15s; }
+.corr-table td:hover { opacity:0.7; }
+.stats-select { background:var(--surface-alt); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:5px 8px; font-size:12px; font-family:inherit; cursor:pointer; }
+.stats-input { background:var(--surface-alt); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:5px 8px; font-size:12px; font-family:inherit; width:120px; }
+.stats-run-btn { background:var(--primary); color:#fff; border:none; border-radius:6px; padding:7px 18px; font-size:12px; font-weight:600; cursor:pointer; }
+.stats-run-btn:hover { opacity:0.85; }
+.stats-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.stats-empty { text-align:center; padding:40px 20px; color:var(--text-muted); font-size:13px; }
+.reg-svg { width:100%; height:160px; }
+
+/* ---- #47 AI-Director ---- */
+.ai-director-banner { background:linear-gradient(135deg,var(--surface) 0%,var(--surface-alt) 100%); border:1px solid var(--border); border-left:3px solid var(--primary); border-radius:10px; padding:12px 16px; margin-bottom:12px; }
+.ai-director-label { font-size:9px; font-weight:800; letter-spacing:0.12em; color:var(--primary); text-transform:uppercase; margin-bottom:4px; }
+.ai-director-pick { font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px; }
+.ai-director-reason { font-size:12px; color:var(--text-muted); margin-bottom:10px; line-height:1.5; }
+.ai-director-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ai-director-type-btn { border:1px solid var(--border); background:var(--surface-alt); color:var(--text-muted); padding:4px 12px; border-radius:20px; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+.ai-director-type-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.ai-director-why-btn { margin-left:auto; border:none; background:none; color:var(--primary); font-size:11px; font-weight:700; cursor:pointer; padding:4px 8px; }
+.ai-director-expand { display:none; margin-top:10px; padding-top:10px; border-top:1px solid var(--border); font-size:12px; color:var(--text-muted); line-height:1.6; }
+.ai-director-expand.open { display:block; }
+.ai-director-stat { display:inline-block; background:var(--surface-alt); border:1px solid var(--border); border-radius:4px; padding:2px 7px; font-size:10px; font-weight:600; color:var(--text-muted); margin-right:4px; margin-top:4px; }
+
+/* ---- #44 Business Translation ---- */
+.biz-translate-btn { display:inline-flex; align-items:center; gap:6px; margin-top:10px; padding:6px 14px; background:var(--surface-alt); border:1px solid var(--border); border-radius:20px; font-size:11px; font-weight:700; color:var(--primary); cursor:pointer; transition:all 0.15s; }
+.biz-translate-btn:hover { background:var(--primary); color:#fff; border-color:var(--primary); }
+.biz-translate-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.biz-finding { padding:7px 10px; border-radius:6px; font-size:12px; line-height:1.5; margin-bottom:5px; }
+.biz-finding.high { background:rgba(161,44,123,0.08); border-left:3px solid #A12C7B; }
+.biz-finding.medium { background:rgba(150,66,25,0.08); border-left:3px solid #964219; }
+.biz-finding.low { background:rgba(67,122,34,0.08); border-left:3px solid #437A22; }
+.biz-finding-tag { font-size:9px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:2px; }
+.biz-back-link { font-size:10px; color:var(--text-muted); cursor:pointer; text-decoration:underline; margin-top:6px; display:inline-block; }
+.biz-findings-wrap { padding:0 2px; }
+
+/* ---- #43 Window Dojo ---- */
+.dojo-toggle-bar { display:flex; gap:4px; margin-bottom:10px; }
+.dojo-tab-btn { padding:5px 14px; border-radius:6px; border:1px solid var(--border); background:var(--surface-alt); color:var(--text-muted); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s; }
+.dojo-tab-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+#dojo-panel { display:none; flex-direction:column; gap:14px; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+#dojo-panel.open { display:flex; }
+.dojo-section-label { font-size:9px; font-weight:800; letter-spacing:0.1em; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; }
+.dojo-fn-grid { display:flex; flex-wrap:wrap; gap:6px; }
+.dojo-fn-card { padding:6px 13px; border-radius:20px; border:1px solid var(--border); background:var(--surface-alt); color:var(--text-muted); font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; user-select:none; }
+.dojo-fn-card:hover { border-color:var(--primary); color:var(--primary); }
+.dojo-fn-card.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.dojo-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; }
+.dojo-control-group { display:flex; flex-direction:column; gap:4px; }
+.dojo-control-label { font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; }
+.dojo-select { background:var(--surface-alt); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:5px 8px; font-size:12px; font-family:inherit; cursor:pointer; min-width:140px; }
+.dojo-preview { background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:12px 14px; font-family:monospace; font-size:12px; color:var(--text); white-space:pre; overflow-x:auto; line-height:1.6; }
+.dojo-run-btn { align-self:flex-start; background:var(--primary); color:#fff; border:none; border-radius:6px; padding:8px 20px; font-size:12px; font-weight:700; cursor:pointer; }
+.dojo-run-btn:hover { opacity:0.85; }
+.dojo-fn-desc { font-size:12px; color:var(--text-muted); line-height:1.5; font-style:italic; }
+
 </style>
 </head>
 <body>
@@ -3525,6 +3597,7 @@
           <button class="analyze-pill" data-panel="python-view">Python</button>
           <button class="analyze-pill" data-panel="r-view">R</button>
           <button class="analyze-pill" data-panel="excel-view">Excel</button>
+          <button class="analyze-pill" data-panel="stats-view">Stats</button>
         </div>
         <!-- Panels -->
         <div id="charts-view" class="analyze-panel active">
@@ -3534,6 +3607,45 @@
         <div id="dashboard-view-inner"></div>
       </div>
         <div id="sql-view" class="analyze-panel hidden">
+        <div class="dojo-toggle-bar">
+          <button class="dojo-tab-btn active" id="dojo-editor-btn">Editor</button>
+          <button class="dojo-tab-btn" id="dojo-btn">Dojo &#10022;</button>
+        </div>
+        <div id="dojo-panel">
+          <div>
+            <div class="dojo-section-label">Pick a window function</div>
+            <div class="dojo-fn-grid" id="dojo-fn-grid">
+              <div class="dojo-fn-card active" data-fn="rank">Rank</div>
+              <div class="dojo-fn-card" data-fn="rownum">Row Number</div>
+              <div class="dojo-fn-card" data-fn="runsum">Running Total</div>
+              <div class="dojo-fn-card" data-fn="movavg">Moving Avg</div>
+              <div class="dojo-fn-card" data-fn="lag">Lag</div>
+              <div class="dojo-fn-card" data-fn="lead">Lead</div>
+              <div class="dojo-fn-card" data-fn="pct">% of Total</div>
+              <div class="dojo-fn-card" data-fn="drank">Dense Rank</div>
+            </div>
+            <div class="dojo-fn-desc" id="dojo-fn-desc" style="margin-top:8px;">Rank each row within a partition, giving the same rank to ties.</div>
+          </div>
+          <div class="dojo-controls" id="dojo-controls">
+            <div class="dojo-control-group" id="dojo-cg-partition">
+              <div class="dojo-control-label">Partition by (optional)</div>
+              <select class="dojo-select" id="dojo-partition"><option value="">(none)</option></select>
+            </div>
+            <div class="dojo-control-group" id="dojo-cg-order">
+              <div class="dojo-control-label">Order by</div>
+              <select class="dojo-select" id="dojo-orderby"><option value="">(select)</option></select>
+            </div>
+            <div class="dojo-control-group" id="dojo-cg-value">
+              <div class="dojo-control-label">Value column (numeric)</div>
+              <select class="dojo-select" id="dojo-valuecol"><option value="">(select)</option></select>
+            </div>
+          </div>
+          <div>
+            <div class="dojo-section-label">Generated SQL</div>
+            <div class="dojo-preview" id="dojo-preview">-- Select a function and columns above</div>
+          </div>
+          <button class="dojo-run-btn" id="dojo-run-btn">Run in SQL Editor</button>
+        </div>
         <div id="sql-view-inner">
           <div id="sql-view-header">
             <span id="sql-view-title">SQL Editor</span>
@@ -3940,6 +4052,67 @@
             </div>
             <div id="excel-view-msg" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">
               The Excel-style grid is in the <strong>Data</strong> tab. Click <strong>Open full Data view</strong> above, or switch to the Data tab in the nav bar. Your dataset, formula bar, and all edits are there.
+            </div>
+          </div>
+        </div>
+        <!-- #40 Stats panel in Analyze view -->
+        <div id="stats-view" class="analyze-panel hidden">
+          <div class="stats-seg" id="stats-seg">
+            <button class="stats-seg-btn active" data-stats="corr">Correlation</button>
+            <button class="stats-seg-btn" data-stats="reg">Regression</button>
+            <button class="stats-seg-btn" data-stats="hyp">Hypothesis</button>
+          </div>
+
+          <!-- Correlation -->
+          <div class="stats-panel active" id="stats-corr-panel">
+            <div class="stats-card">
+              <div class="stats-card-title">Pearson Correlation Matrix</div>
+              <div id="stats-corr-output"><div class="stats-empty">Load a dataset with numeric columns to see correlations.</div></div>
+            </div>
+          </div>
+
+          <!-- Regression -->
+          <div class="stats-panel" id="stats-reg-panel">
+            <div class="stats-card">
+              <div class="stats-card-title">Linear Regression</div>
+              <div class="stats-row">
+                <span style="font-size:12px;color:var(--text-muted);">X (predictor)</span>
+                <select id="stats-reg-x" class="stats-select"><option value="">-- select --</option></select>
+                <span style="font-size:12px;color:var(--text-muted);">Y (outcome)</span>
+                <select id="stats-reg-y" class="stats-select"><option value="">-- select --</option></select>
+                <button class="stats-run-btn" id="stats-reg-run">Run</button>
+              </div>
+              <div id="stats-reg-output" style="margin-top:12px;"></div>
+            </div>
+          </div>
+
+          <!-- Hypothesis -->
+          <div class="stats-panel" id="stats-hyp-panel">
+            <div class="stats-card">
+              <div class="stats-card-title">Hypothesis Testing</div>
+              <div class="stats-row" style="margin-bottom:10px;">
+                <button class="stats-seg-btn active" id="hyp-t-btn" style="border:1px solid var(--border);border-radius:6px;padding:4px 12px;">T-test</button>
+                <button class="stats-seg-btn" id="hyp-chi-btn" style="border:1px solid var(--border);border-radius:6px;padding:4px 12px;">Chi-square</button>
+              </div>
+              <div id="hyp-t-controls">
+                <div class="stats-row">
+                  <span style="font-size:12px;color:var(--text-muted);">Column</span>
+                  <select id="stats-hyp-col" class="stats-select"><option value="">-- select --</option></select>
+                  <span style="font-size:12px;color:var(--text-muted);">Hypothesized mean</span>
+                  <input type="number" id="stats-hyp-mean" class="stats-input" value="0" step="any" />
+                  <button class="stats-run-btn" id="stats-hyp-run">Run T-test</button>
+                </div>
+              </div>
+              <div id="hyp-chi-controls" style="display:none;">
+                <div class="stats-row">
+                  <span style="font-size:12px;color:var(--text-muted);">Column A</span>
+                  <select id="stats-chi-a" class="stats-select"><option value="">-- select --</option></select>
+                  <span style="font-size:12px;color:var(--text-muted);">Column B</span>
+                  <select id="stats-chi-b" class="stats-select"><option value="">-- select --</option></select>
+                  <button class="stats-run-btn" id="stats-chi-run">Run Chi-square</button>
+                </div>
+              </div>
+              <div id="stats-hyp-output" style="margin-top:12px;"></div>
             </div>
           </div>
         </div>
@@ -14497,7 +14670,7 @@ var InstantInsight = (function () {
     SAMPLES.forEach(function(s) {
       var btn = document.createElement('div');
       btn.style.cssText = 'padding:12px;margin-bottom:8px;background:var(--surface-alt,#201F1D);border:1px solid var(--border,#393836);border-radius:8px;cursor:pointer;transition:border-color 0.15s;';
-      btn.innerHTML = '<div style="font-weight:600;font-size:13px;margin-bottom:3px;">' + s.label + '</div><div style="font-size:12px;color:var(--text-muted,#797876);">' + s.desc + '</div>';
+      btn.innerHTML = '<div style="font-weight:600;font-size:13px;margin-bottom:3px;color:var(--text,#CDCCCA);">' + s.label + '</div><div style="font-size:12px;color:var(--text-muted,#797876);">' + s.desc + '</div>';
       btn.addEventListener('mouseenter', function(){ btn.style.borderColor='var(--primary,#4F98A3)'; });
       btn.addEventListener('mouseleave', function(){ btn.style.borderColor='var(--border,#393836)'; });
       btn.addEventListener('click', function() { overlay.remove(); s.load(); });
@@ -17416,6 +17589,844 @@ var InstantInsight = (function () {
         window.handleIncomingDataset(detail.name, detail.columns, detail.rows);
       }
     });
+  })();
+
+/* ---- #40 Stats Module ---- */
+  (function () {
+    'use strict';
+
+    // ── Pure-JS stats helpers ───────────────────────────────────────────
+    function mean(arr) { return arr.reduce(function(a,b){return a+b;},0)/arr.length; }
+    function variance(arr) { var m=mean(arr); return arr.reduce(function(a,b){return a+(b-m)*(b-m);},0)/(arr.length-1); }
+    function stddev(arr) { return Math.sqrt(variance(arr)); }
+
+    function pearson(xs, ys) {
+      if (xs.length !== ys.length || xs.length < 3) return null;
+      var mx=mean(xs), my=mean(ys);
+      var num=0, dx=0, dy=0;
+      for (var i=0;i<xs.length;i++) { num+=(xs[i]-mx)*(ys[i]-my); dx+=(xs[i]-mx)*(xs[i]-mx); dy+=(ys[i]-my)*(ys[i]-my); }
+      var denom=Math.sqrt(dx*dy);
+      return denom===0?0:num/denom;
+    }
+
+    function linReg(xs, ys) {
+      var n=xs.length, mx=mean(xs), my=mean(ys);
+      var sxy=0, sxx=0;
+      for (var i=0;i<n;i++) { sxy+=(xs[i]-mx)*(ys[i]-my); sxx+=(xs[i]-mx)*(xs[i]-mx); }
+      var slope=sxy/sxx, intercept=my-slope*mx;
+      var yhat=xs.map(function(x){return slope*x+intercept;});
+      var ssTot=ys.reduce(function(a,b,i){return a+(b-my)*(b-my);},0);
+      var ssRes=ys.reduce(function(a,b,i){return a+(b-yhat[i])*(b-yhat[i]);},0);
+      var r2=1-ssRes/ssTot;
+      var se=Math.sqrt(ssRes/(n-2)/sxx);
+      var tStat=slope/se;
+      var df=n-2;
+      // t-distribution p-value approximation (two-tailed)
+      var p=tPval(Math.abs(tStat), df);
+      return {slope:slope, intercept:intercept, r2:r2, tStat:tStat, se:se, df:df, p:p};
+    }
+
+    // t-distribution survival function approximation (Abramowitz & Stegun)
+    function tPval(t, df) {
+      var x=df/(df+t*t);
+      var betaInc=incompleteBeta(df/2, 0.5, x);
+      return Math.min(1, betaInc);
+    }
+
+    function incompleteBeta(a, b, x) {
+      // Continued fraction approximation
+      if (x<0||x>1) return 0;
+      if (x===0) return 0; if (x===1) return 1;
+      var lbeta=lgamma(a+b)-lgamma(a)-lgamma(b);
+      var front=Math.exp(lbeta+a*Math.log(x)+b*Math.log(1-x));
+      return front*betaCF(a,b,x)/a;
+    }
+
+    function betaCF(a, b, x) {
+      var maxIter=200, eps=1e-8;
+      var qab=a+b, qap=a+1, qam=a-1, c=1, d=1-qab*x/qap;
+      if (Math.abs(d)<1e-30) d=1e-30; d=1/d;
+      var h=d;
+      for (var m=1;m<=maxIter;m++) {
+        var m2=2*m;
+        var aa=m*(b-m)*x/((qam+m2)*(a+m2));
+        d=1+aa*d; if(Math.abs(d)<1e-30)d=1e-30; c=1+aa/c; if(Math.abs(c)<1e-30)c=1e-30; d=1/d; h*=d*c;
+        aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));
+        d=1+aa*d; if(Math.abs(d)<1e-30)d=1e-30; c=1+aa/c; if(Math.abs(c)<1e-30)c=1e-30; d=1/d; var del=d*c; h*=del;
+        if (Math.abs(del-1)<eps) break;
+      }
+      return h;
+    }
+
+    function lgamma(x) {
+      var cof=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];
+      var y=x, tmp=x+5.5; tmp-=(x+0.5)*Math.log(tmp);
+      var ser=1.000000000190015;
+      for (var j=0;j<6;j++){y++;ser+=cof[j]/y;}
+      return -tmp+Math.log(2.5066282746310005*ser/x);
+    }
+
+    function chiSquare(colA, colB) {
+      // Build contingency table
+      var cats={};
+      for (var i=0;i<colA.length;i++) { var a=String(colA[i]),b=String(colB[i]); if(!cats[a])cats[a]={}; cats[a][b]=(cats[a][b]||0)+1; }
+      var rowKeys=Object.keys(cats), colKeys=[];
+      rowKeys.forEach(function(r){Object.keys(cats[r]).forEach(function(c){if(colKeys.indexOf(c)<0)colKeys.push(c);});});
+      var n=colA.length, chi2=0, df=(rowKeys.length-1)*(colKeys.length-1);
+      var rowTots={}, colTots={};
+      rowKeys.forEach(function(r){rowTots[r]=colKeys.reduce(function(s,c){return s+(cats[r][c]||0);},0);});
+      colKeys.forEach(function(c){colTots[c]=rowKeys.reduce(function(s,r){return s+(cats[r]&&cats[r][c]?cats[r][c]:0);},0);});
+      rowKeys.forEach(function(r){colKeys.forEach(function(c){var o=cats[r]&&cats[r][c]?cats[r][c]:0; var e=rowTots[r]*colTots[c]/n; if(e>0)chi2+=(o-e)*(o-e)/e;});});
+      // p-value: chi2 CDF approximation
+      var p=chiPval(chi2, df);
+      return {chi2:chi2, df:df, p:p};
+    }
+
+    function chiPval(x, df) {
+      if (x<=0) return 1;
+      return 1-gammaInc(df/2, x/2);
+    }
+
+    function gammaInc(a, x) {
+      // Regularized incomplete gamma (series expansion)
+      if (x<0) return 0;
+      if (x===0) return 0;
+      var sum=1/a, term=1/a, n=0;
+      while (n<200) { n++; term*=x/(a+n); sum+=term; if(term<1e-10*sum)break; }
+      return sum*Math.exp(-x+a*Math.log(x)-lgamma(a));
+    }
+
+    function tTest(vals, mu0) {
+      var n=vals.length, m=mean(vals), sd=stddev(vals);
+      var t=(m-mu0)/(sd/Math.sqrt(n));
+      var p=tPval(Math.abs(t), n-1);
+      return {t:t, p:p, n:n, mean:m, sd:sd, df:n-1};
+    }
+
+    function pLabel(p) {
+      if (p<0.001) return 'p < 0.001';
+      if (p<0.01) return 'p < 0.01';
+      if (p<0.05) return 'p < 0.05';
+      return 'p = '+p.toFixed(3);
+    }
+
+    function r2Label(r2) {
+      if (r2>=0.9) return 'Excellent fit (R2 >= 0.9)';
+      if (r2>=0.7) return 'Strong fit (R2 >= 0.7)';
+      if (r2>=0.5) return 'Moderate fit (R2 >= 0.5)';
+      if (r2>=0.3) return 'Weak fit (R2 >= 0.3)';
+      return 'Poor fit (R2 < 0.3)';
+    }
+
+    function corrColor(r) {
+      // teal for positive, red for negative, gray for near zero
+      var abs=Math.abs(r);
+      if (r>0.1) return 'rgba(32,128,141,'+( abs*0.85+0.1).toFixed(2)+')';
+      if (r<-0.1) return 'rgba(161,53,68,'+(abs*0.85+0.1).toFixed(2)+')';
+      return 'rgba(100,100,100,0.12)';
+    }
+
+    function corrStrengthLabel(r) {
+      var abs=Math.abs(r);
+      var strength = abs>=0.7?'strong':(abs>=0.4?'moderate':(abs>=0.1?'weak':'near zero'));
+      var dir = r>0.1?'positive':(r<-0.1?'negative':'');
+      return dir ? (strength+' '+dir+' correlation') : 'near zero correlation';
+    }
+
+    // ── DOM refs ────────────────────────────────────────────
+    var statsView    = document.getElementById('stats-view');
+    var corrOutput   = document.getElementById('stats-corr-output');
+    var regOutput    = document.getElementById('stats-reg-output');
+    var hypOutput    = document.getElementById('stats-hyp-output');
+    var regX         = document.getElementById('stats-reg-x');
+    var regY         = document.getElementById('stats-reg-y');
+    var hypCol       = document.getElementById('stats-hyp-col');
+    var hypMean      = document.getElementById('stats-hyp-mean');
+    var chiA         = document.getElementById('stats-chi-a');
+    var chiB         = document.getElementById('stats-chi-b');
+
+    if (!statsView) return;
+
+    // ── Segmented control ─────────────────────────────────────────
+    document.querySelectorAll('#stats-seg .stats-seg-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('#stats-seg .stats-seg-btn').forEach(function(b){b.classList.remove('active');});
+        btn.classList.add('active');
+        var target = btn.dataset.stats;
+        document.querySelectorAll('.stats-panel').forEach(function(p){p.classList.remove('active');});
+        var panel = document.getElementById('stats-'+target+'-panel');
+        if (panel) panel.classList.add('active');
+        if (target==='corr') renderCorr();
+        if (target==='reg') populateRegDropdowns();
+        if (target==='hyp') populateHypDropdowns();
+      });
+    });
+
+    // T-test / Chi-square toggle
+    var hypTBtn = document.getElementById('hyp-t-btn');
+    var hypChiBtn = document.getElementById('hyp-chi-btn');
+    var hypTCtrl = document.getElementById('hyp-t-controls');
+    var hypChiCtrl = document.getElementById('hyp-chi-controls');
+    if (hypTBtn) hypTBtn.addEventListener('click', function() {
+      hypTBtn.classList.add('active'); hypChiBtn.classList.remove('active');
+      hypTCtrl.style.display=''; hypChiCtrl.style.display='none';
+    });
+    if (hypChiBtn) hypChiBtn.addEventListener('click', function() {
+      hypChiBtn.classList.add('active'); hypTBtn.classList.remove('active');
+      hypTCtrl.style.display='none'; hypChiCtrl.style.display='';
+    });
+
+    // ── Render Correlation Matrix ──────────────────────────
+    function renderCorr() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) { corrOutput.innerHTML='<div class="stats-empty">No dataset loaded.</div>'; return; }
+      var numCols = ds.columns.map(function(c,i){return{name:c.name,idx:i};}).filter(function(c){return ds.columns[c.idx].type==='FLOAT'||ds.columns[c.idx].type==='INT';});
+      if (numCols.length < 2) { corrOutput.innerHTML='<div class="stats-empty">Need at least 2 numeric columns for correlation.</div>'; return; }
+      var html='<div style="overflow-x:auto;"><table class="corr-table"><tr><th></th>';
+      numCols.forEach(function(c){html+='<th>'+escH(c.name.substring(0,12))+'</th>';});
+      html+='</tr>';
+      numCols.forEach(function(ci,i){
+        html+='<tr><th style="text-align:left;padding:4px 8px;">'+escH(ci.name.substring(0,12))+'</th>';
+        numCols.forEach(function(cj,j){
+          var xv=ds.rows.map(function(r){return parseFloat(r[ci.idx]);});
+          var yv=ds.rows.map(function(r){return parseFloat(r[cj.idx]);});
+          var pairs=xv.map(function(v,k){return[v,yv[k]];}).filter(function(p){return !isNaN(p[0])&&!isNaN(p[1]);});
+          var r=i===j?1:pearson(pairs.map(function(p){return p[0];}),pairs.map(function(p){return p[1];}));
+          var rStr=(r===null?'N/A':(r>=0?'+':'')+r.toFixed(2));
+          var bg=r===null?'transparent':corrColor(r);
+          var textColor=Math.abs(r||0)>0.4?'#fff':'var(--text)';
+          var tip=r!==null?('r = '+r.toFixed(2)+' — '+corrStrengthLabel(r)):'Not enough data';
+          tip=tip.replace(/\u2014/g,' - ');
+          html+='<td style="background:'+bg+';color:'+textColor+';" data-tip="'+escH(tip)+'" title="'+escH(tip)+'">'+rStr+'</td>';
+        });
+        html+='</tr>';
+      });
+      html+='</table></div><div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Pearson r. Teal = positive, red = negative. Click any cell for details.</div>';
+      corrOutput.innerHTML=html;
+
+      // Click-to-tooltip behavior (in addition to native title attribute)
+      corrOutput.querySelectorAll('.corr-table td').forEach(function(td) {
+        td.addEventListener('click', function() {
+          var tip = td.getAttribute('data-tip');
+          if (tip && window.showToast) window.showToast(tip, 'info');
+        });
+      });
+    }
+
+    // ── Regression ─────────────────────────────────────────
+    function populateRegDropdowns() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds||!regX||!regY) return;
+      var numCols=ds.columns.filter(function(c){return c.type==='FLOAT'||c.type==='INT';});
+      var opts='<option value="">-- select --</option>'+numCols.map(function(c){return '<option value="'+escH(c.name)+'">'+escH(c.name)+'</option>';}).join('');
+      regX.innerHTML=opts; regY.innerHTML=opts;
+    }
+
+    var regRunBtn = document.getElementById('stats-reg-run');
+    if (regRunBtn) regRunBtn.addEventListener('click', function() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) { regOutput.innerHTML='<div class="stats-empty">No dataset loaded.</div>'; return; }
+      var xName=regX.value, yName=regY.value;
+      if (!xName||!yName||xName===yName) { regOutput.innerHTML='<div class="stats-empty">Select two different numeric columns.</div>'; return; }
+      var xi=ds.columns.findIndex(function(c){return c.name===xName;}), yi=ds.columns.findIndex(function(c){return c.name===yName;});
+      var pairs=ds.rows.map(function(r){return[parseFloat(r[xi]),parseFloat(r[yi])];}).filter(function(p){return !isNaN(p[0])&&!isNaN(p[1]);});
+      if (pairs.length<5) { regOutput.innerHTML='<div class="stats-empty">Need at least 5 valid data points.</div>'; return; }
+      var xs=pairs.map(function(p){return p[0];}), ys=pairs.map(function(p){return p[1];});
+      var res=linReg(xs, ys);
+      var sigClass=res.p<0.05?'sig':'ns';
+      var sigText=res.p<0.05?'Statistically significant (p < 0.05)':'Not significant (p >= 0.05)';
+      // SVG scatter
+      var mnX=Math.min.apply(null,xs), mxX=Math.max.apply(null,xs), mnY=Math.min.apply(null,ys), mxY=Math.max.apply(null,ys);
+      var W=300, H=140, pad=20;
+      function sx(v){return pad+(v-mnX)/(mxX-mnX||1)*(W-2*pad);}
+      function sy(v){return H-pad-(v-mnY)/(mxY-mnY||1)*(H-2*pad);}
+      var dots=pairs.slice(0,200).map(function(p){return '<circle cx="'+sx(p[0]).toFixed(1)+'" cy="'+sy(p[1]).toFixed(1)+'" r="2.5" fill="#20808D" opacity="0.55"/>';}).join('');
+      var x1=mnX, y1=res.slope*mnX+res.intercept, x2=mxX, y2=res.slope*mxX+res.intercept;
+      var line='<line x1="'+sx(x1).toFixed(1)+'" y1="'+sy(y1).toFixed(1)+'" x2="'+sx(x2).toFixed(1)+'" y2="'+sy(y2).toFixed(1)+'" stroke="#20808D" stroke-width="2" opacity="0.9"/>';
+      var svg='<svg class="reg-svg" viewBox="0 0 '+W+' '+H+'" style="border:1px solid var(--border);border-radius:6px;background:var(--surface-alt);margin-top:10px;">'+dots+line+'<text x="'+sx(mnX)+'" y="'+(H-4)+'" font-size="9" fill="var(--text-muted)">'+mnX.toFixed(1)+'</text><text x="'+(sx(mxX)-20)+'" y="'+(H-4)+'" font-size="9" fill="var(--text-muted)">'+mxX.toFixed(1)+'</text></svg>';
+      regOutput.innerHTML='<div class="stats-result">'+escH(yName)+' = '+(res.slope>=0?'+':'')+res.slope.toFixed(4)+' x '+escH(xName)+' + '+res.intercept.toFixed(4)+'</div>'+
+        '<div class="stats-sub">R2 = '+res.r2.toFixed(3)+' - '+r2Label(res.r2)+'<br>'+pLabel(res.p)+' (t = '+res.tStat.toFixed(3)+', df = '+res.df+', SE = '+res.se.toFixed(4)+')<br>n = '+pairs.length+' valid pairs</div>'+
+        '<span class="stats-verdict '+sigClass+'">'+sigText+'</span>'+svg;
+    });
+
+    // ── Hypothesis Testing ──────────────────────────────────────
+    function populateHypDropdowns() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) return;
+      var numCols=ds.columns.filter(function(c){return c.type==='FLOAT'||c.type==='INT';});
+      var catCols=ds.columns.filter(function(c){return c.type==='STR'||c.type==='BOOL';});
+      if (hypCol) hypCol.innerHTML='<option value="">-- select --</option>'+numCols.map(function(c){return '<option value="'+escH(c.name)+'">'+escH(c.name)+'</option>';}).join('');
+      if (chiA) chiA.innerHTML='<option value="">-- select --</option>'+catCols.map(function(c){return '<option value="'+escH(c.name)+'">'+escH(c.name)+'</option>';}).join('');
+      if (chiB) chiB.innerHTML='<option value="">-- select --</option>'+catCols.map(function(c){return '<option value="'+escH(c.name)+'">'+escH(c.name)+'</option>';}).join('');
+    }
+
+    var hypRunBtn = document.getElementById('stats-hyp-run');
+    if (hypRunBtn) hypRunBtn.addEventListener('click', function() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds||!hypCol||!hypCol.value) { hypOutput.innerHTML='<div class="stats-empty">Select a column.</div>'; return; }
+      var ci=ds.columns.findIndex(function(c){return c.name===hypCol.value;});
+      var vals=ds.rows.map(function(r){return parseFloat(r[ci]);}).filter(function(v){return !isNaN(v);});
+      if (vals.length<3) { hypOutput.innerHTML='<div class="stats-empty">Need at least 3 valid values.</div>'; return; }
+      var mu0=parseFloat(hypMean.value)||0;
+      var res=tTest(vals, mu0);
+      var sig=res.p<0.05;
+      var conclusion=sig?('Reject H0: The mean of '+hypCol.value+' ('+res.mean.toFixed(2)+') is significantly different from '+mu0+'.'):('Fail to reject H0: No significant difference from '+mu0+' detected.');
+      hypOutput.innerHTML='<div class="stats-result">One-sample t-test: '+escH(hypCol.value)+' vs mean = '+mu0+'</div>'+
+        '<div class="stats-sub">t = '+res.t.toFixed(3)+', df = '+res.df+', '+pLabel(res.p)+'<br>Sample mean = '+res.mean.toFixed(4)+', SD = '+res.sd.toFixed(4)+', n = '+res.n+'</div>'+
+        '<span class="stats-verdict '+(sig?'sig':'ns')+'">'+escH(conclusion)+'</span>';
+    });
+
+    var chiRunBtn = document.getElementById('stats-chi-run');
+    if (chiRunBtn) chiRunBtn.addEventListener('click', function() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds||!chiA||!chiA.value||!chiB||!chiB.value) { hypOutput.innerHTML='<div class="stats-empty">Select two categorical columns.</div>'; return; }
+      var ai=ds.columns.findIndex(function(c){return c.name===chiA.value;}), bi=ds.columns.findIndex(function(c){return c.name===chiB.value;});
+      var colA=ds.rows.map(function(r){return String(r[ai]||'');});
+      var colB=ds.rows.map(function(r){return String(r[bi]||'');});
+      var res=chiSquare(colA, colB);
+      var sig=res.p<0.05;
+      var conclusion=sig?('Significant association between '+chiA.value+' and '+chiB.value+' (p < 0.05).'):('No significant association detected (p >= 0.05).');
+      hypOutput.innerHTML='<div class="stats-result">Chi-square test: '+escH(chiA.value)+' vs '+escH(chiB.value)+'</div>'+
+        '<div class="stats-sub">chi2 = '+res.chi2.toFixed(3)+', df = '+res.df+', '+pLabel(res.p)+'</div>'+
+        '<span class="stats-verdict '+(sig?'sig':'ns')+'">'+escH(conclusion)+'</span>';
+    });
+
+    // ── Auto-refresh on dataset load ───────────────────────────
+    document.addEventListener('dataglow:dataset-loaded', function() {
+      populateRegDropdowns(); populateHypDropdowns();
+      var corrPanel = document.getElementById('stats-corr-panel');
+      if (corrPanel && corrPanel.classList.contains('active')) renderCorr();
+    });
+
+    // Also hook analyze pill click
+    var statsPill = document.querySelector('[data-panel="stats-view"]');
+    if (statsPill) statsPill.addEventListener('click', function() {
+      var active = document.querySelector('#stats-seg .stats-seg-btn.active');
+      if (!active || active.dataset.stats === 'corr') renderCorr();
+      else if (active.dataset.stats === 'reg') populateRegDropdowns();
+      else populateHypDropdowns();
+    });
+  })();
+
+/* ---- #47 AI-Director ---- */
+  (function () {
+    'use strict';
+
+    var CHART_TYPES = [
+      { id:'bar', label:'Bar' },
+      { id:'line', label:'Line' },
+      { id:'scatter', label:'Scatter' },
+      { id:'histogram', label:'Distribution' },
+      { id:'hbar', label:'Horiz. Bar' }
+    ];
+
+    function analyzeDataset(ds) {
+      if (!ds || !ds.columns || !ds.rows) return null;
+      var cols = ds.columns;
+      var rows = ds.rows;
+      var n = rows.length;
+
+      var numCols = cols.filter(function(c){return c.type==='FLOAT'||c.type==='INT';});
+      var dateCols = cols.filter(function(c){return c.type==='DATE';});
+      var catCols  = cols.filter(function(c){return c.type==='STR'||c.type==='BOOL';});
+
+      // Count unique values for each cat column
+      function uniq(col) {
+        var i=cols.indexOf(col), seen={};
+        rows.forEach(function(r){seen[String(r[i])]=1;});
+        return Object.keys(seen).length;
+      }
+
+      var pick = null;
+      var reason = '';
+      var fullReason = '';
+      var alternatives = [];
+
+      if (dateCols.length >= 1 && numCols.length >= 1) {
+        pick = 'line';
+        reason = 'Time series detected: your data has a date/time dimension. Tracking change over time reveals trends invisible in snapshots.';
+        fullReason = 'Your dataset contains a DATE column ('+dateCols[0].name+') and '+numCols.length+' numeric column(s). A line chart plots each date on the x-axis and the numeric measure on the y-axis, making it easy to see growth, seasonality, or drops over time. Alternatives like bar charts would hide the temporal ordering.';
+        alternatives = ['bar', 'histogram'];
+      } else if (numCols.length >= 2 && n >= 30) {
+        pick = 'scatter';
+        reason = 'Two numeric variables with enough data points - ideal for exploring correlation and clusters.';
+        fullReason = 'With '+numCols.length+' numeric columns and '+n+' rows, scatter plots reveal whether '+numCols[0].name+' and '+numCols[1].name+' move together, diverge, or cluster. This is the most honest first view of a two-variable numeric relationship.';
+        alternatives = ['bar', 'line'];
+      } else if (catCols.length >= 1 && numCols.length >= 1) {
+        var u = uniq(catCols[0]);
+        if (u <= 8) {
+          pick = 'bar';
+          reason = 'Category comparison: '+catCols[0].name+' has '+u+' unique values - a bar chart communicates differences at a glance.';
+          fullReason = 'Bar charts are optimal when you have a categorical grouping ('+catCols[0].name+') with '+u+' levels and a numeric measure to compare. Fewer than ~10 categories keeps the chart scannable. Each bar length encodes the value with no ambiguity.';
+          alternatives = ['hbar', 'line', 'scatter'];
+        } else {
+          pick = 'hbar';
+          reason = 'Ranking view: '+catCols[0].name+' has '+u+' unique values - horizontal bars keep long labels readable.';
+          fullReason = 'When a categorical column has many distinct values (here: '+u+'), vertical bars crush the labels together. A horizontal layout gives each category label room to breathe, and the rank order (longest to shortest) is immediately scannable.';
+          alternatives = ['bar', 'scatter'];
+        }
+      } else if (numCols.length === 1) {
+        pick = 'histogram';
+        reason = 'Distribution analysis: one numeric column - understanding its spread is the first question to ask.';
+        fullReason = 'With a single numeric column ('+numCols[0].name+'), the first question is: what is the shape of this distribution? Is it normal, skewed, bimodal? A histogram bins the values and shows frequency, revealing outliers and the center of mass immediately.';
+        alternatives = ['bar'];
+      } else {
+        pick = 'bar';
+        reason = 'General overview: bar charts are the most universally readable starting point for mixed data.';
+        fullReason = 'No single strong signal (date+numeric, two numerics, or cat+numeric) was found. A bar chart provides a reliable, widely understood view of your data as a starting point for exploration.';
+        alternatives = ['line', 'histogram'];
+      }
+
+      return {
+        pick: pick,
+        reason: reason,
+        fullReason: fullReason,
+        alternatives: alternatives,
+        stats: { rows: n, numCols: numCols.length, catCols: catCols.length, dateCols: dateCols.length }
+      };
+    }
+
+    function buildBanner(analysis) {
+      if (!analysis) return;
+      var chartView = document.getElementById('charts-view');
+      if (!chartView) return;
+
+      // Remove old banner if present
+      var old = chartView.querySelector('.ai-director-banner');
+      if (old) old.remove();
+
+      var pickLabel = (CHART_TYPES.find(function(t){return t.id===analysis.pick;})||{label:analysis.pick}).label;
+      var altBtns = ['bar','line','scatter','histogram','hbar'].map(function(id){
+        var lbl = (CHART_TYPES.find(function(t){return t.id===id;})||{label:id}).label;
+        var isAlt = analysis.alternatives.indexOf(id) >= 0 || id === analysis.pick;
+        if (!isAlt) return '';
+        return '<button class="ai-director-type-btn'+(id===analysis.pick?' active':'')+'" data-chart-type="'+id+'">'+lbl+'</button>';
+      }).join('');
+
+      var statsHtml = '<span class="ai-director-stat">'+analysis.stats.rows+' rows</span>'+
+        (analysis.stats.numCols?'<span class="ai-director-stat">'+analysis.stats.numCols+' numeric</span>':'')+
+        (analysis.stats.catCols?'<span class="ai-director-stat">'+analysis.stats.catCols+' categorical</span>':'')+
+        (analysis.stats.dateCols?'<span class="ai-director-stat">'+analysis.stats.dateCols+' date</span>':'');
+
+      var banner = document.createElement('div');
+      banner.className = 'ai-director-banner';
+      banner.innerHTML =
+        '<div class="ai-director-label">AI Director</div>'+
+        '<div class="ai-director-pick">Recommended: '+pickLabel+'</div>'+
+        '<div class="ai-director-reason">'+escH(analysis.reason)+'</div>'+
+        '<div class="ai-director-row">'+altBtns+'<button class="ai-director-why-btn">Why this chart? +</button></div>'+
+        '<div class="ai-director-expand"><strong>Full reasoning:</strong><br>'+escH(analysis.fullReason)+'<br><br>'+statsHtml+'</div>';
+
+      // Insert as first child of charts-view
+      chartView.insertBefore(banner, chartView.firstChild);
+
+      // Why expand toggle
+      var whyBtn = banner.querySelector('.ai-director-why-btn');
+      var expand = banner.querySelector('.ai-director-expand');
+      if (whyBtn && expand) {
+        whyBtn.addEventListener('click', function() {
+          expand.classList.toggle('open');
+          whyBtn.textContent = expand.classList.contains('open') ? 'Why this chart? -' : 'Why this chart? +';
+        });
+      }
+
+      // Type switch buttons
+      banner.querySelectorAll('.ai-director-type-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          banner.querySelectorAll('.ai-director-type-btn').forEach(function(b){b.classList.remove('active');});
+          btn.classList.add('active');
+          var newPick = banner.querySelector('.ai-director-pick');
+          var t = CHART_TYPES.find(function(x){return x.id===btn.dataset.chartType;});
+          if (newPick && t) newPick.textContent = 'Recommended: '+t.label+' (manual override)';
+          window.showToast && window.showToast('Chart type overridden to '+btn.textContent, 'info');
+        });
+      });
+    }
+
+    function escH(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Hook into dataset load event
+    document.addEventListener('dataglow:dataset-loaded', function (e) {
+      var ds = e.detail && e.detail.dataset;
+      if (!ds) ds = window.getActiveDataset && window.getActiveDataset();
+      setTimeout(function() {
+        var a = analyzeDataset(window.getActiveDataset && window.getActiveDataset());
+        if (a) buildBanner(a);
+      }, 200);
+    });
+
+    // Also fire when charts tab is clicked
+    var chartsPill = document.querySelector('[data-panel="charts-view"]');
+    if (chartsPill) chartsPill.addEventListener('click', function() {
+      setTimeout(function() {
+        var a = analyzeDataset(window.getActiveDataset && window.getActiveDataset());
+        if (a) buildBanner(a);
+      }, 100);
+    });
+  })();
+
+/* ---- #44 Business Translation ---- */
+  (function () {
+    'use strict';
+
+    var BIZ_ICON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 9h10M1 6h7M1 3h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+
+    function escBiz(s) {
+      return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function titleCaseBiz(s) {
+      return String(s || '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    }
+
+    // Translate one technical validation finding (dataset.findings entry)
+    // into a plain-English business-impact statement.
+    function translateFinding(f) {
+      f = f || {};
+      var col = f.column || f.colName || f.col || 'this field';
+      var colLabel = titleCaseBiz(col);
+      var msg = f.message || f.msg || '';
+      var rule = f.rule || f.type || '';
+      var sev = (f.severity || '').toLowerCase();
+      var rowCount = f.rowCount;
+
+      // Null / missing values (null_threshold_v2)
+      if (rule.indexOf('null_threshold') >= 0 || /null|missing/i.test(msg)) {
+        var pctMatch = msg.match(/(\d+\.?\d*)\s*%/);
+        var pct = pctMatch ? parseFloat(pctMatch[1]) : null;
+        var high = sev === 'error' || (pct !== null && pct > 10);
+        if (high) {
+          var inN = pct && pct > 0 ? Math.max(1, Math.round(100 / pct)) : null;
+          var text = (inN ? ('Roughly 1 in ' + inN + ' records') : (rowCount ? (rowCount + ' records') : 'A large share of records')) +
+            ' is missing a value for ' + colLabel + '. This could cause incorrect totals or failed calculations in downstream reports.';
+          return { sev: 'high', tag: 'Data Gap', text: text };
+        }
+        var pctLabel = pct !== null ? pct.toFixed(0) : 'a small percentage of';
+        return { sev: 'medium', tag: 'Partial Gap', text: 'About ' + pctLabel + (pct !== null ? '%' : '') + ' of ' + colLabel + ' values are blank. Worth investigating if this is expected or a data quality issue.' };
+      }
+
+      // Negative-value check (no_negative_currency_v2) - treated as an outlier-style issue
+      if (rule.indexOf('no_negative_currency') >= 0 || /negative/i.test(msg)) {
+        var valMatch = msg.match(/\(([-\d.]+)\)/);
+        var lowVal = valMatch ? valMatch[1] : 'an unexpectedly low value';
+        return { sev: 'medium', tag: 'Unusual Values', text: colLabel + ' contains values far outside the normal range (as low as ' + lowVal + '). These outliers could skew averages and mislead trend analysis.' };
+      }
+
+      // Streaming value drift / mean shift -> outlier-style business framing
+      if (rule.indexOf('streaming_value_drift') >= 0 || /mean shift/i.test(msg)) {
+        return { sev: 'medium', tag: 'Unusual Values', text: colLabel + ' contains values far outside its normal historical range. These outliers could skew averages and mislead trend analysis.' };
+      }
+
+      // Schema drift -> structural change, closest to type_mismatch / structural risk
+      if (rule.indexOf('streaming_schema_drift') >= 0 || /schema drift/i.test(msg)) {
+        return { sev: 'high', tag: 'Mixed / Changed Structure', text: 'The set of columns in this dataset changed from the last upload. This will cause errors in any report or calculation built against the old structure.' };
+      }
+
+      // Arrival anomaly -> closest to duplicate_rows / row-count integrity issue
+      if (rule.indexOf('streaming_arrival_anomaly') >= 0 || /arrival anomaly/i.test(msg)) {
+        var n = rowCount || 'An unusual number of';
+        return { sev: 'medium', tag: 'Volume Anomaly', text: n + ' rows arrived in this batch, outside the expected pattern. If each row should represent a unique event, this could double-count or under-count metrics.' };
+      }
+
+      // Low cardinality
+      if (/low cardinality/i.test(msg) || rule.indexOf('low_cardinality') >= 0) {
+        return { sev: 'low', tag: 'Limited Categories', text: colLabel + ' only has a few unique values. If it is a category field, this looks correct. If it should be free text, check for data entry issues.' };
+      }
+
+      // High cardinality
+      if (/high cardinality/i.test(msg) || rule.indexOf('high_cardinality') >= 0) {
+        return { sev: 'low', tag: 'ID-Like Column', text: colLabel + ' has nearly as many unique values as rows. This may be an ID or free-text field, likely not useful for grouping or charting.' };
+      }
+
+      // Type mismatch
+      if (/mixed type|type mismatch/i.test(msg) || rule.indexOf('type_mismatch') >= 0) {
+        return { sev: 'high', tag: 'Mixed Data Types', text: colLabel + ' has mixed data types, some values look like numbers, others like text. This will cause errors in any numeric calculation.' };
+      }
+
+      // Duplicate rows
+      if (/duplicate/i.test(msg) || rule.indexOf('duplicate') >= 0) {
+        var dupCount = rowCount || 'Several';
+        return { sev: 'high', tag: 'Duplicate Records', text: dupCount + ' duplicate rows detected. If each row should be a unique event or record, these duplicates may double-count metrics.' };
+      }
+
+      // Empty column
+      if (/completely empty|all null|empty column/i.test(msg) || rule.indexOf('empty_column') >= 0) {
+        return { sev: 'high', tag: 'Empty Column', text: colLabel + ' is completely empty. It contributes nothing to analysis and may indicate a data extraction error.' };
+      }
+
+      // Outlier fallback (generic)
+      if (/outlier/i.test(msg) || rule.indexOf('outlier') >= 0) {
+        return { sev: 'medium', tag: 'Unusual Values', text: colLabel + ' contains values far outside the normal range. These outliers could skew averages and mislead trend analysis.' };
+      }
+
+      // Generic fallback: pass through message with a neutral tag/severity
+      var fallbackSev = sev === 'error' ? 'high' : sev === 'warning' ? 'medium' : 'low';
+      return { sev: fallbackSev, tag: 'Quality Flag', text: escBiz(msg) || (colLabel + ' has a data quality issue worth reviewing.') };
+    }
+
+    function renderBizFindings(findings, container) {
+      if (!findings || !findings.length) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'biz-findings-wrap';
+      var html = findings.map(function (f) {
+        var t = translateFinding(f);
+        var sev = t.sev || 'low';
+        var color = sev === 'high' ? '#A12C7B' : sev === 'medium' ? '#964219' : '#437A22';
+        return '<div class="biz-finding ' + sev + '"><div class="biz-finding-tag" style="color:' + color + '">' + escBiz(t.tag) + '</div>' + escBiz(t.text) + '</div>';
+      }).join('');
+      html += '<span class="biz-back-link" id="biz-back-link">Show technical findings</span>';
+      wrap.innerHTML = html;
+
+      container.innerHTML = '';
+      container.appendChild(wrap);
+
+      var backLink = wrap.querySelector('#biz-back-link');
+      if (backLink) {
+        backLink.addEventListener('click', function () {
+          var ds = window.getActiveDataset && window.getActiveDataset();
+          if (ds && window.FindingsRail) {
+            window.FindingsRail.render(ds, container);
+            attachTranslateBtn(container, ds.findings);
+          }
+        });
+      }
+    }
+
+    function attachTranslateBtn(findingsContainer, findings) {
+      if (!findings || !findings.length) return;
+      var old = findingsContainer.querySelector('.biz-translate-btn');
+      if (old) old.remove();
+      var btn = document.createElement('button');
+      btn.className = 'biz-translate-btn';
+      btn.innerHTML = BIZ_ICON + ' Translate for Business';
+      btn.addEventListener('click', function () {
+        var isActive = btn.classList.contains('active');
+        if (isActive) {
+          var ds = window.getActiveDataset && window.getActiveDataset();
+          if (ds && window.FindingsRail) {
+            window.FindingsRail.render(ds, findingsContainer);
+            attachTranslateBtn(findingsContainer, ds.findings);
+          }
+          return;
+        }
+        btn.classList.add('active');
+        renderBizFindings(findings, findingsContainer);
+        findingsContainer.appendChild(btn);
+      });
+      findingsContainer.appendChild(btn);
+    }
+
+    // Observe the dashboard view for findings rail renders, and attach the
+    // translate button once the rail has content and real findings exist.
+    function watchDashboard() {
+      var dashView = document.getElementById('dashboard-view');
+      if (!dashView) return;
+      var obs = new MutationObserver(function () {
+        var ds = window.getActiveDataset && window.getActiveDataset();
+        if (!ds || !ds.findings || !ds.findings.length) return;
+        var frContainer = dashView.querySelector('#findings-rail-container');
+        if (!frContainer) return;
+        if (!frContainer.querySelector('.biz-translate-btn')) {
+          attachTranslateBtn(frContainer, ds.findings);
+        }
+      });
+      obs.observe(dashView, { childList: true, subtree: true });
+    }
+
+    document.addEventListener('dataglow:dataset-loaded', function () {
+      setTimeout(watchDashboard, 300);
+    });
+
+    watchDashboard();
+
+    // Expose for external use / testing
+    window.BusinessTranslator = { translate: translateFinding, renderBiz: renderBizFindings };
+  })();
+
+
+/* ---- #43 Window Function Dojo ---- */
+  (function () {
+    'use strict';
+
+    var FN_DEFS = {
+      rank:   { label:'Rank',         needsValue:false, needsPartition:true,  needsOrder:true,  desc:'Rank each row within a partition, giving the same rank to ties.' },
+      rownum: { label:'Row Number',   needsValue:false, needsPartition:false, needsOrder:true,  desc:'Assign a unique sequential number to each row based on order.' },
+      runsum: { label:'Running Total',needsValue:true,  needsPartition:false, needsOrder:true,  desc:'Cumulative sum of a numeric column, growing row by row.' },
+      movavg: { label:'Moving Avg',   needsValue:true,  needsPartition:false, needsOrder:true,  desc:'3-row rolling average: smooths out spikes to reveal trends.' },
+      lag:    { label:'Lag',          needsValue:true,  needsPartition:false, needsOrder:true,  desc:'The previous row\'s value. Useful for period-over-period change.' },
+      lead:   { label:'Lead',         needsValue:true,  needsPartition:false, needsOrder:true,  desc:'The next row\'s value. Pairs with LAG for change detection.' },
+      pct:    { label:'% of Total',   needsValue:true,  needsPartition:false, needsOrder:false, desc:'Each value expressed as a percentage of the column grand total.' },
+      drank:  { label:'Dense Rank',   needsValue:false, needsPartition:true,  needsOrder:true,  desc:'Like RANK but with no gaps after ties - 1,2,2,3 not 1,2,2,4.' }
+    };
+
+    var currentFn = 'rank';
+
+    function getTableName() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      if (!ds) return 'your_table';
+      try {
+        if (window.SQLEngine && typeof window.SQLEngine.safeTableName === 'function') {
+          return '"' + window.SQLEngine.safeTableName(ds.name) + '"';
+        }
+      } catch (e) {}
+      return '"' + (ds.name || 'data') + '"';
+    }
+
+    function buildSQL(fn, partition, orderby, valuecol) {
+      var tbl = getTableName();
+      var alias = fn + '_result';
+      var over = '';
+
+      if (fn === 'rank') {
+        var parts = [];
+        if (partition) parts.push('PARTITION BY ' + partition);
+        if (orderby) parts.push('ORDER BY ' + orderby + ' DESC');
+        over = parts.join('\n  ');
+        return 'SELECT *,\n  RANK() OVER (\n  ' + over + '\n) AS ' + alias + '\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'rownum') {
+        return 'SELECT *,\n  ROW_NUMBER() OVER (\n  ORDER BY ' + (orderby||'rowid') + '\n) AS row_num\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'runsum') {
+        return 'SELECT *,\n  SUM(' + (valuecol||'value') + ') OVER (\n  ORDER BY ' + (orderby||'rowid') + '\n  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n) AS running_total\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'movavg') {
+        return 'SELECT *,\n  AVG(' + (valuecol||'value') + ') OVER (\n  ORDER BY ' + (orderby||'rowid') + '\n  ROWS BETWEEN 2 PRECEDING AND CURRENT ROW\n) AS moving_avg_3\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'lag') {
+        return 'SELECT *,\n  LAG(' + (valuecol||'value') + ', 1) OVER (\n  ORDER BY ' + (orderby||'rowid') + '\n) AS prev_value,\n  ' + (valuecol||'value') + ' - LAG(' + (valuecol||'value') + ', 1) OVER (ORDER BY ' + (orderby||'rowid') + ') AS delta\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'lead') {
+        return 'SELECT *,\n  LEAD(' + (valuecol||'value') + ', 1) OVER (\n  ORDER BY ' + (orderby||'rowid') + '\n) AS next_value\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'pct') {
+        return 'SELECT *,\n  ROUND(\n    ' + (valuecol||'value') + ' * 100.0 / SUM(' + (valuecol||'value') + ') OVER (),\n  2) AS pct_of_total\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      if (fn === 'drank') {
+        var dparts = [];
+        if (partition) dparts.push('PARTITION BY ' + partition);
+        if (orderby) dparts.push('ORDER BY ' + orderby + ' DESC');
+        var dover = dparts.join('\n  ');
+        return 'SELECT *,\n  DENSE_RANK() OVER (\n  ' + dover + '\n) AS dense_rank_result\nFROM ' + tbl + '\nLIMIT 100;';
+      }
+      return '-- Select columns above';
+    }
+
+    function updatePreview() {
+      var preview = document.getElementById('dojo-preview');
+      if (!preview) return;
+      var partition = (document.getElementById('dojo-partition')||{}).value || '';
+      var orderby   = (document.getElementById('dojo-orderby')||{}).value || '';
+      var valuecol  = (document.getElementById('dojo-valuecol')||{}).value || '';
+      preview.textContent = buildSQL(currentFn, partition, orderby, valuecol);
+    }
+
+    function populateDropdowns() {
+      var ds = window.getActiveDataset && window.getActiveDataset();
+      var allCols = ds ? ds.columns.map(function(c){return c.name;}) : [];
+      var numCols = ds ? ds.columns.filter(function(c){return c.type==='FLOAT'||c.type==='INT';}).map(function(c){return c.name;}) : [];
+      var catCols = ds ? ds.columns.filter(function(c){return c.type==='STR'||c.type==='DATE';}).map(function(c){return c.name;}) : [];
+
+      function opts(cols, withNone) {
+        var base = withNone ? '<option value="">(none)</option>' : '<option value="">(select)</option>';
+        return base + cols.map(function(c){return '<option value="'+c+'">'+c+'</option>';}).join('');
+      }
+
+      var partEl = document.getElementById('dojo-partition');
+      var ordEl = document.getElementById('dojo-orderby');
+      var valEl = document.getElementById('dojo-valuecol');
+
+      if (partEl) partEl.innerHTML = opts(catCols.concat(allCols.filter(function(c){return catCols.indexOf(c)<0;})), true);
+      if (ordEl) ordEl.innerHTML = opts(allCols, false);
+      if (valEl) valEl.innerHTML = opts(numCols, false);
+
+      // Auto-select first reasonable defaults
+      if (ordEl && allCols.length) ordEl.value = allCols[0];
+      if (valEl && numCols.length) valEl.value = numCols[0];
+      if (partEl && catCols.length) partEl.value = catCols[0];
+
+      updatePreview();
+    }
+
+    function updateControlVisibility() {
+      var def = FN_DEFS[currentFn];
+      if (!def) return;
+      var cgPart = document.getElementById('dojo-cg-partition');
+      var cgVal  = document.getElementById('dojo-cg-value');
+      var cgOrd  = document.getElementById('dojo-cg-order');
+      if (cgPart) cgPart.style.display = def.needsPartition ? '' : 'none';
+      if (cgVal)  cgVal.style.display  = def.needsValue     ? '' : 'none';
+      if (cgOrd)  cgOrd.style.display  = def.needsOrder     ? '' : 'none';
+    }
+
+    // -- Events --------------------------------------------------------
+    var dojoEditorBtn = document.getElementById('dojo-editor-btn');
+    var dojoBtn       = document.getElementById('dojo-btn');
+    var dojoPanel     = document.getElementById('dojo-panel');
+
+    if (dojoBtn) dojoBtn.addEventListener('click', function() {
+      dojoBtn.classList.add('active'); dojoEditorBtn && dojoEditorBtn.classList.remove('active');
+      dojoPanel && dojoPanel.classList.add('open');
+      populateDropdowns();
+    });
+    if (dojoEditorBtn) dojoEditorBtn.addEventListener('click', function() {
+      dojoEditorBtn.classList.add('active'); dojoBtn && dojoBtn.classList.remove('active');
+      dojoPanel && dojoPanel.classList.remove('open');
+    });
+
+    // Function card clicks
+    document.querySelectorAll('#dojo-fn-grid .dojo-fn-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        document.querySelectorAll('#dojo-fn-grid .dojo-fn-card').forEach(function(c){c.classList.remove('active');});
+        card.classList.add('active');
+        currentFn = card.dataset.fn;
+        var def = FN_DEFS[currentFn];
+        var descEl = document.getElementById('dojo-fn-desc');
+        if (descEl && def) descEl.textContent = def.desc;
+        updateControlVisibility();
+        updatePreview();
+      });
+    });
+
+    // Dropdown changes
+    ['dojo-partition','dojo-orderby','dojo-valuecol'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', updatePreview);
+    });
+
+    // Run button - copy SQL into editor and run
+    var runBtn = document.getElementById('dojo-run-btn');
+    if (runBtn) runBtn.addEventListener('click', function() {
+      var preview = document.getElementById('dojo-preview');
+      if (!preview) return;
+      var sql = preview.textContent;
+
+      // Find the SQL editor textarea and set its value
+      var sqlEditor = document.getElementById('sql-view-input');
+      if (sqlEditor) {
+        sqlEditor.value = sql;
+        sqlEditor.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
+      // Switch to editor view
+      dojoEditorBtn && dojoEditorBtn.click();
+
+      // Click the Run SQL button after a short delay
+      setTimeout(function() {
+        var runSqlBtn = document.getElementById('sql-view-run');
+        if (runSqlBtn) runSqlBtn.click();
+        else window.showToast && window.showToast('SQL copied to editor - click Run to execute.', 'info');
+      }, 100);
+    });
+
+    // Auto-populate when dataset loads
+    document.addEventListener('dataglow:dataset-loaded', function() {
+      if (dojoPanel && dojoPanel.classList.contains('open')) populateDropdowns();
+    });
+
+    updateControlVisibility();
   })();
 
 
