@@ -3627,6 +3627,153 @@
 .osce-final-feedback { font-size:14px; color:var(--text-muted); max-width:480px; line-height:1.7; }
 .osce-restart-btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:12px 32px; font-size:14px; font-weight:700; cursor:pointer; margin-top:8px; font-family:inherit; }
 
+/* ---- #48 Peer Review ---- */
+#review-view { display:none; flex-direction:row; height:100%; overflow:hidden; gap:0; }
+#review-view.active { display:flex; }
+.review-feed { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:6px; border-right:1px solid var(--border); }
+.review-item { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:8px; background:var(--surface); border:1px solid var(--border); }
+.review-item.error { border-color:rgba(161,44,123,0.3); background:rgba(161,44,123,0.05); }
+.review-item.warning { border-color:rgba(150,66,25,0.3); background:rgba(150,66,25,0.05); }
+.review-item.info { border-color:rgba(27,161,168,0.2); background:rgba(27,161,168,0.04); }
+.review-item.praise { border-color:rgba(67,122,34,0.3); background:rgba(67,122,34,0.05); }
+.review-sev-icon { font-size:14px; flex-shrink:0; margin-top:1px; }
+.review-body { flex:1; }
+.review-cat { font-size:9px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); margin-bottom:3px; }
+.review-msg { font-size:12px; color:var(--text); line-height:1.5; }
+.review-line { font-size:10px; color:var(--text-muted); margin-top:2px; font-family:monospace; }
+.review-empty { text-align:center; padding:40px 20px; color:var(--text-muted); font-size:13px; }
+.review-scorecard { width:200px; flex-shrink:0; padding:14px 16px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; background:var(--surface-alt); }
+.review-grade-big { font-size:56px; font-weight:900; line-height:1; text-align:center; letter-spacing:-0.04em; }
+.review-grade-A { color:#437A22; }
+.review-grade-B { color:#20808D; }
+.review-grade-C { color:#964219; }
+.review-grade-D { color:#A12C7B; }
+.review-grade-F { color:#A13544; }
+.review-grade-label { font-size:10px; color:var(--text-muted); text-align:center; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
+.review-sub-score { display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:var(--surface); border-radius:6px; border:1px solid var(--border); }
+.review-sub-label { font-size:10px; color:var(--text-muted); font-weight:600; }
+.review-sub-val { font-size:12px; font-weight:800; color:var(--primary); }
+.review-severity-counts { display:flex; flex-direction:column; gap:4px; }
+.review-sev-row { display:flex; justify-content:space-between; align-items:center; font-size:10px; }
+.review-sev-name { color:var(--text-muted); }
+.review-sev-count { font-weight:700; color:var(--text); }
+.review-share-btn { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; width:100%; }
+.review-share-btn:hover { opacity:0.88; }
+
+
+/* ---- #49 Take-Home Case ---- */
+#takehome-modal { position:fixed; inset:0; background:var(--background); z-index:14000; display:none; flex-direction:column; overflow:hidden; }
+#takehome-modal.open { display:flex; }
+.th-topbar { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.th-topbar-title { font-size:14px; font-weight:700; color:var(--text); flex:1; }
+.th-close-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--text-muted); padding:5px 12px; font-size:12px; cursor:pointer; font-family:inherit; }
+#th-gen-screen { flex:1; overflow-y:auto; display:flex; align-items:center; justify-content:center; padding:40px 20px; }
+.th-gen-form { width:100%; max-width:520px; display:flex; flex-direction:column; gap:18px; }
+.th-gen-title { font-size:28px; font-weight:900; color:var(--text); letter-spacing:-0.02em; }
+.th-gen-sub { font-size:14px; color:var(--text-muted); line-height:1.6; margin-top:-10px; }
+.th-field { display:flex; flex-direction:column; gap:6px; }
+.th-label { font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
+.th-select { background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:13px; color:var(--text); font-family:inherit; outline:none; cursor:pointer; }
+.th-checkboxes { display:flex; flex-wrap:wrap; gap:8px; }
+.th-checkbox-label { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text); cursor:pointer; padding:6px 12px; border-radius:20px; border:1px solid var(--border); background:var(--surface-alt); user-select:none; }
+.th-checkbox-label input { display:none; }
+.th-checkbox-label.checked { background:rgba(27,161,168,0.1); border-color:var(--primary); color:var(--primary); font-weight:700; }
+.th-toggle-row { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--text); }
+.th-toggle { width:36px; height:20px; background:var(--border); border-radius:10px; position:relative; cursor:pointer; border:none; transition:background 0.2s; }
+.th-toggle.on { background:var(--primary); }
+.th-toggle::after { content:''; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:#fff; transition:left 0.2s; }
+.th-toggle.on::after { left:19px; }
+.th-gen-btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:14px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; }
+.th-gen-btn:hover { opacity:0.88; }
+#th-preview-screen { flex:1; overflow:hidden; display:none; flex-direction:column; }
+#th-preview-screen.open { display:flex; }
+.th-preview-actions { display:flex; gap:8px; padding:10px 20px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.th-action-btn { background:var(--surface-alt); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:7px 14px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; }
+.th-action-btn:hover { border-color:var(--primary); color:var(--primary); }
+#th-case-content { flex:1; overflow-y:auto; padding:40px; background:#fff; color:#000; }
+.dark #th-case-content { background:var(--surface); color:var(--text); }
+#th-case-content h1 { font-size:24px; font-weight:900; margin-bottom:4px; letter-spacing:-0.02em; }
+#th-case-content h2 { font-size:16px; font-weight:700; margin:24px 0 10px; border-bottom:2px solid #000; padding-bottom:6px; }
+.dark #th-case-content h2 { border-bottom-color:var(--border); }
+#th-case-content h3 { font-size:13px; font-weight:700; margin:16px 0 8px; color:#444; }
+.dark #th-case-content h3 { color:var(--text-muted); }
+#th-case-content p { font-size:13px; line-height:1.7; margin-bottom:10px; }
+#th-case-content table { width:100%; border-collapse:collapse; font-size:12px; margin:12px 0; }
+#th-case-content th { background:#f0f0f0; padding:8px 12px; text-align:left; font-weight:700; border:1px solid #ddd; }
+.dark #th-case-content th { background:var(--surface-alt); border-color:var(--border); }
+#th-case-content td { padding:7px 12px; border:1px solid #ddd; vertical-align:top; }
+.dark #th-case-content td { border-color:var(--border); }
+.th-deliverable { margin:10px 0; padding:12px 16px; border-left:3px solid #000; background:#f9f9f9; }
+.dark .th-deliverable { background:var(--surface-alt); border-left-color:var(--primary); }
+.th-deliverable strong { display:block; font-size:13px; margin-bottom:4px; }
+.th-deliverable p { margin:0; font-size:12px; color:#555; }
+.dark .th-deliverable p { color:var(--text-muted); }
+.th-hint { margin:8px 0; padding:10px 14px; border-radius:6px; background:#fffbe6; border:1px solid #ffe58f; font-size:11px; color:#876800; }
+.dark .th-hint { background:rgba(255,197,83,0.08); border-color:rgba(255,197,83,0.25); color:#FFC553; }
+.th-confidential { font-size:10px; color:#999; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; margin-bottom:8px; }
+.th-rubric-table { width:100%; }
+@media print {
+  #takehome-modal .th-topbar, #th-preview-screen .th-preview-actions { display:none; }
+  #th-case-content { padding:20px; }
+}
+
+/* ---- #50 Question Prompter ---- */
+#questions-drawer { position:fixed; top:0; right:0; width:360px; height:100vh; background:var(--surface); border-left:1px solid var(--border); z-index:800; display:none; flex-direction:column; box-shadow:-8px 0 40px rgba(0,0,0,0.25); transform:translateX(100%); transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+#questions-drawer.open { display:flex; transform:translateX(0); }
+.qd-header { padding:16px 18px 12px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.qd-title { font-size:16px; font-weight:800; color:var(--text); letter-spacing:-0.01em; margin-bottom:2px; }
+.qd-subtitle { font-size:11px; color:var(--text-muted); }
+.qd-list { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+.qd-card { background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; transition:border-color 0.15s; cursor:default; }
+.qd-card:hover { border-color:var(--primary); }
+.qd-tags { display:flex; gap:5px; flex-wrap:wrap; }
+.qd-tag { font-size:9px; font-weight:800; letter-spacing:0.07em; text-transform:uppercase; padding:2px 8px; border-radius:20px; }
+.qd-tag.cat-distribution { background:rgba(27,161,168,0.1); color:var(--primary); }
+.qd-tag.cat-trend { background:rgba(218,113,1,0.1); color:#DA7101; }
+.qd-tag.cat-quality { background:rgba(161,44,123,0.1); color:#A12C7B; }
+.qd-tag.cat-outlier { background:rgba(161,53,68,0.1); color:#A13544; }
+.qd-tag.cat-comparison { background:rgba(122,57,187,0.1); color:#7A39BB; }
+.qd-tag.cat-correlation { background:rgba(67,122,34,0.1); color:#437A22; }
+.qd-tag.tool { background:rgba(0,0,0,0.06); color:var(--text-muted); }
+.dark .qd-tag.tool { background:rgba(255,255,255,0.07); }
+.qd-question { font-size:13px; font-weight:700; color:var(--text); line-height:1.4; }
+.qd-context { font-size:10px; color:var(--text-muted); line-height:1.5; }
+.qd-ask-btn { align-self:flex-end; background:none; border:1px solid var(--border); border-radius:6px; color:var(--primary); font-size:10px; font-weight:700; padding:4px 12px; cursor:pointer; font-family:inherit; }
+.qd-ask-btn:hover { background:var(--primary); color:#fff; border-color:var(--primary); }
+.qd-footer { padding:10px 18px 16px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; flex-shrink:0; }
+.qd-dismiss { background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; font-family:inherit; }
+.qd-dismiss:hover { color:var(--text); }
+
+/* ---- #51 Portfolio Narrative ---- */
+#narrative-modal { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:13000; display:none; align-items:center; justify-content:center; }
+#narrative-modal.open { display:flex; }
+.narr-box { background:var(--surface); border:1px solid var(--border); border-radius:16px; width:600px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 80px rgba(0,0,0,0.4); }
+.narr-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.narr-title { font-size:16px; font-weight:800; color:var(--text); }
+.narr-close { background:none; border:none; color:var(--text-muted); font-size:20px; cursor:pointer; line-height:1; }
+.narr-format-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+.narr-tab { flex:1; padding:10px; font-size:11px; font-weight:700; color:var(--text-muted); background:none; border:none; cursor:pointer; border-bottom:2px solid transparent; font-family:inherit; transition:all 0.15s; }
+.narr-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+.narr-body { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; }
+.narr-tone-row { display:flex; align-items:center; gap:10px; }
+.narr-tone-label { font-size:12px; color:var(--text-muted); font-weight:600; }
+.narr-tone-btn { padding:5px 14px; border-radius:20px; border:1px solid var(--border); font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; background:none; color:var(--text-muted); }
+.narr-tone-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.narr-gen-btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:14px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; width:100%; }
+.narr-gen-btn:hover { opacity:0.88; }
+.narr-output { background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; padding:16px; font-size:13px; color:var(--text); line-height:1.8; white-space:pre-wrap; font-family:inherit; display:none; flex:1; min-height:200px; }
+.narr-output.show { display:block; }
+.narr-actions { display:flex; gap:8px; flex-shrink:0; padding:0; }
+.narr-action-btn { flex:1; background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:9px; font-size:11px; font-weight:700; color:var(--text); cursor:pointer; font-family:inherit; }
+.narr-action-btn:hover { border-color:var(--primary); color:var(--primary); }
+.narr-char-count { font-size:10px; color:var(--text-muted); text-align:right; margin-top:-8px; }
+#narrative-share-section { padding:16px; }
+#narrative-share-card { background:var(--surface-alt); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:16px; }
+#narrative-share-title { font-size:15px; font-weight:800; color:var(--text); margin-bottom:6px; }
+#narrative-share-desc { font-size:12px; color:var(--text-muted); line-height:1.5; margin-bottom:12px; }
+.narr-launch-btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:11px 18px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
+.narr-launch-btn:hover { opacity:0.88; }
+
 </style>
 </head>
 <body>
@@ -3860,6 +4007,7 @@
           <button class="analyze-pill" data-panel="stats-view">Stats</button>
           <button class="analyze-pill" data-panel="arena-view">Arena</button>
           <button class="analyze-pill" data-panel="cases-view">Cases</button>
+          <button class="analyze-pill" data-panel="review-view">Review</button>
         </div>
         <!-- Panels -->
         <div id="charts-view" class="analyze-panel active">
@@ -4071,6 +4219,14 @@
 
       <!-- SHARE TAB -->
       <div id="share-view" class="view hidden">
+        <div id="narrative-share-section">
+          <div id="narrative-share-card">
+            <div id="narrative-share-title">Portfolio Narrative</div>
+            <div id="narrative-share-desc">Turn this analysis session into a polished LinkedIn post, resume bullets, a GitHub README, or an executive brief.</div>
+            <button id="narrative-share-open-btn" class="narr-launch-btn">Generate Portfolio Story</button>
+          </div>
+        </div>
+
         <div id="story-view" class="share-panel active">
         <div id="story-toolbar">
           <button id="story-export-md">Export Markdown</button>
@@ -4171,6 +4327,9 @@
         <button class="skills-trigger-btn" id="skills-trigger-btn" title="Your Skills">Skills</button>
         <button class="skills-trigger-btn" id="badges-trigger-btn" title="Your Badges">Badges</button>
         <button class="skills-trigger-btn" id="osce-trigger-btn" title="Clinical Data Exam">OSCE</button>
+        <button class="skills-trigger-btn" id="takehome-trigger-btn" title="Generate Take-Home Case">Case</button>
+        <button class="skills-trigger-btn" id="questions-trigger-btn" title="Questions Worth Asking">?</button>
+        <button class="skills-trigger-btn" id="story-trigger-btn" title="Generate Portfolio Narrative">Story</button>
         <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -13810,6 +13969,9 @@ var InstantInsight = (function () {
     if (panelId === 'python-view') {
       if (typeof window._pyRefresh === 'function') window._pyRefresh();
     }
+    if (panelId === 'review-view') {
+      if (window.PeerReview && typeof window.PeerReview.run === 'function') window.PeerReview.run();
+    }
     // Force display for panels that use CSS display:none/flex instead of hidden/active classes
     if (panel) { panel.style.display = ''; }
     // Stats: trigger correlation render when switching to stats tab
@@ -20591,6 +20753,1676 @@ var InstantInsight = (function () {
     scenarios: SCENARIOS
   };
 })();
+
+/* ---- #48 Peer Review ---- */
+(function() {
+  'use strict';
+
+  var SQL_CHECKS = [
+    {id:'select_star', fn: function(sql) {
+      if (/SELECT\s+\*/i.test(sql)) return {severity:'warning', msg:'Avoid SELECT star. Explicitly name the columns you need for clarity and performance.'};
+      return null;
+    }},
+    {id:'no_limit', fn: function(sql) {
+      if (!/\bLIMIT\b/i.test(sql) && /\bSELECT\b/i.test(sql)) return {severity:'info', msg:'No LIMIT clause. This query could return all rows. Add LIMIT for exploration.'};
+      return null;
+    }},
+    {id:'cartesian_join', fn: function(sql) {
+      if (/\bJOIN\b/i.test(sql) && !/\bON\b/i.test(sql) && !/\bUSING\b/i.test(sql)) return {severity:'error', msg:'JOIN without ON clause detected. This may be a Cartesian product, every row matched with every other row.'};
+      return null;
+    }},
+    {id:'division_no_nullif', fn: function(sql) {
+      if (/\/\s*(?!NULLIF)[a-z0-9_]+/i.test(sql) && /\//.test(sql)) return {severity:'warning', msg:'Division detected without NULLIF protection. A zero denominator will cause a runtime error. Wrap the divisor: NULLIF(col, 0).'};
+      return null;
+    }},
+    {id:'order_by_number', fn: function(sql) {
+      if (/ORDER\s+BY\s+\d+/i.test(sql)) return {severity:'info', msg:'ORDER BY column number is fragile. If the SELECT list changes, sorting breaks silently. Use the column name.'};
+      return null;
+    }},
+    {id:'having_only', fn: function(sql) {
+      if (/\bHAVING\b/i.test(sql) && !/\bWHERE\b/i.test(sql)) return {severity:'info', msg:'HAVING filters after aggregation. If you can filter rows first with WHERE, your query will run faster.'};
+      return null;
+    }},
+    {id:'non_sargable', fn: function(sql) {
+      if (/WHERE.*?(LOWER|UPPER|TRIM)\s*\(/i.test(sql)) return {severity:'warning', msg:'Function in WHERE clause (LOWER, UPPER, or TRIM) prevents index use in indexed systems. Consider storing normalized values.'};
+      return null;
+    }},
+    {id:'deep_nesting', fn: function(sql) {
+      var depth = 0; var max = 0;
+      for (var i=0; i<sql.length; i++) { if(sql[i]==='(') { depth++; max=Math.max(max,depth); } else if(sql[i]===')') depth--; }
+      if (max >= 3) return {severity:'info', msg:'Deep subquery nesting (depth ' + max + '). Consider refactoring with WITH (CTE) clauses for readability.'};
+      return null;
+    }},
+    {id:'count_star', fn: function(sql) {
+      if (/COUNT\s*\(\s*\*\s*\)/i.test(sql)) return {severity:'info', msg:'COUNT(*) counts all rows including NULLs. If NULL rows should be excluded, use COUNT(column_name) instead.'};
+      return null;
+    }},
+    {id:'in_many', fn: function(sql) {
+      var m = sql.match(/\bIN\s*\(([^)]+)\)/gi);
+      if (m) {
+        for (var i=0;i<m.length;i++) {
+          var vals = m[i].split(',').length;
+          if (vals > 10) return {severity:'info', msg:'IN clause with ' + vals + ' values. Consider loading these into a temp table or using a JOIN for maintainability.'};
+        }
+      }
+      return null;
+    }},
+    {id:'string_date_compare', fn: function(sql) {
+      if (/WHERE.*[a-z_]+(date|dt|time)[a-z_]*\s*=\s*'[0-9]{4}-/i.test(sql)) return {severity:'info', msg:'Comparing a date column to a string literal. An explicit CAST is safer: WHERE date_col = CAST(2024-01-01 AS DATE).'};
+      return null;
+    }},
+    {id:'no_alias_join', fn: function(sql) {
+      if (/\bJOIN\b/i.test(sql) && !/\b(AS\s+[a-z]|[a-z]\s+ON\b)/i.test(sql)) return {severity:'info', msg:'JOIN without table aliases. Using aliases (t1, t2, or descriptive names) makes queries easier to read.'};
+      return null;
+    }},
+    {id:'implicit_cast', fn: function(sql) {
+      if (/WHERE\s+\w+\s*=\s*\d+/i.test(sql)) return {severity:'info', msg:'Comparing a column to an unquoted number. If the column is VARCHAR, this triggers implicit casting and may miss values.'};
+      return null;
+    }},
+    {id:'missing_group_col', fn: function(sql) {
+      if (/\b(SUM|AVG|MAX|MIN|COUNT)\s*\(/i.test(sql) && !/\bGROUP\s+BY\b/i.test(sql) && !/\bOVER\s*\(/i.test(sql)) return {severity:'warning', msg:'Aggregate function without GROUP BY or OVER(). This will collapse all rows into one. Is that intended?'};
+      return null;
+    }},
+    {id:'cte_suggestion', fn: function(sql) {
+      var subCount = (sql.match(/SELECT\b/gi) || []).length;
+      if (subCount >= 3 && !/\bWITH\b/i.test(sql)) return {severity:'info', msg:'Multiple SELECT statements (' + subCount + '). Consider restructuring with WITH (CTE) clauses for clarity.'};
+      return null;
+    }}
+  ];
+
+  var PYTHON_CHECKS = [
+    {fn: function(code) { if (/['"][A-Z]:[\\\/]/.test(code) || /['"]\/home\//.test(code) || /['"]\/Users\//.test(code)) return {severity:'warning', msg:'Hardcoded file path detected. Use variables or config files for portability.'}; return null; }},
+    {fn: function(code) { if (/\.iterrows\(\)/.test(code)) return {severity:'warning', msg:'iterrows() is slow on large DataFrames. Use vectorized operations or apply() for better performance.'}; return null; }},
+    {fn: function(code) { if (/\bprint\s*\(/.test(code)) return {severity:'info', msg:'Debug print() statements found. Remove them before finalizing your analysis.'}; return null; }},
+    {fn: function(code) { if (/\.ix\[/.test(code) || /\.as_matrix\(\)/.test(code)) return {severity:'error', msg:'Deprecated pandas API detected (.ix or .as_matrix). Use .iloc, .loc, and .to_numpy() instead.'}; return null; }},
+    {fn: function(code) { if (!/"""[\s\S]*?"""|#/.test(code)) return {severity:'info', msg:'No docstring or comments found. Add a brief comment explaining what this script analyzes.'}; return null; }},
+    {fn: function(code) { if (!/\btry\b/.test(code) && (/read_csv|read_sql|read_excel|to_csv|open\s*\(/.test(code))) return {severity:'warning', msg:'No error handling found around data loading or file operations. Wrap risky operations in a try/except block.'}; return null; }}
+  ];
+
+  var PRAISE_POOL = [
+    'Clean aggregate query, well-structured GROUP BY logic.',
+    'Proper use of ROUND() on numeric output, reader-friendly results.',
+    'Good use of aliases, makes the output easy to interpret.',
+    'Effective use of HAVING for post-aggregation filtering.',
+    'CTE usage shows strong SQL structuring instincts.',
+    'Appropriate LIMIT for exploratory query, good habit.',
+    'NULLIF used for safe division, defensive coding.',
+    'Window function usage shows advanced SQL command.',
+    'CASE WHEN logic is clean and readable.',
+    'Good column naming in the SELECT list.'
+  ];
+
+  function runSQLChecks(sql) {
+    var issues = [];
+    SQL_CHECKS.forEach(function(chk) {
+      var r = chk.fn(sql);
+      if (r) issues.push(Object.assign({cat:'SQL'}, r));
+    });
+    var errors = issues.filter(function(i){ return i.severity==='error'; }).length;
+    var warnings = issues.filter(function(i){ return i.severity==='warning'; }).length;
+    if (errors === 0 && warnings <= 1 && sql.trim().length > 10) {
+      var praise = PRAISE_POOL[Math.floor(Math.random() * PRAISE_POOL.length)];
+      issues.push({cat:'SQL', severity:'praise', msg: praise});
+    }
+    return issues;
+  }
+
+  function runDataChecks(ds) {
+    var issues = [];
+    if (!ds || !ds.columns || !ds.rows) return issues;
+    var cols = ds.columns; var rows = ds.rows; var n = rows.length;
+    if (n === 0) return issues;
+    cols.forEach(function(col, ci) {
+      var vals = rows.map(function(r){ return r[ci]; });
+      var nullCount = vals.filter(function(v){ return v === null || v === undefined || v === ''; }).length;
+      if (nullCount / n > 0.3) issues.push({cat:'Data', severity:'warning', msg: col.name + ' is ' + Math.round(nullCount/n*100) + '% null. Investigate before analysis.'});
+
+      if ((col.name.toLowerCase().indexOf('amount') >= 0 || col.name.toLowerCase().indexOf('price') >= 0 || col.name.toLowerCase().indexOf('pmt') >= 0) && (col.type === 'INT' || col.type === 'FLOAT')) {
+        var negs = vals.filter(function(v){ return parseFloat(v) < 0; }).length;
+        if (negs > 0) issues.push({cat:'Data', severity:'warning', msg: col.name + ' has ' + negs + ' negative value(s). Verify these are valid (credits or refunds) versus data errors.'});
+      }
+
+      if ((col.type === 'INT' || col.type === 'FLOAT') && n > 20) {
+        var uniq = new Set(vals.filter(function(v){ return v !== null && v !== undefined; }).map(String)).size;
+        if (uniq <= 2) issues.push({cat:'Data', severity:'info', msg: col.name + ' has only ' + uniq + ' distinct value(s). May be a boolean flag stored as a number.'});
+      }
+
+      if (col.type === 'STR') {
+        var caps = vals.filter(function(v){ return typeof v === 'string' && v === v.toUpperCase() && v.length > 2 && /[A-Z]/.test(v); }).length;
+        if (caps / n > 0.8) issues.push({cat:'Data', severity:'info', msg: col.name + ' values are predominantly uppercase. May indicate a legacy system export or data entry inconsistency.'});
+      }
+
+      if (col.type === 'DATE') {
+        var today = new Date();
+        var future = vals.filter(function(v){ var d = new Date(v); return !isNaN(d.getTime()) && d.getTime() > today.getTime(); }).length;
+        if (future > 0) issues.push({cat:'Data', severity:'warning', msg: col.name + ' has ' + future + ' date(s) in the future. Verify these are not data entry errors.'});
+      }
+
+      if (col.type === 'INT' || col.type === 'FLOAT') {
+        var nums = vals.map(function(v){ return parseFloat(v); }).filter(function(v){ return !isNaN(v); });
+        if (nums.length > 10) {
+          var mean = nums.reduce(function(a,b){ return a+b; }, 0) / nums.length;
+          var variance = nums.reduce(function(a,b){ return a + Math.pow(b-mean,2); }, 0) / nums.length;
+          var stddev = Math.sqrt(variance);
+          if (stddev > 0) {
+            var outliers = nums.filter(function(v){ return Math.abs(v-mean) > 3*stddev; }).length;
+            if (outliers > 0) issues.push({cat:'Data', severity:'info', msg: col.name + ' has ' + outliers + ' value(s) beyond 3 standard deviations from the mean. Review for outliers.'});
+          }
+        }
+      }
+    });
+
+    if (n > 10) {
+      var keySet = new Set(rows.map(function(r){ return r.slice(0,5).join('|'); }));
+      if (keySet.size < n * 0.95) issues.push({cat:'Data', severity:'warning', msg: 'Potential duplicate rows detected (' + (n - keySet.size) + ' duplicates by first 5 columns). Run a dedup check before analysis.'});
+    }
+    return issues;
+  }
+
+  function runPythonChecks(code) {
+    var issues = [];
+    PYTHON_CHECKS.forEach(function(chk) {
+      var r = chk.fn(code);
+      if (r) issues.push(Object.assign({cat:'Python'}, r));
+    });
+    var errors = issues.filter(function(i){ return i.severity==='error'; }).length;
+    var warnings = issues.filter(function(i){ return i.severity==='warning'; }).length;
+    if (errors === 0 && warnings === 0 && code.trim().length > 10) {
+      issues.push({cat:'Python', severity:'praise', msg:'No debug prints, no deprecated APIs, and clean structure. Solid analysis script.'});
+    }
+    return issues;
+  }
+
+  function computeGrade(issues) {
+    var errors = issues.filter(function(i){ return i.severity==='error'; }).length;
+    var warnings = issues.filter(function(i){ return i.severity==='warning'; }).length;
+    var score = 100 - (errors * 25) - (warnings * 10);
+    score = Math.max(0, score);
+    var grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F';
+    return {score: score, grade: grade, errors: errors, warnings: warnings};
+  }
+
+  function subScore(issues) {
+    if (issues.length === 0) return null;
+    var errors = issues.filter(function(i){ return i.severity==='error'; }).length;
+    var warnings = issues.filter(function(i){ return i.severity==='warning'; }).length;
+    var score = 100 - (errors * 25) - (warnings * 10);
+    return Math.max(0, score);
+  }
+
+  function renderReview() {
+    var feedEl = document.getElementById('review-feed');
+    var gradeEl = document.getElementById('review-grade-big');
+    var gradeLabelEl = document.getElementById('review-grade-label');
+    var errCountEl = document.getElementById('review-err-count');
+    var warnCountEl = document.getElementById('review-warn-count');
+    var infoCountEl = document.getElementById('review-info-count');
+    var praiseCountEl = document.getElementById('review-praise-count');
+    var sqlScoreEl = document.getElementById('review-sql-score');
+    var dataScoreEl = document.getElementById('review-data-score');
+    var pyScoreEl = document.getElementById('review-py-score');
+    if (!feedEl) return;
+
+    var sqlIssues = [];
+    var dataIssues = [];
+    var pyIssues = [];
+
+    var sqlInput = document.getElementById('sql-view-input');
+    if (sqlInput && sqlInput.value.trim()) {
+      sqlIssues = runSQLChecks(sqlInput.value);
+    }
+    var ds = window.getActiveDataset && window.getActiveDataset();
+    if (ds) dataIssues = runDataChecks(ds);
+    var pyInput = document.getElementById('py-view-input') || document.getElementById('py-editor') || document.getElementById('python-editor') || document.querySelector('.py-editor textarea');
+    if (pyInput && pyInput.value && pyInput.value.trim().length > 0) {
+      pyIssues = runPythonChecks(pyInput.value);
+    }
+
+    var issues = sqlIssues.concat(dataIssues, pyIssues);
+
+    if (sqlScoreEl) { var ss = subScore(sqlIssues); sqlScoreEl.textContent = ss === null ? '-' : ss; }
+    if (dataScoreEl) { var ds2 = subScore(dataIssues); dataScoreEl.textContent = ds2 === null ? '-' : ds2; }
+    if (pyScoreEl) { var ps = subScore(pyIssues); pyScoreEl.textContent = ps === null ? '-' : ps; }
+
+    if (issues.length === 0) {
+      feedEl.innerHTML = '<div class="review-empty">No issues found. Load a dataset and run a query to get a peer review.</div>';
+      if (gradeEl) { gradeEl.textContent = '-'; gradeEl.className = 'review-grade-big'; }
+      if (gradeLabelEl) gradeLabelEl.textContent = 'Quality Score';
+      if (errCountEl) errCountEl.textContent = '0';
+      if (warnCountEl) warnCountEl.textContent = '0';
+      if (infoCountEl) infoCountEl.textContent = '0';
+      if (praiseCountEl) praiseCountEl.textContent = '0';
+      return;
+    }
+
+    var SEV_ICON = {error:'&#9940;', warning:'&#9888;', info:'&#8505;', praise:'&#10003;'};
+    feedEl.innerHTML = issues.map(function(issue) {
+      return '<div class="review-item ' + issue.severity + '">' +
+        '<span class="review-sev-icon">' + (SEV_ICON[issue.severity] || '') + '</span>' +
+        '<div class="review-body">' +
+        '<div class="review-cat">' + issue.cat + ' - ' + issue.severity.toUpperCase() + '</div>' +
+        '<div class="review-msg">' + issue.msg + '</div>' +
+        '</div></div>';
+    }).join('');
+
+    var g = computeGrade(issues);
+    if (gradeEl) { gradeEl.textContent = g.grade; gradeEl.className = 'review-grade-big review-grade-' + g.grade; }
+    if (gradeLabelEl) gradeLabelEl.textContent = g.score + '/100 Quality Score';
+    if (errCountEl) errCountEl.textContent = g.errors;
+    if (warnCountEl) warnCountEl.textContent = g.warnings;
+    if (infoCountEl) infoCountEl.textContent = issues.filter(function(i){ return i.severity==='info'; }).length;
+    if (praiseCountEl) praiseCountEl.textContent = issues.filter(function(i){ return i.severity==='praise'; }).length;
+
+    if (window.SkillTracker && typeof window.SkillTracker.track === 'function') window.SkillTracker.track('peer_review');
+  }
+
+  var reviewPill = document.querySelector('[data-panel="review-view"]');
+  if (reviewPill) reviewPill.addEventListener('click', function() { setTimeout(renderReview, 50); });
+
+  document.addEventListener('dataglow:dataset-loaded', function() {
+    var rv = document.getElementById('review-view');
+    if (rv && rv.classList.contains('active')) renderReview();
+  });
+
+  var shareBtn = document.getElementById('review-share-btn');
+  if (shareBtn) shareBtn.addEventListener('click', function() {
+    var feedEl = document.getElementById('review-feed');
+    var items = feedEl ? feedEl.querySelectorAll('.review-item') : [];
+    var text = 'DataGlow Peer Review\n' + '='.repeat(40) + '\n';
+    items.forEach(function(el) {
+      var cat = el.querySelector('.review-cat'); var msg = el.querySelector('.review-msg');
+      if (cat && msg) text += '[' + cat.textContent + '] ' + msg.textContent + '\n';
+    });
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        if (window.showToast) window.showToast('Review copied to clipboard', 'success');
+      }).catch(function() {
+        if (window.showToast) window.showToast('Could not copy review', 'error');
+      });
+    }
+  });
+
+  window.PeerReview = { run: renderReview };
+
+})();
+
+// ---- #49 Take-Home Case ----
+(function () {
+  var thState = {
+    role: 'Data Analyst',
+    difficulty: 'Mid-Level',
+    timeLimit: '4 hours',
+    focus: ['Data Quality', 'Exploratory Analysis', 'Business Insights'],
+    hints: true,
+    caseData: null
+  };
+
+  function th$(id) { return document.getElementById(id); }
+
+  function openTakeHome() {
+    var modal = th$('takehome-modal');
+    if (!modal) return;
+    modal.classList.add('open');
+    showThGenScreen();
+    window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('open_takehome_case');
+  }
+
+  function closeTakeHome() {
+    var modal = th$('takehome-modal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  function showThGenScreen() {
+    var gen = th$('th-gen-screen');
+    var prev = th$('th-preview-screen');
+    if (gen) gen.style.display = 'flex';
+    if (prev) prev.classList.remove('open');
+  }
+
+  function showThPreviewScreen() {
+    var gen = th$('th-gen-screen');
+    var prev = th$('th-preview-screen');
+    if (gen) gen.style.display = 'none';
+    if (prev) prev.classList.add('open');
+  }
+
+  function detectDomain(cols) {
+    var names = cols.map(function (c) { return c.name.toLowerCase(); }).join(' ');
+    if (/bene|clm|dx|los|icd|drg|facility|medicare|medicaid|patient|admit|disch/.test(names)) return 'healthcare';
+    if (/revenue|amount|price|payment|invoice|transaction|cost|profit|margin|sales/.test(names)) return 'finance';
+    if (/employee|salary|department|hire|tenure|attrition|headcount|manager|staff/.test(names)) return 'hr';
+    return 'general';
+  }
+
+  function inferColDescription(name, type) {
+    var n = name.toLowerCase();
+    if (/^id$|_id$|^id_/.test(n)) return 'Unique identifier field';
+    if (/date|time|dt$/.test(n)) return 'Date or timestamp field';
+    if (/amount|price|revenue|cost|total|payment/.test(n)) return 'Monetary value field';
+    if (/name/.test(n)) return 'Descriptive name or label field';
+    if (/status|flag|type|category|code/.test(n)) return 'Categorical classification field';
+    if (/count|qty|quantity|num|number/.test(n)) return 'Numeric count or quantity field';
+    if (/pct|percent|rate|ratio/.test(n)) return 'Rate or percentage field';
+    if (type === 'INT' || type === 'FLOAT') return 'Numeric measure field';
+    if (type === 'DATE') return 'Date or timestamp field';
+    if (type === 'BOOL') return 'Boolean indicator field';
+    return 'Descriptive attribute field';
+  }
+
+  function findKeyMetricCol(cols) {
+    for (var i = 0; i < cols.length; i++) {
+      if (cols[i].type === 'INT' || cols[i].type === 'FLOAT') return cols[i];
+    }
+    return cols[0];
+  }
+
+  function findEntityCol(cols) {
+    for (var i = 0; i < cols.length; i++) {
+      var n = cols[i].name.toLowerCase();
+      if (/name|category|type|region|state|facility|department|product|provider/.test(n) && cols[i].type === 'STR') return cols[i];
+    }
+    for (var j = 0; j < cols.length; j++) {
+      if (cols[j].type === 'STR') return cols[j];
+    }
+    return cols[0];
+  }
+
+  function findDateCol(cols) {
+    for (var i = 0; i < cols.length; i++) {
+      if (cols[i].type === 'DATE') return cols[i];
+    }
+    return null;
+  }
+
+  function buildBackground(domain, ds) {
+    var name = ds.name || 'this dataset';
+    if (domain === 'healthcare') {
+      return [
+        'You have joined the analytics team at a mid-size healthcare organization that is working to improve care quality and control costs across its patient population. Leadership has provided a claims and encounter dataset, "' + name + '", and wants a rigorous, data-driven review before the next budget cycle.',
+        'Your task is to independently explore this data, identify quality issues, and surface actionable insights. The analytics team places a high value on clear communication: findings must be understandable to both technical peers and non-technical executives who will use your work to make resourcing decisions.'
+      ];
+    }
+    if (domain === 'finance') {
+      return [
+        'You have joined the analytics function at a growing fintech company. The finance and strategy team has handed you a transaction and revenue dataset, "' + name + '", ahead of an upcoming board review, and needs a clear read on performance drivers and data integrity risks.',
+        'Your task is to independently explore this data, validate its quality, and produce insights that inform pricing, risk, and growth decisions. Strong SQL fluency and the ability to translate numbers into a business narrative are essential for this role.'
+      ];
+    }
+    if (domain === 'hr') {
+      return [
+        'You have joined the people analytics team at a growing company. HR leadership has shared a workforce dataset, "' + name + '", and is looking for an independent, data-backed perspective on staffing trends, attrition risk, and organizational health.',
+        'Your task is to independently explore this data, flag any quality concerns, and deliver insights that could inform headcount planning and retention strategy. As with any people data, precision and clear communication matter as much as the numbers themselves.'
+      ];
+    }
+    return [
+      'You have joined the analytics team at a growing organization that relies on data to make key operating decisions. The team has provided a dataset, "' + name + '", and wants an independent, rigorous review of what it contains and what it means for the business.',
+      'Your task is to independently explore this data, identify any quality issues, and produce insights that could directly inform decision-making. Clear communication of technical findings to a non-technical audience is a core part of this assessment.'
+    ];
+  }
+
+  function buildDeliverables(difficulty, focus, ds, domain) {
+    var entityCol = findEntityCol(ds.columns);
+    var metricCol = findKeyMetricCol(ds.columns);
+    var dateCol = findDateCol(ds.columns);
+    var entityLabel = entityCol ? entityCol.name : 'records';
+    var metricLabel = metricCol ? metricCol.name : 'value';
+    var outcomeLabel = metricCol ? metricCol.name : 'the key outcome metric';
+    var businessQuestion = 'How does ' + metricLabel + ' vary across ' + entityLabel + (dateCol ? ' over time (' + dateCol.name + ')' : '') + ', and what segments should the business prioritize?';
+
+    if (difficulty === 'Junior') {
+      return [
+        { title: 'Task 1: Data Profiling', body: 'Load and profile the dataset. Describe its structure (row count, column count, types) and identify any data quality issues you observe.' },
+        { title: 'Task 2: Top Entities Query', body: 'Write a SQL query to find the top 10 ' + entityLabel + ' values by ' + metricLabel + '.' },
+        { title: 'Task 3: Summary Table', body: 'Create a summary table showing ' + entityLabel + ' broken down by ' + metricLabel + '.' },
+        { title: 'Task 4: Anomaly Check', body: 'Identify any anomalies or outliers in the data and explain how you detected them.' },
+        { title: 'Task 5: Executive Summary', body: 'Write a 1 paragraph executive summary of your findings, written for a non-technical audience.' }
+      ];
+    }
+    if (difficulty === 'Senior') {
+      return [
+        { title: 'Task 1: Data Quality Audit', body: 'Perform a comprehensive data quality audit. Document every issue you find with a proposed remediation for each.' },
+        { title: 'Task 2: Multi-Step SQL Pipeline', body: 'Build a multi-step SQL pipeline to answer: ' + businessQuestion },
+        { title: 'Task 3: Statistical Drivers', body: 'Apply statistical analysis (correlation or regression) to identify key drivers of ' + outcomeLabel + '.' },
+        { title: 'Task 4: Executive Narrative', body: 'Construct a business narrative for a non-technical executive audience, grounded in your analysis.' },
+        { title: 'Task 5: Follow-up Roadmap', body: 'Propose 3 follow-up analyses you would pursue given more time and additional data sources.' }
+      ];
+    }
+    return [
+      { title: 'Task 1: Data Profiling and Quality Review', body: 'Load and profile the dataset. Describe its structure and document data quality issues, with notes on how each would affect downstream analysis.' },
+      { title: 'Task 2: SQL Investigation', body: 'Write SQL queries to answer: ' + businessQuestion },
+      { title: 'Task 3: Segment Analysis', body: 'Create a summary table showing ' + entityLabel + ' broken down by ' + metricLabel + ', and highlight the most notable segment.' },
+      { title: 'Task 4: Anomaly and Outlier Analysis', body: 'Identify anomalies or outliers in ' + outcomeLabel + ' and assess whether they represent data errors or genuine business signal.' },
+      { title: 'Task 5: Business Narrative', body: 'Write an executive summary that translates your technical findings into a clear business recommendation.' }
+    ];
+  }
+
+  function buildHints(deliverables, ds) {
+    var entityCol = findEntityCol(ds.columns);
+    var entityLabel = entityCol ? entityCol.name : 'records';
+    var generic = [
+      'Use GROUP BY with COUNT(*) or SUM() and ORDER BY DESC to find top ' + entityLabel + '.',
+      'Check column types and NULL counts first. A quick profiling pass saves time later.',
+      'Check for NULL values using IS NULL in your WHERE clause, and watch for placeholder values like 0, -1, or "Unknown".',
+      'Visualize the distribution of your key metric before deciding what counts as an outlier.',
+      'Keep your executive summary to 4 to 6 sentences. Lead with the finding, not the method.'
+    ];
+    return deliverables.map(function (d, i) {
+      return 'Hint ' + (i + 1) + ': ' + (generic[i] || generic[generic.length - 1]);
+    });
+  }
+
+  function buildRubric(focus) {
+    var base = [
+      { criterion: 'SQL Quality', weight: '25%', description: 'Correctness, efficiency, readability' },
+      { criterion: 'Analysis Depth', weight: '30%', description: 'Insight quality, business framing' },
+      { criterion: 'Communication', weight: '25%', description: 'Clarity, structure, executive summary' },
+      { criterion: 'Data Quality', weight: '20%', description: 'Issue identification and handling' }
+    ];
+    return base;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function sampleValues(ds, colIdx) {
+    var out = [];
+    for (var i = 0; i < ds.rows.length && out.length < 3; i++) {
+      var v = ds.rows[i][colIdx];
+      if (v !== null && v !== undefined && v !== '') out.push(v);
+    }
+    return out.join(', ') || '(no data)';
+  }
+
+  function getDateRangeNote(ds) {
+    var dateCol = findDateCol(ds.columns);
+    if (!dateCol) return null;
+    var idx = ds.columns.indexOf(dateCol);
+    var vals = [];
+    for (var i = 0; i < ds.rows.length; i++) {
+      var v = ds.rows[i][idx];
+      if (v) {
+        var t = new Date(v).getTime();
+        if (!isNaN(t)) vals.push(t);
+      }
+    }
+    if (!vals.length) return null;
+    vals.sort(function (a, b) { return a - b; });
+    var min = new Date(vals[0]);
+    var max = new Date(vals[vals.length - 1]);
+    return min.toISOString().slice(0, 10) + ' to ' + max.toISOString().slice(0, 10);
+  }
+
+  function generateCase() {
+    var ds = window.getActiveDataset ? window.getActiveDataset() : null;
+    if (!ds) {
+      window.showToast && window.showToast('Load a dataset first to generate a take-home case.', 'warn');
+      return;
+    }
+
+    var domain = detectDomain(ds.columns);
+    var background = buildBackground(domain, ds);
+    var deliverables = buildDeliverables(thState.difficulty, thState.focus, ds, domain);
+    var hints = thState.hints ? buildHints(deliverables, ds) : [];
+    var rubric = buildRubric(thState.focus);
+    var dateRange = getDateRangeNote(ds);
+    var domainLabelMap = { healthcare: 'Claims Analysis', finance: 'Financial Data Analysis', hr: 'Workforce Analysis', general: 'Data Analysis' };
+    var titlePrefix = ds.name ? ds.name : 'Dataset';
+    var caseTitle = titlePrefix + ' - ' + thState.role + ' Take-Home Assessment';
+    var dateIssued = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    thState.caseData = {
+      title: caseTitle,
+      role: thState.role,
+      difficulty: thState.difficulty,
+      timeLimit: thState.timeLimit,
+      dateIssued: dateIssued,
+      background: background,
+      dataset: ds,
+      domain: domain,
+      deliverables: deliverables,
+      hints: hints,
+      rubric: rubric,
+      dateRange: dateRange
+    };
+
+    renderCase(thState.caseData);
+    showThPreviewScreen();
+    window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('generate_takehome_case');
+    window.LevelSystem && window.LevelSystem.addXP && window.LevelSystem.addXP('generate_takehome_case');
+    if (window.showToast) window.showToast('Take-home case generated', 'success');
+  }
+
+  function renderCase(cd) {
+    var el = th$('th-case-content');
+    if (!el) return;
+    var ds = cd.dataset;
+
+    var html = '';
+    html += '<div class="th-confidential">Confidential - For Candidate Use Only</div>';
+    html += '<h1>' + escapeHtml(cd.title) + '</h1>';
+    html += '<p><strong>Role:</strong> ' + escapeHtml(cd.role) + ' &nbsp; | &nbsp; <strong>Difficulty:</strong> ' + escapeHtml(cd.difficulty) + ' &nbsp; | &nbsp; <strong>Time Limit:</strong> ' + escapeHtml(cd.timeLimit) + ' &nbsp; | &nbsp; <strong>Date Issued:</strong> ' + escapeHtml(cd.dateIssued) + '</p>';
+
+    html += '<h2>Section 1: Background</h2>';
+    html += '<p>' + escapeHtml(cd.background[0]) + '</p>';
+    html += '<p>' + escapeHtml(cd.background[1]) + '</p>';
+
+    html += '<h2>Section 2: The Dataset</h2>';
+    html += '<table><thead><tr><th>Column</th><th>Type</th><th>Description</th><th>Sample Values</th></tr></thead><tbody>';
+    for (var i = 0; i < ds.columns.length; i++) {
+      var col = ds.columns[i];
+      html += '<tr><td>' + escapeHtml(col.name) + '</td><td>' + escapeHtml(col.type) + '</td><td>' + escapeHtml(inferColDescription(col.name, col.type)) + '</td><td>' + escapeHtml(sampleValues(ds, i)) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    var rangeNote = cd.dateRange ? ' spanning ' + cd.dateRange : '';
+    html += '<p>Note: The dataset contains ' + ds.rows.length.toLocaleString() + ' records across ' + ds.columns.length + ' columns' + rangeNote + '.</p>';
+
+    html += '<h2>Section 3: Required Deliverables</h2>';
+    for (var j = 0; j < cd.deliverables.length; j++) {
+      var d = cd.deliverables[j];
+      html += '<div class="th-deliverable"><strong>' + escapeHtml(d.title) + '</strong><p>' + escapeHtml(d.body) + '</p></div>';
+      if (cd.hints[j]) {
+        html += '<div class="th-hint">' + escapeHtml(cd.hints[j]) + '</div>';
+      }
+    }
+
+    html += '<h2>Section 4: Evaluation Criteria</h2>';
+    html += '<table class="th-rubric-table"><thead><tr><th>Criterion</th><th>Weight</th><th>Description</th></tr></thead><tbody>';
+    for (var k = 0; k < cd.rubric.length; k++) {
+      var r = cd.rubric[k];
+      html += '<tr><td>' + escapeHtml(r.criterion) + '</td><td>' + escapeHtml(r.weight) + '</td><td>' + escapeHtml(r.description) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+
+    html += '<h2>Section 5: Submission Instructions</h2>';
+    html += '<p>Submit your work as a PDF report or Jupyter notebook. Include all SQL queries you wrote along with output screenshots. Time yourself and stay within the ' + escapeHtml(cd.timeLimit) + ' limit.</p>';
+
+    el.innerHTML = html;
+  }
+
+  function caseToMarkdown(cd) {
+    var ds = cd.dataset;
+    var lines = [];
+    lines.push('CONFIDENTIAL - FOR CANDIDATE USE ONLY');
+    lines.push('');
+    lines.push('# ' + cd.title);
+    lines.push('');
+    lines.push('**Role:** ' + cd.role + '  |  **Difficulty:** ' + cd.difficulty + '  |  **Time Limit:** ' + cd.timeLimit + '  |  **Date Issued:** ' + cd.dateIssued);
+    lines.push('');
+    lines.push('## Section 1: Background');
+    lines.push('');
+    lines.push(cd.background[0]);
+    lines.push('');
+    lines.push(cd.background[1]);
+    lines.push('');
+    lines.push('## Section 2: The Dataset');
+    lines.push('');
+    lines.push('| Column | Type | Description | Sample Values |');
+    lines.push('|---|---|---|---|');
+    for (var i = 0; i < ds.columns.length; i++) {
+      var col = ds.columns[i];
+      lines.push('| ' + col.name + ' | ' + col.type + ' | ' + inferColDescription(col.name, col.type) + ' | ' + sampleValues(ds, i) + ' |');
+    }
+    lines.push('');
+    var rangeNote = cd.dateRange ? ' spanning ' + cd.dateRange : '';
+    lines.push('Note: The dataset contains ' + ds.rows.length.toLocaleString() + ' records across ' + ds.columns.length + ' columns' + rangeNote + '.');
+    lines.push('');
+    lines.push('## Section 3: Required Deliverables');
+    lines.push('');
+    for (var j = 0; j < cd.deliverables.length; j++) {
+      var d = cd.deliverables[j];
+      lines.push((j + 1) + '. **' + d.title + '**: ' + d.body);
+      if (cd.hints[j]) {
+        lines.push('   > ' + cd.hints[j]);
+      }
+    }
+    lines.push('');
+    lines.push('## Section 4: Evaluation Criteria');
+    lines.push('');
+    lines.push('| Criterion | Weight | Description |');
+    lines.push('|---|---|---|');
+    for (var k = 0; k < cd.rubric.length; k++) {
+      var r = cd.rubric[k];
+      lines.push('| ' + r.criterion + ' | ' + r.weight + ' | ' + r.description + ' |');
+    }
+    lines.push('');
+    lines.push('## Section 5: Submission Instructions');
+    lines.push('');
+    lines.push('Submit your work as a PDF report or Jupyter notebook. Include all SQL queries you wrote along with output screenshots. Time yourself and stay within the ' + cd.timeLimit + ' limit.');
+    return lines.join('\n');
+  }
+
+  function copyAsMarkdown() {
+    if (!thState.caseData) return;
+    var md = caseToMarkdown(thState.caseData);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md).then(function () {
+        window.showToast && window.showToast('Case copied as markdown', 'success');
+      }).catch(function () {
+        window.showToast && window.showToast('Could not copy to clipboard', 'error');
+      });
+    } else {
+      window.showToast && window.showToast('Clipboard not available', 'error');
+    }
+  }
+
+  function printCase() {
+    window.print();
+  }
+
+  function shareCase() {
+    if (!thState.caseData) return;
+    var el = th$('th-case-content');
+    if (!el) return;
+    var htmlDoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escapeHtml(thState.caseData.title) + '</title></head><body>' + el.innerHTML + '</body></html>';
+    var encoded;
+    try {
+      encoded = btoa(unescape(encodeURIComponent(htmlDoc)));
+    } catch (e) {
+      window.showToast && window.showToast('Could not build share link', 'error');
+      return;
+    }
+    var dataUrl = 'data:text/html;base64,' + encoded;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(dataUrl).then(function () {
+        window.showToast && window.showToast('Share link copied to clipboard', 'success');
+      }).catch(function () {
+        window.showToast && window.showToast('Could not copy share link', 'error');
+      });
+    } else {
+      window.showToast && window.showToast('Clipboard not available', 'error');
+    }
+  }
+
+  function toggleFocusCheckbox(label) {
+    var focus = label.getAttribute('data-focus');
+    var checkbox = label.querySelector('input');
+    var isChecked = label.classList.contains('checked');
+    if (isChecked) {
+      label.classList.remove('checked');
+      if (checkbox) checkbox.checked = false;
+      var idx = thState.focus.indexOf(focus);
+      if (idx > -1) thState.focus.splice(idx, 1);
+    } else {
+      label.classList.add('checked');
+      if (checkbox) checkbox.checked = true;
+      if (thState.focus.indexOf(focus) === -1) thState.focus.push(focus);
+    }
+  }
+
+  function wireTakeHome() {
+    var trigger = th$('takehome-trigger-btn');
+    if (trigger) trigger.addEventListener('click', openTakeHome);
+
+    var closeBtn = th$('th-close-btn');
+    if (closeBtn) closeBtn.addEventListener('click', closeTakeHome);
+
+    var backBtn = th$('th-back-btn');
+    if (backBtn) backBtn.addEventListener('click', showThGenScreen);
+
+    var roleSel = th$('th-role-select');
+    if (roleSel) roleSel.addEventListener('change', function () { thState.role = roleSel.value; });
+
+    var diffSel = th$('th-difficulty-select');
+    if (diffSel) diffSel.addEventListener('change', function () { thState.difficulty = diffSel.value; });
+
+    var timeSel = th$('th-time-select');
+    if (timeSel) timeSel.addEventListener('change', function () { thState.timeLimit = timeSel.value; });
+
+    var focusWrap = th$('th-focus-checkboxes');
+    if (focusWrap) {
+      var labels = focusWrap.querySelectorAll('.th-checkbox-label');
+      for (var i = 0; i < labels.length; i++) {
+        labels[i].addEventListener('click', function (e) {
+          e.preventDefault();
+          toggleFocusCheckbox(this);
+        });
+      }
+    }
+
+    var hintsToggle = th$('th-hints-toggle');
+    if (hintsToggle) {
+      hintsToggle.addEventListener('click', function () {
+        thState.hints = !thState.hints;
+        hintsToggle.classList.toggle('on', thState.hints);
+      });
+    }
+
+    var genBtn = th$('th-generate-btn');
+    if (genBtn) genBtn.addEventListener('click', generateCase);
+
+    var copyBtn = th$('th-copy-md-btn');
+    if (copyBtn) copyBtn.addEventListener('click', copyAsMarkdown);
+
+    var printBtn = th$('th-print-btn');
+    if (printBtn) printBtn.addEventListener('click', printCase);
+
+    var shareBtn = th$('th-share-btn');
+    if (shareBtn) shareBtn.addEventListener('click', shareCase);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireTakeHome);
+  } else {
+    wireTakeHome();
+  }
+
+  window.TakeHomeCase = {
+    open: openTakeHome,
+    close: closeTakeHome,
+    generate: generateCase
+  };
+})();
+
+
+/* ---- #50 Question Prompter ---- */
+(function () {
+  'use strict';
+
+  var AUTO_DELAY_MS = 800;
+
+  function $(id) { return document.getElementById(id); }
+
+  function isNullish(v) {
+    return v === null || v === undefined || v === '' || (typeof v === 'string' && v.trim() === '');
+  }
+
+  function colIndexByName(ds, name) {
+    for (var i = 0; i < ds.columns.length; i++) {
+      if (ds.columns[i].name === name) return i;
+    }
+    return -1;
+  }
+
+  function colsByType(ds, types) {
+    return ds.columns.filter(function (c) { return types.indexOf(c.type) !== -1; });
+  }
+
+  function nameMatches(name, re) {
+    return re.test(String(name).toLowerCase());
+  }
+
+  function findCol(ds, re, types) {
+    for (var i = 0; i < ds.columns.length; i++) {
+      var c = ds.columns[i];
+      if (types && types.indexOf(c.type) === -1) continue;
+      if (nameMatches(c.name, re)) return c;
+    }
+    return null;
+  }
+
+  function getTableName(ds) {
+    if (window.SQLEngine && typeof window.SQLEngine.safeTableName === 'function') {
+      return window.SQLEngine.safeTableName(ds.name || 'dataset');
+    }
+    return (ds.name || 'dataset').replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+
+  function nullCountsByColumn(ds) {
+    var counts = {};
+    ds.columns.forEach(function (c) { counts[c.name] = 0; });
+    var sampleRows = ds.rows.slice(0, 2000);
+    sampleRows.forEach(function (row) {
+      ds.columns.forEach(function (c, i) {
+        if (isNullish(row[i])) counts[c.name] = (counts[c.name] || 0) + 1;
+      });
+    });
+    return counts;
+  }
+
+  function mostNumericCol(ds, numCols) {
+    if (!numCols.length) return null;
+    var best = numCols[0];
+    var bestVariance = -1;
+    numCols.forEach(function (c) {
+      var idx = colIndexByName(ds, c.name);
+      var vals = ds.rows.slice(0, 500).map(function (r) { return Number(r[idx]); }).filter(function (v) { return !isNaN(v); });
+      if (!vals.length) return;
+      var mean = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+      var variance = vals.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / vals.length;
+      if (variance > bestVariance) { bestVariance = variance; best = c; }
+    });
+    return best;
+  }
+
+  function generateQuestions(ds) {
+    var questions = [];
+    if (!ds || !ds.columns || !ds.columns.length) return questions;
+
+    var cols = ds.columns;
+    var tbl = getTableName(ds);
+    var rowCount = ds.rows ? ds.rows.length : 0;
+    var allNames = cols.map(function (c) { return c.name.toLowerCase(); }).join(' ');
+
+    var dateCols = colsByType(ds, ['DATE']);
+    var numCols = colsByType(ds, ['INT', 'FLOAT']);
+    var strCols = colsByType(ds, ['STR']);
+
+    var amountCol = findCol(ds, /amount|revenue|cost|payment|price|charge|total|spend|sale/, ['INT', 'FLOAT']);
+    var categoryCol = strCols.length ? strCols[0] : null;
+
+    var nullCounts = nullCountsByColumn(ds);
+    var hasNulls = Object.keys(nullCounts).some(function (k) { return nullCounts[k] > 0; });
+    var worstNullCol = null;
+    var worstNullCount = 0;
+    Object.keys(nullCounts).forEach(function (k) {
+      if (nullCounts[k] > worstNullCount) { worstNullCount = nullCounts[k]; worstNullCol = k; }
+    });
+
+    var isHealth = /claim|diagnosis|patient|icd|provider|admit|discharge|procedure|cpt|drg|npi|member|rx|readmission|facility/.test(allNames);
+    var isFinance = /revenue|amount|cost|price|sale|profit|margin|spend|budget|invoice|payment|charge|transaction/.test(allNames);
+    var isHR = /employee|salary|department|hire|tenure|headcount|role|position|manager|satisfaction|turnover/.test(allNames);
+
+    // ---- DATE-driven questions ----
+    if (dateCols.length) {
+      var measureCol = amountCol || numCols[0];
+      if (measureCol) {
+        questions.push({
+          text: 'How does ' + measureCol.name + ' change over time?',
+          context: 'Trend lines reveal seasonality, growth, or decline that raw tables hide.',
+          category: 'Trend',
+          tool: 'Charts',
+          sql: null
+        });
+      }
+      questions.push({
+        text: 'What time period does this dataset cover and are there gaps?',
+        category: 'Quality',
+        context: 'Coverage gaps can silently bias any trend or comparison you run later.',
+        tool: 'SQL',
+        sql: 'SELECT MIN(' + q(dateCols[0].name) + ') AS earliest, MAX(' + q(dateCols[0].name) + ') AS latest, COUNT(DISTINCT ' + q(dateCols[0].name) + ') AS distinct_dates FROM ' + q(tbl)
+      });
+    }
+
+    // ---- Amount/revenue/cost driven questions ----
+    if (amountCol) {
+      if (categoryCol) {
+        questions.push({
+          text: 'Which ' + categoryCol.name + ' drives the most ' + amountCol.name + '?',
+          context: 'Identifies the biggest concentration of value, a key input for prioritization and CFO reporting.',
+          category: 'Distribution',
+          tool: 'SQL',
+          sql: 'SELECT ' + q(categoryCol.name) + ', SUM(' + q(amountCol.name) + ') AS total_' + safeIdent(amountCol.name) + ' FROM ' + q(tbl) + ' GROUP BY ' + q(categoryCol.name) + ' ORDER BY total_' + safeIdent(amountCol.name) + ' DESC LIMIT 20'
+        });
+      }
+      questions.push({
+        text: 'Are there outlier transactions that skew the averages?',
+        context: 'A handful of extreme values can distort means and mislead decisions based on averages.',
+        category: 'Outlier',
+        tool: 'Stats',
+        sql: null
+      });
+    }
+
+    // ---- Numeric column questions ----
+    if (numCols.length) {
+      var bestNumCol = mostNumericCol(ds, numCols);
+      questions.push({
+        text: 'What is the distribution of ' + bestNumCol.name + '? Are there outliers?',
+        context: 'Understanding the shape of the data (skew, spread, extremes) is the foundation for every downstream analysis.',
+        category: 'Distribution',
+        tool: 'Charts',
+        sql: null
+      });
+      if (numCols.length > 1) {
+        questions.push({
+          text: 'Which columns correlate with ' + bestNumCol.name + '?',
+          context: 'Correlated variables often point to drivers worth investigating or controlling for.',
+          category: 'Correlation',
+          tool: 'Stats',
+          sql: null
+        });
+      }
+    }
+
+    // ---- STR columns quality ----
+    if (strCols.length >= 2) {
+      var strTarget = categoryCol || strCols[0];
+      questions.push({
+        text: 'What are the most common values in ' + strTarget.name + ' and are there data entry inconsistencies?',
+        context: 'Inconsistent labels (casing, typos, duplicates) quietly break every GROUP BY you run.',
+        category: 'Quality',
+        tool: 'SQL',
+        sql: 'SELECT ' + q(strTarget.name) + ', COUNT(*) AS n FROM ' + q(tbl) + ' GROUP BY ' + q(strTarget.name) + ' ORDER BY n DESC LIMIT 25'
+      });
+    }
+
+    // ---- NULL detection ----
+    if (hasNulls && worstNullCol) {
+      questions.push({
+        text: 'Which columns have the most missing data and does the absence follow a pattern?',
+        context: 'Missing data is rarely random. Patterns in nulls can reveal broken pipelines or biased samples.',
+        category: 'Quality',
+        tool: 'SQL',
+        sql: 'SELECT ' + q(worstNullCol) + ', COUNT(*) AS n FROM ' + q(tbl) + ' WHERE ' + q(worstNullCol) + ' IS NULL GROUP BY ' + q(worstNullCol) + ' LIMIT 25'
+      });
+    }
+
+    // ---- Segmentation for large datasets ----
+    if (rowCount > 1000) {
+      questions.push({
+        text: 'Can this data be segmented into meaningful cohorts?',
+        context: 'With over ' + rowCount.toLocaleString() + ' rows, aggregate stats hide meaningful subgroup differences.',
+        category: 'Comparison',
+        tool: 'SQL',
+        sql: 'SELECT ' + (categoryCol ? q(categoryCol.name) : '*') + ', COUNT(*) AS n' + (amountCol ? (', AVG(' + q(amountCol.name) + ') AS avg_' + safeIdent(amountCol.name)) : '') + ' FROM ' + q(tbl) + (categoryCol ? (' GROUP BY ' + q(categoryCol.name) + ' ORDER BY n DESC') : '') + ' LIMIT 20'
+      });
+    }
+
+    // ---- Healthcare-specific ----
+    if (isHealth) {
+      var dxCol = findCol(ds, /diag|icd|dx/, null);
+      var costCol = amountCol || findCol(ds, /cost|charge|payment/, ['INT', 'FLOAT']);
+      var losCol = findCol(ds, /length.?of.?stay|los/, ['INT', 'FLOAT']);
+      if (dxCol && costCol) {
+        questions.push({
+          text: 'Which diagnosis codes have the highest average cost and length of stay?',
+          context: 'Pinpoints the clinical categories driving spend, the starting point for cost containment.',
+          category: 'Distribution',
+          tool: 'SQL',
+          sql: 'SELECT ' + q(dxCol.name) + ', AVG(' + q(costCol.name) + ') AS avg_cost' + (losCol ? (', AVG(' + q(losCol.name) + ') AS avg_los') : '') + ', COUNT(*) AS n FROM ' + q(tbl) + ' GROUP BY ' + q(dxCol.name) + ' ORDER BY avg_cost DESC LIMIT 20'
+        });
+      }
+      var readmitCol = findCol(ds, /readmit/, null);
+      var patientCol = findCol(ds, /patient|member/, null);
+      if (readmitCol || patientCol) {
+        questions.push({
+          text: 'Are there patients with unusually high readmission rates?',
+          context: 'High readmission concentrations often flag quality-of-care issues or fraud patterns.',
+          category: 'Outlier',
+          tool: 'SQL',
+          sql: patientCol ? ('SELECT ' + q(patientCol.name) + ', COUNT(*) AS visit_count FROM ' + q(tbl) + ' GROUP BY ' + q(patientCol.name) + ' ORDER BY visit_count DESC LIMIT 20') : ('SELECT * FROM ' + q(tbl) + ' LIMIT 20')
+        });
+      }
+      var facilityCol = findCol(ds, /facility|hospital|provider/, null);
+      var stateCol = findCol(ds, /state|region/, null);
+      if ((facilityCol || stateCol) && costCol) {
+        var geoCol = facilityCol || stateCol;
+        questions.push({
+          text: 'Do payment amounts vary significantly by facility or state?',
+          context: 'Geographic or facility level variation can reveal pricing discrepancies or access disparities.',
+          category: 'Comparison',
+          tool: 'SQL',
+          sql: 'SELECT ' + q(geoCol.name) + ', AVG(' + q(costCol.name) + ') AS avg_payment, COUNT(*) AS n FROM ' + q(tbl) + ' GROUP BY ' + q(geoCol.name) + ' ORDER BY avg_payment DESC LIMIT 20'
+        });
+      }
+    }
+
+    // ---- Finance-specific ----
+    if (isFinance && amountCol) {
+      if (categoryCol) {
+        questions.push({
+          text: 'Which categories contribute 80% of total revenue (Pareto analysis)?',
+          context: 'Pareto analysis shows where to focus attention; usually a small share of categories drives most value.',
+          category: 'Distribution',
+          tool: 'SQL',
+          sql: 'SELECT ' + q(categoryCol.name) + ', SUM(' + q(amountCol.name) + ') AS total FROM ' + q(tbl) + ' GROUP BY ' + q(categoryCol.name) + ' ORDER BY total DESC LIMIT 20'
+        });
+      }
+      var dtCol = dateCols.length ? dateCols[0] : null;
+      if (dtCol) {
+        questions.push({
+          text: 'Are there suspicious transaction patterns by time of day or day of week?',
+          context: 'Unusual timing clusters can signal fraud, automation abuse, or operational anomalies.',
+          category: 'Outlier',
+          tool: 'SQL',
+          sql: 'SELECT ' + q(dtCol.name) + ', COUNT(*) AS n, SUM(' + q(amountCol.name) + ') AS total FROM ' + q(tbl) + ' GROUP BY ' + q(dtCol.name) + ' ORDER BY n DESC LIMIT 20'
+        });
+      }
+    }
+
+    // ---- HR-specific ----
+    if (isHR) {
+      var deptCol = findCol(ds, /dept|department|team/, null);
+      var tenureCol = findCol(ds, /tenure|years|hire/, ['INT', 'FLOAT']);
+      var satCol = findCol(ds, /satisfaction|engagement|review|score/, ['INT', 'FLOAT']);
+      if (deptCol && (tenureCol || satCol)) {
+        var riskCol = tenureCol || satCol;
+        questions.push({
+          text: 'Which departments have the highest turnover risk based on tenure and satisfaction?',
+          context: 'Combining tenure and satisfaction signals surfaces flight risk before attrition happens.',
+          category: 'Comparison',
+          tool: 'SQL',
+          sql: 'SELECT ' + q(deptCol.name) + ', AVG(' + q(riskCol.name) + ') AS avg_' + safeIdent(riskCol.name) + ', COUNT(*) AS n FROM ' + q(tbl) + ' GROUP BY ' + q(deptCol.name) + ' ORDER BY avg_' + safeIdent(riskCol.name) + ' ASC LIMIT 20'
+        });
+      }
+    }
+
+    // ---- General reflection questions (always include) ----
+    questions.push({
+      text: 'What does a typical record look like and what makes a record unusual?',
+      context: 'Establishing the baseline record helps you recognize anomalies faster everywhere else.',
+      category: 'Distribution',
+      tool: 'Stats',
+      sql: null
+    });
+    questions.push({
+      text: 'What business decision could this data inform today?',
+      context: 'The most valuable analyses start by tying the data back to a real decision someone needs to make.',
+      category: 'Comparison',
+      tool: null,
+      sql: null
+    });
+
+    // Deduplicate by text, cap to 8-12
+    var seen = {};
+    var deduped = [];
+    questions.forEach(function (qq) {
+      if (!seen[qq.text]) { seen[qq.text] = true; deduped.push(qq); }
+    });
+
+    if (deduped.length < 8) {
+      var fillers = [
+        { text: 'How many total records and columns does this dataset have?', context: 'A quick shape check anchors every other question you ask.', category: 'Distribution', tool: 'SQL', sql: 'SELECT COUNT(*) AS row_count FROM ' + q(tbl) },
+        { text: 'Are there duplicate records that should be deduplicated?', context: 'Duplicates silently inflate counts and sums across every downstream report.', category: 'Quality', tool: 'SQL', sql: 'SELECT *, COUNT(*) AS dup_count FROM ' + q(tbl) + ' GROUP BY ' + cols.map(function (c) { return q(c.name); }).join(', ') + ' HAVING COUNT(*) > 1 LIMIT 20' },
+        { text: 'What are the min and max values across the key numeric fields?', context: 'Range checks catch obviously bad data (negative ages, impossible dates) early.', category: 'Distribution', tool: 'SQL', sql: 'SELECT * FROM ' + q(tbl) + ' LIMIT 10' }
+      ];
+      fillers.forEach(function (f) {
+        if (deduped.length >= 8 && deduped.length >= 12) return;
+        if (!seen[f.text]) { seen[f.text] = true; deduped.push(f); }
+      });
+    }
+
+    if (deduped.length > 12) deduped = deduped.slice(0, 12);
+
+    return deduped;
+  }
+
+  function q(name) {
+    return '"' + String(name).replace(/"/g, '') + '"';
+  }
+
+  function safeIdent(name) {
+    return String(name).replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+  }
+
+  function catClass(category) {
+    var map = {
+      'Distribution': 'cat-distribution',
+      'Trend': 'cat-trend',
+      'Quality': 'cat-quality',
+      'Outlier': 'cat-outlier',
+      'Comparison': 'cat-comparison',
+      'Correlation': 'cat-correlation'
+    };
+    return map[category] || 'cat-distribution';
+  }
+
+  function renderDrawer(questions, ds) {
+    var list = $('qd-list');
+    var subtitle = $('qd-subtitle');
+    if (!list) return;
+
+    var rowCount = ds && ds.rows ? ds.rows.length : 0;
+    var colCount = ds && ds.columns ? ds.columns.length : 0;
+    var dsName = ds ? (ds.name || 'dataset') : 'dataset';
+
+    var titleEl = document.querySelector('#questions-drawer .qd-title');
+    if (titleEl) titleEl.textContent = questions.length + ' Questions Worth Asking';
+
+    if (subtitle) {
+      subtitle.textContent = dsName + '  -  ' + rowCount.toLocaleString() + ' rows, ' + colCount + ' columns';
+    }
+
+    if (!questions.length) {
+      list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;">Load a dataset to generate analytical questions tailored to your data.</div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    questions.forEach(function (qq, idx) {
+      var card = document.createElement('div');
+      card.className = 'qd-card';
+
+      var tags = document.createElement('div');
+      tags.className = 'qd-tags';
+
+      var catTag = document.createElement('span');
+      catTag.className = 'qd-tag ' + catClass(qq.category);
+      catTag.textContent = qq.category;
+      tags.appendChild(catTag);
+
+      if (qq.tool) {
+        var toolTag = document.createElement('span');
+        toolTag.className = 'qd-tag tool';
+        toolTag.textContent = qq.tool;
+        tags.appendChild(toolTag);
+      }
+
+      var qText = document.createElement('div');
+      qText.className = 'qd-question';
+      qText.textContent = qq.text;
+
+      var ctx = document.createElement('div');
+      ctx.className = 'qd-context';
+      ctx.textContent = qq.context;
+
+      card.appendChild(tags);
+      card.appendChild(qText);
+      card.appendChild(ctx);
+
+      if (qq.tool) {
+        var askBtn = document.createElement('button');
+        askBtn.className = 'qd-ask-btn';
+        askBtn.textContent = 'Ask This';
+        askBtn.addEventListener('click', function () {
+          askQuestion(qq, ds);
+        });
+        card.appendChild(askBtn);
+      }
+
+      list.appendChild(card);
+    });
+  }
+
+  function switchToPanel(panelId) {
+    var navBtns = document.querySelectorAll('.nav-btn');
+    navBtns.forEach(function (b) { b.classList.remove('active'); });
+    var analyzeBtn = document.querySelector('.nav-btn[data-view="analyze"]');
+    if (analyzeBtn) analyzeBtn.classList.add('active');
+
+    document.querySelectorAll('.view').forEach(function (v) {
+      v.classList.add('hidden'); v.classList.remove('active');
+    });
+    var analyzeView = $('analyze-view');
+    if (analyzeView) { analyzeView.classList.remove('hidden'); analyzeView.classList.add('active'); }
+
+    var pill = document.querySelector('.analyze-pill[data-panel="' + panelId + '"]');
+    if (pill) {
+      pill.click();
+    } else {
+      document.querySelectorAll('.analyze-panel').forEach(function (p) {
+        p.classList.remove('active'); p.classList.add('hidden');
+      });
+      var panel = $(panelId);
+      if (panel) { panel.classList.remove('hidden'); panel.classList.add('active'); }
+    }
+  }
+
+  function askQuestion(qq, ds) {
+    if (qq.tool === 'SQL') {
+      switchToPanel('sql-view');
+      if (qq.sql) {
+        setTimeout(function () {
+          var input = $('sql-view-input');
+          if (input) input.value = qq.sql;
+        }, 60);
+      }
+    } else if (qq.tool === 'Stats') {
+      switchToPanel('stats-view');
+    } else if (qq.tool === 'Charts') {
+      switchToPanel('charts-view');
+    } else if (qq.tool === 'Python') {
+      switchToPanel('python-view');
+    }
+
+    hideDrawer();
+
+    if (window.LevelSystem && typeof window.LevelSystem.addXP === 'function') {
+      window.LevelSystem.addXP('ask_question', 5);
+    }
+    if (window.SkillTracker && typeof window.SkillTracker.track === 'function') {
+      window.SkillTracker.track('ask_question');
+    }
+    if (typeof window.showToast === 'function') {
+      window.showToast('Loaded: ' + qq.text, 'info');
+    }
+  }
+
+  function showDrawer(ds) {
+    var drawer = $('questions-drawer');
+    if (!drawer) return;
+    var questions = generateQuestions(ds);
+    renderDrawer(questions, ds);
+    drawer.classList.add('open');
+  }
+
+  function hideDrawer() {
+    var drawer = $('questions-drawer');
+    if (drawer) drawer.classList.remove('open');
+  }
+
+  function init() {
+    var trigger = $('questions-trigger-btn');
+    if (trigger) {
+      trigger.addEventListener('click', function () {
+        var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+        showDrawer(ds);
+      });
+    }
+
+    var dismissBtn = $('qd-dismiss-btn');
+    if (dismissBtn) dismissBtn.addEventListener('click', hideDrawer);
+
+    document.addEventListener('dataglow:dataset-loaded', function (e) {
+      var ds = e.detail && (e.detail.dataset || e.detail);
+      setTimeout(function () {
+        showDrawer(ds);
+      }, AUTO_DELAY_MS);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  window.QuestionPrompter = {
+    show: showDrawer,
+    hide: hideDrawer,
+    generate: generateQuestions
+  };
+})();
+
+  /* ---- #51 Portfolio Narrative ---- */
+  (function () {
+    var narrState = { fmt: 'linkedin', tone: 'professional', text: '' };
+
+    function narrEscapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function narrFmtPct(n) {
+      if (n == null || isNaN(n)) return '0';
+      return (Math.round(n * 10) / 10).toString();
+    }
+
+    function narrGetDataset() {
+      if (typeof window.getActiveDataset === 'function') return window.getActiveDataset();
+      return null;
+    }
+
+    function narrDetectDomain(ds) {
+      if (!ds || !ds.columns) return 'general';
+      if (ds.domain) return ds.domain;
+      if (typeof detectDomain === 'function') {
+        try { return detectDomain(ds.columns); } catch (_e) {}
+      }
+      var names = ds.columns.map(function (c) { return (c.name || '').toLowerCase(); }).join(' ');
+      if (/bene|clm|dx|los|icd|drg|facility|medicare|medicaid|patient|admit|disch/.test(names)) return 'healthcare';
+      if (/revenue|amount|price|payment|invoice|transaction|cost|profit|margin|sales/.test(names)) return 'finance';
+      if (/employee|salary|department|hire|tenure|attrition|headcount|manager|staff/.test(names)) return 'hr';
+      return 'general';
+    }
+
+    function narrDomainTag(domain) {
+      if (domain === 'healthcare') return 'Healthcare';
+      if (domain === 'finance') return 'Finance';
+      if (domain === 'hr') return 'HR';
+      return 'Data';
+    }
+
+    function narrGetSql() {
+      var el = document.getElementById('sql-view-input');
+      if (!el) return '';
+      var v = (el.value || '').trim();
+      return v;
+    }
+
+    function narrDetectSqlOps(sql) {
+      var ops = [];
+      if (!sql) return ops;
+      var s = sql.toUpperCase();
+      if (/OVER\s*\(/.test(s)) ops.push('window functions');
+      if (/GROUP BY/.test(s)) ops.push('aggregations');
+      if (/JOIN/.test(s)) ops.push('joins');
+      if (/ORDER BY/.test(s)) ops.push('ranking');
+      if (/HAVING/.test(s)) ops.push('filtered aggregation');
+      if (/CASE WHEN/.test(s)) ops.push('conditional logic');
+      return ops;
+    }
+
+    function narrGetXpEvents() {
+      try {
+        if (window.LevelSystem && window.LevelSystem.prog && Array.isArray(window.LevelSystem.prog.xpLog)) {
+          return window.LevelSystem.prog.xpLog.slice(0, 8);
+        }
+      } catch (_e) {}
+      return [];
+    }
+
+    function narrGetFindings(ds) {
+      if (!ds || !Array.isArray(ds.findings)) return [];
+      return ds.findings;
+    }
+
+    function narrFindingText(f) {
+      if (!f) return '';
+      return f.message || (f.column ? ('Issue detected in ' + f.column) : 'Data quality issue detected');
+    }
+
+    function narrDomainInsights(domain, ds, findings) {
+      var n = ds && ds.rows ? ds.rows.length : 0;
+      var out = [];
+      if (domain === 'healthcare') {
+        out.push('Identified diagnosis codes with above-average length of stay, indicating potential protocol optimization opportunities');
+        out.push('Flagged payment outliers representing a meaningful share of total claims value');
+        out.push('Discovered readmission-adjacent patterns consistent with 30-day readmission risk factors');
+      } else if (domain === 'finance') {
+        out.push('Top revenue categories account for a disproportionate share of total transactions (Pareto concentration)');
+        out.push('Detected anomalous transactions exceeding 2 standard deviations from the mean');
+        out.push('Monthly trend analysis reveals a directional pattern across the analysis period');
+      } else if (domain === 'hr') {
+        out.push('Departments with the lowest satisfaction scores show a higher attrition rate');
+        out.push('Salary range spread varies meaningfully across departments versus the company average');
+        out.push('Tenure analysis identifies a peak attrition risk window by years of service');
+      } else {
+        out.push('Dataset contains a broad range of unique values across its categorical columns');
+        out.push('Numeric analysis reveals variance concentrated in a subset of records');
+        out.push('Column-level profiling surfaced structural patterns worth deeper investigation');
+      }
+      return out;
+    }
+
+    function narrBusinessValue(domain) {
+      if (domain === 'healthcare') return 'helps care teams cut costs and improve patient outcomes without adding headcount';
+      if (domain === 'finance') return 'helps finance teams catch revenue leakage and forecast with more confidence';
+      if (domain === 'hr') return 'helps people teams reduce attrition and target retention spend where it matters most';
+      return 'helps teams move from raw data to confident, board-ready decisions faster';
+    }
+
+    function narrDomainImpactParagraph(domain) {
+      if (domain === 'healthcare') {
+        return 'These findings support targeted protocol review and cost containment efforts. Prioritizing the flagged diagnosis codes and payment outliers could reduce avoidable spend while improving care consistency across facilities.';
+      }
+      if (domain === 'finance') {
+        return 'These findings support tighter controls on transaction monitoring and sharper focus on the revenue categories driving the bulk of volume. Addressing the flagged anomalies protects margin and improves forecast accuracy.';
+      }
+      if (domain === 'hr') {
+        return 'These findings support a focused retention strategy in the departments and tenure bands showing the highest risk. Acting on the salary spread and satisfaction signals could meaningfully reduce voluntary attrition.';
+      }
+      return 'These findings give stakeholders a clear, evidence-based starting point for prioritizing next steps and allocating analysis resources where they will have the most impact.';
+    }
+
+    function narrStatOps(sql) {
+      var ops = [];
+      if (!sql) { ops.push('descriptive statistics'); return ops; }
+      var s = sql.toUpperCase();
+      if (/AVG\(/.test(s)) ops.push('mean analysis');
+      if (/STDDEV|VARIANCE/.test(s)) ops.push('variance analysis');
+      if (/CORR\(/.test(s)) ops.push('correlation');
+      if (/PERCENTILE|MEDIAN/.test(s)) ops.push('distribution analysis');
+      if (ops.length === 0) ops.push('aggregate statistics');
+      return ops;
+    }
+
+    function narrBuildContext() {
+      var ds = narrGetDataset();
+      var domain = narrDetectDomain(ds);
+      var findings = narrGetFindings(ds);
+      var sql = narrGetSql();
+      var sqlOps = narrDetectSqlOps(sql);
+      var statOps = narrStatOps(sql);
+      var xp = narrGetXpEvents();
+      var rowCount = ds && ds.rows ? ds.rows.length : 0;
+      var colCount = ds && ds.columns ? ds.columns.length : 0;
+      var score = ds && ds.score != null ? ds.score : null;
+      var name = ds && ds.name ? ds.name : 'dataset';
+      var insights = narrDomainInsights(domain, ds, findings);
+      var findingTexts = findings.slice(0, 3).map(narrFindingText);
+      while (findingTexts.length < 3) {
+        findingTexts.push(insights[findingTexts.length] || insights[0]);
+      }
+      return {
+        ds: ds, domain: domain, findings: findings, sql: sql, sqlOps: sqlOps,
+        statOps: statOps, xp: xp, rowCount: rowCount, colCount: colCount,
+        score: score, name: name, insights: insights, findingTexts: findingTexts
+      };
+    }
+
+    function narrLinkedIn(ctx, tone) {
+      var domain = ctx.domain;
+      var tag = narrDomainTag(domain);
+      var scoreTxt = ctx.score != null ? ctx.score : 'a strong';
+      var opsTxt = ctx.sqlOps.length ? ctx.sqlOps.join(', ') : 'aggregations and filtering';
+      var statTxt = ctx.statOps.join(' and ');
+      var lines = [];
+      if (tone === 'conversational') {
+        lines.push('Just wrapped up a deep-dive into a ' + ctx.rowCount.toLocaleString() + '-row ' + domain + ' dataset using DataGlow, and I have to share what I found.');
+      } else {
+        lines.push('Just completed a deep-dive analysis of a ' + ctx.rowCount.toLocaleString() + '-row ' + domain + ' dataset using DataGlow.');
+      }
+      lines.push('');
+      lines.push('Here is what I found:');
+      lines.push('');
+      lines.push('- ' + ctx.findingTexts[0]);
+      lines.push('- ' + ctx.findingTexts[1]);
+      lines.push('- ' + ctx.findingTexts[2]);
+      lines.push('');
+      lines.push('The data told a clear story: ' + narrDomainSynthesis(domain) + '.');
+      lines.push('');
+      lines.push('Key skills demonstrated:');
+      lines.push('- SQL for ' + opsTxt);
+      lines.push('- Data quality auditing (' + scoreTxt + '% quality score, ' + ctx.findings.length + ' issues flagged)');
+      lines.push('- Statistical analysis: ' + statTxt);
+      lines.push('- Business translation: turning raw ' + domain + ' data into actionable recommendations');
+      lines.push('');
+      lines.push('This is the kind of analysis that ' + narrBusinessValue(domain) + '.');
+      lines.push('');
+      lines.push('#DataAnalytics #SQL #' + tag + ' #DataGlow #OpenToWork');
+      return lines.join('\n');
+    }
+
+    function narrDomainSynthesis(domain) {
+      if (domain === 'healthcare') return 'small pockets of cost and care variation are driving a large share of the opportunity for improvement';
+      if (domain === 'finance') return 'a small set of categories and outlier transactions are driving most of the financial risk and reward';
+      if (domain === 'hr') return 'a few departments and tenure windows account for most of the attrition risk';
+      return 'a small number of records and columns are driving most of the meaningful variation in the dataset';
+    }
+
+    function narrResume(ctx) {
+      var scoreTxt = ctx.score != null ? ctx.score : 'a strong';
+      var opsTxt = ctx.sqlOps.length ? ctx.sqlOps.join(' and ') : 'aggregations and filtering';
+      var lines = [];
+      lines.push('- Analyzed ' + ctx.rowCount.toLocaleString() + '-row ' + ctx.domain + ' dataset; identified ' + ctx.findings.length + ' data quality issues and achieved ' + scoreTxt + '% quality score through systematic auditing');
+      lines.push('- Developed SQL queries including ' + opsTxt + ' to surface ' + narrDomainSynthesis(ctx.domain));
+      lines.push('- Applied statistical analysis (' + ctx.statOps.join(', ') + ') to identify key drivers of business outcomes');
+      lines.push('- Translated raw ' + ctx.domain + ' data into executive-ready insights using DataGlow business translation engine');
+      lines.push('- Documented analysis methodology and findings in a reproducible format');
+      return lines.join('\n');
+    }
+
+    function narrGithub(ctx) {
+      var scoreTxt = ctx.score != null ? ctx.score : 'N/A';
+      var lines = [];
+      lines.push('## Analysis: ' + ctx.name);
+      lines.push('');
+      lines.push('**Dataset:** ' + ctx.rowCount.toLocaleString() + ' rows x ' + ctx.colCount + ' columns | ' + narrDomainTag(ctx.domain) + ' data');
+      lines.push('**Tools Used:** DataGlow (browser-based analytics), SQL, Statistical Analysis');
+      lines.push('**Quality Score:** ' + scoreTxt + '/100');
+      lines.push('');
+      lines.push('### Methodology');
+      lines.push('1. Data ingestion and profiling');
+      lines.push('2. Quality audit: ' + ctx.findings.length + ' issues identified and documented');
+      lines.push('3. Exploratory analysis via SQL');
+      lines.push('4. Statistical correlation analysis');
+      lines.push('5. Business narrative generation');
+      lines.push('');
+      lines.push('### Key Findings');
+      lines.push('- ' + ctx.findingTexts[0]);
+      lines.push('- ' + ctx.findingTexts[1]);
+      lines.push('- ' + ctx.findingTexts[2]);
+      lines.push('');
+      lines.push('### SQL Highlights');
+      lines.push(ctx.sql ? ('```sql\n' + ctx.sql + '\n```') : 'No SQL query recorded in this session.');
+      lines.push('');
+      lines.push('### Business Impact');
+      lines.push(narrDomainImpactParagraph(ctx.domain));
+      return lines.join('\n');
+    }
+
+    function narrExec(ctx) {
+      var scoreTxt = ctx.score != null ? ctx.score : 'N/A';
+      var today = new Date();
+      var dateStr = (today.getMonth() + 1) + '/' + today.getDate() + '/' + today.getFullYear();
+      var colSummary = ctx.colCount + ' columns spanning identifiers, dates, and numeric measures';
+      var lines = [];
+      lines.push('EXECUTIVE BRIEF: ' + ctx.name + ' Analysis');
+      lines.push('Date: ' + dateStr);
+      lines.push('Analyst: [not included - privacy]');
+      lines.push('');
+      lines.push('SCOPE');
+      lines.push('Analysis of ' + ctx.rowCount.toLocaleString() + ' records from a ' + ctx.domain + ' dataset covering ' + colSummary + '.');
+      lines.push('');
+      lines.push('METHODOLOGY');
+      lines.push('Systematic data quality assessment, SQL-based exploratory analysis, and statistical modeling were applied. Data quality score: ' + scoreTxt + '/100. ' + ctx.findings.length + ' anomalies identified.');
+      lines.push('');
+      lines.push('FINDINGS');
+      lines.push('1. ' + ctx.findingTexts[0]);
+      lines.push('2. ' + ctx.findingTexts[1]);
+      lines.push('3. ' + ctx.findingTexts[2]);
+      lines.push('');
+      lines.push('RECOMMENDATION');
+      lines.push(narrDomainImpactParagraph(ctx.domain));
+      lines.push('');
+      lines.push('NEXT STEPS');
+      lines.push('- Expand analysis to include related dimensions not yet profiled');
+      lines.push('- Validate findings against an external or historical benchmark');
+      lines.push('- Share with ' + narrStakeholder(ctx.domain) + ' for business validation');
+      return lines.join('\n');
+    }
+
+    function narrStakeholder(domain) {
+      if (domain === 'healthcare') return 'clinical operations leadership';
+      if (domain === 'finance') return 'finance and strategy leadership';
+      if (domain === 'hr') return 'people operations leadership';
+      return 'relevant business stakeholders';
+    }
+
+    function narrGenerate(fmt, tone) {
+      var ctx = narrBuildContext();
+      if (!ctx.ds) {
+        return 'Load a dataset in DataGlow first, then come back to generate your Portfolio Narrative.';
+      }
+      if (fmt === 'resume') return narrResume(ctx);
+      if (fmt === 'github') return narrGithub(ctx);
+      if (fmt === 'exec') return narrExec(ctx);
+      return narrLinkedIn(ctx, tone);
+    }
+
+    function narrOpenModal() {
+      var modal = document.getElementById('narrative-modal');
+      if (!modal) return;
+      modal.classList.add('open');
+      window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('open_portfolio_narrative');
+    }
+
+    function narrCloseModal() {
+      var modal = document.getElementById('narrative-modal');
+      if (modal) modal.classList.remove('open');
+    }
+
+    function narrSetTab(fmt) {
+      narrState.fmt = fmt;
+      document.querySelectorAll('.narr-tab').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-fmt') === fmt);
+      });
+    }
+
+    function narrSetTone(tone) {
+      narrState.tone = tone;
+      document.querySelectorAll('.narr-tone-btn').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-tone') === tone);
+      });
+    }
+
+    function narrRunGenerate() {
+      var text = narrGenerate(narrState.fmt, narrState.tone);
+      narrState.text = text;
+      var out = document.getElementById('narr-output');
+      var count = document.getElementById('narr-char-count');
+      var actions = document.getElementById('narr-actions');
+      if (out) {
+        out.textContent = text;
+        out.classList.add('show');
+      }
+      if (count) count.textContent = text.length + ' characters';
+      if (actions) actions.style.display = 'flex';
+      window.SkillTracker && window.SkillTracker.track && window.SkillTracker.track('generate_portfolio_narrative');
+      window.LevelSystem && window.LevelSystem.addXP && window.LevelSystem.addXP('generate_portfolio_narrative');
+    }
+
+    function narrCopyToClipboard() {
+      if (!narrState.text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(narrState.text).then(function () {
+          window.showToast && window.showToast('Narrative copied to clipboard', 'success');
+        }).catch(function () {
+          window.showToast && window.showToast('Copy failed. Select and copy manually.', 'error');
+        });
+      } else {
+        window.showToast && window.showToast('Clipboard not available in this browser', 'error');
+      }
+    }
+
+    function narrDownloadTxt() {
+      if (!narrState.text) return;
+      var blob = new Blob([narrState.text], { type: 'text/plain' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'dataglow-portfolio-narrative-' + narrState.fmt + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      window.showToast && window.showToast('Narrative downloaded', 'success');
+    }
+
+    function narrOpenNewTab() {
+      if (!narrState.text) return;
+      var win = window.open('', '_blank');
+      if (!win) {
+        window.showToast && window.showToast('Pop-up blocked. Allow pop-ups to open in a new tab.', 'error');
+        return;
+      }
+      var safe = narrEscapeHtml(narrState.text);
+      win.document.write('<html><head><title>Portfolio Narrative</title></head><body style="font-family:sans-serif;white-space:pre-wrap;max-width:700px;margin:40px auto;line-height:1.6;">' + safe + '</body></html>');
+      win.document.close();
+    }
+
+    function narrInit() {
+      var openBtn = document.getElementById('story-trigger-btn');
+      var shareOpenBtn = document.getElementById('narrative-share-open-btn');
+      var closeBtn = document.getElementById('narr-close-btn');
+      var genBtn = document.getElementById('narr-gen-btn');
+      var regenBtn = document.getElementById('narr-regen-btn');
+      var copyBtn = document.getElementById('narr-copy-btn');
+      var downloadBtn = document.getElementById('narr-download-btn');
+      var newtabBtn = document.getElementById('narr-newtab-btn');
+      var modal = document.getElementById('narrative-modal');
+
+      if (openBtn) openBtn.addEventListener('click', narrOpenModal);
+      if (shareOpenBtn) shareOpenBtn.addEventListener('click', narrOpenModal);
+      if (closeBtn) closeBtn.addEventListener('click', narrCloseModal);
+      if (modal) {
+        modal.addEventListener('click', function (e) {
+          if (e.target === modal) narrCloseModal();
+        });
+      }
+      document.querySelectorAll('.narr-tab').forEach(function (btn) {
+        btn.addEventListener('click', function () { narrSetTab(btn.getAttribute('data-fmt')); });
+      });
+      document.querySelectorAll('.narr-tone-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () { narrSetTone(btn.getAttribute('data-tone')); });
+      });
+      if (genBtn) genBtn.addEventListener('click', narrRunGenerate);
+      if (regenBtn) regenBtn.addEventListener('click', narrRunGenerate);
+      if (copyBtn) copyBtn.addEventListener('click', narrCopyToClipboard);
+      if (downloadBtn) downloadBtn.addEventListener('click', narrDownloadTxt);
+      if (newtabBtn) newtabBtn.addEventListener('click', narrOpenNewTab);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', narrInit);
+    } else {
+      narrInit();
+    }
+  })();
 })();
 </script>
 <div id="pwa-install-banner">
@@ -20656,6 +22488,29 @@ var InstantInsight = (function () {
     <button class="badges-close-btn" id="badges-close-btn">x</button>
   </div>
   <div class="badges-list" id="badges-list"></div>
+</div>
+
+<!-- #48 Peer Review -->
+<div id="review-view" class="analyze-panel hidden">
+  <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
+    <div class="review-feed" id="review-feed">
+      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+    </div>
+    <div class="review-scorecard">
+      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
+      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
+      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      <div class="review-severity-counts">
+        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+    </div>
+  </div>
 </div>
 
 <!-- #42 Domain Case Library -->
@@ -20730,6 +22585,120 @@ var InstantInsight = (function () {
     <div class="osce-final-grade" id="osce-final-grade">Pass</div>
     <div class="osce-final-feedback" id="osce-final-feedback"></div>
     <button class="osce-restart-btn" id="osce-restart-btn">Try Another Scenario</button>
+  </div>
+</div>
+
+<!-- #49 Take-Home Case -->
+<div id="takehome-modal">
+  <div class="th-topbar">
+    <span class="th-topbar-title">Take-Home Case Builder</span>
+    <button class="th-close-btn" id="th-close-btn">Close</button>
+  </div>
+  <div id="th-gen-screen">
+    <div class="th-gen-form">
+      <div>
+        <div class="th-gen-title">Generate Take-Home Case</div>
+        <div class="th-gen-sub">Turn your loaded dataset into a professionally formatted analytics take-home case, ready to print, share, or submit as a portfolio piece.</div>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-role-select">Role Target</label>
+        <select class="th-select" id="th-role-select">
+          <option value="Data Analyst">Data Analyst</option>
+          <option value="Senior Analyst">Senior Analyst</option>
+          <option value="Analytics Engineer">Analytics Engineer</option>
+          <option value="Business Intelligence Analyst">Business Intelligence Analyst</option>
+          <option value="Healthcare Data Analyst">Healthcare Data Analyst</option>
+          <option value="Financial Analyst">Financial Analyst</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-difficulty-select">Difficulty</label>
+        <select class="th-select" id="th-difficulty-select">
+          <option value="Junior">Junior</option>
+          <option value="Mid-Level" selected>Mid-Level</option>
+          <option value="Senior">Senior</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label" for="th-time-select">Time Limit</label>
+        <select class="th-select" id="th-time-select">
+          <option value="2 hours">2 hours</option>
+          <option value="4 hours" selected>4 hours</option>
+          <option value="8 hours">8 hours</option>
+        </select>
+      </div>
+      <div class="th-field">
+        <label class="th-label">Focus Areas</label>
+        <div class="th-checkboxes" id="th-focus-checkboxes">
+          <label class="th-checkbox-label checked" data-focus="Data Quality"><input type="checkbox" checked>Data Quality</label>
+          <label class="th-checkbox-label checked" data-focus="Exploratory Analysis"><input type="checkbox" checked>Exploratory Analysis</label>
+          <label class="th-checkbox-label" data-focus="SQL Mastery"><input type="checkbox">SQL Mastery</label>
+          <label class="th-checkbox-label" data-focus="Statistical Analysis"><input type="checkbox">Statistical Analysis</label>
+          <label class="th-checkbox-label checked" data-focus="Business Insights"><input type="checkbox" checked>Business Insights</label>
+          <label class="th-checkbox-label" data-focus="Data Storytelling"><input type="checkbox">Data Storytelling</label>
+        </div>
+      </div>
+      <div class="th-field">
+        <label class="th-label">Hints</label>
+        <div class="th-toggle-row">
+          <button class="th-toggle on" id="th-hints-toggle"></button>
+          <span id="th-hints-toggle-label">Include hint callouts throughout the case</span>
+        </div>
+      </div>
+      <button class="th-gen-btn" id="th-generate-btn">Generate Case</button>
+    </div>
+  </div>
+  <div id="th-preview-screen">
+    <div class="th-preview-actions">
+      <button class="th-action-btn" id="th-back-btn">Back to Editor</button>
+      <button class="th-action-btn" id="th-copy-md-btn">Copy as Markdown</button>
+      <button class="th-action-btn" id="th-print-btn">Print / Save as PDF</button>
+      <button class="th-action-btn" id="th-share-btn">Share Link</button>
+    </div>
+    <div id="th-case-content"></div>
+  </div>
+</div>
+
+<div id="questions-drawer">
+  <div class="qd-header">
+    <div class="qd-title">Questions Worth Asking</div>
+    <div class="qd-subtitle" id="qd-subtitle">Load a dataset to generate questions.</div>
+  </div>
+  <div class="qd-list" id="qd-list">
+    <div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;">Load a dataset to generate analytical questions tailored to your data.</div>
+  </div>
+  <div class="qd-footer">
+    <button class="qd-dismiss" id="qd-dismiss-btn">Dismiss</button>
+  </div>
+</div>
+<div id="narrative-modal">
+  <div class="narr-box">
+    <div class="narr-header">
+      <span class="narr-title">Portfolio Narrative</span>
+      <button class="narr-close" id="narr-close-btn">&#x2715;</button>
+    </div>
+    <div class="narr-format-tabs">
+      <button class="narr-tab active" data-fmt="linkedin">LinkedIn Post</button>
+      <button class="narr-tab" data-fmt="resume">Resume Bullets</button>
+      <button class="narr-tab" data-fmt="github">GitHub README</button>
+      <button class="narr-tab" data-fmt="exec">Executive Brief</button>
+    </div>
+    <div class="narr-body">
+      <div class="narr-tone-row">
+        <span class="narr-tone-label">Tone:</span>
+        <button class="narr-tone-btn active" data-tone="professional">Professional</button>
+        <button class="narr-tone-btn" data-tone="conversational">Conversational</button>
+      </div>
+      <button class="narr-gen-btn" id="narr-gen-btn">Generate My Story</button>
+      <div class="narr-output" id="narr-output"></div>
+      <div class="narr-char-count" id="narr-char-count"></div>
+      <div class="narr-actions" id="narr-actions" style="display:none;">
+        <button class="narr-action-btn" id="narr-copy-btn">Copy</button>
+        <button class="narr-action-btn" id="narr-download-btn">Download .txt</button>
+        <button class="narr-action-btn" id="narr-newtab-btn">Open in New Tab</button>
+        <button class="narr-action-btn" id="narr-regen-btn">Regenerate</button>
+      </div>
+    </div>
   </div>
 </div>
 </body>
