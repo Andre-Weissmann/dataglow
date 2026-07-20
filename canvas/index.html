@@ -4263,12 +4263,13 @@
   /* Bottom sheet overlay */
   #tools-sheet-overlay {
     display: none;
+    pointer-events: none;
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.5);
     z-index: 15000;
   }
-  #tools-sheet-overlay.open { display: block; }
+  #tools-sheet-overlay.open { display: block; pointer-events: all; }
 
   /* Bottom sheet panel */
   #tools-sheet {
@@ -4344,6 +4345,13 @@
     display: none !important;
   }
 
+  /* Show More button on mobile */
+  #agent-bar-more-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
   /* Make remaining buttons slightly larger touch targets */
   #agent-bar-right .agent-bar-btn,
   #agent-bar-right button {
@@ -4353,9 +4361,9 @@
     padding: 5px 8px;
   }
 
-  /* More button */
+  /* More button — shown only on mobile (overridden to none on desktop below) */
   #agent-bar-more-btn {
-    display: flex !important;
+    display: none;
   }
 
   #notes-drawer,
