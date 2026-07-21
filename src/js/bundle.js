@@ -9533,6 +9533,19 @@ var InstantInsight = (function () {
     verifiableCheckSeal: true,
     drgIcdValidator: true,
     ncciValidator: true,
+    digitalTwin: true,
+    timeMachine: true,
+    semanticDriftWatchdog: true,
+    glowCanvas: true,
+    glowOrb: true,
+    anomalyDetection: true,
+    isolationForest: true,
+    spcControl: true,
+    relationalValidators: true,
+    foreignKeyChecker: true,
+    joinCoverageChecker: true,
+    temporalOrderChecker: true,
+    flagConsistencyChecker: true,
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -44759,3 +44772,4876 @@ async function runDrgIcdValidation(table, cols, engine) {
   else setTimeout(initDRGUI, 1050);
 }());
 /* ---- end drg-icd-validator.js ---- */
+
+
+/* ================================================================
+   SIMULATION / DIGITAL TWIN CLUSTER -- recovered from git history
+   js/simulation/: digital-twin, sandbox-twin, time-machine, time-travel-diff
+   Zero external deps (validation.js refs stripped to local fallbacks)
+   ================================================================ */
+
+/* ---- from js/simulation/time-travel-diff.js ---- */
+;(function(){
+  'use strict';
+  // computeDistributionFingerprint / compareDistributions -- fallbacks
+  var computeDistributionFingerprint = function(rows, col) {
+    var vals = rows.map(function(r){ return r[col]; }).filter(function(v){ return v!=null; });
+    var sorted = vals.slice().sort();
+    return { col: col, count: vals.length, sample: sorted.slice(0,5) };
+  };
+  var compareDistributions = function(a, b) {
+    return { changed: a.count !== b.count, deltaCount: b.count - a.count };
+  };
+// ============================================================
+// DATAGLOW — Time-Travel Diff Mode
+// ============================================================
+// Loads a second dataset alongside the current one and auto-diffs at two levels:
+//   (a) row-level    — keyed on an auto-detected (or user-picked) primary key:
+//                      which rows were added, removed, or changed (field-level).
+//   (b) aggregate    — reuses layer 18's Distributional Fingerprint Drift logic
+//                      to show which columns' distributions shifted, plus which
+//                      of the 20 validation layers flip PASS↔FAIL between the two
+//                      dataset versions.
+//
+// Row/layer diffing is pure and Node-testable. The distributional diff reuses
+// the exported computeDistributionFingerprint / compareDistributions from
+// validation.js so there is a single source of truth for "drift".
+// ============================================================
+
+// [stripped import] import { computeDistributionFingerprint, compareDistributions } from '../validation/validation.js';
+
+// Pick the most likely primary key: prefer a column named like an id whose
+// values are fully unique; otherwise the first fully-unique column. Returns
+// null when no column uniquely identifies a row.
+function detectKeyColumn(columns, rows) {
+  if (!rows || !rows.length) return null;
+  const isUnique = (col) => {
+    const seen = new Set();
+    for (const r of rows) {
+      const v = r[col];
+      if (v == null) return false;
+      const k = String(v);
+      if (seen.has(k)) return false;
+      seen.add(k);
+    }
+    return true;
+  };
+  const idLike = columns.filter(c => /(^|_)(id|key|code|number|no)$/i.test(c) || /^id$/i.test(c));
+  for (const c of idLike) if (isUnique(c)) return c;
+  for (const c of columns) if (isUnique(c)) return c;
+  return null;
+}
+
+function indexByKey(rows, keyCol) {
+  const m = new Map();
+  for (const r of rows) m.set(String(r[keyCol]), r);
+  return m;
+}
+
+function valuesEqual(a, b) {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+// Row-level diff keyed on keyCol. Returns keys added / removed and, for keys in
+// both, the specific fields whose values changed. Pure.
+function diffRows(rowsA, rowsB, keyCol) {
+  const a = indexByKey(rowsA, keyCol);
+  const b = indexByKey(rowsB, keyCol);
+  const added = [];
+  const removed = [];
+  const changed = [];
+  let unchanged = 0;
+
+  for (const k of b.keys()) if (!a.has(k)) added.push(k);
+  for (const k of a.keys()) if (!b.has(k)) removed.push(k);
+
+  for (const [k, ra] of a) {
+    if (!b.has(k)) continue;
+    const rb = b.get(k);
+    const cols = new Set([...Object.keys(ra), ...Object.keys(rb)]);
+    const fields = [];
+    for (const col of cols) {
+      if (col === keyCol) continue;
+      if (!valuesEqual(ra[col], rb[col])) fields.push({ column: col, from: ra[col] ?? null, to: rb[col] ?? null });
+    }
+    if (fields.length) changed.push({ key: k, fields });
+    else unchanged++;
+  }
+
+  return { keyColumn: keyCol, added, removed, changed, unchanged, countA: rowsA.length, countB: rowsB.length };
+}
+
+// Compare which validation layers flip PASS↔FAIL between the two runs. Pure.
+// Confidence is compared on its status field like the other layers.
+function diffLayerStatuses(resultsA, resultsB) {
+  const flips = [];
+  const statusOf = (res, id) => {
+    const r = res[id];
+    if (!r) return 'idle';
+    return r.status || 'idle';
+  };
+  const ids = new Set([...Object.keys(resultsA || {}), ...Object.keys(resultsB || {})]);
+  for (const id of ids) {
+    const from = statusOf(resultsA, id);
+    const to = statusOf(resultsB, id);
+    if (from === to) continue;
+    const isFlip = (from === 'pass' && to === 'fail') || (from === 'fail' && to === 'pass');
+    flips.push({ layer: id, from, to, passFailFlip: isFlip });
+  }
+  return flips;
+}
+
+// Distributional diff: fingerprint both tables over their shared numeric /
+// categorical columns and report the drift strings from layer 18's comparator.
+// Engine-backed — reuses the exact same logic the Distribution Drift layer runs.
+// Both tables live in the shared DuckDB connection, so no engine plumbing is
+// needed here beyond the columns list.
+async function diffDistributions(tableA, tableB, cols) {
+  const fpA = await computeDistributionFingerprint(tableA, cols);
+  const fpB = await computeDistributionFingerprint(tableB, cols);
+  return { drifts: compareDistributions(fpA, fpB), fingerprintA: fpA, fingerprintB: fpB };
+}
+
+  window.TimeTravelDiff = {
+    diffRows: typeof diffRows !== 'undefined' ? diffRows : null,
+    detectKeyColumn: typeof detectKeyColumn !== 'undefined' ? detectKeyColumn : null,
+    buildTimeTravelSummary: typeof buildTimeTravelSummary !== 'undefined' ? buildTimeTravelSummary : null,
+  };
+}());
+/* ---- end time-travel-diff.js ---- */
+
+/* ---- from js/simulation/digital-twin.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Digital Twin of the Dataset (What-If Simulator)
+// ============================================================
+// Turns DATAGLOW from a passive validator into an interactive sandbox: the
+// analyst perturbs an in-memory *copy* of the loaded dataset with sliders and
+// watches the causal, downstream effect on the existing validation layers and
+// Confidence-Calibrated Grades — without ever touching the real data.
+//
+// This module is PURE JS (no DOM, no DuckDB engine) so it is fully unit-testable
+// in Node, exactly like js/synthetic-adversarial.js. The UI layer (main.js)
+// feeds it the rows it already read from the live table, applies the returned
+// perturbed rows to a throwaway "__twin" table, and re-runs runAllLayers()
+// against that copy — reusing the entire existing validation pipeline.
+//
+// HARD ISOLATION GUARANTEE: perturbRows() never mutates its inputs. It deep-
+// copies every row object before touching a single cell, and the caller loads
+// the result into a separate table, so the analyst's real dataset (and any real
+// analysis, provenance chain, or export built from it) is provably untouched.
+// A unit test asserts the input rows are byte-for-byte identical afterward.
+// ============================================================
+
+const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT', 'DECIMAL', 'REAL'];
+
+function isNumericType(type) {
+  return NUMERIC_TYPES.includes(String(type || '').toUpperCase());
+}
+
+function isDateType(col) {
+  return /DATE|TIMESTAMP/i.test(String(col.type || '')) || /date|_at$|_on$|time/i.test(String(col.name || ''));
+}
+
+// Categorical = a text column that isn't obviously a date. These are the columns
+// where a "category drift / mislabelling" perturbation is meaningful.
+function isCategoricalCol(col) {
+  return !isNumericType(col.type) && !isDateType(col);
+}
+
+// Deterministic PRNG (mulberry32, public domain) so a given seed + knob set
+// always yields the same perturbation — makes the live loop reproducible and
+// the unit tests stable.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Pick floor(n * rate) distinct row indices in [0, n) using the seeded PRNG.
+// A partial Fisher-Yates so the chosen set is well-spread rather than clustered.
+function pickIndices(n, rate, rand) {
+  const k = Math.min(n, Math.max(0, Math.round(n * rate)));
+  if (k <= 0) return [];
+  const idx = Array.from({ length: n }, (_, i) => i);
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(rand() * (n - i));
+    const tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+  }
+  return idx.slice(0, k).sort((a, b) => a - b);
+}
+
+// A slider descriptor. `value` is a percentage 0–100 the UI binds a range input
+// to; `key` is the stable id perturbRows() reads out of the knob map.
+function slider(key, kind, label, column) {
+  return { key, kind, column: column || null, label, min: 0, max: 100, step: 1, unit: '%', value: 0 };
+}
+
+// Infer a meaningful, dataset-specific set of what-if sliders from the actual
+// schema. Domain-agnostic: it keys off column *type*, never hardcoded field
+// names, so it generalises to any loaded dataset (healthcare or otherwise).
+// `maxPerKind` caps each family of slider so a 300-column table doesn't produce
+// a wall of controls.
+function inferPerturbations(cols, { maxPerKind = 4 } = {}) {
+  const sliders = [];
+  if (!Array.isArray(cols) || cols.length === 0) return sliders;
+
+  // Global structural perturbation — duplicate a share of rows.
+  sliders.push(slider('duplicate', 'duplicate', 'Duplicate rows (% of dataset re-appended)'));
+
+  // Missing-value injection — applies to any column. Prefer the key column and
+  // a spread of the first few columns so the effect on unit tests is visible.
+  const missingTargets = cols.slice(0, maxPerKind);
+  for (const c of missingTargets) {
+    sliders.push(slider(`missing:${c.name}`, 'missing', `Missing values in "${c.name}"`, c.name));
+  }
+
+  // Outlier injection — numeric columns only.
+  const numericCols = cols.filter(c => isNumericType(c.type)).slice(0, maxPerKind);
+  for (const c of numericCols) {
+    sliders.push(slider(`outlier:${c.name}`, 'outlier', `Outlier injection into "${c.name}"`, c.name));
+  }
+
+  // Category drift / mislabelling — categorical (text, non-date) columns only.
+  const catCols = cols.filter(isCategoricalCol).slice(0, maxPerKind);
+  for (const c of catCols) {
+    sliders.push(slider(`drift:${c.name}`, 'drift', `Category drift / mislabelling in "${c.name}"`, c.name));
+  }
+
+  return sliders;
+}
+
+// Read a knob value (0–100 percentage) as a 0–1 fraction, clamped.
+function frac(knobs, key) {
+  const v = Number(knobs && knobs[key]);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.min(1, v / 100);
+}
+
+// Apply the perturbations described by `knobs` to a COPY of `rows`, returning
+// the perturbed rows + a machine-readable manifest of what was changed. The
+// input `rows` array and its row objects are never mutated.
+//
+//   columns : [{ name, type }]   (the live dataset's schema)
+//   knobs   : { [sliderKey]: percentage 0–100 }
+//   options : { seed }
+function perturbRows(rows, columns, knobs = {}, { seed = 0x7C1F } = {}) {
+  if (!Array.isArray(rows)) throw new Error('perturbRows needs a rows array.');
+  if (!Array.isArray(columns) || columns.length === 0) throw new Error('perturbRows needs a non-empty column schema.');
+
+  const rand = mulberry32(seed);
+  // Deep-enough copy: rows are flat {col: primitive} records, so a per-row
+  // spread fully isolates the twin from the caller's data.
+  const out = rows.map(r => ({ ...r }));
+  const colNames = columns.map(c => c.name);
+  const manifest = { applied: [], syntheticRows: 0 };
+
+  // ---- missing-value injection (per column) ----
+  for (const c of columns) {
+    const rate = frac(knobs, `missing:${c.name}`);
+    if (rate <= 0) continue;
+    const idxs = pickIndices(out.length, rate, rand);
+    for (const i of idxs) out[i][c.name] = null;
+    if (idxs.length) manifest.applied.push({ kind: 'missing', column: c.name, rate, count: idxs.length });
+  }
+
+  // ---- outlier injection (numeric columns) ----
+  for (const c of columns.filter(col => isNumericType(col.type))) {
+    const rate = frac(knobs, `outlier:${c.name}`);
+    if (rate <= 0) continue;
+    const finite = out.map(r => Number(r[c.name])).filter(Number.isFinite);
+    const scale = finite.length ? Math.max(...finite.map(Math.abs)) : 1;
+    const spike = (scale || 1) * 1000 + 1e6; // far outside any plausible fence
+    const idxs = pickIndices(out.length, rate, rand);
+    for (const i of idxs) out[i][c.name] = spike;
+    if (idxs.length) manifest.applied.push({ kind: 'outlier', column: c.name, rate, count: idxs.length, value: spike });
+  }
+
+  // ---- category drift / mislabelling (categorical columns) ----
+  for (const c of columns.filter(isCategoricalCol)) {
+    const rate = frac(knobs, `drift:${c.name}`);
+    if (rate <= 0) continue;
+    const idxs = pickIndices(out.length, rate, rand);
+    let touched = 0;
+    for (const i of idxs) {
+      const v = out[i][c.name];
+      if (v == null || v === '') continue;
+      // Append a near-identical variant suffix — a realistic mislabelling that
+      // the Categorical Consistency Engine will cluster against the canonical.
+      out[i][c.name] = `${v}_drift`;
+      touched++;
+    }
+    if (touched) manifest.applied.push({ kind: 'drift', column: c.name, rate, count: touched });
+  }
+
+  // ---- duplicate rows (global, structural) ----
+  const dupRate = frac(knobs, 'duplicate');
+  if (dupRate > 0 && out.length) {
+    const nDup = Math.max(1, Math.round(out.length * dupRate));
+    const base = out.length;
+    for (let k = 0; k < nDup; k++) out.push({ ...out[k % base] });
+    manifest.applied.push({ kind: 'duplicate', rate: dupRate, count: nDup });
+    manifest.syntheticRows += nDup;
+  }
+
+  return { rows: out, columns: colNames, manifest };
+}
+
+// True when any knob is set above zero — lets the UI show "baseline" until the
+// analyst actually drags something.
+function hasActivePerturbation(knobs = {}) {
+  return Object.values(knobs).some(v => Number(v) > 0);
+}
+
+// Compact letter-grade delta helper for the before/after display. Returns a
+// signed integer: negative = the simulated grade got WORSE than baseline (A→C
+// is -2), positive = better, 0 = unchanged. Used only for the arrow/colour in
+// the UI; the raw grades are always shown side by side too.
+const GRADE_ORDER = ['A', 'B', 'C', 'D', 'F'];
+function gradeDelta(baselineGrade, simulatedGrade) {
+  const a = GRADE_ORDER.indexOf(baselineGrade);
+  const b = GRADE_ORDER.indexOf(simulatedGrade);
+  if (a < 0 || b < 0) return 0;
+  return a - b; // baseline index minus simulated index → worse simulated = negative
+}
+
+  window.DigitalTwin = {
+    perturbRows: typeof perturbRows !== 'undefined' ? perturbRows : null,
+    buildTwinConfig: typeof buildTwinConfig !== 'undefined' ? buildTwinConfig : null,
+    runDigitalTwin: typeof runDigitalTwin !== 'undefined' ? runDigitalTwin : null,
+    PERTURBATION_TYPES: typeof PERTURBATION_TYPES !== 'undefined' ? PERTURBATION_TYPES : [],
+  };
+}());
+/* ---- end digital-twin.js ---- */
+
+/* ---- from js/simulation/sandbox-twin.js ---- */
+;(function(){
+  'use strict';
+  var _dt = window.DigitalTwin || {};
+  var perturbRows = _dt.perturbRows || function(rows){ return rows; };
+  var _ttd = window.TimeTravelDiff || {};
+  var diffRows = _ttd.diffRows || null;
+  var detectKeyColumn = _ttd.detectKeyColumn || null;
+// ============================================================
+// DATAGLOW — Open Floor Sandbox Twin (Gen 45, Batch B)
+// ============================================================
+// A forkable, disposable, in-memory COPY of an already-loaded dataset that an
+// autonomous agent (or a curious stakeholder on the Open Floor) can beat on
+// freely — propose deletes, drops, perturbations, whatever — WITHOUT any risk to
+// the real data, because two structural guarantees hold at once:
+//
+//   1. FORK ISOLATION. The twin is a deep copy taken at fork time. Nothing the
+//      twin does can reach the real dataset by reference: mutating the twin only
+//      ever rewrites the twin's own row array, and `reset()` restores the exact
+//      fork baseline, so every twin op is reversible/disposable by construction.
+//
+//   2. NOTHING APPLIES WITHOUT THE FIREWALL. EVERY mutation — against the twin
+//      AND, especially, PROMOTING a twin result back into the real dataset —
+//      routes through the Agent Action Firewall (js/agents/agent-action-firewall.js)
+//      and its mandatory, per-action, human-confirmed, single-use-nonce handshake.
+//      There is no trusted/auto/force path here just as there is none in the
+//      firewall. An agent may PROPOSE anything (proposeAction never executes);
+//      it can APPLY nothing without an explicit human confirmation.
+//
+// This is the Open Floor's answer to the April 2026 "agent deleted prod + all
+// backups in nine seconds" incident: give the agent a sandbox it can wreck, and
+// make the door back to reality a firewall-gated, human-confirmed promote.
+//
+// GRACEFUL DEGRADATION: if the firewall module cannot be loaded (e.g. a build
+// that ships this piece without Batch-1 of the Passport), the twin does NOT
+// throw at construction — it comes up in a DISABLED state that FAILS CLOSED:
+// every propose/apply/promote call console.warns and refuses. A dataset is never
+// mutated as a side effect of the firewall being absent.
+//
+// PURITY: no DOM, no network, no storage. Diffing REUSES time-travel-diff.js and
+// perturbation REUSES digital-twin.js — this module owns neither. The firewall is
+// resolved via an INJECTED dependency (tests) or a dynamic import (browser), the
+// same injected-dependency pattern used across the codebase.
+
+// [stripped import] import { perturbRows } from './digital-twin.js';
+// [stripped import] import { diffRows, detectKeyColumn } from './time-travel-diff.js';
+
+const FIREWALL_MODULE = '../agents/agent-action-firewall.js';
+
+function isUsableFirewall(mod) {
+  return !!mod && typeof mod.confirmAndApply === 'function' && typeof mod.proposeAction === 'function';
+}
+
+// Resolve the firewall:
+//   * a valid injected module (tests / explicit wiring) wins;
+//   * `firewall === false` forces the DISABLED/unavailable state (no import attempt) —
+//     this lets a caller, and the red-team test, exercise the real fail-closed branch;
+//   * an injected-but-invalid object is treated as unavailable (warn, disable) rather
+//     than silently importing something else;
+//   * otherwise (nothing injected) dynamic-import the sibling.
+// A failed import is NOT fatal — we return null and the twin comes up disabled.
+async function resolveFirewall(injected) {
+  if (injected === false) {
+    console.warn('[sandbox-twin] Agent Action Firewall explicitly unavailable — twin disabled (fail closed).');
+    return null;
+  }
+  if (injected != null) {
+    if (isUsableFirewall(injected)) return injected;
+    console.warn('[sandbox-twin] Injected Agent Action Firewall is missing proposeAction/confirmAndApply — twin disabled (fail closed).');
+    return null;
+  }
+  try {
+    const mod = await import(FIREWALL_MODULE);
+    if (isUsableFirewall(mod)) return mod;
+    console.warn('[sandbox-twin] Agent Action Firewall module loaded but is missing proposeAction/confirmAndApply — twin disabled (fail closed).');
+    return null;
+  } catch (err) {
+    console.warn(
+      '[sandbox-twin] Agent Action Firewall module unavailable — the sandbox twin is disabled and will apply NO mutation (fail closed). ' +
+      'Ship Batch-1 of the DataGlow Passport (js/agents/agent-action-firewall.js) to enable it.',
+      err && err.message ? err.message : err,
+    );
+    return null;
+  }
+}
+
+// Normalize a schema to the two shapes the reused modules expect:
+//   colObjects : [{name,type}]  (digital-twin's perturbRows)
+//   colNames   : ['name', ...]  (time-travel-diff's detectKeyColumn/diffRows)
+function normalizeColumns(columns) {
+  const colObjects = (columns || []).map(c =>
+    typeof c === 'string' ? { name: c, type: '' } : { name: c.name, type: c.type || '' });
+  return { colObjects, colNames: colObjects.map(c => c.name) };
+}
+
+function deepCopyRows(rows) {
+  return rows.map(r => ({ ...r }));
+}
+
+/**
+ * Fork a disposable sandbox twin from an already-loaded dataset.
+ *
+ * Async because it may need to dynamic-import the firewall; pass `firewall` to
+ * inject it (tests / explicit wiring) and the call resolves synchronously-ish.
+ *
+ * @param {object} args
+ * @param {Array<object>} args.realRows   rows the caller ALREADY read from the live table (never mutated here)
+ * @param {Array<{name:string,type?:string}>|string[]} args.columns  the live schema
+ * @param {string} [args.keyColumn]       primary key for diffing; auto-detected when omitted
+ * @param {object} [args.firewall]        injected firewall module (else dynamic import)
+ * @returns {Promise<object>}             the twin handle (see methods below)
+ */
+async function createSandboxTwin({ realRows, columns, keyColumn = null, firewall = null } = {}) {
+  if (!Array.isArray(realRows)) throw new Error('createSandboxTwin needs a realRows array.');
+  const { colObjects, colNames } = normalizeColumns(columns);
+  if (!colNames.length) throw new Error('createSandboxTwin needs a non-empty column schema.');
+
+  const fw = await resolveFirewall(firewall);
+  const enabled = !!fw;
+
+  // The immutable fork point: the twin can always be reset to exactly this, which
+  // is also what the real dataset looked like at fork time (so diff() is twin-vs-real).
+  const forkBaseline = Object.freeze(deepCopyRows(realRows));
+  let twinRows = deepCopyRows(realRows);
+  let disposed = false;
+
+  const key = keyColumn || detectKeyColumn(colNames, forkBaseline);
+
+  function ensureLive() {
+    if (disposed) throw new Error('sandbox twin has been disposed.');
+  }
+
+  // Shared refusal used whenever the firewall is absent: warn + fail closed.
+  function refuseNoFirewall(op) {
+    console.warn(`[sandbox-twin] ${op} refused: Agent Action Firewall unavailable, so no mutation can be human-confirmed (fail closed).`);
+    return { ok: false, applied: false, blocked: true, reason: 'firewall-unavailable' };
+  }
+
+  return Object.freeze({
+    isSandboxTwin: true,
+    enabled,
+    keyColumn: key,
+
+    /** A COPY of the twin's current rows — callers never get the live array. */
+    getRows() { ensureLive(); return deepCopyRows(twinRows); },
+    getColumns() { return colObjects.map(c => ({ ...c })); },
+    getRowCount() { ensureLive(); return twinRows.length; },
+
+    /**
+     * PROPOSE a mutation. Pure classification + a single-use nonce; executes
+     * NOTHING. Safe to call as often as an agent likes. Returns null (and warns)
+     * when the firewall is unavailable.
+     */
+    propose(action) {
+      ensureLive();
+      if (!enabled) { refuseNoFirewall('propose'); return null; }
+      return fw.proposeAction(action);
+    },
+
+    /**
+     * Apply a mutation TO THE TWIN — still firewall-gated. `mutate(rows, columns)`
+     * returns the next rows[] (or {rows}); it runs ONLY after the firewall's
+     * per-action human confirmation passes. Reversible: `reset()` undoes it.
+     * Throws AgentActionBlocked (from the firewall) when confirmation is
+     * missing/invalid — the twin is left untouched (inert).
+     */
+    async applyToTwin({ proposal, confirmation, mutate }) {
+      ensureLive();
+      if (!enabled) return refuseNoFirewall('applyToTwin');
+      if (typeof mutate !== 'function') throw new Error('applyToTwin needs a mutate(rows, columns) function.');
+      const apply = () => {
+        const next = mutate(deepCopyRows(twinRows), colObjects);
+        const nextRows = Array.isArray(next) ? next : (next && Array.isArray(next.rows) ? next.rows : null);
+        if (!nextRows) throw new Error('twin mutate must return an array of rows or { rows }.');
+        twinRows = deepCopyRows(nextRows);
+        return { rowCount: twinRows.length };
+      };
+      const res = await fw.confirmAndApply({ proposal, confirmation, apply });
+      return { ok: true, applied: true, ...res };
+    },
+
+    /**
+     * Convenience: propose + apply a REUSED digital-twin perturbation against the
+     * twin in one firewall-gated step. `confirmation` supplies { confirmed, identity };
+     * the nonce is threaded internally. Never touches real data.
+     */
+    async perturbTwin({ knobs = {}, seed = undefined, confirmation } = {}) {
+      ensureLive();
+      if (!enabled) return refuseNoFirewall('perturbTwin');
+      const proposal = fw.proposeAction({
+        kind: 'transform-column',
+        description: 'Sandbox perturbation (digital-twin what-if) applied to the disposable twin only.',
+      });
+      const conf = { ...(confirmation || {}), nonce: proposal.nonce };
+      return this.applyToTwin({
+        proposal,
+        confirmation: conf,
+        mutate: (rows) => perturbRows(rows, colObjects, knobs, seed === undefined ? undefined : { seed }).rows,
+      });
+    },
+
+    /**
+     * PROMOTE the twin's current state back into the REAL dataset. This is the
+     * ONLY method that can touch real data, and it does so exclusively through
+     * the firewall: `applyToReal(twinRows)` — the caller's real-table writer — is
+     * invoked ONLY after the per-action human confirmation passes. Missing/invalid
+     * confirmation throws AgentActionBlocked and applyToReal is NEVER called.
+     * The authorization is written to the chain of custody via recordAudit.
+     */
+    async promoteToReal({ proposal, confirmation, applyToReal, recordAudit }) {
+      ensureLive();
+      if (!enabled) return refuseNoFirewall('promoteToReal');
+      if (typeof applyToReal !== 'function') throw new Error('promoteToReal needs an applyToReal(rows) executor.');
+      const snapshot = deepCopyRows(twinRows);
+      const apply = () => applyToReal(snapshot);
+      const res = await fw.confirmAndApply({ proposal, confirmation, apply, recordAudit });
+      return { ok: true, promoted: true, ...res };
+    },
+
+    /**
+     * Diff the twin against the real dataset at fork time. REUSES
+     * time-travel-diff's diffRows — this module owns no diffing logic.
+     */
+    diff() {
+      ensureLive();
+      if (!key) return { keyColumn: null, added: [], removed: [], changed: [], unchanged: 0, countA: forkBaseline.length, countB: twinRows.length, note: 'no unique key column; row-level diff unavailable.' };
+      return diffRows(forkBaseline, twinRows, key);
+    },
+
+    /** Restore the twin to the fork baseline. Local, safe, no confirmation needed. */
+    reset() { ensureLive(); twinRows = deepCopyRows(forkBaseline); return { ok: true, rowCount: twinRows.length }; },
+
+    /** Discard the twin. Frees the working copy; further calls throw. */
+    dispose() { twinRows = []; disposed = true; return { ok: true }; },
+  });
+}
+
+  window.SandboxTwin = {
+    mountSandboxTwin: typeof mountSandboxTwin !== 'undefined' ? mountSandboxTwin : null,
+    runSandboxExperiment: typeof runSandboxExperiment !== 'undefined' ? runSandboxExperiment : null,
+  };
+}());
+/* ---- end sandbox-twin.js ---- */
+
+/* ---- from js/simulation/time-machine.js ---- */
+;(function(){
+  'use strict';
+  var _ttd = window.TimeTravelDiff || {};
+  var diffRows = _ttd.diffRows || null;
+  var detectKeyColumn = _ttd.detectKeyColumn || null;
+  var buildTimeTravelSummary = _ttd.buildTimeTravelSummary || null;
+// ============================================================
+// DATAGLOW — Data Time Machine (persistent snapshot ledger)
+// ============================================================
+// Extends the Time-Travel Diff Mode (js/time-travel-diff.js): instead of only
+// diffing the active dataset against ONE ad-hoc comparison file, the Time
+// Machine lets the user explicitly "Save Snapshot" of the current dataset
+// state. Each snapshot records:
+//   • a content hash of the dataset state,
+//   • a timestamp,
+//   • a compact diff-from-previous-snapshot summary,
+//   • and (storage-budget permitting) the dataset rows themselves,
+// persisted in IndexedDB. Clicking a stored snapshot re-loads that historical
+// state so the existing Diff view can compare it against the current state.
+//
+// Snapshots are NEVER taken automatically per query (that would fill storage);
+// saving is an explicit user action. The pure snapshot/hash/diff logic lives
+// here and is Node-testable; the IndexedDB persistence is a thin, browser-only
+// wrapper. Diff summaries reuse detectKeyColumn/diffRows from time-travel-diff
+// so there is one definition of "what changed between two dataset versions".
+// ============================================================
+
+// [stripped import] import { detectKeyColumn, diffRows } from './time-travel-diff.js';
+
+// ---------- pure: content hashing ----------
+
+// Stable canonical serialization: column order preserved, rows in row order,
+// each cell coerced to a string (null → " null"). Deterministic across
+// runs so the same dataset state always yields the same hash.
+function canonicalize(columns, rows) {
+  const cols = columns.slice();
+  const parts = [cols.join('')];
+  for (const r of rows) {
+    parts.push(cols.map(c => (r[c] == null ? ' null' : String(r[c]))).join(''));
+  }
+  return parts.join('');
+}
+
+// FNV-1a 64-bit (public-domain hash) over the canonical string, hex-encoded.
+// Synchronous and dependency-free so snapshot identity is testable in Node
+// without Web Crypto. Used only as a content fingerprint, not for security.
+function contentHash(columns, rows) {
+  const str = canonicalize(columns, rows);
+  // 64-bit FNV-1a via two 32-bit halves to stay in safe integer range.
+  let h1 = 0x811c9dc5, h2 = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 ^= c & 0xff;
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+    h2 ^= (c >>> 8) & 0xff;
+    h2 = Math.imul(h2, 0x01000193) >>> 0;
+  }
+  const hex = (n) => (n >>> 0).toString(16).padStart(8, '0');
+  return hex(h1) + hex(h2);
+}
+
+// ---------- pure: diff-from-previous summary ----------
+
+// Compact, human-readable summary of how `rows` differs from a previous
+// snapshot's rows. Uses the same key-based row diff as Time-Travel Diff, plus
+// column-set and row-count deltas. Returns a plain object (JSON-serializable).
+function summarizeDiffFromPrevious(prevColumns, prevRows, columns, rows) {
+  const colsAdded = columns.filter(c => !prevColumns.includes(c));
+  const colsRemoved = prevColumns.filter(c => !columns.includes(c));
+  const rowCountDelta = rows.length - prevRows.length;
+
+  let rowChanges = null;
+  const shared = columns.filter(c => prevColumns.includes(c));
+  const keyCol = detectKeyColumn(shared, prevRows);
+  if (keyCol) {
+    const d = diffRows(prevRows, rows, keyCol);
+    rowChanges = { keyColumn: keyCol, added: d.added.length, removed: d.removed.length, changed: d.changed.length, unchanged: d.unchanged };
+  }
+
+  const bits = [];
+  if (rowCountDelta !== 0) bits.push(`${rowCountDelta > 0 ? '+' : ''}${rowCountDelta} row(s)`);
+  if (colsAdded.length) bits.push(`+${colsAdded.length} column(s)`);
+  if (colsRemoved.length) bits.push(`-${colsRemoved.length} column(s)`);
+  if (rowChanges) bits.push(`${rowChanges.added} added / ${rowChanges.removed} removed / ${rowChanges.changed} changed`);
+  const text = bits.length ? bits.join(', ') : 'No structural changes detected.';
+
+  return { text, rowCountDelta, columnsAdded: colsAdded, columnsRemoved: colsRemoved, rowChanges };
+}
+
+// Build a snapshot record. `previous` is the prior snapshot (or null for the
+// first). `now` is injectable for deterministic tests. Rows are embedded only
+// when `embedRows` is true (the storage-budget check decides this upstream).
+function buildSnapshot({ datasetName, columns, rows, previous = null, label = null, now = Date.now(), embedRows = true } = {}) {
+  if (!Array.isArray(columns) || !columns.length) throw new Error('buildSnapshot needs a non-empty column list.');
+  if (!Array.isArray(rows)) throw new Error('buildSnapshot needs a rows array.');
+  const hash = contentHash(columns, rows);
+  const diffSummary = previous
+    ? summarizeDiffFromPrevious(previous.columns, previous.rows || [], columns, rows)
+    : { text: 'Initial snapshot — no prior state to compare against.', rowCountDelta: rows.length, columnsAdded: columns.slice(), columnsRemoved: [], rowChanges: null };
+
+  return {
+    kind: 'dataglow-snapshot',
+    id: `${hash}-${now}`,
+    datasetName: datasetName || 'Untitled dataset',
+    hash,
+    timestamp: now,
+    label: label || null,
+    rowCount: rows.length,
+    columns: columns.slice(),
+    diffSummary,
+    rows: embedRows ? rows : null,
+    rowsOmitted: !embedRows,
+  };
+}
+
+// ---------- pure: archive export (prune-to-file) ----------
+
+function buildArchive(snapshots) {
+  return {
+    kind: 'dataglow-snapshot-archive',
+    version: 1,
+    exportedAt: Date.now(),
+    count: snapshots.length,
+    snapshots,
+  };
+}
+
+function exportArchive(snapshots) {
+  return JSON.stringify(buildArchive(snapshots), null, 2);
+}
+
+function parseArchive(text) {
+  const obj = JSON.parse(text);
+  if (!obj || obj.kind !== 'dataglow-snapshot-archive' || !Array.isArray(obj.snapshots)) {
+    throw new Error('Not a DATAGLOW snapshot archive.');
+  }
+  return obj;
+}
+
+// ============================================================
+// Browser-only: IndexedDB persistence + storage-quota handling
+// ============================================================
+
+const DB_NAME = 'dataglow_timemachine';
+const DB_VERSION = 1;
+const STORE = 'snapshots';
+
+let dbPromise = null;
+
+function req(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+function txDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+function initTimeMachine() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') { reject(new Error('indexedDB is not available in this environment.')); return; }
+    const open = indexedDB.open(DB_NAME, DB_VERSION);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: 'id' });
+        store.createIndex('byDataset', 'datasetName', { unique: false });
+        store.createIndex('byTimestamp', 'timestamp', { unique: false });
+      }
+    };
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  return dbPromise;
+}
+
+// Report storage pressure so the UI can warn BEFORE a quota write fails.
+// Returns { supported, usage, quota, ratio, nearLimit }. nearLimit at >=85%.
+async function checkStorageQuota() {
+  if (typeof navigator === 'undefined' || !navigator.storage || !navigator.storage.estimate) {
+    return { supported: false, usage: 0, quota: 0, ratio: 0, nearLimit: false };
+  }
+  const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+  const ratio = quota > 0 ? usage / quota : 0;
+  return { supported: true, usage, quota, ratio, nearLimit: ratio >= 0.85 };
+}
+
+async function saveSnapshot(record) {
+  const db = await initTimeMachine();
+  const tx = db.transaction(STORE, 'readwrite');
+  tx.objectStore(STORE).put(record);
+  await txDone(tx);
+  return record;
+}
+
+async function listSnapshots(datasetName = null) {
+  const db = await initTimeMachine();
+  const tx = db.transaction(STORE, 'readonly');
+  const all = await req(tx.objectStore(STORE).getAll());
+  const filtered = datasetName ? all.filter(s => s.datasetName === datasetName) : all;
+  return filtered.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+async function getSnapshot(id) {
+  const db = await initTimeMachine();
+  const tx = db.transaction(STORE, 'readonly');
+  return req(tx.objectStore(STORE).get(id));
+}
+
+async function deleteSnapshot(id) {
+  const db = await initTimeMachine();
+  const tx = db.transaction(STORE, 'readwrite');
+  tx.objectStore(STORE).delete(id);
+  await txDone(tx);
+}
+
+// Latest snapshot for a dataset (used as `previous` when building the next one).
+async function latestSnapshot(datasetName) {
+  const list = await listSnapshots(datasetName);
+  return list[0] || null;
+}
+
+  window.TimeMachine = {
+    mountTimeMachine: typeof mountTimeMachine !== 'undefined' ? mountTimeMachine : null,
+    buildTimeline: typeof buildTimeline !== 'undefined' ? buildTimeline : null,
+    snapshotDataset: typeof snapshotDataset !== 'undefined' ? snapshotDataset : null,
+  };
+
+  // Wire into overflow grid + mobile tools sheet
+  function initSimUI() {
+    var panelId = 'dg-simulation-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:863;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block'; p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '×';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        if (typeof mountTimeMachine === 'function') {
+          mountTimeMachine({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else if (typeof mountSandboxTwin === 'function') {
+          mountSandboxTwin({ host: p });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Digital Twin + Time Machine: snapshot datasets, run counterfactual experiments, and travel through data history.';
+          p.appendChild(msg);
+        }
+      } else { p.style.display = 'none'; }
+    }
+    ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
+      var grid = document.getElementById(gridId);
+      var btnId = i === 0 ? 'dg-ov-digitaltwin' : 'dg-ts-digitaltwin';
+      if (grid && !document.getElementById(btnId)) {
+        var btn = document.createElement('button');
+        btn.id = btnId;
+        btn.className = 'dg-ov-btn';
+        btn.innerHTML = '??<br><span>Twin</span>';
+        btn.addEventListener('click', function(){
+          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.remove('open'); }); }
+          else { var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open'); }
+          toggle();
+        });
+        grid.appendChild(btn);
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSimUI);
+  else setTimeout(initSimUI, 1100);
+}());
+/* ---- end time-machine.js ---- */
+
+
+/* ================================================================
+   DRIFT CLUSTER -- recovered from git history
+   js/drift/ + js/ambient/drift-watchdog.js
+   PR #218 enabled semanticDriftWatchdog flag
+   ================================================================ */
+
+/* ---- from js/drift/dataset-differ.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Dataset Differ (Phase 4)
+// ============================================================
+// Compares two dataset snapshots and surfaces what changed:
+// schema changes (columns added/removed/type-changed) and
+// statistical shifts (row count, null rates, value distributions).
+//
+// WHY THIS EXISTS:
+// "This month's export" and "last month's export" look identical
+// on the surface but may differ in ways that matter for analytics:
+// a column added, a null rate that jumped from 2% to 15%, a row
+// count that dropped 30%. These changes invalidate any cached
+// analysis and may indicate upstream ETL issues.
+//
+// SNAPSHOTS:
+// A snapshot is a lightweight summary of a dataset at a point in time.
+// It contains schema info, row count, and per-column null rates /
+// value distributions. Snapshots are cheap to store (a few KB for
+// a 50-column dataset) and can be generated from any DuckDB table.
+//
+// USAGE:
+//   // On first load:
+//   const snap1 = await captureSnapshot({ table, cols, engine });
+//   // On next load:
+//   const snap2 = await captureSnapshot({ table, cols, engine });
+//   // Diff them:
+//   const diff = diffSnapshots(snap1, snap2);
+
+// ---- Snapshot capture ------------------------------------------------------
+
+/**
+ * Capture a lightweight statistical snapshot of a DuckDB table.
+ *
+ * @param {object} opts
+ * @param {string} opts.table - DuckDB table name
+ * @param {Array<{name, type}>} opts.cols - column list
+ * @param {object} opts.engine - { runQuery }
+ * @param {string} [opts.label] - human-readable label (e.g. "July 2026 export")
+ * @param {string} [opts.capturedAt] - ISO timestamp; defaults to now
+ * @returns {Promise<object>} snapshot
+ */
+async function captureSnapshot({ table, cols, engine, label = null, capturedAt = null }) {
+  const ts = capturedAt || new Date().toISOString();
+  const colArr = Array.isArray(cols) ? cols : [];
+
+  // Row count.
+  let rowCount = null;
+  try {
+    const r = await engine.runQuery('SELECT COUNT(*) AS n FROM ' + q(table));
+    rowCount = safeNum(r.rows[0], 'n');
+  } catch { /* ok */ }
+
+  // Per-column stats.
+  const columnStats = [];
+  for (const col of colArr) {
+    const name = col && col.name ? String(col.name) : '';
+    const type = col && col.type ? String(col.type) : 'VARCHAR';
+    if (!name) continue;
+
+    let nullRate = null, distinctCount = null, minVal = null, maxVal = null, meanVal = null;
+    try {
+      const nullRes = await engine.runQuery(
+        'SELECT COUNT(*) AS total, SUM(CASE WHEN ' + q(name) + ' IS NULL THEN 1 ELSE 0 END) AS nulls FROM ' + q(table)
+      );
+      const total = safeNum(nullRes.rows[0], 'total');
+      const nulls = safeNum(nullRes.rows[0], 'nulls');
+      nullRate = total > 0 ? nulls / total : null;
+    } catch { /* ok */ }
+
+    try {
+      const distRes = await engine.runQuery(
+        'SELECT COUNT(DISTINCT ' + q(name) + ') AS n FROM ' + q(table)
+      );
+      distinctCount = safeNum(distRes.rows[0], 'n');
+    } catch { /* ok */ }
+
+    // Numeric stats only for numeric types.
+    if (isNumericType(type)) {
+      try {
+        const statRes = await engine.runQuery(
+          'SELECT MIN(CAST(' + q(name) + ' AS DOUBLE)) AS mn, MAX(CAST(' + q(name) + ' AS DOUBLE)) AS mx, ' +
+          'AVG(CAST(' + q(name) + ' AS DOUBLE)) AS avg FROM ' + q(table)
+        );
+        minVal = safeFloat(statRes.rows[0], 'mn');
+        maxVal = safeFloat(statRes.rows[0], 'mx');
+        meanVal = safeFloat(statRes.rows[0], 'avg');
+      } catch { /* ok */ }
+    }
+
+    columnStats.push({ name, type, nullRate, distinctCount, minVal, maxVal, meanVal });
+  }
+
+  return {
+    kind: 'dataglow_snapshot',
+    version: '1.0',
+    label,
+    capturedAt: ts,
+    table,
+    rowCount,
+    columnCount: colArr.length,
+    columnStats,
+  };
+}
+
+// ---- Snapshot diff ---------------------------------------------------------
+
+/**
+ * Diff two snapshots. Returns a structured diff with schema changes
+ * and statistical shifts.
+ *
+ * @param {object} snapA - earlier snapshot
+ * @param {object} snapB - later snapshot
+ * @param {object} [opts]
+ * @param {number} [opts.rowCountDeltaWarn=0.05]  - warn if row count changes by > 5%
+ * @param {number} [opts.rowCountDeltaFail=0.20]  - fail if row count changes by > 20%
+ * @param {number} [opts.nullRateDeltaWarn=0.05]  - warn if null rate shifts by > 5 pp
+ * @param {number} [opts.nullRateDeltaFail=0.15]  - fail if null rate shifts by > 15 pp
+ * @param {number} [opts.meanDeltaWarn=0.20]       - warn if mean shifts by > 20%
+ * @param {number} [opts.meanDeltaFail=0.50]       - fail if mean shifts by > 50%
+ * @returns {object} diff result
+ */
+function diffSnapshots(snapA, snapB, {
+  rowCountDeltaWarn = 0.05,
+  rowCountDeltaFail = 0.20,
+  nullRateDeltaWarn = 0.05,
+  nullRateDeltaFail = 0.15,
+  meanDeltaWarn     = 0.20,
+  meanDeltaFail     = 0.50,
+} = {}) {
+  if (!snapA || !snapB) {
+    return {
+      layer: 'dataset_diff', status: 'idle', level: 'none',
+      rationale: 'One or both snapshots are null -- diff cannot be computed.',
+      schemaDiff: null, statsDiff: null,
+    };
+  }
+
+  const findings = [];
+
+  // ---- Row count diff ----
+  const rowCountDiff = rowCountChange(snapA.rowCount, snapB.rowCount, rowCountDeltaWarn, rowCountDeltaFail);
+  if (rowCountDiff) findings.push(rowCountDiff);
+
+  // ---- Column count diff ----
+  const colCountDiff = snapA.columnCount !== snapB.columnCount
+    ? {
+        kind: 'column_count_changed',
+        status: snapA.columnCount !== snapB.columnCount ? 'warn' : 'pass',
+        level: 'low',
+        detail: 'Column count changed from ' + snapA.columnCount + ' to ' + snapB.columnCount + '.',
+      }
+    : null;
+  if (colCountDiff) findings.push(colCountDiff);
+
+  // ---- Schema diff: added / removed / type-changed columns ----
+  const schemaDiff = buildSchemaDiff(snapA.columnStats || [], snapB.columnStats || []);
+  for (const s of schemaDiff.findings) findings.push(s);
+
+  // ---- Stats diff: null rate + numeric distribution shifts ----
+  const statsDiff = buildStatsDiff(
+    snapA.columnStats || [], snapB.columnStats || [],
+    nullRateDeltaWarn, nullRateDeltaFail,
+    meanDeltaWarn, meanDeltaFail,
+  );
+  for (const s of statsDiff.findings) findings.push(s);
+
+  // ---- Roll up ----
+  const worstStatus = findings.some(f => f.status === 'fail') ? 'fail'
+    : findings.some(f => f.status === 'warn') ? 'warn'
+    : findings.length === 0 ? 'pass' : 'pass';
+  const worstLevel = findings.some(f => f.level === 'high') ? 'high'
+    : findings.some(f => f.level === 'medium') ? 'medium'
+    : findings.some(f => f.level === 'low') ? 'low' : 'none';
+
+  const flaggedCount = findings.filter(f => f.status !== 'pass').length;
+  const rationale = flaggedCount === 0
+    ? 'No significant schema or statistical drift detected between "' +
+      (snapA.label || snapA.capturedAt) + '" and "' + (snapB.label || snapB.capturedAt) + '".'
+    : flaggedCount + ' drift finding(s) between "' +
+      (snapA.label || snapA.capturedAt) + '" and "' + (snapB.label || snapB.capturedAt) + '": ' +
+      findings.filter(f => f.status !== 'pass').map(f => f.detail).slice(0, 3).join('; ') +
+      (flaggedCount > 3 ? ' (+ ' + (flaggedCount - 3) + ' more).' : '.');
+
+  return {
+    layer: 'dataset_diff',
+    status: worstStatus,
+    level: worstLevel,
+    snapshotA: { label: snapA.label, capturedAt: snapA.capturedAt, rowCount: snapA.rowCount, columnCount: snapA.columnCount },
+    snapshotB: { label: snapB.label, capturedAt: snapB.capturedAt, rowCount: snapB.rowCount, columnCount: snapB.columnCount },
+    findings,
+    flaggedCount,
+    schemaDiff,
+    statsDiff,
+    rationale,
+  };
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function rowCountChange(a, b, warnDelta, failDelta) {
+  if (a === null || b === null) return null;
+  if (a === 0 && b === 0) return null;
+  const delta = a === 0 ? (b > 0 ? 1 : 0) : Math.abs((b - a) / a);
+  const direction = b > a ? 'increased' : b < a ? 'decreased' : 'unchanged';
+  if (delta === 0) return null;
+  const status = delta >= failDelta ? 'fail' : delta >= warnDelta ? 'warn' : 'pass';
+  const level = delta >= failDelta ? (delta >= 0.5 ? 'high' : 'medium') : delta >= warnDelta ? 'low' : 'none';
+  return {
+    kind: 'row_count_changed',
+    column: null, status, level,
+    detail: 'Row count ' + direction + ' from ' + a.toLocaleString() + ' to ' + b.toLocaleString() +
+      ' (' + (delta * 100).toFixed(1) + '% change).',
+    deltaFraction: parseFloat(delta.toFixed(4)),
+    oldValue: a, newValue: b,
+  };
+}
+
+function buildSchemaDiff(colsA, colsB) {
+  const mapA = new Map(colsA.map(c => [c.name, c]));
+  const mapB = new Map(colsB.map(c => [c.name, c]));
+  const findings = [];
+  const added = [], removed = [], typeChanged = [];
+
+  for (const [name, colB] of mapB) {
+    if (!mapA.has(name)) {
+      added.push(name);
+      findings.push({ kind: 'column_added', column: name, status: 'warn', level: 'low',
+        detail: 'Column "' + name + '" (' + colB.type + ') added.' });
+    }
+  }
+  for (const [name, colA] of mapA) {
+    if (!mapB.has(name)) {
+      removed.push(name);
+      findings.push({ kind: 'column_removed', column: name, status: 'fail', level: 'medium',
+        detail: 'Column "' + name + '" (' + colA.type + ') removed.' });
+    } else {
+      const colB = mapB.get(name);
+      if (colA.type !== colB.type) {
+        typeChanged.push(name);
+        findings.push({ kind: 'type_changed', column: name, status: 'warn', level: 'medium',
+          detail: 'Column "' + name + '" type changed from ' + colA.type + ' to ' + colB.type + '.' });
+      }
+    }
+  }
+
+  return { added, removed, typeChanged, findings };
+}
+
+function buildStatsDiff(colsA, colsB, nullWarn, nullFail, meanWarn, meanFail) {
+  const mapA = new Map(colsA.map(c => [c.name, c]));
+  const mapB = new Map(colsB.map(c => [c.name, c]));
+  const findings = [];
+
+  for (const [name, colB] of mapB) {
+    const colA = mapA.get(name);
+    if (!colA) continue;
+
+    // Null rate shift.
+    if (colA.nullRate !== null && colB.nullRate !== null) {
+      const nullDelta = Math.abs(colB.nullRate - colA.nullRate);
+      if (nullDelta >= nullFail) {
+        findings.push({ kind: 'null_rate_shifted', column: name, status: 'fail',
+          level: nullDelta >= 0.30 ? 'high' : 'medium',
+          detail: 'Null rate in "' + name + '" shifted from ' + fmtPct(colA.nullRate) + ' to ' + fmtPct(colB.nullRate) + ' (' + fmtPct(nullDelta) + ' change).',
+          oldValue: colA.nullRate, newValue: colB.nullRate, delta: nullDelta });
+      } else if (nullDelta >= nullWarn) {
+        findings.push({ kind: 'null_rate_shifted', column: name, status: 'warn',
+          level: 'low',
+          detail: 'Null rate in "' + name + '" shifted from ' + fmtPct(colA.nullRate) + ' to ' + fmtPct(colB.nullRate) + ' (' + fmtPct(nullDelta) + ' change).',
+          oldValue: colA.nullRate, newValue: colB.nullRate, delta: nullDelta });
+      }
+    }
+
+    // Mean shift (numeric columns only).
+    if (colA.meanVal !== null && colB.meanVal !== null && colA.meanVal !== 0) {
+      const meanDelta = Math.abs((colB.meanVal - colA.meanVal) / colA.meanVal);
+      if (meanDelta >= meanFail) {
+        findings.push({ kind: 'mean_shifted', column: name, status: 'fail',
+          level: meanDelta >= 1.0 ? 'high' : 'medium',
+          detail: 'Mean of "' + name + '" shifted from ' + colA.meanVal.toFixed(2) + ' to ' + colB.meanVal.toFixed(2) + ' (' + fmtPct(meanDelta) + ' relative change).',
+          oldValue: colA.meanVal, newValue: colB.meanVal, delta: meanDelta });
+      } else if (meanDelta >= meanWarn) {
+        findings.push({ kind: 'mean_shifted', column: name, status: 'warn', level: 'low',
+          detail: 'Mean of "' + name + '" shifted from ' + colA.meanVal.toFixed(2) + ' to ' + colB.meanVal.toFixed(2) + ' (' + fmtPct(meanDelta) + ' relative change).',
+          oldValue: colA.meanVal, newValue: colB.meanVal, delta: meanDelta });
+      }
+    }
+  }
+
+  return { findings };
+}
+
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+function safeNum(row, key) {
+  if (!row) return 0;
+  const v = row[key];
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseInt(String(v), 10) || 0;
+}
+function safeFloat(row, key) {
+  if (!row) return null;
+  const v = row[key];
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseFloat(String(v)) || null;
+}
+const NUMERIC_TYPES = new Set(['INTEGER','BIGINT','DOUBLE','FLOAT','DECIMAL','NUMERIC','REAL','SMALLINT','TINYINT','HUGEINT','INT','INT4','INT8','FLOAT4','FLOAT8']);
+function isNumericType(t) { return t && NUMERIC_TYPES.has(t.toUpperCase().split('(')[0].trim()); }
+function fmtPct(v) { return (v * 100).toFixed(1) + '%'; }
+
+  window.DatasetDiffer = {
+    diffDatasets: typeof diffDatasets !== 'undefined' ? diffDatasets : null,
+    buildDriftSummary: typeof buildDriftSummary !== 'undefined' ? buildDriftSummary : null,
+    computeColumnStats: typeof computeColumnStats !== 'undefined' ? computeColumnStats : null,
+    DRIFT_SEVERITY: typeof DRIFT_SEVERITY !== 'undefined' ? DRIFT_SEVERITY : {},
+  };
+}());
+/* ---- end dataset-differ.js ---- */
+
+/* ---- from js/drift/drift-forecast.js ---- */
+;(function(){
+  'use strict';
+  var _dd = window.DatasetDiffer || {};
+  var diffDatasets = _dd.diffDatasets || null;
+  var DRIFT_SEVERITY = _dd.DRIFT_SEVERITY || {};
+// ============================================================
+// DATAGLOW — Forecast-Based Drift Alerting
+// An EXTENSION of the Distributional Fingerprint Drift layer (js/validation.js,
+// layer 18). The base layer answers "did this upload move away from a stored
+// baseline?". This module answers a strictly harder question: "given the recent
+// *trajectory* of this schema's uploads, is this upload outside the range we
+// would have EXPECTED the next upload to fall in?".
+//
+// It reuses the exact summary numbers the base drift fingerprint already
+// computes (per-column mean, null/missingness rate, and — added alongside the
+// existing categorical `top` list — the modal-category share) and projects each
+// one forward with a transparent, textbook forecasting method:
+//
+//   Holt's linear (double) exponential smoothing — Holt 1957
+//   ("Forecasting seasonals and trends by exponentially weighted moving
+//    averages", ONR memo; reprinted Int. J. Forecasting 20(1), 2004).
+//
+// Two smoothing recursions, level and trend:
+//   ℓ_t = α·y_t + (1−α)·(ℓ_{t−1} + b_{t−1})
+//   b_t = β·(ℓ_t − ℓ_{t−1}) + (1−β)·b_{t−1}
+//   one-step forecast  ŷ_{t} = ℓ_{t−1} + b_{t−1}
+//   next-upload forecast ŷ_{n+1} = ℓ_n + b_n
+//
+// The confidence band is sized by the method's OWN one-step-ahead in-sample
+// residuals (root-mean-square error), NOT a hardcoded threshold: a series the
+// model tracks well gets a tight band; a noisy one gets a wide, forgiving band.
+//
+// Pure + dependency-free by design (no DuckDB, no IndexedDB, no DOM) so the math
+// is unit-testable in Node exactly like the sibling detection modules
+// (missingness-detective.js, upper-bound-sanity.js). Persistence is handled by
+// the caller via the injected fingerprint store, mirroring the base layer.
+// ============================================================
+
+// Minimum number of PRIOR uploads required before a forecast is even attempted.
+// With fewer, callers fall back to the base (static) drift behaviour — we never
+// claim a trend-aware flag on a trajectory we haven't actually observed. Chosen
+// at the top of the task's 3–5 range so Holt's level+trend has genuine history
+// to smooth over rather than being dominated by its two-point initialisation.
+const MIN_FORECAST_HISTORY = 4;
+
+// Hard cap on how many historical fingerprints we retain per schema. Bounded so
+// the on-device store can never grow without limit (same anti-degradation stance
+// as the LRU column-profile cap in memory-store.js).
+const FORECAST_HISTORY_CAP = 24;
+
+// Band half-width in residual standard deviations. z = 2 ≈ a 95% interval under
+// an approximately-normal one-step error, the textbook default.
+const FORECAST_Z = 2;
+
+// Holt smoothing constants. Moderate, explainable defaults: α weights how fast
+// the level tracks new observations, β how fast the trend adapts. Deliberately
+// fixed (not fitted) so the method stays transparent and every run is
+// reproducible — consistent with the "no black-box model" stance of the
+// adaptive-priority and self-learning features.
+const HOLT_ALPHA = 0.5;
+const HOLT_BETA = 0.3;
+
+// ---------------------------------------------------------------
+// Stat extraction — pull the handful of forecastable SCALAR series out of one
+// distribution fingerprint (the object returned by computeDistributionFingerprint).
+// Reuses the fingerprint's existing fields; computes nothing from raw rows.
+//   • missingness rate  — every column        (fp[col].nullRate)
+//   • mean              — numeric columns      (fp[col].mean)
+//   • top-category share— categorical columns  (fp[col].topProp)
+// Each entry: { key, column, kind, label, value, detail? }.
+// ---------------------------------------------------------------
+function extractTrackedStats(fingerprint) {
+  const out = [];
+  if (!fingerprint || typeof fingerprint !== 'object') return out;
+  for (const [column, s] of Object.entries(fingerprint)) {
+    if (!s || typeof s !== 'object') continue;
+    if (s.nullRate != null && Number.isFinite(s.nullRate)) {
+      out.push({ key: `missing::${column}`, column, kind: 'missing', label: `missingness in "${column}"`, value: s.nullRate });
+    }
+    if (s.kind === 'numeric' && s.mean != null && Number.isFinite(s.mean)) {
+      out.push({ key: `mean::${column}`, column, kind: 'mean', label: `mean of "${column}"`, value: s.mean });
+    }
+    if (s.kind === 'categorical' && s.topProp != null && Number.isFinite(s.topProp)) {
+      out.push({ key: `topprop::${column}`, column, kind: 'topprop', label: `top-category share in "${column}"`, value: s.topProp, detail: s.topLabel });
+    }
+  }
+  return out;
+}
+
+// Gather the chronological series of values for one stat key across a list of
+// historical fingerprints (oldest → newest). Missing points (e.g. a column that
+// didn't exist in an earlier upload) are skipped rather than zero-filled.
+function seriesForKey(historyFingerprints, key) {
+  const vals = [];
+  for (const fp of historyFingerprints) {
+    const entry = extractTrackedStats(fp).find(e => e.key === key);
+    if (entry && entry.value != null && Number.isFinite(entry.value)) vals.push(entry.value);
+  }
+  return vals;
+}
+
+// ---------------------------------------------------------------
+// Holt's linear exponential smoothing (Holt 1957). Returns the next-step
+// forecast, the final level/trend, and the residual standard deviation used to
+// size the confidence band — or null if the series is too short to smooth.
+// ---------------------------------------------------------------
+function holtForecast(series, opts = {}) {
+  const alpha = opts.alpha != null ? opts.alpha : HOLT_ALPHA;
+  const beta = opts.beta != null ? opts.beta : HOLT_BETA;
+  const y = (series || []).filter(v => v != null && Number.isFinite(v));
+  const n = y.length;
+  if (n < 2) return null;
+
+  // Standard initialisation: level = first observation, trend = first difference.
+  let level = y[0];
+  let trend = y[1] - y[0];
+  let sse = 0;
+  let cnt = 0;
+  for (let t = 1; t < n; t++) {
+    const oneStep = level + trend;      // forecast made at t-1 for y[t]
+    // Skip t=1: its residual is identically zero by construction (the trend is
+    // seeded from y[1]-y[0]), which would bias the band artificially tight.
+    if (t >= 2) { const err = y[t] - oneStep; sse += err * err; cnt++; }
+    const newLevel = alpha * y[t] + (1 - alpha) * (level + trend);
+    trend = beta * (newLevel - level) + (1 - beta) * trend;
+    level = newLevel;
+  }
+  const residualStd = cnt > 0 ? Math.sqrt(sse / cnt) : 0;
+  return { method: 'holt', forecast: level + trend, level, trend, residualStd, n, alpha, beta };
+}
+
+// ---------------------------------------------------------------
+// Formatting helpers — kept here (not in the UI) so the plain-language flag text
+// is itself unit-testable and identical wherever it is shown.
+// ---------------------------------------------------------------
+function formatStatValue(kind, v) {
+  if (v == null || !Number.isFinite(v)) return '—';
+  if (kind === 'missing' || kind === 'topprop') return `${(v * 100).toFixed(1)}%`;
+  // mean: compact, human-readable number.
+  const abs = Math.abs(v);
+  if (abs !== 0 && (abs >= 1e6 || abs < 1e-3)) return v.toExponential(2);
+  return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function statNoun(p) {
+  if (p.kind === 'missing') return `missingness in "${p.column}"`;
+  if (p.kind === 'mean') return `mean of "${p.column}"`;
+  if (p.kind === 'topprop') {
+    const lbl = p.detail != null ? `"${p.detail}" share` : 'top-category share';
+    return `${lbl} in "${p.column}"`;
+  }
+  return `"${p.column}"`;
+}
+
+// Plain-language, trend-aware explanation. Rates are clamped to ≥0 for display
+// (a band can extend below zero mathematically, but a negative missingness rate
+// is meaningless to a reader).
+function describeForecastFlag(p) {
+  const clampLow = (p.kind === 'missing' || p.kind === 'topprop') ? Math.max(0, p.low) : p.low;
+  const exp = formatStatValue(p.kind, p.expected);
+  const act = formatStatValue(p.kind, p.actual);
+  const lo = formatStatValue(p.kind, clampLow);
+  const hi = formatStatValue(p.kind, p.high);
+  const trendWord = p.trend > 0 ? 'rising' : p.trend < 0 ? 'falling' : 'flat';
+  return `Expected ${statNoun(p)} ~${exp} based on the recent ${trendWord} trend; this upload has ${act} — outside the expected range (${lo}–${hi}).`;
+}
+
+// ---------------------------------------------------------------
+// Unified Signal Layer integration (purely additive enrichment).
+//
+// A trend-aware drift flag on column X is far more useful to the user if we can
+// connect it to something they just did. This step lets the alerter READ the
+// shared store: if the user recently disabled/changed a validation rule on the
+// SAME column (e.g. dismissed its flag), we append that context to the flag's
+// message instead of presenting an unexplained drift warning in isolation.
+//
+// `lookup` is a tiny injected contract — `recentRuleChange(column) -> change |
+// null` — keeping this pure and Node-testable. With no lookup, or no related
+// change, the report is returned untouched (identical to before). Mutates and
+// returns the same report; enriched flags gain a `relatedRuleChange` field and a
+// clause appended to `message`.
+// ---------------------------------------------------------------
+function enrichForecastWithSignals(report, lookup) {
+  if (!report || !report.active || !Array.isArray(report.flags) || !lookup || typeof lookup.recentRuleChange !== 'function') {
+    return report;
+  }
+  for (const f of report.flags) {
+    const change = lookup.recentRuleChange(f.column);
+    if (!change) continue;
+    f.relatedRuleChange = change;
+    f.message = `${f.message} ${describeRelatedRuleChange(change, f.column)}`;
+  }
+  return report;
+}
+
+// Plain-language clause connecting a drift flag to a recent user rule change.
+function describeRelatedRuleChange(change, column) {
+  const rule = (change.meta && (change.meta.ruleName || change.meta.source)) || 'a validation rule';
+  const pretty = String(rule).replace(/_/g, ' ');
+  return `This may be related to a recently disabled/changed validation rule (${pretty}) on "${column}".`;
+}
+
+// ---------------------------------------------------------------
+// The report. Given the PRIOR fingerprints (chronological, excluding the current
+// upload) and the CURRENT fingerprint, forecast each tracked stat and flag the
+// ones whose actual value falls outside the forecast's confidence band.
+//
+// Returns { active:false, historyLen, minHistory } when there isn't enough
+// history — the signal for callers to fall back to static drift. Otherwise
+// { active:true, historyLen, minHistory, method, z, flags[], projections[] }.
+// `projections` holds every evaluated series (in- and out-of-band) for
+// transparency; `flags` is the out-of-band subset with plain-language messages.
+// ---------------------------------------------------------------
+function forecastDriftReport(historyFingerprints, currentFingerprint, opts = {}) {
+  const minHistory = opts.minHistory != null ? opts.minHistory : MIN_FORECAST_HISTORY;
+  const z = opts.z != null ? opts.z : FORECAST_Z;
+  const history = Array.isArray(historyFingerprints) ? historyFingerprints : [];
+  const historyLen = history.length;
+  if (historyLen < minHistory) return { active: false, historyLen, minHistory };
+
+  const flags = [];
+  const projections = [];
+  for (const cur of extractTrackedStats(currentFingerprint)) {
+    if (cur.value == null || !Number.isFinite(cur.value)) continue;
+    const series = seriesForKey(history, cur.key);
+    // Require a full min-history run of THIS specific stat — a column added only
+    // recently must not be forecast off two data points.
+    if (series.length < minHistory) continue;
+    const fc = holtForecast(series, opts);
+    if (!fc) continue;
+    const band = z * fc.residualStd;
+    const low = fc.forecast - band;
+    const high = fc.forecast + band;
+    const outside = cur.value < low || cur.value > high;
+    const proj = {
+      key: cur.key, column: cur.column, kind: cur.kind, label: cur.label, detail: cur.detail,
+      expected: fc.forecast, low, high, band, actual: cur.value,
+      residualStd: fc.residualStd, trend: fc.trend, seriesLen: series.length, outside,
+    };
+    if (outside) {
+      proj.direction = cur.value > high ? 'above' : 'below';
+      proj.message = describeForecastFlag(proj);
+      flags.push(proj);
+    }
+    projections.push(proj);
+  }
+  return {
+    active: true,
+    historyLen,
+    minHistory,
+    method: "Holt's linear exponential smoothing (Holt 1957)",
+    z,
+    flags,
+    projections,
+  };
+}
+
+  window.DriftForecast = {
+    forecastDrift: typeof forecastDrift !== 'undefined' ? forecastDrift : null,
+    buildForecastReport: typeof buildForecastReport !== 'undefined' ? buildForecastReport : null,
+    formatStatValue: typeof formatStatValue !== 'undefined' ? formatStatValue : null,
+    MIN_FORECAST_HISTORY: typeof MIN_FORECAST_HISTORY !== 'undefined' ? MIN_FORECAST_HISTORY : 3,
+  };
+}());
+/* ---- end drift-forecast.js ---- */
+
+/* ---- from js/drift/freshness-decay.js ---- */
+;(function(){
+  'use strict';
+  // getRulepack fallback -- rulepacks not yet in this build
+  var getRulepack = function(name) { return { name: name, rules: [] }; };
+  var _dd = window.DatasetDiffer || {};
+  var DRIFT_SEVERITY = _dd.DRIFT_SEVERITY || {};
+// ============================================================
+// DATAGLOW — Freshness Decay (Phase 4)
+// ============================================================
+// Computes how much a dataset's trust score should be discounted
+// based on how old the data is. A fresh dataset gets full score.
+// A stale dataset gets a progressively lower multiplier. An expired
+// dataset is capped at the rulepack's decayFloor.
+//
+// WHY THIS EXISTS:
+// A claims dataset validated last week is not the same trust level
+// as the same dataset from 14 months ago. Coding practices change,
+// population composition shifts, policies are updated. The Trust
+// Certificate should reflect that temporal degradation honestly.
+//
+// DESIGN:
+// Pure and synchronous. Takes dates + a rulepack freshness config
+// and returns a multiplier (0 < multiplier <= 1.0) plus human-readable
+// decay metadata. No DuckDB, no DOM, no network.
+//
+// DECAY SHAPES:
+//   linear      -- gradual, even decay from stale to expiry
+//   exponential -- fast initial decay, slows at expiry
+//
+// USAGE:
+//   const decay = computeFreshnessDecay({ dataDate, rulepack });
+//   const adjustedScore = baseScore * decay.multiplier;
+
+// [stripped import] import { getRulepack } from '../rulepacks/rulepack-registry.js';
+
+/**
+ * Compute freshness decay for a dataset.
+ *
+ * @param {object} opts
+ * @param {string|Date|null} opts.dataDate
+ *   The date the data was collected / exported. ISO string or Date.
+ *   If null, decay cannot be computed -> status 'unknown'.
+ * @param {string|Date} [opts.asOf]
+ *   Reference date for age computation. Defaults to now.
+ * @param {string} [opts.packId]
+ *   Rulepack id to pull freshness config from.
+ * @param {object} [opts.freshnessConfig]
+ *   Override freshness config directly (for testing / custom packs).
+ * @returns {object} decay result
+ */
+function computeFreshnessDecay({ dataDate, asOf, packId, freshnessConfig } = {}) {
+  const config = freshnessConfig || getRulepack(packId || 'general').freshness;
+  const { staleAfterDays, expiredAfterDays, decayFloor, decayShape, rationale } = config;
+
+  // Parse dates.
+  const refDate = asOf ? new Date(asOf) : new Date();
+  if (!dataDate) {
+    return makeFreshnessResult({
+      status: 'unknown', multiplier: 1.0, ageDays: null, staleAfterDays,
+      expiredAfterDays, decayFloor, decayShape,
+      rationale: 'No data date provided -- freshness decay cannot be computed. Assuming fresh (multiplier 1.0).',
+    });
+  }
+
+  const d = new Date(dataDate);
+  if (isNaN(d.getTime())) {
+    return makeFreshnessResult({
+      status: 'unknown', multiplier: 1.0, ageDays: null, staleAfterDays,
+      expiredAfterDays, decayFloor, decayShape,
+      rationale: 'Invalid data date "' + String(dataDate) + '" -- freshness decay cannot be computed. Assuming fresh.',
+    });
+  }
+
+  const ageDays = Math.max(0, (refDate.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+
+  // Fresh: within stale window.
+  if (ageDays <= staleAfterDays) {
+    return makeFreshnessResult({
+      status: 'fresh', multiplier: 1.0, ageDays, staleAfterDays,
+      expiredAfterDays, decayFloor, decayShape,
+      rationale: 'Data is ' + fmtDays(ageDays) + ' old -- within the fresh window (' + staleAfterDays + ' days). No trust penalty.',
+    });
+  }
+
+  // Expired: past expiry window.
+  if (ageDays >= expiredAfterDays) {
+    return makeFreshnessResult({
+      status: 'expired', multiplier: decayFloor, ageDays, staleAfterDays,
+      expiredAfterDays, decayFloor, decayShape,
+      rationale: 'Data is ' + fmtDays(ageDays) + ' old -- past expiry threshold (' + expiredAfterDays + ' days). ' +
+        'Trust score capped at ' + fmtPct(decayFloor) + ' of original. ' + rationale,
+    });
+  }
+
+  // Stale: between stale and expiry windows -> apply decay.
+  const decayRange = expiredAfterDays - staleAfterDays;
+  const decayProgress = (ageDays - staleAfterDays) / decayRange; // 0..1
+
+  let multiplier;
+  if (decayShape === 'exponential') {
+    // Exponential: fast initial drop, levels off.
+    // multiplier = decayFloor + (1 - decayFloor) * e^(-3 * decayProgress)
+    multiplier = decayFloor + (1 - decayFloor) * Math.exp(-3 * decayProgress);
+  } else {
+    // Linear: even decay.
+    multiplier = 1.0 - (1.0 - decayFloor) * decayProgress;
+  }
+  // Clamp to [decayFloor, 1.0].
+  multiplier = Math.min(1.0, Math.max(decayFloor, multiplier));
+
+  return makeFreshnessResult({
+    status: 'stale', multiplier, ageDays, staleAfterDays,
+    expiredAfterDays, decayFloor, decayShape, decayProgress,
+    rationale: 'Data is ' + fmtDays(ageDays) + ' old -- stale (threshold ' + staleAfterDays + ' days). ' +
+      'Trust score multiplier: ' + fmt2(multiplier) + ' (' + fmtPct(multiplier) + ' of original, ' +
+      decayShape + ' decay). ' + rationale,
+  });
+}
+
+/**
+ * Apply a freshness multiplier to a numeric trust score.
+ * Convenience wrapper around computeFreshnessDecay.
+ *
+ * @param {number} score - base trust score (0..100 or 0..1)
+ * @param {object} decayResult - from computeFreshnessDecay()
+ * @returns {{ adjustedScore: number, originalScore: number, multiplier: number }}
+ */
+function applyFreshnessDecay(score, decayResult) {
+  const multiplier = (decayResult && typeof decayResult.multiplier === 'number')
+    ? decayResult.multiplier : 1.0;
+  return {
+    originalScore: score,
+    adjustedScore: score * multiplier,
+    multiplier,
+  };
+}
+
+/**
+ * Human-readable freshness summary for a Trust Certificate.
+ *
+ * @param {object} decayResult - from computeFreshnessDecay()
+ * @returns {string}
+ */
+function freshnessLabel(decayResult) {
+  if (!decayResult) return 'Unknown';
+  switch (decayResult.status) {
+    case 'fresh':   return 'Fresh (' + fmtDays(decayResult.ageDays) + ' old)';
+    case 'stale':   return 'Stale (' + fmtDays(decayResult.ageDays) + ' old, ' + fmtPct(decayResult.multiplier) + ' trust)';
+    case 'expired': return 'Expired (' + fmtDays(decayResult.ageDays) + ' old, capped at ' + fmtPct(decayResult.multiplier) + ' trust)';
+    case 'unknown': return 'Unknown (no data date)';
+    default:        return decayResult.status || 'Unknown';
+  }
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function makeFreshnessResult({
+  status, multiplier, ageDays, staleAfterDays, expiredAfterDays,
+  decayFloor, decayShape, decayProgress = null, rationale,
+}) {
+  return {
+    layer: 'freshness_decay',
+    status,
+    multiplier: parseFloat(multiplier.toFixed(6)),
+    ageDays: ageDays !== null ? parseFloat(ageDays.toFixed(1)) : null,
+    staleAfterDays,
+    expiredAfterDays,
+    decayFloor,
+    decayShape,
+    decayProgress: decayProgress !== null ? parseFloat(decayProgress.toFixed(4)) : null,
+    rationale,
+  };
+}
+
+function fmtDays(d) {
+  if (d === null || d === undefined) return '?';
+  const rounded = Math.round(d);
+  if (rounded === 1) return '1 day';
+  return rounded + ' days';
+}
+
+function fmtPct(v) { return Math.round(v * 100) + '%'; }
+function fmt2(v) { return v.toFixed(2); }
+
+  window.FreshnessDecay = {
+    computeFreshnessScore: typeof computeFreshnessScore !== 'undefined' ? computeFreshnessScore : null,
+    buildFreshnessReport: typeof buildFreshnessReport !== 'undefined' ? buildFreshnessReport : null,
+    FRESHNESS_DECAY_TABLE: typeof FRESHNESS_DECAY_TABLE !== 'undefined' ? FRESHNESS_DECAY_TABLE : {},
+  };
+}());
+/* ---- end freshness-decay.js ---- */
+
+/* ---- from js/ambient/drift-watchdog.js ---- */
+;(function(){
+  'use strict';
+  var _dd = window.DatasetDiffer || {};
+  var diffDatasets = _dd.diffDatasets || null;
+  var buildDriftSummary = _dd.buildDriftSummary || null;
+  var _df = window.DriftForecast || {};
+  var forecastDrift = _df.forecastDrift || null;
+// ============================================================
+// DATAGLOW — Semantic Drift Watchdog
+// ============================================================
+// DATAGLOW already detects distributional drift on every upload
+// (js/validation/validation.js's `distribution_drift` layer, which itself wraps
+// js/drift/drift-forecast.js's trend-aware alerting) — but only when a human
+// re-opens or re-uploads a file. This module is the missing piece BETWEEN "a
+// file changed on disk" (already solved for the browser build by
+// js/ambient/watch-folder.js's poll loop) and "the user actually notices" — it
+// turns the existing `distribution_drift` layer result into a small set of
+// STABLE, human-readable alert lines, and decides whether re-showing one on the
+// next automatic re-check is worth the user's attention or would just be noise
+// repeating what they already saw and dismissed.
+//
+// This module computes and detects NOTHING new statistically. It is a pure
+// presentation + de-duplication layer over results DATAGLOW's existing
+// validation pipeline already produced. It never touches raw data, calls no
+// network primitive, and (per the EMPOWERMENT CONSTRAINT every ambient/agent
+// module here follows) never modifies, blocks, or "fixes" anything — it only
+// decides what to say and how loudly, once, per genuinely new finding.
+//
+// Pure + dependency-free (no DOM, no DuckDB, no IndexedDB) so it is fully
+// Node-testable, matching every sibling detection/orchestration module in
+// js/ambient/ and js/drift/. See test/drift-watchdog.test.mjs.
+//
+// NOTE on scope (read before extending): a NATIVE (Tauri/Rust, OS-level
+// filesystem-event) trigger for the desktop shell — as opposed to the existing
+// browser-only polling watcher — is a documented, deliberate follow-up, not
+// part of this module. See docs/tech-debt-tracker.md's entry on why it was
+// scoped out of this PR (no Rust toolchain available to verify it locally).
+// This module is trigger-agnostic: whatever eventually calls it (the browser
+// poll loop today, a native watcher tomorrow) just needs to hand it the same
+// `distribution_drift` result shape validation.js already produces.
+// ============================================================
+
+// -----------------------------------------------------------------
+// summarizeDriftEvent — turn one `distribution_drift` layer result (the object
+// already returned by js/validation/validation.js's runAllLayers, at
+// `results.distribution_drift`) into a flat list of alert-worthy lines.
+// Returns { severity: 'pass'|'warn'|'fail', headline, lines: string[] }.
+//
+// `drift` shape (from validation.js):
+//   { status: 'pass'|'warn'|'fail', summary: string, drifts?: string[],
+//     forecast?: { active, historyLen, flags: [{message}] } | null }
+// A missing/malformed drift object degrades to a silent pass rather than
+// throwing — the watchdog must never be the reason an automatic re-check fails.
+// -----------------------------------------------------------------
+function summarizeDriftEvent(drift) {
+  if (!drift || typeof drift !== 'object') {
+    return { severity: 'pass', headline: 'No drift information available.', lines: [] };
+  }
+  const severity = drift.status === 'fail' ? 'fail' : drift.status === 'warn' ? 'warn' : 'pass';
+  const lines = [];
+  if (Array.isArray(drift.drifts)) {
+    for (const d of drift.drifts) {
+      if (typeof d === 'string' && d.trim()) lines.push(d.trim());
+    }
+  }
+  if (drift.forecast && drift.forecast.active && Array.isArray(drift.forecast.flags)) {
+    for (const f of drift.forecast.flags) {
+      if (f && typeof f.message === 'string' && f.message.trim()) lines.push(f.message.trim());
+    }
+  }
+  const headline = typeof drift.summary === 'string' && drift.summary.trim()
+    ? drift.summary.trim()
+    : (severity === 'pass' ? 'No drift detected.' : `${lines.length} drift signal(s) detected.`);
+  return { severity, headline, lines };
+}
+
+// -----------------------------------------------------------------
+// A stable fingerprint of an alert's CONTENT (not its timestamp), so the same
+// underlying drift re-surfacing on the next poll — because the file hasn't
+// changed again, or the same anomaly is still present — hashes identically and
+// can be recognised as "already told them this" rather than nagging again.
+// Deliberately simple (sorted, joined lines) — this only needs to be stable and
+// collision-resistant for a handful of short strings per session, not
+// cryptographically strong.
+// -----------------------------------------------------------------
+function alertFingerprint(summary) {
+  if (!summary || !Array.isArray(summary.lines)) return `${summary && summary.severity || 'pass'}::`;
+  const body = [...summary.lines].sort().join('|');
+  return `${summary.severity}::${body}`;
+}
+
+// -----------------------------------------------------------------
+// DriftWatchdog — owns the "have I already surfaced this exact alert for this
+// file" de-duplication across repeated automatic checks (e.g. the Watch Folder
+// poll loop re-validating a file, or a future native watcher doing the same).
+// Contains NO detection logic of its own — see module header. Every method is
+// synchronous and side-effect-free besides updating its own in-memory map, so
+// it is trivial to unit test and safe to instantiate per-session with no
+// persistence (drift alerts are inherently session-scoped: "did THIS run
+// change since I last looked" is what matters, not a permanent log).
+// -----------------------------------------------------------------
+class DriftWatchdog {
+  constructor() {
+    this.lastFingerprint = new Map(); // fileName -> alertFingerprint string
+  }
+
+  // Feed one file's latest `distribution_drift` result. Returns:
+  //   { summary, isNew, shouldNotify }
+  // shouldNotify is true only when there's something worth surfacing (severity
+  // is warn/fail with at least one line) AND it differs from the last thing
+  // this exact file already reported — so an unchanged repeat poll, or a file
+  // that has always passed, produces shouldNotify:false and the UI can stay
+  // silent instead of re-rendering/re-alerting every poll interval.
+  observe(fileName, drift) {
+    const summary = summarizeDriftEvent(drift);
+    const fp = alertFingerprint(summary);
+    const prevFp = this.lastFingerprint.get(fileName);
+    const isNew = prevFp !== fp;
+    this.lastFingerprint.set(fileName, fp);
+    const hasSignal = summary.severity !== 'pass' && summary.lines.length > 0;
+    return { summary, isNew, shouldNotify: isNew && hasSignal };
+  }
+
+  // Explicit reset for one file (e.g. the user dismissed the alert card and
+  // wants to be told again if the SAME drift is still present next poll — a
+  // deliberate re-arm, not automatic re-nagging).
+  clear(fileName) {
+    this.lastFingerprint.delete(fileName);
+  }
+
+  clearAll() {
+    this.lastFingerprint.clear();
+  }
+}
+
+// -----------------------------------------------------------------
+// formatWatchdogAlert — one-line, human-readable render of a watchdog
+// decision, for surfaces that just want a string (e.g. a toast or a log line)
+// rather than building their own card. UI code that wants a richer card (with
+// per-line detail) should use `summary.lines` directly instead.
+// -----------------------------------------------------------------
+function formatWatchdogAlert(fileName, decision) {
+  if (!decision || !decision.summary) return `"${fileName}": no drift information.`;
+  const { severity, headline, lines } = decision.summary;
+  const tag = severity === 'fail' ? 'DRIFT' : severity === 'warn' ? 'drift warning' : 'stable';
+  if (severity === 'pass' || lines.length === 0) {
+    return `"${fileName}": ${tag} — ${headline}`;
+  }
+  return `"${fileName}": ${tag} — ${headline} (${lines.length} signal${lines.length === 1 ? '' : 's'})`;
+}
+
+  window.DriftWatchdog = {
+    startDriftWatchdog: typeof startDriftWatchdog !== 'undefined' ? startDriftWatchdog : null,
+    stopDriftWatchdog: typeof stopDriftWatchdog !== 'undefined' ? stopDriftWatchdog : null,
+    getDriftStatus: typeof getDriftStatus !== 'undefined' ? getDriftStatus : null,
+  };
+
+  // Wire into overflow grid
+  function initDriftUI() {
+    ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
+      var grid = document.getElementById(gridId);
+      var btnId = i === 0 ? 'dg-ov-driftwatchdog' : 'dg-ts-driftwatchdog';
+      if (grid && !document.getElementById(btnId)) {
+        var btn = document.createElement('button');
+        btn.id = btnId;
+        btn.className = 'dg-ov-btn';
+        btn.innerHTML = '??<br><span>Drift</span>';
+        btn.title = 'Semantic Drift Watchdog: monitors schema and value distribution shifts between dataset versions';
+        btn.addEventListener('click', function(){
+          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.remove('open'); }); }
+          else { var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open'); }
+          if (typeof showToast === 'function') showToast('Drift Watchdog active. Load two datasets to compare distributions.', 'info');
+          var status = typeof getDriftStatus === 'function' ? getDriftStatus() : null;
+          if (status) { if (typeof showToast === 'function') showToast(JSON.stringify(status, null, 2), 'info'); }
+        });
+        grid.appendChild(btn);
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initDriftUI);
+  else setTimeout(initDriftUI, 1150);
+}());
+/* ---- end drift-watchdog.js ---- */
+
+
+/* ================================================================
+   GLOW CANVAS + VISUALIZE RUNTIME -- recovered from git history
+   js/runtimes-viz/: visualize.js, glow-canvas.js
+   PR #93 (OneCanvas Phase 1) -- verification layer for analyses
+   Deps: el() shim (already in bundle), engine/state stripped to fallbacks
+   ================================================================ */
+
+/* ---- from js/runtimes-viz/visualize.js ---- */
+;(function(){
+  'use strict';
+  // engine + state stubs (DuckDB lives in wasm worker -- not re-injected here)
+  var engine = { query: function(sql){ return Promise.resolve({ rows: [], columns: [] }); } };
+  var state = window._dgState || {};
+// ============================================================
+// DATAGLOW — Visualize Tab
+// Plotly-powered drag-and-drop-style chart builder.
+// ============================================================
+
+// [stripped import] import * as engine from '../app-shell/duckdb-engine.js';
+// [stripped import] import { state } from '../app-shell/state.js';
+
+/**
+ * Combine a chart's existing WHERE condition (may be empty) with an optional
+ * extra raw-SQL boolean clause, ANDing them together. Returns a full
+ * " WHERE ..." fragment (with a leading space) or '' when both are empty, so
+ * it can be spliced straight after "FROM table" in every query below.
+ *
+ * Backward compatibility: when `whereClause` is undefined/empty this returns
+ * exactly the original condition (or '' when there was none), so every existing
+ * 5-argument renderChart call produces byte-identical SQL to before.
+ *
+ * `whereClause` is trusted raw SQL supplied by the caller. Glow Canvas builds it
+ * from an activeFilter and escapes the value (doubling single quotes) before
+ * passing it here; nothing user-typed reaches this unescaped.
+ * @param {string} existingCondition  the query's own condition, without "WHERE"
+ * @param {string} [whereClause]      optional extra boolean clause to AND in
+ * @returns {string}
+ */
+function combineWhere(existingCondition, whereClause) {
+  const parts = [];
+  if (existingCondition && String(existingCondition).trim()) parts.push(String(existingCondition).trim());
+  if (whereClause && String(whereClause).trim()) parts.push(String(whereClause).trim());
+  return parts.length ? ` WHERE ${parts.join(' AND ')}` : '';
+}
+
+/**
+ * @param {string} containerId
+ * @param {string} table
+ * @param {string} chartType
+ * @param {string} xCol
+ * @param {string} yCol
+ * @param {string} [whereClause]  optional raw-SQL boolean clause ANDed into the
+ *   chart's query (used by Glow Canvas cross-filtering). Empty/undefined = no
+ *   added filter, so existing single-chart callers are unaffected.
+ * @param {object} [opts]
+ * @param {(table:string, column:string, value:string)=>void} [opts.onPointClick]
+ *   optional, generic click callback. When supplied, clicking a categorical
+ *   point (bar/line/histogram x-category, or a pie slice label) invokes it with
+ *   the clicked category so a caller (e.g. Glow Canvas) can cross-filter. The
+ *   Visualize tab passes nothing and is completely unaffected.
+ */
+async function renderChart(containerId, table, chartType, xCol, yCol, whereClause, opts = {}) {
+  const container = document.getElementById(containerId);
+  const isDark = state.theme === 'dark';
+  const paperColor = isDark ? '#122436' : '#FFFFFF';
+  const fontColor = isDark ? '#EAF1F5' : '#2D2D2D';
+  const gridColor = isDark ? '#26404F' : '#EAE8E4';
+
+  let data, layout = {
+    paper_bgcolor: paperColor,
+    plot_bgcolor: paperColor,
+    font: { color: fontColor, family: 'Inter, sans-serif' },
+    margin: { t: 20, r: 20, b: 60, l: 60 },
+    xaxis: { gridcolor: gridColor, title: xCol },
+    yaxis: { gridcolor: gridColor, title: yCol },
+    colorway: ['#FF6B6B', '#0A7E8C', '#4A90D9', '#F5A623', '#E74C3C'],
+  };
+
+  if (chartType === 'pie') {
+    const { rows } = await engine.runQuery(`SELECT "${xCol}" AS k, COUNT(*) AS v FROM ${table}${combineWhere('', whereClause)} GROUP BY 1 ORDER BY 2 DESC LIMIT 12`);
+    data = [{ type: 'pie', labels: rows.map(r => String(r.k)), values: rows.map(r => r.v), marker: { colors: ['#FF6B6B', '#0A7E8C', '#4A90D9', '#F5A623', '#E74C3C', '#2D2D2D'] } }];
+    layout.xaxis = undefined; layout.yaxis = undefined;
+  } else if (chartType === 'histogram') {
+    const { rows } = await engine.runQuery(`SELECT "${xCol}" AS v FROM ${table}${combineWhere(`"${xCol}" IS NOT NULL`, whereClause)}`);
+    data = [{ type: 'histogram', x: rows.map(r => r.v), marker: { color: '#FF6B6B' } }];
+  } else if (chartType === 'box') {
+    const { rows } = await engine.runQuery(`SELECT "${xCol}" AS v FROM ${table}${combineWhere(`"${xCol}" IS NOT NULL`, whereClause)}`);
+    data = [{ type: 'box', y: rows.map(r => r.v), marker: { color: '#0A7E8C' } }];
+  } else if (chartType === 'scatter') {
+    const { rows } = await engine.runQuery(`SELECT "${xCol}" AS x, "${yCol}" AS y FROM ${table}${combineWhere(`"${xCol}" IS NOT NULL AND "${yCol}" IS NOT NULL`, whereClause)} LIMIT 5000`);
+    data = [{ type: 'scattergl', mode: 'markers', x: rows.map(r => r.x), y: rows.map(r => r.y), marker: { color: '#FF6B6B', size: 6, opacity: 0.7 } }];
+  } else if (chartType === 'line') {
+    const { rows } = await engine.runQuery(`SELECT "${xCol}" AS x, AVG("${yCol}") AS y FROM ${table}${combineWhere('', whereClause)} GROUP BY 1 ORDER BY 1 LIMIT 500`);
+    data = [{ type: 'scatter', mode: 'lines+markers', x: rows.map(r => r.x), y: rows.map(r => r.y), line: { color: '#FF6B6B', width: 2 } }];
+  } else {
+    // bar (default): aggregate y by x
+    const { rows } = await engine.runQuery(`SELECT "${xCol}" AS x, ${yCol ? `AVG("${yCol}")` : 'COUNT(*)'} AS y FROM ${table}${combineWhere('', whereClause)} GROUP BY 1 ORDER BY 2 DESC LIMIT 25`);
+    data = [{ type: 'bar', x: rows.map(r => String(r.x)), y: rows.map(r => r.y), marker: { color: '#FF6B6B' } }];
+  }
+
+  Plotly.newPlot(container, data, layout, { responsive: true, displaylogo: false });
+
+  // Generic, optional click-to-filter. Only wired when a caller passes
+  // opts.onPointClick — the single-chart Visualize tab passes nothing, so its
+  // behavior is unchanged. Scatter and box are deliberately EXCLUDED: their x
+  // axis is continuous (a raw numeric coordinate / distribution), so equality-
+  // filtering on one clicked point isn't a meaningful cross-filter — a range
+  // brush would be the right tool there, and that's a future batch.
+  const onPointClick = typeof opts.onPointClick === 'function' ? opts.onPointClick : null;
+  if (onPointClick && container && typeof container.on === 'function'
+      && chartType !== 'scatter' && chartType !== 'box') {
+    container.on('plotly_click', (ev) => {
+      const pt = ev && Array.isArray(ev.points) ? ev.points[0] : null;
+      if (!pt) return;
+      // pie identifies the clicked wedge by label; bar/line/histogram by x.
+      const value = chartType === 'pie' ? pt.label : pt.x;
+      if (value === undefined || value === null) return;
+      // The filtered column is the x column for all of these chart types.
+      onPointClick(table, xCol, String(value));
+    });
+  }
+}
+
+function exportChartPNG(containerId, filename) {
+  const container = document.getElementById(containerId);
+  Plotly.downloadImage(container, { format: 'png', filename: filename || 'dataglow-chart', width: 1200, height: 700 });
+}
+
+  window.DataGlowVisualize = {
+    buildVizSpec: typeof buildVizSpec !== 'undefined' ? buildVizSpec : null,
+    renderVisualization: typeof renderVisualization !== 'undefined' ? renderVisualization : null,
+    VIZ_TYPES: typeof VIZ_TYPES !== 'undefined' ? VIZ_TYPES : [],
+  };
+}());
+/* ---- end visualize.js ---- */
+
+/* ---- from js/runtimes-viz/glow-canvas.js ---- */
+;(function(){
+  'use strict';
+
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+  var viz = window.DataGlowVisualize || {};
+  var buildVizSpec = viz.buildVizSpec || null;
+  var renderVisualization = viz.renderVisualization || null;
+  var VIZ_TYPES = viz.VIZ_TYPES || [];
+// ============================================================
+// DATAGLOW — Glow Canvas: multi-chart dashboard layout (Batch 1 of N)
+// ============================================================
+// WHAT THIS IS: the first step toward a real multi-chart dashboard, replacing
+// the single-chart-only limitation of the Visualize tab. Today Visualize can
+// only show ONE chart at a time (js/runtimes-viz/visualize.js -> renderChart on
+// the single '#viz-chart' node); Glow Canvas holds an ordered set of chart
+// "cards", each laid out on a simple CSS grid, and draws each one by REUSING
+// that same viz.renderChart — it invents no new chart engine and moves no data.
+//
+// BATCH 2 adds cross-filtering: clicking a categorical point/bar/slice in one
+// card sets a single canvas-wide activeFilter {table, column, value}; every card
+// on the SAME table redraws filtered (via viz.renderChart's new whereClause arg)
+// and is badged, while different-table cards render unfiltered (there is no
+// join-key model yet). Clicking the same point again toggles the filter off.
+//
+// WHAT THIS BATCH DELIBERATELY STILL DOES NOT DO: no drag-and-drop reordering,
+// no cross-table (join-key) filtering, and no wiring into / replacement of the
+// existing Visualize tab — those are later batches. It ships fully dark behind the
+// `glowCanvas` flag (enabled:false); with the flag off nothing here mounts and
+// the app shell is byte-for-byte unchanged. The flag is checked by the CALLER
+// in main.js, never inside this module.
+//
+// Identity split (same convention as js/rooms/room-ui.js): the layout algebra
+// (createCanvasLayout / addCard / removeCard / updateCardPosition /
+// serializeLayout / deserializeLayout) is PURE, Node-testable, and NEVER
+// mutates its input — every mutator returns a NEW layout. The renderer
+// (renderCanvas) turns a layout into DOM and is thin enough to leave to the
+// browser/e2e path; it delegates every actual chart draw to the injected
+// (or imported) viz.renderChart.
+
+// [stripped import] import { el } from '../app-shell/utils.js';
+// [stripped import] import * as viz from './visualize.js';
+
+// A card occupies a rectangle on a fixed-width grid. Batch 1 uses a simple
+// 2-column grid and a default card size of 1 column wide by 1 row tall; the
+// next-available-slot packer below fills left-to-right, top-to-bottom.
+const GRID_COLUMNS = 2;
+const DEFAULT_CARD_W = 1;
+const DEFAULT_CARD_H = 1;
+
+// The closed set of chart types Batch 1 understands — exactly the ones the
+// existing single-chart Visualize builder already offers, so a Glow Canvas card
+// can render nothing the Visualize tab could not already draw.
+const CANVAS_CHART_TYPES = ['bar', 'line', 'scatter', 'pie', 'histogram', 'box'];
+
+/**
+ * A fresh, empty canvas layout. The shape is intentionally tiny and JSON-safe
+ * so it round-trips cleanly through serializeLayout/deserializeLayout and the
+ * IndexedDB store. `nextId` is a monotonic counter so ids stay unique and
+ * stable even after cards are removed (removing card 2 never lets a later add
+ * reuse id 2).
+ * @returns {{cards: Array<object>, nextId: number}}
+ */
+function createCanvasLayout() {
+  return { cards: [], nextId: 1, activeFilter: null };
+}
+
+// Normalize any value into a well-formed {table, column, value} cross-filter, or
+// null. A filter is only valid with a string table + string column and a
+// non-null value (coerced to string, matching how DuckDB categories come back);
+// anything else (garbage, partial, wrong types) becomes null and never throws.
+function normalizeFilter(filter) {
+  if (!filter || typeof filter !== 'object') return null;
+  const table = typeof filter.table === 'string' ? filter.table : null;
+  const column = typeof filter.column === 'string' ? filter.column : null;
+  if (table === null || column === null || filter.value === undefined || filter.value === null) return null;
+  return { table, column, value: String(filter.value) };
+}
+
+// Normalize any value into a well-formed layout object. Used by every pure
+// function so a caller passing a partial/garbage layout never throws and never
+// corrupts stored state. Always returns a NEW object with a fresh cards array.
+function normalizeLayout(layout) {
+  const l = (layout && typeof layout === 'object') ? layout : {};
+  const cards = Array.isArray(l.cards) ? l.cards.filter(c => c && typeof c === 'object') : [];
+  // nextId must always be strictly greater than every existing id so a new add
+  // can never collide with a card that is already present.
+  const maxId = cards.reduce((m, c) => (Number.isFinite(c.id) && c.id > m ? c.id : m), 0);
+  const declared = Number.isFinite(l.nextId) ? l.nextId : 1;
+  const nextId = Math.max(declared, maxId + 1);
+  return {
+    cards: cards.map(c => ({ ...c, gridPos: { ...(c.gridPos || {}) } })),
+    nextId,
+    activeFilter: normalizeFilter(l.activeFilter),
+  };
+}
+
+// Find the next free grid slot, scanning row-by-row, column-by-column, so a new
+// card lands in the first open cell of a fixed-width (GRID_COLUMNS) grid. This
+// is deliberately a simple packer (Batch 1 has no drag-reorder); it only needs
+// to produce a sensible, non-overlapping default position for single-cell cards.
+function nextAvailableSlot(cards) {
+  const occupied = new Set();
+  for (const c of cards) {
+    const gp = c.gridPos || {};
+    const row = Number.isFinite(gp.row) ? gp.row : 0;
+    const col = Number.isFinite(gp.col) ? gp.col : 0;
+    const w = Number.isFinite(gp.w) && gp.w > 0 ? gp.w : DEFAULT_CARD_W;
+    const h = Number.isFinite(gp.h) && gp.h > 0 ? gp.h : DEFAULT_CARD_H;
+    for (let r = row; r < row + h; r++) {
+      for (let col2 = col; col2 < col + w; col2++) occupied.add(`${r},${col2}`);
+    }
+  }
+  for (let row = 0; ; row++) {
+    for (let col = 0; col < GRID_COLUMNS; col++) {
+      if (!occupied.has(`${row},${col}`)) return { row, col, w: DEFAULT_CARD_W, h: DEFAULT_CARD_H };
+    }
+  }
+}
+
+/**
+ * PURE. Return a NEW layout with `cardSpec` appended, auto-assigning an
+ * incrementing id and a sensible default gridPos (next free cell in the grid)
+ * unless the caller supplied a gridPos explicitly. The input layout is never
+ * mutated.
+ * @param {object} layout
+ * @param {{table?:string, chartType?:string, xCol?:string, yCol?:string, title?:string, gridPos?:object}} cardSpec
+ * @returns {{cards: Array<object>, nextId: number}}
+ */
+function addCard(layout, cardSpec = {}) {
+  const l = normalizeLayout(layout);
+  const spec = (cardSpec && typeof cardSpec === 'object') ? cardSpec : {};
+  const id = l.nextId;
+  const suppliedPos = (spec.gridPos && typeof spec.gridPos === 'object') ? spec.gridPos : null;
+  const gridPos = suppliedPos
+    ? {
+        row: Number.isFinite(suppliedPos.row) ? suppliedPos.row : 0,
+        col: Number.isFinite(suppliedPos.col) ? suppliedPos.col : 0,
+        w: Number.isFinite(suppliedPos.w) && suppliedPos.w > 0 ? suppliedPos.w : DEFAULT_CARD_W,
+        h: Number.isFinite(suppliedPos.h) && suppliedPos.h > 0 ? suppliedPos.h : DEFAULT_CARD_H,
+      }
+    : nextAvailableSlot(l.cards);
+  const card = {
+    id,
+    table: typeof spec.table === 'string' ? spec.table : '',
+    chartType: typeof spec.chartType === 'string' ? spec.chartType : 'bar',
+    xCol: typeof spec.xCol === 'string' ? spec.xCol : '',
+    yCol: typeof spec.yCol === 'string' ? spec.yCol : '',
+    title: typeof spec.title === 'string' ? spec.title : '',
+    gridPos,
+  };
+  return { cards: [...l.cards, card], nextId: id + 1, activeFilter: l.activeFilter };
+}
+
+/**
+ * PURE. Return a NEW layout with the card whose id === cardId removed. If no
+ * such card exists the layout is returned unchanged (but still a fresh copy).
+ * nextId is preserved so removing a card never lets a future add reuse its id.
+ * @param {object} layout
+ * @param {number} cardId
+ * @returns {{cards: Array<object>, nextId: number}}
+ */
+function removeCard(layout, cardId) {
+  const l = normalizeLayout(layout);
+  return { cards: l.cards.filter(c => c.id !== cardId), nextId: l.nextId, activeFilter: l.activeFilter };
+}
+
+/**
+ * PURE. Return a NEW layout with exactly one card's gridPos replaced. Unknown
+ * ids leave the layout unchanged (fresh copy). Only the four grid fields are
+ * taken from `gridPos`, each falling back to the card's current value so a
+ * partial update (e.g. just a new row) is safe.
+ * @param {object} layout
+ * @param {number} cardId
+ * @param {{row?:number, col?:number, w?:number, h?:number}} gridPos
+ * @returns {{cards: Array<object>, nextId: number}}
+ */
+function updateCardPosition(layout, cardId, gridPos = {}) {
+  const l = normalizeLayout(layout);
+  const gp = (gridPos && typeof gridPos === 'object') ? gridPos : {};
+  const cards = l.cards.map((c) => {
+    if (c.id !== cardId) return c;
+    const cur = c.gridPos || {};
+    return {
+      ...c,
+      gridPos: {
+        row: Number.isFinite(gp.row) ? gp.row : (Number.isFinite(cur.row) ? cur.row : 0),
+        col: Number.isFinite(gp.col) ? gp.col : (Number.isFinite(cur.col) ? cur.col : 0),
+        w: Number.isFinite(gp.w) && gp.w > 0 ? gp.w : (Number.isFinite(cur.w) && cur.w > 0 ? cur.w : DEFAULT_CARD_W),
+        h: Number.isFinite(gp.h) && gp.h > 0 ? gp.h : (Number.isFinite(cur.h) && cur.h > 0 ? cur.h : DEFAULT_CARD_H),
+      },
+    };
+  });
+  return { cards, nextId: l.nextId, activeFilter: l.activeFilter };
+}
+
+// ---------- cross-filter (Batch 2): a single canvas-wide active filter ----------
+// The filter is a top-level {table, column, value} on the LAYOUT (not per-card).
+// Cross-filter semantic for this batch: a card reacts ONLY if its `table` equals
+// the filter's table (there is no join-key model yet, so different-table cards
+// cannot be meaningfully filtered — that's a future batch). All three functions
+// follow the same never-mutate / return-a-new-layout discipline as addCard.
+
+/**
+ * PURE. Return a NEW layout whose activeFilter is set to `filter` (normalized;
+ * garbage becomes null). The input layout is never mutated.
+ * @param {object} layout
+ * @param {{table:string, column:string, value:*}|null} filter
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: object|null}}
+ */
+function setActiveFilter(layout, filter) {
+  const l = normalizeLayout(layout);
+  return { cards: l.cards, nextId: l.nextId, activeFilter: normalizeFilter(filter) };
+}
+
+/**
+ * PURE. Return a NEW layout with no active filter. The input is never mutated.
+ * @param {object} layout
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: null}}
+ */
+function clearActiveFilter(layout) {
+  const l = normalizeLayout(layout);
+  return { cards: l.cards, nextId: l.nextId, activeFilter: null };
+}
+
+/**
+ * PURE. Toggle a cross-filter: if `filter` is already exactly the active one
+ * (same table+column+value), clear it; otherwise set it. This gives the real
+ * cross-filter UX where clicking the same point again turns the filter off.
+ * @param {object} layout
+ * @param {{table:string, column:string, value:*}} filter
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: object|null}}
+ */
+function toggleFilter(layout, filter) {
+  const l = normalizeLayout(layout);
+  const next = normalizeFilter(filter);
+  const cur = l.activeFilter;
+  if (next && cur && cur.table === next.table && cur.column === next.column && cur.value === next.value) {
+    return { cards: l.cards, nextId: l.nextId, activeFilter: null };
+  }
+  return { cards: l.cards, nextId: l.nextId, activeFilter: next };
+}
+
+// Escape a value as a DuckDB/standard-SQL single-quoted string literal by
+// doubling any embedded single quote, so a category value like "O'Brien" or a
+// hostile "x' OR '1'='1" can never break out of the literal.
+function sqlStringLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * PURE. The raw-SQL WHERE clause a given card should be drawn with, given the
+ * layout's active filter. Returns '' when there is no filter or the card is on a
+ * DIFFERENT table (different-table cards render unfiltered — the cross-filter
+ * semantic for this batch). The column identifier is double-quoted (embedded
+ * double quotes doubled) and the value is single-quote escaped.
+ * @param {object} layout
+ * @param {{table?:string}} card
+ * @returns {string}
+ */
+function filterWhereClause(layout, card) {
+  const l = normalizeLayout(layout);
+  const f = l.activeFilter;
+  if (!f || !card || card.table !== f.table) return '';
+  const col = String(f.column).replace(/"/g, '""');
+  return `"${col}" = ${sqlStringLiteral(f.value)}`;
+}
+
+/**
+ * PURE. Serialize a layout to a JSON string for save/reload. Normalizes first
+ * so the stored form is always well-shaped.
+ * @param {object} layout
+ * @returns {string}
+ */
+function serializeLayout(layout) {
+  return JSON.stringify(normalizeLayout(layout));
+}
+
+/**
+ * PURE. Parse a layout from a JSON string. Malformed JSON — or JSON that does
+ * not describe a layout — returns a safe empty layout and NEVER throws, so a
+ * corrupt stored value can never take down the canvas.
+ * @param {string} json
+ * @returns {{cards: Array<object>, nextId: number}}
+ */
+function deserializeLayout(json) {
+  if (typeof json !== 'string' || !json) return createCanvasLayout();
+  let parsed;
+  try {
+    parsed = JSON.parse(json);
+  } catch (_e) {
+    return createCanvasLayout();
+  }
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.cards)) {
+    return createCanvasLayout();
+  }
+  return normalizeLayout(parsed);
+}
+
+// ---------- thin DOM renderer (browser-only, left to the e2e path) ----------
+
+/**
+ * Render `layout` into the container with id `containerId`. Thin: it draws each
+ * card as a titled tile positioned on a CSS grid and delegates the actual chart
+ * draw to viz.renderChart (never reimplementing it). It holds no layout state of
+ * its own — the caller owns the layout and re-invokes this after any mutation.
+ *
+ * @param {string} containerId  id of the host element
+ * @param {object} layout       a layout from the pure functions above
+ * @param {object} [opts]
+ * @param {(layout:object)=>void} [opts.onChange]  called with the NEW layout after
+ *   a card is removed or added, so the caller can persist + re-render
+ * @param {Array<{table:string, cols?:Array<{name:string}>}>} [opts.datasets]  optional
+ *   dataset list to drive the "Add chart" form; a text-input fallback is used otherwise
+ * @param {typeof viz.renderChart} [opts.renderChart]  injectable chart renderer (defaults to viz.renderChart)
+ * @returns {{layout:object}|undefined}
+ */
+function renderCanvas(containerId, layout, opts = {}) {
+  const host = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
+  if (!host) return;
+  const current = normalizeLayout(layout);
+  const { onChange, datasets = [], renderChart = viz.renderChart } = opts;
+  host.innerHTML = '';
+
+  const emit = (next) => { if (typeof onChange === 'function') onChange(next); };
+
+  // A click on a categorical point cross-filters: toggle the layout's active
+  // filter (clicking the same point again clears it) and re-render. Passed as a
+  // generic opts.onPointClick into viz.renderChart, which stays Glow-Canvas-
+  // agnostic. `current` is the layout at render time, which is exactly what the
+  // toggle must compare against.
+  const onPointClick = (table, column, value) => emit(toggleFilter(current, { table, column, value }));
+
+  // ---- toolbar: "Add chart", the chart count, and (when filtered) Clear filter ----
+  const toolbarChildren = [
+    el('button', {
+      type: 'button',
+      class: 'btn btn-primary',
+      'data-testid': 'glow-canvas-add',
+      onclick: () => toggleAddForm(),
+    }, 'Add chart'),
+    el('span', {
+      'data-testid': 'glow-canvas-count',
+      style: 'color:var(--color-text-muted,#666); font-size:var(--text-sm,13px);',
+    }, current.cards.length === 1 ? '1 chart' : `${current.cards.length} charts`),
+  ];
+  if (current.activeFilter) {
+    const f = current.activeFilter;
+    toolbarChildren.push(el('span', {
+      'data-testid': 'glow-canvas-filter-indicator',
+      style: 'margin-left:auto; color:var(--color-text-muted,#666); font-size:var(--text-sm,13px);',
+    }, `Filtered: ${f.column} = ${f.value}`));
+    toolbarChildren.push(el('button', {
+      type: 'button',
+      class: 'btn btn-secondary',
+      'data-testid': 'glow-canvas-clear-filter',
+      onclick: () => emit(clearActiveFilter(current)),
+    }, 'Clear filter'));
+  }
+  const toolbar = el('div', {
+    'data-testid': 'glow-canvas-toolbar',
+    style: 'display:flex; align-items:center; gap:var(--space-2,8px); margin-bottom:var(--space-3,12px);',
+  }, toolbarChildren);
+  host.appendChild(toolbar);
+
+  // ---- inline add form (minimal; text-input fallback acceptable for Batch 1) ----
+  const form = el('form', {
+    'data-testid': 'glow-canvas-add-form',
+    style: 'display:none; gap:var(--space-2,8px); flex-wrap:wrap; align-items:flex-end; margin-bottom:var(--space-3,12px); padding:var(--space-3,12px); border:1px solid var(--color-border,#e2e2e2); border-radius:var(--radius,8px);',
+  });
+  function field(label, input) {
+    return el('label', { style: 'display:flex; flex-direction:column; gap:2px; font-size:var(--text-xs,12px); color:var(--color-text-muted,#666);' }, [label, input]);
+  }
+  const tableInput = datasets.length
+    ? el('select', { 'data-testid': 'glow-canvas-field-table', class: 'btn btn-secondary' },
+        datasets.filter(d => d && d.table).map(d => el('option', { value: d.table }, d.table)))
+    : el('input', { 'data-testid': 'glow-canvas-field-table', type: 'text', placeholder: 'table', class: 'btn btn-secondary' });
+  const typeInput = el('select', { 'data-testid': 'glow-canvas-field-type', class: 'btn btn-secondary' },
+    CANVAS_CHART_TYPES.map(t => el('option', { value: t }, t)));
+  const xInput = el('input', { 'data-testid': 'glow-canvas-field-x', type: 'text', placeholder: 'x column', class: 'btn btn-secondary' });
+  const yInput = el('input', { 'data-testid': 'glow-canvas-field-y', type: 'text', placeholder: 'y column', class: 'btn btn-secondary' });
+  const titleInput = el('input', { 'data-testid': 'glow-canvas-field-title', type: 'text', placeholder: 'title (optional)', class: 'btn btn-secondary' });
+  form.appendChild(field('Table', tableInput));
+  form.appendChild(field('Type', typeInput));
+  form.appendChild(field('X', xInput));
+  form.appendChild(field('Y', yInput));
+  form.appendChild(field('Title', titleInput));
+  form.appendChild(el('button', { type: 'submit', class: 'btn btn-primary', 'data-testid': 'glow-canvas-add-submit' }, 'Add'));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const next = addCard(current, {
+      table: (tableInput.value || '').trim(),
+      chartType: typeInput.value,
+      xCol: (xInput.value || '').trim(),
+      yCol: (yInput.value || '').trim(),
+      title: (titleInput.value || '').trim(),
+    });
+    emit(next);
+  });
+  function toggleAddForm() { form.style.display = form.style.display === 'none' ? 'flex' : 'none'; }
+  host.appendChild(form);
+
+  // ---- empty state ----
+  if (current.cards.length === 0) {
+    host.appendChild(el('div', {
+      'data-testid': 'glow-canvas-empty',
+      style: 'padding:var(--space-6,24px); text-align:center; color:var(--color-text-muted,#666);',
+    }, 'No charts yet. Click "Add chart" to build your dashboard.'));
+    return { layout: current };
+  }
+
+  // ---- the grid of cards ----
+  const grid = el('div', {
+    'data-testid': 'glow-canvas-grid',
+    class: 'glow-canvas-grid',
+    style: `display:grid; grid-template-columns:repeat(${GRID_COLUMNS}, 1fr); gap:var(--space-4,16px);`,
+  });
+
+  for (const card of current.cards) {
+    const gp = card.gridPos || {};
+    const col = (Number.isFinite(gp.col) ? gp.col : 0) + 1; // CSS grid is 1-based
+    const row = (Number.isFinite(gp.row) ? gp.row : 0) + 1;
+    const w = Number.isFinite(gp.w) && gp.w > 0 ? gp.w : DEFAULT_CARD_W;
+    const h = Number.isFinite(gp.h) && gp.h > 0 ? gp.h : DEFAULT_CARD_H;
+    const chartContainerId = `glow-canvas-chart-${card.id}`;
+
+    // Cross-filter: this card is affected only when the active filter targets its
+    // table. Filtered cards get a badge + border treatment so the user can see
+    // which charts are reacting; the whereClause is passed to viz.renderChart.
+    const whereClause = filterWhereClause(current, card);
+    const isFiltered = whereClause !== '';
+
+    const titleChildren = [
+      el('div', {
+        'data-testid': 'glow-canvas-card-title',
+        style: 'font-weight:600; font-size:var(--text-sm,13px); color:var(--color-text,#111);',
+      }, card.title || `${card.chartType} of ${card.table || '—'}`),
+    ];
+    if (isFiltered) {
+      titleChildren.push(el('span', {
+        'data-testid': 'glow-canvas-card-filtered',
+        title: `Filtered by ${current.activeFilter.column} = ${current.activeFilter.value}`,
+        style: 'margin-left:var(--space-2,8px); padding:1px 6px; font-size:var(--text-xs,12px); border-radius:999px; background:var(--color-accent,#0A7E8C); color:#fff;',
+      }, 'Filtered'));
+    }
+
+    const header = el('div', {
+      style: 'display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-2,8px);',
+    }, [
+      el('div', { style: 'display:flex; align-items:center;' }, titleChildren),
+      el('button', {
+        type: 'button',
+        class: 'btn btn-secondary',
+        'data-testid': 'glow-canvas-card-remove',
+        'data-card-id': String(card.id),
+        title: 'Remove this chart',
+        style: 'padding:2px 8px; font-size:var(--text-xs,12px);',
+        onclick: () => emit(removeCard(current, card.id)),
+      }, 'Remove'),
+    ]);
+
+    const chartBox = el('div', {
+      id: chartContainerId,
+      'data-testid': 'glow-canvas-card-chart',
+      style: 'min-height:280px;',
+    });
+
+    const cardEl = el('div', {
+      class: `card glow-canvas-card${isFiltered ? ' glow-canvas-card--filtered' : ''}`,
+      'data-testid': 'glow-canvas-card',
+      'data-card-id': String(card.id),
+      'data-filtered': isFiltered ? 'true' : 'false',
+      style: `grid-column:${col} / span ${w}; grid-row:${row} / span ${h}; padding:var(--space-4,16px);${isFiltered ? ' outline:2px solid var(--color-accent,#0A7E8C); outline-offset:-2px;' : ''}`,
+    }, [header, chartBox]);
+    grid.appendChild(cardEl);
+
+    // Delegate the actual draw to the existing single-chart renderer, per card,
+    // now passing the cross-filter whereClause ('' when this card is unaffected)
+    // and the generic onPointClick so a click anywhere cross-filters the canvas.
+    // A failure in one card must never abort the others or throw out of render.
+    if (card.table && typeof renderChart === 'function') {
+      Promise.resolve()
+        .then(() => renderChart(chartContainerId, card.table, card.chartType, card.xCol, card.yCol, whereClause, { onPointClick }))
+        .catch(() => {
+          const node = document.getElementById(chartContainerId);
+          if (node) node.textContent = 'Chart error.';
+        });
+    }
+  }
+
+  host.appendChild(grid);
+  return { layout: current };
+}
+
+  window.GlowCanvas = {
+    mountGlowCanvas: typeof mountGlowCanvas !== 'undefined' ? mountGlowCanvas : null,
+    buildCanvasSpec: typeof buildCanvasSpec !== 'undefined' ? buildCanvasSpec : null,
+    renderGlowCanvas: typeof renderGlowCanvas !== 'undefined' ? renderGlowCanvas : null,
+  };
+
+  function initGlowCanvasUI() {
+    var panelId = 'dg-glowcanvas-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:520px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:864;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block'; p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '×';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        if (typeof mountGlowCanvas === 'function') {
+          mountGlowCanvas({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Glow Canvas: visual verification layer for analysis outputs. Charts, distributions, and audit trails.';
+          p.appendChild(msg);
+        }
+      } else { p.style.display = 'none'; }
+    }
+    ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
+      var grid = document.getElementById(gridId);
+      var btnId = i === 0 ? 'dg-ov-glowcanvas' : 'dg-ts-glowcanvas';
+      if (grid && !document.getElementById(btnId)) {
+        var btn = document.createElement('button');
+        btn.id = btnId;
+        btn.className = 'dg-ov-btn';
+        btn.innerHTML = '??<br><span>Canvas</span>';
+        btn.addEventListener('click', function(){
+          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.remove('open'); }); }
+          else { var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open'); }
+          toggle();
+        });
+        grid.appendChild(btn);
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initGlowCanvasUI);
+  else setTimeout(initGlowCanvasUI, 1200);
+}());
+/* ---- end glow-canvas.js ---- */
+
+
+/* ================================================================
+   GLOW SIGNAL + GLOW ORB UI -- recovered from git history
+   js/glow/: glow-signal.js, glow-orb-ui.js
+   Ambient confidence visualization layer
+   ================================================================ */
+
+/* ---- from js/glow/glow-signal.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — The Glow (signal aggregator, Batch 1 of 2)
+// ============================================================
+// WHY THIS EXISTS (the concept, batch 1):
+// DATAGLOW already computes four separate real trust/health numbers for the
+// loaded dataset — the AI Readiness Gate verdict, the Trust Strip field states,
+// the Golden Signals data-quality rates, and the CAT Scorecard letter grades.
+// Each lives in its own corner of the UI. "The Glow" is one at-a-glance verdict
+// (destined for a single glowing topbar orb in Batch 2) that answers "how is
+// this dataset doing, right now, in one glance?" without making the analyst hunt
+// across four surfaces.
+//
+// WHAT THIS MODULE IS: a PURE aggregator, in the exact spirit of
+// js/gate/readiness-gate.js and js/app-shell/glow-path.js. It re-runs NOTHING
+// and invents NO new validation, scoring formula, or severity vocabulary — it
+// COMPOSES the OUTPUT the four existing modules already produced into one
+// well-formed verdict object. "Compose, don't recompute": when a real readiness
+// gate result is present, its score/agentConsumable is the authoritative number
+// (it is the most-considered agent-readiness figure the app already has), and we
+// never derive a competing score of our own on top of it. Every signal[] entry
+// traces to a real field — nothing is fabricated. It never throws and returns a
+// well-formed object even for empty/absent input.
+//
+// WHAT IT DELIBERATELY DOES NOT DO YET (deferred to Batch 2; nothing calls it):
+//   - Batch 2: the UI — a single glowing orb in the topbar (color/pulse from
+//     `status`, tooltip/panel from `signals`/`summary`/`nextAction`, wired into
+//     main.js behind the `glowOrb` flag). No DOM is built here.
+// This batch is pure logic + tests ONLY. Nothing in the app calls it yet.
+//
+// Identity split (same convention as readiness-gate.js / glow-path.js): this
+// file is pure, Node-testable, no DOM / no network / no engine.
+
+// The status vocabulary is REUSED verbatim from the Trust Strip field states
+// (js/trust/trust-strip.js) — we never extend it. 'idle' means "no evidence
+// either way, nothing loaded"; it is not a failure.
+const STATUS = { OK: 'ok', WARN: 'warn', BAD: 'bad', IDLE: 'idle' };
+
+// Trust Strip field state -> the ordinal severity we compare on. Higher wins
+// when we fold many field states into one overall status.
+const STATE_SEVERITY = { idle: 0, ok: 1, warn: 2, bad: 3 };
+
+// Fold a list of Trust Strip field states into a single overall status by the
+// worst-wins rule the strip's own dot colors already imply: any 'bad' -> bad;
+// else any 'warn' -> warn; else 'ok' if anything real loaded; else 'idle'.
+function foldFieldStates(fields) {
+  let worst = STATUS.IDLE;
+  let sawReal = false;
+  for (const f of fields) {
+    const state = f && typeof f.state === 'string' ? f.state : 'idle';
+    if (state !== 'idle') sawReal = true;
+    if ((STATE_SEVERITY[state] || 0) > (STATE_SEVERITY[worst] || 0)) worst = state;
+  }
+  if (worst === STATUS.IDLE && sawReal) return STATUS.OK;
+  return worst;
+}
+
+// Map the readiness gate's boolean/score verdict onto our shared status
+// vocabulary. agentConsumable === true is unambiguously 'ok'. When not
+// consumable, a hard-failed layer or broken contract is 'bad'; a below-threshold
+// score with no hard failures is a softer 'warn' (mirrors the gate's own
+// distinction between failingLayers and a mere score gap). A gate that evaluated
+// nothing is 'idle'.
+function statusFromGate(gate) {
+  if (gate.agentConsumable === true) return STATUS.OK;
+  const failing = Array.isArray(gate.failingLayers) ? gate.failingLayers : [];
+  if (gate.blockedByContract === true || failing.length > 0) return STATUS.BAD;
+  if ((gate.evaluatedLayerCount || 0) === 0) return STATUS.IDLE;
+  return STATUS.WARN;
+}
+
+// Build the honest one-line nextAction from the gate's OWN failing layers —
+// never fabricating a layer name, mirroring describeGateBlock() in glow-path.js.
+function nextActionFromGate(gate) {
+  const failing = (Array.isArray(gate.failingLayers) ? gate.failingLayers : [])
+    .filter((f) => f && f.layer);
+  if (gate.blockedByContract === true && failing.length === 0) {
+    return {
+      label: 'Fix the metric contract',
+      detail: 'A metric contract is invalid or broken — resolve it before this can go to an agent.',
+    };
+  }
+  if (failing.length === 0) {
+    return {
+      label: 'Raise the readiness score',
+      detail: typeof gate.passingSummary === 'string' && gate.passingSummary
+        ? gate.passingSummary
+        : 'The readiness score is below the agent-consumable threshold.',
+    };
+  }
+  const names = failing.map((f) => f.layer);
+  const shown = names.slice(0, 2).join(' and ');
+  const rest = names.length > 2 ? ` (+${names.length - 2} more)` : '';
+  const verb = failing.length === 1 ? 'is' : 'are';
+  return {
+    label: 'See failing layers',
+    detail: `${shown}${rest} ${verb} failing — resolve before this is agent-consumable.`,
+  };
+}
+
+// Flatten trust-strip fields into signal[] entries, tagged with their source.
+function signalsFromTrust(trustSignals) {
+  const fields = Array.isArray(trustSignals && trustSignals.fields) ? trustSignals.fields : [];
+  const out = [];
+  for (const f of fields) {
+    if (!f || typeof f !== 'object') continue;
+    out.push({
+      source: 'trustStrip',
+      label: typeof f.label === 'string' ? f.label : String(f.key || 'field'),
+      value: typeof f.value === 'string' ? f.value : '',
+      state: typeof f.state === 'string' ? f.state : 'idle',
+      detail: typeof f.detail === 'string' ? f.detail : '',
+    });
+  }
+  return out;
+}
+
+// Synthesize one signal[] entry from the CAT scorecard's overall grade. Traces
+// to the real `overall` object; never invents a grade.
+function signalFromCatScorecard(catScorecard) {
+  const overall = catScorecard && catScorecard.overall;
+  if (!overall || typeof overall !== 'object') return null;
+  const grade = typeof overall.grade === 'string' ? overall.grade : '?';
+  const score = Number.isFinite(overall.score) ? overall.score : null;
+  // Map the letter grade onto the shared state vocabulary without inventing a
+  // new scale: A/B are ok, C/D are a warn, F is bad.
+  const state = grade === 'A' || grade === 'B' ? 'ok'
+    : grade === 'F' ? 'bad'
+    : (grade === 'C' || grade === 'D') ? 'warn' : 'idle';
+  return {
+    source: 'catScorecard',
+    label: 'CAT overall',
+    value: score != null ? `${grade} (${score})` : grade,
+    state,
+    detail: 'Completeness / Accuracy / Timeliness overall grade (CDC Data Quality Framework).',
+  };
+}
+
+// Synthesize one signal[] entry recording that Golden Signals were computed,
+// carrying the real rates verbatim. Presence-only: we do not judge the rates
+// against thresholds here (that is the grades module's job, not ours), so the
+// state stays 'ok' meaning "measured", never a fabricated pass/fail.
+function signalFromGoldenSignals(goldenSignals) {
+  if (!goldenSignals || typeof goldenSignals !== 'object') return null;
+  const parts = [];
+  if (Number.isFinite(goldenSignals.missingnessRate)) parts.push(`missing ${goldenSignals.missingnessRate}`);
+  if (Number.isFinite(goldenSignals.outOfRangeRate)) parts.push(`out-of-range ${goldenSignals.outOfRangeRate}`);
+  if (Number.isFinite(goldenSignals.duplicateRate)) parts.push(`dupes ${goldenSignals.duplicateRate}`);
+  if (Number.isFinite(goldenSignals.freshnessHours)) parts.push(`${goldenSignals.freshnessHours}h old`);
+  return {
+    source: 'goldenSignals',
+    label: 'Golden signals',
+    value: parts.length ? parts.join(' · ') : 'measured',
+    state: 'ok',
+    detail: 'Missingness / out-of-range / duplicate rates + freshness (SRE Golden Signals, mapped to data quality).',
+  };
+}
+
+/**
+ * Compose the four existing real outputs into one Glow verdict. PURE: no side
+ * effects, never throws, always returns a well-formed object even for empty or
+ * missing input (which reads as status 'idle', score 0, no signals).
+ *
+ * @param {object} [input]
+ * @param {object} [input.readinessGateResult] OUTPUT of computeReadinessGate()
+ *   (agentConsumable/score/threshold/failingLayers/passingSummary/
+ *   blockedByContract/evaluatedLayerCount). Authoritative when present — its
+ *   score/consumability dominate; we never recompute a competing score.
+ * @param {{loaded:boolean, fields:Array}} [input.trustSignals] OUTPUT of collectTrustSignals().
+ * @param {object} [input.goldenSignals] OUTPUT of computeGoldenSignals().
+ * @param {object} [input.catScorecard] OUTPUT of computeCATScore().
+ * @returns {{
+ *   status: ('ok'|'warn'|'bad'|'idle'),
+ *   score: number,
+ *   signals: Array<{source:string,label:string,value:string,state:string,detail:string}>,
+ *   nextAction: ({label:string, detail:string}|null),
+ *   summary: string
+ * }}
+ */
+function computeGlowSignal(input) {
+  const i = (input && typeof input === 'object') ? input : {};
+  const gate = (i.readinessGateResult && typeof i.readinessGateResult === 'object')
+    ? i.readinessGateResult : null;
+
+  // Assemble signals[] first — every entry traces to a real field, never faked.
+  const signals = signalsFromTrust(i.trustSignals);
+  const catSignal = signalFromCatScorecard(i.catScorecard);
+  if (catSignal) signals.push(catSignal);
+  const goldenSignal = signalFromGoldenSignals(i.goldenSignals);
+  if (goldenSignal) signals.push(goldenSignal);
+
+  // status/score: the readiness gate is the authoritative agent-readiness number
+  // the app already computed — compose it, don't recompute. Fall back to folding
+  // the trust-strip field states only when no gate result was supplied.
+  let status;
+  let score;
+  let nextAction = null;
+  if (gate) {
+    status = statusFromGate(gate);
+    score = Number.isFinite(gate.score) ? gate.score : 0;
+    if (gate.agentConsumable === false) nextAction = nextActionFromGate(gate);
+  } else {
+    status = foldFieldStates(signalsFromTrust(i.trustSignals));
+    // With no gate result there is no authoritative 0-100 number to compose, and
+    // this module never invents one from scratch — so score stays 0 and status
+    // carries the verdict. (Batch 2's orb reads status for color regardless.)
+    score = 0;
+  }
+
+  const summary = buildGlowSummary({ status, score, hasGate: !!gate, signals, nextAction });
+
+  return { status, score, signals, nextAction, summary };
+}
+
+// One honest human-readable sentence, in the tone of readiness-gate.js's
+// buildPassingSummary(). Says plainly what the verdict is and why.
+function buildGlowSummary({ status, score, hasGate, signals, nextAction }) {
+  if (status === STATUS.IDLE) {
+    return 'Nothing to glow about yet — no dataset signals available.';
+  }
+  const measured = `${signals.length} signal(s) composed`;
+  if (hasGate) {
+    if (status === STATUS.OK) {
+      return `Glowing green — agent-ready at score ${score}/100; ${measured}.`;
+    }
+    const why = nextAction && nextAction.detail ? ` ${nextAction.detail}` : '';
+    const color = status === STATUS.BAD ? 'red' : 'amber';
+    return `Glowing ${color} — not agent-ready (score ${score}/100).${why} (${measured}.)`;
+  }
+  // No gate result: the verdict comes from the trust-strip field states.
+  if (status === STATUS.OK) return `Looking healthy — trust signals are clear; ${measured}.`;
+  if (status === STATUS.WARN) return `Worth a look — trust signals show warnings; ${measured}.`;
+  return `Needs attention — trust signals show a problem; ${measured}.`;
+}
+
+/**
+ * Human-readable, multi-line explanation of a Glow verdict, mirroring
+ * explainGateReasons()'s format. Pure string builder for Batch 2 UI use —
+ * builds NO DOM here.
+ * @param {ReturnType<typeof computeGlowSignal>} glowResult
+ * @returns {string}
+ */
+function explainGlowSignal(glowResult) {
+  if (!glowResult || typeof glowResult !== 'object') {
+    return 'No glow result to explain.';
+  }
+  const { status, score, signals = [], nextAction, summary } = glowResult;
+  const lines = [];
+  const head = status === 'ok' ? 'GLOWING'
+    : status === 'idle' ? 'IDLE'
+    : status === 'bad' ? 'ALERT'
+    : 'CAUTION';
+  lines.push(`${head} — status ${status} (score ${score}/100).`);
+  if (typeof summary === 'string' && summary) lines.push(summary);
+
+  if (signals.length > 0) {
+    lines.push(`Signals (${signals.length}):`);
+    for (const s of signals) {
+      lines.push(`- [${s.source}] ${s.label} [${s.state}]: ${s.value}`);
+    }
+  } else {
+    lines.push('- No signals composed.');
+  }
+
+  if (nextAction && nextAction.label) {
+    lines.push(`Next action: ${nextAction.label} — ${nextAction.detail}`);
+  }
+  return lines.join('\n');
+}
+
+
+
+  window.GlowSignal = {
+    computeGlowSignal: typeof computeGlowSignal !== 'undefined' ? computeGlowSignal : null,
+    explainGlowSignal: typeof explainGlowSignal !== 'undefined' ? explainGlowSignal : null,
+    GLOW_LEVELS: typeof GLOW_LEVELS !== 'undefined' ? GLOW_LEVELS : [],
+    GLOW_THRESHOLDS: typeof GLOW_THRESHOLDS !== 'undefined' ? GLOW_THRESHOLDS : {},
+  };
+}());
+/* ---- end glow-signal.js ---- */
+
+/* ---- from js/glow/glow-orb-ui.js ---- */
+;(function(){
+  'use strict';
+
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+  var explainGlowSignal = (window.GlowSignal || {}).explainGlowSignal;
+  var computeGlowSignal = (window.GlowSignal || {}).computeGlowSignal;
+// ============================================================
+// DATAGLOW — The Glow (topbar orb UI, Batch 2 of 2)
+// ============================================================
+// WHAT THIS IS: the thin UI layer for the pure aggregator scored in Batch 1
+// (js/glow/glow-signal.js, computeGlowSignal/explainGlowSignal). It surfaces one
+// at-a-glance glowing orb in the topbar whose color reflects the composed
+// verdict's `status`, and — on click — expands an inline panel listing the
+// status label + score, each composed signal as a label/value row, an honest
+// next-action callout when present, and a "Show the math" toggle revealing the
+// raw explainGlowSignal() text. It re-runs NOTHING and invents NO new verdict
+// logic, score, or severity vocabulary — it only PRESENTS what computeGlowSignal()
+// already returned.
+//
+// WHAT IT DELIBERATELY DOES NOT DO: this batch ships dark behind the `glowOrb`
+// flag (enabled:false); it is wired into the topbar but renders nothing until the
+// flag flips on. A future hold-to-unfold gesture is NOT built here — interaction
+// is click-to-expand only, mirroring the Readiness Gate badge's Show-the-math
+// toggle. No new network/engine calls; the orb reads only the already-composed
+// verdict handed to it.
+//
+// Identity split (same convention as readiness-gate-ui.js / trust-strip.js): the
+// model builder (buildGlowOrbModel) is a PURE, Node-testable function with no
+// DOM; the renderer (renderGlowOrb) turns that model into DOM and is thin enough
+// to leave to the browser/e2e path.
+
+// [stripped import] import { el } from '../app-shell/utils.js';
+// [stripped import] import { explainGlowSignal } from './glow-signal.js';
+
+// Reuse the Trust Strip's field-state dot colors VERBATIM (js/trust/trust-strip.js
+// STATE_DOT) — we invent no new colors. The Glow status vocabulary is the same
+// ok/warn/bad/idle the strip and the Batch-1 aggregator already share.
+const STATE_DOT = { ok: '#2e7d32', warn: '#b8860b', bad: '#c62828', idle: '#9e9e9e' };
+
+// Short human label per status — plain words, no new severity vocabulary.
+const STATUS_LABEL = { ok: 'Glowing', warn: 'Caution', bad: 'Alert', idle: 'Idle' };
+
+/**
+ * Turn a Glow verdict (from computeGlowSignal) into a pure, DOM-free orb view
+ * model. Never throws; a missing/malformed verdict yields an honest "idle" model
+ * rather than a fabricated status.
+ * @param {ReturnType<import('./glow-signal.js').computeGlowSignal>} glowResult
+ * @returns {{
+ *   status:'ok'|'warn'|'bad'|'idle',
+ *   tone:'ok'|'warn'|'bad'|'idle',
+ *   dotColor:string,
+ *   scoreText:string,
+ *   label:string,
+ *   summary:string,
+ *   nextActionLabel:(string|null),
+ *   signals:Array<{source:string,label:string,value:string,state:string,detail:string}>
+ * }}
+ */
+function buildGlowOrbModel(glowResult) {
+  const g = (glowResult && typeof glowResult === 'object') ? glowResult : null;
+  const status = g && typeof g.status === 'string' ? g.status : 'idle';
+  const tone = STATE_DOT[status] ? status : 'idle';
+  const score = g && Number.isFinite(g.score) ? g.score : 0;
+  // Only the readiness-gate branch produces a real 0-100 number; when the verdict
+  // came from folding trust states (score 0) we show no number, mirroring the
+  // gate badge's "—" placeholder, rather than a misleading 0/100.
+  const scoreText = tone === 'idle' || score === 0 ? '—' : `${score}/100`;
+  const signals = g && Array.isArray(g.signals) ? g.signals : [];
+  const nextAction = g && g.nextAction && typeof g.nextAction === 'object' ? g.nextAction : null;
+  const nextActionLabel = nextAction && typeof nextAction.label === 'string' ? nextAction.label : null;
+
+  return {
+    status: tone,
+    tone,
+    dotColor: STATE_DOT[tone],
+    scoreText,
+    label: STATUS_LABEL[tone] || STATUS_LABEL.idle,
+    summary: g && typeof g.summary === 'string' ? g.summary : 'No dataset signals available.',
+    nextActionLabel,
+    signals,
+  };
+}
+
+/**
+ * Render the compact Glow orb into `host`. The orb is a ~30px circular button
+ * with a colored dot/ring reflecting the verdict; clicking it toggles an inline
+ * panel (initially display:none) listing status/score, each signal as a
+ * label/value row, an honest next-action callout when present, and a
+ * "Show the math" toggle revealing the raw explainGlowSignal() text — the same
+ * click-to-expand interaction the Readiness Gate badge uses. Purely informational:
+ * it never blocks or alters anything it sits beside.
+ * @param {object} opts
+ * @param {HTMLElement} opts.host
+ * @param {ReturnType<import('./glow-signal.js').computeGlowSignal>} opts.glowResult
+ * @returns {{model:object}|undefined}
+ */
+function renderGlowOrb(opts = {}) {
+  const { host, glowResult } = opts;
+  if (!host) return;
+  const model = buildGlowOrbModel(glowResult);
+  host.innerHTML = '';
+
+  // Raw "show the math" node — hidden until the sub-toggle is clicked.
+  const math = el('pre', {
+    'data-testid': 'glow-orb-math',
+    style: 'display:none; margin:8px 0 0; padding:10px; background:var(--color-bg-subtle,#f6f8fa); border-radius:var(--radius-2,6px); overflow:auto; font-size:var(--text-xs,12px); white-space:pre-wrap;',
+  }, explainGlowSignal(glowResult));
+
+  const mathToggle = el('button', {
+    type: 'button',
+    'data-testid': 'glow-orb-math-toggle',
+    'aria-expanded': 'false',
+    style: 'cursor:pointer; border:none; background:none; padding:0; margin-top:6px; color:var(--color-text-muted); font-size:var(--text-xs,12px); text-decoration:underline;',
+  }, 'Show the math');
+  mathToggle.addEventListener('click', () => {
+    const open = math.style.display === 'none';
+    math.style.display = open ? '' : 'none';
+    mathToggle.textContent = open ? 'Hide the math' : 'Show the math';
+    mathToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  // Per-signal label/value rows — every row traces to a real composed signal.
+  const signalRows = model.signals.map((s) => el('div', {
+    class: 'glow-orb-signal',
+    style: 'display:flex; justify-content:space-between; gap:var(--space-3,12px); font-size:var(--text-xs,12px); padding:2px 0;',
+  }, [
+    el('span', { style: 'display:flex; align-items:center; gap:6px;' }, [
+      el('span', { style: `width:7px; height:7px; border-radius:50%; background:${STATE_DOT[s.state] || STATE_DOT.idle}; display:inline-block;` }),
+      el('span', {}, typeof s.label === 'string' ? s.label : ''),
+    ]),
+    el('span', { style: 'color:var(--color-text-muted); text-align:right;' }, typeof s.value === 'string' ? s.value : ''),
+  ]));
+
+  const panelChildren = [
+    el('div', {
+      style: 'font-weight:600; display:flex; justify-content:space-between; gap:var(--space-3,12px);',
+    }, [
+      el('span', {}, model.label),
+      el('span', { style: 'color:var(--color-text-muted);' }, model.scoreText),
+    ]),
+    el('div', { style: 'font-size:var(--text-xs,12px); color:var(--color-text-muted); margin:4px 0 8px;' }, model.summary),
+    signalRows.length
+      ? el('div', {}, signalRows)
+      : el('div', { style: 'font-size:var(--text-xs,12px); color:var(--color-text-muted);' }, 'No signals composed.'),
+  ];
+  if (model.nextActionLabel) {
+    panelChildren.push(el('div', {
+      class: 'glow-orb-next-action',
+      'data-testid': 'glow-orb-next-action',
+      style: 'margin-top:8px; padding:6px 8px; border-radius:var(--radius-2,6px); background:var(--color-bg-subtle,#f6f8fa); font-size:var(--text-xs,12px); font-weight:600;',
+    }, model.nextActionLabel));
+  }
+  panelChildren.push(mathToggle, math);
+
+  const panel = el('div', {
+    'data-testid': 'glow-orb-panel',
+    class: 'glow-orb-panel',
+    style: 'display:none; position:absolute; top:calc(100% + 6px); right:0; z-index:50; min-width:240px; max-width:320px; padding:var(--space-3,12px); background:var(--color-surface,#fff); border:1px solid var(--color-border,#e2e2e2); border-radius:var(--radius-3,8px); box-shadow:0 6px 20px rgba(0,0,0,0.14);',
+  }, panelChildren);
+
+  const orb = el('button', {
+    type: 'button',
+    class: 'glow-orb',
+    'data-testid': 'glow-orb',
+    'data-status': model.status,
+    'aria-expanded': 'false',
+    'aria-label': `Data glow: ${model.label} ${model.scoreText}`,
+    title: model.summary,
+    style: `width:30px; height:30px; border-radius:50%; cursor:pointer; border:2px solid ${model.dotColor}; background:${model.dotColor}22; display:inline-flex; align-items:center; justify-content:center; padding:0;`,
+  }, [
+    el('span', { style: `width:12px; height:12px; border-radius:50%; background:${model.dotColor}; display:inline-block;` }),
+  ]);
+  orb.addEventListener('click', () => {
+    const open = panel.style.display === 'none';
+    panel.style.display = open ? '' : 'none';
+    orb.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  const wrap = el('div', {
+    'data-testid': 'glow-orb-wrap',
+    class: 'glow-orb-wrap',
+    style: 'position:relative; display:inline-flex; align-items:center;',
+  }, [orb, panel]);
+  host.appendChild(wrap);
+  return { model };
+}
+
+  window.GlowOrbUI = {
+    mountGlowOrb: typeof mountGlowOrb !== 'undefined' ? mountGlowOrb : null,
+    updateGlowOrb: typeof updateGlowOrb !== 'undefined' ? updateGlowOrb : null,
+  };
+
+  // Auto-mount orb into header if slot exists
+  function initGlowOrb() {
+    var slot = document.getElementById('dg-glow-orb-slot');
+    if (slot && typeof mountGlowOrb === 'function') {
+      mountGlowOrb({ host: slot });
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initGlowOrb);
+  else setTimeout(initGlowOrb, 1250);
+}());
+/* ---- end glow-orb-ui.js ---- */
+
+
+/* ================================================================
+   ANOMALY DETECTION CLUSTER -- recovered from git history
+   js/anomaly/: entity-baseline, isolation-forest, spc-control,
+                active-learning, predictive-anomaly
+   Zero external deps -- pure statistical engines
+   ================================================================ */
+
+/* ---- from js/anomaly/entity-baseline.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Per-Entity Baselining (UEBA-style)
+// Flags values that are abnormal for THAT entity, not the global column.
+// ============================================================
+
+// User and Entity Behavior Analytics (UEBA) baselining — a general
+// cybersecurity industry practice, NIST CSF-aligned. Each entity (vendor,
+// customer, account…) gets its own mean/stddev, so we can catch a $12,000
+// invoice from a vendor whose invoices normally run $200–800, even though
+// $12,000 might look fine against the whole column.
+
+async function computeEntityBaselines(table, entityCol, valueCol, engine) {
+  const { rows } = await engine.runQuery(
+    `SELECT "${entityCol}" AS entity,
+            AVG("${valueCol}") AS mean,
+            STDDEV_POP("${valueCol}") AS stddev,
+            COUNT("${valueCol}") AS n
+     FROM ${table}
+     WHERE "${valueCol}" IS NOT NULL
+     GROUP BY "${entityCol}"`
+  );
+  const baselines = {};
+  for (const r of rows) {
+    baselines[String(r.entity)] = {
+      mean: r.mean,
+      stddev: r.stddev,
+      n: r.n,
+    };
+  }
+  return baselines;
+}
+
+async function flagEntityDeviations(table, entityCol, valueCol, baselines, engine) {
+  const { rows } = await engine.runQuery(
+    `SELECT "${entityCol}" AS entity, "${valueCol}" AS value
+     FROM ${table}
+     WHERE "${valueCol}" IS NOT NULL`
+  );
+  const flags = [];
+  for (const r of rows) {
+    const base = baselines[String(r.entity)];
+    if (!base || base.stddev == null || base.stddev === 0) continue;
+    const value = Number(r.value);
+    if (!Number.isFinite(value)) continue;
+    const z = (value - base.mean) / base.stddev;
+    if (Math.abs(z) > 3) {
+      flags.push({
+        entity: r.entity,
+        value,
+        entityMean: base.mean,
+        entityStddev: base.stddev,
+        zScore: Number(z.toFixed(2)),
+        reason: `Value ${value} deviates ${z.toFixed(1)}σ from this entity's own baseline (mean ${Number(base.mean).toFixed(2)}, σ ${Number(base.stddev).toFixed(2)}).`,
+      });
+    }
+  }
+  flags.sort((a, b) => Math.abs(b.zScore) - Math.abs(a.zScore));
+  return flags;
+}
+
+  window.EntityBaseline = {
+    buildEntityBaseline: typeof buildEntityBaseline !== 'undefined' ? buildEntityBaseline : null,
+    detectEntityAnomalies: typeof detectEntityAnomalies !== 'undefined' ? detectEntityAnomalies : null,
+  };
+}());
+/* ---- end entity-baseline.js ---- */
+
+/* ---- from js/anomaly/isolation-forest.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Isolation Forest (multivariate outlier detection)
+// ============================================================
+// Isolation Forest, Liu, Ting & Zhou 2008 ("Isolation Forest", ICDM 2008,
+// public academic algorithm). Anomalies are few and different, so random
+// axis-parallel splits isolate them in shorter tree paths. The anomaly
+// score is s(x,n) = 2^(-E(h(x)) / c(n)), where c(n) is the average path
+// length of an unsuccessful BST search. Pure JS, no ML dependency.
+
+const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+
+const N_TREES = 64;
+const SUBSAMPLE = 256;
+const SCORE_THRESHOLD = 0.6; // > 0.5 leans anomalous; 0.6 keeps it conservative
+
+// Average path length of an unsuccessful search in a BST of n nodes.
+function cFactor(n) {
+  if (n <= 1) return 0;
+  return 2 * (Math.log(n - 1) + 0.5772156649) - (2 * (n - 1) / n);
+}
+
+function buildTree(points, cols, depth, maxDepth) {
+  const n = points.length;
+  if (depth >= maxDepth || n <= 1) {
+    return { type: 'leaf', size: n };
+  }
+  // Pick a random feature and a random split value within its observed range.
+  const col = cols[Math.floor(Math.random() * cols.length)];
+  let min = Infinity, max = -Infinity;
+  for (const p of points) {
+    const v = p[col];
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  if (min === max) return { type: 'leaf', size: n };
+  const splitValue = min + Math.random() * (max - min);
+  const left = [], right = [];
+  for (const p of points) {
+    (p[col] < splitValue ? left : right).push(p);
+  }
+  return {
+    type: 'node',
+    col,
+    splitValue,
+    left: buildTree(left, cols, depth + 1, maxDepth),
+    right: buildTree(right, cols, depth + 1, maxDepth),
+  };
+}
+
+function pathLength(point, node, depth) {
+  if (node.type === 'leaf') {
+    return depth + cFactor(node.size);
+  }
+  return point[node.col] < node.splitValue
+    ? pathLength(point, node.left, depth + 1)
+    : pathLength(point, node.right, depth + 1);
+}
+
+function sample(arr, k) {
+  if (arr.length <= k) return arr.slice();
+  const copy = arr.slice();
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(Math.random() * (copy.length - i));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, k);
+}
+
+async function scoreIsolationForest(table, numericCols, engine, options = {}) {
+  const names = (numericCols || [])
+    .map(c => (typeof c === 'string' ? c : c.name))
+    .filter(Boolean);
+  if (names.length === 0) return { rows: [], columns: [] };
+
+  const selectList = names.map(n => `"${n}"`).join(', ');
+  const { rows } = await engine.runQuery(`SELECT ${selectList} FROM ${table}`);
+  // Keep only fully-numeric rows for the forest.
+  const points = [];
+  const originalIndex = [];
+  rows.forEach((r, idx) => {
+    const p = {};
+    let ok = true;
+    for (const n of names) {
+      const v = Number(r[n]);
+      if (!Number.isFinite(v)) { ok = false; break; }
+      p[n] = v;
+    }
+    if (ok) { points.push(p); originalIndex.push(idx); }
+  });
+  if (points.length < 4) return { rows: [], columns: names };
+
+  const subN = Math.min(SUBSAMPLE, points.length);
+  const maxDepth = Math.ceil(Math.log2(subN));
+  const trees = [];
+  for (let t = 0; t < N_TREES; t++) {
+    trees.push(buildTree(sample(points, subN), names, 0, maxDepth));
+  }
+
+  const c = cFactor(subN);
+  const scored = points.map((p, i) => {
+    let sum = 0;
+    for (const tree of trees) sum += pathLength(p, tree, 0);
+    const avgPath = sum / trees.length;
+    const score = c > 0 ? Math.pow(2, -avgPath / c) : 0;
+    return {
+      rowIndex: originalIndex[i],
+      anomalyScore: Number(score.toFixed(4)),
+      isAnomaly: score > (options.threshold || SCORE_THRESHOLD),
+      values: Object.fromEntries(names.map(n => [n, p[n]])),
+    };
+  });
+  scored.sort((a, b) => b.anomalyScore - a.anomalyScore);
+  return { rows: scored, columns: names };
+}
+
+  window.IsolationForest = {
+    buildIsolationForest: typeof buildIsolationForest !== 'undefined' ? buildIsolationForest : null,
+    scoreAnomalies: typeof scoreAnomalies !== 'undefined' ? scoreAnomalies : null,
+    detectOutliers: typeof detectOutliers !== 'undefined' ? detectOutliers : null,
+  };
+}());
+/* ---- end isolation-forest.js ---- */
+
+/* ---- from js/anomaly/spc-control.js ---- */
+;(function(){
+  'use strict';
+  // duckdb-engine stub (SPC works on raw row arrays primarily)
+  var engine = { query: function(){ return Promise.resolve({ rows: [] }); } };
+// ============================================================
+// DATAGLOW — SPC / Control-Chart Drift + Process Capability (Cpk)
+// ============================================================
+// Shewhart control charts (Walter A. Shewhart, "Economic Control of
+// Quality of Manufactured Product", 1931, public method): a process is
+// "in control" when points stay within mean ± 3σ (the UCL/LCL).
+// Process capability index Cpk is the standard Six Sigma formula
+// Cpk = min((USL - mean) / 3σ, (mean - LSL) / 3σ) (public statistics).
+
+// [stripped import] import * as engine from '../app-shell/duckdb-engine.js';
+
+const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+const MAX_POINTS = 500; // cap the plotted series for performance
+
+function toNumbers(rows, key) {
+  const out = [];
+  for (const r of rows) {
+    const v = Number(r[key]);
+    if (Number.isFinite(v)) out.push(v);
+  }
+  return out;
+}
+
+// Shewhart 3-sigma control limits from a numeric series.
+function computeControlLimits(values) {
+  const n = values.length;
+  if (n === 0) return { mean: 0, sigma: 0, ucl: 0, lcl: 0, n: 0 };
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+  const sigma = Math.sqrt(variance);
+  return {
+    mean,
+    sigma,
+    ucl: mean + 3 * sigma,
+    lcl: mean - 3 * sigma,
+    n,
+  };
+}
+
+// Process capability index. When USL/LSL are not supplied we infer them
+// from the observed data spread (min/max) — a rough proxy so a Cpk can
+// still be shown; flagged via `inferredSpec: true`.
+function computeCpk(values, usl = null, lsl = null) {
+  const { mean, sigma } = computeControlLimits(values);
+  let inferredSpec = false;
+  if (usl == null || lsl == null) {
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    if (usl == null) usl = max;
+    if (lsl == null) lsl = min;
+    inferredSpec = true;
+  }
+  if (sigma === 0) return { cpk: null, usl, lsl, mean, sigma, inferredSpec };
+  const cpu = (usl - mean) / (3 * sigma);
+  const cpl = (mean - lsl) / (3 * sigma);
+  const cpk = Math.min(cpu, cpl);
+  return { cpk: Number(cpk.toFixed(3)), cpu, cpl, usl, lsl, mean, sigma, inferredSpec };
+}
+
+// Pull a column's values and return control limits, Cpk, the (capped) series,
+// and a count of out-of-control points for a Validate-tab summary + chart.
+async function analyzeColumnSPC(table, col, engine_ = engine) {
+  const { rows } = await engine_.runQuery(
+    `SELECT "${col}" AS v FROM ${table} WHERE "${col}" IS NOT NULL LIMIT ${MAX_POINTS}`
+  );
+  const values = toNumbers(rows, 'v');
+  if (values.length < 2) return null;
+  const limits = computeControlLimits(values);
+  const cpk = computeCpk(values);
+  const outOfControl = values.filter(v => v > limits.ucl || v < limits.lcl).length;
+  return { column: col, values, limits, cpk, outOfControl };
+}
+
+async function analyzeAllNumericSPC(table, cols, engine_ = engine) {
+  const numeric = cols.filter(c => NUMERIC_TYPES.includes(c.type));
+  const out = [];
+  for (const c of numeric) {
+    const res = await analyzeColumnSPC(table, c.name, engine_).catch(() => null);
+    if (res) out.push(res);
+  }
+  return out;
+}
+
+  window.SPCControl = {
+    computeControlChart: typeof computeControlChart !== 'undefined' ? computeControlChart : null,
+    detectSPCViolations: typeof detectSPCViolations !== 'undefined' ? detectSPCViolations : null,
+    SPC_RULES: typeof SPC_RULES !== 'undefined' ? SPC_RULES : [],
+  };
+}());
+/* ---- end spc-control.js ---- */
+
+/* ---- from js/anomaly/active-learning.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Active-Learning Uncertainty Flags
+// Surfaces the cells DATAGLOW is least sure about, first.
+// ============================================================
+
+// Uncertainty sampling for active learning, Settles 2009 (public survey),
+// with error-detection framing from the ED2 system (Neutatz et al.,
+// SIGMOD 2019, public research). Both are academic, non-proprietary.
+
+const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+
+function isNumeric(col) {
+  return NUMERIC_TYPES.includes(col.type);
+}
+
+// Score how ambiguous a categorical mode-fill would be: two close top
+// candidates (e.g. 52% vs 48%) => high uncertainty (near 1); a dominant
+// mode (e.g. 95%) => low uncertainty (near 0).
+async function scoreCategoricalUncertainty(table, col, engine) {
+  const { rows } = await engine.runQuery(
+    `SELECT "${col.name}" AS v, COUNT(*) AS n FROM ${table} WHERE "${col.name}" IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 2`
+  );
+  if (rows.length === 0) return null;
+  const top = rows[0].n;
+  const second = rows[1] ? rows[1].n : 0;
+  const total = top + second;
+  if (total === 0) return null;
+  // margin small => uncertain. uncertainty = 1 - normalized margin.
+  const margin = (top - second) / total;
+  const uncertaintyScore = 1 - margin;
+  return {
+    uncertaintyScore,
+    reason: `Mode-fill candidate for "${col.name}" is ambiguous: top two values split ${top} vs ${second}.`,
+  };
+}
+
+// Score numeric fill uncertainty via coefficient of variation: a
+// high-variance column makes any single fill value (mean) unreliable.
+async function scoreNumericUncertainty(table, col, engine) {
+  const { rows } = await engine.runQuery(
+    `SELECT AVG("${col.name}") AS m, STDDEV_POP("${col.name}") AS s FROM ${table} WHERE "${col.name}" IS NOT NULL`
+  );
+  const m = rows[0].m, s = rows[0].s;
+  if (m == null || s == null || m === 0) return null;
+  const cv = Math.abs(s / m);
+  const uncertaintyScore = Math.min(1, cv / 2); // cv>=2 => max uncertainty
+  return {
+    uncertaintyScore,
+    reason: `Mean-fill for "${col.name}" is uncertain: high spread (coefficient of variation ≈ ${cv.toFixed(2)}).`,
+  };
+}
+
+async function rankUncertainCells(table, cols, engine) {
+  const ranked = [];
+  for (const col of cols) {
+    const { rows: nullRows } = await engine.runQuery(
+      `SELECT COUNT(*) AS n FROM ${table} WHERE "${col.name}" IS NULL`
+    );
+    const nullCount = nullRows[0].n;
+    if (nullCount === 0) continue; // only columns being considered for imputation
+
+    const scored = isNumeric(col)
+      ? await scoreNumericUncertainty(table, col, engine)
+      : await scoreCategoricalUncertainty(table, col, engine);
+    if (!scored) continue;
+
+    ranked.push({
+      column: col.name,
+      rowIdentifier: `${nullCount} null cell(s) in "${col.name}"`,
+      uncertaintyScore: Number(scored.uncertaintyScore.toFixed(4)),
+      reason: scored.reason,
+    });
+  }
+  ranked.sort((a, b) => b.uncertaintyScore - a.uncertaintyScore);
+  return ranked;
+}
+
+  window.ActiveLearning = {
+    selectActiveLearningCandidates: typeof selectActiveLearningCandidates !== 'undefined' ? selectActiveLearningCandidates : null,
+    updateActiveLearningModel: typeof updateActiveLearningModel !== 'undefined' ? updateActiveLearningModel : null,
+  };
+}());
+/* ---- end active-learning.js ---- */
+
+/* ---- from js/anomaly/predictive-anomaly.js ---- */
+;(function(){
+  'use strict';
+  var _if = window.IsolationForest || {};
+  var buildIsolationForest = _if.buildIsolationForest || null;
+  var scoreAnomalies = _if.scoreAnomalies || null;
+  var _eb = window.EntityBaseline || {};
+  var buildEntityBaseline = _eb.buildEntityBaseline || null;
+  var detectEntityAnomalies = _eb.detectEntityAnomalies || null;
+  var _al = window.ActiveLearning || {};
+  var selectActiveLearningCandidates = _al.selectActiveLearningCandidates || null;
+// ============================================================
+// DATAGLOW — Predictive Anomaly Scoring (holistic, mixed-type outliers)
+// ============================================================
+// An on-device, unsupervised outlier detector that learns the "normal shape"
+// of the CURRENT dataset and flags whole ROWS whose *combination* of values is
+// unusual — the multi-column, holistic anomalies that single-column rule/layer
+// checks and the numeric-only Multivariate Outliers panel structurally cannot
+// see (e.g. a 15-year-old with a retirement account, where neither the age nor
+// the account value is individually out of range, but the pair is bizarre).
+//
+// TECHNIQUE — k-Nearest-Neighbours distance outlier score over Gower distance.
+//   • kNN outlier factor (Ramaswamy, Rastogi & Shim, 2000; Angiulli & Pizzuti,
+//     2002 — public academic algorithms): a row's outlier score is its mean
+//     distance to its k nearest neighbours. Points sitting far from ALL other
+//     rows (in no dense neighbourhood) score high. Implemented from first
+//     principles, pure JS, zero new dependencies.
+//   • Gower distance (Gower, 1971; public statistics) makes the score work on
+//     MIXED numeric + categorical features — which is the whole point, since the
+//     existing Mahalanobis / Isolation Forest panel is numeric-only. Per feature:
+//        · numeric    → |xi − xj| / range(feature)     (range-normalised, [0,1])
+//        · categorical→ 0 if equal, 1 if different       ({0,1})
+//     The row-to-row distance is the mean of the per-feature dissimilarities, so
+//     numeric and categorical features contribute on the same [0,1] scale.
+//
+// EXPLAINABILITY — because Gower distance is an average of per-feature terms, a
+// row's distance to its neighbours decomposes ADDITIVELY across features. We
+// aggregate each feature's mean dissimilarity to the row's k nearest neighbours
+// and report the top contributors in plain language ("Age sits far from its
+// nearest neighbours; Country='FRA' rarely co-occurs with these values"). No
+// black box — every flag carries a first-principles "why", consistent with the
+// Assumption Ledger's plain-language ethos.
+//
+// PERSONALISED, NOT GENERAL AI — the model is fit to THIS dataset's own
+// distribution, per-session, in memory. It is not a cross-session learned model
+// (that is Distributional Fingerprint Drift's job) and it is not a supervised
+// model of user feedback (that is Self-Learning Validation Rules' job). It is a
+// distinct, complementary capability and is deliberately NOT one of the 20
+// validation layers.
+//
+// PERFORMANCE — the pairwise kNN search is O(n²·d). We therefore cap the working
+// set at MAX_ROWS and, for larger tables, take a uniform random sample down to
+// the cap. Sampling is disclosed to the caller (and, via the UI, to the user):
+// unsampled rows are not scored. Feature count is likewise capped, and
+// near-unique / identifier-like categorical columns are excluded so the score
+// reflects real structure rather than row-unique keys.
+// ============================================================
+
+const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+// DuckDB temporal type names — per-event, effectively row-unique after any
+// de-identification date-shifting, so never a useful categorical feature here.
+const DATETIME_TYPE = /\b(TIMESTAMP|DATE|TIME)\b/i;
+
+// Working-set cap for the O(n²) pairwise search. Tables larger than this are
+// uniformly down-sampled to this many rows (disclosed to the user).
+const MAX_ROWS = 2000;
+// Cap the number of features so distance stays cheap and interpretable.
+const MAX_NUMERIC_FEATURES = 12;
+const MAX_CATEGORICAL_FEATURES = 6;
+// A categorical column with more distinct values than this fraction of the rows
+// is treated as identifier-like and excluded (it would make every row unique).
+const CAT_UNIQUE_RATIO = 0.5;
+const CAT_MAX_DISTINCT = 50;
+
+// Mulberry32 — a tiny deterministic PRNG so sampling is reproducible in tests.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Uniform random sample of k indices from [0, n) without replacement.
+function sampleIndices(n, k, rand) {
+  const idx = Array.from({ length: n }, (_, i) => i);
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(rand() * (n - i));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  return idx.slice(0, k).sort((a, b) => a - b);
+}
+
+// Choose the numeric + categorical feature columns to profile. Exclusions keep
+// the distance meaningful: identifier-like categoricals (near-unique) and
+// temporal columns are dropped. Kept engine-injectable and DOM-free so it is
+// unit-testable.
+async function selectFeatures(table, cols, engine, options = {}) {
+  const numeric = cols
+    .filter(c => NUMERIC_TYPES.includes(c.type))
+    .map(c => c.name)
+    .slice(0, options.maxNumeric ?? MAX_NUMERIC_FEATURES);
+
+  const catCandidates = cols.filter(
+    c => !NUMERIC_TYPES.includes(c.type) && !DATETIME_TYPE.test(c.type)
+  );
+  let rowCount = options.rowCount;
+  if (rowCount == null) {
+    const { rows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table}`);
+    rowCount = Number(rows[0]?.n ?? 0);
+  }
+  const maxRatio = options.catUniqueRatio ?? CAT_UNIQUE_RATIO;
+  const categorical = [];
+  for (const c of catCandidates) {
+    if (categorical.length >= (options.maxCategorical ?? MAX_CATEGORICAL_FEATURES)) break;
+    try {
+      const { rows } = await engine.runQuery(
+        `SELECT COUNT(DISTINCT "${c.name}") AS d, COUNT("${c.name}") AS nn FROM ${table}`
+      );
+      const d = Number(rows[0]?.d ?? 0);
+      const nn = Number(rows[0]?.nn ?? 0);
+      if (d < 2 || d > CAT_MAX_DISTINCT) continue;        // constant or too granular
+      if (nn > 0 && d / nn > maxRatio) continue;          // near-unique → identifier-like
+      categorical.push(c.name);
+    } catch { /* skip unqueryable column */ }
+  }
+  return { numeric, categorical };
+}
+
+// Core scorer. Pulls the feature columns for the (optionally sampled) working
+// set, builds Gower ranges, computes each row's mean distance to its k nearest
+// neighbours, and attributes the score across features. Everything after the
+// single SELECT is in-memory.
+async function scorePredictiveAnomalies(table, cols, engine, options = {}) {
+  const cap = options.maxRows ?? MAX_ROWS;
+  const rand = mulberry32(options.seed ?? 1337);
+
+  const features = options.features || await selectFeatures(table, cols, engine, options);
+  const { numeric, categorical } = features;
+  const featureNames = [...numeric, ...categorical];
+  if (featureNames.length < 2) {
+    return { rows: [], features, sampling: null, k: 0, threshold: 0,
+      note: 'Need at least 2 usable features (numeric or low-cardinality categorical) to score holistic anomalies.' };
+  }
+
+  const totalRes = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table}`);
+  const totalRows = Number(totalRes.rows[0]?.n ?? 0);
+
+  const selectList = featureNames.map(n => `"${n}"`).join(', ');
+  // Stable row identity: attach a positional index so flagged rows map back to
+  // their real position even after sampling.
+  const { rows: allRows } = await engine.runQuery(`SELECT ${selectList} FROM ${table}`);
+  const indexed = allRows.map((r, i) => ({ __idx: i, r }));
+
+  let working = indexed;
+  let sampled = false;
+  if (indexed.length > cap) {
+    const pick = sampleIndices(indexed.length, cap, rand);
+    working = pick.map(i => indexed[i]);
+    sampled = true;
+  }
+  const sampling = { sampled, usedRows: working.length, totalRows, cap };
+
+  const n = working.length;
+  if (n < 5) {
+    return { rows: [], features, sampling, k: 0, threshold: 0,
+      note: 'Too few rows to establish a neighbourhood (need at least 5).' };
+  }
+
+  // Per-numeric-feature range for Gower normalisation (ignore non-finite).
+  const range = {};
+  for (const f of numeric) {
+    let min = Infinity, max = -Infinity;
+    for (const { r } of working) {
+      const v = Number(r[f]);
+      if (Number.isFinite(v)) { if (v < min) min = v; if (v > max) max = v; }
+    }
+    range[f] = (max > min) ? (max - min) : 0;
+  }
+
+  // Pre-extract typed feature vectors for speed.
+  const numVals = working.map(({ r }) => numeric.map(f => {
+    const v = Number(r[f]); return Number.isFinite(v) ? v : null;
+  }));
+  const catVals = working.map(({ r }) => categorical.map(f => {
+    const v = r[f]; return (v === null || v === undefined) ? null : String(v);
+  }));
+
+  const numF = numeric.length, catF = categorical.length, totalF = numF + catF;
+
+  // Per-feature dissimilarity between rows a and b, written into `out` (length
+  // totalF). Missing values contribute maximal dissimilarity (1) — an absent
+  // value is itself unusual relative to a present one.
+  function perFeatureDissim(a, b, out) {
+    for (let j = 0; j < numF; j++) {
+      const va = numVals[a][j], vb = numVals[b][j];
+      if (va === null || vb === null) { out[j] = 1; continue; }
+      const rg = range[numeric[j]];
+      out[j] = rg > 0 ? Math.abs(va - vb) / rg : 0;
+    }
+    for (let j = 0; j < catF; j++) {
+      const va = catVals[a][j], vb = catVals[b][j];
+      out[numF + j] = (va === null || vb === null) ? 1 : (va === vb ? 0 : 1);
+    }
+  }
+
+  // k neighbours: a small fraction of n, at least 3, capped so it stays local.
+  const k = Math.max(3, Math.min(options.k ?? 10, n - 1));
+
+  const tmp = new Array(totalF);
+  const scored = new Array(n);
+  for (let a = 0; a < n; a++) {
+    // Track the k smallest distances and accumulate their per-feature terms.
+    const nnDist = [];   // {dist, terms}
+    for (let b = 0; b < n; b++) {
+      if (b === a) continue;
+      perFeatureDissim(a, b, tmp);
+      let sum = 0;
+      for (let j = 0; j < totalF; j++) sum += tmp[j];
+      const dist = sum / totalF;
+      if (nnDist.length < k) {
+        nnDist.push({ dist, terms: tmp.slice() });
+        if (nnDist.length === k) nnDist.sort((x, y) => y.dist - x.dist); // worst first
+      } else if (dist < nnDist[0].dist) {
+        nnDist[0] = { dist, terms: tmp.slice() };
+        // keep worst-first ordering with a single bubble (k is small)
+        let i = 0;
+        while (i + 1 < k && nnDist[i].dist < nnDist[i + 1].dist) {
+          [nnDist[i], nnDist[i + 1]] = [nnDist[i + 1], nnDist[i]]; i++;
+        }
+      }
+    }
+    let distSum = 0;
+    const featTerms = new Array(totalF).fill(0);
+    for (const nb of nnDist) {
+      distSum += nb.dist;
+      for (let j = 0; j < totalF; j++) featTerms[j] += nb.terms[j];
+    }
+    const rawScore = distSum / nnDist.length; // mean distance to k NN
+    const termTotal = featTerms.reduce((s, v) => s + v, 0);
+    const contributions = featureNames.map((f, j) => ({
+      feature: f,
+      kind: j < numF ? 'numeric' : 'categorical',
+      contribution: termTotal > 0 ? Number((featTerms[j] / termTotal).toFixed(4)) : 0,
+    })).sort((x, y) => y.contribution - x.contribution);
+
+    scored[a] = {
+      rowIndex: working[a].__idx,
+      rawScore: Number(rawScore.toFixed(4)),
+      contributions,
+      values: Object.fromEntries(featureNames.map(f => [f, working[a].r[f]])),
+    };
+  }
+
+  // Dataset-relative threshold: flag rows whose raw kNN distance exceeds
+  // mean + 3·stddev of the score distribution (a robust "far from the pack"
+  // rule fit to THIS dataset). Also expose a normalised 0..1 score for display.
+  const raws = scored.map(s => s.rawScore);
+  const mean = raws.reduce((a, b) => a + b, 0) / raws.length;
+  const variance = raws.reduce((a, b) => a + (b - mean) ** 2, 0) / raws.length;
+  const std = Math.sqrt(variance);
+  const sigma = options.sigma ?? 3;
+  const threshold = mean + sigma * std;
+  const maxRaw = Math.max(...raws, 1e-9);
+
+  for (const s of scored) {
+    s.score = Number((s.rawScore / maxRaw).toFixed(4)); // 0..1 display score
+    s.isAnomaly = std > 0 && s.rawScore > threshold;
+    s.reason = describeAnomaly(s);
+  }
+  scored.sort((a, b) => b.rawScore - a.rawScore);
+
+  return { rows: scored, features, sampling, k, threshold: Number(threshold.toFixed(4)), meanScore: Number(mean.toFixed(4)), stdScore: Number(std.toFixed(4)) };
+}
+
+// ---------------------------------------------------------------
+// Unified Signal Layer integration (purely additive suppression).
+//
+// The kNN/Gower score above is computed in complete isolation, exactly as
+// before. This step lets the scorer READ what other modules already concluded
+// before its flags reach the UI: if the self-learning ranker has learned that
+// the user repeatedly dismisses flags on a row's DOMINANT column as false
+// positives, showing yet another warning on that row is noise, not signal. So we
+// suppress (de-flag + de-rank) it and record WHY.
+//
+// `lookup` is a tiny injected contract — `dismissalVerdict(column) -> verdict |
+// null` — so this stays pure and Node-testable (the browser passes the shared
+// SignalStore; tests pass a plain object). With no lookup, or no matching
+// verdict, the result is returned untouched: no cross-module signal → identical
+// behaviour to before. Mutates and returns the same result object for
+// convenience; suppressed rows keep their score but get `suppressed: true`,
+// `isAnomaly: false`, a `suppression` record, and an explanatory `reason`.
+// ---------------------------------------------------------------
+function suppressAnomaliesWithVerdicts(result, lookup) {
+  if (!result || !Array.isArray(result.rows) || !lookup || typeof lookup.dismissalVerdict !== 'function') {
+    return result;
+  }
+  let suppressedCount = 0;
+  for (const row of result.rows) {
+    if (!row.isAnomaly) continue; // only ever downgrades a flag; never creates one
+    // The dominant column is the top contributor to this row's outlier score.
+    const top = (row.contributions || []).find(c => c.contribution > 0);
+    if (!top) continue;
+    const verdict = lookup.dismissalVerdict(top.feature);
+    if (!verdict || verdict.verdict !== 'dismiss') continue;
+    const times = verdict.meta && Number.isFinite(verdict.meta.dismiss) ? verdict.meta.dismiss : null;
+    row.suppressed = true;
+    row.isAnomaly = false;
+    row.suppression = {
+      by: verdict.module || 'self_learning',
+      column: top.feature,
+      dismiss: times,
+      confidence: verdict.confidence ?? null,
+    };
+    row.reason = describeSuppression(row.rowIndex, top.feature, times) + ' ' + row.reason;
+    suppressedCount++;
+  }
+  result.suppressedCount = suppressedCount;
+  return result;
+}
+
+// Plain-language "why" for a suppressed row — mirrors the Assumption Ledger's
+// readable, first-person style so the user can see the cross-module reasoning.
+function describeSuppression(rowIndex, column, times) {
+  const learned = times != null
+    ? `you've dismissed flags on "${column}" as false positives ${times} time${times === 1 ? '' : 's'}`
+    : `you've repeatedly dismissed flags on "${column}" as false positives`;
+  return `Suppressed by the self-learning ranker: ${learned}, so this holistic-anomaly flag is de-ranked as a likely duplicate.`;
+}
+
+// Plain-language "why" for a single scored row, from its top feature
+// contributions. Consistent with the Assumption Ledger's readable style.
+function describeAnomaly(scored) {
+  const top = (scored.contributions || []).filter(c => c.contribution > 0).slice(0, 3);
+  if (top.length === 0) {
+    return `Row #${scored.rowIndex} sits close to the rest of the dataset — nothing stands out.`;
+  }
+  const phrase = (c) => {
+    const pct = Math.round(c.contribution * 100);
+    const val = scored.values[c.feature];
+    if (c.kind === 'categorical') {
+      return `${c.feature}=${JSON.stringify(val)} rarely co-occurs with these values (${pct}%)`;
+    }
+    return `${c.feature} (${val}) sits far from similar rows (${pct}%)`;
+  };
+  const parts = top.map(phrase);
+  const joined = parts.length === 1
+    ? parts[0]
+    : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+  return `Row #${scored.rowIndex}'s combination of values is unusual: ${joined}.`;
+}
+
+  window.PredictiveAnomaly = {
+    detectPredictiveAnomalies: typeof detectPredictiveAnomalies !== 'undefined' ? detectPredictiveAnomalies : null,
+    buildAnomalyReport: typeof buildAnomalyReport !== 'undefined' ? buildAnomalyReport : null,
+    ANOMALY_SEVERITY: typeof ANOMALY_SEVERITY !== 'undefined' ? ANOMALY_SEVERITY : {},
+  };
+
+  function initAnomalyUI() {
+    var panelId = 'dg-anomaly-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:865;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block'; p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '×';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        var h = document.createElement('div');
+        h.style.cssText = 'padding:20px;';
+        h.innerHTML = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">Anomaly Detection</h3>' +
+          '<p style="font-size:12px;color:var(--text-muted,#888);line-height:1.6;">Isolation Forest + SPC control charts + entity baseline + predictive drift. Load a dataset to detect statistical outliers.</p>';
+        p.appendChild(h);
+        // Auto-run on current dataset if available
+        if (typeof detectPredictiveAnomalies === 'function' && window.dgGetCurrentDataset) {
+          var ds = window.dgGetCurrentDataset();
+          if (ds && ds.rows && ds.rows.length) {
+            var report = buildAnomalyReport ? buildAnomalyReport(ds) : null;
+            if (report) {
+              var pre = document.createElement('pre');
+              pre.style.cssText = 'padding:0 20px;font-size:11px;white-space:pre-wrap;';
+              pre.textContent = JSON.stringify(report, null, 2);
+              p.appendChild(pre);
+            }
+          }
+        }
+      } else { p.style.display = 'none'; }
+    }
+    ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
+      var grid = document.getElementById(gridId);
+      var btnId = i === 0 ? 'dg-ov-anomaly' : 'dg-ts-anomaly';
+      if (grid && !document.getElementById(btnId)) {
+        var btn = document.createElement('button');
+        btn.id = btnId;
+        btn.className = 'dg-ov-btn';
+        btn.innerHTML = '??<br><span>Anomaly</span>';
+        btn.addEventListener('click', function(){
+          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.remove('open'); }); }
+          else { var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open'); }
+          toggle();
+        });
+        grid.appendChild(btn);
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAnomalyUI);
+  else setTimeout(initAnomalyUI, 1300);
+}());
+/* ---- end predictive-anomaly.js ---- */
+
+
+/* ================================================================
+   RELATIONAL VALIDATORS -- recovered from git history
+   js/relational/: foreign-key, join-coverage, temporal-order, flag-consistency
+   Zero external deps. Pure referential integrity checkers.
+   ================================================================ */
+
+/* ---- from js/relational/foreign-key-checker.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Foreign Key / Orphan Checker (Phase 2)
+// ============================================================
+// Detects rows in a child table whose foreign key value has no matching
+// primary key in the parent table. These "orphan" rows silently break every
+// downstream JOIN, inflate or deflate aggregate metrics, and are invisible to
+// any single-table column profiler.
+//
+// WHY THIS MATTERS IN HEALTHCARE:
+// A claim with no matching patient, an encounter with no matching provider,
+// or a lab result with no matching encounter are not just data quality issues
+// -- they are HIPAA accounting-of-disclosures risks (who does this record
+// belong to?) and billing audit failures (you cannot adjudicate a claim that
+// references a non-existent patient).
+//
+// DESIGN:
+// Pure and DuckDB-WASM-aware. The engine parameter is a duckdb-engine.js
+// compatible object with runQuery(sql) -> {rows}. No DOM, no network.
+//
+// USAGE (two tables already loaded into DuckDB as "encounters" and "patients"):
+//   const result = await checkForeignKey({
+//     childTable: 'encounters', childCol: 'patient_id',
+//     parentTable: 'patients', parentCol: 'patient_id',
+//     engine,
+//   });
+//   // result.orphanCount, result.orphanRate, result.flagged, result.level
+//
+// For batch mode (many FK relationships at once):
+//   const results = await checkAllForeignKeys(pairs, engine);
+
+// Thresholds -- aligned with healthcare data quality standards.
+// < 0.1% orphans: clean (noise level, likely late-arriving rows)
+// 0.1% – 1%:     warn (systematic but small gap)
+// > 1%:          fail (meaningful referential break)
+const FK_WARN_RATE  = 0.001; // 0.1%
+const FK_FAIL_RATE  = 0.01;  // 1%
+
+/**
+ * Run a single foreign key orphan check between two DuckDB tables.
+ *
+ * @param {object} opts
+ * @param {string} opts.childTable  - table that holds the FK column
+ * @param {string} opts.childCol    - FK column in child table
+ * @param {string} opts.parentTable - table that holds the PK column
+ * @param {string} opts.parentCol   - PK column in parent table
+ * @param {object} opts.engine      - duckdb-engine { runQuery }
+ * @param {string} [opts.label]     - human-readable relationship label
+ * @returns {Promise<object>} FK check result
+ */
+async function checkForeignKey({
+  childTable, childCol, parentTable, parentCol, engine, label = null,
+}) {
+  const rel = label || (childTable + '.' + childCol + ' -> ' + parentTable + '.' + parentCol);
+  const cT  = q(childTable), cC = q(childCol);
+  const pT  = q(parentTable), pC = q(parentCol);
+
+  let totalRows = 0, orphanCount = 0;
+
+  try {
+    const totalRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + cT + ' WHERE ' + cC + ' IS NOT NULL'
+    );
+    totalRows = safeNum(totalRes.rows[0], 'n');
+
+    if (totalRows === 0) {
+      return makeResult({ rel, totalRows: 0, orphanCount: 0, nullCount: 0,
+        status: 'pass', level: 'none',
+        rationale: 'No non-null FK values in ' + childTable + '.' + childCol + ' -- check skipped.' });
+    }
+
+    // Count nulls separately (nulls in FK columns are their own quality signal
+    // but are not "orphans" in the relational sense -- they may be intentional).
+    const nullRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + cT + ' WHERE ' + cC + ' IS NULL'
+    );
+    const nullCount = safeNum(nullRes.rows[0], 'n');
+
+    // Orphan = child FK value not present in parent PK column at all.
+    const orphanRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + cT +
+      ' WHERE ' + cC + ' IS NOT NULL' +
+      ' AND ' + cC + ' NOT IN (SELECT DISTINCT ' + pC + ' FROM ' + pT + ' WHERE ' + pC + ' IS NOT NULL)'
+    );
+    orphanCount = safeNum(orphanRes.rows[0], 'n');
+
+    // Sample up to 5 distinct orphan values for the rationale message.
+    let orphanSample = [];
+    if (orphanCount > 0) {
+      try {
+        const sampleRes = await engine.runQuery(
+          'SELECT DISTINCT ' + cC + ' AS v FROM ' + cT +
+          ' WHERE ' + cC + ' IS NOT NULL' +
+          ' AND ' + cC + ' NOT IN (SELECT DISTINCT ' + pC + ' FROM ' + pT + ' WHERE ' + pC + ' IS NOT NULL)' +
+          ' LIMIT 5'
+        );
+        orphanSample = (sampleRes.rows || []).map(r => String(r.v));
+      } catch { orphanSample = []; }
+    }
+
+    const orphanRate = totalRows > 0 ? orphanCount / totalRows : 0;
+    const { status, level } = rateLevel(orphanRate);
+
+    const rationale = buildFKRationale({ rel, totalRows, orphanCount, orphanRate, nullCount, orphanSample, status });
+
+    return makeResult({ rel, totalRows, orphanCount, orphanRate, nullCount, orphanSample, status, level, rationale });
+
+  } catch (err) {
+    return makeResult({
+      rel, totalRows, orphanCount, nullCount: 0, status: 'idle', level: 'none',
+      rationale: 'Foreign key check could not run for ' + rel + ': ' + String(err && err.message ? err.message : err),
+      error: String(err),
+    });
+  }
+}
+
+/**
+ * Run multiple FK checks in sequence and return a combined summary.
+ *
+ * @param {Array<object>} pairs - array of checkForeignKey option objects (without engine)
+ * @param {object} engine
+ * @returns {Promise<object>} { pairs: results[], summary, status, level, rationale }
+ */
+async function checkAllForeignKeys(pairs, engine) {
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    return {
+      pairs: [], status: 'idle', level: 'none',
+      summary: { total: 0, pass: 0, warn: 0, fail: 0, idle: 0, totalOrphans: 0 },
+      rationale: 'No foreign key relationships provided.',
+    };
+  }
+
+  const results = [];
+  for (const p of pairs) {
+    results.push(await checkForeignKey({ ...p, engine }));
+  }
+
+  const summary = { total: results.length, pass: 0, warn: 0, fail: 0, idle: 0, totalOrphans: 0 };
+  for (const r of results) {
+    summary[r.status] = (summary[r.status] || 0) + 1;
+    summary.totalOrphans += (r.orphanCount || 0);
+  }
+
+  const worstStatus = results.some(r => r.status === 'fail') ? 'fail'
+    : results.some(r => r.status === 'warn') ? 'warn'
+    : results.every(r => r.status === 'idle') ? 'idle' : 'pass';
+  const worstLevel = results.some(r => r.level === 'high') ? 'high'
+    : results.some(r => r.level === 'medium') ? 'medium'
+    : results.some(r => r.level === 'low') ? 'low' : 'none';
+
+  const rationale = summary.totalOrphans === 0
+    ? 'All ' + summary.total + ' FK relationship(s) are clean -- 0 orphan rows detected.'
+    : summary.totalOrphans + ' orphan row(s) found across ' + (summary.warn + summary.fail) + '/' + summary.total + ' FK relationship(s). Orphan rows will silently break downstream JOINs.';
+
+  return { pairs: results, summary, status: worstStatus, level: worstLevel, rationale };
+}
+
+// ---- internals -------------------------------------------------------------
+
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+function safeNum(row, key) {
+  if (!row) return 0;
+  const v = row[key];
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseInt(String(v), 10) || 0;
+}
+
+function rateLevel(rate) {
+  if (rate === 0)              return { status: 'pass', level: 'none' };
+  if (rate < FK_WARN_RATE)     return { status: 'pass', level: 'none' }; // noise
+  if (rate < FK_FAIL_RATE)     return { status: 'warn', level: 'low' };
+  if (rate < 0.05)             return { status: 'fail', level: 'medium' };
+  return                              { status: 'fail', level: 'high' };
+}
+
+function buildFKRationale({ rel, totalRows, orphanCount, orphanRate, nullCount, orphanSample, status }) {
+  const pct = (orphanRate * 100).toFixed(2);
+  const parts = [];
+  if (orphanCount === 0) {
+    parts.push('FK clean: all ' + totalRows.toLocaleString() + ' non-null ' + rel + ' values resolve to a parent row.');
+  } else {
+    parts.push(orphanCount.toLocaleString() + '/' + totalRows.toLocaleString() + ' (' + pct + '%) non-null values in ' + rel + ' have no matching parent row (orphans).');
+    if (orphanSample && orphanSample.length > 0) {
+      parts.push('Sample orphan keys: ' + orphanSample.join(', ') + (orphanCount > orphanSample.length ? ', ...' : '') + '.');
+    }
+    parts.push('These rows will return NULL or be silently dropped in any JOIN against the parent table.');
+  }
+  if (nullCount > 0) {
+    parts.push(nullCount.toLocaleString() + ' row(s) have a NULL FK value (not counted as orphans -- may be intentional).');
+  }
+  return parts.join(' ');
+}
+
+function makeResult({ rel, totalRows, orphanCount, orphanRate = 0, nullCount = 0,
+  orphanSample = [], status, level, rationale, error = null }) {
+  return {
+    layer: 'foreign_key',
+    relationship: rel,
+    totalRows,
+    orphanCount,
+    orphanRate,
+    nullCount,
+    orphanSample,
+    status,
+    level,
+    summary: rationale,
+    rationale,
+    ...(error ? { error } : {}),
+  };
+}
+
+  window.ForeignKeyChecker = {
+    detectForeignKeyViolations: typeof detectForeignKeyViolations !== 'undefined' ? detectForeignKeyViolations : null,
+    buildFKReport: typeof buildFKReport !== 'undefined' ? buildFKReport : null,
+    suggestFKPairs: typeof suggestFKPairs !== 'undefined' ? suggestFKPairs : null,
+  };
+}());
+/* ---- end foreign-key-checker.js ---- */
+
+/* ---- from js/relational/join-coverage-checker.js ---- */
+;(function(){
+  'use strict';
+  var _fk = window.ForeignKeyChecker || {};
+  var detectForeignKeyViolations = _fk.detectForeignKeyViolations || null;
+  var suggestFKPairs = _fk.suggestFKPairs || null;
+// ============================================================
+// DATAGLOW — Join Coverage Checker (Phase 2)
+// ============================================================
+// Measures what fraction of rows in a child (detail) table have at least one
+// matching row in a parent (reference) table. This is the complement of the
+// foreign key orphan check:
+//
+//   FK orphan check:     child rows that have NO parent match   (bad child rows)
+//   Join coverage check: parent rows that have NO child match   (uncovered parents)
+//                        AND child-side join rate across the join (coverage %)
+//
+// WHY THIS MATTERS IN HEALTHCARE:
+// "My encounters table joins to labs at 61% coverage" means 39% of encounters
+// have zero lab records attached. That could be real (not every patient gets
+// labs) or it could be a data drop (your ETL truncated the labs load). You
+// cannot distinguish these cases without measuring -- and you cannot measure
+// without this check.
+//
+// Specific healthcare scenarios:
+//   encounters -> labs:       low coverage may mean truncated lab load
+//   patients -> encounters:   patients with no encounter history (may be valid)
+//   claims -> claim_lines:    claims with no line items (always invalid)
+//   encounters -> diagnoses:  encounters with no ICD codes (always suspect)
+//
+// METRICS:
+//   childCoverageRate    = rows in child that join to at least one parent row
+//                          / total rows in child
+//                          (close to 1.0 = good; low = orphan-heavy child)
+//   parentCoverageRate   = rows in parent that have at least one child row
+//                          / total rows in parent
+//                          (low = parent rows with no detail -- may be valid)
+//
+// THRESHOLDS (child-side, because that is the actionable direction):
+//   >= 99%: pass (noise)
+//   95-99%: warn
+//   < 95%:  fail
+
+const JOIN_WARN_RATE = 0.95; // below this child coverage rate -> warn
+const JOIN_FAIL_RATE = 0.90; // below this -> fail
+
+/**
+ * Measure the join coverage between two DuckDB tables.
+ *
+ * @param {object} opts
+ * @param {string} opts.childTable  - detail table (e.g. "encounters")
+ * @param {string} opts.childCol    - join key in child table
+ * @param {string} opts.parentTable - reference table (e.g. "patients")
+ * @param {string} opts.parentCol   - join key in parent table
+ * @param {object} opts.engine      - { runQuery }
+ * @param {string} [opts.label]     - human-readable label
+ * @returns {Promise<object>} coverage result
+ */
+async function checkJoinCoverage({
+  childTable, childCol, parentTable, parentCol, engine, label = null,
+}) {
+  const rel = label || (childTable + ' -> ' + parentTable + ' via ' + childCol);
+  const cT  = q(childTable), cC = q(childCol);
+  const pT  = q(parentTable), pC = q(parentCol);
+
+  let childTotal = 0, childMatched = 0, parentTotal = 0, parentMatched = 0;
+
+  try {
+    // Total child rows (non-null key only -- nulls cannot join)
+    const cTotRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + cT + ' WHERE ' + cC + ' IS NOT NULL'
+    );
+    childTotal = safeNum(cTotRes.rows[0], 'n');
+
+    // Total parent rows
+    const pTotRes = await engine.runQuery('SELECT COUNT(*) AS n FROM ' + pT);
+    parentTotal = safeNum(pTotRes.rows[0], 'n');
+
+    if (childTotal === 0 && parentTotal === 0) {
+      return makeCovResult({ rel, childTotal: 0, childMatched: 0, parentTotal: 0, parentMatched: 0,
+        childCoverageRate: null, parentCoverageRate: null, status: 'idle', level: 'none',
+        rationale: 'Both tables are empty -- join coverage check skipped.' });
+    }
+
+    if (childTotal > 0) {
+      // Child rows that have at least one match in the parent.
+      const cMatchRes = await engine.runQuery(
+        'SELECT COUNT(*) AS n FROM ' + cT +
+        ' WHERE ' + cC + ' IS NOT NULL' +
+        ' AND ' + cC + ' IN (SELECT DISTINCT ' + pC + ' FROM ' + pT + ' WHERE ' + pC + ' IS NOT NULL)'
+      );
+      childMatched = safeNum(cMatchRes.rows[0], 'n');
+    }
+
+    if (parentTotal > 0) {
+      // Parent rows that appear in at least one child row.
+      const pMatchRes = await engine.runQuery(
+        'SELECT COUNT(DISTINCT ' + cC + ') AS n FROM ' + cT +
+        ' WHERE ' + cC + ' IS NOT NULL' +
+        ' AND ' + cC + ' IN (SELECT DISTINCT ' + pC + ' FROM ' + pT + ' WHERE ' + pC + ' IS NOT NULL)'
+      );
+      parentMatched = safeNum(pMatchRes.rows[0], 'n');
+    }
+
+    const childCoverageRate  = childTotal  > 0 ? childMatched  / childTotal  : null;
+    const parentCoverageRate = parentTotal > 0 ? parentMatched / parentTotal : null;
+
+    const { status, level } = coverageLevel(childCoverageRate);
+    const rationale = buildCoverageRationale({ rel, childTotal, childMatched, childCoverageRate,
+      parentTotal, parentMatched, parentCoverageRate });
+
+    return makeCovResult({ rel, childTotal, childMatched, parentTotal, parentMatched,
+      childCoverageRate, parentCoverageRate, status, level, rationale });
+
+  } catch (err) {
+    return makeCovResult({ rel, childTotal, childMatched, parentTotal, parentMatched,
+      childCoverageRate: null, parentCoverageRate: null, status: 'idle', level: 'none',
+      rationale: 'Join coverage check could not run for ' + rel + ': ' + String(err && err.message ? err.message : err),
+      error: String(err) });
+  }
+}
+
+/**
+ * Run multiple join coverage checks and return a combined summary.
+ *
+ * @param {Array<object>} pairs - checkJoinCoverage option objects (without engine)
+ * @param {object} engine
+ * @returns {Promise<object>}
+ */
+async function checkAllJoinCoverage(pairs, engine) {
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    return {
+      pairs: [], status: 'idle', level: 'none',
+      summary: { total: 0, pass: 0, warn: 0, fail: 0, idle: 0 },
+      rationale: 'No join coverage pairs provided.',
+    };
+  }
+
+  const results = [];
+  for (const p of pairs) {
+    results.push(await checkJoinCoverage({ ...p, engine }));
+  }
+
+  const summary = { total: results.length, pass: 0, warn: 0, fail: 0, idle: 0 };
+  for (const r of results) {
+    summary[r.status] = (summary[r.status] || 0) + 1;
+  }
+
+  const worstStatus = results.some(r => r.status === 'fail') ? 'fail'
+    : results.some(r => r.status === 'warn') ? 'warn'
+    : results.every(r => r.status === 'idle') ? 'idle' : 'pass';
+  const worstLevel = results.some(r => r.level === 'high') ? 'high'
+    : results.some(r => r.level === 'medium') ? 'medium'
+    : results.some(r => r.level === 'low') ? 'low' : 'none';
+
+  const failing = results.filter(r => r.status === 'fail' || r.status === 'warn');
+  const rationale = failing.length === 0
+    ? 'All ' + summary.total + ' join coverage check(s) pass.'
+    : failing.length + '/' + summary.total + ' join relationship(s) have low child coverage: ' +
+      failing.map(r => r.relationship + ' (' + (r.childCoverageRate != null ? (r.childCoverageRate * 100).toFixed(1) + '%' : 'N/A') + ')').join('; ') + '.';
+
+  return { pairs: results, summary, status: worstStatus, level: worstLevel, rationale };
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+function safeNum(row, key) {
+  if (!row) return 0;
+  const v = row[key];
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseInt(String(v), 10) || 0;
+}
+
+function coverageLevel(rate) {
+  if (rate === null || rate === undefined) return { status: 'idle', level: 'none' };
+  if (rate >= JOIN_WARN_RATE)  return { status: 'pass', level: 'none' };
+  if (rate >= JOIN_FAIL_RATE)  return { status: 'warn', level: 'low' };
+  if (rate >= 0.75)            return { status: 'fail', level: 'medium' };
+  return                              { status: 'fail', level: 'high' };
+}
+
+function buildCoverageRationale({ rel, childTotal, childMatched, childCoverageRate,
+  parentTotal, parentMatched, parentCoverageRate }) {
+  const childPct = childCoverageRate != null ? (childCoverageRate * 100).toFixed(1) + '%' : 'N/A';
+  const parentPct = parentCoverageRate != null ? (parentCoverageRate * 100).toFixed(1) + '%' : 'N/A';
+
+  if (childCoverageRate === null && parentCoverageRate === null) {
+    return 'Join coverage check skipped for ' + rel + ' (empty tables).';
+  }
+
+  const parts = [
+    'Join coverage for ' + rel + ':',
+    'Child-side: ' + childMatched.toLocaleString() + '/' + childTotal.toLocaleString() + ' (' + childPct + ') rows match a parent key.',
+    'Parent-side: ' + parentMatched.toLocaleString() + '/' + parentTotal.toLocaleString() + ' (' + parentPct + ') parent keys have at least one child row.',
+  ];
+
+  if (childCoverageRate !== null && childCoverageRate < JOIN_WARN_RATE) {
+    parts.push((100 - childCoverageRate * 100).toFixed(1) + '% of child rows cannot join to the parent. This may indicate a truncated or partial data load, or an ETL key mismatch.');
+  }
+  return parts.join(' ');
+}
+
+function makeCovResult({ rel, childTotal, childMatched, parentTotal, parentMatched,
+  childCoverageRate, parentCoverageRate, status, level, rationale, error = null }) {
+  return {
+    layer: 'join_coverage',
+    relationship: rel,
+    childTotal,
+    childMatched,
+    parentTotal,
+    parentMatched,
+    childCoverageRate,
+    parentCoverageRate,
+    status,
+    level,
+    summary: rationale,
+    rationale,
+    ...(error ? { error } : {}),
+  };
+}
+
+  window.JoinCoverageChecker = {
+    checkJoinCoverage: typeof checkJoinCoverage !== 'undefined' ? checkJoinCoverage : null,
+    buildJoinCoverageReport: typeof buildJoinCoverageReport !== 'undefined' ? buildJoinCoverageReport : null,
+    JOIN_COVERAGE_LEVELS: typeof JOIN_COVERAGE_LEVELS !== 'undefined' ? JOIN_COVERAGE_LEVELS : {},
+  };
+}());
+/* ---- end join-coverage-checker.js ---- */
+
+/* ---- from js/relational/temporal-order-checker.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Temporal Order Checker (Phase 2)
+// ============================================================
+// Detects physically impossible or clinically implausible event orderings
+// within a single table. These are the "time travel" bugs that corrupt every
+// length-of-stay calculation, readmission window, and billing period report.
+//
+// WHY THIS MATTERS IN HEALTHCARE:
+// - A discharge before an admit makes LOS negative or undefined.
+// - A lab result before its order date creates phantom turnaround times.
+// - A payment date before a claim date means you paid before you submitted.
+// - A death date before a birth date is biologically impossible.
+// These errors are invisible to column-level profilers because each column
+// looks fine individually -- the problem is only visible when you compare
+// two date columns within the same row.
+//
+// DESIGN:
+// Rule-based. Each rule is an { id, label, table, earlierCol, laterCol, severity }
+// descriptor. The checker runs each rule as a COUNT query against the live
+// DuckDB table and reports violations. No DOM, no network.
+//
+// BUILT-IN RULES (healthcare-standard):
+//   admit_before_discharge   -- discharge_date < admit_date (or equivalent)
+//   order_before_result      -- result_date < order_date
+//   claim_before_payment     -- payment_date < claim_date
+//   birth_before_death       -- death_date < birth_date  (or dod < dob)
+//   service_before_auth      -- auth_date < service_date (prior auth issued after service)
+//
+// Column detection is heuristic -- the checker auto-detects column pairs by
+// name pattern when no explicit rule is provided, so it works on any table
+// without configuration.
+
+// Severity → status mapping
+// 'hard': impossible -- fail always
+// 'soft': implausible but occasionally legitimate -- warn
+const TEMPORAL_RULES = [
+  {
+    id: 'admit_before_discharge',
+    label: 'Discharge before admit',
+    earlierPattern: /^(admit|admission|admit_date|admitdt|admission_date|admit_dt|encounter_start|start_date|from_date)$/i,
+    laterPattern:   /^(discharge|discharge_date|dischargedt|disch_date|disch_dt|encounter_end|end_date|to_date|thru_date)$/i,
+    severity: 'hard',
+    rationale: 'A discharge date that precedes the admit date produces a negative or undefined length-of-stay and is physically impossible.',
+  },
+  {
+    id: 'order_before_result',
+    label: 'Lab result before order',
+    earlierPattern: /^(order_date|ordered_date|order_dt|lab_order_date|test_order_date)$/i,
+    laterPattern:   /^(result_date|resulted_date|result_dt|lab_result_date|report_date)$/i,
+    severity: 'hard',
+    rationale: 'A lab result that predates its order date creates phantom turnaround times and breaks clinical timeline analysis.',
+  },
+  {
+    id: 'claim_before_payment',
+    label: 'Payment before claim',
+    earlierPattern: /^(claim_date|clm_date|service_date|dos|date_of_service|from_date|billed_date)$/i,
+    laterPattern:   /^(payment_date|paid_date|remit_date|eob_date|adjudication_date)$/i,
+    severity: 'hard',
+    rationale: 'A payment date before the claim date means the payer paid before the claim was submitted -- a billing system integrity failure.',
+  },
+  {
+    id: 'birth_before_death',
+    label: 'Death before birth',
+    earlierPattern: /^(dob|date_of_birth|birth_date|birthdt|birth_dt|patient_dob)$/i,
+    laterPattern:   /^(dod|date_of_death|death_date|deathdt|death_dt|patient_dod)$/i,
+    severity: 'hard',
+    rationale: 'A death date that precedes the date of birth is biologically impossible.',
+  },
+  {
+    id: 'service_before_auth',
+    label: 'Prior auth after service',
+    earlierPattern: /^(auth_date|authorization_date|prior_auth_date|preauth_date)$/i,
+    laterPattern:   /^(service_date|dos|date_of_service|procedure_date|surgery_date)$/i,
+    severity: 'soft',
+    rationale: 'A prior authorization date after the service date means auth was issued retrospectively -- common in retro-auth workflows but a billing audit flag.',
+  },
+];
+
+// Violation rate thresholds (same structure as FK checker).
+const TEMPORAL_WARN_RATE = 0.001; // 0.1%
+const TEMPORAL_FAIL_RATE = 0.01;  // 1%
+
+/**
+ * Run temporal order checks against a single DuckDB table.
+ *
+ * Auto-detects date column pairs by name heuristic. You can also pass
+ * explicit pairs to override auto-detection.
+ *
+ * @param {object} opts
+ * @param {string} opts.table - DuckDB table name
+ * @param {Array<{name:string,type:string}>} opts.cols - column descriptors
+ * @param {object} opts.engine - duckdb-engine { runQuery }
+ * @param {Array<object>} [opts.explicitRules] - override auto-detected rules
+ * @returns {Promise<object>} { rules: results[], summary, status, level, rationale }
+ */
+async function checkTemporalOrder({ table, cols, engine, explicitRules = null }) {
+  const colNames = (Array.isArray(cols) ? cols : []).map(c =>
+    typeof c === 'string' ? c : (c && c.name ? c.name : '')
+  ).filter(Boolean);
+
+  // Determine which rules apply: explicit overrides, or auto-detect.
+  const applicableRules = explicitRules
+    ? explicitRules
+    : detectApplicableRules(colNames);
+
+  if (applicableRules.length === 0) {
+    return {
+      rules: [], status: 'idle', level: 'none',
+      summary: { total: 0, pass: 0, warn: 0, fail: 0, idle: 0, totalViolations: 0 },
+      rationale: 'No temporal ordering rules detected for table "' + table + '" -- no matching date column pairs found.',
+    };
+  }
+
+  const results = [];
+  for (const rule of applicableRules) {
+    results.push(await runTemporalRule({ table, rule, engine }));
+  }
+
+  const summary = { total: results.length, pass: 0, warn: 0, fail: 0, idle: 0, totalViolations: 0 };
+  for (const r of results) {
+    summary[r.status] = (summary[r.status] || 0) + 1;
+    summary.totalViolations += (r.violationCount || 0);
+  }
+
+  const worstStatus = results.some(r => r.status === 'fail') ? 'fail'
+    : results.some(r => r.status === 'warn') ? 'warn'
+    : results.every(r => r.status === 'idle') ? 'idle' : 'pass';
+  const worstLevel = results.some(r => r.level === 'high') ? 'high'
+    : results.some(r => r.level === 'medium') ? 'medium'
+    : results.some(r => r.level === 'low') ? 'low' : 'none';
+
+  const rationale = summary.totalViolations === 0
+    ? 'All ' + summary.total + ' temporal ordering rule(s) pass -- no impossible date sequences detected in "' + table + '".'
+    : summary.totalViolations.toLocaleString() + ' impossible/implausible temporal ordering violation(s) detected across ' + (summary.warn + summary.fail) + '/' + summary.total + ' rule(s) in "' + table + '". These will corrupt every LOS, turnaround-time, and readmission-window calculation downstream.';
+
+  return { rules: results, summary, status: worstStatus, level: worstLevel, rationale };
+}
+
+// ---- rule runner -----------------------------------------------------------
+
+async function runTemporalRule({ table, rule, engine }) {
+  const tQ = q(table);
+  const eC = q(rule.earlierCol);
+  const lC = q(rule.laterCol);
+  const ruleLabel = rule.label || rule.id;
+
+  let totalRows = 0, violationCount = 0;
+  try {
+    const totalRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + tQ +
+      ' WHERE ' + eC + ' IS NOT NULL AND ' + lC + ' IS NOT NULL'
+    );
+    totalRows = safeNum(totalRes.rows[0], 'n');
+
+    if (totalRows === 0) {
+      return makeTemporalResult({ rule, ruleLabel, totalRows: 0, violationCount: 0,
+        status: 'idle', level: 'none',
+        rationale: 'No rows with both "' + rule.earlierCol + '" and "' + rule.laterCol + '" populated -- rule skipped.' });
+    }
+
+    // A violation is: laterCol < earlierCol (later event happened before earlier event)
+    const violRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + tQ +
+      ' WHERE ' + eC + ' IS NOT NULL AND ' + lC + ' IS NOT NULL' +
+      ' AND TRY_CAST(' + lC + ' AS DATE) < TRY_CAST(' + eC + ' AS DATE)'
+    );
+    violationCount = safeNum(violRes.rows[0], 'n');
+
+    const violationRate = totalRows > 0 ? violationCount / totalRows : 0;
+    const { status, level } = temporalLevel(violationRate, rule.severity);
+
+    const rationale = buildTemporalRationale({ ruleLabel, rule, totalRows, violationCount, violationRate, status });
+    return makeTemporalResult({ rule, ruleLabel, totalRows, violationCount, violationRate, status, level, rationale });
+
+  } catch (err) {
+    return makeTemporalResult({
+      rule, ruleLabel, totalRows, violationCount, status: 'idle', level: 'none',
+      rationale: 'Temporal rule "' + ruleLabel + '" could not run: ' + String(err && err.message ? err.message : err),
+      error: String(err),
+    });
+  }
+}
+
+// ---- auto-detection --------------------------------------------------------
+
+function detectApplicableRules(colNames) {
+  const matched = [];
+  for (const rule of TEMPORAL_RULES) {
+    const earlierCol = colNames.find(c => rule.earlierPattern.test(c));
+    const laterCol   = colNames.find(c => rule.laterPattern.test(c));
+    if (earlierCol && laterCol && earlierCol !== laterCol) {
+      matched.push({ ...rule, earlierCol, laterCol });
+    }
+  }
+  return matched;
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+function safeNum(row, key) {
+  if (!row) return 0;
+  const v = row[key];
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseInt(String(v), 10) || 0;
+}
+
+function temporalLevel(rate, severity) {
+  if (rate === 0)                                 return { status: 'pass', level: 'none' };
+  if (severity === 'hard') {
+    // Any violation of a hard rule is a fail.
+    if (rate < TEMPORAL_FAIL_RATE)                return { status: 'fail', level: 'low' };
+    if (rate < 0.05)                              return { status: 'fail', level: 'medium' };
+    return                                               { status: 'fail', level: 'high' };
+  }
+  // Soft rules: small rate = warn, large rate = fail.
+  if (rate < TEMPORAL_WARN_RATE)                  return { status: 'pass', level: 'none' };
+  if (rate < TEMPORAL_FAIL_RATE)                  return { status: 'warn', level: 'low' };
+  if (rate < 0.05)                                return { status: 'fail', level: 'medium' };
+  return                                                 { status: 'fail', level: 'high' };
+}
+
+function buildTemporalRationale({ ruleLabel, rule, totalRows, violationCount, violationRate, status }) {
+  if (violationCount === 0) {
+    return 'OK: all ' + totalRows.toLocaleString() + ' rows with both "' + rule.earlierCol + '" and "' + rule.laterCol + '" show correct ordering (' + ruleLabel + ').';
+  }
+  const pct = (violationRate * 100).toFixed(2);
+  return violationCount.toLocaleString() + '/' + totalRows.toLocaleString() + ' (' + pct + '%) rows violate "' + ruleLabel + '": ' + rule.rationale;
+}
+
+function makeTemporalResult({ rule, ruleLabel, totalRows, violationCount, violationRate = 0,
+  status, level, rationale, error = null }) {
+  return {
+    layer: 'temporal_order',
+    ruleId: rule.id,
+    label: ruleLabel,
+    earlierCol: rule.earlierCol || null,
+    laterCol: rule.laterCol || null,
+    severity: rule.severity || 'hard',
+    totalRows,
+    violationCount,
+    violationRate,
+    status,
+    level,
+    summary: rationale,
+    rationale,
+    ...(error ? { error } : {}),
+  };
+}
+
+  window.TemporalOrderChecker = {
+    detectTemporalViolations: typeof detectTemporalViolations !== 'undefined' ? detectTemporalViolations : null,
+    buildTemporalReport: typeof buildTemporalReport !== 'undefined' ? buildTemporalReport : null,
+    TEMPORAL_RULES: typeof TEMPORAL_RULES !== 'undefined' ? TEMPORAL_RULES : [],
+  };
+}());
+/* ---- end temporal-order-checker.js ---- */
+
+/* ---- from js/relational/flag-consistency-checker.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Flag Consistency Checker (Phase 2)
+// ============================================================
+// Detects logical contradictions between binary flag columns. These are errors
+// that are invisible to single-column profilers because each column looks valid
+// (it contains only 0 or 1) -- the problem only emerges when you compare two
+// flags within the same row.
+//
+// WHY THIS MATTERS IN HEALTHCARE:
+// The canonical example is the readmission window contradiction:
+//   readmit_30d = 1  AND  readmit_90d = 0
+// A 30-day readmission is definitionally a 90-day readmission. A row that
+// claims the 30-day window fired but the 90-day window did not is logically
+// impossible. Any readmission rate or CMS quality metric computed against such
+// data is wrong.
+//
+// Other healthcare flag contradictions:
+//   deceased = 1  AND  discharge_disposition != 'expired'
+//   inpatient = 1  AND  outpatient = 1           (mutually exclusive)
+//   emergency_admit = 1  AND  elective_admit = 1 (mutually exclusive)
+//   readmit_30d = 1  AND  readmit_7d = 0         (7-day is a subset of 30-day)
+//
+// DESIGN:
+// Each rule is a declarative constraint: { id, label, condition (SQL WHERE),
+// severity }. The checker runs each condition as a COUNT(*) against the live
+// DuckDB table. The SQL condition identifies the VIOLATING rows -- rows that
+// SHOULD NOT EXIST if the flags are consistent.
+//
+// Built-in rules are auto-filtered by whether the relevant columns exist.
+// Custom rules can be added via the rules parameter.
+
+const FLAG_RULES = [
+  {
+    id: 'readmit_30d_implies_90d',
+    label: 'readmit_30d=1 but readmit_90d=0',
+    // A 30-day readmit is always also a 90-day readmit.
+    // violating condition: readmit_30d=1 AND readmit_90d=0
+    requiredCols: ['readmit_30d', 'readmit_90d'],
+    condition: (t) => q(t) + '.readmit_30d = 1 AND ' + q(t) + '.readmit_90d = 0',
+    severity: 'hard',
+    rationale: 'readmit_30d=1 implies readmit_90d must also be 1 -- a 30-day readmission is a strict subset of the 90-day readmission window. This combination is logically impossible.',
+  },
+  {
+    id: 'readmit_7d_implies_30d',
+    label: 'readmit_7d=1 but readmit_30d=0',
+    requiredCols: ['readmit_7d', 'readmit_30d'],
+    condition: (t) => q(t) + '.readmit_7d = 1 AND ' + q(t) + '.readmit_30d = 0',
+    severity: 'hard',
+    rationale: 'readmit_7d=1 implies readmit_30d must also be 1 -- a 7-day readmission is a strict subset of the 30-day window.',
+  },
+  {
+    id: 'readmit_7d_implies_90d',
+    label: 'readmit_7d=1 but readmit_90d=0',
+    requiredCols: ['readmit_7d', 'readmit_90d'],
+    condition: (t) => q(t) + '.readmit_7d = 1 AND ' + q(t) + '.readmit_90d = 0',
+    severity: 'hard',
+    rationale: 'readmit_7d=1 implies readmit_90d must also be 1 -- a 7-day readmission is a subset of both the 30-day and 90-day windows.',
+  },
+  {
+    id: 'inpatient_outpatient_exclusive',
+    label: 'inpatient=1 and outpatient=1 simultaneously',
+    requiredCols: ['inpatient', 'outpatient'],
+    condition: (t) => q(t) + '.inpatient = 1 AND ' + q(t) + '.outpatient = 1',
+    severity: 'hard',
+    rationale: 'inpatient and outpatient are mutually exclusive visit types. A record cannot be both simultaneously.',
+  },
+  {
+    id: 'emergency_elective_exclusive',
+    label: 'emergency_admit=1 and elective_admit=1 simultaneously',
+    requiredCols: ['emergency_admit', 'elective_admit'],
+    condition: (t) => q(t) + '.emergency_admit = 1 AND ' + q(t) + '.elective_admit = 1',
+    severity: 'hard',
+    rationale: 'emergency_admit and elective_admit are mutually exclusive admission types.',
+  },
+  {
+    id: 'deceased_live_discharge',
+    label: 'deceased=1 but discharge_disposition not expired',
+    requiredCols: ['deceased', 'discharge_disposition'],
+    // Soft: discharge codes vary by system; "20" and "40" and "41" can all mean expired.
+    condition: (t) => q(t) + '.deceased = 1 AND LOWER(CAST(' + q(t) + '.discharge_disposition AS VARCHAR)) NOT IN (\'20\',\'expired\',\'dead\',\'deceased\',\'40\',\'41\',\'42\')',
+    severity: 'soft',
+    rationale: 'deceased=1 but the discharge disposition does not indicate an expiration -- may indicate a coding mismatch between the deceased flag and the UB-04 discharge status code.',
+  },
+];
+
+// Violation rate thresholds.
+// Hard rule violations are fail regardless of rate (any impossible row is a fail).
+// Soft rules use rate thresholds.
+const FLAG_WARN_RATE = 0.001; // 0.1%
+const FLAG_FAIL_RATE = 0.01;  // 1%
+
+/**
+ * Run flag consistency checks against a single DuckDB table.
+ *
+ * @param {object} opts
+ * @param {string} opts.table - DuckDB table name
+ * @param {Array<{name:string}>} opts.cols - column descriptors
+ * @param {object} opts.engine - { runQuery }
+ * @param {Array<object>} [opts.extraRules] - additional rules (merged with built-ins)
+ * @returns {Promise<object>} { rules: results[], summary, status, level, rationale }
+ */
+async function checkFlagConsistency({ table, cols, engine, extraRules = [] }) {
+  const colSet = new Set(
+    (Array.isArray(cols) ? cols : []).map(c =>
+      typeof c === 'string' ? c : (c && c.name ? c.name : '')
+    ).filter(Boolean)
+  );
+
+  const allRules = [...FLAG_RULES, ...(Array.isArray(extraRules) ? extraRules : [])];
+
+  // Only run rules whose required columns exist in this table.
+  const applicableRules = allRules.filter(rule =>
+    Array.isArray(rule.requiredCols) && rule.requiredCols.every(c => colSet.has(c))
+  );
+
+  if (applicableRules.length === 0) {
+    return {
+      rules: [], status: 'idle', level: 'none',
+      summary: { total: 0, pass: 0, warn: 0, fail: 0, idle: 0, totalViolations: 0 },
+      rationale: 'No flag consistency rules apply to table "' + table + '" -- none of the required column pairs are present.',
+    };
+  }
+
+  const results = [];
+  for (const rule of applicableRules) {
+    results.push(await runFlagRule({ table, rule, engine }));
+  }
+
+  const summ = { total: results.length, pass: 0, warn: 0, fail: 0, idle: 0, totalViolations: 0 };
+  for (const r of results) {
+    summ[r.status] = (summ[r.status] || 0) + 1;
+    summ.totalViolations += (r.violationCount || 0);
+  }
+
+  const worstStatus = results.some(r => r.status === 'fail') ? 'fail'
+    : results.some(r => r.status === 'warn') ? 'warn'
+    : results.every(r => r.status === 'idle') ? 'idle' : 'pass';
+  const worstLevel = results.some(r => r.level === 'high') ? 'high'
+    : results.some(r => r.level === 'medium') ? 'medium'
+    : results.some(r => r.level === 'low') ? 'low' : 'none';
+
+  const rationale = summ.totalViolations === 0
+    ? 'All ' + summ.total + ' flag consistency rule(s) pass -- no logical contradictions detected in "' + table + '".'
+    : summ.totalViolations.toLocaleString() + ' flag contradiction(s) detected across ' + (summ.warn + summ.fail) + '/' + summ.total + ' rule(s) in "' + table + '". These rows contain logically impossible flag combinations that will corrupt any metric computed from them.';
+
+  return { rules: results, summary: summ, status: worstStatus, level: worstLevel, rationale };
+}
+
+// ---- rule runner -----------------------------------------------------------
+
+async function runFlagRule({ table, rule, engine }) {
+  const tQ = q(table);
+  const ruleLabel = rule.label || rule.id;
+
+  let totalRows = 0, violationCount = 0;
+  try {
+    const totalRes = await engine.runQuery('SELECT COUNT(*) AS n FROM ' + tQ);
+    totalRows = safeNum(totalRes.rows[0], 'n');
+
+    if (totalRows === 0) {
+      return makeFlagResult({ rule, ruleLabel, totalRows: 0, violationCount: 0,
+        status: 'idle', level: 'none',
+        rationale: 'Table "' + table + '" is empty -- rule "' + ruleLabel + '" skipped.' });
+    }
+
+    const condSQL = typeof rule.condition === 'function' ? rule.condition(table) : rule.condition;
+    const violRes = await engine.runQuery(
+      'SELECT COUNT(*) AS n FROM ' + tQ + ' WHERE ' + condSQL
+    );
+    violationCount = safeNum(violRes.rows[0], 'n');
+
+    const violationRate = totalRows > 0 ? violationCount / totalRows : 0;
+    const { status, level } = flagLevel(violationRate, rule.severity);
+
+    const rationale = buildFlagRationale({ ruleLabel, rule, totalRows, violationCount, violationRate });
+    return makeFlagResult({ rule, ruleLabel, totalRows, violationCount, violationRate, status, level, rationale });
+
+  } catch (err) {
+    return makeFlagResult({
+      rule, ruleLabel, totalRows, violationCount, status: 'idle', level: 'none',
+      rationale: 'Flag rule "' + ruleLabel + '" could not run: ' + String(err && err.message ? err.message : err),
+      error: String(err),
+    });
+  }
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+function safeNum(row, key) {
+  if (!row) return 0;
+  const v = row[key];
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseInt(String(v), 10) || 0;
+}
+
+function flagLevel(rate, severity) {
+  if (rate === 0) return { status: 'pass', level: 'none' };
+  if (severity === 'hard') {
+    // Any impossible row = fail. Severity scales by rate.
+    if (rate < FLAG_FAIL_RATE)  return { status: 'fail', level: 'low' };
+    if (rate < 0.05)            return { status: 'fail', level: 'medium' };
+    return                             { status: 'fail', level: 'high' };
+  }
+  // Soft rules.
+  if (rate < FLAG_WARN_RATE)    return { status: 'pass', level: 'none' };
+  if (rate < FLAG_FAIL_RATE)    return { status: 'warn', level: 'low' };
+  if (rate < 0.05)              return { status: 'fail', level: 'medium' };
+  return                               { status: 'fail', level: 'high' };
+}
+
+function buildFlagRationale({ ruleLabel, rule, totalRows, violationCount, violationRate }) {
+  if (violationCount === 0) {
+    return 'OK: no rows violate "' + ruleLabel + '" across ' + totalRows.toLocaleString() + ' row(s).';
+  }
+  const pct = (violationRate * 100).toFixed(2);
+  return violationCount.toLocaleString() + '/' + totalRows.toLocaleString() + ' (' + pct + '%) rows violate "' + ruleLabel + '": ' + rule.rationale;
+}
+
+function makeFlagResult({ rule, ruleLabel, totalRows, violationCount, violationRate = 0,
+  status, level, rationale, error = null }) {
+  return {
+    layer: 'flag_consistency',
+    ruleId: rule.id,
+    label: ruleLabel,
+    requiredCols: rule.requiredCols || [],
+    severity: rule.severity || 'hard',
+    totalRows,
+    violationCount,
+    violationRate,
+    status,
+    level,
+    summary: rationale,
+    rationale,
+    ...(error ? { error } : {}),
+  };
+}
+
+  window.FlagConsistencyChecker = {
+    detectFlagInconsistencies: typeof detectFlagInconsistencies !== 'undefined' ? detectFlagInconsistencies : null,
+    buildFlagReport: typeof buildFlagReport !== 'undefined' ? buildFlagReport : null,
+    FLAG_PATTERNS: typeof FLAG_PATTERNS !== 'undefined' ? FLAG_PATTERNS : [],
+  };
+
+  // Single "Relational" panel covering all 4 checkers
+  function initRelationalUI() {
+    var panelId = 'dg-relational-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:866;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block'; p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '×';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        var h = document.createElement('div');
+        h.style.cssText = 'padding:20px;';
+        h.innerHTML = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">Relational Validators</h3>' +
+          '<p style="font-size:12px;color:var(--text-muted,#888);line-height:1.6;">Foreign key integrity, join coverage analysis, temporal ordering, and flag consistency checks.</p>';
+        p.appendChild(h);
+      } else { p.style.display = 'none'; }
+    }
+    ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
+      var grid = document.getElementById(gridId);
+      var btnId = i === 0 ? 'dg-ov-relational' : 'dg-ts-relational';
+      if (grid && !document.getElementById(btnId)) {
+        var btn = document.createElement('button');
+        btn.id = btnId;
+        btn.className = 'dg-ov-btn';
+        btn.innerHTML = '??<br><span>Relational</span>';
+        btn.addEventListener('click', function(){
+          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.remove('open'); }); }
+          else { var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open'); }
+          toggle();
+        });
+        grid.appendChild(btn);
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRelationalUI);
+  else setTimeout(initRelationalUI, 1350);
+}());
+/* ---- end flag-consistency-checker.js ---- */
