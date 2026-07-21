@@ -24581,3 +24581,162 @@ var DataGlowMirror = (function() {
       }
     }
   })();
+
+/* ---- from js/nav/bottom-nav.js ---- */
+(function () {
+  'use strict';
+
+  /* ============================================================
+     DESKTOP OVERFLOW POPOVER
+     More (...) button opens a grid of all secondary tools.
+     Clicking a grid item fires the real hidden button's click.
+     ============================================================ */
+  var overflowBtn = document.getElementById('agent-bar-more-btn');
+  var overflowPopover = document.getElementById('dg-overflow-popover');
+  var overflowOverlay = document.getElementById('dg-overflow-overlay');
+
+  function openOverflow() {
+    if (!overflowPopover) return;
+    overflowPopover.classList.add('open');
+    overflowOverlay.classList.add('open');
+    if (overflowBtn) overflowBtn.classList.add('active');
+  }
+
+  function closeOverflow() {
+    if (!overflowPopover) return;
+    overflowPopover.classList.remove('open');
+    overflowOverlay.classList.remove('open');
+    if (overflowBtn) overflowBtn.classList.remove('active');
+  }
+
+  if (overflowBtn) {
+    overflowBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (overflowPopover && overflowPopover.classList.contains('open')) {
+        closeOverflow();
+      } else {
+        openOverflow();
+      }
+    });
+  }
+
+  if (overflowOverlay) {
+    overflowOverlay.addEventListener('click', closeOverflow);
+  }
+
+  /* Each grid button fires the real hidden button */
+  if (overflowPopover) {
+    overflowPopover.addEventListener('click', function (e) {
+      var btn = e.target.closest('.dg-ov-btn');
+      if (!btn) return;
+      var targetId = btn.getAttribute('data-target');
+      if (!targetId) return;
+      var realBtn = document.getElementById(targetId);
+      if (realBtn) {
+        closeOverflow();
+        setTimeout(function () { realBtn.click(); }, 80);
+      }
+    });
+  }
+
+  /* Close on Escape */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeOverflow();
+  });
+
+  /* ============================================================
+     MOBILE BOTTOM NAV
+     5 tabs: Data, Analyze, Share, Projects, More.
+     Data/Analyze/Share mirror the existing nav-btn view system.
+     Projects fires openProjects(). More opens the tools sheet.
+     ============================================================ */
+  var tabs = document.querySelectorAll('.dg-tab[data-view]');
+  var navBtns = document.querySelectorAll('.nav-btn[data-view]');
+
+  function setActiveTab(view) {
+    tabs.forEach(function (t) {
+      t.classList.toggle('active', t.getAttribute('data-view') === view);
+    });
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var view = tab.getAttribute('data-view');
+      if (!view) return;
+      /* Fire the matching top-nav button to reuse existing view-switch logic */
+      navBtns.forEach(function (nb) {
+        if (nb.getAttribute('data-view') === view) nb.click();
+      });
+      setActiveTab(view);
+    });
+  });
+
+  /* Keep bottom nav in sync when top nav buttons are clicked on desktop
+     (e.g. if viewport is resized) */
+  navBtns.forEach(function (nb) {
+    nb.addEventListener('click', function () {
+      setActiveTab(nb.getAttribute('data-view'));
+    });
+  });
+
+  /* Tools sheet: populate with all tools when opened from More tab */
+  var toolsSheetBody = document.getElementById('tools-sheet-body');
+  var toolsSheetTitle = document.querySelector('.tools-sheet-title');
+
+  function populateMobileToolsSheet() {
+    if (!toolsSheetBody) return;
+    /* Only inject once */
+    if (toolsSheetBody.querySelector('.dg-mobile-tools-grid')) return;
+
+    if (toolsSheetTitle) toolsSheetTitle.textContent = 'Tools';
+
+    var tools = [
+      { id: 'projects-trigger-btn',  icon: '&#128197;', label: 'Projects' },
+      { id: 'autopilot-trigger-btn', icon: '&#9881;',   label: 'Autopilot' },
+      { id: 'notes-trigger-btn',     icon: '&#128221;', label: 'Notes' },
+      { id: 'livewire-trigger-btn',  icon: '&#128274;', label: 'Live Wire' },
+      { id: 'receipt-trigger-btn',   icon: '&#129534;', label: 'Receipt' },
+      { id: 'witness-trigger-btn',   icon: '&#128065;', label: 'Witness' },
+      { id: 'story-trigger-btn',     icon: '&#128196;', label: 'Story' },
+      { id: 'skills-trigger-btn',    icon: '&#127941;', label: 'Skills' },
+      { id: 'badges-trigger-btn',    icon: '&#127881;', label: 'Badges' },
+      { id: 'osce-trigger-btn',      icon: '&#128203;', label: 'OSCE' },
+      { id: 'takehome-trigger-btn',  icon: '&#128188;', label: 'Case' },
+      { id: 'questions-trigger-btn', icon: '&#10067;',  label: 'Questions' },
+      { id: 'vault-trigger-btn',     icon: '&#128452;', label: 'Vault' },
+      { id: 'replay-trigger-btn',    icon: '&#9654;',   label: 'Record' },
+      { id: 'live-feed-btn',         icon: '&#9889;',   label: 'Live Feed' },
+      { id: 'llm-trigger-btn',       icon: '&#129504;', label: 'AI' },
+      { id: 'feature-settings-btn',  icon: '&#9881;',   label: 'Features' },
+    ];
+
+    var grid = document.createElement('div');
+    grid.className = 'dg-mobile-tools-grid';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:16px;';
+
+    tools.forEach(function (tool) {
+      var realBtn = document.getElementById(tool.id);
+      if (!realBtn) return;
+      var cell = document.createElement('button');
+      cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;padding:12px 6px;font-family:inherit;color:var(--text);cursor:pointer;min-height:64px;font-size:11px;font-weight:600;-webkit-tap-highlight-color:transparent;';
+      cell.innerHTML = '<span style="font-size:20px;line-height:1;">' + tool.icon + '</span><span>' + tool.label + '</span>';
+      cell.addEventListener('click', function () {
+        closeToolsSheet();
+        setTimeout(function () { realBtn.click(); }, 120);
+      });
+      grid.appendChild(cell);
+    });
+
+    /* Clear any existing content then insert grid at top */
+    toolsSheetBody.insertBefore(grid, toolsSheetBody.firstChild);
+  }
+
+  /* Hook into openToolsSheet -- called by More tab onclick */
+  var _origOpenToolsSheet = window.openToolsSheet;
+  window.openToolsSheet = function () {
+    populateMobileToolsSheet();
+    if (typeof _origOpenToolsSheet === 'function') _origOpenToolsSheet();
+  };
+
+}());
+/* ---- end bottom-nav.js ---- */

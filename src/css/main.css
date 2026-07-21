@@ -5137,3 +5137,230 @@
 .rp-btn.danger { border-color: var(--error, #A12C7B); }
 .rp-btn.danger:hover { background: rgba(161,44,123,0.08); color: var(--error, #A12C7B); }
 /* ---- End Rulepacks ---- */
+
+/* ============================================================
+   MOBILE BOTTOM NAV (#dg-bottom-nav)
+   Replaces the crowded agent bar on mobile (<=700px).
+   56px tall, safe-area padded, 5 thumb-friendly tabs.
+   ============================================================ */
+
+#dg-bottom-nav {
+  display: none; /* hidden by default; shown only on mobile */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 500;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.dg-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: inherit;
+  min-height: 56px;
+  min-width: 44px;
+  padding: 6px 4px;
+  transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dg-tab:active {
+  background: rgba(1, 105, 111, 0.06);
+}
+
+.dg-tab.active {
+  color: var(--primary);
+}
+
+.dg-tab-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.dg-tab-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+/* Active indicator dot above active tab */
+.dg-tab.active .dg-tab-label::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin: 0 auto 3px;
+}
+
+@media (max-width: 700px) {
+  #dg-bottom-nav {
+    display: flex;
+  }
+
+  /* Push canvas content up so it isn't hidden behind the bottom nav */
+  #canvas {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Hide the old agent bar entirely on mobile */
+  #agent-bar {
+    display: none !important;
+  }
+
+  /* Hide the old top nav view buttons -- bottom nav handles this */
+  #nav-views {
+    display: none !important;
+  }
+
+  /* Also hide overflow-only desktop elements */
+  #dg-overflow-popover,
+  #dg-overflow-overlay {
+    display: none !important;
+  }
+
+  /* Tools sheet title updates to reflect it's all tools now */
+  .tools-sheet-title::before {
+    content: 'Tools';
+    speak: none;
+  }
+}
+
+/* ============================================================
+   DESKTOP OVERFLOW POPOVER (#dg-overflow-popover)
+   Appears above the agent bar More (...) button on desktop.
+   Shows all secondary tools in a compact 4-column grid.
+   ============================================================ */
+
+#dg-overflow-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 599;
+}
+
+#dg-overflow-popover {
+  display: none;
+  position: fixed;
+  bottom: 52px;
+  right: 16px;
+  z-index: 600;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  padding: 12px;
+  width: 320px;
+}
+
+#dg-overflow-popover.open {
+  display: block;
+}
+
+#dg-overflow-overlay.open {
+  display: block;
+}
+
+#dg-overflow-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.dg-ov-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 8px 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+  text-align: center;
+  min-height: 36px;
+}
+
+.dg-ov-btn:hover {
+  background: rgba(1, 105, 111, 0.08);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Desktop: hide ALL secondary agent bar buttons -- overflow handles them */
+@media (min-width: 701px) {
+  #dg-bottom-nav {
+    display: none !important;
+  }
+
+  /* Secondary tools -- all moved to overflow popover */
+  #livewire-trigger-btn,
+  #receipt-trigger-btn,
+  #notes-trigger-btn,
+  #skills-trigger-btn,
+  #badges-trigger-btn,
+  #osce-trigger-btn,
+  #takehome-trigger-btn,
+  #story-trigger-btn,
+  #witness-trigger-btn,
+  #vault-trigger-btn,
+  #replay-trigger-btn,
+  #live-feed-btn,
+  #llm-trigger-btn,
+  #questions-trigger-btn,
+  #takehome-agent-btn {
+    display: none !important;
+  }
+
+  /* Keep only: NL query, Autopilot, Projects, Features, More */
+  #agent-bar-more-btn {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    padding: 3px 10px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.12s;
+    font-family: inherit;
+    min-height: 28px;
+  }
+
+  #agent-bar-more-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+  }
+
+  #agent-bar-more-btn.active {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: rgba(1, 105, 111, 0.06);
+  }
+}
+
