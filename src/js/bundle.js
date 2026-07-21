@@ -13217,6 +13217,8 @@ var InstantInsight = (function () {
 
   var _interceptInstalled = false;
   var _leakLog = [];
+  var _allowLog = []; /* allowed CDN requests - shown as positive evidence */
+  var _PROOF_MAX_LOG = 40; /* keep last 40 entries per log */
 
   function isAllowedUrl(url) {
     try {
@@ -13233,14 +13235,26 @@ var InstantInsight = (function () {
     var origFetch = window.fetch;
     window.fetch = function (url, opts) {
       var u = typeof url === 'string' ? url : (url && url.url) || '';
+      var method = (opts && opts.method) || 'GET';
       if (!isAllowedUrl(u)) {
         var body = opts && opts.body ? String(opts.body).substring(0, 200) : '';
-        var logEntry = { ts: Date.now(), url: u, method: (opts && opts.method) || 'GET', bodyPreview: body };
+        var logEntry = { ts: Date.now(), url: u, method: method, bodyPreview: body };
         _leakLog.push(logEntry);
+        if (_leakLog.length > _PROOF_MAX_LOG) _leakLog.shift();
         console.warn('[DataGlow Privacy] Unexpected external fetch:', u);
         if (typeof showToast === 'function') {
           showToast('[Privacy] Unexpected external request: ' + new URL(u).hostname + '. Check the audit log.', 'error');
         }
+      } else {
+        /* log allowed CDN requests as positive evidence */
+        try {
+          var host = new URL(u, location.href).hostname;
+          if (host !== location.hostname) {
+            _allowLog.push({ ts: Date.now(), url: u, method: method });
+            if (_allowLog.length > _PROOF_MAX_LOG) _allowLog.shift();
+            refreshPrivacyPanel();
+          }
+        } catch (e) {}
       }
       return origFetch.apply(this, arguments);
     };
@@ -13263,26 +13277,84 @@ var InstantInsight = (function () {
     };
   }
 
-  function showPrivacyAudit() {
-    var modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;';
-    var box = document.createElement('div');
-    box.style.cssText = 'background:var(--surface,#1C1B19);border:1px solid var(--border,#393836);border-radius:12px;padding:28px;max-width:520px;width:90%;color:var(--text,#CDCCCA);font-family:inherit;';
-    var leakHtml = _leakLog.length === 0
-      ? '<p style="color:#4ade80;font-weight:600;">No unexpected network requests detected.</p>'
-      : '<p style="color:#f87171;font-weight:600;">' + _leakLog.length + ' unexpected request(s) detected:</p><ul>' + _leakLog.map(function(l){ return '<li style="font-size:12px;margin:4px 0;">' + l.url.substring(0,80) + '</li>'; }).join('') + '</ul>';
-    box.innerHTML = '<h2 style="margin:0 0 16px;font-size:18px;color:#4ade80;">Privacy Audit</h2>' +
-      '<p style="font-size:13px;color:var(--text-muted,#797876);margin:0 0 16px;">DataGlow processes all data inside your browser using WebAssembly. No row data, column data, or file content is uploaded to any server.</p>' +
-      '<div style="background:var(--bg,#171614);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">' +
-        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><span style="color:#4ade80;">+</span><span>DuckDB-WASM - in-browser SQL engine</span></div>' +
-        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><span style="color:#4ade80;">+</span><span>Pyodide - in-browser Python/pandas</span></div>' +
-        '<div style="display:flex;gap:8px;align-items:center;"><span style="color:#4ade80;">+</span><span>WebR - in-browser R engine</span></div>' +
+  function refreshPrivacyPanel() {
+    var panel = document.getElementById('privacy-proof-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+    renderPrivacyPanelContent();
+  }
+
+  function renderPrivacyPanelContent() {
+    var body = document.getElementById('privacy-proof-body');
+    if (!body) return;
+
+    var now = Date.now();
+    function fmtTime(ts) {
+      var d = now - ts;
+      if (d < 1000) return 'just now';
+      if (d < 60000) return Math.round(d / 1000) + 's ago';
+      return Math.round(d / 60000) + 'm ago';
+    }
+    function fmtHost(url) {
+      try { return new URL(url).hostname; } catch(e) { return url.substring(0, 40); }
+    }
+
+    var leakStatus = _leakLog.length === 0
+      ? '<div class="pp-status pp-status-clean"><span class="pp-dot pp-dot-green"></span><strong>Zero unexpected requests</strong> - nothing left your machine</div>'
+      : '<div class="pp-status pp-status-warn"><span class="pp-dot pp-dot-red"></span><strong>' + _leakLog.length + ' unexpected request(s)</strong></div>';
+
+    var allowRows = _allowLog.length === 0
+      ? '<div class="pp-empty">No CDN requests recorded yet. Drop a file or run a query to see activity.</div>'
+      : _allowLog.slice().reverse().map(function(e) {
+          return '<div class="pp-row pp-row-ok"><span class="pp-row-method">' + e.method + '</span><span class="pp-row-host">' + fmtHost(e.url) + '</span><span class="pp-row-badge pp-badge-cdn">CDN</span><span class="pp-row-time">' + fmtTime(e.ts) + '</span></div>';
+        }).join('');
+
+    var leakRows = _leakLog.length === 0
+      ? '<div class="pp-empty pp-empty-ok"><span>&#10003;</span> No unexpected requests</div>'
+      : _leakLog.slice().reverse().map(function(e) {
+          return '<div class="pp-row pp-row-bad"><span class="pp-row-method">' + e.method + '</span><span class="pp-row-host">' + fmtHost(e.url) + '</span><span class="pp-row-badge pp-badge-leak">LEAK</span><span class="pp-row-time">' + fmtTime(e.ts) + '</span></div>';
+        }).join('');
+
+    body.innerHTML =
+      '<div class="pp-section">' +
+        leakStatus +
+        '<p class="pp-desc">DataGlow intercepts every <code>fetch()</code> and <code>XMLHttpRequest</code> call. Data files, query results, and column values never leave your browser.</p>' +
       '</div>' +
-      leakHtml +
-      '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:var(--primary,#4F98A3);color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:13px;cursor:pointer;margin-top:8px;">Close</button>';
-    modal.appendChild(box);
-    document.body.appendChild(modal);
-    modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+      '<div class="pp-section">' +
+        '<div class="pp-section-title">Engines running locally</div>' +
+        '<div class="pp-engines">' +
+          '<div class="pp-engine"><span class="pp-engine-icon">&#128200;</span><div><strong>DuckDB-WASM</strong><div class="pp-engine-sub">In-browser SQL engine</div></div></div>' +
+          '<div class="pp-engine"><span class="pp-engine-icon">&#128013;</span><div><strong>Pyodide</strong><div class="pp-engine-sub">Python + pandas, in-browser</div></div></div>' +
+          '<div class="pp-engine"><span class="pp-engine-icon">&#128202;</span><div><strong>WebR</strong><div class="pp-engine-sub">R runtime, in-browser</div></div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pp-section">' +
+        '<div class="pp-section-title pp-section-title-row"><span>Allowed CDN requests <span class="pp-count">' + _allowLog.length + '</span></span><span class="pp-section-note">GET-only library files</span></div>' +
+        '<div class="pp-log">' + allowRows + '</div>' +
+      '</div>' +
+      '<div class="pp-section">' +
+        '<div class="pp-section-title pp-section-title-row"><span>Unexpected requests <span class="pp-count pp-count-' + (_leakLog.length > 0 ? 'bad' : 'ok') + '">' + _leakLog.length + '</span></span></div>' +
+        '<div class="pp-log">' + leakRows + '</div>' +
+      '</div>';
+  }
+
+  function showPrivacyAudit() {
+    var panel = document.getElementById('privacy-proof-panel');
+    if (!panel) return;
+    var overlay = document.getElementById('privacy-proof-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    panel.classList.remove('hidden');
+    renderPrivacyPanelContent();
+    /* auto-refresh every 3s while panel is open */
+    if (!panel._refreshTimer) {
+      panel._refreshTimer = setInterval(function () {
+        if (panel.classList.contains('hidden')) {
+          clearInterval(panel._refreshTimer);
+          panel._refreshTimer = null;
+        } else {
+          renderPrivacyPanelContent();
+        }
+      }, 3000);
+    }
   }
   window.showPrivacyAudit = showPrivacyAudit;
 

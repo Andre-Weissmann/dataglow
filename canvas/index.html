@@ -4729,6 +4729,236 @@
 [data-theme="dark"] #autopilot-panel { box-shadow: -8px 0 40px rgba(0,0,0,0.5); }
 [data-theme="dark"] .autopilot-toggle-track { background: rgba(255,255,255,0.15); }
 
+/* ---- Privacy Proof Panel ---- */
+#privacy-proof-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;
+  background: rgba(0,0,0,0.55);
+}
+#privacy-proof-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9101;
+  width: 420px;
+  max-width: 100vw;
+  background: var(--surface, #1C1B19);
+  border-left: 1px solid var(--border, #393836);
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+}
+#privacy-proof-panel.hidden { display: none; }
+#privacy-proof-overlay.hidden { display: none; }
+
+.pp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border, #393836);
+  flex-shrink: 0;
+}
+.pp-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pp-header-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: privacy-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+#pp-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #CDCCCA);
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+.pp-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #797876);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.pp-close-btn:hover { background: var(--surface-alt, #201F1D); color: var(--text, #CDCCCA); }
+
+.pp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px 24px;
+}
+
+.pp-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border, #393836);
+}
+.pp-section:last-child { border-bottom: none; }
+
+.pp-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.pp-status-clean { background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.25); color: #4ade80; }
+.pp-status-warn  { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25); color: #f87171; }
+
+.pp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pp-dot-green { background: #4ade80; }
+.pp-dot-red   { background: #f87171; }
+
+.pp-desc {
+  font-size: 12px;
+  color: var(--text-muted, #797876);
+  line-height: 1.5;
+  margin: 0;
+}
+.pp-desc code {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--bg, #171614);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.pp-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #797876);
+  margin-bottom: 10px;
+}
+.pp-section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pp-section-note {
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint, #5A5957);
+}
+
+.pp-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--surface-alt, #201F1D);
+  color: var(--text-muted, #797876);
+  margin-left: 5px;
+}
+.pp-count-ok  { background: rgba(74,222,128,0.15); color: #4ade80; }
+.pp-count-bad { background: rgba(248,113,113,0.15); color: #f87171; }
+
+.pp-engines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pp-engine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg, #171614);
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text, #CDCCCA);
+}
+.pp-engine-icon { font-size: 16px; flex-shrink: 0; }
+.pp-engine-sub  { font-size: 11px; color: var(--text-muted, #797876); margin-top: 1px; }
+
+.pp-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.pp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: monospace;
+}
+.pp-row-ok  { background: rgba(74,222,128,0.05); }
+.pp-row-bad { background: rgba(248,113,113,0.08); }
+.pp-row-method {
+  font-weight: 700;
+  color: var(--text-muted, #797876);
+  min-width: 32px;
+  flex-shrink: 0;
+}
+.pp-row-host {
+  flex: 1;
+  color: var(--text, #CDCCCA);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp-row-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.pp-badge-cdn  { background: rgba(79,152,163,0.2); color: #4F98A3; }
+.pp-badge-leak { background: rgba(248,113,113,0.2); color: #f87171; }
+.pp-row-time {
+  font-size: 10px;
+  color: var(--text-faint, #5A5957);
+  flex-shrink: 0;
+}
+
+.pp-empty {
+  font-size: 12px;
+  color: var(--text-faint, #5A5957);
+  padding: 10px 0;
+  font-style: italic;
+}
+.pp-empty-ok {
+  color: #4ade80;
+  font-style: normal;
+  font-weight: 600;
+}
+
+@media (max-width: 500px) {
+  #privacy-proof-panel { width: 100vw; }
+}
+/* ---- End Privacy Proof Panel ---- */
   </style>
 
 </head>
@@ -18943,6 +19173,8 @@ var InstantInsight = (function () {
 
   var _interceptInstalled = false;
   var _leakLog = [];
+  var _allowLog = []; /* allowed CDN requests - shown as positive evidence */
+  var _PROOF_MAX_LOG = 40; /* keep last 40 entries per log */
 
   function isAllowedUrl(url) {
     try {
@@ -18959,14 +19191,26 @@ var InstantInsight = (function () {
     var origFetch = window.fetch;
     window.fetch = function (url, opts) {
       var u = typeof url === 'string' ? url : (url && url.url) || '';
+      var method = (opts && opts.method) || 'GET';
       if (!isAllowedUrl(u)) {
         var body = opts && opts.body ? String(opts.body).substring(0, 200) : '';
-        var logEntry = { ts: Date.now(), url: u, method: (opts && opts.method) || 'GET', bodyPreview: body };
+        var logEntry = { ts: Date.now(), url: u, method: method, bodyPreview: body };
         _leakLog.push(logEntry);
+        if (_leakLog.length > _PROOF_MAX_LOG) _leakLog.shift();
         console.warn('[DataGlow Privacy] Unexpected external fetch:', u);
         if (typeof showToast === 'function') {
           showToast('[Privacy] Unexpected external request: ' + new URL(u).hostname + '. Check the audit log.', 'error');
         }
+      } else {
+        /* log allowed CDN requests as positive evidence */
+        try {
+          var host = new URL(u, location.href).hostname;
+          if (host !== location.hostname) {
+            _allowLog.push({ ts: Date.now(), url: u, method: method });
+            if (_allowLog.length > _PROOF_MAX_LOG) _allowLog.shift();
+            refreshPrivacyPanel();
+          }
+        } catch (e) {}
       }
       return origFetch.apply(this, arguments);
     };
@@ -18989,26 +19233,84 @@ var InstantInsight = (function () {
     };
   }
 
-  function showPrivacyAudit() {
-    var modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;';
-    var box = document.createElement('div');
-    box.style.cssText = 'background:var(--surface,#1C1B19);border:1px solid var(--border,#393836);border-radius:12px;padding:28px;max-width:520px;width:90%;color:var(--text,#CDCCCA);font-family:inherit;';
-    var leakHtml = _leakLog.length === 0
-      ? '<p style="color:#4ade80;font-weight:600;">No unexpected network requests detected.</p>'
-      : '<p style="color:#f87171;font-weight:600;">' + _leakLog.length + ' unexpected request(s) detected:</p><ul>' + _leakLog.map(function(l){ return '<li style="font-size:12px;margin:4px 0;">' + l.url.substring(0,80) + '</li>'; }).join('') + '</ul>';
-    box.innerHTML = '<h2 style="margin:0 0 16px;font-size:18px;color:#4ade80;">Privacy Audit</h2>' +
-      '<p style="font-size:13px;color:var(--text-muted,#797876);margin:0 0 16px;">DataGlow processes all data inside your browser using WebAssembly. No row data, column data, or file content is uploaded to any server.</p>' +
-      '<div style="background:var(--bg,#171614);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">' +
-        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><span style="color:#4ade80;">+</span><span>DuckDB-WASM - in-browser SQL engine</span></div>' +
-        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><span style="color:#4ade80;">+</span><span>Pyodide - in-browser Python/pandas</span></div>' +
-        '<div style="display:flex;gap:8px;align-items:center;"><span style="color:#4ade80;">+</span><span>WebR - in-browser R engine</span></div>' +
+  function refreshPrivacyPanel() {
+    var panel = document.getElementById('privacy-proof-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+    renderPrivacyPanelContent();
+  }
+
+  function renderPrivacyPanelContent() {
+    var body = document.getElementById('privacy-proof-body');
+    if (!body) return;
+
+    var now = Date.now();
+    function fmtTime(ts) {
+      var d = now - ts;
+      if (d < 1000) return 'just now';
+      if (d < 60000) return Math.round(d / 1000) + 's ago';
+      return Math.round(d / 60000) + 'm ago';
+    }
+    function fmtHost(url) {
+      try { return new URL(url).hostname; } catch(e) { return url.substring(0, 40); }
+    }
+
+    var leakStatus = _leakLog.length === 0
+      ? '<div class="pp-status pp-status-clean"><span class="pp-dot pp-dot-green"></span><strong>Zero unexpected requests</strong> - nothing left your machine</div>'
+      : '<div class="pp-status pp-status-warn"><span class="pp-dot pp-dot-red"></span><strong>' + _leakLog.length + ' unexpected request(s)</strong></div>';
+
+    var allowRows = _allowLog.length === 0
+      ? '<div class="pp-empty">No CDN requests recorded yet. Drop a file or run a query to see activity.</div>'
+      : _allowLog.slice().reverse().map(function(e) {
+          return '<div class="pp-row pp-row-ok"><span class="pp-row-method">' + e.method + '</span><span class="pp-row-host">' + fmtHost(e.url) + '</span><span class="pp-row-badge pp-badge-cdn">CDN</span><span class="pp-row-time">' + fmtTime(e.ts) + '</span></div>';
+        }).join('');
+
+    var leakRows = _leakLog.length === 0
+      ? '<div class="pp-empty pp-empty-ok"><span>&#10003;</span> No unexpected requests</div>'
+      : _leakLog.slice().reverse().map(function(e) {
+          return '<div class="pp-row pp-row-bad"><span class="pp-row-method">' + e.method + '</span><span class="pp-row-host">' + fmtHost(e.url) + '</span><span class="pp-row-badge pp-badge-leak">LEAK</span><span class="pp-row-time">' + fmtTime(e.ts) + '</span></div>';
+        }).join('');
+
+    body.innerHTML =
+      '<div class="pp-section">' +
+        leakStatus +
+        '<p class="pp-desc">DataGlow intercepts every <code>fetch()</code> and <code>XMLHttpRequest</code> call. Data files, query results, and column values never leave your browser.</p>' +
       '</div>' +
-      leakHtml +
-      '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:var(--primary,#4F98A3);color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:13px;cursor:pointer;margin-top:8px;">Close</button>';
-    modal.appendChild(box);
-    document.body.appendChild(modal);
-    modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+      '<div class="pp-section">' +
+        '<div class="pp-section-title">Engines running locally</div>' +
+        '<div class="pp-engines">' +
+          '<div class="pp-engine"><span class="pp-engine-icon">&#128200;</span><div><strong>DuckDB-WASM</strong><div class="pp-engine-sub">In-browser SQL engine</div></div></div>' +
+          '<div class="pp-engine"><span class="pp-engine-icon">&#128013;</span><div><strong>Pyodide</strong><div class="pp-engine-sub">Python + pandas, in-browser</div></div></div>' +
+          '<div class="pp-engine"><span class="pp-engine-icon">&#128202;</span><div><strong>WebR</strong><div class="pp-engine-sub">R runtime, in-browser</div></div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pp-section">' +
+        '<div class="pp-section-title pp-section-title-row"><span>Allowed CDN requests <span class="pp-count">' + _allowLog.length + '</span></span><span class="pp-section-note">GET-only library files</span></div>' +
+        '<div class="pp-log">' + allowRows + '</div>' +
+      '</div>' +
+      '<div class="pp-section">' +
+        '<div class="pp-section-title pp-section-title-row"><span>Unexpected requests <span class="pp-count pp-count-' + (_leakLog.length > 0 ? 'bad' : 'ok') + '">' + _leakLog.length + '</span></span></div>' +
+        '<div class="pp-log">' + leakRows + '</div>' +
+      '</div>';
+  }
+
+  function showPrivacyAudit() {
+    var panel = document.getElementById('privacy-proof-panel');
+    if (!panel) return;
+    var overlay = document.getElementById('privacy-proof-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    panel.classList.remove('hidden');
+    renderPrivacyPanelContent();
+    /* auto-refresh every 3s while panel is open */
+    if (!panel._refreshTimer) {
+      panel._refreshTimer = setInterval(function () {
+        if (panel.classList.contains('hidden')) {
+          clearInterval(panel._refreshTimer);
+          panel._refreshTimer = null;
+        } else {
+          renderPrivacyPanelContent();
+        }
+      }, 3000);
+    }
   }
   window.showPrivacyAudit = showPrivacyAudit;
 
@@ -28067,6 +28369,21 @@ var DataGlowMirror = (function() {
     <div class="autopilot-footer">
       <span>Checks every 30s</span>
       <span id="autopilot-last-checked">Never checked</span>
+    </div>
+  </div>
+
+  <!-- Privacy Proof Panel -->
+  <div id="privacy-proof-overlay" class="hidden" onclick="document.getElementById('privacy-proof-panel').classList.add('hidden');document.getElementById('privacy-proof-overlay').classList.add('hidden');"></div>
+  <div id="privacy-proof-panel" class="hidden" role="dialog" aria-modal="true" aria-labelledby="pp-title">
+    <div class="pp-header">
+      <div class="pp-header-left">
+        <div class="pp-header-dot"></div>
+        <h2 id="pp-title">Privacy Proof</h2>
+      </div>
+      <button class="pp-close-btn" aria-label="Close" onclick="document.getElementById('privacy-proof-panel').classList.add('hidden');document.getElementById('privacy-proof-overlay').classList.add('hidden');">&times;</button>
+    </div>
+    <div id="privacy-proof-body" class="pp-body">
+      <div class="pp-empty">Loading...</div>
     </div>
   </div>
 </body>

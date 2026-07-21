@@ -1469,6 +1469,21 @@
       <span id="autopilot-last-checked">Never checked</span>
     </div>
   </div>
+
+  <!-- Privacy Proof Panel -->
+  <div id="privacy-proof-overlay" class="hidden" onclick="document.getElementById('privacy-proof-panel').classList.add('hidden');document.getElementById('privacy-proof-overlay').classList.add('hidden');"></div>
+  <div id="privacy-proof-panel" class="hidden" role="dialog" aria-modal="true" aria-labelledby="pp-title">
+    <div class="pp-header">
+      <div class="pp-header-left">
+        <div class="pp-header-dot"></div>
+        <h2 id="pp-title">Privacy Proof</h2>
+      </div>
+      <button class="pp-close-btn" aria-label="Close" onclick="document.getElementById('privacy-proof-panel').classList.add('hidden');document.getElementById('privacy-proof-overlay').classList.add('hidden');">&times;</button>
+    </div>
+    <div id="privacy-proof-body" class="pp-body">
+      <div class="pp-empty">Loading...</div>
+    </div>
+  </div>
 </body>
 </html>- UX: Post-load Action Spotlight -->
 <div id="action-spotlight">
