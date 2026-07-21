@@ -5045,3 +5045,95 @@
   background: rgba(79,152,163,0.08) !important;
 }
 /* ---- End Signed Report ---- */
+
+/* ---- Versioned Rulepacks ---- */
+.rulepack-editor {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.rulepack-editor-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.rulepack-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rulepack-label {
+  font-size: 12px;
+  color: var(--text);
+  flex: 1;
+}
+.rulepack-input {
+  width: 64px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 12px;
+  text-align: right;
+}
+.rulepack-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.rulepack-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.rulepack-apply-btn {
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.rp-item { flex-direction: column; align-items: flex-start; gap: 4px; }
+.vault-item-top { display: flex; align-items: center; gap: 8px; width: 100%; }
+.rp-version {
+  font-size: 10px;
+  color: var(--primary);
+  background: rgba(79,152,163,0.12);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 600;
+}
+.rp-meta { font-size: 11px; color: var(--text-muted); }
+.rp-tag {
+  display: inline-block;
+  font-size: 10px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  color: var(--text-muted);
+}
+.rp-config-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+.rp-actions { display: flex; gap: 6px; margin-top: 4px; }
+.rp-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  cursor: pointer;
+}
+.rp-btn:hover { border-color: var(--primary); color: var(--primary); }
+.rp-btn.danger { border-color: var(--error, #A12C7B); }
+.rp-btn.danger:hover { background: rgba(161,44,123,0.08); color: var(--error, #A12C7B); }
+/* ---- End Rulepacks ---- */

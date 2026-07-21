@@ -18240,6 +18240,315 @@ var InstantInsight = (function () {
       }, 500);
     });
 
+  /* ============================================================
+     RULEPACK ENGINE — versioned save/load of validation thresholds
+     ============================================================ */
+  var RulepackEngine = (function () {
+    var STORAGE_KEY = '__dg_rulepacks__';
+    var _packs = [];
+
+    function _load() {
+      try {
+        var raw = sessionStorage.getItem(STORAGE_KEY);
+        _packs = raw ? JSON.parse(raw) : [];
+      } catch (_e) { _packs = []; }
+    }
+
+    function _save() {
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(_packs)); } catch (_e) {}
+    }
+
+    function getDefaults() {
+      return {
+        nullCritical: 20,
+        nullWarning: 5,
+        blockNegativeCurrency: true,
+        duplicateThreshold: 0
+      };
+    }
+
+    /* Active config — starts at defaults, mutated by Apply */
+    var _active = getDefaults();
+
+    function getActive() { return Object.assign({}, _active); }
+
+    function applyConfig(cfg) {
+      _active = Object.assign(getDefaults(), cfg || {});
+    }
+
+    function savePack(name, cfg, tags) {
+      _load();
+      var existing = _packs.findIndex(function (p) { return p.name === name; });
+      var pack = {
+        id: name + '_' + Date.now(),
+        name: name,
+        version: existing >= 0 ? (_packs[existing].version || 1) + 1 : 1,
+        savedAt: new Date().toISOString(),
+        tags: tags || [],
+        config: Object.assign({}, cfg)
+      };
+      if (existing >= 0) {
+        _packs[existing] = pack;
+      } else {
+        _packs.unshift(pack);
+      }
+      _save();
+      return pack;
+    }
+
+    function listPacks() {
+      _load();
+      return _packs.slice();
+    }
+
+    function deletePack(id) {
+      _load();
+      _packs = _packs.filter(function (p) { return p.id !== id; });
+      _save();
+    }
+
+    function exportPackJSON(pack) {
+      return JSON.stringify({
+        format: 'dataglow-rulepack',
+        formatVersion: 1,
+        name: pack.name,
+        version: pack.version,
+        savedAt: pack.savedAt,
+        tags: pack.tags,
+        config: pack.config
+      }, null, 2);
+    }
+
+    function importPackJSON(json) {
+      var obj = JSON.parse(json);
+      if (obj.format !== 'dataglow-rulepack') throw new Error('Not a DataGlow rulepack file.');
+      return savePack(obj.name, obj.config, obj.tags);
+    }
+
+    _load();
+    return { getDefaults, getActive, applyConfig, savePack, listPacks, deletePack, exportPackJSON, importPackJSON };
+  }());
+  window.RulepackEngine = RulepackEngine;
+
+  /* ── Rulepack UI wiring ────────────────────────────────────────────────── */
+  (function () {
+    var rpNullCrit   = document.getElementById('rp-null-critical');
+    var rpNullWarn   = document.getElementById('rp-null-warning');
+    var rpNegCurr    = document.getElementById('rp-neg-currency');
+    var rpDupThresh  = document.getElementById('rp-dup-threshold');
+    var rpApplyBtn   = document.getElementById('rp-apply-btn');
+    var rpSaveBtn    = document.getElementById('vault-rulepack-save-btn');
+    var rpList       = document.getElementById('vault-rulepack-list');
+    var rpSearch     = document.getElementById('vault-rulepack-search');
+
+    function readFormConfig() {
+      return {
+        nullCritical: parseInt(rpNullCrit && rpNullCrit.value, 10) || 20,
+        nullWarning: parseInt(rpNullWarn && rpNullWarn.value, 10) || 5,
+        blockNegativeCurrency: rpNegCurr ? rpNegCurr.checked : true,
+        duplicateThreshold: parseInt(rpDupThresh && rpDupThresh.value, 10) || 0
+      };
+    }
+
+    function syncFormToConfig(cfg) {
+      if (rpNullCrit) rpNullCrit.value = cfg.nullCritical;
+      if (rpNullWarn) rpNullWarn.value = cfg.nullWarning;
+      if (rpNegCurr)  rpNegCurr.checked = cfg.blockNegativeCurrency;
+      if (rpDupThresh) rpDupThresh.value = cfg.duplicateThreshold;
+    }
+
+    function renderPackList(filter) {
+      if (!rpList) return;
+      var packs = RulepackEngine.listPacks();
+      if (filter) {
+        var q = filter.toLowerCase();
+        packs = packs.filter(function (p) {
+          return p.name.toLowerCase().includes(q) || (p.tags || []).join(' ').toLowerCase().includes(q);
+        });
+      }
+      if (packs.length === 0) {
+        rpList.innerHTML = '<div class="vault-empty">No rulepacks saved yet.</div>';
+        return;
+      }
+      rpList.innerHTML = packs.map(function (p) {
+        var tagsHtml = (p.tags || []).map(function (t) {
+          return '<span class="rp-tag">' + t + '</span>';
+        }).join('');
+        return '<div class="vault-item rp-item" data-rp-id="' + p.id + '">' +
+          '<div class="vault-item-top">' +
+          '<span class="vault-item-name">' + p.name + '</span>' +
+          '<span class="rp-version">v' + p.version + '</span>' +
+          '</div>' +
+          '<div class="rp-meta">' + new Date(p.savedAt).toLocaleDateString() + ' ' + tagsHtml + '</div>' +
+          '<div class="rp-config-preview">' +
+          'Null crit: ' + p.config.nullCritical + '% | Warn: ' + p.config.nullWarning + '% | ' +
+          'Neg: ' + (p.config.blockNegativeCurrency ? 'on' : 'off') +
+          '</div>' +
+          '<div class="rp-actions">' +
+          '<button class="rp-btn rp-load-btn" data-rp-id="' + p.id + '">Load</button>' +
+          '<button class="rp-btn rp-export-btn" data-rp-id="' + p.id + '">Export JSON</button>' +
+          '<button class="rp-btn rp-del-btn danger" data-rp-id="' + p.id + '">Delete</button>' +
+          '</div>' +
+          '</div>';
+      }).join('');
+
+      rpList.querySelectorAll('.rp-load-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = this.getAttribute('data-rp-id');
+          var pack = RulepackEngine.listPacks().find(function (p) { return p.id === id; });
+          if (!pack) return;
+          RulepackEngine.applyConfig(pack.config);
+          syncFormToConfig(pack.config);
+          if (typeof showToast === 'function') showToast('Rulepack "' + pack.name + '" loaded. Click Apply to re-validate.', 'success');
+        });
+      });
+
+      rpList.querySelectorAll('.rp-export-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = this.getAttribute('data-rp-id');
+          var pack = RulepackEngine.listPacks().find(function (p) { return p.id === id; });
+          if (!pack) return;
+          var blob = new Blob([RulepackEngine.exportPackJSON(pack)], { type: 'application/json' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'rulepack-' + pack.name.replace(/[^a-z0-9]/gi, '_') + '-v' + pack.version + '.json';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        });
+      });
+
+      rpList.querySelectorAll('.rp-del-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = this.getAttribute('data-rp-id');
+          RulepackEngine.deletePack(id);
+          renderPackList(rpSearch ? rpSearch.value : '');
+        });
+      });
+    }
+
+    if (rpApplyBtn) {
+      rpApplyBtn.addEventListener('click', function () {
+        var cfg = readFormConfig();
+        RulepackEngine.applyConfig(cfg);
+        /* Re-run validation with new thresholds */
+        var ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+        if (ds && typeof runMockValidation === 'function') {
+          var result = runMockValidation(ds);
+          ds.findings = result.findings;
+          ds.rowFlags = result.rowFlags;
+          ds.columnHealth = result.columnHealth;
+          if (typeof renderFindings === 'function') renderFindings(result.findings);
+          if (typeof renderRowHighlights === 'function') renderRowHighlights(result.rowFlags);
+          if (typeof renderColumnHealth === 'function') renderColumnHealth(result.columnHealth);
+          if (typeof updateProofExportButtonState === 'function') updateProofExportButtonState();
+          if (typeof showToast === 'function') showToast('Rules applied. Validation updated.', 'success');
+        } else {
+          if (typeof showToast === 'function') showToast('Load a dataset first, then apply.', 'warn');
+        }
+      });
+    }
+
+    if (rpSaveBtn) {
+      rpSaveBtn.addEventListener('click', function () {
+        var cfg = readFormConfig();
+        var name = window.prompt('Name this rulepack:', 'My Rules');
+        if (name === null) return;
+        var tagsRaw = window.prompt('Tags (comma separated, optional):', '');
+        var tags = tagsRaw ? tagsRaw.split(',').map(function (t) { return t.trim(); }).filter(Boolean) : [];
+        RulepackEngine.savePack(name, cfg, tags);
+        renderPackList(rpSearch ? rpSearch.value : '');
+        if (typeof showToast === 'function') showToast('Rulepack "' + name + '" saved.', 'success');
+      });
+    }
+
+    if (rpSearch) {
+      rpSearch.addEventListener('input', function () {
+        renderPackList(this.value);
+      });
+    }
+
+    /* Render list whenever Rulepacks tab is activated */
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.getAttribute && e.target.getAttribute('data-vault-tab') === 'rulepacks') {
+        renderPackList(rpSearch ? rpSearch.value : '');
+      }
+    });
+
+    renderPackList('');
+  }());
+
+  /* ── Patch runMockValidation to respect RulepackEngine.getActive() ─────── */
+  (function () {
+    var _orig = window.runMockValidation || (typeof runMockValidation === 'function' ? runMockValidation : null);
+    window.runMockValidationWithRules = function (dataset) {
+      var cfg = (window.RulepackEngine && window.RulepackEngine.getActive) ? window.RulepackEngine.getActive() : { nullCritical: 20, nullWarning: 5, blockNegativeCurrency: true, duplicateThreshold: 0 };
+      var columns = dataset.columns;
+      var rows = dataset.rows;
+      var findings = [];
+      var rowFlags = rows.map(function () { return { warning: false, error: false }; });
+      var columnHealth = columns.map(function () { return 'green'; });
+
+      columns.forEach(function (col, colIdx) {
+        var emptyCount = 0;
+        rows.forEach(function (r) {
+          var v = r[colIdx];
+          if (v === '' || v === null || v === undefined) emptyCount++;
+        });
+        var emptyPct = rows.length ? (emptyCount / rows.length) * 100 : 0;
+
+        if (emptyPct > cfg.nullCritical) {
+          columnHealth[colIdx] = 'red';
+          findings.push({ severity: 'error', column: col.name, rowCount: emptyCount,
+            message: '`' + col.name + '` has ' + emptyCount + ' null values (' + emptyPct.toFixed(0) + '%).',
+            rule: 'null_threshold_v2', sql: 'SELECT * FROM dataset WHERE ' + col.name + ' IS NULL OR ' + col.name + " = '';", citation: null });
+          rows.forEach(function (r, ri) {
+            if (r[colIdx] === '' || r[colIdx] === null || r[colIdx] === undefined) rowFlags[ri].error = true;
+          });
+        } else if (emptyPct > cfg.nullWarning) {
+          if (columnHealth[colIdx] === 'green') columnHealth[colIdx] = 'amber';
+          findings.push({ severity: 'warning', column: col.name, rowCount: emptyCount,
+            message: emptyCount + ' rows in `' + col.name + '` are missing a value (' + emptyPct.toFixed(0) + '%).',
+            rule: 'null_threshold_v2', sql: 'SELECT * FROM dataset WHERE ' + col.name + ' IS NULL OR ' + col.name + " = '';", citation: null });
+          rows.forEach(function (r, ri) {
+            if (r[colIdx] === '' || r[colIdx] === null || r[colIdx] === undefined) rowFlags[ri].warning = true;
+          });
+        }
+
+        if (cfg.blockNegativeCurrency && (col.type === 'INT' || col.type === 'FLOAT')) {
+          var negRows = [];
+          rows.forEach(function (r, ri) {
+            var raw = r[colIdx];
+            if (raw !== '' && !isNaN(Number(raw)) && Number(raw) < 0) negRows.push(ri);
+          });
+          if (negRows.length) {
+            if (columnHealth[colIdx] === 'green') columnHealth[colIdx] = 'amber';
+            var firstNeg = negRows[0];
+            findings.push({ severity: 'warning', column: col.name, rowCount: negRows.length,
+              message: '`' + col.name + '` at row ' + (firstNeg + 1) + ' is negative (' + rows[firstNeg][colIdx] + '). ' + negRows.length + ' row(s) affected.',
+              rule: 'no_negative_currency_v2', sql: 'SELECT * FROM dataset WHERE ' + col.name + ' < 0;', citation: null });
+            negRows.forEach(function (ri) { rowFlags[ri].warning = true; });
+          }
+        }
+
+        if (cfg.duplicateThreshold > 0) {
+          var seen = {}, dupCount = 0;
+          var rowStrs = rows.map(function (r) { return JSON.stringify(r); });
+          rowStrs.forEach(function (s) { if (seen[s]) dupCount++; else seen[s] = 1; });
+          var dupPct = rows.length ? (dupCount / rows.length) * 100 : 0;
+          if (dupPct > cfg.duplicateThreshold) {
+            findings.push({ severity: 'warning', column: null, rowCount: dupCount,
+              message: dupCount + ' duplicate rows detected (' + dupPct.toFixed(0) + '% of dataset).',
+              rule: 'duplicate_threshold_v1', sql: null, citation: null });
+          }
+        }
+      });
+      return { findings: findings, rowFlags: rowFlags, columnHealth: columnHealth };
+    };
+    /* Expose as the canonical runMockValidation so Apply btn and re-loads use it */
+    window.runMockValidation = window.runMockValidationWithRules;
+  }());
+
     /* First-visit welcome brief: shows on page load before any file is dropped */
     (function () {
       var WELCOME_KEY = '__dg_welcome_seen__';
