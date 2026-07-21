@@ -1129,21 +1129,33 @@
 <div id="review-view" class="analyze-panel hidden">
   <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
     <div class="review-feed" id="review-feed">
-      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+      <div class="review-empty">
+        <div class="review-empty-icon">&#x2713;</div>
+        <div class="review-empty-title">No issues detected</div>
+        <div class="review-empty-desc">Load a dataset, write a SQL query or Python script, then switch here. Peer Review checks your code and data together.</div>
+      </div>
     </div>
     <div class="review-scorecard">
-      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
-      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
-      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
-      <div class="review-severity-counts">
-        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      <div class="review-grade-wrap">
+        <div class="review-grade-big" id="review-grade-big">-</div>
+        <div class="review-grade-label" id="review-grade-label">Quality Score</div>
       </div>
-      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+      <div class="review-sc-group">
+        <div class="review-sc-section">By Layer</div>
+        <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      </div>
+      <div class="review-sc-group">
+        <div class="review-sc-section">Findings</div>
+        <div class="review-severity-counts">
+          <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Passing</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+        </div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">&#x29C9; Copy Review</button>
     </div>
   </div>
 </div>
@@ -1711,21 +1723,33 @@
 <div id="review-view" class="analyze-panel hidden">
   <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
     <div class="review-feed" id="review-feed">
-      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+      <div class="review-empty">
+        <div class="review-empty-icon">&#x2713;</div>
+        <div class="review-empty-title">No issues detected</div>
+        <div class="review-empty-desc">Load a dataset, write a SQL query or Python script, then switch here. Peer Review checks your code and data together.</div>
+      </div>
     </div>
     <div class="review-scorecard">
-      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
-      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
-      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
-      <div class="review-severity-counts">
-        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      <div class="review-grade-wrap">
+        <div class="review-grade-big" id="review-grade-big">-</div>
+        <div class="review-grade-label" id="review-grade-label">Quality Score</div>
       </div>
-      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+      <div class="review-sc-group">
+        <div class="review-sc-section">By Layer</div>
+        <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      </div>
+      <div class="review-sc-group">
+        <div class="review-sc-section">Findings</div>
+        <div class="review-severity-counts">
+          <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Passing</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+        </div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">&#x29C9; Copy Review</button>
     </div>
   </div>
 </div>

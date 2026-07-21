@@ -19358,7 +19358,13 @@ var InstantInsight = (function () {
     if (pyScoreEl) { var ps = subScore(pyIssues); pyScoreEl.textContent = ps === null ? '-' : ps; }
 
     if (issues.length === 0) {
-      feedEl.innerHTML = '<div class="review-empty">No issues found. Load a dataset and run a query to get a peer review.</div>';
+      feedEl.innerHTML =
+        '<div class="review-empty">' +
+          '<div class="review-empty-icon">&#x2713;</div>' +
+          '<div class="review-empty-title">No issues detected</div>' +
+          '<div class="review-empty-desc">Load a dataset, write a SQL query or Python script, then switch here. ' +
+          'Peer Review checks your code and data together.</div>' +
+        '</div>';
       if (gradeEl) { gradeEl.textContent = '-'; gradeEl.className = 'review-grade-big'; }
       if (gradeLabelEl) gradeLabelEl.textContent = 'Quality Score';
       if (errCountEl) errCountEl.textContent = '0';
@@ -19368,14 +19374,22 @@ var InstantInsight = (function () {
       return;
     }
 
-    var SEV_ICON = {error:'&#9940;', warning:'&#9888;', info:'&#8505;', praise:'&#10003;'};
+    var SEV_ICON = { error: '&#9940;', warning: '&#9888;', info: '&#8505;', praise: '&#10003;' };
+    var SEV_LABEL = { error: 'Error', warning: 'Warning', info: 'Info', praise: 'Pass' };
     feedEl.innerHTML = issues.map(function(issue) {
       return '<div class="review-item ' + issue.severity + '">' +
-        '<span class="review-sev-icon">' + (SEV_ICON[issue.severity] || '') + '</span>' +
-        '<div class="review-body">' +
-        '<div class="review-cat">' + issue.cat + ' - ' + issue.severity.toUpperCase() + '</div>' +
-        '<div class="review-msg">' + issue.msg + '</div>' +
-        '</div></div>';
+        '<div class="review-item-stripe"></div>' +
+        '<div class="review-item-body">' +
+          '<div class="review-item-header">' +
+            '<span class="review-sev-chip review-chip-' + issue.severity + '">' +
+              SEV_ICON[issue.severity] + ' ' + (SEV_LABEL[issue.severity] || issue.severity) +
+            '</span>' +
+            '<span class="review-cat-label">' + (issue.cat || '') + '</span>' +
+          '</div>' +
+          '<div class="review-msg">' + issue.msg + '</div>' +
+          (issue.line ? '<div class="review-line">Line ' + issue.line + '</div>' : '') +
+        '</div>' +
+      '</div>';
     }).join('');
 
     var g = computeGrade(issues);
