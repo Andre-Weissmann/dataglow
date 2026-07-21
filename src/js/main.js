@@ -67,6 +67,7 @@
   // @@INCLUDE: src/js/join/join-builder.js
   // @@INCLUDE: src/js/anomaly/anomaly-timeline.js
   // @@INCLUDE: src/js/dashboard/findings-rail.js
+  // @@INCLUDE: src/js/dashboard/proof-chain-rail.js
   // @@INCLUDE: src/js/dashboard/dashboard-engine.js
   // @@INCLUDE: src/js/insight/insight-engine.js
 
@@ -126,6 +127,7 @@
   // @@INCLUDE: src/js/features/ai-director-legacy.js
   // @@INCLUDE: src/js/features/ai-director.js
   // @@INCLUDE: src/js/features/projects.js
+  // @@INCLUDE: src/js/features/portfolio-export.js
 
   // 8. Story & data
   // @@INCLUDE: src/js/story/story-builder.js

@@ -431,6 +431,8 @@ var ChartEngine = (function () {
 
   // ── main render ───────────────────────────────────────────────────────────
   function renderAll(dataset, containerEl) {
+    // Store dataset reference for proof chain
+    window.__dg_currentDataset = dataset;
     containerEl.innerHTML = '';
 
     if (!dataset || !dataset.rows || dataset.rows.length < 2) {

@@ -762,6 +762,15 @@
 
       <!-- SHARE TAB -->
       <div id="share-view" class="view hidden">
+        <div style="padding:20px 20px 0">
+          <button class="portfolio-export-btn" id="portfolio-export-trigger" onclick="(function(){ if(typeof PortfolioExport !== 'undefined' && window.__dg_currentDataset) { PortfolioExport.open(window.__dg_currentDataset, { title: window.__dg_currentDataset.name, findings: window.__dg_lastFindings || [], sqlQueries: window.__dg_sqlHistory || [], score: window.__dg_lastScore }); } else { alert('Load a dataset first to export to your portfolio.'); } })()">
+            <span class="portfolio-export-btn-icon">&#128228;</span>
+            <div class="portfolio-export-btn-text">
+              <div class="peb-title">Export to Portfolio</div>
+              <div class="peb-sub">Dashboard + report + deep dive + proof certificate</div>
+            </div>
+          </button>
+        </div>
         <div id="narrative-share-section">
           <div id="narrative-share-card">
             <div id="narrative-share-title">Portfolio Narrative</div>

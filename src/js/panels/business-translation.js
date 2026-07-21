@@ -121,6 +121,11 @@
           var ds = window.getActiveDataset && window.getActiveDataset();
           if (ds && window.FindingsRail) {
             window.FindingsRail.render(ds, container);
+            // Proof chain rail
+            if (typeof ProofChainRail !== 'undefined') {
+              var btFinds = Array.isArray(ds.findings) ? ds.findings : [];
+              setTimeout(function() { ProofChainRail.renderInline(container, ds, btFinds); }, 150);
+            }
             attachTranslateBtn(container, ds.findings);
           }
         });

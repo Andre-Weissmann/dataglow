@@ -374,4 +374,14 @@ var FindingsRail = (function () {
     if (containerEl) containerEl.innerHTML = '';
   }
 
-  return { render: render, clear: clear };
+  return {
+    render: function(dataset, containerEl) {
+      // Store globally for portfolio export
+      window.__dg_currentDataset = dataset;
+      window.__dg_lastFindings = Array.isArray(dataset && dataset.findings) ? dataset.findings : [];
+      return render(dataset, containerEl);
+    },
+    clear: clear
+  };
+
+}());

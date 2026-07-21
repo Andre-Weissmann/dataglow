@@ -76,6 +76,11 @@ cp "$SRC/css/main.css" "$TMP.css"
 CSS_CHARS=$(wc -c < "$TMP.css")
 echo "  CSS: $CSS_CHARS chars"
 
+# ── 4b. Escape </script> inside JS (required for safe HTML inline embedding) ──
+# HTML parsers split <script> blocks at </script> -- escape it to prevent truncation
+python3 "$ROOT/escape_script_tags.py" "$TMP.js"
+
+
 # ── 5. Assemble final index.html ─────────────────────────────────────────
 echo "  Assembling index.html..."
 {
