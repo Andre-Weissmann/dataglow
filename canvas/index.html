@@ -8,7 +8,19 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DataGlow">
-<title>DataGlow  -  Your data, understood.</title>
+<title>DataGlow - Your data, understood.</title>
+  <!-- Flash-free theme init: run before any paint -->
+  <script>
+    (function(){
+      var saved = sessionStorage.getItem('dg_theme');
+      var sys = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', saved || sys);
+    })();
+  </script>
+  <!-- Geist + Geist Mono via Fontsource (CDN, free) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
   <style>
 
   /* ============================================================
@@ -22,7 +34,7 @@
     padding: 0;
   }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: #28251D;
@@ -47,36 +59,54 @@
   :root {
     --bg: #F7F6F2;
     --surface: #F9F8F5;
+    --surface-2: #FFFFFF;
     --border: #D4D1CA;
     --text: #28251D;
     --text-muted: #7A7974;
+    --text-faint: #BAB9B4;
     --primary: #01696F;
     --primary-hover: #0C4E54;
     --warning: #964219;
     --error: #A12C7B;
     --success: #437A22;
+    --proof: #2D9B6F;
+    --proof-bg: rgba(45, 155, 111, 0.08);
+    --flag: #C87B2A;
+    --flag-bg: rgba(200, 123, 42, 0.08);
     --drop-border-rest: #C9C6BE;
-    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --mono: 'Geist Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
     --row-warning-bg: rgba(150, 66, 25, 0.08);
     --row-error-bg: rgba(161, 44, 123, 0.08);
     --grid-row-bg: #ffffff;
+    --easing: cubic-bezier(0.23, 1, 0.32, 1);
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
   }
 
   [data-theme="dark"] {
-    --bg: #171614;
-    --surface: #1C1B19;
-    --border: #34322E;
-    --text: #CDCCCA;
-    --text-muted: #8B8983;
-    --primary: #1BA1A8;
-    --primary-hover: #3ec2c9;
+    --bg: #0D0E10;
+    --surface: #131519;
+    --surface-2: #191C20;
+    --border: #252930;
+    --text: #E0DFE0;
+    --text-muted: #7E8390;
+    --text-faint: #4E525A;
+    --primary: #20C5B5;
+    --primary-hover: #3DD6C6;
     --warning: #D08A5B;
     --error: #E06BB8;
     --success: #7FBF57;
-    --drop-border-rest: #4A4842;
+    --proof: #4AE38A;
+    --proof-bg: rgba(74, 227, 138, 0.08);
+    --flag: #F5A623;
+    --flag-bg: rgba(245, 166, 35, 0.08);
+    --drop-border-rest: #2E333B;
     --row-warning-bg: rgba(208, 138, 91, 0.12);
     --row-error-bg: rgba(224, 107, 184, 0.12);
-    --grid-row-bg: #201F1C;
+    --grid-row-bg: #15181D;
+    --easing: cubic-bezier(0.23, 1, 0.32, 1);
   }
 
   body {
@@ -97,7 +127,7 @@
     justify-content: center;
     background: var(--bg);
     z-index: 20;
-    transition: opacity 400ms ease-out, transform 400ms ease-out;
+    transition: opacity 400ms var(--easing), transform 400ms var(--easing);
     overflow: hidden;
   }
   #ceremony-screen.dissolve-out {
@@ -106,23 +136,48 @@
     pointer-events: none;
   }
 
-  /* Ambient glow orb */
+  /* Stage lighting: two radial orbs for depth */
   #ceremony-screen::before {
     content: '';
     position: absolute;
-    width: 600px;
-    height: 600px;
+    width: 700px;
+    height: 700px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(1,105,111,0.07) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(1,105,111,0.06) 0%, transparent 65%);
+    top: -15%;
+    left: 50%;
+    transform: translateX(-50%);
     pointer-events: none;
-    animation: orb-breathe 6s ease-in-out infinite;
+    animation: orb-breathe 8s ease-in-out infinite;
+  }
+  #ceremony-screen::after {
+    content: '';
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(74, 227, 138, 0.04) 0%, transparent 65%);
+    bottom: -10%;
+    right: 10%;
+    pointer-events: none;
+    animation: orb-breathe 10s ease-in-out infinite reverse;
   }
   [data-theme="dark"] #ceremony-screen::before {
-    background: radial-gradient(circle, rgba(27,161,168,0.10) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(32,197,181,0.10) 0%, transparent 65%);
+  }
+  [data-theme="dark"] #ceremony-screen::after {
+    background: radial-gradient(circle, rgba(74, 227, 138, 0.06) 0%, transparent 65%);
   }
   @keyframes orb-breathe {
-    0%, 100% { transform: scale(1); opacity: 0.7; }
-    50% { transform: scale(1.08); opacity: 1; }
+    0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.6; }
+    50% { transform: translateX(-50%) scale(1.07); opacity: 1; }
+  }
+  #ceremony-screen::after {
+    animation: orb-breathe-2 10s ease-in-out infinite reverse;
+  }
+  @keyframes orb-breathe-2 {
+    0%, 100% { transform: scale(1); opacity: 0.5; }
+    50% { transform: scale(1.1); opacity: 0.9; }
   }
 
   #canvas {
@@ -131,83 +186,158 @@
 
   /* Wordmark */
   #ceremony-wordmark {
-    width: 220px;
+    width: 200px;
     height: auto;
     object-fit: contain;
     display: block;
-    margin: 0 auto 16px;
+    margin: 0 auto 12px;
     position: relative;
     z-index: 1;
+    border-radius: 8px;
+  }
+  /* Dark mode: remove the white background from the logo image */
+  [data-theme="dark"] #ceremony-wordmark {
+    /* transparent PNG - no hack needed */
   }
 
-
-  /* Tagline */
+  /* Tagline - now bolder, more purposeful */
   #ceremony-tagline {
-    font-size: 14px;
+    font-size: 13px;
+    font-weight: 400;
     color: var(--text-muted);
-    margin: 0 0 40px 0;
-    letter-spacing: 0.01em;
+    margin: 0 0 32px 0;
+    letter-spacing: 0.02em;
     position: relative;
     z-index: 1;
+    font-family: 'Geist Mono', monospace;
+  }
+
+  /* Proof badges above drop zone */
+  .ceremony-proof-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    position: relative;
+    z-index: 1;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .proof-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    font-weight: 500;
+    font-family: 'Geist Mono', monospace;
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+    transition: all 200ms var(--easing);
+  }
+  .proof-badge.badge-local {
+    background: var(--proof-bg);
+    color: var(--proof);
+    border-color: rgba(74, 227, 138, 0.2);
+  }
+  [data-theme="light"] .proof-badge.badge-local {
+    background: rgba(45, 155, 111, 0.08);
+    color: var(--proof);
+    border-color: rgba(45, 155, 111, 0.2);
+  }
+  .proof-badge.badge-open {
+    background: rgba(32, 197, 181, 0.08);
+    color: var(--primary);
+    border-color: rgba(32, 197, 181, 0.2);
+  }
+  [data-theme="light"] .proof-badge.badge-open {
+    background: rgba(1, 105, 111, 0.07);
+    color: var(--primary);
+    border-color: rgba(1, 105, 111, 0.15);
+  }
+  .proof-badge.badge-audit {
+    background: var(--flag-bg);
+    color: var(--flag);
+    border-color: rgba(245, 166, 35, 0.2);
+  }
+  [data-theme="light"] .proof-badge.badge-audit {
+    background: rgba(200, 123, 42, 0.08);
+    color: var(--flag);
+    border-color: rgba(200, 123, 42, 0.2);
   }
 
   /* ============================================================
      3. DROP ZONE
      ============================================================ */
   #drop-zone {
-    width: 560px;
-    max-width: 88vw;
-    height: 280px;
-    border: 1.5px dashed var(--drop-border-rest);
-    border-radius: 20px;
+    width: 580px;
+    max-width: 90vw;
+    min-height: 240px;
+    border: 1px solid var(--drop-border-rest);
+    border-radius: var(--radius-xl);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 32px 40px;
+    padding: 36px 44px;
     background: var(--surface);
-    transition: border-color 250ms ease-out, background-color 250ms ease-out, box-shadow 250ms ease-out, transform 250ms ease-out;
+    transition: border-color 250ms var(--easing), background-color 250ms var(--easing), box-shadow 250ms var(--easing), transform 250ms var(--easing);
     position: relative;
     z-index: 1;
     cursor: pointer;
+    /* Concentric geometry: 28px outer radius */
+  }
+  [data-theme="dark"] #drop-zone {
+    background: var(--surface);
+    box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 0 0 1px rgba(255,255,255,0.04);
   }
   #drop-zone:hover {
     border-color: var(--primary);
     background: rgba(1, 105, 111, 0.03);
-    box-shadow: 0 8px 40px rgba(1, 105, 111, 0.10);
+    box-shadow: 0 12px 48px rgba(1, 105, 111, 0.12);
     transform: translateY(-2px);
   }
   [data-theme="dark"] #drop-zone:hover {
-    background: rgba(27, 161, 168, 0.05);
-    box-shadow: 0 8px 40px rgba(27, 161, 168, 0.12);
+    background: rgba(32, 197, 181, 0.04);
+    box-shadow: 0 12px 48px rgba(32, 197, 181, 0.10), 0 0 0 1px rgba(32, 197, 181, 0.12);
+    border-color: rgba(32, 197, 181, 0.4);
   }
   #drop-zone.drag-over {
     border-color: var(--primary);
     border-style: solid;
     background-color: rgba(1, 105, 111, 0.05);
-    box-shadow: 0 0 0 4px rgba(1, 105, 111, 0.10), 0 12px 48px rgba(1, 105, 111, 0.15);
+    box-shadow: 0 0 0 4px rgba(1, 105, 111, 0.10), 0 16px 56px rgba(1, 105, 111, 0.18);
     transform: translateY(-3px);
+  }
+  [data-theme="dark"] #drop-zone.drag-over {
+    background-color: rgba(32, 197, 181, 0.06);
+    box-shadow: 0 0 0 4px rgba(32, 197, 181, 0.12), 0 16px 56px rgba(32, 197, 181, 0.15);
   }
   #drop-zone.pulse {
     border-color: var(--primary);
     border-style: solid;
-    box-shadow: 0 0 32px rgba(1, 105, 111, 0.30);
+    box-shadow: 0 0 36px rgba(1, 105, 111, 0.30);
+  }
+  [data-theme="dark"] #drop-zone.pulse {
+    box-shadow: 0 0 36px rgba(32, 197, 181, 0.25);
   }
   #drop-zone.fade-out {
     opacity: 0;
     transform: scale(0.97) translateY(-4px);
-    transition: opacity 350ms ease-out, transform 350ms ease-out;
+    transition: opacity 350ms var(--easing), transform 350ms var(--easing);
     pointer-events: none;
   }
 
   /* Drop zone icon */
   #drop-icon {
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     margin-bottom: 16px;
-    opacity: 0.35;
-    transition: opacity 250ms ease-out, transform 250ms ease-out;
+    opacity: 0.30;
+    transition: opacity 250ms var(--easing), transform 250ms var(--easing);
+    color: var(--primary);
   }
   #drop-zone:hover #drop-icon,
   #drop-zone.drag-over #drop-icon {
@@ -216,17 +346,18 @@
   }
 
   #drop-text {
-    font-size: 18px;
-    font-weight: 500;
+    font-size: 17px;
+    font-weight: 600;
     color: var(--text);
-    margin: 0 0 8px 0;
-    letter-spacing: -0.2px;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.3px;
   }
   #drop-formats {
     font-size: 12px;
     color: var(--text-muted);
     margin: 0;
     line-height: 1.6;
+    font-family: 'Geist Mono', monospace;
   }
   #drop-zone-hint {
     font-size: 12px;
@@ -248,19 +379,22 @@
 
   /* Privacy assurance line */
   #ceremony-privacy {
-    margin-top: 14px;
+    margin-top: 16px;
     font-size: 11px;
-    color: var(--text-muted);
-    opacity: 0.7;
+    font-family: 'Geist Mono', monospace;
+    color: var(--proof);
+    opacity: 0.85;
     position: relative;
     z-index: 1;
     display: flex;
     align-items: center;
     gap: 5px;
+    letter-spacing: 0.02em;
   }
   #ceremony-privacy::before {
-    content: '🔒';
-    font-size: 10px;
+    content: '✓';
+    font-size: 11px;
+    font-weight: 700;
   }
 
   /* Theme toggle on ceremony screen */
@@ -404,6 +538,12 @@
     position: relative;
     z-index: 25;
   }
+  [data-theme="dark"] #top-nav {
+    background: rgba(13, 14, 16, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom-color: rgba(255,255,255,0.06);
+  }
   #nav-brand {
     display: flex;
     align-items: center;
@@ -413,6 +553,10 @@
     width: auto;
     object-fit: contain;
     display: block;
+    border-radius: 4px;
+  }
+  [data-theme="dark"] #nav-logo-img {
+    /* transparent PNG - no hack needed */
   }
   #nav-views {
     display: flex;
@@ -467,17 +611,23 @@
     font-weight: 500;
     color: var(--text-muted);
     border-radius: 6px;
-    transition: background-color 150ms ease-out, color 150ms ease-out;
+    transition: background-color 150ms var(--easing), color 150ms var(--easing);
     letter-spacing: 0.01em;
   }
   .nav-btn:hover {
     background: rgba(1, 105, 111, 0.07);
     color: var(--text);
   }
+  [data-theme="dark"] .nav-btn:hover {
+    background: rgba(32, 197, 181, 0.08);
+  }
   .nav-btn.active {
     color: var(--primary);
     font-weight: 600;
     background: rgba(1, 105, 111, 0.06);
+  }
+  [data-theme="dark"] .nav-btn.active {
+    background: rgba(32, 197, 181, 0.08);
   }
   #nav-right {
     display: flex;
@@ -5376,6 +5526,96 @@
   }
 }
 
+
+  /* ============================================================
+     PROOF CHAIN PANEL (Trust Layer)
+     ============================================================ */
+  .proof-chain-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--proof-bg);
+    border-top: 1px solid rgba(74, 227, 138, 0.15);
+    font-size: 10.5px;
+    font-family: 'Geist Mono', monospace;
+    color: var(--proof);
+    letter-spacing: 0.02em;
+    flex-wrap: wrap;
+  }
+  [data-theme="light"] .proof-chain-bar {
+    background: rgba(45, 155, 111, 0.06);
+    border-top-color: rgba(45, 155, 111, 0.12);
+    color: var(--proof);
+  }
+  .proof-chain-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.8;
+  }
+  .proof-chain-step::after {
+    content: '>';
+    opacity: 0.4;
+    margin-left: 4px;
+  }
+  .proof-chain-step:last-child::after {
+    display: none;
+  }
+  .proof-chain-verified {
+    color: var(--proof);
+    font-weight: 700;
+  }
+
+  /* ============================================================
+     PROOF BADGE in results
+     ============================================================ */
+  .result-proof-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-family: 'Geist Mono', monospace;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--proof-bg);
+    color: var(--proof);
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  [data-theme="light"] .result-proof-badge {
+    background: rgba(45, 155, 111, 0.08);
+  }
+
+  /* ============================================================
+     GEIST MONO for all monospace elements
+     ============================================================ */
+  code, pre, .mono,
+  #sql-editor, .sql-result,
+  .dg-cell-mono, [data-mono] {
+    font-family: 'Geist Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace !important;
+  }
+
+  /* ============================================================
+     DARK MODE surface ladder improvements
+     ============================================================ */
+  [data-theme="dark"] .analyze-panel,
+  [data-theme="dark"] #data-view {
+    background: var(--bg);
+  }
+  [data-theme="dark"] .sidebar-nav-item {
+    color: var(--text-muted);
+  }
+  [data-theme="dark"] .sidebar-nav-item:hover {
+    background: rgba(32, 197, 181, 0.06);
+    color: var(--text);
+  }
+  [data-theme="dark"] .sidebar-nav-item.active {
+    background: rgba(32, 197, 181, 0.1);
+    color: var(--primary);
+  }
   </style>
 
 </head>
@@ -5399,8 +5639,13 @@
   <button id="ceremony-theme-btn" title="Toggle dark mode" aria-label="Toggle dark mode">&#9681;</button>
 
   <div id="ceremony-screen">
-    <img id="ceremony-wordmark" src="dataglow-logo.png" alt="DataGlow" />
-    <p id="ceremony-tagline">Your data. Understood. Instantly. Privately.</p>
+    <img id="ceremony-wordmark" src="dataglow-logo-transparent.png" alt="DataGlow" />
+    <p id="ceremony-tagline">Your data. Understood. Privately.</p>
+    <div class="ceremony-proof-badges">
+      <span class="proof-badge badge-local">&#10003; Local-first. Data never leaves.</span>
+      <span class="proof-badge badge-open">&#10003; AI shows its work.</span>
+      <span class="proof-badge badge-audit">&#10003; Signed audit trail.</span>
+    </div>
 
     <div id="drop-zone">
       <div id="resume-banner" style="display:none;background:var(--surface);border:1px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px;align-items:center;gap:12px;">
@@ -5418,8 +5663,8 @@
         <path d="M24 22v8M20 26l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
-      <p id="drop-text">Drop files here (CSV, TSV, JSON) - multiple files supported</p>
-      <p id="drop-formats">Every format. Any size. Zero uploads.</p>
+      <p id="drop-text">Drop your data here to begin</p>
+      <p id="drop-formats">CSV, TSV, JSON, Excel, Parquet, PDF, images, audio, video</p>
       <input type="file" id="file-input" class="hidden" multiple accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
@@ -5434,8 +5679,8 @@
       <button id="finding-expand">Here is what that means.</button>
     </div>
     <div id="return-use-banner" class="hidden"></div>
-    <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load an example dataset</span></p>
-    <p id="ceremony-privacy">Your data never leaves this tab</p>
+    <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load example data</span></p>
+    <p id="ceremony-privacy">Local-first. Zero uploads. Your data never leaves this tab.</p>
 
     <!-- Export panel -->
   <div id="export-panel" class="hidden">
@@ -5489,7 +5734,7 @@
   <!-- Top nav (inside #canvas) -->
     <nav id="top-nav">
       <div id="nav-brand">
-        <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
+        <img id="nav-logo-img" src="dataglow-logo-transparent.png" alt="DataGlow" />
       </div>
       <div id="nav-views">
         <button class="nav-btn active" data-view="data">Data</button>
@@ -17992,7 +18237,9 @@ var InstantInsight = (function () {
   if (ceremonyThemeBtn) {
     ceremonyThemeBtn.addEventListener('click', function () {
       var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+      var next = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { sessionStorage.setItem('dg_theme', next); } catch(e){}
     });
   }
 
@@ -18007,7 +18254,9 @@ var InstantInsight = (function () {
 
   themeToggle.addEventListener('click', function () {
     var current = document.documentElement.dataset.theme;
-    document.documentElement.dataset.theme = current === 'dark' ? 'light' : 'dark';
+    var next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { sessionStorage.setItem('dg_theme', next); } catch(e){}
   });
 
   /* ============================================================
