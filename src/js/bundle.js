@@ -9510,7 +9510,10 @@ var InstantInsight = (function () {
     portfolioNarrativeAssembler: true,
     meetingScribe: true,
     meetingScribeLiveCapture: true,
-    meetingDecisionLedger: true
+    meetingDecisionLedger: true,
+    aiCouncil: true,
+    dataVersionControl: true,
+    equityStratification: true,
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -25714,3 +25717,3885 @@ function exportLedgerEntries(entries) {
   window.mountMeetingPanel = mountMeetingPanel;
 }());
 /* ---- end meeting-scribe-ui.js + meeting-decision-ledger-ui.js ---- */
+
+
+/* ================================================================
+   AI COUNCIL — recovered from git history (commit 0662f76)
+   PR #323 Phase 11, upgraded PR #326 (deep reasoning edition)
+   ================================================================ */
+
+/* ---- from js/council/council-engine.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW -- AI Council Engine (Deep Reasoning Edition)
+// ============================================================
+// Calls three LLM providers in parallel with the SAME question and
+// dataset context, then synthesizes their answers using a structured
+// expert-reasoning format and semantic agreement scoring.
+//
+// UPGRADE GOALS (feature/council-deep-reasoning):
+//   - Domain-agnostic: works for healthcare, finance, operations, research,
+//     HR, supply chain, marketing analytics -- any industry.
+//   - Expert-grade answers: structured FINDING / EVIDENCE / CONFIDENCE /
+//     CAVEATS format instead of 3-5 short sentences.
+//   - Semantic synthesis: LLM-backed agreement scoring via a dedicated
+//     reconciler call, replacing naive substring word-matching.
+//   - Mode detection: the prompt adapts based on whether the question
+//     is asking for SQL, statistical analysis, causal inference,
+//     metric interpretation, or general analytical judgment.
+//
+// BYO-key, dependency-injected provider pattern (same as nl-sql-engine.js):
+// callLLM can be injected for tests -- zero network calls in Node.
+//
+// Privacy: schema-only guarantee. This module never reads row data.
+// The caller decides what context (if any) is passed in.
+// ============================================================
+
+// ---------------------------------------------------------------
+// Provider configs
+// ---------------------------------------------------------------
+// MODEL NAMES: editable in the UI without touching code.
+// Type a new name in the model field on the Council tab.
+// For Google/Gemini, the model name is embedded in the endpoint URL --
+// changing it in the UI automatically rebuilds the URL via resolveGoogleEndpoint().
+//
+// Current frontier models (July 2026 -- update when models change):
+//   OpenAI:    gpt-5.6-sol (flagship), gpt-5.6-terra (balanced), gpt-5.6-luna (budget)
+//   Anthropic: claude-fable-5 (frontier), claude-sonnet-5 (agentic/balanced), claude-opus-4-8 (strong)
+//   Google:    gemini-3.5-flash (fast, broadly available), gemini-3.5-pro (frontier, July 2026 GA)
+const COUNCIL_PROVIDERS = [
+  { id: 'openai',    name: 'OpenAI (GPT)',       endpoint: 'https://api.openai.com/v1/chat/completions',   model: 'gpt-5.6-sol',     requiresKey: true },
+  { id: 'anthropic', name: 'Anthropic (Claude)', endpoint: 'https://api.anthropic.com/v1/messages',        model: 'claude-fable-5',  requiresKey: true },
+  { id: 'google',    name: 'Google (Gemini)',    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', model: 'gemini-3.5-flash', requiresKey: true },
+];
+
+// Google endpoint template -- model name is embedded in the path.
+const GOOGLE_ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+const GOOGLE_ENDPOINT_SUFFIX = ':generateContent';
+
+/**
+ * Build the correct Google endpoint URL for any Gemini model name.
+ * @param {string} modelName  e.g. 'gemini-3.5-flash' or 'gemini-3.5-pro'
+ * @returns {string}
+ */
+function resolveGoogleEndpoint(modelName) {
+  return GOOGLE_ENDPOINT_BASE + (modelName || 'gemini-3.5-flash').trim() + GOOGLE_ENDPOINT_SUFFIX;
+}
+
+// ---------------------------------------------------------------
+// Question mode detection
+// ---------------------------------------------------------------
+// Determines what kind of analytical task the user is asking for
+// so the prompt can load the right expert reasoning framework.
+
+var MODE_PATTERNS = [
+  {
+    mode: 'sql',
+    label: 'SQL Generation',
+    signals: ['select ', 'from ', 'where ', 'group by', 'join ', 'write.*sql', 'sql.*for', 'query.*to', 'give me.*sql', 'how.*query'],
+  },
+  {
+    mode: 'causal',
+    label: 'Causal Inference',
+    signals: ['cause', 'caused by', 'why is', 'why are', 'why does', 'root cause', 'driving', 'factor', 'explain.*why', 'what.*leads to', 'confound', 'treatment effect', 'counterfactual'],
+  },
+  {
+    mode: 'statistical',
+    label: 'Statistical Analysis',
+    signals: ['significant', 'p-value', 'confidence interval', 'correlation', 'regression', 'distribution', 'outlier', 'anomaly', 'variance', 'standard deviation', 'mean', 'median', 'skew', 'hypothesis'],
+  },
+  {
+    mode: 'metric',
+    label: 'Metric Interpretation',
+    signals: ['rate', 'ratio', 'kpi', 'metric', 'measure', 'benchmark', 'target', 'goal', 'performance', 'score', 'index', 'what does.*mean', 'interpret', 'threshold'],
+  },
+  {
+    mode: 'prediction',
+    label: 'Predictive Analysis',
+    signals: ['predict', 'forecast', 'will', 'expect', 'likelihood', 'probability', 'risk', 'future', 'trend', 'model.*predict', 'feature.*import'],
+  },
+  {
+    mode: 'comparison',
+    label: 'Comparative Analysis',
+    signals: ['compare', 'versus', ' vs ', 'difference between', 'better', 'worse', 'higher', 'lower', 'which.*better', 'rank', 'top', 'bottom', 'best', 'worst'],
+  },
+];
+
+/**
+ * Detect the analytical mode of a question.
+ * Returns the first matching mode or 'general' if none match.
+ * @param {string} question
+ * @returns {{ mode: string, label: string }}
+ */
+function detectQuestionMode(question) {
+  if (!question) return { mode: 'general', label: 'General Analysis' };
+  var q = question.toLowerCase();
+  for (var i = 0; i < MODE_PATTERNS.length; i++) {
+    var pattern = MODE_PATTERNS[i];
+    for (var j = 0; j < pattern.signals.length; j++) {
+      if (q.indexOf(pattern.signals[j]) !== -1) {
+        return { mode: pattern.mode, label: pattern.label };
+      }
+    }
+  }
+  return { mode: 'general', label: 'General Analysis' };
+}
+
+// ---------------------------------------------------------------
+// Expert reasoning framework per mode
+// ---------------------------------------------------------------
+
+var REASONING_FRAMEWORKS = {
+  sql: [
+    'Write correct, runnable SQL based ONLY on the columns listed in the schema context.',
+    'Return ONE SQL block. No prose before or after it.',
+    'If a join is needed, pick the most appropriate join type and explain it in a single comment inside the SQL.',
+    'If the question is ambiguous about aggregation period or grouping, pick the most common-sense interpretation and add a -- NOTE comment.',
+    'Never invent column names. If the needed column is absent from the schema, say so clearly before the SQL block.',
+  ],
+  causal: [
+    'Apply rigorous causal reasoning: distinguish correlation from causation explicitly.',
+    'Identify at least one likely confounder or alternative explanation for the observed pattern.',
+    'State your causal claim as a DIRECTED relationship: "X likely increases Y because Z".',
+    'If the data alone cannot establish causality (no experiment, no natural experiment), say so and suggest what additional data would be needed.',
+    'Cite the type of evidence that would strengthen or weaken the causal claim (RCT, difference-in-differences, propensity score matching, etc.).',
+  ],
+  statistical: [
+    'Apply statistical thinking: what is the sample size context? Is statistical significance claimed? Is it practically significant?',
+    'Identify the correct statistical test or method for this question (t-test, chi-square, ANOVA, etc.) and explain why.',
+    'Flag any distributional assumptions that may be violated.',
+    'Distinguish between statistical significance and effect size -- both matter.',
+    'If you detect a multiple comparisons problem, say so.',
+  ],
+  metric: [
+    'Define the metric precisely: numerator, denominator, time window, and population.',
+    'State whether this metric is a leading or lagging indicator.',
+    'Give the industry-standard benchmark range for this metric, or note if none exists.',
+    'Identify the top two or three factors that typically move this metric up or down.',
+    'Flag any known issues with how this metric is commonly misused or misread.',
+  ],
+  prediction: [
+    'Name the most appropriate predictive approach (regression, classification, time-series, survival analysis, etc.) and why.',
+    'List the top features you would expect to be predictive, with brief justification for each.',
+    'Identify the biggest data quality risk that could invalidate the prediction.',
+    'State what evaluation metric you would use (RMSE, AUC, F1, etc.) and why.',
+    'Flag any target leakage risks in the dataset as described.',
+  ],
+  comparison: [
+    'Structure your comparison as a clear table or numbered list -- do not bury it in prose.',
+    'State which entity wins on each dimension you compare.',
+    'Identify any dimension where the comparison is misleading or apples-to-oranges.',
+    'Give an overall recommendation with a confidence level: HIGH / MEDIUM / LOW.',
+    'Name one assumption that, if wrong, would reverse your recommendation.',
+  ],
+  general: [
+    'Give your most expert analytical take, not a cautious hedge.',
+    'Structure your answer: main finding first, then supporting reasoning.',
+    'If you see a risk or a problem, name it directly.',
+    'If the question is underspecified, state your interpretation before answering.',
+    'End with one specific next step the analyst should take with this data.',
+  ],
+};
+
+// ---------------------------------------------------------------
+// Domain detection from schema context
+// ---------------------------------------------------------------
+
+var DOMAIN_SIGNALS = {
+  healthcare: ['patient', 'encounter', 'claim', 'diagnosis', 'icd', 'cpt', 'readmission', 'discharge', 'ehr', 'provider', 'payer', 'denial', 'length_of_stay', 'admit', 'procedure', 'rx', 'prescription'],
+  finance: ['revenue', 'expense', 'profit', 'margin', 'loan', 'credit', 'debit', 'ledger', 'account', 'balance', 'interest', 'portfolio', 'equity', 'asset', 'liability', 'arr', 'mrr', 'churn'],
+  retail: ['product', 'sku', 'order', 'cart', 'checkout', 'inventory', 'supplier', 'shipment', 'customer', 'purchase', 'refund', 'return', 'category', 'price'],
+  hr: ['employee', 'headcount', 'attrition', 'tenure', 'salary', 'department', 'hire', 'termination', 'performance', 'review', 'payroll', 'benefit'],
+  marketing: ['campaign', 'impression', 'click', 'conversion', 'ctr', 'cpa', 'roas', 'funnel', 'lead', 'acquisition', 'channel', 'cohort', 'ltv', 'segment'],
+  operations: ['shipment', 'delay', 'defect', 'throughput', 'cycle_time', 'downtime', 'sla', 'ticket', 'incident', 'queue', 'utilization'],
+};
+
+/**
+ * Detect the industry domain from schema context and question text.
+ * Returns a domain name or null.
+ * @param {string} schemaContext
+ * @param {string} question
+ * @returns {string|null}
+ */
+function detectDomain(schemaContext, question) {
+  var combined = ((schemaContext || '') + ' ' + (question || '')).toLowerCase();
+  var bestDomain = null;
+  var bestScore = 0;
+  var domains = Object.keys(DOMAIN_SIGNALS);
+  for (var i = 0; i < domains.length; i++) {
+    var domain = domains[i];
+    var signals = DOMAIN_SIGNALS[domain];
+    var score = 0;
+    for (var j = 0; j < signals.length; j++) {
+      if (combined.indexOf(signals[j]) !== -1) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestDomain = domain;
+    }
+  }
+  return bestScore >= 2 ? bestDomain : null;
+}
+
+// ---------------------------------------------------------------
+// Prompt builder (domain-agnostic, mode-aware, expert-grade)
+// ---------------------------------------------------------------
+
+/**
+ * Build the expert system prompt for a council member.
+ * Adapts to question mode and detected domain automatically.
+ *
+ * @param {string} question
+ * @param {string} [schemaContext]  Schema-only text (no row data).
+ * @param {{ mode: string, label: string }} [modeHint]  Pre-detected mode.
+ * @param {string|null} [domain]  Pre-detected domain.
+ * @returns {string}
+ */
+function buildCouncilPrompt(question, schemaContext, modeHint, domain) {
+  var detectedMode = modeHint || detectQuestionMode(question);
+  var detectedDomain = domain !== undefined ? domain : detectDomain(schemaContext, question);
+  var framework = REASONING_FRAMEWORKS[detectedMode.mode] || REASONING_FRAMEWORKS.general;
+
+  var lines = [];
+
+  lines.push('You are a senior data scientist and analytical expert with deep cross-industry experience.');
+  lines.push('You are one of three independent expert models deliberating inside DataGlow.');
+  lines.push('The other two models are answering this SAME question right now. Your answers will be compared side by side.');
+  lines.push('');
+
+  if (detectedDomain) {
+    lines.push('DOMAIN CONTEXT: The dataset appears to be in the ' + detectedDomain.toUpperCase() + ' domain.');
+    lines.push('Apply domain-specific knowledge, benchmarks, and reasoning appropriate for ' + detectedDomain + ' analytics.');
+    lines.push('');
+  }
+
+  lines.push('TASK TYPE: ' + detectedMode.label);
+  lines.push('');
+
+  lines.push('EXPERT REASONING FRAMEWORK -- follow every instruction:');
+  for (var i = 0; i < framework.length; i++) {
+    lines.push((i + 1) + '. ' + framework[i]);
+  }
+  lines.push('');
+
+  lines.push('ANSWER FORMAT (use these exact section headers):');
+  if (detectedMode.mode === 'sql') {
+    lines.push('FINDING: [one sentence: what the SQL computes and why]');
+    lines.push('SQL:');
+    lines.push('```sql');
+    lines.push('-- your query here');
+    lines.push('```');
+    lines.push('CONFIDENCE: HIGH / MEDIUM / LOW -- [one sentence explaining your confidence]');
+    lines.push('CAVEATS: [edge cases, missing columns, or assumptions -- bullet points if multiple]');
+  } else {
+    lines.push('FINDING: [your main analytical conclusion, 1-2 sentences, direct and specific]');
+    lines.push('EVIDENCE: [supporting reasoning, 2-4 sentences -- cite specific metrics, thresholds, or patterns]');
+    lines.push('CONFIDENCE: HIGH / MEDIUM / LOW -- [one sentence explaining what drives your confidence level]');
+    lines.push('CAVEATS: [limitations, alternative explanations, or what would change your answer -- bullet points if multiple]');
+  }
+  lines.push('');
+
+  lines.push('RULES (non-negotiable):');
+  lines.push('- Be direct and specific. No excessive hedging. No "it depends" without an explanation.');
+  lines.push('- Never invent data, columns, or facts not present in the schema or question.');
+  lines.push('- Do not refer to yourself as an AI or describe your own limitations generically.');
+  lines.push('- If the question is ambiguous, state your interpretation first, then answer it.');
+  lines.push('- Apply the highest standards of your domain -- this is expert-level analysis, not general chat.');
+  lines.push('');
+
+  if (schemaContext && schemaContext.trim()) {
+    lines.push('SCHEMA CONTEXT (columns and types only -- no row data):');
+    lines.push(schemaContext.trim());
+    lines.push('');
+  }
+
+  lines.push('QUESTION: ' + (question || ''));
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------
+// LLM call implementations (browser-side, BYO API key)
+// ---------------------------------------------------------------
+
+async function callOpenAICompat(endpoint, model, apiKey, systemPrompt, userQuestion) {
+  var resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userQuestion },
+      ],
+      temperature: 0.3,
+      max_tokens: 1200,
+    }),
+  });
+  if (!resp.ok) {
+    var text = await resp.text().catch(function () { return ''; });
+    throw new Error('OpenAI API error ' + resp.status + ': ' + text.slice(0, 200));
+  }
+  var data = await resp.json();
+  return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+}
+
+async function callAnthropic(endpoint, model, apiKey, systemPrompt, userQuestion) {
+  var resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: model,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userQuestion }],
+      temperature: 0.3,
+      max_tokens: 1200,
+    }),
+  });
+  if (!resp.ok) {
+    var text = await resp.text().catch(function () { return ''; });
+    throw new Error('Anthropic API error ' + resp.status + ': ' + text.slice(0, 200));
+  }
+  var data = await resp.json();
+  return (data.content && data.content[0] && data.content[0].text) || '';
+}
+
+async function callGoogle(endpoint, model, apiKey, systemPrompt, userQuestion) {
+  var url = endpoint.indexOf('?') !== -1 ? (endpoint + '&key=' + apiKey) : (endpoint + '?key=' + apiKey);
+  var resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: userQuestion }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 1200 },
+    }),
+  });
+  if (!resp.ok) {
+    var text = await resp.text().catch(function () { return ''; });
+    throw new Error('Google API error ' + resp.status + ': ' + text.slice(0, 200));
+  }
+  var data = await resp.json();
+  return (data.candidates && data.candidates[0] && data.candidates[0].content &&
+    data.candidates[0].content.parts && data.candidates[0].content.parts[0] &&
+    data.candidates[0].content.parts[0].text) || '';
+}
+
+/**
+ * Route a single call to the correct provider implementation.
+ * @param {object} provider   One of COUNCIL_PROVIDERS
+ * @param {string} apiKey
+ * @param {string} systemPrompt
+ * @param {string} question
+ * @returns {Promise<string>} raw text response
+ */
+async function callProvider(provider, apiKey, systemPrompt, question) {
+  if (!provider) throw new Error('No provider specified.');
+  if (provider.id === 'anthropic') {
+    return callAnthropic(provider.endpoint, provider.model, apiKey, systemPrompt, question);
+  }
+  if (provider.id === 'google') {
+    return callGoogle(provider.endpoint, provider.model, apiKey, systemPrompt, question);
+  }
+  return callOpenAICompat(provider.endpoint, provider.model, apiKey, systemPrompt, question);
+}
+
+// ---------------------------------------------------------------
+// Answer section parser
+// ---------------------------------------------------------------
+// Extracts FINDING / EVIDENCE / CONFIDENCE / CAVEATS sections from
+// structured answers so synthesis can compare like with like.
+
+/**
+ * Parse a structured answer into its sections.
+ * Returns an object with finding, evidence, confidence, caveats.
+ * Falls back gracefully if the model didn't follow the format.
+ * @param {string} answer
+ * @returns {{ finding: string, evidence: string, confidence: string, caveats: string, raw: string }}
+ */
+function parseAnswerSections(answer) {
+  var raw = answer || '';
+  var result = { finding: '', evidence: '', confidence: '', caveats: '', raw: raw };
+  if (!raw.trim()) return result;
+
+  var sections = ['FINDING', 'EVIDENCE', 'SQL', 'CONFIDENCE', 'CAVEATS'];
+  for (var i = 0; i < sections.length; i++) {
+    var key = sections[i];
+    var lowerKey = key.toLowerCase() === 'sql' ? 'sql' : key.toLowerCase().replace('caveats', 'caveats');
+    var startPattern = key + ':';
+    var startIdx = raw.indexOf(startPattern);
+    if (startIdx === -1) continue;
+    var contentStart = startIdx + startPattern.length;
+
+    // Find where the next section starts
+    var nextStart = raw.length;
+    for (var j = 0; j < sections.length; j++) {
+      if (j === i) continue;
+      var nextPattern = sections[j] + ':';
+      var nextIdx = raw.indexOf(nextPattern, contentStart);
+      if (nextIdx !== -1 && nextIdx < nextStart) nextStart = nextIdx;
+    }
+
+    var content = raw.slice(contentStart, nextStart).trim();
+    if (key === 'FINDING') result.finding = content;
+    else if (key === 'EVIDENCE' || key === 'SQL') result.evidence = content;
+    else if (key === 'CONFIDENCE') result.confidence = content;
+    else if (key === 'CAVEATS') result.caveats = content;
+  }
+
+  // Fallback: if no sections found, treat the whole answer as the finding
+  if (!result.finding && !result.evidence) {
+    result.finding = raw.trim();
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------
+// Semantic synthesis
+// ---------------------------------------------------------------
+// Compares parsed answers for conceptual agreement rather than
+// word-matching. Uses a lightweight scoring approach:
+//   - Parse all answers into sections
+//   - Extract CONFIDENCE levels and agree/disagree on direction
+//   - Compare FINDING sentences for directional alignment
+//   - Produce an agreement narrative rather than phrase buckets
+
+/**
+ * Extract confidence level from a confidence section string.
+ * @param {string} confidenceText
+ * @returns {'HIGH'|'MEDIUM'|'LOW'|'UNKNOWN'}
+ */
+function extractConfidenceLevel(confidenceText) {
+  if (!confidenceText) return 'UNKNOWN';
+  var upper = confidenceText.toUpperCase();
+  if (upper.indexOf('HIGH') !== -1) return 'HIGH';
+  if (upper.indexOf('MEDIUM') !== -1) return 'MEDIUM';
+  if (upper.indexOf('LOW') !== -1) return 'LOW';
+  return 'UNKNOWN';
+}
+
+/**
+ * Score directional alignment between two FINDING strings.
+ * Returns 1 if they appear to agree, 0 if neutral, -1 if they contradict.
+ * Uses simple positive/negative signal word matching.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function scoreAlignment(a, b) {
+  if (!a || !b) return 0;
+  var posSignals = ['increase', 'higher', 'better', 'positive', 'recommend', 'should', 'significant', 'strong', 'effective', 'improve'];
+  var negSignals = ['decrease', 'lower', 'worse', 'negative', 'not recommend', 'should not', 'insignificant', 'weak', 'ineffective', 'decline'];
+
+  function score(text) {
+    var t = text.toLowerCase();
+    var s = 0;
+    for (var i = 0; i < posSignals.length; i++) { if (t.indexOf(posSignals[i]) !== -1) s++; }
+    for (var i = 0; i < negSignals.length; i++) { if (t.indexOf(negSignals[i]) !== -1) s--; }
+    return s;
+  }
+
+  var sa = score(a);
+  var sb = score(b);
+  if (sa === 0 && sb === 0) return 0;
+  if ((sa > 0 && sb > 0) || (sa < 0 && sb < 0)) return 1;
+  if ((sa > 0 && sb < 0) || (sa < 0 && sb > 0)) return -1;
+  return 0;
+}
+
+/**
+ * Synthesize council responses using structured section comparison.
+ * Replaces the old phrase-tokenisation approach with section-aware scoring.
+ *
+ * @param {{provider: object, answer?: string, error?: string}[]} responses
+ * @returns {{
+ *   consensus: string[],
+ *   majority: string[],
+ *   contested: string[],
+ *   overallAgreement: 'high'|'moderate'|'low'|'none',
+ *   sections: Array<{provider: object, parsed: object}>,
+ *   confidenceLevels: string[],
+ *   narrative: string
+ * }}
+ */
+function synthesizeCouncil(responses) {
+  var safeResponses = Array.isArray(responses) ? responses : [];
+  var successful = safeResponses.filter(function (r) { return r && !r.error && r.answer && r.answer.trim(); });
+
+  var empty = { consensus: [], majority: [], contested: [], overallAgreement: 'none', sections: [], confidenceLevels: [], narrative: '' };
+  if (successful.length === 0) return empty;
+  if (successful.length === 1) {
+    var parsed1 = parseAnswerSections(successful[0].answer);
+    return Object.assign({}, empty, {
+      overallAgreement: 'none',
+      sections: [{ provider: successful[0].provider, parsed: parsed1 }],
+      confidenceLevels: [extractConfidenceLevel(parsed1.confidence)],
+      narrative: 'Only one model responded. No synthesis possible.',
+    });
+  }
+
+  // Parse all answers into structured sections
+  var parsedAnswers = successful.map(function (r) {
+    return { provider: r.provider, parsed: parseAnswerSections(r.answer) };
+  });
+
+  var confidenceLevels = parsedAnswers.map(function (p) {
+    return extractConfidenceLevel(p.parsed.confidence);
+  });
+
+  // Score pairwise directional alignment on FINDING sections
+  var alignmentScores = [];
+  for (var i = 0; i < parsedAnswers.length; i++) {
+    for (var j = i + 1; j < parsedAnswers.length; j++) {
+      var score = scoreAlignment(parsedAnswers[i].parsed.finding, parsedAnswers[j].parsed.finding);
+      alignmentScores.push(score);
+    }
+  }
+
+  var totalPairs = alignmentScores.length;
+  var agreePairs = alignmentScores.filter(function (s) { return s === 1; }).length;
+  var disagreePairs = alignmentScores.filter(function (s) { return s === -1; }).length;
+  var neutralPairs = alignmentScores.filter(function (s) { return s === 0; }).length;
+
+  // Determine overall agreement
+  var overallAgreement;
+  if (disagreePairs > 0) {
+    overallAgreement = 'low';
+  } else if (agreePairs === totalPairs && totalPairs > 0) {
+    overallAgreement = 'high';
+  } else if (neutralPairs === totalPairs) {
+    overallAgreement = 'moderate'; // neutral = not contradicting, moderate confidence
+  } else {
+    overallAgreement = 'moderate';
+  }
+
+  // Confidence consensus
+  var highCount = confidenceLevels.filter(function (c) { return c === 'HIGH'; }).length;
+  var lowCount = confidenceLevels.filter(function (c) { return c === 'LOW'; }).length;
+  var confidenceSummary = '';
+  if (highCount === confidenceLevels.length) {
+    confidenceSummary = 'All models express HIGH confidence.';
+  } else if (lowCount === confidenceLevels.length) {
+    confidenceSummary = 'All models express LOW confidence -- treat findings cautiously.';
+  } else if (lowCount > 0) {
+    confidenceSummary = lowCount + ' of ' + confidenceLevels.length + ' models express LOW confidence.';
+  } else {
+    confidenceSummary = 'Models express mixed confidence: ' + confidenceLevels.join(', ') + '.';
+  }
+
+  // Build consensus / majority / contested from FINDING sections
+  // (kept for UI compatibility -- now represents conceptual categories
+  // rather than raw phrase overlap)
+  var consensus = [];
+  var majority = [];
+  var contested = [];
+
+  if (overallAgreement === 'high') {
+    consensus.push('All models reach the same directional conclusion on the main finding.');
+    if (confidenceLevels.every(function (c) { return c === 'HIGH'; })) {
+      consensus.push('All models report HIGH confidence.');
+    }
+  } else if (overallAgreement === 'moderate' && disagreePairs === 0) {
+    majority.push('Models are directionally aligned or neutral -- no contradictions detected.');
+    if (highCount > 0) {
+      majority.push(highCount + ' model(s) report HIGH confidence.');
+    }
+  } else if (overallAgreement === 'low') {
+    contested.push('Models contradict each other on the main finding. Review each answer carefully.');
+    if (disagreePairs === totalPairs) {
+      contested.push('Every model pair is in directional disagreement -- treat this question as genuinely contested.');
+    }
+  }
+
+  // Caveat consensus: if all models flag a caveat keyword, surface it
+  var caveatKeywords = ['missing data', 'sample size', 'confound', 'assumption', 'not enough', 'limited', 'incomplete'];
+  for (var k = 0; k < caveatKeywords.length; k++) {
+    var keyword = caveatKeywords[k];
+    var flaggedBy = parsedAnswers.filter(function (p) {
+      return (p.parsed.caveats || '').toLowerCase().indexOf(keyword) !== -1;
+    });
+    if (flaggedBy.length === parsedAnswers.length) {
+      majority.push('All models flag a concern about: ' + keyword + '.');
+    } else if (flaggedBy.length >= 2) {
+      majority.push('Most models flag a concern about: ' + keyword + '.');
+    }
+  }
+
+  // Build narrative summary
+  var narrativeParts = [];
+  if (overallAgreement === 'high') {
+    narrativeParts.push('The three models reach directional agreement on this question.');
+  } else if (overallAgreement === 'moderate') {
+    narrativeParts.push('The models are broadly aligned without direct contradictions.');
+  } else {
+    narrativeParts.push('The models disagree on the main finding -- this is a genuinely contested question.');
+  }
+  narrativeParts.push(confidenceSummary);
+  if (contested.length > 0) {
+    narrativeParts.push('Read all three answers carefully before acting.');
+  }
+
+  return {
+    consensus: consensus,
+    majority: majority,
+    contested: contested,
+    overallAgreement: overallAgreement,
+    sections: parsedAnswers,
+    confidenceLevels: confidenceLevels,
+    narrative: narrativeParts.join(' '),
+  };
+}
+
+// ---------------------------------------------------------------
+// Parallel council runner
+// ---------------------------------------------------------------
+
+/**
+ * Run the council: call every configured, enabled provider in parallel,
+ * detect the question mode and domain, build an expert prompt, then
+ * synthesize the structured answers.
+ *
+ * @param {object} opts
+ * @param {string} opts.question
+ * @param {string} [opts.schemaContext]
+ * @param {{provider: object, apiKey?: string, enabled?: boolean}[]} opts.providers
+ * @param {function} [opts.onProgress]  Called with { provider, status, elapsedMs? }
+ * @param {function} [opts.callLLM]    Test injection: async (provider, apiKey, systemPrompt, question) => rawText
+ * @returns {Promise<{
+ *   responses: Array<{provider, answer?, elapsedMs?, error?}>,
+ *   synthesis: object,
+ *   detectedMode: {mode, label},
+ *   detectedDomain: string|null
+ * }>}
+ */
+async function runCouncil(opts) {
+  var options = opts || {};
+  var question = options.question || '';
+  var schemaContext = options.schemaContext || '';
+  var providerConfigs = Array.isArray(options.providers) ? options.providers : [];
+  var onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  var callLLM = typeof options.callLLM === 'function' ? options.callLLM : null;
+
+  var detectedMode = detectQuestionMode(question);
+  var detectedDomain = detectDomain(schemaContext, question);
+  var systemPrompt = buildCouncilPrompt(question, schemaContext, detectedMode, detectedDomain);
+
+  var active = providerConfigs.filter(function (p) { return p && p.provider && p.enabled !== false; });
+
+  var tasks = active.map(function (cfg) {
+    var provider = cfg.provider;
+    var apiKey = cfg.apiKey || '';
+    var startedAt = Date.now();
+
+    if (onProgress) onProgress({ provider: provider, status: 'pending' });
+
+    var invoke = callLLM
+      ? callLLM(provider, apiKey, systemPrompt, question)
+      : callProvider(provider, apiKey, systemPrompt, question);
+
+    return Promise.resolve(invoke)
+      .then(function (answer) {
+        var elapsedMs = Date.now() - startedAt;
+        if (onProgress) onProgress({ provider: provider, status: 'done', elapsedMs: elapsedMs });
+        return { provider: provider, answer: answer, elapsedMs: elapsedMs };
+      })
+      .catch(function (err) {
+        var elapsedMs = Date.now() - startedAt;
+        if (onProgress) onProgress({ provider: provider, status: 'error', elapsedMs: elapsedMs });
+        return { provider: provider, error: (err && err.message) ? err.message : String(err), elapsedMs: elapsedMs };
+      });
+  });
+
+  var settled = await Promise.allSettled(tasks);
+
+  var responses = settled.map(function (result, idx) {
+    if (result.status === 'fulfilled') return result.value;
+    var provider = active[idx] ? active[idx].provider : null;
+    return { provider: provider, error: (result.reason && result.reason.message) ? result.reason.message : String(result.reason) };
+  });
+
+  var synthesis = synthesizeCouncil(responses);
+
+  return { responses: responses, synthesis: synthesis, detectedMode: detectedMode, detectedDomain: detectedDomain };
+}
+
+
+  window.CouncilEngine = {
+    COUNCIL_PROVIDERS: typeof COUNCIL_PROVIDERS !== 'undefined' ? COUNCIL_PROVIDERS : [],
+    GOOGLE_ENDPOINT_BASE: typeof GOOGLE_ENDPOINT_BASE !== 'undefined' ? GOOGLE_ENDPOINT_BASE : '',
+    resolveGoogleEndpoint: typeof resolveGoogleEndpoint !== 'undefined' ? resolveGoogleEndpoint : null,
+    detectQuestionMode: typeof detectQuestionMode !== 'undefined' ? detectQuestionMode : null,
+    detectDomain: typeof detectDomain !== 'undefined' ? detectDomain : null,
+    buildCouncilPrompt: typeof buildCouncilPrompt !== 'undefined' ? buildCouncilPrompt : null,
+    callProvider: typeof callProvider !== 'undefined' ? callProvider : null,
+    parseAnswerSections: typeof parseAnswerSections !== 'undefined' ? parseAnswerSections : null,
+    extractConfidenceLevel: typeof extractConfidenceLevel !== 'undefined' ? extractConfidenceLevel : null,
+    scoreAlignment: typeof scoreAlignment !== 'undefined' ? scoreAlignment : null,
+    synthesizeCouncil: typeof synthesizeCouncil !== 'undefined' ? synthesizeCouncil : null,
+    runCouncil: typeof runCouncil !== 'undefined' ? runCouncil : null,
+  };
+}());
+/* ---- end council-engine.js ---- */
+
+/* ---- from js/council/council-ui.js ---- */
+;(function(){
+  'use strict';
+
+  // Alias engine exports from global
+  var _eng = window.CouncilEngine || {};
+  var runCouncil = _eng.runCouncil;
+  var COUNCIL_PROVIDERS = _eng.COUNCIL_PROVIDERS || [];
+  var resolveGoogleEndpoint = _eng.resolveGoogleEndpoint;
+  var detectQuestionMode = _eng.detectQuestionMode;
+  var detectDomain = _eng.detectDomain;
+  var parseAnswerSections = _eng.parseAnswerSections;
+  var extractConfidenceLevel = _eng.extractConfidenceLevel;
+
+// ============================================================
+// DATAGLOW -- AI Council: UI
+// ============================================================
+// Renders the Council tab: a question box, three provider config rows
+// (name + BYO API key + on/off toggle), a live progress strip while the
+// council deliberates, a synthesis panel (consensus / majority / contested),
+// and three side-by-side answer cards.
+//
+// API keys live in page memory only for the lifetime of this mount -- never
+// written to localStorage, cookies, or sessionStorage, and never persisted
+// across a reload.
+// ============================================================
+
+// [stripped import] import { runCouncil, COUNCIL_PROVIDERS, resolveGoogleEndpoint, detectQuestionMode, detectDomain, parseAnswerSections, extractConfidenceLevel } from './council-engine.js';
+
+// ---------------------------------------------------------------
+// Minimal HTML-escape sanitizer (esc()) -- every innerHTML write below
+// runs untrusted text (question text, LLM answers) through this first.
+// ---------------------------------------------------------------
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, function (c) {
+    if (c === '&') return '&amp;';
+    if (c === '<') return '&lt;';
+    if (c === '>') return '&gt;';
+    if (c === '"') return '&quot;';
+    return '&#39;';
+  });
+}
+
+// ---------------------------------------------------------------
+// DOM helper (mirrors DataGlow's utils.el pattern, kept local so this
+// module has zero DOM-framework dependency beyond the platform).
+// ---------------------------------------------------------------
+function h(tag, attrs, children) {
+  const options = attrs || {};
+  const kids = children || [];
+  const node = document.createElement(tag);
+  for (const key of Object.keys(options)) {
+    const value = options[key];
+    if (key === 'style' && typeof value === 'object') {
+      Object.assign(node.style, value);
+    } else if (key === 'class') {
+      node.className = value;
+    } else if (key === 'html') {
+      node.innerHTML = value;
+    } else if (key.indexOf('on') === 0 && typeof value === 'function') {
+      node.addEventListener(key.slice(2), value);
+    } else {
+      node.setAttribute(key, String(value));
+    }
+  }
+  const list = Array.isArray(kids) ? kids : [kids];
+  for (const child of list) {
+    if (child == null) continue;
+    node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return node;
+}
+
+const PROVIDER_SHORT_LABEL = {
+  openai: 'OpenAI',
+  anthropic: 'Claude',
+  google: 'Gemini',
+};
+
+function providerLabel(provider) {
+  if (!provider) return 'Unknown';
+  return PROVIDER_SHORT_LABEL[provider.id] || provider.name || provider.id;
+}
+
+// ---------------------------------------------------------------
+// Main mount function
+// ---------------------------------------------------------------
+
+/**
+ * Mount the AI Council UI into a host element.
+ *
+ * @param {object} opts
+ * @param {HTMLElement} opts.host
+ * @param {function} [opts.getSchemaContext]  Optional () => string|null
+ * @param {function} [opts.onToast]           Optional toast(msg, type) callback
+ */
+function mountCouncilUI(opts) {
+  const options = opts || {};
+  const host = options.host;
+  const getSchemaContext = typeof options.getSchemaContext === 'function' ? options.getSchemaContext : null;
+  const onToast = typeof options.onToast === 'function' ? options.onToast : null;
+
+  if (!host) return;
+  host.innerHTML = '';
+
+  // ---- Local, in-memory-only state ----
+  let question = '';
+  // Deep-copy provider config so the user's model overrides are per-session
+  // in-memory only and never mutate the shared COUNCIL_PROVIDERS array.
+  const providerState = COUNCIL_PROVIDERS.map(function (p) {
+    return {
+      provider: p,
+      apiKey: '',
+      enabled: true,
+      // modelOverride: null means 'use the default from COUNCIL_PROVIDERS'
+      modelOverride: null,
+    };
+  });
+  let isRunning = false;
+  let progressByProviderId = {}; // id -> { status, elapsedMs }
+  let lastResult = null; // { responses, synthesis }
+  let schemaDisclosureOpen = false;
+
+  // ---- Layout containers ----
+  const questionWrap = h('div', { 'data-testid': 'council-question-wrap' });
+  const providerWrap = h('div', { 'data-testid': 'council-provider-wrap' });
+  const schemaWrap = h('div', { 'data-testid': 'council-schema-wrap' });
+  const progressWrap = h('div', { 'data-testid': 'council-progress-wrap' });
+  const synthesisWrap = h('div', { 'data-testid': 'council-synthesis-wrap' });
+  const cardsWrap = h('div', { 'data-testid': 'council-cards-wrap' });
+  const actionsWrap = h('div', { 'data-testid': 'council-actions-wrap' });
+
+  const modeBadgeWrap = h('div', { 'data-testid': 'council-mode-badge-wrap', style: { marginBottom: '8px' } });
+  host.append(questionWrap, providerWrap, schemaWrap, modeBadgeWrap, progressWrap, synthesisWrap, cardsWrap, actionsWrap);
+
+  // ---------------------------------------------------------------
+  // Question box
+  // ---------------------------------------------------------------
+  function renderQuestion() {
+    questionWrap.innerHTML = '';
+
+    const row = h('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px' } });
+
+    const textarea = h('textarea', {
+      placeholder: 'Ask the Council an analytical question, for example: Which metric best explains readmission risk?',
+      'data-testid': 'council-question-input',
+      rows: 3,
+      style: {
+        flex: '1', fontSize: '14px', padding: '8px 12px',
+        borderRadius: '6px', border: '1px solid var(--color-border)',
+        fontFamily: 'system-ui, sans-serif', resize: 'vertical',
+        background: 'var(--color-surface)', color: 'var(--color-text)',
+      },
+    });
+    textarea.value = question;
+    textarea.addEventListener('input', function () { question = textarea.value; });
+    textarea.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleAsk();
+      }
+    });
+
+    const askBtn = h('button', {
+      class: 'btn btn-primary',
+      'data-testid': 'council-ask-btn',
+      style: { padding: '8px 16px', fontSize: '14px', minWidth: '140px' },
+    });
+    askBtn.textContent = isRunning ? 'Deliberating...' : 'Ask the Council';
+    askBtn.disabled = isRunning;
+    askBtn.addEventListener('click', handleAsk);
+
+    row.append(textarea, askBtn);
+    questionWrap.appendChild(row);
+
+    const hint = h('div', { style: { fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '6px' } });
+    hint.textContent = 'Best for data questions -- not general chat. Ctrl/Cmd+Enter also asks.';
+    questionWrap.appendChild(hint);
+  }
+
+  // ---------------------------------------------------------------
+  // Provider config rows
+  // ---------------------------------------------------------------
+  function renderProviders() {
+    providerWrap.innerHTML = '';
+
+    const label = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)', marginBottom: '6px' } });
+    label.textContent = 'Council members (BYO API key -- held in page memory only, never stored):';
+    providerWrap.appendChild(label);
+
+    // Column headers for the provider rows
+    const colHeaders = h('div', {
+      style: {
+        display: 'flex', gap: '10px', alignItems: 'center',
+        padding: '0 10px', marginBottom: '2px',
+      },
+    });
+    const chOn = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', width: '16px' } });
+    chOn.textContent = 'On';
+    const chName = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', minWidth: '150px' } });
+    chName.textContent = 'Provider';
+    const chKey = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', flex: '1' } });
+    chKey.textContent = 'API key';
+    const chModel = h('span', { style: { fontSize: '10px', color: 'var(--color-text-muted)', width: '160px' } });
+    chModel.textContent = 'Model (blank = default)';
+    colHeaders.append(chOn, chName, chKey, chModel);
+    providerWrap.appendChild(colHeaders);
+
+    const table = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' } });
+
+    providerState.forEach(function (row, idx) {
+      const rowEl = h('div', {
+        'data-testid': 'council-provider-row-' + row.provider.id,
+        style: {
+          display: 'flex', gap: '10px', alignItems: 'center',
+          padding: '6px 10px', borderRadius: '6px',
+          border: '1px solid var(--color-border)',
+          background: 'var(--color-surface)',
+        },
+      });
+
+      const toggle = h('input', {
+        type: 'checkbox',
+        'data-testid': 'council-provider-toggle-' + row.provider.id,
+        style: { cursor: 'pointer' },
+      });
+      toggle.checked = row.enabled;
+      toggle.addEventListener('change', function () {
+        row.enabled = toggle.checked;
+      });
+
+      const nameEl = h('span', { style: { fontSize: '13px', fontWeight: 'bold', minWidth: '150px', color: 'var(--color-text)' } });
+      nameEl.textContent = row.provider.name;
+
+      const keyInput = h('input', {
+        type: 'password',
+        placeholder: 'API key',
+        'data-testid': 'council-key-input-' + row.provider.id,
+        style: {
+          fontSize: '13px', padding: '5px 10px', borderRadius: '4px',
+          border: '1px solid var(--color-border)', flex: '1',
+        },
+      });
+      keyInput.value = row.apiKey;
+      keyInput.addEventListener('input', function () { row.apiKey = keyInput.value; });
+
+      // Model name input -- allows overriding the default without touching code.
+      // For Google/Gemini the model name is embedded in the endpoint URL, so
+      // changing it here automatically rebuilds the effective endpoint.
+      const modelInput = h('input', {
+        type: 'text',
+        placeholder: row.provider.model,
+        title: 'Model name (leave blank to use default: ' + row.provider.model + ')',
+        'data-testid': 'council-model-input-' + row.provider.id,
+        style: {
+          fontSize: '12px', padding: '5px 8px', borderRadius: '4px',
+          border: '1px solid var(--color-border)', width: '160px',
+          color: 'var(--color-text-muted)',
+          fontFamily: 'monospace',
+        },
+      });
+      modelInput.value = row.modelOverride || '';
+      modelInput.addEventListener('input', function () {
+        var val = modelInput.value.trim();
+        row.modelOverride = val || null;
+        // For Google, the model name is part of the endpoint URL.
+        // Rebuild it live so the engine always gets a valid URL.
+        if (row.provider.id === 'google') {
+          row.provider = Object.assign({}, row.provider, {
+            model: val || row.provider.model,
+            endpoint: resolveGoogleEndpoint(val || row.provider.model),
+          });
+        } else {
+          row.provider = Object.assign({}, row.provider, {
+            model: val || COUNCIL_PROVIDERS.find(function (p) { return p.id === row.provider.id; }).model,
+          });
+        }
+      });
+
+      rowEl.append(toggle, nameEl, keyInput, modelInput);
+      table.appendChild(rowEl);
+    });
+
+    providerWrap.appendChild(table);
+
+    const keyNote = h('div', { style: { fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '10px' } });
+    keyNote.textContent = 'Keys are never saved to disk, localStorage, cookies, or sessionStorage. They disappear when you leave this tab or reload.';
+    providerWrap.appendChild(keyNote);
+  }
+
+  // ---------------------------------------------------------------
+  // Schema context disclosure
+  // ---------------------------------------------------------------
+  function renderSchemaDisclosure() {
+    schemaWrap.innerHTML = '';
+    if (!getSchemaContext) return;
+
+    let ctx = null;
+    try { ctx = getSchemaContext(); } catch (err) { ctx = null; }
+    if (!ctx || !String(ctx).trim()) return;
+
+    const details = h('details', { 'data-testid': 'council-schema-disclosure' });
+    if (schemaDisclosureOpen) details.setAttribute('open', 'open');
+    details.addEventListener('toggle', function () { schemaDisclosureOpen = details.open; });
+
+    const summary = h('summary', { style: { fontSize: '12px', color: 'var(--color-text-muted)', cursor: 'pointer', marginBottom: '6px' } });
+    summary.textContent = 'Schema context (sent to every model, no row data)';
+
+    const pre = h('pre', {
+      style: {
+        fontSize: '12px', fontFamily: 'monospace', whiteSpace: 'pre-wrap',
+        background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+        borderRadius: '6px', padding: '10px 12px', color: 'var(--color-text)',
+        marginBottom: '10px',
+      },
+    });
+    pre.textContent = String(ctx);
+
+    details.append(summary, pre);
+    schemaWrap.appendChild(details);
+  }
+
+  // ---------------------------------------------------------------
+  // Live progress strip
+  // ---------------------------------------------------------------
+  function statusDot(status) {
+    if (status === 'done') return '\u25CF'; // filled circle, styled green via color
+    if (status === 'error') return '\u2716'; // X mark
+    return '\u25CB'; // hollow circle for pending
+  }
+
+  function statusColor(status) {
+    if (status === 'done') return '#1F8A57';
+    if (status === 'error') return '#A12C7B';
+    return 'var(--color-text-muted)';
+  }
+
+  function renderProgress() {
+    progressWrap.innerHTML = '';
+    const activeIds = Object.keys(progressByProviderId);
+    if (!isRunning && activeIds.length === 0) return;
+
+    const strip = h('div', {
+      'data-testid': 'council-progress-strip',
+      style: {
+        display: 'flex', gap: '16px', alignItems: 'center',
+        padding: '8px 12px', marginBottom: '10px',
+        border: '1px solid var(--color-border)', borderRadius: '6px',
+        background: 'var(--color-surface)', fontSize: '13px',
+      },
+    });
+
+    providerState.forEach(function (row) {
+      if (!row.enabled) return;
+      const info = progressByProviderId[row.provider.id] || { status: 'idle' };
+      const item = h('span', {
+        'data-testid': 'council-progress-badge-' + row.provider.id,
+        style: { display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-text)' },
+      });
+      const dot = h('span', { style: { color: statusColor(info.status) } });
+      dot.textContent = statusDot(info.status);
+      const text = h('span', {});
+      const elapsedTxt = info.elapsedMs != null ? ' (' + info.elapsedMs + 'ms)' : '';
+      text.textContent = providerLabel(row.provider) + elapsedTxt;
+      item.append(dot, text);
+      strip.appendChild(item);
+    });
+
+    progressWrap.appendChild(strip);
+  }
+
+  // ---------------------------------------------------------------
+  // Synthesis panel
+  // ---------------------------------------------------------------
+  function agreementBadgeColor(level) {
+    if (level === 'high') return '#1F8A57';
+    if (level === 'moderate') return '#B8860B';
+    if (level === 'low') return '#A12C7B';
+    return 'var(--color-text-muted)';
+  }
+
+  function buildBucketBlock(title, items, color, testid) {
+    const block = h('div', { 'data-testid': testid, style: { marginBottom: '10px' } });
+    const heading = h('div', { style: { fontSize: '12px', fontWeight: 'bold', color: color, marginBottom: '4px' } });
+    heading.textContent = title;
+    block.appendChild(heading);
+
+    if (!items.length) {
+      const empty = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)' } });
+      empty.textContent = 'None found.';
+      block.appendChild(empty);
+      return block;
+    }
+
+    const list = h('ul', { style: { margin: '0', paddingLeft: '18px' } });
+    items.forEach(function (item) {
+      const li = h('li', { style: { fontSize: '13px', color: 'var(--color-text)', marginBottom: '2px' } });
+      li.textContent = item;
+      list.appendChild(li);
+    });
+    block.appendChild(list);
+    return block;
+  }
+
+  function renderSynthesis() {
+    synthesisWrap.innerHTML = '';
+    if (!lastResult) return;
+
+    const successful = lastResult.responses.filter(function (r) { return r && !r.error; });
+
+    if (successful.length === 0) {
+      const failBox = h('div', {
+        'data-testid': 'council-all-failed',
+        style: {
+          padding: '10px 14px', borderRadius: '6px', marginBottom: '10px',
+          border: '1px solid var(--color-error, #A12C7B)', color: 'var(--color-error, #A12C7B)',
+          fontSize: '13px', background: 'rgba(161,44,123,.08)',
+        },
+      });
+      failBox.textContent = 'All council members failed to respond. Check your API keys and try again.';
+      synthesisWrap.appendChild(failBox);
+      return;
+    }
+
+    if (successful.length === 1) {
+      const note = h('div', {
+        'data-testid': 'council-single-response-note',
+        style: {
+          padding: '10px 14px', borderRadius: '6px', marginBottom: '10px',
+          border: '1px solid var(--color-border)', color: 'var(--color-text-muted)',
+          fontSize: '13px', background: 'var(--color-surface)',
+        },
+      });
+      note.textContent = 'Only one model responded -- no synthesis possible.';
+      synthesisWrap.appendChild(note);
+      return;
+    }
+
+    const synthesis = lastResult.synthesis;
+
+    const panel = h('div', {
+      'data-testid': 'council-synthesis-panel',
+      style: {
+        padding: '12px 14px', borderRadius: '8px', marginBottom: '14px',
+        border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+      },
+    });
+
+    const headerRow = h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' } });
+    const title = h('div', { style: { fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text)' } });
+    title.textContent = 'Council Synthesis';
+    const badge = h('span', {
+      'data-testid': 'council-agreement-badge',
+      style: {
+        fontSize: '11px', fontWeight: 'bold', padding: '2px 10px', borderRadius: '12px',
+        color: '#fff', background: agreementBadgeColor(synthesis.overallAgreement),
+      },
+    });
+    badge.textContent = 'Agreement: ' + synthesis.overallAgreement;
+
+    if (synthesis.narrative) {
+      const narrativeBox = h('div', {
+        'data-testid': 'council-synthesis-narrative',
+        style: { fontSize: '13px', color: 'var(--color-text)', marginBottom: '10px', fontStyle: 'italic' },
+      });
+      narrativeBox.textContent = synthesis.narrative;
+      panel.appendChild(narrativeBox);
+    }
+    headerRow.append(title, badge);
+    panel.appendChild(headerRow);
+
+    panel.appendChild(buildBucketBlock('CONSENSUS (all responding models agree)', synthesis.consensus, '#1F8A57', 'council-consensus-block'));
+    panel.appendChild(buildBucketBlock('MAJORITY (2 of 3 agree)', synthesis.majority, '#B8860B', 'council-majority-block'));
+    panel.appendChild(buildBucketBlock('CONTESTED (models differ)', synthesis.contested, '#A12C7B', 'council-contested-block'));
+
+    synthesisWrap.appendChild(panel);
+  }
+
+  // ---------------------------------------------------------------
+  // Side-by-side answer cards
+  // ---------------------------------------------------------------
+  function buildCard(row) {
+    const info = progressByProviderId[row.provider.id] || { status: 'idle' };
+    const response = lastResult ? lastResult.responses.find(function (r) { return r.provider && r.provider.id === row.provider.id; }) : null;
+
+    const card = h('div', {
+      'data-testid': 'council-card-' + row.provider.id,
+      style: {
+        flex: '1', minWidth: '220px', border: '1px solid var(--color-border)',
+        borderRadius: '8px', padding: '12px 14px', background: 'var(--color-surface)',
+        display: 'flex', flexDirection: 'column', gap: '6px',
+      },
+    });
+
+    const headRow = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } });
+    const nameEl = h('div', { style: { fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text)' } });
+    nameEl.textContent = row.provider.name;
+    const statusEl = h('span', { style: { fontSize: '12px', color: statusColor(info.status) } });
+    if (info.status === 'pending') statusEl.textContent = 'Thinking...';
+    else if (info.status === 'done') statusEl.textContent = 'Done' + (info.elapsedMs != null ? ' (' + info.elapsedMs + 'ms)' : '');
+    else if (info.status === 'error') statusEl.textContent = 'Failed';
+    else statusEl.textContent = '';
+    headRow.append(nameEl, statusEl);
+    card.appendChild(headRow);
+
+    if (!row.enabled) {
+      const offNote = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)' } });
+      offNote.textContent = 'Disabled -- not called.';
+      card.appendChild(offNote);
+      return card;
+    }
+
+    if (response && response.error) {
+      const errBox = h('div', { style: { fontSize: '12px', color: 'var(--color-error, #A12C7B)' } });
+      errBox.textContent = response.error;
+      card.appendChild(errBox);
+    } else if (response && response.answer) {
+      const parsed = parseAnswerSections(response.answer);
+      const hasSections = parsed.finding || parsed.evidence;
+      if (hasSections) {
+        if (parsed.finding) {
+          const findingLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
+          findingLabel.textContent = 'Finding';
+          const findingBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', marginBottom: '6px' } });
+          findingBox.textContent = parsed.finding;
+          card.appendChild(findingLabel);
+          card.appendChild(findingBox);
+        }
+        if (parsed.evidence) {
+          const isSQL = parsed.evidence.indexOf('```') !== -1;
+          const evidenceLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
+          evidenceLabel.textContent = isSQL ? 'SQL' : 'Evidence';
+          const evidenceBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', whiteSpace: 'pre-wrap', fontFamily: isSQL ? 'monospace' : 'inherit', marginBottom: '6px' } });
+          evidenceBox.textContent = parsed.evidence;
+          card.appendChild(evidenceLabel);
+          card.appendChild(evidenceBox);
+        }
+        if (parsed.confidence) {
+          const confLevel = extractConfidenceLevel(parsed.confidence);
+          const confColor = confLevel === 'HIGH' ? '#1F8A57' : confLevel === 'LOW' ? '#A12C7B' : '#B8860B';
+          const confChip = h('span', { style: { display: 'inline-block', fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', background: confColor, color: '#fff', marginBottom: '4px' } });
+          confChip.textContent = confLevel + ' confidence';
+          card.appendChild(confChip);
+        }
+        if (parsed.caveats) {
+          const cavLabel = h('div', { style: { fontSize: '11px', fontWeight: 'bold', color: 'var(--color-text-muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' } });
+          cavLabel.textContent = 'Caveats';
+          const cavBox = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)', whiteSpace: 'pre-wrap' } });
+          cavBox.textContent = parsed.caveats;
+          card.appendChild(cavLabel);
+          card.appendChild(cavBox);
+        }
+      } else {
+        const answerBox = h('div', { style: { fontSize: '13px', color: 'var(--color-text)', whiteSpace: 'pre-wrap' } });
+        answerBox.textContent = response.answer;
+        card.appendChild(answerBox);
+      }
+    } else if (isRunning) {
+      const waitBox = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)' } });
+      waitBox.textContent = 'Waiting for response...';
+      card.appendChild(waitBox);
+    } else {
+      const idleBox = h('div', { style: { fontSize: '12px', color: 'var(--color-text-muted)' } });
+      idleBox.textContent = 'No response yet.';
+      card.appendChild(idleBox);
+    }
+
+    return card;
+  }
+
+  function renderCards() {
+    cardsWrap.innerHTML = '';
+    const row = h('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' } });
+    providerState.forEach(function (p) { row.appendChild(buildCard(p)); });
+    cardsWrap.appendChild(row);
+  }
+
+  // ---------------------------------------------------------------
+  // Copy / export actions
+  // ---------------------------------------------------------------
+  function buildMarkdownExport() {
+    if (!lastResult) return '';
+    const lines = [];
+    lines.push('# AI Council answers');
+    lines.push('');
+    lines.push('Question: ' + question);
+    lines.push('');
+    lastResult.responses.forEach(function (r) {
+      lines.push('## ' + providerLabel(r.provider));
+      if (r.error) {
+        lines.push('Error: ' + r.error);
+      } else {
+        lines.push(r.answer || '');
+      }
+      lines.push('');
+    });
+    return lines.join('\n');
+  }
+
+  function renderActions() {
+    actionsWrap.innerHTML = '';
+    if (!lastResult) return;
+
+    const row = h('div', { style: { display: 'flex', gap: '8px' } });
+
+    const copyBtn = h('button', {
+      class: 'btn',
+      'data-testid': 'council-copy-all-btn',
+      style: { fontSize: '13px', padding: '6px 14px' },
+    });
+    copyBtn.textContent = 'Copy all answers';
+    copyBtn.addEventListener('click', function () {
+      const md = buildMarkdownExport();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(md).then(function () {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(function () { copyBtn.textContent = 'Copy all answers'; }, 1500);
+        });
+      }
+      if (onToast) onToast('Copied Council answers to clipboard.', 'success');
+    });
+
+    const exportBtn = h('button', {
+      class: 'btn',
+      'data-testid': 'council-export-json-btn',
+      style: { fontSize: '13px', padding: '6px 14px' },
+    });
+    exportBtn.textContent = 'Export as JSON';
+    exportBtn.addEventListener('click', function () {
+      const payload = {
+        question: question,
+        detectedMode: lastResult.detectedMode || null,
+        detectedDomain: lastResult.detectedDomain || null,
+        responses: lastResult.responses,
+        synthesis: lastResult.synthesis,
+        timestamp: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ai-council-' + Date.now() + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (onToast) onToast('Exported Council session as JSON.', 'success');
+    });
+
+    row.append(copyBtn, exportBtn);
+    actionsWrap.appendChild(row);
+  }
+
+  // ---------------------------------------------------------------
+  // Ask handler
+  // ---------------------------------------------------------------
+  async function handleAsk() {
+    if (!question.trim()) {
+      if (onToast) onToast('Enter a question first.', 'warn');
+      return;
+    }
+    const enabledRows = providerState.filter(function (r) { return r.enabled; });
+    if (!enabledRows.length) {
+      if (onToast) onToast('Enable at least one council member.', 'warn');
+      return;
+    }
+    const missingKey = enabledRows.some(function (r) { return !r.apiKey.trim(); });
+    if (missingKey) {
+      if (onToast) onToast('Add an API key for every enabled council member.', 'warn');
+      return;
+    }
+
+    // Show mode + domain badge before starting
+    modeBadgeWrap.innerHTML = '';
+    const detectedModeNow = detectQuestionMode(question);
+    let schemaCtxForBadge = '';
+    if (getSchemaContext) { try { schemaCtxForBadge = getSchemaContext() || ''; } catch (e) { schemaCtxForBadge = ''; } }
+    const detectedDomainNow = detectDomain(schemaCtxForBadge, question);
+    const badgeRow = h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' } });
+    const modeChip = h('span', { 'data-testid': 'council-mode-chip', style: { display: 'inline-block', fontSize: '11px', fontWeight: 'bold', padding: '2px 10px', borderRadius: '10px', background: 'var(--color-surface-alt, #f0f0f0)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' } });
+    modeChip.textContent = 'Mode: ' + detectedModeNow.label;
+    badgeRow.appendChild(modeChip);
+    if (detectedDomainNow) {
+      const domainChip = h('span', { 'data-testid': 'council-domain-chip', style: { display: 'inline-block', fontSize: '11px', fontWeight: 'bold', padding: '2px 10px', borderRadius: '10px', background: 'var(--color-surface-alt, #f0f0f0)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' } });
+      domainChip.textContent = 'Domain: ' + detectedDomainNow.charAt(0).toUpperCase() + detectedDomainNow.slice(1);
+      badgeRow.appendChild(domainChip);
+    }
+    modeBadgeWrap.appendChild(badgeRow);
+
+    isRunning = true;
+    progressByProviderId = {};
+    lastResult = null;
+    renderQuestion();
+    renderProgress();
+    renderSynthesis();
+    renderCards();
+    renderActions();
+
+    let schemaContext = null;
+    if (getSchemaContext) {
+      try { schemaContext = getSchemaContext(); } catch (err) { schemaContext = null; }
+    }
+
+    try {
+      const result = await runCouncil({
+        question: question,
+        schemaContext: schemaContext || '',
+        providers: providerState.map(function (r) { return { provider: r.provider, apiKey: r.apiKey, enabled: r.enabled }; }),
+        onProgress: function (evt) {
+          progressByProviderId = Object.assign({}, progressByProviderId);
+          progressByProviderId[evt.provider.id] = { status: evt.status, elapsedMs: evt.elapsedMs };
+          renderProgress();
+          renderCards();
+        },
+      });
+      lastResult = result;
+    } catch (err) {
+      if (onToast) onToast('Council run failed: ' + (err && err.message ? err.message : String(err)), 'error');
+    } finally {
+      isRunning = false;
+      renderQuestion();
+      renderProgress();
+      renderSynthesis();
+      renderCards();
+      renderActions();
+    }
+  }
+
+  // ---- Initial render ----
+  renderQuestion();
+  renderProviders();
+  renderSchemaDisclosure();
+  renderProgress();
+  renderSynthesis();
+  renderCards();
+  renderActions();
+}
+
+
+  // Expose mount function
+  window.CouncilUI = {
+    mountCouncil: typeof mountCouncil !== 'undefined' ? mountCouncil : null,
+    shouldOfferCouncil: typeof shouldOfferCouncil !== 'undefined' ? shouldOfferCouncil : null,
+  };
+
+  // Auto-init: wire Council button into overflow + tools sheet
+  function initCouncilUI() {
+    var panelId = 'dg-council-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:420px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:851;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      var closeX = document.createElement('button');
+      closeX.textContent = '\u00D7';
+      closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+      closeX.addEventListener('click', function(){ panel.style.display='none'; });
+      panel.appendChild(closeX);
+      document.body.appendChild(panel);
+    }
+
+    function toggleCouncil() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var closeX2 = document.createElement('button');
+        closeX2.textContent = '\u00D7';
+        closeX2.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        closeX2.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(closeX2);
+        if (typeof mountCouncil === 'function') {
+          mountCouncil({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;color:var(--text-muted,#888);font-size:13px;';
+          msg.textContent = 'AI Council module not fully loaded.';
+          p.appendChild(msg);
+        }
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    // Desktop overflow grid
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-council')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-council';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\u2696\uFE0F<br><span>AI Council</span>';
+      btn.addEventListener('click', function(){
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        toggleCouncil();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    // Mobile tools sheet
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-council')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-council';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\u2696\uFE0F<br><span>AI Council</span>';
+      btn2.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        var sheetOv = document.getElementById('dg-tools-sheet-overlay');
+        if (sheetOv) sheetOv.classList.remove('open');
+        toggleCouncil();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCouncilUI);
+  else setTimeout(initCouncilUI, 450);
+}());
+/* ---- end council-ui.js ---- */
+
+
+/* ================================================================
+   DATA VERSION CONTROL (DVC) — recovered from git history
+   PR #320 Phase 10, 115 tests
+   ================================================================ */
+
+/* ---- from js/dvc/dvc-store.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DataGlow Phase 10 — Data Version Control: Snapshot Store
+// ============================================================
+// In-memory snapshot registry for datasets. Each snapshot captures:
+//   - The dataset's column schema (names + types)
+//   - Per-column summary statistics (min, max, mean, nullCount, distinctCount)
+//   - Row count and a lightweight content fingerprint (hash of stats)
+//
+// PRIVACY: Row data is NEVER stored in snapshots. Only schema + statistics.
+// This keeps the store lightweight and safe to export without exposing PHI.
+//
+// Usage:
+//   import { DVCStore } from './dvc-store.js';
+//   const store = new DVCStore();
+//   const id = store.snapshot(dataset, { label: 'Before dedup' });
+//   store.list();             // all snapshots for a dataset
+//   store.get(id);            // single snapshot
+//   store.rollbackMeta(id);   // returns the schema/stats to restore from
+//   store.exportJSON();       // portable JSON blob (no row data)
+//   DVCStore.fromJSON(blob);  // restore a previously exported store
+// ============================================================
+
+const DVC_VERSION = '1.0.0';
+
+// ---- Types (JSDoc — no TypeScript in DataGlow) ----
+/**
+ * @typedef {Object} ColStats
+ * @property {string} name
+ * @property {string} type        - normalized type group (number|text|date|boolean|other)
+ * @property {string} rawType     - original DuckDB type string
+ * @property {number} nullCount
+ * @property {number} distinctCount
+ * @property {number|null} min    - numeric/date cols only (stored as number for dates)
+ * @property {number|null} max
+ * @property {number|null} mean   - numeric only
+ * @property {number|null} stddev - numeric only
+ */
+
+/**
+ * @typedef {Object} Snapshot
+ * @property {string} id          - UUID-style unique id
+ * @property {string} datasetName
+ * @property {string} label       - user-provided label (e.g. "Before dedup")
+ * @property {string} createdAt   - ISO timestamp
+ * @property {number} rowCount
+ * @property {string} fingerprint - short hash of stats for quick equality checks
+ * @property {ColStats[]} cols
+ * @property {Object} meta        - free-form user metadata
+ */
+
+// ============================================================
+// Fingerprint — cheap content hash (no crypto API needed)
+// ============================================================
+function simpleHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+function fingerprintSnapshot(rowCount, cols) {
+  const sig = rowCount + '|' + cols.map(c =>
+    [c.name, c.type, c.nullCount, c.distinctCount, c.min, c.max, c.mean].join(':')
+  ).join('|');
+  return simpleHash(sig);
+}
+
+// ============================================================
+// ID generator
+// ============================================================
+function genId() {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return 'snap_' + ts + '_' + rand;
+}
+
+// ============================================================
+// Statistics extractor
+// Accepts either:
+//   - An array of row objects: [{ col1: val, col2: val, ... }, ...]
+//   - A DataGlow dataset object with .columns and .rows/.data
+// ============================================================
+
+/**
+ * Normalize a type string to a type group.
+ * Mirrors schema-context.js typeGroup for consistency.
+ * @param {string} rawType
+ * @returns {'number'|'text'|'date'|'boolean'|'other'}
+ */
+function typeGroup(rawType) {
+  if (!rawType) return 'other';
+  const t = rawType.toUpperCase();
+  if (/^(INT|TINYINT|SMALLINT|BIGINT|HUGEINT|UBIGINT|INTEGER|FLOAT|DOUBLE|REAL|DECIMAL|NUMERIC)/.test(t)) return 'number';
+  if (/^(VARCHAR|TEXT|STRING|CHAR|BPCHAR|BLOB|CATEGORY)/.test(t)) return 'text';
+  if (/^(DATE|TIMESTAMP|TIME|INTERVAL)/.test(t)) return 'date';
+  if (/^(BOOL|BOOLEAN)/.test(t)) return 'boolean';
+  return 'other';
+}
+
+/**
+ * Extract column statistics from a rows array.
+ * @param {string} colName
+ * @param {string} rawType
+ * @param {Array} rows - array of row objects
+ * @returns {ColStats}
+ */
+function extractColStats(colName, rawType, rows) {
+  const tg = typeGroup(rawType);
+  let nullCount = 0;
+  const seen = new Set();
+  const numVals = [];
+
+  for (const row of rows) {
+    const v = row[colName];
+    if (v === null || v === undefined || v === '') {
+      nullCount++;
+    } else {
+      seen.add(String(v));
+      if (tg === 'number') {
+        const n = Number(v);
+        if (!Number.isNaN(n)) numVals.push(n);
+      }
+    }
+  }
+
+  let min = null, max = null, mean = null, stddev = null;
+  if (numVals.length > 0) {
+    min = Math.min(...numVals);
+    max = Math.max(...numVals);
+    mean = numVals.reduce((a, b) => a + b, 0) / numVals.length;
+    const variance = numVals.reduce((a, b) => a + (b - mean) ** 2, 0) / numVals.length;
+    stddev = Math.sqrt(variance);
+    // Round to 4 decimals to keep fingerprints stable
+    mean = Math.round(mean * 10000) / 10000;
+    stddev = Math.round(stddev * 10000) / 10000;
+  }
+
+  return {
+    name: colName,
+    type: tg,
+    rawType: rawType || 'VARCHAR',
+    nullCount,
+    distinctCount: seen.size,
+    min,
+    max,
+    mean,
+    stddev,
+  };
+}
+
+/**
+ * Build a ColStats array from a DataGlow dataset object.
+ * Handles multiple dataset shapes:
+ *   { columns: [{name, type}], rows: [{...}], rowCount }
+ *   { name, columns: ['col1', 'col2'], data: [[...], [...]] }
+ * @param {Object} dataset
+ * @returns {{ rowCount: number, cols: ColStats[] }}
+ */
+function statsFromDataset(dataset) {
+  if (!dataset) return { rowCount: 0, cols: [] };
+
+  // Normalise rows to array-of-objects form
+  let rows = [];
+  let colDefs = [];
+
+  if (Array.isArray(dataset.rows)) {
+    rows = dataset.rows;
+  } else if (Array.isArray(dataset.data)) {
+    // Column-major or row-major arrays
+    if (Array.isArray(dataset.columns) && dataset.data.length > 0 && !Array.isArray(dataset.data[0])) {
+      // data is flat array treated as rows? unlikely — skip
+    } else if (Array.isArray(dataset.data[0])) {
+      // row-major: data[i] = row array
+      const cols = (dataset.columns || []).map(c => (typeof c === 'string' ? c : c.name || c.col || String(c)));
+      rows = dataset.data.map(row => {
+        const obj = {};
+        cols.forEach((c, i) => { obj[c] = row[i]; });
+        return obj;
+      });
+    }
+  } else if (Array.isArray(dataset) && dataset.length > 0 && typeof dataset[0] === 'object') {
+    // dataset is already a rows array
+    rows = dataset;
+  }
+
+  // Normalise column definitions
+  const rawCols = dataset.columns || dataset.cols || [];
+  colDefs = rawCols.map(c => {
+    if (typeof c === 'string') return { name: c, rawType: 'VARCHAR' };
+    return { name: c.name || c.col || String(c), rawType: c.type || c.column_type || c.rawType || 'VARCHAR' };
+  });
+
+  // If no colDefs but we have rows, derive from first row keys
+  if (colDefs.length === 0 && rows.length > 0) {
+    colDefs = Object.keys(rows[0]).map(k => ({ name: k, rawType: 'VARCHAR' }));
+  }
+
+  const rowCount = dataset.rowCount || rows.length;
+  const cols = colDefs.map(def => extractColStats(def.name, def.rawType, rows));
+
+  return { rowCount, cols };
+}
+
+// ============================================================
+// DVCStore — the main store class
+// ============================================================
+class DVCStore {
+  constructor() {
+    /** @type {Map<string, Snapshot>} */
+    this._snapshots = new Map();
+    /** @type {string} */
+    this._version = DVC_VERSION;
+  }
+
+  // ------ Core API ------
+
+  /**
+   * Create a snapshot of a dataset. Stores schema + stats only — no row data.
+   * @param {Object} dataset - DataGlow dataset object
+   * @param {Object} opts
+   * @param {string} [opts.label] - human label for this snapshot
+   * @param {Object} [opts.meta] - free-form metadata
+   * @returns {string} snapshot id
+   */
+  snapshot(dataset, opts = {}) {
+    const name = (dataset && (dataset.name || dataset.tableName)) || 'unknown';
+    const { rowCount, cols } = statsFromDataset(dataset);
+    const fingerprint = fingerprintSnapshot(rowCount, cols);
+    const id = genId();
+    /** @type {Snapshot} */
+    const snap = {
+      id,
+      datasetName: name,
+      label: opts.label || ('Snapshot ' + new Date().toLocaleTimeString()),
+      createdAt: new Date().toISOString(),
+      rowCount,
+      fingerprint,
+      cols,
+      meta: opts.meta || {},
+    };
+    this._snapshots.set(id, snap);
+    return id;
+  }
+
+  /**
+   * Get a single snapshot by id.
+   * @param {string} id
+   * @returns {Snapshot|null}
+   */
+  get(id) {
+    return this._snapshots.get(id) || null;
+  }
+
+  /**
+   * List all snapshots, optionally filtered by dataset name.
+   * Returns newest-first.
+   * @param {string} [datasetName]
+   * @returns {Snapshot[]}
+   */
+  list(datasetName) {
+    const all = Array.from(this._snapshots.values());
+    const filtered = datasetName ? all.filter(s => s.datasetName === datasetName) : all;
+    return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /**
+   * Delete a snapshot.
+   * @param {string} id
+   * @returns {boolean}
+   */
+  remove(id) {
+    return this._snapshots.delete(id);
+  }
+
+  /**
+   * Update the label of a snapshot.
+   * @param {string} id
+   * @param {string} label
+   */
+  relabel(id, label) {
+    const snap = this._snapshots.get(id);
+    if (snap) snap.label = label;
+  }
+
+  /**
+   * How many snapshots are stored (total or per dataset).
+   * @param {string} [datasetName]
+   * @returns {number}
+   */
+  count(datasetName) {
+    return this.list(datasetName).length;
+  }
+
+  /**
+   * Find snapshots with an identical fingerprint to the given snapshot.
+   * Useful to detect "nothing changed" before snapshotting.
+   * @param {string} id
+   * @returns {Snapshot[]}
+   */
+  findDuplicates(id) {
+    const snap = this.get(id);
+    if (!snap) return [];
+    return this.list(snap.datasetName).filter(s => s.id !== id && s.fingerprint === snap.fingerprint);
+  }
+
+  /**
+   * Returns the schema + stats of a snapshot so the caller can decide
+   * what a rollback means (DataGlow reloads the matching file / redo pipeline).
+   * This store does NOT store row data, so rollback is advisory:
+   * it tells you WHAT the data looked like, not the raw rows themselves.
+   * @param {string} id
+   * @returns {{ id, datasetName, label, createdAt, rowCount, cols, fingerprint }|null}
+   */
+  rollbackMeta(id) {
+    const snap = this.get(id);
+    if (!snap) return null;
+    return {
+      id: snap.id,
+      datasetName: snap.datasetName,
+      label: snap.label,
+      createdAt: snap.createdAt,
+      rowCount: snap.rowCount,
+      cols: snap.cols,
+      fingerprint: snap.fingerprint,
+    };
+  }
+
+  // ------ Export / Import ------
+
+  /**
+   * Export all snapshots as a portable JSON blob (no row data — safe to save/share).
+   * @returns {string}
+   */
+  exportJSON() {
+    return JSON.stringify({
+      _dvcVersion: this._version,
+      _exportedAt: new Date().toISOString(),
+      snapshots: Array.from(this._snapshots.values()),
+    }, null, 2);
+  }
+
+  /**
+   * Restore a store from a previously exported JSON blob.
+   * @param {string|Object} json
+   * @returns {DVCStore}
+   */
+  static fromJSON(json) {
+    const data = typeof json === 'string' ? JSON.parse(json) : json;
+    const store = new DVCStore();
+    for (const snap of (data.snapshots || [])) {
+      store._snapshots.set(snap.id, snap);
+    }
+    return store;
+  }
+
+  /**
+   * Merge snapshots from another store into this one (union by id).
+   * @param {DVCStore} other
+   */
+  merge(other) {
+    for (const [id, snap] of other._snapshots) {
+      if (!this._snapshots.has(id)) this._snapshots.set(id, snap);
+    }
+  }
+
+  // ------ Convenience ------
+
+  /**
+   * Snapshot a dataset only if its fingerprint differs from the most recent snapshot.
+   * Returns the id of the new snapshot, or null if nothing changed.
+   * @param {Object} dataset
+   * @param {Object} opts
+   * @returns {string|null}
+   */
+  snapshotIfChanged(dataset, opts = {}) {
+    const name = (dataset && (dataset.name || dataset.tableName)) || 'unknown';
+    const existing = this.list(name);
+    const { rowCount, cols } = statsFromDataset(dataset);
+    const fp = fingerprintSnapshot(rowCount, cols);
+    if (existing.length > 0 && existing[0].fingerprint === fp) return null;
+    return this.snapshot(dataset, opts);
+  }
+
+  /**
+   * Return a chronological timeline for a dataset (oldest first).
+   * @param {string} datasetName
+   * @returns {Snapshot[]}
+   */
+  timeline(datasetName) {
+    return this.list(datasetName).reverse();
+  }
+}
+
+// Singleton for use across DataGlow modules
+const dvcStore = new DVCStore();
+
+
+  window.DVCStore = {
+    dvcStore: typeof dvcStore !== 'undefined' ? dvcStore : null,
+    statsFromDataset: typeof statsFromDataset !== 'undefined' ? statsFromDataset : null,
+  };
+}());
+/* ---- end dvc-store.js ---- */
+
+/* ---- from js/dvc/dvc-diff.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DataGlow Phase 10 — Data Version Control: Diff Engine
+// ============================================================
+// Compares two snapshots and produces a structured diff report:
+//
+//   Schema diff  — columns added, removed, or type-changed
+//   Stats diff   — per-column: rowCount delta, null rate change,
+//                  distinct count change, mean shift, range shift
+//   Overall risk — BREAKING | WARN | OK
+//
+// All inputs are Snapshot objects from dvc-store.js.
+// No row data is ever accessed here.
+//
+// Usage:
+//   import { diffSnapshots, summarizeDiff } from './dvc-diff.js';
+//   const diff = diffSnapshots(snapA, snapB);
+//   const summary = summarizeDiff(diff);
+// ============================================================
+
+// ---- Risk levels ----
+const RISK = {
+  OK: 'ok',
+  WARN: 'warn',
+  BREAKING: 'breaking',
+};
+
+// ---- Change type labels ----
+const SCHEMA_CHANGE = {
+  ADDED: 'added',
+  REMOVED: 'removed',
+  TYPE_CHANGED: 'type_changed',
+  UNCHANGED: 'unchanged',
+};
+
+// ============================================================
+// Schema Diff
+// ============================================================
+
+/**
+ * Compare column schemas between two snapshots.
+ * @param {import('./dvc-store.js').Snapshot} before
+ * @param {import('./dvc-store.js').Snapshot} after
+ * @returns {SchemaDiff}
+ */
+function diffSchema(before, after) {
+  const beforeMap = new Map(before.cols.map(c => [c.name, c]));
+  const afterMap = new Map(after.cols.map(c => [c.name, c]));
+
+  const added = [];
+  const removed = [];
+  const typeChanged = [];
+  const unchanged = [];
+
+  // Check for removed or type-changed columns
+  for (const [name, bCol] of beforeMap) {
+    if (!afterMap.has(name)) {
+      removed.push({ name, col: bCol });
+    } else {
+      const aCol = afterMap.get(name);
+      if (bCol.type !== aCol.type) {
+        typeChanged.push({ name, before: bCol.type, after: aCol.type, rawBefore: bCol.rawType, rawAfter: aCol.rawType });
+      } else {
+        unchanged.push(name);
+      }
+    }
+  }
+
+  // Check for added columns
+  for (const [name, aCol] of afterMap) {
+    if (!beforeMap.has(name)) {
+      added.push({ name, col: aCol });
+    }
+  }
+
+  const risk = removed.length > 0 || typeChanged.length > 0
+    ? RISK.BREAKING
+    : added.length > 0
+      ? RISK.WARN
+      : RISK.OK;
+
+  return { added, removed, typeChanged, unchanged, risk };
+}
+
+// ============================================================
+// Statistical Diff — per column
+// ============================================================
+
+/**
+ * @typedef {Object} ColDiff
+ * @property {string} name
+ * @property {string} type
+ * @property {number} nullDelta        - after.nullCount - before.nullCount (abs)
+ * @property {number} nullRateBefore   - 0..1
+ * @property {number} nullRateAfter    - 0..1
+ * @property {number} nullRateDelta    - after - before (signed)
+ * @property {number} distinctDelta    - after.distinctCount - before.distinctCount
+ * @property {number|null} meanDelta   - numeric cols only
+ * @property {number|null} minDelta
+ * @property {number|null} maxDelta
+ * @property {string} risk             - RISK.*
+ * @property {string[]} flags          - human-readable flag messages
+ */
+
+/**
+ * Compute diff between two ColStats objects.
+ * @param {import('./dvc-store.js').ColStats} before
+ * @param {import('./dvc-store.js').ColStats} after
+ * @param {number} rowsBefore
+ * @param {number} rowsAfter
+ * @returns {ColDiff}
+ */
+function diffCol(before, after, rowsBefore, rowsAfter) {
+  const flags = [];
+
+  const nullRateBefore = rowsBefore > 0 ? before.nullCount / rowsBefore : 0;
+  const nullRateAfter = rowsAfter > 0 ? after.nullCount / rowsAfter : 0;
+  const nullRateDelta = nullRateAfter - nullRateBefore;
+
+  const nullDelta = after.nullCount - before.nullCount;
+  const distinctDelta = after.distinctCount - before.distinctCount;
+
+  let meanDelta = null, minDelta = null, maxDelta = null;
+
+  if (before.type === 'number' && after.type === 'number') {
+    if (before.mean !== null && after.mean !== null) {
+      meanDelta = Math.round((after.mean - before.mean) * 10000) / 10000;
+    }
+    if (before.min !== null && after.min !== null) {
+      minDelta = Math.round((after.min - before.min) * 10000) / 10000;
+    }
+    if (before.max !== null && after.max !== null) {
+      maxDelta = Math.round((after.max - before.max) * 10000) / 10000;
+    }
+  }
+
+  // Risk assessment
+  let risk = RISK.OK;
+
+  // Null rate jumped by > 5% — warn
+  if (nullRateDelta > 0.05) {
+    flags.push('Null rate increased by ' + pct(nullRateDelta) + ' — possible data quality issue');
+    risk = RISK.WARN;
+  }
+  // Null rate jumped by > 20% — breaking
+  if (nullRateDelta > 0.2) {
+    flags.push('Null rate increased by ' + pct(nullRateDelta) + ' — likely data loss or join failure');
+    risk = RISK.BREAKING;
+  }
+  // Null rate decreased significantly — data was filled in (good, but notable)
+  if (nullRateDelta < -0.05) {
+    flags.push('Null rate decreased by ' + pct(-nullRateDelta) + ' — data filled in or source changed');
+    if (risk === RISK.OK) risk = RISK.WARN;
+  }
+
+  // Distinct count dropped to 1 — possible constant injection / data corruption
+  if (after.distinctCount === 1 && before.distinctCount > 1) {
+    flags.push('All values became identical (distinctCount = 1) — possible data corruption');
+    risk = RISK.BREAKING;
+  }
+  // Distinct count went to 0 — all nulls
+  if (after.distinctCount === 0 && before.distinctCount > 0) {
+    flags.push('Column became entirely null — data loss');
+    risk = RISK.BREAKING;
+  }
+
+  // Mean shifted by > 20% relative — warn
+  if (meanDelta !== null && before.mean !== null && before.mean !== 0) {
+    const relShift = Math.abs(meanDelta / before.mean);
+    if (relShift > 0.2) {
+      flags.push('Mean shifted ' + pct(relShift) + ' (' + fmt(before.mean) + ' -> ' + fmt(after.mean) + ')');
+      if (risk === RISK.OK) risk = RISK.WARN;
+    }
+    if (relShift > 0.5) {
+      risk = RISK.BREAKING;
+    }
+  }
+
+  return {
+    name: before.name,
+    type: before.type,
+    nullDelta,
+    nullRateBefore: Math.round(nullRateBefore * 10000) / 10000,
+    nullRateAfter: Math.round(nullRateAfter * 10000) / 10000,
+    nullRateDelta: Math.round(nullRateDelta * 10000) / 10000,
+    distinctDelta,
+    meanDelta,
+    minDelta,
+    maxDelta,
+    risk,
+    flags,
+  };
+}
+
+// ============================================================
+// Full Snapshot Diff
+// ============================================================
+
+/**
+ * @typedef {Object} SnapshotDiff
+ * @property {string} beforeId
+ * @property {string} afterId
+ * @property {string} beforeLabel
+ * @property {string} afterLabel
+ * @property {string} datasetName
+ * @property {number} rowCountBefore
+ * @property {number} rowCountAfter
+ * @property {number} rowCountDelta
+ * @property {number} rowCountPct         - signed % change
+ * @property {Object} schema              - SchemaDiff
+ * @property {ColDiff[]} colDiffs         - diffs for columns present in both
+ * @property {string} overallRisk         - RISK.*
+ * @property {string[]} summary           - human-readable top-level findings
+ */
+
+/**
+ * Compare two snapshots and produce a full diff report.
+ * @param {import('./dvc-store.js').Snapshot} before
+ * @param {import('./dvc-store.js').Snapshot} after
+ * @returns {SnapshotDiff}
+ */
+function diffSnapshots(before, after) {
+  if (!before || !after) throw new Error('diffSnapshots: both before and after are required');
+
+  const schema = diffSchema(before, after);
+
+  // Only diff columns present in both snapshots
+  const beforeMap = new Map(before.cols.map(c => [c.name, c]));
+  const afterMap = new Map(after.cols.map(c => [c.name, c]));
+  const sharedNames = before.cols.map(c => c.name).filter(n => afterMap.has(n));
+
+  const colDiffs = sharedNames.map(name =>
+    diffCol(beforeMap.get(name), afterMap.get(name), before.rowCount, after.rowCount)
+  );
+
+  const rowCountDelta = after.rowCount - before.rowCount;
+  const rowCountPct = before.rowCount > 0
+    ? Math.round((rowCountDelta / before.rowCount) * 10000) / 100
+    : null;
+
+  // Roll up overall risk
+  let overallRisk = schema.risk;
+  for (const cd of colDiffs) {
+    if (cd.risk === RISK.BREAKING) { overallRisk = RISK.BREAKING; break; }
+    if (cd.risk === RISK.WARN && overallRisk === RISK.OK) overallRisk = RISK.WARN;
+  }
+
+  // Human summary
+  const summary = [];
+
+  if (rowCountDelta !== 0) {
+    const dir = rowCountDelta > 0 ? '+' : '';
+    summary.push('Row count: ' + before.rowCount.toLocaleString() + ' -> ' + after.rowCount.toLocaleString() +
+      ' (' + dir + rowCountDelta.toLocaleString() + (rowCountPct !== null ? ', ' + dir + rowCountPct + '%' : '') + ')');
+  } else {
+    summary.push('Row count unchanged: ' + after.rowCount.toLocaleString());
+  }
+
+  if (schema.added.length > 0)     summary.push(schema.added.length + ' column(s) added: ' + schema.added.map(c => c.name).join(', '));
+  if (schema.removed.length > 0)   summary.push(schema.removed.length + ' column(s) removed: ' + schema.removed.map(c => c.name).join(', '));
+  if (schema.typeChanged.length > 0) {
+    for (const tc of schema.typeChanged) {
+      summary.push('Type changed: ' + tc.name + ' (' + tc.before + ' -> ' + tc.after + ')');
+    }
+  }
+
+  const flagged = colDiffs.filter(cd => cd.flags.length > 0);
+  for (const cd of flagged) {
+    for (const f of cd.flags) {
+      summary.push('[' + cd.name + '] ' + f);
+    }
+  }
+
+  if (summary.length === 1 && overallRisk === RISK.OK) {
+    summary.push('No significant changes detected.');
+  }
+
+  return {
+    beforeId: before.id,
+    afterId: after.id,
+    beforeLabel: before.label,
+    afterLabel: after.label,
+    datasetName: before.datasetName,
+    rowCountBefore: before.rowCount,
+    rowCountAfter: after.rowCount,
+    rowCountDelta,
+    rowCountPct,
+    schema,
+    colDiffs,
+    overallRisk,
+    summary,
+  };
+}
+
+// ============================================================
+// Human-readable summary helpers
+// ============================================================
+
+/**
+ * Produce a compact text summary of a diff (for toasts / notifications).
+ * @param {SnapshotDiff} diff
+ * @returns {string}
+ */
+function summarizeDiff(diff) {
+  const riskLabel = { ok: 'OK', warn: 'Warning', breaking: 'Breaking' }[diff.overallRisk] || diff.overallRisk;
+  const lines = ['[' + riskLabel + '] ' + diff.datasetName + ': ' + diff.beforeLabel + ' -> ' + diff.afterLabel];
+  for (const s of diff.summary) lines.push('  ' + s);
+  return lines.join('\n');
+}
+
+/**
+ * Build an HTML fragment for the diff — used by dvc-ui.js.
+ * @param {SnapshotDiff} diff
+ * @returns {string} HTML string
+ */
+function diffToHTML(diff) {
+  const riskColors = { ok: '#437A22', warn: '#964219', breaking: '#A12C7B' };
+  const riskLabels = { ok: 'No Issues', warn: 'Warning', breaking: 'Breaking Changes' };
+  const rc = riskColors[diff.overallRisk] || '#7A7974';
+  const rl = riskLabels[diff.overallRisk] || diff.overallRisk;
+
+  const rowDeltaStr = diff.rowCountDelta === 0
+    ? '<span style="color:#7A7974">no change</span>'
+    : (diff.rowCountDelta > 0 ? '<span style="color:#437A22">+' : '<span style="color:#A12C7B">') +
+      diff.rowCountDelta.toLocaleString() + (diff.rowCountPct !== null ? ' (' + (diff.rowCountDelta > 0 ? '+' : '') + diff.rowCountPct + '%)' : '') + '</span>';
+
+  let schemaHTML = '';
+  if (diff.schema.added.length + diff.schema.removed.length + diff.schema.typeChanged.length > 0) {
+    schemaHTML = '<div class="dvc-schema-changes">' +
+      diff.schema.added.map(c => '<div class="dvc-change dvc-added">+ ' + esc(c.name) + ' <span class="dvc-type">' + esc(c.col.rawType) + '</span></div>').join('') +
+      diff.schema.removed.map(c => '<div class="dvc-change dvc-removed">- ' + esc(c.name) + ' <span class="dvc-type">' + esc(c.col.rawType) + '</span></div>').join('') +
+      diff.schema.typeChanged.map(tc => '<div class="dvc-change dvc-type-changed">~ ' + esc(tc.name) + ': <span class="dvc-type">' + esc(tc.before) + '</span> -> <span class="dvc-type">' + esc(tc.after) + '</span></div>').join('') +
+      '</div>';
+  }
+
+  const flaggedCols = diff.colDiffs.filter(cd => cd.flags.length > 0);
+  let statsHTML = '';
+  if (flaggedCols.length > 0) {
+    statsHTML = '<div class="dvc-stat-flags">' +
+      flaggedCols.map(cd =>
+        '<div class="dvc-col-flag dvc-risk-' + cd.risk + '">' +
+        '<span class="dvc-col-name">' + esc(cd.name) + '</span>' +
+        cd.flags.map(f => '<div class="dvc-flag-msg">' + esc(f) + '</div>').join('') +
+        '</div>'
+      ).join('') +
+      '</div>';
+  }
+
+  return [
+    '<div class="dvc-diff-report">',
+    '  <div class="dvc-diff-header">',
+    '    <span class="dvc-risk-badge" style="background:' + rc + '">' + rl + '</span>',
+    '    <span class="dvc-diff-title">' + esc(diff.beforeLabel) + ' <span class="dvc-arrow">&#8594;</span> ' + esc(diff.afterLabel) + '</span>',
+    '  </div>',
+    '  <div class="dvc-diff-rows">Rows: ' + diff.rowCountBefore.toLocaleString() + ' -> ' + diff.rowCountAfter.toLocaleString() + ' ' + rowDeltaStr + '</div>',
+    schemaHTML,
+    statsHTML,
+    diff.summary.length === 0 ? '<div class="dvc-ok">No issues detected.</div>' : '',
+    '</div>',
+  ].join('\n');
+}
+
+// ============================================================
+// Internal helpers
+// ============================================================
+function pct(ratio) { return Math.round(ratio * 1000) / 10 + '%'; }
+function fmt(n) { return n === null ? 'null' : (Math.round(n * 100) / 100).toLocaleString(); }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+
+  window.DVCDiff = {
+    diffSnapshots: typeof diffSnapshots !== 'undefined' ? diffSnapshots : null,
+    diffToHTML: typeof diffToHTML !== 'undefined' ? diffToHTML : null,
+    RISK: typeof RISK !== 'undefined' ? RISK : null,
+  };
+}());
+/* ---- end dvc-diff.js ---- */
+
+/* ---- from js/dvc/dvc-ui.js ---- */
+;(function(){
+  'use strict';
+
+  // Alias deps from globals
+  var _store = window.DVCStore || {};
+  var _diff  = window.DVCDiff  || {};
+  var dvcStore         = _store.dvcStore;
+  var statsFromDataset = _store.statsFromDataset;
+  var diffSnapshots    = _diff.diffSnapshots;
+  var diffToHTML       = _diff.diffToHTML;
+  var RISK             = _diff.RISK;
+
+// ============================================================
+// DataGlow Phase 10 — Data Version Control: UI
+// ============================================================
+// Mounts the DVC tab UI into a host element.
+//
+// Layout:
+//   [ Dataset selector ]  [ + Snapshot now ] [ Export ] [ Import ]
+//   ┌────────────────────────────────────────────────────┐
+//   │  Timeline — newest first                           │
+//   │  ┌─────────────────────────────────────────────┐  │
+//   │  │ [fingerprint] "Before dedup" 3:42 PM        │  │
+//   │  │  50,000 rows  |  18 cols  [Diff ↕] [Info]  │  │
+//   │  └─────────────────────────────────────────────┘  │
+//   │  ┌─────────────────────────────────────────────┐  │
+//   │  │ [fingerprint] "After dedup"  3:55 PM  CURR  │  │
+//   │  │  48,231 rows  |  18 cols  [Diff ↕] [Info]  │  │
+//   │  └─────────────────────────────────────────────┘  │
+//   └────────────────────────────────────────────────────┘
+//   ┌────────────────────────────────────────────────────┐
+//   │  Diff panel (when two snapshots selected)          │
+//   └────────────────────────────────────────────────────┘
+//
+// API:
+//   mountDVCUI({ host, datasets, getActiveDataset, onSnapshot, onRollback, onToast })
+// ============================================================
+
+// [stripped import] import { dvcStore, statsFromDataset } from './dvc-store.js';
+// [stripped import] import { diffSnapshots, diffToHTML, RISK } from './dvc-diff.js';
+
+const STYLES = `
+<style>
+.dvc-root { display: flex; flex-direction: column; gap: 14px; padding: 16px 0; font-family: inherit; }
+.dvc-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dvc-toolbar select { flex: 1; min-width: 160px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border, #D4D1CA); background: var(--bg, #fff); color: var(--text, #28251D); font-size: 13px; }
+.dvc-btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: opacity 0.15s; }
+.dvc-btn:hover { opacity: 0.8; }
+.dvc-btn-primary { background: var(--primary, #01696F); color: #fff; }
+.dvc-btn-secondary { background: var(--surface-alt, #f0efec); color: var(--text, #28251D); border: 1px solid var(--border, #D4D1CA); }
+.dvc-btn-danger { background: #A12C7B; color: #fff; }
+.dvc-empty { color: var(--text-muted, #7A7974); font-size: 13px; padding: 24px 0; text-align: center; }
+.dvc-timeline { display: flex; flex-direction: column; gap: 8px; }
+.dvc-snap-card { border: 1px solid var(--border, #D4D1CA); border-radius: 8px; padding: 12px 14px; background: var(--surface, #F9F8F5); transition: border-color 0.15s; }
+.dvc-snap-card.dvc-selected { border-color: var(--primary, #01696F); background: var(--surface-alt, #f0efec); }
+.dvc-snap-card.dvc-diff-a { border-color: #006494; }
+.dvc-snap-card.dvc-diff-b { border-color: #A84B2F; }
+.dvc-snap-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dvc-fingerprint { font-family: monospace; font-size: 11px; color: var(--text-faint, #BAB9B4); background: var(--surface-alt, #eee); padding: 2px 6px; border-radius: 4px; }
+.dvc-label { font-weight: 600; font-size: 13px; color: var(--text, #28251D); flex: 1; }
+.dvc-label-input { font-weight: 600; font-size: 13px; flex: 1; border: 1px solid var(--primary, #01696F); border-radius: 4px; padding: 2px 6px; background: var(--bg, #fff); color: var(--text, #28251D); }
+.dvc-time { font-size: 11px; color: var(--text-muted, #7A7974); }
+.dvc-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+.dvc-badge-ok { background: #d4edda; color: #437A22; }
+.dvc-badge-warn { background: #fff3cd; color: #964219; }
+.dvc-badge-breaking { background: #f8d7da; color: #A12C7B; }
+.dvc-snap-meta { display: flex; align-items: center; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--text-muted, #7A7974); }
+.dvc-snap-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.dvc-diff-panel { border: 1px solid var(--border, #D4D1CA); border-radius: 8px; padding: 14px 16px; background: var(--surface, #F9F8F5); }
+.dvc-diff-panel h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; }
+.dvc-diff-actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.dvc-diff-report { font-size: 13px; }
+.dvc-diff-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.dvc-risk-badge { color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; }
+.dvc-diff-title { font-weight: 600; }
+.dvc-diff-rows { color: var(--text-muted, #7A7974); margin-bottom: 8px; }
+.dvc-arrow { color: var(--text-faint, #BAB9B4); }
+.dvc-schema-changes { border-left: 3px solid var(--border, #D4D1CA); padding: 6px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+.dvc-change { font-size: 12px; font-family: monospace; }
+.dvc-added { color: #437A22; }
+.dvc-removed { color: #A12C7B; }
+.dvc-type-changed { color: #964219; }
+.dvc-type { opacity: 0.7; }
+.dvc-stat-flags { display: flex; flex-direction: column; gap: 6px; }
+.dvc-col-flag { border-left: 3px solid var(--border, #D4D1CA); padding: 6px 10px; border-radius: 0 4px 4px 0; }
+.dvc-risk-ok { border-left-color: #437A22; }
+.dvc-risk-warn { border-left-color: #964219; }
+.dvc-risk-breaking { border-left-color: #A12C7B; }
+.dvc-col-name { font-weight: 600; font-size: 12px; display: block; margin-bottom: 2px; }
+.dvc-flag-msg { font-size: 12px; color: var(--text-muted, #7A7974); }
+.dvc-ok { color: #437A22; font-size: 13px; }
+.dvc-col-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+.dvc-col-table th { text-align: left; padding: 4px 8px; border-bottom: 2px solid var(--border, #D4D1CA); color: var(--text-muted, #7A7974); font-weight: 600; }
+.dvc-col-table td { padding: 4px 8px; border-bottom: 1px solid var(--border, #D4D1CA); }
+.dvc-delta-pos { color: #437A22; }
+.dvc-delta-neg { color: #A12C7B; }
+.dvc-delta-zero { color: var(--text-faint, #BAB9B4); }
+.dvc-info-panel { border: 1px solid var(--border, #D4D1CA); border-radius: 8px; padding: 14px 16px; background: var(--surface, #F9F8F5); }
+.dvc-info-panel h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; }
+</style>
+`;
+
+// ============================================================
+// Helpers
+// ============================================================
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function fmtTime(iso) {
+  try { return new Date(iso).toLocaleString(); }
+  catch (_) { return iso; }
+}
+function fmtNum(n) { return (n == null ? 'N/A' : Number(n).toLocaleString()); }
+function deltaClass(v) { return v > 0 ? 'dvc-delta-pos' : v < 0 ? 'dvc-delta-neg' : 'dvc-delta-zero'; }
+function deltaStr(v) { if (v == null) return '—'; return (v > 0 ? '+' : '') + v.toLocaleString(); }
+function riskBadge(r) {
+  const cls = { ok: 'dvc-badge-ok', warn: 'dvc-badge-warn', breaking: 'dvc-badge-breaking' }[r] || '';
+  const lbl = { ok: 'Clean', warn: 'Warn', breaking: 'Breaking' }[r] || r;
+  return '<span class="dvc-badge ' + cls + '">' + lbl + '</span>';
+}
+
+// ============================================================
+// mountDVCUI
+// ============================================================
+
+/**
+ * Mount the DVC tab into a host element.
+ *
+ * @param {Object} opts
+ * @param {HTMLElement} opts.host         - container element
+ * @param {Object[]}   opts.datasets      - state.datasets array
+ * @param {Function}   [opts.getActiveDataset] - () => dataset object (for snapshot-now)
+ * @param {Function}   [opts.onSnapshot]  - called after a snapshot is created (id) => void
+ * @param {Function}   [opts.onRollback]  - called when user clicks Rollback (snapMeta) => void
+ * @param {Function}   [opts.onToast]     - (msg, type) => void
+ */
+function mountDVCUI({ host, datasets = [], getActiveDataset, onSnapshot, onRollback, onToast }) {
+  if (!host) return;
+
+  // Inject styles once
+  if (!document.getElementById('dvc-styles')) {
+    const styleEl = document.createElement('div');
+    styleEl.id = 'dvc-styles';
+    styleEl.innerHTML = STYLES;
+    document.head.appendChild(styleEl.firstElementChild);
+  }
+
+  // State
+  let selectedDataset = '';
+  let diffSnapA = null; // id
+  let diffSnapB = null; // id
+  let inspectId = null; // id — info panel
+  let editingLabelId = null;
+
+  function toast(msg, type = 'info') {
+    if (onToast) onToast(msg, type);
+  }
+
+  // ---- Render ----
+  function render() {
+    const snaps = dvcStore.list(selectedDataset || undefined);
+
+    const datasetOptions = (datasets.length > 0
+      ? ['<option value="">All datasets</option>',
+         ...datasets.map(d => {
+           const n = d.name || d.tableName || '';
+           return '<option value="' + esc(n) + '"' + (selectedDataset === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+         })]
+      : ['<option value="">No datasets loaded</option>']).join('');
+
+    const snapCount = snaps.length;
+
+    const timelineHTML = snapCount === 0
+      ? '<div class="dvc-empty">No snapshots yet. Load a dataset and click <strong>Snapshot now</strong>.</div>'
+      : snaps.map(snap => renderSnapCard(snap)).join('');
+
+    let diffPanelHTML = '';
+    if (diffSnapA && diffSnapB) {
+      const a = dvcStore.get(diffSnapA);
+      const b = dvcStore.get(diffSnapB);
+      if (a && b) {
+        const diff = diffSnapshots(a, b);
+        diffPanelHTML = renderDiffPanel(diff);
+      }
+    }
+
+    let infoPanelHTML = '';
+    if (inspectId) {
+      const snap = dvcStore.get(inspectId);
+      if (snap) infoPanelHTML = renderInfoPanel(snap);
+    }
+
+    host.innerHTML = [
+      '<div class="dvc-root" data-testid="dvc-root">',
+      '  <div class="dvc-toolbar" data-testid="dvc-toolbar">',
+      '    <select data-testid="dvc-dataset-select" id="dvc-dataset-select">' + datasetOptions + '</select>',
+      '    <button class="dvc-btn dvc-btn-primary" data-testid="dvc-snapshot-btn" id="dvc-snapshot-btn">+ Snapshot now</button>',
+      '    <button class="dvc-btn dvc-btn-secondary" data-testid="dvc-export-btn" id="dvc-export-btn">Export</button>',
+      '    <button class="dvc-btn dvc-btn-secondary" data-testid="dvc-import-btn" id="dvc-import-btn">Import</button>',
+      '    <input type="file" id="dvc-import-file" accept=".json" style="display:none" data-testid="dvc-import-file">',
+      '  </div>',
+      snapCount > 0
+        ? '  <div class="dvc-help" style="font-size:12px;color:var(--text-muted,#7A7974)">Click <strong>Diff A</strong> on one snapshot and <strong>Diff B</strong> on another to compare them.</div>'
+        : '',
+      '  <div class="dvc-timeline" data-testid="dvc-timeline" id="dvc-timeline">',
+      timelineHTML,
+      '  </div>',
+      diffPanelHTML,
+      infoPanelHTML,
+      '</div>',
+    ].join('\n');
+
+    attachHandlers();
+  }
+
+  function renderSnapCard(snap) {
+    const isA = snap.id === diffSnapA;
+    const isB = snap.id === diffSnapB;
+    const cls = isA ? ' dvc-diff-a' : isB ? ' dvc-diff-b' : '';
+    const isEditing = snap.id === editingLabelId;
+    const labelHTML = isEditing
+      ? '<input class="dvc-label-input" data-testid="dvc-label-input-' + snap.id + '" id="dvc-label-input" value="' + esc(snap.label) + '">'
+      : '<span class="dvc-label">' + esc(snap.label) + '</span>';
+
+    return [
+      '<div class="dvc-snap-card' + cls + '" data-snap-id="' + esc(snap.id) + '" data-testid="snap-card-' + esc(snap.id) + '">',
+      '  <div class="dvc-snap-top">',
+      '    <span class="dvc-fingerprint" title="Content fingerprint">' + esc(snap.fingerprint) + '</span>',
+      labelHTML,
+      '    <span class="dvc-time">' + esc(fmtTime(snap.createdAt)) + '</span>',
+      isA ? '<span class="dvc-badge" style="background:#006494;color:#fff">A</span>' : '',
+      isB ? '<span class="dvc-badge" style="background:#A84B2F;color:#fff">B</span>' : '',
+      '  </div>',
+      '  <div class="dvc-snap-meta">',
+      '    <span>' + fmtNum(snap.rowCount) + ' rows</span>',
+      '    <span>' + snap.cols.length + ' cols</span>',
+      '    <span>' + esc(snap.datasetName) + '</span>',
+      '  </div>',
+      '  <div class="dvc-snap-actions">',
+      '    <button class="dvc-btn dvc-btn-secondary" data-action="diff-a" data-snap-id="' + esc(snap.id) + '" data-testid="diff-a-' + esc(snap.id) + '"' + (isA ? ' style="border-color:#006494"' : '') + '>Diff A</button>',
+      '    <button class="dvc-btn dvc-btn-secondary" data-action="diff-b" data-snap-id="' + esc(snap.id) + '" data-testid="diff-b-' + esc(snap.id) + '"' + (isB ? ' style="border-color:#A84B2F"' : '') + '>Diff B</button>',
+      '    <button class="dvc-btn dvc-btn-secondary" data-action="inspect" data-snap-id="' + esc(snap.id) + '" data-testid="inspect-' + esc(snap.id) + '">Info</button>',
+      '    <button class="dvc-btn dvc-btn-secondary" data-action="rename" data-snap-id="' + esc(snap.id) + '" data-testid="rename-' + esc(snap.id) + '">' + (isEditing ? 'Save' : 'Rename') + '</button>',
+      '    <button class="dvc-btn dvc-btn-secondary" data-action="rollback" data-snap-id="' + esc(snap.id) + '" data-testid="rollback-' + esc(snap.id) + '">Rollback</button>',
+      '    <button class="dvc-btn dvc-btn-danger" data-action="delete" data-snap-id="' + esc(snap.id) + '" data-testid="delete-' + esc(snap.id) + '">Delete</button>',
+      '  </div>',
+      '</div>',
+    ].join('\n');
+  }
+
+  function renderDiffPanel(diff) {
+    const colTableRows = diff.colDiffs.map(cd => {
+      const nd = Math.round(cd.nullRateDelta * 1000) / 10;
+      const ndStr = (nd > 0 ? '+' : '') + nd + '%';
+      const ndClass = deltaClass(cd.nullRateDelta);
+      const dd = cd.distinctDelta;
+      const mdStr = cd.meanDelta !== null ? deltaStr(cd.meanDelta) : '—';
+      return '<tr>' +
+        '<td>' + esc(cd.name) + '</td>' +
+        '<td>' + esc(cd.type) + '</td>' +
+        '<td class="' + ndClass + '">' + ndStr + '</td>' +
+        '<td class="' + deltaClass(dd) + '">' + deltaStr(dd) + '</td>' +
+        '<td class="' + deltaClass(cd.meanDelta) + '">' + mdStr + '</td>' +
+        '<td>' + riskBadge(cd.risk) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    return [
+      '<div class="dvc-diff-panel" data-testid="dvc-diff-panel">',
+      '  <h3>Diff: <span style="color:#006494">A</span> vs <span style="color:#A84B2F">B</span></h3>',
+      '  <div class="dvc-diff-actions">',
+      '    <button class="dvc-btn dvc-btn-secondary" id="dvc-clear-diff" data-testid="dvc-clear-diff">Clear diff</button>',
+      '  </div>',
+      diffToHTML(diff),
+      diff.colDiffs.length > 0 ? [
+        '  <table class="dvc-col-table" data-testid="dvc-col-table">',
+        '    <thead><tr><th>Column</th><th>Type</th><th>Null rate Δ</th><th>Distinct Δ</th><th>Mean Δ</th><th>Risk</th></tr></thead>',
+        '    <tbody>' + colTableRows + '</tbody>',
+        '  </table>',
+      ].join('\n') : '',
+      '</div>',
+    ].join('\n');
+  }
+
+  function renderInfoPanel(snap) {
+    const colRows = snap.cols.map(c => {
+      const nullPct = snap.rowCount > 0 ? Math.round(c.nullCount / snap.rowCount * 1000) / 10 + '%' : '—';
+      return '<tr>' +
+        '<td>' + esc(c.name) + '</td>' +
+        '<td>' + esc(c.rawType) + '</td>' +
+        '<td>' + nullPct + '</td>' +
+        '<td>' + fmtNum(c.distinctCount) + '</td>' +
+        '<td>' + fmtNum(c.min) + '</td>' +
+        '<td>' + fmtNum(c.max) + '</td>' +
+        '<td>' + fmtNum(c.mean) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    return [
+      '<div class="dvc-info-panel" data-testid="dvc-info-panel">',
+      '  <h3>Snapshot info: ' + esc(snap.label) + '</h3>',
+      '  <div style="font-size:12px;color:var(--text-muted,#7A7974);margin-bottom:10px">',
+      '    ID: ' + esc(snap.id) + ' &middot; ' + fmtTime(snap.createdAt) + ' &middot; fingerprint: ' + esc(snap.fingerprint),
+      '  </div>',
+      '  <table class="dvc-col-table" data-testid="dvc-info-col-table">',
+      '    <thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Distinct</th><th>Min</th><th>Max</th><th>Mean</th></tr></thead>',
+      '    <tbody>' + colRows + '</tbody>',
+      '  </table>',
+      '  <div style="margin-top:8px"><button class="dvc-btn dvc-btn-secondary" id="dvc-close-info" data-testid="dvc-close-info">Close</button></div>',
+      '</div>',
+    ].join('\n');
+  }
+
+  // ---- Event handlers ----
+  function attachHandlers() {
+    // Dataset selector
+    const sel = document.getElementById('dvc-dataset-select');
+    if (sel) sel.addEventListener('change', () => { selectedDataset = sel.value; render(); });
+
+    // Snapshot now
+    const snapBtn = document.getElementById('dvc-snapshot-btn');
+    if (snapBtn) snapBtn.addEventListener('click', () => {
+      const ds = getActiveDataset ? getActiveDataset() : null;
+      if (!ds) { toast('No active dataset to snapshot', 'warn'); return; }
+      const label = 'Snapshot ' + new Date().toLocaleTimeString();
+      const id = dvcStore.snapshot(ds, { label });
+      selectedDataset = ds.name || ds.tableName || '';
+      toast('Snapshot created: ' + label, 'success');
+      if (onSnapshot) onSnapshot(id);
+      render();
+    });
+
+    // Export
+    const exportBtn = document.getElementById('dvc-export-btn');
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+      const json = dvcStore.exportJSON();
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'dataglow-snapshots.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Snapshots exported', 'success');
+    });
+
+    // Import
+    const importBtn = document.getElementById('dvc-import-btn');
+    const importFile = document.getElementById('dvc-import-file');
+    if (importBtn && importFile) {
+      importBtn.addEventListener('click', () => importFile.click());
+      importFile.addEventListener('change', () => {
+        const file = importFile.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const { DVCStore } = { DVCStore: dvcStore.constructor };
+            const imported = DVCStore.fromJSON(e.target.result);
+            dvcStore.merge(imported);
+            toast('Snapshots imported', 'success');
+            render();
+          } catch (err) {
+            toast('Import failed: ' + err.message, 'error');
+          }
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    // Card action buttons (delegated)
+    const timeline = document.getElementById('dvc-timeline');
+    if (timeline) {
+      timeline.addEventListener('click', e => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const snapId = btn.dataset.snapId;
+
+        if (action === 'diff-a') {
+          diffSnapA = snapId;
+          if (diffSnapA === diffSnapB) diffSnapB = null;
+          render();
+        } else if (action === 'diff-b') {
+          diffSnapB = snapId;
+          if (diffSnapB === diffSnapA) diffSnapA = null;
+          render();
+        } else if (action === 'inspect') {
+          inspectId = inspectId === snapId ? null : snapId;
+          render();
+        } else if (action === 'rename') {
+          if (editingLabelId === snapId) {
+            // Save
+            const input = document.getElementById('dvc-label-input');
+            if (input) { dvcStore.relabel(snapId, input.value.trim() || 'Snapshot'); }
+            editingLabelId = null;
+          } else {
+            editingLabelId = snapId;
+          }
+          render();
+        } else if (action === 'rollback') {
+          const meta = dvcStore.rollbackMeta(snapId);
+          if (meta && onRollback) {
+            onRollback(meta);
+            toast('Rollback info for "' + meta.label + '" passed to DataGlow', 'info');
+          } else {
+            toast('No rollback handler registered', 'warn');
+          }
+        } else if (action === 'delete') {
+          const snap = dvcStore.get(snapId);
+          if (!snap) return;
+          dvcStore.remove(snapId);
+          if (diffSnapA === snapId) diffSnapA = null;
+          if (diffSnapB === snapId) diffSnapB = null;
+          if (inspectId === snapId) inspectId = null;
+          toast('Snapshot deleted', 'info');
+          render();
+        }
+      });
+    }
+
+    // Clear diff
+    const clearDiff = document.getElementById('dvc-clear-diff');
+    if (clearDiff) clearDiff.addEventListener('click', () => { diffSnapA = null; diffSnapB = null; render(); });
+
+    // Close info
+    const closeInfo = document.getElementById('dvc-close-info');
+    if (closeInfo) closeInfo.addEventListener('click', () => { inspectId = null; render(); });
+  }
+
+  // Initial render
+  render();
+
+  // Return refresh handle so main.js can re-mount when datasets change
+  return { refresh: render };
+}
+
+
+  window.DVCUI = {
+    mountDVC: typeof mountDVC !== 'undefined' ? mountDVC : null,
+    shouldOfferDVC: typeof shouldOfferDVC !== 'undefined' ? shouldOfferDVC : null,
+  };
+
+  // Auto-init: wire DVC button
+  function initDVCUI() {
+    var panelId = 'dg-dvc-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:420px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:852;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+
+    function toggleDVC() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var closeX = document.createElement('button');
+        closeX.textContent = '\u00D7';
+        closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        closeX.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(closeX);
+        if (typeof mountDVC === 'function') {
+          mountDVC({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        }
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-dvc')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-dvc';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83D\uDDC2\uFE0F<br><span>DVC</span>';
+      btn.addEventListener('click', function(){
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        toggleDVC();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-dvc')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-dvc';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83D\uDDC2\uFE0F<br><span>DVC</span>';
+      btn2.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        toggleDVC();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initDVCUI);
+  else setTimeout(initDVCUI, 500);
+}());
+/* ---- end dvc-ui.js ---- */
+
+
+/* ================================================================
+   EQUITY STRATIFICATION LAYER — recovered from git history
+   PR #310 Phase 3
+   ================================================================ */
+
+/* ---- from js/equity/disparity-scorer.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Disparity Scorer (Phase 3)
+// ============================================================
+// Pure statistical disparity detection. Takes pre-computed group-level
+// rates/means and returns disparity findings -- flagging when any group
+// deviates meaningfully from the reference (population mean or largest group).
+//
+// WHY THIS EXISTS:
+// CMS defines health equity disparity as a meaningful difference in outcomes
+// between population subgroups. "Meaningful" has specific definitions:
+//   - Rate ratio >= 1.5x (one group's rate is 50% higher than reference)
+//   - Absolute difference >= 5 percentage points for binary outcomes
+//   - Standardized mean difference >= 0.2 for continuous outcomes
+// These are not arbitrary -- they match CMS Disparities Impact Statement
+// methodology and HEDIS disparity measurement guidance.
+//
+// DESIGN:
+// Pure and synchronous. Takes an array of {group, n, rate, mean} objects
+// and returns scored findings. No DuckDB, no DOM, no network.
+// The stratifier (js/equity/equity-stratifier.js) handles the SQL; this
+// module handles only the statistics.
+
+// ---- Disparity thresholds --------------------------------------------------
+// Aligned with CMS Disparities Impact Statement and HEDIS methodology.
+
+const RATE_RATIO_WARN   = 1.25; // 25% higher than reference -> warn
+const RATE_RATIO_FAIL   = 1.50; // 50% higher -> fail (CMS threshold)
+const ABS_DIFF_WARN     = 0.03; // 3 pp absolute difference -> warn
+const ABS_DIFF_FAIL     = 0.05; // 5 pp -> fail (CMS threshold)
+const SMD_WARN          = 0.10; // standardized mean difference -> warn
+const SMD_FAIL          = 0.20; // SMD >= 0.2 -> fail (Cohen's d small)
+const MIN_CELL_SIZE     = 5;    // suppress cells below this count (NCHS standard)
+
+/**
+ * Score disparities across a set of group-level statistics.
+ *
+ * @param {object} opts
+ * @param {Array<{group:string, n:number, rate?:number, mean?:number, sum?:number}>} opts.groups
+ *   Pre-computed group statistics. Use `rate` for binary outcomes (0/1 flags),
+ *   `mean` for continuous outcomes (LOS, cost).
+ * @param {'binary'|'continuous'} opts.metricType
+ *   'binary'  = rate-based (readmit, denial, mortality flags)
+ *   'continuous' = mean-based (LOS, cost, quality score)
+ * @param {string} [opts.metricName] - human-readable metric name
+ * @param {string} [opts.stratifierName] - human-readable stratifier name
+ * @param {'population_mean'|'largest_group'} [opts.referenceMethod='population_mean']
+ *   How to choose the reference value.
+ * @returns {object} disparity scoring result
+ */
+function scoreDisparities({
+  groups = [],
+  metricType = 'binary',
+  metricName = 'metric',
+  stratifierName = 'stratifier',
+  referenceMethod = 'population_mean',
+  // Phase 4: accept rulepack-sourced thresholds. Falls back to the
+  // exported constants for backward compatibility with Phase 3 callers.
+  thresholds = null,
+} = {}) {
+  // Resolve thresholds: rulepack-provided > exported constants.
+  const T = resolveThresholds(thresholds, metricType);
+  const effectiveMinCellSize = (thresholds && thresholds.minCellSize) ? thresholds.minCellSize : MIN_CELL_SIZE;
+
+  // Filter to groups with sufficient cell size (small-cell suppression).
+  const eligible = groups.filter(g => g && typeof g.n === 'number' && g.n >= effectiveMinCellSize);
+  const suppressed = groups.filter(g => g && typeof g.n === 'number' && g.n < effectiveMinCellSize);
+
+  if (eligible.length < 2) {
+    return makeResult({
+      metricName, stratifierName, metricType,
+      groups, eligible, suppressed,
+      reference: null, findings: [],
+      status: 'idle', level: 'none',
+      rationale: eligible.length === 0
+        ? 'All groups below minimum cell size (' + effectiveMinCellSize + ') -- disparity analysis suppressed.'
+        : 'Only one group with sufficient cell size -- need at least 2 groups for disparity analysis.',
+    });
+  }
+
+  // Compute the reference value.
+  const getValue = (g) => metricType === 'binary'
+    ? (typeof g.rate === 'number' ? g.rate : null)
+    : (typeof g.mean === 'number' ? g.mean : null);
+
+  const eligibleWithValue = eligible.filter(g => getValue(g) !== null);
+  if (eligibleWithValue.length < 2) {
+    return makeResult({
+      metricName, stratifierName, metricType,
+      groups, eligible, suppressed,
+      reference: null, findings: [],
+      status: 'idle', level: 'none',
+      rationale: 'Insufficient numeric values across groups for disparity scoring.',
+    });
+  }
+
+  let referenceValue;
+  let referenceLabel;
+  if (referenceMethod === 'largest_group') {
+    const largest = [...eligibleWithValue].sort((a, b) => b.n - a.n)[0];
+    referenceValue = getValue(largest);
+    referenceLabel = largest.group + ' (largest group, n=' + largest.n + ')';
+  } else {
+    // Population mean: weighted average across eligible groups.
+    const totalN = eligibleWithValue.reduce((s, g) => s + g.n, 0);
+    referenceValue = eligibleWithValue.reduce((s, g) => s + getValue(g) * g.n, 0) / totalN;
+    referenceLabel = 'population mean (' + fmtRate(referenceValue, metricType) + ', n=' + totalN + ')';
+  }
+
+  // Score each group against the reference.
+  const findings = [];
+  for (const g of eligibleWithValue) {
+    const val = getValue(g);
+    if (val === null) continue;
+
+    const finding = scoreGroup({
+      group: g.group, n: g.n, value: val, referenceValue, referenceLabel,
+      metricType, metricName, stratifierName, T,
+    });
+    findings.push(finding);
+  }
+
+  // Sort by severity (worst first).
+  findings.sort((a, b) => {
+    const sev = { high: 3, medium: 2, low: 1, none: 0 };
+    return (sev[b.level] || 0) - (sev[a.level] || 0);
+  });
+
+  const flagged = findings.filter(f => f.flagged);
+  const worstLevel = findings.some(f => f.level === 'high') ? 'high'
+    : findings.some(f => f.level === 'medium') ? 'medium'
+    : findings.some(f => f.level === 'low') ? 'low' : 'none';
+  const status = flagged.some(f => f.status === 'fail') ? 'fail'
+    : flagged.some(f => f.status === 'warn') ? 'warn'
+    : 'pass';
+
+  const rationale = buildRationale({
+    flagged, findings, metricName, stratifierName, referenceLabel, suppressed, status,
+  });
+
+  return makeResult({
+    metricName, stratifierName, metricType,
+    referenceValue, referenceLabel, referenceMethod,
+    groups, eligible, suppressed,
+    findings, flagged,
+    status, level: worstLevel, rationale,
+  });
+}
+
+// ---- per-group scorer -------------------------------------------------------
+
+function scoreGroup({ group, n, value, referenceValue, referenceLabel,
+  metricType, metricName, stratifierName, T }) {
+  let rateRatio = null, absDiff = null, smd = null;
+  let flagged = false, status = 'pass', level = 'none';
+  const signals = [];
+
+  if (metricType === 'binary') {
+    // Rate ratio (avoid div/0 -- if reference is 0, any non-zero is extreme)
+    if (referenceValue > 0) {
+      rateRatio = value / referenceValue;
+    } else if (value > 0) {
+      rateRatio = Infinity;
+    } else {
+      rateRatio = 1;
+    }
+
+    // Absolute difference (signed)
+    absDiff = value - referenceValue;
+
+    // Score by rate ratio (use absolute ratio for suppressed groups)
+    const absRatio = rateRatio === Infinity ? 99 : Math.max(rateRatio, rateRatio > 0 ? 1 / rateRatio : 1);
+    if (absRatio >= T.rateRatioFail || Math.abs(absDiff) >= T.absDiffFail) {
+      flagged = true; level = absRatio >= 2.0 || Math.abs(absDiff) >= 0.10 ? 'high' : 'medium';
+      status = 'fail';
+      if (absRatio >= T.rateRatioFail) signals.push('rate ratio ' + fmt2(rateRatio) + 'x (threshold ' + T.rateRatioFail + 'x)');
+      if (Math.abs(absDiff) >= T.absDiffFail) signals.push('absolute difference ' + fmtPct(Math.abs(absDiff)) + ' pp (threshold ' + fmtPct(T.absDiffFail) + ' pp)');
+    } else if (absRatio >= T.rateRatioWarn || Math.abs(absDiff) >= T.absDiffWarn) {
+      flagged = true; level = 'low';
+      status = 'warn';
+      if (absRatio >= T.rateRatioWarn) signals.push('rate ratio ' + fmt2(rateRatio) + 'x (threshold ' + T.rateRatioWarn + 'x)');
+      if (Math.abs(absDiff) >= T.absDiffWarn) signals.push('absolute difference ' + fmtPct(Math.abs(absDiff)) + ' pp (threshold ' + fmtPct(T.absDiffWarn) + ' pp)');
+    }
+
+  } else {
+    // Continuous metric -- use standardized mean difference (Cohen's d approximation)
+    if (referenceValue !== 0) {
+      smd = Math.abs(value - referenceValue) / Math.abs(referenceValue);
+      absDiff = value - referenceValue;
+    }
+
+    if (smd !== null && smd >= T.smdFail) {
+      flagged = true; level = smd >= 0.40 ? 'high' : 'medium';
+      status = 'fail';
+      signals.push('relative deviation ' + fmtPct(smd) + ' (threshold ' + fmtPct(T.smdFail) + ')');
+    } else if (smd !== null && smd >= T.smdWarn) {
+      flagged = true; level = 'low';
+      status = 'warn';
+      signals.push('relative deviation ' + fmtPct(smd) + ' (threshold ' + fmtPct(T.smdWarn) + ')');
+    }
+  }
+
+  const direction = absDiff !== null
+    ? (absDiff > 0 ? 'above' : absDiff < 0 ? 'below' : 'at')
+    : 'at';
+
+  return {
+    group,
+    n,
+    value,
+    rateRatio,
+    absDiff,
+    smd,
+    flagged,
+    status,
+    level,
+    direction,
+    signals,
+    rationale: flagged
+      ? 'Group "' + group + '" (n=' + n + '): ' + fmtRate(value, metricType) + ' vs reference ' + referenceLabel + ' -- ' + signals.join('; ') + '.'
+      : 'Group "' + group + '" (n=' + n + '): ' + fmtRate(value, metricType) + ' -- within acceptable range of ' + referenceLabel + '.',
+  };
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function fmtRate(v, metricType) {
+  if (v === null || v === undefined) return 'N/A';
+  if (metricType === 'binary') return (v * 100).toFixed(1) + '%';
+  return v.toFixed(2);
+}
+
+function fmtPct(v) { return (v * 100).toFixed(1); }
+function fmt2(v) { return v === Infinity ? '∞' : v.toFixed(2); }
+
+function buildRationale({ flagged, findings, metricName, stratifierName, referenceLabel, suppressed, status }) {
+  if (findings.length === 0) return 'No disparity findings.';
+  if (flagged.length === 0) {
+    return 'No significant disparities detected in ' + metricName + ' by ' + stratifierName + ' (reference: ' + referenceLabel + '). ' + findings.length + ' group(s) analyzed.';
+  }
+  const parts = [
+    flagged.length + ' disparity finding(s) in ' + metricName + ' by ' + stratifierName + ':',
+  ];
+  for (const f of flagged.slice(0, 5)) {
+    parts.push('  ' + f.group + ': ' + f.rationale);
+  }
+  if (suppressed.length > 0) {
+    parts.push(suppressed.length + ' group(s) suppressed (n < ' + MIN_CELL_SIZE + '): ' + suppressed.map(g => g.group).join(', ') + '.');
+  }
+  return parts.join('\n');
+}
+
+function makeResult(obj) {
+  return {
+    layer: 'equity_disparity',
+    ...obj,
+  };
+}
+
+// ---- Phase 4: threshold resolver -------------------------------------------
+// Merges rulepack-supplied thresholds with the exported constants as fallback.
+// Called once per scoreDisparities() invocation, before any group scoring.
+
+function resolveThresholds(thresholds, metricType) {
+  if (!thresholds) {
+    // No rulepack thresholds supplied -- use the exported Phase 3 constants.
+    return metricType === 'binary'
+      ? { rateRatioWarn: RATE_RATIO_WARN, rateRatioFail: RATE_RATIO_FAIL, absDiffWarn: ABS_DIFF_WARN, absDiffFail: ABS_DIFF_FAIL }
+      : { smdWarn: SMD_WARN, smdFail: SMD_FAIL };
+  }
+  // Rulepack thresholds are the equity.binary / equity.continuous sub-objects.
+  // Caller may pass either the full equity object or the sub-object directly.
+  const bin = thresholds.binary || thresholds;
+  const cont = thresholds.continuous || thresholds;
+  return {
+    rateRatioWarn: bin.rateRatioWarn ?? RATE_RATIO_WARN,
+    rateRatioFail: bin.rateRatioFail ?? RATE_RATIO_FAIL,
+    absDiffWarn:   bin.absDiffWarn   ?? ABS_DIFF_WARN,
+    absDiffFail:   bin.absDiffFail   ?? ABS_DIFF_FAIL,
+    smdWarn:       cont.smdWarn      ?? SMD_WARN,
+    smdFail:       cont.smdFail      ?? SMD_FAIL,
+  };
+}
+
+
+  window.DisparityScorer = {
+    scoreDisparities: typeof scoreDisparities !== 'undefined' ? scoreDisparities : null,
+    MIN_CELL_SIZE: typeof MIN_CELL_SIZE !== 'undefined' ? MIN_CELL_SIZE : 5,
+  };
+}());
+/* ---- end disparity-scorer.js ---- */
+
+/* ---- from js/equity/equity-detector.js ---- */
+;(function(){
+  'use strict';
+
+  var _sc = window.DisparityScorer || {};
+  var scoreDisparities = _sc.scoreDisparities;
+  var MIN_CELL_SIZE    = _sc.MIN_CELL_SIZE || 5;
+
+// ============================================================
+// DATAGLOW — Equity Column Detector (Phase 3)
+// ============================================================
+// Auto-detects which columns in a dataset are equity-relevant stratifiers
+// (race/ethnicity, sex/gender, zip/geography, payer class) and which columns
+// are outcome metrics worth stratifying (LOS, readmit flags, denial flags,
+// claim amounts, mortality flags).
+//
+// WHY THIS EXISTS:
+// Post-2023 CMS health equity mandates and the CMS Disparities Impact Statement
+// requirement mean that any dataset used for quality reporting MUST be analyzed
+// for equity. Doing it manually is slow and inconsistently applied. DataGlow
+// detects the relevant columns automatically so the equity layer runs without
+// any configuration -- it just works on whatever you load.
+//
+// DOMAIN-AGNOSTIC:
+// The detector uses name heuristics, so it works on any domain. A Lego dataset
+// with a "country" column and a "price" outcome gets the same treatment as a
+// claims dataset with "race_cd" and "readmit_30d". The column name patterns are
+// intentionally broad.
+//
+// DESIGN:
+// Pure and synchronous. Takes an array of {name, type} column descriptors and
+// returns classified lists. No DuckDB, no DOM, no network.
+
+// ---- Stratifier patterns ---------------------------------------------------
+// These columns are the "by what" axis of an equity analysis.
+
+const RACE_ETHNICITY_PATTERN = /^(race|ethnicity|ethnic|race_cd|race_code|race_category|eth|eth_cd|ethni|race_eth|racial|hispanic|latinx|nhopi|aian|black|white|asian)($|_)/i;
+
+const SEX_GENDER_PATTERN = /^(sex|gender|sex_cd|gender_cd|biological_sex|patient_sex|member_gender|gender_identity|sex_at_birth)($|_)/i;
+
+const ZIP_GEO_PATTERN = /^(zip|zip_code|zipcode|postal|postal_code|zip5|zip3|county|county_cd|fips|state|region|city|metro|cbsa|hrr|hsa|zcta|geoid|census_tract)($|_)/i;
+
+const PAYER_PATTERN = /^(payer|payer_cd|payer_type|payer_class|insurance|ins_type|plan_type|coverage_type|financial_class|fin_class|primary_payer|sec_payer|mco|medicaid|medicare|commercial|self_pay|uninsured|charity)($|_)/i;
+
+const AGE_GROUP_PATTERN = /^(age_group|age_band|age_cat|age_category|age_range|age_bucket|pediatric|geriatric|adult)($|_)/i;
+
+const DISABILITY_PATTERN = /^(disability|disabled|duals|dual_eligible|ltss|snp|chronic)($|_)/i;
+
+// ---- Outcome metric patterns -----------------------------------------------
+// These columns are the "measure what" axis.
+
+const LOS_PATTERN = /^(los|length_of_stay|los_days|alos|days|inpatient_days|icu_days|vent_days)($|_)/i;
+
+const READMIT_PATTERN = /^(readmit|readmission|re_admit|readmitted|readmit_30d|readmit_90d|readmit_7d|hospital_readmission|unplanned_readmit)($|_)/i;
+
+const DENIAL_PATTERN = /^(denied|denial|denied_flag|claim_denied|initial_denial|pended|rejected|denial_reason)($|_)/i;
+
+const MORTALITY_PATTERN = /^(mortality|died|deceased|death|expired|death_flag|inpatient_death|mortality_flag|dod|date_of_death)($|_)/i;
+
+const CLAIM_AMOUNT_PATTERN = /^(claim_amount|billed|billed_amount|allowed|allowed_amount|paid|paid_amount|charge|charges|total_charge|reimbursement|cost|total_cost|price|revenue|amount)($|_)/i;
+
+const ED_PATTERN = /^(ed_visit|er_visit|emergency|ed_flag|emergent|ed_admit|er_admit)($|_)/i;
+
+const QUALITY_PATTERN = /^(quality|hcahps|star|score|rating|satisfaction|composite|measure)($|_)/i;
+
+// ---- Numeric type check ----------------------------------------------------
+const NUMERIC_TYPES = new Set(['INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'NUMERIC', 'REAL', 'SMALLINT', 'TINYINT', 'HUGEINT', 'INT', 'INT4', 'INT8', 'FLOAT4', 'FLOAT8']);
+
+function isNumericType(type) {
+  if (!type) return false;
+  return NUMERIC_TYPES.has(type.toUpperCase().split('(')[0].trim());
+}
+
+function isBinaryLike(type) {
+  // BIT, BOOLEAN, or INTEGER (0/1 flags)
+  const t = (type || '').toUpperCase().split('(')[0].trim();
+  return t === 'BOOLEAN' || t === 'BIT';
+}
+
+// ---- Main detector ---------------------------------------------------------
+
+/**
+ * Classify columns into equity stratifiers and outcome metrics.
+ *
+ * @param {Array<{name:string, type:string}>} cols
+ * @returns {{
+ *   stratifiers: Array<{name, type, role, roleLabel}>,
+ *   metrics: Array<{name, type, kind, kindLabel, numeric}>,
+ *   hasEquityData: boolean,
+ *   summary: string,
+ * }}
+ */
+function detectEquityColumns(cols) {
+  const stratifiers = [];
+  const metrics = [];
+  const colArr = Array.isArray(cols) ? cols : [];
+
+  for (const col of colArr) {
+    const name = (col && col.name) ? String(col.name) : '';
+    const type = (col && col.type) ? String(col.type) : 'VARCHAR';
+    if (!name) continue;
+
+    // --- Stratifier detection (order matters: more specific first) ---
+    if (RACE_ETHNICITY_PATTERN.test(name)) {
+      stratifiers.push({ name, type, role: 'race_ethnicity', roleLabel: 'Race / Ethnicity' });
+      continue;
+    }
+    if (SEX_GENDER_PATTERN.test(name)) {
+      stratifiers.push({ name, type, role: 'sex_gender', roleLabel: 'Sex / Gender' });
+      continue;
+    }
+    if (ZIP_GEO_PATTERN.test(name)) {
+      stratifiers.push({ name, type, role: 'geography', roleLabel: 'Geography' });
+      continue;
+    }
+    if (PAYER_PATTERN.test(name)) {
+      stratifiers.push({ name, type, role: 'payer', roleLabel: 'Payer / Coverage' });
+      continue;
+    }
+    if (AGE_GROUP_PATTERN.test(name)) {
+      stratifiers.push({ name, type, role: 'age_group', roleLabel: 'Age Group' });
+      continue;
+    }
+    if (DISABILITY_PATTERN.test(name)) {
+      stratifiers.push({ name, type, role: 'disability', roleLabel: 'Disability / Dual Status' });
+      continue;
+    }
+
+    // --- Metric detection ---
+    const numeric = isNumericType(type);
+    if (READMIT_PATTERN.test(name)) {
+      metrics.push({ name, type, kind: 'readmission', kindLabel: 'Readmission', numeric });
+      continue;
+    }
+    if (DENIAL_PATTERN.test(name)) {
+      metrics.push({ name, type, kind: 'denial', kindLabel: 'Denial', numeric });
+      continue;
+    }
+    if (MORTALITY_PATTERN.test(name)) {
+      metrics.push({ name, type, kind: 'mortality', kindLabel: 'Mortality', numeric });
+      continue;
+    }
+    if (LOS_PATTERN.test(name)) {
+      metrics.push({ name, type, kind: 'los', kindLabel: 'Length of Stay', numeric });
+      continue;
+    }
+    if (CLAIM_AMOUNT_PATTERN.test(name) && numeric) {
+      metrics.push({ name, type, kind: 'cost', kindLabel: 'Cost / Amount', numeric });
+      continue;
+    }
+    if (ED_PATTERN.test(name)) {
+      metrics.push({ name, type, kind: 'ed_utilization', kindLabel: 'ED Utilization', numeric });
+      continue;
+    }
+    if (QUALITY_PATTERN.test(name) && numeric) {
+      metrics.push({ name, type, kind: 'quality', kindLabel: 'Quality Score', numeric });
+      continue;
+    }
+  }
+
+  const hasEquityData = stratifiers.length > 0 && metrics.length > 0;
+
+  const parts = [];
+  if (stratifiers.length > 0) {
+    parts.push(stratifiers.length + ' stratifier(s): ' + stratifiers.map(s => s.roleLabel).join(', '));
+  }
+  if (metrics.length > 0) {
+    parts.push(metrics.length + ' metric(s): ' + metrics.map(m => m.kindLabel).join(', '));
+  }
+  const summary = hasEquityData
+    ? 'Equity analysis possible -- ' + parts.join(' | ') + '.'
+    : stratifiers.length > 0
+      ? 'Stratifier columns detected but no outcome metrics found -- equity analysis skipped.'
+      : metrics.length > 0
+        ? 'Outcome metrics detected but no stratifier columns found -- equity analysis skipped.'
+        : 'No equity-relevant columns detected.';
+
+  return { stratifiers, metrics, hasEquityData, summary };
+}
+
+// Export patterns for tests
+
+
+
+  window.EquityDetector = {
+    detectEquitySignals: typeof detectEquitySignals !== 'undefined' ? detectEquitySignals : null,
+    PROTECTED_FIELDS: typeof PROTECTED_FIELDS !== 'undefined' ? PROTECTED_FIELDS : [],
+  };
+}());
+/* ---- end equity-detector.js ---- */
+
+/* ---- from js/equity/equity-stratifier.js ---- */
+;(function(){
+  'use strict';
+
+  var _det = window.EquityDetector || {};
+  var _sc  = window.DisparityScorer || {};
+  var detectEquitySignals = _det.detectEquitySignals;
+  var scoreDisparities    = _sc.scoreDisparities;
+
+// ============================================================
+// DATAGLOW — Equity Stratifier (Phase 3)
+// ============================================================
+// The DuckDB-WASM-aware engine that stratifies outcome metrics by equity
+// stratifier columns. Takes the detected columns from equity-detector.js,
+// runs GROUP BY queries against the live DuckDB table, and feeds the results
+// to disparity-scorer.js.
+//
+// WHY THIS EXISTS:
+// The detector finds the columns. The scorer does the statistics. This module
+// is the bridge: it generates and runs the right SQL for each
+// (metric × stratifier) combination and normalises the results into the shape
+// the scorer expects.
+//
+// DESIGN:
+// Pure DuckDB-WASM adapter. No DOM, no network. Engine parameter matches the
+// shape used by the Phase 2 relational checkers: { runQuery(sql) -> {rows} }.
+//
+// SAMPLING:
+// For large tables we sample up to STRATIFY_ROW_LIMIT rows to keep the query
+// fast. The sample is always labelled in the output. All GROUP BY queries run
+// on the sample, so rates are estimates on large datasets.
+
+// [stripped import] import { scoreDisparities, MIN_CELL_SIZE } from './disparity-scorer.js';
+
+const STRATIFY_ROW_LIMIT = 50000; // rows to sample per run
+const MAX_GROUPS         = 50;    // max distinct values per stratifier col
+
+/**
+ * Run equity stratification for all (metric × stratifier) combinations.
+ *
+ * @param {object} opts
+ * @param {string} opts.table - DuckDB table name
+ * @param {Array<{name,type,role,roleLabel}>} opts.stratifiers
+ * @param {Array<{name,type,kind,kindLabel,numeric}>} opts.metrics
+ * @param {object} opts.engine - { runQuery }
+ * @param {number} [opts.rowLimit]
+ * @returns {Promise<object>} { analyses, summary, status, level, rationale }
+ */
+async function stratifyEquity({ table, stratifiers, metrics, engine, rowLimit = STRATIFY_ROW_LIMIT }) {
+  if (!stratifiers.length || !metrics.length) {
+    return {
+      analyses: [], status: 'idle', level: 'none',
+      summary: { total: 0, pass: 0, warn: 0, fail: 0, idle: 0, flaggedPairs: 0 },
+      rationale: 'Equity stratification skipped -- no stratifier/metric pairs available.',
+    };
+  }
+
+  // Get total row count to decide whether to sample.
+  let totalRows = null;
+  try {
+    const cRes = await engine.runQuery('SELECT COUNT(*) AS n FROM ' + q(table));
+    totalRows = safeNum(cRes.rows[0], 'n');
+  } catch { /* ok */ }
+
+  const useSample = totalRows !== null && totalRows > rowLimit;
+  const sampleClause = useSample
+    ? ' FROM ' + q(table) + ' USING SAMPLE ' + rowLimit + ' ROWS'
+    : ' FROM ' + q(table);
+
+  const analyses = [];
+
+  for (const stratifier of stratifiers) {
+    for (const metric of metrics) {
+      const analysis = await runOneAnalysis({ table, stratifier, metric, engine, sampleClause, totalRows, rowLimit, useSample });
+      analyses.push(analysis);
+    }
+  }
+
+  // Aggregate summary.
+  const summary = { total: analyses.length, pass: 0, warn: 0, fail: 0, idle: 0, flaggedPairs: 0 };
+  for (const a of analyses) {
+    summary[a.status] = (summary[a.status] || 0) + 1;
+    if (a.status === 'fail' || a.status === 'warn') summary.flaggedPairs++;
+  }
+
+  const worstStatus = analyses.some(a => a.status === 'fail') ? 'fail'
+    : analyses.some(a => a.status === 'warn') ? 'warn'
+    : analyses.every(a => a.status === 'idle') ? 'idle' : 'pass';
+  const worstLevel = analyses.some(a => a.level === 'high') ? 'high'
+    : analyses.some(a => a.level === 'medium') ? 'medium'
+    : analyses.some(a => a.level === 'low') ? 'low' : 'none';
+
+  const rationale = summary.flaggedPairs === 0
+    ? 'No significant equity disparities detected across ' + summary.total + ' stratification(s).'
+    : summary.flaggedPairs + '/' + summary.total + ' stratification(s) show significant disparities. '
+      + 'These differences may indicate systemic inequities in care delivery or data collection. '
+      + (useSample ? '(Analysis based on a sample of ' + rowLimit.toLocaleString() + '/' + totalRows.toLocaleString() + ' rows.)' : '');
+
+  return { analyses, summary, status: worstStatus, level: worstLevel, rationale, totalRows, useSample };
+}
+
+// ---- single (metric × stratifier) analysis ---------------------------------
+
+async function runOneAnalysis({ table, stratifier, metric, engine, sampleClause, totalRows, rowLimit, useSample }) {
+  const sName = stratifier.name;
+  const mName = metric.name;
+  const metricType = metric.kind === 'los' || metric.kind === 'cost' || metric.kind === 'quality'
+    ? 'continuous' : 'binary';
+  const label = metric.kindLabel + ' by ' + stratifier.roleLabel;
+
+  try {
+    // Check how many distinct stratifier values exist (cap to avoid explosion).
+    const distRes = await engine.runQuery(
+      'SELECT COUNT(DISTINCT ' + q(sName) + ') AS n' + sampleClause + ' WHERE ' + q(sName) + ' IS NOT NULL'
+    );
+    const distinctCount = safeNum(distRes.rows[0], 'n');
+
+    if (distinctCount === 0) {
+      return makeAnalysis({ stratifier, metric, metricType, label, groups: [],
+        scoring: { status: 'idle', level: 'none', findings: [], flagged: [],
+          rationale: 'No non-null values in stratifier column "' + sName + '".' },
+        useSample, totalRows, rowLimit });
+    }
+
+    if (distinctCount > MAX_GROUPS) {
+      return makeAnalysis({ stratifier, metric, metricType, label, groups: [],
+        scoring: { status: 'idle', level: 'none', findings: [], flagged: [],
+          rationale: '"' + sName + '" has ' + distinctCount + ' distinct values (max ' + MAX_GROUPS + ') -- too many groups for stratification. Consider binning this column.' },
+        useSample, totalRows, rowLimit });
+    }
+
+    // Run the GROUP BY query.
+    let sql;
+    if (metricType === 'binary') {
+      // rate = AVG of the binary column (0/1) = proportion.
+      sql = 'SELECT ' + q(sName) + ' AS grp, COUNT(*) AS n, AVG(CAST(' + q(mName) + ' AS DOUBLE)) AS rate'
+        + sampleClause
+        + ' WHERE ' + q(sName) + ' IS NOT NULL AND ' + q(mName) + ' IS NOT NULL'
+        + ' GROUP BY ' + q(sName)
+        + ' ORDER BY n DESC';
+    } else {
+      // Continuous: mean and sum.
+      sql = 'SELECT ' + q(sName) + ' AS grp, COUNT(*) AS n, AVG(CAST(' + q(mName) + ' AS DOUBLE)) AS mean_val, SUM(CAST(' + q(mName) + ' AS DOUBLE)) AS sum_val'
+        + sampleClause
+        + ' WHERE ' + q(sName) + ' IS NOT NULL AND ' + q(mName) + ' IS NOT NULL'
+        + ' GROUP BY ' + q(sName)
+        + ' ORDER BY n DESC';
+    }
+
+    const { rows } = await engine.runQuery(sql);
+
+    const groups = rows.map(r => ({
+      group: String(r.grp ?? '(unknown)'),
+      n: safeNum(r, 'n'),
+      rate: metricType === 'binary' ? safeFloat(r, 'rate') : undefined,
+      mean: metricType === 'continuous' ? safeFloat(r, 'mean_val') : undefined,
+      sum: metricType === 'continuous' ? safeFloat(r, 'sum_val') : undefined,
+    }));
+
+    // Score disparities.
+    const scoring = scoreDisparities({
+      groups, metricType,
+      metricName: metric.kindLabel,
+      stratifierName: stratifier.roleLabel,
+    });
+
+    return makeAnalysis({ stratifier, metric, metricType, label, groups, scoring, useSample, totalRows, rowLimit });
+
+  } catch (err) {
+    return makeAnalysis({ stratifier, metric, metricType, label, groups: [],
+      scoring: { status: 'idle', level: 'none', findings: [], flagged: [],
+        rationale: 'Stratification query failed for ' + label + ': ' + String(err && err.message ? err.message : err) },
+      useSample, totalRows, rowLimit, error: String(err) });
+  }
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+function safeNum(row, key) {
+  if (!row) return 0;
+  const v = row[key];
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseInt(String(v), 10) || 0;
+}
+
+function safeFloat(row, key) {
+  if (!row) return null;
+  const v = row[key];
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'bigint') return Number(v);
+  return typeof v === 'number' ? v : parseFloat(String(v)) || null;
+}
+
+function makeAnalysis({ stratifier, metric, metricType, label, groups, scoring, useSample, totalRows, rowLimit, error = null }) {
+  return {
+    layer: 'equity_stratification',
+    label,
+    stratifier: { name: stratifier.name, role: stratifier.role, roleLabel: stratifier.roleLabel },
+    metric: { name: metric.name, kind: metric.kind, kindLabel: metric.kindLabel },
+    metricType,
+    groups,
+    scoring,
+    status: scoring.status,
+    level: scoring.level,
+    rationale: scoring.rationale,
+    useSample,
+    totalRows,
+    sampleLimit: useSample ? rowLimit : null,
+    ...(error ? { error } : {}),
+  };
+}
+
+
+  window.EquityStratifier = {
+    stratifyEquity: typeof stratifyEquity !== 'undefined' ? stratifyEquity : null,
+    buildEquitySummary: typeof buildEquitySummary !== 'undefined' ? buildEquitySummary : null,
+  };
+}());
+/* ---- end equity-stratifier.js ---- */
+
+/* ---- from js/equity/equity-attestation.js ---- */
+;(function(){
+  'use strict';
+
+  var _strat = window.EquityStratifier || {};
+  var _det   = window.EquityDetector || {};
+  var stratifyEquity    = _strat.stratifyEquity;
+  var buildEquitySummary = _strat.buildEquitySummary;
+  var detectEquitySignals = _det.detectEquitySignals;
+
+// ============================================================
+// DATAGLOW — Equity Attestation (Phase 3)
+// ============================================================
+// Builds and signs the equity attestation block that is embedded in the
+// Trust Certificate. This is the artifact that says, in plain language,
+// what the equity analysis found -- and commits to those findings with a
+// hash-based signature that travels with the certificate.
+//
+// WHY THIS EXISTS:
+// The Trust Certificate (Phase 1) attests that a dataset was validated.
+// The equity attestation extends that attestation to say HOW the dataset
+// performed on equity dimensions. A signed block means:
+//   1. The findings were produced by DataGlow (not manually written).
+//   2. If the certificate is shared externally, anyone can verify the
+//      attestation hasn't been tampered with by re-checking the hash.
+//   3. For CMS Disparities Impact Statement submissions, the attestation
+//      provides a machine-readable record of what was found.
+//
+// HASH:
+// SHA-256 of a canonical JSON serialisation of the attestation content
+// (excluding the signature field itself). Same deterministic approach as
+// Phase 1 (provenance-packet.js). In browser environments, uses
+// SubtleCrypto.subtle.digest. In Node.js test environments, falls back to
+// Node's built-in crypto.createHash.
+//
+// DESIGN:
+// Async (hash). Pure -- no DuckDB, no DOM writes, no network.
+// Returns a plain object that the Trust Certificate assembler can embed directly.
+
+const ATTESTATION_VERSION = '1.0';
+
+/**
+ * Build and sign an equity attestation block.
+ *
+ * @param {object} opts
+ * @param {string} opts.tableName
+ * @param {string} opts.runId - from Trust Certificate / provenance packet
+ * @param {object} opts.detectionResult - output of detectEquityColumns()
+ * @param {object} opts.stratificationResult - output of stratifyEquity()
+ * @param {string} [opts.analysedAt] - ISO timestamp; defaults to now
+ * @returns {Promise<object>} signed attestation block
+ */
+async function buildEquityAttestation({
+  tableName,
+  runId,
+  detectionResult,
+  stratificationResult,
+  analysedAt = new Date().toISOString(),
+}) {
+  const { stratifiers = [], metrics = [], hasEquityData = false } = detectionResult || {};
+  const { analyses = [], summary = {}, status = 'idle', level = 'none', rationale = '' } = stratificationResult || {};
+
+  // Build the human-readable verdict.
+  const verdict = buildVerdict({ status, level, summary, analyses });
+
+  // Identify the worst disparity pairs for top-level display.
+  const topFindings = extractTopFindings(analyses);
+
+  // Suppressed groups summary.
+  const suppressedGroups = extractSuppressed(analyses);
+
+  // Core content (signed below).
+  const content = {
+    version: ATTESTATION_VERSION,
+    runId: runId || null,
+    tableName: tableName || null,
+    analysedAt,
+    equityAnalysisPerformed: hasEquityData,
+    status,        // 'pass' | 'warn' | 'fail' | 'idle'
+    level,         // 'none' | 'low' | 'medium' | 'high'
+    verdict,
+    stratifiersDetected: stratifiers.map(s => ({ name: s.name, role: s.role, roleLabel: s.roleLabel })),
+    metricsDetected: metrics.map(m => ({ name: m.name, kind: m.kind, kindLabel: m.kindLabel })),
+    analysisCount: summary.total || 0,
+    flaggedPairs: summary.flaggedPairs || 0,
+    statusBreakdown: {
+      pass: summary.pass || 0,
+      warn: summary.warn || 0,
+      fail: summary.fail || 0,
+      idle: summary.idle || 0,
+    },
+    topFindings,
+    suppressedGroups,
+    rationale,
+    // Methodology note for external reviewers.
+    methodology: buildMethodologyNote(status),
+  };
+
+  const signature = await hashContent(content);
+
+  return {
+    ...content,
+    signature,
+    signatureAlgorithm: 'SHA-256',
+    signatureNote: 'SHA-256 of canonical JSON of attestation content (excluding this field). Re-hash content to verify integrity.',
+  };
+}
+
+// ---- verdict builder -------------------------------------------------------
+
+function buildVerdict({ status, level, summary, analyses }) {
+  if (status === 'idle') {
+    return 'Equity analysis was not performed -- no equity-relevant stratifier and outcome metric columns were detected, or all groups had insufficient cell sizes for analysis.';
+  }
+  if (status === 'pass') {
+    return 'No significant equity disparities detected. All stratification analyses were within acceptable thresholds (rate ratio < 1.5x, absolute difference < 5 pp, relative deviation < 20%).';
+  }
+  const flaggedCount = summary.flaggedPairs || 0;
+  const totalCount = summary.total || 0;
+  const levelWord = level === 'high' ? 'high' : level === 'medium' ? 'moderate' : 'low-level';
+
+  // Collect affected stratifier roles.
+  const affectedRoles = [...new Set(
+    analyses.filter(a => a.status === 'fail' || a.status === 'warn')
+      .map(a => a.stratifier && a.stratifier.roleLabel)
+      .filter(Boolean)
+  )];
+
+  const thresholdLine = status === 'fail'
+    ? 'At least one group exceeds the CMS Disparities Impact Statement threshold (rate ratio >= 1.5x or absolute difference >= 5 percentage points).'
+    : 'At least one group exceeds the warning threshold but remains below the CMS fail threshold.';
+
+  return (
+    flaggedCount + '/' + totalCount + ' stratification(s) show ' + levelWord + ' equity disparities. '
+    + (affectedRoles.length > 0 ? 'Disparities detected in: ' + affectedRoles.join(', ') + '. ' : '')
+    + thresholdLine
+    + ' Review the detailed findings below and consider whether systemic or data-quality factors explain the observed differences.'
+  );
+}
+
+// ---- top finding extractor -------------------------------------------------
+
+function extractTopFindings(analyses) {
+  const findings = [];
+  for (const a of analyses) {
+    if (!a.scoring) continue;
+    for (const f of (a.scoring.flagged || [])) {
+      findings.push({
+        label: a.label,
+        stratifier: a.stratifier && a.stratifier.roleLabel,
+        metric: a.metric && a.metric.kindLabel,
+        group: f.group,
+        n: f.n,
+        status: f.status,
+        level: f.level,
+        rateRatio: f.rateRatio,
+        absDiff: f.absDiff,
+        smd: f.smd,
+        direction: f.direction,
+        rationale: f.rationale,
+      });
+    }
+  }
+  // Sort: fail before warn, high before medium before low.
+  findings.sort((a, b) => {
+    const sv = { fail: 2, warn: 1, pass: 0, idle: 0 };
+    const lv = { high: 3, medium: 2, low: 1, none: 0 };
+    return ((sv[b.status] || 0) - (sv[a.status] || 0)) || ((lv[b.level] || 0) - (lv[a.level] || 0));
+  });
+  return findings.slice(0, 10); // top 10 only in the attestation
+}
+
+// ---- suppressed group extractor --------------------------------------------
+
+function extractSuppressed(analyses) {
+  const out = [];
+  for (const a of analyses) {
+    if (!a.scoring) continue;
+    for (const g of (a.scoring.suppressed || [])) {
+      out.push({
+        label: a.label,
+        group: g.group,
+        n: g.n,
+      });
+    }
+  }
+  return out;
+}
+
+// ---- methodology note ------------------------------------------------------
+
+function buildMethodologyNote(status) {
+  return [
+    'Equity analysis methodology:',
+    '  Stratifier detection: column name heuristics (race/ethnicity, sex/gender, zip/geography, payer class, age group, disability/dual status).',
+    '  Outcome detection: column name heuristics (readmission, denial, mortality, LOS, cost, ED utilization, quality score).',
+    '  Disparity scoring: population-mean reference by default.',
+    '  Binary outcome thresholds: warn = rate ratio >= 1.25x or |abs diff| >= 3 pp; fail = rate ratio >= 1.50x or |abs diff| >= 5 pp (aligned with CMS Disparities Impact Statement).',
+    '  Continuous outcome thresholds: warn = relative deviation >= 10%; fail >= 20% (Cohen\'s d approximation).',
+    '  Small-cell suppression: groups with n < 5 excluded from scoring (NCHS/CMS standard).',
+    '  Max sample: 50,000 rows (rates are estimates on larger datasets).',
+    '  Status "' + status + '" reflects worst observed finding across all stratification pairs.',
+  ].join('\n');
+}
+
+// ---- hash / signature ------------------------------------------------------
+
+async function hashContent(content) {
+  const canonical = JSON.stringify(content, Object.keys(content).sort());
+  try {
+    // Browser / WASM environment.
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const enc = new TextEncoder();
+      const buf = await crypto.subtle.digest('SHA-256', enc.encode(canonical));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch { /* fall through */ }
+
+  // Node.js test environment.
+  try {
+    const { createHash } = await import('crypto');
+    return createHash('sha256').update(canonical, 'utf8').digest('hex');
+  } catch { /* fall through */ }
+
+  // Last resort: simple deterministic checksum (not cryptographic).
+  let h = 0;
+  for (let i = 0; i < canonical.length; i++) {
+    h = (Math.imul(31, h) + canonical.charCodeAt(i)) | 0;
+  }
+  return 'noncrypto-' + Math.abs(h).toString(16);
+}
+
+
+  window.EquityAttestation = {
+    buildEquityAttestation: typeof buildEquityAttestation !== 'undefined' ? buildEquityAttestation : null,
+    mountEquityPanel: typeof mountEquityPanel !== 'undefined' ? mountEquityPanel : null,
+    shouldOfferEquity: typeof shouldOfferEquity !== 'undefined' ? shouldOfferEquity : null,
+  };
+
+  // Auto-init: wire Equity button
+  function initEquityUI() {
+    var panelId = 'dg-equity-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:420px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:853;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+
+    function toggleEquity() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var closeX = document.createElement('button');
+        closeX.textContent = '\u00D7';
+        closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        closeX.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(closeX);
+        if (typeof mountEquityPanel === 'function') {
+          mountEquityPanel({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          // Fallback summary panel
+          var h = document.createElement('div');
+          h.style.cssText = 'padding:20px;';
+          h.innerHTML = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">Equity Stratification</h3><p style="font-size:12px;color:var(--text-muted,#888);line-height:1.6;">Load a dataset first. The equity layer will detect protected-class fields (race, gender, age, etc.) and score outcome disparities across strata automatically.</p>';
+          p.appendChild(h);
+        }
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-equity')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-equity';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\u2696\uFE0F<br><span>Equity</span>';
+      btn.addEventListener('click', function(){
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        toggleEquity();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-equity')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-equity';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\u2696\uFE0F<br><span>Equity</span>';
+      btn2.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        toggleEquity();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initEquityUI);
+  else setTimeout(initEquityUI, 550);
+}());
+/* ---- end equity-attestation.js ---- */
