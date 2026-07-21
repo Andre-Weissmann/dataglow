@@ -1598,6 +1598,1096 @@ window.saveCurrentDataset = async function() {
 
 })();
 /* ---- end workspace-profile.js ---- */
+/* ---- from js/storage/project-workspace.js ---- */
+/* DataGlow -- js/storage/project-workspace.js */
+/* Persistent Project Workspace.
+   Your past data projects survive browser restarts.
+   Every project stores its dataset, validation findings, story,
+   proof chain, and notarized bundles -- all in OPFS, all on-device.
+   Nothing uploads. Nothing expires.
+
+   A "project" is the unit of Proof That Travels:
+   one dataset + its full provenance chain + any .dgnot notarized bundles.
+   You can add new files to a project over time (versioned ingestion).
+
+   Structure in OPFS:
+   dataglow/
+     projects/
+       <projectId>/
+         meta.json          -- name, created, updated, datasetName, rowCount
+         dataset.json       -- columns + rows (compressed if large)
+         findings.json      -- validation findings array
+         story.json         -- storyDoc
+         provenance.ndjson  -- institutional memory NDJSON
+         notary/
+           <timestamp>.dgnot -- notarized proof bundles
+         versions/
+           <timestamp>.json  -- previous dataset snapshots on re-ingest       */
+
+var ProjectWorkspace = window.ProjectWorkspace = (function () {
+  'use strict';
+
+  var VERSION = 1;
+  var _root   = null;   /* OPFS root handle: dataglow/projects/ */
+  var _ready  = false;
+
+  /* ------------------------------------------------------------------ */
+  /* Init                                                                 */
+  /* ------------------------------------------------------------------ */
+
+  async function init() {
+    if (_ready) return true;
+    if (!navigator.storage || !navigator.storage.getDirectory) return false;
+    try {
+      var dg       = await navigator.storage.getDirectory();
+      var dgDir    = await dg.getDirectoryHandle('dataglow', { create: true });
+      _root        = await dgDir.getDirectoryHandle('projects', { create: true });
+      _ready       = true;
+      return true;
+    } catch (e) {
+      console.warn('[ProjectWorkspace] init failed:', e);
+      return false;
+    }
+  }
+
+  function isReady() { return _ready; }
+
+  /* ------------------------------------------------------------------ */
+  /* Helpers                                                              */
+  /* ------------------------------------------------------------------ */
+
+  function _safeId(str) {
+    return String(str || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) ||
+           'project_' + Date.now();
+  }
+
+  async function _writeJson(dirHandle, filename, data) {
+    var fh  = await dirHandle.getFileHandle(filename, { create: true });
+    var aw  = await fh.createWritable();
+    await aw.write(JSON.stringify(data, null, 2));
+    await aw.close();
+  }
+
+  async function _readJson(dirHandle, filename) {
+    try {
+      var fh   = await dirHandle.getFileHandle(filename);
+      var file = await fh.getFile();
+      return JSON.parse(await file.text());
+    } catch (e) { return null; }
+  }
+
+  async function _writeText(dirHandle, filename, text) {
+    var fh = await dirHandle.getFileHandle(filename, { create: true });
+    var aw = await fh.createWritable();
+    await aw.write(text || '');
+    await aw.close();
+  }
+
+  async function _readText(dirHandle, filename) {
+    try {
+      var fh   = await dirHandle.getFileHandle(filename);
+      var file = await fh.getFile();
+      return await file.text();
+    } catch (e) { return null; }
+  }
+
+  async function _getProjectDir(projectId, create) {
+    if (!_root) return null;
+    try {
+      return await _root.getDirectoryHandle(projectId, { create: !!create });
+    } catch (e) { return null; }
+  }
+
+  async function _updateIndex(projectId, meta) {
+    try {
+      var indexData = await _readJson(_root, '_index.json') || {};
+      indexData[projectId] = {
+        id:          projectId,
+        name:        meta.name,
+        datasetName: meta.datasetName,
+        rowCount:    meta.rowCount,
+        updatedAt:   meta.updatedAt || new Date().toISOString(),
+        createdAt:   meta.createdAt
+      };
+      await _writeJson(_root, '_index.json', indexData);
+    } catch (e) {}
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Save a full session as a project                                     */
+  /* ------------------------------------------------------------------ */
+
+  async function saveProject(session) {
+    if (!_ready) return { ok: false, reason: 'Workspace not initialized.' };
+    var s = session || {};
+    var id = s.projectId || _safeId(s.datasetName || 'project') + '_' + Date.now();
+
+    try {
+      var dir = await _getProjectDir(id, true);
+      if (!dir) return { ok: false, reason: 'Could not create project directory.' };
+
+      var now = new Date().toISOString();
+      var meta = {
+        _version:    VERSION,
+        id,
+        name:        s.projectName || s.datasetName || 'Untitled Project',
+        datasetName: s.datasetName || null,
+        rowCount:    (s.rows || []).length,
+        columnCount: (s.columns || []).length,
+        createdAt:   s.createdAt || now,
+        updatedAt:   now,
+        fileHash:    s.fileHash || null,
+        tags:        s.tags || []
+      };
+
+      await _writeJson(dir, 'meta.json', meta);
+
+      if (s.columns && s.rows) {
+        await _writeJson(dir, 'dataset.json', {
+          columns: s.columns,
+          rows:    s.rows
+        });
+      }
+
+      if (s.findings) {
+        await _writeJson(dir, 'findings.json', s.findings);
+      }
+
+      if (s.storyDoc) {
+        await _writeJson(dir, 'story.json', s.storyDoc);
+      }
+
+      if (s.provenanceNdjson) {
+        await _writeText(dir, 'provenance.ndjson', s.provenanceNdjson);
+      }
+
+      await _updateIndex(id, meta);
+      return { ok: true, projectId: id };
+    } catch (e) {
+      return { ok: false, reason: e.message };
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Load a project                                                       */
+  /* ------------------------------------------------------------------ */
+
+  async function loadProject(projectId) {
+    if (!_ready) return null;
+    var dir = await _getProjectDir(projectId, false);
+    if (!dir) return null;
+
+    try {
+      var meta         = await _readJson(dir, 'meta.json');
+      var dataset      = await _readJson(dir, 'dataset.json');
+      var findings     = await _readJson(dir, 'findings.json') || [];
+      var storyDoc     = await _readJson(dir, 'story.json');
+      var provenanceNdjson = await _readText(dir, 'provenance.ndjson');
+
+      return {
+        projectId,
+        meta,
+        columns:         dataset ? dataset.columns : [],
+        rows:            dataset ? dataset.rows    : [],
+        findings,
+        storyDoc,
+        provenanceNdjson
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* List all saved projects                                              */
+  /* ------------------------------------------------------------------ */
+
+  async function listProjects() {
+    if (!_ready) return [];
+    try {
+      var index = await _readJson(_root, '_index.json') || {};
+      return Object.values(index).sort(function (a, b) {
+        return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+      });
+    } catch (e) { return []; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Delete a project                                                     */
+  /* ------------------------------------------------------------------ */
+
+  async function deleteProject(projectId) {
+    if (!_ready) return false;
+    try {
+      await _root.removeEntry(projectId, { recursive: true });
+      var index = await _readJson(_root, '_index.json') || {};
+      delete index[projectId];
+      await _writeJson(_root, '_index.json', index);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Save a notarized proof bundle into a project's notary subfolder     */
+  /* ------------------------------------------------------------------ */
+
+  async function saveNotarizedBundle(projectId, bundleJson) {
+    if (!_ready) return false;
+    var dir = await _getProjectDir(projectId, false);
+    if (!dir) return false;
+    try {
+      var notaryDir = await dir.getDirectoryHandle('notary', { create: true });
+      var filename  = Date.now() + '.dgnot';
+      await _writeText(notaryDir, filename, bundleJson);
+      /* touch updatedAt in index */
+      var meta = await _readJson(dir, 'meta.json') || {};
+      meta.updatedAt = new Date().toISOString();
+      await _writeJson(dir, 'meta.json', meta);
+      await _updateIndex(projectId, meta);
+      return filename;
+    } catch (e) { return false; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* List notarized bundles for a project                                 */
+  /* ------------------------------------------------------------------ */
+
+  async function listNotarizedBundles(projectId) {
+    if (!_ready) return [];
+    var dir = await _getProjectDir(projectId, false);
+    if (!dir) return [];
+    try {
+      var notaryDir = await dir.getDirectoryHandle('notary', { create: false });
+      var results = [];
+      var iter = notaryDir.values ? notaryDir.values() : null;
+      if (!iter) return [];
+      var next;
+      while (!(next = await iter.next()).done) {
+        var entry = next.value;
+        if (entry.kind === 'file' && entry.name.endsWith('.dgnot')) {
+          var f = await entry.getFile();
+          results.push({ filename: entry.name, size: f.size, lastModified: f.lastModified });
+        }
+      }
+      return results.sort(function (a, b) { return b.lastModified - a.lastModified; });
+    } catch (e) { return []; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Add a new file version to an existing project                        */
+  /* ------------------------------------------------------------------ */
+
+  async function addVersion(projectId, session) {
+    if (!_ready) return { ok: false, reason: 'Workspace not initialized.' };
+    var dir = await _getProjectDir(projectId, false);
+    if (!dir) return { ok: false, reason: 'Project not found.' };
+
+    var s = session || {};
+    try {
+      /* Archive current dataset as a version snapshot */
+      var current = await _readJson(dir, 'dataset.json');
+      if (current) {
+        var versionsDir = await dir.getDirectoryHandle('versions', { create: true });
+        await _writeJson(versionsDir, Date.now() + '.json', current);
+      }
+
+      /* Write new dataset */
+      if (s.columns && s.rows) {
+        await _writeJson(dir, 'dataset.json', { columns: s.columns, rows: s.rows });
+      }
+      if (s.findings) await _writeJson(dir, 'findings.json', s.findings);
+      if (s.storyDoc) await _writeJson(dir, 'story.json', s.storyDoc);
+      if (s.provenanceNdjson) await _writeText(dir, 'provenance.ndjson', s.provenanceNdjson);
+
+      var meta = await _readJson(dir, 'meta.json') || {};
+      meta.updatedAt   = new Date().toISOString();
+      meta.rowCount    = (s.rows || []).length;
+      meta.columnCount = (s.columns || []).length;
+      await _writeJson(dir, 'meta.json', meta);
+      await _updateIndex(projectId, meta);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e.message };
+    }
+  }
+
+  /* Storage quota estimate */
+  async function storageInfo() {
+    if (!navigator.storage || !navigator.storage.estimate) return null;
+    try {
+      var est = await navigator.storage.estimate();
+      return {
+        usedMB: Math.round((est.usage || 0) / 1048576 * 10) / 10,
+        quotaMB: Math.round((est.quota || 0) / 1048576)
+      };
+    } catch (e) { return null; }
+  }
+
+  return {
+    init, isReady,
+    saveProject, loadProject, listProjects, deleteProject,
+    addVersion,
+    saveNotarizedBundle, listNotarizedBundles,
+    storageInfo
+  };
+})();
+
+/* ---- end project-workspace.js ---- */
+
+/* ---- from js/livewire/livewire-engine.js ---- */
+/* DataGlow -- js/livewire/livewire-engine.js */
+/* Live Wire: folder-watch mode. Point DataGlow at a folder on disk.
+   Any new file that lands there auto-imports, re-validates, and re-renders.
+   Uses File System Access API (showDirectoryPicker) + FileSystemObserver where
+   available (Chromium 129+). Falls back to manual polling (2s) elsewhere.     */
+
+var LiveWireEngine = window.LiveWireEngine = (function () {
+  'use strict';
+
+  var _dirHandle   = null;     /* FileSystemDirectoryHandle currently watched */
+  var _knownFiles  = {};       /* filename -> lastModified timestamp          */
+  var _observer    = null;     /* FileSystemObserver instance if supported    */
+  var _pollTimer   = null;     /* fallback polling interval ID                */
+  var _onNewFile   = null;     /* callback(file, filename) when new file seen */
+  var _onUpdate    = null;     /* callback(file, filename) when file changed  */
+  var _active      = false;
+
+  var POLL_MS      = 2000;
+  var SUPPORTED    = (typeof window !== 'undefined') &&
+                     ('showDirectoryPicker' in window);
+  var OBSERVER_OK  = (typeof window !== 'undefined') &&
+                     (typeof window.FileSystemObserver === 'function');
+
+  /* Accepted extensions matching DataGlow's ingest pipeline */
+  var ACCEPTED = /\.(csv|tsv|json|ndjson|jsonl|xlsx|xls|parquet|x12|edi|txt)$/i;
+
+  function _snapshot(dirHandle, cb) {
+    var iter = dirHandle.values ? dirHandle.values() : null;
+    if (!iter) { cb({}); return; }
+    var snap = {};
+    (async function walk() {
+      try {
+        var next;
+        while (!(next = await iter.next()).done) {
+          var entry = next.value;
+          if (entry.kind === 'file' && ACCEPTED.test(entry.name)) {
+            var f = await entry.getFile();
+            snap[entry.name] = f.lastModified;
+          }
+        }
+        cb(snap);
+      } catch (e) {
+        cb(snap);
+      }
+    })();
+  }
+
+  function _diff(prev, curr, onNew, onChanged) {
+    Object.keys(curr).forEach(function (name) {
+      if (!prev[name]) { onNew(name); }
+      else if (prev[name] !== curr[name]) { onChanged(name); }
+    });
+  }
+
+  async function _getFile(name) {
+    try {
+      var fh = await _dirHandle.getFileHandle(name);
+      return await fh.getFile();
+    } catch (e) { return null; }
+  }
+
+  function _startPolling() {
+    _pollTimer = setInterval(function () {
+      if (!_dirHandle || !_active) return;
+      _snapshot(_dirHandle, function (curr) {
+        _diff(_knownFiles, curr,
+          async function onNew(name) {
+            _knownFiles[name] = curr[name];
+            var f = await _getFile(name);
+            if (f && _onNewFile) _onNewFile(f, name);
+          },
+          async function onChanged(name) {
+            _knownFiles[name] = curr[name];
+            var f = await _getFile(name);
+            if (f && _onUpdate) _onUpdate(f, name);
+          }
+        );
+      });
+    }, POLL_MS);
+  }
+
+  function _startObserver() {
+    try {
+      _observer = new window.FileSystemObserver(async function (records) {
+        for (var i = 0; i < records.length; i++) {
+          var rec = records[i];
+          var name = rec.changedHandle && rec.changedHandle.name;
+          if (!name || !ACCEPTED.test(name)) continue;
+          var isNew = !_knownFiles[name];
+          var f = await _getFile(name);
+          if (!f) continue;
+          _knownFiles[name] = f.lastModified;
+          if (isNew && _onNewFile) _onNewFile(f, name);
+          else if (!isNew && _onUpdate) _onUpdate(f, name);
+        }
+      });
+      _observer.observe(_dirHandle);
+    } catch (e) {
+      console.warn('[LiveWire] FileSystemObserver failed, falling back to polling:', e);
+      _startPolling();
+    }
+  }
+
+  /* Public API */
+
+  async function pickAndWatch(onNewFile, onUpdate) {
+    if (!SUPPORTED) return { ok: false, reason: 'File System Access API not supported in this browser.' };
+    try {
+      _dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+    } catch (e) {
+      return { ok: false, reason: 'Folder picker cancelled.' };
+    }
+
+    _onNewFile = onNewFile;
+    _onUpdate  = onUpdate;
+    _active    = true;
+
+    /* Snapshot existing files so we only fire on truly NEW arrivals */
+    await new Promise(function (res) { _snapshot(_dirHandle, function (s) { _knownFiles = s; res(); }); });
+
+    if (OBSERVER_OK) _startObserver();
+    else             _startPolling();
+
+    return { ok: true, dirName: _dirHandle.name, fileCount: Object.keys(_knownFiles).length };
+  }
+
+  function stop() {
+    _active = false;
+    if (_observer) { try { _observer.disconnect(); } catch(e){} _observer = null; }
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    _dirHandle  = null;
+    _knownFiles = {};
+    _onNewFile  = null;
+    _onUpdate   = null;
+  }
+
+  function isWatching() { return _active && !!_dirHandle; }
+  function watchedDir()  { return _dirHandle ? _dirHandle.name : null; }
+  function fileCount()   { return Object.keys(_knownFiles).length; }
+  function isSupported() { return SUPPORTED; }
+
+  return { pickAndWatch, stop, isWatching, watchedDir, fileCount, isSupported };
+})();
+
+/* ---- end livewire-engine.js ---- */
+
+/* ---- from js/notary/notary-engine.js ---- */
+/* DataGlow -- js/notary/notary-engine.js */
+/* The Notary: portable, independently verifiable proof-bundle.
+   Extends ProofBuilder with SHA-256 (SubtleCrypto) instead of djb2,
+   adds a self-contained verifier manifest, and produces a .dgnot bundle
+   that anyone can verify with the open DataGlow Verifier CLI -- no account,
+   no server, no DataGlow install required.
+
+   Bundle format (JSON):
+   {
+     _notary: 1,
+     _comment: "DataGlow Notarized Proof ...",
+     notarizedAt: <ISO>,
+     toolVersion: <string>,
+     dataset: { name, rowCount, columnCount, sha256 },
+     query: { text, executedAt },           // if applicable
+     result: { rowCount, sha256 },          // SHA-256 of result rows JSON
+     story: { sha256, markdown },
+     provenance: { chain: [...], sha256 },
+     validationFindings: [...],
+     seal: {
+       input: <string>,                     // canonical JSON that was hashed
+       sha256: <hex string>,                // SHA-256 of input
+       djb2: <hex string>                   // legacy fallback
+     },
+     verifier: {
+       cli: "npx dataglow-verify@latest <filename>",
+       spec: "https://dataglow.io/proof-spec/v1"
+     }
+   }
+*/
+
+var NotaryEngine = window.NotaryEngine = (function () {
+  'use strict';
+
+  var NOTARY_VERSION = 1;
+  var SPEC_URL       = 'https://dataglow.io/proof-spec/v1';
+  var CLI_CMD        = 'npx dataglow-verify@latest';
+
+  /* djb2 fallback for environments without SubtleCrypto */
+  function djb2(str) {
+    var hash = 5381;
+    var s = String(str == null ? '' : str);
+    for (var i = 0; i < s.length; i++) {
+      hash = ((hash * 33) ^ s.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(16);
+  }
+
+  /* SHA-256 via SubtleCrypto -- returns hex string or null if unavailable */
+  async function sha256(str) {
+    if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) return null;
+    try {
+      var buf = new TextEncoder().encode(str);
+      var hashBuf = await window.crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(hashBuf))
+        .map(function (b) { return b.toString(16).padStart(2, '0'); })
+        .join('');
+    } catch (e) { return null; }
+  }
+
+  /* Canonical deterministic serialisation of an object (sorted keys) */
+  function canonical(obj) {
+    if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+    if (Array.isArray(obj)) return '[' + obj.map(canonical).join(',') + ']';
+    var keys = Object.keys(obj).sort();
+    return '{' + keys.map(function (k) {
+      return JSON.stringify(k) + ':' + canonical(obj[k]);
+    }).join(',') + '}';
+  }
+
+  /* Build the notarized bundle from a DataGlow session */
+  async function notarize(session, deps) {
+    var s = session || {};
+    var d = deps || {};
+
+    /* Gather story */
+    var storyMarkdown = (typeof d.renderMarkdown === 'function')
+      ? d.renderMarkdown(s.storyDoc) : null;
+    var storyHash = (typeof d.computeStoryHash === 'function')
+      ? d.computeStoryHash(s.storyDoc) : null;
+
+    /* Gather provenance */
+    var provenanceChain = (typeof d.generateTimeline === 'function')
+      ? d.generateTimeline(s.memoryStore) : null;
+    var provenanceHashLegacy = (typeof d.computeProvenanceHash === 'function')
+      ? d.computeProvenanceHash(s.memoryStore) : null;
+
+    /* Result rows hash */
+    var resultRows = Array.isArray(s.resultRows) ? s.resultRows : [];
+    var resultJson = JSON.stringify(resultRows);
+
+    /* Seal input: canonical form of all content hashes */
+    var sealInput = canonical({
+      datasetName:   s.datasetName   || null,
+      rowCount:      s.rowCount      || 0,
+      sourceFileHash:s.sourceFileHash|| null,
+      storyHash:     storyHash,
+      provenanceHash:provenanceHashLegacy,
+      resultHash:    djb2(resultJson),
+      notarizedAt:   s.notarizedAt   || new Date().toISOString()
+    });
+
+    var sealSha256 = await sha256(sealInput);
+    var sealDjb2   = djb2(sealInput);
+
+    var bundle = {
+      _notary:    NOTARY_VERSION,
+      _comment:   'DataGlow Notarized Proof -- independently verifiable. See verifier field.',
+      notarizedAt:s.notarizedAt || new Date().toISOString(),
+      toolVersion:s.toolVersion || 'dataglow-canvas',
+
+      dataset: {
+        name:        s.datasetName    || null,
+        rowCount:    s.rowCount       || 0,
+        columnCount: s.columnCount    || 0,
+        sha256:      s.sourceFileHash || null
+      },
+
+      query: s.queryText ? {
+        text:       s.queryText,
+        executedAt: s.queryExecutedAt || null
+      } : null,
+
+      result: resultRows.length ? {
+        rowCount: resultRows.length,
+        sha256:   await sha256(resultJson) || djb2(resultJson)
+      } : null,
+
+      story: storyMarkdown ? {
+        sha256:   await sha256(storyMarkdown) || storyHash,
+        markdown: storyMarkdown
+      } : null,
+
+      provenance: {
+        chain:  provenanceChain || [],
+        sha256: provenanceHashLegacy || null
+      },
+
+      validationFindings: Array.isArray(s.validationFindings)
+        ? s.validationFindings : [],
+
+      seal: {
+        input:  sealInput,
+        sha256: sealSha256 || null,
+        djb2:   sealDjb2
+      },
+
+      verifier: {
+        cli:  CLI_CMD + ' <filename>.dgnot',
+        spec: SPEC_URL
+      }
+    };
+
+    return bundle;
+  }
+
+  /* Verify a bundle without trusting any server */
+  async function verify(bundle) {
+    var b = bundle || {};
+    if (!b.seal || !b.seal.input) return { valid: false, reason: 'No seal found.' };
+
+    var checks = {};
+
+    /* Recompute djb2 (always available) */
+    checks.djb2Match = (djb2(b.seal.input) === b.seal.djb2);
+
+    /* Recompute SHA-256 if present */
+    if (b.seal.sha256) {
+      var recomputed = await sha256(b.seal.input);
+      checks.sha256Match = (recomputed === b.seal.sha256);
+    }
+
+    /* Story integrity */
+    if (b.story && b.story.markdown && b.story.sha256) {
+      var storySha = await sha256(b.story.markdown);
+      checks.storyIntact = (storySha === b.story.sha256);
+    }
+
+    /* Result integrity */
+    if (b.result && b.result.sha256) {
+      checks.resultHashPresent = true;
+    }
+
+    var allTrue = Object.values(checks).every(Boolean);
+    return { valid: allTrue, checks: checks };
+  }
+
+  /* Produce a human-readable verification report */
+  function verificationReport(verifyResult, bundle) {
+    var v = verifyResult || {};
+    var b = bundle || {};
+    var lines = [
+      'DataGlow Notarized Proof -- Verification Report',
+      '================================================',
+      'Dataset : ' + (b.dataset && b.dataset.name || 'unknown'),
+      'Notarized: ' + (b.notarizedAt || 'unknown'),
+      'Tool     : ' + (b.toolVersion || 'unknown'),
+      '',
+      'Result   : ' + (v.valid ? 'VERIFIED' : 'FAILED'),
+      ''
+    ];
+    if (v.checks) {
+      Object.keys(v.checks).forEach(function (k) {
+        lines.push('  ' + (v.checks[k] ? '[PASS]' : '[FAIL]') + ' ' + k);
+      });
+    }
+    if (!v.valid) {
+      lines.push('');
+      lines.push('WARNING: One or more integrity checks failed. This bundle may have been modified.');
+    }
+    lines.push('');
+    lines.push('Verify independently: ' + (b.verifier && b.verifier.cli || 'npx dataglow-verify@latest <file>'));
+    lines.push('Spec: ' + (b.verifier && b.verifier.spec || SPEC_URL));
+    return lines.join('\n');
+  }
+
+  /* Serialize to .dgnot file */
+  function serialize(bundle) {
+    return JSON.stringify(bundle, null, 2);
+  }
+
+  /* Download as .dgnot file */
+  function download(bundle, datasetName) {
+    var content  = serialize(bundle);
+    var blob     = new Blob([content], { type: 'application/json' });
+    var url      = URL.createObjectURL(blob);
+    var a        = document.createElement('a');
+    var safeName = (datasetName || 'proof').replace(/[^a-zA-Z0-9_-]/g, '_');
+    a.href     = url;
+    a.download = 'dataglow-' + safeName + '-' + Date.now() + '.dgnot';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  return { notarize, verify, verificationReport, serialize, download, djb2, sha256 };
+})();
+
+/* ---- end notary-engine.js ---- */
+
+/* ---- from js/receipt/receipt-engine.js ---- */
+/* DataGlow -- js/receipt/receipt-engine.js */
+/* The Receipt: cross-dataset reconciliation diff.
+   Two numbers disagree. Two dashboards, two exports, two analysts.
+   Drop both datasets into DataGlow. The Receipt tells you EXACTLY why
+   they differ -- in plain English a CFO reads in one pass.
+
+   How it works:
+   1. Accepts two DataGlow dataset objects (with provenance chains)
+   2. Diffs: column schemas, row counts, value distributions, filter logic,
+      aggregation windows, date ranges, key column cardinality
+   3. Scores each discrepancy by likely impact (HIGH / MEDIUM / LOW)
+   4. Generates a plain-English "Here is why these numbers differ" narrative
+   5. Produces a structured diff object (machine-readable + human-readable)   */
+
+var ReceiptEngine = window.ReceiptEngine = (function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------ */
+  /* Utility                                                              */
+  /* ------------------------------------------------------------------ */
+
+  function safeArr(v) { return Array.isArray(v) ? v : []; }
+  function safeStr(v) { return v == null ? '' : String(v); }
+  function round2(n)  { return Math.round(n * 100) / 100; }
+
+  function colMap(columns) {
+    var m = {};
+    safeArr(columns).forEach(function (c) { m[c.name] = c; });
+    return m;
+  }
+
+  /* Numeric stats over a column vector */
+  function numStats(rows, colIdx) {
+    var vals = [];
+    safeArr(rows).forEach(function (r) {
+      var v = r[colIdx];
+      if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) {
+        vals.push(Number(v));
+      }
+    });
+    if (!vals.length) return null;
+    vals.sort(function (a, b) { return a - b; });
+    var sum = vals.reduce(function (a, b) { return a + b; }, 0);
+    return {
+      count: vals.length,
+      sum:   round2(sum),
+      mean:  round2(sum / vals.length),
+      min:   vals[0],
+      max:   vals[vals.length - 1],
+      nullCount: safeArr(rows).length - vals.length
+    };
+  }
+
+  /* Cardinality (distinct values) for a column */
+  function cardinality(rows, colIdx) {
+    var seen = {};
+    safeArr(rows).forEach(function (r) {
+      var v = r[colIdx];
+      if (v !== null && v !== undefined) seen[String(v)] = true;
+    });
+    return Object.keys(seen).length;
+  }
+
+  /* Detect likely date columns */
+  function isDateCol(col) {
+    return col && (col.type === 'DATE' || /date|time|period|month|year|week/i.test(col.name));
+  }
+
+  /* Date range for a column */
+  function dateRange(rows, colIdx) {
+    var vals = [];
+    safeArr(rows).forEach(function (r) {
+      var v = r[colIdx];
+      if (v) { var d = new Date(v); if (!isNaN(d)) vals.push(d); }
+    });
+    if (!vals.length) return null;
+    vals.sort(function (a, b) { return a - b; });
+    return {
+      min: vals[0].toISOString().slice(0, 10),
+      max: vals[vals.length - 1].toISOString().slice(0, 10)
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Schema diff                                                          */
+  /* ------------------------------------------------------------------ */
+
+  function diffSchemas(colsA, colsB) {
+    var mapA = colMap(colsA);
+    var mapB = colMap(colsB);
+    var namesA = Object.keys(mapA);
+    var namesB = Object.keys(mapB);
+
+    var onlyInA = namesA.filter(function (n) { return !mapB[n]; });
+    var onlyInB = namesB.filter(function (n) { return !mapA[n]; });
+    var shared  = namesA.filter(function (n) { return mapB[n]; });
+
+    var typeMismatches = shared.filter(function (n) {
+      return mapA[n].type !== mapB[n].type;
+    }).map(function (n) {
+      return { column: n, typeA: mapA[n].type, typeB: mapB[n].type };
+    });
+
+    return { onlyInA, onlyInB, shared, typeMismatches };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Value diff on shared numeric columns                                 */
+  /* ------------------------------------------------------------------ */
+
+  function diffNumericCols(rowsA, colsA, rowsB, colsB, sharedNames) {
+    var mapA = colMap(colsA);
+    var mapB = colMap(colsB);
+    var diffs = [];
+
+    sharedNames.forEach(function (name) {
+      var cA = mapA[name]; var cB = mapB[name];
+      if (!cA || !cB) return;
+      if (cA.type !== 'INT' && cA.type !== 'FLOAT' && cA.type !== 'STR') return;
+
+      var idxA = colsA.indexOf(cA);
+      var idxB = colsB.indexOf(cB);
+      if (idxA < 0 || idxB < 0) return;
+
+      var statsA = numStats(rowsA, idxA);
+      var statsB = numStats(rowsB, idxB);
+      if (!statsA || !statsB) return;
+
+      var sumDelta = round2(statsA.sum - statsB.sum);
+      var pctDelta = statsB.sum !== 0
+        ? round2((sumDelta / Math.abs(statsB.sum)) * 100) : null;
+      var countDelta = statsA.count - statsB.count;
+
+      if (Math.abs(sumDelta) > 0.001 || countDelta !== 0) {
+        diffs.push({
+          column:     name,
+          sumA:       statsA.sum,
+          sumB:       statsB.sum,
+          sumDelta,
+          pctDelta,
+          countA:     statsA.count,
+          countB:     statsB.count,
+          countDelta,
+          nullsA:     statsA.nullCount,
+          nullsB:     statsB.nullCount,
+          impact:     Math.abs(pctDelta || 0) > 10 ? 'HIGH'
+                    : Math.abs(pctDelta || 0) > 1  ? 'MEDIUM' : 'LOW'
+        });
+      }
+    });
+
+    return diffs;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Row count and date range diffs                                       */
+  /* ------------------------------------------------------------------ */
+
+  function diffRowCounts(rowsA, rowsB, nameA, nameB) {
+    var delta = rowsA.length - rowsB.length;
+    return {
+      countA: rowsA.length,
+      countB: rowsB.length,
+      delta,
+      pct: rowsB.length ? round2((delta / rowsB.length) * 100) : null,
+      impact: Math.abs(delta / Math.max(rowsB.length, 1)) > 0.05 ? 'HIGH' : 'LOW'
+    };
+  }
+
+  function diffDateRanges(rowsA, colsA, rowsB, colsB) {
+    var results = [];
+    colsA.forEach(function (c, i) {
+      if (!isDateCol(c)) return;
+      var matchB = colsB.find(function (cb) { return cb.name === c.name; });
+      if (!matchB) return;
+      var idxB = colsB.indexOf(matchB);
+      var rA = dateRange(rowsA, i);
+      var rB = dateRange(rowsB, idxB);
+      if (!rA || !rB) return;
+      if (rA.min !== rB.min || rA.max !== rB.max) {
+        results.push({
+          column: c.name,
+          rangeA: rA, rangeB: rB,
+          impact: 'HIGH'
+        });
+      }
+    });
+    return results;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Plain-English narrative generator                                    */
+  /* ------------------------------------------------------------------ */
+
+  function buildNarrative(diff, nameA, nameB) {
+    var lines = [];
+    var A = nameA || 'Dataset A';
+    var B = nameB || 'Dataset B';
+
+    lines.push('Why ' + A + ' and ' + B + ' disagree:');
+    lines.push('');
+
+    var highCount = 0;
+
+    /* Row count */
+    var rc = diff.rowCounts;
+    if (rc && Math.abs(rc.delta) > 0) {
+      var rcImpact = rc.impact === 'HIGH' ? 'HIGH IMPACT' : 'low impact';
+      lines.push('[' + rcImpact + '] Row count mismatch');
+      lines.push(
+        '  ' + A + ' has ' + rc.countA.toLocaleString() + ' rows. ' +
+        B + ' has ' + rc.countB.toLocaleString() + ' rows. ' +
+        'That is a difference of ' + Math.abs(rc.delta).toLocaleString() + ' rows' +
+        (rc.pct !== null ? ' (' + Math.abs(rc.pct) + '%)' : '') + '.'
+      );
+      lines.push(
+        '  Most likely cause: one dataset was filtered, truncated, or drawn from a ' +
+        'different time window or export scope before you received it.'
+      );
+      if (rc.impact === 'HIGH') highCount++;
+      lines.push('');
+    }
+
+    /* Date range mismatches */
+    safeArr(diff.dateRanges).forEach(function (dr) {
+      lines.push('[HIGH IMPACT] Date range mismatch on "' + dr.column + '"');
+      lines.push(
+        '  ' + A + ' spans ' + dr.rangeA.min + ' to ' + dr.rangeA.max + '.'
+      );
+      lines.push(
+        '  ' + B + ' spans ' + dr.rangeB.min + ' to ' + dr.rangeB.max + '.'
+      );
+      lines.push(
+        '  Any aggregate (sum, count, average) on this column will differ ' +
+        'because the underlying time periods are not the same.'
+      );
+      highCount++;
+      lines.push('');
+    });
+
+    /* Schema differences */
+    var sc = diff.schema;
+    if (sc) {
+      if (sc.onlyInA.length) {
+        lines.push('[MEDIUM IMPACT] Columns only in ' + A + ': ' + sc.onlyInA.join(', '));
+        lines.push(
+          '  These columns do not exist in ' + B + ', so any metric that depends ' +
+          'on them cannot be compared directly.'
+        );
+        lines.push('');
+      }
+      if (sc.onlyInB.length) {
+        lines.push('[MEDIUM IMPACT] Columns only in ' + B + ': ' + sc.onlyInB.join(', '));
+        lines.push('');
+      }
+      if (sc.typeMismatches.length) {
+        sc.typeMismatches.forEach(function (tm) {
+          lines.push('[MEDIUM IMPACT] Type mismatch on "' + tm.column + '"');
+          lines.push(
+            '  ' + A + ' stores it as ' + tm.typeA + '; ' + B + ' stores it as ' + tm.typeB + '. ' +
+            'Numeric aggregates on a column stored as text will silently produce wrong totals.'
+          );
+          lines.push('');
+        });
+      }
+    }
+
+    /* Numeric value diffs */
+    safeArr(diff.numericDiffs).forEach(function (nd) {
+      var tag = '[' + nd.impact + ' IMPACT]';
+      lines.push(tag + ' "' + nd.column + '" totals differ');
+      lines.push(
+        '  ' + A + ' total: ' + nd.sumA.toLocaleString() +
+        '  |  ' + B + ' total: ' + nd.sumB.toLocaleString()
+      );
+      if (nd.pctDelta !== null) {
+        lines.push('  Difference: ' + Math.abs(nd.pctDelta) + '%' +
+          (nd.pctDelta > 0 ? ' higher in ' + A : ' lower in ' + A) + '.');
+      }
+      if (nd.nullsA !== nd.nullsB) {
+        lines.push(
+          '  Null count: ' + nd.nullsA + ' in ' + A + ' vs ' + nd.nullsB + ' in ' + B + '. ' +
+          'Different null-handling rules may account for part of this gap.'
+        );
+      }
+      if (nd.countDelta !== 0) {
+        lines.push(
+          '  Non-null value count: ' + nd.countA + ' vs ' + nd.countB + '. ' +
+          'One dataset has more rows contributing to this total.'
+        );
+      }
+      if (nd.impact === 'HIGH') highCount++;
+      lines.push('');
+    });
+
+    if (lines.length <= 2) {
+      lines.push('No material discrepancies detected between these two datasets.');
+      lines.push('Row counts, date ranges, column schemas, and numeric totals are consistent.');
+    } else {
+      lines.push('---');
+      lines.push(
+        highCount > 0
+          ? highCount + ' HIGH IMPACT discrepanc' + (highCount === 1 ? 'y' : 'ies') +
+            ' found. These likely explain the full gap between the two numbers.'
+          : 'No single high-impact discrepancy identified. The difference is likely ' +
+            'a combination of small rounding, null handling, or scope variations.'
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Public: diff two datasets                                            */
+  /* ------------------------------------------------------------------ */
+
+  function diff(datasetA, datasetB) {
+    var a = datasetA || {};
+    var b = datasetB || {};
+
+    var rowsA = safeArr(a.rows);
+    var rowsB = safeArr(b.rows);
+    var colsA = safeArr(a.columns);
+    var colsB = safeArr(b.columns);
+
+    var schema      = diffSchemas(colsA, colsB);
+    var rowCounts   = diffRowCounts(rowsA, rowsB, a.name, b.name);
+    var numericDiffs= diffNumericCols(rowsA, colsA, rowsB, colsB, schema.shared);
+    var dateRanges  = diffDateRanges(rowsA, colsA, rowsB, colsB);
+
+    var result = {
+      nameA: a.name || 'Dataset A',
+      nameB: b.name || 'Dataset B',
+      generatedAt: new Date().toISOString(),
+      schema,
+      rowCounts,
+      numericDiffs,
+      dateRanges,
+      highImpactCount: [rowCounts, ...numericDiffs, ...dateRanges]
+        .filter(function (d) { return d && d.impact === 'HIGH'; }).length
+    };
+
+    result.narrative = buildNarrative(result, result.nameA, result.nameB);
+    return result;
+  }
+
+  /* Download the receipt as a .receipt file */
+  function download(diffResult) {
+    var content = JSON.stringify(diffResult, null, 2);
+    var blob = new Blob([content], { type: 'application/json' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'dataglow-receipt-' + Date.now() + '.receipt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  return { diff, download, buildNarrative };
+})();
+
+/* ---- end receipt-engine.js ---- */
 
 /* ---- from js/provenance/provenance-engine.js ---- */
 (function() {
@@ -22820,6 +23910,634 @@ var DataGlowMirror = (function() {
   Object.defineProperty(window.DataGlowAutopilot, 'alerts', {
     get: function () { return autopilot.alerts; }
   });
+
+
+  /* ---- from js/wiring/proof-that-travels-wiring.js ---- */
+/* DataGlow -- js/wiring/proof-that-travels-wiring.js
+   UI wiring for: Live Wire, The Notary, The Receipt
+   Injected at end of bundle.js by build process.          */
+
+/* ============================================================
+   FEATURE: Live Wire -- folder watch + auto-ingest
+   ============================================================ */
+(function bindLiveWireFeature() {
+  var panel    = null;
+  var pickBtn  = null;
+  var stopBtn  = null;
+  var statusEl = null;
+  var logEl    = null;
+
+  function log(msg) {
+    if (!logEl) return;
+    var ts = new Date().toLocaleTimeString();
+    logEl.textContent = '[' + ts + '] ' + msg + '\n' + logEl.textContent;
+  }
+
+  function updateStatus() {
+    if (!statusEl || typeof LiveWireEngine === 'undefined') return;
+    if (LiveWireEngine.isWatching()) {
+      statusEl.textContent = 'Watching: ' + LiveWireEngine.watchedDir() +
+        '  (' + LiveWireEngine.fileCount() + ' files tracked)';
+      statusEl.style.color = 'var(--success, #437A22)';
+      if (pickBtn) pickBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = '';
+    } else {
+      statusEl.textContent = LiveWireEngine.isSupported()
+        ? 'Not watching any folder.'
+        : 'Not supported in this browser. Use Chrome or Edge.';
+      statusEl.style.color = 'var(--text-muted)';
+      if (pickBtn) pickBtn.style.display = '';
+      if (stopBtn) stopBtn.style.display = 'none';
+    }
+  }
+
+  function handleNewFile(file, filename) {
+    log('New file detected: ' + filename + ' (' + (file.size / 1024).toFixed(1) + ' KB)');
+    if (typeof window.handleFile === 'function') {
+      window.handleFile(file);
+      log('Auto-imported: ' + filename);
+    }
+  }
+
+  function handleUpdatedFile(file, filename) {
+    log('Updated: ' + filename + '  re-importing...');
+    if (typeof window.handleFile === 'function') window.handleFile(file);
+  }
+
+  function openPanel() {
+    if (!panel) panel = document.getElementById('livewire-panel');
+    if (!panel) return;
+    pickBtn  = document.getElementById('livewire-pick-btn');
+    stopBtn  = document.getElementById('livewire-stop-btn');
+    statusEl = document.getElementById('livewire-status');
+    logEl    = document.getElementById('livewire-log');
+
+    panel.style.display = 'flex';
+    updateStatus();
+
+    if (pickBtn && !pickBtn._wired) {
+      pickBtn._wired = true;
+      pickBtn.addEventListener('click', async function () {
+        var result = await LiveWireEngine.pickAndWatch(handleNewFile, handleUpdatedFile);
+        if (result.ok) {
+          log('Started watching: ' + result.dirName + '  (' + result.fileCount + ' existing files tracked)');
+        } else {
+          log('Could not start: ' + result.reason);
+        }
+        updateStatus();
+      });
+    }
+
+    if (stopBtn && !stopBtn._wired) {
+      stopBtn._wired = true;
+      stopBtn.addEventListener('click', function () {
+        LiveWireEngine.stop();
+        log('Stopped watching.');
+        updateStatus();
+      });
+    }
+
+    var closeBtn = document.getElementById('livewire-close-btn');
+    if (closeBtn && !closeBtn._wired) {
+      closeBtn._wired = true;
+      closeBtn.addEventListener('click', function () { panel.style.display = 'none'; });
+    }
+  }
+
+  function wire() {
+    var triggerBtn = document.getElementById('livewire-trigger-btn');
+    if (triggerBtn && !triggerBtn._lw) {
+      triggerBtn._lw = true;
+      triggerBtn.addEventListener('click', openPanel);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
+
+/* ============================================================
+   FEATURE: The Notary -- .dgnot portable proof bundle
+   ============================================================ */
+(function bindNotaryFeature() {
+  var notaryBtn = null;
+
+  function updateNotaryBtnState() {
+    notaryBtn = notaryBtn || document.getElementById('notary-export-btn');
+    if (!notaryBtn) return;
+    var dataset = (typeof getActiveDataset === 'function') ? getActiveDataset() : null;
+    var hasStory = !!(typeof state !== 'undefined' && state.currentStoryDoc);
+    var findings = dataset ? (dataset.findings || []) : [];
+    var noCritical = findings.every(function (f) {
+      return !(f && f.severity === 'critical' && f.status !== 'resolved');
+    });
+    if (dataset && hasStory && noCritical) {
+      notaryBtn.disabled = false;
+      notaryBtn.title = 'Export independently verifiable .dgnot proof bundle';
+    } else if (!hasStory) {
+      notaryBtn.disabled = true;
+      notaryBtn.title = 'Generate a story first';
+    } else {
+      notaryBtn.disabled = true;
+      notaryBtn.title = 'Resolve Critical findings first';
+    }
+  }
+
+  function wire() {
+    notaryBtn = document.getElementById('notary-export-btn');
+    if (!notaryBtn || notaryBtn._notaryWired) return;
+    notaryBtn._notaryWired = true;
+    updateNotaryBtnState();
+
+    notaryBtn.addEventListener('click', async function () {
+      if (notaryBtn.disabled) return;
+      var dataset = (typeof getActiveDataset === 'function') ? getActiveDataset() : null;
+      if (!dataset || !state.currentStoryDoc) return;
+
+      notaryBtn.disabled = true;
+      notaryBtn.textContent = 'Notarizing...';
+
+      try {
+        var bundle = await NotaryEngine.notarize({
+          datasetName:        dataset.name,
+          rowCount:           dataset.rows.length,
+          columnCount:        dataset.columns.length,
+          sourceFileHash:     dataset.fileHash || null,
+          validationFindings: dataset.findings || [],
+          storyDoc:           state.currentStoryDoc,
+          memoryStore:        state.memoryStore,
+          queryText:          state.lastQueryText || null,
+          resultRows:         state.lastResultRows || [],
+          notarizedAt:        new Date().toISOString(),
+          toolVersion:        'dataglow-canvas'
+        }, {
+          renderMarkdown:        (typeof StoryBuilder !== 'undefined' ? StoryBuilder.renderMarkdown : null),
+          computeStoryHash:      (typeof StoryBuilder !== 'undefined' ? StoryBuilder.computeStoryHash : null),
+          generateTimeline:      (typeof InstitutionalMemory !== 'undefined' ? InstitutionalMemory.generateTimeline : null),
+          computeProvenanceHash: (typeof InstitutionalMemory !== 'undefined' ? InstitutionalMemory.computeProvenanceHash : null)
+        });
+
+        NotaryEngine.download(bundle, dataset.name);
+
+        if (window._activeProjectId && typeof ProjectWorkspace !== 'undefined' && ProjectWorkspace.isReady()) {
+          await ProjectWorkspace.saveNotarizedBundle(window._activeProjectId, NotaryEngine.serialize(bundle));
+        }
+
+        if (typeof window.showToast === 'function') {
+          window.showToast('Notarized .dgnot downloaded. Verify: npx dataglow-verify@latest <file>', 'success');
+        }
+      } catch (e) {
+        if (typeof window.showToast === 'function') {
+          window.showToast('Notarization failed: ' + e.message, 'error');
+        }
+      }
+
+      notaryBtn.disabled = false;
+      notaryBtn.innerHTML = '&#128274; Notarize';
+      updateNotaryBtnState();
+    });
+
+    document.addEventListener('dataglow:story-updated',   updateNotaryBtnState);
+    document.addEventListener('dataglow:dataset-loaded',  updateNotaryBtnState);
+    document.addEventListener('dataglow:findings-updated',updateNotaryBtnState);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
+
+/* ============================================================
+   FEATURE: The Receipt -- cross-dataset reconciliation diff
+   ============================================================ */
+(function bindReceiptFeature() {
+  var panel       = null;
+  var dsASelect   = null;
+  var dsBSelect   = null;
+  var runBtn      = null;
+  var downloadBtn = null;
+  var outputEl    = null;
+  var lastDiff    = null;
+
+  function populateSelects() {
+    var datasets = (typeof state !== 'undefined' && state.datasets) ? state.datasets : [];
+    var opts = '<option value="">Select dataset...</option>' +
+      datasets.map(function (ds) {
+        return '<option value="' + ds.id + '">' +
+          (ds.name || 'Untitled') + ' (' + (ds.rows ? ds.rows.length : 0) + ' rows)</option>';
+      }).join('');
+    if (dsASelect) dsASelect.innerHTML = opts;
+    if (dsBSelect) dsBSelect.innerHTML = opts;
+  }
+
+  function openPanel() {
+    if (!panel) panel = document.getElementById('receipt-panel');
+    if (!panel) return;
+    dsASelect   = document.getElementById('receipt-ds-a');
+    dsBSelect   = document.getElementById('receipt-ds-b');
+    runBtn      = document.getElementById('receipt-run-btn');
+    downloadBtn = document.getElementById('receipt-download-btn');
+    outputEl    = document.getElementById('receipt-output');
+
+    panel.style.display = 'flex';
+    populateSelects();
+    if (outputEl)    outputEl.style.display = 'none';
+    if (downloadBtn) downloadBtn.style.display = 'none';
+    lastDiff = null;
+
+    var closeBtn = document.getElementById('receipt-close-btn');
+    if (closeBtn && !closeBtn._wired) {
+      closeBtn._wired = true;
+      closeBtn.addEventListener('click', function () { panel.style.display = 'none'; });
+    }
+
+    if (runBtn && !runBtn._wired) {
+      runBtn._wired = true;
+      runBtn.addEventListener('click', function () {
+        var idA = dsASelect && dsASelect.value;
+        var idB = dsBSelect && dsBSelect.value;
+        if (!idA || !idB) {
+          if (typeof window.showToast === 'function') window.showToast('Select two datasets to compare.', 'warn');
+          return;
+        }
+        if (idA === idB) {
+          if (typeof window.showToast === 'function') window.showToast('Select two different datasets.', 'warn');
+          return;
+        }
+        var datasets = (typeof state !== 'undefined' && state.datasets) ? state.datasets : [];
+        var dsA = datasets.find(function (d) { return d.id === idA; });
+        var dsB = datasets.find(function (d) { return d.id === idB; });
+        if (!dsA || !dsB) return;
+
+        runBtn.disabled = true;
+        runBtn.textContent = 'Analysing...';
+
+        try {
+          lastDiff = ReceiptEngine.diff(dsA, dsB);
+          if (outputEl) {
+            outputEl.textContent = lastDiff.narrative;
+            outputEl.style.display = 'block';
+          }
+          if (downloadBtn) downloadBtn.style.display = '';
+        } catch (e) {
+          if (outputEl) {
+            outputEl.textContent = 'Error: ' + e.message;
+            outputEl.style.display = 'block';
+          }
+        }
+
+        runBtn.disabled = false;
+        runBtn.textContent = 'Generate Receipt';
+      });
+    }
+
+    if (downloadBtn && !downloadBtn._wired) {
+      downloadBtn._wired = true;
+      downloadBtn.addEventListener('click', function () {
+        if (lastDiff) ReceiptEngine.download(lastDiff);
+      });
+    }
+  }
+
+  function wire() {
+    var triggerBtn = document.getElementById('receipt-trigger-btn');
+    if (triggerBtn && !triggerBtn._rc) {
+      triggerBtn._rc = true;
+      triggerBtn.addEventListener('click', openPanel);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
+
+  /* ---- end proof-that-travels-wiring.js ---- */
   Object.defineProperty(window.DataGlowAutopilot, 'lastSnapshot', {
     get: function () { return autopilot.lastSnapshot; }
   });
+  /* ============================================================
+     FEATURE: Live Wire -- folder watch + auto-ingest
+     ============================================================ */
+  (function bindLiveWireFeature() {
+    var panel    = null;
+    var pickBtn  = null;
+    var stopBtn  = null;
+    var statusEl = null;
+    var logEl    = null;
+
+    function log(msg) {
+      if (!logEl) return;
+      var ts = new Date().toLocaleTimeString();
+      logEl.textContent = '[' + ts + '] ' + msg + '\n' + logEl.textContent;
+    }
+
+    function updateStatus() {
+      if (!statusEl || !LiveWireEngine) return;
+      if (LiveWireEngine.isWatching()) {
+        statusEl.textContent = 'Watching: ' + LiveWireEngine.watchedDir() +
+          ' (' + LiveWireEngine.fileCount() + ' files tracked)';
+        statusEl.style.color = 'var(--success, #437A22)';
+        if (pickBtn) pickBtn.style.display = 'none';
+        if (stopBtn) stopBtn.style.display = '';
+      } else {
+        statusEl.textContent = LiveWireEngine.isSupported()
+          ? 'Not watching any folder.'
+          : 'Not supported in this browser. Use Chrome or Edge.';
+        statusEl.style.color = 'var(--text-muted)';
+        if (pickBtn) pickBtn.style.display = '';
+        if (stopBtn) stopBtn.style.display = 'none';
+      }
+    }
+
+    function handleNewFile(file, filename) {
+      log('New file detected: ' + filename + ' (' + (file.size / 1024).toFixed(1) + ' KB)');
+      if (typeof window.handleFile === 'function') {
+        window.handleFile(file);
+        log('Auto-imported: ' + filename);
+      }
+    }
+
+    function handleUpdatedFile(file, filename) {
+      log('Updated: ' + filename + ' -- re-importing...');
+      if (typeof window.handleFile === 'function') {
+        window.handleFile(file);
+      }
+    }
+
+    function openPanel() {
+      if (!panel) panel = document.getElementById('livewire-panel');
+      if (!panel) return;
+      pickBtn  = document.getElementById('livewire-pick-btn');
+      stopBtn  = document.getElementById('livewire-stop-btn');
+      statusEl = document.getElementById('livewire-status');
+      logEl    = document.getElementById('livewire-log');
+
+      panel.style.display = 'flex';
+      updateStatus();
+
+      if (pickBtn && !pickBtn._wired) {
+        pickBtn._wired = true;
+        pickBtn.addEventListener('click', async function () {
+          var result = await LiveWireEngine.pickAndWatch(handleNewFile, handleUpdatedFile);
+          if (result.ok) {
+            log('Started watching: ' + result.dirName + ' (' + result.fileCount + ' existing files tracked)');
+          } else {
+            log('Could not start: ' + result.reason);
+          }
+          updateStatus();
+        });
+      }
+
+      if (stopBtn && !stopBtn._wired) {
+        stopBtn._wired = true;
+        stopBtn.addEventListener('click', function () {
+          LiveWireEngine.stop();
+          log('Stopped watching.');
+          updateStatus();
+        });
+      }
+
+      var closeBtn = document.getElementById('livewire-close-btn');
+      if (closeBtn && !closeBtn._wired) {
+        closeBtn._wired = true;
+        closeBtn.addEventListener('click', function () {
+          panel.style.display = 'none';
+        });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var triggerBtn = document.getElementById('livewire-trigger-btn');
+      if (triggerBtn && !triggerBtn._lw) {
+        triggerBtn._lw = true;
+        triggerBtn.addEventListener('click', openPanel);
+      }
+    });
+    if (document.readyState !== 'loading') {
+      var triggerBtn = document.getElementById('livewire-trigger-btn');
+      if (triggerBtn && !triggerBtn._lw) {
+        triggerBtn._lw = true;
+        triggerBtn.addEventListener('click', openPanel);
+      }
+    }
+  })();
+
+  /* ============================================================
+     FEATURE: The Notary -- .dgnot portable proof bundle
+     ============================================================ */
+  (function bindNotaryFeature() {
+    var notaryBtn = null;
+
+    function updateNotaryBtnState() {
+      notaryBtn = notaryBtn || document.getElementById('notary-export-btn');
+      if (!notaryBtn) return;
+      var dataset = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+      var hasStory = !!(state && state.currentStoryDoc);
+      var findings = dataset ? (dataset.findings || []) : [];
+      var noCritical = findings.every(function (f) {
+        return !(f && f.severity === 'critical' && f.status !== 'resolved');
+      });
+
+      if (dataset && hasStory && noCritical) {
+        notaryBtn.disabled = false;
+        notaryBtn.title = 'Export a notarized, independently verifiable proof bundle (.dgnot)';
+      } else if (!hasStory) {
+        notaryBtn.disabled = true;
+        notaryBtn.title = 'Generate a story first to unlock Notary';
+      } else {
+        notaryBtn.disabled = true;
+        notaryBtn.title = 'Resolve all Critical findings to unlock Notary';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      notaryBtn = document.getElementById('notary-export-btn');
+      if (!notaryBtn) return;
+
+      updateNotaryBtnState();
+
+      notaryBtn.addEventListener('click', async function () {
+        if (notaryBtn.disabled) return;
+        var dataset = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+        if (!dataset || !state.currentStoryDoc) return;
+
+        notaryBtn.disabled = true;
+        notaryBtn.textContent = 'Notarizing...';
+
+        try {
+          var provenanceNdjson = (typeof InstitutionalMemory !== 'undefined' && InstitutionalMemory.exportNDJSON)
+            ? InstitutionalMemory.exportNDJSON(state.memoryStore) : null;
+
+          var bundle = await NotaryEngine.notarize({
+            datasetName:     dataset.name,
+            rowCount:        dataset.rows.length,
+            columnCount:     dataset.columns.length,
+            sourceFileHash:  dataset.fileHash || null,
+            validationFindings: dataset.findings || [],
+            storyDoc:        state.currentStoryDoc,
+            memoryStore:     state.memoryStore,
+            queryText:       state.lastQueryText || null,
+            resultRows:      state.lastResultRows || [],
+            notarizedAt:     new Date().toISOString(),
+            toolVersion:     'dataglow-canvas'
+          }, {
+            renderMarkdown:       (typeof StoryBuilder !== 'undefined' ? StoryBuilder.renderMarkdown : null),
+            computeStoryHash:     (typeof StoryBuilder !== 'undefined' ? StoryBuilder.computeStoryHash : null),
+            generateTimeline:     (typeof InstitutionalMemory !== 'undefined' ? InstitutionalMemory.generateTimeline : null),
+            computeProvenanceHash:(typeof InstitutionalMemory !== 'undefined' ? InstitutionalMemory.computeProvenanceHash : null)
+          });
+
+          NotaryEngine.download(bundle, dataset.name);
+
+          /* Save into active project's notary folder if one is open */
+          if (window._activeProjectId && typeof ProjectWorkspace !== 'undefined' && ProjectWorkspace.isReady()) {
+            await ProjectWorkspace.saveNotarizedBundle(window._activeProjectId, NotaryEngine.serialize(bundle));
+          }
+
+          if (typeof state !== 'undefined' && typeof InstitutionalMemory !== 'undefined') {
+            state.memoryStore = InstitutionalMemory.appendRecord(state.memoryStore, {
+              type: 'NOTARY_EXPORTED',
+              actor: 'human',
+              datasetId: dataset.id,
+              column: null,
+              reason: 'Notarized proof bundle exported.',
+              metadata: { format: 'dgnot', sha256: bundle.seal && bundle.seal.sha256 }
+            });
+          }
+
+          if (typeof window.showToast === 'function') {
+            window.showToast('Notarized proof bundle downloaded. Verify with: npx dataglow-verify@latest <file>', 'success');
+          }
+        } catch (e) {
+          if (typeof window.showToast === 'function') {
+            window.showToast('Notarization failed: ' + e.message, 'error');
+          }
+        }
+
+        notaryBtn.disabled = false;
+        notaryBtn.innerHTML = '&#128274; Notarize';
+        updateNotaryBtnState();
+      });
+    });
+
+    /* Keep state in sync with proof export button */
+    document.addEventListener('dataglow:story-updated', updateNotaryBtnState);
+    document.addEventListener('dataglow:dataset-loaded', updateNotaryBtnState);
+    document.addEventListener('dataglow:findings-updated', updateNotaryBtnState);
+  })();
+
+  /* ============================================================
+     FEATURE: The Receipt -- cross-dataset reconciliation diff
+     ============================================================ */
+  (function bindReceiptFeature() {
+    var panel        = null;
+    var dsASelect    = null;
+    var dsBSelect    = null;
+    var runBtn       = null;
+    var downloadBtn  = null;
+    var outputEl     = null;
+    var lastDiff     = null;
+
+    function populateSelects() {
+      if (!dsASelect || !dsBSelect) return;
+      var datasets = (state && state.datasets) ? state.datasets : [];
+      var opts = '<option value="">Select dataset...</option>' +
+        datasets.map(function (ds) {
+          return '<option value="' + ds.id + '">' + ds.name + ' (' + ds.rows.length + ' rows)</option>';
+        }).join('');
+      dsASelect.innerHTML = opts;
+      dsBSelect.innerHTML = opts;
+    }
+
+    function openPanel() {
+      if (!panel) panel = document.getElementById('receipt-panel');
+      if (!panel) return;
+      dsASelect   = document.getElementById('receipt-ds-a');
+      dsBSelect   = document.getElementById('receipt-ds-b');
+      runBtn      = document.getElementById('receipt-run-btn');
+      downloadBtn = document.getElementById('receipt-download-btn');
+      outputEl    = document.getElementById('receipt-output');
+
+      panel.style.display = 'flex';
+      populateSelects();
+      if (outputEl) outputEl.style.display = 'none';
+      if (downloadBtn) downloadBtn.style.display = 'none';
+      lastDiff = null;
+
+      var closeBtn = document.getElementById('receipt-close-btn');
+      if (closeBtn && !closeBtn._wired) {
+        closeBtn._wired = true;
+        closeBtn.addEventListener('click', function () { panel.style.display = 'none'; });
+      }
+
+      if (runBtn && !runBtn._wired) {
+        runBtn._wired = true;
+        runBtn.addEventListener('click', function () {
+          var idA = dsASelect && dsASelect.value;
+          var idB = dsBSelect && dsBSelect.value;
+          if (!idA || !idB) {
+            if (typeof window.showToast === 'function') window.showToast('Select two datasets to compare.', 'warn');
+            return;
+          }
+          if (idA === idB) {
+            if (typeof window.showToast === 'function') window.showToast('Select two different datasets.', 'warn');
+            return;
+          }
+          var datasets = (state && state.datasets) ? state.datasets : [];
+          var dsA = datasets.find(function (d) { return d.id === idA; });
+          var dsB = datasets.find(function (d) { return d.id === idB; });
+          if (!dsA || !dsB) return;
+
+          runBtn.disabled = true;
+          runBtn.textContent = 'Analysing...';
+
+          try {
+            lastDiff = ReceiptEngine.diff(dsA, dsB);
+            if (outputEl) {
+              outputEl.textContent = lastDiff.narrative;
+              outputEl.style.display = 'block';
+            }
+            if (downloadBtn) downloadBtn.style.display = '';
+          } catch (e) {
+            if (outputEl) {
+              outputEl.textContent = 'Error: ' + e.message;
+              outputEl.style.display = 'block';
+            }
+          }
+
+          runBtn.disabled = false;
+          runBtn.textContent = 'Generate Receipt';
+        });
+      }
+
+      if (downloadBtn && !downloadBtn._wired) {
+        downloadBtn._wired = true;
+        downloadBtn.addEventListener('click', function () {
+          if (lastDiff) ReceiptEngine.download(lastDiff);
+        });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var triggerBtn = document.getElementById('receipt-trigger-btn');
+      if (triggerBtn && !triggerBtn._rc) {
+        triggerBtn._rc = true;
+        triggerBtn.addEventListener('click', openPanel);
+      }
+    });
+    if (document.readyState !== 'loading') {
+      var triggerBtn = document.getElementById('receipt-trigger-btn');
+      if (triggerBtn && !triggerBtn._rc) {
+        triggerBtn._rc = true;
+        triggerBtn.addEventListener('click', openPanel);
+      }
+    }
+  })();
