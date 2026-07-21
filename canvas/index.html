@@ -15934,7 +15934,10 @@ var InstantInsight = (function () {
     natsConnector: true,
     tauriConnector: true,
     questionPrompter: true,
-    portfolioNarrativeAssembler: true
+    portfolioNarrativeAssembler: true,
+    meetingScribe: true,
+    meetingScribeLiveCapture: true,
+    meetingDecisionLedger: true
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -19175,6 +19178,27 @@ var InstantInsight = (function () {
       description: 'Automatically assemble a portfolio-ready narrative from your validation findings and story.',
       badges: ['beta'],
       apply: function () { /* no canvas UI wired yet -- flag state only */ }
+    },
+    {
+      key: 'meetingScribe',
+      name: 'Meeting Scribe',
+      description: 'Paste or type meeting transcript lines and instantly detect pushback moments, data requests, and action items. Everything stays on your device.',
+      badges: ['beta'],
+      apply: function () { /* panel visible via Meeting button in agent bar */ }
+    },
+    {
+      key: 'meetingScribeLiveCapture',
+      name: 'Meeting Live Capture',
+      description: 'On-device microphone speech-to-text feeding Meeting Scribe in real time. Requires a WebGPU browser. Audio never leaves your device.',
+      badges: ['beta'],
+      apply: function () { /* future hook */ }
+    },
+    {
+      key: 'meetingDecisionLedger',
+      name: 'Decision Ledger',
+      description: 'Permanent on-device record of pushback, data requests, and action items from your meetings. Export as JSON anytime.',
+      badges: ['beta'],
+      apply: function () { /* shown inside Meeting Scribe panel */ }
     }
   ];
 
@@ -31167,6 +31191,956 @@ var DataGlowMirror = (function() {
 
 }());
 /* ---- end bottom-nav.js ---- */
+
+
+/* ================================================================
+   MEETING SCRIBE — recovered from git history (commit 0662f76)
+   Injected by inject_meeting.py
+   ================================================================ */
+
+/* ---- from js/agents/meeting-scribe-agent.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Meeting Scribe Agent (Gen 43, Part 1)
+// ============================================================
+// The first piece of the "analyst team goes to the meeting" capability. This
+// module does NOT capture audio and does NOT run speech-to-text — that is a
+// separate, browser-API-heavy UI concern (getDisplayMedia + an on-device
+// WebGPU transcription model) deliberately left for a follow-up PR so this
+// piece can ship small, pure, and testable without a browser or a GPU.
+//
+// What THIS module does: given transcript segments the caller already has
+// (plain text + a timestamp, from whatever capture path lands later) and a
+// timeline of "chart/query changed" events the app already emits when the
+// analyst switches views, it:
+//
+//   1. TAGS each transcript segment with whichever chart/query was on screen
+//      at that moment (`tagSegmentsWithContext`) — so a note is never
+//      floating free of the number it was said about.
+//   2. DETECTS pushback phrases ("why did this drop", "are you sure", "that
+//      doesn't look right", …) that should trigger the EXISTING on-device
+//      uncertainty resolver's re-run rather than a prose reply
+//      (`detectPushback`) — per the repo's existing rule (see
+//      js/agents/uncertainty-resolver-agent.js) that a critique-style check
+//      must re-run its own query, never argue in text.
+//   3. DETECTS data-request phrases ("can you also pull …", "could we get …")
+//      into a lightweight request queue the analyst can triage after the
+//      meeting (`detectDataRequest`).
+//   4. ENFORCES that an action item only counts as resolved once it carries an
+//      owner, a due date, and an outcome — a bare "will follow up" note stays
+//      OPEN rather than silently counting as done (`buildActionItem`,
+//      `isActionItemResolved`).
+//   5. ASSEMBLES a meeting note ledger entry (`buildMeetingNote`) shaped to
+//      append onto the SAME portable, signed export path packs and other
+//      agent output already use — this module builds the plain object only;
+//      writing/signing it is the export layer's job, not this one's.
+//
+// GRACEFUL DEGRADATION: every function here is deterministic string/array
+// logic — no LLM, no DOM, no browser global. A caller MAY later use an
+// on-device LLM to polish a note's wording (mirroring
+// js/agents/question-generator-agent.js's buildQuestionPrompt pattern), but
+// the structured tag/flag/queue output below is already complete and correct
+// without one, so a device with no WebGPU loses nothing but a cosmetic
+// rephrase.
+//
+// EMPOWERMENT CONSTRAINT (same as the rest of Gen 42/43): nothing here writes
+// to a pack, a rule, or a chart. It only produces a note object the analyst
+// reviews; the analyst decides what (if anything) happens next.
+//
+// This module names no network primitive and has no DOM/browser coupling.
+
+// ---------- pushback / data-request phrase catalogs ----------
+
+// Phrases that signal a stakeholder is challenging a number rather than just
+// asking about it — the Skeptic-style re-run trigger, not a prose answer.
+const PUSHBACK_PHRASES = Object.freeze([
+  'why did this drop', 'why did that drop', 'why is this down', 'why is that down',
+  'are you sure', 'is that right', 'is that correct', 'that doesn\u2019t look right',
+  "that doesn't look right", 'that seems off', 'that seems wrong', 'double check',
+  'double-check', 'can you verify', 'can we verify', 'i don\u2019t believe that',
+  "i don't believe that", 'that can\u2019t be right', "that can't be right",
+  'where does that number come from', 'how did you get that number',
+]);
+
+// Phrases that signal a NEW data request rather than a question about what is
+// already on screen.
+const DATA_REQUEST_PHRASES = Object.freeze([
+  'can you also pull', 'can you pull', 'could you pull', 'can we get',
+  'could we get', 'can you also get', 'can you add', 'could you add',
+  'can you break this down by', 'could you break this down by',
+  'can you send me', 'could you send me', 'can you also look at',
+  'is it possible to see', 'one more thing, can you',
+]);
+
+function normalize(text) {
+  return (text == null ? '' : String(text)).trim().toLowerCase();
+}
+
+/**
+ * Does this transcript segment contain a pushback phrase?
+ * @param {string} text
+ * @returns {{isPushback:boolean, matched:string|null}}
+ */
+function detectPushback(text) {
+  const t = normalize(text);
+  if (t === '') return { isPushback: false, matched: null };
+  const matched = PUSHBACK_PHRASES.find((p) => t.includes(p));
+  return { isPushback: !!matched, matched: matched || null };
+}
+
+/**
+ * Does this transcript segment contain a new data-request phrase?
+ * @param {string} text
+ * @returns {{isDataRequest:boolean, matched:string|null}}
+ */
+function detectDataRequest(text) {
+  const t = normalize(text);
+  if (t === '') return { isDataRequest: false, matched: null };
+  const matched = DATA_REQUEST_PHRASES.find((p) => t.includes(p));
+  return { isDataRequest: !!matched, matched: matched || null };
+}
+
+// ---------- pushback → resolver candidate ----------
+
+// Category tag for a pushback candidate. Deliberately a NEW category (not
+// 'impossible'/'outlier'/etc.) so resolve() does NOT trigger Step A's
+// hard-constraint fast path — a raw meeting line has no statistic behind it —
+// and instead falls through Step A (no stat) → Step B (no peer unless supplied)
+// → Step C, the generic three-persona debate, which reasons off
+// {observation, ruleGuess} regardless of category.
+const MEETING_PUSHBACK_CATEGORY = 'meeting-pushback';
+
+/**
+ * Build a resolver `candidate` from a tagged pushback segment so a stakeholder's
+ * "are you sure?" moment can be re-checked through the EXISTING on-device
+ * uncertainty resolver (js/agents/uncertainty-resolver-agent.js `resolve`) — the
+ * call site the Part 1 comments said "should" trigger but never had.
+ *
+ * HONESTY: there is no real numeric finding behind a raw transcript line, so this
+ * NEVER invents a statistic or claims a hard-constraint violation. `observation`
+ * quotes literally what was said; `ruleGuess` is a generic "worth a second look"
+ * placeholder, not a fabricated specific rule; `column` is whatever chart/query
+ * the segment was tagged against (or a neutral placeholder when none was
+ * captured — never guessed).
+ *
+ * Pure and synchronous — no DOM, no LLM, no network. Never mutates its input.
+ *
+ * @param {{text?:string, matched?:string|null, ts?:number, context?:{chart?:string, queryLabel?:string}|null}} segment
+ * @returns {{observation:string, ruleGuess:string, category:string, column:string}}
+ */
+function buildPushbackCandidate(segment) {
+  const seg = segment && typeof segment === 'object' ? segment : {};
+  const text = typeof seg.text === 'string' ? seg.text.trim() : '';
+  const context = seg.context && typeof seg.context === 'object' ? seg.context : null;
+  const chart = context && typeof context.chart === 'string' ? context.chart.trim() : '';
+  const queryLabel = context && typeof context.queryLabel === 'string' ? context.queryLabel.trim() : '';
+  const column = chart !== '' ? chart : (queryLabel !== '' ? queryLabel : 'the number under discussion');
+  const observation = text !== ''
+    ? `A stakeholder pushed back on this number, saying: "${text}"`
+    : 'A stakeholder pushed back on this number.';
+  return {
+    observation,
+    ruleGuess: 'treat this as worth a second look',
+    category: MEETING_PUSHBACK_CATEGORY,
+    column,
+  };
+}
+
+// ---------- context tagging ----------
+
+/**
+ * A transcript segment: `{ text: string, ts: number }` where `ts` is a
+ * monotonic meeting-relative timestamp in milliseconds (whatever unit the
+ * capture path uses, as long as it matches the context timeline's `ts`).
+ *
+ * A context-change event: `{ ts: number, chart: string, queryLabel?: string }`
+ * emitted whenever the analyst switches the visible chart/query — the app
+ * already knows this moment-to-moment; this module never inspects the DOM to
+ * find out, it only accepts the timeline as input.
+ */
+
+/**
+ * Tag each transcript segment with whichever context event was active at
+ * (or immediately before) its timestamp. Segments spoken before the first
+ * context event are tagged with `context: null` rather than guessing.
+ * @param {Array<{text:string, ts:number}>} segments
+ * @param {Array<{ts:number, chart:string, queryLabel?:string}>} contextTimeline
+ * @returns {Array<{text:string, ts:number, context:{chart:string, queryLabel:string|null}|null, pushback:object, dataRequest:object}>}
+ */
+function tagSegmentsWithContext(segments, contextTimeline) {
+  const segs = Array.isArray(segments) ? segments : [];
+  const timeline = (Array.isArray(contextTimeline) ? contextTimeline : [])
+    .filter((e) => e && typeof e.ts === 'number' && typeof e.chart === 'string' && e.chart !== '')
+    .slice()
+    .sort((a, b) => a.ts - b.ts);
+
+  return segs
+    .filter((s) => s && typeof s.text === 'string' && typeof s.ts === 'number')
+    .map((s) => {
+      // Last context event whose ts <= this segment's ts (binary search would
+      // be overkill for a meeting's segment count; linear scan is plenty).
+      let active = null;
+      for (const e of timeline) {
+        if (e.ts <= s.ts) active = e;
+        else break;
+      }
+      return {
+        text: s.text,
+        ts: s.ts,
+        context: active ? { chart: active.chart, queryLabel: active.queryLabel || null } : null,
+        pushback: detectPushback(s.text),
+        dataRequest: detectDataRequest(s.text),
+      };
+    });
+}
+
+// ---------- action items ----------
+
+/**
+ * Build an action item record. It starts OPEN by construction — resolving it
+ * is a separate, explicit step (`resolveActionItem`), never implied by
+ * merely creating the record.
+ * @param {{text:string, ts:number}} opts
+ * @returns {{text:string, ts:number, owner:null, dueDate:null, outcome:null, status:'open'}}
+ */
+function buildActionItem({ text, ts }) {
+  return { text: String(text || ''), ts: typeof ts === 'number' ? ts : null, owner: null, dueDate: null, outcome: null, status: 'open' };
+}
+
+/**
+ * An action item is resolved ONLY when it carries all three of owner, due
+ * date, and outcome. A "will follow up" note with none of those stays open —
+ * this is the minimum-viable-action-item rule from the v3 brief.
+ * @param {{owner:?string, dueDate:?string, outcome:?string}} item
+ * @returns {boolean}
+ */
+function isActionItemResolved(item) {
+  if (!item || typeof item !== 'object') return false;
+  const hasOwner = typeof item.owner === 'string' && item.owner.trim() !== '';
+  const hasDueDate = typeof item.dueDate === 'string' && item.dueDate.trim() !== '';
+  const hasOutcome = typeof item.outcome === 'string' && item.outcome.trim() !== '';
+  return hasOwner && hasDueDate && hasOutcome;
+}
+
+/**
+ * Attach owner/dueDate/outcome to an action item and flip its status only if
+ * the minimum-viable-action-item rule is satisfied; otherwise it stays open
+ * (partial info is recorded, but never silently counted as done).
+ * @param {object} item
+ * @param {{owner?:string, dueDate?:string, outcome?:string}} fields
+ * @returns {object} a NEW item object (never mutates the input)
+ */
+function resolveActionItem(item, fields = {}) {
+  const next = {
+    ...item,
+    owner: fields.owner != null ? String(fields.owner) : (item ? item.owner : null),
+    dueDate: fields.dueDate != null ? String(fields.dueDate) : (item ? item.dueDate : null),
+    outcome: fields.outcome != null ? String(fields.outcome) : (item ? item.outcome : null),
+  };
+  next.status = isActionItemResolved(next) ? 'resolved' : 'open';
+  return next;
+}
+
+// ---------- meeting note assembly ----------
+
+/**
+ * Assemble one meeting note ledger entry from tagged segments. This is a
+ * plain, JSON-safe object — signing/appending it to the portable export file
+ * is the export layer's responsibility, not this module's.
+ * @param {{meetingId:string, startedAt:string, taggedSegments:Array<object>, actionItems?:Array<object>}} opts
+ * @returns {{meetingId:string, startedAt:string, quoteCount:number, pushbackMoments:Array<object>, dataRequests:Array<object>, actionItems:Array<object>, chartsDiscussed:Array<string>}}
+ */
+function buildMeetingNote({ meetingId, startedAt, taggedSegments, actionItems }) {
+  const tagged = Array.isArray(taggedSegments) ? taggedSegments : [];
+  const pushbackMoments = tagged.filter((s) => s.pushback && s.pushback.isPushback);
+  const dataRequests = tagged.filter((s) => s.dataRequest && s.dataRequest.isDataRequest);
+  const chartsDiscussed = [...new Set(
+    tagged.map((s) => s.context && s.context.chart).filter((c) => typeof c === 'string' && c !== '')
+  )];
+  return {
+    meetingId: String(meetingId || ''),
+    startedAt: String(startedAt || ''),
+    quoteCount: tagged.length,
+    pushbackMoments: pushbackMoments.map((s) => ({ text: s.text, ts: s.ts, context: s.context, matched: s.pushback.matched })),
+    dataRequests: dataRequests.map((s) => ({ text: s.text, ts: s.ts, context: s.context, matched: s.dataRequest.matched })),
+    actionItems: Array.isArray(actionItems) ? actionItems : [],
+    chartsDiscussed,
+  };
+}
+
+
+  // parseTranscriptText: defined here (originally in meeting-scribe-ui.js)
+  function parseTranscriptText(raw) {
+    var lines = String(raw || '').split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l !== ''; });
+    var lastTs = -1;
+    return lines.map(function(line) {
+      var m = line.match(/^(\d+)\s+(.*)$/);
+      var ts, text;
+      if (m) { ts = parseInt(m[1], 10); text = m[2]; } else { ts = lastTs + 1; text = line; }
+      lastTs = ts;
+      return { text: text, ts: ts };
+    }).filter(function(s){ return s.text !== ''; });
+  }
+
+  // Expose public API
+  window.MeetingScribeAgent = {
+    detectPushback: detectPushback,
+    detectDataRequest: detectDataRequest,
+    tagSegmentsWithContext: tagSegmentsWithContext,
+    parseTranscriptText: parseTranscriptText,
+    buildActionItem: buildActionItem,
+    isActionItemResolved: isActionItemResolved,
+    resolveActionItem: resolveActionItem,
+    buildMeetingNote: buildMeetingNote,
+    PUSHBACK_PHRASES: PUSHBACK_PHRASES,
+    DATA_REQUEST_PHRASES: DATA_REQUEST_PHRASES,
+  };
+}());
+/* ---- end meeting-scribe-agent.js ---- */
+
+/* ---- from js/agents/meeting-decision-ledger.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Meeting Decision Ledger (Gen 43, Part 3)
+// ============================================================
+// The first piece of the "Meeting-to-Metric Provenance & Change Requests"
+// concept: a permanent, on-device, chart-anchored record of what happened in
+// a meeting, so a pushback moment, a data request, or an action item is not
+// lost the moment someone leaves the Meeting tab or clicks Clear.
+//
+// WHAT THIS MODULE IS NOT: it does not capture audio, run speech-to-text, or
+// talk to any server. It takes the ALREADY-TAGGED segments and action items
+// that js/agents/meeting-scribe-agent.js (Part 1) already produces and turns
+// each noteworthy one into a small, permanent, JSON-safe ledger entry. This
+// module has no DOM coupling and no import of any storage engine — it is
+// handed a `store` adapter by the caller (same injection pattern already
+// used by js/learning/self-learning-rules.js for js/learning/memory-store.js),
+// so it is fully testable with a tiny in-memory fake and never assumes a
+// browser or IndexedDB exist.
+//
+// WHY "chart-anchored": every entry keeps whatever `context` the Part 1
+// tagger attached (`{chart, queryLabel}` or `null` if no context timeline
+// was available yet — see meeting-scribe-agent.js's own documented
+// graceful-degradation path). Nothing here invents a chart reference that
+// wasn't actually on screen.
+//
+// APPEND-ONLY BY DESIGN: `buildLedgerEntry` never mutates an existing entry.
+// Once a segment or action item is turned into an entry, that entry's
+// original text/ts/context are frozen; the ONLY thing that can change on an
+// action-item-derived entry later is its resolution status, and that is a
+// brand-new entry via `buildLedgerEntry` again (linked by `sourceKey`), never
+// an in-place edit — so the history of "was this ever open" is never erased.
+// This mirrors the ledger's job: a provenance record you can trust precisely
+// because nothing in it can be silently rewritten after the fact.
+//
+// EMPOWERMENT / PRIVACY CONSTRAINT (same as the rest of Gen 42/43): every
+// entry stays on the device by default. Exporting the ledger is a separate,
+// explicit, user-initiated action (`exportLedgerEntries`) that this module
+// only formats — it does not name `fetch`, `XMLHttpRequest`, or any network
+// primitive, and it never calls the injected store's export/write path
+// without the caller asking for it.
+
+// ---------- entry construction ----------
+
+/**
+ * Build one immutable-in-spirit ledger entry from a tagged transcript segment
+ * or an action item. `kind` determines which shape `sourceKey` derives from,
+ * so two calls for the exact same underlying event produce the same key
+ * (useful for de-duplication by a caller, though this module never dedupes
+ * on its own — that would require assuming a store's read semantics).
+ *
+ * @param {object} opts
+ * @param {'pushback'|'dataRequest'|'actionItem'|'note'} opts.kind
+ * @param {string} opts.meetingId
+ * @param {string} opts.text
+ * @param {number} opts.ts
+ * @param {{chart:string, queryLabel:?string}|null} [opts.context]
+ * @param {string} [opts.matched]      the matched phrase, for pushback/dataRequest
+ * @param {string} [opts.status]      for actionItem entries: 'open'|'resolved'
+ * @param {{owner:?string, dueDate:?string, outcome:?string}} [opts.actionFields]
+ * @param {{resolvedBy:?string, suggestion:?string, reasoning:?string, confidence:?number}} [opts.recheckResolution]
+ *        For pushback entries only: a small PLAIN summary of an on-device
+ *        re-check (see meeting-scribe-ui.js `onRecheck`). Defensively
+ *        sanitized here — arbitrary objects are discarded, never stored.
+ * @returns {object} a plain, JSON-safe ledger entry
+ */
+function buildLedgerEntry(opts = {}) {
+  const {
+    kind, meetingId, text, ts, context = null, matched = null, status = null, actionFields = null,
+    recheckResolution = null,
+  } = opts;
+  const validKinds = ['pushback', 'dataRequest', 'actionItem', 'note'];
+  const safeKind = validKinds.includes(kind) ? kind : 'note';
+  const safeTs = typeof ts === 'number' && Number.isFinite(ts) ? ts : 0;
+  const safeMeetingId = String(meetingId || '');
+  const safeText = String(text || '');
+  const safeContext = context && typeof context.chart === 'string' && context.chart !== ''
+    ? { chart: context.chart, queryLabel: context.queryLabel || null }
+    : null;
+
+  const entry = {
+    // sourceKey identifies WHICH spoken moment or action item this entry is
+    // about, so a caller can later find "every entry about this one line"
+    // without this module needing to know anything about storage.
+    sourceKey: `${safeMeetingId}::${safeKind}::${safeTs}::${safeText.slice(0, 80)}`,
+    kind: safeKind,
+    meetingId: safeMeetingId,
+    text: safeText,
+    ts: safeTs,
+    context: safeContext,
+    matched: matched ? String(matched) : null,
+    status: safeKind === 'actionItem' ? (status === 'resolved' ? 'resolved' : 'open') : null,
+    actionFields: safeKind === 'actionItem' && actionFields ? {
+      owner: actionFields.owner != null ? String(actionFields.owner) : null,
+      dueDate: actionFields.dueDate != null ? String(actionFields.dueDate) : null,
+      outcome: actionFields.outcome != null ? String(actionFields.outcome) : null,
+    } : null,
+    // recordedAt is wall-clock write time (distinct from `ts`, the meeting-
+    // relative moment) — this is what makes the ledger genuinely tamper-
+    // evident-in-spirit: entries append in real recorded order.
+    recordedAt: Date.now(),
+  };
+
+  // recheckResolution is added ONLY when a genuine one was supplied — a draft
+  // built without it is byte-identical to before (no null key), so existing
+  // callers are unaffected. Sanitized field-by-field: we copy only the four
+  // known scalars, coerce the strings, clamp confidence to 0-1, and drop
+  // anything else — an arbitrary object is never stored verbatim.
+  const safeRecheck = sanitizeRecheckResolution(recheckResolution);
+  if (safeRecheck) entry.recheckResolution = safeRecheck;
+
+  return entry;
+}
+
+// Defensive sanitizer: returns a plain 4-field object or null. Never returns
+// a partially-populated object with a missing scalar as `undefined` — absent
+// scalars become null so the shape is stable and JSON-safe.
+function sanitizeRecheckResolution(r) {
+  if (!r || typeof r !== 'object') return null;
+  const conf = Number(r.confidence);
+  return {
+    resolvedBy: r.resolvedBy != null ? String(r.resolvedBy) : null,
+    suggestion: r.suggestion != null ? String(r.suggestion) : null,
+    reasoning: r.reasoning != null ? String(r.reasoning) : null,
+    confidence: Number.isFinite(conf) ? Math.max(0, Math.min(1, conf)) : null,
+  };
+}
+
+/**
+ * Turn a full set of Part-1 tagged segments + action items into the list of
+ * ledger entries worth keeping permanently. Deliberately NOT every line of
+ * the transcript — only pushback moments, data requests, and action items,
+ * which is exactly the "noteworthy" set Part 1 already computes. A caller
+ * who wants the full transcript archived too can pass `includeAllLines`.
+ *
+ * @param {{meetingId:string, taggedSegments:Array<object>, actionItems?:Array<object>, includeAllLines?:boolean}} opts
+ * @returns {Array<object>} plain, JSON-safe ledger entries, oldest first
+ */
+function buildLedgerEntriesFromMeeting(opts = {}) {
+  const {
+    meetingId, taggedSegments, actionItems = [], includeAllLines = false,
+  } = opts;
+  const tagged = Array.isArray(taggedSegments) ? taggedSegments : [];
+  const entries = [];
+
+  for (const s of tagged) {
+    if (!s || typeof s.text !== 'string') continue;
+    if (s.pushback && s.pushback.isPushback) {
+      entries.push(buildLedgerEntry({
+        kind: 'pushback', meetingId, text: s.text, ts: s.ts, context: s.context, matched: s.pushback.matched,
+        // Pass through the on-device re-check summary if meeting-scribe-ui.js
+        // attached one to this segment; absent → buildLedgerEntry omits the
+        // key entirely, so an un-rechecked pushback entry is unchanged.
+        recheckResolution: s.recheckResolution,
+      }));
+    } else if (s.dataRequest && s.dataRequest.isDataRequest) {
+      entries.push(buildLedgerEntry({
+        kind: 'dataRequest', meetingId, text: s.text, ts: s.ts, context: s.context, matched: s.dataRequest.matched,
+      }));
+    } else if (includeAllLines) {
+      entries.push(buildLedgerEntry({ kind: 'note', meetingId, text: s.text, ts: s.ts, context: s.context }));
+    }
+  }
+
+  for (const item of (Array.isArray(actionItems) ? actionItems : [])) {
+    if (!item || typeof item.text !== 'string') continue;
+    entries.push(buildLedgerEntry({
+      kind: 'actionItem',
+      meetingId,
+      text: item.text,
+      ts: item.ts,
+      status: item.status,
+      actionFields: { owner: item.owner, dueDate: item.dueDate, outcome: item.outcome },
+    }));
+  }
+
+  return entries.sort((a, b) => a.ts - b.ts);
+}
+
+// ---------- persistence (via an injected store adapter) ----------
+
+/**
+ * The store adapter contract this module expects (mirrors memory-store.js's
+ * shape for approvedRules): `{ appendLedgerEntries(entries), getLedgerEntries(),
+ * clearLedgerEntries() }`. This module never imports a concrete store — the
+ * caller (main.js in the browser, or a test's fake) supplies one, exactly
+ * like js/learning/self-learning-rules.js does for learnedCorrections.
+ */
+
+/**
+ * Persist a batch of entries via the injected store. A no-op, resolved
+ * promise if `entries` is empty — never calls the store for nothing.
+ * @param {object} store
+ * @param {Array<object>} entries
+ * @returns {Promise<number>} number of entries written
+ */
+async function saveLedgerEntries(store, entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (list.length === 0) return 0;
+  if (!store || typeof store.appendLedgerEntries !== 'function') {
+    throw new Error('saveLedgerEntries requires a store with an appendLedgerEntries(entries) method.');
+  }
+  await store.appendLedgerEntries(list);
+  return list.length;
+}
+
+/**
+ * Read every ledger entry back out via the injected store, oldest first.
+ * @param {object} store
+ * @returns {Promise<Array<object>>}
+ */
+async function loadLedgerEntries(store) {
+  if (!store || typeof store.getLedgerEntries !== 'function') {
+    throw new Error('loadLedgerEntries requires a store with a getLedgerEntries() method.');
+  }
+  const entries = await store.getLedgerEntries();
+  return (Array.isArray(entries) ? entries : []).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
+// ---------- filtering / summarizing (pure, no store) ----------
+
+/**
+ * Filter a list of ledger entries down to a single meeting, chart, or kind —
+ * whatever the UI's browse controls ask for. Any unset filter is ignored.
+ * @param {Array<object>} entries
+ * @param {{meetingId?:string, chart?:string, kind?:string}} [filters]
+ * @returns {Array<object>}
+ */
+function filterLedgerEntries(entries, filters = {}) {
+  const list = Array.isArray(entries) ? entries : [];
+  const { meetingId, chart, kind } = filters;
+  return list.filter((e) => {
+    if (meetingId && e.meetingId !== meetingId) return false;
+    if (kind && e.kind !== kind) return false;
+    if (chart && (!e.context || e.context.chart !== chart)) return false;
+    return true;
+  });
+}
+
+/**
+ * Every distinct chart name referenced across the ledger, in first-seen
+ * order — the raw material for a "browse by chart" control. Entries with no
+ * context (no chart-context timeline wired in yet) are simply not counted,
+ * never mislabeled.
+ * @param {Array<object>} entries
+ * @returns {Array<string>}
+ */
+function chartsReferencedIn(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const seen = [];
+  for (const e of list) {
+    const chart = e && e.context && e.context.chart;
+    if (typeof chart === 'string' && chart !== '' && !seen.includes(chart)) seen.push(chart);
+  }
+  return seen;
+}
+
+// ---------- export (formatting only — no network) ----------
+
+/**
+ * Format a list of ledger entries as a portable, human-readable JSON export.
+ * This function only builds a string; writing it to a file (browser download)
+ * or presenting a copy-to-clipboard button is the UI layer's job. This
+ * module names no network primitive anywhere in this file.
+ * @param {Array<object>} entries
+ * @returns {string}
+ */
+function exportLedgerEntries(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  return JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    entryCount: list.length,
+    entries: list,
+  }, null, 2);
+}
+
+
+  // Simple OPFS-backed store
+  function createLedgerStore() {
+    var OPFS_KEY = '__dg_meeting_ledger__';
+    var mem = [];
+    function doLoad() {
+      if (window.OPFSEngine && typeof OPFSEngine.loadJSON === 'function') {
+        return OPFSEngine.loadJSON(OPFS_KEY).then(function(d){ mem = Array.isArray(d) ? d : []; return mem; }).catch(function(){ return mem; });
+      }
+      return Promise.resolve(mem);
+    }
+    function doSave() {
+      if (window.OPFSEngine && typeof OPFSEngine.saveJSON === 'function') {
+        return OPFSEngine.saveJSON(OPFS_KEY, mem).catch(function(){});
+      }
+      return Promise.resolve();
+    }
+    return {
+      appendLedgerEntries: function(e){ mem = mem.concat(e); return doSave(); },
+      getLedgerEntries: function(){ return doLoad(); },
+      clearLedgerEntries: function(){ mem = []; return doSave(); },
+    };
+  }
+  var _store = null;
+  function getStore(){ if(!_store) _store=createLedgerStore(); return _store; }
+
+  window.MeetingDecisionLedger = {
+    buildLedgerEntry: buildLedgerEntry,
+    buildLedgerEntriesFromMeeting: buildLedgerEntriesFromMeeting,
+    filterLedgerEntries: filterLedgerEntries,
+    chartsReferencedIn: chartsReferencedIn,
+    exportLedgerEntries: exportLedgerEntries,
+    getStore: getStore,
+  };
+}());
+/* ---- end meeting-decision-ledger.js ---- */
+
+/* ---- from js/agents/meeting-scribe-ui.js + meeting-decision-ledger-ui.js ---- */
+;(function(){
+  'use strict';
+
+  var PANEL_ID = 'dg-meeting-panel';
+
+  /* Tiny el() helper that mirrors bundle.js convention */
+  function el(tag, attrs, children) {
+    var e = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function(k) {
+        if (k === 'onclick') e.addEventListener('click', attrs[k]);
+        else if (k === 'style') e.style.cssText = attrs[k];
+        else e.setAttribute(k, attrs[k]);
+      });
+    }
+    if (typeof children === 'string') { e.textContent = children; }
+    else if (Array.isArray(children)) {
+      children.forEach(function(c) {
+        if (!c) return;
+        e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+      });
+    } else if (children) { e.appendChild(children); }
+    return e;
+  }
+
+  function showToastIfAvailable(msg, type) {
+    if (typeof window.showToast === 'function') window.showToast(msg, type);
+  }
+
+  /* ---- Mount the sliding panel content ---- */
+  function mountMeetingPanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    var agent  = window.MeetingScribeAgent;
+    var ledger = window.MeetingDecisionLedger;
+    if (!agent) {
+      panel.appendChild(el('p', { style: 'padding:16px;color:var(--text-muted);font-size:13px;' }, 'Meeting Scribe agent not loaded.'));
+      return;
+    }
+
+    var meetingId   = 'meeting-' + Date.now();
+    var startedAt   = new Date().toISOString();
+    var taggedSegs  = [];
+    var actionItems = [];
+    var store       = ledger ? ledger.getStore() : null;
+
+    /* ── Header ── */
+    var hdr = el('div', { style: 'padding:16px 20px 0;' });
+    hdr.appendChild(el('h3', { style: 'font-size:15px;font-weight:700;margin:0 0 4px;' }, 'Meeting Notes'));
+    hdr.appendChild(el('p', { style: 'font-size:12px;color:var(--text-muted);margin:0 0 14px;line-height:1.5;' },
+      'Paste or type what was said. One line per person. Nothing records audio and nothing leaves your device.'));
+    panel.appendChild(hdr);
+
+    /* ── Transcript textarea ── */
+    var txWrap = el('div', { style: 'padding:0 20px;' });
+    var textarea = document.createElement('textarea');
+    textarea.rows = 9;
+    textarea.placeholder = 'e.g.\nWhy did revenue drop in March?\nCan you also pull the regional breakdown?\nOK, follow up with finance on that by Friday?';
+    textarea.style.cssText = 'width:100%;font-family:inherit;font-size:13px;border:1px solid var(--border,#e5e5e5);border-radius:8px;padding:10px;background:var(--surface-alt,#f5f5f5);color:var(--text,#111);resize:vertical;box-sizing:border-box;';
+    txWrap.appendChild(textarea);
+    panel.appendChild(txWrap);
+
+    /* ── Buttons ── */
+    var btnRow = el('div', { style: 'display:flex;gap:8px;padding:10px 20px;' });
+    btnRow.appendChild(el('button', {
+      style: 'background:var(--primary,#0d6efd);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;',
+      onclick: onAnalyze,
+    }, 'Analyze'));
+    btnRow.appendChild(el('button', {
+      style: 'background:none;border:1px solid var(--border,#ccc);border-radius:6px;padding:6px 14px;font-size:12px;color:var(--text-muted,#666);cursor:pointer;font-family:inherit;',
+      onclick: function() { textarea.value=''; taggedSegs=[]; renderResults(); },
+    }, 'Clear'));
+    panel.appendChild(btnRow);
+
+    /* ── Results ── */
+    var resultsEl = el('div', { style: 'padding:0 20px;' });
+    panel.appendChild(resultsEl);
+
+    /* ── Action items ── */
+    var actSection = el('div', { style: 'padding:0 20px;border-top:1px solid var(--border,#e5e5e5);margin-top:12px;' });
+    actSection.appendChild(el('div', { style: 'font-size:11px;font-weight:700;color:var(--text-muted,#888);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 8px;' }, 'Action Items'));
+    var actNewRow = el('div', { style: 'display:flex;gap:6px;margin-bottom:8px;' });
+    var actInput  = document.createElement('input');
+    actInput.type = 'text';
+    actInput.placeholder = 'New action item...';
+    actInput.style.cssText = 'flex:1;border:1px solid var(--border,#ccc);border-radius:6px;padding:5px 10px;font-size:12px;background:var(--surface-alt,#f5f5f5);color:var(--text,#111);font-family:inherit;';
+    actInput.addEventListener('keydown', function(e){ if(e.key==='Enter') addActionItem(); });
+    actNewRow.appendChild(actInput);
+    actNewRow.appendChild(el('button', {
+      style: 'background:none;border:1px solid var(--border,#ccc);border-radius:6px;padding:5px 12px;font-size:12px;color:var(--text,#111);cursor:pointer;font-family:inherit;white-space:nowrap;',
+      onclick: addActionItem,
+    }, '+ Add'));
+    actSection.appendChild(actNewRow);
+    var actListEl = el('div', {});
+    actSection.appendChild(actListEl);
+    panel.appendChild(actSection);
+
+    /* ── Decision Ledger section ── */
+    var ledgerListEl = null;
+    if (store && ledger) {
+      var ldgSection = el('div', { style: 'padding:0 20px 20px;border-top:1px solid var(--border,#e5e5e5);margin-top:12px;' });
+      ldgSection.appendChild(el('div', { style: 'font-size:11px;font-weight:700;color:var(--text-muted,#888);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 4px;' }, 'Decision Ledger'));
+      ldgSection.appendChild(el('p', { style: 'font-size:12px;color:var(--text-muted,#888);margin:0 0 10px;line-height:1.5;' },
+        'Save pushback moments, data requests, and action items permanently on this device.'));
+      var ldgBtns = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;' });
+      ldgBtns.appendChild(el('button', {
+        style: 'background:var(--primary,#0d6efd);color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;',
+        onclick: onSaveToLedger,
+      }, 'Save this meeting'));
+      ldgBtns.appendChild(el('button', {
+        style: 'background:none;border:1px solid var(--border,#ccc);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--text-muted,#666);cursor:pointer;font-family:inherit;',
+        onclick: onExportLedger,
+      }, 'Export .json'));
+      ldgBtns.appendChild(el('button', {
+        style: 'background:none;border:1px solid var(--border,#ccc);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--text-muted,#666);cursor:pointer;font-family:inherit;',
+        onclick: onClearLedger,
+      }, 'Clear ledger'));
+      ldgSection.appendChild(ldgBtns);
+      ledgerListEl = el('div', { style: 'max-height:200px;overflow-y:auto;font-size:12px;' });
+      ldgSection.appendChild(ledgerListEl);
+      panel.appendChild(ldgSection);
+      refreshLedgerList();
+    }
+
+    /* ── Internals ── */
+    function onAnalyze() {
+      var segs = agent.parseTranscriptText(textarea.value);
+      if (!segs.length) { showToastIfAvailable('Paste at least one line to analyze','warn'); return; }
+      taggedSegs = agent.tagSegmentsWithContext(segs, []);
+      renderResults();
+      showToastIfAvailable('Analyzed ' + segs.length + ' line(s)','success');
+    }
+
+    function renderResults() {
+      resultsEl.innerHTML = '';
+      if (!taggedSegs.length) return;
+      var note = agent.buildMeetingNote({ meetingId:meetingId, startedAt:startedAt, taggedSegments:taggedSegs, actionItems:actionItems });
+      var sectionLabel = function(txt){ return el('div',{style:'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px;color:var(--text-muted,#888);'},txt); };
+      if (note.pushbackMoments.length) {
+        resultsEl.appendChild(sectionLabel('Pushback moments (' + note.pushbackMoments.length + ')'));
+        var ul=el('ul',{style:'margin:0 0 10px;padding-left:18px;font-size:12px;line-height:1.6;'});
+        note.pushbackMoments.forEach(function(s){ ul.appendChild(el('li',{},'"'+s.text+'" \u2014 matched "'+s.matched+'"')); });
+        resultsEl.appendChild(ul);
+      }
+      if (note.dataRequests.length) {
+        resultsEl.appendChild(sectionLabel('Data requests (' + note.dataRequests.length + ')'));
+        var ul2=el('ul',{style:'margin:0 0 10px;padding-left:18px;font-size:12px;line-height:1.6;'});
+        note.dataRequests.forEach(function(s){ ul2.appendChild(el('li',{},'"'+s.text+'" \u2014 matched "'+s.matched+'"')); });
+        resultsEl.appendChild(ul2);
+      }
+      if (!note.pushbackMoments.length && !note.dataRequests.length) {
+        resultsEl.appendChild(el('p',{style:'font-size:12px;color:var(--text-muted,#888);margin:8px 0;'},'No pushback or data requests detected in '+taggedSegs.length+' line(s).'));
+      }
+    }
+
+    function addActionItem() {
+      var t=actInput.value.trim(); if(!t) return;
+      var lastTs=taggedSegs.length?taggedSegs[taggedSegs.length-1].ts:0;
+      actionItems.push(agent.buildActionItem({text:t,ts:lastTs}));
+      actInput.value=''; renderActionItems();
+    }
+
+    function renderActionItems() {
+      actListEl.innerHTML='';
+      if (!actionItems.length){ actListEl.appendChild(el('p',{style:'font-size:12px;color:var(--text-muted,#888);margin:0;'},'No action items yet.')); return; }
+      actionItems.forEach(function(item,idx){
+        var resolved=agent.isActionItemResolved(item);
+        var row=el('div',{style:'display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--border,#e5e5e5);font-size:12px;'});
+        var textSp=el('span',{style:'flex:1;min-width:100px;'},item.text);
+        var mkIn=function(ph,w,val){var i=document.createElement('input');i.type='text';i.placeholder=ph;i.value=val||'';i.style.cssText='width:'+w+'px;border:1px solid var(--border,#ccc);border-radius:5px;padding:3px 7px;font-size:11px;background:var(--surface-alt,#f5f5f5);color:var(--text,#111);font-family:inherit;';return i;};
+        var ownerIn=mkIn('Owner',80,item.owner);
+        var dueIn=mkIn('Due',72,item.dueDate);
+        var outcomeIn=mkIn('Outcome',100,item.outcome);
+        var saveBtn=el('button',{style:'background:none;border:1px solid var(--border,#ccc);border-radius:5px;padding:2px 8px;font-size:11px;color:var(--text-muted,#666);cursor:pointer;font-family:inherit;',onclick:function(){
+          actionItems[idx]=agent.resolveActionItem(item,{owner:ownerIn.value,dueDate:dueIn.value,outcome:outcomeIn.value}); renderActionItems();
+        }},'Save');
+        var statusColor=resolved?'#16a34a':'var(--text-muted,#888)';
+        var statusSp=el('span',{style:'font-size:11px;font-weight:600;color:'+statusColor},resolved?'Resolved':'Open');
+        row.appendChild(textSp);row.appendChild(ownerIn);row.appendChild(dueIn);row.appendChild(outcomeIn);row.appendChild(saveBtn);row.appendChild(statusSp);
+        actListEl.appendChild(row);
+      });
+    }
+
+    function onSaveToLedger() {
+      if(!store||!ledger) return;
+      if(!taggedSegs.length){ showToastIfAvailable('Analyze a transcript first','warn'); return; }
+      var entries=ledger.buildLedgerEntriesFromMeeting({meetingId:meetingId,taggedSegments:taggedSegs,actionItems:actionItems});
+      if(!entries.length){ showToastIfAvailable('No pushback, data requests, or action items to save','warn'); return; }
+      store.appendLedgerEntries(entries).then(function(){
+        showToastIfAvailable('Saved '+entries.length+' entr'+(entries.length===1?'y':'ies')+' to the ledger','success');
+        refreshLedgerList();
+      });
+    }
+
+    function onExportLedger() {
+      if(!store||!ledger) return;
+      store.getLedgerEntries().then(function(entries){
+        if(!entries||!entries.length){ showToastIfAvailable('Nothing to export yet','warn'); return; }
+        var json=ledger.exportLedgerEntries(entries);
+        var blob=new Blob([json],{type:'application/json'});
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');
+        a.href=url;a.download='dataglow-decision-ledger-'+new Date().toISOString().slice(0,10)+'.json';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+        showToastIfAvailable('Exported '+entries.length+' entries','success');
+      });
+    }
+
+    function onClearLedger() {
+      if(!store) return;
+      if(!window.confirm('Clear the entire decision ledger? This cannot be undone.')) return;
+      store.clearLedgerEntries().then(function(){ showToastIfAvailable('Ledger cleared','success'); refreshLedgerList(); });
+    }
+
+    function refreshLedgerList() {
+      if(!store||!ledger||!ledgerListEl) return;
+      store.getLedgerEntries().then(function(entries){
+        ledgerListEl.innerHTML='';
+        if(!entries||!entries.length){ ledgerListEl.appendChild(el('p',{style:'color:var(--text-muted,#888);font-size:12px;margin:0;'},'Nothing saved yet.')); return; }
+        var ul=el('ul',{style:'margin:0;padding-left:16px;line-height:1.7;'});
+        entries.slice().reverse().forEach(function(e){
+          var txt='['+e.kind+'] "'+e.text+'"'+(e.context?' \u2014 '+e.context.chart:'')+(e.kind==='actionItem'?' \u2014 '+e.status:'');
+          ul.appendChild(el('li',{style:'font-size:12px;'},txt));
+        });
+        ledgerListEl.appendChild(ul);
+      });
+    }
+
+    renderActionItems();
+  }
+
+  /* ── Wire Meeting button into the UI after DOM ready ── */
+  function initMeetingScribe() {
+    /* Create the sliding panel if absent */
+    if (!document.getElementById(PANEL_ID)) {
+      var panel = document.createElement('div');
+      panel.id = PANEL_ID;
+      panel.style.cssText = [
+        'position:fixed','top:0','right:0','width:360px','max-width:100vw',
+        'height:100vh','background:var(--surface,#fff)','border-left:1px solid var(--border,#e5e5e5)',
+        'z-index:850','overflow-y:auto','display:none',
+        'box-shadow:-8px 0 32px rgba(0,0,0,.18)','transition:transform .25s ease',
+      ].join(';');
+      var closeX = document.createElement('button');
+      closeX.textContent = '\u00D7';
+      closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+      closeX.addEventListener('click', function(){ panel.style.display='none'; });
+      panel.appendChild(closeX);
+      document.body.appendChild(panel);
+    }
+
+    function togglePanel() {
+      var p = document.getElementById(PANEL_ID);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        mountMeetingPanel();
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    /* Add to desktop agent bar right section */
+    var barRight = document.getElementById('agent-bar-right');
+    if (barRight && !document.getElementById('dg-meeting-bar-btn')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-meeting-bar-btn';
+      btn.className = 'agent-btn';
+      btn.title = 'Meeting Notes';
+      btn.setAttribute('aria-label', 'Meeting Notes');
+      btn.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:12px;';
+      btn.innerHTML = '\uD83D\uDDD2\uFE0F <span>Meeting</span>';
+      btn.addEventListener('click', togglePanel);
+      barRight.insertBefore(btn, barRight.firstChild);
+    }
+
+    /* Add to overflow grid (the desktop More popover) */
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-meeting')) {
+      var ovBtn = document.createElement('button');
+      ovBtn.id = 'dg-ov-meeting';
+      ovBtn.className = 'dg-ov-btn';
+      ovBtn.innerHTML = '\uD83D\uDDD2\uFE0F<br><span>Meeting</span>';
+      ovBtn.addEventListener('click', function(){
+        // close overflow popover first
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        var moreBtn = document.getElementById('agent-bar-more-btn');
+        if (moreBtn) moreBtn.classList.remove('active');
+        togglePanel();
+      });
+      ovGrid.insertBefore(ovBtn, ovGrid.firstChild);
+    }
+
+    /* Add to mobile bottom nav tools sheet grid */
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-meeting')) {
+      var tsBtn = document.createElement('button');
+      tsBtn.id = 'dg-ts-meeting';
+      tsBtn.className = 'dg-ov-btn';
+      tsBtn.innerHTML = '\uD83D\uDDD2\uFE0F<br><span>Meeting</span>';
+      tsBtn.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        var sheetOv = document.getElementById('dg-tools-sheet-overlay');
+        if (sheetOv) sheetOv.classList.remove('open');
+        togglePanel();
+      });
+      tsGrid.insertBefore(tsBtn, tsGrid.firstChild);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMeetingScribe);
+  } else {
+    setTimeout(initMeetingScribe, 400);
+  }
+
+  window.mountMeetingPanel = mountMeetingPanel;
+}());
+/* ---- end meeting-scribe-ui.js + meeting-decision-ledger-ui.js ---- */
 
 })();
 </script>
