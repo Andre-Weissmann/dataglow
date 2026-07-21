@@ -4841,11 +4841,19 @@ var ChartEngine = (function () {
   // ── canvas setup ─────────────────────────────────────────────────────────
   function makeCanvas(w, h) {
     var dpr = window.devicePixelRatio || 1;
+    // On mobile, clamp canvas width to viewport width minus sidebar and padding
+    var maxW = Math.min(w, window.innerWidth - 32);
+    if (maxW < w) {
+      // Scale height proportionally
+      h = Math.round(h * (maxW / w));
+      w = maxW;
+    }
     var c = document.createElement('canvas');
     c.width  = w * dpr;
     c.height = h * dpr;
     c.style.width  = w + 'px';
     c.style.height = h + 'px';
+    c.style.maxWidth = '100%';
     var ctx = c.getContext('2d');
     ctx.scale(dpr, dpr);
     return { canvas: c, ctx: ctx, w: w, h: h };
@@ -21327,6 +21335,7 @@ var InstantInsight = (function () {
 
 /* ---- #52 DataGlow Projects ---- */
 (function(){
+  var OPFSEngine = window.OPFSEngine || {};
   function domainColor(d) {
     return d === 'healthcare' ? '#4F98A3' : d === 'finance' ? '#1B474D' : d === 'hr' ? '#7A39BB' : '#7A7974';
   }
