@@ -3779,37 +3779,230 @@
 .osce-restart-btn { background:var(--primary); color:#fff; border:none; border-radius:10px; padding:12px 32px; font-size:14px; font-weight:700; cursor:pointer; margin-top:8px; font-family:inherit; }
 
 /* ---- #48 Peer Review ---- */
+/* ============================================================
+   Peer Review Tab -- polished product UI
+   ============================================================ */
 #review-view { display:none; flex-direction:row; height:100%; overflow:hidden; gap:0; }
 #review-view.active { display:flex; }
-.review-feed { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:6px; border-right:1px solid var(--border); }
-.review-item { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:8px; background:var(--surface); border:1px solid var(--border); }
-.review-item.error { border-color:rgba(161,44,123,0.3); background:rgba(161,44,123,0.05); }
-.review-item.warning { border-color:rgba(150,66,25,0.3); background:rgba(150,66,25,0.05); }
-.review-item.info { border-color:rgba(27,161,168,0.2); background:rgba(27,161,168,0.04); }
-.review-item.praise { border-color:rgba(67,122,34,0.3); background:rgba(67,122,34,0.05); }
-.review-sev-icon { font-size:14px; flex-shrink:0; margin-top:1px; }
-.review-body { flex:1; }
-.review-cat { font-size:9px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); margin-bottom:3px; }
-.review-msg { font-size:12px; color:var(--text); line-height:1.5; }
-.review-line { font-size:10px; color:var(--text-muted); margin-top:2px; font-family:monospace; }
-.review-empty { text-align:center; padding:40px 20px; color:var(--text-muted); font-size:13px; }
-.review-scorecard { width:200px; flex-shrink:0; padding:14px 16px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; background:var(--surface-alt); }
-.review-grade-big { font-size:56px; font-weight:900; line-height:1; text-align:center; letter-spacing:-0.04em; }
-.review-grade-A { color:#437A22; }
-.review-grade-B { color:#20808D; }
-.review-grade-C { color:#964219; }
-.review-grade-D { color:#A12C7B; }
-.review-grade-F { color:#A13544; }
-.review-grade-label { font-size:10px; color:var(--text-muted); text-align:center; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
-.review-sub-score { display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:var(--surface); border-radius:6px; border:1px solid var(--border); }
-.review-sub-label { font-size:10px; color:var(--text-muted); font-weight:600; }
-.review-sub-val { font-size:12px; font-weight:800; color:var(--primary); }
-.review-severity-counts { display:flex; flex-direction:column; gap:4px; }
-.review-sev-row { display:flex; justify-content:space-between; align-items:center; font-size:10px; }
-.review-sev-name { color:var(--text-muted); }
-.review-sev-count { font-weight:700; color:var(--text); }
-.review-share-btn { background:var(--primary); color:#fff; border:none; border-radius:8px; padding:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; width:100%; }
-.review-share-btn:hover { opacity:0.88; }
+
+/* Feed (left column) */
+.review-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--border);
+}
+
+/* Issue cards */
+.review-item {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+.review-item:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.12); }
+
+/* Left accent stripe */
+.review-item-stripe {
+  width: 4px;
+  flex-shrink: 0;
+  border-radius: 10px 0 0 10px;
+  background: var(--border);
+}
+.review-item.error   .review-item-stripe { background: #A12C7B; }
+.review-item.warning .review-item-stripe { background: #F5A623; }
+.review-item.info    .review-item-stripe { background: var(--primary); }
+.review-item.praise  .review-item-stripe { background: #4AE38A; }
+
+/* Card body */
+.review-item-body {
+  flex: 1;
+  padding: 11px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.review-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Severity chip */
+.review-sev-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+.review-chip-error   { background: rgba(161,44,123,0.14); color: #c9538f; }
+.review-chip-warning { background: rgba(245,166,35,0.14); color: #d4920a; }
+.review-chip-info    { background: rgba(32,197,181,0.12); color: var(--primary); }
+.review-chip-praise  { background: rgba(74,227,138,0.12); color: #2ea95f; }
+
+/* Category label */
+.review-cat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* Message */
+.review-msg { font-size: 12.5px; color: var(--text); line-height: 1.55; }
+.review-line { font-size: 10px; color: var(--text-muted); margin-top: 2px; font-family: var(--mono, monospace); }
+
+/* Empty state */
+.review-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px 24px;
+  text-align: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+.review-empty-icon {
+  font-size: 36px;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(32,197,181,0.1);
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+.review-empty-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.review-empty-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 300px;
+}
+
+/* Scorecard (right column) */
+.review-scorecard {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+/* Grade ring area */
+.review-grade-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.review-grade-big {
+  font-size: 64px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  letter-spacing: -0.04em;
+  font-family: var(--mono, monospace);
+  color: var(--text-muted);
+}
+.review-grade-A { color: #437A22; }
+.review-grade-B { color: #20808D; }
+.review-grade-C { color: #964219; }
+.review-grade-D { color: #A12C7B; }
+.review-grade-F { color: #A13544; }
+.review-grade-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* Section heading inside scorecard */
+.review-sc-section {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+.review-sc-group { margin-bottom: 16px; }
+
+/* Sub-scores */
+.review-sub-score {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 10px;
+  background: var(--surface-2, var(--bg));
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 5px;
+}
+.review-sub-score:last-child { margin-bottom: 0; }
+.review-sub-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.review-sub-val { font-size: 13px; font-weight: 800; color: var(--primary); font-family: var(--mono, monospace); }
+
+/* Severity counts */
+.review-severity-counts { display: flex; flex-direction: column; gap: 5px; }
+.review-sev-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--surface-2, var(--bg));
+  font-size: 11px;
+}
+.review-sev-name { color: var(--text-muted); font-weight: 500; }
+.review-sev-count { font-weight: 800; color: var(--text); font-family: var(--mono, monospace); }
+
+/* Share button */
+.review-share-btn {
+  margin-top: auto;
+  padding-top: 16px;
+  display: block;
+  width: 100%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  transition: opacity 0.15s;
+}
+.review-share-btn:hover { opacity: 0.85; }
 
 
 /* ---- #49 Take-Home Case ---- */
@@ -27760,7 +27953,13 @@ var InstantInsight = (function () {
     if (pyScoreEl) { var ps = subScore(pyIssues); pyScoreEl.textContent = ps === null ? '-' : ps; }
 
     if (issues.length === 0) {
-      feedEl.innerHTML = '<div class="review-empty">No issues found. Load a dataset and run a query to get a peer review.</div>';
+      feedEl.innerHTML =
+        '<div class="review-empty">' +
+          '<div class="review-empty-icon">&#x2713;</div>' +
+          '<div class="review-empty-title">No issues detected</div>' +
+          '<div class="review-empty-desc">Load a dataset, write a SQL query or Python script, then switch here. ' +
+          'Peer Review checks your code and data together.</div>' +
+        '</div>';
       if (gradeEl) { gradeEl.textContent = '-'; gradeEl.className = 'review-grade-big'; }
       if (gradeLabelEl) gradeLabelEl.textContent = 'Quality Score';
       if (errCountEl) errCountEl.textContent = '0';
@@ -27770,14 +27969,22 @@ var InstantInsight = (function () {
       return;
     }
 
-    var SEV_ICON = {error:'&#9940;', warning:'&#9888;', info:'&#8505;', praise:'&#10003;'};
+    var SEV_ICON = { error: '&#9940;', warning: '&#9888;', info: '&#8505;', praise: '&#10003;' };
+    var SEV_LABEL = { error: 'Error', warning: 'Warning', info: 'Info', praise: 'Pass' };
     feedEl.innerHTML = issues.map(function(issue) {
       return '<div class="review-item ' + issue.severity + '">' +
-        '<span class="review-sev-icon">' + (SEV_ICON[issue.severity] || '') + '</span>' +
-        '<div class="review-body">' +
-        '<div class="review-cat">' + issue.cat + ' - ' + issue.severity.toUpperCase() + '</div>' +
-        '<div class="review-msg">' + issue.msg + '</div>' +
-        '</div></div>';
+        '<div class="review-item-stripe"></div>' +
+        '<div class="review-item-body">' +
+          '<div class="review-item-header">' +
+            '<span class="review-sev-chip review-chip-' + issue.severity + '">' +
+              SEV_ICON[issue.severity] + ' ' + (SEV_LABEL[issue.severity] || issue.severity) +
+            '</span>' +
+            '<span class="review-cat-label">' + (issue.cat || '') + '</span>' +
+          '</div>' +
+          '<div class="review-msg">' + issue.msg + '</div>' +
+          (issue.line ? '<div class="review-line">Line ' + issue.line + '</div>' : '') +
+        '</div>' +
+      '</div>';
     }).join('');
 
     var g = computeGrade(issues);
@@ -78969,21 +79176,33 @@ var PortfolioExport = (function () {
 <div id="review-view" class="analyze-panel hidden">
   <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
     <div class="review-feed" id="review-feed">
-      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+      <div class="review-empty">
+        <div class="review-empty-icon">&#x2713;</div>
+        <div class="review-empty-title">No issues detected</div>
+        <div class="review-empty-desc">Load a dataset, write a SQL query or Python script, then switch here. Peer Review checks your code and data together.</div>
+      </div>
     </div>
     <div class="review-scorecard">
-      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
-      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
-      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
-      <div class="review-severity-counts">
-        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      <div class="review-grade-wrap">
+        <div class="review-grade-big" id="review-grade-big">-</div>
+        <div class="review-grade-label" id="review-grade-label">Quality Score</div>
       </div>
-      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+      <div class="review-sc-group">
+        <div class="review-sc-section">By Layer</div>
+        <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      </div>
+      <div class="review-sc-group">
+        <div class="review-sc-section">Findings</div>
+        <div class="review-severity-counts">
+          <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Passing</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+        </div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">&#x29C9; Copy Review</button>
     </div>
   </div>
 </div>
@@ -79551,21 +79770,33 @@ var PortfolioExport = (function () {
 <div id="review-view" class="analyze-panel hidden">
   <div id="review-view-inner" style="display:flex;flex-direction:row;height:100%;overflow:hidden;">
     <div class="review-feed" id="review-feed">
-      <div class="review-empty">Switch to the Review tab after writing a SQL query or loading a dataset to get your peer review.</div>
+      <div class="review-empty">
+        <div class="review-empty-icon">&#x2713;</div>
+        <div class="review-empty-title">No issues detected</div>
+        <div class="review-empty-desc">Load a dataset, write a SQL query or Python script, then switch here. Peer Review checks your code and data together.</div>
+      </div>
     </div>
     <div class="review-scorecard">
-      <div class="review-grade-big review-grade-A" id="review-grade-big">-</div>
-      <div class="review-grade-label" id="review-grade-label">Quality Score</div>
-      <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
-      <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
-      <div class="review-severity-counts">
-        <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
-        <div class="review-sev-row"><span class="review-sev-name">Praise</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+      <div class="review-grade-wrap">
+        <div class="review-grade-big" id="review-grade-big">-</div>
+        <div class="review-grade-label" id="review-grade-label">Quality Score</div>
       </div>
-      <button class="review-share-btn" id="review-share-btn">Copy Review</button>
+      <div class="review-sc-group">
+        <div class="review-sc-section">By Layer</div>
+        <div class="review-sub-score"><span class="review-sub-label">SQL</span><span class="review-sub-val" id="review-sql-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Data</span><span class="review-sub-val" id="review-data-score">-</span></div>
+        <div class="review-sub-score"><span class="review-sub-label">Python</span><span class="review-sub-val" id="review-py-score">-</span></div>
+      </div>
+      <div class="review-sc-group">
+        <div class="review-sc-section">Findings</div>
+        <div class="review-severity-counts">
+          <div class="review-sev-row"><span class="review-sev-name">Errors</span><span class="review-sev-count" id="review-err-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Warnings</span><span class="review-sev-count" id="review-warn-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Info</span><span class="review-sev-count" id="review-info-count">0</span></div>
+          <div class="review-sev-row"><span class="review-sev-name">Passing</span><span class="review-sev-count" id="review-praise-count">0</span></div>
+        </div>
+      </div>
+      <button class="review-share-btn" id="review-share-btn">&#x29C9; Copy Review</button>
     </div>
   </div>
 </div>
