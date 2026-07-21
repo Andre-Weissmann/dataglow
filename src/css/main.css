@@ -6659,3 +6659,66 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
   overflow: hidden !important;
   contain: strict;
 }
+
+/* ============================================================
+   DATA HEALTH SCORE -- ring, col bars, score line
+   ============================================================ */
+.dhs-ring-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-right: 12px;
+}
+.dhs-ring-svg { display: block; }
+.dash-hdr-left {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.dash-hdr-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dhs-score-line {
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  margin-top: 1px;
+}
+
+/* KPI card health badge */
+.dhs-col-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: default;
+}
+.dhs-col-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.dhs-col-pct {
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+/* Dark mode */
+:root.dark .dhs-score-line { opacity: 0.85; }
+
+/* Mobile: shrink ring slightly */
+@media (max-width: 480px) {
+  .dhs-ring-wrap { margin-right: 8px; }
+  .dhs-ring-svg  { width: 56px; height: 56px; }
+  .dhs-score-line { font-size: 10px; }
+}
