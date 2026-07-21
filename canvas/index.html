@@ -6157,14 +6157,14 @@
       csv: 'duckdb', tsv: 'duckdb', json: 'duckdb', ndjson: 'duckdb', parquet: 'duckdb',
       xlsx: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs',
       txt: 'duckdb', log: 'duckdb', arrow: 'duckdb', feather: 'duckdb', xml: 'rag',
-      image: 'ocr',
+      image: 'ocr', x12: 'x12parser',
       unknown: 'unknown'
     };
     var FORMAT_ICONS = {
       csv: 'table', tsv: 'table', json: 'table', ndjson: 'table', parquet: 'table',
       xlsx: 'grid', pdf: 'document', audio: 'audio', video: 'video',
       txt: 'table', log: 'table', arrow: 'table', feather: 'table', xml: 'document',
-      image: 'document',
+      image: 'document', x12: 'table',
       unknown: 'unknown'
     };
     var AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.flac'];
@@ -6196,6 +6196,9 @@
 
       if (bytesStartWith(firstBytes, 'PAR1', 0)) {
         return { format: 'parquet', confidence: 'high', handler: handlerForFormat('parquet') };
+      }
+      if (bytesStartWith(firstBytes, 'ISA', 0)) {
+        return { format: 'x12', confidence: 'high', handler: handlerForFormat('x12') };
       }
       if (bytesStartWith(firstBytes, '%PDF', 0)) {
         return { format: 'pdf', confidence: 'high', handler: handlerForFormat('pdf') };
@@ -6256,6 +6259,7 @@
       if (AUDIO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'audio', confidence: 'low', handler: handlerForFormat('audio') };
       if (VIDEO_EXTENSIONS.indexOf(ext) !== -1) return { format: 'video', confidence: 'low', handler: handlerForFormat('video') };
       if (IMAGE_EXTS.indexOf(ext) !== -1) return { format: 'image', confidence: 'low', handler: handlerForFormat('image') };
+      if (ext === '.x12' || ext === '.edi' || ext === '.835' || ext === '.837') return { format: 'x12', confidence: 'low', handler: handlerForFormat('x12') };
 
       return { format: 'unknown', confidence: 'low', handler: 'unknown' };
     }
@@ -16671,6 +16675,30 @@ var InstantInsight = (function () {
         alert('Could not OCR image: ' + err.message);
         advance();
       });
+    } else if (fmt === 'x12') {
+      var x12reader = new FileReader();
+      x12reader.onload = function (e) {
+        try {
+          var parsed = X12Parser.parse(e.target.result);
+          var x12ds = buildDatasetFromRows(
+            [parsed.columns.map(function (c) { return c.name; })].concat(parsed.rows),
+            name
+          );
+          /* Override column types from parser metadata */
+          parsed.columns.forEach(function (meta, idx) {
+            if (x12ds.columns[idx]) x12ds.columns[idx].type = meta.type;
+          });
+          x12ds.fileHash = fileHash;
+          x12ds.format = 'x12';
+          x12ds.x12Type = parsed.transactionType;
+          setAgentStatus('X12 ' + parsed.transactionType + ' parsed \u2014 ' + parsed.rows.length + ' row(s).');
+          runSequencedReveal(x12ds, name, seenBefore);
+        } catch (err) {
+          alert('Could not parse X12 EDI file: ' + err.message);
+        }
+        advance();
+      };
+      x12reader.readAsText(file);
     } else {
       // Binary formats (XLSX / Parquet / PDF / Arrow / Feather / etc.)  -  routed
       // & labeled via drop-zone-router.js's format detection, but not parsed in
@@ -24383,6 +24411,202 @@ var InstantInsight = (function () {
         showMissionBrief(dataset);
       }, 500);
     });
+
+  /* ============================================================
+     X12 PARSER ENGINE -- 835 (ERA/Remittance) and 837 (Claims)
+     Pure browser-side, zero-upload, zero-dependency.
+     ============================================================ */
+  /* ---- from js/ingestion/x12-parser.js ---- */
+  var X12Parser = (function () {
+
+    function parseEnvelope(text) {
+      if (!text || text.length < 106) return null;
+      var elemSep = text[3];
+      var subSep  = text[104];
+      var segTerm = text[105];
+      var rawSegs = text.split(segTerm);
+      var segments = rawSegs
+        .map(function (s) { return s.replace(/^[\r\n]+|[\r\n]+$/g, ''); })
+        .filter(function (s) { return s.length > 0; })
+        .map(function (s) { return s.split(elemSep); });
+      return { segments: segments, elemSep: elemSep, subSep: subSep, segTerm: segTerm };
+    }
+
+    function detectType(segments) {
+      for (var i = 0; i < segments.length; i++) {
+        if (segments[i][0] === 'ST') {
+          var ts = segments[i][1];
+          if (ts === '835') return '835';
+          if (ts === '837') return '837';
+          return ts;
+        }
+      }
+      return 'unknown';
+    }
+
+    function parse835(segments) {
+      var rows = [];
+      var header = { payerName: '', checkNum: '', checkDate: '', checkAmt: '' };
+      var currentClaim = null;
+
+      for (var i = 0; i < segments.length; i++) {
+        var seg = segments[i];
+        var id  = seg[0];
+        if (id === 'N1' && seg[1] === 'PR') { header.payerName = seg[2] || ''; }
+        if (id === 'BPR') { header.checkAmt = seg[2] || ''; header.checkDate = seg[16] || ''; }
+        if (id === 'TRN') { header.checkNum = seg[2] || ''; }
+        if (id === 'CLP') {
+          currentClaim = {
+            claimId: seg[1] || '', claimStatus: seg[2] || '',
+            chargeAmt: seg[3] || '', paidAmt: seg[4] || '',
+            patientResp: seg[5] || '', adjCode: '', adjAmt: ''
+          };
+        }
+        if (id === 'CAS' && currentClaim) {
+          currentClaim.adjCode = seg[2] || '';
+          currentClaim.adjAmt  = seg[3] || '';
+        }
+        if ((id === 'SVC' || id === 'SVP') && currentClaim) {
+          rows.push([
+            header.payerName, header.checkNum, header.checkDate, header.checkAmt,
+            currentClaim.claimId, currentClaim.claimStatus,
+            currentClaim.chargeAmt, currentClaim.paidAmt, currentClaim.patientResp,
+            currentClaim.adjCode, currentClaim.adjAmt,
+            seg[1] || '', seg[2] || '', seg[3] || ''
+          ]);
+        }
+      }
+      if (rows.length === 0 && currentClaim) {
+        rows.push([
+          header.payerName, header.checkNum, header.checkDate, header.checkAmt,
+          currentClaim.claimId, currentClaim.claimStatus,
+          currentClaim.chargeAmt, currentClaim.paidAmt, currentClaim.patientResp,
+          currentClaim.adjCode, currentClaim.adjAmt, '', '', ''
+        ]);
+      }
+      return {
+        columns: [
+          { name: 'payer_name',     type: 'STR'   },
+          { name: 'check_number',   type: 'STR'   },
+          { name: 'check_date',     type: 'DATE'  },
+          { name: 'check_amount',   type: 'FLOAT' },
+          { name: 'claim_id',       type: 'STR'   },
+          { name: 'claim_status',   type: 'STR'   },
+          { name: 'charge_amount',  type: 'FLOAT' },
+          { name: 'paid_amount',    type: 'FLOAT' },
+          { name: 'patient_resp',   type: 'FLOAT' },
+          { name: 'adj_code',       type: 'STR'   },
+          { name: 'adj_amount',     type: 'FLOAT' },
+          { name: 'procedure_code', type: 'STR'   },
+          { name: 'svc_charge',     type: 'FLOAT' },
+          { name: 'svc_paid',       type: 'FLOAT' }
+        ],
+        rows: rows, transactionType: '835'
+      };
+    }
+
+    function parse837(segments) {
+      var rows = [];
+      var subscriber = { lastName: '', firstName: '', memberId: '', dob: '', gender: '' };
+      var provider   = { npi: '', name: '' };
+      var payer      = { name: '', payerId: '' };
+      var currentClaim = null;
+
+      for (var i = 0; i < segments.length; i++) {
+        var seg = segments[i];
+        var id  = seg[0];
+        if (id === 'NM1' && seg[1] === 'IL') {
+          subscriber.lastName  = seg[3] || '';
+          subscriber.firstName = seg[4] || '';
+          subscriber.memberId  = seg[9] || '';
+        }
+        if (id === 'NM1' && (seg[1] === '85' || seg[1] === '82')) {
+          provider.name = (seg[3] || '') + (seg[4] ? ' ' + seg[4] : '');
+          provider.npi  = seg[10] || seg[9] || '';
+        }
+        if (id === 'NM1' && (seg[1] === 'PR' || seg[1] === '40')) { payer.name = seg[3] || ''; payer.payerId = seg[10] || seg[9] || ''; }
+        if (id === 'DMG' && seg[1] === 'D8') { subscriber.dob = seg[2] || ''; subscriber.gender = seg[3] || ''; }
+        if (id === 'CLM') {
+          currentClaim = {
+            claimId: seg[1] || '', totalCharge: seg[2] || '',
+            facilityCode: seg[5] ? seg[5].split(':')[0] : '',
+            serviceDate: '', diagCode1: ''
+          };
+        }
+        if (id === 'DTP' && seg[1] === '472' && currentClaim) { currentClaim.serviceDate = seg[3] || ''; }
+        if (id === 'HI' && currentClaim && seg[1]) {
+          var hparts = seg[1].split(':');
+          currentClaim.diagCode1 = hparts[1] || seg[1];
+        }
+        if ((id === 'SV1' || id === 'SV2') && currentClaim) {
+          var svcField = seg[1] || '';
+          var svcParts = svcField.split(':');
+          var procCode = svcParts[1] || svcField;
+          var modifier = svcParts[2] || '';
+          rows.push([
+            subscriber.lastName + (subscriber.firstName ? ', ' + subscriber.firstName : ''),
+            subscriber.memberId, subscriber.dob, subscriber.gender,
+            provider.npi, provider.name, payer.name, payer.payerId,
+            currentClaim.claimId, currentClaim.totalCharge,
+            currentClaim.serviceDate, currentClaim.diagCode1,
+            procCode, modifier, seg[4] || '', seg[2] || '', currentClaim.facilityCode
+          ]);
+        }
+      }
+      if (rows.length === 0 && currentClaim) {
+        rows.push([
+          subscriber.lastName + (subscriber.firstName ? ', ' + subscriber.firstName : ''),
+          subscriber.memberId, subscriber.dob, subscriber.gender,
+          provider.npi, provider.name, payer.name, payer.payerId,
+          currentClaim.claimId, currentClaim.totalCharge,
+          currentClaim.serviceDate, currentClaim.diagCode1,
+          '', '', '', '', currentClaim.facilityCode
+        ]);
+      }
+      return {
+        columns: [
+          { name: 'patient_name',   type: 'STR'   },
+          { name: 'member_id',      type: 'STR'   },
+          { name: 'dob',            type: 'DATE'  },
+          { name: 'gender',         type: 'STR'   },
+          { name: 'provider_npi',   type: 'STR'   },
+          { name: 'provider_name',  type: 'STR'   },
+          { name: 'payer_name',     type: 'STR'   },
+          { name: 'payer_id',       type: 'STR'   },
+          { name: 'claim_id',       type: 'STR'   },
+          { name: 'total_charge',   type: 'FLOAT' },
+          { name: 'service_date',   type: 'DATE'  },
+          { name: 'diagnosis_code', type: 'STR'   },
+          { name: 'procedure_code', type: 'STR'   },
+          { name: 'modifier',       type: 'STR'   },
+          { name: 'unit_count',     type: 'FLOAT' },
+          { name: 'line_charge',    type: 'FLOAT' },
+          { name: 'facility_code',  type: 'STR'   }
+        ],
+        rows: rows, transactionType: '837'
+      };
+    }
+
+    function parse(text) {
+      var env = parseEnvelope(text);
+      if (!env) throw new Error('Not a valid X12 EDI file (ISA envelope not found).');
+      var type = detectType(env.segments);
+      if (type === '835') return parse835(env.segments);
+      if (type === '837') return parse837(env.segments);
+      var cols = [
+        { name: 'segment_id', type: 'STR' },
+        { name: 'elements',   type: 'STR' },
+        { name: 'raw',        type: 'STR' }
+      ];
+      var gRows = env.segments.map(function (s) {
+        return [s[0] || '', s.slice(1).join('|'), s.join(env.elemSep)];
+      });
+      return { columns: cols, rows: gRows, transactionType: type };
+    }
+
+    return { parse: parse, parseEnvelope: parseEnvelope, detectType: detectType };
+  }());
+  window.X12Parser = X12Parser;
 
   /* ============================================================
      RULEPACK ENGINE — versioned save/load of validation thresholds

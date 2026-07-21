@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DATAGLOW — browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
+  "description": "DATAGLOW \u2014 browser-based data analytics platform. The app ships with zero build step and runs vanilla ES modules. Your data never leaves the browser. Everything needed on a normal page load is self-hosted under assets/ (DuckDB-WASM, Plotly, SheetJS), so page load fetches nothing from a third party; the large optional runtimes (Pyodide for Python, WebR for R, WebLLM for the Story model) load from public CDNs on demand when you open those tabs. The dependencies below are dev/test tooling plus the DuckDB-WASM source used to produce the vendored assets.",
   "scripts": {
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:audiostructurer": "node test/audio/audio-structurer.test.js",
@@ -174,7 +174,8 @@
     "test:streamingvalidator": "node test/streaming/streaming-validator.test.js",
     "test:tauriconnector": "node test/connectors/tauri-connector.test.js",
     "test:connectormanager": "node test/connectors/connector-manager.test.js",
-    "test:questionprompter": "node test/questions/question-prompter.test.js"
+    "test:questionprompter": "node test/questions/question-prompter.test.js",
+    "test:x12parser": "node test/x12-parser.test.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

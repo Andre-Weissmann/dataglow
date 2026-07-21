@@ -4197,7 +4197,7 @@
     {
       "id": "chart-engine",
       "area": "Visualization",
-      "name": "Chart Layer (PR AI — auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
+      "name": "Chart Layer (PR AI \u2014 auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
       "platforms": [
         "browser",
         "desktop",
@@ -4216,7 +4216,7 @@
     {
       "id": "export-engine",
       "area": "Sharing & collaboration",
-      "name": "Export Everything (PR AJ — CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
+      "name": "Export Everything (PR AJ \u2014 CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
       "platforms": [
         "browser",
         "desktop",
@@ -4235,7 +4235,7 @@
     {
       "id": "column-editor",
       "area": "Data grid & editing",
-      "name": "Smart Column Editor (PR AK — inline rename, type cycle, add column with formula, clean-name suggestions)",
+      "name": "Smart Column Editor (PR AK \u2014 inline rename, type cycle, add column with formula, clean-name suggestions)",
       "platforms": [
         "browser",
         "desktop",
@@ -4254,7 +4254,7 @@
     {
       "id": "join-builder",
       "area": "Data grid & editing",
-      "name": "Multi-file Join Builder (PR AL — auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
+      "name": "Multi-file Join Builder (PR AL \u2014 auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
       "platforms": [
         "browser",
         "desktop",
@@ -4273,7 +4273,7 @@
     {
       "id": "anomaly-timeline",
       "area": "Validation & data quality",
-      "name": "Anomaly Timeline (PR AM — spike/drop/gap/duplicate/shift detection in the validation rail)",
+      "name": "Anomaly Timeline (PR AM \u2014 spike/drop/gap/duplicate/shift detection in the validation rail)",
       "platforms": [
         "browser",
         "desktop",
@@ -4292,7 +4292,7 @@
     {
       "id": "dashboard-engine",
       "area": "Visualization",
-      "name": "Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
+      "name": "Dashboard View (PR AN \u2014 readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
       "platforms": [
         "browser",
         "desktop",
@@ -4311,7 +4311,7 @@
     {
       "id": "canvas-grid",
       "area": "Data grid & editing",
-      "name": "High-Performance Canvas Grid (PR AO — pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
+      "name": "High-Performance Canvas Grid (PR AO \u2014 pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
       "platforms": [
         "browser",
         "desktop",
@@ -4330,7 +4330,7 @@
     {
       "id": "findings-rail",
       "area": "Validation & data quality",
-      "name": "Findings Rail (PR AU — ranked, plain-English insight cards above the dashboard KPI row)",
+      "name": "Findings Rail (PR AU \u2014 ranked, plain-English insight cards above the dashboard KPI row)",
       "platforms": [
         "browser",
         "desktop",
@@ -4349,7 +4349,7 @@
     {
       "id": "nl-engine",
       "area": "Query & analysis",
-      "name": "Natural Language to Everything (PR AH — plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
+      "name": "Natural Language to Everything (PR AH \u2014 plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
       "platforms": [
         "browser",
         "desktop",
@@ -4368,7 +4368,7 @@
     {
       "id": "sql-engine",
       "area": "Query & analysis",
-      "name": "Real SQL Engine (PR AO — SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
+      "name": "Real SQL Engine (PR AO \u2014 SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
       "platforms": [
         "browser",
         "desktop",
@@ -4381,6 +4381,32 @@
         {
           "file": "js/sql/sql-engine.js",
           "name": "SQLEngine"
+        }
+      ]
+    },
+    {
+      "id": "ingestion-x12-parser",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Universal ingestion & RAG (wave 2)",
+      "name": "X12 EDI Parser -- 835 ERA / 837 Claims ingestion",
+      "files": [
+        "js/ingestion/x12-parser.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ingestion/x12-parser.js",
+          "name": "parse"
+        },
+        {
+          "file": "js/ingestion/x12-parser.js",
+          "name": "parseEnvelope"
+        },
+        {
+          "file": "js/ingestion/x12-parser.js",
+          "name": "detectType"
         }
       ]
     }

@@ -587,3 +587,9 @@ The question-first analysis layer: DataGlow generates 3–7 contextually relevan
 - **Symbol:** `SQLEngine.init(containerEl, getDatasets, opts)`
 - **What it does:** Powers the SQL Mode overlay with real DuckDB-WASM execution (not a mock) — each loaded file becomes its own queryable table. Includes a schema sidebar (table/column names + types), smart autocomplete (columns, table names, SQL keywords, functions), navigable query history (last 20, ↑↓), an EXPLAIN plan toggle, plain-English error translation, CSV export of results, and an AI-free heuristic suggestion when a query returns 0 rows.
 - **Platforms:** browser, desktop, mobile
+
+### X12 EDI Parser -- 835 ERA / 837 Claims (PR AQ)
+- **File:** `js/ingestion/x12-parser.js`
+- **Symbol:** `parse(text)`, `parseEnvelope(text)`, `detectType(segments)`
+- **What it does:** Pure browser-side, zero-upload X12 EDI parser for HIPAA healthcare transaction sets. `parse(text)` auto-detects the transaction type from the ISA/ST envelope and returns a typed columnar dataset: 835 (Electronic Remittance Advice) produces payer, check, claim, adjustment, and procedure-code columns; 837 (Professional/Institutional Claims) produces patient, subscriber, provider NPI, payer, diagnosis, procedure, service-date, and facility-code columns. Unknown transaction sets fall back to a generic segment/element table. `parseEnvelope` splits any X12 ISA envelope into segments using the ISA-declared delimiters. `detectType` reads ST01 to identify 835 vs 837. All parsing is synchronous, HIPAA-aware (no raw data leaves the browser), and runs through the same drop-zone ingestion ceremony and validation pipeline as any other dataset.
+- **Platforms:** browser, desktop
