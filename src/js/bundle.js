@@ -8161,10 +8161,7 @@ var InstantInsight = (function () {
     natsConnector: true,
     tauriConnector: true,
     questionPrompter: true,
-    portfolioNarrativeAssembler: true,
-    windowDojo: true,
-    takeHomeCase: true,
-    missionBrief: true
+    portfolioNarrativeAssembler: true
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -11176,36 +11173,6 @@ var InstantInsight = (function () {
     }
   }
 
-  function applyWindowDojoVisibility() {
-    var btn = document.getElementById('sidebar-dojo-btn');
-    if (!btn) return;
-    if (FEATURE_FLAGS.windowDojo) {
-      btn.classList.remove('hidden');
-    } else {
-      btn.classList.add('hidden');
-    }
-  }
-
-  function applyTakeHomeCaseVisibility() {
-    var btn = document.getElementById('sidebar-takehome-btn');
-    if (!btn) return;
-    if (FEATURE_FLAGS.takeHomeCase) {
-      btn.classList.remove('hidden');
-    } else {
-      btn.classList.add('hidden');
-    }
-  }
-
-  function applyMissionBriefVisibility() {
-    var brief = document.getElementById('mission-brief-overlay');
-    if (!brief) return;
-    if (FEATURE_FLAGS.missionBrief) {
-      brief.classList.remove('hidden');
-    } else {
-      brief.classList.add('hidden');
-    }
-  }
-
   (function bindTauriConnectorFeature() {
     applyTauriConnectorVisibility();
     if (!tauriIsRuntimeAvailable) return;
@@ -11291,27 +11258,6 @@ var InstantInsight = (function () {
       description: 'Automatically assemble a portfolio-ready narrative from your validation findings and story.',
       badges: ['beta'],
       apply: function () { /* no canvas UI wired yet -- flag state only */ }
-    },
-    {
-      key: 'windowDojo',
-      name: 'Window Function Dojo',
-      description: 'Interactive SQL window function trainer. Step through RANK, ROW_NUMBER, LAG, LEAD and more on your own data. Adds a top-level sidebar entry under Explore.',
-      badges: ['beta'],
-      apply: function () { applyWindowDojoVisibility(); }
-    },
-    {
-      key: 'takeHomeCase',
-      name: 'Take-Home Case',
-      description: 'Generate a timed, structured take-home data challenge from your dataset. Practice real interview scenarios, then export your findings.',
-      badges: ['beta'],
-      apply: function () { applyTakeHomeCaseVisibility(); }
-    },
-    {
-      key: 'missionBrief',
-      name: 'Mission Brief',
-      description: 'First-visit onboarding overlay that introduces DataGlow capabilities and loads a sample healthcare dataset so you can explore immediately.',
-      badges: [],
-      apply: function () { applyMissionBriefVisibility(); }
     }
   ];
 
@@ -11353,13 +11299,6 @@ var InstantInsight = (function () {
   }
 
   function renderFeatureSettingsList() {
-    var allOn = FEATURE_META.every(function (m) { return !!FEATURE_FLAGS[m.key]; });
-    var enableAllHTML =
-      '<div id="feature-enable-all-row">' +
-        '<button id="feature-enable-all-btn" class="feature-enable-all-btn' + (allOn ? ' all-on' : '') + '">' +
-          (allOn ? '&#10003; All Features On' : '&#9654; Enable All Features') +
-        '</button>' +
-      '</div>';
     var html = FEATURE_META.map(function (meta) {
       var checked = FEATURE_FLAGS[meta.key] ? ' checked' : '';
       var badgesHTML = meta.badges.map(featureBadgeHTML).join('');
@@ -11380,17 +11319,7 @@ var InstantInsight = (function () {
         '</div>'
       );
     }).join('');
-    featureSettingsList.innerHTML = enableAllHTML + html;
-
-    var enableAllBtn = document.getElementById('feature-enable-all-btn');
-    if (enableAllBtn) {
-      enableAllBtn.addEventListener('click', function () {
-        FEATURE_META.forEach(function (meta) { FEATURE_FLAGS[meta.key] = true; });
-        FEATURE_META.forEach(function (meta) { if (meta.apply) meta.apply(); });
-        saveFeatureFlagsToSession();
-        renderFeatureSettingsList();
-      });
-    }
+    featureSettingsList.innerHTML = html;
 
     FEATURE_META.forEach(function (meta) {
       var input = $('feature-toggle-' + meta.key);
@@ -19667,8 +19596,6 @@ var InstantInsight = (function () {
       'sidebar-witness-btn': 'witness-trigger-btn',
       'sidebar-osce-btn': 'osce-trigger-btn',
       'sidebar-story-btn': 'story-trigger-btn',
-      'sidebar-dojo-btn': 'dojo-btn',
-      'sidebar-takehome-btn': 'takehome-trigger-btn',
     };
     Object.keys(proxyMap).forEach(function (sidebarId) {
       var sidebarBtn = document.getElementById(sidebarId);
@@ -20136,8 +20063,6 @@ var DataGlowMirror = (function() {
         'sidebar-witness-btn': 'witness-trigger-btn',
         'sidebar-osce-btn': 'osce-trigger-btn',
         'sidebar-story-btn': 'story-trigger-btn',
-        'sidebar-dojo-btn': 'dojo-btn',
-        'sidebar-takehome-btn': 'takehome-trigger-btn',
         'sidebar-ask-btn': 'questions-trigger-btn'
       };
       Object.keys(delegations).forEach(function(sheetBtnId) {
