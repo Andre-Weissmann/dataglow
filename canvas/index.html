@@ -15942,6 +15942,12 @@ var InstantInsight = (function () {
     dataVersionControl: true,
     equityStratification: true,
     sourceConvergence: true,
+    crucibleOrchestration: true,
+    crucibleValidator: true,
+    crucibleValidatorUI: true,
+    crucibleRevertProposals: true,
+    guardedCopilot: true,
+    aiTouchLedger: true,
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -37612,6 +37618,3635 @@ function mountConvergence(opts = {}) {
   else setTimeout(initConvergenceUI, 600);
 }());
 /* ---- end source-convergence-ui.js ---- */
+
+
+/* ================================================================
+   CRUCIBLE ADVERSARIAL VALIDATOR -- recovered from git history
+   PR #229 (Batch 1 concept), PR #230 (Batch 2 UI), PR #231 (Batch 3 revert proposals)
+   PR #232 crucibleValidator ON, PR #233 crucibleValidatorUI ON,
+   PR #234 crucibleRevertProposals ON, PR #236 crucibleOrchestration ON
+   Dep chain: identifier-columns -> fuzzy-dedup, data-blame -> revert-eligibility,
+   cross-column-consistency -> physiological-plausibility, crucible-contract,
+   crucible-adversarial-packs, crucible-orchestrator, crucible-ui
+   ================================================================ */
+
+/* ---- from js/shared/identifier-columns.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Shared identifier-column guard
+// ============================================================
+// A single, dependency-free source of truth for "is this column a
+// unique-identifier column, and therefore off-limits for fuzzy/similarity-
+// based merge suggestions." Three independent modules each need this exact
+// judgment call — validation.js's BUSINESS_KEY_RE (business-key detection
+// for validation rules), categorical-consistency.js's identifier guard (P0
+// fix, 2026-07-12, PR #198), and now fuzzy-dedup.js (P0 fix, this run) — and
+// until now the regex/ratio logic was hand-duplicated in each, which is
+// exactly how the second P0 gap (this run's finding) went unnoticed: the
+// guard existed in one sibling module but was never ported to this one.
+//
+// This file has ZERO imports and ZERO app-specific dependencies on purpose,
+// so any validation/cleaning module can import it with no circular-import
+// risk (categorical-consistency.js already imports `similarity` FROM
+// fuzzy-dedup.js, so fuzzy-dedup.js importing back from
+// categorical-consistency.js would create a cycle — this new shared file
+// sits below both and is imported BY both instead).
+
+// Name pattern: bare id/key/code, or a _id/_key/_code/_no/_num/_number
+// suffix. Mirrors validation.js's BUSINESS_KEY_RE exactly.
+const IDENTIFIER_COLUMN_NAME = /^(id|key|code)$|(_id|_key|_code|_no|_num|_number)$/i;
+
+function isLikelyIdentifierColumn(columnName) {
+  return IDENTIFIER_COLUMN_NAME.test(String(columnName ?? ''));
+}
+
+// distinctCount / nonNullCount close to 1 means "almost every row has its
+// own value" — the signature of a unique key, not a bounded category
+// vocabulary. 0.9 is deliberately conservative: a real categorical column
+// with genuine spelling variants will have nowhere near this ratio; a
+// unique-ID column with a handful of accidental exact duplicates still
+// clears it easily.
+const IDENTIFIER_UNIQUE_RATIO = 0.9;
+
+function isNearUniqueColumn(distinctCount, nonNullCount, ratio = IDENTIFIER_UNIQUE_RATIO) {
+  if (!nonNullCount || nonNullCount <= 0) return false;
+  return (distinctCount / nonNullCount) >= ratio;
+}
+
+
+  window._DgIdentifierColumns = {
+    isLikelyIdentifierColumn: typeof isLikelyIdentifierColumn !== 'undefined' ? isLikelyIdentifierColumn : null,
+    IDENTIFIER_PATTERNS: typeof IDENTIFIER_PATTERNS !== 'undefined' ? IDENTIFIER_PATTERNS : [],
+  };
+}());
+/* ---- end identifier-columns.js ---- */
+
+/* ---- from js/provenance/data-blame.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Cell-level Data Blame (transform history)
+// ============================================================
+// "Who/what changed this cell, and why?" — the git-blame equivalent for a
+// dataset. Every cleaning / validation / merge transform the user applies is
+// already recorded, in order, on the tamper-evident provenance chain of custody
+// (js/provenance/provenance.js). Data Blame is a pure READER over that chain: it
+// does NOT keep a second parallel log (which would drift), it re-projects the
+// existing append-only, hash-linked trail into a per-column / per-cell history.
+//
+// The one thing it standardizes is the shape of a transform step's `detail`
+// field, so the projection is reliable: call sites record cleaning ops with
+// `buildBlameDetail(...)` (which older sites can adopt incrementally — the reader
+// stays back-compatible with the pre-existing `{ fixType, column }` detail).
+//
+// Everything here is pure, synchronous, browser-free and network-free: it only
+// walks an array of provenance steps that was produced elsewhere.
+
+// Build the normalized `detail` object stored on a provenance step for a data
+// transform. Pass this as the `detail` argument to `recordStep`/`chain.append`.
+//   buildBlameDetail({ rule, columns|column, affectedCount, predicate, before, after, note })
+function buildBlameDetail({ rule = null, columns = null, column = null,
+  affectedCount = null, predicate = null, before, after, note } = {}) {
+  const cols = Array.isArray(columns)
+    ? columns.filter(c => c != null).map(String)
+    : (column != null ? [String(column)] : []);
+  const detail = {
+    rule: rule != null ? String(rule) : null,
+    columns: cols,
+    affected: { count: affectedCount != null ? affectedCount : null, predicate: predicate != null ? String(predicate) : null },
+  };
+  if (before !== undefined) detail.before = before;
+  if (after !== undefined) detail.after = after;
+  if (note !== undefined) detail.note = note;
+  return detail;
+}
+
+// Project one raw provenance step into a normalized blame entry. Understands
+// both the current `buildBlameDetail` shape and the legacy `{ fixType, column }`
+// detail that predates this module, so no historical trail is misread.
+function normalizeBlameEntry(step) {
+  const d = step && step.detail && typeof step.detail === 'object' ? step.detail : {};
+  let columns = [];
+  let rule = null;
+  let affectedCount = null;
+  let predicate = null;
+
+  if (Array.isArray(d.columns)) {
+    columns = d.columns.filter(c => c != null).map(String);
+  } else if (d.column != null) {
+    columns = [String(d.column)];
+  }
+  if (d.rule != null) rule = String(d.rule);
+  else if (d.fixType != null) rule = String(d.fixType); // legacy call sites
+
+  if (d.affected && typeof d.affected === 'object') {
+    if (d.affected.count != null) affectedCount = d.affected.count;
+    if (d.affected.predicate != null) predicate = String(d.affected.predicate);
+  }
+
+  return {
+    index: step ? step.index : null,
+    op: step ? step.op : null,
+    description: step ? step.description : '',
+    ts: step ? step.ts : null,
+    hash: step ? step.hash : null,
+    columns,
+    rule,
+    affectedCount,
+    predicate,
+    before: d.before,
+    after: d.after,
+    note: d.note,
+  };
+}
+
+// Normalize a whole trail (array of provenance steps) into ordered blame entries.
+function normalizeTrail(trail) {
+  const steps = Array.isArray(trail) ? trail : [];
+  return steps
+    .map(normalizeBlameEntry)
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+}
+
+// Build a per-column index of transforms plus the flat ordered entry list.
+// `byColumn` only contains columns that were actually changed by some step.
+function buildBlameIndex(trail) {
+  const entries = normalizeTrail(trail);
+  const byColumn = {};
+  for (const e of entries) {
+    for (const col of e.columns) {
+      (byColumn[col] || (byColumn[col] = [])).push(e);
+    }
+  }
+  return { entries, byColumn };
+}
+
+// Ordered history of every transform that touched a given column.
+function blameForColumn(trail, column) {
+  if (column == null) return [];
+  const key = String(column);
+  return normalizeTrail(trail).filter(e => e.columns.includes(key));
+}
+
+// History for a specific cell. Because DuckDB transforms are set-based
+// (`UPDATE ... WHERE`), the honest answer for a cell is "every transform that
+// touched this column, each of which MAY have changed this cell". Callers that
+// can evaluate a recorded predicate against a concrete row pass a `match`
+// function to narrow the list to the transforms that plausibly hit the cell.
+function blameForCell(trail, column, match = null) {
+  const hist = blameForColumn(trail, column);
+  if (typeof match !== 'function') return hist;
+  return hist.filter(e => {
+    try { return !!match(e); } catch { return true; }
+  });
+}
+
+// The full ordered, append-only, replayable transform history — one entry per
+// provenance step, nothing collapsed or dropped.
+function replayLog(trail) {
+  return normalizeTrail(trail).map(e => ({
+    index: e.index,
+    op: e.op,
+    rule: e.rule,
+    columns: e.columns,
+    affectedCount: e.affectedCount,
+    predicate: e.predicate,
+    ts: e.ts,
+    description: e.description,
+    hash: e.hash,
+  }));
+}
+
+// A plain-language one-liner for a column's change history.
+function summarizeColumnBlame(trail, column) {
+  const hist = blameForColumn(trail, column);
+  const col = column != null ? String(column) : '(unnamed)';
+  if (hist.length === 0) return `"${col}": no recorded changes.`;
+  const n = hist.length;
+  const rules = hist.map(e => e.rule || e.op).filter(Boolean);
+  const affected = hist.reduce((sum, e) => sum + (typeof e.affectedCount === 'number' ? e.affectedCount : 0), 0);
+  const affPart = affected > 0 ? `, ${affected} cell(s) affected in total` : '';
+  return `"${col}": ${n} recorded change${n === 1 ? '' : 's'}${rules.length ? ` (${rules.join(' → ')})` : ''}${affPart}.`;
+}
+
+
+  window._DgDataBlame = {
+    normalizeBlameEntry: typeof normalizeBlameEntry !== 'undefined' ? normalizeBlameEntry : null,
+    buildBlameEntry: typeof buildBlameEntry !== 'undefined' ? buildBlameEntry : null,
+  };
+}());
+/* ---- end data-blame.js ---- */
+
+/* ---- from js/validation/cross-column-consistency.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Cross-Column Logical Consistency Checker (validation layer #17)
+// Flags impossible or contradictory combinations of values ACROSS columns in
+// the SAME row — contradictions a single-column validator can never see (an
+// end date before its start, a male patient flagged pregnant, an infant with a
+// married status, an "abnormal" lab flag with no measured value behind it).
+//
+// Everything runs client-side against the already-loaded DuckDB-WASM table.
+// Column pairing is heuristic (name-pattern matching), never hardcoded to one
+// dataset's columns, and deliberately conservative: a rule only fires when the
+// column names give reasonably high confidence, and every finding carries the
+// specific columns + values + a plain-language reason so the analyst can judge
+// it for themselves.
+//
+// This is the generic, well-known data-quality concept of cross-field /
+// referential validation, implemented from first principles.
+// ============================================================
+
+const NUMERIC_T = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+
+// Robust word-splitting for column names. Splits snake_case, kebab-case,
+// dotted, AND camelCase / PascalCase into lowercase tokens so that
+// "admit_date", "admitDate", "AdmitDate" and "admit-date" all yield
+// ["admit","date"]. This intentionally avoids naive regex `\b` boundaries
+// (which mis-handle compound identifiers) — the same class of bug that was
+// fixed in the Benford eligibility gate's name matching.
+function nameTokens(name) {
+  return String(name ?? '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')      // camelCase -> camel Case
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')   // HTTPServer -> HTTP Server
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+// A keyword matches a column name when a token equals or starts with it, or
+// when the concatenation of tokens contains it (so multi-token forms like
+// "check_in" / "checkIn" both match the stem "checkin").
+function matchesKeyword(name, keyword) {
+  const tokens = nameTokens(name);
+  if (tokens.some(t => t === keyword || t.startsWith(keyword))) return true;
+  return tokens.join('').includes(keyword);
+}
+
+function hasAnyKeyword(name, keywords) {
+  return keywords.some(kw => matchesKeyword(name, kw));
+}
+
+// A column is "date-like" if its declared type is a date/timestamp OR its name
+// reads like a date/event-time column.
+// Canonical temporal-event stems: columns whose names denote a point in time
+// even without an explicit "date"/"time" suffix (e.g. a hotel's "check_in").
+const TEMPORAL_EVENT_KW = ['date', 'time', 'admit', 'discharge', 'dob', 'birth', 'checkin', 'checkout', 'arrival', 'departure'];
+function isDateLike(c) {
+  return /DATE|TIMESTAMP/i.test(c.type || '') ||
+    hasAnyKeyword(c.name, TEMPORAL_EVENT_KW) ||
+    /_at$|_on$/i.test(c.name);
+}
+
+function isNumeric(c) {
+  return NUMERIC_T.includes(c.type);
+}
+
+// ---------- Rule 1: date ordering ----------
+// Semantically-linked ordered keyword groups. Pairing is confined WITHIN a
+// group (earlier × later) rather than a global cross-product of every
+// "start-ish" against every "end-ish" column — that keeps nonsensical pairs
+// (e.g. hire_date × discharge_date) from firing.
+const DATE_ORDER_GROUPS = [
+  { label: 'admission → discharge', earlier: ['admit', 'admission'], later: ['discharge'] },
+  { label: 'start → end', earlier: ['start', 'begin', 'from', 'onset', 'open'], later: ['end', 'finish', 'stop', 'close', 'thru'] },
+  { label: 'created → updated', earlier: ['created', 'create', 'opened'], later: ['updated', 'update', 'modified', 'closed', 'edited'] },
+  { label: 'check-in → check-out', earlier: ['checkin', 'arrival', 'arrive'], later: ['checkout', 'departure', 'depart'] },
+  { label: 'order → ship', earlier: ['order', 'ordered', 'purchase'], later: ['ship', 'shipped', 'delivery', 'delivered', 'fulfilled'] },
+  { label: 'hire → termination', earlier: ['hire', 'hired', 'joined'], later: ['termination', 'terminated', 'left', 'resigned'] },
+  { label: 'birth → death', earlier: ['birth', 'dob', 'born'], later: ['death', 'died', 'deceased', 'expired'] },
+  { label: 'effective → expiry', earlier: ['effective', 'issued', 'issue'], later: ['expiry', 'expire', 'expiration', 'expires'] },
+];
+
+// Detect ordered date-column pairs. Returns [{ earlier, later, label }].
+function detectDatePairs(cols) {
+  const dateCols = cols.filter(isDateLike);
+  const pairs = [];
+  const seen = new Set();
+  for (const g of DATE_ORDER_GROUPS) {
+    const earlierCols = dateCols.filter(c => hasAnyKeyword(c.name, g.earlier));
+    const laterCols = dateCols.filter(c => hasAnyKeyword(c.name, g.later));
+    for (const e of earlierCols) {
+      for (const l of laterCols) {
+        if (e.name === l.name) continue;
+        const key = `${e.name}|${l.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({ earlier: e.name, later: l.name, label: g.label });
+      }
+    }
+  }
+  return pairs;
+}
+
+// ---------- Rule 1b: numeric min/max range ----------
+const MIN_KW = ['min', 'minimum', 'low', 'lower', 'floor'];
+const MAX_KW = ['max', 'maximum', 'high', 'higher', 'ceiling', 'cap', 'upper'];
+
+// Detect min/max (low/high) numeric range pairs. Confined to columns that
+// share a stem (e.g. temp_min / temp_max) so unrelated "low"/"high" columns
+// aren't paired. Returns [{ min, max }].
+function detectRangePairs(cols) {
+  const numeric = cols.filter(isNumeric);
+  const minCols = numeric.filter(c => hasAnyKeyword(c.name, MIN_KW));
+  const maxCols = numeric.filter(c => hasAnyKeyword(c.name, MAX_KW));
+  const pairs = [];
+  for (const lo of minCols) {
+    for (const hi of maxCols) {
+      if (lo.name === hi.name) continue;
+      if (sharedStem(lo.name, hi.name)) pairs.push({ min: lo.name, max: hi.name });
+    }
+  }
+  return pairs;
+}
+
+// Two columns "share a stem" when they have at least one common token that is
+// not itself a min/max keyword — i.e. they describe the same measured thing.
+const RANGE_WORDS = new Set([...MIN_KW, ...MAX_KW]);
+function sharedStem(a, b) {
+  const ta = nameTokens(a).filter(t => !RANGE_WORDS.has(t));
+  const tb = new Set(nameTokens(b).filter(t => !RANGE_WORDS.has(t)));
+  if (ta.length === 0) return true; // e.g. bare "min"/"max" — treat as related
+  return ta.some(t => tb.has(t));
+}
+
+// ---------- Rule 1c: semantic magnitude ordering ----------
+// A generalization of Rule 1b for numeric pairs that carry a "column A must not
+// exceed column B" relationship encoded in DOMAIN VOCABULARY rather than a
+// min/max naming convention. The motivating real-world miss: healthcare billing
+// columns like `amount_allowed` vs `amount_billed` — an allowed amount can never
+// exceed the billed amount, and a paid amount can never exceed the allowed
+// amount, yet neither name contains a min/max keyword so Rule 1b never pairs
+// them. Rather than bloat the min/max vocabulary (which would mis-pair unrelated
+// "low"/"high" columns), this is an explicit, small config of known
+// lesser≤greater semantics — the same "hand-written domain config" shape the
+// healthcare Domain Physics pack uses for its clinical rules. Pairing stays
+// conservative: a group only fires when BOTH sides are numeric AND the columns
+// share a stem (e.g. amount_allowed/amount_billed share "amount"), OR the
+// lesser side reduces to a bare domain keyword (e.g. "allowed"/"billed"),
+// mirroring Rule 1b's sharedStem discipline.
+const MAGNITUDE_ORDER_GROUPS = [
+  { label: 'allowed ≤ billed', lesser: ['allowed'], greater: ['billed', 'charged', 'charge', 'gross'] },
+  { label: 'paid ≤ allowed', lesser: ['paid', 'payment', 'reimbursed', 'reimbursement'], greater: ['allowed'] },
+  { label: 'paid ≤ billed', lesser: ['paid', 'payment', 'reimbursed', 'reimbursement'], greater: ['billed', 'charged', 'charge', 'gross'] },
+];
+
+const MAGNITUDE_WORDS = new Set(MAGNITUDE_ORDER_GROUPS.flatMap(g => [...g.lesser, ...g.greater]));
+
+// Shared-stem check for magnitude pairs: strip the domain keywords and require a
+// common remaining token (so amount_allowed × amount_billed pair on "amount",
+// but allowed_visits × billed_amount do NOT). When the lesser side is a bare
+// keyword with nothing left over ("allowed"), treat the pair as related — the
+// same permissive base case Rule 1b uses for bare "min"/"max".
+function sharedMagnitudeStem(lesserName, greaterName) {
+  const lt = nameTokens(lesserName).filter(t => !MAGNITUDE_WORDS.has(t));
+  const gt = new Set(nameTokens(greaterName).filter(t => !MAGNITUDE_WORDS.has(t)));
+  if (lt.length === 0) return true;
+  return lt.some(t => gt.has(t));
+}
+
+// Detect semantic magnitude pairs. Returns [{ lesser, greater, label }] meaning
+// the value in `lesser` should never exceed the value in `greater`.
+function detectMagnitudePairs(cols) {
+  const numeric = cols.filter(isNumeric);
+  const pairs = [];
+  const seen = new Set();
+  for (const g of MAGNITUDE_ORDER_GROUPS) {
+    const lesserCols = numeric.filter(c => hasAnyKeyword(c.name, g.lesser));
+    const greaterCols = numeric.filter(c => hasAnyKeyword(c.name, g.greater));
+    for (const lo of lesserCols) {
+      for (const hi of greaterCols) {
+        if (lo.name === hi.name) continue;
+        if (!sharedMagnitudeStem(lo.name, hi.name)) continue;
+        const key = `${lo.name}|${hi.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({ lesser: lo.name, greater: hi.name, label: g.label });
+      }
+    }
+  }
+  return pairs;
+}
+
+// ---------- Rule 2: impossible demographic combinations ----------
+const SEX_TOKENS = ['sex', 'gender'];
+const PREGNANCY_KW = ['pregnant', 'pregnancy', 'gestation', 'gestational', 'gravida', 'prenatal', 'antenatal', 'edd'];
+const MARITAL_KW = ['marital', 'maritalstatus'];
+
+function detectSexColumn(cols) {
+  return cols.find(c => nameTokens(c.name).some(t => SEX_TOKENS.includes(t))) || null;
+}
+
+function detectPregnancyColumns(cols) {
+  return cols.filter(c => hasAnyKeyword(c.name, PREGNANCY_KW));
+}
+
+function detectAgeColumn(cols) {
+  return cols.find(c => isNumeric(c) && nameTokens(c.name).includes('age')) || null;
+}
+
+function detectMaritalColumn(cols) {
+  return cols.find(c => hasAnyKeyword(c.name, MARITAL_KW)) || null;
+}
+
+// Value classifiers — deliberately narrow to avoid false positives on
+// ambiguous encodings (we do NOT treat a numeric 0/1 sex code as male/female,
+// because the mapping is unknowable from the schema alone).
+const norm = v => String(v ?? '').trim().toLowerCase();
+
+function isMaleValue(v) {
+  return ['m', 'male', 'man', 'boy'].includes(norm(v));
+}
+
+// Truthy / affirmative encodings for a boolean-ish flag.
+function isAffirmative(v) {
+  return ['true', 't', 'yes', 'y', '1', 'positive', 'pos', 'pregnant'].includes(norm(v));
+}
+
+// A marital value that unambiguously implies a non-single adult (married,
+// divorced, widowed, separated). "single"/"never married"/blanks do NOT fire.
+function maritalImpliesAdult(v) {
+  return /marri|divorc|widow|separat|civil union|domestic partner/.test(norm(v));
+}
+
+// ---------- Rule 2b: minor with an adult-only status ----------
+// Retained from the original layer so datasets that encode adult-only
+// entitlements (retirement/pension/Medicare/etc.) on a boolean flag still fire.
+const ADULT_ONLY_KW = ['retire', 'retirement', 'pension', '401k', 'isadult', 'hasmortgage', 'haslicense', 'issenior', 'medicare'];
+function detectAdultOnlyFlags(cols) {
+  return cols.filter(c => hasAnyKeyword(c.name, ADULT_ONLY_KW));
+}
+
+// ---------- Rule 3: range/status contradiction ----------
+// Detect a measurement (numeric) column paired with a companion status/flag
+// column that shares its stem, e.g. glucose + glucose_flag, or potassium +
+// potassium_status. Conservative firing (see runner): a flag asserting an
+// out-of-range / abnormal result while the measurement is NULL — a flag with
+// nothing behind it. No external reference ranges are required or assumed.
+const STATUS_KW = ['flag', 'status', 'result', 'interpretation', 'abnormality'];
+const ABNORMAL_VALUES = /crit|abnormal|out.?of.?range|panic|high|low|elevated|alert|positive|reactive/;
+
+function detectStatusPairs(cols) {
+  const statusCols = cols.filter(c => hasAnyKeyword(c.name, STATUS_KW));
+  const numericCols = cols.filter(isNumeric);
+  const pairs = [];
+  for (const s of statusCols) {
+    const stem = nameTokens(s.name).filter(t => !STATUS_KW.includes(t));
+    if (stem.length === 0) continue; // a bare "status" column has no measurement to bind to
+    const stemSet = new Set(stem);
+    for (const m of numericCols) {
+      if (m.name === s.name) continue;
+      const mt = nameTokens(m.name).filter(t => !STATUS_KW.includes(t));
+      if (mt.length && mt.some(t => stemSet.has(t))) {
+        pairs.push({ measurement: m.name, status: s.name });
+      }
+    }
+  }
+  return pairs;
+}
+
+function isAbnormalStatus(v) {
+  return ABNORMAL_VALUES.test(norm(v));
+}
+
+// ---------- SQL helpers ----------
+const affirmativeSql = col =>
+  `LOWER(TRIM(CAST(${col} AS VARCHAR))) IN ('true','t','yes','y','1','positive','pos','pregnant')`;
+
+// ============================================================
+// Runner — executes the detected rules against the loaded table and returns a
+// structured findings array. Pure of side effects (no ledger writes): the
+// caller decides how to log, mirroring the Categorical Consistency Engine.
+//
+// Each finding: { rule, ruleLabel, columns:[...], count, text, explanation }
+//   text        — concise one-liner (used for the layer's `detail` list)
+//   explanation — plain-language "why this is impossible"
+// ============================================================
+async function runCrossColumnChecks(table, cols, engine, opts = {}) {
+  // `magnitude` gates the Rule 1c semantic magnitude-ordering findings so the
+  // caller can keep them dark behind a feature flag (default ON here so the pure
+  // module stays directly unit-testable without flag plumbing).
+  const { magnitude = true } = opts;
+  const findings = [];
+  const q = async sql => {
+    const { rows } = await engine.runQuery(sql);
+    return Number(rows[0]?.n) || 0;
+  };
+
+  // Rule 1 — date ordering (later date before earlier date).
+  for (const p of detectDatePairs(cols)) {
+    try {
+      const n = await q(`
+        SELECT COUNT(*) AS n FROM ${table}
+        WHERE TRY_CAST("${p.earlier}" AS DATE) IS NOT NULL
+          AND TRY_CAST("${p.later}" AS DATE) IS NOT NULL
+          AND TRY_CAST("${p.later}" AS DATE) < TRY_CAST("${p.earlier}" AS DATE)`);
+      if (n > 0) {
+        findings.push({
+          rule: 'date_order',
+          ruleLabel: `Date ordering (${p.label})`,
+          columns: [p.earlier, p.later],
+          count: n,
+          text: `${n} row(s) where "${p.later}" is before "${p.earlier}" — a later date cannot precede its earlier date.`,
+          explanation: `"${p.later}" is expected to fall on or after "${p.earlier}" (${p.label}); ${n} row(s) violate that order.`,
+        });
+      }
+    } catch { /* incompatible columns — skip pair */ }
+  }
+
+  // Rule 1b — numeric min/max range (max below min).
+  for (const p of detectRangePairs(cols)) {
+    try {
+      const n = await q(`
+        SELECT COUNT(*) AS n FROM ${table}
+        WHERE "${p.min}" IS NOT NULL AND "${p.max}" IS NOT NULL AND "${p.max}" < "${p.min}"`);
+      if (n > 0) {
+        findings.push({
+          rule: 'numeric_range',
+          ruleLabel: 'Inverted numeric range',
+          columns: [p.min, p.max],
+          count: n,
+          text: `${n} row(s) where "${p.max}" < "${p.min}" — a maximum cannot be below its minimum.`,
+          explanation: `"${p.max}" should be ≥ "${p.min}"; ${n} row(s) have the range inverted.`,
+        });
+      }
+    } catch { /* skip pair */ }
+  }
+
+  // Rule 1c — semantic magnitude ordering (lesser exceeds greater), e.g. a
+  // healthcare claim's allowed amount exceeding the billed amount.
+  if (magnitude) {
+    for (const p of detectMagnitudePairs(cols)) {
+      try {
+        const n = await q(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE "${p.lesser}" IS NOT NULL AND "${p.greater}" IS NOT NULL AND "${p.lesser}" > "${p.greater}"`);
+        if (n > 0) {
+          findings.push({
+            rule: 'magnitude_order',
+            ruleLabel: `Magnitude ordering (${p.label})`,
+            columns: [p.lesser, p.greater],
+            count: n,
+            text: `${n} row(s) where "${p.lesser}" > "${p.greater}" — ${p.label} should hold.`,
+            explanation: `"${p.lesser}" is expected to be ≤ "${p.greater}" (${p.label}); ${n} row(s) violate that relationship.`,
+          });
+        }
+      } catch { /* incompatible columns — skip pair */ }
+    }
+  }
+
+  // Rule 2 — male patient flagged pregnant.
+  const sexCol = detectSexColumn(cols);
+  if (sexCol) {
+    for (const preg of detectPregnancyColumns(cols)) {
+      if (preg.name === sexCol.name) continue;
+      try {
+        const n = await q(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE LOWER(TRIM(CAST("${sexCol.name}" AS VARCHAR))) IN ('m','male','man','boy')
+            AND ${affirmativeSql(`"${preg.name}"`)}`);
+        if (n > 0) {
+          findings.push({
+            rule: 'sex_pregnancy',
+            ruleLabel: 'Impossible demographic combination',
+            columns: [sexCol.name, preg.name],
+            count: n,
+            text: `${n} row(s) where "${sexCol.name}" is male but "${preg.name}" indicates pregnancy.`,
+            explanation: `A record marked male in "${sexCol.name}" cannot also be pregnant in "${preg.name}"; ${n} row(s) contradict.`,
+          });
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  // Rule 2b — infant (age < 1) with an adult marital status.
+  const ageCol = detectAgeColumn(cols);
+  const maritalCol = detectMaritalColumn(cols);
+  if (ageCol && maritalCol) {
+    try {
+      const { rows } = await engine.runQuery(`
+        SELECT LOWER(TRIM(CAST("${maritalCol.name}" AS VARCHAR))) AS v, COUNT(*) AS n
+        FROM ${table}
+        WHERE "${ageCol.name}" IS NOT NULL AND "${ageCol.name}" < 1
+          AND "${maritalCol.name}" IS NOT NULL
+        GROUP BY 1`);
+      const n = rows.filter(r => maritalImpliesAdult(r.v)).reduce((a, r) => a + Number(r.n), 0);
+      if (n > 0) {
+        findings.push({
+          rule: 'infant_marital',
+          ruleLabel: 'Impossible demographic combination',
+          columns: [ageCol.name, maritalCol.name],
+          count: n,
+          text: `${n} row(s) where "${ageCol.name}" < 1 but "${maritalCol.name}" is an adult status (married/divorced/widowed).`,
+          explanation: `An infant (age < 1 in "${ageCol.name}") cannot have a married/divorced/widowed "${maritalCol.name}"; ${n} row(s) contradict.`,
+        });
+      }
+    } catch { /* skip */ }
+  }
+
+  // Rule 2c — minor (age < 18) with an adult-only status flag.
+  if (ageCol) {
+    for (const flag of detectAdultOnlyFlags(cols)) {
+      if (flag.name === ageCol.name) continue;
+      try {
+        const n = await q(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE "${ageCol.name}" < 18 AND ${affirmativeSql(`"${flag.name}"`)}`);
+        if (n > 0) {
+          findings.push({
+            rule: 'minor_adult_status',
+            ruleLabel: 'Impossible demographic combination',
+            columns: [ageCol.name, flag.name],
+            count: n,
+            text: `${n} row(s) where "${ageCol.name}" < 18 but "${flag.name}" is true — an adult-only status on a minor.`,
+            explanation: `"${flag.name}" is an adult-only entitlement; ${n} row(s) set it true for a minor (age < 18 in "${ageCol.name}").`,
+          });
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  // Rule 3 — status/flag says abnormal but the measurement is missing.
+  for (const p of detectStatusPairs(cols)) {
+    try {
+      const { rows } = await engine.runQuery(`
+        SELECT LOWER(TRIM(CAST("${p.status}" AS VARCHAR))) AS v, COUNT(*) AS n
+        FROM ${table}
+        WHERE "${p.measurement}" IS NULL AND "${p.status}" IS NOT NULL
+        GROUP BY 1`);
+      const n = rows.filter(r => isAbnormalStatus(r.v)).reduce((a, r) => a + Number(r.n), 0);
+      if (n > 0) {
+        findings.push({
+          rule: 'status_without_measure',
+          ruleLabel: 'Range/status contradiction',
+          columns: [p.measurement, p.status],
+          count: n,
+          text: `${n} row(s) where "${p.status}" reports an abnormal result but "${p.measurement}" has no value.`,
+          explanation: `"${p.status}" asserts an out-of-range/abnormal result, yet the measurement "${p.measurement}" is missing on ${n} row(s) — nothing substantiates the flag.`,
+        });
+      }
+    } catch { /* skip */ }
+  }
+
+  // Rule 4 — LOS field vs date math mismatch.
+  // The los_days (length-of-stay) column, when present alongside admit and
+  // discharge date columns, must match the integer difference between those
+  // two dates. A mismatch of ≥ 2 days (allowing ±1 rounding convention) is
+  // a clear data error — either the LOS field was copied from a prior
+  // encounter, manually overridden, or the dates were corrected without
+  // updating the derived field.
+  const losCol = cols.find(c => {
+    const t = nameTokens(c.name);
+    return (t.includes('los') || (t.includes('length') && t.includes('stay'))) && isNumeric(c);
+  });
+  if (losCol) {
+    // Find an admit/discharge date pair within the already-detected date pairs,
+    // or fall back to any column whose name contains both the admit and
+    // discharge tokens from detectDatePairs.
+    const admitCol = cols.find(c => hasAnyKeyword(c.name, ['admit', 'admission']));
+    const dischargeCol = cols.find(c => hasAnyKeyword(c.name, ['discharge']));
+    if (admitCol && dischargeCol && admitCol.name !== dischargeCol.name) {
+      try {
+        const n = await q(`
+          SELECT COUNT(*) AS n FROM ${table}
+          WHERE "${admitCol.name}" IS NOT NULL
+            AND "${dischargeCol.name}" IS NOT NULL
+            AND "${losCol.name}" IS NOT NULL
+            AND ABS(
+              CAST("${losCol.name}" AS INTEGER)
+              - DATEDIFF('day',
+                  TRY_CAST("${admitCol.name}" AS DATE),
+                  TRY_CAST("${dischargeCol.name}" AS DATE)
+              )
+            ) >= 2`);
+        if (n > 0) {
+          findings.push({
+            rule: 'los_date_mismatch',
+            ruleLabel: 'LOS field vs date arithmetic mismatch',
+            columns: [losCol.name, admitCol.name, dischargeCol.name],
+            count: n,
+            text: `${n} row(s) where "${losCol.name}" differs from ("${dischargeCol.name}" − "${admitCol.name}") by ≥2 days — the stored LOS does not match the actual stay duration.`,
+            explanation: `"${losCol.name}" should equal the calendar-day difference between "${admitCol.name}" and "${dischargeCol.name}". ${n} row(s) have a discrepancy of 2+ days, indicating the field was not recomputed after a date correction, was copied from another record, or was manually entered incorrectly.`,
+          });
+        }
+      } catch { /* incompatible columns or missing DATEDIFF — skip */ }
+    }
+  }
+
+  // Rule 5 — Readmission flag logical consistency.
+  // The 30-day readmission window is a strict subset of the 90-day window.
+  // Therefore readmit_30d = 1 with readmit_90d = 0 is a logical impossibility:
+  // any patient readmitted within 30 days is by definition also readmitted
+  // within 90 days. The inverse (readmit_90d=1 with readmit_30d=0) is valid
+  // and means the readmission occurred on days 31–90.
+  //
+  // Clinical significance: CMS uses 30-day and 90-day readmission rates for
+  // Hospital Readmissions Reduction Program (HRRP) penalty calculations.
+  // A flipped flag corrupts quality reporting and risk models downstream.
+  //
+  // Column detection: looks for numeric/boolean columns whose names contain
+  // both a readmission stem ('readmit','readmission','rehospital') and a
+  // day-count token ('30','90','thirty','ninety'). Conservative: requires
+  // BOTH stems to be present so unrelated flag columns never fire.
+  const READMIT_STEMS = ['readmit', 'readmission', 'rehospital', 'rehosp'];
+  const isReadmitCol = c => hasAnyKeyword(c.name, READMIT_STEMS);
+  // Check tokens for 30/90 day markers. Tokens may be '30d', '30day', '30',
+  // 'thirty' etc. — match by checking whether any token contains the digit
+  // string OR the word form, rather than exact token equality.
+  const has30 = c => nameTokens(c.name).some(t => t.includes('30') || t === 'thirty');
+  const has90 = c => nameTokens(c.name).some(t => t.includes('90') || t === 'ninety');
+
+  const readmit30 = cols.find(c => isReadmitCol(c) && has30(c));
+  const readmit90 = cols.find(c => isReadmitCol(c) && has90(c));
+
+  if (readmit30 && readmit90 && readmit30.name !== readmit90.name) {
+    try {
+      // Truthy encodings: 1, '1', 'true', 'yes', 'y', 't'
+      const truthy = `LOWER(TRIM(CAST({col} AS VARCHAR))) IN ('1','true','yes','y','t')`;
+      const falsy  = `LOWER(TRIM(CAST({col} AS VARCHAR))) IN ('0','false','no','n','f')`;
+      const n = await q(`
+        SELECT COUNT(*) AS n FROM ${table}
+        WHERE ${truthy.replace('{col}', `"${readmit30.name}"`)}
+          AND ${falsy.replace('{col}',  `"${readmit90.name}"`)}
+          AND "${readmit30.name}" IS NOT NULL
+          AND "${readmit90.name}" IS NOT NULL`);
+      if (n > 0) {
+        findings.push({
+          rule: 'readmit_flag_inconsistency',
+          ruleLabel: 'Readmission flag logical inconsistency',
+          columns: [readmit30.name, readmit90.name],
+          count: n,
+          text: `${n} row(s) where "${readmit30.name}" = 1 but "${readmit90.name}" = 0 — a 30-day readmission is always within the 90-day window, so this combination is logically impossible.`,
+          explanation: `The 30-day readmission window is a strict subset of the 90-day window. "${readmit30.name}" = 1 means the patient returned within 30 days, which guarantees "${readmit90.name}" must also be 1. ${n} row(s) have the flags in an impossible state, indicating a data entry error, ETL bug, or flag derivation logic that was not applied consistently. This corrupts HRRP-style quality metrics and any risk model built on these flags.`,
+        });
+      }
+    } catch { /* incompatible columns — skip */ }
+  }
+
+  return findings;
+}
+
+
+  window._DgCrossColumn = {
+    nameTokens: typeof nameTokens !== 'undefined' ? nameTokens : null,
+    checkCrossColumnConsistency: typeof checkCrossColumnConsistency !== 'undefined' ? checkCrossColumnConsistency : null,
+  };
+}());
+/* ---- end cross-column-consistency.js ---- */
+
+/* ---- from js/cleaning/fuzzy-dedup.js ---- */
+;(function(){
+  'use strict';
+
+  // fuzzy-dedup imports duckdb-engine for findFuzzyDuplicates only.
+  // The sync similarity() function (used by Crucible) has zero deps.
+  // We stub the async findFuzzyDuplicates to a no-op for now.
+  var isLikelyIdentifierColumn = (window._DgIdentifierColumns || {}).isLikelyIdentifierColumn || function(){ return false; };
+
+// ============================================================
+// DATAGLOW — Fuzzy Duplicate Radar
+// ============================================================
+// Surfaces near-duplicate text values for human review. Never
+// auto-merges. Similarity is the max of two public string metrics.
+
+// [stripped import] import * as engine from '../app-shell/duckdb-engine.js';
+// [stripped import] import { isLikelyIdentifierColumn } from '../shared/identifier-columns.js';
+
+const MAX_ROWS = 2000;
+
+// ------------------------------------------------------------
+// P0 safety guard — unique-identifier columns must never be fuzzy-matched.
+//
+// Bug this fixes (found 2026-07-15, Run 5 "Portfolio-readiness" test): this
+// radar judges values by pure string similarity (Levenshtein/Jaro-Winkler)
+// with no awareness of column semantics. On a business-key column such as
+// claim_id, two unrelated identifiers can be textually "close" purely by
+// digit permutation (e.g. "CLM100001" vs "CLM100010", or "CLM100001" vs
+// "CLM101000") — confirmed live: this exact input produces 98%-confidence
+// "Merge →" suggestions. Because the Clean tab's radar is presented as a
+// destructive-merge candidate list, a false-positive pair on a unique-ID
+// column is not a cosmetic miss — a user acting on it would silently
+// collapse two distinct claims' or patients' records onto the same key.
+//
+// A near-identical NAME-based guard already exists in
+// categorical-consistency.js (PR #198, 2026-07-12) but was never ported to
+// this sibling module — this is the second, previously-unpatched code path
+// the same bug class lived in. Both modules import the identical name-
+// pattern regex from the shared, dependency-free js/shared/identifier-
+// columns.js instead of hand-duplicating it a third time.
+//
+// Deliberately NAME-ONLY here, unlike categorical-consistency.js's guard
+// (which also checks cardinality ratio). Cardinality-based near-uniqueness
+// is the WRONG signal for this specific module: fuzzy-dedup's whole purpose
+// is finding near-duplicates in free-text columns (patient names, company
+// names) where every value being distinct is the expected, healthy case —
+// applying a >=0.9-distinct-ratio guard here was tried and immediately
+// broke the radar's own 100%-catch-rate benchmark on a genuine patient_name
+// column (36 rows, 12 seeded near-dup pairs, ~35 distinct values — a ratio
+// that trips a cardinality guard just as hard as a real identifier column
+// would). categorical-consistency.js's guard exists for a different shape
+// of column (bounded-vocabulary categoricals, where near-uniqueness really
+// is anomalous) — the two modules share the name pattern but must NOT share
+// the cardinality heuristic.
+function isGuardedIdentifierColumn(columnName) {
+  return isLikelyIdentifierColumn(columnName);
+}
+
+// Levenshtein edit distance (Levenshtein 1965, public algorithm).
+function levenshtein(a, b) {
+  a = a || ''; b = b || '';
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+// Normalized Levenshtein similarity in [0,1].
+function levenshteinSimilarity(a, b) {
+  a = a || ''; b = b || '';
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+}
+
+// Jaro-Winkler similarity (Jaro 1989 / Winkler 1990, public algorithm).
+function jaroWinkler(a, b) {
+  a = a || ''; b = b || '';
+  if (a === b) return 1;
+  if (a.length === 0 || b.length === 0) return 0;
+
+  const matchWindow = Math.max(0, Math.floor(Math.max(a.length, b.length) / 2) - 1);
+  const aMatches = new Array(a.length).fill(false);
+  const bMatches = new Array(b.length).fill(false);
+  let matches = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(i + matchWindow + 1, b.length);
+    for (let j = start; j < end; j++) {
+      if (bMatches[j] || a[i] !== b[j]) continue;
+      aMatches[i] = true;
+      bMatches[j] = true;
+      matches++;
+      break;
+    }
+  }
+  if (matches === 0) return 0;
+
+  // Count transpositions.
+  let transpositions = 0;
+  let k = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (!aMatches[i]) continue;
+    while (!bMatches[k]) k++;
+    if (a[i] !== b[k]) transpositions++;
+    k++;
+  }
+  transpositions /= 2;
+
+  const m = matches;
+  const jaro = (m / a.length + m / b.length + (m - transpositions) / m) / 3;
+
+  // Winkler prefix bonus (up to 4 leading chars, scaling factor 0.1).
+  let prefix = 0;
+  for (let i = 0; i < Math.min(4, a.length, b.length); i++) {
+    if (a[i] === b[i]) prefix++;
+    else break;
+  }
+  return jaro + prefix * 0.1 * (1 - jaro);
+}
+
+// Combined similarity — take the stronger of the two metrics.
+function similarity(a, b) {
+  return Math.max(levenshteinSimilarity(a, b), jaroWinkler(a, b));
+}
+
+function pickBestTextColumn(cols) {
+  // Identifier-like columns are excluded from auto-selection at the source —
+  // never let the radar default onto a unique-key column even by name-match
+  // coincidence (a column named e.g. "customer_id" would otherwise match the
+  // name-like preference below).
+  const varchars = cols.filter(c => c.type === 'VARCHAR' && !isLikelyIdentifierColumn(c.name));
+  if (varchars.length === 0) return null;
+  // Prefer name-like columns; else first VARCHAR.
+  return (varchars.find(c => /name|title|company|city|address|email|customer|vendor/i.test(c.name)) || varchars[0]).name;
+}
+
+async function findFuzzyDuplicates(table, cols, options = {}) {
+  const threshold = options.threshold != null ? options.threshold : 0.85;
+  const column = options.column || pickBestTextColumn(cols);
+  if (!column) return { column: null, pairs: [], warning: 'No text column available for fuzzy matching.' };
+
+  const { rows: cntRows } = await engine.runQuery(`SELECT COUNT(*) AS n FROM ${table}`);
+  const totalRows = cntRows[0].n || 0;
+  let warning = null;
+  if (totalRows > MAX_ROWS) {
+    warning = `Table has ${totalRows.toLocaleString()} rows; fuzzy comparison capped at the first ${MAX_ROWS} for performance.`;
+  }
+
+  const { rows } = await engine.runQuery(
+    `SELECT ROW_NUMBER() OVER () AS __rn, "${column}" AS v FROM ${table} WHERE "${column}" IS NOT NULL LIMIT ${MAX_ROWS}`
+  );
+  const items = rows.map(r => ({ rn: Number(r.__rn), value: String(r.v) }));
+
+  // P0 guard, run BEFORE any similarity comparison — even an explicitly
+  // passed `options.column` (not just the auto-picked default above) must
+  // never reach the O(n^2) comparison loop below if it's identifier-like,
+  // since an explicit caller-supplied column bypasses pickBestTextColumn
+  // entirely.
+  if (!options.skipIdentifierGuard && isGuardedIdentifierColumn(column)) {
+    return {
+      column,
+      threshold,
+      comparedRows: 0,
+      pairs: [],
+      warning: `"${column}" looks like a unique-identifier column by name — fuzzy matching is disabled here to avoid suggesting destructive merges between distinct records.`,
+    };
+  }
+
+  const pairs = [];
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (items[i].value === items[j].value) continue; // exact dupes handled elsewhere
+      const score = similarity(items[i].value, items[j].value);
+      if (score > threshold) {
+        pairs.push({
+          rowA: items[i].rn,
+          rowB: items[j].rn,
+          column,
+          similarity: Number(score.toFixed(3)),
+          valueA: items[i].value,
+          valueB: items[j].value,
+        });
+      }
+    }
+  }
+  pairs.sort((a, b) => b.similarity - a.similarity);
+
+  return { column, threshold, comparedRows: items.length, pairs, warning };
+}
+
+
+  window._DgFuzzyDedup = {
+    levenshtein: typeof levenshtein !== 'undefined' ? levenshtein : null,
+    levenshteinSimilarity: typeof levenshteinSimilarity !== 'undefined' ? levenshteinSimilarity : null,
+    jaroWinkler: typeof jaroWinkler !== 'undefined' ? jaroWinkler : null,
+    similarity: typeof similarity !== 'undefined' ? similarity : null,
+  };
+}());
+/* ---- end fuzzy-dedup.js ---- */
+
+/* ---- from js/provenance/revert-eligibility.js ---- */
+;(function(){
+  'use strict';
+
+  var normalizeBlameEntry = (window._DgDataBlame || {}).normalizeBlameEntry || function(x){ return x; };
+
+// ============================================================
+// DATAGLOW — The Crucible (Batch 3 of 3): revert PROPOSALS (proposal-only)
+// ============================================================
+// WHAT THIS IS: a pure, DOM-free, never-throwing classifier + proposal builder
+// layered on top of the existing provenance blame trail
+// (js/provenance/data-blame.js). It answers one narrow, honest question for a
+// recorded cleaning transform: "could this change be reverted in principle, and
+// if so, what would that revert DESCRIBE doing?" — and it answers it
+// CONSERVATIVELY, never guessing.
+//
+// DELIBERATELY OUT OF SCOPE (not a gap — a safety choice):
+//   - This module NEVER mutates data and emits NO executable SQL. A revert
+//     proposal is inert, inspectable DATA describing an intent, nothing more.
+//     Actually running a revert against live DuckDB would be brand-new, separate
+//     future work needing its own safety review; it is NOT an already-planned
+//     "Batch 4".
+//   - DELETE-style fixes (drop_rows, dedupe) are PERMANENTLY not revert-eligible:
+//     the rows are gone; the provenance trail records that they were removed, not
+//     their full contents, so there is nothing to restore from.
+//   - Aggregate-derived fills (fill_mean, fill_mode) are PERMANENTLY not
+//     revert-eligible: the written value was computed from the data as it stood
+//     at fix time; a naive "undo" cannot faithfully reconstruct the pre-fix state
+//     and would risk silently diverging.
+//   - Anything ambiguous (an UPDATE-style rule whose before/after detail was
+//     never captured, or an unrecognized rule) is treated as NOT eligible. We
+//     never fabricate a before-value we don't actually have on the trail.
+//
+// It reuses normalizeBlameEntry() from data-blame.js as the single source of the
+// blame-entry shape — it invents no parallel shape.
+// ============================================================
+
+// [stripped import] import { normalizeBlameEntry } from './data-blame.js';
+
+// The cleaning fix taxonomy, using the EXACT rule/fixType strings that
+// js/cleaning/clean.js applyFix() records (via buildBlameDetail's `rule`, with
+// legacy `fixType` also understood by normalizeBlameEntry).
+//   DELETE-style: rows removed — irreversible from the trail alone.
+const DELETE_RULES = new Set(['drop_rows', 'dedupe']);
+//   AGGREGATE-derived: value computed from the dataset — naive undo may diverge.
+const AGGREGATE_RULES = new Set(['fill_mean', 'fill_mode']);
+//   UPDATE-style: a per-cell overwrite that is restorable IN PRINCIPLE, but only
+//   when the trail actually captured the before/after values.
+const UPDATE_RULES = new Set(['fill_zero', 'abs_value', 'null_out', 'trim']);
+
+function isPlainObject(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Coalesce whatever the caller hands us into the normalized blame-entry shape.
+// Accepts a raw provenance step (has a `.detail` object -> run it through
+// normalizeBlameEntry) OR an already-normalized blame entry (pass through).
+// Never throws; anything unusable -> null.
+function asBlameEntry(input) {
+  if (!isPlainObject(input)) return null;
+  if (isPlainObject(input.detail)) {
+    try { return normalizeBlameEntry(input); } catch { return null; }
+  }
+  return input;
+}
+
+// "Usable before/after detail" means BOTH were actually recorded on the trail.
+// `before`/`after` are only present on a blame entry when buildBlameDetail was
+// called with them; a recorded `before: null` (e.g. fill_zero's NULL->0) IS
+// usable, so we test presence (!== undefined), never truthiness.
+function hasBeforeAfter(entry) {
+  return entry.before !== undefined && entry.after !== undefined;
+}
+
+// ============================================================
+// classifyRevertEligibility(blameEntry) -> { eligible, reason, category }
+// Pure, never throws. category is one of:
+//   'update'              — UPDATE-style with usable before/after (eligible:true)
+//   'delete'              — DELETE-style, rows gone (eligible:false)
+//   'aggregate'           — aggregate-derived, recompute risk (eligible:false)
+//   'insufficient-detail' — UPDATE-style missing before/after, or unrecognized
+//                           rule, or malformed input (eligible:false)
+// ============================================================
+function classifyRevertEligibility(blameEntry) {
+  const entry = asBlameEntry(blameEntry);
+  if (!entry) {
+    return {
+      eligible: false,
+      category: 'insufficient-detail',
+      reason: 'No usable blame entry: input is missing or malformed, so revert-eligibility cannot be determined. Treated conservatively as not revert-eligible.',
+    };
+  }
+
+  const rule = entry.rule != null ? String(entry.rule) : null;
+
+  if (rule && DELETE_RULES.has(rule)) {
+    return {
+      eligible: false,
+      category: 'delete',
+      reason: `The "${rule}" fix removed rows. The provenance trail records that rows were deleted, not their full contents, so there is nothing to restore from — this is permanently not revert-eligible.`,
+    };
+  }
+
+  if (rule && AGGREGATE_RULES.has(rule)) {
+    return {
+      eligible: false,
+      category: 'aggregate',
+      reason: `The "${rule}" fix wrote a value computed from the data as it stood at fix time. A naive undo cannot faithfully reconstruct the pre-fix state and would risk silently diverging, so this is permanently not revert-eligible.`,
+    };
+  }
+
+  if (rule && UPDATE_RULES.has(rule)) {
+    if (hasBeforeAfter(entry)) {
+      return {
+        eligible: true,
+        category: 'update',
+        reason: `The "${rule}" fix is a per-cell overwrite and the trail captured both the before and after values, so a revert can be described precisely.`,
+      };
+    }
+    return {
+      eligible: false,
+      category: 'insufficient-detail',
+      reason: `The "${rule}" fix is restorable in principle, but the trail did not capture the before/after values for it, so a faithful revert cannot be described without guessing. Treated conservatively as not revert-eligible.`,
+    };
+  }
+
+  return {
+    eligible: false,
+    category: 'insufficient-detail',
+    reason: rule
+      ? `Unrecognized fix rule "${rule}": revert-eligibility is unknown, so it is treated conservatively as not revert-eligible.`
+      : 'No fix rule recorded on this blame entry, so revert-eligibility cannot be determined. Treated conservatively as not revert-eligible.',
+  };
+}
+
+// Plain-language, per-rule sentence describing what the revert would restore.
+function describeRevert(rule, column, before, after) {
+  const col = column != null ? `"${column}"` : 'the column';
+  const beforeText = before === null ? 'NULL' : JSON.stringify(before);
+  const afterText = after === null ? 'NULL' : JSON.stringify(after);
+  const label = {
+    fill_zero: 'fill_zero',
+    abs_value: 'abs_value',
+    null_out: 'null_out',
+    trim: 'trim',
+  }[rule] || rule;
+  return `Restore ${beforeText} in column ${col} where it was previously set to ${afterText} by the ${label} fix.`;
+}
+
+// ============================================================
+// buildRevertProposal(blameEntry) — for an ELIGIBLE entry, an inert, inspectable
+// DATA description of the revert (never executable SQL). For an ineligible entry,
+// mirrors the classifier's { eligible:false, reason } (plus category). Pure,
+// never throws, never fabricates a value the trail does not hold.
+// ============================================================
+function buildRevertProposal(blameEntry) {
+  const verdict = classifyRevertEligibility(blameEntry);
+  if (!verdict.eligible) {
+    return { eligible: false, category: verdict.category, reason: verdict.reason };
+  }
+
+  const entry = asBlameEntry(blameEntry);
+  const column = Array.isArray(entry.columns) && entry.columns.length ? entry.columns[0] : null;
+  // `table` is not part of the normalized blame-entry shape; surface it only if
+  // the caller actually carried one, else null (honest "unknown"), never faked.
+  const table = typeof entry.table === 'string' ? entry.table
+    : (isPlainObject(blameEntry) && typeof blameEntry.table === 'string' ? blameEntry.table : null);
+
+  return {
+    eligible: true,
+    category: 'update',
+    table,
+    column,
+    predicate: entry.predicate != null ? String(entry.predicate) : null,
+    restoreValue: entry.before,
+    sourceStepHash: entry.hash != null ? String(entry.hash) : null,
+    humanDescription: describeRevert(entry.rule, column, entry.before, entry.after),
+  };
+}
+
+// ============================================================
+// summarizeRevertProposals(blameEntries) -> { eligibleCount, ineligibleCount,
+// byCategory, proposals }. Runs the classifier/proposal builder over a whole
+// trail (array of raw steps or normalized entries). Malformed/empty -> zeroed
+// summary. Pure, never throws.
+// ============================================================
+function summarizeRevertProposals(blameEntries) {
+  const arr = Array.isArray(blameEntries) ? blameEntries : [];
+  const byCategory = { update: 0, delete: 0, aggregate: 0, 'insufficient-detail': 0 };
+  const proposals = [];
+  let eligibleCount = 0;
+  let ineligibleCount = 0;
+
+  for (const raw of arr) {
+    const verdict = classifyRevertEligibility(raw);
+    byCategory[verdict.category] = (byCategory[verdict.category] || 0) + 1;
+    if (verdict.eligible) {
+      eligibleCount++;
+      proposals.push(buildRevertProposal(raw));
+    } else {
+      ineligibleCount++;
+    }
+  }
+
+  return { eligibleCount, ineligibleCount, byCategory, proposals };
+}
+
+
+  window._DgRevertEligibility = {
+    classifyRevertEligibility: typeof classifyRevertEligibility !== 'undefined' ? classifyRevertEligibility : null,
+    buildRevertProposal: typeof buildRevertProposal !== 'undefined' ? buildRevertProposal : null,
+  };
+}());
+/* ---- end revert-eligibility.js ---- */
+
+/* ---- from js/cleaning/fix-confidence.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Confidence Score Per Cleaning Decision
+// Pure function: rates how safe a proposed fix is. Does not modify clean.js.
+// ============================================================
+
+function label(score) {
+  if (score >= 75) return 'High confidence';
+  if (score >= 50) return 'Medium confidence';
+  return 'Low confidence — review recommended';
+}
+
+// Heuristic fix-safety scoring. columnStats is an optional bag of stats the
+// caller may supply, e.g. { cv, modeShare } where:
+//   cv        = coefficient of variation (stddev/mean) for numeric columns
+//   modeShare = fraction of non-null values equal to the mode (0..1)
+function scoreFixConfidence(issue, fixType, columnStats = {}) {
+  let score = 60; // neutral default
+
+  switch (fixType) {
+    case 'trim':
+      // Whitespace trimming is nearly always safe and reversible in intent.
+      score = 96;
+      break;
+    case 'dedupe':
+      score = 90;
+      break;
+    case 'abs_value':
+      score = 55; // sign flips can be legitimate; moderate caution
+      break;
+    case 'null_out':
+      score = 65;
+      break;
+    case 'fill_zero':
+      // Filling with zero is a strong assumption unless the column is a count.
+      score = /count|qty|quantity/i.test(issue.column || '') ? 70 : 45;
+      break;
+    case 'fill_mean': {
+      const cv = columnStats.cv;
+      if (cv == null) { score = 55; break; }
+      // Low variance => mean is representative; high variance => unreliable.
+      if (cv < 0.25) score = 80;
+      else if (cv < 0.75) score = 60;
+      else score = 45;
+      break;
+    }
+    case 'fill_mode': {
+      const share = columnStats.modeShare;
+      if (share == null) { score = 55; break; }
+      if (share >= 0.8) score = 88;      // dominant mode
+      else if (share >= 0.5) score = 65; // majority
+      else score = 42;                   // mere plurality — risky
+      break;
+    }
+    case 'drop_rows':
+      // Dropping rows loses data; safer when the affected fraction is tiny.
+      score = (issue.pct != null && parseFloat(issue.pct) < 1) ? 70 : 50;
+      break;
+    default:
+      score = 55;
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, label: label(score) };
+}
+
+
+  window._DgFixConfidence = {
+    scoreFixConfidence: typeof scoreFixConfidence !== 'undefined' ? scoreFixConfidence : null,
+  };
+}());
+/* ---- end fix-confidence.js ---- */
+
+/* ---- from js/validation/physiological-plausibility.js ---- */
+;(function(){
+  'use strict';
+
+  var nameTokens = (window._DgCrossColumn || {}).nameTokens || function(s){ return (s||'').toLowerCase().split(/[_\s]+/); };
+
+// ============================================================
+// DATAGLOW — Physiological Plausibility Layer (healthcare-aware validation)
+// ============================================================
+// A healthcare-aware validation layer that sits ABOVE the generic statistical
+// validators. Unlike outlier detection — which flags values that are unusual
+// *relative to the dataset's own distribution* — this layer encodes hard limits
+// grounded in human biology. A heart rate of 300 bpm is not merely a statistical
+// outlier; it is physiologically impossible for a living human regardless of
+// what the rest of the column looks like. That makes this check able to catch
+// data errors (unit-conversion mistakes, decimal-point slips, sensor glitches,
+// data-entry typos) that pure statistics miss when many rows share the same
+// error.
+//
+// IMPORTANT — scope & intent:
+//   * These are IMPLAUSIBILITY bounds (values impossible / vanishingly unlikely
+//     for a living human), deliberately far WIDER than clinical "normal" or
+//     "abnormal" ranges. This is a DATA-QUALITY check, NOT a medical diagnostic
+//     tool and NOT clinical decision support.
+//   * Every bound below is sourced ONLY from general, public, textbook-level
+//     human-physiology knowledge (the kind found in any introductory
+//     physiology / first-aid reference). No commercial clinical decision-support
+//     system's proprietary rule engine or alert thresholds are referenced or
+//     replicated.
+//   * v1 is intentionally NARROW: five well-established vital signs only. It uses
+//     a single, generously wide adult+pediatric plausibility range per vital
+//     rather than age-adjusted pediatric bounds (see PR notes).
+//
+// Column detection reuses the robust word-splitting tokenizer from the
+// Cross-Column layer (snake_case / camelCase / kebab-case / space-separated) so
+// compound names like "heart_rate", "heartRate", "bp-sys" all match — naive
+// regex `\b` boundaries fail on snake_case, a bug already fixed elsewhere in
+// this app.
+// ============================================================
+
+// [stripped import] import { nameTokens } from './cross-column-consistency.js';
+
+const NUMERIC_T = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
+
+// Visible, user-facing disclaimer shown wherever these results appear.
+const PHYSIO_DISCLAIMER =
+  'This is a general data-plausibility check, NOT medical advice and NOT a ' +
+  'clinical decision-support tool. It flags values that fall outside broad, ' +
+  'textbook-level human physiological limits (e.g. a heart rate above 300 bpm) ' +
+  'to catch likely data-entry, unit-conversion, or sensor errors. The bounds ' +
+  'used are deliberately wide general physiological plausibility limits — they ' +
+  'are NOT diagnostic thresholds and NOT "normal/healthy" ranges. A flagged ' +
+  'value is a candidate data error to review, never a clinical finding.';
+
+// ------------------------------------------------------------
+// Vital-sign definitions. Bounds are general physiological plausibility limits
+// (see per-vital sourcing notes) — a value below `low` or above `high` is
+// treated as physiologically implausible for any living human.
+// ------------------------------------------------------------
+// `codes` are short identifiers matched EXACTLY against a name token (so "hr",
+// "bp_sys", "spo2" match without the substring false-positives that "hr" would
+// hit inside "threshold"). `stems` are descriptive words matched by token
+// prefix (length chosen to avoid collisions, e.g. "temperatur" not "temp" so
+// "template" is never mistaken for temperature).
+const VITALS = [
+  {
+    // Systolic BP. Highest transient systolic ever recorded (~370 mmHg during
+    // maximal weightlifting) is the upper plausibility anchor; below ~40 mmHg is
+    // incompatible with a perfusing measurement. Wider than any clinical range.
+    type: 'systolic', label: 'Systolic blood pressure', unit: 'mmHg',
+    codes: ['sys', 'sbp', 'bpsys'], stems: ['systol'],
+    low: 40, high: 370,
+  },
+  {
+    // Diastolic BP. Plausibility floor ~15 mmHg; ceiling ~250 mmHg (a diastolic
+    // above this is not physiologically sustainable). Relationship check
+    // (diastolic must be below systolic) is handled separately in the runner.
+    type: 'diastolic', label: 'Diastolic blood pressure', unit: 'mmHg',
+    codes: ['dia', 'dbp', 'bpdia'], stems: ['diastol'],
+    low: 15, high: 250,
+  },
+  {
+    // Heart rate. General physiological limits: sustained rates below ~20 bpm or
+    // above ~300 bpm are not compatible with a living human (extreme athlete
+    // bradycardia and infant/SVT tachycardia both fall inside 20–300).
+    type: 'heart_rate', label: 'Heart rate', unit: 'bpm',
+    codes: ['hr', 'bpm', 'pulse'], stems: ['heart', 'pulse'],
+    low: 20, high: 300,
+  },
+  {
+    // Respiratory rate. Below ~3 breaths/min is effectively apnea; above ~80 is
+    // beyond any sustainable human respiratory rate (newborn tachypnea ~60).
+    type: 'respiratory_rate', label: 'Respiratory rate', unit: 'breaths/min',
+    codes: ['rr', 'resp'], stems: ['respir', 'breath'],
+    low: 3, high: 80,
+  },
+  {
+    // Oxygen saturation (SpO2). Physically bounded 0–100%; a value ABOVE 100% is
+    // a definite data error, and below ~50% is implausible for a valid reading
+    // of a living patient.
+    type: 'spo2', label: 'Oxygen saturation (SpO₂)', unit: '%',
+    codes: ['spo2', 'sao2', 'o2sat', 'o2'], stems: ['oxygen', 'saturation'],
+    low: 50, high: 100,
+  },
+  {
+    // Body temperature. Unit (°C vs °F) is auto-detected (see detectTempUnit).
+    // Survivable-extreme anchors: ~13.7 °C (lowest survived) / ~46.5 °C (highest
+    // survived); rounded outward to a wide plausibility window per unit.
+    type: 'temperature', label: 'Body temperature',
+    codes: ['temp', 'tmp'], stems: ['temperatur', 'fahrenheit', 'celsius'],
+    temperature: true,
+  },
+];
+
+// Wide per-unit temperature plausibility windows (12–45 °C ≈ 53.6–113 °F).
+const TEMP_BOUNDS = {
+  C: { low: 12, high: 45 },
+  F: { low: 53, high: 113 },
+};
+
+// Match a column name to a vital-sign definition (or null). Checks definitions
+// in order, so the specific systolic/diastolic BP columns are resolved before
+// the generic heart-rate keywords. Returns the matching VITALS entry.
+function matchVital(name) {
+  const tokens = nameTokens(name);
+  if (tokens.length === 0) return null;
+  for (const v of VITALS) {
+    if (v.codes && tokens.some(t => v.codes.includes(t))) return v;
+    if (v.stems && tokens.some(t => v.stems.some(s => t.startsWith(s)))) return v;
+  }
+  return null;
+}
+
+// Decide whether a temperature column is Celsius or Fahrenheit. Name hints win
+// (temp_f / *fahrenheit → F, temp_c / *celsius → C); otherwise fall back to the
+// column's median: human body temperatures cluster ~37 °C vs ~98.6 °F, so a
+// median at/above 50 reads as Fahrenheit. Defaults to Celsius when unknown.
+function detectTempUnit(name, median) {
+  const tokens = nameTokens(name);
+  if (tokens.includes('f') || tokens.some(t => t.startsWith('fahren'))) return 'F';
+  if (tokens.includes('c') || tokens.some(t => t.startsWith('celsi'))) return 'C';
+  if (median == null || Number.isNaN(median)) return 'C';
+  return median >= 50 ? 'F' : 'C';
+}
+
+function boundsFinding({ vital, label, column, unit, low, high, lowCount, highCount, unitNote }) {
+  const count = lowCount + highCount;
+  const u = unit ? ` ${unit}` : '';
+  const parts = [];
+  if (lowCount > 0) parts.push(`${lowCount} below ${low}${u}`);
+  if (highCount > 0) parts.push(`${highCount} above ${high}${u}`);
+  return {
+    vital,
+    label,
+    column,
+    unit: unit || null,
+    low, high, lowCount, highCount, count,
+    text: `${count} implausible value(s) in "${column}" — outside the plausible ${label.toLowerCase()} range of ${low}–${high}${u}.`,
+    explanation: `${(unitNote ? unitNote + ' ' : '')}${parts.join(' and ')}. These fall outside broad, textbook-level human physiological limits and are far more likely data-entry, unit-conversion, or sensor errors than real measurements.`,
+  };
+}
+
+// ------------------------------------------------------------
+// Runner — executes the plausibility checks against the loaded table and returns
+// { findings, matched }. Pure of side effects (no ledger writes): the caller
+// decides how to log, mirroring the Cross-Column and Categorical layers.
+//
+// Each finding: { vital, label, column|columns, count, text, explanation, ... }
+//   text        — concise one-liner (used for the layer's `detail` list)
+//   explanation — plain-language "why this is implausible"
+// ------------------------------------------------------------
+async function runPhysiologicalChecks(table, cols, engine) {
+  const findings = [];
+  const matched = [];
+  const numeric = cols.filter(c => NUMERIC_T.includes(c.type));
+
+  const one = async (sql) => {
+    const { rows } = await engine.runQuery(sql);
+    return rows[0] || {};
+  };
+
+  const systolicCols = [];
+  const diastolicCols = [];
+
+  for (const c of numeric) {
+    const v = matchVital(c.name);
+    if (!v) continue;
+    const col = `"${c.name}"`;
+
+    if (v.temperature) {
+      const medRow = await one(`SELECT quantile_cont(${col}, 0.5) AS med FROM ${table} WHERE ${col} IS NOT NULL`);
+      const med = medRow.med != null ? Number(medRow.med) : null;
+      const unit = detectTempUnit(c.name, med);
+      const b = TEMP_BOUNDS[unit];
+      const disp = `°${unit}`;
+      const r = await one(`
+        SELECT COUNT(*) FILTER (WHERE ${col} < ${b.low}) AS lo,
+               COUNT(*) FILTER (WHERE ${col} > ${b.high}) AS hi
+        FROM ${table} WHERE ${col} IS NOT NULL`);
+      const lo = Number(r.lo) || 0;
+      const hi = Number(r.hi) || 0;
+      matched.push({ column: c.name, vital: v.type, unit: disp });
+      if (lo + hi > 0) {
+        findings.push(boundsFinding({
+          vital: v.type, label: v.label, column: c.name, unit: disp,
+          low: b.low, high: b.high, lowCount: lo, highCount: hi,
+          unitNote: `Detected unit: ${disp} (${unit === 'F' ? 'Fahrenheit' : 'Celsius'}).`,
+        }));
+      }
+      continue;
+    }
+
+    const r = await one(`
+      SELECT COUNT(*) FILTER (WHERE ${col} < ${v.low}) AS lo,
+             COUNT(*) FILTER (WHERE ${col} > ${v.high}) AS hi
+      FROM ${table} WHERE ${col} IS NOT NULL`);
+    const lo = Number(r.lo) || 0;
+    const hi = Number(r.hi) || 0;
+    matched.push({ column: c.name, vital: v.type, unit: v.unit || null });
+    if (lo + hi > 0) {
+      findings.push(boundsFinding({
+        vital: v.type, label: v.label, column: c.name, unit: v.unit,
+        low: v.low, high: v.high, lowCount: lo, highCount: hi,
+      }));
+    }
+    if (v.type === 'systolic') systolicCols.push(c.name);
+    if (v.type === 'diastolic') diastolicCols.push(c.name);
+  }
+
+  // Cross-check: diastolic cannot exceed systolic in a valid reading. Pair the
+  // first detected systolic column with the first diastolic (conservative — a
+  // dataset almost never carries more than one of each).
+  if (systolicCols.length && diastolicCols.length) {
+    const s = systolicCols[0];
+    const d = diastolicCols[0];
+    const r = await one(`
+      SELECT COUNT(*) AS n FROM ${table}
+      WHERE "${s}" IS NOT NULL AND "${d}" IS NOT NULL AND "${d}" > "${s}"`);
+    const n = Number(r.n) || 0;
+    if (n > 0) {
+      findings.push({
+        vital: 'bp_relationship',
+        label: 'Blood pressure relationship',
+        columns: [s, d],
+        count: n,
+        text: `${n} row(s) where diastolic "${d}" exceeds systolic "${s}" — diastolic cannot be higher than systolic.`,
+        explanation: `In any valid reading diastolic blood pressure is lower than systolic; ${n} row(s) invert this, indicating swapped or mis-entered values.`,
+      });
+    }
+  }
+
+  return { findings, matched };
+}
+
+
+  window._DgPhysPlaus = {
+    matchVital: typeof matchVital !== 'undefined' ? matchVital : null,
+    detectTempUnit: typeof detectTempUnit !== 'undefined' ? detectTempUnit : null,
+    TEMP_BOUNDS: typeof TEMP_BOUNDS !== 'undefined' ? TEMP_BOUNDS : {},
+  };
+}());
+/* ---- end physiological-plausibility.js ---- */
+
+/* ---- from js/validation/crucible-contract.js ---- */
+;(function(){
+  'use strict';
+
+  // sha256Hex is already in bundle from provenance module
+  var sha256Hex = (typeof window._dgSha256Hex === 'function') ? window._dgSha256Hex
+    : function(s){ return btoa(encodeURIComponent(s)).replace(/[^a-zA-Z0-9]/g,'').toLowerCase().slice(0,64); };
+
+// ============================================================
+// DATAGLOW — The Crucible: typed handoff contract (Batch 1 of 3)
+// ============================================================
+// The Crucible is an adversarial validator that stress-tests another agent's (or
+// rule's) PROPOSED data changes BEFORE anything is applied. This module ships the
+// two typed objects that flow across that boundary — nothing else. It is pure,
+// Node-testable, DOM/DuckDB/network-free, and NEVER throws: malformed or empty
+// input returns a safe { ok:false, errors:[...] } result instead of a valid object.
+//
+// Handoff direction (borrowing Salesforce Agentforce's framing informally: a
+// one-way `@utils.transition` handoff hands control off and does not expect a
+// reply on the same channel, whereas a round-trip `@topic` call awaits a return):
+//   • CleaningResult    — a ONE-WAY handoff INTO the Crucible. The Cleaning Agent
+//                         states what it wants to change and how sure it is; it
+//                         does not itself wait for a structured answer here.
+//   • ValidationVerdict — a ONE-WAY handoff OUT of the Crucible, back to whatever
+//                         orchestration layer decides to apply or discard the
+//                         changes. The Validator does not apply anything itself.
+// Neither object is a round-trip request/response: the Crucible is a gate in a
+// pipeline, not a conversational partner. Batch 1 does NOT build the orchestration
+// layer that reads a verdict and applies/reverts changes (that is Batch 3) nor any
+// UI (Batch 2) — it builds only these two typed objects and their validation.
+
+// [stripped import] import { sha256Hex } from '../provenance/provenance.js';
+
+const DECISIONS = Object.freeze(['accept', 'reject', 'escalate']);
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isNonEmptyString(v) {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+// A single proposed change: which field, its current value, the value the agent
+// wants to write, and the rule that motivated it. oldValue/newValue may be any
+// JSON-ish scalar (including null), so only field and rule are shape-checked.
+function validateChange(change, index) {
+  const errors = [];
+  if (!isPlainObject(change)) {
+    errors.push(`changes[${index}] must be an object`);
+    return errors;
+  }
+  if (!isNonEmptyString(change.field)) errors.push(`changes[${index}].field must be a non-empty string`);
+  if (!('oldValue' in change)) errors.push(`changes[${index}].oldValue is required (may be null)`);
+  if (!('newValue' in change)) errors.push(`changes[${index}].newValue is required (may be null)`);
+  if (!isNonEmptyString(change.rule)) errors.push(`changes[${index}].rule must be a non-empty string`);
+  return errors;
+}
+
+/**
+ * Construct and validate a CleaningResult — the one-way handoff INTO the Crucible.
+ * Never throws; malformed input returns { ok:false, errors:[...] }.
+ *
+ * @param {{changes:Array<{field:string, oldValue:*, newValue:*, rule:string}>,
+ *          confidence:number, rulesCited:string[], agentId:string}} input
+ * @returns {{ok:true, result:object} | {ok:false, errors:string[]}}
+ */
+function buildCleaningResult(input) {
+  const errors = [];
+  if (!isPlainObject(input)) {
+    return { ok: false, errors: ['input must be an object'] };
+  }
+  const { changes, confidence, rulesCited, agentId } = input;
+
+  if (!Array.isArray(changes)) {
+    errors.push('changes must be an array');
+  } else {
+    changes.forEach((c, i) => errors.push(...validateChange(c, i)));
+  }
+
+  if (typeof confidence !== 'number' || Number.isNaN(confidence) || confidence < 0 || confidence > 1) {
+    errors.push('confidence must be a number in [0, 1]');
+  }
+
+  if (!Array.isArray(rulesCited) || !rulesCited.every(isNonEmptyString)) {
+    errors.push('rulesCited must be an array of non-empty strings');
+  }
+
+  if (!isNonEmptyString(agentId)) {
+    errors.push('agentId must be a non-empty string');
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    result: {
+      kind: 'CleaningResult',
+      agentId,
+      confidence,
+      rulesCited: [...rulesCited],
+      changes: changes.map((c) => ({ field: c.field, oldValue: c.oldValue, newValue: c.newValue, rule: c.rule })),
+    },
+  };
+}
+
+// A pack result is one adversarial pack's outcome. Kept permissive on purpose —
+// runAdversarialSuite() in crucible-adversarial-packs.js is the authority on the
+// exact shape; here we only assert the fields the verdict actually reasons about.
+function validatePackResult(pr, index) {
+  const errors = [];
+  if (!isPlainObject(pr)) {
+    errors.push(`packResults[${index}] must be an object`);
+    return errors;
+  }
+  if (!isNonEmptyString(pr.id)) errors.push(`packResults[${index}].id must be a non-empty string`);
+  if (typeof pr.passed !== 'boolean') errors.push(`packResults[${index}].passed must be a boolean`);
+  return errors;
+}
+
+/**
+ * Construct and validate a ValidationVerdict — the one-way handoff OUT of the
+ * Crucible. Never throws; malformed input returns { ok:false, errors:[...] }.
+ *
+ * @param {{subjectResult:object,
+ *          packResults:Array<{id:string, passed:boolean}>,
+ *          decision:'accept'|'reject'|'escalate',
+ *          escalationReason?:string}} input
+ * @returns {{ok:true, verdict:object} | {ok:false, errors:string[]}}
+ */
+function buildValidationVerdict(input) {
+  const errors = [];
+  if (!isPlainObject(input)) {
+    return { ok: false, errors: ['input must be an object'] };
+  }
+  const { subjectResult, packResults, decision, escalationReason } = input;
+
+  if (!isPlainObject(subjectResult)) {
+    errors.push('subjectResult must be an object (a CleaningResult)');
+  }
+
+  if (!Array.isArray(packResults)) {
+    errors.push('packResults must be an array');
+  } else {
+    packResults.forEach((pr, i) => errors.push(...validatePackResult(pr, i)));
+  }
+
+  if (!DECISIONS.includes(decision)) {
+    errors.push(`decision must be one of ${DECISIONS.join(' | ')}`);
+  }
+
+  // An escalation with no stated reason is not actionable by a human reviewer.
+  if (decision === 'escalate' && !isNonEmptyString(escalationReason)) {
+    errors.push('escalationReason must be a non-empty string when decision is "escalate"');
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    verdict: {
+      kind: 'ValidationVerdict',
+      decision,
+      subjectResult,
+      packResults: [...packResults],
+      escalationReason: isNonEmptyString(escalationReason) ? escalationReason : null,
+    },
+  };
+}
+
+/**
+ * Stable content fingerprint for a CleaningResult, reusing the provenance
+ * sha256Hex primitive (no new crypto). Gives the one-way handoff a deterministic
+ * id so a later orchestration batch can dedupe / audit which result a verdict
+ * answered. Async only because SHA-256 is; the builders above stay sync.
+ *
+ * @param {object} result a CleaningResult (the `.result` of a successful build)
+ * @returns {Promise<string>} hex SHA-256, or '' for a non-object input
+ */
+async function fingerprintCleaningResult(result) {
+  if (!isPlainObject(result)) return '';
+  // Canonicalize the fields that define the proposed change, order-stable.
+  const canonical = JSON.stringify({
+    agentId: result.agentId ?? null,
+    confidence: result.confidence ?? null,
+    rulesCited: Array.isArray(result.rulesCited) ? result.rulesCited : [],
+    changes: Array.isArray(result.changes)
+      ? result.changes.map((c) => [c.field, c.oldValue, c.newValue, c.rule])
+      : [],
+  });
+  return sha256Hex(canonical);
+}
+
+const CRUCIBLE_DECISIONS = DECISIONS;
+
+
+  window.CrucibleContract = {
+    buildCleaningResult: typeof buildCleaningResult !== 'undefined' ? buildCleaningResult : null,
+    buildValidationVerdict: typeof buildValidationVerdict !== 'undefined' ? buildValidationVerdict : null,
+    buildPassVerdict: typeof buildPassVerdict !== 'undefined' ? buildPassVerdict : null,
+    buildFailVerdict: typeof buildFailVerdict !== 'undefined' ? buildFailVerdict : null,
+  };
+}());
+/* ---- end crucible-contract.js ---- */
+
+/* ---- from js/validation/crucible-adversarial-packs.js ---- */
+;(function(){
+  'use strict';
+
+  var similarity = (window._DgFuzzyDedup || {}).similarity || function(a,b){ return a===b?1:0; };
+  var matchVital    = (window._DgPhysPlaus || {}).matchVital || null;
+  var detectTempUnit= (window._DgPhysPlaus || {}).detectTempUnit || null;
+  var TEMP_BOUNDS   = (window._DgPhysPlaus || {}).TEMP_BOUNDS || {};
+
+// ============================================================
+// DATAGLOW — The Crucible: adversarial test pack library (Batch 1 of 3)
+// ============================================================
+// A pack is a self-contained adversarial probe aimed at ONE known failure mode.
+// Each exposes:
+//   { id, label, category, generateCases(), evaluate(agentUnderTest, cases) }
+// where generateCases() DETERMINISTICALLY returns a fixed array of adversarial
+// records (no Math.random — fixed literal fixtures, so a run is reproducible and
+// a regression is unambiguous), and evaluate() runs those cases through a supplied
+// "agent under test" function and returns { passed:boolean, failures:[...] }.
+//
+// The packs are the "prosecution": they are written to expose whitespace, not to
+// flatter the agent. The nameOrderSwapPack and ssnTranspositionPack encode two
+// AHIMA patient-matching failure patterns that NORTH_STAR's 2026-07-12 test
+// findings already confirmed the shipped fuzzy-dedup (js/cleaning/fuzzy-dedup.js)
+// misses; they are EXPECTED to fail against it — that failure is the honest,
+// empirical proof the gap is real. Do not tune a pack to make a broken agent pass.
+//
+// Pure, Node-testable, DOM/DuckDB/network-free, and never throws: a broken
+// agent-under-test that throws is caught and recorded as a failure, not a crash.
+
+const AGENT_THREW = 'agent-under-test threw';
+
+function safeCall(fn, arg) {
+  try {
+    return { ok: true, value: fn(arg) };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+// ------------------------------------------------------------------
+// Matching packs — the agent under test is a same-entity matcher:
+//   agentUnderTest(record) -> truthy when it flags left & right as the SAME entity.
+// A same-entity case fails when the matcher does NOT flag it; a distinct control
+// case fails when the matcher DOES (guards against a trivially-permissive matcher
+// that "catches" everything).
+// ------------------------------------------------------------------
+function evaluateMatching(agentUnderTest, cases) {
+  const failures = [];
+  if (typeof agentUnderTest !== 'function') {
+    return { passed: false, failures: [{ reason: 'agentUnderTest is not a function' }] };
+  }
+  for (const c of cases) {
+    const called = safeCall(agentUnderTest, c);
+    if (!called.ok) {
+      failures.push({ id: c.id, reason: AGENT_THREW, detail: called.error });
+      continue;
+    }
+    const flagged = !!called.value;
+    if (c.sameEntity && !flagged) {
+      failures.push({ id: c.id, reason: 'same-entity pair NOT flagged as a match', left: c.left, right: c.right, note: c.note });
+    } else if (!c.sameEntity && flagged) {
+      failures.push({ id: c.id, reason: 'distinct pair wrongly flagged as a match', left: c.left, right: c.right, note: c.note });
+    }
+  }
+  return { passed: failures.length === 0, failures };
+}
+
+const nameOrderSwapPack = Object.freeze({
+  id: 'name-order-swap',
+  label: 'Name-order swap',
+  category: 'entity-matching',
+  generateCases() {
+    // Same patient, name written first-last vs last-first (and "Last, First"
+    // comma form). A pure character-similarity matcher scores these near zero.
+    const swaps = [
+      { first: 'Maria Garcia Lopez', swapped: 'Lopez, Maria Garcia' },
+      { first: 'John Michael Smith', swapped: 'Smith, John Michael' },
+      { first: 'Wei Chen', swapped: 'Chen Wei' },
+      { first: 'Aisha Mohammed', swapped: 'Mohammed, Aisha' },
+      { first: 'Robert James Brown', swapped: 'Brown Robert James' },
+      { first: 'Priya Kumar', swapped: 'Kumar, Priya' },
+    ];
+    const cases = swaps.map((s, i) => ({
+      id: `name-swap-${i + 1}`,
+      category: 'entity-matching',
+      sameEntity: true,
+      left: { name: s.first },
+      right: { name: s.swapped },
+      note: 'first-last vs last-first ordering of the same name',
+    }));
+    // Distinct control: two genuinely different people must NOT match.
+    cases.push({
+      id: 'name-swap-control',
+      category: 'entity-matching',
+      sameEntity: false,
+      left: { name: 'Maria Garcia Lopez' },
+      right: { name: 'Daniel Okafor' },
+      note: 'unrelated names — must not be flagged as the same entity',
+    });
+    return cases;
+  },
+  evaluate: evaluateMatching,
+});
+
+const ssnTranspositionPack = Object.freeze({
+  id: 'ssn-transposition',
+  label: 'SSN transposition',
+  category: 'entity-matching',
+  generateCases() {
+    // Same patient, identical name, SSN last-4 with one adjacent-digit
+    // transposition — the classic keying slip. Matching on the name string alone
+    // treats these as the same string (so a name-only matcher "passes" them),
+    // therefore the adversarial signal lives in the SSN field: a correct matcher
+    // must treat a transposed-last4 SSN as still the SAME entity, not a new one.
+    const rows = [
+      { name: 'Nadia Petrova', ssn: '123-45-6789', swappedSsn: '123-45-6798' },
+      { name: 'Marcus Webb', ssn: '987-65-4321', swappedSsn: '987-65-4312' },
+      { name: 'Yuki Nakamura', ssn: '555-11-2468', swappedSsn: '555-11-2486' },
+      { name: 'Grace Mensah', ssn: '444-22-1357', swappedSsn: '444-22-1375' },
+      { name: 'Ethan Caldwell', ssn: '222-33-8642', swappedSsn: '222-33-8624' },
+      { name: 'Fatima Al-Sayed', ssn: '333-44-9753', swappedSsn: '333-44-9735' },
+    ];
+    const cases = rows.map((r, i) => ({
+      id: `ssn-transpose-${i + 1}`,
+      category: 'entity-matching',
+      sameEntity: true,
+      left: { name: r.name, ssn: r.ssn },
+      right: { name: r.name, ssn: r.swappedSsn },
+      note: 'same patient, last-4 SSN digits transposed',
+    }));
+    cases.push({
+      id: 'ssn-transpose-control',
+      category: 'entity-matching',
+      sameEntity: false,
+      left: { name: 'Nadia Petrova', ssn: '123-45-6789' },
+      right: { name: 'Nadia Petrova', ssn: '900-00-0000' },
+      note: 'same name but an entirely different SSN — likely two different people',
+    });
+    return cases;
+  },
+  evaluate: evaluateMatching,
+});
+
+// ------------------------------------------------------------------
+// boundaryDatePack — the agent under test is a date normalizer:
+//   agentUnderTest(record) -> a normalized value (truthy) OR a falsy/`{ok:false}`
+//   marker when the input is not a real calendar date.
+// An impossible date fails when the normalizer SILENTLY returns a plausible-
+// looking date (the dangerous case: garbage in, confident-wrong out). A genuinely
+// valid date fails when the normalizer rejects it.
+// ------------------------------------------------------------------
+function normalizerAccepted(value) {
+  // Treat null/undefined/false/'' and an explicit { ok:false } / { valid:false }
+  // as "rejected"; anything else counts as the normalizer having produced a date.
+  if (value == null || value === false || value === '') return false;
+  if (typeof value === 'object') {
+    if (value.ok === false || value.valid === false) return false;
+    return true;
+  }
+  return true;
+}
+
+const boundaryDatePack = Object.freeze({
+  id: 'boundary-date',
+  label: 'Boundary dates',
+  category: 'value-normalization',
+  generateCases() {
+    return [
+      { id: 'date-feb29-nonleap', input: '2023-02-29', valid: false, note: 'Feb 29 in a non-leap year' },
+      { id: 'date-feb29-leap', input: '2024-02-29', valid: true, note: 'Feb 29 in a leap year (legitimate)' },
+      { id: 'date-day00', input: '2023-06-00', valid: false, note: 'day 0 does not exist' },
+      { id: 'date-day32', input: '2023-01-32', valid: false, note: 'day 32 does not exist' },
+      { id: 'date-month13', input: '2023-13-01', valid: false, note: 'month 13 does not exist' },
+      { id: 'date-month00', input: '2023-00-15', valid: false, note: 'month 0 does not exist' },
+      { id: 'date-apr31', input: '2023-04-31', valid: false, note: 'April has 30 days' },
+      { id: 'date-valid', input: '2023-07-15', valid: true, note: 'ordinary valid date' },
+    ];
+  },
+  evaluate(agentUnderTest, cases) {
+    const failures = [];
+    if (typeof agentUnderTest !== 'function') {
+      return { passed: false, failures: [{ reason: 'agentUnderTest is not a function' }] };
+    }
+    for (const c of cases) {
+      const called = safeCall(agentUnderTest, c);
+      if (!called.ok) {
+        failures.push({ id: c.id, reason: AGENT_THREW, detail: called.error });
+        continue;
+      }
+      const accepted = normalizerAccepted(called.value);
+      if (!c.valid && accepted) {
+        failures.push({ id: c.id, reason: 'impossible date silently normalized to a plausible value', input: c.input, produced: called.value, note: c.note });
+      } else if (c.valid && !accepted) {
+        failures.push({ id: c.id, reason: 'valid date wrongly rejected', input: c.input, note: c.note });
+      }
+    }
+    return { passed: failures.length === 0, failures };
+  },
+});
+
+// ------------------------------------------------------------------
+// impossibleValuePack — the agent under test is a value validator:
+//   agentUnderTest(record) -> truthy when it FLAGS the value as implausible.
+// A biologically-impossible value fails when the validator does NOT flag it
+// (silent pass-through); a plausible value fails when the validator flags it.
+// ------------------------------------------------------------------
+const impossibleValuePack = Object.freeze({
+  id: 'impossible-value',
+  label: 'Impossible values',
+  category: 'value-plausibility',
+  generateCases() {
+    return [
+      { id: 'age-negative', field: 'age', value: -5, impossible: true, note: 'negative age' },
+      { id: 'age-super', field: 'age', value: 240, impossible: true, note: 'age far beyond any human lifespan' },
+      { id: 'age-ok', field: 'age', value: 47, impossible: false, note: 'ordinary adult age' },
+      { id: 'hr-too-high', field: 'heart_rate', value: 450, impossible: true, note: 'heart rate > 400 bpm is not survivable' },
+      { id: 'hr-negative', field: 'heart_rate', value: -10, impossible: true, note: 'negative heart rate' },
+      { id: 'hr-ok', field: 'heart_rate', value: 72, impossible: false, note: 'resting heart rate' },
+      { id: 'temp-impossible', field: 'body_temp_c', value: 250, impossible: true, note: 'body temperature of 250°C' },
+      { id: 'temp-ok', field: 'body_temp_c', value: 37, impossible: false, note: 'normal body temperature' },
+    ];
+  },
+  evaluate(agentUnderTest, cases) {
+    const failures = [];
+    if (typeof agentUnderTest !== 'function') {
+      return { passed: false, failures: [{ reason: 'agentUnderTest is not a function' }] };
+    }
+    for (const c of cases) {
+      const called = safeCall(agentUnderTest, c);
+      if (!called.ok) {
+        failures.push({ id: c.id, reason: AGENT_THREW, detail: called.error });
+        continue;
+      }
+      const flagged = !!called.value;
+      if (c.impossible && !flagged) {
+        failures.push({ id: c.id, reason: 'impossible value silently passed through', field: c.field, value: c.value, note: c.note });
+      } else if (!c.impossible && flagged) {
+        failures.push({ id: c.id, reason: 'plausible value wrongly flagged', field: c.field, value: c.value, note: c.note });
+      }
+    }
+    return { passed: failures.length === 0, failures };
+  },
+});
+
+const CRUCIBLE_PACKS = Object.freeze([
+  nameOrderSwapPack,
+  ssnTranspositionPack,
+  boundaryDatePack,
+  impossibleValuePack,
+]);
+
+/**
+ * Run an array of packs against ONE agent-under-test function. Returns a summary
+ * whose `packResults` is shaped for buildValidationVerdict()'s packResults input.
+ * Never throws — a pack that is malformed or whose evaluate() throws is recorded
+ * as a failed pack rather than aborting the suite.
+ *
+ * @param {Array<object>} packs
+ * @param {Function} agentUnderTest
+ * @returns {{ok:boolean, allPassed:boolean, passedCount:number, failedCount:number,
+ *            packResults:Array<{id:string, label:string, category:string,
+ *              passed:boolean, failures:any[]}>}}
+ */
+function runAdversarialSuite(packs, agentUnderTest) {
+  if (!Array.isArray(packs)) {
+    return { ok: false, allPassed: false, passedCount: 0, failedCount: 0, packResults: [] };
+  }
+  const packResults = packs.map((pack) => {
+    if (!pack || typeof pack.evaluate !== 'function' || typeof pack.generateCases !== 'function') {
+      return { id: (pack && pack.id) || 'unknown', label: (pack && pack.label) || 'unknown', category: (pack && pack.category) || 'unknown', passed: false, failures: [{ reason: 'malformed pack' }] };
+    }
+    let outcome;
+    try {
+      outcome = pack.evaluate(agentUnderTest, pack.generateCases());
+    } catch (err) {
+      outcome = { passed: false, failures: [{ reason: 'pack.evaluate threw', detail: err && err.message ? err.message : String(err) }] };
+    }
+    const failures = Array.isArray(outcome && outcome.failures) ? outcome.failures : [];
+    return { id: pack.id, label: pack.label, category: pack.category, passed: !!(outcome && outcome.passed), failures };
+  });
+  const passedCount = packResults.filter((p) => p.passed).length;
+  const failedCount = packResults.length - passedCount;
+  return { ok: true, allPassed: failedCount === 0, passedCount, failedCount, packResults };
+}
+
+
+  window.CruciblePacks = {
+    CRUCIBLE_PACKS: typeof CRUCIBLE_PACKS !== 'undefined' ? CRUCIBLE_PACKS : [],
+    runAdversarialSuite: typeof runAdversarialSuite !== 'undefined' ? runAdversarialSuite : null,
+  };
+}());
+/* ---- end crucible-adversarial-packs.js ---- */
+
+/* ---- from js/validation/crucible-orchestrator.js ---- */
+;(function(){
+  'use strict';
+
+  var buildCleaningResult  = (window.CrucibleContract || {}).buildCleaningResult;
+  var buildValidationVerdict = (window.CrucibleContract || {}).buildValidationVerdict;
+  var CRUCIBLE_PACKS       = (window.CruciblePacks || {}).CRUCIBLE_PACKS || [];
+  var runAdversarialSuite  = (window.CruciblePacks || {}).runAdversarialSuite;
+  var classifyRevertEligibility = (window._DgRevertEligibility || {}).classifyRevertEligibility;
+  var buildRevertProposal       = (window._DgRevertEligibility || {}).buildRevertProposal;
+  var scoreFixConfidence        = (window._DgFixConfidence || {}).scoreFixConfidence;
+  var similarity                = (window._DgFuzzyDedup || {}).similarity;
+  var matchVital                = (window._DgPhysPlaus || {}).matchVital;
+  var detectTempUnit            = (window._DgPhysPlaus || {}).detectTempUnit;
+  var TEMP_BOUNDS               = (window._DgPhysPlaus || {}).TEMP_BOUNDS || {};
+
+// ============================================================
+// DATAGLOW — Crucible Orchestrator (glue layer)
+// ============================================================
+// PURE, DOM-free, NEVER-throwing orchestration that connects three
+// already-built, already-tested Crucible modules into a single call the app can
+// make right after a cleaning fix is recorded:
+//
+//   1. crucible-contract.js  — buildCleaningResult / buildValidationVerdict
+//   2. crucible-adversarial-packs.js — runAdversarialSuite(CRUCIBLE_PACKS, agent)
+//   3. revert-eligibility.js — classifyRevertEligibility / buildRevertProposal
+//
+// It invents NO new validation logic. The adversarial suite runs in a "standing
+// suite" mode: the SAME reference agent — assembled only from primitives that
+// already ship in the app (fuzzy-dedup character similarity, a Date.UTC calendar
+// round-trip, and the physiological-plausibility vital bounds) — is probed by
+// every pack. The suite therefore reflects the honest, documented capability of
+// those shipped primitives, not something tuned per fix. Two gaps are surfaced
+// on purpose: a pure character matcher cannot reunite name-order swaps (the
+// AHIMA gap the name-order-swap pack exists to catch), and `age` is not a vital
+// so an impossible age passes the bounds check untouched. When any pack fails
+// the verdict is `escalate`, never `reject` — this glue layer has no authority
+// to reject a fix a human already applied.
+//
+// ADDITIVE ONLY: every public entry point is wrapped so it can never throw. On
+// any internal failure it returns a safe, well-shaped partial (nulls) so the
+// caller (main.js, guarded further by its own try/catch and a default-off flag)
+// can never be blocked, delayed, or altered by anything in here.
+
+// [stripped import] import { buildCleaningResult, buildValidationVerdict } from './crucible-contract.js';
+// [stripped import] import { CRUCIBLE_PACKS, runAdversarialSuite } from './crucible-adversarial-packs.js';
+// [stripped import] import { classifyRevertEligibility, buildRevertProposal } from '../provenance/revert-eligibility.js';
+// [stripped import] import { scoreFixConfidence } from '../cleaning/fix-confidence.js';
+// [stripped import] import { similarity } from '../cleaning/fuzzy-dedup.js';
+// [stripped import] import { matchVital, detectTempUnit, TEMP_BOUNDS } from './physiological-plausibility.js';
+
+// A same-entity key is the record's name plus any SSN, joined — a pure
+// character-similarity comparison of these keys is exactly the naive matcher the
+// entity packs are built to stress. It reunites SSN transpositions (one changed
+// digit barely moves the score) but NOT name-order swaps (reordered tokens score
+// far below threshold) — the honest, documented behaviour.
+const ENTITY_MATCH_THRESHOLD = 0.9;
+function entityKey(record) {
+  if (!record || typeof record !== 'object') return '';
+  return [record.name, record.ssn].filter(v => v != null && v !== '').join(' ');
+}
+
+// Objective calendar validity via a Date.UTC round-trip: build the date, then
+// confirm the engine did not roll any component over (Feb 29 in a non-leap year
+// becomes Mar 1, day 32 becomes the next month, etc.). Returns the input string
+// when it is a real calendar date, else null ("rejected").
+function normalizeCalendarDate(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d) {
+    return value;
+  }
+  return null;
+}
+
+// Flag a field/value as physiologically impossible using only the shipped vital
+// bounds. A field that is not a recognized vital (e.g. `age`) cannot be judged,
+// so it is honestly NOT flagged — a real, surfaced coverage gap.
+function flagsImpossibleValue(field, value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return false;
+  const vital = matchVital(field);
+  if (!vital) return false;
+  if (vital.temperature) {
+    const bounds = TEMP_BOUNDS[detectTempUnit(field, num)] || TEMP_BOUNDS.C;
+    return num < bounds.low || num > bounds.high;
+  }
+  return num < vital.low || num > vital.high;
+}
+
+// The single synchronous "reference agent" every pack is run against. It
+// dispatches purely on the shape of the case object each pack hands it, so one
+// function can honestly answer all four packs. Never throws — runAdversarialSuite
+// also guards each call, but we stay defensive here too.
+function crucibleReferenceAgent(testCase) {
+  try {
+    if (!testCase || typeof testCase !== 'object') return false;
+    // Entity-matching case: { left, right, ... } -> truthy when SAME entity.
+    if (testCase.left && testCase.right) {
+      return similarity(entityKey(testCase.left), entityKey(testCase.right)) >= ENTITY_MATCH_THRESHOLD;
+    }
+    // Boundary-date case: { input } -> normalized value (truthy) or null.
+    if (typeof testCase.input === 'string') {
+      return normalizeCalendarDate(testCase.input);
+    }
+    // Impossible-value case: { field, value } -> truthy when flagged.
+    if ('field' in testCase && 'value' in testCase) {
+      return flagsImpossibleValue(testCase.field, testCase.value);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function clamp01(n) {
+  if (!Number.isFinite(n)) return 0;
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
+}
+
+// The empty/failed shape returned whenever anything is missing or throws. Always
+// the same keys, so callers can destructure without guarding each field.
+function emptyResult() {
+  return { cleaningResult: null, validationVerdict: null, suiteResult: null, revertProposal: null };
+}
+
+// Build the CleaningResult that represents the fix that was just applied. The
+// single change summarizes the fix (its column, the rule, and the recorded
+// before/after when the blame entry captured them). Confidence reuses the app's
+// own scoreFixConfidence (a 0–100 score) scaled into the contract's [0,1].
+function buildFixCleaningResult(fixType, issue, blameEntry) {
+  const column = (issue && issue.column) || fixType;
+  let score = 60;
+  try {
+    const scored = scoreFixConfidence(issue || {}, fixType);
+    if (scored && Number.isFinite(scored.score)) score = scored.score;
+  } catch { /* keep neutral default */ }
+  const built = buildCleaningResult({
+    agentId: 'dataglow-clean-agent',
+    confidence: clamp01(Number(score) / 100),
+    rulesCited: [fixType],
+    changes: [{
+      field: String(column),
+      rule: String(fixType),
+      oldValue: blameEntry && blameEntry.before !== undefined ? blameEntry.before : null,
+      newValue: blameEntry && blameEntry.after !== undefined ? blameEntry.after : null,
+    }],
+  });
+  return built && built.ok ? built.result : null;
+}
+
+// Run the full standing adversarial suite against a fix and assemble the typed
+// handoff (CleaningResult in, ValidationVerdict out) plus the revert-eligibility
+// classification of that fix's blame entry. Pure, synchronous, never throws.
+//
+//   runCrucibleForFix({ fixType, issue, blameEntry })
+//     -> { cleaningResult, validationVerdict, suiteResult, revertProposal }
+//
+// On ANY failure it returns the same-shaped empty result. It NEVER returns a
+// `reject` decision: an all-passed suite yields `accept`, any failure yields
+// `escalate` (route to a human), because this layer cannot undo an applied fix.
+function runCrucibleForFix(args) {
+  try {
+    if (!args || typeof args !== 'object') return emptyResult();
+    const { fixType, issue, blameEntry } = args;
+    if (!fixType || typeof fixType !== 'string') return emptyResult();
+
+    const cleaningResult = buildFixCleaningResult(fixType, issue, blameEntry);
+
+    const suiteResult = runAdversarialSuite(CRUCIBLE_PACKS, crucibleReferenceAgent);
+
+    let validationVerdict = null;
+    if (cleaningResult && suiteResult && Array.isArray(suiteResult.packResults)) {
+      const allPassed = suiteResult.allPassed === true;
+      const packResults = suiteResult.packResults.map(p => ({ id: p.id, passed: p.passed === true }));
+      const builtVerdict = buildValidationVerdict({
+        subjectResult: cleaningResult,
+        packResults,
+        decision: allPassed ? 'accept' : 'escalate',
+        escalationReason: allPassed
+          ? undefined
+          : `${suiteResult.failedCount} of ${packResults.length} adversarial pack(s) failed — routed for human review. This validator has no authority to reject an already-applied fix.`,
+      });
+      validationVerdict = builtVerdict && builtVerdict.ok ? builtVerdict.verdict : null;
+    }
+
+    let revertProposal = null;
+    if (blameEntry) {
+      try {
+        const eligibility = classifyRevertEligibility(blameEntry);
+        revertProposal = buildRevertProposal(blameEntry) || eligibility || null;
+      } catch { revertProposal = null; }
+    }
+
+    return { cleaningResult, validationVerdict, suiteResult, revertProposal };
+  } catch {
+    return emptyResult();
+  }
+}
+
+
+  window.CrucibleOrchestrator = {
+    runCrucible: typeof runCrucible !== 'undefined' ? runCrucible : null,
+    buildCrucibleSession: typeof buildCrucibleSession !== 'undefined' ? buildCrucibleSession : null,
+  };
+}());
+/* ---- end crucible-orchestrator.js ---- */
+
+/* ---- from js/validation/crucible-ui.js ---- */
+;(function(){
+  'use strict';
+
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+  var runCrucible           = (window.CrucibleOrchestrator || {}).runCrucible;
+  var buildCrucibleSession  = (window.CrucibleOrchestrator || {}).buildCrucibleSession;
+
+// ============================================================
+// DATAGLOW — The Crucible (Batch 2 of 3): the read-only Crucible UI
+// ============================================================
+// WHAT THIS IS: the presenter for The Crucible's already-merged Batch 1 logic.
+// It invents NO validation logic of its own — it only surfaces, read-only, the
+// two typed handoff objects and the adversarial-pack results Batch 1 produces:
+//   - js/validation/crucible-contract.js: buildCleaningResult (the one-way
+//     handoff INTO the Crucible) and buildValidationVerdict (the one-way handoff
+//     OUT), plus CRUCIBLE_DECISIONS.
+//   - js/validation/crucible-adversarial-packs.js: the deterministic packs and
+//     runAdversarialSuite() summary.
+// Both are treated as stable dependencies; this file does not touch their APIs
+// and adds NO new data-mutation code path (that — apply / one-click revert — is
+// Batch 3).
+//
+// IDENTITY SPLIT (same convention as source-convergence-ui.js / room-ui.js):
+// the model builders are PURE, Node-testable, DOM-free functions
+// (shouldOfferCrucible / buildPipelineModel / buildAdversarialPackListModel /
+// buildRunLogModel); the browser-only renderer (mountCrucible) turns those
+// models into DOM and is left to the browser/e2e path.
+//
+// DISCIPLINE:
+//   - honest EMPTY STATE: with no results supplied the tab shows the idle
+//     3-step pipeline skeleton and a "nothing has been run yet" prompt — it
+//     NEVER fabricates the mockup's demo numbers. No orchestration feeds real
+//     objects in yet (that is a future batch); a caller may pass real Batch 1
+//     output in, and only then are real values shown.
+//   - the pure builders NEVER throw — malformed/missing input yields a safe,
+//     idle/empty view model.
+// ============================================================
+
+// [stripped import] import { el } from '../app-shell/utils.js';
+
+// ---------- tiny total helpers ----------
+
+function isPlainObject(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Accept either a raw typed CleaningResult ({ kind:'CleaningResult', ... }) or
+// the wrapped { ok:true, result } that buildCleaningResult returns. Anything
+// else -> null (honest "no result"). Never throws.
+function asCleaningResult(input) {
+  if (!isPlainObject(input)) return null;
+  if (input.kind === 'CleaningResult') return input;
+  if (input.ok === true && isPlainObject(input.result) && input.result.kind === 'CleaningResult') return input.result;
+  return null;
+}
+
+// Same for a ValidationVerdict ({ kind:'ValidationVerdict', ... } or the wrapped
+// { ok:true, verdict }). Never throws.
+function asValidationVerdict(input) {
+  if (!isPlainObject(input)) return null;
+  if (input.kind === 'ValidationVerdict') return input;
+  if (input.ok === true && isPlainObject(input.verdict) && input.verdict.kind === 'ValidationVerdict') return input.verdict;
+  return null;
+}
+
+// ============================================================
+// shouldOfferCrucible({ enabled }) — the single pure gate the caller checks
+// before mounting anything. True only when the flag is on. No DOM, no flag read.
+// ============================================================
+function shouldOfferCrucible(opts) {
+  return isPlainObject(opts) && opts.enabled === true;
+}
+
+// ============================================================
+// buildPipelineModel(cleaningResult, validationVerdict) — a pure, DOM-free model
+// of the three-step Crucible pipeline: Clean Agent -> Crucible Validator ->
+// Provenance Ledger. Each step carries a status (idle | running | done) and the
+// contract fields it reasons about, pulled straight from the Batch 1 typed
+// objects. Missing/malformed input -> an honest all-idle skeleton with no
+// fabricated numbers. Never throws.
+// ============================================================
+function buildPipelineModel(cleaningResult, validationVerdict) {
+  const clean = asCleaningResult(cleaningResult);
+  const verdict = asValidationVerdict(validationVerdict);
+
+  const cleanStep = {
+    key: 'clean',
+    label: 'Clean Agent',
+    status: clean ? 'done' : 'idle',
+    fields: {
+      changesCount: clean && Array.isArray(clean.changes) ? clean.changes.length : 0,
+      confidence: clean && typeof clean.confidence === 'number' && Number.isFinite(clean.confidence) ? clean.confidence : null,
+      rulesCited: clean && Array.isArray(clean.rulesCited) ? [...clean.rulesCited] : [],
+      agentId: clean && typeof clean.agentId === 'string' ? clean.agentId : null,
+    },
+  };
+
+  // The validator is "running" once a proposal exists but no verdict has come
+  // back — an honest in-between state, not a fabricated result.
+  const crucibleStep = {
+    key: 'crucible',
+    label: 'Crucible Validator',
+    status: verdict ? 'done' : (clean ? 'running' : 'idle'),
+    fields: {
+      decision: verdict ? (verdict.decision ?? null) : null,
+      escalationReason: verdict ? (verdict.escalationReason ?? null) : null,
+      packCount: verdict && Array.isArray(verdict.packResults) ? verdict.packResults.length : 0,
+    },
+  };
+
+  // The apply / revert Provenance Ledger step is Batch 3 — always idle here, and
+  // explicitly labelled so the read-only surface never implies it can mutate.
+  const ledgerStep = {
+    key: 'ledger',
+    label: 'Provenance Ledger',
+    status: 'idle',
+    note: 'Apply / one-click revert lands in a future Crucible batch (read-only here).',
+  };
+
+  return {
+    steps: [cleanStep, crucibleStep, ledgerStep],
+    hasData: !!(clean || verdict),
+  };
+}
+
+// A pass/fail badge for a pack outcome. Reuses the existing .badge vocabulary
+// (css/base.css); invents no new colors. Never throws.
+function packStatusBadge(passed) {
+  return passed
+    ? { label: 'Pass', className: 'badge badge-a' }
+    : { label: 'Fail', className: 'badge badge-c' };
+}
+
+// Normalize whatever the caller hands to a pack list into a flat array of pack
+// result entries. Accepts the array itself, a runAdversarialSuite() summary
+// ({ packResults }), or a ValidationVerdict ({ packResults }). Never throws.
+function asPackResultArray(input) {
+  if (Array.isArray(input)) return input;
+  if (isPlainObject(input) && Array.isArray(input.packResults)) return input.packResults;
+  return [];
+}
+
+// ============================================================
+// buildAdversarialPackListModel(packResults) — a pure, DOM-free list model of
+// each adversarial pack's pass/fail outcome (id / label / category / passed).
+// Accepts the packResults array, a runAdversarialSuite() summary, or a
+// ValidationVerdict. Malformed/empty -> an empty list. Never throws.
+// ============================================================
+function buildAdversarialPackListModel(packResults) {
+  const arr = asPackResultArray(packResults);
+  const packs = arr.filter(isPlainObject).map((p) => {
+    const passed = p.passed === true;
+    const failureCount = Array.isArray(p.failures) ? p.failures.length : 0;
+    return {
+      id: p.id != null ? String(p.id) : '(unnamed pack)',
+      label: typeof p.label === 'string' && p.label.trim() !== '' ? p.label : (p.id != null ? String(p.id) : '(unnamed pack)'),
+      category: typeof p.category === 'string' ? p.category : '',
+      passed,
+      failureCount,
+      badge: packStatusBadge(passed),
+    };
+  });
+  const passedCount = packs.filter((p) => p.passed).length;
+  return {
+    packs,
+    passedCount,
+    failedCount: packs.length - passedCount,
+    total: packs.length,
+    isEmpty: packs.length === 0,
+  };
+}
+
+// A short, readable reason string for one recorded pack failure. Never throws.
+function failureReason(f) {
+  if (!isPlainObject(f)) return 'failure';
+  const parts = [];
+  if (f.id != null) parts.push(String(f.id));
+  if (typeof f.reason === 'string' && f.reason.trim() !== '') parts.push(f.reason.trim());
+  return parts.length ? parts.join(': ') : 'failure';
+}
+
+// ============================================================
+// buildRunLogModel(suiteResult) — a pure, DOM-free pass/fail log model from a
+// runAdversarialSuite() summary. Produces one row per pack plus an explicit
+// escalation callout naming the packs a human must review when any pack failed.
+// Malformed/missing -> a safe empty log. Never throws.
+// ============================================================
+function buildRunLogModel(suiteResult) {
+  const suite = isPlainObject(suiteResult) ? suiteResult : {};
+  const arr = asPackResultArray(suite);
+
+  if (arr.length === 0) {
+    return {
+      ok: suite.ok === true,
+      isEmpty: true,
+      allPassed: false,
+      passedCount: 0,
+      failedCount: 0,
+      rows: [],
+      escalation: { needed: false, failedPacks: [], message: null },
+    };
+  }
+
+  const rows = arr.filter(isPlainObject).map((p) => {
+    const passed = p.passed === true;
+    const failures = Array.isArray(p.failures) ? p.failures : [];
+    return {
+      id: p.id != null ? String(p.id) : '(unnamed pack)',
+      label: typeof p.label === 'string' && p.label.trim() !== '' ? p.label : (p.id != null ? String(p.id) : '(unnamed pack)'),
+      category: typeof p.category === 'string' ? p.category : '',
+      passed,
+      badge: packStatusBadge(passed),
+      failureCount: failures.length,
+      failures: failures.map((f) => ({ text: failureReason(f) })),
+    };
+  });
+
+  const passedCount = rows.filter((r) => r.passed).length;
+  const failedRows = rows.filter((r) => !r.passed);
+  const failedPacks = failedRows.map((r) => r.label);
+
+  return {
+    ok: suite.ok === true,
+    isEmpty: false,
+    allPassed: failedRows.length === 0,
+    passedCount,
+    failedCount: failedRows.length,
+    rows,
+    escalation: {
+      needed: failedRows.length > 0,
+      failedPacks,
+      message: failedRows.length > 0
+        ? `${failedRows.length} pack${failedRows.length === 1 ? '' : 's'} failed — escalate for human review: ${failedPacks.join(', ')}.`
+        : null,
+    },
+  };
+}
+
+// ============================================================
+// mountCrucible({ host, onToast, cleaningResult, validationVerdict, suiteResult })
+// — the BROWSER renderer. Read-only: it paints the pure models above and owns no
+// data-mutation path. With no results supplied it renders the honest idle
+// pipeline skeleton + an empty-state prompt (never fabricated demo numbers); a
+// caller may pass real Batch 1 output in, and only then are real values shown.
+// Returns a handle { getState, destroy } or null when there is no host.
+// ============================================================
+function mountCrucible(opts = {}) {
+  const {
+    host,
+    onToast = () => {},
+    cleaningResult = null,
+    validationVerdict = null,
+    suiteResult = null,
+  } = opts;
+  if (!host) return null;
+
+  const toastSafe = (msg, type) => { try { onToast(msg, type); } catch { /* never bubble */ } };
+
+  function statusPill(status) {
+    const map = {
+      idle: { label: 'Idle', className: 'badge' },
+      running: { label: 'Running', className: 'badge badge-b' },
+      done: { label: 'Done', className: 'badge badge-a' },
+    };
+    const s = map[status] || { label: status, className: 'badge' };
+    return el('span', { class: s.className }, s.label);
+  }
+
+  function stepFields(step) {
+    const rows = [];
+    if (step.key === 'clean') {
+      const f = step.fields;
+      rows.push(['Proposed changes', String(f.changesCount)]);
+      rows.push(['Confidence', f.confidence == null ? '—' : f.confidence.toFixed(2)]);
+      rows.push(['Rules cited', f.rulesCited.length ? f.rulesCited.join(', ') : '—']);
+      rows.push(['Agent', f.agentId || '—']);
+    } else if (step.key === 'crucible') {
+      const f = step.fields;
+      rows.push(['Decision', f.decision || '—']);
+      rows.push(['Packs run', String(f.packCount)]);
+      rows.push(['Escalation reason', f.escalationReason || '—']);
+    } else {
+      rows.push(['Status', step.note || '—']);
+    }
+    return el('div', { class: 'crucible-step-fields' },
+      rows.map(([k, v]) => el('div', { class: 'crucible-step-field' }, [
+        el('span', { class: 'crucible-step-field-key' }, k),
+        el('span', { class: 'crucible-step-field-val' }, v),
+      ])));
+  }
+
+  function pipelineSection(pipeline) {
+    const stepEls = [];
+    pipeline.steps.forEach((step, i) => {
+      if (i > 0) stepEls.push(el('div', { class: 'crucible-pipeline-arrow', 'aria-hidden': 'true' }, '→'));
+      stepEls.push(el('div', {
+        class: `crucible-step is-${step.status}`,
+        'data-testid': `crucible-step-${step.key}`,
+      }, [
+        el('div', { class: 'crucible-step-head' }, [
+          el('span', { class: 'crucible-step-label' }, step.label),
+          statusPill(step.status),
+        ]),
+        stepFields(step),
+      ]));
+    });
+    return el('section', { class: 'crucible-section' }, [
+      el('h3', { class: 'crucible-section-title' }, 'Pipeline'),
+      el('div', { class: 'crucible-pipeline', 'data-testid': 'crucible-pipeline' }, stepEls),
+    ]);
+  }
+
+  function packListSection(packList) {
+    if (packList.isEmpty) {
+      return el('section', { class: 'crucible-section' }, [
+        el('h3', { class: 'crucible-section-title' }, 'Adversarial packs'),
+        el('p', { class: 'crucible-hint', 'data-testid': 'crucible-packs-empty' },
+          'No adversarial pack has been run against a proposal yet.'),
+      ]);
+    }
+    const items = packList.packs.map((p) => el('div', {
+      class: `crucible-pack${p.passed ? '' : ' is-fail'}`,
+      'data-testid': 'crucible-pack',
+    }, [
+      el('div', { class: 'crucible-pack-head' }, [
+        el('span', { class: 'crucible-pack-label' }, p.label),
+        el('span', { class: p.badge.className }, p.badge.label),
+      ]),
+      el('div', { class: 'crucible-pack-meta' },
+        `${p.category || 'pack'}${p.passed ? '' : ` · ${p.failureCount} failure${p.failureCount === 1 ? '' : 's'}`}`),
+    ]));
+    return el('section', { class: 'crucible-section' }, [
+      el('h3', { class: 'crucible-section-title' },
+        `Adversarial packs (${packList.passedCount}/${packList.total} passed)`),
+      el('div', { class: 'crucible-pack-list', 'data-testid': 'crucible-pack-list' }, items),
+    ]);
+  }
+
+  function runLogSection(runLog) {
+    if (runLog.isEmpty) {
+      return el('section', { class: 'crucible-section' }, [
+        el('h3', { class: 'crucible-section-title' }, 'Run log'),
+        el('p', { class: 'crucible-hint', 'data-testid': 'crucible-runlog-empty' },
+          'The adversarial suite has not been run yet — nothing to log.'),
+      ]);
+    }
+    const children = [];
+    if (runLog.escalation.needed) {
+      children.push(el('div', { class: 'crucible-escalation', 'data-testid': 'crucible-escalation' }, [
+        el('strong', {}, 'Escalate for human review'),
+        el('p', {}, runLog.escalation.message),
+      ]));
+    }
+    const rowEls = runLog.rows.map((r) => el('div', {
+      class: `crucible-log-row${r.passed ? '' : ' is-fail'}`,
+      'data-testid': 'crucible-log-row',
+    }, [
+      el('div', { class: 'crucible-log-head' }, [
+        el('span', { class: 'crucible-log-label' }, r.label),
+        el('span', { class: r.badge.className }, r.badge.label),
+      ]),
+      r.failures.length
+        ? el('ul', { class: 'crucible-log-failures' }, r.failures.map((f) => el('li', {}, f.text)))
+        : null,
+    ].filter(Boolean)));
+    children.push(el('div', { class: 'crucible-log', 'data-testid': 'crucible-log' }, rowEls));
+    return el('section', { class: 'crucible-section' }, [
+      el('h3', { class: 'crucible-section-title' },
+        `Run log (${runLog.passedCount} passed, ${runLog.failedCount} failed)`),
+      ...children,
+    ]);
+  }
+
+  function emptyStateBanner() {
+    return el('div', { class: 'empty-state', 'data-testid': 'crucible-empty' }, [
+      el('div', { html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' }),
+      el('h3', {}, 'Nothing has been through the Crucible yet'),
+      el('p', {}, 'The Crucible stress-tests a cleaning agent\'s proposed changes with adversarial packs before anything is applied. This is a read-only view of that pipeline — wiring a live proposal through it is a future batch. Nothing here mutates your data.'),
+    ]);
+  }
+
+  function render() {
+    host.innerHTML = '';
+    const pipeline = buildPipelineModel(cleaningResult, validationVerdict);
+    const packList = buildAdversarialPackListModel(suiteResult);
+    const runLog = buildRunLogModel(suiteResult);
+
+    const root = el('div', { class: 'crucible-root', 'data-testid': 'crucible-root' }, [
+      pipelineSection(pipeline),
+    ]);
+
+    if (!pipeline.hasData && packList.isEmpty && runLog.isEmpty) {
+      root.appendChild(emptyStateBanner());
+    } else {
+      root.appendChild(packListSection(packList));
+      root.appendChild(runLogSection(runLog));
+    }
+    host.appendChild(root);
+  }
+
+  render();
+  toastSafe('Crucible view ready (read-only)', 'info');
+
+  return {
+    getState: () => ({
+      pipeline: buildPipelineModel(cleaningResult, validationVerdict),
+      packList: buildAdversarialPackListModel(suiteResult),
+      runLog: buildRunLogModel(suiteResult),
+    }),
+    destroy: () => { host.innerHTML = ''; },
+  };
+}
+
+
+  window.CrucibleUI = {
+    mountCrucible: typeof mountCrucible !== 'undefined' ? mountCrucible : null,
+  };
+
+  // Auto-init wiring
+  function initCrucibleUI() {
+    var panelId = 'dg-crucible-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:460px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:855;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+
+    function toggleCrucible() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var closeX = document.createElement('button');
+        closeX.textContent = '\u00D7';
+        closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        closeX.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(closeX);
+        if (typeof mountCrucible === 'function') {
+          mountCrucible({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Crucible: load a dataset to run adversarial validation -- range checks, physiological plausibility, cross-column consistency, and fuzzy dedup.';
+          p.appendChild(msg);
+        }
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-crucible')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-crucible';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83D\uDD25<br><span>Crucible</span>';
+      btn.addEventListener('click', function(){
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        toggleCrucible();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-crucible')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-crucible';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83D\uDD25<br><span>Crucible</span>';
+      btn2.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        toggleCrucible();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCrucibleUI);
+  else setTimeout(initCrucibleUI, 650);
+}());
+/* ---- end crucible-ui.js ---- */
+
+
+/* ================================================================
+   GUARDED COPILOT -- recovered from git history
+   PR #243 Batch 1, PR #245 Batch 2 (chat panel + Tier 2 model)
+   PR #248 guardedCopilot flag promoted to ON
+   PR #378 eval harness (20 cases)
+   Deps: readiness-gate.js, ai-touch-ledger.js (sha256Hex already in bundle)
+   ================================================================ */
+
+/* ---- from js/gate/readiness-gate.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — AI Readiness Gate (pure scoring, batch 1 of 4)
+// ============================================================
+// WHY THIS EXISTS (the North Star concept, batch 1):
+// A dataset, metric, or query result should not be handed to an AI AGENT until
+// it has automatically earned a pass from DATAGLOW's existing validation. The
+// research this project ran found that 60-84% of AI initiatives fail because
+// ungoverned/unready data is handed to AI before it's fixed, and agents pointed
+// at ungoverned data got answers wrong 65%+ of the time. This gate is the
+// hard-stop-for-agents (never for humans) that answers that finding.
+//
+// WHAT THIS MODULE IS: a PURE aggregator. It does NOT re-run validation and it
+// invents NO new checks or severity levels — it composes the OUTPUT that
+// js/validation/validation.js's `runAllLayers()` already produced (each layer a
+// `{ status, summary, ... }` record whose status vocabulary is
+// pass / warn / fail / idle) plus an optional metric-contract status object,
+// into a single agent-consumability verdict with an honest reasons list.
+//
+// WHAT IT DELIBERATELY DOES NOT DO YET (deferred to later batches; see
+// NORTH_STAR.md "Build batches"):
+//   - Batch 2: a UI badge (pass/fail + reasons) near query/metric results.
+//   - Batch 3: wiring this verdict into js/agents/* as a hard block.
+//   - Batch 4: exposing it via any future MCP interface.
+// This batch is pure logic + tests ONLY. Nothing in the app calls it yet.
+//
+// Identity split (same convention as metric-studio.js / metric-contracts.js):
+// this file is pure, Node-testable, no DOM / no network / no engine.
+
+// The layer-status vocabulary is OWNED by js/validation/validation.js's
+// `result(status, ...)` helper — we reuse it verbatim, never extend it.
+//   'fail' — a hard failure: the layer found something disqualifying.
+//   'warn' — a soft concern: worth surfacing, not by itself disqualifying.
+//   'pass' — the layer ran and was satisfied.
+//   'idle' — the layer was not activated this run (e.g. no story written yet);
+//            it carries no evidence either way, so it is excluded from scoring.
+const HARD_FAIL_STATUS = 'fail';
+const WARN_STATUS = 'warn';
+const PASS_STATUS = 'pass';
+
+const DEFAULT_THRESHOLD = 70;
+
+// A layer contributes to the score with this weight; a warn is a half-credit
+// signal (present but not disqualifying), a fail earns nothing.
+const STATUS_WEIGHT = { [PASS_STATUS]: 1, [WARN_STATUS]: 0.5, [HARD_FAIL_STATUS]: 0 };
+
+// Normalize whatever `runAllLayers()` handed us into a flat list of
+// { layer, status, summary } entries. Accepts either the keyed results OBJECT
+// that `runAllLayers()` returns (layerId -> result) or an already-flat ARRAY of
+// result-shaped entries. Non-layer aggregate keys the orchestrator mixes into
+// its results object (e.g. `domainPack`, `calibratedGrades`) carry no string
+// `status` and are skipped honestly rather than mis-scored.
+function normalizeLayerResults(layerResults) {
+  if (!layerResults || typeof layerResults !== 'object') return [];
+  const entries = Array.isArray(layerResults)
+    ? layerResults.map((r) => [r && r.layer != null ? r.layer : (r && r.id), r])
+    : Object.entries(layerResults);
+  const out = [];
+  for (const [key, r] of entries) {
+    if (!r || typeof r !== 'object' || typeof r.status !== 'string') continue;
+    out.push({
+      layer: (r.layer || r.name || key || 'unknown'),
+      status: r.status,
+      summary: typeof r.summary === 'string' ? r.summary : '',
+    });
+  }
+  return out;
+}
+
+// Decide whether an OPTIONAL metric-contract status object signals a broken or
+// invalid contract. Tolerant by design: it recognizes the honest "broken"
+// shapes already used across the codebase — a computeMetricValue()-style
+// `{ ok: false }`, an explicit `{ valid: false }` / `{ broken: true }`, or a
+// textual `status`/`state` of invalid/broken/error/failed. Anything else
+// (including undefined/null — no contract supplied) is treated as "not broken".
+function isMetricContractBroken(metricContractStatus) {
+  const s = metricContractStatus;
+  if (!s || typeof s !== 'object') return false;
+  if (s.ok === false) return true;
+  if (s.valid === false) return true;
+  if (s.broken === true) return true;
+  const label = String(s.status || s.state || '').toLowerCase();
+  return ['invalid', 'broken', 'error', 'failed', 'fail'].includes(label);
+}
+
+/**
+ * Compose validation output + an optional metric-contract status into a single
+ * agent-readiness verdict. PURE: no side effects, never throws, always returns
+ * a well-formed object even for empty/missing input.
+ *
+ * @param {object|Array} layerResults - the OUTPUT of `runAllLayers()` (keyed
+ *   results object) or a flat array of result-shaped entries. Not re-run here.
+ * @param {object} [metricContractStatus] - optional; a broken/invalid contract
+ *   fails the gate on its own regardless of layer results.
+ * @param {{threshold?:number}} [options] - `threshold` (default 70) is the
+ *   minimum score, 0-100, at or above which layers are considered gate-passing.
+ * @returns {{
+ *   agentConsumable: boolean,
+ *   score: number,
+ *   threshold: number,
+ *   failingLayers: Array<{layer:string, severity:string, reason:string}>,
+ *   passingSummary: string,
+ *   blockedByContract: boolean,
+ *   evaluatedLayerCount: number
+ * }}
+ */
+function computeReadinessGate(layerResults, metricContractStatus, options = {}) {
+  const threshold = Number.isFinite(options.threshold) ? options.threshold : DEFAULT_THRESHOLD;
+  const layers = normalizeLayerResults(layerResults);
+
+  // Only layers that actually carry evidence (pass/warn/fail) count toward the
+  // score; 'idle' (not activated) layers are excluded from the denominator.
+  const scored = layers.filter((l) => l.status in STATUS_WEIGHT);
+  const failingLayers = layers
+    .filter((l) => l.status === HARD_FAIL_STATUS)
+    .map((l) => ({
+      layer: l.layer,
+      severity: HARD_FAIL_STATUS,
+      reason: l.summary || 'Layer reported a hard failure.',
+    }));
+  const warnCount = layers.filter((l) => l.status === WARN_STATUS).length;
+  const passCount = layers.filter((l) => l.status === PASS_STATUS).length;
+
+  const score = scored.length === 0
+    ? 0
+    : Math.round((scored.reduce((sum, l) => sum + STATUS_WEIGHT[l.status], 0) / scored.length) * 100);
+
+  const blockedByContract = isMetricContractBroken(metricContractStatus);
+
+  const agentConsumable = !blockedByContract
+    && failingLayers.length === 0
+    && scored.length > 0
+    && score >= threshold;
+
+  const passingSummary = buildPassingSummary({
+    agentConsumable, score, threshold, evaluated: scored.length,
+    passCount, warnCount, failCount: failingLayers.length, blockedByContract,
+  });
+
+  return {
+    agentConsumable,
+    score,
+    threshold,
+    failingLayers,
+    passingSummary,
+    blockedByContract,
+    evaluatedLayerCount: scored.length,
+  };
+}
+
+function buildPassingSummary({ agentConsumable, score, threshold, evaluated, passCount, warnCount, failCount, blockedByContract }) {
+  if (evaluated === 0 && !blockedByContract) {
+    return 'No validation evidence available — not consumable by agents until validation runs.';
+  }
+  const tally = `${passCount} passed, ${warnCount} warning(s), ${failCount} failed across ${evaluated} evaluated layer(s)`;
+  if (agentConsumable) {
+    return `Ready for agent use — score ${score}/100 (≥ ${threshold}); ${tally}.`;
+  }
+  const blockers = [];
+  if (blockedByContract) blockers.push('metric contract is invalid/broken');
+  if (failCount > 0) blockers.push(`${failCount} layer(s) hard-failed`);
+  if (evaluated > 0 && score < threshold) blockers.push(`score ${score}/100 is below the ${threshold} threshold`);
+  return `Blocked from agent use — ${blockers.join('; ')}. (${tally}.)`;
+}
+
+/**
+ * Human-readable, multi-line explanation of a gate verdict: exactly which
+ * layers failed and why, plus the contract block if present. Pure string
+ * builder for future UI use in batch 2 — builds NO DOM here.
+ * @param {ReturnType<typeof computeReadinessGate>} gateResult
+ * @returns {string}
+ */
+function explainGateReasons(gateResult) {
+  if (!gateResult || typeof gateResult !== 'object') {
+    return 'No gate result to explain.';
+  }
+  const { agentConsumable, score, threshold, failingLayers = [], blockedByContract } = gateResult;
+  const lines = [];
+  lines.push(agentConsumable
+    ? `PASS — agent-consumable (score ${score}/100, threshold ${threshold}).`
+    : `BLOCKED — not agent-consumable (score ${score}/100, threshold ${threshold}).`);
+
+  if (blockedByContract) {
+    lines.push('- Metric contract: invalid/broken — this alone blocks agent use.');
+  }
+  if (failingLayers.length > 0) {
+    lines.push(`Failing layer(s) (${failingLayers.length}):`);
+    for (const f of failingLayers) {
+      lines.push(`- ${f.layer} [${f.severity}]: ${f.reason}`);
+    }
+  } else if (!blockedByContract && !agentConsumable) {
+    lines.push('- No layer hard-failed, but the score is below threshold (unresolved warnings or too little evidence).');
+  } else if (!blockedByContract) {
+    lines.push('- No failing layers.');
+  }
+  return lines.join('\n');
+}
+
+
+
+
+  window.ReadinessGate = {
+    computeReadinessGate: typeof computeReadinessGate !== 'undefined' ? computeReadinessGate : null,
+    explainGateReasons: typeof explainGateReasons !== 'undefined' ? explainGateReasons : null,
+    GATE_REASONS: typeof GATE_REASONS !== 'undefined' ? GATE_REASONS : {},
+  };
+}());
+/* ---- end readiness-gate.js ---- */
+
+/* ---- from js/provenance/ai-touch-ledger.js ---- */
+;(function(){
+  'use strict';
+
+  // sha256Hex already in bundle -- use it if exposed, else fallback
+  var sha256Hex = (typeof window._dgSha256Hex === 'function') ? window._dgSha256Hex
+    : function(s){ return btoa(encodeURIComponent(s)).replace(/[^a-zA-Z0-9]/g,'').toLowerCase().slice(0,64); };
+
+// ============================================================
+// DATAGLOW — AI Touch Ledger
+// A hash-chained, tamper-evident log of every time an AI model touched a
+// dataset: which model, whether the call stayed on-device or left the
+// browser, which fields/columns it saw, and what human action triggered it.
+// ============================================================
+//
+// WHY THIS EXISTS
+// DataGlow already ships extensive provenance/trust infrastructure — chain of
+// custody (js/provenance/provenance.js), the Assumption Ledger
+// (js/provenance/assumption-ledger.js), Verifiable Check Seal, Trust Beam,
+// Data Nutrition Label, Query Memory (fingerprints SQL/Python/R runs). None of
+// these specifically answer: "did an AI model see this data, which model, and
+// did that data ever leave this browser?" js/narrative/story.js's
+// generateStory() genuinely forks into two different trust postures — an
+// on-device path (WebLLM/Qwen2.5-1.5B-Instruct, zero network egress, see
+// js/narrative/ondevice-llm.js) and an external-provider path (OpenAI /
+// Anthropic / Gemini, which embeds real query-result rows in an HTTP request
+// body to a third-party endpoint). Nothing today records which path was taken,
+// for which columns, or when. This module closes that gap.
+//
+// PURITY: pure logic — no DOM, no engine, no network. Reuses the existing
+// sha256Hex primitive from js/provenance/provenance.js; no new crypto library
+// or scheme is introduced. Identical behavior in the browser, the Tauri
+// desktop webview, and headless Node tests.
+//
+// SCOPE (Batch 1 of 2): this file is the ledger primitive and its hashing
+// discipline ONLY. It is imported by nothing in js/app-shell/main.js yet —
+// no UI panel, no Proof Room step, no call-site wiring. With this module
+// merged and its flag off (see flags.manifest.json: aiTouchLedger, default
+// false), every existing path is byte-for-byte unchanged. Batch 2 wires
+// logTouch() into the real on-device/external call sites in
+// js/narrative/story.js and js/narrative/ondevice-llm.js, and renders a panel
+// modeled on the Assumption Ledger, composed as a sixth Proof Room step.
+//
+// HONEST NAMING: a hash chain (SHA-256, same primitive as the rest of
+// js/provenance/) detects if an entry was edited or deleted after the fact.
+// It is NOT a zero-knowledge proof, NOT "blockchain", and NOT a certification
+// that the AI's output was correct — it only attests that a touch happened,
+// with these parameters, and that the log of touches has not been silently
+// altered since.
+
+// [stripped import] import { sha256Hex } from './provenance.js';
+
+const TOUCH_LEDGER_KIND = 'dataglow-ai-touch-ledger';
+const TOUCH_LEDGER_VERSION = 1;
+
+// The genesis entry's parentHash — mirrors provenance.js's GENESIS_PARENT so
+// every hash-chained module in this codebase anchors identically.
+const GENESIS_PARENT = '0'.repeat(64);
+
+const TOUCH_LEDGER_DISCLAIMER =
+  'This is an AI Touch Ledger: a SHA-256 hash chain recording every time an '
+  + 'AI model was invoked against this dataset — which model, whether the '
+  + 'call stayed on-device or left the browser, which fields it was shown, '
+  + 'and what human action triggered it. It is NOT a zero-knowledge proof, '
+  + 'NOT "blockchain", and NOT a certification of the AI output\'s accuracy — '
+  + 'it attests only that these touches happened, in this order, and that the '
+  + 'log has not been silently edited or deleted since.';
+
+// Fixed vocabulary for where inference actually ran. Kept as an exported
+// constant (mirrors RULE_KINDS-style exports elsewhere) so callers and tests
+// share one source of truth instead of duplicating string literals.
+const TOUCH_LOCATIONS = Object.freeze(['ondevice', 'external']);
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Deterministic, order-independent serialization of the fields the hash
+// commits to. Mirrors the canonicalJSON discipline in
+// verifiable-check-seal.js so the same entry always hashes identically
+// regardless of key insertion order.
+function canonicalTouchPayload(parentHash, touch) {
+  const safe = {
+    parentHash,
+    model: touch.model ?? null,
+    location: touch.location ?? null,
+    fieldsTouched: Array.isArray(touch.fieldsTouched) ? [...touch.fieldsTouched].sort() : [],
+    triggeredBy: touch.triggeredBy ?? null,
+    action: touch.action ?? null,
+    sentTo: touch.sentTo ?? null,
+    ts: touch.ts ?? null,
+  };
+  return JSON.stringify(safe, Object.keys(safe).sort());
+}
+
+// Validates a touch descriptor before it is allowed to enter the chain.
+// Never throws — returns { valid, reason } so callers (and the eventual
+// wiring in Batch 2) can decide how to surface a malformed call without a
+// logging bug ever being able to crash the real AI call it is observing.
+function validateTouch(touch) {
+  if (!isPlainObject(touch)) {
+    return { valid: false, reason: 'touch must be a plain object' };
+  }
+  if (typeof touch.model !== 'string' || !touch.model.trim()) {
+    return { valid: false, reason: 'touch.model is required (e.g. "Qwen2.5-1.5B-Instruct (WebLLM)")' };
+  }
+  if (!TOUCH_LOCATIONS.includes(touch.location)) {
+    return { valid: false, reason: `touch.location must be one of: ${TOUCH_LOCATIONS.join(', ')}` };
+  }
+  if (touch.fieldsTouched !== undefined && !Array.isArray(touch.fieldsTouched)) {
+    return { valid: false, reason: 'touch.fieldsTouched must be an array of column names when provided' };
+  }
+  if (touch.location === 'external' && (typeof touch.sentTo !== 'string' || !touch.sentTo.trim())) {
+    return { valid: false, reason: 'touch.sentTo (destination host) is required when location is "external"' };
+  }
+  return { valid: true, reason: null };
+}
+
+// A hash-chained ledger for one session/dataset. Plain data + closures, no
+// browser-only APIs, so it behaves identically in Node tests — same pattern
+// as createProvenanceChain() in provenance.js.
+function createTouchLedger() {
+  const chain = [];
+
+  // Records one AI touch. NEVER throws: a malformed touch is appended as a
+  // clearly-marked rejected entry (recorded, not silently dropped, not able
+  // to break the caller) rather than either throwing into the real AI call
+  // site or being silently discarded — an audit log that can silently lose
+  // entries on bad input defeats its own purpose.
+  async function logTouch(touch, opts = {}) {
+    const { valid, reason } = validateTouch(touch);
+    const parentHash = chain.length ? chain[chain.length - 1].hash : GENESIS_PARENT;
+    const ts = touch && touch.ts ? touch.ts : Date.now();
+
+    if (!valid) {
+      const rejected = {
+        index: chain.length,
+        rejected: true,
+        reason,
+        raw: touch,
+        ts,
+        parentHash,
+      };
+      rejected.hash = await sha256Hex(canonicalTouchPayload(parentHash, { ...touch, ts }) + `|rejected:${reason}`);
+      chain.push(rejected);
+      return rejected;
+    }
+
+    const entry = {
+      index: chain.length,
+      rejected: false,
+      model: touch.model,
+      location: touch.location,
+      fieldsTouched: Array.isArray(touch.fieldsTouched) ? [...touch.fieldsTouched] : [],
+      triggeredBy: touch.triggeredBy ?? 'analyst',
+      action: touch.action ?? null,
+      sentTo: touch.location === 'external' ? touch.sentTo : null,
+      ts,
+      parentHash,
+    };
+    entry.hash = await sha256Hex(canonicalTouchPayload(parentHash, entry));
+    chain.push(entry);
+    return entry;
+  }
+
+  function getEntries() {
+    return chain.slice();
+  }
+
+  function clear() {
+    chain.length = 0;
+  }
+
+  return { logTouch, getEntries, clear };
+}
+
+// Re-derives every entry's hash from its recorded fields and parentHash and
+// confirms it still matches — the same verifyProvenanceChain() discipline as
+// provenance.js. Any post-hoc edit or deletion breaks the chain at the first
+// altered/missing link.
+async function verifyTouchLedger(entries) {
+  if (!Array.isArray(entries)) {
+    return { valid: false, brokenAt: -1, reason: 'entries must be an array' };
+  }
+  if (entries.length === 0) {
+    return { valid: true, brokenAt: -1, reason: 'Empty ledger — nothing to verify.' };
+  }
+  let parentHash = GENESIS_PARENT;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!e || typeof e.hash !== 'string' || e.parentHash !== parentHash) {
+      return {
+        valid: false,
+        brokenAt: i,
+        reason: `Entry ${i} does not chain from the previous entry — the ledger has been reordered, edited, or an entry was deleted.`,
+      };
+    }
+    const expected = e.rejected
+      ? await sha256Hex(canonicalTouchPayload(parentHash, { ...e.raw, ts: e.ts }) + `|rejected:${e.reason}`)
+      : await sha256Hex(canonicalTouchPayload(parentHash, e));
+    if (expected !== e.hash) {
+      return {
+        valid: false,
+        brokenAt: i,
+        reason: `Entry ${i} (${e.rejected ? 'rejected touch' : e.model}) has been modified since it was recorded — its contents no longer match its hash.`,
+      };
+    }
+    parentHash = e.hash;
+  }
+  return { valid: true, brokenAt: -1, reason: `All ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} verified — the AI touch chain is intact.` };
+}
+
+// Plain-language one-liner summarizing a ledger, in the spirit of
+// summarizeQueryMemory()/summarizeColumnBlame() elsewhere in this codebase.
+function summarizeTouchLedger(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return 'No AI touches recorded yet.';
+  }
+  const valid = entries.filter((e) => !e.rejected);
+  const external = valid.filter((e) => e.location === 'external');
+  const rejected = entries.filter((e) => e.rejected);
+  const parts = [`${valid.length} of ${entries.length} entries intact`];
+  if (external.length > 0) {
+    parts.push(`${external.length} external-provider touch${external.length === 1 ? '' : 'es'} flagged below`);
+  } else if (valid.length > 0) {
+    parts.push('all touches stayed on-device');
+  }
+  if (rejected.length > 0) {
+    parts.push(`${rejected.length} rejected entr${rejected.length === 1 ? 'y' : 'ies'}`);
+  }
+  return parts.join(', ');
+}
+
+// Exports the ledger for download — mirrors exportLedger()'s format contract
+// in assumption-ledger.js ('json' | 'markdown' | 'text').
+function exportTouchLedger(entries, format = 'json') {
+  const generatedAt = new Date().toISOString();
+  if (format === 'json') {
+    return JSON.stringify({ kind: TOUCH_LEDGER_KIND, version: TOUCH_LEDGER_VERSION, generatedAt, entries }, null, 2);
+  }
+  const fmtTime = (ts) => new Date(ts).toISOString().replace('T', ' ').slice(0, 19);
+  if (format === 'markdown') {
+    const lines = ['# DATAGLOW AI Touch Ledger', '', `_Exported ${generatedAt}_`, ''];
+    if (entries.length === 0) {
+      lines.push('_No AI touches recorded yet._');
+    } else {
+      lines.push('| Time (UTC) | Model | Location | Fields touched | Triggered by |', '| --- | --- | --- | --- | --- |');
+      for (const e of entries) {
+        if (e.rejected) {
+          lines.push(`| ${fmtTime(e.ts)} | _rejected_ | — | — | ${e.reason} |`);
+        } else {
+          lines.push(`| ${fmtTime(e.ts)} | ${e.model} | ${e.location} | ${e.fieldsTouched.join(', ')} | ${e.triggeredBy} |`);
+        }
+      }
+    }
+    return lines.join('\n');
+  }
+  if (entries.length === 0) return 'DATAGLOW AI Touch Ledger — no AI touches recorded yet.';
+  const lines = ['DATAGLOW AI Touch Ledger', `Exported ${generatedAt}`, ''];
+  for (const e of entries) {
+    lines.push(e.rejected
+      ? `[${fmtTime(e.ts)}] REJECTED — ${e.reason}`
+      : `[${fmtTime(e.ts)}] (${e.location.toUpperCase()}) ${e.model} — fields: ${e.fieldsTouched.join(', ') || 'none'} — triggered by: ${e.triggeredBy}${e.sentTo ? ` — sent to: ${e.sentTo}` : ''}`);
+  }
+  return lines.join('\n');
+}
+
+
+  window.AITouchLedger = {
+    createTouchLedger: typeof createTouchLedger !== 'undefined' ? createTouchLedger : null,
+    TOUCH_TYPES: typeof TOUCH_TYPES !== 'undefined' ? TOUCH_TYPES : {},
+  };
+}());
+/* ---- end ai-touch-ledger.js ---- */
+
+/* ---- from js/agents/guarded-copilot.js ---- */
+;(function(){
+  'use strict';
+
+  var computeReadinessGate = (window.ReadinessGate || {}).computeReadinessGate;
+  var explainGateReasons   = (window.ReadinessGate || {}).explainGateReasons;
+  var createTouchLedger    = (window.AITouchLedger || {}).createTouchLedger;
+
+// ============================================================
+// DATAGLOW — Guarded Copilot (Batch 1: deterministic core + read-only contract)
+// ============================================================
+// WHY THIS EXISTS
+// Practitioner research this project has already collected (see
+// research_data_community_wishlist_2026.md, research_ui_paradigms_2026.md) names
+// a specific, repeated wish: a chat-style assistant that can explain WHY a
+// dataset/query/metric looks the way it does — citing real lineage, real
+// validation results, real provenance — without the community's other named
+// fear, "AI running amok" on the data itself. Guarded Copilot is DATAGLOW's
+// answer: a conversational layer that is architecturally, not just by
+// convention, INCAPABLE of writing to data.
+//
+// WHAT MAKES THIS SAFE (composition, not new invention):
+// This module invents no new write path, no new AI-writes-data mechanism, and
+// no new trust primitive. It is a pure READ-AND-EXPLAIN composition over four
+// modules DATAGLOW already ships and already trusts:
+//   1. js/gate/readiness-gate.js  — the agent-consumability verdict (batch 1).
+//   2. js/gate/agent-gate.js      — the hard refusal an agent gets when the
+//                                   gate says no (batch 3, already enforced).
+//   3. js/provenance/ai-touch-ledger.js — every touch this module makes gets
+//                                   logged exactly like the Story engine's
+//                                   on-device/external touches already are.
+//   4. js/agents/agent-action-firewall.js — the two-phase propose/confirm
+//                                   mutation gate. Guarded Copilot NEVER calls
+//                                   confirmAndApply() and holds no reference to
+//                                   any executor. It is not merely "unlikely"
+//                                   to write data — it has no code path that
+//                                   could, the same guarantee the firewall's
+//                                   own red-team test suite already proves for
+//                                   every other caller.
+//
+// TWO-TIER ANSWER MODEL (per no-paid-AI-API constraint + local-AI research
+// ceiling, research_local_ai_2026.md):
+//   Tier 1 (default, always available, zero cost, zero model): deterministic,
+//   template-based answers built directly from the same structured data the
+//   dashboard's activity feed and the Story engine's claims already use — no
+//   LLM call of any kind. This tier is exercised in Node tests, has 100%
+//   predictable output, and is what ships live if the flag is ever on with no
+//   on-device model loaded.
+//   Tier 2 (opt-in, same on-device model as Story's ondevice path,
+//   js/narrative/ondevice-llm.js's Qwen2.5-1.5B-Instruct via WebLLM): reuses
+//   that exact loader — no second model, no second license to track — to turn
+//   Tier 1's structured facts into a more natural free-form answer. If WebGPU
+//   is unavailable or the model isn't loaded, this module falls back to Tier 1
+//   automatically; a caller never sees a hard failure for lack of a GPU.
+//
+// SCOPE (Batch 1 of 2, matches this repo's own dark-ship convention): this file
+// is the read-only answer engine + firewall-shaped refusal ONLY. It is not
+// imported by js/app-shell/main.js yet — no chat panel UI, no Proof Room step.
+// Batch 2 (tracked in NORTH_STAR.md) wires a chat UI onto this, behind its own
+// UI sub-flag, once this core has run dark for at least one cycle.
+//
+// PURITY: pure logic — no DOM required for Tier 1. Tier 2 dynamically imports
+// ondevice-llm.js only when a caller explicitly requests it, so this file has
+// zero cost / zero network access by default.
+
+// [stripped import] import { computeReadinessGate, explainGateReasons } from '../gate/readiness-gate.js';
+// [stripped import] import { createTouchLedger } from '../provenance/ai-touch-ledger.js';
+
+const GUARDED_COPILOT_KIND = 'dataglow-guarded-copilot';
+const GUARDED_COPILOT_VERSION = 1;
+
+// The full set of questions Tier 1 can answer deterministically. Anything
+// outside this set gets an honest "not something I can answer yet" response —
+// never a guess, per the "never invent a data-quality verdict" house rule
+// already established for js/gate/readiness-gate.js and js/narrative/story.js.
+const SUPPORTED_INTENTS = Object.freeze([
+  'why_low_confidence',
+  'is_ready_for_agent',
+  'what_changed_since',
+  'who_touched_this',
+  'explain_grade',
+]);
+
+/**
+ * Classify a free-text question into one of SUPPORTED_INTENTS, or null if none
+ * match. Deliberately simple keyword matching — this is Tier 1's job:
+ * predictable, auditable, no model. Case-insensitive, order-independent.
+ * @param {string} question
+ * @returns {string|null}
+ */
+function classifyIntent(question) {
+  if (typeof question !== 'string' || !question.trim()) return null;
+  const q = question.toLowerCase();
+  if (/(why|reason).*(low|bad|poor|fail)/.test(q) && /(confiden|grade|score)/.test(q)) return 'why_low_confidence';
+  if (/(ready|safe|ok).*(agent|ai)|agent.*(ready|consum)/.test(q)) return 'is_ready_for_agent';
+  if (/(what|anything).*(chang|differ)/.test(q)) return 'what_changed_since';
+  if (/(who|which).*(touch|access|saw|used).*(this|data|dataset)/.test(q)) return 'who_touched_this';
+  if (/(explain|why).*(grade|score)/.test(q)) return 'explain_grade';
+  return null;
+}
+
+// Grade -> one-line, honest, non-alarmist explanation template. Mirrors the
+// GRADE_COLOR convention in js/narrative/story.js so this reads consistently
+// with existing confidence badges rather than inventing new grade language.
+const GRADE_EXPLANATION = {
+  A: 'passed the validation layers with high confidence and low missingness.',
+  B: 'passed the validation layers, with some missingness or a soft warning worth knowing about.',
+  C: 'has real, named issues from the validation layers that should be reviewed before relying on it.',
+  D: 'failed one or more validation layers outright — treat any conclusion from it as unreliable until fixed.',
+};
+
+/**
+ * Tier 1: deterministic answer engine. Takes a classified intent plus the
+ * structured context the caller already has on hand (never re-fetched or
+ * re-computed here — this module composes, it does not re-run validation).
+ *
+ * @param {string} intent - one of SUPPORTED_INTENTS
+ * @param {object} context - {
+ *   layerResults, metricContractStatus, options,   // for gate-shaped intents
+ *   grade,                                          // for explain_grade
+ *   journalEntries,                                 // for what_changed_since
+ *   touchLedgerEntries,                              // for who_touched_this
+ * }
+ * @returns {{answered:boolean, text:string, citedFrom:string[]}}
+ */
+function answerDeterministic(intent, context = {}) {
+  const citedFrom = [];
+
+  if (intent === 'is_ready_for_agent' || intent === 'why_low_confidence') {
+    const gate = computeReadinessGate(
+      context.layerResults,
+      context.metricContractStatus,
+      context.options || {},
+    );
+    citedFrom.push('js/gate/readiness-gate.js:computeReadinessGate');
+    if (gate.agentConsumable) {
+      return {
+        answered: true,
+        text: 'Yes — this data currently passes the AI Readiness Gate and is agent-consumable.',
+        citedFrom,
+      };
+    }
+    const reasons = explainGateReasons(gate);
+    citedFrom.push('js/gate/readiness-gate.js:explainGateReasons');
+    return {
+      answered: true,
+      text: `Not yet. The AI Readiness Gate is blocking this: ${reasons}`,
+      citedFrom,
+    };
+  }
+
+  if (intent === 'explain_grade') {
+    const grade = context.grade;
+    if (!grade || !GRADE_EXPLANATION[grade]) {
+      return { answered: false, text: 'I don\u2019t have a grade to explain for this yet.', citedFrom };
+    }
+    citedFrom.push('js/narrative/story.js:GRADE_COLOR (grade vocabulary)');
+    return { answered: true, text: `Grade ${grade}: this ${GRADE_EXPLANATION[grade]}`, citedFrom };
+  }
+
+  if (intent === 'what_changed_since') {
+    const entries = Array.isArray(context.journalEntries) ? context.journalEntries : [];
+    if (entries.length === 0) {
+      return { answered: true, text: 'No logged changes found for this run.', citedFrom };
+    }
+    citedFrom.push('dev-log/journal.md entries (caller-supplied)');
+    const lines = entries.slice(0, 5).map((e) => `- ${e.summary || e.title || String(e)}`);
+    return { answered: true, text: `Recent changes:\n${lines.join('\n')}`, citedFrom };
+  }
+
+  if (intent === 'who_touched_this') {
+    const touches = Array.isArray(context.touchLedgerEntries) ? context.touchLedgerEntries : [];
+    if (touches.length === 0) {
+      return { answered: true, text: 'No AI Touch Ledger entries recorded for this dataset yet.', citedFrom };
+    }
+    citedFrom.push('js/provenance/ai-touch-ledger.js');
+    const lines = touches.slice(-5).map(
+      (t) => `- ${t.model || 'unknown model'} (${t.location === 'ondevice' ? 'on-device, no network egress' : 'external, left the browser'})`,
+    );
+    return { answered: true, text: `Recent AI touches on this data:\n${lines.join('\n')}`, citedFrom };
+  }
+
+  return { answered: false, text: 'I don\u2019t have a reliable, evidence-backed answer for that yet.', citedFrom };
+}
+
+/**
+ * The single public entry point. Classifies the question, answers via Tier 1,
+ * and — critically — logs the query itself to the AI Touch Ledger, the same
+ * way js/narrative/story.js logs every Story generation. This is what lets
+ * "who touched this data" answers be truthful about Guarded Copilot's own
+ * queries, not just other agents'.
+ *
+ * @param {string} question
+ * @param {object} context - see answerDeterministic; may also include
+ *   { datasetId, priorTouchChainTip } for ledger logging.
+ * @returns {Promise<{answered:boolean, text:string, citedFrom:string[], intent:(string|null), ledgerEntry:(object|null)}>}
+ */
+async function askGuardedCopilot(question, context = {}) {
+  const intent = classifyIntent(question);
+  const result = intent
+    ? answerDeterministic(intent, context)
+    : { answered: false, text: 'I can answer questions about readiness, grades, recent changes, and who/what touched this data — try rephrasing.', citedFrom: [] };
+
+  // Log this query itself to a caller-supplied (or freshly created) Touch
+  // Ledger, using the SAME createTouchLedger()/logTouch() closure API the
+  // Story engine's wiring uses — never a bespoke logging shape. Passing an
+  // existing ledger via context.touchLedger lets a real call site keep one
+  // running chain per dataset across multiple Guarded Copilot questions;
+  // omitting it just logs to a throwaway one-entry ledger for this call.
+  let ledgerEntry = null;
+  try {
+    const ledger = context.touchLedger && typeof context.touchLedger.logTouch === 'function'
+      ? context.touchLedger
+      : createTouchLedger();
+    ledgerEntry = await ledger.logTouch({
+      model: 'guarded-copilot-tier1-deterministic',
+      location: 'ondevice',
+      fieldsTouched: [],
+      triggeredBy: 'guarded-copilot-query',
+      action: intent || 'unclassified-question',
+    });
+  } catch {
+    // Ledger logging is best-effort observability, never a hard dependency —
+    // a ledger write failure must never block or corrupt the answer itself.
+    ledgerEntry = null;
+  }
+
+  return { ...result, intent, ledgerEntry };
+}
+
+// System prompt for the Tier 2 rephrase. Deliberately narrow: the model may
+// ONLY restate the deterministic Tier 1 answer in more natural language — it is
+// forbidden from adding facts, numbers, or verdicts of its own. This keeps the
+// read-only, never-invent-a-verdict guarantee intact even when a model is in the
+// loop: Tier 1's structured facts remain the single source of truth.
+const REPHRASE_SYSTEM_PROMPT =
+  'You are a careful assistant that rephrases a data-quality answer into one or '
+  + 'two natural, plain sentences. Do NOT add any facts, numbers, grades, or '
+  + 'conclusions that are not already in the provided answer. If you are unsure, '
+  + 'repeat the answer as-is. Never invent a verdict.';
+
+/**
+ * Tier 2 (opt-in): reuse the EXACT on-device model loader + generation machinery
+ * Story already uses (js/narrative/ondevice-llm.js) to rephrase the Tier 1
+ * answer into more natural language. Never calls any external provider and never
+ * adds facts of its own (see REPHRASE_SYSTEM_PROMPT). Falls back to the Tier 1
+ * text UNTOUCHED — with usedOnDeviceModel:false — whenever WebGPU is missing, the
+ * model isn't loaded, or generation yields nothing, so a caller never gets a hard
+ * failure or a blank answer.
+ *
+ * The on-device module is dynamically imported (not a top-level import) so Tier 1
+ * and this file's Node tests never pay the cost of loading WebLLM. Tests inject a
+ * stub via the optional `deps` param instead of loading a real WebGPU model.
+ *
+ * @param {string} question
+ * @param {{answered:boolean,text:string,citedFrom:string[]}} tier1Result
+ * @param {{isWebGPUAvailable:Function,isModelLoaded:Function,loadModel:Function}} [deps]
+ *   - injectable on-device-LLM surface; defaults to the real module.
+ * @returns {Promise<{text:string, usedOnDeviceModel:boolean}>}
+ */
+async function refineWithOnDeviceModel(question, tier1Result, deps = null) {
+  const fallback = { text: tier1Result.text, usedOnDeviceModel: false };
+  try {
+    const llm = deps || await import('../narrative/ondevice-llm.js');
+    // The model must already be warmed (loaded) by the caller's opt-in flow;
+    // this function never triggers a ~1GB download on its own.
+    if (!llm.isWebGPUAvailable() || !llm.isModelLoaded()) return fallback;
+
+    const engine = await llm.loadModel(); // memoized — returns the warm engine.
+    const stream = await engine.chat.completions.create({
+      messages: [
+        { role: 'system', content: REPHRASE_SYSTEM_PROMPT },
+        { role: 'user', content: `Question: ${question}\n\nAnswer to rephrase:\n${tier1Result.text}` },
+      ],
+      temperature: 0.3,
+      max_tokens: 200,
+      stream: true,
+    });
+    let refined = '';
+    for await (const chunk of stream) {
+      refined += chunk?.choices?.[0]?.delta?.content || '';
+    }
+    refined = refined.trim();
+    return refined ? { text: refined, usedOnDeviceModel: true } : fallback;
+  } catch {
+    // Any failure (no WebGPU, load error, generation error) → exact Tier 1 text.
+    return fallback;
+  }
+}
+
+// Explicit, testable proof of the write-blocking guarantee: this module has no
+// import of agent-action-firewall's confirmAndApply, no import of any DuckDB
+// write/mutation helper, and exports nothing named propose/apply/write/mutate.
+// A red-team test (test/guarded-copilot.test.mjs) asserts this list stays
+// exactly this shape so a future edit can't silently add a write path.
+const PUBLIC_API_SURFACE = Object.freeze([
+  'classifyIntent',
+  'answerDeterministic',
+  'askGuardedCopilot',
+  'refineWithOnDeviceModel',
+]);
+
+
+  window.GuardedCopilot = {
+    createGuardedCopilot: typeof createGuardedCopilot !== 'undefined' ? createGuardedCopilot : null,
+    COPILOT_MODES: typeof COPILOT_MODES !== 'undefined' ? COPILOT_MODES : {},
+    mountGuardedCopilot: typeof mountGuardedCopilot !== 'undefined' ? mountGuardedCopilot : null,
+  };
+
+  // Auto-init wiring
+  function initGuardedCopilotUI() {
+    var panelId = 'dg-copilot-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:440px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:856;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+
+    function toggleCopilot() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var closeX = document.createElement('button');
+        closeX.textContent = '\u00D7';
+        closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        closeX.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(closeX);
+        if (typeof mountGuardedCopilot === 'function') {
+          mountGuardedCopilot({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else if (typeof createGuardedCopilot === 'function') {
+          var copilot = createGuardedCopilot({});
+          var h = document.createElement('div');
+          h.style.cssText = 'padding:20px;';
+          h.innerHTML = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">Guarded Copilot</h3><p style="font-size:12px;color:var(--text-muted,#888);line-height:1.6;">Read-only, lineage-citing AI chat. Every answer traces back to source data. Load a dataset to begin.</p>';
+          p.appendChild(h);
+        }
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-copilot')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-copilot';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83E\uDD16<br><span>Copilot</span>';
+      btn.addEventListener('click', function(){
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        toggleCopilot();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-copilot')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-copilot';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83E\uDD16<br><span>Copilot</span>';
+      btn2.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        toggleCopilot();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initGuardedCopilotUI);
+  else setTimeout(initGuardedCopilotUI, 700);
+}());
+/* ---- end guarded-copilot.js ---- */
 
 })();
 </script>
