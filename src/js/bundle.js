@@ -1499,14 +1499,14 @@ OPFSEngine.init().then(function(ok) {
             setTimeout(function() {
               if (typeof showToast !== 'function') return;
               if (granted) {
-                showToast('Your DataGlow projects are now eviction-protected on this device.', 'success');
+                showToast('Your projects and data are saved locally on this device.', 'success');
               } else {
                 /* Only surface this on iOS Safari where it actually matters */
                 var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
                 if (isIOS) {
                   showToast(
-                    'Tip: Add DataGlow to your Home Screen to protect your saved projects from being cleared.',
+                    'Tip: Add DataGlow to your Home Screen to keep your projects saved between sessions.',
                     'info'
                   );
                 }
