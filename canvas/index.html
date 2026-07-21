@@ -4929,6 +4929,121 @@
   #privacy-proof-panel { width: 100vw; }
 }
 /* ---- End Privacy Proof Panel ---- */
+
+/* ---- Welcome Brief Overlay ---- */
+#welcome-brief-overlay {
+  font-family: inherit;
+}
+#welcome-brief-overlay.open {
+  animation: mb-appear 0.35s cubic-bezier(0.4,0,0.2,1);
+}
+.wb-card {
+  background: var(--surface, #1C1B19);
+  border: 1px solid var(--border, #393836);
+  border-radius: 16px;
+  padding: 40px 44px 36px;
+  max-width: 480px;
+  width: 100%;
+  text-align: left;
+  position: relative;
+}
+.wb-top-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary, #4F98A3);
+  margin-bottom: 14px;
+}
+.wb-headline {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.18;
+  color: var(--text, #CDCCCA);
+  margin: 0 0 16px;
+}
+.wb-sub {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted, #797876);
+  margin: 0 0 20px;
+}
+.wb-engines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+.wb-engine-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--surface-alt, #201F1D);
+  border: 1px solid var(--border, #393836);
+  color: var(--text-muted, #797876);
+}
+.wb-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.wb-btn-primary {
+  flex: 1;
+  min-width: 160px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: none;
+  background: var(--primary, #4F98A3);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.wb-btn-primary:hover { opacity: 0.88; }
+.wb-btn-ghost {
+  flex: 1;
+  min-width: 140px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #393836);
+  background: transparent;
+  color: var(--text-muted, #797876);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.wb-btn-ghost:hover { border-color: var(--text-muted, #797876); color: var(--text, #CDCCCA); }
+.wb-privacy-note {
+  font-size: 11px;
+  color: var(--text-faint, #5A5957);
+  margin: 0;
+}
+@media (max-width: 520px) {
+  .wb-card { padding: 28px 20px 24px; }
+  .wb-headline { font-size: 22px; }
+  .wb-actions { flex-direction: column; }
+}
+
+/* Take-Home Case agent bar button */
+#takehome-agent-btn {
+  font-size: 15px;
+  background: none;
+  border: none;
+  color: var(--text-muted, #797876);
+  cursor: pointer;
+  padding: 4px 7px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+#takehome-agent-btn:hover {
+  background: var(--surface-alt, #201F1D);
+  color: var(--text, #CDCCCA);
+}
+/* ---- End Welcome Brief ---- */
   </style>
 
 </head>
@@ -5178,6 +5293,11 @@
           <button class="sidebar-nav-item" data-panel="sql-view">
             <span class="sni-icon">&#128196;</span>
             <span class="sni-label">SQL</span>
+          </button>
+          <button class="sidebar-nav-item" id="sidebar-dojo-btn">
+            <span class="sni-icon">&#127959;</span>
+            <span class="sni-label">SQL Dojo</span>
+            <span class="sni-badge">beta</span>
           </button>
           <button class="sidebar-nav-item" data-panel="python-view">
             <span class="sni-icon">&#128013;</span>
@@ -5775,6 +5895,7 @@
 <button id="replay-trigger-btn" title="Record Session" class="agent-bar-btn">&#9654;</button>
 <button id="autopilot-trigger-btn" title="Autopilot - background data watchdog"><span class="autopilot-dot is-paused" id="autopilot-dot"></span><span>Autopilot</span></button>
 <button id="agent-bar-more-btn" title="More tools">&#8943;</button>
+<button id="takehome-agent-btn" title="Take-Home Case">&#128188;</button>
 <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -24037,6 +24158,42 @@ var InstantInsight = (function () {
       }, 500);
     });
 
+    /* First-visit welcome brief: shows on page load before any file is dropped */
+    (function () {
+      var WELCOME_KEY = '__dg_welcome_seen__';
+      function hasSeenWelcome() {
+        try { return !!sessionStorage.getItem(WELCOME_KEY); } catch (_e) { return false; }
+      }
+      function markWelcomeSeen() {
+        try { sessionStorage.setItem(WELCOME_KEY, '1'); } catch (_e) {}
+      }
+      function showWelcomeBrief() {
+        var overlay = document.getElementById('welcome-brief-overlay');
+        if (!overlay) return;
+        overlay.style.display = 'flex';
+        setTimeout(function () { overlay.classList.add('open'); }, 10);
+      }
+      function closeWelcomeBrief() {
+        var overlay = document.getElementById('welcome-brief-overlay');
+        if (overlay) {
+          overlay.classList.remove('open');
+          setTimeout(function () { overlay.style.display = 'none'; }, 320);
+        }
+        markWelcomeSeen();
+      }
+      window.closeWelcomeBrief = closeWelcomeBrief;
+      window.welcomeLoadSample = function () {
+        closeWelcomeBrief();
+        setTimeout(function () {
+          var link = document.getElementById('try-example-link');
+          if (link) link.click();
+        }, 350);
+      };
+      if (!hasSeenWelcome()) {
+        setTimeout(showWelcomeBrief, 600);
+      }
+    }());
+
     document.addEventListener('click', function (e) {
       var pill = e.target.closest ? e.target.closest('.analyze-pill') : null;
       if (pill) {
@@ -25511,6 +25668,34 @@ var InstantInsight = (function () {
       'sidebar-osce-btn': 'osce-trigger-btn',
       'sidebar-story-btn': 'story-trigger-btn',
     };
+
+    /* Window Dojo sidebar button */
+    var dojoSidebarBtn = document.getElementById('sidebar-dojo-btn');
+    if (dojoSidebarBtn) {
+      dojoSidebarBtn.addEventListener('click', function () {
+        var sqlPill = document.querySelector('[data-panel="sql-view"]');
+        if (sqlPill) sqlPill.click();
+        setTimeout(function () {
+          var dojoBtn = document.getElementById('dojo-btn');
+          if (dojoBtn) dojoBtn.click();
+          document.querySelectorAll('.sidebar-nav-item').forEach(function (b) { b.classList.remove('active'); });
+          dojoSidebarBtn.classList.add('active');
+        }, 80);
+      });
+    }
+
+    /* Take-Home Case agent bar button */
+    var takeHomeAgentBtn = document.getElementById('takehome-agent-btn');
+    if (takeHomeAgentBtn) {
+      takeHomeAgentBtn.addEventListener('click', function () {
+        if (typeof openTakeHome === 'function') {
+          openTakeHome();
+        } else {
+          var caseBtn = document.querySelector('[data-panel="cases-view"]');
+          if (caseBtn) caseBtn.click();
+        }
+      });
+    }
     Object.keys(proxyMap).forEach(function (sidebarId) {
       var sidebarBtn = document.getElementById(sidebarId);
       var targetBtn = document.getElementById(proxyMap[sidebarId]);
@@ -28267,6 +28452,25 @@ var DataGlowMirror = (function() {
     </div>
     <div id="privacy-proof-body" class="pp-body">
       <div class="pp-empty">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Welcome Brief Overlay (first-visit Mission Brief) -->
+  <div id="welcome-brief-overlay" style="display:none; position:fixed; inset:0; z-index:18000; background:rgba(0,0,0,0.88); align-items:center; justify-content:center; padding:20px;">
+    <div class="wb-card">
+      <div class="wb-top-label">Mission Brief</div>
+      <h1 class="wb-headline">Your data.<br>Understood.<br>Instantly. Privately.</h1>
+      <p class="wb-sub">DataGlow runs SQL, Python, and R directly in your browser. Nothing leaves your machine. Drop any CSV, JSON, or Excel file and start exploring in seconds.</p>
+      <div class="wb-engines">
+        <span class="wb-engine-chip">&#128200; DuckDB-WASM</span>
+        <span class="wb-engine-chip">&#128013; Pyodide</span>
+        <span class="wb-engine-chip">&#128202; WebR</span>
+      </div>
+      <div class="wb-actions">
+        <button class="wb-btn-primary" onclick="window.welcomeLoadSample()">Load Sample Dataset</button>
+        <button class="wb-btn-ghost" onclick="window.closeWelcomeBrief()">Drop my own file</button>
+      </div>
+      <p class="wb-privacy-note">&#128274; Zero uploads. Your data stays in this tab.</p>
     </div>
   </div>
 </body>

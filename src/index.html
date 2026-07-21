@@ -259,6 +259,11 @@
             <span class="sni-icon">&#128196;</span>
             <span class="sni-label">SQL</span>
           </button>
+          <button class="sidebar-nav-item" id="sidebar-dojo-btn">
+            <span class="sni-icon">&#127959;</span>
+            <span class="sni-label">SQL Dojo</span>
+            <span class="sni-badge">beta</span>
+          </button>
           <button class="sidebar-nav-item" data-panel="python-view">
             <span class="sni-icon">&#128013;</span>
             <span class="sni-label">Python</span>
@@ -855,6 +860,7 @@
 <button id="replay-trigger-btn" title="Record Session" class="agent-bar-btn">&#9654;</button>
 <button id="autopilot-trigger-btn" title="Autopilot - background data watchdog"><span class="autopilot-dot is-paused" id="autopilot-dot"></span><span>Autopilot</span></button>
 <button id="agent-bar-more-btn" title="More tools">&#8943;</button>
+<button id="takehome-agent-btn" title="Take-Home Case">&#128188;</button>
 <button id="feature-settings-btn" title="Features" aria-haspopup="true" aria-controls="feature-settings-drawer" aria-expanded="false">
           <span id="feature-settings-icon" aria-hidden="true">&#9881;</span>
           <span id="feature-settings-label">Features</span>
@@ -1470,6 +1476,25 @@
     </div>
     <div id="privacy-proof-body" class="pp-body">
       <div class="pp-empty">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Welcome Brief Overlay (first-visit Mission Brief) -->
+  <div id="welcome-brief-overlay" style="display:none; position:fixed; inset:0; z-index:18000; background:rgba(0,0,0,0.88); align-items:center; justify-content:center; padding:20px;">
+    <div class="wb-card">
+      <div class="wb-top-label">Mission Brief</div>
+      <h1 class="wb-headline">Your data.<br>Understood.<br>Instantly. Privately.</h1>
+      <p class="wb-sub">DataGlow runs SQL, Python, and R directly in your browser. Nothing leaves your machine. Drop any CSV, JSON, or Excel file and start exploring in seconds.</p>
+      <div class="wb-engines">
+        <span class="wb-engine-chip">&#128200; DuckDB-WASM</span>
+        <span class="wb-engine-chip">&#128013; Pyodide</span>
+        <span class="wb-engine-chip">&#128202; WebR</span>
+      </div>
+      <div class="wb-actions">
+        <button class="wb-btn-primary" onclick="window.welcomeLoadSample()">Load Sample Dataset</button>
+        <button class="wb-btn-ghost" onclick="window.closeWelcomeBrief()">Drop my own file</button>
+      </div>
+      <p class="wb-privacy-note">&#128274; Zero uploads. Your data stays in this tab.</p>
     </div>
   </div>
 </body>

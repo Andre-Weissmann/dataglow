@@ -18123,6 +18123,42 @@ var InstantInsight = (function () {
       }, 500);
     });
 
+    /* First-visit welcome brief: shows on page load before any file is dropped */
+    (function () {
+      var WELCOME_KEY = '__dg_welcome_seen__';
+      function hasSeenWelcome() {
+        try { return !!sessionStorage.getItem(WELCOME_KEY); } catch (_e) { return false; }
+      }
+      function markWelcomeSeen() {
+        try { sessionStorage.setItem(WELCOME_KEY, '1'); } catch (_e) {}
+      }
+      function showWelcomeBrief() {
+        var overlay = document.getElementById('welcome-brief-overlay');
+        if (!overlay) return;
+        overlay.style.display = 'flex';
+        setTimeout(function () { overlay.classList.add('open'); }, 10);
+      }
+      function closeWelcomeBrief() {
+        var overlay = document.getElementById('welcome-brief-overlay');
+        if (overlay) {
+          overlay.classList.remove('open');
+          setTimeout(function () { overlay.style.display = 'none'; }, 320);
+        }
+        markWelcomeSeen();
+      }
+      window.closeWelcomeBrief = closeWelcomeBrief;
+      window.welcomeLoadSample = function () {
+        closeWelcomeBrief();
+        setTimeout(function () {
+          var link = document.getElementById('try-example-link');
+          if (link) link.click();
+        }, 350);
+      };
+      if (!hasSeenWelcome()) {
+        setTimeout(showWelcomeBrief, 600);
+      }
+    }());
+
     document.addEventListener('click', function (e) {
       var pill = e.target.closest ? e.target.closest('.analyze-pill') : null;
       if (pill) {
@@ -19597,6 +19633,34 @@ var InstantInsight = (function () {
       'sidebar-osce-btn': 'osce-trigger-btn',
       'sidebar-story-btn': 'story-trigger-btn',
     };
+
+    /* Window Dojo sidebar button */
+    var dojoSidebarBtn = document.getElementById('sidebar-dojo-btn');
+    if (dojoSidebarBtn) {
+      dojoSidebarBtn.addEventListener('click', function () {
+        var sqlPill = document.querySelector('[data-panel="sql-view"]');
+        if (sqlPill) sqlPill.click();
+        setTimeout(function () {
+          var dojoBtn = document.getElementById('dojo-btn');
+          if (dojoBtn) dojoBtn.click();
+          document.querySelectorAll('.sidebar-nav-item').forEach(function (b) { b.classList.remove('active'); });
+          dojoSidebarBtn.classList.add('active');
+        }, 80);
+      });
+    }
+
+    /* Take-Home Case agent bar button */
+    var takeHomeAgentBtn = document.getElementById('takehome-agent-btn');
+    if (takeHomeAgentBtn) {
+      takeHomeAgentBtn.addEventListener('click', function () {
+        if (typeof openTakeHome === 'function') {
+          openTakeHome();
+        } else {
+          var caseBtn = document.querySelector('[data-panel="cases-view"]');
+          if (caseBtn) caseBtn.click();
+        }
+      });
+    }
     Object.keys(proxyMap).forEach(function (sidebarId) {
       var sidebarBtn = document.getElementById(sidebarId);
       var targetBtn = document.getElementById(proxyMap[sidebarId]);
