@@ -1,0 +1,15 @@
+{
+  "_comment": "Drop this file as dataglow-policy.json alongside index.html to enable enterprise mode. Remove _comment before deploying.",
+  "version": 1,
+  "organization": "Acme Health System",
+  "disable": [
+    "byokStory",
+    "webrtcRooms"
+  ],
+  "require": [
+    "auditLog",
+    "enterpriseBuild"
+  ],
+  "allowedExportFormats": ["pdf", "xlsx", "csv"],
+  "adminContact": "dataops@acmehealth.org"
+}

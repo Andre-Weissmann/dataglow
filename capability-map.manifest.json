@@ -4409,6 +4409,45 @@
           "name": "detectType"
         }
       ]
+    },
+    {
+      "id": "enterprise-no-egress-mode",
+      "name": "Enterprise No-Egress Mode",
+      "description": "Organization-level policy engine for managed deployments. IT administrators drop a dataglow-policy.json alongside index.html to disable BYOK Story (external LLM), WebRTC Rooms, CDN fetches (air-gapped environments), and federated learning before any feature flag is evaluated. Active policy shows an ENTERPRISE badge in the nav and locks affected feature toggles. Default open -- no policy file means full consumer mode.",
+      "category": "enterprise",
+      "tags": [
+        "enterprise",
+        "policy",
+        "no-egress",
+        "air-gap",
+        "HIPAA",
+        "security",
+        "offline",
+        "admin"
+      ],
+      "status": "shipped",
+      "flag": null,
+      "flagDefault": null,
+      "policyKeys": {
+        "disable": [
+          "byokStory",
+          "webrtcRooms",
+          "cdnFetches",
+          "federatedLearning"
+        ],
+        "require": [
+          "auditLog",
+          "enterpriseBuild"
+        ]
+      },
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/build/enterprise-policy.js"
+      ],
+      "area": "Enterprise & deployment"
     }
   ]
 }
