@@ -342,6 +342,13 @@ var DashboardEngine = (function () {
       FindingsRail.render(dataset, frContainer);
     }
     dash.appendChild(frContainer);
+    // Wire proof chain rail -- SQL lineage on each finding card
+    if (typeof ProofChainRail !== 'undefined') {
+      var pcrFinds = (dataset && Array.isArray(dataset.findings)) ? dataset.findings : [];
+      setTimeout(function() {
+        ProofChainRail.renderInline(frContainer, dataset, pcrFinds);
+      }, 150);
+    }
 
     // KPI row (3-4 max)
     if (kpis.length) {
@@ -521,3 +528,5 @@ var DashboardEngine = (function () {
   }
 
   return { render: render, runReadinessCheck: runReadinessCheck };
+
+}());
