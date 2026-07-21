@@ -2624,36 +2624,6 @@
     border-radius: 4px;
     line-height: 1.5;
   }
-  /* Enable All button */
-  #feature-enable-all-row {
-    padding: 12px 0 4px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 4px;
-  }
-  .feature-enable-all-btn {
-    width: 100%;
-    padding: 9px 16px;
-    border-radius: 8px;
-    border: 1.5px solid var(--primary);
-    background: transparent;
-    color: var(--primary);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    letter-spacing: 0.01em;
-  }
-  .feature-enable-all-btn:hover {
-    background: var(--primary);
-    color: #fff;
-  }
-  .feature-enable-all-btn.all-on {
-    background: var(--primary);
-    color: #fff;
-    border-color: var(--primary);
-    cursor: default;
-  }
-
   .feature-badge-tauri {
     background: rgba(1, 105, 111, 0.12);
     color: var(--primary);
