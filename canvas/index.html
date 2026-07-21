@@ -6683,6 +6683,69 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
   overflow: hidden !important;
   contain: strict;
 }
+
+/* ============================================================
+   DATA HEALTH SCORE -- ring, col bars, score line
+   ============================================================ */
+.dhs-ring-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-right: 12px;
+}
+.dhs-ring-svg { display: block; }
+.dash-hdr-left {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.dash-hdr-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dhs-score-line {
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  margin-top: 1px;
+}
+
+/* KPI card health badge */
+.dhs-col-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: default;
+}
+.dhs-col-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.dhs-col-pct {
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+/* Dark mode */
+:root.dark .dhs-score-line { opacity: 0.85; }
+
+/* Mobile: shrink ring slightly */
+@media (max-width: 480px) {
+  .dhs-ring-wrap { margin-right: 8px; }
+  .dhs-ring-svg  { width: 56px; height: 56px; }
+  .dhs-score-line { font-size: 10px; }
+}
   </style>
 
 </head>
@@ -16513,6 +16576,175 @@ var ProofChainRail = (function () {
 
 /* ---- end proof-chain-rail.js ---- */
 
+
+  /* ---- from js/dashboard/data-health-score.js ---- */
+  /*
+   * DataHealthScore -- client-side, multi-dimension, per-column quality scoring
+   *
+   * Score formula (0-100, weighted):
+   *   completeness  (w=0.35)  1 - null_rate
+   *   validity      (w=0.25)  type-conformance rate
+   *   uniqueness    (w=0.15)  1 - duplicate_key_rate (per numeric col)
+   *   plausibility  (w=0.25)  1 - anomaly_density (3-sigma outlier rate)
+   *
+   * Dataset score = mean of per-column scores, weighted by column importance.
+   * Returns { total, columns: [{name, score, dims}], grade, color, label }
+   */
+  var DataHealthScore = (function () {
+    'use strict';
+
+    var W = { completeness: 0.35, validity: 0.25, uniqueness: 0.15, plausibility: 0.25 };
+
+    function isNum(v) { return v !== null && v !== undefined && v !== '' && !isNaN(parseFloat(v)) && isFinite(v); }
+    function toNum(v) { return parseFloat(v); }
+
+    function scoreColumn(col, ci, rows, allRows) {
+      var n = rows.length;
+      if (n === 0) return { name: col.name, score: 0, dims: { completeness: 0, validity: 0, uniqueness: 0, plausibility: 0 } };
+
+      /* completeness */
+      var nullCount = rows.filter(function(r) {
+        var v = r[ci]; return v === null || v === undefined || v === '';
+      }).length;
+      var completeness = 1 - (nullCount / n);
+
+      /* validity -- type conformance */
+      var validCount = rows.filter(function(r) {
+        var v = r[ci];
+        if (v === null || v === undefined || v === '') return true; /* nulls handled by completeness */
+        if (col.type === 'INT' || col.type === 'FLOAT') return isNum(v);
+        if (col.type === 'BOOL') return v === true || v === false || v === 1 || v === 0 || v === 'true' || v === 'false' || v === '1' || v === '0';
+        if (col.type === 'DATE') {
+          var d = new Date(v);
+          return !isNaN(d.getTime()) && String(v).length >= 6;
+        }
+        return true; /* STR always valid */
+      }).length;
+      var validity = validCount / n;
+
+      /* uniqueness -- only meaningful for numeric and id-like cols */
+      var uniqueness = 1.0;
+      if (col.type === 'INT' || col.type === 'STR') {
+        var seen = {};
+        var dupeCount = 0;
+        rows.forEach(function(r) {
+          var v = r[ci];
+          if (v === null || v === undefined || v === '') return;
+          var k = String(v);
+          if (seen[k]) dupeCount++;
+          else seen[k] = true;
+        });
+        var nonNull = n - nullCount;
+        uniqueness = nonNull > 0 ? Math.max(0, 1 - (dupeCount / nonNull)) : 1;
+        /* For columns that are naturally non-unique (metrics), clamp uniqueness contribution */
+        if (uniqueness < 0.01 && nonNull > 10) uniqueness = 0.5; /* repeated value columns get partial credit */
+      }
+
+      /* plausibility -- outlier density using 3-sigma */
+      var plausibility = 1.0;
+      if (col.type === 'FLOAT' || col.type === 'INT') {
+        var numVals = rows.map(function(r){ return r[ci]; }).filter(isNum).map(toNum);
+        if (numVals.length >= 10) {
+          var mean = numVals.reduce(function(a,b){return a+b;},0) / numVals.length;
+          var variance = numVals.reduce(function(a,v){return a+(v-mean)*(v-mean);},0) / numVals.length;
+          var sd = Math.sqrt(variance);
+          if (sd > 0) {
+            var outlierCount = numVals.filter(function(v){return Math.abs(v-mean) > 3*sd;}).length;
+            /* Outlier rate softened: up to 2% is normal */
+            var rawRate = outlierCount / numVals.length;
+            plausibility = Math.max(0, 1 - Math.max(0, rawRate - 0.02) * 10);
+          }
+          /* Negative currency check */
+          if (col.name.match(/salary|revenue|price|cost|amount|income|wage|pay/i)) {
+            var negCount = numVals.filter(function(v){ return v < 0; }).length;
+            if (negCount > 0) plausibility = Math.min(plausibility, 1 - (negCount / numVals.length));
+          }
+        }
+      }
+
+      var score = Math.round(100 * (
+        W.completeness  * completeness  +
+        W.validity      * validity      +
+        W.uniqueness    * uniqueness    +
+        W.plausibility  * plausibility
+      ));
+
+      return {
+        name: col.name,
+        type: col.type,
+        score: Math.max(0, Math.min(100, score)),
+        dims: {
+          completeness:  Math.round(completeness  * 100),
+          validity:      Math.round(validity      * 100),
+          uniqueness:    Math.round(uniqueness    * 100),
+          plausibility:  Math.round(plausibility  * 100)
+        },
+        nullPct: Math.round(nullCount / n * 100),
+        rowsClean: n - nullCount
+      };
+    }
+
+    function gradeColor(score) {
+      if (score >= 85) return { grade: 'A', color: '#4AE38A', label: 'Healthy', ring: '#4AE38A' };
+      if (score >= 70) return { grade: 'B', color: '#A3E634', label: 'Good',    ring: '#A3E634' };
+      if (score >= 55) return { grade: 'C', color: '#F5A623', label: 'Fair',    ring: '#F5A623' };
+      if (score >= 40) return { grade: 'D', color: '#F97316', label: 'Weak',    ring: '#F97316' };
+      return                 { grade: 'F', color: '#EF4444', label: 'Poor',    ring: '#EF4444' };
+    }
+
+    function compute(dataset) {
+      if (!dataset || !dataset.rows || !dataset.columns) return null;
+      var rows = dataset.rows;
+      var colScores = dataset.columns.map(function(col, ci) {
+        return scoreColumn(col, ci, rows, rows);
+      });
+      var total = colScores.length
+        ? Math.round(colScores.reduce(function(a,c){return a+c.score;},0) / colScores.length)
+        : 0;
+      var gc = gradeColor(total);
+      return {
+        total: total,
+        columns: colScores,
+        grade: gc.grade,
+        color: gc.color,
+        label: gc.label,
+        ring: gc.ring
+      };
+    }
+
+    /* SVG gauge ring */
+    function renderRing(score, color) {
+      var r = 28, cx = 36, cy = 36, stroke = 6;
+      var circ = 2 * Math.PI * r;
+      var dash = (score / 100) * circ;
+      return (
+        '<svg class="dhs-ring-svg" viewBox="0 0 72 72" width="72" height="72" aria-label="Health ' + score + '">' +
+          '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="'+stroke+'"/>' +
+          '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="'+stroke+'"' +
+            ' stroke-dasharray="'+dash.toFixed(1)+' '+circ.toFixed(1)+'"' +
+            ' stroke-linecap="round" transform="rotate(-90 '+cx+' '+cy+')" style="transition:stroke-dasharray 0.6s ease"/>' +
+          '<text x="'+cx+'" y="'+(cy+1)+'" text-anchor="middle" dominant-baseline="middle"' +
+            ' font-size="13" font-weight="700" fill="'+color+'" font-family="var(--mono,monospace)">'+score+'</text>' +
+        '</svg>'
+      );
+    }
+
+    /* Compact column health bar for KPI cards */
+    function colHealthBar(colScore) {
+      var s = colScore.score;
+      var gc = gradeColor(s);
+      return '<div class="dhs-col-bar" title="Health: ' + s + '/100 · ' + colScore.dims.completeness + '% complete">' +
+        '<span class="dhs-col-dot" style="background:' + gc.color + '"></span>' +
+        '<span class="dhs-col-pct">' + s + '</span>' +
+        '</div>';
+    }
+
+    return { compute: compute, renderRing: renderRing, colHealthBar: colHealthBar, gradeColor: gradeColor };
+  })();
+
+  /* ---- end data-health-score.js ---- */
+
+
   /* ---- from js/dashboard/dashboard-engine.js ---- */
 /**
  * dashboard-engine.js — DataGlow Dashboard View (PR AN)
@@ -16838,13 +17070,27 @@ var DashboardEngine = (function () {
     var dsName=(dataset.name||'Dataset').replace(/\.[^.]+$/,'');
     var now=new Date().toLocaleString();
 
+    /* Compute Data Health Score once for whole render pass */
+    var dhs = (typeof DataHealthScore !== 'undefined') ? DataHealthScore.compute(dataset) : null;
+
     var dash=document.createElement('div'); dash.className='dash-root';
 
     // Header
     var hdr=document.createElement('div'); hdr.className='dash-header';
-    hdr.innerHTML='<div class="dash-hdr-left"><div class="dash-title">'+escH(dsName)+'</div><div class="dash-meta">'+dataset.rows.length.toLocaleString()+' rows \u00b7 '+dataset.columns.length+' cols \u00b7 '+escH(now)+'</div></div>'+
+    var dhsRing = (dhs && typeof DataHealthScore !== 'undefined')
+      ? DataHealthScore.renderRing(dhs.total, dhs.color)
+      : '';
+    var dhsLabel = dhs ? '<span class="dhs-label" title="Data Health Score -- '+dhs.label+'">'+dhs.label+'</span>' : '';
+    hdr.innerHTML='<div class="dash-hdr-left">'+
+      '<div class="dhs-ring-wrap">'+dhsRing+'</div>'+
+      '<div class="dash-hdr-titles">'+
+        '<div class="dash-title">'+escH(dsName)+'</div>'+
+        '<div class="dash-meta">'+dataset.rows.length.toLocaleString()+' rows \u00b7 '+dataset.columns.length+' cols \u00b7 '+escH(now)+'</div>'+
+        (dhs ? '<div class="dhs-score-line" style="color:'+dhs.color+'">Health '+dhs.total+'/100 \u00b7 '+dhs.grade+' \u00b7 '+dhs.label+'</div>' : '')+
+      '</div>'+
+    '</div>'+
       '<div class="dash-hdr-right">'+
-      (report.warnings.length?'<span class="dash-quality-badge warn">&#9888; '+report.warnings.length+' note'+(report.warnings.length>1?'s':'')+'</span>':'<span class="dash-quality-badge ok">&#10003; Quality passed</span>')+
+      (report.warnings.length?'<span class="dash-quality-badge warn">&#9888; '+report.warnings.length+' note'+(report.warnings.length>1?'s':'')+' </span>':'<span class="dash-quality-badge ok">&#10003; Quality passed</span>')+
       '<button class="dash-export-btn" id="dash-csv-btn">&#8681; Export CSV</button></div>';
     dash.appendChild(hdr);
 
@@ -16889,7 +17135,9 @@ var DashboardEngine = (function () {
           : '';
 
         card.innerHTML=
-          '<div class="dash-kpi-label">'+escH(kpi.name)+'</div>'+
+          '<div class="dash-kpi-label">'+escH(kpi.name)+
+            (dhs ? (function(){ var cs = dhs.columns.find(function(c){ return c.name === kpi.name; }); return cs ? DataHealthScore.colHealthBar(cs) : ''; })() : '')+
+          '</div>'+
           '<div class="dash-kpi-value-wrap">'+
             '<div class="dash-kpi-value" title="Click to enter a what-if scenario value" ' + (_provIds[i] ? 'data-prov-id="'+_provIds[i]+'"' : '') + '>'+escH(kpi.value)+'</div>'+
             '<input class="kpi-whatif-input hidden" type="number" step="any" placeholder="Enter scenario value" aria-label="What-if value for '+escH(kpi.name)+'" />'+
