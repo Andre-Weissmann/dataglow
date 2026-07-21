@@ -7614,6 +7614,58 @@ OPFSEngine.init().then(function(ok) {
   // Always show Saved button once OPFS confirmed available
   var savedBtn = document.getElementById('saved-datasets-btn');
   if (savedBtn) savedBtn.style.display = '';
+
+  /* ── Request Durable (Persistent) Storage ──────────────────────────────
+     navigator.storage.persist() upgrades this origin from "best-effort"
+     (evictable under disk pressure) to "persistent" (browser will not
+     silently delete OPFS data). Chrome auto-grants silently if the site
+     is bookmarked or installed as a PWA. iOS Safari may prompt. Firefox
+     may show a browser-level permission indicator.
+     We call this once per origin -- subsequent calls are no-ops if already
+     granted, so it is safe to run on every load.                         */
+  if (navigator.storage && typeof navigator.storage.persist === 'function') {
+    navigator.storage.persist().then(function(granted) {
+      /* Log outcome to console regardless */
+      if (granted) {
+        console.info('[DataGlow] Persistent storage granted -- project data is eviction-protected.');
+      } else {
+        console.warn('[DataGlow] Persistent storage not granted -- data is best-effort. ' +
+          'On iOS: add DataGlow to your Home Screen. On Firefox: grant storage permission.');
+      }
+
+      /* Show a one-time toast on the very first visit (no OPFS profile key present yet) */
+      navigator.storage.persisted().then(function(alreadyPersisted) {
+        var seenKey = '__dg_persist_toast_shown__';
+        OPFSEngine._root && OPFSEngine._root.getFileHandle(seenKey, { create: false })
+          .then(function() { /* file exists -- toast already shown, skip */ })
+          .catch(function() {
+            /* First time -- create marker file and show toast */
+            if (OPFSEngine._root) {
+              OPFSEngine._root.getFileHandle(seenKey, { create: true }).catch(function(){});
+            }
+            setTimeout(function() {
+              if (typeof showToast !== 'function') return;
+              if (granted) {
+                showToast('Your DataGlow projects are now eviction-protected on this device.', 'success');
+              } else {
+                /* Only surface this on iOS Safari where it actually matters */
+                var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                if (isIOS) {
+                  showToast(
+                    'Tip: Add DataGlow to your Home Screen to protect your saved projects from being cleared.',
+                    'info'
+                  );
+                }
+              }
+            }, 3500);
+          });
+      });
+    }).catch(function(e) {
+      console.warn('[DataGlow] storage.persist() failed:', e);
+    });
+  }
+
   // Guard: warn if critically low disk space
   OPFSEngine.getUsage().then(function(usage) {
     if (!usage) return;
