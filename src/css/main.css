@@ -5677,6 +5677,26 @@
 .pcr-py-btn:hover { background: rgba(32,197,181,0.12); border-color: var(--primary); }
 .pcr-py-icon { font-size: 10px; opacity: 0.7; }
 
+/* R lineage button */
+.pcr-r-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid #276BBE;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: #276BBE;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.pcr-r-btn:hover { background: rgba(39,107,190,0.10); border-color: #1a5aab; }
+
 .pcr-hash {
   color: var(--text-faint, #5A5957);
   font-size: 10px;

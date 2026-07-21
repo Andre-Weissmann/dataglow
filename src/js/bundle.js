@@ -8047,7 +8047,8 @@ var FindingsRail = (function () {
       '<span class="fr-header-count">' + shown.length + ' insight' + (shown.length === 1 ? '' : 's') + '</span>';
     containerEl.appendChild(header);
 
-    // Cards
+    // Cards -- store findings on container for ProofChainRail
+    window.__dg_lastFindingsRail = shown;
     var list = document.createElement('div');
     list.className = 'fr-list';
     shown.forEach(function (f) { list.appendChild(renderCard(f)); });
@@ -8316,29 +8317,156 @@ var ProofChainRail = (function () {
     return (name || 'col').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase().slice(0, 20);
   }
 
+  /* ---- R lineage: generate reproducible tidyverse/dplyr code ---- */
+  function buildExplanatoryR(finding, dataset) {
+    if (!finding || !dataset || !dataset.columns) return null;
+    var tbl = (dataset.name || 'dataset').replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_]/g, '_');
+    var col  = finding.col || finding.column || null;
+    var type = finding.type || finding.statType || 'summary';
+    var bq   = function(c) { return '`' + c + '`'; };
+    var indent = '  ';
+
+    if (type === 'outlier' || type === 'anomaly') {
+      if (!col) return null;
+      var m    = finding.mean    !== undefined ? finding.mean    : 0;
+      var sd   = finding.stddev  !== undefined ? finding.stddev  : 1;
+      var thr  = parseFloat((m + 3 * sd).toFixed(4));
+      var thrL = parseFloat((m - 3 * sd).toFixed(4));
+      return [
+        'library(dplyr)',
+        '',
+        '# Load dataset (replace with your actual path / object)',
+        'df <- read.csv("' + (dataset.name || 'dataset.csv') + '")',
+        '',
+        '# Flag outliers in ' + col + ' using 3-sigma rule',
+        'outliers <- df |>',
+        indent + 'filter(' + bq(col) + ' > ' + thr + ' | ' + bq(col) + ' < ' + thrL + ')',
+        '',
+        '# Summary',
+        'cat("Outlier rows:", nrow(outliers), "/ Total:", nrow(df), "\n")',
+        'summary(outliers[[' + JSON.stringify(col) + ']])'
+      ].join('\n');
+    }
+
+    if (type === 'correlation' || type === 'skew') {
+      var colB = finding.colB || null;
+      var lines = [
+        'library(dplyr)',
+        'library(ggplot2)',
+        '',
+        'df <- read.csv("' + (dataset.name || 'dataset.csv') + '")',
+        ''
+      ];
+      if (colB) {
+        lines.push('# Pearson correlation between ' + col + ' and ' + colB);
+        lines.push('cor(' + 'df[[' + JSON.stringify(col) + ']], df[[' + JSON.stringify(colB) + ']], use = "complete.obs")');
+        lines.push('');
+        lines.push('# Scatter plot');
+        lines.push('ggplot(df, aes(x = ' + bq(col) + ', y = ' + bq(colB) + ')) +');
+        lines.push(indent + 'geom_point(alpha = 0.5) +');
+        lines.push(indent + 'geom_smooth(method = "lm", se = TRUE)');
+      } else {
+        lines.push('# Distribution and skew of ' + col);
+        lines.push('hist(df[[' + JSON.stringify(col) + ']], main = ' + JSON.stringify('Distribution of ' + col) + ')');
+        lines.push('cat("Skewness:", e1071::skewness(df[[' + JSON.stringify(col) + ']], na.rm = TRUE), "\n")');
+      }
+      return lines.join('\n');
+    }
+
+    if (type === 'top_category' || type === 'categorical') {
+      if (!col) return null;
+      return [
+        'library(dplyr)',
+        '',
+        'df <- read.csv("' + (dataset.name || 'dataset.csv') + '")',
+        '',
+        '# Top categories in ' + col,
+        'df |>',
+        indent + 'count(' + bq(col) + ', sort = TRUE) |>',
+        indent + 'mutate(pct = n / sum(n) * 100) |>',
+        indent + 'head(10)'
+      ].join('\n');
+    }
+
+    if (type === 'numeric' || type === 'distribution') {
+      if (!col) return null;
+      return [
+        'library(dplyr)',
+        '',
+        'df <- read.csv("' + (dataset.name || 'dataset.csv') + '")',
+        '',
+        '# Numeric summary of ' + col,
+        'summary(df[[' + JSON.stringify(col) + ']])',
+        '',
+        '# Five-number summary + IQR',
+        'cat("IQR:", IQR(df[[' + JSON.stringify(col) + ']], na.rm = TRUE), "\n")',
+        'cat("SD: ", sd( df[[' + JSON.stringify(col) + ']], na.rm = TRUE), "\n")'
+      ].join('\n');
+    }
+
+    if (type === 'null_rate' || type === 'missing') {
+      if (!col) return null;
+      return [
+        'library(dplyr)',
+        '',
+        'df <- read.csv("' + (dataset.name || 'dataset.csv') + '")',
+        '',
+        '# Rows with missing values in ' + col,
+        'missing_rows <- df |> filter(is.na(' + bq(col) + ') | ' + bq(col) + ' == "")',
+        'cat("Missing:", nrow(missing_rows), "/ Total:", nrow(df),',
+        indent + '"(" , round(nrow(missing_rows)/nrow(df)*100, 1), "%)\n")'
+      ].join('\n');
+    }
+
+    /* Generic fallback -- descriptive overview */
+    var numCols = dataset.columns
+      .filter(function(c) { return c.type === 'FLOAT' || c.type === 'INT'; })
+      .map(function(c) { return bq(c.name); }).slice(0, 4);
+    return [
+      'library(dplyr)',
+      '',
+      'df <- read.csv("' + (dataset.name || 'dataset.csv') + '")',
+      '',
+      '# Dataset overview',
+      'dim(df)',
+      'glimpse(df)',
+      '',
+      (numCols.length ? ('# Numeric summaries\nsummary(select(df, ' + numCols.join(', ') + '))') : '# summary(df)')
+    ].join('\n');
+  }
+
   /* ---- build a proof object for a finding ---- */
   function buildProof(finding, dataset) {
     if (!finding || !dataset) return null;
-    var tier = confidenceTier(finding);
-    var sql  = buildExplanatorySQL(finding, dataset);
-    var python = buildExplanatoryPython(finding, dataset);
-    var rowsAffected = finding.rowsAffected || finding.outlierCount || null;
+    /* Normalize: FindingsRail stores data in finding.json; flatten for PCR */
+    var f = finding;
+    if (finding.json && typeof finding.json === 'object') {
+      f = Object.assign({}, finding, finding.json);
+      /* json.column -> col for consistent lookup */
+      if (f.column && !f.col) f.col = f.column;
+    }
+    var tier = confidenceTier(f);
+    var sql  = buildExplanatorySQL(f, dataset);
+    var python = buildExplanatoryPython(f, dataset);
+    var r = buildExplanatoryR(f, dataset);
+    var rowsAffected = f.rowsAffected || f.outlierCount || null;
     var colsInvolved = [];
-    if (finding.col)  colsInvolved.push(finding.col);
-    if (finding.colB) colsInvolved.push(finding.colB);
-    if (finding.column) colsInvolved.push(finding.column);
+    if (f.col)    colsInvolved.push(f.col);
+    if (f.colB)   colsInvolved.push(f.colB);
+    if (f.column) colsInvolved.push(f.column);
 
     return {
       tier: tier,
       sql: sql,
       python: python,
+      r: r,
       rowsAffected: rowsAffected,
       totalRows: dataset.rows ? dataset.rows.length : 0,
       colsInvolved: colsInvolved,
       computedAt: new Date().toISOString(),
       engine: 'DataGlow InstantInsight v1',
       datasetName: dataset.name || 'dataset',
-      hash: djb2(JSON.stringify({ finding: finding.type, col: finding.col, ds: dataset.name }))
+      hash: djb2(JSON.stringify({ finding: f.type, col: f.col, ds: dataset.name }))
     };
   }
 
@@ -8409,6 +8537,20 @@ var ProofChainRail = (function () {
       footer.appendChild(pyBtn);
     }
 
+    /* expand R button */
+    if (proof.r) {
+      var rBtn = document.createElement('button');
+      rBtn.className = 'pcr-r-btn';
+      rBtn.title = 'View the R (tidyverse) code that reproduces this insight';
+      rBtn.innerHTML = '&#x211D; R';
+      rBtn.setAttribute('data-r', proof.r);
+      rBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleCodeDrawer(cardEl, proof.r, proof.hash, 'r');
+      });
+      footer.appendChild(rBtn);
+    }
+
     /* copy proof hash */
     var hashEl = document.createElement('span');
     hashEl.className = 'pcr-hash';
@@ -8453,6 +8595,8 @@ var ProofChainRail = (function () {
     label.className = 'pcr-drawer-label';
     if (lang === 'python') {
       label.innerHTML = '<span style="color:var(--primary)">\u03BB Python lineage</span> -- copy to Python tab to reproduce';
+    } else if (lang === 'r') {
+      label.innerHTML = '<span style="color:var(--pcr-r-color,#276BBE)">&#x211D; R lineage</span> -- copy to R tab to reproduce';
     } else {
       label.innerHTML = '<span style="color:var(--proof)">Verify this insight</span> -- run this SQL in the editor';
     }
@@ -8467,6 +8611,12 @@ var ProofChainRail = (function () {
       runBtn.textContent = 'Run in SQL Editor';
       runBtn.addEventListener('click', function () { pushSQLToEditor(code); });
       actions.appendChild(runBtn);
+    } else if (lang === 'r') {
+      var rRunBtn = document.createElement('button');
+      rRunBtn.className = 'pcr-drawer-run';
+      rRunBtn.textContent = 'Open R Tab';
+      rRunBtn.addEventListener('click', function () { pushRToEditor(code); });
+      actions.appendChild(rRunBtn);
     } else {
       var pyBtn = document.createElement('button');
       pyBtn.className = 'pcr-drawer-run';
@@ -8557,6 +8707,22 @@ var ProofChainRail = (function () {
     var pyNavBtn = document.querySelector('[data-panel="python-view"]') ||
                    document.querySelector('.sidebar-nav-item[data-panel="python-view"]');
     if (pyNavBtn) pyNavBtn.click();
+    var analyzeNavBtn = document.querySelector('.nav-btn[data-view="analyze"]');
+    if (analyzeNavBtn && !analyzeNavBtn.classList.contains('active')) analyzeNavBtn.click();
+  }
+
+  /* ---- push R code into the R tab editor ---- */
+  function pushRToEditor(code) {
+    var rInput = document.getElementById('r-input');
+    if (rInput && rInput.tagName === 'TEXTAREA') {
+      rInput.value = code;
+      rInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    /* switch to R tab */
+    var rNavBtn = document.querySelector('[data-panel="r-view"]') ||
+                  document.querySelector('.sidebar-nav-item[data-panel="r-view"]') ||
+                  document.querySelector('.analyze-pill[data-panel="r-view"]');
+    if (rNavBtn) rNavBtn.click();
     var analyzeNavBtn = document.querySelector('.nav-btn[data-view="analyze"]');
     if (analyzeNavBtn && !analyzeNavBtn.classList.contains('active')) analyzeNavBtn.click();
   }
@@ -8943,10 +9109,12 @@ var DashboardEngine = (function () {
       FindingsRail.render(dataset, frContainer);
     }
     dash.appendChild(frContainer);
-    // Proof chain rail -- SQL lineage on each finding card
+    // Proof chain rail -- SQL + Python + R lineage on each finding card
     if (typeof ProofChainRail !== 'undefined') {
-      var pcrFinds = Array.isArray(window.__dg_lastFindings) ? window.__dg_lastFindings : [];
-      setTimeout(function() { ProofChainRail.renderInline(frContainer, dataset, pcrFinds); }, 150);
+      setTimeout(function() {
+        var pcrFinds = Array.isArray(window.__dg_lastFindingsRail) ? window.__dg_lastFindingsRail : [];
+        ProofChainRail.renderInline(frContainer, dataset, pcrFinds);
+      }, 250);
     }
 
     // KPI row (3-4 max)
