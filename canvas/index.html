@@ -7016,6 +7016,284 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
 @media (max-width: 540px) {
   #dg-narrative-panel-v2 { width: 100vw; }
 }
+
+/* ============================================================
+   CLEANING PRESCRIPTION PANEL -- guided, audited, reversible
+   ============================================================ */
+
+/* Ring clickable */
+.dhs-ring-clickable {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: filter 0.2s, transform 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dhs-ring-clickable:hover {
+  filter: brightness(1.2) drop-shadow(0 0 8px currentColor);
+  transform: scale(1.06);
+}
+.dhs-ring-clickable:active { transform: scale(0.97); }
+
+/* Prescription panel slide-over */
+.dg-rx-panel {
+  position: fixed;
+  top: 0; right: 0;
+  width: 460px; max-width: 100vw;
+  height: 100vh;
+  background: var(--surface, #131519);
+  border-left: 1px solid var(--border, #252930);
+  display: flex;
+  flex-direction: column;
+  z-index: 9100;
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -12px 0 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.dg-rx-panel.rx-open {
+  transform: translateX(0);
+}
+
+/* Header */
+.rx-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border, #252930);
+  background: linear-gradient(135deg, rgba(32,197,181,0.06), rgba(74,227,138,0.04));
+  flex-shrink: 0;
+}
+.rx-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.rx-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text, #CDCCCA);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rx-close {
+  background: none;
+  border: 1px solid var(--border, #252930);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 18px;
+  color: var(--text-muted, #797876);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.rx-close:hover { background: var(--surface-2, #191C20); color: var(--text, #CDCCCA); }
+
+.rx-score-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.rx-score-now, .rx-score-projected {
+  text-align: center;
+  min-width: 52px;
+}
+.rx-score-num {
+  font-size: 28px;
+  font-weight: 800;
+  font-family: var(--mono, monospace);
+  line-height: 1;
+}
+.rx-score-lbl {
+  font-size: 10px;
+  color: var(--text-muted, #797876);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+.rx-score-arrow {
+  font-size: 22px;
+  color: var(--text-muted, #797876);
+  flex-shrink: 0;
+}
+.rx-score-gain {
+  font-size: 11px;
+  color: #4AE38A;
+  font-family: var(--mono, monospace);
+  flex: 1;
+  line-height: 1.4;
+}
+.rx-subtitle {
+  font-size: 11px;
+  color: var(--text-muted, #797876);
+}
+
+/* Body */
+.rx-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Prescription card */
+.rx-card {
+  background: var(--surface-2, #191C20);
+  border: 1px solid var(--border, #252930);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.rx-card:hover { border-color: rgba(32, 197, 181, 0.25); }
+
+.rx-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 8px;
+}
+.rx-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: var(--mono, monospace);
+  color: var(--text-muted, #797876);
+  flex-shrink: 0;
+  letter-spacing: -0.03em;
+}
+.rx-card-main { flex: 1; min-width: 0; }
+.rx-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text, #CDCCCA);
+  line-height: 1.4;
+  margin-bottom: 5px;
+}
+.rx-card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.rx-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-family: var(--mono, monospace);
+}
+.rx-tag-safe {
+  background: rgba(74,227,138,0.1);
+  color: #4AE38A;
+  border-color: rgba(74,227,138,0.3);
+}
+
+.rx-impact-badge {
+  flex-shrink: 0;
+  background: rgba(32,197,181,0.12);
+  color: #20C5B5;
+  border: 1px solid rgba(32,197,181,0.25);
+  border-radius: 8px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: var(--mono, monospace);
+  white-space: nowrap;
+}
+
+.rx-card-detail {
+  padding: 0 12px 10px;
+  font-size: 12px;
+  color: var(--text-muted, #797876);
+  line-height: 1.6;
+}
+
+.rx-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border, #252930);
+  background: rgba(0,0,0,0.15);
+}
+.rx-rows-badge {
+  font-size: 11px;
+  color: var(--text-faint, #5A5957);
+  font-family: var(--mono, monospace);
+}
+.rx-sql-btn, .rx-copy-sql-btn {
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  color: var(--text-muted, #797876);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.rx-sql-btn:hover, .rx-copy-sql-btn:hover {
+  background: var(--surface-2, #191C20);
+  color: var(--text, #CDCCCA);
+}
+
+/* SQL block */
+.rx-sql-block {
+  border-top: 1px solid var(--border, #252930);
+  background: rgba(0,0,0,0.3);
+  padding: 10px 12px;
+}
+.rx-sql-block.hidden { display: none; }
+.rx-sql-pre {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: #20C5B5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+.rx-sql-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rx-undo-note {
+  font-size: 10px;
+  color: var(--text-faint, #5A5957);
+  font-family: var(--mono, monospace);
+  flex: 1;
+  line-height: 1.4;
+}
+
+/* Empty state */
+.rx-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px;
+  text-align: center;
+  gap: 10px;
+}
+.rx-empty-icon { font-size: 40px; }
+.rx-empty-title { font-size: 16px; font-weight: 700; color: var(--text, #CDCCCA); }
+.rx-empty-sub { font-size: 13px; color: var(--text-muted, #797876); line-height: 1.5; }
+
+/* Mobile */
+@media (max-width: 540px) {
+  .dg-rx-panel { width: 100vw; }
+}
   </style>
 
 </head>
@@ -17015,6 +17293,341 @@ var ProofChainRail = (function () {
   /* ---- end data-health-score.js ---- */
 
 
+
+  
+  /* ---- from js/dashboard/cleaning-prescription.js ---- */
+  var CleaningPrescription = (function () {
+    'use strict';
+    var EFFORT_LABELS = { instant: 'Instant', low: 'Low effort', medium: 'Review recommended', high: 'Manual review' };
+    var DIM_LABELS = { completeness: 'Completeness', validity: 'Validity', uniqueness: 'Uniqueness', plausibility: 'Plausibility' };
+    function isNum(v) { return v !== null && v !== undefined && v !== '' && !isNaN(parseFloat(v)) && isFinite(v); }
+    function toNum(v) { return parseFloat(v); }
+    function escQ(s) { return String(s).replace(/'/g, "''"); }
+
+    function prescribeDuplicates(col, ci, rows, colScore, dataset) {
+      if (ci !== 0) return null;
+      var seen = {}, dupeRows = [];
+      rows.forEach(function(r, ri) {
+        var k = JSON.stringify(r);
+        if (seen[k] !== undefined) dupeRows.push(ri);
+        else seen[k] = ri;
+      });
+      if (dupeRows.length === 0) return null;
+      var gain = Math.min(20, Math.round(dupeRows.length / rows.length * 100 * 2));
+      var colList = dataset.columns.map(function(c){ return '"' + escQ(c.name) + '"'; }).join(', ');
+      var tbl = escQ(dataset.name || 'dataset');
+      return {
+        col: '(all columns)',
+        type: 'drop_duplicates',
+        title: 'Drop ' + dupeRows.length + ' exact duplicate row' + (dupeRows.length > 1 ? 's' : ''),
+        detail: dupeRows.length + ' rows are byte-for-byte identical to another row. Duplicates inflate counts and averages. Safe to drop.',
+        effort: 'instant',
+        impactPts: gain,
+        dimension: 'uniqueness',
+        safeToAutoApply: true,
+        affectedRows: dupeRows.length,
+        sql: 'DELETE FROM "' + tbl + '" WHERE rowid NOT IN (SELECT MIN(rowid) FROM "' + tbl + '" GROUP BY ' + colList + ');',
+        undo: 'Original rows preserved in DataGlow session. Click Undo to restore.',
+        icon: '2x'
+      };
+    }
+
+    function prescribeNulls(col, ci, rows, colScore, dataset) {
+      if (colScore.dims.completeness >= 98) return null;
+      var nullCount = rows.filter(function(r) { var v = r[ci]; return v === null || v === undefined || v === ''; }).length;
+      if (nullCount === 0) return null;
+      var nullPct = Math.round(nullCount / rows.length * 100);
+      var isNumeric = col.type === 'INT' || col.type === 'FLOAT';
+      var isCat = col.type === 'STR';
+      var imputeVal = null, imputeMethod = '';
+      if (isNumeric) {
+        var vals = rows.map(function(r){ return r[ci]; }).filter(isNum).map(toNum).sort(function(a,b){ return a-b; });
+        if (vals.length > 0) {
+          var mid = Math.floor(vals.length / 2);
+          imputeVal = vals.length % 2 === 0 ? ((vals[mid-1] + vals[mid]) / 2) : vals[mid];
+          imputeVal = Math.round(imputeVal * 100) / 100;
+          imputeMethod = 'median';
+        }
+      } else if (isCat) {
+        var freq = {};
+        rows.forEach(function(r){ var v = r[ci]; if (v !== null && v !== undefined && v !== '') freq[v] = (freq[v]||0)+1; });
+        var top = Object.keys(freq).sort(function(a,b){ return freq[b]-freq[a]; })[0];
+        if (top) { imputeVal = top; imputeMethod = 'mode'; }
+      }
+      var gain = Math.min(25, Math.round(nullPct * 0.35 * 1.2));
+      var effort = nullPct > 20 ? 'medium' : 'low';
+      var tbl = escQ(dataset.name || 'dataset');
+      var cn = escQ(col.name);
+      var sqlFill = imputeVal !== null
+        ? ('UPDATE "' + tbl + '" SET "' + cn + '" = ' + (isNumeric ? imputeVal : ("'" + escQ(String(imputeVal)) + "'")) + ' WHERE "' + cn + '" IS NULL OR "' + cn + '" = \'\';')
+        : '-- No safe imputation value found. Manual review required.';
+      return {
+        col: col.name,
+        type: 'impute_nulls',
+        title: 'Impute ' + nullCount + ' null' + (nullCount > 1 ? 's' : '') + ' in "' + col.name + '" (' + nullPct + '% missing)',
+        detail: nullCount + ' empty cells. ' + (imputeVal !== null ? (imputeMethod.charAt(0).toUpperCase() + imputeMethod.slice(1) + ' imputation: replace with ' + imputeVal + '. Completeness rises from ' + colScore.dims.completeness + '% to 100%.') : 'No valid values found -- consider dropping this column or reviewing source.'),
+        effort: effort,
+        impactPts: gain,
+        dimension: 'completeness',
+        safeToAutoApply: nullPct <= 10 && imputeVal !== null,
+        affectedRows: nullCount,
+        imputeVal: imputeVal,
+        imputeMethod: imputeMethod,
+        sql: sqlFill,
+        undo: 'Set "' + col.name + '" back to NULL where original value was empty.',
+        icon: 'null'
+      };
+    }
+
+    function prescribeTypeValidity(col, ci, rows, colScore, dataset) {
+      if (colScore.dims.validity >= 98) return null;
+      var invalidRows = rows.filter(function(r) {
+        var v = r[ci];
+        if (v === null || v === undefined || v === '') return false;
+        if (col.type === 'INT' || col.type === 'FLOAT') return !isNum(v);
+        if (col.type === 'BOOL') return !(v===true||v===false||v===1||v===0||v==='true'||v==='false'||v==='1'||v==='0');
+        if (col.type === 'DATE') { var d = new Date(v); return isNaN(d.getTime()); }
+        return false;
+      });
+      if (invalidRows.length === 0) return null;
+      var gain = Math.min(18, Math.round(invalidRows.length / rows.length * 100 * 1.5));
+      var tbl = escQ(dataset.name || 'dataset');
+      var cn = escQ(col.name);
+      return {
+        col: col.name,
+        type: 'fix_type',
+        title: 'Fix ' + invalidRows.length + ' type mismatch' + (invalidRows.length > 1 ? 'es' : '') + ' in "' + col.name + '"',
+        detail: invalidRows.length + ' values in "' + col.name + '" (declared ' + col.type + ') cannot be parsed as that type. These produce NULL or errors in SQL aggregations.',
+        effort: 'medium',
+        impactPts: gain,
+        dimension: 'validity',
+        safeToAutoApply: false,
+        affectedRows: invalidRows.length,
+        sql: 'SELECT "' + cn + '", COUNT(*) AS n FROM "' + tbl + '" WHERE TRY_CAST("' + cn + '" AS ' + col.type + ') IS NULL AND "' + cn + '" IS NOT NULL GROUP BY 1 ORDER BY 2 DESC;',
+        undo: 'Original string values preserved. Revert CAST to restore.',
+        icon: 'T!'
+      };
+    }
+
+    function prescribeCasingNorm(col, ci, rows, colScore, dataset) {
+      if (col.type !== 'STR') return null;
+      var vals = rows.map(function(r){ return r[ci]; }).filter(function(v){ return v !== null && v !== undefined && v !== ''; });
+      if (vals.length < 5) return null;
+      var lowerMap = {};
+      vals.forEach(function(v) {
+        var lo = String(v).toLowerCase().trim();
+        if (!lowerMap[lo]) lowerMap[lo] = [];
+        if (lowerMap[lo].indexOf(String(v).trim()) === -1) lowerMap[lo].push(String(v).trim());
+      });
+      var mixedKeys = Object.keys(lowerMap).filter(function(k){ return lowerMap[k].length > 1; });
+      if (mixedKeys.length === 0) return null;
+      var affectedRows = vals.filter(function(v){ return mixedKeys.indexOf(String(v).toLowerCase().trim()) !== -1; }).length;
+      var examples = mixedKeys.slice(0, 3).map(function(k){ return lowerMap[k].join(' / '); }).join('; ');
+      var tbl = escQ(dataset.name || 'dataset');
+      var cn = escQ(col.name);
+      return {
+        col: col.name,
+        type: 'normalize_casing',
+        title: 'Normalize ' + mixedKeys.length + ' casing variant' + (mixedKeys.length > 1 ? 's' : '') + ' in "' + col.name + '"',
+        detail: '"' + col.name + '" has the same value spelled multiple ways: ' + examples + '. GROUP BY and joins will treat these as different categories.',
+        effort: 'instant',
+        impactPts: 8,
+        dimension: 'validity',
+        safeToAutoApply: true,
+        affectedRows: affectedRows,
+        sql: 'UPDATE "' + tbl + '" SET "' + cn + '" = UPPER(TRIM("' + cn + '")) WHERE "' + cn + '" IS NOT NULL;',
+        undo: 'Original mixed-case values were not backed up automatically. Re-import source file to revert.',
+        icon: 'Aa'
+      };
+    }
+
+    function prescribeNegativeCurrency(col, ci, rows, colScore, dataset) {
+      if (!col.name.match(/salary|revenue|price|cost|amount|income|wage|pay|fee|rate/i)) return null;
+      if (col.type !== 'INT' && col.type !== 'FLOAT') return null;
+      var negRows = rows.filter(function(r){ var v = r[ci]; return isNum(v) && toNum(v) < 0; });
+      if (negRows.length === 0) return null;
+      var tbl = escQ(dataset.name || 'dataset');
+      var cn = escQ(col.name);
+      return {
+        col: col.name,
+        type: 'flag_negative_currency',
+        title: 'Investigate ' + negRows.length + ' negative value' + (negRows.length > 1 ? 's' : '') + ' in "' + col.name + '"',
+        detail: negRows.length + ' rows have negative values in "' + col.name + '" -- a field where negative values are likely entry errors or refunds that should be flagged separately.',
+        effort: 'medium',
+        impactPts: 12,
+        dimension: 'plausibility',
+        safeToAutoApply: false,
+        affectedRows: negRows.length,
+        sql: 'SELECT * FROM "' + tbl + '" WHERE "' + cn + '" < 0 ORDER BY "' + cn + '" ASC;',
+        undo: 'No mutation applied. This is an investigation query only.',
+        icon: '-$'
+      };
+    }
+
+    function prescribeOutliers(col, ci, rows, colScore, dataset) {
+      if (col.type !== 'INT' && col.type !== 'FLOAT') return null;
+      if (colScore.dims.plausibility >= 95) return null;
+      var vals = rows.map(function(r){ return r[ci]; }).filter(isNum).map(toNum);
+      if (vals.length < 10) return null;
+      var mean = vals.reduce(function(a,b){return a+b;},0) / vals.length;
+      var sd = Math.sqrt(vals.reduce(function(a,v){return a+(v-mean)*(v-mean);},0) / vals.length);
+      if (sd === 0) return null;
+      var outliers = vals.filter(function(v){ return Math.abs(v - mean) > 3 * sd; });
+      if (outliers.length === 0) return null;
+      var lo = Math.round((mean - 3*sd) * 100) / 100;
+      var hi = Math.round((mean + 3*sd) * 100) / 100;
+      var tbl = escQ(dataset.name || 'dataset');
+      var cn = escQ(col.name);
+      return {
+        col: col.name,
+        type: 'review_outliers',
+        title: 'Review ' + outliers.length + ' outlier' + (outliers.length > 1 ? 's' : '') + ' in "' + col.name + '" (3-sigma)',
+        detail: outliers.length + ' values fall outside [' + lo + ', ' + hi + ']. Mean: ' + Math.round(mean*100)/100 + '. May be data entry errors or legitimate extremes -- verify before excluding.',
+        effort: 'medium',
+        impactPts: 10,
+        dimension: 'plausibility',
+        safeToAutoApply: false,
+        affectedRows: outliers.length,
+        sql: 'SELECT * FROM "' + tbl + '" WHERE "' + cn + '" < ' + lo + ' OR "' + cn + '" > ' + hi + ' ORDER BY ABS("' + cn + '" - ' + Math.round(mean*100)/100 + ') DESC;',
+        undo: 'No mutation applied. Investigation query only.',
+        icon: '3s'
+      };
+    }
+
+    function prescribe(dataset, dhsResult) {
+      if (!dataset || !dhsResult) return { prescriptions: [], overallGain: 0 };
+      var rows = dataset.rows, cols = dataset.columns;
+      var all = [];
+      var dupePx = prescribeDuplicates(cols[0], 0, rows, dhsResult.columns[0] || {dims:{}}, dataset);
+      if (dupePx) all.push(dupePx);
+      cols.forEach(function(col, ci) {
+        var colScore = dhsResult.columns[ci];
+        if (!colScore) return;
+        var px;
+        px = prescribeNulls(col, ci, rows, colScore, dataset); if (px) all.push(px);
+        px = prescribeTypeValidity(col, ci, rows, colScore, dataset); if (px) all.push(px);
+        px = prescribeCasingNorm(col, ci, rows, colScore, dataset); if (px) all.push(px);
+        px = prescribeNegativeCurrency(col, ci, rows, colScore, dataset); if (px) all.push(px);
+        px = prescribeOutliers(col, ci, rows, colScore, dataset); if (px) all.push(px);
+      });
+      var effortOrder = { instant: 0, low: 1, medium: 2, high: 3 };
+      all.sort(function(a, b) {
+        if (b.impactPts !== a.impactPts) return b.impactPts - a.impactPts;
+        return (effortOrder[a.effort]||0) - (effortOrder[b.effort]||0);
+      });
+      var overallGain = Math.min(100 - dhsResult.total, all.reduce(function(s,p){ return s + p.impactPts; }, 0));
+      return { prescriptions: all, overallGain: overallGain, currentScore: dhsResult.total };
+    }
+
+    var EFFORT_COLOR = { instant: '#4AE38A', low: '#A3E634', medium: '#F5A623', high: '#EF4444' };
+    var DIM_COLOR = { completeness: '#20C5B5', validity: '#A78BFA', uniqueness: '#4AE38A', plausibility: '#F5A623' };
+
+    function renderPanel(dataset, dhsResult) {
+      var old = document.getElementById('dg-rx-panel');
+      if (old) old.remove();
+      var rx = prescribe(dataset, dhsResult);
+      var panel = document.createElement('div');
+      panel.id = 'dg-rx-panel';
+      panel.className = 'dg-rx-panel';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-label', 'Cleaning Prescription');
+      var projectedScore = Math.min(100, dhsResult.total + rx.overallGain);
+      panel.innerHTML =
+        '<div class="rx-header">' +
+          '<div class="rx-header-top">' +
+            '<span class="rx-title">&#x1F48A; Cleaning Rx</span>' +
+            '<button class="rx-close" id="rx-close-btn">&#x00D7;</button>' +
+          '</div>' +
+          '<div class="rx-score-row">' +
+            '<div class="rx-score-now" style="color:' + dhsResult.color + '">' +
+              '<div class="rx-score-num">' + dhsResult.total + '</div>' +
+              '<div class="rx-score-lbl">Current</div>' +
+            '</div>' +
+            '<div class="rx-score-arrow">&#x2192;</div>' +
+            '<div class="rx-score-projected">' +
+              '<div class="rx-score-num" style="color:#4AE38A">' + projectedScore + '</div>' +
+              '<div class="rx-score-lbl">Projected</div>' +
+            '</div>' +
+            '<div class="rx-score-gain">+' + rx.overallGain + ' pts if all applied</div>' +
+          '</div>' +
+          '<div class="rx-subtitle">' + rx.prescriptions.length + ' prescription' + (rx.prescriptions.length !== 1 ? 's' : '') + ' ranked by impact</div>' +
+        '</div>' +
+        '<div class="rx-body" id="rx-body"></div>';
+
+      var body = panel.querySelector('#rx-body');
+      if (rx.prescriptions.length === 0) {
+        body.innerHTML = '<div class="rx-empty"><div class="rx-empty-icon">&#x2705;</div><div class="rx-empty-title">No issues found</div><div class="rx-empty-sub">Health score: ' + dhsResult.total + '/100</div></div>';
+      } else {
+        rx.prescriptions.forEach(function(px, i) {
+          var card = document.createElement('div');
+          card.className = 'rx-card';
+          var ec = EFFORT_COLOR[px.effort] || '#797876';
+          var dc = DIM_COLOR[px.dimension] || '#797876';
+          card.innerHTML =
+            '<div class="rx-card-header">' +
+              '<div class="rx-card-icon">' + px.icon + '</div>' +
+              '<div class="rx-card-main">' +
+                '<div class="rx-card-title">' + px.title + '</div>' +
+                '<div class="rx-card-tags">' +
+                  '<span class="rx-tag" style="background:' + dc + '22;color:' + dc + ';border-color:' + dc + '44">' + DIM_LABELS[px.dimension] + '</span>' +
+                  '<span class="rx-tag" style="background:' + ec + '22;color:' + ec + ';border-color:' + ec + '44">' + EFFORT_LABELS[px.effort] + '</span>' +
+                  (px.safeToAutoApply ? '<span class="rx-tag rx-tag-safe">Safe</span>' : '') +
+                '</div>' +
+              '</div>' +
+              '<div class="rx-impact-badge">+' + px.impactPts + ' pts</div>' +
+            '</div>' +
+            '<div class="rx-card-detail">' + px.detail + '</div>' +
+            '<div class="rx-card-footer">' +
+              '<span class="rx-rows-badge">&#x1F4CB; ' + px.affectedRows + ' row' + (px.affectedRows !== 1 ? 's' : '') + '</span>' +
+              '<button class="rx-sql-btn" data-rx-idx="' + i + '">Show SQL</button>' +
+            '</div>' +
+            '<div class="rx-sql-block hidden" id="rx-sql-' + i + '">' +
+              '<pre class="rx-sql-pre">' + (px.sql||'').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>' +
+              '<div class="rx-sql-footer">' +
+                '<span class="rx-undo-note">&#x21A9; ' + (px.undo||'') + '</span>' +
+                '<button class="rx-copy-sql-btn" data-sql-idx="' + i + '">Copy</button>' +
+              '</div>' +
+            '</div>';
+          body.appendChild(card);
+        });
+      }
+
+      document.body.appendChild(panel);
+      panel.querySelector('#rx-close-btn').addEventListener('click', function() {
+        panel.classList.remove('rx-open');
+        setTimeout(function(){ panel.remove(); }, 300);
+      });
+      panel.querySelectorAll('.rx-sql-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var idx = btn.getAttribute('data-rx-idx');
+          var block = document.getElementById('rx-sql-' + idx);
+          if (!block) return;
+          var hidden = block.classList.contains('hidden');
+          block.classList.toggle('hidden', !hidden);
+          btn.textContent = hidden ? 'Hide SQL' : 'Show SQL';
+        });
+      });
+      panel.querySelectorAll('.rx-copy-sql-btn').forEach(function(btn, bi) {
+        btn.addEventListener('click', function() {
+          var idx = parseInt(btn.getAttribute('data-sql-idx'), 10);
+          var sql = rx.prescriptions[idx] ? rx.prescriptions[idx].sql : '';
+          navigator.clipboard.writeText(sql).then(function() {
+            btn.textContent = 'Copied!';
+            setTimeout(function(){ btn.textContent = 'Copy'; }, 1800);
+          });
+        });
+      });
+      requestAnimationFrame(function() { panel.classList.add('rx-open'); });
+    }
+
+    return { prescribe: prescribe, renderPanel: renderPanel };
+  })();
+
+  /* ---- end cleaning-prescription.js ---- */
+
+
+
+
   /* ---- from js/dashboard/dashboard-engine.js ---- */
 /**
  * dashboard-engine.js — DataGlow Dashboard View (PR AN)
@@ -17352,7 +17965,7 @@ var DashboardEngine = (function () {
       : '';
     var dhsLabel = dhs ? '<span class="dhs-label" title="Data Health Score -- '+dhs.label+'">'+dhs.label+'</span>' : '';
     hdr.innerHTML='<div class="dash-hdr-left">'+
-      '<div class="dhs-ring-wrap">'+dhsRing+'</div>'+
+      '<button class="dhs-ring-wrap dhs-ring-clickable" id="dhs-ring-btn" title="Open Cleaning Prescription" aria-label="Health Score ' + (dhs ? dhs.total : '') + '/100 -- Click for Cleaning Prescription">'+dhsRing+'</button>'+
       '<div class="dash-hdr-titles">'+
         '<div class="dash-title">'+escH(dsName)+'</div>'+
         '<div class="dash-meta">'+dataset.rows.length.toLocaleString()+' rows \u00b7 '+dataset.columns.length+' cols \u00b7 '+escH(now)+'</div>'+
@@ -17362,6 +17975,14 @@ var DashboardEngine = (function () {
       '<div class="dash-hdr-right">'+
       (report.warnings.length?'<span class="dash-quality-badge warn">&#9888; '+report.warnings.length+' note'+(report.warnings.length>1?'s':'')+' </span>':'<span class="dash-quality-badge ok">&#10003; Quality passed</span>')+
       '<button class="dash-export-btn" id="dash-csv-btn">&#8681; Export CSV</button></div>';
+    
+    /* Wire Health ring -> Cleaning Prescription panel */
+    var _dhsRingBtn = hdr.querySelector('#dhs-ring-btn');
+    if (_dhsRingBtn && dhs && typeof CleaningPrescription !== 'undefined') {
+      _dhsRingBtn.addEventListener('click', function() {
+        CleaningPrescription.renderPanel(dataset, dhs, _dhsRingBtn);
+      });
+    }
     dash.appendChild(hdr);
 
     // Findings Rail (PR AU)  -  above KPI row
