@@ -5032,3 +5032,16 @@
   color: var(--text, #CDCCCA);
 }
 /* ---- End Welcome Brief ---- */
+
+/* ---- Signed Report export button ---- */
+.export-option-btn-proof {
+  border-color: var(--primary, #4F98A3) !important;
+  position: relative;
+}
+.export-option-btn-proof .export-icon {
+  color: var(--primary, #4F98A3);
+}
+.export-option-btn-proof:hover {
+  background: rgba(79,152,163,0.08) !important;
+}
+/* ---- End Signed Report ---- */
