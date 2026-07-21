@@ -41,6 +41,15 @@
     "Anomaly & outlier detection",
     "On-device learning & personalization",
     "App shell & data engine",
-    "Provenance, audit & trust"
+    "Provenance, audit & trust",
+    "Enterprise & deployment",
+    "Query & analysis",
+    "Validation & data quality",
+    "Data grid & editing",
+    "Visualization",
+    "Sharing & collaboration",
+    "Insight & discovery",
+    "Narrative & storytelling",
+    "Universal ingestion & RAG (wave 2)"
   ]
 }
