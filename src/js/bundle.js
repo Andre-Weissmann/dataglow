@@ -11565,7 +11565,9 @@ var InstantInsight = (function () {
   if (ceremonyThemeBtn) {
     ceremonyThemeBtn.addEventListener('click', function () {
       var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+      var next = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { sessionStorage.setItem('dg_theme', next); } catch(e){}
     });
   }
 
@@ -11580,7 +11582,9 @@ var InstantInsight = (function () {
 
   themeToggle.addEventListener('click', function () {
     var current = document.documentElement.dataset.theme;
-    document.documentElement.dataset.theme = current === 'dark' ? 'light' : 'dark';
+    var next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { sessionStorage.setItem('dg_theme', next); } catch(e){}
   });
 
   /* ============================================================

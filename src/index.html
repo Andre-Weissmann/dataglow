@@ -8,7 +8,19 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DataGlow">
-<title>DataGlow  -  Your data, understood.</title>
+<title>DataGlow - Your data, understood.</title>
+  <!-- Flash-free theme init: run before any paint -->
+  <script>
+    (function(){
+      var saved = sessionStorage.getItem('dg_theme');
+      var sys = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', saved || sys);
+    })();
+  </script>
+  <!-- Geist + Geist Mono via Fontsource (CDN, free) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="../src/css/main.css">
 
 </head>
@@ -32,8 +44,13 @@
   <button id="ceremony-theme-btn" title="Toggle dark mode" aria-label="Toggle dark mode">&#9681;</button>
 
   <div id="ceremony-screen">
-    <img id="ceremony-wordmark" src="dataglow-logo.png" alt="DataGlow" />
-    <p id="ceremony-tagline">Your data. Understood. Instantly. Privately.</p>
+    <img id="ceremony-wordmark" src="dataglow-logo-transparent.png" alt="DataGlow" />
+    <p id="ceremony-tagline">Your data. Understood. Privately.</p>
+    <div class="ceremony-proof-badges">
+      <span class="proof-badge badge-local">&#10003; Local-first. Data never leaves.</span>
+      <span class="proof-badge badge-open">&#10003; AI shows its work.</span>
+      <span class="proof-badge badge-audit">&#10003; Signed audit trail.</span>
+    </div>
 
     <div id="drop-zone">
       <div id="resume-banner" style="display:none;background:var(--surface);border:1px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px;align-items:center;gap:12px;">
@@ -51,8 +68,8 @@
         <path d="M24 22v8M20 26l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
-      <p id="drop-text">Drop files here (CSV, TSV, JSON) - multiple files supported</p>
-      <p id="drop-formats">Every format. Any size. Zero uploads.</p>
+      <p id="drop-text">Drop your data here to begin</p>
+      <p id="drop-formats">CSV, TSV, JSON, Excel, Parquet, PDF, images, audio, video</p>
       <input type="file" id="file-input" class="hidden" multiple accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
@@ -67,8 +84,8 @@
       <button id="finding-expand">Here is what that means.</button>
     </div>
     <div id="return-use-banner" class="hidden"></div>
-    <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load an example dataset</span></p>
-    <p id="ceremony-privacy">Your data never leaves this tab</p>
+    <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load example data</span></p>
+    <p id="ceremony-privacy">Local-first. Zero uploads. Your data never leaves this tab.</p>
 
     <!-- Export panel -->
   <div id="export-panel" class="hidden">
@@ -122,7 +139,7 @@
   <!-- Top nav (inside #canvas) -->
     <nav id="top-nav">
       <div id="nav-brand">
-        <img id="nav-logo-img" src="dataglow-logo.png" alt="DataGlow" />
+        <img id="nav-logo-img" src="dataglow-logo-transparent.png" alt="DataGlow" />
       </div>
       <div id="nav-views">
         <button class="nav-btn active" data-view="data">Data</button>
