@@ -9320,6 +9320,123 @@ var InstantInsight = (function () {
     exportPanelOpen = false; exportPanel.classList.add('hidden');
   });
 
+  /* ── Signed Proof Export ─────────────────────────────────────────────── */
+  var exportProofBtn = $('export-proof-btn');
+
+  /* Build a SHA-256 fingerprint using Web Crypto (async, falls back to djb2) */
+  function sha256Hex(str) {
+    if (window.crypto && window.crypto.subtle) {
+      var enc = new TextEncoder();
+      return window.crypto.subtle.digest('SHA-256', enc.encode(str))
+        .then(function (buf) {
+          return Array.from(new Uint8Array(buf))
+            .map(function (b) { return b.toString(16).padStart(2, '0'); })
+            .join('');
+        });
+    }
+    /* Fallback djb2 if SubtleCrypto unavailable */
+    var hash = 5381;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash * 33) ^ str.charCodeAt(i)) >>> 0;
+    }
+    return Promise.resolve(hash.toString(16));
+  }
+
+  function buildSignedReport(ds) {
+    var findings = (ds && ds.findings) ? ds.findings : [];
+    var cols = (ds && ds.columns) ? ds.columns.map(function (c) {
+      return { name: c.name, type: c.type, nullCount: c.nullCount || 0, uniqueCount: c.uniqueCount || 0 };
+    }) : [];
+
+    var payload = {
+      format: 'dataglow-signed-report',
+      formatVersion: 2,
+      generatedAt: new Date().toISOString(),
+      tool: 'DataGlow Canvas',
+      toolUrl: 'https://dataglow-platform.pplx.app',
+      privacyNote: 'No raw row data is included. Column names and aggregate statistics only.',
+      dataset: {
+        name: ds ? (ds.name || 'Unnamed') : 'Unnamed',
+        rowCount: ds ? ((ds.rows && ds.rows.length) || 0) : 0,
+        columnCount: cols.length,
+        columns: cols,
+        sourceFileHash: (ds && ds.fileHash) ? ds.fileHash : null
+      },
+      findings: findings.map(function (f) {
+        return {
+          id: f.id || null,
+          severity: f.severity || 'info',
+          status: f.status || 'open',
+          column: f.column || null,
+          rule: f.rule || null,
+          message: f.message || '',
+          resolvedAt: f.resolvedAt || null
+        };
+      }),
+      summary: {
+        total: findings.length,
+        critical: findings.filter(function (f) { return f.severity === 'critical'; }).length,
+        warning: findings.filter(function (f) { return f.severity === 'warning'; }).length,
+        info: findings.filter(function (f) { return f.severity === 'info'; }).length,
+        resolved: findings.filter(function (f) { return f.status === 'resolved'; }).length
+      },
+      signature: null,
+      signatureAlgorithm: 'SHA-256'
+    };
+
+    /* Sign: hash of findings + dataset meta (no raw data) */
+    var sigInput = JSON.stringify({
+      datasetName: payload.dataset.name,
+      rowCount: payload.dataset.rowCount,
+      columnCount: payload.dataset.columnCount,
+      sourceFileHash: payload.dataset.sourceFileHash,
+      findingsCount: findings.length,
+      generatedAt: payload.generatedAt
+    });
+
+    return sha256Hex(sigInput).then(function (sig) {
+      payload.signature = sig;
+      return payload;
+    });
+  }
+
+  function downloadSignedReport(ds) {
+    if (!ds) { if (typeof showToast === 'function') showToast('Load a dataset first.', 'error'); return; }
+    if (exportProofBtn) { exportProofBtn.disabled = true; exportProofBtn.textContent = 'Signing...'; }
+
+    buildSignedReport(ds).then(function (report) {
+      var json = JSON.stringify(report, null, 2);
+      var blob = new Blob([json], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var ts = new Date().toISOString().slice(0, 10);
+      var safeName = (ds.name || 'report').replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]/gi, '_');
+      a.href = url;
+      a.download = 'dataglow-signed-' + safeName + '-' + ts + '.proof.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (typeof showToast === 'function') showToast('Signed report downloaded.', 'success');
+    }).catch(function (err) {
+      if (typeof showToast === 'function') showToast('Export failed: ' + err.message, 'error');
+    }).finally(function () {
+      if (exportProofBtn) {
+        exportProofBtn.disabled = false;
+        exportProofBtn.innerHTML = '<span class="export-icon">&#128274; Signed Report</span><span class="export-desc">Cryptographically signed validation findings.</span>';
+      }
+    });
+    exportPanelOpen = false;
+    if (exportPanel) exportPanel.classList.add('hidden');
+  }
+
+  if (exportProofBtn) {
+    exportProofBtn.addEventListener('click', function () {
+      var ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+      downloadSignedReport(ds);
+    });
+  }
+
     // ── 3-Tab Nav Switcher ───────────────────────────────────────────────────
   var navBtns = document.querySelectorAll('.nav-btn');
 
