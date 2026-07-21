@@ -15941,6 +15941,7 @@ var InstantInsight = (function () {
     aiCouncil: true,
     dataVersionControl: true,
     equityStratification: true,
+    sourceConvergence: true,
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -36026,6 +36027,1591 @@ async function hashContent(content) {
   else setTimeout(initEquityUI, 550);
 }());
 /* ---- end equity-attestation.js ---- */
+
+
+/* ================================================================
+   SOURCE CONVERGENCE (Truth Network) -- recovered from git history
+   PR #203 Batch 1 (engine), PR #204 Batch 2 (ingestion), PR #205 Batch 3 (UI)
+   All 3 flag-promote PRs: #210, #211, #212 (all enabled:true)
+   ================================================================ */
+
+/* ---- from js/validation/source-convergence.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Source Convergence (Batch 1 of 3): the convergence engine
+// ============================================================
+// Real analyses rarely live in one table. The same real-world entity — a claim,
+// a member, an encounter — shows up in a roster export, a CMS eligibility file,
+// an adjudication feed, and a finance ledger, each with its OWN version of the
+// truth. DataGlow's validation layers, including Cross-Column Logical
+// Consistency (js/validation/cross-column-consistency.js), only ever reason
+// WITHIN one table, so when two sources disagree about the same field nothing
+// notices. Source Convergence is the concept that reconciles N sources at once:
+// join them on whatever keys they share (directly OR transitively through an
+// intermediate source), cluster the rows that describe the same entity, surface
+// where the sources agree and where they conflict, and — where a trust ordering
+// gives an honest basis — auto-resolve the conflict, escalating the rest to a
+// human. It supersedes the earlier two-table "Cross-Table Relational Rules"
+// concept (reverted in PR #200): the real gap is N-way convergence, not a fixed
+// pair. See NORTH_STAR.md, "Concept in progress: Source Convergence".
+//
+// This file is Batch 1: the PURE, DOM-free, dependency-free, Node-testable
+// engine only. No Excel/API/site ingestion (Batch 2), no UI (Batch 3), no
+// wiring into any shipping path. It ships dark behind the `sourceConvergence`
+// flag (default false) — with the flag off nothing imports this module, so
+// every existing path is byte-for-byte unchanged.
+//
+// DISCIPLINE (matches the existing validation + diplomacy modules):
+//   - pure functions, no side effects, no DOM, no async, no network;
+//   - NEVER throws — malformed/empty input returns a safe idle/empty result
+//     (mirroring reconcileClaims()' "always return a well-formed object" and the
+//     never-thrown-state discipline of js/rooms/room-signaling.js);
+//   - the trust resolver REFUSES to pick a side without an honest margin,
+//     escalating to a human instead of inventing a winner — the exact stance
+//     js/diplomacy/reconciliation-engine.js takes for two sealed claims.
+// ============================================================
+
+const DEFAULT_MARGIN_THRESHOLD = 0.15;
+
+// ---------- small, total helpers (never throw) ----------
+
+function isPlainObject(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isArrayOfRows(v) {
+  return Array.isArray(v) && v.every(isPlainObject);
+}
+
+// Canonicalize one "possible key" into a sorted array of column names, so that
+// a single string 'claim_id' becomes ['claim_id'] and a composite
+// ['patient_id','date_of_service'] compares equal regardless of the order the
+// two sources happened to list its columns. Returns null for anything unusable.
+function canonicalizeKey(key) {
+  if (typeof key === 'string') {
+    const s = key.trim();
+    return s === '' ? null : [s];
+  }
+  if (Array.isArray(key)) {
+    const cols = key.filter(c => typeof c === 'string' && c.trim() !== '').map(c => c.trim());
+    if (cols.length === 0) return null;
+    return [...cols].sort();
+  }
+  return null;
+}
+
+// A stable string id for a canonical key (its columns joined). Used as a Map key.
+function keyId(canonKey) {
+  return canonKey.join('␟'); // ␟ unit separator, unlikely in a column name
+}
+
+// Normalize a single cell value for equality comparison. Numbers compare
+// numerically (so 412 and "412.00" agree); everything else is trimmed and
+// lower-cased. Nullish / blank returns null (not a usable value).
+function normalizeValue(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? `n:${v}` : null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  // Treat a purely-numeric string as a number so "412.00" === 412.
+  if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return `n:${n}`;
+  }
+  return `s:${s.toLowerCase()}`;
+}
+
+// The join value a row contributes for a canonical key: the row's values for
+// every column of the key, in canonical order. Returns null if ANY key column
+// is missing/blank on the row (a partial composite key never joins).
+function joinValueForKey(row, canonKey) {
+  const parts = [];
+  for (const col of canonKey) {
+    const nv = normalizeValue(row[col]);
+    if (nv == null) return null;
+    parts.push(nv);
+  }
+  return parts.join('␞'); // ␞ record separator between composite columns
+}
+
+// A finite numeric trust for a source, or null when absent/unusable.
+function trustOf(sourceTrust, sourceId) {
+  if (!isPlainObject(sourceTrust) || sourceId == null) return null;
+  const v = sourceTrust[sourceId];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function fmt(n) {
+  return Number(n).toLocaleString('en-US');
+}
+
+// ============================================================
+// buildConvergenceGraph(sources)
+// sources: [{ id, rows, possibleKeys }]
+//   possibleKeys: array of column names or composite-key arrays this source can
+//   join on, e.g. ['claim_id'] or [['patient_id','date_of_service']].
+//
+// Returns (success):
+//   { evaluated:true, reason:null, sources:[id...], keys:{id:[canonKey...]},
+//     edges:[{a,b,sharedKeys:[canonKey...]}], components:[[id...]...] }
+// Returns (bad input): { sources:[], edges:[], evaluated:false, reason }
+// NEVER throws.
+// ============================================================
+function buildConvergenceGraph(sources) {
+  try {
+    if (!Array.isArray(sources) || sources.length === 0) {
+      return idleGraph('sources must be a non-empty array of { id, rows, possibleKeys }');
+    }
+
+    const ids = [];
+    const keysById = new Map();      // id -> [canonKey...]
+    const keyIdsById = new Map();    // id -> Set(keyId)
+    const seenIds = new Set();
+    for (const s of sources) {
+      if (!isPlainObject(s) || s.id == null) {
+        return idleGraph('every source needs an id and must be an object');
+      }
+      const id = String(s.id);
+      if (seenIds.has(id)) return idleGraph(`duplicate source id: ${id}`);
+      seenIds.add(id);
+      if (!isArrayOfRows(s.rows)) {
+        return idleGraph(`source "${id}" rows must be an array of row objects`);
+      }
+      const canon = [];
+      const canonIds = new Set();
+      for (const k of Array.isArray(s.possibleKeys) ? s.possibleKeys : []) {
+        const ck = canonicalizeKey(k);
+        if (ck && !canonIds.has(keyId(ck))) { canon.push(ck); canonIds.add(keyId(ck)); }
+      }
+      ids.push(id);
+      keysById.set(id, canon);
+      keyIdsById.set(id, canonIds);
+    }
+
+    // Direct edges: a pair of sources shares an edge when they list ≥1 identical
+    // canonical key.
+    const edges = [];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = ids[i], b = ids[j];
+        const aKeys = keysById.get(a);
+        const bIds = keyIdsById.get(b);
+        const shared = aKeys.filter(ck => bIds.has(keyId(ck)));
+        if (shared.length > 0) edges.push({ a, b, sharedKeys: shared });
+      }
+    }
+
+    // Connected components via union-find — this is what turns direct edges into
+    // TRANSITIVE joins (A↔B and B↔C put A, B, C in one component even when A and
+    // C share no key directly).
+    const components = connectedComponents(ids, edges);
+
+    return {
+      evaluated: true,
+      reason: null,
+      sources: ids,
+      keys: Object.fromEntries(ids.map(id => [id, keysById.get(id)])),
+      edges,
+      components,
+    };
+  } catch (e) {
+    return idleGraph(`unevaluable input: ${e && e.message ? e.message : 'unknown error'}`);
+  }
+}
+
+function idleGraph(reason) {
+  return { sources: [], edges: [], components: [], keys: {}, evaluated: false, reason };
+}
+
+// ---------- union-find ----------
+function makeUF() {
+  const parent = new Map();
+  const find = (x) => {
+    if (!parent.has(x)) parent.set(x, x);
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r);
+    while (parent.get(x) !== r) { const n = parent.get(x); parent.set(x, r); x = n; }
+    return r;
+  };
+  const union = (a, b) => { parent.set(find(a), find(b)); };
+  return { find, union, parent };
+}
+
+function connectedComponents(ids, edges) {
+  const uf = makeUF();
+  for (const id of ids) uf.find(id);
+  for (const e of edges) uf.union(e.a, e.b);
+  const groups = new Map();
+  for (const id of ids) {
+    const r = uf.find(id);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(id);
+  }
+  return [...groups.values()].map(g => g.sort());
+}
+
+// ============================================================
+// computeConvergenceClusters(graph, sources)
+// Groups rows across all reachable sources into clusters — each cluster is one
+// real-world entity, formed by chaining rows that share a join value on any
+// shared key (directly or transitively). For each cluster it reports the
+// coverage pattern (which sources contain it) and, for every column present in
+// 2+ sources, whether the sources agree or conflict.
+//
+// Returns an ARRAY of cluster objects (empty array on bad input; never throws):
+//   {
+//     id, joinKeys:[{key,value}], sourceIds:[...], coverageCount, rowCount,
+//     rows:[{sourceId, row}], fields:[{column,status,contributions,distinctValues}],
+//     conflicts:[...fields with status 'conflict'], hasConflict
+//   }
+// ============================================================
+function computeConvergenceClusters(graph, sources) {
+  try {
+    if (!isPlainObject(graph) || graph.evaluated !== true) return [];
+    if (!Array.isArray(sources) || sources.length === 0) return [];
+
+    // Re-derive the source lookup + canonical keys defensively from `sources`,
+    // trusting `graph` only for the edge/key topology it already validated.
+    const byId = new Map();
+    for (const s of sources) {
+      if (!isPlainObject(s) || s.id == null || !isArrayOfRows(s.rows)) return [];
+      byId.set(String(s.id), s.rows);
+    }
+
+    // Every row is a node: `${sourceId} ${index}`.
+    const nodeKey = (sid, idx) => `${sid} ${idx}`;
+    const uf = makeUF();
+    for (const [sid, rows] of byId) rows.forEach((_, idx) => uf.find(nodeKey(sid, idx)));
+
+    // Track, per (source, key), the row indices at each join value, and link
+    // rows across every edge that shares that key + value.
+    const canonKeysById = graph.keys || {};
+    const indexFor = (sid, canonKey) => {
+      const rows = byId.get(sid) || [];
+      const m = new Map();
+      const kid = keyId(canonKey);
+      rows.forEach((row, idx) => {
+        const jv = joinValueForKey(row, canonKey);
+        if (jv == null) return;
+        const bucket = `${kid} ${jv}`;
+        if (!m.has(bucket)) m.set(bucket, []);
+        m.get(bucket).push({ idx, value: jv });
+      });
+      return m;
+    };
+
+    // Record the join key+value that linked each node, for cluster provenance.
+    const nodeJoinInfo = new Map(); // node -> Set("keyColsJoined␟value")
+
+    for (const e of Array.isArray(graph.edges) ? graph.edges : []) {
+      for (const canonKey of e.sharedKeys || []) {
+        const ai = indexFor(e.a, canonKey);
+        const bi = indexFor(e.b, canonKey);
+        for (const [bucket, aRows] of ai) {
+          const bRows = bi.get(bucket);
+          if (!bRows) continue;
+          for (const ar of aRows) {
+            const an = nodeKey(e.a, ar.idx);
+            recordJoin(nodeJoinInfo, an, canonKey, ar.value);
+            for (const br of bRows) {
+              const bn = nodeKey(e.b, br.idx);
+              recordJoin(nodeJoinInfo, bn, canonKey, br.value);
+              uf.union(an, bn);
+            }
+          }
+        }
+      }
+    }
+
+    // Collect members per cluster root.
+    const clustersByRoot = new Map();
+    for (const [sid, rows] of byId) {
+      rows.forEach((row, idx) => {
+        const node = nodeKey(sid, idx);
+        const root = uf.find(node);
+        if (!clustersByRoot.has(root)) clustersByRoot.set(root, []);
+        clustersByRoot.get(root).push({ sourceId: sid, row, node });
+      });
+    }
+
+    const clusters = [];
+    let n = 0;
+    for (const members of clustersByRoot.values()) {
+      const sourceIds = [...new Set(members.map(m => m.sourceId))].sort();
+      const joinKeys = collectJoinKeys(members, nodeJoinInfo, canonKeysById);
+      const fields = compareFields(members);
+      const conflicts = fields.filter(f => f.status === 'conflict');
+      clusters.push({
+        id: `cluster-${n++}`,
+        joinKeys,
+        sourceIds,
+        coverageCount: sourceIds.length,
+        rowCount: members.length,
+        rows: members.map(m => ({ sourceId: m.sourceId, row: m.row })),
+        fields,
+        conflicts,
+        hasConflict: conflicts.length > 0,
+      });
+    }
+    return clusters;
+  } catch {
+    return [];
+  }
+}
+
+function recordJoin(map, node, canonKey, value) {
+  if (!map.has(node)) map.set(node, new Set());
+  map.get(node).add(`${keyId(canonKey)}␟${value}`);
+}
+
+// A cluster's identifying join keys: distinct {key, value} pairs across members.
+function collectJoinKeys(members, nodeJoinInfo, canonKeysById) {
+  const seen = new Set();
+  const out = [];
+  for (const m of members) {
+    const info = nodeJoinInfo.get(m.node);
+    if (!info) continue;
+    for (const entry of info) {
+      if (seen.has(entry)) continue;
+      seen.add(entry);
+      const sep = entry.indexOf('␟');
+      const kid = entry.slice(0, sep);
+      const value = entry.slice(sep + 1);
+      out.push({ key: kid.split('␟').join('+'), value: stripValueTag(value) });
+    }
+  }
+  return out;
+}
+
+// Turn an internal normalized value tag (n:412 / s:foo / composite with ␞) back
+// into a readable representative for provenance display.
+function stripValueTag(v) {
+  return String(v).split('␞').map(part => {
+    if (part.startsWith('n:')) return part.slice(2);
+    if (part.startsWith('s:')) return part.slice(2);
+    return part;
+  }).join('+');
+}
+
+// For every column that appears with a usable value in 2+ DISTINCT sources
+// within the cluster, report agreement vs conflict and the per-source values.
+function compareFields(members) {
+  const columns = new Set();
+  for (const m of members) for (const c of Object.keys(m.row)) columns.add(c);
+
+  const fields = [];
+  for (const col of columns) {
+    const contributions = []; // { sourceId, value }
+    const sourcesWithValue = new Set();
+    const distinct = new Set();
+    for (const m of members) {
+      const raw = m.row[col];
+      const nv = normalizeValue(raw);
+      if (nv == null) continue;
+      contributions.push({ sourceId: m.sourceId, value: raw });
+      sourcesWithValue.add(m.sourceId);
+      distinct.add(nv);
+    }
+    if (sourcesWithValue.size < 2) continue; // only cross-source columns matter
+    fields.push({
+      column: col,
+      status: distinct.size === 1 ? 'agree' : 'conflict',
+      contributions,
+      distinctValues: [...new Set(contributions.map(c => c.value).map(v => JSON.stringify(v)))].map(s => JSON.parse(s)),
+    });
+  }
+  return fields;
+}
+
+// ============================================================
+// resolveClusterWithTrust(cluster, sourceTrust, { marginThreshold })
+// For each CONFLICTING field in the cluster, resolve to the value backed by the
+// highest-trust source IFF the trust margin between the top two competing values
+// is >= marginThreshold; otherwise escalate that field for human review. Mirrors
+// reconcileClaims(): it never invents a winner without an honest margin.
+//
+// Returns (never throws):
+//   { clusterId, resolutions:[...], escalated, resolvedCount, escalatedCount }
+// where each resolution is either
+//   { column, resolved:true,  value, winningSource, margin, rationale } or
+//   { column, resolved:false, reason, margin, candidates:[{sourceId,value,trust}], rationale }
+// ============================================================
+function resolveClusterWithTrust(cluster, sourceTrust, options = {}) {
+  try {
+    const marginThreshold = isPlainObject(options) && Number.isFinite(options.marginThreshold)
+      ? options.marginThreshold : DEFAULT_MARGIN_THRESHOLD;
+    const clusterId = isPlainObject(cluster) ? (cluster.id ?? null) : null;
+    const conflicts = isPlainObject(cluster) && Array.isArray(cluster.conflicts)
+      ? cluster.conflicts
+      : (isPlainObject(cluster) && Array.isArray(cluster.fields) ? cluster.fields.filter(f => f && f.status === 'conflict') : []);
+
+    const resolutions = conflicts.map(f => resolveField(f, sourceTrust, marginThreshold));
+    const escalatedCount = resolutions.filter(r => !r.resolved).length;
+    const resolvedCount = resolutions.length - escalatedCount;
+    return {
+      clusterId,
+      resolutions,
+      escalated: escalatedCount > 0,
+      resolvedCount,
+      escalatedCount,
+    };
+  } catch (e) {
+    return {
+      clusterId: isPlainObject(cluster) ? (cluster.id ?? null) : null,
+      resolutions: [],
+      escalated: false,
+      resolvedCount: 0,
+      escalatedCount: 0,
+      reason: `unevaluable: ${e && e.message ? e.message : 'unknown error'}`,
+    };
+  }
+}
+
+function resolveField(field, sourceTrust, marginThreshold) {
+  const column = field && field.column;
+  const contributions = Array.isArray(field && field.contributions) ? field.contributions : [];
+
+  // Group by normalized value; each value carries its best (max finite) trust
+  // and a representative source + raw value.
+  const byValue = new Map();
+  for (const c of contributions) {
+    const nv = normalizeValue(c.value);
+    if (nv == null) continue;
+    const t = trustOf(sourceTrust, c.sourceId);
+    if (!byValue.has(nv)) byValue.set(nv, { value: c.value, bestTrust: null, bestSource: null, sources: [] });
+    const g = byValue.get(nv);
+    g.sources.push({ sourceId: c.sourceId, trust: t });
+    if (t != null && (g.bestTrust == null || t > g.bestTrust)) { g.bestTrust = t; g.bestSource = c.sourceId; }
+  }
+
+  const candidates = [...byValue.values()].map(g => ({
+    value: g.value,
+    trust: g.bestTrust,
+    sourceId: g.bestSource,
+    sources: g.sources,
+  }));
+
+  if (candidates.length < 2) {
+    // Not actually a conflict once nullish values are dropped — nothing to pick.
+    return {
+      column, resolved: false, reason: 'no competing values', margin: null,
+      candidates,
+      rationale: `"${column}" had no two distinct usable values to reconcile.`,
+    };
+  }
+
+  // Rank by trust desc; a value with no finite trust sorts last.
+  const ranked = [...candidates].sort((x, y) => {
+    const tx = x.trust == null ? -Infinity : x.trust;
+    const ty = y.trust == null ? -Infinity : y.trust;
+    return ty - tx;
+  });
+  const top = ranked[0], second = ranked[1];
+
+  // Honest basis to resolve requires BOTH top competitors to carry a real trust
+  // signal — mirrors reconcileClaims() requiring both ranks non-null.
+  if (top.trust == null || second.trust == null) {
+    return {
+      column, resolved: false, reason: 'insufficient trust signal', margin: null,
+      candidates: ranked,
+      rationale: `Cannot rank "${column}": at least one competing source has no usable trust score. Escalating for human review.`,
+    };
+  }
+
+  const margin = Math.round((top.trust - second.trust) * 1e9) / 1e9;
+  if (margin >= marginThreshold) {
+    return {
+      column, resolved: true, value: top.value, winningSource: top.sourceId, margin,
+      rationale: `Resolved "${column}" to ${JSON.stringify(top.value)} from "${top.sourceId}" `
+        + `(trust ${top.trust} vs ${second.trust}, margin ${margin.toFixed(3)} ≥ ${marginThreshold}).`,
+    };
+  }
+  return {
+    column, resolved: false, reason: 'trust margin below threshold', margin,
+    candidates: ranked,
+    rationale: `Trust margin for "${column}" is ${margin.toFixed(3)} (< ${marginThreshold}): `
+      + `"${top.sourceId}" (${top.trust}) vs "${second.sourceId}" (${second.trust}). `
+      + `No honest basis to auto-resolve — escalating for human review.`,
+  };
+}
+
+// ============================================================
+// summarizeConvergence(clusters) — one-line, human-readable verdict, in the
+// spirit of explainReconciliation(). Counts joined (multi-source) clusters and,
+// where a cluster carries an attached `resolution` (from resolveClusterWithTrust),
+// how many auto-resolved vs. need a human. Safe on any input.
+// ============================================================
+function summarizeConvergence(clusters) {
+  if (!Array.isArray(clusters)) return 'No convergence clusters to summarize.';
+
+  const total = clusters.length;
+  const joined = clusters.filter(c => isPlainObject(c) && c.coverageCount >= 2).length;
+  let needsHuman = 0;
+  let autoResolved = 0;
+  let conflictClusters = 0;
+
+  for (const c of clusters) {
+    if (!isPlainObject(c) || !c.hasConflict) continue;
+    conflictClusters++;
+    const res = c.resolution; // optional, attached by the caller after resolveClusterWithTrust
+    if (isPlainObject(res)) {
+      if (res.escalated) needsHuman++; else autoResolved++;
+    } else {
+      needsHuman++; // unresolved conflict defaults to "needs a human"
+    }
+  }
+
+  return {
+    totalClusters: total,
+    joinedClusters: joined,
+    conflictClusters,
+    autoResolved,
+    needsHuman,
+    text: `${fmt(needsHuman)} of ${fmt(joined)} joined clusters need a human decision — `
+      + `${fmt(autoResolved)} auto-resolved by trust weight.`,
+  };
+}
+
+
+  window.SourceConvergenceEngine = {
+    DEFAULT_MARGIN_THRESHOLD: typeof DEFAULT_MARGIN_THRESHOLD !== 'undefined' ? DEFAULT_MARGIN_THRESHOLD : 0.15,
+    canonicalizeKey: typeof canonicalizeKey !== 'undefined' ? canonicalizeKey : null,
+    normalizeValue: typeof normalizeValue !== 'undefined' ? normalizeValue : null,
+    buildConvergenceGraph: typeof buildConvergenceGraph !== 'undefined' ? buildConvergenceGraph : null,
+    computeConvergenceClusters: typeof computeConvergenceClusters !== 'undefined' ? computeConvergenceClusters : null,
+    resolveClusterWithTrust: typeof resolveClusterWithTrust !== 'undefined' ? resolveClusterWithTrust : null,
+    summarizeConvergence: typeof summarizeConvergence !== 'undefined' ? summarizeConvergence : null,
+  };
+}());
+/* ---- end source-convergence.js ---- */
+
+/* ---- from js/validation/source-convergence-ingestion.js ---- */
+;(function(){
+  'use strict';
+
+// ============================================================
+// DATAGLOW — Source Convergence (Batch 2 of 3): ingestion adapters
+// ============================================================
+// Batch 1 (js/validation/source-convergence.js) shipped the PURE convergence
+// engine: buildConvergenceGraph(sources) and friends all expect each source to
+// already be shaped as { id, rows, possibleKeys }. Batch 2 is the layer that
+// turns the messy, real-world things an analyst actually loads — an Excel
+// workbook with several tabs, a live JSON API pull, a table exported/scraped
+// from a site — INTO those source objects, inferring join keys and assigning a
+// sensible default trust weight so the engine can converge them.
+//
+// This file adds NO new convergence logic and does NOT touch source-convergence.js's
+// public contract: it treats that module as a stable, already-tested dependency
+// and only produces well-formed input for it. It is pure and Node-testable — it
+// takes ALREADY-PARSED data (rows/sheets/JSON) rather than raw files, so it needs
+// no XLSX/DOM/network of its own. The browser wiring that reads a File with the
+// app's existing SheetJS reader (js/app-shell/loaders.js: XLSX.read +
+// XLSX.utils.sheet_to_json) and the user-initiated client-side fetch() both live
+// in the UI batch (Batch 3); this layer is the seam between them and the engine.
+//
+// DISCIPLINE (matches source-convergence.js):
+//   - pure functions, no side effects, no DOM, no async, no network;
+//   - NEVER throws — malformed/empty input returns a safe, error-flagged result
+//     ({ ok:false } for a single adapter, [] for the workbook fan-out);
+//   - zero-upload/local-first: every adapter consumes data the caller already has
+//     in memory client-side; nothing here sends data anywhere.
+//
+// Each adapter returns a SOURCE object shaped for buildConvergenceGraph /
+// resolveClusterWithTrust:
+//   { id, rows, possibleKeys, trust, meta }
+// where `trust` (0..1) is what resolveClusterWithTrust's sourceTrust map wants
+// and `meta` carries provenance (origin kind, fileName/url, fetchedAt, and the
+// needsManualKeySelection flag when key inference found nothing).
+// ============================================================
+
+// ---------- small, total helpers (never throw) ----------
+
+function isPlainObject(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isArrayOfRows(v) {
+  return Array.isArray(v) && v.length > 0 && v.every(isPlainObject);
+}
+
+// The known single-column key patterns an identifier column tends to match.
+// Modeled on the healthcare-anchored examples in the Source Convergence mockup
+// (claim_id / patient_id / member_id / npi) plus the generic *_id/_key/_code
+// convention the Unit Test Layer's business-key check already uses.
+const KEY_SUFFIXES = ['_id', '_key', '_code', '_no', '_num', '_number', '_npi'];
+const BARE_KEY_NAMES = new Set(['id', 'key', 'code', 'npi', 'mrn', 'ssn', 'ein', 'isbn', 'uuid', 'guid']);
+
+// Composite keys worth trying when both member columns are present. These mirror
+// the mockup's transitive (patient_id + date_of_service) join between the
+// adjudication feed and the eligibility extract.
+const COMPOSITE_KEY_CANDIDATES = [
+  ['patient_id', 'date_of_service'],
+  ['member_id', 'date_of_service'],
+  ['patient_id', 'dos'],
+  ['claim_id', 'line_number'],
+  ['claim_id', 'line_no'],
+];
+
+function looksLikeKeyColumn(col) {
+  if (typeof col !== 'string') return false;
+  const c = col.trim().toLowerCase();
+  if (c === '') return false;
+  if (BARE_KEY_NAMES.has(c)) return true;
+  return KEY_SUFFIXES.some(sfx => c.endsWith(sfx));
+}
+
+// The set of column names present across a sample of rows (union, so a column
+// that is null in the first row but present later still counts).
+function columnUnion(rows) {
+  const cols = new Set();
+  const sample = rows.slice(0, 50);
+  for (const r of sample) {
+    if (!isPlainObject(r)) continue;
+    for (const c of Object.keys(r)) cols.add(c);
+  }
+  return cols;
+}
+
+// ============================================================
+// inferJoinKeys(rows) — the shared heuristic used by every adapter.
+// Pure: reads only column NAMES (and their presence), never values, so it is
+// cheap and deterministic. Returns an array of possibleKeys in the exact shape
+// buildConvergenceGraph accepts: single-column keys as bare strings and composite
+// keys as arrays, e.g. ['claim_id', ['patient_id','date_of_service']].
+// Returns [] (never throws) when nothing looks like a key — the caller then flags
+// needsManualKeySelection so a human can pick the join column in the UI (Batch 3).
+// ============================================================
+function inferJoinKeys(rows) {
+  try {
+    if (!isArrayOfRows(rows)) return [];
+    const cols = columnUnion(rows);
+    if (cols.size === 0) return [];
+
+    const lowerToActual = new Map();
+    for (const c of cols) lowerToActual.set(c.trim().toLowerCase(), c);
+
+    const keys = [];
+    const seen = new Set();
+
+    // 1) Single-column identifier keys, preserving the source's original casing.
+    for (const c of cols) {
+      if (looksLikeKeyColumn(c) && !seen.has(c)) { keys.push(c); seen.add(c); }
+    }
+
+    // 2) Composite candidates where BOTH member columns exist (case-insensitive
+    //    match, but emitted with the source's real column names).
+    for (const candidate of COMPOSITE_KEY_CANDIDATES) {
+      const actual = candidate.map(c => lowerToActual.get(c));
+      if (actual.every(a => a != null)) {
+        const sig = actual.map(a => a.toLowerCase()).sort().join('+');
+        if (!seen.has(sig)) { keys.push(actual); seen.add(sig); }
+      }
+    }
+
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// assignDefaultTrust(sourceMeta) — a sane default trust score (0..1) by origin
+// kind, NOT a hard rule: a caller may always pass an explicit trust and it wins.
+// Directly-uploaded files (Excel/CSV a human curated) are trusted a little higher
+// than a live API pull or a scraped site export, matching the mockup's 0.65–0.92
+// spread. Always returns a finite number in [0,1]; never throws.
+// ============================================================
+const DEFAULT_TRUST_BY_KIND = {
+  excel: 0.9,
+  csv: 0.9,
+  upload: 0.85,
+  api: 0.75,
+  site: 0.65,
+};
+const FALLBACK_TRUST = 0.7;
+
+function assignDefaultTrust(sourceMeta) {
+  try {
+    if (isPlainObject(sourceMeta)) {
+      // An explicit caller-supplied trust always wins.
+      if (typeof sourceMeta.trust === 'number' && Number.isFinite(sourceMeta.trust)) {
+        return clamp01(sourceMeta.trust);
+      }
+      const kind = typeof sourceMeta.kind === 'string' ? sourceMeta.kind.toLowerCase() : null;
+      if (kind && Object.prototype.hasOwnProperty.call(DEFAULT_TRUST_BY_KIND, kind)) {
+        return DEFAULT_TRUST_BY_KIND[kind];
+      }
+    }
+    return FALLBACK_TRUST;
+  } catch {
+    return FALLBACK_TRUST;
+  }
+}
+
+function clamp01(n) {
+  if (!Number.isFinite(n)) return FALLBACK_TRUST;
+  return Math.max(0, Math.min(1, n));
+}
+
+// Defensively pull an array-of-rows out of whatever a JSON pull handed us: either
+// a bare array, or an object wrapping the rows under a `data`/`rows`/`results`/
+// `items`/`records` key (the shapes real APIs use). Returns [] if none found.
+function extractRows(payload) {
+  if (Array.isArray(payload)) return payload.filter(isPlainObject);
+  if (isPlainObject(payload)) {
+    for (const key of ['data', 'rows', 'results', 'items', 'records']) {
+      if (Array.isArray(payload[key])) return payload[key].filter(isPlainObject);
+    }
+  }
+  return [];
+}
+
+// Shared builder for the API / site adapters: both take an already-parsed JSON
+// payload and differ only in origin `kind` and default trust. Keeps the defensive
+// parsing in one place so the two public adapters don't duplicate it.
+function adaptJsonPayload(payload, { sourceId, url, kind } = {}) {
+  const id = sourceId != null ? String(sourceId) : defaultIdForUrl(url, kind);
+  const base = {
+    id,
+    kind,
+    url: url != null ? String(url) : null,
+    fetchedAt: new Date().toISOString(),
+  };
+
+  const rows = extractRows(payload);
+  if (rows.length === 0) {
+    return errorSource(id, kind, `${kind} payload had no usable array of row objects`, base);
+  }
+
+  const possibleKeys = inferJoinKeys(rows);
+  const trust = assignDefaultTrust(base);
+  return {
+    id,
+    rows,
+    possibleKeys,
+    trust,
+    meta: {
+      ok: true,
+      kind,
+      url: base.url,
+      fetchedAt: base.fetchedAt,
+      rowCount: rows.length,
+      needsManualKeySelection: possibleKeys.length === 0,
+    },
+  };
+}
+
+function defaultIdForUrl(url, kind) {
+  if (typeof url === 'string' && url.trim() !== '') {
+    try {
+      const u = new URL(url);
+      return `${kind}:${u.hostname}${u.pathname}`.replace(/\/+$/, '');
+    } catch {
+      return `${kind}:${url.trim()}`;
+    }
+  }
+  return `${kind}-source`;
+}
+
+// A safe, error-flagged source result. It is still shaped like a source object
+// (empty rows/keys) so a caller can uniformly inspect meta.ok without a try/catch.
+function errorSource(id, kind, reason, base = {}) {
+  return {
+    id: id != null ? String(id) : `${kind || 'unknown'}-source`,
+    rows: [],
+    possibleKeys: [],
+    trust: assignDefaultTrust({ kind }),
+    meta: {
+      ok: false,
+      kind: kind || null,
+      url: base.url ?? null,
+      fetchedAt: base.fetchedAt ?? null,
+      rowCount: 0,
+      needsManualKeySelection: true,
+      reason,
+    },
+  };
+}
+
+// ============================================================
+// adaptExcelWorkbook(workbookData, { fileName }) — ONE source per sheet/tab.
+// `workbookData` is the already-parsed workbook: an array of { sheetName, rows }
+// (rows = array of row objects, exactly what js/app-shell/loaders.js' existing
+// XLSX.utils.sheet_to_json(sheet, { defval:null, raw:true }) produces per sheet).
+// Each tab becomes its OWN source — matching the mockup's "Roster.xlsx →
+// Providers" / "Roster.xlsx → Adjustments" pattern (same file, different tabs are
+// different sources with independently inferred keys). A blank/invalid tab is
+// skipped rather than aborting the whole workbook. Returns an ARRAY of source
+// objects (possibly empty); NEVER throws.
+// ============================================================
+function adaptExcelWorkbook(workbookData, { fileName } = {}) {
+  try {
+    const sheets = Array.isArray(workbookData)
+      ? workbookData
+      : (isPlainObject(workbookData) && Array.isArray(workbookData.sheets) ? workbookData.sheets : null);
+    if (!sheets) return [];
+
+    const file = typeof fileName === 'string' && fileName.trim() !== '' ? fileName.trim() : null;
+    const baseLabel = file ? file.replace(/\.(xlsx?|xlsm|xlsb)$/i, '') : 'workbook';
+
+    const out = [];
+    const seenIds = new Set();
+    for (const sheet of sheets) {
+      if (!isPlainObject(sheet)) continue;
+      const sheetName = typeof sheet.sheetName === 'string' && sheet.sheetName.trim() !== ''
+        ? sheet.sheetName.trim() : `sheet-${out.length + 1}`;
+
+      // "Roster.xlsx → Adjustments"-style id; de-duplicate identical sheet names.
+      let id = `${baseLabel} → ${sheetName}`;
+      let n = 2;
+      while (seenIds.has(id)) id = `${baseLabel} → ${sheetName} (${n++})`;
+      seenIds.add(id);
+
+      if (!isArrayOfRows(sheet.rows)) {
+        // Keep an honest, skippable placeholder so a caller can see the empty tab
+        // was recognized (and won't be fed to the engine — meta.ok is false).
+        out.push(errorSource(id, 'excel', `sheet "${sheetName}" has no usable rows`, { fileName: file }));
+        continue;
+      }
+
+      const possibleKeys = inferJoinKeys(sheet.rows);
+      out.push({
+        id,
+        rows: sheet.rows,
+        possibleKeys,
+        trust: assignDefaultTrust({ kind: 'excel' }),
+        meta: {
+          ok: true,
+          kind: 'excel',
+          fileName: file,
+          sheetName,
+          rowCount: sheet.rows.length,
+          needsManualKeySelection: possibleKeys.length === 0,
+        },
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// adaptApiSource(apiResponseData, { sourceId, url }) — one source from a parsed
+// JSON API response (a bare array of objects, or an object wrapping the rows
+// under data/rows/results/items/records). meta carries url + fetchedAt for the
+// mockup's "live pull" / "last synced" provenance labels. NEVER throws.
+// ============================================================
+function adaptApiSource(apiResponseData, { sourceId, url } = {}) {
+  return adaptJsonPayload(apiResponseData, { sourceId, url, kind: 'api' });
+}
+
+// ============================================================
+// adaptSiteExport(exportData, { sourceId, url }) — same contract as the API
+// adapter but for a table exported/scraped from a site and already parsed into
+// rows client-side (an HTML table turned into row objects, or a downloaded
+// CSV/JSON export). Shares all defensive parsing with adaptApiSource via the
+// common helper; differs only in origin kind + default trust. NEVER throws.
+// ============================================================
+function adaptSiteExport(exportData, { sourceId, url } = {}) {
+  return adaptJsonPayload(exportData, { sourceId, url, kind: 'site' });
+}
+
+// ============================================================
+// toEngineSources(adapterResults) — convenience: flatten a mix of single-source
+// and per-sheet-array adapter results into the { id, rows, possibleKeys } list
+// buildConvergenceGraph wants, dropping any error-flagged (meta.ok === false)
+// source so the engine only ever sees usable input. Also returns the sourceTrust
+// map resolveClusterWithTrust wants, keyed by the same ids. NEVER throws.
+// ============================================================
+function toEngineSources(adapterResults) {
+  const sources = [];
+  const sourceTrust = {};
+  try {
+    const flat = [];
+    for (const r of Array.isArray(adapterResults) ? adapterResults : [adapterResults]) {
+      if (Array.isArray(r)) flat.push(...r);
+      else if (isPlainObject(r)) flat.push(r);
+    }
+    for (const s of flat) {
+      if (!isPlainObject(s) || !s.meta || s.meta.ok !== true) continue;
+      if (!isArrayOfRows(s.rows)) continue;
+      sources.push({ id: s.id, rows: s.rows, possibleKeys: Array.isArray(s.possibleKeys) ? s.possibleKeys : [] });
+      if (typeof s.trust === 'number' && Number.isFinite(s.trust)) sourceTrust[s.id] = s.trust;
+    }
+  } catch {
+    return { sources: [], sourceTrust: {} };
+  }
+  return { sources, sourceTrust };
+}
+
+
+  window.SourceConvergenceIngestion = {
+    inferJoinKeys: typeof inferJoinKeys !== 'undefined' ? inferJoinKeys : null,
+    assignDefaultTrust: typeof assignDefaultTrust !== 'undefined' ? assignDefaultTrust : null,
+    adaptExcelWorkbook: typeof adaptExcelWorkbook !== 'undefined' ? adaptExcelWorkbook : null,
+    adaptApiSource: typeof adaptApiSource !== 'undefined' ? adaptApiSource : null,
+    adaptSiteExport: typeof adaptSiteExport !== 'undefined' ? adaptSiteExport : null,
+    toEngineSources: typeof toEngineSources !== 'undefined' ? toEngineSources : null,
+  };
+}());
+/* ---- end source-convergence-ingestion.js ---- */
+
+/* ---- from js/validation/source-convergence-ui.js ---- */
+;(function(){
+  'use strict';
+
+  // Alias engine deps from globals
+  var _eng = window.SourceConvergenceEngine || {};
+  var buildConvergenceGraph       = _eng.buildConvergenceGraph;
+  var computeConvergenceClusters  = _eng.computeConvergenceClusters;
+  var resolveClusterWithTrust     = _eng.resolveClusterWithTrust;
+  var summarizeConvergence        = _eng.summarizeConvergence;
+  var DEFAULT_MARGIN_THRESHOLD    = _eng.DEFAULT_MARGIN_THRESHOLD || 0.15;
+
+  var _ing = window.SourceConvergenceIngestion || {};
+  var adaptExcelWorkbook = _ing.adaptExcelWorkbook;
+  var adaptApiSource     = _ing.adaptApiSource;
+  var adaptSiteExport    = _ing.adaptSiteExport;
+  var toEngineSources    = _ing.toEngineSources;
+
+  // el() shim -- use existing bundle el() if present, else minimal fallback
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+// ============================================================
+// DATAGLOW — Source Convergence (Batch 3 of 3, final): the Convergence UI
+// ============================================================
+// WHAT THIS IS: the presenter for the two already-merged, already-tested
+// Source Convergence engine layers. It invents NO convergence logic of its own —
+// it only wires them into a visible "Convergence" tab:
+//   - Batch 1 (js/validation/source-convergence.js): buildConvergenceGraph,
+//     computeConvergenceClusters, resolveClusterWithTrust, summarizeConvergence.
+//   - Batch 2 (js/validation/source-convergence-ingestion.js): adaptExcelWorkbook,
+//     adaptApiSource, adaptSiteExport, toEngineSources.
+// Both are treated as stable dependencies; this file does not touch their APIs.
+//
+// IDENTITY SPLIT (same convention as js/rooms/room-ui.js and
+// js/diplomacy/diplomacy-ui.js): the model builders are PURE, Node-testable,
+// DOM-free functions (buildConvergenceView / buildSourceCardModel /
+// sourceKindBadge / formatTrust / buildEscalationModel / toggleExpanded); the
+// browser-only renderer (mountConvergence) turns those models into DOM and owns
+// the two browser affordances — reading a file with the app's existing global
+// XLSX, and a user-initiated client-side fetch() — exactly the bits Batch 2
+// deferred to "the UI batch".
+//
+// DISCIPLINE:
+//   - zero-upload/local-first: every load reads data the user chose, client-side,
+//     and only ever produces a LOCAL summary; nothing is uploaded. A URL pull is
+//     a plain outbound fetch() the user initiated — it sends no dataset anywhere.
+//   - honest EMPTY STATE: with no sources loaded the tab shows a real "load
+//     something" prompt, never the mockup's fixed demo numbers.
+//   - the pure builders NEVER throw — malformed input yields a safe view model.
+// ============================================================
+
+// [stripped import] import { el } from '../app-shell/utils.js';
+// [stripped import] import {
+//   buildConvergenceGraph,
+//   computeConvergenceClusters,
+//   resolveClusterWithTrust,
+//   summarizeConvergence,
+//   DEFAULT_MARGIN_THRESHOLD,
+// } from './source-convergence.js';
+// [stripped import] import {
+//   adaptExcelWorkbook,
+//   adaptApiSource,
+//   adaptSiteExport,
+//   toEngineSources,
+// } from './source-convergence-ingestion.js';
+
+// ---------- tiny total helpers ----------
+
+function isPlainObject(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Flatten a mix of single-source and per-sheet-array adapter results into one
+// flat list of source objects, KEEPING each source's meta (unlike
+// toEngineSources, which drops it) so the source rail can show provenance.
+function flattenAdapterResults(adapterResults) {
+  const flat = [];
+  for (const r of Array.isArray(adapterResults) ? adapterResults : [adapterResults]) {
+    if (Array.isArray(r)) { for (const s of r) if (isPlainObject(s)) flat.push(s); }
+    else if (isPlainObject(r)) flat.push(r);
+  }
+  return flat;
+}
+
+// ============================================================
+// shouldOfferConvergence({ enabled }) — the single pure gate the caller checks
+// before mounting anything. True only when the flag is on. No DOM, no flag read.
+// ============================================================
+function shouldOfferConvergence({ enabled } = {}) {
+  return enabled === true;
+}
+
+// ============================================================
+// sourceKindBadge(kind) — the type badge for a source card. Reuses the existing
+// .badge vocabulary (css/base.css); invents no new colors. Never throws.
+// ============================================================
+function sourceKindBadge(kind) {
+  const k = typeof kind === 'string' ? kind.toLowerCase() : '';
+  switch (k) {
+    case 'excel': return { label: 'Excel tab', className: 'badge badge-a' };
+    case 'csv': return { label: 'CSV', className: 'badge badge-a' };
+    case 'upload': return { label: 'File', className: 'badge badge-a' };
+    case 'api': return { label: 'API', className: 'badge badge-b' };
+    case 'site': return { label: 'Site export', className: 'badge badge-c' };
+    default: return { label: k || 'Source', className: 'badge' };
+  }
+}
+
+// ============================================================
+// formatTrust(n) — a two-decimal trust label, or '—' when absent. Never throws.
+// ============================================================
+function formatTrust(n) {
+  return typeof n === 'number' && Number.isFinite(n) ? n.toFixed(2) : '—';
+}
+
+// Render a possibleKeys list (strings or composite arrays) as a readable label.
+function formatKeyList(possibleKeys) {
+  if (!Array.isArray(possibleKeys) || possibleKeys.length === 0) return null;
+  const parts = [];
+  for (const k of possibleKeys) {
+    if (typeof k === 'string' && k.trim() !== '') parts.push(k.trim());
+    else if (Array.isArray(k)) {
+      const cols = k.filter(c => typeof c === 'string' && c.trim() !== '').map(c => c.trim());
+      if (cols.length) parts.push(cols.join('+'));
+    }
+  }
+  return parts.length ? parts.join(', ') : null;
+}
+
+// ============================================================
+// buildSourceCardModel(source) — a pure, DOM-free view model for ONE source-rail
+// card, straight from a Batch 2 adapter output ({ id, rows, possibleKeys, trust,
+// meta }). Reuses the adapter's own meta (kind/rowCount/needsManualKeySelection/
+// url) rather than re-deriving anything. Never throws.
+// ============================================================
+function buildSourceCardModel(source) {
+  if (!isPlainObject(source)) {
+    return { id: '(invalid source)', ok: false, badge: sourceKindBadge(''), rowText: '—', keyLabel: null, trustText: '—', needsManualKey: false, reason: 'not a source object', live: false };
+  }
+  const meta = isPlainObject(source.meta) ? source.meta : {};
+  const kind = typeof meta.kind === 'string' ? meta.kind : null;
+  const ok = meta.ok !== false;
+  const rowCount = Number.isFinite(meta.rowCount)
+    ? meta.rowCount
+    : (Array.isArray(source.rows) ? source.rows.length : 0);
+  const live = kind === 'api';
+  return {
+    id: source.id != null ? String(source.id) : '(unnamed)',
+    ok,
+    badge: sourceKindBadge(kind),
+    kind,
+    rowText: live ? 'live pull' : `${rowCount.toLocaleString('en-US')} rows`,
+    rowCount,
+    keyLabel: formatKeyList(source.possibleKeys),
+    trustText: formatTrust(source.trust),
+    trust: typeof source.trust === 'number' ? source.trust : null,
+    needsManualKey: meta.needsManualKeySelection === true,
+    url: meta.url ?? null,
+    reason: ok ? null : (meta.reason || 'source has no usable rows'),
+    live,
+  };
+}
+
+// A short, readable identifier for a cluster from its joinKeys ([{key,value}]).
+function clusterJoinLabel(cluster) {
+  const jk = isPlainObject(cluster) && Array.isArray(cluster.joinKeys) ? cluster.joinKeys : [];
+  if (jk.length === 0) return '(unkeyed)';
+  const seen = new Set();
+  const parts = [];
+  for (const { key, value } of jk) {
+    const sig = `${key}=${value}`;
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    parts.push(sig);
+    if (parts.length >= 3) break;
+  }
+  return parts.join(', ');
+}
+
+// ============================================================
+// buildEscalationModel(cluster, resolution) — a pure detail model for ONE
+// escalated cluster: which columns disagree, the competing values with their
+// source + trust, the computed margin, and the engine's reason. Reuses the
+// resolution object resolveClusterWithTrust already produced. Never throws.
+// ============================================================
+function buildEscalationModel(cluster, resolution) {
+  const res = isPlainObject(resolution) ? resolution : {};
+  const resolutions = Array.isArray(res.resolutions) ? res.resolutions : [];
+  const fields = resolutions
+    .filter(r => isPlainObject(r) && r.resolved === false)
+    .map(r => ({
+      column: r.column,
+      reason: r.reason || 'escalated',
+      margin: Number.isFinite(r.margin) ? r.margin : null,
+      rationale: r.rationale || null,
+      candidates: (Array.isArray(r.candidates) ? r.candidates : []).map(c => ({
+        sourceId: c.sourceId != null ? String(c.sourceId) : null,
+        value: c.value,
+        trust: typeof c.trust === 'number' && Number.isFinite(c.trust) ? c.trust : null,
+      })),
+    }));
+  return {
+    clusterId: isPlainObject(cluster) ? (cluster.id ?? null) : null,
+    joinLabel: clusterJoinLabel(cluster),
+    sourceIds: isPlainObject(cluster) && Array.isArray(cluster.sourceIds) ? cluster.sourceIds : [],
+    coverageCount: isPlainObject(cluster) ? (cluster.coverageCount || 0) : 0,
+    fields,
+  };
+}
+
+// ============================================================
+// toggleExpanded(expandedSet, clusterId) — the pure click-through state
+// transition: returns a NEW Set with clusterId toggled on/off. The renderer
+// holds the Set and re-renders; keeping the transition pure makes the
+// expand/collapse logic Node-testable without a DOM. Never throws.
+// ============================================================
+function toggleExpanded(expandedSet, clusterId) {
+  const next = new Set(expandedSet instanceof Set ? expandedSet : []);
+  if (clusterId == null) return next;
+  if (next.has(clusterId)) next.delete(clusterId);
+  else next.add(clusterId);
+  return next;
+}
+
+// ============================================================
+// buildConvergenceView(adapterResults, { marginThreshold }) — THE pipeline.
+// Runs the whole Source Convergence flow over Batch 2 adapter output and returns
+// one DOM-free view model the renderer paints:
+//   toEngineSources -> buildConvergenceGraph -> computeConvergenceClusters
+//   -> resolveClusterWithTrust (per cluster, attached as cluster.resolution)
+//   -> summarizeConvergence.
+// Returns (never throws):
+//   {
+//     ok, reason, isEmpty,
+//     sources:      [sourceCardModel...],          // the source rail (incl. error sources)
+//     usableCount,                                  // sources actually fed to the engine
+//     allSourceIds: [id...],                        // coverage-matrix columns
+//     matrix:       [{ clusterId, joinLabel, sourceIds, coverageCount, status, conflictCount }],
+//     summary:      summarizeConvergence(...) | null,
+//     escalations:  [escalationModel...],
+//   }
+// ============================================================
+function buildConvergenceView(adapterResults, { marginThreshold = DEFAULT_MARGIN_THRESHOLD } = {}) {
+  try {
+    const flat = flattenAdapterResults(adapterResults);
+    const sources = flat.map(buildSourceCardModel);
+
+    const { sources: engineSources, sourceTrust } = toEngineSources(flat);
+    const usableCount = engineSources.length;
+
+    if (usableCount === 0) {
+      return {
+        ok: true, reason: null, isEmpty: true,
+        sources, usableCount: 0, allSourceIds: [],
+        matrix: [], summary: null, escalations: [],
+      };
+    }
+
+    const graph = buildConvergenceGraph(engineSources);
+    if (!graph || graph.evaluated !== true) {
+      return {
+        ok: false, reason: (graph && graph.reason) || 'could not build convergence graph',
+        isEmpty: false, sources, usableCount, allSourceIds: engineSources.map(s => String(s.id)),
+        matrix: [], summary: null, escalations: [],
+      };
+    }
+
+    const clusters = computeConvergenceClusters(graph, engineSources);
+    // Attach the trust resolution to each conflicting cluster so
+    // summarizeConvergence can count auto-resolved vs. needs-human, and so the
+    // escalate list can show the engine's own reasoning verbatim.
+    for (const c of clusters) {
+      if (isPlainObject(c) && c.hasConflict) {
+        c.resolution = resolveClusterWithTrust(c, sourceTrust, { marginThreshold });
+      }
+    }
+
+    const allSourceIds = Array.isArray(graph.sources) ? graph.sources.map(String) : [];
+
+    // Coverage matrix: only the JOINED clusters (present in 2+ sources) are
+    // interesting — a single-source cluster has nothing to converge.
+    const matrix = clusters
+      .filter(c => isPlainObject(c) && c.coverageCount >= 2)
+      .map(c => {
+        let status = 'agreed';
+        if (c.hasConflict) status = (c.resolution && c.resolution.escalated) ? 'escalate' : 'resolved';
+        return {
+          clusterId: c.id,
+          joinLabel: clusterJoinLabel(c),
+          sourceIds: Array.isArray(c.sourceIds) ? c.sourceIds : [],
+          coverageCount: c.coverageCount,
+          conflictCount: Array.isArray(c.conflicts) ? c.conflicts.length : 0,
+          status,
+        };
+      });
+
+    const escalations = clusters
+      .filter(c => isPlainObject(c) && c.hasConflict && c.resolution && c.resolution.escalated)
+      .map(c => buildEscalationModel(c, c.resolution));
+
+    const summary = summarizeConvergence(clusters);
+
+    return {
+      ok: true, reason: null, isEmpty: false,
+      sources, usableCount, allSourceIds,
+      matrix, summary, escalations,
+    };
+  } catch (e) {
+    return {
+      ok: false, reason: `unevaluable: ${e && e.message ? e.message : 'unknown error'}`,
+      isEmpty: false, sources: [], usableCount: 0, allSourceIds: [],
+      matrix: [], summary: null, escalations: [],
+    };
+  }
+}
+
+// ============================================================
+// mountConvergence({ host, onToast, marginThreshold }) — the BROWSER renderer.
+// Left to the browser/e2e path (like room-ui.js's renderRoomUi): it owns the two
+// browser-only affordances Batch 2 deferred — reading a file via the app's global
+// XLSX, and a user-initiated client-side fetch() — then feeds their parsed output
+// through the Batch 2 adapters and repaints the pure view. Returns a handle
+// { getState, destroy } or null when there is no host.
+// ============================================================
+function mountConvergence(opts = {}) {
+  const { host, onToast = () => {}, marginThreshold = DEFAULT_MARGIN_THRESHOLD } = opts;
+  if (!host) return null;
+
+  let adapterResults = []; // accumulates each load's adapter output
+  let expanded = new Set(); // expanded escalation cluster ids
+
+  const toastSafe = (msg, type) => { try { onToast(msg, type); } catch { /* never bubble */ } };
+
+  function addResult(result) {
+    adapterResults.push(result);
+    render();
+  }
+
+  // ---- browser-only loaders ----
+
+  async function handleFile(file) {
+    if (!file) return;
+    const name = file.name || 'file';
+    const lower = name.toLowerCase();
+    try {
+      if (/\.(xlsx|xlsm|xlsb|xls)$/.test(lower)) {
+        if (typeof XLSX === 'undefined') { toastSafe('Excel support unavailable', 'error'); return; }
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const sheets = wb.SheetNames.map((sheetName) => ({
+          sheetName,
+          rows: XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null, raw: true }),
+        }));
+        addResult(adaptExcelWorkbook(sheets, { fileName: name }));
+        toastSafe(`Loaded ${sheets.length} tab(s) from ${name}`, 'success');
+      } else if (/\.json$/.test(lower)) {
+        const data = JSON.parse(await file.text());
+        addResult(adaptApiSource(data, { sourceId: name }));
+        toastSafe(`Loaded ${name}`, 'success');
+      } else {
+        toastSafe('Load an .xlsx or .json file (or pull a URL)', 'warn');
+      }
+    } catch (e) {
+      toastSafe(`Could not read ${name}: ${e && e.message ? e.message : 'parse error'}`, 'error');
+    }
+  }
+
+  async function handleUrlPull(url, kind) {
+    const u = (url || '').trim();
+    if (u === '') { toastSafe('Enter a URL to pull', 'warn'); return; }
+    try {
+      // User-initiated, client-side fetch: pulls data IN; sends no dataset out.
+      const res = await fetch(u);
+      const data = await res.json();
+      const adapt = kind === 'site' ? adaptSiteExport : adaptApiSource;
+      addResult(adapt(data, { url: u }));
+      toastSafe(`Pulled from ${u}`, 'success');
+    } catch (e) {
+      toastSafe(`Pull failed: ${e && e.message ? e.message : 'network/parse error'}`, 'error');
+    }
+  }
+
+  // ---- DOM builders ----
+
+  function loaderBar() {
+    const fileInput = el('input', {
+      type: 'file', accept: '.xlsx,.xls,.xlsm,.xlsb,.json', 'data-testid': 'convergence-file-input',
+      style: 'display:none',
+      onchange: (e) => { const f = e.target.files && e.target.files[0]; handleFile(f); e.target.value = ''; },
+    });
+    const urlInput = el('input', {
+      type: 'text', class: 'input', placeholder: 'https://…/data.json',
+      'data-testid': 'convergence-url-input', style: 'flex:1;min-width:160px;',
+    });
+    const kindSelect = el('select', { class: 'input', 'data-testid': 'convergence-url-kind', style: 'max-width:130px;' }, [
+      el('option', { value: 'api' }, 'API'),
+      el('option', { value: 'site' }, 'Site export'),
+    ]);
+    return el('div', { class: 'convergence-loader', 'data-testid': 'convergence-loader' }, [
+      fileInput,
+      el('button', {
+        class: 'btn btn-primary', 'data-testid': 'convergence-add-file',
+        onclick: () => fileInput.click(),
+      }, 'Add Excel / JSON file'),
+      el('div', { class: 'convergence-url-row' }, [
+        urlInput,
+        kindSelect,
+        el('button', {
+          class: 'btn', 'data-testid': 'convergence-pull-url',
+          onclick: () => handleUrlPull(urlInput.value, kindSelect.value),
+        }, 'Pull'),
+      ]),
+    ]);
+  }
+
+  function emptyState() {
+    return el('div', { class: 'empty-state', 'data-testid': 'convergence-empty' }, [
+      el('div', { html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/></svg>' }),
+      el('h3', {}, 'No sources loaded yet'),
+      el('p', {}, 'Load two or more sources — Excel workbook tabs, a JSON file, or a live API / site pull — to reconcile them across the Truth Network. Nothing leaves your device.'),
+    ]);
+  }
+
+  function sourceRail(view) {
+    const cards = view.sources.map((m) => el('div', {
+      class: `convergence-source-card${m.ok ? '' : ' is-error'}`,
+      'data-testid': 'convergence-source-card',
+    }, [
+      el('div', { class: 'convergence-source-head' }, [
+        el('span', { class: m.badge.className }, m.badge.label),
+        el('span', { class: 'convergence-source-trust', title: 'default trust weight' }, `trust ${m.trustText}`),
+      ]),
+      el('div', { class: 'convergence-source-id' }, m.id),
+      el('div', { class: 'convergence-source-meta' }, m.ok
+        ? `${m.rowText}${m.keyLabel ? ` · key: ${m.keyLabel}` : (m.needsManualKey ? ' · needs manual key' : '')}`
+        : (m.reason || 'unusable')),
+    ]));
+    return el('section', { class: 'convergence-section' }, [
+      el('h3', { class: 'convergence-section-title' }, `Sources (${view.usableCount} usable)`),
+      el('div', { class: 'convergence-rail', 'data-testid': 'convergence-rail' }, cards),
+    ]);
+  }
+
+  function statusPill(status) {
+    const map = {
+      agreed: { label: 'Agreed', className: 'badge badge-a' },
+      resolved: { label: 'Resolved', className: 'badge badge-a' },
+      escalate: { label: 'Escalate', className: 'badge badge-c' },
+    };
+    const s = map[status] || { label: status, className: 'badge' };
+    return el('span', { class: s.className }, s.label);
+  }
+
+  function coverageMatrix(view) {
+    if (view.matrix.length === 0) {
+      return el('section', { class: 'convergence-section' }, [
+        el('h3', { class: 'convergence-section-title' }, 'Coverage matrix'),
+        el('p', { class: 'convergence-hint', 'data-testid': 'convergence-matrix-empty' },
+          'No cluster spans two or more sources yet — the loaded sources share no join key/value. Load sources that share an id (or a composite key) to see them converge.'),
+      ]);
+    }
+    const headRow = el('tr', {}, [
+      el('th', {}, 'Entity (join)'),
+      ...view.allSourceIds.map((id) => el('th', { class: 'convergence-col-source', title: id }, id)),
+      el('th', {}, 'Status'),
+    ]);
+    const bodyRows = view.matrix.map((row) => {
+      const inSource = new Set(row.sourceIds.map(String));
+      return el('tr', {}, [
+        el('td', { class: 'convergence-cell-entity' }, row.joinLabel),
+        ...view.allSourceIds.map((id) => el('td', { class: 'convergence-cell-dot' },
+          el('span', { class: inSource.has(id) ? 'convergence-dot on' : 'convergence-dot' }, ''))),
+        el('td', {}, statusPill(row.status)),
+      ]);
+    });
+    return el('section', { class: 'convergence-section' }, [
+      el('h3', { class: 'convergence-section-title' }, 'Coverage matrix'),
+      el('div', { class: 'convergence-table-scroll' }, [
+        el('table', { class: 'convergence-matrix', 'data-testid': 'convergence-matrix' }, [
+          el('thead', {}, headRow),
+          el('tbody', {}, bodyRows),
+        ]),
+      ]),
+    ]);
+  }
+
+  function verdictPanel(view) {
+    const text = view.summary && view.summary.text ? view.summary.text : 'No joined clusters to summarize yet.';
+    return el('section', { class: 'convergence-section' }, [
+      el('div', { class: 'convergence-verdict', 'data-testid': 'convergence-verdict' }, [
+        el('div', { class: 'convergence-verdict-text' }, text),
+      ]),
+    ]);
+  }
+
+  function escalationList(view) {
+    if (view.escalations.length === 0) {
+      return el('section', { class: 'convergence-section' }, [
+        el('h3', { class: 'convergence-section-title' }, 'Escalate for human review'),
+        el('p', { class: 'convergence-hint', 'data-testid': 'convergence-escalate-empty' },
+          'Nothing needs a human — every cross-source conflict either agreed or auto-resolved by a decisive trust margin.'),
+      ]);
+    }
+    const items = view.escalations.map((esc) => {
+      const isOpen = expanded.has(esc.clusterId);
+      const detail = isOpen ? el('div', { class: 'convergence-escalate-detail', 'data-testid': 'convergence-escalate-detail' },
+        esc.fields.map((f) => el('div', { class: 'convergence-conflict-field' }, [
+          el('div', { class: 'convergence-conflict-col' }, [
+            el('strong', {}, f.column),
+            el('span', { class: 'convergence-conflict-margin' },
+              f.margin == null ? ` — ${f.reason}` : ` — margin ${f.margin.toFixed(3)} (${f.reason})`),
+          ]),
+          el('table', { class: 'convergence-candidates' }, [
+            el('thead', {}, el('tr', {}, [el('th', {}, 'Source'), el('th', {}, 'Value'), el('th', {}, 'Trust')])),
+            el('tbody', {}, f.candidates.map((c) => el('tr', {}, [
+              el('td', {}, c.sourceId || '—'),
+              el('td', {}, c.value == null ? '—' : String(c.value)),
+              el('td', {}, formatTrust(c.trust)),
+            ]))),
+          ]),
+        ]))
+      ) : null;
+
+      return el('div', { class: 'convergence-escalate-item', 'data-testid': 'convergence-escalate-item' }, [
+        el('button', {
+          class: 'convergence-escalate-head',
+          'data-testid': 'convergence-escalate-toggle',
+          'aria-expanded': isOpen ? 'true' : 'false',
+          onclick: () => { expanded = toggleExpanded(expanded, esc.clusterId); render(); },
+        }, [
+          el('span', { class: 'convergence-escalate-caret' }, isOpen ? '▾' : '▸'),
+          el('span', { class: 'convergence-escalate-title' }, esc.joinLabel),
+          el('span', { class: 'convergence-escalate-count' },
+            `${esc.fields.length} conflict${esc.fields.length === 1 ? '' : 's'} · ${esc.coverageCount} sources`),
+        ]),
+        detail,
+      ].filter(Boolean));
+    });
+    return el('section', { class: 'convergence-section' }, [
+      el('h3', { class: 'convergence-section-title' }, `Escalate for human review (${view.escalations.length})`),
+      el('div', { class: 'convergence-escalate-list' }, items),
+    ]);
+  }
+
+  function render() {
+    host.innerHTML = '';
+    const view = buildConvergenceView(adapterResults, { marginThreshold });
+    const root = el('div', { class: 'convergence-root', 'data-testid': 'convergence-root' }, [loaderBar()]);
+
+    if (!view.ok) {
+      root.appendChild(el('p', { class: 'convergence-hint', 'data-testid': 'convergence-error' },
+        `Could not evaluate convergence: ${view.reason || 'unknown'}.`));
+    } else if (view.isEmpty) {
+      root.appendChild(emptyState());
+    } else {
+      root.appendChild(verdictPanel(view));
+      root.appendChild(sourceRail(view));
+      root.appendChild(coverageMatrix(view));
+      root.appendChild(escalationList(view));
+    }
+    host.appendChild(root);
+  }
+
+  render();
+
+  return {
+    getState: () => ({ adapterResults: [...adapterResults], expanded: new Set(expanded) }),
+    addResult,
+    destroy: () => { host.innerHTML = ''; adapterResults = []; expanded = new Set(); },
+  };
+}
+
+
+  window.SourceConvergenceUI = {
+    shouldOfferConvergence: typeof shouldOfferConvergence !== 'undefined' ? shouldOfferConvergence : null,
+    mountConvergence: typeof mountConvergence !== 'undefined' ? mountConvergence : null,
+    buildConvergenceView: typeof buildConvergenceView !== 'undefined' ? buildConvergenceView : null,
+  };
+
+  // Auto-init: wire Source Convergence into overflow + mobile tools sheet
+  function initConvergenceUI() {
+    var panelId = 'dg-convergence-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:460px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:854;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+
+    function toggleConvergence() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var closeX = document.createElement('button');
+        closeX.textContent = '\u00D7';
+        closeX.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        closeX.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(closeX);
+        if (typeof mountConvergence === 'function') {
+          mountConvergence({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Source Convergence: load two or more datasets to reconcile them into a unified truth network.';
+          p.appendChild(msg);
+        }
+      } else {
+        p.style.display = 'none';
+      }
+    }
+
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-convergence')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-convergence';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83D\uDD03<br><span>Convergence</span>';
+      btn.addEventListener('click', function(){
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        var ov2 = document.getElementById('dg-overflow-overlay');
+        if (ov2) ov2.classList.remove('open');
+        toggleConvergence();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-convergence')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-convergence';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83D\uDD03<br><span>Convergence</span>';
+      btn2.addEventListener('click', function(){
+        var sheet = document.getElementById('dg-tools-sheet');
+        if (sheet) sheet.classList.remove('open');
+        toggleConvergence();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initConvergenceUI);
+  else setTimeout(initConvergenceUI, 600);
+}());
+/* ---- end source-convergence-ui.js ---- */
 
 })();
 </script>
