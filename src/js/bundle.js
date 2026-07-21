@@ -53225,11 +53225,19 @@ function buildSynthesisPrompt({ ledgerEntries = [], layerResults = {}, physicsOu
 // Confidence Layer already computed, and asks for a short, honest story. Kept
 // pure/deterministic and browser-free so it is unit-testable in Node.
 const STORY_SYSTEM_PROMPT = [
-  'You are DATAGLOW\'s Story Engine, a data-analyst assistant that runs entirely on the user\'s own device.',
-  'You turn a SQL query result into a short, plain-English data story for a non-technical analyst.',
-  'You are NOT a medical, clinical, or diagnostic AI. Never give medical advice, diagnoses, or treatment guidance.',
-  'If the data appears to be healthcare data, reason ONLY about the data itself (counts, averages, categories), never about patients or care.',
-  'Only use numbers that appear in the provided figures — never invent, round loosely, or extrapolate. Do not output code, headers, or bullet points; write flowing prose.',
+  'You are the DataGlow Narrative Engine -- a precision data analyst running entirely on-device. Zero data leaves this browser.',
+  'Your job: transform raw query results and quality findings into a professional structured data report.',
+  'Output EXACTLY this structure, with these exact section headers on their own lines:',
+  '## CONTEXT',
+  '(1-2 sentences: what dataset, how many rows, what question was being explored)',
+  '## FINDINGS',
+  '(2-4 sentences: the most important numbers, patterns, and anomalies. Name specific columns and values. Never invent numbers.)',
+  '## HEALTH',
+  '(1-2 sentences: data quality signal -- null rates, outliers, confidence caveats -- so the reader knows how much to trust the findings)',
+  '## RECOMMENDATIONS',
+  '(2-3 concrete, actionable next steps a data professional can take. Use action verbs: Filter, Segment, Investigate, Normalize, Join.)',
+  'Rules: Only cite numbers from the provided figures. Never hallucinate. No code blocks. If data looks healthcare-related, reason about counts and patterns only -- never about patients or clinical outcomes.',
+  'Tone: Direct, specific, professional. One paragraph per section. No filler.',
 ].join(' ');
 
 // Build the Story-tab prompt from a query result and its pre-scored claims.
@@ -53256,9 +53264,21 @@ function buildStoryModelPrompt({ tableName = 'the dataset', queryResult = {}, cl
   }
 
   lines.push('');
-  lines.push('## Task');
-  lines.push('Write a short data story (3–5 sentences of flowing prose). State one clear insight and its practical implication, reflect the confidence grades where a figure is weakly supported (grade C or D), and end with one honest caveat about what this query does NOT show (e.g. rows filtered out or populations absent). Use only the numbers above.');
+  lines.push('');
+  lines.push('## Dataset Health Score');
+  var _dhsObj = (typeof DataHealthScore !== 'undefined' && typeof window.__dg_currentDataset !== 'undefined')
+    ? DataHealthScore.compute(window.__dg_currentDataset)
+    : null;
+  if (_dhsObj) {
+    lines.push('- Overall health: ' + _dhsObj.total + '/100 (Grade ' + _dhsObj.grade + ' - ' + _dhsObj.label + ')');
+    _dhsObj.columns.slice(0, 6).forEach(function(c) {
+      lines.push('- ' + c.name + ': ' + c.score + '/100 (completeness ' + c.dims.completeness + '%, validity ' + c.dims.validity + '%)');
+    });
+  }
 
+  lines.push('');
+  lines.push('## Task');
+  lines.push('Write a structured narrative following the CONTEXT / FINDINGS / HEALTH / RECOMMENDATIONS format. Be specific, bold, and actionable. This is for a data professional.');
   const user = lines.join('\n');
   return {
     system: STORY_SYSTEM_PROMPT,
@@ -53709,34 +53729,263 @@ async function produceStory(queryResult, tableName, provider, apiKey, opts = {})
   };
 
 
+  /* ---- DataGlow Narrative Panel v2 -- local-first, streaming, structured ---- */
   function initUI_dg_ov_narrative() {
-    var panelId = 'dg-narrative-panel';
-    if (!document.getElementById(panelId)) {
-      var panel = document.createElement('div');
-      panel.id = panelId;
-      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:868;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
-      document.body.appendChild(panel);
+    var PANEL_ID = 'dg-narrative-panel-v2';
+
+    /* ── build panel shell ──────────────────────────────────────────────────── */
+    function buildPanel() {
+      if (document.getElementById(PANEL_ID)) return;
+      var p = document.createElement('div');
+      p.id = PANEL_ID;
+      p.setAttribute('role', 'dialog');
+      p.setAttribute('aria-label', 'Narrative Engine');
+      p.innerHTML =
+        '<div class="npe-header">' +
+          '<div class="npe-title-row">' +
+            '<span class="npe-icon">&#128221;</span>' +
+            '<span class="npe-title">Narrative</span>' +
+            '<span class="npe-badge" id="npe-source-badge"></span>' +
+          '</div>' +
+          '<div class="npe-controls">' +
+            '<button class="npe-ctrl-btn" id="npe-copy-btn" title="Copy narrative">&#x2398;</button>' +
+            '<button class="npe-ctrl-btn" id="npe-refresh-btn" title="Regenerate">&#x21BB;</button>' +
+            '<button class="npe-ctrl-btn npe-close-btn" id="npe-close-btn" title="Close">&#x00D7;</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="npe-model-bar" id="npe-model-bar">' +
+          '<span class="npe-model-icon">&#x1F4BB;</span>' +
+          '<span class="npe-model-label" id="npe-model-label">On-device AI (Phi-3.5-mini, WebGPU)</span>' +
+          '<span class="npe-privacy-badge">&#x1F512; Private</span>' +
+        '</div>' +
+        '<div class="npe-progress-wrap hidden" id="npe-progress-wrap">' +
+          '<div class="npe-progress-bar" id="npe-progress-bar"></div>' +
+          '<div class="npe-progress-text" id="npe-progress-text">Loading on-device model...</div>' +
+        '</div>' +
+        '<div class="npe-body" id="npe-body">' +
+          '<div class="npe-empty" id="npe-empty">' +
+            '<div class="npe-empty-icon">&#x1F4C8;</div>' +
+            '<p class="npe-empty-msg">Load a dataset and run a query first.</p>' +
+            '<p class="npe-empty-sub">The Narrative Engine will generate a structured write-up entirely on your device. No data leaves your browser.</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="npe-footer">' +
+          '<button class="npe-generate-btn" id="npe-generate-btn" disabled>&#x26A1; Generate Report</button>' +
+          '<div class="npe-footer-note" id="npe-footer-note">Runs 100% on-device via WebGPU &#x2014; zero uploads.</div>' +
+        '</div>';
+      document.body.appendChild(p);
+      wireEvents(p);
     }
-    function toggle() {
-      var p = document.getElementById(panelId);
+
+    /* ── event wiring ───────────────────────────────────────────────────────── */
+    function wireEvents(p) {
+      p.querySelector('#npe-close-btn').addEventListener('click', function() { closePanel(); });
+      p.querySelector('#npe-copy-btn').addEventListener('click', function() { copyNarrative(); });
+      p.querySelector('#npe-refresh-btn').addEventListener('click', function() { runGeneration(true); });
+      p.querySelector('#npe-generate-btn').addEventListener('click', function() { runGeneration(false); });
+    }
+
+    function closePanel() {
+      var p = document.getElementById(PANEL_ID);
+      if (p) p.classList.remove('npe-open');
+    }
+
+    function openPanel() {
+      buildPanel();
+      var p = document.getElementById(PANEL_ID);
       if (!p) return;
-      if (p.style.display === 'none' || !p.style.display) {
-        p.style.display = 'block'; p.innerHTML = '';
-        var cx = document.createElement('button');
-        cx.textContent = '\u00D7';
-        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;';
-        cx.addEventListener('click', function(){ p.style.display='none'; });
-        p.appendChild(cx);
-        if (typeof renderStory === 'function') {
-          renderStory({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
-        } else {
-          var msg = document.createElement('p');
-          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
-          msg.textContent = 'Narrative Engine: auto-generates plain-English data stories from analysis results.';
-          p.appendChild(msg);
-        }
-      } else { p.style.display = 'none'; }
+      p.classList.add('npe-open');
+      checkReadiness();
     }
+
+    /* ── readiness check (dataset + query result) ───────────────────────────── */
+    function checkReadiness() {
+      var btn = document.getElementById('npe-generate-btn');
+      var emptyDiv = document.getElementById('npe-empty');
+      var hasDS = !!(window.__dg_currentDataset);
+      /* Check if any query result panel exists with data */
+      var hasQuery = !!(window.__dg_lastQueryResult) || hasDS;
+      if (btn) btn.disabled = !hasDS;
+      if (emptyDiv) emptyDiv.style.display = hasDS ? 'none' : '';
+    }
+
+    /* ── section parser: converts ## SECTION\ntext into structured HTML ─────── */
+    function parseNarrativeSections(text) {
+      var SECTIONS = ['CONTEXT', 'FINDINGS', 'HEALTH', 'RECOMMENDATIONS'];
+      var ICONS = { CONTEXT: '&#x1F4CB;', FINDINGS: '&#x1F4CA;', HEALTH: '&#x2764;&#xFE0F;', RECOMMENDATIONS: '&#x1F3AF;' };
+      var COLORS = { CONTEXT: '#20C5B5', FINDINGS: '#4AE38A', HEALTH: '#F5A623', RECOMMENDATIONS: '#A78BFA' };
+
+      /* Split by ## markers */
+      var parts = text.split(/\n?##\s+/);
+      var html = '';
+      var foundSections = 0;
+
+      parts.forEach(function(part) {
+        if (!part.trim()) return;
+        var lines = part.split('\n');
+        var header = lines[0].trim().toUpperCase();
+        var body = lines.slice(1).join('\n').trim();
+        if (!body && header.length > 60) {
+          /* This is prose, not a header */
+          html += '<div class="npe-prose">' + escapeHtml(part) + '</div>';
+          return;
+        }
+        var matched = SECTIONS.find(function(s) { return header.startsWith(s); });
+        if (matched && body) {
+          foundSections++;
+          html +=
+            '<div class="npe-section">' +
+              '<div class="npe-section-header" style="border-left:3px solid ' + COLORS[matched] + '">' +
+                '<span class="npe-section-icon">' + ICONS[matched] + '</span>' +
+                '<span class="npe-section-title">' + matched.charAt(0) + matched.slice(1).toLowerCase() + '</span>' +
+              '</div>' +
+              '<div class="npe-section-body">' + escapeHtml(body) + '</div>' +
+            '</div>';
+        } else if (body || (!matched && part.trim())) {
+          html += '<div class="npe-prose">' + escapeHtml(part.trim()) + '</div>';
+        }
+      });
+
+      /* If no ## sections found, render as a single block */
+      if (foundSections === 0) {
+        html = '<div class="npe-prose">' + escapeHtml(text.trim()) + '</div>';
+      }
+      return html;
+    }
+
+    /* ── copy narrative ─────────────────────────────────────────────────────── */
+    function copyNarrative() {
+      var body = document.getElementById('npe-body');
+      if (!body) return;
+      var text = body.innerText || body.textContent || '';
+      if (!text.trim()) return;
+      navigator.clipboard.writeText(text.trim()).then(function() {
+        if (typeof showToast === 'function') showToast('Narrative copied to clipboard', 'success');
+        var btn = document.getElementById('npe-copy-btn');
+        if (btn) { btn.textContent = '\u2714'; setTimeout(function(){ btn.innerHTML = '&#x2398;'; }, 1800); }
+      }).catch(function() {
+        if (typeof showToast === 'function') showToast('Copy failed -- select text manually', 'warn');
+      });
+    }
+
+    /* ── main generation ─────────────────────────────────────────────────────── */
+    function runGeneration(force) {
+      var body = document.getElementById('npe-body');
+      var genBtn = document.getElementById('npe-generate-btn');
+      var sourceBadge = document.getElementById('npe-source-badge');
+      var progressWrap = document.getElementById('npe-progress-wrap');
+      var progressBar = document.getElementById('npe-progress-bar');
+      var progressText = document.getElementById('npe-progress-text');
+      var modelLabel = document.getElementById('npe-model-label');
+      var footerNote = document.getElementById('npe-footer-note');
+      if (!body || !genBtn) return;
+
+      /* Build query result from current dataset if no explicit query result */
+      var ds = window.__dg_currentDataset;
+      if (!ds) {
+        body.innerHTML = '<div class="npe-error">No dataset loaded. Drop a file first.</div>';
+        return;
+      }
+
+      var queryResult = window.__dg_lastQueryResult || {
+        columns: ds.columns.map(function(c){ return c.name; }),
+        rows: ds.rows.slice(0, 200),
+        rowCount: ds.rows.length
+      };
+      var tableName = (ds.name || 'Dataset').replace(/\.[^.]+$/, '');
+
+      /* Disable generate button while running */
+      genBtn.disabled = true;
+      genBtn.textContent = '... Generating';
+
+      /* Show streaming area */
+      body.innerHTML = '<div class="npe-stream-wrap" id="npe-stream-area"><div class="npe-stream-cursor"></div></div>';
+      var streamArea = document.getElementById('npe-stream-area');
+
+      var webGPUAvailable = !!(navigator.gpu);
+
+      if (!webGPUAvailable) {
+        /* Deterministic local fallback -- instant */
+        if (sourceBadge) { sourceBadge.textContent = 'Local'; sourceBadge.className = 'npe-badge npe-badge-local'; }
+        if (modelLabel) modelLabel.textContent = 'Rule-based engine (no WebGPU)';
+        if (footerNote) footerNote.textContent = 'Runs deterministic rules -- no AI model, no uploads.';
+
+        var localText = (typeof generateLocalStory === 'function')
+          ? generateLocalStory(queryResult, tableName)
+          : 'Dataset: ' + tableName + ' (' + queryResult.rowCount + ' rows, ' + queryResult.columns.length + ' columns).';
+
+        /* Strip HTML tags for plain display, add structured sections */
+        var plainText = localText.replace(/<[^>]+>/g, '');
+        streamArea.innerHTML = parseNarrativeSections(
+          '## CONTEXT\n' + plainText +
+          '\n\n## HEALTH\nThis narrative was generated by the deterministic local engine (WebGPU not available in this browser). For AI-powered insights, use Chrome or Edge on a device with a discrete GPU.'
+        );
+        genBtn.disabled = false;
+        genBtn.innerHTML = '&#x26A1; Regenerate';
+        return;
+      }
+
+      /* WebGPU path -- on-device streaming */
+      if (sourceBadge) { sourceBadge.textContent = 'On-device AI'; sourceBadge.className = 'npe-badge npe-badge-ondevice'; }
+      if (modelLabel) modelLabel.textContent = 'Phi-3.5-mini-instruct (WebGPU, on-device)';
+      if (footerNote) footerNote.textContent = 'Runs 100% on-device via WebGPU -- zero uploads, zero API keys.';
+
+      /* Show model download progress on first load */
+      var isFirstLoad = !(typeof enginePromise !== 'undefined' && enginePromise);
+      if (isFirstLoad && progressWrap) {
+        progressWrap.classList.remove('hidden');
+        if (progressBar) progressBar.style.width = '0%';
+        if (progressText) progressText.textContent = 'Downloading Phi-3.5-mini (~1.8 GB, cached after first use)...';
+      }
+
+      var onProgress = function(p) {
+        if (!progressWrap) return;
+        progressWrap.classList.remove('hidden');
+        var pct = Math.round((p.progress || 0) * 100);
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressText) progressText.textContent = (p.text || 'Loading model...') + ' (' + pct + '%)';
+        if (pct >= 100) {
+          setTimeout(function() { progressWrap.classList.add('hidden'); }, 600);
+        }
+      };
+
+      var context = {
+        tableName: tableName,
+        queryResult: queryResult,
+        claims: (typeof buildStoryClaims === 'function') ? buildStoryClaims(queryResult) : []
+      };
+
+      var streamedText = '';
+
+      generateStoryNarrative(context, function onToken(partial) {
+        streamedText = partial;
+        /* Live streaming: show raw text with cursor during generation */
+        if (streamArea) {
+          streamArea.innerHTML = '<pre class="npe-stream-pre">' + escapeHtml(partial) + '</pre><span class="npe-stream-cursor"></span>';
+        }
+      }).then(function(finalText) {
+        /* Render structured sections */
+        if (streamArea) streamArea.innerHTML = parseNarrativeSections(finalText || streamedText);
+        genBtn.disabled = false;
+        genBtn.innerHTML = '&#x21BB; Regenerate';
+        if (progressWrap) progressWrap.classList.add('hidden');
+        if (sourceBadge) { sourceBadge.textContent = 'On-device'; sourceBadge.className = 'npe-badge npe-badge-ondevice'; }
+      }).catch(function(err) {
+        console.warn('On-device narrative failed:', err);
+        /* Graceful fallback to local story */
+        var fallbackText = (typeof generateLocalStory === 'function')
+          ? generateLocalStory(queryResult, tableName).replace(/<[^>]+>/g, '')
+          : 'Unable to generate narrative. ' + String(err.message || '');
+        if (streamArea) streamArea.innerHTML =
+          parseNarrativeSections('## CONTEXT\n' + fallbackText + '\n\n## HEALTH\nOn-device model encountered an error (' + escapeHtml(String(err.message || 'unknown').slice(0,80)) + '). Showing rule-based fallback.');
+        if (sourceBadge) { sourceBadge.textContent = 'Fallback'; sourceBadge.className = 'npe-badge npe-badge-local'; }
+        genBtn.disabled = false;
+        genBtn.innerHTML = '&#x21BB; Regenerate';
+        if (progressWrap) progressWrap.classList.add('hidden');
+      });
+    }
+
+    /* ── register trigger buttons in overflow menu and tools sheet ──────────── */
     ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
       var grid = document.getElementById(gridId);
       var btnId = i === 0 ? 'dg-ov-narrative' : 'dg-ts-narrative';
@@ -53745,9 +53994,9 @@ async function produceStory(queryResult, tableName, provider, apiKey, opts = {})
         btn.id = btnId; btn.className = 'dg-ov-btn';
         btn.innerHTML = '\uD83D\uDCDD<br><span>Narrative</span>';
         btn.addEventListener('click', function(){
-          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.remove('open'); }); }
+          if (i === 0) { ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){ var e=document.getElementById(id); if(e){ e.style.display='none'; e.classList && e.classList.remove('open'); } }); }
           else { var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open'); }
-          toggle();
+          openPanel();
         });
         grid.appendChild(btn);
       }
