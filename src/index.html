@@ -147,42 +147,63 @@
         <button class="nav-btn" data-view="share">Share</button>
       </div>
       <div id="nav-right">
+        <!-- Primary actions: always visible -->
         <button id="publish-btn" title="Share this analysis" disabled>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:5px;vertical-align:-1px">
-            <path d="M10 3L13 3M13 3L13 6M13 3L8.5 7.5M6.5 4H4C3.44772 4 3 4.44772 3 5V12C3 12.5523 3.44772 13 4 13H11C11.5523 13 12 12.5523 12 12V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M10 3L13 3M13 3L13 6M13 3L8.5 7.5M6.5 4H4C3.44772 4 3 4.44772 3 5V12C3 12.5523 3.44772 13 4 13H12C12.5523 13 13 12.5523 13 12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           Share
         </button>
         <button id="export-btn" title="Export data" disabled>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:5px;vertical-align:-1px">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M8 2v9M8 11l-3-3M8 11l3-3M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           Export
         </button>
-        <button id="save-dataset-btn" title="Save current dataset to browser storage" onclick="saveCurrentDataset()" style="display:none;">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
-            <path d="M13 13H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8l2 2v7a1 1 0 0 1-1 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-            <path d="M5 13V9h6v4M5 3v3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Save
-        </button>
-        <button id="saved-datasets-btn" title="Open saved datasets" onclick="openSavedDatasets()" style="display:none;">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
-            <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            <rect x="2" y="7" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            <rect x="2" y="12" width="12" height="2" rx="1" stroke="currentColor" stroke-width="1.5"/>
-          </svg>
-          Saved
-        </button>
-        <button id="profile-btn" title="Set your workspace profile" onclick="openWorkspaceProfile()">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
-            <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M2 14c0-3 2.686-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Profile
-        </button>
-        <button id="theme-toggle" title="Toggle dark mode">&#9681;</button>
-        <button class="privacy-badge" title="All analysis runs in your browser. Zero data leaves your device.&#10;&#10;DataGlow uses:&#10;- DuckDB-WASM (in-browser SQL)&#10;- Pyodide (in-browser Python)&#10;- WebR (in-browser R)&#10;&#10;No user data is ever uploaded to any server." onclick="showPrivacyAudit()">
+        <!-- Overflow menu -- Save, Saved, Profile, hidden on mobile -->
+        <div id="nav-overflow-wrap">
+          <button id="nav-overflow-btn" title="More options" aria-label="More options">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="3" cy="8" r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="8" r="1.2" fill="currentColor"/>
+              <circle cx="13" cy="8" r="1.2" fill="currentColor"/>
+            </svg>
+          </button>
+          <div id="nav-overflow-menu" class="nav-overflow-menu hidden" role="menu">
+            <button class="nav-overflow-item" id="save-dataset-btn" onclick="saveCurrentDataset()" title="Save dataset to browser storage">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M13 13H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8l2 2v7a1 1 0 0 1-1 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M5 13V9h6v4M5 3v3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Save dataset
+            </button>
+            <button class="nav-overflow-item" id="saved-datasets-btn" onclick="openSavedDatasets()" style="display:none;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="2" y="7" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="2" y="12" width="12" height="2" rx="1" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+              Saved datasets
+            </button>
+            <button class="nav-overflow-item" id="profile-btn" onclick="openWorkspaceProfile()">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M2 14c0-3 2.686-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Profile
+            </button>
+            <div class="nav-overflow-divider"></div>
+            <button class="nav-overflow-item" id="nav-overflow-theme" onclick="document.getElementById('theme-toggle').click()">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Toggle dark mode
+            </button>
+          </div>
+        </div>
+        <button id="theme-toggle" title="Toggle dark mode" style="display:none;">&#9681;</button>
+        <button class="privacy-badge" title="All analysis runs in your browser. Zero data leaves your device.">
           <div class="privacy-badge-dot"></div>
           100% Private
         </button>
@@ -230,6 +251,31 @@
         <div id="join-view" class="tab-panel hidden">
         <div id="join-view-inner"></div>
       </div>
+        <!-- Post-load next-step guide (hidden until dataset loaded) -->
+        <div id="next-step-guide" class="hidden">
+          <div id="nsg-inner">
+            <span id="nsg-dataset-name" class="nsg-filename"></span>
+            <p class="nsg-headline">What do you want to know?</p>
+            <div class="nsg-tiles">
+              <button class="nsg-tile" data-nsg="chart">
+                <span class="nsg-tile-icon">&#128200;</span>
+                <span class="nsg-tile-label">Chart it</span>
+                <span class="nsg-tile-desc">Visualize distributions, trends, and outliers</span>
+              </button>
+              <button class="nsg-tile" data-nsg="sql">
+                <span class="nsg-tile-icon">&#128196;</span>
+                <span class="nsg-tile-label">Query it</span>
+                <span class="nsg-tile-desc">Write SQL or ask in plain English</span>
+              </button>
+              <button class="nsg-tile" data-nsg="validate">
+                <span class="nsg-tile-icon">&#9989;</span>
+                <span class="nsg-tile-label">Validate it</span>
+                <span class="nsg-tile-desc">Check quality, find issues, clean with proof</span>
+              </button>
+            </div>
+            <button id="nsg-dismiss" class="nsg-dismiss">Skip -- I know where I am going</button>
+          </div>
+        </div>
         <!-- Main grid -->
         <div id="grid-view" class="tab-panel active">
         <!-- Formula bar -->
@@ -360,8 +406,22 @@
           <button class="analyze-pill" data-panel="review-view">Review</button>
         </div><div id="analyze-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0;">
 <div id="analyze-tools-bar">
-  <button id="analyze-tools-trigger">&#9776; Tools</button>
-  <span id="analyze-active-label">Charts</span>
+  <!-- 3-mode tabs: the Steve Jobs "one thing at a time" answer to 13 sidebar items -->
+  <div id="atb-mode-tabs">
+    <button class="atb-mode-tab active" data-atb-mode="explore" title="Explore -- charts, dashboard, statistics">
+      <span class="atb-tab-icon">&#128200;</span>
+      <span class="atb-tab-label">Explore</span>
+    </button>
+    <button class="atb-mode-tab" data-atb-mode="query" title="Query -- SQL, Python, R, Excel">
+      <span class="atb-tab-icon">&#128196;</span>
+      <span class="atb-tab-label">Query</span>
+    </button>
+    <button class="atb-mode-tab" data-atb-mode="validate" title="Validate -- Peer Review, Witness, Narrative">
+      <span class="atb-tab-icon">&#10003;</span>
+      <span class="atb-tab-label">Validate</span>
+    </button>
+  </div>
+  <button id="analyze-tools-trigger" title="All tools">&#9776;</button>
 </div>
 <div id="tools-sheet-overlay">
   <div id="tools-sheet">

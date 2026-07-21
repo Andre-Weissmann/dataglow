@@ -7506,3 +7506,208 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
   transition: color 0.15s;
 }
 .wcb-dismiss:hover { color: var(--text, #CDCCCA); }
+
+/* ============================================================
+   Jobs UX Overhaul -- Nav overflow menu, mobile mode tabs, starter tiles
+   ============================================================ */
+
+/* ── Nav overflow menu ─────────────────────────────────────── */
+#nav-overflow-wrap {
+  position: relative;
+}
+#nav-overflow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+#nav-overflow-btn:hover { background: var(--surface-alt); color: var(--text); }
+
+.nav-overflow-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  z-index: 9000;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-overflow-menu.hidden { display: none; }
+
+.nav-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.12s;
+  width: 100%;
+}
+.nav-overflow-item:hover { background: var(--surface-alt); }
+.nav-overflow-item svg { flex-shrink: 0; color: var(--text-muted); }
+
+.nav-overflow-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ── Mobile analyze mode tabs (3-mode bottom strip) ───────── */
+#atb-mode-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.atb-mode-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-muted);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.atb-mode-tab:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+.atb-mode-tab.active {
+  background: rgba(32, 197, 181, 0.1);
+  border-color: rgba(32, 197, 181, 0.25);
+  color: var(--primary);
+}
+.atb-tab-icon { font-size: 15px; line-height: 1; }
+.atb-tab-label { font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+
+/* Groups of sidebar items that map to each mode */
+/* Explore: Charts, Dashboard, Statistics, Arena, Excel */
+/* Query: SQL, SQL Dojo, Python, R */
+/* Validate: Peer Review, Witness, Case Library, OSCE, Narrative */
+/* On mobile, mode tab click filters visible tools-sheet items */
+
+/* ── Post-load starter tiles ───────────────────────────────── */
+#next-step-guide {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background: var(--background, var(--bg));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  border-bottom: 1px solid var(--border);
+}
+#next-step-guide.hidden { display: none !important; }
+
+#nsg-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+  width: 100%;
+  text-align: center;
+}
+.nsg-filename {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(32,197,181,0.1);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.nsg-headline {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.nsg-tiles {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.nsg-tile {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 16px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.nsg-tile:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 20px rgba(32,197,181,0.12);
+  transform: translateY(-1px);
+}
+.nsg-tile-icon { font-size: 20px; }
+.nsg-tile-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.nsg-tile-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.nsg-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 8px;
+  transition: color 0.15s;
+}
+.nsg-dismiss:hover { color: var(--text); }
+
+@media (max-width: 700px) {
+  .nsg-tiles { flex-direction: column; }
+  .nsg-tile { flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; }
+  .nsg-tile-icon { font-size: 18px; flex-shrink: 0; }
+  .nsg-headline { font-size: 15px; }
+  #next-step-guide { padding: 20px 16px; }
+}
