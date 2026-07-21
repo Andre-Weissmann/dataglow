@@ -1374,6 +1374,7 @@
       <button class="vault-tab-btn" data-vault-tab="profiles" role="tab" aria-selected="false">Column Profiles</button>
       <button class="vault-tab-btn" data-vault-tab="reviews" role="tab" aria-selected="false">Peer Reviews</button>
       <button class="vault-tab-btn" data-vault-tab="history" role="tab" aria-selected="false">Query History</button>
+      <button class="vault-tab-btn" data-vault-tab="rulepacks" role="tab" aria-selected="false">Rulepacks</button>
       <button class="vault-tab-btn" data-vault-tab="io" role="tab" aria-selected="false">Export/Import</button>
     </div>
 
@@ -1415,6 +1416,34 @@
         <button class="vault-action-btn secondary" id="vault-history-clear-btn">Clear Unstarred</button>
       </div>
       <div class="vault-list" id="vault-history-list"></div>
+    </div>
+
+    <div class="vault-tab-panel" data-vault-panel="rulepacks">
+      <div class="vault-panel-toolbar">
+        <input type="text" id="vault-rulepack-search" placeholder="Search rulepacks...">
+        <button class="vault-action-btn" id="vault-rulepack-save-btn">Save Current Rules</button>
+      </div>
+      <div id="vault-rulepack-editor" class="rulepack-editor">
+        <div class="rulepack-editor-title">Rule Thresholds</div>
+        <div class="rulepack-row">
+          <label class="rulepack-label" for="rp-null-critical">Null critical (%)</label>
+          <input class="rulepack-input" id="rp-null-critical" type="number" min="0" max="100" step="1" value="20">
+        </div>
+        <div class="rulepack-row">
+          <label class="rulepack-label" for="rp-null-warning">Null warning (%)</label>
+          <input class="rulepack-input" id="rp-null-warning" type="number" min="0" max="100" step="1" value="5">
+        </div>
+        <div class="rulepack-row">
+          <label class="rulepack-label" for="rp-neg-currency">Block negative currency</label>
+          <input class="rulepack-check" id="rp-neg-currency" type="checkbox" checked>
+        </div>
+        <div class="rulepack-row">
+          <label class="rulepack-label" for="rp-dup-threshold">Duplicate row threshold (%)</label>
+          <input class="rulepack-input" id="rp-dup-threshold" type="number" min="0" max="100" step="1" value="0">
+        </div>
+        <button class="vault-action-btn rulepack-apply-btn" id="rp-apply-btn">Apply and Re-validate</button>
+      </div>
+      <div class="vault-list" id="vault-rulepack-list"></div>
     </div>
 
     <div class="vault-tab-panel" data-vault-panel="io">
