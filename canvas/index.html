@@ -12421,6 +12421,12 @@ var SQLEngine = (function () {
       initialised = true;
       try {
         // Dynamic import of DuckDB-WASM ESM bundle
+        /* Enterprise policy: cdnFetches disable key blocks the CDN load.
+           Air-gapped deployments must vendor the DuckDB bundle alongside index.html. */
+        if (window.EnterprisePolicy && window.EnterprisePolicy.isDisabled('cdnFetches')) {
+          throw new Error('[DATAGLOW enterprise] CDN fetches are disabled by policy. ' +
+            'Vendor the DuckDB-WASM bundle and set DUCKDB_CDN to a local path.');
+        }
         var mod = await import(DUCKDB_CDN);
         var JSDELIVR_BUNDLES = mod.getJsDelivrBundles ? mod.getJsDelivrBundles() : mod.selectBundle ? mod.selectBundle(mod.getJsDelivrBundles()) : null;
         var bundle = JSDELIVR_BUNDLES || {
@@ -14301,6 +14307,212 @@ var InstantInsight = (function () {
 
   return { analyze: analyze };
 })();
+
+
+/* ============================================================
+   ENTERPRISE POLICY ENGINE  (no-egress mode)
+   ============================================================
+   Reads an optional dataglow-policy.json from the app root.
+   IT administrators drop that file alongside index.html to lock
+   down the deployment before any feature flag is evaluated.
+
+   Default: NO policy file = fully open consumer mode.
+
+   Supported disable keys:
+     byokStory         -- blocks external LLM narrative generation
+     webrtcRooms       -- hides peer-to-peer Rooms UI
+     cdnFetches        -- blocks DuckDB CDN fallback (must vendor the bundle)
+     federatedLearning -- blocks federated learning coordinator
+
+   Supported require keys:
+     auditLog          -- logs every validated session to console
+     enterpriseBuild   -- marks session as enterprise-hardened
+
+   Policy file format (dataglow-policy.json):
+   {
+     "version": 1,
+     "organization": "Acme Health System",
+     "disable": ["byokStory", "webrtcRooms"],
+     "require": ["auditLog", "enterpriseBuild"],
+     "allowedExportFormats": ["pdf", "xlsx"],
+     "adminContact": "dataops@acmehealth.org"
+   }
+   ============================================================ */
+  var EnterprisePolicy = (function () {
+    var _loaded = false;
+    var _policy = null;
+    var _disabled = {};
+    var _required = {};
+    var _org = null;
+    var _contact = null;
+    var _exportFormats = null;
+    var _policyHash = null;
+    var _onReadyCallbacks = [];
+
+    function _hash(text) {
+      if (!window.crypto || !window.crypto.subtle) return Promise.resolve(null);
+      var buf = new TextEncoder().encode(text);
+      return window.crypto.subtle.digest('SHA-256', buf).then(function (ab) {
+        return Array.from(new Uint8Array(ab))
+          .map(function (b) { return b.toString(16).padStart(2, '0'); })
+          .join('');
+      }).catch(function () { return null; });
+    }
+
+    function _parse(text) {
+      var obj;
+      try { obj = JSON.parse(text); } catch (e) {
+        return { ok: false, error: 'Policy file is not valid JSON: ' + e.message };
+      }
+      if (!obj || typeof obj !== 'object') return { ok: false, error: 'Policy must be a JSON object.' };
+      if (obj.version !== 1) return { ok: false, error: 'Unsupported policy version ' + obj.version + '; expected 1.' };
+      return { ok: true, policy: obj };
+    }
+
+    function _apply(text, policy) {
+      _policy = policy;
+      _org = typeof policy.organization === 'string' ? policy.organization : null;
+      _contact = typeof policy.adminContact === 'string' ? policy.adminContact : null;
+      _exportFormats = Array.isArray(policy.allowedExportFormats) ? policy.allowedExportFormats : null;
+
+      if (Array.isArray(policy.disable)) {
+        policy.disable.forEach(function (k) { if (typeof k === 'string') _disabled[k] = true; });
+      }
+      if (Array.isArray(policy.require)) {
+        policy.require.forEach(function (k) { if (typeof k === 'string') _required[k] = true; });
+      }
+
+      _hash(text).then(function (h) {
+        _policyHash = h;
+        console.info('[DATAGLOW policy] Enterprise policy applied.', {
+          organization: _org,
+          disabled: Object.keys(_disabled),
+          required: Object.keys(_required),
+          allowedExportFormats: _exportFormats,
+          adminContact: _contact,
+          policyHash: _policyHash
+        });
+        if (_required['auditLog']) {
+          console.info('[DATAGLOW audit] Session started under enterprise policy.', {
+            ts: new Date().toISOString(),
+            policyHash: _policyHash,
+            organization: _org
+          });
+        }
+        _loaded = true;
+        _onReadyCallbacks.forEach(function (fn) { try { fn(); } catch (_e) {} });
+        _onReadyCallbacks = [];
+        _renderBanner();
+      });
+    }
+
+    function _renderBanner() {
+      if (!_policy) return;
+      var nav = document.querySelector('header') ||
+                document.querySelector('nav') ||
+                document.getElementById('dg-nav') ||
+                document.getElementById('agent-bar') ||
+                document.body;
+      if (!nav) return;
+      if (document.getElementById('dg-enterprise-badge')) return;
+
+      var badge = document.createElement('div');
+      badge.id = 'dg-enterprise-badge';
+      badge.setAttribute('aria-label', 'Enterprise mode active');
+      badge.title = (_org ? _org + ' | ' : '') +
+        'Enterprise mode: network egress controls active.' +
+        (_contact ? ' Admin: ' + _contact : '');
+      badge.style.cssText = [
+        'position:fixed',
+        'top:10px',
+        'right:16px',
+        'z-index:99999',
+        'display:flex',
+        'align-items:center',
+        'gap:6px',
+        'padding:4px 10px 4px 8px',
+        'border-radius:6px',
+        'background:var(--color-primary,#01696F)',
+        'color:#fff',
+        'font-size:11px',
+        'font-weight:600',
+        'letter-spacing:0.04em',
+        'cursor:default',
+        'user-select:none',
+        'box-shadow:0 1px 4px rgba(0,0,0,0.18)'
+      ].join(';');
+      badge.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+        '<path d="M8 1L2 4v4c0 3.31 2.55 6.41 6 7 3.45-.59 6-3.69 6-7V4L8 1z"' +
+        ' fill="currentColor" opacity="0.9"/>' +
+        '</svg>' +
+        '<span>ENTERPRISE</span>';
+      nav.appendChild(badge);
+    }
+
+    function init() {
+      if (_loaded) return;
+      fetch('dataglow-policy.json', { cache: 'reload' })
+        .then(function (res) {
+          if (!res.ok) {
+            _loaded = true;
+            _onReadyCallbacks.forEach(function (fn) { try { fn(); } catch (_e) {} });
+            _onReadyCallbacks = [];
+            return null;
+          }
+          return res.text();
+        })
+        .then(function (text) {
+          if (!text) return;
+          var parsed = _parse(text);
+          if (!parsed.ok) {
+            console.warn('[DATAGLOW policy] Policy file found but invalid:', parsed.error);
+            _loaded = true;
+            _onReadyCallbacks.forEach(function (fn) { try { fn(); } catch (_e) {} });
+            _onReadyCallbacks = [];
+            return;
+          }
+          _apply(text, parsed.policy);
+        })
+        .catch(function () {
+          _loaded = true;
+          _onReadyCallbacks.forEach(function (fn) { try { fn(); } catch (_e) {} });
+          _onReadyCallbacks = [];
+        });
+    }
+
+    return {
+      init: init,
+      isDisabled: function (key) { return !!_disabled[key]; },
+      isRequired: function (key) { return !!_required[key]; },
+      hasPolicyLoaded: function () { return _loaded && _policy !== null; },
+      getOrganization: function () { return _org; },
+      getAdminContact: function () { return _contact; },
+      getPolicyHash: function () { return _policyHash; },
+      getAllowedExportFormats: function () { return _exportFormats; },
+      getSnapshot: function () {
+        if (!_policy) return null;
+        return {
+          applied: true,
+          organization: _org,
+          policyHash: _policyHash,
+          disabled: Object.keys(_disabled),
+          required: Object.keys(_required),
+          allowedExportFormats: _exportFormats,
+          adminContact: _contact
+        };
+      },
+      onReady: function (fn) {
+        if (_loaded) { try { fn(); } catch (_e) {} }
+        else { _onReadyCallbacks.push(fn); }
+      }
+    };
+  })();
+
+  window.EnterprisePolicy = EnterprisePolicy;
+  /* Kick off async policy load immediately -- it resolves before DOMContentLoaded
+     on any real network, and no feature gate consults the policy until after DOM ready. */
+  EnterprisePolicy.init();
+
 
 
   var FEATURE_FLAGS = {
@@ -17274,7 +17486,10 @@ var InstantInsight = (function () {
      "Create Room" / "Import Room" buttons in Story View.
      ============================================================ */
   function applyDataglowRoomsVisibility() {
-    if (FEATURE_FLAGS.dataglowRooms) {
+    /* Enterprise policy: webrtcRooms disable key forces the rooms section hidden,
+       overriding any user flag toggle. Hospital networks frequently block WebRTC. */
+    var policyBlocksRooms = window.EnterprisePolicy && window.EnterprisePolicy.isDisabled('webrtcRooms');
+    if (FEATURE_FLAGS.dataglowRooms && !policyBlocksRooms) {
       storyShareSection.classList.remove('hidden');
     } else {
       storyShareSection.classList.add('hidden');
@@ -17588,9 +17803,25 @@ var InstantInsight = (function () {
   }
 
   function renderFeatureSettingsList() {
+    /* Enterprise policy: disabled keys show a lock badge and a disabled toggle. */
+    var POLICY_KEY_MAP = {
+      proofExport: 'proofExport',
+      dataglowRooms: 'webrtcRooms',
+      natsConnector: 'cdnFetches',
+      questionPrompter: 'byokStory',
+      portfolioNarrativeAssembler: 'byokStory'
+    };
     var html = FEATURE_META.map(function (meta) {
-      var checked = FEATURE_FLAGS[meta.key] ? ' checked' : '';
+      var policyKey = POLICY_KEY_MAP[meta.key];
+      var policyLocked = policyKey && window.EnterprisePolicy && window.EnterprisePolicy.isDisabled(policyKey);
+      var checked = (!policyLocked && FEATURE_FLAGS[meta.key]) ? ' checked' : '';
+      var disabledAttr = policyLocked ? ' disabled' : '';
       var badgesHTML = meta.badges.map(featureBadgeHTML).join('');
+      if (policyLocked) {
+        badgesHTML += '<span class="feature-badge" style="background:var(--color-primary,#01696F);color:#fff;margin-left:4px">' +
+          '<svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;margin-right:2px"><path d="M12 7H4V5a4 4 0 018 0v2zm1 1H3a1 1 0 00-1 1v5a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1z"/></svg>' +
+          'Policy</span>';
+      }
       var inputId = 'feature-toggle-' + meta.key;
       return (
         '<div class="feature-row" data-feature-key="' + meta.key + '">' +
@@ -17601,8 +17832,8 @@ var InstantInsight = (function () {
             '</div>' +
             '<p class="feature-row-desc">' + escapeFeatureHTML(meta.description) + '</p>' +
           '</div>' +
-          '<label class="feature-toggle" for="' + inputId + '">' +
-            '<input type="checkbox" class="feature-toggle-input" id="' + inputId + '" data-feature-key="' + meta.key + '"' + checked + ' aria-label="' + escapeFeatureHTML(meta.name) + '">' +
+          '<label class="feature-toggle" for="' + inputId + '" style="' + (policyLocked ? 'opacity:0.45;cursor:not-allowed;pointer-events:none' : '') + '">' +
+            '<input type="checkbox" class="feature-toggle-input" id="' + inputId + '" data-feature-key="' + meta.key + '"' + checked + disabledAttr + ' aria-label="' + escapeFeatureHTML(meta.name) + '">' +
             '<span class="feature-toggle-track" aria-hidden="true"></span>' +
           '</label>' +
         '</div>'
@@ -24067,6 +24298,19 @@ var InstantInsight = (function () {
     }
 
     function narrRunGenerate() {
+      /* Enterprise policy: byokStory disable key blocks narrative generation that
+         could send dataset context to external LLM providers. */
+      if (window.EnterprisePolicy && window.EnterprisePolicy.isDisabled('byokStory')) {
+        var out = document.getElementById('narr-output');
+        if (out) {
+          out.textContent = 'Narrative generation is disabled by your organization\u2019s enterprise policy.' +
+            (window.EnterprisePolicy.getAdminContact()
+              ? ' Contact: ' + window.EnterprisePolicy.getAdminContact()
+              : '');
+          out.classList.add('show');
+        }
+        return;
+      }
       var text = narrGenerate(narrState.fmt, narrState.tone);
       narrState.text = text;
       var out = document.getElementById('narr-output');
