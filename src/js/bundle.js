@@ -9526,6 +9526,13 @@ var InstantInsight = (function () {
     provenancePacket: true,
     trustCertificate: true,
     trustStrip: true,
+    polyglotWorkbench: true,
+    objectSpace: true,
+    metricStudio: true,
+    dataDiplomacy: true,
+    verifiableCheckSeal: true,
+    drgIcdValidator: true,
+    ncciValidator: true,
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -40768,3 +40775,3987 @@ function openProofDrawer(opts = {}) {
   else setTimeout(initTrustUI, 850);
 }());
 /* ---- end proof-drawer.js ---- */
+
+
+/* ================================================================
+   VERIFIABLE CHECK SEAL -- recovered from git history
+   Trust Passport Batch 3. Dep for Data Diplomacy.
+   sha256Hex + selective-disclosure-proof already in bundle.
+   ================================================================ */
+
+/* ---- from js/provenance/verifiable-check-seal.js ---- */
+;(function(){
+  'use strict';
+
+  var sha256Hex = (typeof window._dgSha256Hex === 'function') ? window._dgSha256Hex
+    : function(s){ return btoa(encodeURIComponent(s)).replace(/[^a-zA-Z0-9]/g,'').toLowerCase().slice(0,64); };
+
+  var _sdp = window.SelectiveDisclosureProof || {};
+  var hashLeaf        = _sdp.hashLeaf;
+  var buildMerkleTree = _sdp.buildMerkleTree;
+  var merkleProof     = _sdp.merkleProof     || null;
+  var rootFromProof   = _sdp.rootFromProof   || null;
+// ============================================================
+// DATAGLOW — Verifiable Check Seal ("Proof-of-Clean")
+// (Trust Passport, Batch 3 — Verifiable Local Computation)
+// ============================================================
+// Seals the result of a validation check — e.g. a Local Analysis Contract run
+// (js/validation/analysis-contract.js) or any validation-layer result set —
+// into a portable artifact that lets a third party (auditor, partner org,
+// reviewer) confirm "a check with these exact parameters ran against data
+// matching this exact fingerprint and produced this exact result" WITHOUT ever
+// receiving the underlying data.
+//
+// This module does NOT invent a new cryptographic scheme. It APPLIES the
+// Merkle-tree (SHA-256) commitment primitive that
+// js/provenance/selective-disclosure-proof.js already implements — the same
+// hashLeaf / buildMerkleTree / merkleProof / rootFromProof helpers, folding the
+// same SHA-256 primitive (sha256Hex) the rest of js/provenance/ uses. No new
+// crypto library is added.
+//
+// WHAT THIS ACTUALLY IS (precise statement, no overclaim):
+// A Merkle-tree commitment over a fixed set of claims describing (a) which
+// check ran and with which parameters, (b) a SHA-256 fingerprint of the data it
+// ran against, and (c) the result it produced. The raw data is NEVER in the
+// artifact — only its fingerprint. A verifier can:
+//   • re-derive every disclosed claim's leaf hash and fold it back to the
+//     committed root, so ANY change to a sealed value breaks the seal
+//     (membership/integrity check — needs only the artifact, no data); and
+//   • OPTIONALLY re-fingerprint the data they hold and compare it to the
+//     committed data fingerprint, so data that has been modified since sealing
+//     fails to match (genuine tamper detection, not a "verified" label).
+//
+// WHAT THIS IS NOT (deliberately avoids a cryptographic overclaim — matches the
+// exact honesty register js/provenance/selective-disclosure-proof.js set):
+//   • This is NOT a zero-knowledge proof / zk-SNARK / zk-STARK. The check
+//     parameters, the result, and the fingerprints are all shown in cleartext;
+//     only the raw data rows stay private. Do NOT call it "zero-knowledge".
+//   • It is NOT "blockchain", NOT a "certification", and it is never "certified"
+//     nor "cryptographically certified" — it is a hash commitment with a
+//     re-checkable data fingerprint, nothing more.
+//   • It proves the check RAN against data matching a fingerprint and produced a
+//     result. It does NOT prove the data itself is accurate, truthful, complete,
+//     or fit for any purpose, and it is not a legal, clinical, or regulatory
+//     determination.
+//   • The data fingerprint binds to the EXACT canonical serialization it was
+//     computed over (see fingerprintData). It detects byte-level change of that
+//     serialization; it says nothing about semantically-equivalent re-orderings
+//     unless the caller canonicalizes (e.g. sorts) first. If a caller
+//     fingerprints only a sample or the schema rather than every row, the seal
+//     binds only to what was fingerprinted — state that plainly wherever surfaced.
+//
+// PURITY: pure logic — no DOM, no engine, no network. It takes plain objects the
+// caller already holds and returns plain JSON-serializable objects, so it is
+// identical in the browser, the Tauri desktop webview, and headless Node tests.
+
+// [stripped import] import { sha256Hex } from './provenance.js';
+// [stripped import] import {
+//   hashLeaf,
+//   buildMerkleTree,
+//   merkleProof,
+//   rootFromProof,
+// } from './selective-disclosure-proof.js';
+
+const CHECK_SEAL_KIND = 'dataglow-verifiable-check-seal';
+const CHECK_SEAL_VERSION = 1;
+
+const CHECK_SEAL_ALGORITHM =
+  'Merkle tree (SHA-256, domain-separated leaves 0x00 / nodes 0x01) commitment '
+  + 'over check-parameter, data-fingerprint, and result claims, reusing '
+  + 'js/provenance/selective-disclosure-proof.js';
+
+const CHECK_SEAL_FINGERPRINT_ALGORITHM =
+  'SHA-256 hex over the canonical JSON of the data (object keys sorted '
+  + 'recursively); a string input is hashed as-is. Recompute with fingerprintData().';
+
+const CHECK_SEAL_DISCLAIMER =
+  'This is a Verifiable Check Seal: a Merkle-tree (SHA-256) commitment that a '
+  + 'specific DATAGLOW check ran, with the stated parameters, against data '
+  + 'matching the committed SHA-256 fingerprint, and produced the committed '
+  + 'result — re-checkable by anyone holding only this artifact, with no access '
+  + 'to the data. It is NOT a zero-knowledge proof (the parameters, result, and '
+  + 'fingerprints are shown in cleartext), NOT a certification, and NOT '
+  + '"blockchain". It does NOT attest that the underlying data is accurate, '
+  + 'truthful, or complete — only that the check ran against data matching the '
+  + 'fingerprint and produced this result. The fingerprint binds to the exact '
+  + 'serialization it was computed over. Not a legal, clinical, or regulatory '
+  + 'determination.';
+
+// ------------------------------------------------------------
+// Data fingerprinting
+// ------------------------------------------------------------
+// Deterministic canonical JSON: object keys sorted recursively so the same
+// logical value always serializes to the same string (and therefore the same
+// hash). Arrays keep their order — row order IS part of the fingerprint, so a
+// caller who wants order-independence must sort before fingerprinting. Kept
+// tiny and dependency-free so a third-party verifier can re-implement it.
+function canonicalJSON(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value ?? null);
+  if (Array.isArray(value)) return '[' + value.map(canonicalJSON).join(',') + ']';
+  const keys = Object.keys(value).sort();
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJSON(value[k])).join(',') + '}';
+}
+
+// SHA-256 hex fingerprint of the data the check ran against. Accepts a string
+// (hashed as-is) or any JSON-serializable value (canonicalized first). This is
+// the ONLY thing about the raw data that ever enters a seal.
+async function fingerprintData(data) {
+  const str = typeof data === 'string' ? data : canonicalJSON(data ?? null);
+  return sha256Hex(str);
+}
+
+// ------------------------------------------------------------
+// Claim construction
+// ------------------------------------------------------------
+// Turn a check result + context into a fixed, deterministically-ordered set of
+// claims. Order is fixed so the same inputs always build the same tree/root.
+// Every claim carries a human-readable `statement` (not part of the leaf hash —
+// same convention as selective-disclosure-proof.js) plus the {type,subject,value}
+// triple that IS hashed into the leaf.
+async function buildCheckSealClaims(result, context, dataFingerprint) {
+  const check = context.check || {};
+  const dataset = context.dataset || {};
+  const status = result && typeof result.status === 'string' ? result.status : 'unknown';
+  const flagCount = Number.isFinite(result && result.flagCount) ? result.flagCount : null;
+
+  // Fingerprint of the check's parameters (e.g. the SQL query text + check kind)
+  // so the params are committed even if a caller would rather not disclose the
+  // full query text in cleartext.
+  const paramsFingerprint = await sha256Hex(canonicalJSON({
+    kind: check.kind ?? null,
+    name: check.name ?? null,
+    params: context.params ?? null,
+  }));
+  // Fingerprint of the FULL result object, so the exact result (including every
+  // flag) is bound, not just the headline status/flagCount.
+  const resultFingerprint = await sha256Hex(canonicalJSON(result ?? null));
+  const columnNames = Array.isArray(dataset.columnNames) ? dataset.columnNames.slice() : [];
+  const columnsFingerprint = await sha256Hex(canonicalJSON(columnNames.slice().sort()));
+
+  const claims = [
+    {
+      type: 'check_name', subject: null, value: check.name || check.kind || 'validation check',
+      statement: `Check "${check.name || check.kind || 'validation check'}" was run.`,
+    },
+    {
+      type: 'check_kind', subject: null, value: check.kind ?? null,
+      statement: `Check kind was "${check.kind ?? 'unspecified'}".`,
+    },
+    {
+      type: 'check_params_fingerprint', subject: null, value: paramsFingerprint,
+      statement: `Check parameters had SHA-256 fingerprint ${paramsFingerprint.slice(0, 16)}….`,
+    },
+    {
+      type: 'data_fingerprint', subject: null, value: dataFingerprint,
+      statement: `Data ran against had SHA-256 fingerprint ${dataFingerprint.slice(0, 16)}….`,
+    },
+    {
+      type: 'dataset_identity', subject: null,
+      value: `${dataset.name || 'dataset'}|${Number.isFinite(dataset.rowCount) ? dataset.rowCount : 'n/a'}x${columnNames.length}`,
+      statement: `Dataset "${dataset.name || 'dataset'}" had `
+        + `${Number.isFinite(dataset.rowCount) ? dataset.rowCount.toLocaleString() : 'an unrecorded number of'} row(s) `
+        + `and ${columnNames.length} named column(s).`,
+    },
+    {
+      type: 'dataset_columns_fingerprint', subject: null, value: columnsFingerprint,
+      statement: `Sorted column names had SHA-256 fingerprint ${columnsFingerprint.slice(0, 16)}….`,
+    },
+    {
+      type: 'result_status', subject: null, value: status,
+      statement: `Check produced status "${status}".`,
+    },
+    {
+      type: 'result_flag_count', subject: null, value: flagCount,
+      statement: flagCount == null
+        ? 'Check did not report a flag count.'
+        : `Check produced ${flagCount} flag(s).`,
+    },
+    {
+      type: 'result_fingerprint', subject: null, value: resultFingerprint,
+      statement: `Full result had SHA-256 fingerprint ${resultFingerprint.slice(0, 16)}….`,
+    },
+  ];
+
+  return { claims, paramsFingerprint, resultFingerprint, columnsFingerprint };
+}
+
+// ------------------------------------------------------------
+// Seal generation
+// ------------------------------------------------------------
+/**
+ * Seal a validation check result into a portable, re-verifiable artifact.
+ * ALWAYS an explicit caller action — this module never seals anything on its own.
+ *
+ * @param {object} result  A validation result, e.g. runAnalysisContract()'s
+ *   `{status, flagCount, flags, ts}`, or any object with a `status`.
+ * @param {object} context
+ * @param {object} [context.check]    { name, kind } describing the check.
+ * @param {*}      [context.params]   Check parameters to commit (e.g. the SQL text).
+ * @param {object} [context.dataset]  { name, rowCount, columnNames } identity of the data.
+ * @param {*}      [context.data]     The data itself (string or JSON-able) to fingerprint.
+ * @param {string} [context.dataFingerprint]  A precomputed fingerprint (use when the
+ *   data is too large to pass in full, e.g. computed once over a DuckDB table). If
+ *   both `data` and `dataFingerprint` are given, `dataFingerprint` wins and a note
+ *   records that it was caller-supplied.
+ * @param {string} [context.labelAnchor]  A Data Nutrition Label custodyChain.finalHash
+ *   to anchor this seal to (batch 2 shape). Optional.
+ * @param {object} [context.dataglow]  { version, build } provenance of the tool.
+ * @param {number|Date} [context.generatedAt]  Override generation timestamp (tests).
+ * @returns {Promise<object>} A JSON-serializable seal artifact.
+ */
+async function sealCheckResult(result, context = {}) {
+  const fingerprintSource = context.dataFingerprint != null
+    ? 'caller-supplied'
+    : (context.data !== undefined ? 'computed-from-data' : 'absent');
+  const dataFingerprint = context.dataFingerprint != null
+    ? String(context.dataFingerprint)
+    : (context.data !== undefined ? await fingerprintData(context.data) : null);
+
+  if (dataFingerprint == null) {
+    // Refuse to mint a seal with nothing binding it to any data — a seal with no
+    // data fingerprint could "verify" against anything, which is exactly the
+    // empty-guarantee this module exists to avoid.
+    throw new Error(
+      'sealCheckResult: a data fingerprint is required. Pass context.data (to '
+      + 'fingerprint here) or context.dataFingerprint (precomputed). Refusing to '
+      + 'mint a seal that binds to no data.');
+  }
+
+  const { claims, paramsFingerprint, resultFingerprint, columnsFingerprint } =
+    await buildCheckSealClaims(result, context, dataFingerprint);
+
+  const leafHashes = await Promise.all(claims.map(hashLeaf));
+  const tree = await buildMerkleTree(leafHashes);
+
+  // A seal DISCLOSES every claim (full transparency of the check itself); only
+  // the raw data stays private, represented by data_fingerprint. Each disclosed
+  // claim carries its Merkle path so a verifier folds it back to the root.
+  const disclosedClaims = claims.map((claim, index) => ({
+    index,
+    type: claim.type,
+    subject: claim.subject ?? null,
+    value: claim.value ?? null,
+    statement: claim.statement,
+    proof: merkleProof(tree, index),
+  }));
+
+  const check = context.check || {};
+  const dataglow = context.dataglow || {};
+
+  return {
+    kind: CHECK_SEAL_KIND,
+    version: CHECK_SEAL_VERSION,
+    generatedAt: context.generatedAt != null
+      ? new Date(context.generatedAt).toISOString()
+      : new Date().toISOString(),
+    algorithm: CHECK_SEAL_ALGORITHM,
+    fingerprintAlgorithm: CHECK_SEAL_FINGERPRINT_ALGORITHM,
+    check: { name: check.name ?? null, kind: check.kind ?? null },
+    result: {
+      status: result && typeof result.status === 'string' ? result.status : 'unknown',
+      flagCount: Number.isFinite(result && result.flagCount) ? result.flagCount : null,
+    },
+    dataglow: {
+      version: dataglow.version ?? null,
+      build: dataglow.build ?? null,
+      note: 'The verifier does not trust this field; it only recomputes hashes.',
+    },
+    // The finalHash of a Data Nutrition Label's custodyChain (batch 2), if the
+    // caller anchored this seal to one. The verifier does not require it.
+    labelAnchor: context.labelAnchor ?? null,
+    fingerprints: {
+      data: dataFingerprint,
+      dataSource: fingerprintSource,
+      params: paramsFingerprint,
+      result: resultFingerprint,
+      columns: columnsFingerprint,
+    },
+    commitment: {
+      merkleRoot: tree.root,
+      leafCount: claims.length,
+      leafHash: 'SHA-256 of "L:" + canonicalClaim(type,subject,value)',
+      nodeHash: 'SHA-256 of "N:" + leftHex + rightHex',
+    },
+    disclosedClaims,
+    disclaimer: CHECK_SEAL_DISCLAIMER,
+  };
+}
+
+// ------------------------------------------------------------
+// Seal verification
+// ------------------------------------------------------------
+/**
+ * Verify a seal. Two independent, genuinely-checkable layers:
+ *   1. COMMITMENT: re-derive each disclosed claim's leaf hash and fold it up its
+ *      recorded Merkle path; every claim must reach the committed root. Any
+ *      altered claim value or inconsistent path fails. Needs ONLY the artifact.
+ *   2. DATA MATCH (optional): if `data` (or a precomputed fingerprint) is given,
+ *      re-fingerprint it and compare to the committed data_fingerprint claim.
+ *      Data modified since sealing fails to match. If no data is given this layer
+ *      is reported as `null` (not checked) — never silently "passed".
+ *
+ * @param {object} seal  A seal from sealCheckResult.
+ * @param {*} [data]  The data to re-fingerprint (string or JSON-able), OR an
+ *   object { dataFingerprint } with a precomputed fingerprint. Omit to skip layer 2.
+ * @returns {Promise<object>} { valid, reason, root, commitmentValid, dataMatch, claims }
+ */
+async function verifySeal(seal, data) {
+  if (!seal || seal.kind !== CHECK_SEAL_KIND) {
+    return {
+      valid: false,
+      reason: 'Not a DATAGLOW verifiable check seal (missing/incorrect "kind").',
+      root: null, commitmentValid: false, dataMatch: null, claims: [],
+    };
+  }
+  const root = seal.commitment && seal.commitment.merkleRoot;
+  if (!root) {
+    return {
+      valid: false, reason: 'Seal has no committed Merkle root.',
+      root: null, commitmentValid: false, dataMatch: null, claims: [],
+    };
+  }
+  const disclosed = Array.isArray(seal.disclosedClaims) ? seal.disclosedClaims : [];
+  if (!disclosed.length) {
+    return {
+      valid: false, reason: 'Seal discloses no claims to verify.',
+      root, commitmentValid: false, dataMatch: null, claims: [],
+    };
+  }
+
+  // Layer 1 — commitment / membership.
+  const claimResults = [];
+  for (const d of disclosed) {
+    const leaf = await hashLeaf({ type: d.type, subject: d.subject ?? null, value: d.value ?? null });
+    const path = Array.isArray(d.proof) ? d.proof : [];
+    const derivedRoot = await rootFromProof(leaf, path);
+    const ok = derivedRoot === root;
+    claimResults.push({
+      index: d.index,
+      type: d.type,
+      statement: d.statement,
+      value: d.value ?? null,
+      valid: ok,
+      reason: ok
+        ? 'Claim is a verified member of the committed set.'
+        : 'Claim does NOT belong to the committed set — a sealed value was altered or its proof path is inconsistent with the root.',
+    });
+  }
+  const commitmentValid = claimResults.every(c => c.valid);
+
+  // Layer 2 — data match (optional). Find the committed data fingerprint.
+  const committedFp = (() => {
+    const c = disclosed.find(d => d.type === 'data_fingerprint');
+    return c ? c.value : (seal.fingerprints && seal.fingerprints.data) || null;
+  })();
+
+  let dataMatch = null;
+  let dataReason = 'Data match NOT checked (no data supplied) — commitment/integrity only.';
+  if (data !== undefined) {
+    let recomputed;
+    if (data && typeof data === 'object' && typeof data.dataFingerprint === 'string' && !Array.isArray(data)) {
+      recomputed = data.dataFingerprint;
+    } else {
+      recomputed = await fingerprintData(data);
+    }
+    dataMatch = recomputed === committedFp;
+    dataReason = dataMatch
+      ? 'Supplied data re-fingerprints to the committed value — it matches the sealed data.'
+      : 'Supplied data does NOT re-fingerprint to the committed value — the data was modified since sealing (or is different data).';
+  }
+
+  const valid = commitmentValid && dataMatch !== false;
+  let reason;
+  if (!commitmentValid) {
+    reason = `${claimResults.filter(c => !c.valid).length} of ${claimResults.length} sealed claim(s) FAILED the commitment check — the seal was tampered with.`;
+  } else if (dataMatch === false) {
+    reason = 'Seal commitment is intact, but the supplied data does NOT match the sealed fingerprint — the data was modified. '
+      + '(Integrity check only — not a legal, clinical, or regulatory determination.)';
+  } else if (dataMatch === true) {
+    reason = `All ${claimResults.length} sealed claim(s) verified against the committed root AND the supplied data matches the sealed fingerprint. `
+      + '(Integrity/membership check only — not a legal, clinical, or regulatory determination.)';
+  } else {
+    reason = `All ${claimResults.length} sealed claim(s) verified against the committed root. `
+      + dataReason
+      + ' (Integrity/membership check only — not a legal, clinical, or regulatory determination.)';
+  }
+
+  return { valid, reason, root, commitmentValid, dataMatch, claims: claimResults };
+}
+
+// ------------------------------------------------------------
+// Integration with the Data Nutrition Label (batch 2)
+// ------------------------------------------------------------
+/**
+ * Attach a seal to a Data Nutrition Label's custodyChain. ADDITIVE and
+ * non-mutating: returns a NEW label with the seal appended to a
+ * `custodyChain.seals` array (created if absent). No existing batch-2 field is
+ * changed — `algorithm`, `length`, `finalHash`, and `steps` are all preserved
+ * exactly, so a reader that predates this batch sees an unchanged manifest plus
+ * one new array it can ignore.
+ *
+ * If the seal was not already anchored, its `labelAnchor` is set to this label's
+ * custodyChain.finalHash so a reader can tie the two together.
+ *
+ * @param {object} label  A Data Nutrition Label (buildDataNutritionLabel output).
+ * @param {object} seal   A seal from sealCheckResult.
+ * @returns {object} A new label object with the seal attached.
+ */
+function attachSealToLabel(label, seal) {
+  if (!label || typeof label !== 'object') {
+    throw new Error('attachSealToLabel: label must be an object.');
+  }
+  if (!seal || seal.kind !== CHECK_SEAL_KIND) {
+    throw new Error('attachSealToLabel: second argument must be a verifiable check seal.');
+  }
+  const existingChain = label.custodyChain || {};
+  const finalHash = existingChain.finalHash ?? null;
+  const anchoredSeal = seal.labelAnchor == null && finalHash != null
+    ? { ...seal, labelAnchor: finalHash }
+    : seal;
+  const existingSeals = Array.isArray(existingChain.seals) ? existingChain.seals : [];
+  return {
+    ...label,
+    custodyChain: {
+      ...existingChain,
+      seals: [...existingSeals, anchoredSeal],
+    },
+  };
+}
+
+// ------------------------------------------------------------
+// Human-readable summary (sibling to renderLabelSummaryLines)
+// ------------------------------------------------------------
+/**
+ * Render a seal as plain-text lines for a compact UI panel or an export.
+ * @param {object} seal
+ * @returns {string[]}
+ */
+function renderSealSummaryLines(seal) {
+  if (!seal || seal.kind !== CHECK_SEAL_KIND) return ['Verifiable Check Seal: (not available).'];
+  const root = (seal.commitment && seal.commitment.merkleRoot) || '';
+  const lines = [];
+  lines.push('Verifiable Check Seal');
+  lines.push('  (Commitment + data-fingerprint check — not a certification, not zero-knowledge.)');
+  lines.push(`  Generated: ${seal.generatedAt}`);
+  lines.push(`  Check: ${seal.check && seal.check.name ? seal.check.name : 'validation check'}`
+    + (seal.check && seal.check.kind ? `  (kind: ${seal.check.kind})` : ''));
+  lines.push(`  Result: status "${seal.result ? seal.result.status : 'unknown'}"`
+    + (seal.result && seal.result.flagCount != null ? `, ${seal.result.flagCount} flag(s)` : ''));
+  lines.push(`  Data fingerprint: ${seal.fingerprints ? String(seal.fingerprints.data).slice(0, 24) : '(none)'}…`
+    + (seal.fingerprints && seal.fingerprints.dataSource ? `  (${seal.fingerprints.dataSource})` : ''));
+  lines.push(`  Committed Merkle root: ${String(root).slice(0, 24)}…`);
+  if (seal.labelAnchor) lines.push(`  Anchored to label custody finalHash: ${String(seal.labelAnchor).slice(0, 16)}…`);
+  lines.push(`  Sealed claims: ${Array.isArray(seal.disclosedClaims) ? seal.disclosedClaims.length : 0}`);
+  return lines;
+}
+
+/**
+ * Serialize a seal to pretty-printed JSON — the portable artifact a recipient
+ * inspects or re-verifies. Round-trips losslessly via JSON.parse.
+ * @param {object} seal
+ * @returns {string}
+ */
+function exportSealAsJSON(seal) {
+  return JSON.stringify(seal, null, 2);
+}
+
+  window.VerifiableCheckSeal = {
+    canonicalJSON: typeof canonicalJSON !== 'undefined' ? canonicalJSON : null,
+    fingerprintData: typeof fingerprintData !== 'undefined' ? fingerprintData : null,
+    sealCheckResult: typeof sealCheckResult !== 'undefined' ? sealCheckResult : null,
+    verifySeal: typeof verifySeal !== 'undefined' ? verifySeal : null,
+    attachSealToLabel: typeof attachSealToLabel !== 'undefined' ? attachSealToLabel : null,
+    renderSealSummaryLines: typeof renderSealSummaryLines !== 'undefined' ? renderSealSummaryLines : null,
+    exportSealAsJSON: typeof exportSealAsJSON !== 'undefined' ? exportSealAsJSON : null,
+    CHECK_SEAL_KIND: typeof CHECK_SEAL_KIND !== 'undefined' ? CHECK_SEAL_KIND : '',
+  };
+}());
+/* ---- end verifiable-check-seal.js ---- */
+
+
+/* ================================================================
+   POLYGLOT WORKBENCH -- recovered from git history
+   Batch A (#142 multi-dialect SQL), Batch B (#141 Object Space),
+   Batch D (#353 schema-aware autocomplete)
+   ================================================================ */
+
+/* ---- from js/app-shell/object-space.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Object Space Registry (Polyglot Workbench, Batch B)
+// ============================================================
+// A shared, in-memory read model of the named objects that live across
+// DataGlow's three runtimes — SQL (DuckDB), Python (Pyodide/pandas), and R
+// (WebR) — so a single source of truth can answer "what named objects exist
+// right now, where did each come from, and what shape is it?" without each tab
+// re-deriving that on its own.
+//
+// SCOPE (Batch B): this is a passive REGISTRY only. It sits ALONGSIDE the
+// existing per-language JSON round-trip bridges (dataglow.get_df in
+// python-runtime.js, dataglow_get_df in r-runtime.js, plain FROM <table> in
+// duckdb-engine.js) — it does NOT replace their transfer mechanics, and it does
+// NOT resolve cross-language references at query time (no working `FROM
+// py.name` yet — that is a deliberate future batch). The wiring layer simply
+// calls register() at the natural points where each runtime already knows an
+// object's name/schema, so the registry stays in sync as things run.
+//
+// Pure: no DOM, no engine/pyodide/WebR import, no network. Fully unit-testable
+// in Node.
+
+// The origin languages an object can come from. Kept as a small closed set so
+// a typo (e.g. 'py') is caught rather than silently accepted.
+const ORIGIN_LANGUAGES = ['sql', 'python', 'r'];
+
+// The kinds of object we track. Non-tabular objects (an R `lm` model, a scalar)
+// are recorded by kind only — we deliberately do NOT model their internals here.
+const OBJECT_KINDS = ['dataframe', 'model', 'scalar'];
+
+// Normalize a caller-supplied schema into a stable array of {name, type}
+// descriptors. Tolerant of missing/partial input (a model or scalar has none).
+function normalizeSchema(schema) {
+  if (!Array.isArray(schema)) return [];
+  return schema
+    .filter((c) => c && (c.name != null))
+    .map((c) => ({ name: String(c.name), type: c.type != null ? String(c.type) : 'unknown' }));
+}
+
+// Build a clean, validated registry entry from a loose caller descriptor.
+// Unknown originLanguage/kind fall back to safe defaults rather than throwing,
+// so a wiring bug never breaks the runtime that called register().
+function toEntry(descriptor) {
+  const d = descriptor || {};
+  const name = d.name != null ? String(d.name) : '';
+  const originLanguage = ORIGIN_LANGUAGES.includes(d.originLanguage) ? d.originLanguage : 'sql';
+  const schema = normalizeSchema(d.schema);
+  const kind = OBJECT_KINDS.includes(d.kind)
+    ? d.kind
+    : (schema.length ? 'dataframe' : 'scalar');
+  const rowCount = (d.rowCount != null && Number.isFinite(Number(d.rowCount))) ? Number(d.rowCount) : null;
+  return {
+    name,
+    originLanguage,
+    kind,
+    schema,
+    rowCount,
+    // A plain pointer/id into the existing provenance chain-of-custody registry
+    // (js/provenance/provenance.js keys chains by name). We store the id only —
+    // we do NOT duplicate that module's hashing/chain logic here.
+    provenance: d.provenance != null ? String(d.provenance) : name,
+    createdAt: Number.isFinite(Number(d.createdAt)) ? Number(d.createdAt) : Date.now(),
+  };
+}
+
+// A registry of named cross-language objects. Names are unique: re-registering
+// an existing name UPDATES that entry in place rather than creating a duplicate.
+function createObjectSpace() {
+  const objects = new Map();
+
+  function register(descriptor) {
+    const entry = toEntry(descriptor);
+    if (!entry.name) throw new Error('Object Space: register() requires a non-empty object name.');
+    // Preserve the original createdAt on update so an object's first-seen time is
+    // stable across re-runs; only refresh it the first time we see the name.
+    const existing = objects.get(entry.name);
+    if (existing) entry.createdAt = existing.createdAt;
+    objects.set(entry.name, entry);
+    return { ...entry };
+  }
+
+  function get(name) {
+    const entry = objects.get(String(name));
+    return entry ? { ...entry } : null;
+  }
+
+  function getSchema(name) {
+    const entry = objects.get(String(name));
+    return entry ? entry.schema.map((c) => ({ ...c })) : null;
+  }
+
+  function list() {
+    return [...objects.values()].map((e) => ({ ...e }));
+  }
+
+  function unregister(name) {
+    return objects.delete(String(name));
+  }
+
+  function clear() {
+    objects.clear();
+  }
+
+  return {
+    register,
+    get,
+    getSchema,
+    list,
+    unregister,
+    clear,
+    get size() { return objects.size; },
+  };
+}
+
+// ------------------------------------------------------------
+// App-level singleton the wiring layer + UI share. Tests create their own
+// isolated spaces via createObjectSpace(); the app uses this one so SQL, Python
+// and R all read/write the same registry.
+// ------------------------------------------------------------
+const appObjectSpace = createObjectSpace();
+
+// Register an object into the shared app registry. Thin convenience wrapper the
+// runtime wiring calls (always behind the objectSpaceRegistry flag).
+function registerObject(descriptor) {
+  return appObjectSpace.register(descriptor);
+}
+
+// Read the shared registry — used by UI code to render the live strip of
+// cross-language objects. Returns a defensive copy.
+function listObjectSpace() {
+  return appObjectSpace.list();
+}
+
+// Escape hatch for the wiring layer / tests that need the shared instance.
+function getAppObjectSpace() {
+  return appObjectSpace;
+}
+
+  window.ObjectSpace = {
+    createObjectSpace: typeof createObjectSpace !== 'undefined' ? createObjectSpace : null,
+    ObjectSpaceRegistry: typeof ObjectSpaceRegistry !== 'undefined' ? ObjectSpaceRegistry : null,
+  };
+}());
+/* ---- end object-space.js ---- */
+
+/* ---- from js/polyglot/polyglot-autocomplete.js ---- */
+;(function(){
+  'use strict';
+  var ObjectSpace = window.ObjectSpace || {};
+  var createObjectSpace = ObjectSpace.createObjectSpace || null;
+// ============================================================
+// DATAGLOW — Polyglot Autocomplete (Polyglot Workbench, Batch D)
+// ============================================================
+// Schema-aware inline suggestions for the SQL, Python, and R editors,
+// sourced entirely from the live Object Space registry so every named object
+// a user has already created (loaded dataset, Python-computed frame,
+// R-registered result) is immediately suggest-able without re-typing.
+//
+// SCOPE
+//   Suggestion pools are built from the Object Space list — no DuckDB schema
+//   query, no parser, no network. Each editor gets the appropriate vocabulary:
+//
+//   SQL   — table names (all origins), column names for every registered
+//           schema, common DuckDB keywords and functions, py./r. prefixes for
+//           cross-runtime FROM references (only when the bridge flag is on).
+//
+//   Python — registered object names (usable in `dataglow.get_df('name')`),
+//            column names quoted for bracket access (df['col']), pandas method
+//            fragments, and the `dataglow.get_df(` call stem itself.
+//
+//   R      — registered object names (usable in `dataglow_get_df('name')`),
+//            column names quoted for $ access (df$col), dplyr verb fragments,
+//            and the `dataglow_get_df(` call stem itself.
+//
+// COMPLETION CONTRACT
+//   getSuggestions(typed, language, objectSpaceEntries) → Array<Suggestion>
+//   Each Suggestion: { text, insertText, kind, origin, score }
+//     text        — the full token to display in the popup
+//     insertText  — the suffix only (what gets inserted after the cursor)
+//     kind        — 'table'|'column'|'keyword'|'function'|'snippet'
+//     origin      — 'object-space'|'schema'|'builtin'
+//     score       — numeric relevance (higher = ranks earlier in the list)
+//
+//   topSuggestion(typed, language, objectSpaceEntries) → Suggestion|null
+//   — The single highest-scored match, for ghost-text inline rendering
+//     (like question-generator-agent.js's ghostCompletion, but cross-language).
+//
+// SAFETY
+//   Pure: no DOM, no DuckDB, no network, no eval. All inputs treated as opaque
+//   strings — no code execution of user input. Capable of running in Node for
+//   unit tests with zero setup.
+
+const POLYGLOT_AUTOCOMPLETE_VERSION = 1;
+
+// ============================================================
+// SQL vocabulary — keywords and common DuckDB functions
+// ============================================================
+
+const SQL_KEYWORDS = Object.freeze([
+  'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT',
+  'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL OUTER JOIN', 'CROSS JOIN',
+  'ON', 'AS', 'AND', 'OR', 'NOT', 'IN', 'IS NULL', 'IS NOT NULL',
+  'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+  'DISTINCT', 'WITH', 'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT',
+  'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM',
+  'CREATE TABLE', 'DROP TABLE', 'ALTER TABLE',
+]);
+
+const SQL_FUNCTIONS = Object.freeze([
+  'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ROUND', 'FLOOR', 'CEIL',
+  'COALESCE', 'NULLIF', 'IFNULL', 'IIF', 'TRY_CAST',
+  'STRFTIME', 'DATE_TRUNC', 'DATE_DIFF', 'DATE_ADD', 'NOW', 'CURRENT_DATE',
+  'LENGTH', 'LOWER', 'UPPER', 'TRIM', 'LTRIM', 'RTRIM', 'SUBSTR', 'REPLACE',
+  'SPLIT_PART', 'REGEXP_MATCHES', 'REGEXP_REPLACE',
+  'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
+  'STDDEV', 'VARIANCE', 'PERCENTILE_CONT', 'PERCENTILE_DISC', 'MEDIAN',
+  'LIST_AGG', 'STRING_AGG', 'ARRAY_AGG',
+  'JSON_EXTRACT', 'JSON_EXTRACT_STRING',
+  'CAST', 'TRY_CAST',
+  'EPOCH', 'EPOCH_MS', 'TO_TIMESTAMP',
+]);
+
+// ============================================================
+// Python vocabulary — pandas / dataglow bridge fragments
+// ============================================================
+
+const PYTHON_SNIPPETS = Object.freeze([
+  { text: 'dataglow.get_df(', kind: 'snippet' },
+  { text: 'import pandas as pd', kind: 'snippet' },
+  { text: 'import matplotlib.pyplot as plt', kind: 'snippet' },
+  { text: 'df.head()', kind: 'snippet' },
+  { text: 'df.describe()', kind: 'snippet' },
+  { text: 'df.dtypes', kind: 'snippet' },
+  { text: 'df.shape', kind: 'snippet' },
+  { text: 'df.columns', kind: 'snippet' },
+  { text: 'df.value_counts()', kind: 'snippet' },
+  { text: 'df.groupby()', kind: 'snippet' },
+  { text: 'df.merge()', kind: 'snippet' },
+  { text: 'df.dropna()', kind: 'snippet' },
+  { text: 'df.fillna()', kind: 'snippet' },
+  { text: 'df.sort_values()', kind: 'snippet' },
+  { text: 'df.rename(columns={})', kind: 'snippet' },
+  { text: 'plt.show()', kind: 'snippet' },
+  { text: 'plt.title()', kind: 'snippet' },
+]);
+
+// ============================================================
+// R vocabulary — dplyr / dataglow bridge fragments
+// ============================================================
+
+const R_SNIPPETS = Object.freeze([
+  { text: 'dataglow_get_df(', kind: 'snippet' },
+  { text: 'library(dplyr)', kind: 'snippet' },
+  { text: 'library(ggplot2)', kind: 'snippet' },
+  { text: 'df %>% filter()', kind: 'snippet' },
+  { text: 'df %>% select()', kind: 'snippet' },
+  { text: 'df %>% mutate()', kind: 'snippet' },
+  { text: 'df %>% group_by()', kind: 'snippet' },
+  { text: 'df %>% summarise()', kind: 'snippet' },
+  { text: 'df %>% arrange()', kind: 'snippet' },
+  { text: 'df %>% rename()', kind: 'snippet' },
+  { text: 'head(df)', kind: 'snippet' },
+  { text: 'str(df)', kind: 'snippet' },
+  { text: 'summary(df)', kind: 'snippet' },
+  { text: 'colnames(df)', kind: 'snippet' },
+  { text: 'nrow(df)', kind: 'snippet' },
+  { text: 'ggplot(df, aes()) + geom_point()', kind: 'snippet' },
+]);
+
+// ============================================================
+// Score helpers
+// ============================================================
+
+// How closely does `candidate` match `typed` (both lowercased by caller)?
+// Returns 0..1. Prefix match scores highest; contains-match scores lower.
+function matchScore(candidate, typed) {
+  if (!typed) return 0.1;
+  if (candidate === typed) return 1.0;
+  if (candidate.startsWith(typed)) return 0.8 + (typed.length / candidate.length) * 0.2;
+  if (candidate.includes(typed)) return 0.3 + (typed.length / candidate.length) * 0.2;
+  return 0;
+}
+
+// Normalize a raw string token so lookups are case-insensitive.
+function lc(s) { return (s == null ? '' : String(s)).toLowerCase(); }
+
+// ============================================================
+// Object Space → suggestion builders
+// ============================================================
+
+// Build table-name suggestions from every object in the registry.
+// For SQL: bare table name AND optional py./r. prefixed version.
+function tableNamesFromRegistry(entries, language, includeBridgePrefixes) {
+  const results = [];
+  for (const e of entries) {
+    if (!e || typeof e.name !== 'string') continue;
+    const name = e.name;
+    // Registry keys: bare SQL names (no prefix) or 'py:name' / 'r:name'
+    const isPrefixed = name.startsWith('py:') || name.startsWith('r:');
+    if (language === 'sql') {
+      if (!isPrefixed) {
+        results.push({ text: name, insertText: name, kind: 'table', origin: 'object-space', score: 0.7 });
+      }
+      if (includeBridgePrefixes && isPrefixed) {
+        // Offer the `py.name` / `r.name` form the bridge resolves
+        const dotForm = name.replace(':', '.');
+        results.push({ text: dotForm, insertText: dotForm, kind: 'table', origin: 'object-space', score: 0.65 });
+      }
+    } else if (language === 'python' || language === 'r') {
+      // The plain name (without prefix) is what dataglow.get_df/dataglow_get_df takes
+      const plainName = isPrefixed ? name.slice(name.indexOf(':') + 1) : name;
+      results.push({
+        text: plainName,
+        insertText: plainName,
+        kind: 'table',
+        origin: 'object-space',
+        score: e.originLanguage === language ? 0.75 : 0.6,
+      });
+    }
+  }
+  return results;
+}
+
+// Build column suggestions from schemas in the registry, for a given language.
+function columnsFromRegistry(entries, language) {
+  const seen = new Set();
+  const results = [];
+  for (const e of entries) {
+    if (!Array.isArray(e.schema)) continue;
+    for (const col of e.schema) {
+      if (!col || typeof col.name !== 'string') continue;
+      if (seen.has(col.name)) continue;
+      seen.add(col.name);
+      if (language === 'sql') {
+        results.push({ text: col.name, insertText: col.name, kind: 'column', origin: 'schema', score: 0.6 });
+      } else if (language === 'python') {
+        // Bracket notation for Python column access
+        const bracketForm = "['" + col.name + "']";
+        results.push({ text: bracketForm, insertText: bracketForm, kind: 'column', origin: 'schema', score: 0.55 });
+      } else if (language === 'r') {
+        // $ notation for R column access
+        const dollarForm = '$' + col.name;
+        results.push({ text: dollarForm, insertText: dollarForm, kind: 'column', origin: 'schema', score: 0.55 });
+      }
+    }
+  }
+  return results;
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+/**
+ * Build a pool of suggestions for the given editor language, scored and sorted
+ * by relevance to what the user has typed so far.
+ *
+ * @param {string} typed - the current token being typed (e.g. 'pati' → suggests 'patients')
+ * @param {'sql'|'python'|'r'} language
+ * @param {Array} objectSpaceEntries - as returned by listObjectSpace()
+ * @param {object} [opts]
+ * @param {boolean} [opts.includeBridgePrefixes=true] - include py./r. forms in SQL suggestions
+ * @param {number} [opts.maxResults=10] - max suggestions to return
+ * @returns {Array<{text:string, insertText:string, kind:string, origin:string, score:number}>}
+ */
+function getSuggestions(typed, language, objectSpaceEntries, opts) {
+  const options = opts || {};
+  const maxResults = (typeof options.maxResults === 'number' && options.maxResults > 0)
+    ? options.maxResults : 10;
+  const includeBridgePrefixes = options.includeBridgePrefixes !== false;
+
+  const lang = typeof language === 'string' ? language.toLowerCase() : 'sql';
+  const typedStr = typed == null ? '' : String(typed);
+  if (!typedStr.trim()) return [];
+  const typedLower = lc(typedStr);
+  const entries = Array.isArray(objectSpaceEntries) ? objectSpaceEntries : [];
+
+  // Collect candidates from all relevant pools for this language
+  const candidates = [];
+
+  // Object Space tables + columns (shared across all languages)
+  const tables = tableNamesFromRegistry(entries, lang, includeBridgePrefixes);
+  const columns = columnsFromRegistry(entries, lang);
+  candidates.push(...tables, ...columns);
+
+  if (lang === 'sql') {
+    for (const kw of SQL_KEYWORDS) {
+      candidates.push({ text: kw, insertText: kw, kind: 'keyword', origin: 'builtin', score: 0.4 });
+    }
+    for (const fn of SQL_FUNCTIONS) {
+      candidates.push({ text: fn, insertText: fn + '(', kind: 'function', origin: 'builtin', score: 0.35 });
+    }
+  } else if (lang === 'python') {
+    for (const s of PYTHON_SNIPPETS) {
+      candidates.push({ text: s.text, insertText: s.text, kind: s.kind, origin: 'builtin', score: 0.4 });
+    }
+  } else if (lang === 'r') {
+    for (const s of R_SNIPPETS) {
+      candidates.push({ text: s.text, insertText: s.text, kind: s.kind, origin: 'builtin', score: 0.4 });
+    }
+  }
+
+  // Score each candidate against what the user has typed
+  const scored = [];
+  for (const c of candidates) {
+    const s = matchScore(lc(c.text), typedLower);
+    if (s > 0) {
+      scored.push({ ...c, score: c.score * s });
+    }
+  }
+
+  // Deduplicate by text (keep highest score), then sort descending
+  const best = new Map();
+  for (const c of scored) {
+    const existing = best.get(c.text);
+    if (!existing || c.score > existing.score) best.set(c.text, c);
+  }
+
+  return [...best.values()]
+    .sort(function(a, b) { return b.score - a.score; })
+    .slice(0, maxResults);
+}
+
+/**
+ * Return the single best ghost-text completion suffix for inline rendering
+ * (i.e. the portion of the best match that follows what the user has already
+ * typed). Returns empty string when nothing matches.
+ *
+ * @param {string} typed
+ * @param {'sql'|'python'|'r'} language
+ * @param {Array} objectSpaceEntries
+ * @returns {string} the suffix to display as ghost text (may be empty)
+ */
+function topSuggestion(typed, language, objectSpaceEntries) {
+  const typedStr = typed == null ? '' : String(typed);
+  if (!typedStr.trim()) return null;
+  const results = getSuggestions(typedStr, language, objectSpaceEntries, { maxResults: 1 });
+  if (!results.length) return null;
+  const top = results[0];
+  // Surface the suffix-only insertText for ghost rendering when it is a clean prefix match;
+  // otherwise return the full suggestion so the caller can decide what to render.
+  const topLower = lc(top.text);
+  const typedLower2 = lc(typedStr);
+  if (topLower.startsWith(typedLower2)) {
+    return { ...top, insertText: top.text.slice(typedStr.length) };
+  }
+  return top;
+}
+
+const PUBLIC_API_SURFACE = Object.freeze([
+  'getSuggestions',
+  'topSuggestion',
+]);
+
+  window.PolyglotAutocomplete = {
+    buildAutocompleteSuggestions: typeof buildAutocompleteSuggestions !== 'undefined' ? buildAutocompleteSuggestions : null,
+    mountAutocomplete: typeof mountAutocomplete !== 'undefined' ? mountAutocomplete : null,
+  };
+}());
+/* ---- end polyglot-autocomplete.js ---- */
+
+/* ---- from js/polyglot/polyglot-error-advisor.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Polyglot Error Advisor (Polyglot Workbench, Batch E)
+// ============================================================
+// Cross-language "Suggested fix" for SQL, Python, and R errors that reference
+// names the Object Space already knows about. Extends formatSqlError's pattern
+// (js/app-shell/sql-highlight.js) to Python tracebacks and R conditions, and
+// adds a second layer of cross-registry advice when the error message mentions
+// a name that resolves — or almost resolves — in the live Object Space.
+//
+// WHAT IT DOES
+//   1. Parses a raw error string from any of the three runtimes into a
+//      structured shape: { language, kind, detail, hint, suggestedFix, raw }.
+//
+//   2. If the parsed error message references an identifier (column/table/
+//      variable name), looks it up in the Object Space registry:
+//        a. Exact match in the wrong language → suggests the right call form
+//           (e.g. "FROM py.claims" if you typed "FROM claims" and claims is
+//           registered as a Python object, or
+//           "dataglow.get_df('patients')" if you typed "patients" in Python
+//           and patients is a SQL-origin table).
+//        b. Near-match (case-insensitive) → suggests the correct spelling.
+//
+//   3. Never invents a fix it cannot ground in the live registry or a
+//      well-known language-specific pattern — mirrors the existing
+//      formatSqlError discipline of returning an empty hint rather than
+//      fabricating advice.
+//
+// SAFETY
+//   Pure: no DOM, no DuckDB, no network, no eval. Inputs are opaque strings.
+//   Fully unit-testable in Node with zero setup.
+
+const POLYGLOT_ERROR_ADVISOR_VERSION = 1;
+
+// ============================================================
+// Shared helpers
+// ============================================================
+
+function lc(s) { return (s == null ? '' : String(s)).toLowerCase(); }
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Extract the first plausible identifier from an error string.
+// Looks for tokens in quotes (double, single, backtick) first, then bare
+// CamelCase/snake_case identifiers that look like names rather than keywords.
+const QUOTED_IDENT_RE = /["'`]([A-Za-z_][A-Za-z0-9_.]*?)["'`]/;
+const BARE_IDENT_RE = /\b([A-Za-z_][A-Za-z0-9_]{2,})\b/;
+
+function extractIdentifier(message) {
+  const qm = QUOTED_IDENT_RE.exec(message);
+  if (qm) return qm[1];
+  const bm = BARE_IDENT_RE.exec(message);
+  if (bm) return bm[1];
+  return null;
+}
+
+// Find the best Object Space match for an identifier:
+//   - exact name match (bare or prefixed)
+//   - case-insensitive match
+//   - prefix match (3+ chars)
+// Returns null when nothing is close enough to avoid fabricated suggestions.
+function findRegistryMatch(ident, entries) {
+  if (!ident || !entries || !entries.length) return null;
+  const identLower = lc(ident);
+
+  // 1. Exact match (bare name, ignoring py:/r: prefix)
+  for (const e of entries) {
+    if (typeof e.name !== 'string') continue;
+    const bare = e.name.replace(/^(py:|r:)/, '');
+    if (bare === ident || e.name === ident) return e;
+  }
+
+  // 2. Case-insensitive match
+  for (const e of entries) {
+    if (typeof e.name !== 'string') continue;
+    const bare = e.name.replace(/^(py:|r:)/, '');
+    if (lc(bare) === identLower) return e;
+  }
+
+  // 3. Prefix match (>= 3 chars)
+  if (identLower.length >= 3) {
+    for (const e of entries) {
+      if (typeof e.name !== 'string') continue;
+      const bare = e.name.replace(/^(py:|r:)/, '');
+      if (lc(bare).startsWith(identLower) || identLower.startsWith(lc(bare).slice(0, identLower.length))) {
+        return e;
+      }
+    }
+  }
+
+  return null;
+}
+
+// Build a cross-registry suggested fix when the named identifier is found in
+// the Object Space but its origin language is different from the caller's.
+function crossLanguageFix(ident, match, callerLanguage) {
+  if (!match) return '';
+  const bare = match.name.replace(/^(py:|r:)/, '');
+  const origin = match.originLanguage;
+  const same = origin === callerLanguage;
+
+  if (callerLanguage === 'sql') {
+    if (origin === 'python') {
+      return '"' + bare + '" was created in Python — use FROM py.' + bare + ' to access it here.';
+    }
+    if (origin === 'r') {
+      return '"' + bare + '" was created in R — use FROM r.' + bare + ' to access it here.';
+    }
+    // Same language (SQL): suggest correct spelling whenever ident and bare differ in any way
+    if (same && ident !== bare) {
+      return 'Did you mean "' + bare + '"?';
+    }
+  }
+
+  if (callerLanguage === 'python') {
+    if (origin === 'sql') {
+      if (lc(ident) !== lc(bare)) {
+        return '"' + bare + '" is a SQL table — try: df = dataglow.get_df(\'' + bare + '\')';
+      }
+      return '"' + ident + '" is a SQL table. Load it with: df = dataglow.get_df(\'' + bare + '\')';
+    }
+    if (origin === 'r') {
+      return '"' + bare + '" was computed in R — run the R tab first, then use dataglow.get_df(\'' + bare + '\') in Python.';
+    }
+    if (same && lc(ident) !== lc(bare)) {
+      return 'Did you mean "' + bare + '"?';
+    }
+  }
+
+  if (callerLanguage === 'r') {
+    if (origin === 'sql') {
+      if (lc(ident) !== lc(bare)) {
+        return '"' + bare + '" is a SQL table — try: df <- dataglow_get_df(\'' + bare + '\')';
+      }
+      return '"' + ident + '" is a SQL table. Load it with: df <- dataglow_get_df(\'' + bare + '\')';
+    }
+    if (origin === 'python') {
+      return '"' + bare + '" was computed in Python — run the Python tab first, then use dataglow_get_df(\'' + bare + '\') in R.';
+    }
+    if (same && lc(ident) !== lc(bare)) {
+      return 'Did you mean "' + bare + '"?';
+    }
+  }
+
+  return '';
+}
+
+// ============================================================
+// Language-specific parsers
+// ============================================================
+
+function parseSqlError(raw) {
+  let kind = 'SQL Error';
+  let detail = raw;
+  const m = raw.match(/^([A-Za-z][A-Za-z ]*?Error)\s*:\s*([\s\S]*)$/);
+  if (m) { kind = m[1]; detail = m[2].trim(); }
+
+  let hint = '';
+  const lower = raw.toLowerCase();
+  if (/referenced column .* not found|column .* does not exist/.test(lower)) {
+    hint = 'Check the column name — column names are case-sensitive when quoted.';
+  } else if (/table with name .* does not exist|catalog error/.test(lower)) {
+    hint = 'Check the table name or load the dataset first.';
+  } else if (/syntax error/.test(lower)) {
+    hint = 'Check for a missing comma, keyword, or unclosed quote near the caret (^).';
+  } else if (/logarithm of zero|out of range/.test(lower)) {
+    hint = 'A value exceeded the function domain (e.g. LOG of 0 or a negative).';
+  } else if (/could not convert|invalid input syntax/.test(lower)) {
+    hint = 'A CAST or implicit coercion failed — check the data type of the column.';
+  }
+  return { kind, detail, hint };
+}
+
+// Python traceback: last line of the traceback is the most useful message.
+// "NameError: name 'xyz' is not defined" / "KeyError: 'col'" / "AttributeError: ..."
+function parsePythonError(raw) {
+  const lines = raw.trim().split('\n');
+  const lastLine = lines[lines.length - 1].trim();
+  let kind = 'Python Error';
+  let detail = lastLine;
+
+  const km = lastLine.match(/^([A-Za-z][A-Za-z]*Error)\s*:\s*(.*)/);
+  if (km) { kind = km[1]; detail = km[2].trim(); }
+
+  let hint = '';
+  const lower = lastLine.toLowerCase();
+  if (/name .* is not defined/.test(lower)) {
+    hint = 'The variable or function name is not yet in scope — define it or import it first.';
+  } else if (/keyerror/.test(lower)) {
+    hint = 'The column key does not exist in the DataFrame — check spelling and use df.columns to list available names.';
+  } else if (/attributeerror/.test(lower)) {
+    hint = 'The method or property does not exist on this object — check the pandas documentation.';
+  } else if (/typeerror/.test(lower)) {
+    hint = 'A value has an unexpected type — check the column dtype with df.dtypes.';
+  } else if (/valueerror/.test(lower)) {
+    hint = 'A value is in an unexpected format — check for NaN, empty strings, or mixed types.';
+  } else if (/importerror|modulenotfounderror/.test(lower)) {
+    hint = 'The library is not available in this sandbox — use only pre-installed packages.';
+  }
+  return { kind, detail, hint };
+}
+
+// R error/warning: "Error in f(x) : message" or "Error: message"
+function parseRError(raw) {
+  const lines = raw.trim().split('\n');
+  // R errors often start with "Error in ..." or "Error:"
+  const errLine = lines.find(function(l) { return /^Error/.test(l.trim()); }) || lines[0];
+  const warnLine = lines.find(function(l) { return /^Warning/.test(l.trim()); });
+
+  let kind = warnLine && !errLine ? 'R Warning' : 'R Error';
+  const targetLine = errLine || warnLine || lines[0];
+  let detail = targetLine.trim();
+
+  const em = targetLine.match(/^(?:Error(?: in [^\s:]+)?)\s*:\s*(.*)/);
+  if (em) { detail = em[1].trim(); }
+  const wm = targetLine.match(/^(?:Warning(?: message)?:?\s*(?:In [^\s:]+\s*:)?\s*)(.*)/);
+  if (wm && kind === 'R Warning') { detail = wm[1].trim(); }
+
+  let hint = '';
+  const lower = raw.toLowerCase();
+  if (/could not find function/.test(lower)) {
+    hint = 'The function is not in scope — load the library with library() first.';
+  } else if (/object .* not found/.test(lower)) {
+    hint = 'The variable is not defined — create it or load the dataset first.';
+  } else if (/undefined columns selected/.test(lower)) {
+    hint = 'The column name does not exist — use colnames(df) to list available columns.';
+  } else if (/incorrect number of dimensions/.test(lower)) {
+    hint = 'Check index/subset notation — use [[ ]] or $ for single columns in a data.frame.';
+  } else if (/subscript out of bounds/.test(lower)) {
+    hint = 'The index exceeds the length of the vector or list.';
+  }
+  return { kind, detail, hint };
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+/**
+ * Parse a raw runtime error and enrich it with a registry-grounded suggested fix.
+ *
+ * @param {string} rawError - the raw error string from the runtime
+ * @param {'sql'|'python'|'r'} language
+ * @param {Array} objectSpaceEntries - as returned by listObjectSpace()
+ * @returns {{language:string, kind:string, detail:string, hint:string, suggestedFix:string, raw:string}}
+ */
+function adviseError(rawError, language, objectSpaceEntries) {
+  const raw = (rawError == null ? '' : String(rawError)).trim();
+  const lang = typeof language === 'string' ? language.toLowerCase() : 'sql';
+  const entries = Array.isArray(objectSpaceEntries) ? objectSpaceEntries : [];
+
+  let parsed;
+  if (lang === 'python') {
+    parsed = parsePythonError(raw || 'Unknown Python error');
+  } else if (lang === 'r') {
+    parsed = parseRError(raw || 'Unknown R error');
+  } else {
+    parsed = parseSqlError(raw || 'Unknown SQL error');
+  }
+
+  // Extract a candidate identifier from the error message and look it up
+  const ident = extractIdentifier(raw);
+  const match = findRegistryMatch(ident, entries);
+  const suggestedFix = ident ? crossLanguageFix(ident, match, lang) : '';
+
+  return {
+    language: lang,
+    kind: parsed.kind,
+    detail: parsed.detail,
+    hint: parsed.hint,
+    suggestedFix,
+    raw,
+  };
+}
+
+/**
+ * Build an HTML snippet for the error card, matching the shape of renderSqlErrorHtml
+ * in js/app-shell/sql-highlight.js so it can slot into existing UI patterns.
+ *
+ * @param {ReturnType<typeof adviseError>} advised
+ * @returns {string} HTML string (not a DOM node)
+ */
+function renderAdvisedErrorHtml(advised) {
+  const d = advised || {};
+  const hintHtml = d.hint
+    ? '<div class="sql-error-hint">' + escapeHtml(d.hint) + '</div>'
+    : '';
+  const fixHtml = d.suggestedFix
+    ? '<div class="sql-error-hint" style="margin-top:4px; color:var(--color-primary);">Suggested fix: ' + escapeHtml(d.suggestedFix) + '</div>'
+    : '';
+  return '<div class="sql-error-kind">' + escapeHtml(d.kind || 'Error') + '</div>' +
+    '<pre class="sql-error-detail">' + escapeHtml(d.detail || '') + '</pre>' +
+    hintHtml + fixHtml;
+}
+
+const PUBLIC_API_SURFACE = Object.freeze([
+  'adviseError',
+  'renderAdvisedErrorHtml',
+]);
+
+  window.PolyglotErrorAdvisor = {
+    adviseError: typeof adviseError !== 'undefined' ? adviseError : null,
+    mountErrorAdvisor: typeof mountErrorAdvisor !== 'undefined' ? mountErrorAdvisor : null,
+  };
+
+
+  function initUI_dg_ov_polyglot() {
+    var panelId = 'dg-polyglot-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:859;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '\u00D7';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        if (typeof mountAutocomplete === 'function') {
+          mountAutocomplete({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Polyglot Workbench: multi-dialect SQL translation + schema-aware autocomplete.';
+          p.appendChild(msg);
+        }
+      } else { p.style.display = 'none'; }
+    }
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-polyglot')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-polyglot';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83D\uDD24<br><span>Polyglot</span>';
+      btn.addEventListener('click', function(){
+        ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){
+          var e2=document.getElementById(id); if(e2) e2.classList.remove('open');
+        });
+        toggle();
+      });
+      ovGrid.appendChild(btn);
+    }
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-polyglot')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-polyglot';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83D\uDD24<br><span>Polyglot</span>';
+      btn2.addEventListener('click', function(){
+        var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open');
+        toggle();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUI_dg_ov_polyglot);
+  else setTimeout(initUI_dg_ov_polyglot, 900);
+
+}());
+/* ---- end polyglot-error-advisor.js ---- */
+
+
+/* ================================================================
+   METRIC STUDIO -- recovered from git history
+   PR #93 (OneCanvas Phase 1), PR #174 (version history wired)
+   ================================================================ */
+
+/* ---- from js/metrics/metric-contracts.js (metrics/ version) ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Metric Contracts, Batch 1: versioned data model (read-only)
+// ============================================================
+// WHY THIS EXISTS (the honesty gap it closes):
+// js/metrics/metric-studio.js's MetricRegistry.update() replaces a metric's
+// definition in place — the previous name/formula/filters/owner are simply
+// gone. Across the data-quality research this project has done, the #1 named
+// cause of dashboard distrust in real teams is not dirty data, it is
+// CONFLICTING METRIC DEFINITIONS that quietly drift with no record of who
+// changed what, when, or why. This module adds that record, without touching
+// MetricRegistry's existing (already-tested) behaviour at all.
+//
+// WHAT IT IS: a thin, append-only version history sitting ALONGSIDE a metric
+// record. Every call to recordVersion() appends an immutable, timestamped
+// snapshot of the metric's definition fields; nothing already stored is ever
+// edited or deleted. diffVersions() compares any two snapshots field-by-field
+// and returns a plain, structured list of what changed.
+//
+// WHAT IT DELIBERATELY DOES NOT DO YET (future batches, not this one):
+//   - It does not touch MetricRegistry or metric-studio.js at all.
+//   - It has no UI yet (Batch 2: diff view).
+//   - It has no AI-agent write path yet (Batch 3: confirm gate). No agent of
+//     any kind can call recordVersion() through this module today — only
+//     whatever human-driven code a future batch wires up will.
+//   - It ships behind the `metricContracts` flag (added this PR, OFF by
+//     default) once wired into the UI in a later batch; right now, being pure
+//     logic with no caller, it is inert regardless of the flag.
+//
+// Identity split, same pattern as metric-studio.js:
+//   1. Pure logic (this whole file, currently) — Node-testable, no DOM/network.
+//   2. DOM presenter — added in Batch 2 as a new exported render function in
+//      this same file, gated behind the flag by the caller in main.js.
+
+const CONTRACT_FIELDS = ['name', 'plainEnglish', 'expression', 'owner', 'tag'];
+
+/**
+ * Take an immutable snapshot of the contract-relevant fields of a metric
+ * definition. Only the fields a "definition" actually consists of are kept —
+ * runtime fields like computedValue/computedAt/status live on the metric
+ * record itself and are NOT part of the contract (a metric can be recomputed
+ * or recertified without that being a definition change).
+ * @param {object} metric a metric-studio record (or metric-shaped candidate)
+ * @returns {object} plain snapshot of just the contract fields
+ */
+function snapshotDefinition(metric) {
+  const snap = {};
+  for (const f of CONTRACT_FIELDS) snap[f] = (metric && metric[f] != null) ? metric[f] : '';
+  return snap;
+}
+
+/**
+ * An append-only version history for one metric's definition. Holds a plain
+ * array of immutable version entries; nothing is ever mutated or removed once
+ * appended — this IS the audit trail, so the array itself is the source of
+ * truth, not a side effect of one.
+ */
+class MetricContractHistory {
+  constructor(metricId) {
+    this.metricId = metricId;
+    this._versions = []; // [{version, snapshot, changedAt, changedBy, reason, source}]
+  }
+
+  get length() { return this._versions.length; }
+
+  /** All versions, oldest first. Returns a copy — callers cannot mutate history via this. */
+  list() { return this._versions.map(v => ({ ...v, snapshot: { ...v.snapshot } })); }
+
+  /** The most recent version, or null if none recorded yet. */
+  latest() {
+    if (this._versions.length === 0) return null;
+    const v = this._versions[this._versions.length - 1];
+    return { ...v, snapshot: { ...v.snapshot } };
+  }
+
+  /** Look up one version by its 1-based version number. */
+  get(versionNumber) {
+    const v = this._versions.find(v => v.version === versionNumber);
+    return v ? { ...v, snapshot: { ...v.snapshot } } : null;
+  }
+
+  /**
+   * Append a new version snapshot. This is the ONLY way an entry is added —
+   * there is deliberately no update()/remove() on this class. `changedBy` and
+   * `reason` are honest metadata, not enforced strings: an empty reason is
+   * recorded as empty, never invented.
+   * @param {object} metric the metric definition to snapshot
+   * @param {{changedBy?:string, reason?:string, source?:'human'|'agent-proposed'}} meta
+   * @returns {object} the appended version entry (a copy)
+   */
+  recordVersion(metric, meta = {}) {
+    const snapshot = snapshotDefinition(metric);
+    const entry = {
+      version: this._versions.length + 1,
+      snapshot,
+      changedAt: Date.now(),
+      changedBy: meta.changedBy || 'unknown',
+      reason: meta.reason || '',
+      source: meta.source === 'agent-proposed' ? 'agent-proposed' : 'human',
+    };
+    this._versions.push(entry);
+    return { ...entry, snapshot: { ...entry.snapshot } };
+  }
+
+  /** The exportable local-only JSON payload (parsed object, not a string). */
+  toJSON() {
+    return { kind: 'dataglow-metric-contract-history', version: 1, metricId: this.metricId, versions: this.list() };
+  }
+
+  /** Rebuild a history from a toJSON() payload. */
+  static fromJSON(payload) {
+    const h = new MetricContractHistory(payload && payload.metricId);
+    const arr = (payload && Array.isArray(payload.versions)) ? payload.versions : [];
+    for (const v of arr) {
+      if (v && v.snapshot) h._versions.push({ ...v, snapshot: { ...v.snapshot } });
+    }
+    return h;
+  }
+}
+
+/**
+ * A registry of MetricContractHistory objects keyed by metric id — the
+ * append-only counterpart to metric-studio's MetricRegistry, kept as a
+ * SEPARATE object on purpose so metric-studio.js needs zero code changes to
+ * coexist with it. A caller that wants contracts wires the two together (a
+ * later batch); this batch only proves the data model itself is correct.
+ */
+class MetricContractRegistry {
+  constructor() {
+    this._histories = new Map(); // metricId -> MetricContractHistory
+  }
+
+  get size() { return this._histories.size; }
+  has(metricId) { return this._histories.has(metricId); }
+
+  /** Get (creating if absent) the history for a metric id. */
+  historyFor(metricId) {
+    if (!this._histories.has(metricId)) this._histories.set(metricId, new MetricContractHistory(metricId));
+    return this._histories.get(metricId);
+  }
+
+  /** Convenience: snapshot + append in one call. Returns the appended version entry. */
+  recordVersion(metricId, metric, meta = {}) {
+    return this.historyFor(metricId).recordVersion(metric, meta);
+  }
+
+  toJSON() {
+    return {
+      kind: 'dataglow-metric-contract-registry',
+      version: 1,
+      histories: [...this._histories.values()].map(h => h.toJSON()),
+    };
+  }
+
+  static fromJSON(payload) {
+    const reg = new MetricContractRegistry();
+    const arr = (payload && Array.isArray(payload.histories)) ? payload.histories : [];
+    for (const h of arr) {
+      if (h && h.metricId != null) reg._histories.set(h.metricId, MetricContractHistory.fromJSON(h));
+    }
+    return reg;
+  }
+}
+
+/**
+ * Compare two contract snapshots field-by-field. Pure, no history/registry
+ * needed — this is what Batch 2's diff view and Batch 3's confirm-gate both
+ * render, so it is the one place "what changed" is computed.
+ * @param {object} before a snapshot (or metric; extra fields are ignored)
+ * @param {object} after a snapshot (or metric; extra fields are ignored)
+ * @returns {{changed:boolean, fields:Array<{field:string, before:string, after:string}>}}
+ */
+function diffVersions(before, after) {
+  const b = snapshotDefinition(before || {});
+  const a = snapshotDefinition(after || {});
+  const fields = [];
+  for (const f of CONTRACT_FIELDS) {
+    if (String(b[f]) !== String(a[f])) {
+      fields.push({ field: f, before: b[f], after: a[f] });
+    }
+  }
+  return { changed: fields.length > 0, fields };
+}
+
+/**
+ * Human-readable one-line summary of a diff, e.g. "expression changed" or
+ * "name, owner changed" or "no changes". Used by the Batch 2 diff view and
+ * anywhere a compact label is needed (e.g. a list row).
+ * @param {{changed:boolean, fields:Array<{field:string}>}} diff
+ * @returns {string}
+ */
+function summarizeDiff(diff) {
+  if (!diff || !diff.changed || diff.fields.length === 0) return 'no changes';
+  return `${diff.fields.map(f => f.field).join(', ')} changed`;
+}
+
+
+
+  // Expose as MetricContractsCore (distinct from NLSQLContracts which is the nl-sql/ version)
+  window.MetricContractsCore = {
+    getAllContracts: typeof getAllContracts !== 'undefined' ? getAllContracts : null,
+    matchContracts: typeof matchContracts !== 'undefined' ? matchContracts : null,
+    buildContractVersion: typeof buildContractVersion !== 'undefined' ? buildContractVersion : null,
+    saveContractVersion: typeof saveContractVersion !== 'undefined' ? saveContractVersion : null,
+  };
+}());
+/* ---- end metric-contracts.js ---- */
+
+/* ---- from js/metrics/metric-studio.js ---- */
+;(function(){
+  'use strict';
+
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+  var escapeHtml = (typeof window._dgEscapeHtml === 'function') ? window._dgEscapeHtml
+    : function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+
+  var escapeHtml_ms = escapeHtml;
+  var formatNumber = (typeof window._dgFormatNumber === 'function') ? window._dgFormatNumber
+    : function(n){ return typeof n==='number' ? n.toLocaleString() : String(n); };
+  var timeAgo = (typeof window._dgTimeAgo === 'function') ? window._dgTimeAgo
+    : function(ts){ var s=Math.floor((Date.now()-ts)/1000); return s<60?s+'s ago':s<3600?Math.floor(s/60)+'m ago':Math.floor(s/3600)+'h ago'; };
+  var _mc = window.MetricContractsCore || {};
+  var getAllContracts   = _mc.getAllContracts;
+  var matchContracts   = _mc.matchContracts;
+  var buildContractVersion = _mc.buildContractVersion;
+  var saveContractVersion  = _mc.saveContractVersion;
+// ============================================================
+// DATAGLOW — Metric Studio (OneCanvas Phase 1, Part 5)
+// ============================================================
+// A local-only registry for user-defined metrics: a named business metric
+// described in plain English, tied to REAL columns of the currently loaded
+// dataset, with a formula that is actually computed against the in-browser
+// DuckDB engine (never a mocked value). It follows the same local-only
+// named-thing registry pattern as js/packs/pack-registry.js — an in-memory Map
+// plus explicit toJSON()/fromJSON() for the exportable/importable JSON the spec
+// asks for — and deliberately carries ZERO platform coupling in its logic core:
+//
+//   * no localStorage / cookies / network of its own;
+//   * the DuckDB engine is INJECTED (same seam the anomaly modules use), so the
+//     pure logic is unit-testable in Node against the native test engine.
+//
+// The identity split, mirrored by the file's two halves:
+//   1. Pure logic + registry (validation, column-ref extraction, formula
+//      suggestion, DuckDB compute, duplicate detection). Node-testable.
+//   2. DOM presenters (renderMetricStudio, the create form + saved list +
+//      duplicate prompt), gated behind the `metricStudio` flag by the caller in
+//      app-shell/main.js — with the flag off (its shipped default) nothing
+//      renders.
+//
+// HONESTY: a metric is only ever stored with a value that Metric Studio actually
+// computed against the loaded table. If the formula fails to compute, the metric
+// records the error, not a placeholder number.
+
+// [stripped import] import { el, escapeHtml, formatNumber, timeAgo } from '../app-shell/utils.js';
+
+const METRIC_STATUSES = ['exploratory', 'reviewed', 'certified'];
+const DEFAULT_STATUS = 'exploratory';
+
+// Similarity at or above this fraction on the plain-English text is treated as a
+// likely duplicate and prompts merge/keep-both. Same-formula is an exact match.
+const DUPLICATE_TEXT_THRESHOLD = 0.9;
+
+// SQL keywords / built-in functions a bareword identifier in a formula may be
+// WITHOUT being a column reference. Anything left over after removing these must
+// resolve to a real column, otherwise the metric is rejected. Deliberately
+// conservative — unknown barewords fail loudly rather than being accepted as
+// silent garbage.
+const SQL_TOKENS = new Set([
+  'select', 'from', 'where', 'group', 'by', 'having', 'order', 'as', 'distinct',
+  'sum', 'count', 'avg', 'min', 'max', 'median', 'mode', 'stddev', 'stddev_pop',
+  'stddev_samp', 'var_pop', 'var_samp', 'variance', 'first', 'last', 'total',
+  'case', 'when', 'then', 'else', 'end', 'and', 'or', 'not', 'null', 'is', 'in',
+  'between', 'like', 'ilike', 'true', 'false', 'cast', 'try_cast', 'coalesce',
+  'nullif', 'round', 'floor', 'ceil', 'ceiling', 'abs', 'sqrt', 'pow', 'power',
+  'exp', 'ln', 'log', 'greatest', 'least', 'over', 'partition', 'filter',
+  'double', 'integer', 'int', 'bigint', 'varchar', 'date', 'timestamp', 'boolean',
+  'decimal', 'numeric', 'real', 'float', 'asc', 'desc', 'on', 'using', 'length',
+  'lower', 'upper', 'trim', 'extract', 'year', 'month', 'day', 'epoch',
+]);
+
+function slug(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// A normalised set of the schema's column names for case-insensitive lookup.
+// Accepts either the app's `cols` shape ([{name,type}]) or a bare string[].
+function normalizeSchema(schemaCols) {
+  const out = new Map(); // lowercased -> canonical name
+  for (const c of schemaCols || []) {
+    const name = typeof c === 'string' ? c : (c && c.name);
+    if (typeof name === 'string' && name.trim() !== '') out.set(name.toLowerCase(), name);
+  }
+  return out;
+}
+
+/**
+ * Extract the candidate column references from a formula: every bareword or
+ * double-quoted identifier that is not a known SQL token or a pure number.
+ * Pure — no schema needed. Returns lowercased identifier strings, de-duped.
+ * @param {string} expression
+ * @returns {string[]}
+ */
+function referencedIdentifiers(expression) {
+  const expr = String(expression || '');
+  const found = new Set();
+  // Double-quoted identifiers keep spaces/case; store lowercased for matching.
+  for (const m of expr.matchAll(/"([^"]+)"/g)) found.add(m[1].toLowerCase());
+  // Barewords, minus anything that was inside quotes (already captured).
+  const unquoted = expr.replace(/"[^"]+"/g, ' ');
+  for (const m of unquoted.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+    const tok = m[0].toLowerCase();
+    if (!SQL_TOKENS.has(tok)) found.add(tok);
+  }
+  return [...found];
+}
+
+/**
+ * Validate a metric definition against the loaded dataset's schema. Rejects an
+ * empty name/expression and — the important honesty guard — any column the
+ * formula references that does not exist in the schema.
+ * @param {{name?:string, plainEnglish?:string, expression?:string}} def
+ * @param {Array<{name:string}|string>} schemaCols the loaded dataset's columns
+ * @returns {{valid:boolean, errors:string[], columns:string[]}}
+ */
+function validateMetricDefinition(def, schemaCols) {
+  const errors = [];
+  const name = (def && def.name || '').trim();
+  const expression = (def && def.expression || '').trim();
+  if (!name) errors.push('Metric name is required.');
+  if (!expression) errors.push('A formula/expression is required.');
+  // A single expression only — reject statement chaining outright.
+  if (expression.includes(';')) errors.push('The formula must be a single expression (no ";").');
+
+  const schema = normalizeSchema(schemaCols);
+  const refs = referencedIdentifiers(expression);
+  const columns = [];
+  const undefined_ = [];
+  for (const ref of refs) {
+    if (schema.has(ref)) columns.push(schema.get(ref));
+    else undefined_.push(ref);
+  }
+  if (schema.size === 0 && refs.length > 0) {
+    errors.push('No dataset is loaded, so the formula\'s columns cannot be validated.');
+  } else if (undefined_.length > 0) {
+    errors.push(`Formula references column(s) not in the dataset: ${undefined_.join(', ')}.`);
+  }
+  if (schema.size > 0 && refs.length === 0) {
+    errors.push('The formula does not reference any dataset column.');
+  }
+  return { valid: errors.length === 0, errors, columns };
+}
+
+// ------------------------------------------------------------
+// Plain-English → formula suggestion (best-effort, editable)
+// ------------------------------------------------------------
+// Turns "readmission rate = readmissions / total_discharges" into a runnable
+// aggregate. It is a SUGGESTION only — the "Show the math" toggle always lets the
+// user see and edit the raw expression before saving. Not ML; a small heuristic.
+
+function matchColumn(word, schema) {
+  const w = word.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (schema.has(w)) return schema.get(w);
+  // try snake/space variants
+  for (const [k, v] of schema) {
+    if (k.replace(/_/g, '') === w.replace(/_/g, '')) return v;
+  }
+  return null;
+}
+
+/**
+ * Best-effort formula suggestion from a plain-English definition. Recognises an
+ * explicit "= <rhs>" and simple "A per/over/divided by B" ratios, mapping words
+ * to real columns and wrapping bare column ratios in SUM(...) so they aggregate.
+ * Returns '' when nothing confident can be suggested (the user then writes it).
+ * @param {string} plainEnglish
+ * @param {Array<{name:string}|string>} schemaCols
+ * @returns {string}
+ */
+function suggestExpression(plainEnglish, schemaCols) {
+  const text = String(plainEnglish || '').trim();
+  if (!text) return '';
+  const schema = normalizeSchema(schemaCols);
+
+  // 1. Explicit "name = expression": trust the RHS, but only if every bareword
+  //    it references resolves to a real column (else it is not yet runnable).
+  const eq = text.split('=');
+  if (eq.length === 2 && eq[1].trim()) {
+    const rhs = eq[1].trim();
+    const refs = referencedIdentifiers(rhs);
+    if (refs.length > 0 && refs.every(r => schema.has(r))) return rhs;
+  }
+
+  // 2. "A per|over|divided by|/ B" ratio → SUM(A) / NULLIF(SUM(B), 0).
+  const ratio = text.match(/([A-Za-z0-9_ ]+?)\s*(?:per|over|divided by|\/)\s*([A-Za-z0-9_ ]+)/i);
+  if (ratio) {
+    const num = matchColumn(ratio[1].split(/\s+/).pop(), schema);
+    const den = matchColumn(ratio[2].split(/\s+/).shift(), schema);
+    if (num && den) return `SUM("${num}") / NULLIF(SUM("${den}"), 0)`;
+  }
+
+  // 3. A single mentioned column with an average/mean/total hint.
+  const words = text.split(/\s+/);
+  for (const w of words) {
+    const col = matchColumn(w, schema);
+    if (col) {
+      if (/\b(average|mean|avg)\b/i.test(text)) return `AVG("${col}")`;
+      if (/\b(total|sum)\b/i.test(text)) return `SUM("${col}")`;
+      if (/\b(count|number of|how many)\b/i.test(text)) return `COUNT("${col}")`;
+    }
+  }
+  return '';
+}
+
+// ------------------------------------------------------------
+// DuckDB compute (engine injected)
+// ------------------------------------------------------------
+
+/**
+ * Actually compute a metric's formula against the loaded table via the injected
+ * engine's runQuery({columns,rows}) contract. Returns the scalar value + a
+ * timestamp, or an ok:false error — never a placeholder number.
+ * @param {{table:string, expression:string, engine:{runQuery:Function}}} arg
+ * @returns {Promise<{ok:boolean, value:(number|string|null), computedAt:number, error?:string, sql?:string}>}
+ */
+async function computeMetricValue({ table, expression, engine }) {
+  if (!engine || typeof engine.runQuery !== 'function') {
+    return { ok: false, value: null, computedAt: Date.now(), error: 'No query engine available.' };
+  }
+  if (!table) return { ok: false, value: null, computedAt: Date.now(), error: 'No table loaded.' };
+  const sql = `SELECT (${expression}) AS value FROM ${table}`;
+  try {
+    const res = await engine.runQuery(sql);
+    const rows = res && res.rows ? res.rows : [];
+    let value = rows.length ? rows[0].value : null;
+    if (typeof value === 'bigint') value = Number(value);
+    return { ok: true, value, computedAt: Date.now(), sql };
+  } catch (e) {
+    return { ok: false, value: null, computedAt: Date.now(), error: e.message || String(e), sql };
+  }
+}
+
+// ------------------------------------------------------------
+// Duplicate / conflict detection
+// ------------------------------------------------------------
+
+function normalizeText(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function normalizeExpr(s) {
+  return String(s || '').toLowerCase().replace(/\s+/g, '');
+}
+
+/**
+ * Dice coefficient over character bigrams — a simple, dependency-free string
+ * similarity in [0,1]. 1.0 for identical normalised text.
+ * @returns {number}
+ */
+function textSimilarity(a, b) {
+  const x = normalizeText(a);
+  const y = normalizeText(b);
+  if (!x && !y) return 1;
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  const bigrams = (s) => {
+    const m = new Map();
+    for (let i = 0; i < s.length - 1; i++) {
+      const g = s.slice(i, i + 2);
+      m.set(g, (m.get(g) || 0) + 1);
+    }
+    return m;
+  };
+  const bx = bigrams(x);
+  const by = bigrams(y);
+  let overlap = 0;
+  let totalX = 0;
+  let totalY = 0;
+  for (const v of bx.values()) totalX += v;
+  for (const v of by.values()) totalY += v;
+  for (const [g, c] of bx) if (by.has(g)) overlap += Math.min(c, by.get(g));
+  return (2 * overlap) / (totalX + totalY);
+}
+
+/**
+ * Find existing metrics that conflict with a candidate definition: an exact
+ * (normalised) formula match, or >DUPLICATE_TEXT_THRESHOLD plain-English text
+ * similarity. Real check, returns every conflict with its reason.
+ * @param {Array<object>} existing
+ * @param {{plainEnglish?:string, expression?:string}} candidate
+ * @returns {Array<{metric:object, reason:string, similarity:number}>}
+ */
+function findDuplicates(existing, candidate) {
+  const out = [];
+  const candExpr = normalizeExpr(candidate.expression);
+  for (const m of existing || []) {
+    if (candExpr && normalizeExpr(m.expression) === candExpr) {
+      out.push({ metric: m, reason: 'same-formula', similarity: 1 });
+      continue;
+    }
+    const sim = textSimilarity(m.plainEnglish, candidate.plainEnglish);
+    if (sim >= DUPLICATE_TEXT_THRESHOLD) {
+      out.push({ metric: m, reason: 'similar-text', similarity: sim });
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------
+// Registry (local-only, in-memory + JSON export/import)
+// ------------------------------------------------------------
+
+class MetricRegistry {
+  constructor() {
+    this._metrics = new Map(); // id -> metric
+  }
+
+  get size() { return this._metrics.size; }
+  has(id) { return this._metrics.has(id); }
+  get(id) { return this._metrics.get(id) || null; }
+  list() { return [...this._metrics.values()]; }
+
+  _uniqueId(name) {
+    const base = slug(name) || 'metric';
+    let id = base;
+    let n = 2;
+    while (this._metrics.has(id)) id = `${base}-${n++}`;
+    return id;
+  }
+
+  /**
+   * Add a fully-formed metric record. Assigns an id + timestamps. Does NOT run
+   * duplicate detection itself — the caller runs findDuplicates first and
+   * decides merge/keep-both, matching the spec's explicit prompt.
+   * @returns {object} the stored metric
+   */
+  add(metric) {
+    const now = Date.now();
+    const id = metric.id && !this._metrics.has(metric.id) ? metric.id : this._uniqueId(metric.name);
+    const record = {
+      id,
+      name: metric.name,
+      plainEnglish: metric.plainEnglish || '',
+      expression: metric.expression,
+      columns: Array.isArray(metric.columns) ? metric.columns : [],
+      status: METRIC_STATUSES.includes(metric.status) ? metric.status : DEFAULT_STATUS,
+      owner: metric.owner || '',
+      tag: metric.tag || '',
+      computedValue: metric.computedValue ?? null,
+      computedAt: metric.computedAt ?? null,
+      computeError: metric.computeError ?? null,
+      createdAt: metric.createdAt || now,
+      updatedAt: now,
+    };
+    this._metrics.set(id, record);
+    return record;
+  }
+
+  update(id, patch) {
+    const cur = this._metrics.get(id);
+    if (!cur) return null;
+    const next = { ...cur, ...patch, id, updatedAt: Date.now() };
+    if (!METRIC_STATUSES.includes(next.status)) next.status = cur.status;
+    this._metrics.set(id, next);
+    return next;
+  }
+
+  remove(id) { return this._metrics.delete(id); }
+
+  setStatus(id, status) {
+    if (!METRIC_STATUSES.includes(status)) throw new Error(`Unknown metric status "${status}"`);
+    return this.update(id, { status });
+  }
+
+  /** Counts by status for the Trust Strip certification field. */
+  statusCounts() {
+    const counts = { certified: 0, reviewed: 0, exploratory: 0, total: 0 };
+    for (const m of this._metrics.values()) {
+      counts[m.status] = (counts[m.status] || 0) + 1;
+      counts.total += 1;
+    }
+    return counts;
+  }
+
+  /** The exportable local-only JSON payload (parsed object, not a string). */
+  toJSON() {
+    return { kind: 'dataglow-metric-registry', version: 1, metrics: this.list() };
+  }
+
+  /** Rebuild a registry from a toJSON() payload (bare array also accepted). */
+  static fromJSON(payload) {
+    const reg = new MetricRegistry();
+    const arr = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.metrics) ? payload.metrics : []);
+    for (const m of arr) {
+      if (m && typeof m === 'object' && m.name && m.expression) reg.add(m);
+    }
+    return reg;
+  }
+}
+
+// ------------------------------------------------------------
+// DOM presenter (gated behind the `metricStudio` flag by the caller)
+// ------------------------------------------------------------
+
+function statusBadge(status) {
+  const cls = { certified: 'badge-pass', reviewed: 'badge-warn', exploratory: 'badge-idle' };
+  return el('span', { class: `badge ${cls[status] || 'badge-idle'}`, 'data-testid': 'metric-status-badge' }, status);
+}
+
+function metricValueText(m) {
+  if (m.computeError) return `compute error: ${m.computeError}`;
+  if (m.computedValue == null) return 'not yet computed';
+  const v = typeof m.computedValue === 'number' ? formatNumber(m.computedValue) : String(m.computedValue);
+  return `${v}${m.computedAt ? ` · ${timeAgo(m.computedAt)}` : ''}`;
+}
+
+/**
+ * Render the Metric Studio panel into `host`: the create form (plain English +
+ * auto-suggested formula with a "Show the math" toggle), the saved-metric list
+ * with status badges, and the duplicate-detection prompt when a candidate
+ * collides. All DOM built with the shared `el` helper + existing CSS classes.
+ *
+ * @param {object} opts
+ * @param {HTMLElement} opts.host
+ * @param {MetricRegistry} opts.registry
+ * @param {Array<{name:string}|string>} [opts.schemaCols] loaded dataset columns
+ * @param {string} [opts.table] loaded table name (for compute)
+ * @param {{runQuery:Function}} [opts.engine] the DuckDB engine
+ * @param {(m:object)=>void} [opts.onOpenProof] open the Proof Drawer for a metric
+ * @param {(msg:string,type?:string)=>void} [opts.onToast]
+ * @param {()=>void} [opts.onChange] called after the registry mutates
+ * @param {(metric:object, meta:{source:string, reason:string, changedBy:string})=>void} [opts.onDefinitionSaved] called after a human saves (creates or merges) a metric definition, so a caller can record a Metric Contract version. Defaults to a no-op — with it unset, save behaviour is byte-for-byte unchanged.
+ */
+function renderMetricStudio(opts = {}) {
+  const {
+    host, registry, schemaCols = [], table = null, engine = null,
+    onOpenProof = () => {}, onToast = () => {}, onChange = () => {},
+    onDefinitionSaved = () => {},
+  } = opts;
+  if (!host || !registry) return;
+  host.innerHTML = '';
+
+  const hasData = normalizeSchema(schemaCols).size > 0;
+
+  // ---- Create form ----
+  const nameInput = el('input', { class: 'input', type: 'text', placeholder: 'Metric name (e.g. Readmission Rate)', 'data-testid': 'metric-name' });
+  const plainInput = el('textarea', { class: 'input', rows: '2', placeholder: 'Plain English (e.g. readmission rate = readmissions / total_discharges)', 'data-testid': 'metric-plain' });
+  const exprInput = el('input', { class: 'input', type: 'text', placeholder: 'Formula (DuckDB expression)', 'data-testid': 'metric-expr' });
+  const exprRow = el('div', { style: 'display:none; margin-top:var(--space-2);' }, [
+    el('label', { style: 'font-size:var(--text-sm); color:var(--color-text-muted);' }, 'Formula (raw DuckDB expression):'),
+    exprInput,
+  ]);
+  const showMath = el('button', { class: 'btn btn-ghost', type: 'button', 'data-testid': 'metric-show-math' }, 'Show the math');
+  showMath.addEventListener('click', () => {
+    const open = exprRow.style.display === 'none';
+    exprRow.style.display = open ? '' : 'none';
+    showMath.textContent = open ? 'Hide the math' : 'Show the math';
+  });
+  // Auto-suggest the formula from plain English (editable via Show the math).
+  plainInput.addEventListener('input', () => {
+    if (exprInput.dataset.touched === '1') return;
+    const s = suggestExpression(plainInput.value, schemaCols);
+    if (s) exprInput.value = s;
+  });
+  exprInput.addEventListener('input', () => { exprInput.dataset.touched = '1'; });
+
+  const ownerInput = el('input', { class: 'input', type: 'text', placeholder: 'Owner (optional)', 'data-testid': 'metric-owner' });
+  const tagInput = el('input', { class: 'input', type: 'text', placeholder: 'Tag (optional)', 'data-testid': 'metric-tag' });
+  const statusSel = el('select', { class: 'input', 'data-testid': 'metric-status-select' },
+    METRIC_STATUSES.map(s => el('option', { value: s }, s)));
+
+  const saveBtn = el('button', { class: 'btn btn-primary', type: 'button', 'data-testid': 'metric-save' }, 'Create metric');
+  const promptHost = el('div', { 'data-testid': 'metric-dup-prompt' });
+
+  async function persist(candidate, { force = false } = {}) {
+    const check = validateMetricDefinition(candidate, schemaCols);
+    if (!check.valid) { onToast(check.errors.join(' '), 'error'); return; }
+    candidate.columns = check.columns;
+
+    if (!force) {
+      const dups = findDuplicates(registry.list(), candidate);
+      if (dups.length > 0) { renderDuplicatePrompt(candidate, dups); return; }
+    }
+    promptHost.innerHTML = '';
+
+    // Actually compute the value against the loaded table (never a placeholder).
+    let computed = { ok: false, value: null, computedAt: null, error: 'not computed' };
+    if (table && engine) computed = await computeMetricValue({ table, expression: candidate.expression, engine });
+    const stored = registry.add({
+      ...candidate,
+      computedValue: computed.ok ? computed.value : null,
+      computedAt: computed.ok ? computed.computedAt : null,
+      computeError: computed.ok ? null : computed.error,
+    });
+    onToast(`Metric "${stored.name}" saved${computed.ok ? '' : ' (formula did not compute)'}`, computed.ok ? 'success' : 'warn');
+    // Record a Metric Contract version of the just-saved human definition. The
+    // callback defaults to a no-op, so this changes nothing about the save
+    // itself — it only ADDS an append-only version-history entry alongside.
+    onDefinitionSaved(stored, { source: 'human', reason: 'Created in Metric Studio', changedBy: stored.owner || 'you' });
+    nameInput.value = ''; plainInput.value = ''; exprInput.value = ''; exprInput.dataset.touched = '';
+    ownerInput.value = ''; tagInput.value = '';
+    onChange();
+    renderList();
+  }
+
+  function renderDuplicatePrompt(candidate, dups) {
+    promptHost.innerHTML = '';
+    const first = dups[0];
+    const box = el('div', { class: 'card', style: 'padding:var(--space-3); margin-top:var(--space-3); border:1px solid var(--color-warn, #b8860b);' }, [
+      el('div', { style: 'font-weight:600; margin-bottom:var(--space-2);' },
+        first.reason === 'same-formula'
+          ? `A metric with the same formula already exists: "${first.metric.name}".`
+          : `This looks ${Math.round(first.similarity * 100)}% similar to "${first.metric.name}".`),
+      el('div', { style: 'display:flex; gap:var(--space-2);' }, [
+        el('button', { class: 'btn btn-ghost', type: 'button', 'data-testid': 'metric-dup-merge',
+          onclick: () => {
+            // Merge = update the existing metric's definition in place.
+            const merged = registry.update(first.metric.id, {
+              plainEnglish: candidate.plainEnglish, expression: candidate.expression, columns: candidate.columns,
+            });
+            promptHost.innerHTML = '';
+            onToast(`Merged into "${first.metric.name}"`, 'success');
+            if (merged) onDefinitionSaved(merged, { source: 'human', reason: 'Merged into existing definition', changedBy: merged.owner || 'you' });
+            onChange(); renderList();
+          } }, 'Merge into existing'),
+        el('button', { class: 'btn btn-primary', type: 'button', 'data-testid': 'metric-dup-keepboth',
+          onclick: () => persist(candidate, { force: true }) }, 'Keep both'),
+      ]),
+    ]);
+    promptHost.appendChild(box);
+  }
+
+  saveBtn.addEventListener('click', () => {
+    persist({
+      name: nameInput.value.trim(),
+      plainEnglish: plainInput.value.trim(),
+      expression: exprInput.value.trim(),
+      status: statusSel.value,
+      owner: ownerInput.value.trim(),
+      tag: tagInput.value.trim(),
+    });
+  });
+
+  const form = el('div', { class: 'card', style: 'padding:var(--space-4); margin-bottom:var(--space-4);', 'data-testid': 'metric-studio-form' }, [
+    el('div', { style: 'font-weight:600; margin-bottom:var(--space-3);' }, 'Define a metric'),
+    nameInput,
+    el('div', { style: 'margin-top:var(--space-2);' }, [plainInput]),
+    el('div', { style: 'display:flex; gap:var(--space-2); margin-top:var(--space-2); flex-wrap:wrap;' }, [ownerInput, tagInput, statusSel]),
+    el('div', { style: 'margin-top:var(--space-2);' }, [showMath]),
+    exprRow,
+    el('div', { style: 'margin-top:var(--space-3); display:flex; gap:var(--space-2);' }, [saveBtn]),
+    hasData ? null : el('div', { style: 'margin-top:var(--space-2); font-size:var(--text-sm); color:var(--color-text-muted);' },
+      'Load a dataset to tie metrics to real columns.'),
+    promptHost,
+  ]);
+
+  // ---- Saved list ----
+  const listHost = el('div', { 'data-testid': 'metric-studio-list' });
+  function renderList() {
+    listHost.innerHTML = '';
+    const metrics = registry.list();
+    if (metrics.length === 0) {
+      listHost.appendChild(el('div', { class: 'empty-state', style: 'padding:var(--space-3);' }, 'No metrics defined yet.'));
+      return;
+    }
+    for (const m of metrics) {
+      const row = el('div', { class: 'card', style: 'padding:var(--space-3); margin-bottom:var(--space-2); cursor:pointer;', 'data-testid': 'metric-row',
+        onclick: () => onOpenProof(m) }, [
+        el('div', { style: 'display:flex; justify-content:space-between; align-items:center; gap:var(--space-2);' }, [
+          el('div', { style: 'font-weight:600;' }, m.name),
+          statusBadge(m.status),
+        ]),
+        el('div', { style: 'font-size:var(--text-sm); color:var(--color-text-muted); margin-top:2px;' }, m.plainEnglish || m.expression),
+        el('div', { style: 'font-size:var(--text-sm); margin-top:2px;' }, `Value: ${metricValueText(m)}`),
+      ]);
+      listHost.appendChild(row);
+    }
+  }
+  renderList();
+
+  host.appendChild(form);
+  host.appendChild(el('div', { style: 'font-weight:600; margin:var(--space-3) 0 var(--space-2);' }, 'Saved metrics'));
+  host.appendChild(listHost);
+}
+
+  window.MetricStudio = {
+    mountMetricStudio: typeof mountMetricStudio !== 'undefined' ? mountMetricStudio : null,
+    buildMetricView: typeof buildMetricView !== 'undefined' ? buildMetricView : null,
+  };
+
+
+  function initUI_dg_ov_metricstudio() {
+    var panelId = 'dg-metric-studio-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:860;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '\u00D7';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        if (typeof mountMetricStudio === 'function') {
+          mountMetricStudio({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Metric Studio: versioned, access-controlled metric definitions with history.';
+          p.appendChild(msg);
+        }
+      } else { p.style.display = 'none'; }
+    }
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-metricstudio')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-metricstudio';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83D\uDCCA<br><span>Metrics</span>';
+      btn.addEventListener('click', function(){
+        ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){
+          var e2=document.getElementById(id); if(e2) e2.classList.remove('open');
+        });
+        toggle();
+      });
+      ovGrid.appendChild(btn);
+    }
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-metricstudio')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-metricstudio';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83D\uDCCA<br><span>Metrics</span>';
+      btn2.addEventListener('click', function(){
+        var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open');
+        toggle();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUI_dg_ov_metricstudio);
+  else setTimeout(initUI_dg_ov_metricstudio, 950);
+
+}());
+/* ---- end metric-studio.js ---- */
+
+
+/* ================================================================
+   DATA DIPLOMACY -- recovered from git history
+   Batch 1 (#146 engine), Batch 2 (#148 two-key UI),
+   Batch 3 (#356 real claims), Batch 4 (#357 P2P exchange)
+   Flag dataDiplomacy promoted ON in PR #160
+   ================================================================ */
+
+/* ---- from js/diplomacy/reconciliation-engine.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Data Diplomacy, Batch 1: reconciliation engine
+// ============================================================
+// The deterministic referee between two SEALED claims (js/diplomacy/diplomacy-claim.js)
+// about the SAME entity+field. It does NOT call an LLM, hit a network, or guess.
+// It applies one honest, explainable heuristic and — crucially — REFUSES to pick
+// a side when it has no basis to, returning `resolved:false` rather than
+// inventing a winner. That refusal is the whole point: this project's "precise
+// AI-validation claim" philosophy (see NORTH_STAR.md / docs/capability-map.md)
+// values an honest "I cannot tell" over false confidence.
+//
+// THE HEURISTIC (deterministic, in order):
+//   1. Both claims must be about the same entityId AND field, or the engine
+//      refuses ('entity/field mismatch') — it never reconciles apples to oranges.
+//   2. If BOTH claims carry a confidence and they differ by MORE than
+//      options.tieThreshold (default 0.05), the higher-confidence claim wins and
+//      the rationale cites the actual numbers used.
+//   3. Otherwise (confidences tied within the threshold, or either missing), if
+//      the caller supplied an options.sourceTrust ranking AND it separates the
+//      two sources, the higher-trust source wins and the rationale cites the
+//      actual trust ranks used.
+//   4. Otherwise the engine refuses: 'insufficient signal to auto-reconcile —
+//      needs human debate'. It NEVER silently defaults to a side.
+//
+// PURITY (mirrors js/gate/readiness-gate.js's discipline): reconcileClaims is
+// PURE and NEVER THROWS — it always returns a single well-formed result object,
+// even for garbage/empty input. No DOM, no engine, no network.
+
+const DEFAULT_TIE_THRESHOLD = 0.05;
+
+// A well-formed result is ALWAYS this shape, resolved or not, so callers never
+// branch on missing keys. On an unresolved result winningClaim/losingClaim are
+// null and marginOfConfidence is null.
+function makeResult({
+  resolved,
+  reason = null,
+  winningClaim = null,
+  losingClaim = null,
+  rationale = '',
+  marginOfConfidence = null,
+}) {
+  return { resolved, reason, winningClaim, losingClaim, rationale, marginOfConfidence };
+}
+
+function isClaimLike(c) {
+  return !!c && typeof c === 'object' && typeof c.entityId !== 'undefined' && typeof c.field !== 'undefined';
+}
+
+function finiteConfidence(c) {
+  return typeof c === 'number' && Number.isFinite(c) ? c : null;
+}
+
+// Resolve a source's trust rank from the caller's optional ranking. Accepts
+// either an ARRAY (most-trusted first) or an OBJECT map (source -> numeric rank,
+// higher = more trusted). Returns null when the source is unranked/absent so the
+// engine treats it as "no signal" rather than a silent zero.
+function trustRank(sourceTrust, source) {
+  if (!sourceTrust || source == null) return null;
+  if (Array.isArray(sourceTrust)) {
+    const idx = sourceTrust.indexOf(source);
+    return idx === -1 ? null : sourceTrust.length - idx;
+  }
+  if (typeof sourceTrust === 'object') {
+    const v = sourceTrust[source];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  }
+  return null;
+}
+
+/**
+ * Reconcile two sealed claims into a single verdict. PURE: no side effects,
+ * never throws, always returns a well-formed result object.
+ *
+ * @param {object} claimA  a sealed claim (js/diplomacy/diplomacy-claim.js)
+ * @param {object} claimB  the competing sealed claim
+ * @param {object} [options]
+ * @param {number} [options.tieThreshold=0.05]  confidences within this are a tie
+ * @param {Array<string>|Object<string,number>} [options.sourceTrust]  tie-break
+ *   ranking: array (most-trusted first) or map (source -> higher = more trusted)
+ * @returns {{resolved:boolean, reason:(string|null), winningClaim:(object|null), losingClaim:(object|null), rationale:string, marginOfConfidence:(number|null)}}
+ */
+function reconcileClaims(claimA, claimB, options = {}) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const tieThreshold = Number.isFinite(opts.tieThreshold) ? opts.tieThreshold : DEFAULT_TIE_THRESHOLD;
+
+  if (!isClaimLike(claimA) || !isClaimLike(claimB)) {
+    return makeResult({
+      resolved: false,
+      reason: 'invalid claim input',
+      rationale: 'Reconciliation needs two claim objects, each with an entityId and field.',
+    });
+  }
+
+  if (claimA.entityId !== claimB.entityId || claimA.field !== claimB.field) {
+    return makeResult({
+      resolved: false,
+      reason: 'entity/field mismatch',
+      rationale:
+        `Claims are not about the same thing: A is "${claimA.field}" of "${claimA.entityId}", `
+        + `B is "${claimB.field}" of "${claimB.entityId}". Refusing to reconcile unrelated claims.`,
+    });
+  }
+
+  const confA = finiteConfidence(claimA.confidence);
+  const confB = finiteConfidence(claimB.confidence);
+
+  // Step 2 — decide by confidence when both provide one and they differ enough.
+  if (confA != null && confB != null) {
+    const margin = Math.abs(confA - confB);
+    if (margin > tieThreshold) {
+      const aWins = confA > confB;
+      const winningClaim = aWins ? claimA : claimB;
+      const losingClaim = aWins ? claimB : claimA;
+      const winConf = aWins ? confA : confB;
+      const loseConf = aWins ? confB : confA;
+      return makeResult({
+        resolved: true,
+        reason: 'resolved by confidence',
+        winningClaim,
+        losingClaim,
+        marginOfConfidence: margin,
+        rationale:
+          `Preferred the "${winningClaim.source}" claim on confidence `
+          + `${winConf} vs ${loseConf} (margin ${margin.toFixed(3)} exceeds the `
+          + `${tieThreshold} tie threshold).`,
+      });
+    }
+  }
+
+  // Step 3 — confidence tied or missing: fall back to a caller-supplied source
+  // trust ranking, if it actually separates the two sources.
+  const rankA = trustRank(opts.sourceTrust, claimA.source);
+  const rankB = trustRank(opts.sourceTrust, claimB.source);
+  if (rankA != null && rankB != null && rankA !== rankB) {
+    const aWins = rankA > rankB;
+    const winningClaim = aWins ? claimA : claimB;
+    const losingClaim = aWins ? claimB : claimA;
+    const winRank = aWins ? rankA : rankB;
+    const loseRank = aWins ? rankB : rankA;
+    const confNote = (confA == null || confB == null)
+      ? 'confidence was missing on at least one claim'
+      : `confidence was tied within the ${tieThreshold} threshold`;
+    return makeResult({
+      resolved: true,
+      reason: 'resolved by source trust',
+      winningClaim,
+      losingClaim,
+      marginOfConfidence: null,
+      rationale:
+        `Confidence could not decide it (${confNote}); preferred the `
+        + `"${winningClaim.source}" claim on higher source trust `
+        + `(rank ${winRank} vs ${loseRank}).`,
+    });
+  }
+
+  // Step 4 — no honest basis to pick a side. Refuse rather than guess.
+  return makeResult({
+    resolved: false,
+    reason: 'insufficient signal to auto-reconcile — needs human debate',
+    rationale:
+      'Neither confidence nor source trust separates the two claims. Refusing to '
+      + 'pick a side without a basis — this needs human debate.',
+  });
+}
+
+/**
+ * Human-readable, multi-line explanation of a reconciliation result. Pure string
+ * builder in the same spirit as js/gate/readiness-gate.js's explainGateReasons().
+ * @param {ReturnType<typeof reconcileClaims>} result
+ * @returns {string}
+ */
+function explainReconciliation(result) {
+  if (!result || typeof result !== 'object') {
+    return 'No reconciliation result to explain.';
+  }
+  const lines = [];
+  if (result.resolved) {
+    const w = result.winningClaim || {};
+    const l = result.losingClaim || {};
+    lines.push(`RESOLVED — "${w.source}" wins over "${l.source}".`);
+    lines.push(`- Winning value: ${JSON.stringify(w.value)} (from "${w.source}").`);
+    lines.push(`- Losing value: ${JSON.stringify(l.value)} (from "${l.source}").`);
+    lines.push(`- Basis: ${result.rationale}`);
+    if (result.marginOfConfidence != null) {
+      lines.push(`- Confidence margin: ${result.marginOfConfidence.toFixed(3)}.`);
+    }
+  } else {
+    lines.push(`UNRESOLVED — ${result.reason}.`);
+    lines.push(`- ${result.rationale}`);
+  }
+  return lines.join('\n');
+}
+
+
+
+  window.ReconciliationEngine = {
+    reconcileDatasets: typeof reconcileDatasets !== 'undefined' ? reconcileDatasets : null,
+    explainReconciliation: typeof explainReconciliation !== 'undefined' ? explainReconciliation : null,
+    buildReconciliationSummary: typeof buildReconciliationSummary !== 'undefined' ? buildReconciliationSummary : null,
+  };
+}());
+/* ---- end reconciliation-engine.js ---- */
+
+/* ---- from js/diplomacy/diplomacy-claim.js ---- */
+;(function(){
+  'use strict';
+
+  var sha256Hex = (typeof window._dgSha256Hex === 'function') ? window._dgSha256Hex
+    : function(s){ return btoa(encodeURIComponent(s)).replace(/[^a-zA-Z0-9]/g,'').toLowerCase().slice(0,64); };
+
+  var canonicalJSON = (window.VerifiableCheckSeal || {}).canonicalJSON
+    || function(v){ return JSON.stringify(v, Object.keys(v||{}).sort()); };
+// ============================================================
+// DATAGLOW — Data Diplomacy, Batch 1: claim + seal builder
+// ============================================================
+// WHY THIS EXISTS (the new capability, batch 1):
+// Every other DATAGLOW trust surface reasons about ONE dataset: is it clean, is
+// it ready, is its provenance intact. Data Diplomacy is the first capability
+// built around DISAGREEMENT between TWO parties who each hold a claim about the
+// same real-world thing — e.g. a Riverside record says a customer's region is
+// "West" while a Lakeside record says "Pacific". Before two parties can debate
+// which claim wins, each claim must be made INERT and TAMPER-EVIDENT: sealed so
+// it can later be re-verified as the exact thing that was put on the table, not
+// something quietly edited mid-negotiation.
+//
+// WHAT THIS MODULE IS: a PURE claim builder + verifier. `sealClaim()` turns the
+// caller's raw assertion into an inert, fingerprinted claim object; nothing is
+// written to any registry, sent anywhere, or negotiated here. `verifyClaimSeal()`
+// recomputes the fingerprint so a mutated claim fails — genuine tamper
+// detection, not a "trusted" label.
+//
+// IT DOES NOT INVENT CRYPTO. The fingerprint is a SHA-256 hex over the claim's
+// canonical JSON, reusing the SAME `sha256Hex` primitive the rest of
+// js/provenance/ folds and the SAME `canonicalJSON` serializer
+// js/provenance/verifiable-check-seal.js already commits with. If a new
+// commitment behaviour is ever needed, extend those primitives — do not fork a
+// second hashing scheme here.
+//
+// WHAT IT DELIBERATELY DOES NOT DO YET (deferred to later batches):
+//   - Batch 2: a thin two-key approval UI wiring (a DOM presenter).
+//   - A later batch: real peer-to-peer transport of sealed claims.
+// This batch is pure logic + tests ONLY. Nothing in the app calls it yet.
+//
+// PURITY: no DOM, no engine, no network — identical in the browser, the Tauri
+// desktop webview, and headless Node tests.
+
+// [stripped import] import { sha256Hex } from '../provenance/provenance.js';
+// [stripped import] import { canonicalJSON } from '../provenance/verifiable-check-seal.js';
+
+const CLAIM_KIND = 'dataglow-diplomacy-claim';
+
+// A claim value of null/undefined is meaningless (there is nothing to reconcile),
+// so those are treated as missing; 0, false, and '' are legitimate values and
+// pass. confidence is genuinely optional — Riverside/Lakeside-style records may
+// or may not carry one — so it defaults to null and only a present-but-invalid
+// confidence (outside [0,1], or non-numeric) is rejected.
+function normalizeConfidence(confidence) {
+  if (confidence == null) return null;
+  if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    throw new Error(
+      `sealClaim: confidence must be a number in [0,1] or omitted; got ${JSON.stringify(confidence)}`);
+  }
+  return confidence;
+}
+
+// The exact, key-order-independent content the fingerprint commits to. Kept
+// separate from the returned object so verifyClaimSeal reconstructs the IDENTICAL
+// content and any edit to a sealed field changes the recomputed hash.
+function claimContent({ entityId, field, value, confidence, source, sealedBy, sealedAt }) {
+  return { kind: CLAIM_KIND, entityId, field, value, confidence, source, sealedBy, sealedAt };
+}
+
+/**
+ * SHA-256 hex fingerprint over the canonical JSON of a claim's content. Exported
+ * so the approval gate (js/diplomacy/diplomacy-approval-gate.js) seals its final
+ * applied record with the IDENTICAL primitive rather than duplicating crypto.
+ * @param {object} content
+ * @returns {Promise<string>}
+ */
+function fingerprintClaimContent(content) {
+  return sha256Hex(canonicalJSON(content));
+}
+
+/**
+ * Build an inert, sealed claim. ALWAYS an explicit caller action — nothing is
+ * negotiated, written, or sent. Throws on a missing required field (entityId,
+ * field, value, source) because an unidentified claim can never be reconciled.
+ *
+ * @param {object} opts
+ * @param {string} opts.entityId  the entity the claim is about (e.g. a customer id)
+ * @param {string} opts.field     the field being asserted (e.g. "region")
+ * @param {*}      opts.value      the asserted value (0/false/'' are valid; null/undefined are not)
+ * @param {number} [opts.confidence]  optional 0-1 confidence; omitted → null
+ * @param {string} opts.source    where the claim came from (e.g. "riverside-crm")
+ * @param {string} [opts.sealedBy] optional party/agent id that sealed it
+ * @param {number|Date} [opts.sealedAt] optional seal timestamp (tests); defaults to now
+ * @returns {Promise<{kind:string, entityId:string, field:string, value:*, confidence:(number|null), source:string, sealedBy:(string|null), sealedAt:string, fingerprint:string}>}
+ */
+async function sealClaim({ entityId, field, value, confidence, source, sealedBy, sealedAt } = {}) {
+  const missing = [];
+  if (entityId == null || entityId === '') missing.push('entityId');
+  if (field == null || field === '') missing.push('field');
+  if (value == null) missing.push('value');
+  if (source == null || source === '') missing.push('source');
+  if (missing.length) {
+    throw new Error(`sealClaim: missing required field(s): ${missing.join(', ')}`);
+  }
+
+  const content = claimContent({
+    entityId,
+    field,
+    value,
+    confidence: normalizeConfidence(confidence),
+    source,
+    sealedBy: sealedBy ?? null,
+    sealedAt: sealedAt != null ? new Date(sealedAt).toISOString() : new Date().toISOString(),
+  });
+
+  const fingerprint = await fingerprintClaimContent(content);
+  return { ...content, fingerprint };
+}
+
+/**
+ * Recompute a claim's fingerprint and report whether it still matches. Genuine
+ * tamper detection: any edit to a sealed field (value, confidence, source, …)
+ * changes the recomputed hash and fails. Needs only the claim itself.
+ * @param {object} claim  a claim from sealClaim()
+ * @returns {Promise<{valid:boolean, reason?:string}>}
+ */
+async function verifyClaimSeal(claim) {
+  if (!claim || typeof claim !== 'object') {
+    return { valid: false, reason: 'Not a claim object.' };
+  }
+  if (claim.kind !== CLAIM_KIND) {
+    return { valid: false, reason: 'Not a DATAGLOW diplomacy claim (missing/incorrect "kind").' };
+  }
+  if (typeof claim.fingerprint !== 'string' || !claim.fingerprint) {
+    return { valid: false, reason: 'Claim has no fingerprint to verify.' };
+  }
+  const recomputed = await fingerprintClaimContent(claimContent({
+    entityId: claim.entityId,
+    field: claim.field,
+    value: claim.value,
+    confidence: claim.confidence ?? null,
+    source: claim.source,
+    sealedBy: claim.sealedBy ?? null,
+    sealedAt: claim.sealedAt,
+  }));
+  if (recomputed !== claim.fingerprint) {
+    return { valid: false, reason: 'Fingerprint mismatch — the claim was modified after it was sealed.' };
+  }
+  return { valid: true };
+}
+
+  window.DiplomacyClaim = {
+    buildClaim: typeof buildClaim !== 'undefined' ? buildClaim : null,
+    sealClaim: typeof sealClaim !== 'undefined' ? sealClaim : null,
+    fingerprintClaimContent: typeof fingerprintClaimContent !== 'undefined' ? fingerprintClaimContent : null,
+  };
+}());
+/* ---- end diplomacy-claim.js ---- */
+
+/* ---- from js/diplomacy/diplomacy-approval-gate.js ---- */
+;(function(){
+  'use strict';
+  var fingerprintClaimContent = (window.DiplomacyClaim || {}).fingerprintClaimContent;
+// ============================================================
+// DATAGLOW — Data Diplomacy, Batch 1: two-key approval gate
+// ============================================================
+// THE RULE THIS FILE EXISTS TO ENFORCE (never relaxed, never bypassed):
+//
+//   A reconciliation verdict (js/diplomacy/reconciliation-engine.js) between two
+//   parties' claims may be PROPOSED, but it only becomes APPLIED once BOTH
+//   parties have INDEPENDENTLY approved it. This is the "two-key" rule: unlike
+//   the existing single-approver Metric Contract confirm gate
+//   (js/metrics/metric-contract-confirm-gate.js), one party's approval is never
+//   enough — the request stays 'pending' until the second, different party also
+//   approves. There is no auto-approve, no timer, and no "trusted party" bypass.
+//
+// WHAT AN "APPROVAL REQUEST" IS: a plain, inert data object. createApprovalRequest
+// does nothing but construct it — no registry write, no network, exactly as inert
+// as writing the object literal by hand. It only changes state when a real party
+// calls approve()/reject() on it.
+//
+// THE STATE MACHINE (a request's only three states):
+//   pending  → the default; zero, or exactly one, party has approved so far.
+//   applied  → BOTH parties approved. On this transition — and ONLY then — the
+//              request is sealed into a tamper-evident `sealedRecord` (reusing
+//              js/diplomacy/diplomacy-claim.js's fingerprint primitive; no new
+//              crypto). A request reaches 'applied' once; re-approving is a no-op.
+//   rejected → either party rejected unilaterally; nothing was sealed, and
+//              further approve() calls fail cleanly.
+//
+// This batch is pure logic ONLY — the DOM presenter (the renderConfirmGate
+// equivalent) is a later UI batch, exactly as the Metric Contract gate shipped
+// its state machine before its presenter. No DOM, no engine, no network.
+
+// [stripped import] import { fingerprintClaimContent } from './diplomacy-claim.js';
+
+const APPROVAL_REQUEST_KIND = 'dataglow-diplomacy-approval-request';
+const APPROVAL_RECORD_KIND = 'dataglow-diplomacy-approval-record';
+
+/**
+ * Construct a two-party approval request — pure data, zero side effects. Throws
+ * on a missing party id, or on two identical party ids: the two-key rule is
+ * meaningless if "both keys" are the same hand.
+ *
+ * @param {object} opts
+ * @param {object} opts.reconciliationResult  a result from reconcileClaims()
+ * @param {string} opts.partyAId  first approving party's id
+ * @param {string} opts.partyBId  second approving party's id (must differ from A)
+ * @returns {object} an inert pending request; status is always 'pending' at creation
+ */
+function createApprovalRequest({ reconciliationResult, partyAId, partyBId } = {}) {
+  if (partyAId == null || partyAId === '') throw new Error('createApprovalRequest: partyAId is required');
+  if (partyBId == null || partyBId === '') throw new Error('createApprovalRequest: partyBId is required');
+  if (partyAId === partyBId) {
+    throw new Error('createApprovalRequest: the two parties must be different — one party cannot hold both keys');
+  }
+  return {
+    kind: APPROVAL_REQUEST_KIND,
+    reconciliationResult: reconciliationResult ?? null,
+    partyAId,
+    partyBId,
+    status: 'pending',
+    approvals: { [partyAId]: false, [partyBId]: false },
+    createdAt: Date.now(),
+    decidedAt: null,
+    rejection: null,
+    sealedRecord: null,
+  };
+}
+
+function bothApproved(request) {
+  return request.approvals[request.partyAId] === true && request.approvals[request.partyBId] === true;
+}
+
+// Deterministic content the sealedRecord commits to. Excludes volatile fields
+// (createdAt) and the fingerprint itself so verifyApprovalRecord reconstructs the
+// identical content. Captures WHO approved and WHAT verdict they approved.
+function approvalRecordContent(request) {
+  const r = request.reconciliationResult || {};
+  const winning = r.winningClaim || null;
+  return {
+    kind: APPROVAL_RECORD_KIND,
+    partyAId: request.partyAId,
+    partyBId: request.partyBId,
+    approvals: {
+      [request.partyAId]: request.approvals[request.partyAId] === true,
+      [request.partyBId]: request.approvals[request.partyBId] === true,
+    },
+    reconciliation: {
+      resolved: r.resolved === true,
+      reason: r.reason ?? null,
+      winningSource: winning ? winning.source ?? null : null,
+      winningValue: winning ? winning.value ?? null : null,
+      winningFingerprint: winning ? winning.fingerprint ?? null : null,
+    },
+    decidedAt: request.decidedAt,
+  };
+}
+
+/**
+ * Record a party's approval. Idempotent per party (double-approve by the same
+ * party is a no-op). The request flips to 'applied' — and is sealed — ONLY once
+ * BOTH distinct party ids have approved. Async because sealing the final record
+ * awaits the SHA-256 fingerprint primitive.
+ *
+ * @param {object} request  a request from createApprovalRequest() (mutated in place)
+ * @param {string} partyId  the approving party (must be one of the two parties)
+ * @returns {Promise<{ok:boolean, request?:object, bothApproved?:boolean, error?:string}>}
+ */
+async function approve(request, partyId) {
+  if (!request || typeof request !== 'object') return { ok: false, error: 'No request given.' };
+  if (!(partyId in request.approvals)) {
+    return { ok: false, error: `Unknown party "${partyId}" — not one of this request's two parties.` };
+  }
+  if (request.status === 'rejected') {
+    return { ok: false, error: 'This request was rejected; create a new one to try again.' };
+  }
+  if (request.status === 'applied') {
+    // Idempotent: already fully approved and sealed. Never double-seal.
+    return { ok: true, request, bothApproved: true };
+  }
+
+  request.approvals[partyId] = true;
+
+  if (bothApproved(request)) {
+    request.status = 'applied';
+    request.decidedAt = Date.now();
+    const content = approvalRecordContent(request);
+    request.sealedRecord = { ...content, fingerprint: await fingerprintClaimContent(content) };
+    return { ok: true, request, bothApproved: true };
+  }
+
+  // Only one key turned so far — the two-key rule keeps it pending.
+  return { ok: true, request, bothApproved: false };
+}
+
+/**
+ * Reject the request on behalf of one party. Either party can reject
+ * unilaterally. Nothing is sealed. Idempotent: rejecting an already-rejected
+ * request is a harmless no-op; rejecting an already-applied request fails
+ * cleanly (mirrors the Metric Contract gate's already-applied guard).
+ *
+ * @param {object} request  a request from createApprovalRequest() (mutated in place)
+ * @param {string} partyId  the rejecting party (must be one of the two parties)
+ * @param {string} [note]   optional free-text reason
+ * @returns {{ok:boolean, request?:object, error?:string}}
+ */
+function reject(request, partyId, note = '') {
+  if (!request || typeof request !== 'object') return { ok: false, error: 'No request given.' };
+  if (!(partyId in request.approvals)) {
+    return { ok: false, error: `Unknown party "${partyId}" — not one of this request's two parties.` };
+  }
+  if (request.status === 'applied') {
+    return { ok: false, error: 'This request was already applied; rejecting it now would not undo that.' };
+  }
+  if (request.status === 'rejected') {
+    return { ok: true, request };
+  }
+  request.status = 'rejected';
+  request.decidedAt = Date.now();
+  request.rejection = { by: partyId, note };
+  return { ok: true, request };
+}
+
+/**
+ * Recompute a sealed applied-record's fingerprint and report whether it still
+ * matches — the verifyClaimSeal-style tamper check for a two-key record. Genuine
+ * tamper detection: editing any sealed field (a party's approval, the winning
+ * value, …) changes the recomputed hash and fails.
+ * @param {object} record  a request.sealedRecord from an applied request
+ * @returns {Promise<{valid:boolean, reason?:string}>}
+ */
+async function verifyApprovalRecord(record) {
+  if (!record || typeof record !== 'object') {
+    return { valid: false, reason: 'Not an approval record.' };
+  }
+  if (record.kind !== APPROVAL_RECORD_KIND) {
+    return { valid: false, reason: 'Not a DATAGLOW diplomacy approval record (missing/incorrect "kind").' };
+  }
+  if (typeof record.fingerprint !== 'string' || !record.fingerprint) {
+    return { valid: false, reason: 'Record has no fingerprint to verify.' };
+  }
+  const { fingerprint, ...content } = record;
+  const recomputed = await fingerprintClaimContent(content);
+  if (recomputed !== fingerprint) {
+    return { valid: false, reason: 'Fingerprint mismatch — the approval record was modified after it was sealed.' };
+  }
+  return { valid: true };
+}
+
+  window.DiplomacyApprovalGate = {
+    buildApprovalGate: typeof buildApprovalGate !== 'undefined' ? buildApprovalGate : null,
+    approveGate: typeof approveGate !== 'undefined' ? approveGate : null,
+    rejectGate: typeof rejectGate !== 'undefined' ? rejectGate : null,
+    isGateApproved: typeof isGateApproved !== 'undefined' ? isGateApproved : null,
+  };
+}());
+/* ---- end diplomacy-approval-gate.js ---- */
+
+/* ---- from js/diplomacy/diplomacy-p2p-transport.js ---- */
+;(function(){
+  'use strict';
+// ============================================================
+// DATAGLOW — Data Diplomacy P2P Transport (Batch 4): sealed-claim exchange
+// ============================================================
+// WHAT THIS IS: a thin adapter that adds a 'sealed-claim' message kind to the
+// existing Rooms data channel (js/rooms/room-broadcast.js / room-signaling.js).
+// Two analysts in two browsers can exchange sealed claims produced by Batch 1
+// (sealClaim, js/diplomacy/diplomacy-claim.js) without any server or upload.
+//
+// ARCHITECTURE (follows the exact dependency-injection discipline proven by
+// federated-transport.js, room-signaling.js, and room-broadcast.js):
+//   - DiplomacyP2PTransport COMPOSES an injected RoomBroadcastCoordinator
+//     (or any object with the same .send(msg)/onReceive(fn) shape). It never
+//     owns the WebRTC connection — Rooms does.
+//   - NULL_DIPLOMACY_TRANSPORT is a no-op adapter: "no Rooms session is live"
+//     is a first-class state, not an exception.
+//   - sendClaim() / onReceiveClaim() are the only public surface:
+//       sendClaim(sealedClaim)  → Promise<boolean> (delivered=true/false)
+//       onReceiveClaim(fn)      → unsubscribe()
+//   - Nothing here calls sealClaim(), reconcileClaims(), or any approval gate.
+//     Those stay in main.js (same separation as all prior batches).
+//
+// WIRE FORMAT (one new ROOM_MESSAGE_KINDS entry: 'diplomacy-claim'):
+//   {
+//     kind: 'diplomacy-claim',
+//     from: <peerId>,
+//     ts: <epoch ms>,
+//     claim: { ...sealed claim fields }  // verbatim sealClaim() output
+//   }
+//   An unknown/missing 'kind' on receive is silently ignored — same discipline
+//   as buildEntryMessage()/receive() in room-broadcast.js.
+//
+// SCOPE (Batch 4): this is a pure, Node-testable DATA-LAYER module. No DOM,
+// no UI, no WebRTC adapter construction. The main.js wiring injects the real
+// Rooms coordinator from the live RoomBroadcastCoordinator instance when the
+// dataDiplomacyP2P flag is on.
+// ============================================================
+
+const DIPLOMACY_CLAIM_MESSAGE_KIND = 'diplomacy-claim';
+
+// No-op transport — "no Rooms session is active" is a valid, error-free state.
+const NULL_DIPLOMACY_TRANSPORT = {
+  supported: false,
+  async sendClaim() { return false; },
+  onReceiveClaim() { return function() {}; },
+};
+
+/**
+ * Build a claim wire message.
+ * Pure function, no side effects.
+ *
+ * @param {object} opts
+ * @param {object} opts.claim  sealed claim (output of sealClaim())
+ * @param {string|null} opts.from  peerId of the sender
+ * @param {number} [opts.ts]  timestamp in ms (defaults to Date.now())
+ * @returns {{ kind: 'diplomacy-claim', from: string|null, ts: number, claim: object }}
+ */
+function buildClaimMessage({ claim, from, ts } = {}) {
+  return {
+    kind: DIPLOMACY_CLAIM_MESSAGE_KIND,
+    from: from != null ? String(from) : null,
+    ts: Number.isFinite(Number(ts)) ? Number(ts) : Date.now(),
+    claim: claim && typeof claim === 'object' ? claim : null,
+  };
+}
+
+/**
+ * Validate that a received message is a well-formed diplomacy-claim message.
+ * Returns true only when: kind === 'diplomacy-claim' AND claim is a non-null object.
+ * Never throws.
+ *
+ * @param {any} msg
+ * @returns {boolean}
+ */
+function isValidClaimMessage(msg) {
+  if (!msg || typeof msg !== 'object') return false;
+  if (msg.kind !== DIPLOMACY_CLAIM_MESSAGE_KIND) return false;
+  if (!msg.claim || typeof msg.claim !== 'object') return false;
+  return true;
+}
+
+/**
+ * Create a DiplomacyP2PTransport.
+ *
+ * @param {object} opts
+ * @param {object} opts.transport  an object with:
+ *   - send(msg: object): Promise<boolean> — delivers a message to all peers
+ *   - onReceive(fn): () => void          — registers a handler for incoming messages
+ *     (handler is called with the raw wire message object)
+ *   The injected transport is typically a RoomBroadcastCoordinator. For tests,
+ *   use an in-memory fake (see test/diplomacy-p2p-transport.test.mjs).
+ * @param {string|null} [opts.selfId]  peerId of the local user
+ * @returns {{
+ *   sendClaim: (claim: object) => Promise<boolean>,
+ *   onReceiveClaim: (fn: (claimMsg: object) => void) => (() => void),
+ *   supported: boolean
+ * }}
+ */
+function createDiplomacyP2PTransport(opts) {
+  var transport = (opts && opts.transport) ? opts.transport : null;
+  var selfId = (opts && opts.selfId != null) ? String(opts.selfId) : null;
+
+  if (!transport || typeof transport.send !== 'function' || typeof transport.onReceive !== 'function') {
+    return NULL_DIPLOMACY_TRANSPORT;
+  }
+
+  var receivers = [];
+
+  // Register once with the underlying transport to fan out to our handlers.
+  var unsubscribeUnderlying = transport.onReceive(function(msg) {
+    if (!isValidClaimMessage(msg)) return;
+    for (var i = 0; i < receivers.length; i++) {
+      try { receivers[i](msg); } catch (e) { /* handler errors never abort other handlers */ }
+    }
+  });
+
+  return {
+    supported: true,
+
+    /**
+     * Send a sealed claim to all peers in the current Room.
+     *
+     * @param {object} claim  output of sealClaim()
+     * @returns {Promise<boolean>}  true = at least one peer received it
+     */
+    sendClaim: async function(claim) {
+      if (!claim || typeof claim !== 'object') return false;
+      var msg = buildClaimMessage({ claim: claim, from: selfId, ts: Date.now() });
+      try {
+        var result = await transport.send(msg);
+        return result === true;
+      } catch (e) {
+        return false;
+      }
+    },
+
+    /**
+     * Register a handler called whenever a 'diplomacy-claim' message arrives.
+     *
+     * @param {(claimMsg: {kind:string, from:string|null, ts:number, claim:object}) => void} fn
+     * @returns {() => void}  unsubscribe function
+     */
+    onReceiveClaim: function(fn) {
+      if (typeof fn !== 'function') return function() {};
+      receivers.push(fn);
+      return function() {
+        receivers = receivers.filter(function(r) { return r !== fn; });
+      };
+    },
+
+    /**
+     * Tear down the transport: unsubscribes from the underlying channel and
+     * clears all registered handlers. Call when the Diplomacy tab unmounts.
+     */
+    destroy: function() {
+      receivers = [];
+      if (typeof unsubscribeUnderlying === 'function') unsubscribeUnderlying();
+    },
+  };
+}
+
+  window.DiplomacyP2P = {
+    createP2PTransport: typeof createP2PTransport !== 'undefined' ? createP2PTransport : null,
+    createLocalTransport: typeof createLocalTransport !== 'undefined' ? createLocalTransport : null,
+  };
+}());
+/* ---- end diplomacy-p2p-transport.js ---- */
+
+/* ---- from js/diplomacy/diplomacy-loader.js ---- */
+;(function(){
+  'use strict';
+
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+  var _claim = window.DiplomacyClaim || {};
+  var _gate  = window.DiplomacyApprovalGate || {};
+  var buildClaim   = _claim.buildClaim;
+  var sealClaim    = _claim.sealClaim;
+  var buildApprovalGate = _gate.buildApprovalGate;
+  var isGateApproved    = _gate.isGateApproved;
+// ============================================================
+// DATAGLOW — Data Diplomacy Loader (Batch 3): real dataset claim builder
+// ============================================================
+// WHAT THIS IS: replaces the Batch-2 hardcoded demo scenario in
+// renderDiplomacyTab (main.js) with a real data-loading form.
+// Users pick a loaded table, choose which column holds the entity ID
+// and which column holds the disputed value, then fill in source label,
+// confidence, and sealedBy party. The module is PURE (no DOM reads from
+// outside; el() is the only DOM primitive it uses) and accepts callbacks so
+// the caller (main.js) owns all engine interaction.
+//
+// WHAT IT DELIBERATELY DOES NOT DO:
+//   - It never calls sealClaim(), reconcileClaims(), or createApprovalRequest()
+//     itself — those stay in main.js (same separation as Batch 2).
+//   - It does NOT validate that the picked row actually exists. The calling
+//     code passes the engine's honest error to onError().
+//   - Cross-device transport (real two-key-across-two-browsers) remains Batch 4.
+//
+// Identity split: buildDiplomacyFormModel() is pure / Node-testable;
+// renderDiplomacyForm() handles DOM.
+// ============================================================
+
+// [stripped import] import { el } from '../app-shell/utils.js';
+
+// ---- Pure model builder --------------------------------------------------
+
+/**
+ * Build the view-model for one claim-form panel.
+ *
+ * @param {object} opts
+ * @param {string} opts.partyId    e.g. 'analyst', 'reviewer'
+ * @param {Array<{name:string, table:string, cols:Array<string>}>} opts.datasets
+ *   snapshot of state.datasets at render time; empty array = no data loaded.
+ * @param {object|null} opts.currentValues  the partially-filled form state
+ *   (table, entityIdCol, entityIdValue, valueCol, source, confidence, sealedBy)
+ * @returns {{
+ *   partyId:string,
+ *   hasDatasets:boolean,
+ *   datasetOptions:Array<{label:string, value:string}>,
+ *   columnOptions:Array<{label:string, value:string}>,
+ *   current:object,
+ *   isComplete:boolean
+ * }}
+ */
+function buildDiplomacyFormModel(opts) {
+  const { partyId, datasets, currentValues } = opts;
+  const cur = currentValues || {};
+  const hasDatasets = Array.isArray(datasets) && datasets.length > 0;
+
+  const datasetOptions = hasDatasets
+    ? datasets.map(function(ds) { return { label: ds.name, value: ds.table }; })
+    : [];
+
+  // derive column options from the selected table
+  let columnOptions = [];
+  if (hasDatasets && cur.table) {
+    const matched = datasets.find(function(ds) { return ds.table === cur.table; });
+    if (matched && Array.isArray(matched.cols)) {
+      columnOptions = matched.cols.map(function(c) {
+        var label = typeof c === 'object' && c !== null ? (c.name || String(c)) : String(c);
+        return { label: label, value: label };
+      });
+    }
+  }
+
+  const isComplete = !!(
+    cur.table &&
+    cur.entityIdCol &&
+    cur.entityIdValue &&
+    cur.entityIdValue.toString().trim() !== '' &&
+    cur.valueCol &&
+    cur.source &&
+    cur.source.trim() !== '' &&
+    cur.sealedBy &&
+    cur.sealedBy.trim() !== '' &&
+    typeof cur.confidence === 'number' &&
+    Number.isFinite(cur.confidence) &&
+    cur.confidence >= 0 &&
+    cur.confidence <= 1
+  );
+
+  return {
+    partyId: partyId,
+    hasDatasets: hasDatasets,
+    datasetOptions: datasetOptions,
+    columnOptions: columnOptions,
+    current: cur,
+    isComplete: isComplete,
+  };
+}
+
+// ---- DOM helpers ---------------------------------------------------------
+
+function inputId(partyId, field) {
+  return 'diplomacy-' + partyId + '-' + field;
+}
+
+const MUTED = 'font-size:var(--text-sm); color:var(--color-text-muted);';
+
+function labelFor(id, text) {
+  var lbl = el('label', { for: id, style: 'display:block; font-weight:600; margin-bottom:2px;' });
+  lbl.textContent = text;
+  return lbl;
+}
+
+function selectEl(id, options, value, onChange, testId) {
+  var attrs = { id: id, 'data-testid': testId || id, style: 'width:100%; margin-bottom:var(--space-2);' };
+  var sel = el('select', attrs);
+  var placeholder = el('option', { value: '' });
+  placeholder.textContent = '— pick one —';
+  sel.appendChild(placeholder);
+  options.forEach(function(opt) {
+    var o = el('option', { value: opt.value });
+    o.textContent = opt.label;
+    if (opt.value === value) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', function() { onChange(sel.value); });
+  return sel;
+}
+
+function inputEl(id, value, onChange, testId, type, step, min, max) {
+  var attrs = {
+    id: id, 'data-testid': testId || id,
+    type: type || 'text', value: value || '',
+    style: 'width:100%; margin-bottom:var(--space-2);',
+  };
+  if (step !== undefined) attrs.step = step;
+  if (min !== undefined) attrs.min = min;
+  if (max !== undefined) attrs.max = max;
+  var inp = el('input', attrs);
+  inp.addEventListener('input', function() { onChange(inp.value); });
+  return inp;
+}
+
+// ---- Renderer ------------------------------------------------------------
+
+/**
+ * Render a claim-builder form for one party into `host`.
+ *
+ * @param {object} opts
+ * @param {HTMLElement} opts.host  container (emptied on each call)
+ * @param {object} opts.model  from buildDiplomacyFormModel()
+ * @param {(field:string, value:any)=>void} opts.onChange  called on every field change
+ */
+function renderDiplomacyForm(opts) {
+  var host = opts.host, model = opts.model, onChange = opts.onChange;
+  if (!host) return;
+  host.innerHTML = '';
+
+  var wrap = el('div', {
+    'data-testid': 'diplomacy-form-' + model.partyId,
+    class: 'card',
+    style: 'flex:1 1 0; min-width:0;',
+  });
+  var heading = el('div', { style: 'font-weight:600; margin-bottom:var(--space-2);' });
+  heading.textContent = model.partyId + "'s claim";
+  wrap.appendChild(heading);
+
+  if (!model.hasDatasets) {
+    var notice = el('div', { style: MUTED });
+    notice.textContent = 'Load a dataset first to build a claim.';
+    wrap.appendChild(notice);
+    host.appendChild(wrap);
+    return;
+  }
+
+  // Dataset picker
+  wrap.appendChild(labelFor(inputId(model.partyId, 'table'), 'Dataset'));
+  wrap.appendChild(selectEl(
+    inputId(model.partyId, 'table'),
+    model.datasetOptions,
+    model.current.table || '',
+    function(v) { onChange('table', v); },
+    'diplomacy-' + model.partyId + '-table'
+  ));
+
+  if (model.columnOptions.length === 0) {
+    host.appendChild(wrap);
+    return;
+  }
+
+  // Entity ID column + value
+  wrap.appendChild(labelFor(inputId(model.partyId, 'entityIdCol'), 'Entity ID column'));
+  wrap.appendChild(selectEl(
+    inputId(model.partyId, 'entityIdCol'),
+    model.columnOptions,
+    model.current.entityIdCol || '',
+    function(v) { onChange('entityIdCol', v); },
+    'diplomacy-' + model.partyId + '-entityIdCol'
+  ));
+
+  wrap.appendChild(labelFor(inputId(model.partyId, 'entityIdValue'), 'Entity ID value (the row to compare)'));
+  wrap.appendChild(inputEl(
+    inputId(model.partyId, 'entityIdValue'),
+    model.current.entityIdValue || '',
+    function(v) { onChange('entityIdValue', v); },
+    'diplomacy-' + model.partyId + '-entityIdValue'
+  ));
+
+  // Value column
+  wrap.appendChild(labelFor(inputId(model.partyId, 'valueCol'), 'Disputed value column'));
+  wrap.appendChild(selectEl(
+    inputId(model.partyId, 'valueCol'),
+    model.columnOptions,
+    model.current.valueCol || '',
+    function(v) { onChange('valueCol', v); },
+    'diplomacy-' + model.partyId + '-valueCol'
+  ));
+
+  // Source label
+  wrap.appendChild(labelFor(inputId(model.partyId, 'source'), 'Source label (e.g. "warehouse-export")'));
+  wrap.appendChild(inputEl(
+    inputId(model.partyId, 'source'),
+    model.current.source || '',
+    function(v) { onChange('source', v); },
+    'diplomacy-' + model.partyId + '-source'
+  ));
+
+  // Confidence
+  wrap.appendChild(labelFor(inputId(model.partyId, 'confidence'), 'Confidence (0 = lowest, 1 = highest)'));
+  wrap.appendChild(inputEl(
+    inputId(model.partyId, 'confidence'),
+    model.current.confidence !== undefined ? String(model.current.confidence) : '0.8',
+    function(v) { onChange('confidence', parseFloat(v)); },
+    'diplomacy-' + model.partyId + '-confidence',
+    'number', '0.01', '0', '1'
+  ));
+
+  // SealedBy
+  wrap.appendChild(labelFor(inputId(model.partyId, 'sealedBy'), 'Party name / signer ID'));
+  wrap.appendChild(inputEl(
+    inputId(model.partyId, 'sealedBy'),
+    model.current.sealedBy || model.partyId,
+    function(v) { onChange('sealedBy', v); },
+    'diplomacy-' + model.partyId + '-sealedBy'
+  ));
+
+  host.appendChild(wrap);
+}
+
+/**
+ * Render the full Batch-3 loader UI: two claim-builder forms side by side,
+ * a "Reconcile" button (enabled only when both forms are complete), and a
+ * status line. Does NOT render the Diplomacy panel itself — that stays in
+ * main.js's paint() call so the Batch-2 two-key UX is unchanged.
+ *
+ * @param {object} opts
+ * @param {HTMLElement}  opts.host       container (NOT emptied — caller owns layout)
+ * @param {object}       opts.modelA     from buildDiplomacyFormModel() for party A
+ * @param {object}       opts.modelB     from buildDiplomacyFormModel() for party B
+ * @param {(partyId:string,field:string,value:any)=>void}  opts.onChange
+ * @param {()=>void}     opts.onReconcile  called when the Reconcile button is clicked
+ * @param {string|null}  opts.statusText  optional status line under the button
+ */
+function renderDiplomacyLoader(opts) {
+  var host = opts.host, modelA = opts.modelA, modelB = opts.modelB;
+  var onChange = opts.onChange, onReconcile = opts.onReconcile;
+  var statusText = opts.statusText || null;
+
+  if (!host) return;
+
+  // ---- heading & intro ---------------------------------------------------
+  var heading = el('div', { style: 'font-weight:600; margin-bottom:var(--space-1);', 'data-testid': 'diplomacy-heading' });
+  heading.textContent = 'Data Diplomacy';
+  host.appendChild(heading);
+
+  var intro = el('p', { style: MUTED + ' margin:0 0 var(--space-3); line-height:1.5;' });
+  intro.textContent = 'Two sources disagree on the same fact. Build each claim below, then hit Reconcile to let the engine compare them.';
+  host.appendChild(intro);
+
+  // ---- two claim-form columns -------------------------------------------
+  var row = el('div', {
+    'data-testid': 'diplomacy-form-row',
+    style: 'display:flex; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-3);',
+  });
+
+  var hostA = el('div', { style: 'flex:1 1 0; min-width:0;' });
+  var hostB = el('div', { style: 'flex:1 1 0; min-width:0;' });
+  renderDiplomacyForm({ host: hostA, model: modelA, onChange: function(field, v) { onChange('a', field, v); } });
+  renderDiplomacyForm({ host: hostB, model: modelB, onChange: function(field, v) { onChange('b', field, v); } });
+  row.appendChild(hostA);
+  row.appendChild(hostB);
+  host.appendChild(row);
+
+  // ---- reconcile button --------------------------------------------------
+  var bothComplete = modelA.isComplete && modelB.isComplete;
+  var reconcileBtn = el('button', {
+    type: 'button',
+    class: 'btn btn-primary',
+    'data-testid': 'diplomacy-reconcile-btn',
+    style: 'margin-bottom:var(--space-2);',
+  });
+  reconcileBtn.textContent = 'Reconcile';
+  if (!bothComplete) reconcileBtn.disabled = true;
+  reconcileBtn.addEventListener('click', onReconcile);
+  host.appendChild(reconcileBtn);
+
+  // ---- status line -------------------------------------------------------
+  if (statusText) {
+    var status = el('div', { style: MUTED + ' margin-top:var(--space-1);', 'data-testid': 'diplomacy-status' });
+    status.textContent = statusText;
+    host.appendChild(status);
+  }
+}
+
+  window.DiplomacyLoader = {
+    mountDiplomacyLoader: typeof mountDiplomacyLoader !== 'undefined' ? mountDiplomacyLoader : null,
+    buildDatasetClaim: typeof buildDatasetClaim !== 'undefined' ? buildDatasetClaim : null,
+  };
+}());
+/* ---- end diplomacy-loader.js ---- */
+
+/* ---- from js/diplomacy/diplomacy-ui.js ---- */
+;(function(){
+  'use strict';
+
+  var el = (typeof window._dgEl === 'function') ? window._dgEl : function(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(function([k,v]){ if(k==='class') node.className=v; else node.setAttribute(k,v); });
+    if (children) [].concat(children).forEach(function(c){ node.append(typeof c==='string'?document.createTextNode(c):c); });
+    return node;
+  };
+
+  var explainReconciliation = (window.ReconciliationEngine || {}).explainReconciliation;
+  var _loader = window.DiplomacyLoader || {};
+  var mountDiplomacyLoader = _loader.mountDiplomacyLoader;
+  var _gate = window.DiplomacyApprovalGate || {};
+  var approveGate = _gate.approveGate;
+  var rejectGate  = _gate.rejectGate;
+  var isGateApproved = _gate.isGateApproved;
+// ============================================================
+// DATAGLOW — Data Diplomacy UI (Batch 2 of N): the thin two-key panel
+// ============================================================
+// WHAT THIS IS: the presenter for the pure Batch-1 engine (js/diplomacy/*:
+// diplomacy-claim.js, reconciliation-engine.js, diplomacy-approval-gate.js).
+// It shows two competing sealed claims side by side, the reconciliation
+// verdict the engine ALREADY produced, and — only when that verdict actually
+// resolved — a two-key approval row where each party holds exactly one key.
+//
+// WHAT IT DELIBERATELY DOES NOT DO:
+//   - It runs NO reconciliation logic of its own. reconcileClaims() decided;
+//     this only presents that decision, verbatim rationale included.
+//   - When the engine honestly refused (resolved:false — "needs human
+//     debate"), it renders NO approval UI at all. There is no path here that
+//     dresses an unresolved conflict up as an applied resolution.
+//   - The per-party Approve button for partyA calls onApprove(partyAId) and
+//     NOTHING else — one party can never turn the other party's key. The
+//     mandatory two-key rule lives in the engine's approve(); this UI just
+//     never gives one party both buttons.
+//
+// Identity split (same convention as js/gate/readiness-gate-ui.js and
+// js/metrics/metric-contract-confirm-gate.js): the model builders are PURE,
+// Node-testable, DOM-free functions; the renderer turns those models into DOM
+// and, like renderConfirmGate, re-renders after each decision so a decided
+// party's buttons are gone and a stale second click can't matter.
+
+// [stripped import] import { el } from '../app-shell/utils.js';
+// [stripped import] import { explainReconciliation } from './reconciliation-engine.js';
+
+// Reuse the existing pill vocabulary from css/base.css (.badge + grade colors);
+// we invent no new colors. Resolved -> green (agreement reached), unresolved ->
+// amber (honest "needs a human", NOT a red failure — refusing to guess is the
+// correct behavior, not an error).
+const RESOLVED_BADGE = 'badge badge-a';
+const UNRESOLVED_BADGE = 'badge badge-c';
+
+function valueToText(value) {
+  if (value == null) return '—';
+  if (typeof value === 'string') return value;
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function shortFingerprint(fp) {
+  if (typeof fp !== 'string' || !fp) return null;
+  return fp.length > 16 ? `${fp.slice(0, 12)}…${fp.slice(-4)}` : fp;
+}
+
+/**
+ * Turn one sealed claim (from sealClaim()) into a pure, DOM-free card view
+ * model. Never throws; a missing/malformed claim yields an honest placeholder
+ * card rather than crashing the panel.
+ * @param {object} claim a sealed claim: { entityId, field, value, confidence, source, sealedBy, fingerprint, ... }
+ * @returns {{
+ *   source:string, entityId:string, field:string, valueText:string,
+ *   hasConfidence:boolean, confidenceText:string, sealedBy:(string|null),
+ *   fingerprintShort:(string|null), title:string
+ * }}
+ */
+function buildClaimCardModel(claim) {
+  if (!claim || typeof claim !== 'object') {
+    return {
+      source: 'unknown source', entityId: '—', field: '—', valueText: '—',
+      hasConfidence: false, confidenceText: 'no confidence stated',
+      sealedBy: null, fingerprintShort: null, title: 'Malformed claim',
+    };
+  }
+  const source = claim.source == null || claim.source === '' ? 'unknown source' : String(claim.source);
+  const entityId = claim.entityId == null ? '—' : String(claim.entityId);
+  const field = claim.field == null ? '—' : String(claim.field);
+  const hasConfidence = typeof claim.confidence === 'number' && Number.isFinite(claim.confidence);
+  return {
+    source,
+    entityId,
+    field,
+    valueText: valueToText(claim.value),
+    hasConfidence,
+    confidenceText: hasConfidence ? `confidence ${claim.confidence}` : 'no confidence stated',
+    sealedBy: claim.sealedBy == null || claim.sealedBy === '' ? null : String(claim.sealedBy),
+    fingerprintShort: shortFingerprint(claim.fingerprint),
+    title: `"${field}" of "${entityId}", claimed by ${source}`,
+  };
+}
+
+/**
+ * Turn a reconciliation result (from reconcileClaims()) into a pure, DOM-free
+ * panel view model. Honestly preserves the engine's resolved/unresolved split:
+ * when resolved:false, showApproval is false and there is no proposed value —
+ * the panel must render the "needs human debate" state, never hide it.
+ * Never throws; a missing/malformed result is treated as unresolved.
+ * @param {ReturnType<import('./reconciliation-engine.js').reconcileClaims>} reconciliationResult
+ * @returns {{
+ *   resolved:boolean, showApproval:boolean, badgeClass:string, headline:string,
+ *   reason:string, rationale:string, proposedValueText:(string|null),
+ *   winningSource:(string|null), losingSource:(string|null),
+ *   marginText:(string|null), explanation:string
+ * }}
+ */
+function buildReconciliationPanelModel(reconciliationResult) {
+  const r = reconciliationResult && typeof reconciliationResult === 'object' ? reconciliationResult : null;
+  const resolved = !!(r && r.resolved === true);
+  const reason = (r && r.reason) ? String(r.reason) : (resolved ? 'resolved' : 'no reconciliation result');
+  const rationale = (r && r.rationale) ? String(r.rationale)
+    : 'No reconciliation has been run for these two claims yet.';
+
+  if (!resolved) {
+    return {
+      resolved: false,
+      showApproval: false,
+      badgeClass: UNRESOLVED_BADGE,
+      headline: 'Needs human debate',
+      reason,
+      rationale,
+      proposedValueText: null,
+      winningSource: null,
+      losingSource: null,
+      marginText: null,
+      explanation: explainReconciliation(r),
+    };
+  }
+
+  const winning = r.winningClaim || {};
+  const losing = r.losingClaim || {};
+  const marginText = (typeof r.marginOfConfidence === 'number' && Number.isFinite(r.marginOfConfidence))
+    ? `confidence margin ${r.marginOfConfidence.toFixed(3)}`
+    : null;
+  return {
+    resolved: true,
+    showApproval: true,
+    badgeClass: RESOLVED_BADGE,
+    headline: 'Resolved — needs two-key sign-off',
+    reason,
+    rationale,
+    proposedValueText: valueToText(winning.value),
+    winningSource: winning.source == null ? null : String(winning.source),
+    losingSource: losing.source == null ? null : String(losing.source),
+    marginText,
+    explanation: explainReconciliation(r),
+  };
+}
+
+// ------------------------------------------------------------
+// DOM presenter
+// ------------------------------------------------------------
+
+const MUTED = 'color:var(--color-text-muted); font-size:var(--text-sm);';
+
+function renderClaimCard(model) {
+  return el('div', {
+    class: 'card',
+    'data-testid': 'diplomacy-claim-card',
+    'data-source': model.source,
+    style: 'flex:1 1 0; min-width:0;',
+  }, [
+    el('div', { style: 'font-weight:600; margin-bottom:var(--space-1);' }, model.source),
+    el('div', { style: `${MUTED} margin-bottom:var(--space-2);` }, `${model.field} · ${model.entityId}`),
+    el('div', { style: 'font-size:var(--text-lg); font-weight:600; word-break:break-word;', 'data-testid': 'diplomacy-claim-value' }, model.valueText),
+    el('div', { style: `${MUTED} margin-top:var(--space-2);` }, model.confidenceText),
+    model.sealedBy ? el('div', { style: MUTED }, `sealed by ${model.sealedBy}`) : null,
+    model.fingerprintShort
+      ? el('div', { style: `${MUTED} margin-top:var(--space-1); font-family:var(--font-mono, monospace);`, title: 'SHA-256 seal' }, model.fingerprintShort)
+      : null,
+  ].filter(Boolean));
+}
+
+// The two-key approval row. Reads the CURRENT approvalRequest state on every
+// render (the caller re-invokes renderDiplomacyPanel after each decision, so a
+// decided party shows a static verdict and its buttons are gone). Each party
+// gets its OWN Approve/Reject buttons wired to ONLY that party's id.
+function renderApprovalRow({ approvalRequest, partyAId, partyBId, onApprove, onReject }) {
+  const wrap = el('div', { 'data-testid': 'diplomacy-approval', style: 'margin-top:var(--space-4);' });
+
+  wrap.appendChild(el('div', {
+    'data-testid': 'diplomacy-two-key-note',
+    style: `${MUTED} margin-bottom:var(--space-2);`,
+  }, 'Two-key rule: this proposal only applies once BOTH parties independently approve. One approval alone changes nothing; either party may reject.'));
+
+  if (!approvalRequest || typeof approvalRequest !== 'object') {
+    wrap.appendChild(el('div', { style: MUTED }, 'No approval request was created for this verdict.'));
+    return wrap;
+  }
+
+  const status = approvalRequest.status;
+  const approvals = approvalRequest.approvals || {};
+
+  if (status === 'applied') {
+    wrap.appendChild(el('div', {
+      'data-testid': 'diplomacy-applied',
+      style: 'font-weight:600; color:var(--color-grade-a);',
+    }, '✅ Applied — both keys turned; the resolution is sealed.'));
+    const fp = shortFingerprint(approvalRequest.sealedRecord && approvalRequest.sealedRecord.fingerprint);
+    if (fp) {
+      wrap.appendChild(el('div', {
+        'data-testid': 'diplomacy-sealed-fingerprint',
+        style: `${MUTED} margin-top:var(--space-1); font-family:var(--font-mono, monospace);`,
+      }, `sealed record ${fp}`));
+    }
+    return wrap;
+  }
+
+  if (status === 'rejected') {
+    const by = approvalRequest.rejection && approvalRequest.rejection.by ? approvalRequest.rejection.by : 'a party';
+    const note = approvalRequest.rejection && approvalRequest.rejection.note ? ` — "${approvalRequest.rejection.note}"` : '';
+    wrap.appendChild(el('div', {
+      'data-testid': 'diplomacy-rejected',
+      style: 'font-weight:600; color:var(--color-grade-d);',
+    }, `✋ Rejected by ${by}${note}. Nothing was applied.`));
+    return wrap;
+  }
+
+  // Pending: one control block per party, EQUAL visual weight.
+  const row = el('div', { style: 'display:flex; gap:var(--space-3); flex-wrap:wrap;' });
+  for (const partyId of [partyAId, partyBId]) {
+    const already = approvals[partyId] === true;
+    const cell = el('div', {
+      'data-testid': `diplomacy-party-${partyId}`,
+      style: 'flex:1 1 0; min-width:0;',
+    }, [el('div', { style: 'font-weight:600; margin-bottom:var(--space-1);' }, partyId)]);
+
+    if (already) {
+      cell.appendChild(el('div', {
+        'data-testid': `diplomacy-approved-${partyId}`,
+        style: `${MUTED}`,
+      }, '✓ approved — waiting for the other key'));
+    } else {
+      const approveBtn = el('button', {
+        type: 'button', class: 'btn btn-primary',
+        'data-testid': `diplomacy-approve-${partyId}`,
+      }, 'Approve');
+      const rejectBtn = el('button', {
+        type: 'button', class: 'btn btn-secondary',
+        'data-testid': `diplomacy-reject-${partyId}`,
+      }, 'Reject');
+      // This button belongs to `partyId` and can ONLY act as `partyId`.
+      approveBtn.addEventListener('click', () => onApprove(partyId));
+      rejectBtn.addEventListener('click', () => onReject(partyId));
+      cell.appendChild(el('div', { style: 'display:flex; gap:var(--space-2);' }, [approveBtn, rejectBtn]));
+    }
+    row.appendChild(cell);
+  }
+  wrap.appendChild(row);
+  return wrap;
+}
+
+/**
+ * Render the full Data Diplomacy panel into `host` (emptied first): the two
+ * claim cards, the reconciliation verdict, and — only when the verdict
+ * resolved — the two-key approval row. When unresolved, NO approval UI renders.
+ *
+ * Callback contract (mirrors renderConfirmGate): onApprove(partyId) /
+ * onReject(partyId) do the actual engine call and then re-invoke this function
+ * with the mutated approvalRequest, so the decided state re-renders in place.
+ *
+ * @param {object} opts
+ * @param {HTMLElement} opts.host
+ * @param {object} opts.claimA sealed claim
+ * @param {object} opts.claimB competing sealed claim
+ * @param {string} opts.partyAId
+ * @param {string} opts.partyBId
+ * @param {object} opts.reconciliationResult from reconcileClaims()
+ * @param {object|null} [opts.approvalRequest] from createApprovalRequest() (null when unresolved)
+ * @param {(partyId:string)=>void} [opts.onApprove]
+ * @param {(partyId:string)=>void} [opts.onReject]
+ * @returns {{reconciliationModel:object}|undefined}
+ */
+function renderDiplomacyPanel(opts = {}) {
+  const {
+    host, claimA, claimB, partyAId, partyBId,
+    reconciliationResult, approvalRequest = null,
+    onApprove = () => {}, onReject = () => {},
+  } = opts;
+  if (!host) return;
+  host.innerHTML = '';
+
+  const reconciliationModel = buildReconciliationPanelModel(reconciliationResult);
+
+  const wrap = el('div', { 'data-testid': 'diplomacy-panel', class: 'diplomacy-panel' });
+
+  wrap.appendChild(el('div', {
+    style: 'font-weight:600; margin-bottom:var(--space-1);', 'data-testid': 'diplomacy-heading',
+  }, 'Data Diplomacy'));
+  wrap.appendChild(el('p', {
+    style: `${MUTED} margin:0 0 var(--space-3); line-height:1.5;`,
+  }, 'Two sources disagree on the same fact. The engine below reconciles them if it honestly can; if it cannot, it says so and asks for human debate rather than guessing.'));
+
+  // Two competing claim cards, side by side.
+  wrap.appendChild(el('div', {
+    'data-testid': 'diplomacy-claims',
+    style: 'display:flex; gap:var(--space-3); flex-wrap:wrap; margin-bottom:var(--space-3);',
+  }, [renderClaimCard(buildClaimCardModel(claimA)), renderClaimCard(buildClaimCardModel(claimB))]));
+
+  // Reconciliation verdict.
+  const verdict = el('div', {
+    class: 'card', 'data-testid': 'diplomacy-reconciliation',
+    'data-resolved': reconciliationModel.resolved ? 'true' : 'false',
+  }, [
+    el('div', { style: 'display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-2);' }, [
+      el('span', { class: reconciliationModel.badgeClass, 'data-testid': 'diplomacy-verdict-badge' }, reconciliationModel.headline),
+    ]),
+    el('div', { style: `${MUTED} line-height:1.5;`, 'data-testid': 'diplomacy-rationale' }, reconciliationModel.rationale),
+  ]);
+  if (reconciliationModel.resolved) {
+    verdict.appendChild(el('div', {
+      style: 'margin-top:var(--space-2); font-weight:600;', 'data-testid': 'diplomacy-proposed-value',
+    }, `Proposed value: ${reconciliationModel.proposedValueText} (from ${reconciliationModel.winningSource})`));
+    if (reconciliationModel.marginText) {
+      verdict.appendChild(el('div', { style: MUTED }, reconciliationModel.marginText));
+    }
+  }
+  wrap.appendChild(verdict);
+
+  // Two-key approval — ONLY when the engine actually resolved the conflict.
+  if (reconciliationModel.showApproval) {
+    wrap.appendChild(renderApprovalRow({ approvalRequest, partyAId, partyBId, onApprove, onReject }));
+  }
+
+  host.appendChild(wrap);
+  return { reconciliationModel };
+}
+
+  window.DiplomacyUI = {
+    mountDiplomacy: typeof mountDiplomacy !== 'undefined' ? mountDiplomacy : null,
+  };
+
+
+  function initUI_dg_ov_diplomacy() {
+    var panelId = 'dg-diplomacy-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:480px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:861;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '\u00D7';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        if (typeof mountDiplomacy === 'function') {
+          mountDiplomacy({ host: p, onToast: function(m,t){ if(typeof showToast==='function') showToast(m,t); } });
+        } else {
+          var msg = document.createElement('p');
+          msg.style.cssText = 'padding:20px;font-size:13px;color:var(--text-muted,#888);line-height:1.6;';
+          msg.textContent = 'Data Diplomacy: two-key cross-org approval gate. Load a dataset to build and seal a data claim.';
+          p.appendChild(msg);
+        }
+      } else { p.style.display = 'none'; }
+    }
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-diplomacy')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-diplomacy';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83E\uDD1D<br><span>Diplomacy</span>';
+      btn.addEventListener('click', function(){
+        ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){
+          var e2=document.getElementById(id); if(e2) e2.classList.remove('open');
+        });
+        toggle();
+      });
+      ovGrid.appendChild(btn);
+    }
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-diplomacy')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-diplomacy';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83E\uDD1D<br><span>Diplomacy</span>';
+      btn2.addEventListener('click', function(){
+        var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open');
+        toggle();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUI_dg_ov_diplomacy);
+  else setTimeout(initUI_dg_ov_diplomacy, 1000);
+
+}());
+/* ---- end diplomacy-ui.js ---- */
+
+
+/* ================================================================
+   DRG/ICD-10 CODING VALIDATOR -- recovered from git history
+   PR #298 (LOS date-math + DRG/ICD validator)
+   PR #371 (NCCI same-day P2P conflict check)
+   Dep: nameTokens + hasAnyKeyword + isNumeric from cross-column-consistency
+   (already in bundle as window._DgCrossColumn)
+   ================================================================ */
+
+/* ---- from js/validation/drg-icd-validator.js ---- */
+;(function(){
+  'use strict';
+  var _cc = window._DgCrossColumn || {};
+  var nameTokens    = _cc.nameTokens    || function(s){ return (s||'').toLowerCase().split(/[_\s]+/); };
+  // hasAnyKeyword and isNumeric may be local to cross-column -- provide fallbacks
+  var hasAnyKeyword = (typeof hasAnyKeyword !== 'undefined') ? hasAnyKeyword
+    : function(tokens, words){ return words.some(function(w){ return tokens.includes(w); }); };
+  var isNumeric = (typeof isNumeric !== 'undefined') ? isNumeric
+    : function(v){ return !isNaN(parseFloat(v)) && isFinite(v); };
+// ============================================================
+// DATAGLOW — DRG / ICD-10-CM Cross-Validation Layer
+// ============================================================
+// Detects MS-DRG codes whose paired primary ICD-10-CM diagnosis is clinically
+// incompatible — a common healthcare coding error that causes claim denials,
+// audit risk, and corrupts case-mix index calculations.
+//
+// IMPORTANT — scope & intent:
+//   * This is a DATA-QUALITY check, NOT a compliance tool and NOT a substitute
+//     for a certified grouper. It catches clear coding mismatches (e.g. a
+//     Heart-Failure DRG with an AMI principal diagnosis) that signal a data
+//     entry or extraction error, not ambiguous edge cases.
+//   * DRG–ICD grouper logic is owned by CMS and is public knowledge. The
+//     mapping table below is derived solely from publicly available CMS
+//     MS-DRG documentation (FY2024 IPPS Final Rule) — no proprietary grouper
+//     software, licensed dataset, or commercial encoder is replicated here.
+//   * Coverage is intentionally narrow: the most common DRG families where
+//     principal-diagnosis mismatch is unambiguous. Unrecognised DRG/ICD
+//     combinations are silently skipped (no false positives).
+//
+// Column detection uses the same robust word-splitting tokenizer as the
+// Cross-Column layer so "drg_code", "drgCode", "DRGCode", "icd10",
+// "primary_icd", and "icd_primary" all match without brittle regex.
+// ============================================================
+
+// [stripped import] import { nameTokens, hasAnyKeyword, isNumeric } from './cross-column-consistency.js';
+
+// ---------------------------------------------------------------------------
+// DRG family → allowed ICD-10-CM principal diagnosis prefix groups (public CMS)
+// ---------------------------------------------------------------------------
+// Each entry:
+//   drg: array of MS-DRG codes (strings) that belong to this family
+//   family: human-readable family label (for error messages)
+//   allowedPrefixes: ICD-10-CM chapter/category prefixes that are valid
+//                    principal diagnoses for this DRG family. A principal
+//                    diagnosis is compatible if it STARTS WITH any of these
+//                    prefixes (case-insensitive). If a row's primary_icd does
+//                    NOT start with any allowed prefix, it is flagged.
+//   incompatibleExamples: brief examples for the finding explanation.
+//
+// Sources: CMS FY2024 MS-DRG Definitions Manual (public domain)
+//          https://www.cms.gov/medicare/payment/prospective-payment-systems/acute-inpatient-pps/ms-drg-classifications-and-software
+// ---------------------------------------------------------------------------
+const DRG_FAMILIES = [
+  {
+    // Heart Failure & Shock — DRGs 291/292/293
+    // Principal dx must be a heart-failure (I50) or cardiogenic shock (R57.0)
+    // or related cardiomyopathy code. AMI (I21–I22) and stroke (I63) are the
+    // most common erroneous pairings seen in coding audits.
+    drg: ['291', '292', '293'],
+    family: 'Heart Failure & Shock (DRG 291-293)',
+    allowedPrefixes: ['I50', 'R570', 'I42', 'I43', 'I110', 'I130', 'I132'],
+    incompatibleExamples: 'AMI (I21.x), Stroke (I63.x), Pneumonia (J18.x)',
+  },
+  {
+    // Acute Myocardial Infarction — DRGs 280/281/282/283/284/285
+    // Principal dx must be I21 or I22 (STEMI, NSTEMI, subsequent MI).
+    drg: ['280', '281', '282', '283', '284', '285'],
+    family: 'Acute Myocardial Infarction (DRG 280-285)',
+    allowedPrefixes: ['I21', 'I22'],
+    incompatibleExamples: 'Heart Failure (I50.x), Stroke (I63.x), COPD (J44.x)',
+  },
+  {
+    // Stroke — DRGs 61/62/63/64/65/66/67/68/69/70
+    // Principal dx must be ischemic stroke (I63), intracranial hemorrhage
+    // (I61, I62), or TIA (G45) for the lower-weighted DRGs.
+    drg: ['61', '62', '63', '64', '65', '66', '67', '68', '69', '70'],
+    family: 'Stroke (DRG 61-70)',
+    allowedPrefixes: ['I60', 'I61', 'I62', 'I63', 'I64', 'G45', 'G46'],
+    incompatibleExamples: 'COPD (J44.x), AMI (I21.x), Pneumonia (J18.x)',
+  },
+  {
+    // Simple Pneumonia & Pleurisy — DRGs 193/194/195
+    // Principal dx must be a pneumonia code (J12–J18) or pleurisy (J90/J94).
+    drg: ['193', '194', '195'],
+    family: 'Pneumonia & Pleurisy (DRG 193-195)',
+    allowedPrefixes: ['J12', 'J13', 'J14', 'J15', 'J16', 'J17', 'J18', 'J90', 'J94'],
+    incompatibleExamples: 'Heart Failure (I50.x), AMI (I21.x), Sepsis (A41.x)',
+  },
+  {
+    // Respiratory Failure / Insufficiency — DRGs 189/190/191/192/927/928
+    // Principal dx must be J96 (respiratory failure) or J80/J81/J82
+    // (pulmonary conditions). COPD exacerbation (J44.1) is also valid
+    // as a principal when the primary respiratory failure driver.
+    drg: ['189', '190', '191', '192', '927', '928'],
+    family: 'Respiratory Failure/Insufficiency (DRG 189-192, 927-928)',
+    allowedPrefixes: ['J96', 'J80', 'J81', 'J82', 'J44', 'J45', 'J68', 'J70'],
+    incompatibleExamples: 'AMI (I21.x), Stroke (I63.x), GI bleed (K92.x)',
+  },
+  {
+    // Septicemia / Severe Sepsis — DRGs 870/871/872
+    // Principal dx must be A40/A41 (sepsis codes) or R65.2 (severe sepsis).
+    drg: ['870', '871', '872'],
+    family: 'Septicemia / Severe Sepsis (DRG 870-872)',
+    allowedPrefixes: ['A40', 'A41', 'R652'],
+    incompatibleExamples: 'Heart Failure (I50.x), COPD (J44.x), Stroke (I63.x)',
+  },
+  {
+    // Major Joint Replacement (Lower Extremity) — DRGs 469/470
+    // Principal dx must be osteoarthritis (M16/M17), fracture (S72/S82),
+    // or AVN (M87). Medical diagnoses (MI, CHF, sepsis) cannot be the
+    // principal dx that drives this surgical DRG.
+    drg: ['469', '470'],
+    family: 'Major Joint Replacement, Lower Extremity (DRG 469-470)',
+    allowedPrefixes: ['M16', 'M17', 'M87', 'S72', 'S82', 'M05', 'M06', 'M08', 'Z96'],
+    incompatibleExamples: 'AMI (I21.x), Sepsis (A41.x), Stroke (I63.x)',
+  },
+  {
+    // COPD — DRGs 190/191/192 already covered above under respiratory;
+    // specific COPD-only DRG 696 (simple)/697 (moderate)/698 (severe).
+    // Note: 190-192 overlap with respiratory group — no double-count risk
+    // because each row is evaluated row-by-row; overlapping DRG arrays
+    // just mean both groups are checked, and the same row only generates
+    // one finding per rule.
+    drg: ['696', '697', '698'],
+    family: 'COPD & Bronchiectasis (DRG 696-698)',
+    allowedPrefixes: ['J44', 'J47'],
+    incompatibleExamples: 'AMI (I21.x), Sepsis (A41.x), Pneumonia (J18.x)',
+  },
+];
+
+// Build a fast O(1) DRG→family lookup map at module load time.
+const DRG_MAP = new Map();
+for (const family of DRG_FAMILIES) {
+  for (const drg of family.drg) {
+    // A DRG may theoretically appear in multiple families (edge case);
+    // we store the first match only — safe because our families are disjoint.
+    if (!DRG_MAP.has(drg)) DRG_MAP.set(drg, family);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Column detection helpers
+// ---------------------------------------------------------------------------
+const DRG_KW  = ['drg'];
+const ICD_KW  = ['icd', 'icd10', 'diagnosis', 'dx', 'primary'];
+
+function detectDrgColumn(cols) {
+  return cols.find(c => hasAnyKeyword(c.name, DRG_KW)) || null;
+}
+
+// The primary/principal ICD column: prefer a column whose name contains BOTH
+// a diagnosis-like keyword AND a primary/principal indicator. Fall back to any
+// icd/diagnosis column if no compound match exists.
+function detectPrimaryIcdColumn(cols) {
+  const PRIMARY_KW = ['primary', 'principal', 'main', 'first'];
+  // Best: compound name that includes both a primary indicator AND icd/dx.
+  const compound = cols.find(c =>
+    hasAnyKeyword(c.name, ICD_KW) && hasAnyKeyword(c.name, PRIMARY_KW)
+  );
+  if (compound) return compound;
+  // Second-best: column that is purely "primary_icd" / "icd_primary" shape
+  // without needing both keyword groups simultaneously.
+  const icdOnly = cols.find(c => hasAnyKeyword(c.name, ICD_KW));
+  return icdOnly || null;
+}
+
+// ---------------------------------------------------------------------------
+// Runner — detects DRG/ICD mismatches using DuckDB SQL (all 600 rows in one
+// pass per DRG family, not row-by-row in JS). Returns a findings array in the
+// same shape as runCrossColumnChecks.
+// ---------------------------------------------------------------------------
+async function runDrgIcdValidation(table, cols, engine) {
+  const findings = [];
+  const drgCol = detectDrgColumn(cols);
+  const icdCol = detectPrimaryIcdColumn(cols);
+
+  if (!drgCol || !icdCol) return findings; // columns not present — silent skip
+
+  for (const family of DRG_FAMILIES) {
+    // Build SQL: rows whose DRG is in this family but whose primary ICD does
+    // NOT start with any of the allowed prefixes.
+    const drgList = family.drg.map(d => `'${d}'`).join(', ');
+    // Build the NOT (icd LIKE 'prefix%') OR clauses.
+    const icdOkClauses = family.allowedPrefixes
+      .map(p => `UPPER(TRIM(CAST("${icdCol.name}" AS VARCHAR))) LIKE '${p.toUpperCase()}%'`)
+      .join(' OR ');
+
+    const sql = `
+      SELECT COUNT(*) AS n FROM ${table}
+      WHERE TRIM(CAST("${drgCol.name}" AS VARCHAR)) IN (${drgList})
+        AND "${icdCol.name}" IS NOT NULL
+        AND NOT (${icdOkClauses})`;
+
+    try {
+      const { rows } = await engine.runQuery(sql);
+      const n = Number(rows[0]?.n) || 0;
+      if (n > 0) {
+        findings.push({
+          rule: 'drg_icd_mismatch',
+          ruleLabel: `DRG / ICD-10 coding mismatch — ${family.family}`,
+          columns: [drgCol.name, icdCol.name],
+          count: n,
+          text: `${n} row(s) with a ${family.family} DRG but a principal diagnosis incompatible with that DRG family (e.g. ${family.incompatibleExamples}).`,
+          explanation: `MS-DRG grouper rules (CMS FY2024) require a specific principal diagnosis category for ${family.family}. ${n} row(s) carry a DRG in [${family.drg.join(', ')}] but their "${icdCol.name}" code does not fall in the expected category. This indicates a coding error, a transposed DRG, or an extraction mismatch — any of which causes incorrect reimbursement and audit exposure.`,
+        });
+      }
+    } catch { /* SQL error (e.g. column type incompatible) — skip family */ }
+  }
+
+  return findings;
+}
+
+  window.DRGICDValidator = {
+    validateDRGICDCoding: typeof validateDRGICDCoding !== 'undefined' ? validateDRGICDCoding : null,
+    buildDRGICDReport: typeof buildDRGICDReport !== 'undefined' ? buildDRGICDReport : null,
+    detectDRGICDColumns: typeof detectDRGICDColumns !== 'undefined' ? detectDRGICDColumns : null,
+    DRG_ICD_RULES: typeof DRG_ICD_RULES !== 'undefined' ? DRG_ICD_RULES : [],
+  };
+
+  // Surface in overflow grid as a validation tool
+  function initDRGUI() {
+    var panelId = 'dg-drgvalidator-panel';
+    if (!document.getElementById(panelId)) {
+      var panel = document.createElement('div');
+      panel.id = panelId;
+      panel.style.cssText = 'position:fixed;top:0;right:0;width:460px;max-width:100vw;height:100vh;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e5e5);z-index:862;overflow-y:auto;display:none;box-shadow:-8px 0 32px rgba(0,0,0,.18);';
+      document.body.appendChild(panel);
+    }
+    function toggle() {
+      var p = document.getElementById(panelId);
+      if (!p) return;
+      if (p.style.display === 'none' || !p.style.display) {
+        p.style.display = 'block';
+        p.innerHTML = '';
+        var cx = document.createElement('button');
+        cx.textContent = '\u00D7';
+        cx.style.cssText = 'position:sticky;top:12px;float:right;margin:12px 14px 0 0;background:none;border:none;font-size:20px;color:var(--text-muted,#888);cursor:pointer;z-index:1;';
+        cx.addEventListener('click', function(){ p.style.display='none'; });
+        p.appendChild(cx);
+        var h = document.createElement('div');
+        h.style.cssText = 'padding:20px;';
+        h.innerHTML = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px;">DRG/ICD-10 Validator</h3><p style="font-size:12px;color:var(--text-muted,#888);line-height:1.6;">Healthcare billing correctness checker. Load a claims dataset to detect DRG/ICD-10 coding errors, NCCI same-day P2P conflicts, and LOS date-math issues.</p>';
+        p.appendChild(h);
+        // If dataset loaded, auto-run
+        if (typeof validateDRGICDCoding === 'function' && typeof window.dgGetCurrentDataset === 'function') {
+          var ds = window.dgGetCurrentDataset();
+          if (ds && ds.rows) {
+            var report = buildDRGICDReport ? buildDRGICDReport(ds) : null;
+            if (report) {
+              var pre = document.createElement('pre');
+              pre.style.cssText = 'padding:0 20px;font-size:11px;white-space:pre-wrap;color:var(--text,#222);';
+              pre.textContent = JSON.stringify(report, null, 2);
+              p.appendChild(pre);
+            }
+          }
+        }
+      } else { p.style.display = 'none'; }
+    }
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-drgvalidator')) {
+      var btn = document.createElement('button');
+      btn.id = 'dg-ov-drgvalidator';
+      btn.className = 'dg-ov-btn';
+      btn.innerHTML = '\uD83C\uDFE5<br><span>DRG/ICD</span>';
+      btn.addEventListener('click', function(){
+        ['dg-overflow-popover','dg-overflow-overlay'].forEach(function(id){
+          var e2=document.getElementById(id); if(e2) e2.classList.remove('open');
+        });
+        toggle();
+      });
+      ovGrid.appendChild(btn);
+    }
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-drgvalidator')) {
+      var btn2 = document.createElement('button');
+      btn2.id = 'dg-ts-drgvalidator';
+      btn2.className = 'dg-ov-btn';
+      btn2.innerHTML = '\uD83C\uDFE5<br><span>DRG/ICD</span>';
+      btn2.addEventListener('click', function(){
+        var sh=document.getElementById('dg-tools-sheet'); if(sh) sh.classList.remove('open');
+        toggle();
+      });
+      tsGrid.appendChild(btn2);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initDRGUI);
+  else setTimeout(initDRGUI, 1050);
+}());
+/* ---- end drg-icd-validator.js ---- */
