@@ -15924,15 +15924,50 @@ var InstantInsight = (function () {
         var ds = window.getActiveDataset && window.getActiveDataset();
         if (ds && ds.rows.length > 0) {
           var cols = ds.columns.map(function(c){return c.name;});
+          /* WebR data.frame cap -- warn visibly if dataset > CAP rows */
+          var WEBR_ROW_CAP = 2000;
+          var totalRows = ds.rows.length;
+          var cappedRows = ds.rows.slice(0, WEBR_ROW_CAP);
+          var wasCapped = totalRows > WEBR_ROW_CAP;
+
           var rCode = 'df <- data.frame(' + cols.map(function(c, i) {
-            var vals = ds.rows.map(function(r){
+            var vals = cappedRows.map(function(r){
               var v = r[i];
               return v === null || v === undefined || v === '' ? 'NA' :
-                     (isNaN(parseFloat(v)) ? '"' + String(v).replace(/"/g, '\"') + '"' : String(parseFloat(v)));
+                     (isNaN(parseFloat(v)) ? '"' + String(v).replace(/"/g, '\\"') + '"' : String(parseFloat(v)));
             });
-            return '"' + c.replace(/"/g,'\"') + '" = c(' + vals.slice(0, 2000).join(', ') + ')';
+            return '"' + c.replace(/"/g,'\\"') + '" = c(' + vals.join(', ') + ')';
           }).join(', ') + ', stringsAsFactors = FALSE)';
           await webR.evalR(rCode);
+
+          /* Show cap notice AFTER data.frame loads so user sees it in context */
+          if (wasCapped) {
+            /* Inject a persistent notice above the R editor */
+            var capBannerId = 'webr-cap-banner';
+            var existing = document.getElementById(capBannerId);
+            if (existing) existing.remove();
+            var rPanel = document.querySelector('.r-panel, #r-panel, .r-view, [class*="r-editor"]') || document.body;
+            var banner = document.createElement('div');
+            banner.id = capBannerId;
+            banner.className = 'webr-cap-banner';
+            banner.innerHTML =
+              '<span class="wcb-icon">&#x26A0;</span>' +
+              '<span class="wcb-msg"><strong>R is analyzing ' + WEBR_ROW_CAP.toLocaleString() + ' of ' + totalRows.toLocaleString() + ' rows</strong> -- WebR caps data.frame size to prevent browser memory overflow. ' +
+              'For full-dataset analysis, run a SQL query first to filter/aggregate, then re-open R.</span>' +
+              '<button class="wcb-dismiss" title="Dismiss">&#x00D7;</button>';
+            banner.querySelector('.wcb-dismiss').addEventListener('click', function() { banner.remove(); });
+            /* Insert before the R editor if possible, else prepend to body */
+            var rEditor = document.querySelector('.r-editor-wrap, #r-editor-container, .CodeMirror, [class*="codemirror"]');
+            if (rEditor && rEditor.parentElement) {
+              rEditor.parentElement.insertBefore(banner, rEditor);
+            } else {
+              rPanel.prepend(banner);
+            }
+            /* Also fire a toast */
+            if (typeof showToast === 'function') {
+              showToast('R: analyzing ' + WEBR_ROW_CAP.toLocaleString() + '/' + totalRows.toLocaleString() + ' rows -- WebR row cap active', 'warn');
+            }
+          }
         }
 
         _webR = webR;
@@ -19899,8 +19934,8 @@ var InstantInsight = (function () {
   function nullCountsByColumn(ds) {
     var counts = {};
     ds.columns.forEach(function (c) { counts[c.name] = 0; });
-    var sampleRows = ds.rows.slice(0, 2000);
-    sampleRows.forEach(function (row) {
+    /* Scan ALL rows -- no sampling; null counts must be exact for Validate tab */
+    ds.rows.forEach(function (row) {
       ds.columns.forEach(function (c, i) {
         if (isNullish(row[i])) counts[c.name] = (counts[c.name] || 0) + 1;
       });
