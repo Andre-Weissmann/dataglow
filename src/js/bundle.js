@@ -62228,6 +62228,169 @@ const PUBLIC_API_SURFACE = Object.freeze([
 }());
 /* ---- end query-sentinel-assist.js ---- */
 
+/* ============================================================
+   Jobs UX Overhaul -- overflow menu, mobile mode tabs, starter tiles
+   ============================================================ */
+;(function() {
+  'use strict';
+
+  // ── 1. Nav overflow menu toggle ──────────────────────────────
+  var overflowBtn  = document.getElementById('nav-overflow-btn');
+  var overflowMenu = document.getElementById('nav-overflow-menu');
+
+  if (overflowBtn && overflowMenu) {
+    overflowBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var isOpen = !overflowMenu.classList.contains('hidden');
+      overflowMenu.classList.toggle('hidden', isOpen);
+      overflowBtn.setAttribute('aria-expanded', String(!isOpen));
+    });
+    document.addEventListener('click', function(e) {
+      if (!overflowMenu.contains(e.target) && e.target !== overflowBtn) {
+        overflowMenu.classList.add('hidden');
+        overflowBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // ── 2. Mobile mode tabs -- map each tab to a set of sidebar panels ──
+  var ATB_MODES = {
+    explore:  ['charts-view', 'dashboard-view', 'stats-view', 'arena-view', 'excel-view'],
+    query:    ['sql-view', 'sql-dojo-view', 'python-view', 'r-view'],
+    validate: ['review-view', 'witness-view', 'cases-view', 'osce-view', 'narrative-view', 'story-view']
+  };
+
+  var modeTabs = document.querySelectorAll('.atb-mode-tab');
+  modeTabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var mode = tab.getAttribute('data-atb-mode');
+      modeTabs.forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+
+      // Open tools-sheet filtered to this mode
+      var overlay = document.getElementById('tools-sheet-overlay');
+      var sheetBody = document.getElementById('tools-sheet-body');
+      if (!overlay || !sheetBody) return;
+
+      // Filter sidebar items in the sheet to show only this mode's panels
+      var allItems = sheetBody.querySelectorAll('.sidebar-nav-item[data-panel]');
+      var modePanels = ATB_MODES[mode] || [];
+      if (allItems.length === 0) {
+        // Sheet not yet populated -- open it normally and let existing logic run
+        var trigger = document.getElementById('analyze-tools-trigger');
+        if (trigger) trigger.click();
+        return;
+      }
+
+      allItems.forEach(function(item) {
+        var panel = item.getAttribute('data-panel');
+        var inMode = modePanels.length === 0 || modePanels.indexOf(panel) !== -1;
+        item.style.display = inMode ? '' : 'none';
+      });
+
+      // Show the sheet section labels
+      var labels = sheetBody.querySelectorAll('.sidebar-section-label');
+      labels.forEach(function(l) { l.style.display = 'none'; });
+
+      // Open sheet
+      overlay.classList.add('open');
+      var sheet = document.getElementById('tools-sheet');
+      if (sheet) sheet.style.transform = 'translateY(0)';
+    });
+  });
+
+  // When tools-sheet closes, reset item visibility
+  var tsClose = document.getElementById('tools-sheet-close-btn');
+  if (tsClose) {
+    tsClose.addEventListener('click', function() {
+      var allItems = document.querySelectorAll('#tools-sheet-body .sidebar-nav-item');
+      allItems.forEach(function(i) { i.style.display = ''; });
+      var labels = document.querySelectorAll('#tools-sheet-body .sidebar-section-label');
+      labels.forEach(function(l) { l.style.display = ''; });
+    });
+  }
+
+  // ── 3. Post-load starter tiles ───────────────────────────────
+  // Show the guide when a dataset first loads, hide when user navigates away
+  var NSG_DISMISSED_KEY = 'dg_nsg_dismissed';
+
+  function showNextStepGuide(datasetName) {
+    // Don't show if user has permanently dismissed OR session dismissed
+    if (sessionStorage.getItem(NSG_DISMISSED_KEY)) return;
+    var guide = document.getElementById('next-step-guide');
+    var nameEl = document.getElementById('nsg-dataset-name');
+    if (!guide) return;
+    if (nameEl) nameEl.textContent = datasetName || 'Dataset loaded';
+    guide.classList.remove('hidden');
+  }
+
+  function hideNextStepGuide() {
+    var guide = document.getElementById('next-step-guide');
+    if (guide) guide.classList.add('hidden');
+  }
+
+  // Dismiss button
+  var nsgDismiss = document.getElementById('nsg-dismiss');
+  if (nsgDismiss) {
+    nsgDismiss.addEventListener('click', function() {
+      sessionStorage.setItem(NSG_DISMISSED_KEY, '1');
+      hideNextStepGuide();
+    });
+  }
+
+  // Tile clicks -- navigate to the right panel
+  var TILE_MAP = {
+    chart:    { view: 'analyze', panel: 'charts-view' },
+    sql:      { view: 'analyze', panel: 'sql-view' },
+    validate: { view: 'analyze', panel: 'review-view' }
+  };
+
+  document.querySelectorAll('.nsg-tile[data-nsg]').forEach(function(tile) {
+    tile.addEventListener('click', function() {
+      var key = tile.getAttribute('data-nsg');
+      var target = TILE_MAP[key];
+      if (!target) return;
+      hideNextStepGuide();
+      // Switch to analyze view
+      var analyzeBtn = document.querySelector('.nav-btn[data-view="analyze"]');
+      if (analyzeBtn) analyzeBtn.click();
+      // Then click the sidebar panel
+      setTimeout(function() {
+        var panelBtn = document.querySelector('.sidebar-nav-item[data-panel="' + target.panel + '"]');
+        if (panelBtn) panelBtn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+      }, 80);
+    });
+  });
+
+  // Hook into dataset load events -- listen for when a file is parsed
+  // The app fires a custom event or updates the tab strip after loading
+  // Use a MutationObserver on #tab-strip to detect new tabs
+  var tabStrip = document.getElementById('tab-strip');
+  if (tabStrip) {
+    var seenTabs = new Set();
+    var tabObserver = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        m.addedNodes.forEach(function(node) {
+          if (node.nodeType === 1 && node.classList && node.classList.contains('tab')) {
+            var tabName = (node.textContent || '').trim().replace(/×\s*$/, '').trim();
+            if (tabName && !seenTabs.has(tabName)) {
+              seenTabs.add(tabName);
+              // Show guide on first new dataset load
+              setTimeout(function() { showNextStepGuide(tabName); }, 600);
+            }
+          }
+        });
+      });
+    });
+    tabObserver.observe(tabStrip, { childList: true });
+  }
+
+  // Also expose for external call (e.g. from ingestion callback)
+  window._dgShowNextStepGuide = showNextStepGuide;
+  window._dgHideNextStepGuide = hideNextStepGuide;
+
+})();
+
 /* ---- from js/validation/query-sentinel-bridge.js ---- */
 ;(function(){
   'use strict';

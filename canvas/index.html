@@ -7530,6 +7530,211 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
   transition: color 0.15s;
 }
 .wcb-dismiss:hover { color: var(--text, #CDCCCA); }
+
+/* ============================================================
+   Jobs UX Overhaul -- Nav overflow menu, mobile mode tabs, starter tiles
+   ============================================================ */
+
+/* ── Nav overflow menu ─────────────────────────────────────── */
+#nav-overflow-wrap {
+  position: relative;
+}
+#nav-overflow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+#nav-overflow-btn:hover { background: var(--surface-alt); color: var(--text); }
+
+.nav-overflow-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  z-index: 9000;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-overflow-menu.hidden { display: none; }
+
+.nav-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.12s;
+  width: 100%;
+}
+.nav-overflow-item:hover { background: var(--surface-alt); }
+.nav-overflow-item svg { flex-shrink: 0; color: var(--text-muted); }
+
+.nav-overflow-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ── Mobile analyze mode tabs (3-mode bottom strip) ───────── */
+#atb-mode-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.atb-mode-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-muted);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.atb-mode-tab:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+.atb-mode-tab.active {
+  background: rgba(32, 197, 181, 0.1);
+  border-color: rgba(32, 197, 181, 0.25);
+  color: var(--primary);
+}
+.atb-tab-icon { font-size: 15px; line-height: 1; }
+.atb-tab-label { font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+
+/* Groups of sidebar items that map to each mode */
+/* Explore: Charts, Dashboard, Statistics, Arena, Excel */
+/* Query: SQL, SQL Dojo, Python, R */
+/* Validate: Peer Review, Witness, Case Library, OSCE, Narrative */
+/* On mobile, mode tab click filters visible tools-sheet items */
+
+/* ── Post-load starter tiles ───────────────────────────────── */
+#next-step-guide {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background: var(--background, var(--bg));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  border-bottom: 1px solid var(--border);
+}
+#next-step-guide.hidden { display: none !important; }
+
+#nsg-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+  width: 100%;
+  text-align: center;
+}
+.nsg-filename {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(32,197,181,0.1);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+.nsg-headline {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.nsg-tiles {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.nsg-tile {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 16px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.nsg-tile:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 20px rgba(32,197,181,0.12);
+  transform: translateY(-1px);
+}
+.nsg-tile-icon { font-size: 20px; }
+.nsg-tile-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.nsg-tile-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.nsg-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 8px;
+  transition: color 0.15s;
+}
+.nsg-dismiss:hover { color: var(--text); }
+
+@media (max-width: 700px) {
+  .nsg-tiles { flex-direction: column; }
+  .nsg-tile { flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; }
+  .nsg-tile-icon { font-size: 18px; flex-shrink: 0; }
+  .nsg-headline { font-size: 15px; }
+  #next-step-guide { padding: 20px 16px; }
+}
   </style>
 
 </head>
@@ -7656,42 +7861,63 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
         <button class="nav-btn" data-view="share">Share</button>
       </div>
       <div id="nav-right">
+        <!-- Primary actions: always visible -->
         <button id="publish-btn" title="Share this analysis" disabled>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:5px;vertical-align:-1px">
-            <path d="M10 3L13 3M13 3L13 6M13 3L8.5 7.5M6.5 4H4C3.44772 4 3 4.44772 3 5V12C3 12.5523 3.44772 13 4 13H11C11.5523 13 12 12.5523 12 12V9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M10 3L13 3M13 3L13 6M13 3L8.5 7.5M6.5 4H4C3.44772 4 3 4.44772 3 5V12C3 12.5523 3.44772 13 4 13H12C12.5523 13 13 12.5523 13 12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           Share
         </button>
         <button id="export-btn" title="Export data" disabled>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:5px;vertical-align:-1px">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M8 2v9M8 11l-3-3M8 11l3-3M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           Export
         </button>
-        <button id="save-dataset-btn" title="Save current dataset to browser storage" onclick="saveCurrentDataset()" style="display:none;">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
-            <path d="M13 13H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8l2 2v7a1 1 0 0 1-1 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-            <path d="M5 13V9h6v4M5 3v3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Save
-        </button>
-        <button id="saved-datasets-btn" title="Open saved datasets" onclick="openSavedDatasets()" style="display:none;">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
-            <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            <rect x="2" y="7" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            <rect x="2" y="12" width="12" height="2" rx="1" stroke="currentColor" stroke-width="1.5"/>
-          </svg>
-          Saved
-        </button>
-        <button id="profile-btn" title="Set your workspace profile" onclick="openWorkspaceProfile()">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="margin-right:4px;vertical-align:-1px">
-            <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M2 14c0-3 2.686-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Profile
-        </button>
-        <button id="theme-toggle" title="Toggle dark mode">&#9681;</button>
-        <button class="privacy-badge" title="All analysis runs in your browser. Zero data leaves your device.&#10;&#10;DataGlow uses:&#10;- DuckDB-WASM (in-browser SQL)&#10;- Pyodide (in-browser Python)&#10;- WebR (in-browser R)&#10;&#10;No user data is ever uploaded to any server." onclick="showPrivacyAudit()">
+        <!-- Overflow menu -- Save, Saved, Profile, hidden on mobile -->
+        <div id="nav-overflow-wrap">
+          <button id="nav-overflow-btn" title="More options" aria-label="More options">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="3" cy="8" r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="8" r="1.2" fill="currentColor"/>
+              <circle cx="13" cy="8" r="1.2" fill="currentColor"/>
+            </svg>
+          </button>
+          <div id="nav-overflow-menu" class="nav-overflow-menu hidden" role="menu">
+            <button class="nav-overflow-item" id="save-dataset-btn" onclick="saveCurrentDataset()" title="Save dataset to browser storage">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M13 13H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8l2 2v7a1 1 0 0 1-1 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M5 13V9h6v4M5 3v3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Save dataset
+            </button>
+            <button class="nav-overflow-item" id="saved-datasets-btn" onclick="openSavedDatasets()" style="display:none;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="2" y="7" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="2" y="12" width="12" height="2" rx="1" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+              Saved datasets
+            </button>
+            <button class="nav-overflow-item" id="profile-btn" onclick="openWorkspaceProfile()">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M2 14c0-3 2.686-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Profile
+            </button>
+            <div class="nav-overflow-divider"></div>
+            <button class="nav-overflow-item" id="nav-overflow-theme" onclick="document.getElementById('theme-toggle').click()">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Toggle dark mode
+            </button>
+          </div>
+        </div>
+        <button id="theme-toggle" title="Toggle dark mode" style="display:none;">&#9681;</button>
+        <button class="privacy-badge" title="All analysis runs in your browser. Zero data leaves your device.">
           <div class="privacy-badge-dot"></div>
           100% Private
         </button>
@@ -7739,6 +7965,31 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
         <div id="join-view" class="tab-panel hidden">
         <div id="join-view-inner"></div>
       </div>
+        <!-- Post-load next-step guide (hidden until dataset loaded) -->
+        <div id="next-step-guide" class="hidden">
+          <div id="nsg-inner">
+            <span id="nsg-dataset-name" class="nsg-filename"></span>
+            <p class="nsg-headline">What do you want to know?</p>
+            <div class="nsg-tiles">
+              <button class="nsg-tile" data-nsg="chart">
+                <span class="nsg-tile-icon">&#128200;</span>
+                <span class="nsg-tile-label">Chart it</span>
+                <span class="nsg-tile-desc">Visualize distributions, trends, and outliers</span>
+              </button>
+              <button class="nsg-tile" data-nsg="sql">
+                <span class="nsg-tile-icon">&#128196;</span>
+                <span class="nsg-tile-label">Query it</span>
+                <span class="nsg-tile-desc">Write SQL or ask in plain English</span>
+              </button>
+              <button class="nsg-tile" data-nsg="validate">
+                <span class="nsg-tile-icon">&#9989;</span>
+                <span class="nsg-tile-label">Validate it</span>
+                <span class="nsg-tile-desc">Check quality, find issues, clean with proof</span>
+              </button>
+            </div>
+            <button id="nsg-dismiss" class="nsg-dismiss">Skip -- I know where I am going</button>
+          </div>
+        </div>
         <!-- Main grid -->
         <div id="grid-view" class="tab-panel active">
         <!-- Formula bar -->
@@ -7869,8 +8120,22 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
           <button class="analyze-pill" data-panel="review-view">Review</button>
         </div><div id="analyze-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0;">
 <div id="analyze-tools-bar">
-  <button id="analyze-tools-trigger">&#9776; Tools</button>
-  <span id="analyze-active-label">Charts</span>
+  <!-- 3-mode tabs: the Steve Jobs "one thing at a time" answer to 13 sidebar items -->
+  <div id="atb-mode-tabs">
+    <button class="atb-mode-tab active" data-atb-mode="explore" title="Explore -- charts, dashboard, statistics">
+      <span class="atb-tab-icon">&#128200;</span>
+      <span class="atb-tab-label">Explore</span>
+    </button>
+    <button class="atb-mode-tab" data-atb-mode="query" title="Query -- SQL, Python, R, Excel">
+      <span class="atb-tab-icon">&#128196;</span>
+      <span class="atb-tab-label">Query</span>
+    </button>
+    <button class="atb-mode-tab" data-atb-mode="validate" title="Validate -- Peer Review, Witness, Narrative">
+      <span class="atb-tab-icon">&#10003;</span>
+      <span class="atb-tab-label">Validate</span>
+    </button>
+  </div>
+  <button id="analyze-tools-trigger" title="All tools">&#9776;</button>
 </div>
 <div id="tools-sheet-overlay">
   <div id="tools-sheet">
@@ -70822,6 +71087,169 @@ const PUBLIC_API_SURFACE = Object.freeze([
   };
 }());
 /* ---- end query-sentinel-assist.js ---- */
+
+/* ============================================================
+   Jobs UX Overhaul -- overflow menu, mobile mode tabs, starter tiles
+   ============================================================ */
+;(function() {
+  'use strict';
+
+  // ── 1. Nav overflow menu toggle ──────────────────────────────
+  var overflowBtn  = document.getElementById('nav-overflow-btn');
+  var overflowMenu = document.getElementById('nav-overflow-menu');
+
+  if (overflowBtn && overflowMenu) {
+    overflowBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var isOpen = !overflowMenu.classList.contains('hidden');
+      overflowMenu.classList.toggle('hidden', isOpen);
+      overflowBtn.setAttribute('aria-expanded', String(!isOpen));
+    });
+    document.addEventListener('click', function(e) {
+      if (!overflowMenu.contains(e.target) && e.target !== overflowBtn) {
+        overflowMenu.classList.add('hidden');
+        overflowBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // ── 2. Mobile mode tabs -- map each tab to a set of sidebar panels ──
+  var ATB_MODES = {
+    explore:  ['charts-view', 'dashboard-view', 'stats-view', 'arena-view', 'excel-view'],
+    query:    ['sql-view', 'sql-dojo-view', 'python-view', 'r-view'],
+    validate: ['review-view', 'witness-view', 'cases-view', 'osce-view', 'narrative-view', 'story-view']
+  };
+
+  var modeTabs = document.querySelectorAll('.atb-mode-tab');
+  modeTabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var mode = tab.getAttribute('data-atb-mode');
+      modeTabs.forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+
+      // Open tools-sheet filtered to this mode
+      var overlay = document.getElementById('tools-sheet-overlay');
+      var sheetBody = document.getElementById('tools-sheet-body');
+      if (!overlay || !sheetBody) return;
+
+      // Filter sidebar items in the sheet to show only this mode's panels
+      var allItems = sheetBody.querySelectorAll('.sidebar-nav-item[data-panel]');
+      var modePanels = ATB_MODES[mode] || [];
+      if (allItems.length === 0) {
+        // Sheet not yet populated -- open it normally and let existing logic run
+        var trigger = document.getElementById('analyze-tools-trigger');
+        if (trigger) trigger.click();
+        return;
+      }
+
+      allItems.forEach(function(item) {
+        var panel = item.getAttribute('data-panel');
+        var inMode = modePanels.length === 0 || modePanels.indexOf(panel) !== -1;
+        item.style.display = inMode ? '' : 'none';
+      });
+
+      // Show the sheet section labels
+      var labels = sheetBody.querySelectorAll('.sidebar-section-label');
+      labels.forEach(function(l) { l.style.display = 'none'; });
+
+      // Open sheet
+      overlay.classList.add('open');
+      var sheet = document.getElementById('tools-sheet');
+      if (sheet) sheet.style.transform = 'translateY(0)';
+    });
+  });
+
+  // When tools-sheet closes, reset item visibility
+  var tsClose = document.getElementById('tools-sheet-close-btn');
+  if (tsClose) {
+    tsClose.addEventListener('click', function() {
+      var allItems = document.querySelectorAll('#tools-sheet-body .sidebar-nav-item');
+      allItems.forEach(function(i) { i.style.display = ''; });
+      var labels = document.querySelectorAll('#tools-sheet-body .sidebar-section-label');
+      labels.forEach(function(l) { l.style.display = ''; });
+    });
+  }
+
+  // ── 3. Post-load starter tiles ───────────────────────────────
+  // Show the guide when a dataset first loads, hide when user navigates away
+  var NSG_DISMISSED_KEY = 'dg_nsg_dismissed';
+
+  function showNextStepGuide(datasetName) {
+    // Don't show if user has permanently dismissed OR session dismissed
+    if (sessionStorage.getItem(NSG_DISMISSED_KEY)) return;
+    var guide = document.getElementById('next-step-guide');
+    var nameEl = document.getElementById('nsg-dataset-name');
+    if (!guide) return;
+    if (nameEl) nameEl.textContent = datasetName || 'Dataset loaded';
+    guide.classList.remove('hidden');
+  }
+
+  function hideNextStepGuide() {
+    var guide = document.getElementById('next-step-guide');
+    if (guide) guide.classList.add('hidden');
+  }
+
+  // Dismiss button
+  var nsgDismiss = document.getElementById('nsg-dismiss');
+  if (nsgDismiss) {
+    nsgDismiss.addEventListener('click', function() {
+      sessionStorage.setItem(NSG_DISMISSED_KEY, '1');
+      hideNextStepGuide();
+    });
+  }
+
+  // Tile clicks -- navigate to the right panel
+  var TILE_MAP = {
+    chart:    { view: 'analyze', panel: 'charts-view' },
+    sql:      { view: 'analyze', panel: 'sql-view' },
+    validate: { view: 'analyze', panel: 'review-view' }
+  };
+
+  document.querySelectorAll('.nsg-tile[data-nsg]').forEach(function(tile) {
+    tile.addEventListener('click', function() {
+      var key = tile.getAttribute('data-nsg');
+      var target = TILE_MAP[key];
+      if (!target) return;
+      hideNextStepGuide();
+      // Switch to analyze view
+      var analyzeBtn = document.querySelector('.nav-btn[data-view="analyze"]');
+      if (analyzeBtn) analyzeBtn.click();
+      // Then click the sidebar panel
+      setTimeout(function() {
+        var panelBtn = document.querySelector('.sidebar-nav-item[data-panel="' + target.panel + '"]');
+        if (panelBtn) panelBtn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+      }, 80);
+    });
+  });
+
+  // Hook into dataset load events -- listen for when a file is parsed
+  // The app fires a custom event or updates the tab strip after loading
+  // Use a MutationObserver on #tab-strip to detect new tabs
+  var tabStrip = document.getElementById('tab-strip');
+  if (tabStrip) {
+    var seenTabs = new Set();
+    var tabObserver = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        m.addedNodes.forEach(function(node) {
+          if (node.nodeType === 1 && node.classList && node.classList.contains('tab')) {
+            var tabName = (node.textContent || '').trim().replace(/×\s*$/, '').trim();
+            if (tabName && !seenTabs.has(tabName)) {
+              seenTabs.add(tabName);
+              // Show guide on first new dataset load
+              setTimeout(function() { showNextStepGuide(tabName); }, 600);
+            }
+          }
+        });
+      });
+    });
+    tabObserver.observe(tabStrip, { childList: true });
+  }
+
+  // Also expose for external call (e.g. from ingestion callback)
+  window._dgShowNextStepGuide = showNextStepGuide;
+  window._dgHideNextStepGuide = hideNextStepGuide;
+
+})();
 
 /* ---- from js/validation/query-sentinel-bridge.js ---- */
 ;(function(){
