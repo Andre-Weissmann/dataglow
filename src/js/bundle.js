@@ -11894,12 +11894,11 @@ var InstantInsight = (function () {
         'import pandas as pd, io, json',
         'class _DG:',
         '    def df(self, name=None):',
-        '        import js',
         '        if name is None:',
         '            key = "' + (activeKey || '') + '"',
         '        else:',
         '            key = "dg_csv_" + "".join(c if c.isalnum() or c == "_" else "_" for c in name.rsplit(".", 1)[0])',
-        '        csv_str = js.globals[key] if hasattr(js, "globals") else getattr(js, key, None)',
+        '        csv_str = globals().get(key)',
         '        if csv_str is None: raise ValueError("Dataset not found: " + str(name))',
         '        return pd.read_csv(io.StringIO(str(csv_str)))',
         '    def show(self, df):',
@@ -15234,8 +15233,8 @@ var InstantInsight = (function () {
               var v = r[i];
               return v === null || v === undefined || v === '' ? 'NA' :
                      (isNaN(parseFloat(v)) ? '"' + String(v).replace(/"/g, '\"') + '"' : String(parseFloat(v)));
-            }).join(', ');
-            return '"' + c.replace(/"/g,'\"') + '" = c(' + vals.slice(0, 2000).join(',') + ')';
+            });
+            return '"' + c.replace(/"/g,'\"') + '" = c(' + vals.slice(0, 2000).join(', ') + ')';
           }).join(', ') + ', stringsAsFactors = FALSE)';
           await webR.evalR(rCode);
         }
