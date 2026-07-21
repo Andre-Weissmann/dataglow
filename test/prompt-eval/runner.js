@@ -18,11 +18,13 @@
  * Node built-ins only — no npm installs required.
  */
 
-'use strict';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const CASES_PATH = path.join(__dirname, 'cases.json');
 const REPORT_PATH = path.join(__dirname, 'last-run.json');
