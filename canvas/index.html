@@ -20170,6 +20170,7 @@ var InstantInsight = (function () {
     metricStudio: true,
     dataDiplomacy: true,
     psiHandshake: true,
+    qrTransport: true,
     verifiableCheckSeal: true,
     drgIcdValidator: true,
     ncciValidator: true,
@@ -20235,6 +20236,7 @@ var InstantInsight = (function () {
     formatFingerprint: true,
     narrativeOverconfidenceGuard: true,
   };
+  window.FEATURE_FLAGS = FEATURE_FLAGS;
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
      localStorage/cookies) BEFORE any feature is wired below, so the very
@@ -56232,6 +56234,576 @@ function renderDiplomacyPanel(opts = {}) {
 
 }());
 /* ---- end psi-panel.js ---- */
+
+
+
+
+/* ---- from js/sync/qr-transport.js ---- */
+/* ================================================================
+   DataGlow QR Transport -- Cross-Device Session Sync
+   Phase 1 of 3: QR Code handoff (universal, no permissions needed)
+
+   Architecture:
+   - Session Capsule: compressed JSON of shareable session state
+     (column cleaning marks, proof chain hash, validation rules,
+      assumptions, active gates, narrative seeds)
+     NOT raw row data -- that stays in OPFS per device.
+   - Encode: capsule -> JSON string -> base64url -> qrcode.js render
+   - Decode: jsQR camera scan -> base64url -> JSON -> hydrate state
+   - Both qrcode.js and jsQR loaded from CDN on first use
+
+   No server. No API key. No raw data leaves the device.
+   ================================================================ */
+window.DataGlowQR = (function () {
+  'use strict';
+
+  /* ----------------------------------------------------------------
+     CDN loaders
+  ---------------------------------------------------------------- */
+  var QRCODE_CDN  = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
+  var JSQR_CDN    = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+
+  var _qrcodeLoaded = false;
+  var _jsqrLoaded   = false;
+
+  function loadScript(src, onLoad) {
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = onLoad;
+    s.onerror = function () { console.warn('[DG-QR] CDN load failed:', src); };
+    document.head.appendChild(s);
+  }
+
+  function ensureQRCode(cb) {
+    if (_qrcodeLoaded && window.QRCode) { cb(); return; }
+    loadScript(QRCODE_CDN, function () { _qrcodeLoaded = true; cb(); });
+  }
+
+  function ensureJSQR(cb) {
+    if (_jsqrLoaded && window.jsQR) { cb(); return; }
+    loadScript(JSQR_CDN, function () { _jsqrLoaded = true; cb(); });
+  }
+
+  /* ----------------------------------------------------------------
+     Session Capsule -- what gets encoded into the QR
+     Only shareable session metadata, no raw rows.
+  ---------------------------------------------------------------- */
+  function buildCapsule() {
+    var capsule = {
+      v:   1,
+      ts:  Date.now(),
+      src: 'dataglow-qr',
+    };
+
+    /* Proof chain hash (from DataGlowProof if available) */
+    if (window.DataGlowProof && typeof window.DataGlowProof.getChainHash === 'function') {
+      capsule.proofHash = window.DataGlowProof.getChainHash();
+    }
+
+    /* Active validation gates */
+    if (window.DataGlowGates && typeof window.DataGlowGates.exportState === 'function') {
+      capsule.gates = window.DataGlowGates.exportState();
+    }
+
+    /* Column cleaning marks (from OPFS metadata if available) */
+    if (window.OPFSEngine && typeof window.OPFSEngine.getSessionMeta === 'function') {
+      try { capsule.meta = window.OPFSEngine.getSessionMeta(); } catch (_e) {}
+    }
+
+    /* Active SQL (from editor) */
+    try {
+      var sqlEd = document.getElementById('sql-view-input') || document.querySelector('#sql-view textarea');
+      if (sqlEd && sqlEd.value && sqlEd.value.trim().length > 0) {
+        capsule.sql = sqlEd.value.trim().slice(0, 2000);
+      }
+    } catch (_e) {}
+
+    /* Narrative assumptions seed */
+    if (window.DataGlowNarrative && typeof window.DataGlowNarrative.getAssumptions === 'function') {
+      try { capsule.assumptions = window.DataGlowNarrative.getAssumptions(); } catch (_e) {}
+    }
+
+    /* Dataset name + column list (not rows) */
+    if (window.__DG_DATASET__) {
+      capsule.dsName = window.__DG_DATASET__.name || '';
+      capsule.dsCols = (window.__DG_DATASET__.columns || []).map(function (c) {
+        return { n: c.name || c, t: c.type || 'STR' };
+      }).slice(0, 100);
+    }
+
+    return capsule;
+  }
+
+  function encodeCapsule(capsule) {
+    var json = JSON.stringify(capsule);
+    /* base64url encode */
+    return btoa(unescape(encodeURIComponent(json)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  }
+
+  function decodeCapsule(encoded) {
+    try {
+      var b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+      var json = decodeURIComponent(escape(atob(b64)));
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     QR renderer -- renders into a <canvas> el
+  ---------------------------------------------------------------- */
+  function renderQR(canvasEl, capsuleStr, cb) {
+    ensureQRCode(function () {
+      if (!window.QRCode) { cb && cb(new Error('QRCode lib failed to load')); return; }
+      window.QRCode.toCanvas(canvasEl, capsuleStr, {
+        errorCorrectionLevel: 'M',
+        width:  256,
+        margin: 2,
+        color: {
+          dark:  '#20C5B5',
+          light: '#131519',
+        },
+      }, function (err) { cb && cb(err); });
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Scanner -- uses device camera via getUserMedia + jsQR
+  ---------------------------------------------------------------- */
+  var _scanInterval = null;
+  var _videoEl      = null;
+  var _streamRef    = null;
+
+  function startScan(videoEl, onResult, onError) {
+    ensureJSQR(function () {
+      if (!window.jsQR) { onError && onError(new Error('jsQR lib failed to load')); return; }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        onError && onError(new Error('Camera not supported on this device'));
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(function (stream) {
+          _streamRef = stream;
+          _videoEl   = videoEl;
+          videoEl.srcObject = stream;
+          videoEl.setAttribute('playsinline', 'true');
+          videoEl.play();
+
+          var canvas  = document.createElement('canvas');
+          var ctx     = canvas.getContext('2d');
+
+          _scanInterval = setInterval(function () {
+            if (videoEl.readyState !== videoEl.HAVE_ENOUGH_DATA) return;
+            canvas.width  = videoEl.videoWidth;
+            canvas.height = videoEl.videoHeight;
+            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+            var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var code    = window.jsQR(imgData.data, imgData.width, imgData.height, {
+              inversionAttempts: 'dontInvert',
+            });
+            if (code && code.data) {
+              stopScan();
+              var capsule = decodeCapsule(code.data);
+              if (capsule && capsule.src === 'dataglow-qr') {
+                onResult && onResult(capsule);
+              } else {
+                onError && onError(new Error('QR code is not a DataGlow session'));
+              }
+            }
+          }, 200);
+        })
+        .catch(function (err) { onError && onError(err); });
+    });
+  }
+
+  function stopScan() {
+    if (_scanInterval) { clearInterval(_scanInterval); _scanInterval = null; }
+    if (_streamRef) {
+      _streamRef.getTracks().forEach(function (t) { t.stop(); });
+      _streamRef = null;
+    }
+    if (_videoEl) { _videoEl.srcObject = null; _videoEl = null; }
+  }
+
+  /* ----------------------------------------------------------------
+     Hydration -- apply received capsule to current session
+  ---------------------------------------------------------------- */
+  function hydrateCapsule(capsule) {
+    if (!capsule || capsule.v !== 1) return { ok: false, reason: 'Invalid capsule version' };
+
+    var applied = [];
+
+    /* Restore SQL */
+    if (capsule.sql) {
+      try {
+        var sqlEd = document.getElementById('sql-view-input') || document.querySelector('#sql-view textarea');
+        if (sqlEd) { sqlEd.value = capsule.sql; applied.push('sql'); }
+      } catch (_e) {}
+    }
+
+    /* Restore gates */
+    if (capsule.gates && window.DataGlowGates && typeof window.DataGlowGates.importState === 'function') {
+      try { window.DataGlowGates.importState(capsule.gates); applied.push('gates'); } catch (_e) {}
+    }
+
+    /* Restore narrative assumptions */
+    if (capsule.assumptions && window.DataGlowNarrative && typeof window.DataGlowNarrative.setAssumptions === 'function') {
+      try { window.DataGlowNarrative.setAssumptions(capsule.assumptions); applied.push('assumptions'); } catch (_e) {}
+    }
+
+    /* Emit event for other modules to listen */
+    document.dispatchEvent(new CustomEvent('dataglow:qr-hydrated', {
+      detail: { capsule: capsule, applied: applied },
+    }));
+
+    return { ok: true, applied: applied, ts: capsule.ts, dsName: capsule.dsName || '' };
+  }
+
+  /* ----------------------------------------------------------------
+     Public API
+  ---------------------------------------------------------------- */
+  return {
+    buildCapsule:   buildCapsule,
+    encodeCapsule:  encodeCapsule,
+    decodeCapsule:  decodeCapsule,
+    renderQR:       renderQR,
+    startScan:      startScan,
+    stopScan:       stopScan,
+    hydrateCapsule: hydrateCapsule,
+  };
+
+}());
+/* ---- end qr-transport.js ---- */
+
+
+/* ---- from js/sync/qr-panel.js ---- */
+/* ================================================================
+   DataGlow QR Panel -- Cross-Device Session Share UI
+   Registered in overflow grid (desktop) + tools sheet (mobile)
+   Also wired as "Share via QR" inside PSI panel (optional bridge)
+
+   Two modes:
+   1. SHARE  -- builds capsule, renders QR for another device to scan
+   2. SCAN   -- opens camera, decodes QR, hydrates session state
+   ================================================================ */
+(function () {
+  'use strict';
+
+  var INIT_DELAY = 1200;
+
+  var CSS = [
+    '#dg-qr-panel-host{position:fixed;top:0;right:0;bottom:0;z-index:10400;width:360px;max-width:100vw;',
+    'background:#131519;border-left:1px solid #252930;display:none;flex-direction:column;',
+    'box-shadow:-8px 0 32px rgba(0,0,0,.55);transition:transform .32s cubic-bezier(.4,0,.2,1);',
+    'transform:translateX(100%)}',
+    '#dg-qr-panel-host.open{display:flex;transform:translateX(0)}',
+    '.dg-qr-header{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;',
+    'border-bottom:1px solid #252930;flex-shrink:0}',
+    '.dg-qr-header h2{flex:1;margin:0;font:600 15px/1.3 "Geist Mono",monospace;color:#CDCCCA;letter-spacing:-.01em}',
+    '.dg-qr-close{background:none;border:none;color:#797876;cursor:pointer;font-size:20px;padding:2px 6px;',
+    'border-radius:4px;line-height:1}',
+    '.dg-qr-close:hover{background:#252930;color:#CDCCCA}',
+    '.dg-qr-tabs{display:flex;border-bottom:1px solid #252930;flex-shrink:0}',
+    '.dg-qr-tab{flex:1;background:none;border:none;padding:12px 8px;font:500 12px/1 "Geist Mono",monospace;',
+    'color:#797876;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}',
+    '.dg-qr-tab.active{color:#20C5B5;border-bottom-color:#20C5B5}',
+    '.dg-qr-tab:hover:not(.active){color:#CDCCCA}',
+    '.dg-qr-body{flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:16px}',
+    '.dg-qr-canvas-wrap{display:flex;flex-direction:column;align-items:center;gap:12px}',
+    '#dg-qr-canvas{border-radius:10px;border:2px solid #252930;background:#0D0E10}',
+    '.dg-qr-hint{font:400 12px/1.5 "Geist Mono",monospace;color:#797876;text-align:center;max-width:280px}',
+    '.dg-qr-btn{padding:10px 18px;border-radius:6px;border:none;font:600 12px/1 "Geist Mono",monospace;',
+    'cursor:pointer;transition:background .15s,opacity .15s;width:100%}',
+    '.dg-qr-btn-primary{background:#20C5B5;color:#0D0E10}',
+    '.dg-qr-btn-primary:hover{background:#19a99a}',
+    '.dg-qr-btn-secondary{background:#252930;color:#CDCCCA}',
+    '.dg-qr-btn-secondary:hover{background:#2e3540}',
+    '.dg-qr-video-wrap{position:relative;border-radius:10px;overflow:hidden;border:2px solid #252930;',
+    'background:#0D0E10;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}',
+    '#dg-qr-video{width:100%;height:100%;object-fit:cover}',
+    '.dg-qr-scan-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;',
+    'pointer-events:none}',
+    '.dg-qr-scan-frame{width:60%;height:60%;border:2px solid #20C5B5;border-radius:8px;',
+    'box-shadow:0 0 0 9999px rgba(13,14,16,.55)}',
+    '.dg-qr-status{font:400 12px/1.5 "Geist Mono",monospace;padding:10px 12px;border-radius:6px;',
+    'background:#191C20;border:1px solid #252930;color:#CDCCCA;text-align:center}',
+    '.dg-qr-status.success{border-color:#4AE38A;color:#4AE38A;background:rgba(74,227,138,.08)}',
+    '.dg-qr-status.error{border-color:#F5A623;color:#F5A623;background:rgba(245,166,35,.08)}',
+    '.dg-qr-applied-list{font:400 11px/1.6 "Geist Mono",monospace;color:#797876;margin:0;padding-left:16px}',
+    '.dg-qr-applied-list li{color:#20C5B5}',
+  ].join('');
+
+  function injectCSS() {
+    if (document.getElementById('dg-qr-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'dg-qr-styles';
+    s.textContent = CSS;
+    document.head.appendChild(s);
+  }
+
+  /* ----------------------------------------------------------------
+     Panel HTML
+  ---------------------------------------------------------------- */
+  function buildPanel() {
+    var host = document.createElement('div');
+    host.id = 'dg-qr-panel-host';
+    host.setAttribute('role', 'dialog');
+    host.setAttribute('aria-label', 'DataGlow QR Transport -- cross-device session sync');
+    host.innerHTML = [
+      '<div class="dg-qr-header">',
+        '<span style="font-size:20px">&#x1F4F1;</span>',
+        '<h2>QR Sync</h2>',
+        '<button class="dg-qr-close" id="dg-qr-close" data-testid="qr-close-btn" aria-label="Close QR panel">&#x00D7;</button>',
+      '</div>',
+      '<div class="dg-qr-tabs">',
+        '<button class="dg-qr-tab active" data-testid="qr-tab-share" id="dg-qr-tab-share">&#x1F4E4; Share</button>',
+        '<button class="dg-qr-tab"        data-testid="qr-tab-scan"  id="dg-qr-tab-scan" >&#x1F4F7; Scan</button>',
+      '</div>',
+      '<div class="dg-qr-body" id="dg-qr-body">',
+        renderShareTab(),
+      '</div>',
+    ].join('');
+    document.body.appendChild(host);
+
+    document.getElementById('dg-qr-close').addEventListener('click', closePanel);
+    document.getElementById('dg-qr-tab-share').addEventListener('click', function () { switchTab('share'); });
+    document.getElementById('dg-qr-tab-scan').addEventListener('click',  function () { switchTab('scan');  });
+    document.getElementById('dg-qr-gen-btn').addEventListener('click', generateQR);
+    document.getElementById('dg-qr-scan-start-btn').addEventListener('click', startScanMode);
+    document.getElementById('dg-qr-scan-stop-btn').addEventListener('click', stopScanMode);
+  }
+
+  function renderShareTab() {
+    return [
+      '<div class="dg-qr-canvas-wrap" id="dg-qr-canvas-wrap">',
+        '<canvas id="dg-qr-canvas" width="256" height="256"></canvas>',
+        '<p class="dg-qr-hint" id="dg-qr-share-hint">',
+          'Generate a QR code to share your current session state (SQL, gates, validation rules) with another device.',
+          ' No raw data is encoded.',
+        '</p>',
+      '</div>',
+      '<button class="dg-qr-btn dg-qr-btn-primary" id="dg-qr-gen-btn" data-testid="qr-generate-btn">',
+        'Generate Session QR',
+      '</button>',
+      '<div class="dg-qr-status" id="dg-qr-share-status" style="display:none"></div>',
+      /* Scan tab content -- hidden by default, revealed on tab switch */
+      '<div id="dg-qr-scan-content" style="display:none">',
+        '<div class="dg-qr-video-wrap">',
+          '<video id="dg-qr-video" autoplay playsinline muted></video>',
+          '<div class="dg-qr-scan-overlay"><div class="dg-qr-scan-frame"></div></div>',
+        '</div>',
+        '<p class="dg-qr-hint">Point your camera at a DataGlow QR code to sync the session to this device.</p>',
+        '<button class="dg-qr-btn dg-qr-btn-secondary" id="dg-qr-scan-stop-btn" data-testid="qr-stop-scan-btn" style="display:none">',
+          'Stop Camera',
+        '</button>',
+        '<div class="dg-qr-status" id="dg-qr-scan-status" style="display:none"></div>',
+      '</div>',
+      '<div id="dg-qr-share-tab-wrap">',
+        '<button class="dg-qr-btn dg-qr-btn-secondary" id="dg-qr-scan-start-btn" data-testid="qr-start-scan-btn" style="display:none">',
+          'Start Camera Scan',
+        '</button>',
+      '</div>',
+    ].join('');
+  }
+
+  /* ----------------------------------------------------------------
+     Tab switching
+  ---------------------------------------------------------------- */
+  function switchTab(tab) {
+    stopScanMode();
+    document.getElementById('dg-qr-tab-share').classList.toggle('active', tab === 'share');
+    document.getElementById('dg-qr-tab-scan').classList.toggle('active',  tab === 'scan');
+
+    var shareWrap = document.getElementById('dg-qr-canvas-wrap');
+    var genBtn    = document.getElementById('dg-qr-gen-btn');
+    var scanWrap  = document.getElementById('dg-qr-scan-content');
+    var startBtn  = document.getElementById('dg-qr-scan-start-btn');
+
+    if (tab === 'share') {
+      if (shareWrap) shareWrap.style.display = '';
+      if (genBtn)    genBtn.style.display    = '';
+      if (scanWrap)  scanWrap.style.display  = 'none';
+      if (startBtn)  startBtn.style.display  = 'none';
+    } else {
+      if (shareWrap) shareWrap.style.display = 'none';
+      if (genBtn)    genBtn.style.display    = 'none';
+      if (scanWrap)  scanWrap.style.display  = '';
+      if (startBtn)  startBtn.style.display  = '';
+      startScanMode();
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Generate QR
+  ---------------------------------------------------------------- */
+  function generateQR() {
+    if (!window.DataGlowQR) { setShareStatus('error', 'QR engine not loaded.'); return; }
+    var capsule = window.DataGlowQR.buildCapsule();
+    var encoded = window.DataGlowQR.encodeCapsule(capsule);
+    if (encoded.length > 2000) {
+      setShareStatus('error', 'Session state too large for QR. Try clearing SQL or assumptions first.');
+      return;
+    }
+    var canvas = document.getElementById('dg-qr-canvas');
+    setShareStatus('', 'Generating...');
+    window.DataGlowQR.renderQR(canvas, encoded, function (err) {
+      if (err) { setShareStatus('error', 'QR render failed: ' + err.message); return; }
+      setShareStatus('success', 'QR ready. Scan with another DataGlow session to sync.');
+    });
+  }
+
+  function setShareStatus(type, msg) {
+    var el = document.getElementById('dg-qr-share-status');
+    if (!el) return;
+    el.style.display = msg ? '' : 'none';
+    el.className = 'dg-qr-status' + (type ? ' ' + type : '');
+    el.textContent = msg;
+  }
+
+  /* ----------------------------------------------------------------
+     Scanner
+  ---------------------------------------------------------------- */
+  function startScanMode() {
+    if (!window.DataGlowQR) { setScanStatus('error', 'QR engine not loaded.'); return; }
+    var videoEl  = document.getElementById('dg-qr-video');
+    var stopBtn  = document.getElementById('dg-qr-scan-stop-btn');
+    var startBtn = document.getElementById('dg-qr-scan-start-btn');
+    if (stopBtn)  stopBtn.style.display  = '';
+    if (startBtn) startBtn.style.display = 'none';
+    setScanStatus('', 'Camera starting...');
+
+    window.DataGlowQR.startScan(
+      videoEl,
+      function onResult(capsule) {
+        setScanStatus('', 'Applying session...');
+        var result = window.DataGlowQR.hydrateCapsule(capsule);
+        if (result.ok) {
+          var appliedList = result.applied.length
+            ? '<ul class="dg-qr-applied-list">' + result.applied.map(function (a) { return '<li>' + a + '</li>'; }).join('') + '</ul>'
+            : '';
+          setScanStatus('success', 'Session synced from ' + (capsule.dsName || 'remote device') + '.' + appliedList, true);
+          document.dispatchEvent(new CustomEvent('dataglow:qr-sync-complete', { detail: { capsule: capsule } }));
+        } else {
+          setScanStatus('error', 'Could not apply session: ' + (result.reason || 'unknown error'));
+        }
+        if (stopBtn)  stopBtn.style.display  = 'none';
+        if (startBtn) startBtn.style.display = '';
+      },
+      function onError(err) {
+        setScanStatus('error', err.message || 'Camera error');
+        if (stopBtn)  stopBtn.style.display  = 'none';
+        if (startBtn) startBtn.style.display = '';
+      }
+    );
+  }
+
+  function stopScanMode() {
+    if (window.DataGlowQR) window.DataGlowQR.stopScan();
+    var stopBtn  = document.getElementById('dg-qr-scan-stop-btn');
+    var startBtn = document.getElementById('dg-qr-scan-start-btn');
+    if (stopBtn)  stopBtn.style.display  = 'none';
+    if (startBtn) startBtn.style.display = '';
+  }
+
+  function setScanStatus(type, msg, asHTML) {
+    var el = document.getElementById('dg-qr-scan-status');
+    if (!el) return;
+    el.style.display = msg ? '' : 'none';
+    el.className = 'dg-qr-status' + (type ? ' ' + type : '');
+    if (asHTML) { el.innerHTML = msg; } else { el.textContent = msg; }
+  }
+
+  /* ----------------------------------------------------------------
+     Open / close
+  ---------------------------------------------------------------- */
+  function openPanel() {
+    var host = document.getElementById('dg-qr-panel-host');
+    if (!host) return;
+    host.style.display = 'flex';
+    setTimeout(function () { host.classList.add('open'); }, 10);
+  }
+
+  function closePanel() {
+    stopScanMode();
+    var host = document.getElementById('dg-qr-panel-host');
+    if (!host) return;
+    host.classList.remove('open');
+    setTimeout(function () { host.style.display = 'none'; }, 340);
+  }
+
+  /* ----------------------------------------------------------------
+     Register in overflow grid + tools sheet
+  ---------------------------------------------------------------- */
+  function registerButtons() {
+    /* Desktop overflow grid */
+    var ovGrid = document.getElementById('dg-overflow-grid');
+    if (ovGrid && !document.getElementById('dg-ov-qr')) {
+      var btn = document.createElement('button');
+      btn.className = 'dg-ov-btn';
+      btn.id = 'dg-ov-qr';
+      btn.setAttribute('data-testid', 'qr-overflow-btn');
+      btn.innerHTML = '<span class="dg-ov-icon">&#x1F4F1;</span><span class="dg-ov-label">QR Sync</span>';
+      btn.addEventListener('click', function () {
+        var pop = document.getElementById('dg-overflow-popover');
+        if (pop) pop.classList.remove('open');
+        openPanel();
+      });
+      ovGrid.appendChild(btn);
+    }
+
+    /* Mobile tools sheet */
+    var tsGrid = document.getElementById('dg-tools-sheet-grid');
+    if (tsGrid && !document.getElementById('dg-ts-qr')) {
+      var tsBtn = document.createElement('button');
+      tsBtn.className = 'dg-ov-btn';
+      tsBtn.id = 'dg-ts-qr';
+      tsBtn.setAttribute('data-testid', 'qr-tools-btn');
+      tsBtn.innerHTML = '<span class="dg-ov-icon">&#x1F4F1;</span><span class="dg-ov-label">QR Sync</span>';
+      tsBtn.addEventListener('click', function () {
+        var sheet = document.getElementById('agent-more-sheet');
+        var overlay = document.getElementById('agent-more-sheet-overlay');
+        if (sheet)   sheet.classList.remove('open');
+        if (overlay) { overlay.classList.remove('open'); overlay.style.display = 'none'; }
+        openPanel();
+      });
+      tsGrid.appendChild(tsBtn);
+    }
+
+    /* Bridge: add "Share via QR" button inside PSI panel initiator if present */
+    var psiShareZone = document.getElementById('dg-psi-share-bridge');
+    if (psiShareZone && !document.getElementById('dg-psi-qr-bridge-btn')) {
+      var bridgeBtn = document.createElement('button');
+      bridgeBtn.id = 'dg-psi-qr-bridge-btn';
+      bridgeBtn.className = 'dg-qr-btn dg-qr-btn-secondary';
+      bridgeBtn.setAttribute('data-testid', 'psi-qr-bridge-btn');
+      bridgeBtn.textContent = 'Share via QR instead';
+      bridgeBtn.style.marginTop = '8px';
+      bridgeBtn.addEventListener('click', function () {
+        closePanel();
+        openPanel();
+      });
+      psiShareZone.appendChild(bridgeBtn);
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Init
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!window.FEATURE_FLAGS || !window.FEATURE_FLAGS.qrTransport) return;
+    injectCSS();
+    buildPanel();
+    setTimeout(registerButtons, 600);
+  }
+
+  setTimeout(init, INIT_DELAY);
+
+  window.DataGlowQRPanel = { open: openPanel, close: closePanel };
+
+}());
+/* ---- end qr-panel.js ---- */
 
 
 /* ================================================================
