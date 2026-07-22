@@ -21027,6 +21027,7 @@ var InstantInsight = (function () {
   }
 
   function showMissionBrief(dataset) {
+    return; /* QW1: Mission Brief removed -- fold into drop zone per UX audit */
     if (!dataset) return;
     var dsId = dataset.id != null ? dataset.id : dataset.name;
     if (dsId != null && hasSeen(dsId)) return;

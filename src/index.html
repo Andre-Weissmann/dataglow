@@ -145,9 +145,9 @@
         <img id="nav-logo-img" src="dataglow-logo-transparent.png" alt="DataGlow" />
       </div>
       <div id="nav-views">
-        <button class="nav-btn active" data-view="data">Data</button>
-        <button class="nav-btn" data-view="analyze">Analyze</button>
-        <button class="nav-btn" data-view="share">Share</button>
+        <button class="nav-btn active" data-view="data" title="Upload, preview, and manage your dataset">Data</button>
+        <button class="nav-btn" data-view="analyze" title="Run SQL, Python, R, charts, and AI queries">Analyze</button>
+        <button class="nav-btn" data-view="share" title="Export findings and share your analysis">Share</button>
       </div>
       <div id="nav-right">
         <!-- Primary actions: always visible -->
@@ -1003,19 +1003,19 @@
        5 thumb-friendly tabs. "More" opens the tools sheet.
        ============================================================ -->
   <nav id="dg-bottom-nav" role="navigation" aria-label="Main navigation">
-    <button class="dg-tab active" id="dg-tab-data" data-view="data">
+    <button class="dg-tab active" id="dg-tab-data" data-view="data" title="Upload, preview, and manage your dataset">
       <svg class="dg-tab-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="3" y="3" width="14" height="3" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="8.5" width="14" height="3" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="14" height="3" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>
       <span class="dg-tab-label">Data</span>
     </button>
-    <button class="dg-tab" id="dg-tab-analyze" data-view="analyze">
+    <button class="dg-tab" id="dg-tab-analyze" data-view="analyze" title="Run SQL, Python, R, charts, and AI queries on your data">
       <svg class="dg-tab-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><polyline points="3,14 7,9 11,11 17,5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="5" r="1.5" fill="currentColor"/></svg>
       <span class="dg-tab-label">Analyze</span>
     </button>
-    <button class="dg-tab" id="dg-tab-share" data-view="share">
+    <button class="dg-tab" id="dg-tab-share" data-view="share" title="Export and share your findings">
       <svg class="dg-tab-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="15" cy="5" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="15" cy="15" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="5" cy="10" r="2" stroke="currentColor" stroke-width="1.6"/><line x1="7" y1="9" x2="13" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="11" x2="13" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       <span class="dg-tab-label">Share</span>
     </button>
-    <button class="dg-tab" id="dg-tab-projects" onclick="openProjects()">
+    <button class="dg-tab" id="dg-tab-projects" onclick="openProjects()" title="Manage your saved analyses and datasets">
       <svg class="dg-tab-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="2" y="5" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2 8h16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M6 5V3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M14 5V3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       <span class="dg-tab-label">Projects</span>
     </button>
@@ -1409,29 +1409,6 @@
         <button class="narr-action-btn" id="narr-regen-btn">Regenerate</button>
       </div>
     </div>
-  </div>
-</div>
-<div id="mission-brief-overlay">
-  <div class="mb-card">
-    <div class="mb-label">Mission Brief</div>
-    <div class="mb-classified">Classified</div>
-    <div class="mb-divider"></div>
-    <div class="mb-dataset-name" id="mb-dataset-name">Dataset</div>
-    <div class="mb-meta" id="mb-meta"></div>
-    <div class="mb-kpi-row">
-      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-trust-score">-</div><div class="mb-kpi-label">Trust Score</div></div>
-      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-issue-count">-</div><div class="mb-kpi-label">Issues Found</div></div>
-      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-domain-val">-</div><div class="mb-kpi-label">Domain</div></div>
-    </div>
-    <div class="mb-section-title">Your Mission</div>
-    <div class="mb-mission-text" id="mb-mission-text"></div>
-    <div class="mb-section-title">Suggested First Moves</div>
-    <div class="mb-moves" id="mb-moves"></div>
-    <div class="mb-actions">
-      <button class="mb-accept-btn" id="mb-accept-btn">Accept Mission</button>
-      <button class="mb-explore-btn" id="mb-explore-btn">I'll explore on my own</button>
-    </div>
-    <div class="mb-countdown" id="mb-countdown"></div>
   </div>
 </div>
 <div id="witness-modal">
@@ -2067,29 +2044,6 @@
         <button class="narr-action-btn" id="narr-regen-btn">Regenerate</button>
       </div>
     </div>
-  </div>
-</div>
-<div id="mission-brief-overlay">
-  <div class="mb-card">
-    <div class="mb-label">Mission Brief</div>
-    <div class="mb-classified">Classified</div>
-    <div class="mb-divider"></div>
-    <div class="mb-dataset-name" id="mb-dataset-name">Dataset</div>
-    <div class="mb-meta" id="mb-meta"></div>
-    <div class="mb-kpi-row">
-      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-trust-score">-</div><div class="mb-kpi-label">Trust Score</div></div>
-      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-issue-count">-</div><div class="mb-kpi-label">Issues Found</div></div>
-      <div class="mb-kpi"><div class="mb-kpi-val" id="mb-domain-val">-</div><div class="mb-kpi-label">Domain</div></div>
-    </div>
-    <div class="mb-section-title">Your Mission</div>
-    <div class="mb-mission-text" id="mb-mission-text"></div>
-    <div class="mb-section-title">Suggested First Moves</div>
-    <div class="mb-moves" id="mb-moves"></div>
-    <div class="mb-actions">
-      <button class="mb-accept-btn" id="mb-accept-btn">Accept Mission</button>
-      <button class="mb-explore-btn" id="mb-explore-btn">I'll explore on my own</button>
-    </div>
-    <div class="mb-countdown" id="mb-countdown"></div>
   </div>
 </div>
 <div id="witness-modal">
