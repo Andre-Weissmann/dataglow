@@ -11,7 +11,7 @@
    4. FINISH LINE       -- fires when user reaches report/export step,
                            surfaces PortfolioExport with celebration
 
-   Design rule: every nudge auto-dismisses. Never block the analyst.
+   Design rule: nudges stay visible until the analyst acts or closes them. Never auto-dismiss -- the analyst decides when they are done reading.
    ================================================================ */
 (function () {
   'use strict';
@@ -224,8 +224,7 @@
     var closeBtn = $('dg-aj-nudge-close');
     if (closeBtn) closeBtn.addEventListener('click', dismissNudge);
 
-    /* Auto-dismiss after 12 seconds */
-    setTimeout(dismissNudge, 12000);
+    /* No auto-dismiss -- stays until the analyst acts or closes it. */
   }
 
   function dismissNudge() {
@@ -235,59 +234,91 @@
   }
 
   function getFirstRecommendation(score, issues, rows, cols, columns) {
-    /* PHI risk -- highest priority */
+    // PHILOSOPHY: Diagnose, clean, verify, then look. A chart built on
+    // unvalidated data does not look wrong -- it looks exactly like a
+    // chart built on good data. By the time someone notices the numbers
+    // are off, three decisions have already been made from it. This
+    // routing exists so trust is earned step by step, not assumed at
+    // score zero. Dashboard is the reward, not the starting point.
+
+    /* PHI risk -- always highest priority regardless of score */
     var colNames = columns.map(function (c) { return (c.name || c || '').toLowerCase(); }).join(' ');
     var hasPHI = /\b(ssn|dob|mrn|patient|name|birth|social_sec)\b/.test(colNames);
     if (hasPHI) {
       return {
         icon: '\u26A0\uFE0F',
-        body: 'Potential PHI detected in column names. Run Witness first to flag identifiers before exploring.',
+        body: 'Potential PHI detected in column names. Run Witness first to identify and flag identifiers -- do not explore this data until you know what you are handling.',
         actions: [
           { label: 'Open Witness', action: 'witness', cls: 'dg-aj-nudge-btn-primary' },
-          { label: 'Explore anyway', action: 'explore', cls: 'dg-aj-nudge-btn-ghost' },
+          { label: 'I understand the risk', action: 'explore', cls: 'dg-aj-nudge-btn-ghost' },
         ],
       };
     }
-    /* Low health score -- fix issues first */
+
+    /* Band 1: Critical (0-39) -- structural problems, SQL cleaning required */
+    if (score !== null && score < 40) {
+      return {
+        icon: '\uD83D\uDED1',
+        body: issues + ' critical issue' + (issues !== 1 ? 's' : '') + ' found. Any query or chart you run right now is built on broken data -- run the cleaning pass first, or your results will confidently lie to you.',
+        actions: [
+          { label: 'Run the cleaning pass', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'See what is broken first', action: 'review', cls: 'dg-aj-nudge-btn-ghost' },
+        ],
+      };
+    }
+
+    /* Band 2: Poor (40-59) -- bad rows skew every number, isolate before proceeding */
     if (score !== null && score < 60) {
       return {
-        icon: '\uD83D\uDE91',
-        body: issues + ' data quality issue' + (issues !== 1 ? 's' : '') + ' found. Fix them before analyzing -- your results will be more reliable.',
+        icon: '\u26A0\uFE0F',
+        body: score + '/100. Most rows are usable, but the exceptions are large enough to skew every aggregate -- isolate and fix the bad rows before you trust anything you see.',
         actions: [
-          { label: 'Fix issues first', action: 'dashboard', cls: 'dg-aj-nudge-btn-primary' },
-          { label: 'Explore first', action: 'explore', cls: 'dg-aj-nudge-btn-ghost' },
+          { label: 'Isolate and fix the bad rows', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'Review the issues first', action: 'review', cls: 'dg-aj-nudge-btn-ghost' },
         ],
       };
     }
-    /* Medium score -- validate before exploring */
-    if (score !== null && score < 80) {
+
+    /* Band 3: Fair (60-74) -- cleaning done, verify provenance before trusting results */
+    if (score !== null && score < 75) {
       return {
-        icon: '\uD83D\uDCC8',
-        body: 'Health score ' + score + '/100. Good start -- a quick validation pass will make your analysis bulletproof.',
+        icon: '\uD83D\uDD0D',
+        body: score + '/100. The obvious errors are gone, but you have not verified where this data actually came from or what transformed it -- a clean-looking dataset with unverified lineage will still mislead you.',
         actions: [
-          { label: 'Run SQL', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
-          { label: 'See charts', action: 'charts', cls: 'dg-aj-nudge-btn-ghost' },
-          { label: 'Validate', action: 'review', cls: 'dg-aj-nudge-btn-ghost' },
+          { label: 'Trace where this came from', action: 'witness', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'Continue with SQL', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
         ],
       };
     }
-    /* Large dataset */
+
+    /* Band 4: Good (75-89) -- clean and sourced, get a second set of eyes */
+    if (score !== null && score < 90) {
+      return {
+        icon: '\uD83D\uDC40',
+        body: score + '/100. This data is clean enough to work with but not clean enough to ship from -- have a second pass catch the assumptions you have stopped noticing before you turn this into anything anyone else acts on.',
+        actions: [
+          { label: 'Get a second set of eyes', action: 'review', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'Start writing SQL', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
+        ],
+      };
+    }
+
+    /* Band 5: Excellent (90-100) -- earned the right to visualize */
     if (rows > 100000) {
       return {
-        icon: '\uD83D\uDE80',
-        body: rows.toLocaleString() + ' rows. Start with SQL to slice it down before charting.',
+        icon: '\u2705',
+        body: score + '/100 and ' + rows.toLocaleString() + ' rows. Data is trusted -- start with SQL to slice it into a focused view, then build the dashboard from what you find.',
         actions: [
-          { label: 'Write SQL', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
-          { label: 'See charts', action: 'charts', cls: 'dg-aj-nudge-btn-ghost' },
+          { label: 'Write the SQL first', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'Build the dashboard', action: 'dashboard', cls: 'dg-aj-nudge-btn-ghost' },
         ],
       };
     }
-    /* Default -- healthy data, start exploring */
     return {
       icon: '\u2705',
-      body: 'Data looks clean. Explore with charts, run SQL, or jump straight to a narrative.',
+      body: score + '/100. This data has been cleaned, sourced, and reviewed -- it has earned the right to be visualized. A chart built on this will tell the truth instead of a convincing story.',
       actions: [
-        { label: 'See charts', action: 'charts', cls: 'dg-aj-nudge-btn-primary' },
+        { label: 'Build the dashboard', action: 'dashboard', cls: 'dg-aj-nudge-btn-primary' },
         { label: 'Write SQL', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
         { label: 'Write narrative', action: 'narrative', cls: 'dg-aj-nudge-btn-ghost' },
       ],
@@ -376,32 +407,54 @@
     body.insertBefore(recEl, body.firstChild);
   }
 
+  // PHILOSOPHY: Pulse Interpreter routing exists to enforce the order every
+  // competent data professional already follows in their head: diagnose,
+  // clean, verify, then look. A dashboard built on unvalidated data does not
+  // just fail to help -- it actively lies with confidence, and by the time
+  // someone notices the numbers are wrong, three other people have already
+  // made decisions off the chart. Routing an analyst to visualization before
+  // their data has earned it is the single most expensive mistake this
+  // feature can make, because bad charts do not look bad -- they look exactly
+  // like good ones. This ladder exists so trust is earned band by band, not
+  // assumed at score zero.
   function getPulseRec(score) {
-    if (score < 50) {
+    /* Band 1: Critical (0-39) -- structural problems, SQL cleaning required */
+    if (score < 40) {
       return {
-        text: 'This dataset has significant quality issues. Fix nulls, duplicates, and type mismatches in Dashboard before running any analysis -- otherwise your results will be wrong.',
-        action: 'dashboard',
-        label: 'Go to Dashboard',
-      };
-    }
-    if (score < 70) {
-      return {
-        text: 'Moderate quality. Run a quick Peer Review pass to catch anything the automated checks missed, then move to SQL or Charts.',
-        action: 'review',
-        label: 'Open Peer Review',
-      };
-    }
-    if (score < 85) {
-      return {
-        text: 'Good quality. Jump straight to SQL or Charts. Keep Peer Review open in the background as a safety net.',
+        text: 'Your data has structural problems severe enough that any query, chart, or review built on it right now would be built on garbage. Fix the foundation before you do anything else.',
         action: 'sql',
-        label: 'Write SQL',
+        label: 'Run the cleaning pass',
       };
     }
+    /* Band 2: Poor (40-59) -- bad rows skew every downstream number */
+    if (score < 60) {
+      return {
+        text: 'Most of this dataset is usable, but the exceptions are large enough to skew every downstream number. Query out the problem rows before you trust anything you see.',
+        action: 'sql',
+        label: 'Isolate and fix the bad rows',
+      };
+    }
+    /* Band 3: Fair (60-74) -- cleaning done, trace provenance before trusting results */
+    if (score < 75) {
+      return {
+        text: 'The obvious errors are cleaned up, but you have not verified the source, lineage, or transformation history. A chart built on unverified provenance will mislead you even if the numbers look tidy.',
+        action: 'witness',
+        label: 'Trace where this data actually came from',
+      };
+    }
+    /* Band 4: Good (75-89) -- clean and sourced, peer review before shipping */
+    if (score < 90) {
+      return {
+        text: 'This dataset is clean enough to work with but not yet clean enough to publish from. Get a second pass to sanity-check your assumptions before you turn it into a visual anyone else will act on.',
+        action: 'review',
+        label: 'Get a second set of eyes before you ship this',
+      };
+    }
+    /* Band 5: Excellent (90-100) -- earned the right to visualize */
     return {
-      text: 'Excellent quality. Your data is ready. Start exploring -- Charts for a quick overview, SQL for deeper questions.',
-      action: 'charts',
-      label: 'See Charts',
+      text: 'This data has been cleaned, traced, and reviewed -- it has earned the right to be visualized. Now a chart will tell the truth instead of a convincing story.',
+      action: 'dashboard',
+      label: 'Build the dashboard',
     };
   }
 
