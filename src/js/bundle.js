@@ -61819,6 +61819,510 @@ function applyDomainPack(layerResults, packName, context = {}) {
    Dep for query-sentinel
    ================================================================ */
 
+
+/* ============================================================
+   AUTO-PULSE -- DataGlow's first-contact intelligence briefing
+   Apple HIG: immediate feedback, progressive disclosure,
+   purposeful motion, one clear next step at a time.
+   ============================================================
+   Listens for dataglow:dataset-loaded.
+   Orchestrates: DataHealthScore, CleaningPrescription,
+   QuerySentinel, nullCountsByColumn, categorical stats.
+   Delivers: a bottom sheet that streams findings progressively,
+   skeleton-first, no user prompt required.
+   Never blocks the main thread. Never auto-applies anything.
+   Everything runs local. Nothing leaves the device.
+   ============================================================ */
+;(function() {
+  'use strict';
+
+  /* ── Constants ─────────────────────────────────────────────── */
+  var PULSE_SHEET_ID  = 'dg-pulse-sheet';
+  var PULSE_BACKDROP_ID = 'dg-pulse-backdrop';
+  var DISMISSED_KEY   = 'dg_pulse_dismissed_v1';
+  var SPRING_DUR      = '0.45s';
+  var SPRING_EASE     = 'cubic-bezier(0.34, 1.56, 0.64, 1)'; /* iOS spring */
+  var EASE_OUT        = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+
+  /* File-type icons -- any file, any combination */
+  var FILE_ICONS = {
+    csv: '🗂', tsv: '🗂', json: '{ }', xlsx: '📊', xls: '📊',
+    parquet: '⚡', pdf: '📄', png: '🖼', jpg: '🖼', jpeg: '🖼',
+    mp3: '🎵', wav: '🎵', mp4: '🎬', mov: '🎬', webm: '🎬',
+    txt: '📝', md: '📝', default: '📁'
+  };
+
+  function fileIcon(name) {
+    if (!name) return FILE_ICONS.default;
+    var ext = (name.split('.').pop() || '').toLowerCase();
+    return FILE_ICONS[ext] || FILE_ICONS.default;
+  }
+
+  /* ── Sheet creation ─────────────────────────────────────────── */
+  function createSheet() {
+    /* Remove any existing instance */
+    var old = document.getElementById(PULSE_SHEET_ID);
+    if (old) old.remove();
+    var oldBd = document.getElementById(PULSE_BACKDROP_ID);
+    if (oldBd) oldBd.remove();
+
+    /* Backdrop -- tap to dismiss (HIG: always provide an escape) */
+    var backdrop = document.createElement('div');
+    backdrop.id = PULSE_BACKDROP_ID;
+    backdrop.className = 'dg-pulse-backdrop';
+    backdrop.addEventListener('click', dismissSheet);
+    document.body.appendChild(backdrop);
+
+    /* Sheet */
+    var sheet = document.createElement('div');
+    sheet.id = PULSE_SHEET_ID;
+    sheet.className = 'dg-pulse-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-label', 'DataGlow Pulse -- dataset briefing');
+    sheet.innerHTML =
+      '<div class="dg-ps-handle-wrap"><div class="dg-ps-handle"></div></div>' +
+      '<div class="dg-ps-header">' +
+        '<div class="dg-ps-title-row">' +
+          '<span class="dg-ps-icon" id="dg-ps-icon">&#x1F4C1;</span>' +
+          '<div class="dg-ps-title-group">' +
+            '<div class="dg-ps-title" id="dg-ps-title">Analyzing your data&hellip;</div>' +
+            '<div class="dg-ps-subtitle" id="dg-ps-subtitle">DataGlow is reading your dataset</div>' +
+          '</div>' +
+          '<button class="dg-ps-close" id="dg-ps-close" aria-label="Dismiss Pulse">&#x00D7;</button>' +
+        '</div>' +
+        /* Score row -- skeleton until ready */
+        '<div class="dg-ps-score-row" id="dg-ps-score-row">' +
+          '<div class="dg-ps-score-block skeleton" id="dg-ps-health-block">' +
+            '<div class="dg-ps-score-val" id="dg-ps-health-val">--</div>' +
+            '<div class="dg-ps-score-lbl">Health</div>' +
+          '</div>' +
+          '<div class="dg-ps-score-block skeleton" id="dg-ps-rows-block">' +
+            '<div class="dg-ps-score-val" id="dg-ps-rows-val">--</div>' +
+            '<div class="dg-ps-score-lbl">Rows</div>' +
+          '</div>' +
+          '<div class="dg-ps-score-block skeleton" id="dg-ps-cols-block">' +
+            '<div class="dg-ps-score-val" id="dg-ps-cols-val">--</div>' +
+            '<div class="dg-ps-score-lbl">Columns</div>' +
+          '</div>' +
+          '<div class="dg-ps-score-block skeleton" id="dg-ps-issues-block">' +
+            '<div class="dg-ps-score-val" id="dg-ps-issues-val">--</div>' +
+            '<div class="dg-ps-score-lbl">Issues</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dg-ps-body" id="dg-ps-body">' +
+        /* Skeleton findings */
+        '<div class="dg-ps-finding skeleton" id="dg-ps-skel-1"><div class="dg-ps-skel-line long"></div><div class="dg-ps-skel-line short"></div></div>' +
+        '<div class="dg-ps-finding skeleton" id="dg-ps-skel-2"><div class="dg-ps-skel-line long"></div><div class="dg-ps-skel-line short"></div></div>' +
+        '<div class="dg-ps-finding skeleton" id="dg-ps-skel-3"><div class="dg-ps-skel-line med"></div><div class="dg-ps-skel-line short"></div></div>' +
+      '</div>' +
+      '<div class="dg-ps-footer" id="dg-ps-footer">' +
+        '<button class="dg-ps-cta" id="dg-ps-cta-chart">&#x1F4C8; Chart it</button>' +
+        '<button class="dg-ps-cta" id="dg-ps-cta-query">&#x1F4C4; Query it</button>' +
+        '<button class="dg-ps-cta dg-ps-cta-primary" id="dg-ps-cta-fix">&#x2713; Fix issues</button>' +
+      '</div>';
+
+    document.body.appendChild(sheet);
+
+    /* Wire close */
+    document.getElementById('dg-ps-close').addEventListener('click', dismissSheet);
+
+    /* Wire CTAs */
+    document.getElementById('dg-ps-cta-chart').addEventListener('click', function() {
+      dismissSheet();
+      navigateToPanel('charts-view');
+    });
+    document.getElementById('dg-ps-cta-query').addEventListener('click', function() {
+      dismissSheet();
+      navigateToPanel('sql-view');
+    });
+    document.getElementById('dg-ps-cta-fix').addEventListener('click', function() {
+      dismissSheet();
+      navigateToPanel('dashboard-view');
+      /* Open cleaning prescription */
+      setTimeout(function() {
+        var ring = document.getElementById('dhs-ring-btn');
+        if (ring) ring.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+      }, 300);
+    });
+
+    /* Swipe-down to dismiss (HIG: match gesture expectations) */
+    var startY = 0;
+    sheet.addEventListener('touchstart', function(e) { startY = e.touches[0].clientY; }, {passive:true});
+    sheet.addEventListener('touchmove', function(e) {
+      var delta = e.touches[0].clientY - startY;
+      if (delta > 0) sheet.style.transform = 'translateY(' + delta + 'px)';
+    }, {passive:true});
+    sheet.addEventListener('touchend', function(e) {
+      var delta = e.changedTouches[0].clientY - startY;
+      if (delta > 120) { dismissSheet(); }
+      else { sheet.style.transform = ''; }
+    });
+
+    return sheet;
+  }
+
+  /* ── Sheet open/close with Apple spring ─────────────────────── */
+  function openSheet(sheet) {
+    var backdrop = document.getElementById(PULSE_BACKDROP_ID);
+    /* Start off-screen */
+    sheet.style.transition = 'none';
+    sheet.style.transform = 'translateY(100%)';
+    sheet.style.opacity = '0';
+    /* Force reflow */
+    void sheet.offsetHeight;
+    /* Spring in -- HIG: motion should feel physical */
+    sheet.style.transition =
+      'transform ' + SPRING_DUR + ' ' + SPRING_EASE + ', ' +
+      'opacity 0.2s ' + EASE_OUT;
+    sheet.style.transform = 'translateY(0)';
+    sheet.style.opacity   = '1';
+    if (backdrop) {
+      backdrop.style.transition = 'opacity 0.25s ' + EASE_OUT;
+      backdrop.style.opacity = '1';
+      backdrop.style.pointerEvents = 'auto';
+    }
+  }
+
+  function dismissSheet() {
+    var sheet   = document.getElementById(PULSE_SHEET_ID);
+    var backdrop = document.getElementById(PULSE_BACKDROP_ID);
+    if (!sheet) return;
+    sheet.style.transition = 'transform 0.3s ' + EASE_OUT + ', opacity 0.25s ' + EASE_OUT;
+    sheet.style.transform  = 'translateY(100%)';
+    sheet.style.opacity    = '0';
+    if (backdrop) {
+      backdrop.style.opacity = '0';
+      backdrop.style.pointerEvents = 'none';
+    }
+    setTimeout(function() {
+      if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
+      if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+    }, 350);
+    /* Remember for session -- don't re-show for same dataset */
+    try { sessionStorage.setItem(DISMISSED_KEY, '1'); } catch(e) {}
+  }
+
+  /* ── Navigation helper ──────────────────────────────────────── */
+  function navigateToPanel(panelId) {
+    /* Switch to Analyze tab */
+    var analyzeBtn = document.querySelector('.nav-btn[data-view="analyze"]');
+    if (analyzeBtn) analyzeBtn.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    setTimeout(function() {
+      var panelBtn = document.querySelector('.sidebar-nav-item[data-panel="' + panelId + '"]');
+      if (panelBtn) panelBtn.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    }, 80);
+  }
+
+  /* ── Progressive finding card ────────────────────────────────── */
+  function addFinding(body, finding, delay) {
+    setTimeout(function() {
+      /* Remove next skeleton if any remain */
+      var skels = body.querySelectorAll('.dg-ps-finding.skeleton');
+      if (skels.length > 0) skels[0].remove();
+
+      var card = document.createElement('div');
+      card.className = 'dg-ps-finding dg-ps-finding-' + (finding.level || 'info');
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(8px)';
+      card.innerHTML =
+        '<span class="dg-ps-finding-icon">' + (finding.icon || '&#8505;') + '</span>' +
+        '<div class="dg-ps-finding-content">' +
+          '<div class="dg-ps-finding-title">' + finding.title + '</div>' +
+          (finding.desc ? '<div class="dg-ps-finding-desc">' + finding.desc + '</div>' : '') +
+        '</div>' +
+        (finding.badge ? '<span class="dg-ps-finding-badge dg-ps-badge-' + finding.level + '">' + finding.badge + '</span>' : '');
+      body.appendChild(card);
+
+      /* Stagger reveal -- HIG: animate, don't just appear */
+      requestAnimationFrame(function() {
+        card.style.transition = 'opacity 0.3s ' + EASE_OUT + ', transform 0.35s ' + SPRING_EASE;
+        card.style.opacity = '1';
+        card.style.transform = 'translateY(0)';
+      });
+    }, delay);
+  }
+
+  /* ── Score block reveal ─────────────────────────────────────── */
+  function revealScore(blockId, valId, value, colorClass) {
+    var block = document.getElementById(blockId);
+    var val   = document.getElementById(valId);
+    if (!block || !val) return;
+    block.classList.remove('skeleton');
+    if (colorClass) val.classList.add(colorClass);
+    /* Count-up animation -- HIG: animate numbers, feels alive */
+    var numeric = parseFloat(String(value).replace(/[^0-9.]/g, ''));
+    if (!isNaN(numeric) && numeric > 0 && numeric < 10000) {
+      var start = 0, end = numeric, duration = 600, startTime = null;
+      var suffix = String(value).replace(String(Math.round(numeric)), '');
+      function countUp(ts) {
+        if (!startTime) startTime = ts;
+        var progress = Math.min((ts - startTime) / duration, 1);
+        var eased = 1 - Math.pow(1 - progress, 3); /* ease-out cubic */
+        val.textContent = Math.round(start + (end - start) * eased) + suffix;
+        if (progress < 1) requestAnimationFrame(countUp);
+      }
+      requestAnimationFrame(countUp);
+    } else {
+      val.textContent = value;
+    }
+  }
+
+  /* ── Main Pulse orchestrator ─────────────────────────────────── */
+  function runPulse(dataset) {
+    /* Skip if dismissed this session */
+    try { if (sessionStorage.getItem(DISMISSED_KEY)) return; } catch(e) {}
+    if (!dataset || !dataset.rows || !dataset.rows.length) return;
+
+    var sheet = createSheet();
+    openSheet(sheet);
+
+    /* ── Update header with real filename ── */
+    var name = dataset.name || dataset.filename || dataset.tableName || 'Dataset';
+    var ext  = (name.split('.').pop() || '').toLowerCase();
+    document.getElementById('dg-ps-icon').textContent = fileIcon(name);
+    document.getElementById('dg-ps-title').textContent = name;
+    document.getElementById('dg-ps-subtitle').textContent =
+      dataset.rows.length.toLocaleString() + ' rows loaded. Reading your data\u2026';
+
+    var body = document.getElementById('dg-ps-body');
+    var findings = [];
+    var issueCount = 0;
+
+    /* ── Phase 1: Instant stats (< 5ms) ── */
+    var nRows = dataset.rows.length;
+    var nCols = (dataset.columns || []).length;
+    setTimeout(function() {
+      revealScore('dg-ps-rows-block', 'dg-ps-rows-val', nRows.toLocaleString());
+      revealScore('dg-ps-cols-block', 'dg-ps-cols-val', nCols);
+      document.getElementById('dg-ps-subtitle').textContent =
+        'Scanning ' + nCols + ' columns across ' + nRows.toLocaleString() + ' rows\u2026';
+    }, 200);
+
+    /* ── Phase 2: Data Health Score (fast, pure JS) ── */
+    setTimeout(function() {
+      var dhs = null;
+      try {
+        if (typeof DataHealthScore !== 'undefined') dhs = DataHealthScore.compute(dataset);
+      } catch(e) {}
+
+      var total = dhs ? dhs.total : null;
+      var grade = dhs ? dhs.grade : null;
+      var color = dhs ? dhs.color : null;
+
+      if (total !== null) {
+        var colorCls = total >= 90 ? 'pulse-green' : total >= 70 ? 'pulse-amber' : 'pulse-red';
+        revealScore('dg-ps-health-block', 'dg-ps-health-val', total + '/100', colorCls);
+        var gradeDesc = total >= 90 ? 'Excellent data quality'
+          : total >= 70 ? 'Good -- a few issues to review'
+          : total >= 50 ? 'Fair -- notable issues found'
+          : 'Needs attention -- significant issues detected';
+        findings.push({
+          level: total >= 70 ? 'pass' : 'warn',
+          icon: total >= 90 ? '&#x2705;' : total >= 70 ? '&#x26A0;' : '&#x274C;',
+          title: 'Health Score: ' + total + '/100 (' + (grade || '') + ')',
+          desc: gradeDesc,
+          badge: grade
+        });
+      }
+
+      /* ── Phase 3: Null scan ── */
+      var nullFindings = [];
+      var totalNulls = 0;
+      (dataset.columns || []).forEach(function(col, ci) {
+        var nulls = 0;
+        dataset.rows.forEach(function(r) {
+          var v = r[ci];
+          if (v === null || v === undefined || v === '') nulls++;
+        });
+        if (nulls > 0) {
+          totalNulls += nulls;
+          var pct = Math.round(nulls / nRows * 100);
+          nullFindings.push({ col: col.name, count: nulls, pct: pct });
+        }
+      });
+
+      if (nullFindings.length > 0) {
+        issueCount += nullFindings.length;
+        var worst = nullFindings.sort(function(a,b){ return b.pct - a.pct; })[0];
+        findings.push({
+          level: worst.pct > 20 ? 'error' : 'warn',
+          icon: '&#x25CB;',
+          title: nullFindings.length + ' column' + (nullFindings.length > 1 ? 's' : '') + ' have missing values',
+          desc: '"' + worst.col + '" is most affected (' + worst.pct + '% null -- ' + worst.count.toLocaleString() + ' rows)',
+          badge: totalNulls.toLocaleString() + ' nulls'
+        });
+      }
+
+      /* ── Phase 4: Negative currency check ── */
+      var negCols = [];
+      (dataset.columns || []).forEach(function(col, ci) {
+        var nm = col.name.toLowerCase();
+        if (/(salary|price|revenue|cost|income|pay|wage|amount|fee|charge)/.test(nm)) {
+          var negs = dataset.rows.filter(function(r) {
+            var v = parseFloat(r[ci]);
+            return !isNaN(v) && v < 0;
+          });
+          if (negs.length > 0) negCols.push({ col: col.name, count: negs.length });
+        }
+      });
+      if (negCols.length > 0) {
+        issueCount += negCols.length;
+        findings.push({
+          level: 'error',
+          icon: '&#x1F4B8;',
+          title: 'Negative values in financial column' + (negCols.length > 1 ? 's' : ''),
+          desc: '"' + negCols[0].col + '" has ' + negCols[0].count + ' negative value' + (negCols[0].count > 1 ? 's' : '') + ' -- likely data entry errors',
+          badge: 'Fix available'
+        });
+      }
+
+      /* ── Phase 5: Outlier detection (3-sigma, numeric columns only) ── */
+      var outlierFinds = [];
+      (dataset.columns || []).forEach(function(col, ci) {
+        if (col.type !== 'FLOAT' && col.type !== 'INT') return;
+        var vals = [];
+        dataset.rows.forEach(function(r) {
+          var v = parseFloat(r[ci]);
+          if (!isNaN(v)) vals.push(v);
+        });
+        if (vals.length < 10) return;
+        var mean = vals.reduce(function(a,b){return a+b;},0) / vals.length;
+        var sd = Math.sqrt(vals.reduce(function(a,b){return a+Math.pow(b-mean,2);},0) / vals.length);
+        var outers = vals.filter(function(v){ return Math.abs(v-mean) > 3*sd; });
+        if (outers.length > 0) outlierFinds.push({ col: col.name, count: outers.length });
+      });
+      if (outlierFinds.length > 0) {
+        issueCount++;
+        findings.push({
+          level: 'warn',
+          icon: '&#x1F4CA;',
+          title: 'Outliers detected in ' + outlierFinds.length + ' column' + (outlierFinds.length > 1 ? 's' : ''),
+          desc: '"' + outlierFinds[0].col + '" has ' + outlierFinds[0].count + ' value' + (outlierFinds[0].count>1?'s':'') + ' beyond 3 standard deviations',
+          badge: 'Review'
+        });
+      }
+
+      /* ── Phase 6: Duplicate check ── */
+      var seen = new Set();
+      var dupes = 0;
+      dataset.rows.forEach(function(r) {
+        var key = r.join('|');
+        if (seen.has(key)) dupes++;
+        else seen.add(key);
+      });
+      if (dupes > 0) {
+        issueCount++;
+        findings.push({
+          level: dupes > nRows * 0.05 ? 'error' : 'warn',
+          icon: '&#x1F501;',
+          title: dupes.toLocaleString() + ' duplicate row' + (dupes > 1 ? 's' : '') + ' found',
+          desc: Math.round(dupes/nRows*100) + '% of rows are exact duplicates -- safe to remove',
+          badge: 'Safe fix'
+        });
+      }
+
+      /* ── Phase 7: File-type specific insight ── */
+      if (/\.(mp3|wav|m4a|ogg)$/i.test(name)) {
+        findings.push({ level: 'info', icon: '&#x1F3A7;',
+          title: 'Audio file detected',
+          desc: 'DataGlow can transcribe this and analyze patterns in the transcript' });
+      } else if (/\.(mp4|mov|webm|avi)$/i.test(name)) {
+        findings.push({ level: 'info', icon: '&#x1F3AC;',
+          title: 'Video file detected',
+          desc: 'DataGlow can extract frames, transcribe audio, and analyze content metadata' });
+      } else if (/\.(pdf)$/i.test(name)) {
+        findings.push({ level: 'info', icon: '&#x1F4C4;',
+          title: 'PDF loaded',
+          desc: 'DataGlow extracted the table data. Review the grid to confirm column alignment' });
+      }
+
+      /* ── All done: update issue count ── */
+      var issueLabel = issueCount === 0 ? '&#x2714; Clean' : issueCount;
+      var issueColorCls = issueCount === 0 ? 'pulse-green' : issueCount < 3 ? 'pulse-amber' : 'pulse-red';
+      revealScore('dg-ps-issues-block', 'dg-ps-issues-val', issueCount === 0 ? '0' : issueCount, issueColorCls);
+
+      /* Update subtitle */
+      document.getElementById('dg-ps-subtitle').textContent = issueCount === 0
+        ? 'Your data looks clean. Here is what DataGlow found:'
+        : issueCount + ' issue' + (issueCount > 1 ? 's' : '') + ' found. Here is what to do:';
+
+      /* If no meaningful findings, add a pass card */
+      if (findings.length === 0) {
+        findings.push({
+          level: 'pass', icon: '&#x2705;',
+          title: 'No obvious issues detected',
+          desc: 'Column types, nulls, and value ranges all look reasonable. Start exploring.'
+        });
+      }
+
+      /* ── Stream findings into the sheet with stagger ── */
+      /* Clear skeletons first after a small pause */
+      setTimeout(function() {
+        var skels = body.querySelectorAll('.dg-ps-finding.skeleton');
+        skels.forEach(function(s, i) {
+          setTimeout(function() {
+            s.style.transition = 'opacity 0.2s ease';
+            s.style.opacity = '0';
+            setTimeout(function() { if (s.parentNode) s.remove(); }, 220);
+          }, i * 60);
+        });
+        /* Stream findings with stagger delay */
+        findings.forEach(function(f, i) {
+          addFinding(body, f, i * 180 + 100);
+        });
+        /* Update CTA based on issues */
+        var fixBtn = document.getElementById('dg-ps-cta-fix');
+        if (fixBtn) {
+          if (issueCount === 0) {
+            fixBtn.textContent = '&#x1F4C8; Dashboard';
+            fixBtn.removeEventListener('click', function(){});
+            fixBtn.addEventListener('click', function() {
+              dismissSheet();
+              navigateToPanel('dashboard-view');
+            });
+          } else {
+            fixBtn.innerHTML = '&#x2713; Fix ' + issueCount + ' issue' + (issueCount > 1 ? 's' : '');
+          }
+        }
+      }, 400);
+
+    }, 300);
+  }
+
+  /* ── Event listener ─────────────────────────────────────────── */
+  document.addEventListener('dataglow:dataset-loaded', function(e) {
+    var ds = (e && e.detail && e.detail.dataset)
+      ? e.detail.dataset
+      : window.__dg_currentDataset;
+    if (ds) {
+      /* Small delay so the grid renders first -- HIG: don't interrupt the primary action */
+      setTimeout(function() { runPulse(ds); }, 800);
+    }
+  });
+
+  /* Also hook tab-strip new-tab mutation (belt + suspenders) */
+  var _tabStrip = document.getElementById('tab-strip');
+  if (_tabStrip) {
+    var _pulseSeen = new Set();
+    var _pulseObs = new MutationObserver(function() {
+      var ds = window.__dg_currentDataset;
+      if (!ds) return;
+      var key = (ds.name || '') + '|' + (ds.rows ? ds.rows.length : 0);
+      if (_pulseSeen.has(key)) return;
+      _pulseSeen.add(key);
+      try { sessionStorage.removeItem(DISMISSED_KEY); } catch(e) {}
+      setTimeout(function() { runPulse(ds); }, 900);
+    });
+    _pulseObs.observe(_tabStrip, { childList: true });
+  }
+
+  /* Expose for debugging */
+  window._dgRunPulse  = runPulse;
+  window._dgDismissPulse = function() { dismissSheet(); };
+
+})();
+
 /* ---- from js/agents/phi-prompt-guard.js ---- */
 ;(function(){
   'use strict';

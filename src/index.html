@@ -8,6 +8,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DataGlow">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="DataGlow">
 <title>DataGlow - Your data, understood.</title>
   <!-- Flash-free theme init: run before any paint -->
   <script>
@@ -1731,6 +1734,70 @@
       <p class="wb-privacy-note">&#128274; Zero uploads. Your data stays in this tab.</p>
     </div>
   </div>
+
+<script>
+/* DataGlow PWA Install Prompt
+   HIG principle: invite, never interrupt.
+   Show once, after the user has been active for 90 seconds. */
+(function(){
+  'use strict';
+  var _deferredPrompt = null;
+  var SEEN_KEY = 'dg_pwa_install_seen';
+
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    _deferredPrompt = e;
+    /* Only show if user hasn't seen it */
+    try { if (localStorage.getItem(SEEN_KEY)) return; } catch(ex) {}
+
+    setTimeout(function() {
+      if (!_deferredPrompt) return;
+      var bar = document.createElement('div');
+      bar.id = 'dg-pwa-install-bar';
+      bar.setAttribute('role', 'status');
+      bar.innerHTML =
+        '<span class="dg-pwa-icon">&#x1F4F1;</span>' +
+        '<span class="dg-pwa-text"><strong>Add DataGlow to your home screen</strong> &mdash; works offline, loads instantly</span>' +
+        '<button class="dg-pwa-btn" id="dg-pwa-install">Install</button>' +
+        '<button class="dg-pwa-dismiss" id="dg-pwa-dismiss" aria-label="Dismiss">&#x00D7;</button>';
+      document.body.appendChild(bar);
+
+      /* Spring in */
+      bar.style.transition = 'none';
+      bar.style.transform = 'translateY(100%)';
+      bar.style.opacity = '0';
+      void bar.offsetHeight;
+      bar.style.transition = 'transform 0.45s cubic-bezier(0.34,1.56,0.64,1), opacity 0.25s ease';
+      bar.style.transform = 'translateY(0)';
+      bar.style.opacity = '1';
+
+      document.getElementById('dg-pwa-install').addEventListener('click', function() {
+        if (!_deferredPrompt) return;
+        _deferredPrompt.prompt();
+        _deferredPrompt.userChoice.then(function(c) {
+          _deferredPrompt = null;
+          bar.style.transform = 'translateY(100%)';
+          bar.style.opacity = '0';
+          setTimeout(function(){ if(bar.parentNode) bar.remove(); }, 400);
+          try { localStorage.setItem(SEEN_KEY, '1'); } catch(ex) {}
+        });
+      });
+      document.getElementById('dg-pwa-dismiss').addEventListener('click', function() {
+        bar.style.transform = 'translateY(100%)';
+        bar.style.opacity = '0';
+        setTimeout(function(){ if(bar.parentNode) bar.remove(); }, 400);
+        try { localStorage.setItem(SEEN_KEY, '1'); } catch(ex) {}
+      });
+    }, 90000); /* 90 seconds -- after user has explored */
+  });
+
+  window.addEventListener('appinstalled', function() {
+    _deferredPrompt = null;
+    var bar = document.getElementById('dg-pwa-install-bar');
+    if (bar) bar.remove();
+  });
+})();
+</script>
 </body>
 </html>- UX: Post-load Action Spotlight -->
 <div id="action-spotlight">
