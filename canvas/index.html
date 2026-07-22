@@ -9550,6 +9550,404 @@ body.tier-3-unlocked [data-flag-tier="3"] {
 .dg-rs-clear:hover { color: var(--text-muted); }
 
 /* ================================================================ */
+
+
+/* ================================================================
+   KPI Library (Session D, PR #535)
+================================================================ */
+
+/* Pinned chip bar */
+.dg-kpi-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 12px 2px;
+  align-items: center;
+  min-height: 0;
+}
+.dg-kpi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text,#e0e2e7);
+  transition: background .15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.dg-kpi-chip:hover { background: var(--surface-2,#191c20); }
+.dg-kpi-chip-cat  { font-size: 10px; opacity: .8; }
+.dg-kpi-chip-name { font-weight: 600; }
+
+/* Registry button */
+.dg-kpi-registry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: color .15s, border-color .15s;
+  font-family: inherit;
+}
+.dg-kpi-registry-btn:hover { color: var(--primary,#20C5B5); border-color: var(--primary,#20C5B5); }
+[data-flag-tier='1'] { display: none; }
+body.tier-1-unlocked [data-flag-tier='1'] { display: flex; }
+body.tier-1-unlocked .dg-kpi-registry-btn { display: inline-flex; }
+body.tier-1-unlocked .dg-kpi-chips[style*='flex'] { display: flex !important; }
+
+/* Registry panel */
+.dg-kpi-panel {
+  position: fixed;
+  width: min(440px, calc(100vw - 20px));
+  max-height: calc(100vh - 60px);
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px #00000088;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .2s, transform .2s;
+  z-index: 15000;
+}
+.dg-kpi-panel.dg-kpi-panel-open { opacity: 1; transform: translateY(0); }
+
+.dg-kpi-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border,#252930);
+}
+.dg-kpi-title { font-size: 14px; font-weight: 700; color: var(--text,#e0e2e7); flex: 1; }
+.dg-kpi-count { font-size: 11px; color: var(--text-muted); }
+.dg-kpi-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 4px; border-radius: 4px;
+}
+.dg-kpi-close:hover { color: var(--text,#e0e2e7); background: var(--surface-2,#191c20); }
+
+.dg-kpi-search-row { padding: 10px 14px 0; }
+.dg-kpi-search {
+  width: 100%;
+  background: var(--surface-2,#191c20);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text,#e0e2e7);
+  font-family: inherit;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color .15s;
+}
+.dg-kpi-search:focus { border-color: var(--primary,#20C5B5); }
+
+.dg-kpi-cat-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+}
+.dg-kpi-cat-tab {
+  padding: 3px 8px;
+  background: none;
+  border: 1px solid var(--border,#252930);
+  border-radius: 20px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: all .15s;
+}
+.dg-kpi-cat-tab:hover, .dg-kpi-cat-tab.active {
+  background: var(--primary,#20C5B5)18;
+  border-color: var(--primary,#20C5B5);
+  color: var(--primary,#20C5B5);
+}
+
+.dg-kpi-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 14px 8px;
+  min-height: 80px;
+  max-height: 260px;
+}
+.dg-kpi-empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; text-align: center; }
+.dg-kpi-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border,#252930)55;
+}
+.dg-kpi-item:last-child { border-bottom: none; }
+.dg-kpi-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dg-kpi-cat-badge {
+  font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 10px;
+  border: 1px solid; white-space: nowrap;
+}
+.dg-kpi-name-label { font-size: 13px; font-weight: 700; color: var(--text,#e0e2e7); flex: 1; font-family: 'Geist Mono', monospace; }
+.dg-kpi-owner-label { font-size: 11px; color: var(--text-muted); }
+.dg-kpi-actions { display: flex; gap: 4px; }
+.dg-kpi-pin-btn, .dg-kpi-del-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 3px; border-radius: 4px;
+  transition: color .15s;
+}
+.dg-kpi-pin-btn:hover { color: var(--primary,#20C5B5); }
+.dg-kpi-del-btn:hover { color: #DD6974; }
+.dg-kpi-desc-text { font-size: 12px; color: var(--text-muted); margin: 2px 0 4px; }
+.dg-kpi-expr-code {
+  display: block; font-size: 11px; font-family: 'Geist Mono', monospace;
+  background: var(--surface-2,#191c20); padding: 4px 8px; border-radius: 4px;
+  color: var(--primary,#20C5B5); white-space: pre-wrap; word-break: break-all;
+}
+.dg-kpi-used-badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  background: var(--proof,#4AE38A)15; color: var(--proof,#4AE38A);
+  border-radius: 10px; margin-top: 4px;
+}
+
+.dg-kpi-add-form {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border,#252930);
+  background: var(--surface-2,#191c20);
+}
+.dg-kpi-add-title { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.dg-kpi-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 10px;
+  font-size: 12px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none; margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.dg-kpi-input:focus { border-color: var(--primary,#20C5B5); }
+.dg-kpi-input-sm { width: auto; flex: 1; margin-bottom: 0; }
+.dg-kpi-add-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.dg-kpi-select {
+  background: var(--surface,#131519); border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 8px;
+  font-size: 12px; color: var(--text,#e0e2e7); font-family: inherit;
+  outline: none; cursor: pointer;
+}
+.dg-kpi-error { color: #DD6974; font-size: 12px; margin: 0 0 6px; }
+.dg-kpi-error.hidden { display: none; }
+.dg-kpi-add-btn {
+  width: 100%;
+  background: var(--primary,#20C5B5);
+  border: none; border-radius: 6px;
+  padding: 8px 0; font-size: 13px; font-weight: 700;
+  color: #0D0E10; cursor: pointer; font-family: inherit;
+  transition: background .15s;
+}
+.dg-kpi-add-btn:hover { background: #1bb0a0; }
+
+/* Promote button injected into MetricStudio items */
+.dg-mp-promote {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--primary,#20C5B5)60;
+  color: var(--primary,#20C5B5);
+  border-radius: 4px; padding: 2px 8px;
+  font-size: 11px; cursor: pointer; font-family: inherit;
+  transition: all .15s;
+}
+.dg-mp-promote:hover { background: var(--primary,#20C5B5)18; }
+.dg-mp-promote:disabled { opacity: .5; cursor: default; }
+
+
+/* ================================================================
+   Business Glossary (Session D, PR #536)
+================================================================ */
+.dg-glossary-btn {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: color .15s, border-color .15s;
+}
+body.tier-1-unlocked .dg-glossary-btn { display: inline-flex; }
+.dg-glossary-btn:hover { color: var(--primary,#20C5B5); border-color: var(--primary,#20C5B5); }
+
+/* Glossary panel */
+.dg-glossary-panel {
+  position: fixed;
+  width: min(420px, calc(100vw - 20px));
+  max-height: calc(100vh - 60px);
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px #00000088;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .2s, transform .2s;
+  z-index: 15000;
+}
+.dg-glossary-panel.dg-gl-panel-open { opacity: 1; transform: translateY(0); }
+
+.dg-gl-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border,#252930);
+}
+.dg-gl-title { font-size: 14px; font-weight: 700; color: var(--text,#e0e2e7); flex: 1; }
+.dg-gl-count { font-size: 11px; color: var(--text-muted); }
+.dg-gl-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 4px; border-radius: 4px;
+}
+.dg-gl-close:hover { color: var(--text,#e0e2e7); background: var(--surface-2,#191c20); }
+
+.dg-gl-search {
+  width: 100%; box-sizing: border-box;
+  margin: 10px 14px 0;
+  width: calc(100% - 28px);
+  background: var(--surface-2,#191c20);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none;
+  transition: border-color .15s;
+}
+.dg-gl-search:focus { border-color: var(--primary,#20C5B5); }
+
+.dg-gl-cat-tabs {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  padding: 8px 14px;
+}
+.dg-gl-cat-tab {
+  padding: 3px 8px;
+  background: none; border: 1px solid var(--border,#252930);
+  border-radius: 20px; font-size: 11px; cursor: pointer;
+  color: var(--text-muted); font-family: inherit; transition: all .15s;
+}
+.dg-gl-cat-tab:hover, .dg-gl-cat-tab.active {
+  background: var(--primary,#20C5B5)18;
+  border-color: var(--primary,#20C5B5);
+  color: var(--primary,#20C5B5);
+}
+
+.dg-gl-list {
+  flex: 1; overflow-y: auto;
+  padding: 4px 14px 8px;
+  min-height: 80px; max-height: 240px;
+}
+.dg-gl-empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; text-align: center; }
+.dg-gl-item { padding: 10px 0; border-bottom: 1px solid var(--border,#252930)55; }
+.dg-gl-item:last-child { border-bottom: none; }
+.dg-gl-item-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.dg-gl-term-name { font-size: 13px; font-weight: 700; color: var(--text,#e0e2e7); font-family: 'Geist Mono', monospace; flex: 1; }
+.dg-gl-default-badge {
+  font-size: 10px; padding: 1px 5px; border-radius: 8px;
+  background: var(--border,#252930); color: var(--text-muted);
+}
+.dg-gl-item-cat { font-size: 10px; color: var(--text-muted); }
+.dg-gl-del-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 3px; border-radius: 4px;
+  transition: color .15s;
+}
+.dg-gl-del-btn:hover { color: #DD6974; }
+.dg-gl-def-text { font-size: 12px; color: var(--text-muted); margin: 2px 0 4px; line-height: 1.5; }
+.dg-gl-expr-code {
+  display: block; font-size: 11px; font-family: 'Geist Mono', monospace;
+  background: var(--surface-2,#191c20); padding: 4px 8px; border-radius: 4px;
+  color: var(--primary,#20C5B5); margin-bottom: 4px;
+}
+.dg-gl-aliases { font-size: 11px; color: var(--text-muted); margin: 2px 0; font-style: italic; }
+.dg-gl-used { font-size: 10px; color: var(--proof,#4AE38A); }
+
+.dg-gl-add-form {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border,#252930);
+  background: var(--surface-2,#191c20);
+}
+.dg-gl-add-title { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.dg-gl-add-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.dg-gl-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 10px;
+  font-size: 12px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none; margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.dg-gl-input:focus { border-color: var(--primary,#20C5B5); }
+.dg-gl-textarea {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 10px;
+  font-size: 12px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none; resize: vertical; margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.dg-gl-textarea:focus { border-color: var(--primary,#20C5B5); }
+.dg-gl-select {
+  background: var(--surface,#131519); border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 8px;
+  font-size: 12px; color: var(--text,#e0e2e7); font-family: inherit; outline: none;
+}
+.dg-gl-error { color: #DD6974; font-size: 12px; margin: 0 0 6px; }
+.dg-gl-error.hidden { display: none; }
+.dg-gl-add-btn {
+  width: 100%;
+  background: var(--primary,#20C5B5);
+  border: none; border-radius: 6px;
+  padding: 8px 0; font-size: 13px; font-weight: 700;
+  color: #0D0E10; cursor: pointer; font-family: inherit;
+  transition: background .15s;
+}
+.dg-gl-add-btn:hover { background: #1bb0a0; }
+
+/* Inline tooltip (NL bar definition preview) */
+.dg-glossary-tooltip {
+  position: fixed;
+  width: min(360px, calc(100vw - 20px));
+  background: var(--surface,#131519);
+  border: 1px solid var(--primary,#20C5B5)60;
+  border-radius: 10px;
+  box-shadow: 0 4px 24px #00000088;
+  padding: 10px 14px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .18s, transform .18s;
+  pointer-events: none;
+  z-index: 16000;
+}
+.dg-glossary-tooltip.dg-gl-visible { opacity: 1; transform: translateY(0); }
+.dg-gl-tip-item { margin-bottom: 8px; }
+.dg-gl-tip-item:last-of-type { margin-bottom: 4px; }
+.dg-gl-tip-term { display: block; font-size: 12px; font-weight: 700; color: var(--primary,#20C5B5); font-family: 'Geist Mono', monospace; margin-bottom: 2px; }
+.dg-gl-tip-def { display: block; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.dg-gl-tip-expr { display: block; font-size: 11px; font-family: 'Geist Mono', monospace; color: var(--text,#e0e2e7); background: var(--surface-2,#191c20); padding: 3px 7px; border-radius: 4px; margin-top: 4px; }
+.dg-gl-tip-hint { font-size: 10px; color: var(--text-muted); margin-top: 6px; opacity: .7; border-top: 1px solid var(--border,#252930)60; padding-top: 5px; }
   </style>
 
 </head>
@@ -21552,6 +21950,8 @@ var InstantInsight = (function () {
     biasPreflight: true,
     trainingPassport: true,
     uxBPrep: true,
+    kpiLibrary: true,
+    businessGlossary: true,
   };
   window.FEATURE_FLAGS = FEATURE_FLAGS;
 
@@ -90569,6 +90969,967 @@ var PortfolioExport = (function () {
 
 })();
 /* ---- end js/semantic/role-context.js ---- */
+
+/* ---- from js/semantic/kpi-library.js ---- */
+/* ================================================================
+   DataGlow KPI Library (Session D, PR #535)
+   Feature flag: window.FEATURE_FLAGS.kpiLibrary
+
+   The gap: Metric Studio lets ONE analyst define metrics privately.
+   KPI Library promotes those to a shared, searchable, owned library.
+
+   What it adds on top of Metric Studio:
+     - KPIs have: name, expr, owner, description, category, pinned
+     - Stored in OPFS (dg-kpis.json) -- still local-first, this session
+     - "Promote to KPI" button on each Metric Studio metric
+     - KPI Registry panel: search, browse by category, pin favorites
+     - NL bar resolves KPI names BEFORE personal metric names
+       (KPIs win -- they represent the agreed definition)
+     - KPI chip: pinned KPIs appear as one-tap chips above the NL bar
+     - Emits: dataglow:kpi-added, dataglow:kpi-used, dataglow:kpi-pinned
+
+   Categories (fixed set, analyst picks one):
+     revenue | cost | quality | throughput | safety | outcome | custom
+
+   Storage format (dg-kpis.json):
+     [ { name, expr, owner, description, category, pinned,
+         created, used, promoted_from_metric } ]
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'kpiLibrary';
+  var OPFS_FILE = 'dg-kpis.json';
+  var MAX_KPIS  = 50;
+
+  var CATEGORIES = ['revenue','cost','quality','throughput','safety','outcome','custom'];
+  var CAT_COLORS = {
+    revenue:    '#4AE38A',
+    cost:       '#F5A623',
+    quality:    'var(--primary,#20C5B5)',
+    throughput: '#A86FDF',
+    safety:     '#DD6974',
+    outcome:    '#5591C7',
+    custom:     'var(--text-muted)'
+  };
+
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  /* ----------------------------------------------------------------
+     OPFS
+  ---------------------------------------------------------------- */
+  var _kpis   = [];
+  var _loaded = false;
+
+  function load() {
+    if (_loaded) return Promise.resolve(_kpis);
+    if (!navigator.storage || !navigator.storage.getDirectory) { _loaded = true; return Promise.resolve([]); }
+    return navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE)
+        .then(function (fh) { return fh.getFile(); })
+        .then(function (f)  { return f.text(); })
+        .then(function (t)  { try { _kpis = JSON.parse(t) || []; } catch(_) { _kpis = []; } _loaded = true; return _kpis; });
+    }).catch(function () { _loaded = true; return []; });
+  }
+
+  function save() {
+    if (!navigator.storage || !navigator.storage.getDirectory) return;
+    navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE, { create: true })
+        .then(function (fh) { return fh.createWritable(); })
+        .then(function (w)  { return w.write(JSON.stringify(_kpis)).then(function () { return w.close(); }); });
+    }).catch(function () {});
+  }
+
+  /* ----------------------------------------------------------------
+     KPI CRUD
+  ---------------------------------------------------------------- */
+  function addKPI(opts) {
+    /* opts: { name, expr, owner, description, category, promoted_from_metric } */
+    var name = (opts.name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (!name || !opts.expr) return { ok: false, error: 'Name and expression required.' };
+    if (_kpis.length >= MAX_KPIS) return { ok: false, error: 'Maximum ' + MAX_KPIS + ' KPIs reached.' };
+    if (_kpis.some(function (k) { return k.name === name; })) {
+      return { ok: false, error: '"' + name + '" already exists as a KPI.' };
+    }
+    var kpi = {
+      name:                  name,
+      expr:                  opts.expr.trim(),
+      owner:                 opts.owner || 'this analyst',
+      description:           opts.description || '',
+      category:              CATEGORIES.includes(opts.category) ? opts.category : 'custom',
+      pinned:                false,
+      created:               Date.now(),
+      used:                  0,
+      promoted_from_metric:  opts.promoted_from_metric || false
+    };
+    _kpis.push(kpi);
+    save();
+    document.dispatchEvent(new CustomEvent('dataglow:kpi-added', { detail: { name: name, category: kpi.category } }));
+    renderPinnedChips();
+    return { ok: true };
+  }
+
+  function deleteKPI(name) {
+    _kpis = _kpis.filter(function (k) { return k.name !== name; });
+    save();
+    renderPinnedChips();
+  }
+
+  function pinKPI(name, val) {
+    var k = _kpis.find(function (x) { return x.name === name; });
+    if (!k) return;
+    k.pinned = val !== undefined ? val : !k.pinned;
+    save();
+    renderPinnedChips();
+    document.dispatchEvent(new CustomEvent('dataglow:kpi-pinned', { detail: { name: name, pinned: k.pinned } }));
+  }
+
+  function getKPIs(category) {
+    if (category) return _kpis.filter(function (k) { return k.category === category; });
+    return _kpis.slice();
+  }
+
+  /* ----------------------------------------------------------------
+     NL substitution -- KPIs resolve BEFORE Metric Studio metrics
+  ---------------------------------------------------------------- */
+  function substituteKPIs(nlQuery) {
+    if (!_kpis.length) return { query: nlQuery, substituted: [] };
+    var result = nlQuery;
+    var substituted = [];
+    _kpis.forEach(function (k) {
+      var pattern = new RegExp('\\b' + k.name.replace(/_/g, '[_ ]') + '\\b', 'gi');
+      if (pattern.test(result)) {
+        result = result.replace(pattern, '(' + k.expr + ')');
+        k.used++;
+        substituted.push(k.name);
+      }
+    });
+    if (substituted.length) {
+      save();
+      document.dispatchEvent(new CustomEvent('dataglow:kpi-used', { detail: { names: substituted } }));
+    }
+    return { query: result, substituted: substituted };
+  }
+
+  /* ----------------------------------------------------------------
+     Pinned KPI chips (above the NL bar)
+  ---------------------------------------------------------------- */
+  function renderPinnedChips() {
+    var pinned = _kpis.filter(function (k) { return k.pinned; });
+    var container = document.getElementById('dg-kpi-chips');
+    if (!container) return;
+    if (!pinned.length) { container.innerHTML = ''; container.style.display = 'none'; return; }
+    container.style.display = 'flex';
+    container.innerHTML = pinned.map(function (k) {
+      return '<button class="dg-kpi-chip" data-kpi="' + k.name + '"' +
+        ' data-testid="chip-kpi-' + k.name + '"' +
+        ' style="border-color:' + (CAT_COLORS[k.category] || 'var(--border)') + '"' +
+        ' title="' + k.name + ': ' + k.expr + '">' +
+        '<span class="dg-kpi-chip-cat" style="color:' + (CAT_COLORS[k.category] || 'var(--text-muted)') + '">' + k.category + '</span>' +
+        '<span class="dg-kpi-chip-name">' + k.name + '</span>' +
+        '</button>';
+    }).join('');
+
+    /* Clicking a chip inserts the KPI name into the NL bar */
+    container.querySelectorAll('.dg-kpi-chip').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var input = document.getElementById('nl-query-input');
+        if (input) {
+          var val = input.value.trim();
+          input.value = val ? val + ' ' + btn.getAttribute('data-kpi') : btn.getAttribute('data-kpi');
+          input.focus();
+        }
+      });
+    });
+  }
+
+  function injectChipBar() {
+    if (document.getElementById('dg-kpi-chips')) return;
+    var bar = document.createElement('div');
+    bar.id = 'dg-kpi-chips';
+    bar.className = 'dg-kpi-chips';
+    bar.style.display = 'none';
+    bar.setAttribute('data-flag-tier', '1');
+    /* Insert above the agent bar */
+    var agentBar = document.getElementById('agent-bar');
+    if (agentBar && agentBar.parentNode) {
+      agentBar.parentNode.insertBefore(bar, agentBar);
+    }
+    renderPinnedChips();
+  }
+
+  /* ----------------------------------------------------------------
+     KPI Registry panel
+  ---------------------------------------------------------------- */
+  var _panelOpen = false;
+
+  function toggleRegistryPanel() {
+    var existing = document.getElementById('dg-kpi-panel');
+    if (existing) {
+      existing.classList.remove('dg-kpi-panel-open');
+      setTimeout(function () { if (existing.parentNode) existing.parentNode.removeChild(existing); }, 220);
+      _panelOpen = false;
+      return;
+    }
+    _panelOpen = true;
+    renderRegistryPanel();
+  }
+
+  function renderRegistryPanel() {
+    var panel = document.createElement('div');
+    panel.id = 'dg-kpi-panel';
+    panel.className = 'dg-kpi-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'KPI Library');
+
+    panel.innerHTML = _buildPanelHTML();
+    _positionPanel(panel);
+    document.body.appendChild(panel);
+    requestAnimationFrame(function () { panel.classList.add('dg-kpi-panel-open'); });
+
+    /* Search */
+    panel.querySelector('#dg-kpi-search').addEventListener('input', function () {
+      panel.querySelector('#dg-kpi-list').innerHTML = _buildKPIList(this.value.trim(), panel.querySelector('[data-cat-filter].active'));
+      _wireListEvents(panel);
+    });
+
+    /* Category filter tabs */
+    panel.querySelectorAll('[data-cat-filter]').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        panel.querySelectorAll('[data-cat-filter]').forEach(function (t) { t.classList.remove('active'); });
+        this.classList.add('active');
+        var search = panel.querySelector('#dg-kpi-search').value.trim();
+        panel.querySelector('#dg-kpi-list').innerHTML = _buildKPIList(search, this.getAttribute('data-cat-filter') === 'all' ? null : this.getAttribute('data-cat-filter'));
+        _wireListEvents(panel);
+      });
+    });
+
+    /* Add form */
+    panel.querySelector('#dg-kpi-add-btn').addEventListener('click', function () { _handleAdd(panel); });
+    ['#dg-kpi-name','#dg-kpi-expr','#dg-kpi-owner','#dg-kpi-desc'].forEach(function (sel) {
+      var el = panel.querySelector(sel);
+      if (el) el.addEventListener('keydown', function (e) { if (e.key === 'Enter') _handleAdd(panel); });
+    });
+
+    /* Close */
+    panel.querySelector('.dg-kpi-close').addEventListener('click', toggleRegistryPanel);
+
+    _wireListEvents(panel);
+
+    setTimeout(function () {
+      document.addEventListener('click', function onOut(e) {
+        var p2 = document.getElementById('dg-kpi-panel');
+        var btn = document.getElementById('dg-kpi-registry-btn');
+        if (p2 && !p2.contains(e.target) && (!btn || !btn.contains(e.target))) {
+          if (p2.parentNode) p2.parentNode.removeChild(p2);
+          _panelOpen = false;
+          document.removeEventListener('click', onOut);
+        }
+      });
+    }, 50);
+
+    panel.querySelector('#dg-kpi-name').focus();
+  }
+
+  function _buildPanelHTML() {
+    var catTabs = ['all'].concat(CATEGORIES).map(function (c) {
+      return '<button class="dg-kpi-cat-tab' + (c === 'all' ? ' active' : '') + '" data-cat-filter="' + c + '">' + c + '</button>';
+    }).join('');
+
+    return '<div class="dg-kpi-header">' +
+      '<span class="dg-kpi-title">KPI Library</span>' +
+      '<span class="dg-kpi-count">' + _kpis.length + ' / ' + MAX_KPIS + '</span>' +
+      '<button class="dg-kpi-close" aria-label="Close KPI Library">' +
+        '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>' +
+      '</button>' +
+    '</div>' +
+    '<div class="dg-kpi-search-row">' +
+      '<input id="dg-kpi-search" class="dg-kpi-search" type="text" placeholder="Search KPIs..." autocomplete="off" data-testid="input-kpi-search"/>' +
+    '</div>' +
+    '<div class="dg-kpi-cat-tabs">' + catTabs + '</div>' +
+    '<div class="dg-kpi-list" id="dg-kpi-list">' + _buildKPIList('', null) + '</div>' +
+    '<div class="dg-kpi-add-form">' +
+      '<div class="dg-kpi-add-title">Define KPI</div>' +
+      '<input id="dg-kpi-name" class="dg-kpi-input" type="text" placeholder="KPI name (e.g. net_revenue)" maxlength="40" data-testid="input-kpi-name" autocomplete="off"/>' +
+      '<input id="dg-kpi-expr" class="dg-kpi-input" type="text" placeholder="SQL expression" data-testid="input-kpi-expr" autocomplete="off"/>' +
+      '<div class="dg-kpi-add-row">' +
+        '<input id="dg-kpi-owner" class="dg-kpi-input dg-kpi-input-sm" type="text" placeholder="Owner" maxlength="40" data-testid="input-kpi-owner" autocomplete="off"/>' +
+        '<select id="dg-kpi-cat" class="dg-kpi-select" data-testid="select-kpi-category">' +
+          CATEGORIES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('') +
+        '</select>' +
+      '</div>' +
+      '<input id="dg-kpi-desc" class="dg-kpi-input" type="text" placeholder="Description (optional)" data-testid="input-kpi-desc" autocomplete="off"/>' +
+      '<p id="dg-kpi-error" class="dg-kpi-error hidden"></p>' +
+      '<button id="dg-kpi-add-btn" class="dg-kpi-add-btn" data-testid="button-kpi-add">Add KPI</button>' +
+    '</div>';
+  }
+
+  function _buildKPIList(search, category) {
+    var items = _kpis.filter(function (k) {
+      var matchSearch = !search || k.name.includes(search.toLowerCase()) || k.description.toLowerCase().includes(search.toLowerCase());
+      var matchCat    = !category || k.category === category;
+      return matchSearch && matchCat;
+    });
+    if (!items.length) return '<p class="dg-kpi-empty">' + (search ? 'No KPIs match "' + search + '".' : 'No KPIs defined yet.') + '</p>';
+    return items.map(function (k) {
+      var catColor = CAT_COLORS[k.category] || 'var(--text-muted)';
+      return '<div class="dg-kpi-item" data-testid="kpi-item-' + k.name + '">' +
+        '<div class="dg-kpi-item-top">' +
+          '<span class="dg-kpi-cat-badge" style="color:' + catColor + ';border-color:' + catColor + '20">' + k.category + '</span>' +
+          '<span class="dg-kpi-name-label">' + k.name + '</span>' +
+          '<span class="dg-kpi-owner-label">' + k.owner + '</span>' +
+          '<div class="dg-kpi-actions">' +
+            '<button class="dg-kpi-pin-btn" data-pin="' + k.name + '" data-testid="button-pin-kpi-' + k.name + '" title="' + (k.pinned ? 'Unpin' : 'Pin to bar') + '">' +
+              '<svg viewBox="0 0 16 16" width="12" height="12" fill="' + (k.pinned ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="1.5"><path d="M9 2l5 5-2 2-2-1-3 3v3l-1 1-1-1V12L2 9l1-1h3L9 5z"/></svg>' +
+            '</button>' +
+            '<button class="dg-kpi-del-btn" data-del="' + k.name + '" data-testid="button-del-kpi-' + k.name + '" aria-label="Delete ' + k.name + '">' +
+              '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+        (k.description ? '<p class="dg-kpi-desc-text">' + k.description + '</p>' : '') +
+        '<code class="dg-kpi-expr-code">' + k.expr + '</code>' +
+        (k.used ? '<span class="dg-kpi-used-badge">used ' + k.used + 'x</span>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function _wireListEvents(panel) {
+    panel.querySelectorAll('[data-pin]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        pinKPI(btn.getAttribute('data-pin'));
+        /* Re-render the list in place */
+        var search = panel.querySelector('#dg-kpi-search').value.trim();
+        var activeTab = panel.querySelector('[data-cat-filter].active');
+        var cat = activeTab && activeTab.getAttribute('data-cat-filter') !== 'all' ? activeTab.getAttribute('data-cat-filter') : null;
+        panel.querySelector('#dg-kpi-list').innerHTML = _buildKPIList(search, cat);
+        _wireListEvents(panel);
+        panel.querySelector('.dg-kpi-count').textContent = _kpis.length + ' / ' + MAX_KPIS;
+      });
+    });
+    panel.querySelectorAll('[data-del]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteKPI(btn.getAttribute('data-del'));
+        var search = panel.querySelector('#dg-kpi-search').value.trim();
+        var activeTab = panel.querySelector('[data-cat-filter].active');
+        var cat = activeTab && activeTab.getAttribute('data-cat-filter') !== 'all' ? activeTab.getAttribute('data-cat-filter') : null;
+        panel.querySelector('#dg-kpi-list').innerHTML = _buildKPIList(search, cat);
+        _wireListEvents(panel);
+        panel.querySelector('.dg-kpi-count').textContent = _kpis.length + ' / ' + MAX_KPIS;
+        if (typeof window.showToast === 'function') window.showToast('KPI deleted.', 'info');
+      });
+    });
+  }
+
+  function _handleAdd(panel) {
+    var name  = panel.querySelector('#dg-kpi-name').value;
+    var expr  = panel.querySelector('#dg-kpi-expr').value;
+    var owner = panel.querySelector('#dg-kpi-owner').value;
+    var desc  = panel.querySelector('#dg-kpi-desc').value;
+    var cat   = panel.querySelector('#dg-kpi-cat').value;
+    var err   = panel.querySelector('#dg-kpi-error');
+    var result = addKPI({ name: name, expr: expr, owner: owner, description: desc, category: cat });
+    if (!result.ok) { err.textContent = result.error; err.classList.remove('hidden'); return; }
+    err.classList.add('hidden');
+    ['#dg-kpi-name','#dg-kpi-expr','#dg-kpi-owner','#dg-kpi-desc'].forEach(function (sel) {
+      var el = panel.querySelector(sel); if (el) el.value = '';
+    });
+    panel.querySelector('#dg-kpi-list').innerHTML = _buildKPIList('', null);
+    _wireListEvents(panel);
+    panel.querySelector('.dg-kpi-count').textContent = _kpis.length + ' / ' + MAX_KPIS;
+    if (typeof window.showToast === 'function') window.showToast('KPI "' + name.trim().toLowerCase() + '" added.', 'success');
+    panel.querySelector('#dg-kpi-name').focus();
+  }
+
+  function _positionPanel(panel) {
+    var btn = document.getElementById('dg-kpi-registry-btn') || document.getElementById('agent-bar');
+    if (btn) {
+      var rect = btn.getBoundingClientRect();
+      panel.style.cssText = 'position:fixed;bottom:' + (window.innerHeight - rect.top + 8) + 'px;left:' + Math.max(8, rect.left) + 'px;z-index:15000';
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     KPI Registry button (in agent bar, next to Metric button)
+  ---------------------------------------------------------------- */
+  function injectRegistryBtn() {
+    if (document.getElementById('dg-kpi-registry-btn')) return;
+    var btn = document.createElement('button');
+    btn.id = 'dg-kpi-registry-btn';
+    btn.className = 'dg-kpi-registry-btn';
+    btn.setAttribute('data-testid', 'button-kpi-registry');
+    btn.setAttribute('aria-label', 'KPI Library');
+    btn.setAttribute('data-flag-tier', '1');
+    btn.title = 'Open KPI Library -- shared metric definitions';
+    btn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><circle cx="12" cy="12" r="3"/></svg> <span>KPIs</span>';
+    btn.addEventListener('click', toggleRegistryPanel);
+
+    /* Place next to the Metric Studio button */
+    var metricBtn = document.getElementById('dg-metric-define-btn');
+    if (metricBtn && metricBtn.parentNode) {
+      metricBtn.parentNode.insertBefore(btn, metricBtn.nextSibling);
+    } else {
+      var wrap = document.getElementById('nl-query-wrap') || document.getElementById('agent-bar');
+      if (wrap) wrap.appendChild(btn);
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     NL bar hook -- KPIs resolve first (capture phase, before MetricStudio)
+  ---------------------------------------------------------------- */
+  function hookNlBar() {
+    var input = document.getElementById('nl-query-input');
+    if (!input) { setTimeout(hookNlBar, 800); return; }
+    input.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || !_kpis.length) return;
+      var result = substituteKPIs(input.value);
+      if (result.substituted.length) {
+        input.value = result.query;
+        if (typeof window.showToast === 'function') {
+          window.showToast('KPI substituted: ' + result.substituted.join(', '), 'info');
+        }
+      }
+    }, true /* capture -- before MetricStudio's listener */);
+  }
+
+  /* ----------------------------------------------------------------
+     Promote-from-Metric integration
+     If MetricStudio is present, patch its panel to add a Promote button.
+  ---------------------------------------------------------------- */
+  function patchMetricStudio() {
+    if (!window.MetricStudio) return;
+    var origList = window.MetricStudio.list;
+    document.addEventListener('dataglow:metric-added', function (e) {
+      /* After a metric is added, offer promotion if user has KPI access */
+      if (!isEnabled()) return;
+      /* Inject promote button into Metric Studio panel if open */
+      setTimeout(function () {
+        var panel = document.getElementById('dg-metric-panel');
+        if (!panel) return;
+        var items = panel.querySelectorAll('.dg-mp-item');
+        items.forEach(function (item) {
+          if (item.querySelector('.dg-mp-promote')) return;
+          var nameEl = item.querySelector('.dg-mp-name-chip');
+          var exprEl = item.querySelector('.dg-mp-expr-preview');
+          if (!nameEl || !exprEl) return;
+          var name = nameEl.textContent.trim();
+          var expr = exprEl.textContent.trim();
+          var promBtn = document.createElement('button');
+          promBtn.className = 'dg-mp-promote';
+          promBtn.setAttribute('data-testid', 'button-promote-' + name);
+          promBtn.title = 'Promote to KPI Library';
+          promBtn.textContent = 'Promote to KPI';
+          promBtn.addEventListener('click', function () {
+            var r = addKPI({ name: name, expr: expr, promoted_from_metric: true, category: 'custom' });
+            if (r.ok) {
+              promBtn.textContent = 'In KPI Library';
+              promBtn.disabled = true;
+              if (typeof window.showToast === 'function') window.showToast('"' + name + '" promoted to KPI Library.', 'success');
+            } else {
+              promBtn.textContent = r.error;
+            }
+          });
+          item.querySelector('.dg-mp-item-top').appendChild(promBtn);
+        });
+      }, 100);
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Init
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!isEnabled()) return;
+    load().then(function () {
+      document.addEventListener('dataglow:dataset-loaded', function () {
+        injectChipBar();
+        injectRegistryBtn();
+        hookNlBar();
+        patchMetricStudio();
+      });
+      window.KPILibrary = {
+        add:         addKPI,
+        remove:      deleteKPI,
+        pin:         pinKPI,
+        list:        getKPIs,
+        substitute:  substituteKPIs,
+        openPanel:   toggleRegistryPanel
+      };
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/semantic/kpi-library.js ---- */
+
+/* ---- from js/semantic/business-glossary.js ---- */
+/* ================================================================
+   DataGlow Business Glossary (Session D, PR #536)
+   Feature flag: window.FEATURE_FLAGS.businessGlossary
+
+   The gap: before SQL runs, "revenue" might mean gross revenue,
+   net revenue, or something completely different depending on who
+   defined the schema. The Business Glossary makes the definition
+   explicit -- visible at the moment the analyst types.
+
+   What it does:
+     - Term-to-definition store (OPFS: dg-glossary.json, max 80 terms)
+     - Each term has: term, definition, sql_expr (optional),
+       aliases, owner, category, source
+     - NL bar tooltip: when analyst pauses typing (500ms debounce),
+       any glossary term found in the query triggers an inline tooltip
+       showing the definition BEFORE Enter is hit
+     - Glossary panel: browse, search, add, delete terms
+     - SQL intercept comment: when a glossary term is used in a query,
+       a SQL comment header is prepended:
+         /* Glossary: revenue = gross sales minus returns; churn = ... * /
+       This makes the assumption explicit in the proof artifact.
+     - Emits: dataglow:glossary-term-added, dataglow:glossary-term-triggered
+     - Seeded with 8 common healthcare/analytics terms on first run
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG     = 'businessGlossary';
+  var OPFS_FILE = 'dg-glossary.json';
+  var MAX_TERMS = 80;
+
+  var SEED_TERMS = [
+    { term: 'revenue',    definition: 'Total income generated from sales before deductions.', sql_expr: 'SUM(amount)', aliases: ['gross revenue'], owner: 'DataGlow', category: 'finance', source: 'default' },
+    { term: 'churn',      definition: 'Rate at which customers stop using the service over a period.', sql_expr: '', aliases: ['attrition'], owner: 'DataGlow', category: 'product', source: 'default' },
+    { term: 'dau',        definition: 'Daily Active Users -- unique users who performed at least one action in a 24h window.', sql_expr: 'COUNT(DISTINCT user_id)', aliases: ['daily active users'], owner: 'DataGlow', category: 'product', source: 'default' },
+    { term: 'cohort',     definition: 'A group of patients or users sharing a common characteristic defined at a specific time point.', sql_expr: '', aliases: [], owner: 'DataGlow', category: 'clinical', source: 'default' },
+    { term: 'readmission', definition: '30-day hospital readmission: patient return within 30 days of discharge for related condition.', sql_expr: '', aliases: ['30-day readmit'], owner: 'DataGlow', category: 'clinical', source: 'default' },
+    { term: 'los',        definition: 'Length of Stay -- number of days from admission to discharge.', sql_expr: 'DATEDIFF(discharge_date, admit_date)', aliases: ['length of stay'], owner: 'DataGlow', category: 'clinical', source: 'default' },
+    { term: 'cac',        definition: 'Customer Acquisition Cost -- total sales and marketing spend divided by new customers acquired.', sql_expr: '', aliases: ['customer acquisition cost'], owner: 'DataGlow', category: 'finance', source: 'default' },
+    { term: 'p&l',        definition: 'Profit and Loss -- summary of revenues, costs, and expenses over a specific period.', sql_expr: '', aliases: ['profit and loss','income statement'], owner: 'DataGlow', category: 'finance', source: 'default' }
+  ];
+
+  var CATEGORIES = ['finance','product','clinical','operations','compliance','custom'];
+
+  /* ----------------------------------------------------------------
+     OPFS
+  ---------------------------------------------------------------- */
+  var _terms  = [];
+  var _loaded = false;
+
+  function load() {
+    if (_loaded) return Promise.resolve(_terms);
+    if (!navigator.storage || !navigator.storage.getDirectory) {
+      _terms = SEED_TERMS.map(function (t) { return Object.assign({ created: Date.now(), used: 0 }, t); });
+      _loaded = true;
+      return Promise.resolve(_terms);
+    }
+    return navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE)
+        .then(function (fh) { return fh.getFile(); })
+        .then(function (f)  { return f.text(); })
+        .then(function (t)  {
+          try { _terms = JSON.parse(t) || []; } catch(_) { _terms = []; }
+          /* Seed if empty */
+          if (!_terms.length) {
+            _terms = SEED_TERMS.map(function (t) { return Object.assign({ created: Date.now(), used: 0 }, t); });
+            save();
+          }
+          _loaded = true;
+          return _terms;
+        });
+    }).catch(function () {
+      _terms = SEED_TERMS.map(function (t) { return Object.assign({ created: Date.now(), used: 0 }, t); });
+      _loaded = true;
+      return _terms;
+    });
+  }
+
+  function save() {
+    if (!navigator.storage || !navigator.storage.getDirectory) return;
+    navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE, { create: true })
+        .then(function (fh) { return fh.createWritable(); })
+        .then(function (w)  { return w.write(JSON.stringify(_terms)).then(function () { return w.close(); }); });
+    }).catch(function () {});
+  }
+
+  /* ----------------------------------------------------------------
+     Term CRUD
+  ---------------------------------------------------------------- */
+  function addTerm(opts) {
+    var term = (opts.term || '').trim().toLowerCase();
+    if (!term || !opts.definition) return { ok: false, error: 'Term and definition required.' };
+    if (_terms.length >= MAX_TERMS) return { ok: false, error: 'Maximum ' + MAX_TERMS + ' terms reached.' };
+    if (_terms.some(function (t) { return t.term === term; })) {
+      return { ok: false, error: '"' + term + '" already defined.' };
+    }
+    var aliases = (opts.aliases || '').split(',').map(function (a) { return a.trim().toLowerCase(); }).filter(Boolean);
+    var entry = {
+      term:       term,
+      definition: opts.definition.trim(),
+      sql_expr:   (opts.sql_expr || '').trim(),
+      aliases:    aliases,
+      owner:      opts.owner || 'this analyst',
+      category:   CATEGORIES.includes(opts.category) ? opts.category : 'custom',
+      source:     'user',
+      created:    Date.now(),
+      used:       0
+    };
+    _terms.push(entry);
+    save();
+    document.dispatchEvent(new CustomEvent('dataglow:glossary-term-added', { detail: { term: term } }));
+    return { ok: true };
+  }
+
+  function deleteTerm(term) {
+    _terms = _terms.filter(function (t) { return t.term !== term; });
+    save();
+  }
+
+  function getTerms(category) {
+    if (category) return _terms.filter(function (t) { return t.category === category; });
+    return _terms.slice();
+  }
+
+  /* ----------------------------------------------------------------
+     Term detection (check a query string for glossary terms)
+  ---------------------------------------------------------------- */
+  function detectTerms(text) {
+    if (!text || !_terms.length) return [];
+    var lower = text.toLowerCase();
+    var found = [];
+    _terms.forEach(function (t) {
+      var allForms = [t.term].concat(t.aliases || []);
+      var hit = allForms.some(function (form) {
+        return form && lower.includes(form.toLowerCase());
+      });
+      if (hit && !found.find(function (f) { return f.term === t.term; })) {
+        found.push(t);
+      }
+    });
+    return found;
+  }
+
+  /* ----------------------------------------------------------------
+     Inline tooltip (shows BEFORE Enter)
+  ---------------------------------------------------------------- */
+  var _tooltipEl = null;
+  var _debounce  = null;
+
+  function showTooltip(terms, anchorEl) {
+    removeTooltip();
+    if (!terms.length || !anchorEl) return;
+    _tooltipEl = document.createElement('div');
+    _tooltipEl.id = 'dg-glossary-tooltip';
+    _tooltipEl.className = 'dg-glossary-tooltip';
+    _tooltipEl.setAttribute('role', 'tooltip');
+    _tooltipEl.innerHTML = terms.map(function (t) {
+      return '<div class="dg-gl-tip-item">' +
+        '<span class="dg-gl-tip-term">' + t.term + '</span>' +
+        '<span class="dg-gl-tip-def">' + t.definition + '</span>' +
+        (t.sql_expr ? '<code class="dg-gl-tip-expr">' + t.sql_expr + '</code>' : '') +
+      '</div>';
+    }).join('') +
+    '<div class="dg-gl-tip-hint">Definitions will appear as comments in generated SQL.</div>';
+    document.body.appendChild(_tooltipEl);
+    /* Position above the NL bar */
+    var rect = anchorEl.getBoundingClientRect();
+    _tooltipEl.style.cssText = 'position:fixed;bottom:' + (window.innerHeight - rect.top + 6) + 'px;left:' + rect.left + 'px;z-index:16000';
+    requestAnimationFrame(function () { _tooltipEl.classList.add('dg-gl-visible'); });
+  }
+
+  function removeTooltip() {
+    if (_tooltipEl && _tooltipEl.parentNode) _tooltipEl.parentNode.removeChild(_tooltipEl);
+    _tooltipEl = null;
+  }
+
+  /* ----------------------------------------------------------------
+     SQL comment injection
+     Prepends a Glossary comment block to generated SQL when terms hit.
+  ---------------------------------------------------------------- */
+  function buildGlossaryComment(foundTerms) {
+    if (!foundTerms.length) return '';
+    var lines = foundTerms.map(function (t) {
+      return ' * ' + t.term + ': ' + t.definition + (t.sql_expr ? ' [expr: ' + t.sql_expr + ']' : '');
+    });
+    return '/*\n * Glossary assumptions for this query:\n' + lines.join('\n') + '\n */\n';
+  }
+
+  /* Intercept the NL-to-SQL pipeline to prepend the glossary comment */
+  function hookSqlOutput() {
+    document.addEventListener('dataglow:sql-generated', function (e) {
+      if (!_terms.length) return;
+      var query = e.detail && e.detail.nlQuery ? e.detail.nlQuery : '';
+      var found = detectTerms(query);
+      if (!found.length) return;
+      found.forEach(function (t) { t.used++; });
+      save();
+      var comment = buildGlossaryComment(found);
+      if (e.detail && comment) {
+        e.detail.sqlComment = comment;
+      }
+      document.dispatchEvent(new CustomEvent('dataglow:glossary-term-triggered', { detail: { terms: found.map(function (t) { return t.term; }) } }));
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     NL bar input hook -- debounced tooltip
+  ---------------------------------------------------------------- */
+  function hookNlBar() {
+    var input = document.getElementById('nl-query-input');
+    if (!input) { setTimeout(hookNlBar, 900); return; }
+    input.addEventListener('input', function () {
+      clearTimeout(_debounce);
+      if (!input.value.trim()) { removeTooltip(); return; }
+      _debounce = setTimeout(function () {
+        var found = detectTerms(input.value);
+        if (found.length) { showTooltip(found, input); }
+        else { removeTooltip(); }
+      }, 500);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        clearTimeout(_debounce);
+        removeTooltip();
+      }
+      if (e.key === 'Escape') { removeTooltip(); }
+    });
+    input.addEventListener('blur', function () {
+      clearTimeout(_debounce);
+      setTimeout(removeTooltip, 200);
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Glossary panel
+  ---------------------------------------------------------------- */
+  var _panelOpen = false;
+
+  function toggleGlossaryPanel() {
+    var existing = document.getElementById('dg-glossary-panel');
+    if (existing) {
+      existing.classList.remove('dg-gl-panel-open');
+      setTimeout(function () { if (existing.parentNode) existing.parentNode.removeChild(existing); }, 220);
+      _panelOpen = false;
+      return;
+    }
+    _panelOpen = true;
+    renderPanel();
+  }
+
+  function renderPanel() {
+    var panel = document.createElement('div');
+    panel.id = 'dg-glossary-panel';
+    panel.className = 'dg-glossary-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Business Glossary');
+    panel.innerHTML = _buildPanelHTML();
+    _positionPanel(panel);
+    document.body.appendChild(panel);
+    requestAnimationFrame(function () { panel.classList.add('dg-gl-panel-open'); });
+
+    panel.querySelector('#dg-gl-search').addEventListener('input', function () {
+      panel.querySelector('#dg-gl-list').innerHTML = _buildTermList(this.value.trim(), _activeCategory(panel));
+      _wireListEvents(panel);
+    });
+    panel.querySelectorAll('[data-glcat]').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        panel.querySelectorAll('[data-glcat]').forEach(function (t) { t.classList.remove('active'); });
+        this.classList.add('active');
+        panel.querySelector('#dg-gl-list').innerHTML = _buildTermList(panel.querySelector('#dg-gl-search').value.trim(), this.getAttribute('data-glcat') === 'all' ? null : this.getAttribute('data-glcat'));
+        _wireListEvents(panel);
+      });
+    });
+    panel.querySelector('#dg-gl-add-btn').addEventListener('click', function () { _handleAdd(panel); });
+    panel.querySelector('.dg-gl-close').addEventListener('click', toggleGlossaryPanel);
+    _wireListEvents(panel);
+    panel.querySelector('#dg-gl-term').focus();
+
+    setTimeout(function () {
+      document.addEventListener('click', function onOut(e) {
+        var p2 = document.getElementById('dg-glossary-panel');
+        var btn = document.getElementById('dg-glossary-btn');
+        if (p2 && !p2.contains(e.target) && (!btn || !btn.contains(e.target))) {
+          if (p2.parentNode) p2.parentNode.removeChild(p2);
+          _panelOpen = false;
+          document.removeEventListener('click', onOut);
+        }
+      });
+    }, 50);
+  }
+
+  function _activeCategory(panel) {
+    var tab = panel.querySelector('[data-glcat].active');
+    return tab && tab.getAttribute('data-glcat') !== 'all' ? tab.getAttribute('data-glcat') : null;
+  }
+
+  function _buildPanelHTML() {
+    var catTabs = ['all'].concat(CATEGORIES).map(function (c) {
+      return '<button class="dg-gl-cat-tab' + (c === 'all' ? ' active' : '') + '" data-glcat="' + c + '">' + c + '</button>';
+    }).join('');
+    return '<div class="dg-gl-header">' +
+      '<span class="dg-gl-title">Business Glossary</span>' +
+      '<span class="dg-gl-count">' + _terms.length + ' terms</span>' +
+      '<button class="dg-gl-close" aria-label="Close Glossary">' +
+        '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>' +
+      '</button>' +
+    '</div>' +
+    '<input id="dg-gl-search" class="dg-gl-search" type="text" placeholder="Search terms..." autocomplete="off" data-testid="input-glossary-search"/>' +
+    '<div class="dg-gl-cat-tabs">' + catTabs + '</div>' +
+    '<div id="dg-gl-list" class="dg-gl-list">' + _buildTermList('', null) + '</div>' +
+    '<div class="dg-gl-add-form">' +
+      '<div class="dg-gl-add-title">Define term</div>' +
+      '<div class="dg-gl-add-row">' +
+        '<input id="dg-gl-term" class="dg-gl-input" type="text" placeholder="Term" maxlength="40" data-testid="input-glossary-term" autocomplete="off"/>' +
+        '<select id="dg-gl-cat" class="dg-gl-select" data-testid="select-glossary-category">' +
+          CATEGORIES.map(function (c) { return '<option value="' + c + '">' + c + '</option>'; }).join('') +
+        '</select>' +
+      '</div>' +
+      '<textarea id="dg-gl-def" class="dg-gl-textarea" placeholder="Definition" rows="2" data-testid="input-glossary-def"></textarea>' +
+      '<input id="dg-gl-expr" class="dg-gl-input" type="text" placeholder="SQL expression (optional)" data-testid="input-glossary-expr" autocomplete="off"/>' +
+      '<input id="dg-gl-aliases" class="dg-gl-input" type="text" placeholder="Aliases (comma-separated)" data-testid="input-glossary-aliases" autocomplete="off"/>' +
+      '<input id="dg-gl-owner" class="dg-gl-input" type="text" placeholder="Owner" maxlength="40" data-testid="input-glossary-owner" autocomplete="off"/>' +
+      '<p id="dg-gl-error" class="dg-gl-error hidden"></p>' +
+      '<button id="dg-gl-add-btn" class="dg-gl-add-btn" data-testid="button-glossary-add">Add Term</button>' +
+    '</div>';
+  }
+
+  function _buildTermList(search, category) {
+    var items = _terms.filter(function (t) {
+      var matchSearch = !search || t.term.includes(search.toLowerCase()) ||
+                        t.definition.toLowerCase().includes(search.toLowerCase()) ||
+                        (t.aliases || []).some(function (a) { return a.includes(search.toLowerCase()); });
+      var matchCat = !category || t.category === category;
+      return matchSearch && matchCat;
+    });
+    if (!items.length) return '<p class="dg-gl-empty">No terms' + (search ? ' match "' + search + '"' : ' defined yet') + '.</p>';
+    return items.map(function (t) {
+      var badge = t.source === 'default' ? '<span class="dg-gl-default-badge">built-in</span>' : '';
+      return '<div class="dg-gl-item" data-testid="glossary-item-' + t.term + '">' +
+        '<div class="dg-gl-item-top">' +
+          '<span class="dg-gl-term-name">' + t.term + '</span>' +
+          badge +
+          '<span class="dg-gl-item-cat">' + t.category + '</span>' +
+          (t.source !== 'default' ?
+            '<button class="dg-gl-del-btn" data-del="' + t.term + '" data-testid="button-del-term-' + t.term + '" aria-label="Delete ' + t.term + '">' +
+              '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>' +
+            '</button>' : '') +
+        '</div>' +
+        '<p class="dg-gl-def-text">' + t.definition + '</p>' +
+        (t.sql_expr ? '<code class="dg-gl-expr-code">' + t.sql_expr + '</code>' : '') +
+        ((t.aliases || []).length ? '<p class="dg-gl-aliases">Also: ' + t.aliases.join(', ') + '</p>' : '') +
+        (t.used ? '<span class="dg-gl-used">' + t.used + 'x triggered</span>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function _wireListEvents(panel) {
+    panel.querySelectorAll('[data-del]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteTerm(btn.getAttribute('data-del'));
+        panel.querySelector('#dg-gl-list').innerHTML = _buildTermList(
+          panel.querySelector('#dg-gl-search').value.trim(),
+          _activeCategory(panel)
+        );
+        _wireListEvents(panel);
+        panel.querySelector('.dg-gl-count').textContent = _terms.length + ' terms';
+        if (typeof window.showToast === 'function') window.showToast('Term deleted.', 'info');
+      });
+    });
+  }
+
+  function _handleAdd(panel) {
+    var result = addTerm({
+      term:       panel.querySelector('#dg-gl-term').value,
+      definition: panel.querySelector('#dg-gl-def').value,
+      sql_expr:   panel.querySelector('#dg-gl-expr').value,
+      aliases:    panel.querySelector('#dg-gl-aliases').value,
+      owner:      panel.querySelector('#dg-gl-owner').value,
+      category:   panel.querySelector('#dg-gl-cat').value
+    });
+    var err = panel.querySelector('#dg-gl-error');
+    if (!result.ok) { err.textContent = result.error; err.classList.remove('hidden'); return; }
+    err.classList.add('hidden');
+    ['#dg-gl-term','#dg-gl-def','#dg-gl-expr','#dg-gl-aliases','#dg-gl-owner'].forEach(function (s) {
+      var el = panel.querySelector(s); if (el) el.value = '';
+    });
+    panel.querySelector('#dg-gl-list').innerHTML = _buildTermList('', null);
+    _wireListEvents(panel);
+    panel.querySelector('.dg-gl-count').textContent = _terms.length + ' terms';
+    if (typeof window.showToast === 'function') window.showToast('Term defined.', 'success');
+    panel.querySelector('#dg-gl-term').focus();
+  }
+
+  function _positionPanel(panel) {
+    var btn = document.getElementById('dg-glossary-btn') || document.getElementById('agent-bar');
+    if (btn) {
+      var rect = btn.getBoundingClientRect();
+      panel.style.cssText = 'position:fixed;bottom:' + (window.innerHeight - rect.top + 8) + 'px;left:' + Math.max(8, rect.left + 100) + 'px;z-index:15000';
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Glossary button (in agent bar)
+  ---------------------------------------------------------------- */
+  function injectGlossaryBtn() {
+    if (document.getElementById('dg-glossary-btn')) return;
+    var btn = document.createElement('button');
+    btn.id = 'dg-glossary-btn';
+    btn.className = 'dg-glossary-btn';
+    btn.setAttribute('data-testid', 'button-glossary');
+    btn.setAttribute('aria-label', 'Business Glossary');
+    btn.setAttribute('data-flag-tier', '1');
+    btn.title = 'Business Glossary -- term definitions and SQL expressions';
+    btn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 3h12v10H2z"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/></svg> <span>Glossary</span>';
+    btn.addEventListener('click', toggleGlossaryPanel);
+    /* Place next to the KPI button */
+    var kpiBtn = document.getElementById('dg-kpi-registry-btn');
+    if (kpiBtn && kpiBtn.parentNode) {
+      kpiBtn.parentNode.insertBefore(btn, kpiBtn.nextSibling);
+    } else {
+      var wrap = document.getElementById('nl-query-wrap') || document.getElementById('agent-bar');
+      if (wrap) wrap.appendChild(btn);
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Init
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG])) return;
+    load().then(function () {
+      document.addEventListener('dataglow:dataset-loaded', function () {
+        injectGlossaryBtn();
+        hookNlBar();
+        hookSqlOutput();
+      });
+      window.BusinessGlossary = {
+        add:         addTerm,
+        remove:      deleteTerm,
+        list:        getTerms,
+        detect:      detectTerms,
+        comment:     buildGlossaryComment,
+        openPanel:   toggleGlossaryPanel
+      };
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/semantic/business-glossary.js ---- */
+
+
 
 
 /* ================================================================
