@@ -8999,3 +8999,213 @@ body.has-data #drop-zone-hint { display: none; }
 }
 
 /* ================================================================ */
+
+/* ================================================================
+   Flag Tier Progressive Disclosure (Session C, PR #531)
+   Only show features relevant to the analyst's current context.
+   Jobs: "Complexity is revealed, not dumped."
+
+   Tier 0: always visible (7 core tools, no data needed)
+   Tier 1: body.tier-1-unlocked (first dataset loaded)
+   Tier 2: body.tier-2-unlocked (Pulse >= 70)
+   Tier 3: body.tier-3-unlocked (Pulse >= 90, Dashboard gate)
+================================================================ */
+
+/* Hide tier 1+ elements until unlocked */
+[data-flag-tier="1"],
+[data-flag-tier="2"],
+[data-flag-tier="3"] {
+  display: none !important;
+}
+
+/* Unlock tier 1 when dataset is loaded */
+body.tier-1-unlocked [data-flag-tier="1"] {
+  display: revert !important;
+}
+
+/* Unlock tier 2 when Pulse >= 70 */
+body.tier-2-unlocked [data-flag-tier="1"],
+body.tier-2-unlocked [data-flag-tier="2"] {
+  display: revert !important;
+}
+
+/* Unlock tier 3 when Pulse >= 90 */
+body.tier-3-unlocked [data-flag-tier="1"],
+body.tier-3-unlocked [data-flag-tier="2"],
+body.tier-3-unlocked [data-flag-tier="3"] {
+  display: revert !important;
+}
+
+/* Tier unlock animation -- elements slide in when tier is reached */
+body.tier-1-unlocked [data-flag-tier="1"],
+body.tier-2-unlocked [data-flag-tier="2"],
+body.tier-3-unlocked [data-flag-tier="3"] {
+  animation: dg-tier-reveal 0.3s ease both;
+}
+
+@keyframes dg-tier-reveal {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* "Unlock all" indicator in Feature Settings */
+.dg-tier-indicator {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Geist Mono', monospace;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface-2, #191C20);
+  border: 1px solid var(--border, #252930);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dg-tier-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary, #20C5B5);
+}
+
+/* ================================================================ */
+
+/* ================================================================
+   Session C -- Federated Quality Score Ring + Ethics Escape Hatch
+================================================================ */
+
+/* FQS ring button in nav */
+.dg-fqs-ring {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+.dg-fqs-ring:hover { background: var(--surface-2, #191C20); }
+
+/* FQS breakdown panel */
+.dg-fqs-panel {
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  border-radius: 14px;
+  padding: 16px 18px;
+  min-width: 240px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  animation: dg-flow-fadein 0.2s ease both;
+}
+.dg-fqs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #CDCCCA);
+  font-family: 'Geist Mono', monospace;
+}
+.dg-fqs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dg-fqs-rl {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Geist Mono', monospace;
+  width: 72px;
+  flex-shrink: 0;
+}
+.dg-fqs-track {
+  flex: 1;
+  height: 4px;
+  background: var(--border, #252930);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.dg-fqs-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s cubic-bezier(0.34,1.56,0.64,1);
+}
+.dg-fqs-rs {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'Geist Mono', monospace;
+  width: 22px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.dg-fqs-note {
+  font-size: 10px;
+  color: var(--text-faint, #5A5957);
+  margin: 10px 0 0;
+  font-family: 'Geist Mono', monospace;
+  line-height: 1.4;
+}
+
+/* Ethics escape hatch -- X close button */
+.dg-ethics-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease, background 0.15s ease;
+  z-index: 100;
+}
+.dg-ethics-close:hover {
+  color: var(--text, #CDCCCA);
+  background: var(--surface-2, #191C20);
+}
+
+/* Ethics escape hatch -- Skip for now link */
+.dg-ethics-skip {
+  position: absolute;
+  bottom: 14px;
+  left: 16px;
+  background: none;
+  border: none;
+  color: var(--text-faint, #5A5957);
+  font-size: 11px;
+  font-family: 'Geist Mono', monospace;
+  cursor: pointer;
+  padding: 4px 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dg-ethics-skip:hover { color: var(--text-muted); }
+
+/* Governance skipped badge */
+.dg-skipped-badge {
+  font-size: 10px;
+  color: #F5A623;
+  background: rgba(245, 166, 35, 0.10);
+  border: 1px solid rgba(245, 166, 35, 0.25);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: 'Geist Mono', monospace;
+  white-space: nowrap;
+}
+
+/* ================================================================ */
