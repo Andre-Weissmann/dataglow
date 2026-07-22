@@ -8640,6 +8640,108 @@ a, button, [role="button"], input, select, textarea,
     flex-shrink: 0;
   }
 }
+
+/* ================================================================
+   Static Flow Steps -- replaces the jarring landing coach popup
+   These are always present in the DOM -- no setTimeout popup.
+   They fade in with the rest of the page, not 2.3s later.
+================================================================ */
+#dg-flow-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0;
+  opacity: 0;
+  animation: dg-flow-fadein 0.6s ease 0.4s both;
+}
+
+@keyframes dg-flow-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dg-flow-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 0;
+}
+
+.dg-flow-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: 'Geist Mono', monospace;
+}
+
+.dg-flow-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-family: 'Geist Mono', monospace;
+}
+
+.dg-flow-connector {
+  width: 20px;
+  height: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+/* Hide steps after data loads -- drop zone is replaced by grid */
+body.has-data #dg-flow-steps {
+  display: none;
+}
+
+/* Mobile: stack the steps 2 per row, larger text */
+@media (max-width: 700px) {
+  #dg-flow-steps {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 16px;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 280px;
+  }
+
+  .dg-flow-connector {
+    display: none;
+  }
+
+  .dg-flow-step {
+    gap: 10px;
+  }
+
+  .dg-flow-num {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+
+  .dg-flow-text {
+    font-size: 12px;
+    white-space: normal;
+  }
+}
+
+/* Hide the old dynamic AJ coach overlay -- replaced by static steps */
+#dg-aj-coach {
+  display: none !important;
+}
+/* ================================================================ */
   </style>
 
 </head>
@@ -8705,6 +8807,15 @@ a, button, [role="button"], input, select, textarea,
     <div id="return-use-banner" class="hidden"></div>
     <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load example data</span></p>
     <p id="ceremony-privacy">Local-first. Zero uploads. Your data never leaves this tab.</p>
+    <div id="dg-flow-steps" aria-label="What happens next">
+      <div class="dg-flow-step"><span class="dg-flow-num">1</span><span class="dg-flow-text">Drop any CSV, Excel, JSON, or Parquet</span></div>
+      <div class="dg-flow-connector"></div>
+      <div class="dg-flow-step"><span class="dg-flow-num">2</span><span class="dg-flow-text">Pulse scores your data quality instantly</span></div>
+      <div class="dg-flow-connector"></div>
+      <div class="dg-flow-step"><span class="dg-flow-num">3</span><span class="dg-flow-text">Explore with SQL, Python, R, or Charts</span></div>
+      <div class="dg-flow-connector"></div>
+      <div class="dg-flow-step"><span class="dg-flow-num">4</span><span class="dg-flow-text">Export findings with a signed proof chain</span></div>
+    </div>
 
     <!-- Export panel -->
   <div id="export-panel" class="hidden">
@@ -30172,12 +30283,14 @@ var InstantInsight = (function () {
     var dismissBtn = $('qd-dismiss-btn');
     if (dismissBtn) dismissBtn.addEventListener('click', hideDrawer);
 
+    /* UX Revamp: QuestionPrompter no longer auto-shows on data load.
+       Analyst triggers it manually via "Suggest Questions" button in analyze panel.
+       Auto-fire caused jarring popup 800ms after drop. */
     document.addEventListener('dataglow:dataset-loaded', function (e) {
       if (e.detail && e.detail.fromProjectRestore) return;
+      /* Store ds for on-demand use but do not auto-show */
       var ds = e.detail && (e.detail.dataset || e.detail);
-      setTimeout(function () {
-        showDrawer(ds);
-      }, AUTO_DELAY_MS);
+      window._dgLastLoadedDs = ds;
     });
   }
 
@@ -30862,12 +30975,8 @@ var InstantInsight = (function () {
       });
     }
 
-    document.addEventListener('dataglow:dataset-loaded', function (e) {
-      var dataset = (e && e.detail && e.detail.dataset) || (window.getActiveDataset && window.getActiveDataset());
-      setTimeout(function () {
-        showMissionBrief(dataset);
-      }, 500);
-    });
+    /* UX Revamp: showMissionBrief removed (PR #525 QW1). setTimeout eliminated. */
+    /* document.addEventListener dataglow:dataset-loaded showMissionBrief -- removed */
 
   /* ============================================================
      X12 PARSER ENGINE -- 835 (ERA/Remittance) and 837 (Claims)
@@ -84714,6 +84823,11 @@ function filterCommands(commands, query, limit) {
     initTouchDropZone();
     initSidebarProgressiveDisclosure();
     /* Feature surfacing nudges are event-driven -- no init needed */
+
+    /* Mark body.has-data when dataset loads -- hides static flow steps */
+    document.addEventListener('dataglow:dataset-loaded', function () {
+      document.body.classList.add('has-data');
+    });
   }
 
   if (document.readyState === 'loading') {
@@ -86093,10 +86207,9 @@ function filterCommands(commands, query, limit) {
     dz.appendChild(coach);
     _coachEl = coach;
 
-    /* Reveal after brief delay */
-    setTimeout(function () {
-      if (!_coachHidden) coach.classList.add('visible');
-    }, 900);
+    /* UX Revamp: coach steps are now baked into HTML -- no popup */
+    /* setTimeout reveal removed to eliminate jarring appearance */
+    _coachHidden = true; /* always suppress the dynamic coach */
 
     /* Hide on drop */
     document.addEventListener('dataglow:dataset-loaded', function hideCoach() {

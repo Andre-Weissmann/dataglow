@@ -8613,3 +8613,105 @@ a, button, [role="button"], input, select, textarea,
     flex-shrink: 0;
   }
 }
+
+/* ================================================================
+   Static Flow Steps -- replaces the jarring landing coach popup
+   These are always present in the DOM -- no setTimeout popup.
+   They fade in with the rest of the page, not 2.3s later.
+================================================================ */
+#dg-flow-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0;
+  opacity: 0;
+  animation: dg-flow-fadein 0.6s ease 0.4s both;
+}
+
+@keyframes dg-flow-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dg-flow-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 0;
+}
+
+.dg-flow-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: 'Geist Mono', monospace;
+}
+
+.dg-flow-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-family: 'Geist Mono', monospace;
+}
+
+.dg-flow-connector {
+  width: 20px;
+  height: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+/* Hide steps after data loads -- drop zone is replaced by grid */
+body.has-data #dg-flow-steps {
+  display: none;
+}
+
+/* Mobile: stack the steps 2 per row, larger text */
+@media (max-width: 700px) {
+  #dg-flow-steps {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 16px;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 280px;
+  }
+
+  .dg-flow-connector {
+    display: none;
+  }
+
+  .dg-flow-step {
+    gap: 10px;
+  }
+
+  .dg-flow-num {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+
+  .dg-flow-text {
+    font-size: 12px;
+    white-space: normal;
+  }
+}
+
+/* Hide the old dynamic AJ coach overlay -- replaced by static steps */
+#dg-aj-coach {
+  display: none !important;
+}
+/* ================================================================ */
