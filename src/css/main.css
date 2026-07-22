@@ -9739,3 +9739,185 @@ body.tier-1-unlocked .dg-kpi-chips[style*='flex'] { display: flex !important; }
 }
 .dg-mp-promote:hover { background: var(--primary,#20C5B5)18; }
 .dg-mp-promote:disabled { opacity: .5; cursor: default; }
+
+
+/* ================================================================
+   Business Glossary (Session D, PR #536)
+================================================================ */
+.dg-glossary-btn {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: inherit;
+  transition: color .15s, border-color .15s;
+}
+body.tier-1-unlocked .dg-glossary-btn { display: inline-flex; }
+.dg-glossary-btn:hover { color: var(--primary,#20C5B5); border-color: var(--primary,#20C5B5); }
+
+/* Glossary panel */
+.dg-glossary-panel {
+  position: fixed;
+  width: min(420px, calc(100vw - 20px));
+  max-height: calc(100vh - 60px);
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px #00000088;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .2s, transform .2s;
+  z-index: 15000;
+}
+.dg-glossary-panel.dg-gl-panel-open { opacity: 1; transform: translateY(0); }
+
+.dg-gl-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border,#252930);
+}
+.dg-gl-title { font-size: 14px; font-weight: 700; color: var(--text,#e0e2e7); flex: 1; }
+.dg-gl-count { font-size: 11px; color: var(--text-muted); }
+.dg-gl-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 4px; border-radius: 4px;
+}
+.dg-gl-close:hover { color: var(--text,#e0e2e7); background: var(--surface-2,#191c20); }
+
+.dg-gl-search {
+  width: 100%; box-sizing: border-box;
+  margin: 10px 14px 0;
+  width: calc(100% - 28px);
+  background: var(--surface-2,#191c20);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none;
+  transition: border-color .15s;
+}
+.dg-gl-search:focus { border-color: var(--primary,#20C5B5); }
+
+.dg-gl-cat-tabs {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  padding: 8px 14px;
+}
+.dg-gl-cat-tab {
+  padding: 3px 8px;
+  background: none; border: 1px solid var(--border,#252930);
+  border-radius: 20px; font-size: 11px; cursor: pointer;
+  color: var(--text-muted); font-family: inherit; transition: all .15s;
+}
+.dg-gl-cat-tab:hover, .dg-gl-cat-tab.active {
+  background: var(--primary,#20C5B5)18;
+  border-color: var(--primary,#20C5B5);
+  color: var(--primary,#20C5B5);
+}
+
+.dg-gl-list {
+  flex: 1; overflow-y: auto;
+  padding: 4px 14px 8px;
+  min-height: 80px; max-height: 240px;
+}
+.dg-gl-empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; text-align: center; }
+.dg-gl-item { padding: 10px 0; border-bottom: 1px solid var(--border,#252930)55; }
+.dg-gl-item:last-child { border-bottom: none; }
+.dg-gl-item-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.dg-gl-term-name { font-size: 13px; font-weight: 700; color: var(--text,#e0e2e7); font-family: 'Geist Mono', monospace; flex: 1; }
+.dg-gl-default-badge {
+  font-size: 10px; padding: 1px 5px; border-radius: 8px;
+  background: var(--border,#252930); color: var(--text-muted);
+}
+.dg-gl-item-cat { font-size: 10px; color: var(--text-muted); }
+.dg-gl-del-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 3px; border-radius: 4px;
+  transition: color .15s;
+}
+.dg-gl-del-btn:hover { color: #DD6974; }
+.dg-gl-def-text { font-size: 12px; color: var(--text-muted); margin: 2px 0 4px; line-height: 1.5; }
+.dg-gl-expr-code {
+  display: block; font-size: 11px; font-family: 'Geist Mono', monospace;
+  background: var(--surface-2,#191c20); padding: 4px 8px; border-radius: 4px;
+  color: var(--primary,#20C5B5); margin-bottom: 4px;
+}
+.dg-gl-aliases { font-size: 11px; color: var(--text-muted); margin: 2px 0; font-style: italic; }
+.dg-gl-used { font-size: 10px; color: var(--proof,#4AE38A); }
+
+.dg-gl-add-form {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border,#252930);
+  background: var(--surface-2,#191c20);
+}
+.dg-gl-add-title { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.dg-gl-add-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.dg-gl-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 10px;
+  font-size: 12px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none; margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.dg-gl-input:focus { border-color: var(--primary,#20C5B5); }
+.dg-gl-textarea {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface,#131519);
+  border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 10px;
+  font-size: 12px; color: var(--text,#e0e2e7);
+  font-family: inherit; outline: none; resize: vertical; margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.dg-gl-textarea:focus { border-color: var(--primary,#20C5B5); }
+.dg-gl-select {
+  background: var(--surface,#131519); border: 1px solid var(--border,#252930);
+  border-radius: 6px; padding: 7px 8px;
+  font-size: 12px; color: var(--text,#e0e2e7); font-family: inherit; outline: none;
+}
+.dg-gl-error { color: #DD6974; font-size: 12px; margin: 0 0 6px; }
+.dg-gl-error.hidden { display: none; }
+.dg-gl-add-btn {
+  width: 100%;
+  background: var(--primary,#20C5B5);
+  border: none; border-radius: 6px;
+  padding: 8px 0; font-size: 13px; font-weight: 700;
+  color: #0D0E10; cursor: pointer; font-family: inherit;
+  transition: background .15s;
+}
+.dg-gl-add-btn:hover { background: #1bb0a0; }
+
+/* Inline tooltip (NL bar definition preview) */
+.dg-glossary-tooltip {
+  position: fixed;
+  width: min(360px, calc(100vw - 20px));
+  background: var(--surface,#131519);
+  border: 1px solid var(--primary,#20C5B5)60;
+  border-radius: 10px;
+  box-shadow: 0 4px 24px #00000088;
+  padding: 10px 14px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .18s, transform .18s;
+  pointer-events: none;
+  z-index: 16000;
+}
+.dg-glossary-tooltip.dg-gl-visible { opacity: 1; transform: translateY(0); }
+.dg-gl-tip-item { margin-bottom: 8px; }
+.dg-gl-tip-item:last-of-type { margin-bottom: 4px; }
+.dg-gl-tip-term { display: block; font-size: 12px; font-weight: 700; color: var(--primary,#20C5B5); font-family: 'Geist Mono', monospace; margin-bottom: 2px; }
+.dg-gl-tip-def { display: block; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.dg-gl-tip-expr { display: block; font-size: 11px; font-family: 'Geist Mono', monospace; color: var(--text,#e0e2e7); background: var(--surface-2,#191c20); padding: 3px 7px; border-radius: 4px; margin-top: 4px; }
+.dg-gl-tip-hint { font-size: 10px; color: var(--text-muted); margin-top: 6px; opacity: .7; border-top: 1px solid var(--border,#252930)60; padding-top: 5px; }
