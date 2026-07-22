@@ -20407,12 +20407,14 @@ var InstantInsight = (function () {
     var dismissBtn = $('qd-dismiss-btn');
     if (dismissBtn) dismissBtn.addEventListener('click', hideDrawer);
 
+    /* UX Revamp: QuestionPrompter no longer auto-shows on data load.
+       Analyst triggers it manually via "Suggest Questions" button in analyze panel.
+       Auto-fire caused jarring popup 800ms after drop. */
     document.addEventListener('dataglow:dataset-loaded', function (e) {
       if (e.detail && e.detail.fromProjectRestore) return;
+      /* Store ds for on-demand use but do not auto-show */
       var ds = e.detail && (e.detail.dataset || e.detail);
-      setTimeout(function () {
-        showDrawer(ds);
-      }, AUTO_DELAY_MS);
+      window._dgLastLoadedDs = ds;
     });
   }
 
@@ -21097,12 +21099,8 @@ var InstantInsight = (function () {
       });
     }
 
-    document.addEventListener('dataglow:dataset-loaded', function (e) {
-      var dataset = (e && e.detail && e.detail.dataset) || (window.getActiveDataset && window.getActiveDataset());
-      setTimeout(function () {
-        showMissionBrief(dataset);
-      }, 500);
-    });
+    /* UX Revamp: showMissionBrief removed (PR #525 QW1). setTimeout eliminated. */
+    /* document.addEventListener dataglow:dataset-loaded showMissionBrief -- removed */
 
   /* ============================================================
      X12 PARSER ENGINE -- 835 (ERA/Remittance) and 837 (Claims)
@@ -74949,6 +74947,11 @@ function filterCommands(commands, query, limit) {
     initTouchDropZone();
     initSidebarProgressiveDisclosure();
     /* Feature surfacing nudges are event-driven -- no init needed */
+
+    /* Mark body.has-data when dataset loads -- hides static flow steps */
+    document.addEventListener('dataglow:dataset-loaded', function () {
+      document.body.classList.add('has-data');
+    });
   }
 
   if (document.readyState === 'loading') {
@@ -76328,10 +76331,9 @@ function filterCommands(commands, query, limit) {
     dz.appendChild(coach);
     _coachEl = coach;
 
-    /* Reveal after brief delay */
-    setTimeout(function () {
-      if (!_coachHidden) coach.classList.add('visible');
-    }, 900);
+    /* UX Revamp: coach steps are now baked into HTML -- no popup */
+    /* setTimeout reveal removed to eliminate jarring appearance */
+    _coachHidden = true; /* always suppress the dynamic coach */
 
     /* Hide on drop */
     document.addEventListener('dataglow:dataset-loaded', function hideCoach() {
