@@ -20235,6 +20235,9 @@ var InstantInsight = (function () {
     imputation: true,
     formatFingerprint: true,
     narrativeOverconfidenceGuard: true,
+    purposeContracts: true,
+    biasPreflight: true,
+    trainingPassport: true,
   };
   window.FEATURE_FLAGS = FEATURE_FLAGS;
 
@@ -83912,6 +83915,1222 @@ function filterCommands(commands, query, limit) {
 }());
 /* ---- end command-palette.js ---- */
 
+
+/* ---- from js/ethics/purpose-contract.js ---- */
+/* DataGlow -- js/ethics/purpose-contract.js */
+/* PR A1: Data Expiry + Purpose Contracts                                     */
+/*                                                                             */
+/* When a dataset loads, analyst declares WHY they are using it.               */
+/* That declaration becomes a signed contract: purpose, expiry, restrictions.  */
+/* Crossing a purpose boundary or hitting expiry triggers a flag.              */
+/* Mirrors HIPAA minimum-necessary + GDPR purpose-limitation in the workflow.  */
+
+(function () {
+  'use strict';
+
+  /* ---- constants ---- */
+  var PURPOSES = [
+    {
+      id: 'exploration',
+      label: 'Exploration',
+      desc: 'Initial data familiarization. No conclusions drawn.',
+      expiry_ms: 4 * 60 * 60 * 1000,
+      restrictions: ['no_export', 'no_model_training'],
+      color: '#4AE38A',
+    },
+    {
+      id: 'cleaning',
+      label: 'Data Cleaning',
+      desc: 'Standardizing, deduplicating, and repairing data quality issues.',
+      expiry_ms: 8 * 60 * 60 * 1000,
+      restrictions: ['no_model_training'],
+      color: '#20C5B5',
+    },
+    {
+      id: 'analysis',
+      label: 'Analysis & Reporting',
+      desc: 'Deriving insights for internal reporting or dashboards.',
+      expiry_ms: 24 * 60 * 60 * 1000,
+      restrictions: [],
+      color: '#4F98A3',
+    },
+    {
+      id: 'model_training',
+      label: 'Model Training',
+      desc: 'Preparing data as a training corpus for a machine learning model.',
+      expiry_ms: 72 * 60 * 60 * 1000,
+      restrictions: ['requires_passport'],
+      color: '#F5A623',
+    },
+    {
+      id: 'audit',
+      label: 'Compliance Audit',
+      desc: 'Reviewing data for regulatory or policy compliance purposes.',
+      expiry_ms: 48 * 60 * 60 * 1000,
+      restrictions: ['read_only'],
+      color: '#7A39BB',
+    },
+  ];
+
+  var STORAGE_KEY = 'dg_purpose_contracts';
+
+  /* ---- state ---- */
+  var _contracts = {};
+  var _expiryTimers = {};
+  var _currentDatasetId = null;
+
+  /* ---- helpers ---- */
+  function _now() { return Date.now(); }
+
+  function _purposeById(id) {
+    return PURPOSES.find(function (p) { return p.id === id; }) || PURPOSES[0];
+  }
+
+  function _saveContracts() {
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(_contracts));
+    } catch (e) { /* OPFS not needed -- contracts are session-scoped */ }
+  }
+
+  function _loadContracts() {
+    try {
+      var raw = sessionStorage.getItem(STORAGE_KEY);
+      if (raw) _contracts = JSON.parse(raw);
+    } catch (e) { _contracts = {}; }
+  }
+
+  function _hashContract(contract) {
+    /* Lightweight fingerprint -- not cryptographic, but unique per contract */
+    var str = contract.datasetId + '|' + contract.purposeId + '|' + contract.signedAt;
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
+  }
+
+  function _formatExpiry(ms) {
+    var h = Math.floor(ms / 3600000);
+    var m = Math.floor((ms % 3600000) / 60000);
+    if (h > 0) return h + 'h ' + (m > 0 ? m + 'm' : '');
+    return m + 'm';
+  }
+
+  /* ---- contract lifecycle ---- */
+  function signContract(datasetId, purposeId, analystNote) {
+    var purpose = _purposeById(purposeId);
+    var now = _now();
+    var contract = {
+      datasetId: datasetId,
+      purposeId: purposeId,
+      purposeLabel: purpose.label,
+      restrictions: purpose.restrictions.slice(),
+      signedAt: now,
+      expiresAt: now + purpose.expiry_ms,
+      analystNote: analystNote || '',
+      breached: false,
+      breachReason: null,
+      active: true,
+    };
+    contract.signature = _hashContract(contract);
+    _contracts[datasetId] = contract;
+    _saveContracts();
+    _startExpiryTimer(datasetId);
+    document.dispatchEvent(new CustomEvent('dataglow:contract-signed', { detail: { contract: contract } }));
+    return contract;
+  }
+
+  function getContract(datasetId) {
+    return _contracts[datasetId] || null;
+  }
+
+  function getActiveContract() {
+    return _currentDatasetId ? getContract(_currentDatasetId) : null;
+  }
+
+  function checkRestriction(restriction) {
+    var c = getActiveContract();
+    if (!c || !c.active) return false;
+    return c.restrictions.indexOf(restriction) !== -1;
+  }
+
+  function flagBreach(datasetId, reason) {
+    var c = _contracts[datasetId];
+    if (!c) return;
+    c.breached = true;
+    c.breachReason = reason;
+    c.active = false;
+    _saveContracts();
+    document.dispatchEvent(new CustomEvent('dataglow:contract-breached', {
+      detail: { contract: c, reason: reason }
+    }));
+  }
+
+  function _startExpiryTimer(datasetId) {
+    clearTimeout(_expiryTimers[datasetId]);
+    var c = _contracts[datasetId];
+    if (!c) return;
+    var remaining = c.expiresAt - _now();
+    if (remaining <= 0) {
+      flagBreach(datasetId, 'Session expired -- purpose contract time limit reached.');
+      return;
+    }
+    /* Warn at 10% of total window remaining */
+    var purpose = _purposeById(c.purposeId);
+    var warnAt = purpose.expiry_ms * 0.1;
+    if (remaining > warnAt) {
+      var warnDelay = remaining - warnAt;
+      setTimeout(function () {
+        if (_contracts[datasetId] && _contracts[datasetId].active) {
+          document.dispatchEvent(new CustomEvent('dataglow:contract-expiry-warning', {
+            detail: { contract: _contracts[datasetId], remainingMs: warnAt }
+          }));
+        }
+      }, warnDelay);
+    }
+    _expiryTimers[datasetId] = setTimeout(function () {
+      flagBreach(datasetId, 'Session expired -- purpose contract time limit reached.');
+    }, remaining);
+  }
+
+  /* ---- UI panel ---- */
+  var PANEL_ID = 'dg-purpose-contract-panel';
+  var OVERLAY_ID = 'dg-purpose-contract-overlay';
+
+  function _buildPanel() {
+    if (document.getElementById(PANEL_ID)) return;
+
+    var overlay = document.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.style.cssText = [
+      'position:fixed;inset:0;background:rgba(13,14,16,0.82);backdrop-filter:blur(4px);',
+      'z-index:9000;display:flex;align-items:center;justify-content:center;',
+      'opacity:0;pointer-events:none;transition:opacity 0.2s;',
+    ].join('');
+
+    var panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.style.cssText = [
+      'background:#131519;border:1px solid #252930;border-radius:16px;',
+      'width:min(520px,92vw);padding:32px;font-family:\'Geist Mono\',monospace;',
+      'transform:translateY(16px);transition:transform 0.25s cubic-bezier(0.34,1.56,0.64,1);',
+    ].join('');
+
+    panel.innerHTML = [
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">',
+      '  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">',
+      '    <path d="M10 2L3 6v4c0 4.418 3.134 8.109 7 9 3.866-.891 7-4.582 7-9V6L10 2z"',
+      '      stroke="#20C5B5" stroke-width="1.5" stroke-linejoin="round"/>',
+      '    <path d="M7 10l2 2 4-4" stroke="#4AE38A" stroke-width="1.5"',
+      '      stroke-linecap="round" stroke-linejoin="round"/>',
+      '  </svg>',
+      '  <span style="color:#CDCCCA;font-size:13px;font-weight:600;letter-spacing:0.08em;">',
+      '    PURPOSE CONTRACT',
+      '  </span>',
+      '</div>',
+      '<p style="color:#797876;font-size:12px;margin:0 0 20px;line-height:1.6;">',
+      '  Declare why you are using this dataset. Your declaration becomes a signed',
+      '  contract that governs how the data may be used and for how long.',
+      '</p>',
+
+      '<div id="dg-pc-dataset-name" style="',
+      '  background:#0D0E10;border:1px solid #252930;border-radius:8px;',
+      '  padding:10px 14px;margin-bottom:20px;color:#CDCCCA;font-size:12px;">',
+      '</div>',
+
+      '<div style="margin-bottom:16px;">',
+      '  <div style="color:#797876;font-size:11px;letter-spacing:0.06em;margin-bottom:10px;">',
+      '    SELECT PURPOSE',
+      '  </div>',
+      '  <div id="dg-pc-purpose-grid" style="display:grid;gap:8px;">',
+      PURPOSES.map(function (p) {
+        return [
+          '<button data-purpose="' + p.id + '" class="dg-pc-purpose-btn" style="',
+          '  background:#0D0E10;border:1px solid #252930;border-radius:10px;',
+          '  padding:12px 14px;text-align:left;cursor:pointer;transition:all 0.15s;',
+          '  display:flex;flex-direction:column;gap:4px;">',
+          '  <div style="display:flex;align-items:center;gap:8px;">',
+          '    <div style="width:8px;height:8px;border-radius:50%;background:' + p.color + ';flex-shrink:0;"></div>',
+          '    <span style="color:#CDCCCA;font-size:12px;font-weight:600;">' + p.label + '</span>',
+          '    <span style="color:#5A5957;font-size:10px;margin-left:auto;">' + _formatExpiry(p.expiry_ms) + '</span>',
+          '  </div>',
+          '  <div style="color:#797876;font-size:11px;padding-left:16px;">' + p.desc + '</div>',
+          '</button>',
+        ].join('');
+      }).join(''),
+      '  </div>',
+      '</div>',
+
+      '<div style="margin-bottom:20px;">',
+      '  <div style="color:#797876;font-size:11px;letter-spacing:0.06em;margin-bottom:8px;">',
+      '    ANALYST NOTE <span style="color:#5A5957;">(optional)</span>',
+      '  </div>',
+      '  <textarea id="dg-pc-note" rows="2" placeholder="e.g. Q3 fraud review for compliance team..." style="',
+      '    width:100%;box-sizing:border-box;background:#0D0E10;border:1px solid #252930;',
+      '    border-radius:8px;padding:10px 12px;color:#CDCCCA;font-family:\'Geist Mono\',monospace;',
+      '    font-size:12px;resize:none;outline:none;line-height:1.5;"></textarea>',
+      '</div>',
+
+      '<div style="display:flex;gap:10px;">',
+      '  <button id="dg-pc-sign-btn" disabled style="',
+      '    flex:1;background:#20C5B5;color:#0D0E10;border:none;border-radius:8px;',
+      '    padding:12px;font-family:\'Geist Mono\',monospace;font-size:12px;',
+      '    font-weight:700;cursor:not-allowed;opacity:0.4;transition:all 0.15s;">',
+      '    SIGN CONTRACT',
+      '  </button>',
+      '  <button id="dg-pc-skip-btn" style="',
+      '    padding:12px 16px;background:transparent;border:1px solid #252930;',
+      '    border-radius:8px;color:#797876;font-family:\'Geist Mono\',monospace;',
+      '    font-size:11px;cursor:pointer;">',
+      '    Skip',
+      '  </button>',
+      '</div>',
+
+      '<div id="dg-pc-status" style="',
+      '  margin-top:12px;font-size:11px;color:#5A5957;text-align:center;min-height:16px;">',
+      '</div>',
+    ].join('');
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    /* wire events */
+    var selectedPurpose = null;
+
+    panel.querySelectorAll('.dg-pc-purpose-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        panel.querySelectorAll('.dg-pc-purpose-btn').forEach(function (b) {
+          b.style.borderColor = '#252930';
+          b.style.background = '#0D0E10';
+        });
+        selectedPurpose = btn.dataset.purpose;
+        var p = _purposeById(selectedPurpose);
+        btn.style.borderColor = p.color;
+        btn.style.background = 'rgba(32,197,181,0.06)';
+        var signBtn = document.getElementById('dg-pc-sign-btn');
+        if (signBtn) {
+          signBtn.disabled = false;
+          signBtn.style.opacity = '1';
+          signBtn.style.cursor = 'pointer';
+        }
+        var status = document.getElementById('dg-pc-status');
+        if (status) {
+          var restrictions = p.restrictions.length
+            ? p.restrictions.map(function (r) { return r.replace(/_/g, ' '); }).join(', ')
+            : 'none';
+          status.textContent = 'Expiry: ' + _formatExpiry(p.expiry_ms) + '  |  Restrictions: ' + restrictions;
+          status.style.color = p.color;
+        }
+      });
+    });
+
+    document.getElementById('dg-pc-sign-btn').addEventListener('click', function () {
+      if (!selectedPurpose || !_currentDatasetId) return;
+      var note = (document.getElementById('dg-pc-note') || {}).value || '';
+      var contract = signContract(_currentDatasetId, selectedPurpose, note);
+      _showSignedConfirmation(contract);
+      setTimeout(function () { _hidePanel(); }, 1800);
+    });
+
+    document.getElementById('dg-pc-skip-btn').addEventListener('click', function () {
+      _hidePanel();
+    });
+  }
+
+  function _showSignedConfirmation(contract) {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    var p = _purposeById(contract.purposeId);
+    panel.innerHTML = [
+      '<div style="text-align:center;padding:20px 0;">',
+      '  <div style="width:56px;height:56px;border-radius:50%;background:rgba(74,227,138,0.12);',
+      '    border:2px solid #4AE38A;display:flex;align-items:center;justify-content:center;',
+      '    margin:0 auto 20px;">',
+      '    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">',
+      '      <path d="M5 13l4 4L19 7" stroke="#4AE38A" stroke-width="2"',
+      '        stroke-linecap="round" stroke-linejoin="round"/>',
+      '    </svg>',
+      '  </div>',
+      '  <div style="color:#4AE38A;font-size:13px;font-weight:700;letter-spacing:0.08em;margin-bottom:8px;">',
+      '    CONTRACT SIGNED',
+      '  </div>',
+      '  <div style="color:#797876;font-size:12px;margin-bottom:16px;">',
+      '    ' + contract.purposeLabel + '  |  Expires in ' + _formatExpiry(_purposeById(contract.purposeId).expiry_ms),
+      '  </div>',
+      '  <div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px;',
+      '    font-size:10px;color:#5A5957;letter-spacing:0.06em;">',
+      '    SIG: ' + contract.signature,
+      '  </div>',
+      '</div>',
+    ].join('');
+  }
+
+  function _showPanel(datasetId, datasetName) {
+    _buildPanel();
+    _currentDatasetId = datasetId;
+    var nameEl = document.getElementById('dg-pc-dataset-name');
+    if (nameEl) nameEl.textContent = datasetName || datasetId;
+
+    var overlay = document.getElementById(OVERLAY_ID);
+    if (overlay) {
+      overlay.style.pointerEvents = 'auto';
+      requestAnimationFrame(function () {
+        overlay.style.opacity = '1';
+        var panel = document.getElementById(PANEL_ID);
+        if (panel) panel.style.transform = 'translateY(0)';
+      });
+    }
+  }
+
+  function _hidePanel() {
+    var overlay = document.getElementById(OVERLAY_ID);
+    if (overlay) {
+      overlay.style.opacity = '0';
+      overlay.style.pointerEvents = 'none';
+      var panel = document.getElementById(PANEL_ID);
+      if (panel) panel.style.transform = 'translateY(16px)';
+    }
+  }
+
+  /* ---- badge in toolbar ---- */
+  function _upsertContractBadge(contract) {
+    var badge = document.getElementById('dg-pc-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'dg-pc-badge';
+      badge.style.cssText = [
+        'display:inline-flex;align-items:center;gap:6px;',
+        'padding:4px 10px;border-radius:20px;font-size:10px;',
+        'font-family:\'Geist Mono\',monospace;font-weight:600;',
+        'border:1px solid;cursor:pointer;transition:all 0.15s;',
+        'letter-spacing:0.06em;',
+      ].join('');
+      badge.title = 'Purpose Contract active -- click to view details';
+      badge.addEventListener('click', function () { _showContractSummary(); });
+      var toolbar = document.querySelector('.nav-right, .toolbar-right, [class*="nav-right"]');
+      if (toolbar) toolbar.insertBefore(badge, toolbar.firstChild);
+    }
+    var p = _purposeById(contract.purposeId);
+    var remaining = contract.expiresAt - _now();
+    badge.style.color = p.color;
+    badge.style.borderColor = p.color + '40';
+    badge.style.background = p.color + '12';
+    badge.innerHTML = [
+      '<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="' + p.color + '"/></svg>',
+      p.label.toUpperCase(),
+      '<span style="opacity:0.6;">' + _formatExpiry(remaining) + '</span>',
+    ].join('');
+  }
+
+  function _showContractSummary() {
+    var c = getActiveContract();
+    if (!c) return;
+    var p = _purposeById(c.purposeId);
+    var remaining = c.expiresAt - _now();
+    var msg = c.purposeLabel + '\n' +
+      'Expires in: ' + _formatExpiry(remaining) + '\n' +
+      'Signed: ' + new Date(c.signedAt).toLocaleTimeString() + '\n' +
+      'Restrictions: ' + (c.restrictions.length ? c.restrictions.join(', ') : 'none') + '\n' +
+      'Signature: ' + c.signature;
+    if (window.showToast) window.showToast(msg, 4000);
+  }
+
+  /* ---- breach UI ---- */
+  function _showBreachBanner(reason) {
+    var existing = document.getElementById('dg-pc-breach-banner');
+    if (existing) existing.remove();
+    var banner = document.createElement('div');
+    banner.id = 'dg-pc-breach-banner';
+    banner.style.cssText = [
+      'position:fixed;top:48px;left:50%;transform:translateX(-50%);',
+      'background:#2D1A1A;border:1px solid #A12C7B;border-radius:10px;',
+      'padding:12px 20px;z-index:8999;font-family:\'Geist Mono\',monospace;',
+      'font-size:12px;color:#D163A7;max-width:460px;text-align:center;',
+      'display:flex;align-items:center;gap:10px;box-shadow:0 4px 24px rgba(161,44,123,0.2);',
+    ].join('');
+    banner.innerHTML = [
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none">',
+      '  <path d="M8 2L2 13h12L8 2z" stroke="#D163A7" stroke-width="1.2"/>',
+      '  <path d="M8 7v3" stroke="#D163A7" stroke-width="1.2" stroke-linecap="round"/>',
+      '  <circle cx="8" cy="11.5" r="0.5" fill="#D163A7"/>',
+      '</svg>',
+      '<span>PURPOSE CONTRACT BREACH -- ' + reason + '</span>',
+    ].join('');
+    document.body.appendChild(banner);
+  }
+
+  /* ---- event listeners ---- */
+  _loadContracts();
+
+  document.addEventListener('dataglow:dataset-loaded', function (e) {
+    var ds = e.detail && e.detail.dataset;
+    if (!ds) return;
+    _currentDatasetId = ds.id;
+    /* Only show if no active contract for this dataset */
+    var existing = getContract(ds.id);
+    if (!existing || !existing.active) {
+      if (window.FEATURE_FLAGS && window.FEATURE_FLAGS.purposeContracts) {
+        setTimeout(function () {
+          _showPanel(ds.id, ds.name || ds.id);
+        }, 600);
+      }
+    } else {
+      _upsertContractBadge(existing);
+    }
+  });
+
+  document.addEventListener('dataglow:contract-signed', function (e) {
+    var c = e.detail && e.detail.contract;
+    if (c) _upsertContractBadge(c);
+  });
+
+  document.addEventListener('dataglow:contract-breached', function (e) {
+    var c = e.detail && e.detail.contract;
+    var reason = e.detail && e.detail.reason;
+    if (reason) _showBreachBanner(reason);
+    var badge = document.getElementById('dg-pc-badge');
+    if (badge) {
+      badge.style.color = '#D163A7';
+      badge.style.borderColor = '#D163A7';
+      badge.style.background = 'rgba(161,44,123,0.12)';
+      badge.innerHTML = '<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="#D163A7"/></svg> EXPIRED';
+    }
+  });
+
+  document.addEventListener('dataglow:contract-expiry-warning', function (e) {
+    var remaining = e.detail && e.detail.remainingMs;
+    if (window.showToast) {
+      window.showToast('Purpose contract expiring in ' + _formatExpiry(remaining) + ' -- save your work.', 5000);
+    }
+  });
+
+  /* ---- export API ---- */
+  window.PurposeContract = {
+    purposes: PURPOSES,
+    sign: signContract,
+    get: getContract,
+    getActive: getActiveContract,
+    checkRestriction: checkRestriction,
+    flagBreach: flagBreach,
+    show: _showPanel,
+  };
+
+})();
+/* ---- end purpose-contract.js ---- */
+
+/* ---- from js/ethics/bias-preflight.js ---- */
+/* DataGlow -- js/ethics/bias-preflight.js */
+/* PR A1: Data Mirror / Bias Pre-Flight                                        */
+/*                                                                             */
+/* Runs a silent structural audit on every loaded dataset BEFORE the analyst   */
+/* writes their first query. Surfaces signals of bias -- class imbalance,      */
+/* missing-data clustering, distribution skew -- as a mirror, not a gatekeeper.*/
+/* The framing: "here is what your data reflects about where it came from."    */
+
+(function () {
+  'use strict';
+
+  /* ---- constants ---- */
+  var PANEL_ID = 'dg-bias-preflight-panel';
+  var TRIGGER_ID = 'dg-bias-preflight-trigger';
+
+  /* Column name heuristics for demographic-adjacent fields */
+  var DEMOGRAPHIC_TERMS = [
+    'race', 'gender', 'sex', 'age', 'ethnicity', 'nationality',
+    'religion', 'disability', 'income', 'education', 'zip', 'zipcode',
+    'postal', 'region', 'county', 'state', 'country', 'language',
+    'marital', 'veteran', 'citizen', 'birth', 'dob',
+  ];
+
+  var IMBALANCE_THRESHOLD = 0.70; /* >70% in one category = imbalance signal */
+  var MISSING_CLUSTER_THRESHOLD = 0.25; /* >25% null in a column = missing signal */
+
+  /* ---- analysis engine ---- */
+  function runPreflight(dataset) {
+    if (!dataset || !dataset.columns || !dataset.rows) return null;
+
+    var cols = dataset.columns;
+    var rows = dataset.rows;
+    var n = rows.length;
+    if (n === 0) return null;
+
+    var findings = [];
+    var score = 100; /* starts clean, deductions per finding */
+
+    /* --- B1: Class imbalance in categorical columns --- */
+    cols.forEach(function (col, ci) {
+      if (col.type !== 'STR') return;
+      var freq = {};
+      var nonNull = 0;
+      rows.forEach(function (r) {
+        var v = r[ci];
+        if (v === null || v === undefined || v === '') return;
+        nonNull++;
+        var key = String(v).trim();
+        freq[key] = (freq[key] || 0) + 1;
+      });
+      if (nonNull < 5) return;
+      var keys = Object.keys(freq);
+      if (keys.length < 2 || keys.length > 30) return; /* skip high-cardinality */
+      var maxCount = Math.max.apply(null, keys.map(function (k) { return freq[k]; }));
+      var ratio = maxCount / nonNull;
+      if (ratio >= IMBALANCE_THRESHOLD) {
+        var topVal = keys.find(function (k) { return freq[k] === maxCount; });
+        var severity = ratio >= 0.90 ? 'high' : 'moderate';
+        findings.push({
+          type: 'class_imbalance',
+          severity: severity,
+          column: col.name,
+          detail: '"' + topVal + '" accounts for ' + Math.round(ratio * 100) + '% of ' + col.name,
+          impact: 'A model trained on this column will be biased toward "' + topVal + '".',
+        });
+        score -= severity === 'high' ? 20 : 10;
+      }
+    });
+
+    /* --- B2: Missing data clustering by demographic-adjacent columns --- */
+    var demoCols = cols.filter(function (c) {
+      var lower = c.name.toLowerCase();
+      return DEMOGRAPHIC_TERMS.some(function (t) { return lower.indexOf(t) !== -1; });
+    });
+
+    cols.forEach(function (col, ci) {
+      var nullRate = rows.filter(function (r) {
+        var v = r[ci];
+        return v === null || v === undefined || v === '';
+      }).length / n;
+
+      if (nullRate < MISSING_CLUSTER_THRESHOLD) return;
+
+      /* Check if nulls cluster by a demographic column */
+      demoCols.forEach(function (dCol) {
+        var di = cols.indexOf(dCol);
+        if (di === ci) return;
+        var nullsByDemo = {};
+        var totalByDemo = {};
+        rows.forEach(function (r) {
+          var dv = r[di] !== null && r[di] !== undefined && r[di] !== '' ? String(r[di]).trim() : '__null__';
+          totalByDemo[dv] = (totalByDemo[dv] || 0) + 1;
+          var isNull = r[ci] === null || r[ci] === undefined || r[ci] === '';
+          if (isNull) nullsByDemo[dv] = (nullsByDemo[dv] || 0) + 1;
+        });
+        /* Find the demo group with highest null rate */
+        var groups = Object.keys(totalByDemo).filter(function (k) { return k !== '__null__' && totalByDemo[k] >= 5; });
+        var worst = groups.reduce(function (acc, g) {
+          var rate = (nullsByDemo[g] || 0) / totalByDemo[g];
+          return rate > acc.rate ? { g: g, rate: rate } : acc;
+        }, { g: null, rate: 0 });
+        var overall = nullRate;
+        if (worst.g && worst.rate > overall * 1.4) {
+          findings.push({
+            type: 'missing_cluster',
+            severity: worst.rate > 0.5 ? 'high' : 'moderate',
+            column: col.name,
+            demoColumn: dCol.name,
+            detail: col.name + ' is ' + Math.round(worst.rate * 100) + '% null for ' + dCol.name + '="' + worst.g + '" (overall: ' + Math.round(overall * 100) + '%)',
+            impact: 'Missing data is not random -- it clusters around a demographic group.',
+          });
+          score -= worst.rate > 0.5 ? 18 : 8;
+        }
+      });
+    });
+
+    /* --- B3: Distribution skew in numeric columns --- */
+    cols.forEach(function (col, ci) {
+      if (col.type !== 'INT' && col.type !== 'FLOAT') return;
+      var vals = rows.map(function (r) {
+        var v = r[ci];
+        return v !== null && v !== undefined && v !== '' ? parseFloat(v) : null;
+      }).filter(function (v) { return v !== null && isFinite(v); });
+
+      if (vals.length < 20) return;
+      vals.sort(function (a, b) { return a - b; });
+      var mean = vals.reduce(function (s, v) { return s + v; }, 0) / vals.length;
+      var variance = vals.reduce(function (s, v) { return s + (v - mean) * (v - mean); }, 0) / vals.length;
+      var std = Math.sqrt(variance);
+      if (std === 0) return;
+      /* Pearson skewness approximation */
+      var med = vals[Math.floor(vals.length / 2)];
+      var skew = (mean - med) / std;
+      var absSkew = Math.abs(skew);
+      if (absSkew > 1.0) {
+        var dir = skew > 0 ? 'right-skewed (long tail of high values)' : 'left-skewed (long tail of low values)';
+        findings.push({
+          type: 'distribution_skew',
+          severity: absSkew > 2.0 ? 'high' : 'moderate',
+          column: col.name,
+          detail: col.name + ' is ' + dir + ' (skew ' + skew.toFixed(2) + ')',
+          impact: 'Summary statistics will misrepresent typical values. Subgroup analysis may amplify this.',
+        });
+        score -= absSkew > 2.0 ? 12 : 6;
+      }
+    });
+
+    /* --- B4: Overall null burden --- */
+    var totalCells = n * cols.length;
+    var totalNulls = 0;
+    cols.forEach(function (col, ci) {
+      rows.forEach(function (r) {
+        if (r[ci] === null || r[ci] === undefined || r[ci] === '') totalNulls++;
+      });
+    });
+    var nullBurden = totalNulls / totalCells;
+    if (nullBurden > 0.15) {
+      findings.push({
+        type: 'null_burden',
+        severity: nullBurden > 0.3 ? 'high' : 'moderate',
+        column: 'dataset-wide',
+        detail: Math.round(nullBurden * 100) + '% of all cells are empty',
+        impact: 'High overall missingness reduces representativeness.',
+      });
+      score -= nullBurden > 0.3 ? 15 : 8;
+    }
+
+    score = Math.max(0, score);
+    var grade = score >= 80 ? 'CLEAN' : score >= 60 ? 'REVIEW' : score >= 40 ? 'CAUTION' : 'CONCERN';
+    var gradeColor = score >= 80 ? '#4AE38A' : score >= 60 ? '#20C5B5' : score >= 40 ? '#F5A623' : '#D163A7';
+
+    return {
+      datasetId: dataset.id,
+      datasetName: dataset.name,
+      rowCount: n,
+      colCount: cols.length,
+      findings: findings,
+      score: score,
+      grade: grade,
+      gradeColor: gradeColor,
+      ranAt: Date.now(),
+    };
+  }
+
+  /* ---- UI panel ---- */
+  function _buildTrigger(result) {
+    var existing = document.getElementById(TRIGGER_ID);
+    if (existing) existing.remove();
+
+    var trigger = document.createElement('div');
+    trigger.id = TRIGGER_ID;
+    trigger.style.cssText = [
+      'position:fixed;bottom:72px;right:20px;z-index:7500;',
+      'display:flex;align-items:center;gap:8px;',
+      'background:#131519;border:1px solid ' + result.gradeColor + '40;',
+      'border-radius:24px;padding:8px 14px 8px 10px;cursor:pointer;',
+      'font-family:\'Geist Mono\',monospace;font-size:11px;',
+      'box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:all 0.15s;',
+      'max-width:220px;',
+    ].join('');
+
+    var icon = result.findings.length === 0
+      ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#4AE38A" stroke-width="1.2"/><path d="M5 8l2 2 4-4" stroke="#4AE38A" stroke-width="1.2" stroke-linecap="round"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2L2 13h12L8 2z" stroke="' + result.gradeColor + '" stroke-width="1.2"/><path d="M8 7v3" stroke="' + result.gradeColor + '" stroke-width="1.2" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.5" fill="' + result.gradeColor + '"/></svg>';
+
+    trigger.innerHTML = [
+      icon,
+      '<span style="color:' + result.gradeColor + ';font-weight:600;">DATA MIRROR</span>',
+      '<span style="color:#5A5957;">' + result.findings.length + ' signal' + (result.findings.length !== 1 ? 's' : '') + '</span>',
+    ].join('');
+
+    trigger.addEventListener('click', function () { _showPanel(result); });
+    trigger.addEventListener('mouseenter', function () { trigger.style.borderColor = result.gradeColor; });
+    trigger.addEventListener('mouseleave', function () { trigger.style.borderColor = result.gradeColor + '40'; });
+
+    document.body.appendChild(trigger);
+  }
+
+  function _severityColor(s) {
+    return s === 'high' ? '#D163A7' : s === 'moderate' ? '#F5A623' : '#20C5B5';
+  }
+
+  function _typeLabel(t) {
+    return {
+      class_imbalance: 'Class Imbalance',
+      missing_cluster: 'Missing Data Cluster',
+      distribution_skew: 'Distribution Skew',
+      null_burden: 'Null Burden',
+    }[t] || t;
+  }
+
+  function _showPanel(result) {
+    var existing = document.getElementById(PANEL_ID);
+    if (existing) { existing.remove(); return; }
+
+    var panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.style.cssText = [
+      'position:fixed;bottom:116px;right:20px;z-index:7600;',
+      'width:min(400px,92vw);background:#131519;',
+      'border:1px solid #252930;border-radius:16px;',
+      'font-family:\'Geist Mono\',monospace;',
+      'box-shadow:0 8px 40px rgba(0,0,0,0.5);',
+      'overflow:hidden;',
+    ].join('');
+
+    var empty = result.findings.length === 0;
+
+    panel.innerHTML = [
+      /* header */
+      '<div style="padding:16px 20px;border-bottom:1px solid #252930;display:flex;align-items:center;gap:10px;">',
+      '  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">',
+      '    <rect x="1" y="1" width="14" height="14" rx="2" stroke="#20C5B5" stroke-width="1.2"/>',
+      '    <path d="M4 8h8M4 5h5M4 11h6" stroke="#20C5B5" stroke-width="1.2" stroke-linecap="round"/>',
+      '  </svg>',
+      '  <span style="color:#CDCCCA;font-size:12px;font-weight:600;letter-spacing:0.08em;">DATA MIRROR</span>',
+      '  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">',
+      '    <span style="color:' + result.gradeColor + ';font-size:13px;font-weight:700;">' + result.score + '</span>',
+      '    <span style="color:' + result.gradeColor + ';font-size:10px;font-weight:600;',
+      '      background:' + result.gradeColor + '18;padding:2px 8px;border-radius:10px;">' + result.grade + '</span>',
+      '  </div>',
+      '</div>',
+      /* meta */
+      '<div style="padding:12px 20px;border-bottom:1px solid #252930;display:flex;gap:20px;">',
+      '  <div style="font-size:11px;color:#5A5957;">',
+      '    <div style="color:#797876;margin-bottom:2px;">' + result.rowCount.toLocaleString() + ' rows</div>',
+      '    <div>' + result.colCount + ' columns</div>',
+      '  </div>',
+      '  <div style="font-size:11px;color:#5A5957;flex:1;">',
+      '    <div style="color:#797876;margin-bottom:2px;">Pre-flight ran before your first query.</div>',
+      '    <div>This is a mirror -- not a verdict.</div>',
+      '  </div>',
+      '</div>',
+      /* findings */
+      '<div style="max-height:320px;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:10px;">',
+      empty
+        ? '<div style="text-align:center;padding:24px;color:#4AE38A;font-size:12px;">No structural bias signals detected. Data looks representative.</div>'
+        : result.findings.map(function (f) {
+          return [
+            '<div style="background:#0D0E10;border:1px solid #252930;border-radius:10px;padding:12px;',
+            '  border-left:3px solid ' + _severityColor(f.severity) + ';">',
+            '  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">',
+            '    <span style="color:' + _severityColor(f.severity) + ';font-size:10px;font-weight:700;">',
+            '      ' + f.severity.toUpperCase(),
+            '    </span>',
+            '    <span style="color:#CDCCCA;font-size:11px;">' + _typeLabel(f.type) + '</span>',
+            '    <span style="color:#5A5957;font-size:10px;margin-left:auto;">' + (f.column !== 'dataset-wide' ? f.column : '') + '</span>',
+            '  </div>',
+            '  <div style="color:#797876;font-size:11px;margin-bottom:4px;">' + f.detail + '</div>',
+            '  <div style="color:#5A5957;font-size:10px;font-style:italic;">' + f.impact + '</div>',
+            '</div>',
+          ].join('');
+        }).join(''),
+      '</div>',
+      /* footer */
+      '<div style="padding:12px 20px;border-top:1px solid #252930;display:flex;justify-content:space-between;align-items:center;">',
+      '  <span style="color:#5A5957;font-size:10px;">Run at ' + new Date(result.ranAt).toLocaleTimeString() + '</span>',
+      '  <button id="dg-bias-close" style="background:transparent;border:1px solid #252930;border-radius:6px;',
+      '    padding:4px 10px;color:#797876;font-family:\'Geist Mono\',monospace;font-size:10px;cursor:pointer;">',
+      '    Dismiss',
+      '  </button>',
+      '</div>',
+    ].join('');
+
+    document.body.appendChild(panel);
+    document.getElementById('dg-bias-close').addEventListener('click', function () {
+      panel.remove();
+    });
+  }
+
+  /* ---- event listener ---- */
+  document.addEventListener('dataglow:dataset-loaded', function (e) {
+    var ds = e.detail && e.detail.dataset;
+    if (!ds) return;
+    if (!window.FEATURE_FLAGS || !window.FEATURE_FLAGS.biasPreflight) return;
+
+    /* Run async so it doesn't block the load event chain */
+    setTimeout(function () {
+      var result = runPreflight(ds);
+      if (!result) return;
+
+      /* Store result for passport use */
+      window._dgLastBiasPreflight = result;
+
+      /* Surface trigger pill */
+      _buildTrigger(result);
+
+      /* Emit event for other modules (passport, pulse) */
+      document.dispatchEvent(new CustomEvent('dataglow:bias-preflight-complete', {
+        detail: { result: result }
+      }));
+
+      /* High-severity findings get a toast nudge */
+      var highCount = result.findings.filter(function (f) { return f.severity === 'high'; }).length;
+      if (highCount > 0 && window.showToast) {
+        window.showToast(
+          'Data Mirror found ' + highCount + ' high-severity signal' + (highCount > 1 ? 's' : '') + ' -- check before analysis.',
+          4000
+        );
+      }
+    }, 1200);
+  });
+
+  /* ---- export API ---- */
+  window.BiasPreflight = {
+    run: runPreflight,
+  };
+
+})();
+/* ---- end bias-preflight.js ---- */
+
+/* ---- from js/ethics/training-passport.js ---- */
+/* DataGlow -- js/ethics/training-passport.js */
+/* PR A1: Model Training Passport                                               */
+/*                                                                             */
+/* Generates a machine-readable provenance document for datasets headed toward  */
+/* ML training. Captures: cleaning steps from audit trail, bias signals from   */
+/* pre-flight, purpose contract terms, and a dataset fingerprint at export.    */
+/* The artifact that answers: "where did this training data come from and was  */
+/* it handled responsibly."                                                     */
+
+(function () {
+  'use strict';
+
+  var PANEL_ID = 'dg-passport-panel';
+  var TRIGGER_ID = 'dg-passport-trigger';
+
+  /* ---- fingerprint ---- */
+  function _fingerprint(dataset) {
+    if (!dataset || !dataset.rows) return '00000000';
+    var sample = dataset.rows.slice(0, 100);
+    var str = JSON.stringify(sample);
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    var h2 = dataset.rows.length * 31 + (dataset.columns ? dataset.columns.length * 17 : 0);
+    return (Math.abs(hash) ^ Math.abs(h2)).toString(16).toUpperCase().padStart(12, '0');
+  }
+
+  /* ---- audit trail reader ---- */
+  function _readAuditSteps(datasetId) {
+    /* Pull from ProofChainRail if available */
+    if (window.ProofChainRail && typeof window.ProofChainRail.getSteps === 'function') {
+      return window.ProofChainRail.getSteps(datasetId) || [];
+    }
+    /* Fallback: read from global audit log if present */
+    var log = window._dgAuditLog || [];
+    return log.filter(function (e) { return !datasetId || e.datasetId === datasetId; });
+  }
+
+  /* ---- passport generator ---- */
+  function generatePassport(dataset) {
+    if (!dataset) return null;
+
+    var contract = window.PurposeContract ? window.PurposeContract.get(dataset.id) : null;
+    var biasResult = window._dgLastBiasPreflight || null;
+    var auditSteps = _readAuditSteps(dataset.id);
+    var fp = _fingerprint(dataset);
+    var now = Date.now();
+
+    /* Passport ID: FP prefix + timestamp */
+    var passportId = 'DGP-' + fp.slice(0, 8) + '-' + now.toString(36).toUpperCase();
+
+    var passport = {
+      passportId: passportId,
+      version: '1.0',
+      generatedAt: now,
+      generatedAtISO: new Date(now).toISOString(),
+
+      dataset: {
+        id: dataset.id,
+        name: dataset.name || dataset.id,
+        rowCount: dataset.rows ? dataset.rows.length : 0,
+        colCount: dataset.columns ? dataset.columns.length : 0,
+        fingerprint: fp,
+        fingerprintAlgo: 'DG-FP-v1 (djb2 XOR row+col hash)',
+      },
+
+      purposeContract: contract ? {
+        purposeId: contract.purposeId,
+        purposeLabel: contract.purposeLabel,
+        signedAt: new Date(contract.signedAt).toISOString(),
+        expiresAt: new Date(contract.expiresAt).toISOString(),
+        restrictions: contract.restrictions,
+        signature: contract.signature,
+        analystNote: contract.analystNote || '',
+        breached: contract.breached,
+        breachReason: contract.breachReason || null,
+      } : null,
+
+      biasAudit: biasResult ? {
+        score: biasResult.score,
+        grade: biasResult.grade,
+        findingCount: biasResult.findings.length,
+        highSeverityCount: biasResult.findings.filter(function (f) { return f.severity === 'high'; }).length,
+        findings: biasResult.findings.map(function (f) {
+          return {
+            type: f.type,
+            severity: f.severity,
+            column: f.column,
+            detail: f.detail,
+            impact: f.impact,
+          };
+        }),
+        ranAt: new Date(biasResult.ranAt).toISOString(),
+      } : null,
+
+      cleaningSteps: auditSteps.length > 0
+        ? auditSteps.map(function (s, i) {
+          return {
+            step: i + 1,
+            operation: s.operation || s.type || 'unknown',
+            description: s.description || s.detail || '',
+            timestamp: s.timestamp ? new Date(s.timestamp).toISOString() : null,
+          };
+        })
+        : [],
+
+      readinessAssessment: _assessReadiness(contract, biasResult, auditSteps),
+    };
+
+    return passport;
+  }
+
+  function _assessReadiness(contract, biasResult, auditSteps) {
+    var issues = [];
+    var score = 100;
+
+    if (!contract) {
+      issues.push({ flag: 'NO_PURPOSE_CONTRACT', desc: 'No purpose contract was signed for this dataset.', severity: 'high' });
+      score -= 30;
+    } else if (contract.purposeId !== 'model_training') {
+      issues.push({ flag: 'PURPOSE_MISMATCH', desc: 'Dataset contract purpose is "' + contract.purposeLabel + '", not Model Training.', severity: 'moderate' });
+      score -= 15;
+    } else if (contract.breached) {
+      issues.push({ flag: 'CONTRACT_BREACHED', desc: 'Purpose contract was breached: ' + contract.breachReason, severity: 'high' });
+      score -= 40;
+    }
+
+    if (biasResult) {
+      var highBias = biasResult.findings.filter(function (f) { return f.severity === 'high'; }).length;
+      if (highBias > 0) {
+        issues.push({ flag: 'HIGH_BIAS_SIGNALS', desc: highBias + ' high-severity bias signal(s) unresolved.', severity: 'high' });
+        score -= highBias * 15;
+      } else if (biasResult.findings.length > 0) {
+        issues.push({ flag: 'MODERATE_BIAS_SIGNALS', desc: biasResult.findings.length + ' moderate bias signal(s) detected.', severity: 'moderate' });
+        score -= biasResult.findings.length * 5;
+      }
+    } else {
+      issues.push({ flag: 'NO_BIAS_AUDIT', desc: 'Data Mirror pre-flight was not run.', severity: 'moderate' });
+      score -= 20;
+    }
+
+    if (auditSteps.length === 0) {
+      issues.push({ flag: 'NO_CLEANING_RECORD', desc: 'No cleaning steps were recorded in the audit trail.', severity: 'low' });
+      score -= 10;
+    }
+
+    score = Math.max(0, score);
+    var verdict = score >= 80 ? 'READY' : score >= 55 ? 'CONDITIONAL' : 'NOT_READY';
+    var verdictColor = score >= 80 ? '#4AE38A' : score >= 55 ? '#F5A623' : '#D163A7';
+
+    return {
+      score: score,
+      verdict: verdict,
+      verdictColor: verdictColor,
+      issues: issues,
+    };
+  }
+
+  /* ---- export to JSON ---- */
+  function downloadPassport(passport) {
+    var json = JSON.stringify(passport, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = passport.passportId + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /* ---- UI panel ---- */
+  function _buildTrigger(ds) {
+    var existing = document.getElementById(TRIGGER_ID);
+    if (existing) existing.remove();
+
+    var trigger = document.createElement('button');
+    trigger.id = TRIGGER_ID;
+    trigger.title = 'Generate Model Training Passport for this dataset';
+    trigger.style.cssText = [
+      'position:fixed;bottom:110px;right:20px;z-index:7400;',
+      'display:flex;align-items:center;gap:6px;',
+      'background:#131519;border:1px solid #F5A62340;',
+      'border-radius:24px;padding:7px 14px 7px 10px;cursor:pointer;',
+      'font-family:\'Geist Mono\',monospace;font-size:10px;color:#F5A623;',
+      'box-shadow:0 4px 16px rgba(0,0,0,0.4);transition:all 0.15s;',
+      'letter-spacing:0.05em;font-weight:600;',
+    ].join('');
+
+    trigger.innerHTML = [
+      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none">',
+      '  <rect x="2" y="1" width="10" height="12" rx="2" stroke="#F5A623" stroke-width="1.2"/>',
+      '  <path d="M4 4h6M4 6.5h6M4 9h4" stroke="#F5A623" stroke-width="1" stroke-linecap="round"/>',
+      '  <circle cx="11" cy="11" r="2.5" fill="#131519" stroke="#4AE38A" stroke-width="1"/>',
+      '  <path d="M10 11l.7.7 1.3-1.3" stroke="#4AE38A" stroke-width="0.8" stroke-linecap="round"/>',
+      '</svg>',
+      'PASSPORT',
+    ].join('');
+
+    trigger.addEventListener('click', function () { _showPanel(ds); });
+    trigger.addEventListener('mouseenter', function () { trigger.style.borderColor = '#F5A623'; });
+    trigger.addEventListener('mouseleave', function () { trigger.style.borderColor = '#F5A62340'; });
+    document.body.appendChild(trigger);
+  }
+
+  function _showPanel(dataset) {
+    var existing = document.getElementById(PANEL_ID);
+    if (existing) { existing.remove(); return; }
+
+    var passport = generatePassport(dataset);
+    if (!passport) return;
+
+    var assessment = passport.readinessAssessment;
+
+    var panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.style.cssText = [
+      'position:fixed;bottom:150px;right:20px;z-index:7500;',
+      'width:min(420px,94vw);background:#131519;',
+      'border:1px solid #252930;border-radius:16px;',
+      'font-family:\'Geist Mono\',monospace;',
+      'box-shadow:0 8px 40px rgba(0,0,0,0.5);overflow:hidden;',
+    ].join('');
+
+    panel.innerHTML = [
+      /* header */
+      '<div style="padding:16px 20px;border-bottom:1px solid #252930;display:flex;align-items:center;gap:10px;">',
+      '  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">',
+      '    <rect x="2" y="1" width="12" height="14" rx="2" stroke="#F5A623" stroke-width="1.2"/>',
+      '    <path d="M5 5h6M5 7.5h6M5 10h4" stroke="#F5A623" stroke-width="1" stroke-linecap="round"/>',
+      '  </svg>',
+      '  <span style="color:#CDCCCA;font-size:12px;font-weight:600;letter-spacing:0.08em;">TRAINING PASSPORT</span>',
+      '  <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">',
+      '    <span style="color:' + assessment.verdictColor + ';font-size:10px;font-weight:700;',
+      '      background:' + assessment.verdictColor + '18;padding:2px 8px;border-radius:10px;">',
+      '      ' + assessment.verdict.replace('_', ' '),
+      '    </span>',
+      '  </div>',
+      '</div>',
+
+      /* passport ID */
+      '<div style="padding:12px 20px;border-bottom:1px solid #1A1D21;background:#0D0E10;">',
+      '  <div style="color:#5A5957;font-size:10px;margin-bottom:4px;">PASSPORT ID</div>',
+      '  <div style="color:#CDCCCA;font-size:11px;letter-spacing:0.04em;">' + passport.passportId + '</div>',
+      '</div>',
+
+      /* readiness issues */
+      assessment.issues.length > 0 ? [
+        '<div style="padding:12px 20px;border-bottom:1px solid #252930;">',
+        '  <div style="color:#797876;font-size:10px;letter-spacing:0.06em;margin-bottom:8px;">READINESS FLAGS</div>',
+        assessment.issues.map(function (issue) {
+          var c = issue.severity === 'high' ? '#D163A7' : issue.severity === 'moderate' ? '#F5A623' : '#4F98A3';
+          return [
+            '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:flex-start;">',
+            '  <div style="width:6px;height:6px;border-radius:50%;background:' + c + ';margin-top:4px;flex-shrink:0;"></div>',
+            '  <div style="color:#797876;font-size:11px;line-height:1.4;">' + issue.desc + '</div>',
+            '</div>',
+          ].join('');
+        }).join(''),
+        '</div>',
+      ].join('') : '',
+
+      /* sections summary */
+      '<div style="padding:12px 20px;display:flex;flex-direction:column;gap:8px;">',
+
+      /* dataset */
+      '<div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px 12px;">',
+      '  <div style="color:#5A5957;font-size:10px;margin-bottom:6px;">DATASET</div>',
+      '  <div style="color:#CDCCCA;font-size:11px;">' + passport.dataset.name + '</div>',
+      '  <div style="color:#797876;font-size:10px;">' + passport.dataset.rowCount.toLocaleString() + ' rows / ' + passport.dataset.colCount + ' cols</div>',
+      '  <div style="color:#5A5957;font-size:10px;margin-top:4px;">FP: ' + passport.dataset.fingerprint + '</div>',
+      '</div>',
+
+      /* contract */
+      passport.purposeContract ? [
+        '<div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px 12px;">',
+        '  <div style="color:#5A5957;font-size:10px;margin-bottom:6px;">PURPOSE CONTRACT</div>',
+        '  <div style="color:#CDCCCA;font-size:11px;">' + passport.purposeContract.purposeLabel + '</div>',
+        '  <div style="color:#797876;font-size:10px;">Signed ' + new Date(passport.purposeContract.signedAt).toLocaleTimeString() + '  |  Sig: ' + passport.purposeContract.signature + '</div>',
+        '  <div style="color:#5A5957;font-size:10px;margin-top:2px;">Restrictions: ' + (passport.purposeContract.restrictions.length ? passport.purposeContract.restrictions.join(', ') : 'none') + '</div>',
+        '</div>',
+      ].join('') : '<div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px 12px;color:#5A5957;font-size:11px;">No purpose contract signed.</div>',
+
+      /* bias */
+      passport.biasAudit ? [
+        '<div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px 12px;">',
+        '  <div style="color:#5A5957;font-size:10px;margin-bottom:6px;">BIAS PRE-FLIGHT</div>',
+        '  <div style="color:#CDCCCA;font-size:11px;">Score: ' + passport.biasAudit.score + ' / ' + passport.biasAudit.grade + '</div>',
+        '  <div style="color:#797876;font-size:10px;">' + passport.biasAudit.findingCount + ' signal(s) -- ' + passport.biasAudit.highSeverityCount + ' high severity</div>',
+        '</div>',
+      ].join('') : '<div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px 12px;color:#5A5957;font-size:11px;">Data Mirror not run.</div>',
+
+      /* cleaning steps */
+      '<div style="background:#0D0E10;border:1px solid #252930;border-radius:8px;padding:10px 12px;">',
+      '  <div style="color:#5A5957;font-size:10px;margin-bottom:4px;">CLEANING STEPS</div>',
+      '  <div style="color:#797876;font-size:11px;">' + (passport.cleaningSteps.length > 0 ? passport.cleaningSteps.length + ' recorded operation(s)' : 'No cleaning steps recorded.') + '</div>',
+      '</div>',
+
+      '</div>',
+
+      /* footer actions */
+      '<div style="padding:12px 20px;border-top:1px solid #252930;display:flex;gap:8px;">',
+      '  <button id="dg-passport-download" style="',
+      '    flex:1;background:#F5A623;color:#0D0E10;border:none;border-radius:8px;',
+      '    padding:9px;font-family:\'Geist Mono\',monospace;font-size:11px;',
+      '    font-weight:700;cursor:pointer;letter-spacing:0.04em;">',
+      '    DOWNLOAD JSON',
+      '  </button>',
+      '  <button id="dg-passport-close" style="',
+      '    padding:9px 14px;background:transparent;border:1px solid #252930;',
+      '    border-radius:8px;color:#797876;font-family:\'Geist Mono\',monospace;',
+      '    font-size:11px;cursor:pointer;">',
+      '    Close',
+      '  </button>',
+      '</div>',
+    ].join('');
+
+    document.body.appendChild(panel);
+
+    document.getElementById('dg-passport-download').addEventListener('click', function () {
+      downloadPassport(passport);
+    });
+    document.getElementById('dg-passport-close').addEventListener('click', function () {
+      panel.remove();
+    });
+  }
+
+  /* ---- listen for model_training purpose to show trigger ---- */
+  document.addEventListener('dataglow:contract-signed', function (e) {
+    var c = e.detail && e.detail.contract;
+    if (!c || c.purposeId !== 'model_training') return;
+    if (!window.FEATURE_FLAGS || !window.FEATURE_FLAGS.trainingPassport) return;
+    /* Find current dataset from state */
+    var ds = window.state && window.state.datasets && window.state.datasets.length
+      ? window.state.datasets[window.state.datasets.length - 1]
+      : null;
+    if (ds) _buildTrigger(ds);
+  });
+
+  /* Also show when dataset-loaded AND a model_training contract already exists */
+  document.addEventListener('dataglow:dataset-loaded', function (e) {
+    var ds = e.detail && e.detail.dataset;
+    if (!ds) return;
+    if (!window.FEATURE_FLAGS || !window.FEATURE_FLAGS.trainingPassport) return;
+    var contract = window.PurposeContract ? window.PurposeContract.get(ds.id) : null;
+    if (contract && contract.purposeId === 'model_training') {
+      _buildTrigger(ds);
+    }
+  });
+
+  /* ---- export API ---- */
+  window.TrainingPassport = {
+    generate: generatePassport,
+    download: downloadPassport,
+  };
+
+})();
+/* ---- end training-passport.js ---- */
 /* ---- from js/flow/analyst-journey.js ---- */
 /* ---- from js/flow/analyst-journey.js ---- */
 /* ================================================================
