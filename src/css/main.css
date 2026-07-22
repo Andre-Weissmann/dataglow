@@ -2496,18 +2496,20 @@
   }
 
     /* ── NL Query input wrap (lives in agent-bar) ── */
+  /* QW2: Enlarged to be the visual lead of the bottom bar */
   #nl-query-wrap {
     display: flex;
     align-items: center;
     flex: 1;
-    height: 28px;
-    border: 1px solid var(--border);
+    height: 34px;
+    border: 1.5px solid var(--primary);
     border-radius: 20px;
-    padding: 0 10px 0 8px;
-    gap: 6px;
+    padding: 0 12px 0 10px;
+    gap: 8px;
     background: var(--bg);
     transition: border-color 150ms, box-shadow 150ms;
-    max-width: 580px;
+    max-width: none;
+    box-shadow: 0 0 0 3px rgba(32,197,181,0.08);
   }
   #nl-query-wrap:focus-within {
     border-color: var(--primary);
@@ -2524,13 +2526,14 @@
     background: none;
     border: none;
     outline: none;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 500;
     color: var(--text);
     padding: 0;
     height: 100%;
     min-width: 0;
   }
-  #nl-query-input::placeholder { color: var(--text-faint); }
+  #nl-query-input::placeholder { color: var(--text-muted); font-weight: 400; }
   #nl-query-input:disabled { cursor: not-allowed; }
   #nl-query-input:disabled::placeholder { color: var(--text-faint); opacity: 0.5; }
 
@@ -2556,12 +2559,13 @@
   }
 
   #agent-bar {
-    height: 40px;
-    min-height: 40px;
+    height: 50px;
+    min-height: 50px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
+    padding: 0 12px;
+    gap: 8px;
     border-top: 1px solid var(--border);
     background: var(--surface);
     position: relative;
