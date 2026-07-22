@@ -9236,6 +9236,320 @@ body.tier-3-unlocked [data-flag-tier="3"] {
 }
 
 /* ================================================================ */
+
+/* ================================================================
+   Session C PR #532 -- Metric Studio + Role Context
+================================================================ */
+
+/* ---- Define Metric button (in agent bar) ---- */
+.dg-metric-define-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid var(--border, #252930);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: 'Geist Mono', monospace;
+  padding: 5px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+.dg-metric-define-btn:hover {
+  color: var(--primary, #20C5B5);
+  border-color: var(--primary, #20C5B5);
+  background: rgba(32, 197, 181, 0.06);
+}
+
+/* ---- Metric Studio panel ---- */
+.dg-metric-panel {
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  border-radius: 16px;
+  padding: 0;
+  min-width: 320px;
+  max-width: 480px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.34,1.56,0.64,1);
+}
+.dg-metric-panel.dg-metric-panel-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+.dg-mp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border, #252930);
+}
+.dg-mp-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text, #CDCCCA);
+  font-family: 'Geist Mono', monospace;
+  flex: 1;
+}
+.dg-mp-count {
+  font-size: 10px;
+  color: var(--text-faint, #5A5957);
+  font-family: 'Geist Mono', monospace;
+}
+.dg-mp-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  touch-action: manipulation;
+  transition: color 0.15s ease;
+}
+.dg-mp-close:hover { color: var(--text, #CDCCCA); }
+.dg-mp-form {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border, #252930);
+}
+.dg-mp-input {
+  background: var(--surface-2, #191C20);
+  border: 1px solid var(--border, #252930);
+  border-radius: 8px;
+  color: var(--text, #CDCCCA);
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  padding: 9px 12px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+.dg-mp-input::placeholder { color: var(--text-faint, #5A5957); }
+.dg-mp-input:focus { border-color: var(--primary, #20C5B5); }
+.dg-mp-add-btn {
+  background: var(--primary, #20C5B5);
+  border: none;
+  border-radius: 8px;
+  color: #0D0E10;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Geist Mono', monospace;
+  padding: 9px 16px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: opacity 0.15s ease;
+  align-self: flex-end;
+}
+.dg-mp-add-btn:hover { opacity: 0.85; }
+.dg-mp-error {
+  font-size: 11px;
+  color: #FF4B6B;
+  font-family: 'Geist Mono', monospace;
+  margin: 0;
+}
+.dg-mp-list {
+  padding: 10px 16px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dg-mp-empty {
+  font-size: 11px;
+  color: var(--text-faint, #5A5957);
+  font-family: 'Geist Mono', monospace;
+  text-align: center;
+  padding: 8px 0;
+  margin: 0;
+}
+.dg-mp-item {
+  background: var(--surface-2, #191C20);
+  border: 1px solid var(--border, #252930);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dg-mp-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dg-mp-name-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary, #20C5B5);
+  font-family: 'Geist Mono', monospace;
+  background: rgba(32,197,181,0.1);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.dg-mp-del {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  touch-action: manipulation;
+  transition: color 0.15s ease;
+}
+.dg-mp-del:hover { color: #FF4B6B; }
+.dg-mp-expr-preview {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'Geist Mono', monospace;
+  word-break: break-all;
+  display: block;
+}
+.dg-mp-used {
+  font-size: 9px;
+  color: var(--text-faint);
+  font-family: 'Geist Mono', monospace;
+}
+.dg-mp-hint {
+  padding: 10px 16px 14px;
+  font-size: 11px;
+  color: var(--text-faint, #5A5957);
+  font-family: 'Geist Mono', monospace;
+  line-height: 1.6;
+  margin: 0;
+}
+.dg-mp-hint code {
+  color: var(--primary, #20C5B5);
+  background: rgba(32,197,181,0.08);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* ---- Role context chip (in agent bar) ---- */
+.dg-role-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid var(--border, #252930);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: 'Geist Mono', monospace;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+  min-width: 70px;
+  justify-content: center;
+}
+.dg-role-chip:hover { background: var(--surface-2, #191C20); }
+.dg-role-chip-icon { font-size: 13px; line-height: 1; }
+.dg-role-chip-label { font-size: 11px; }
+.dg-role-chip-placeholder { color: var(--text-faint, #5A5957); font-size: 10px; }
+@keyframes dg-chip-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(32,197,181,0); }
+  50% { box-shadow: 0 0 0 4px rgba(32,197,181,0.20); }
+}
+.dg-role-chip-pulse { animation: dg-chip-pulse 1.5s ease 2; }
+
+/* ---- Role selector popover ---- */
+.dg-role-selector {
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  border-radius: 16px;
+  padding: 12px 0 8px;
+  min-width: 280px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  animation: dg-flow-fadein 0.18s ease both;
+}
+.dg-rs-prompt {
+  font-size: 11px;
+  color: var(--text-faint, #5A5957);
+  font-family: 'Geist Mono', monospace;
+  padding: 0 14px 8px;
+  margin: 0;
+  border-bottom: 1px solid var(--border, #252930);
+  margin-bottom: 6px;
+}
+.dg-rs-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 9px 14px;
+  cursor: pointer;
+  text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease;
+}
+.dg-rs-opt:hover { background: var(--surface-2, #191C20); }
+.dg-rs-opt-active { background: rgba(32,197,181,0.07); }
+.dg-rs-opt-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 3px;
+  height: 36px;
+  background: var(--role-color, var(--primary));
+  border-radius: 0 2px 2px 0;
+}
+.dg-rs-opt { position: relative; }
+.dg-rs-icon { font-size: 16px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+.dg-rs-text { display: flex; flex-direction: column; gap: 2px; }
+.dg-rs-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #CDCCCA);
+  font-family: 'Geist Mono', monospace;
+}
+.dg-rs-sample {
+  font-size: 10px;
+  color: var(--text-faint, #5A5957);
+  font-family: 'Geist Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.dg-rs-clear {
+  display: block;
+  margin: 6px 14px 4px;
+  background: none;
+  border: 1px solid var(--border, #252930);
+  border-radius: 8px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-family: 'Geist Mono', monospace;
+  padding: 5px 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 0.15s ease;
+  width: calc(100% - 28px);
+}
+.dg-rs-clear:hover { color: var(--text-muted); }
+
+/* ================================================================ */
   </style>
 
 </head>
@@ -89572,6 +89886,689 @@ var PortfolioExport = (function () {
 
 })();
 /* ---- end js/analytics/federated-quality-score.js ---- */
+
+
+/* ================================================================
+   SESSION C PR #532: Semantic Foundation
+   metric-studio.js + role-context.js
+================================================================ */
+/* ---- from js/semantic/metric-studio.js ---- */
+/* ================================================================
+   DataGlow Metric Studio (Session C, PR #532)
+   Feature flag: window.FEATURE_FLAGS.metricStudio
+
+   The semantic gap: two analysts ask "show me revenue" and get
+   two different answers because "revenue" is undefined in the system.
+   Metric Studio closes that gap -- locally, privately, for this analyst.
+
+   What it does:
+     - Analyst defines up to 20 named metrics: name + SQL expression
+     - Stored in OPFS (never uploaded, survives page refresh)
+     - NL bar interception: before NL-to-SQL runs, MetricStudio
+       substitutes known metric names with their SQL expressions
+     - "Define Metric" button in the agent bar opens a 2-field form
+     - Metrics panel shows all defined metrics, inline edit/delete
+
+   Example:
+     Metric: "revenue" = "SUM(amount) WHERE status = 'paid'"
+     Analyst types: "show me revenue by month"
+     System sees:   "show me SUM(amount) WHERE status = 'paid' by month"
+     SQL generated: SELECT strftime('%Y-%m', date), SUM(amount)
+                    FROM data WHERE status = 'paid' GROUP BY 1
+
+   Storage format (OPFS file: dg-metrics.json):
+     [ { name: "revenue", expr: "SUM(amount) WHERE status='paid'",
+         created: 1234567890, used: 3 } ]
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'metricStudio';
+  var OPFS_FILE = 'dg-metrics.json';
+  var MAX_METRICS = 20;
+
+  function isEnabled() {
+    return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]);
+  }
+
+  /* ----------------------------------------------------------------
+     OPFS persistence
+  ---------------------------------------------------------------- */
+  var _metrics = [];   /* in-memory cache */
+  var _loaded  = false;
+
+  function loadMetrics() {
+    if (_loaded) return Promise.resolve(_metrics);
+    if (!navigator.storage || !navigator.storage.getDirectory) {
+      _loaded = true;
+      return Promise.resolve([]);
+    }
+    return navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE)
+        .then(function (fh) { return fh.getFile(); })
+        .then(function (f)  { return f.text(); })
+        .then(function (txt) {
+          try { _metrics = JSON.parse(txt) || []; } catch (_) { _metrics = []; }
+          _loaded = true;
+          return _metrics;
+        });
+    }).catch(function () {
+      _loaded = true;
+      return [];
+    });
+  }
+
+  function saveMetrics() {
+    if (!navigator.storage || !navigator.storage.getDirectory) return Promise.resolve();
+    return navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE, { create: true })
+        .then(function (fh) { return fh.createWritable(); })
+        .then(function (w)  { return w.write(JSON.stringify(_metrics)).then(function () { return w.close(); }); });
+    }).catch(function () {});
+  }
+
+  /* ----------------------------------------------------------------
+     Metric CRUD
+  ---------------------------------------------------------------- */
+  function addMetric(name, expr) {
+    name = name.trim().toLowerCase().replace(/\s+/g, '_');
+    expr = expr.trim();
+    if (!name || !expr) return { ok: false, error: 'Name and expression are required.' };
+    if (_metrics.length >= MAX_METRICS) return { ok: false, error: 'Maximum ' + MAX_METRICS + ' metrics reached.' };
+    if (_metrics.some(function (m) { return m.name === name; })) {
+      return { ok: false, error: '"' + name + '" already exists. Delete it first.' };
+    }
+    _metrics.push({ name: name, expr: expr, created: Date.now(), used: 0 });
+    saveMetrics();
+    document.dispatchEvent(new CustomEvent('dataglow:metric-added', { detail: { name: name } }));
+    return { ok: true };
+  }
+
+  function deleteMetric(name) {
+    _metrics = _metrics.filter(function (m) { return m.name !== name; });
+    saveMetrics();
+    document.dispatchEvent(new CustomEvent('dataglow:metric-deleted', { detail: { name: name } }));
+  }
+
+  function updateMetric(name, newExpr) {
+    var m = _metrics.find(function (x) { return x.name === name; });
+    if (!m) return false;
+    m.expr = newExpr.trim();
+    saveMetrics();
+    return true;
+  }
+
+  function getMetrics() { return _metrics.slice(); }
+
+  /* ----------------------------------------------------------------
+     NL bar interception
+     Before NL-to-SQL runs, replace metric names with their expressions.
+     Matches whole words only (case-insensitive).
+  ---------------------------------------------------------------- */
+  function substituteMetrics(nlQuery) {
+    if (!_metrics.length) return { query: nlQuery, substituted: [] };
+    var result = nlQuery;
+    var substituted = [];
+    _metrics.forEach(function (m) {
+      var pattern = new RegExp('\\b' + m.name.replace(/_/g, '[_ ]') + '\\b', 'gi');
+      if (pattern.test(result)) {
+        result = result.replace(pattern, '(' + m.expr + ')');
+        m.used = (m.used || 0) + 1;
+        substituted.push(m.name);
+      }
+    });
+    if (substituted.length) saveMetrics();
+    return { query: result, substituted: substituted };
+  }
+
+  /* ----------------------------------------------------------------
+     "Define Metric" button + inline form
+  ---------------------------------------------------------------- */
+  function buildDefineBtn() {
+    var btn = document.createElement('button');
+    btn.id = 'dg-metric-define-btn';
+    btn.className = 'dg-metric-define-btn';
+    btn.setAttribute('data-testid', 'button-define-metric');
+    btn.setAttribute('aria-label', 'Define a metric');
+    btn.title = 'Define a named metric (e.g. revenue = SUM(amount))';
+    btn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg> <span>Metric</span>';
+    btn.addEventListener('click', function () { toggleMetricPanel(); });
+    return btn;
+  }
+
+  /* ----------------------------------------------------------------
+     Metric panel (define + list)
+  ---------------------------------------------------------------- */
+  var _panelOpen = false;
+
+  function toggleMetricPanel() {
+    var existing = document.getElementById('dg-metric-panel');
+    if (existing) {
+      existing.classList.remove('dg-metric-panel-open');
+      setTimeout(function () {
+        if (existing.parentNode) existing.parentNode.removeChild(existing);
+      }, 220);
+      _panelOpen = false;
+      return;
+    }
+    _panelOpen = true;
+    renderPanel();
+  }
+
+  function renderPanel() {
+    var panel = document.createElement('div');
+    panel.id = 'dg-metric-panel';
+    panel.className = 'dg-metric-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Metric Studio');
+
+    var header = '<div class="dg-mp-header">' +
+      '<span class="dg-mp-title">Metric Studio</span>' +
+      '<span class="dg-mp-count">' + _metrics.length + ' / ' + MAX_METRICS + '</span>' +
+      '<button class="dg-mp-close" data-testid="button-metric-panel-close" aria-label="Close Metric Studio">' +
+        '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>' +
+      '</button>' +
+      '</div>';
+
+    var form = '<div class="dg-mp-form">' +
+      '<input id="dg-mp-name" class="dg-mp-input" type="text" placeholder="Metric name (e.g. revenue)" maxlength="40" data-testid="input-metric-name" autocomplete="off" />' +
+      '<input id="dg-mp-expr" class="dg-mp-input" type="text" placeholder="SQL expression (e.g. SUM(amount) WHERE status=\'paid\')" data-testid="input-metric-expr" autocomplete="off" />' +
+      '<button id="dg-mp-add" class="dg-mp-add-btn" data-testid="button-metric-add">Define</button>' +
+      '<p id="dg-mp-error" class="dg-mp-error hidden"></p>' +
+      '</div>';
+
+    var list = '<div class="dg-mp-list" id="dg-mp-list">' + renderMetricList() + '</div>';
+
+    var hint = _metrics.length === 0
+      ? '<p class="dg-mp-hint">Define a metric once. Use it in any query by name.<br>Example: <code>revenue</code> = <code>SUM(amount) WHERE status=\'paid\'</code></p>'
+      : '';
+
+    panel.innerHTML = header + form + list + hint;
+
+    /* Position below the define button */
+    var defBtn = document.getElementById('dg-metric-define-btn');
+    var agentBar = document.getElementById('agent-bar');
+    var anchor = defBtn || agentBar;
+    if (anchor) {
+      var rect = anchor.getBoundingClientRect();
+      panel.style.cssText = 'position:fixed;bottom:' + (window.innerHeight - rect.top + 8) + 'px;left:' + Math.max(8, rect.left) + 'px;z-index:15000';
+    }
+
+    document.body.appendChild(panel);
+    requestAnimationFrame(function () { panel.classList.add('dg-metric-panel-open'); });
+
+    /* Wire close */
+    panel.querySelector('.dg-mp-close').addEventListener('click', toggleMetricPanel);
+
+    /* Wire add button */
+    panel.querySelector('#dg-mp-add').addEventListener('click', function () {
+      var name = panel.querySelector('#dg-mp-name').value;
+      var expr = panel.querySelector('#dg-mp-expr').value;
+      var result = addMetric(name, expr);
+      if (!result.ok) {
+        var errEl = panel.querySelector('#dg-mp-error');
+        errEl.textContent = result.error;
+        errEl.classList.remove('hidden');
+        return;
+      }
+      panel.querySelector('#dg-mp-name').value = '';
+      panel.querySelector('#dg-mp-expr').value = '';
+      panel.querySelector('#dg-mp-list').innerHTML = renderMetricList();
+      panel.querySelector('#dg-mp-error').classList.add('hidden');
+      panel.querySelector('.dg-mp-count').textContent = _metrics.length + ' / ' + MAX_METRICS;
+      if (typeof window.showToast === 'function') {
+        window.showToast('Metric "' + name.trim().toLowerCase() + '" defined.', 'success');
+      }
+    });
+
+    /* Enter key submits */
+    [panel.querySelector('#dg-mp-name'), panel.querySelector('#dg-mp-expr')].forEach(function (inp) {
+      inp.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') panel.querySelector('#dg-mp-add').click();
+      });
+    });
+
+    /* Wire delete buttons (delegated) */
+    panel.querySelector('#dg-mp-list').addEventListener('click', function (e) {
+      var delBtn = e.target.closest('[data-delete-metric]');
+      if (delBtn) {
+        deleteMetric(delBtn.getAttribute('data-delete-metric'));
+        panel.querySelector('#dg-mp-list').innerHTML = renderMetricList();
+        panel.querySelector('.dg-mp-count').textContent = _metrics.length + ' / ' + MAX_METRICS;
+      }
+    });
+
+    /* Close on outside click */
+    setTimeout(function () {
+      document.addEventListener('click', function onOut(e) {
+        var panel2 = document.getElementById('dg-metric-panel');
+        var btn = document.getElementById('dg-metric-define-btn');
+        if (panel2 && !panel2.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+          if (panel2.parentNode) panel2.parentNode.removeChild(panel2);
+          _panelOpen = false;
+          document.removeEventListener('click', onOut);
+        }
+      });
+    }, 50);
+
+    panel.querySelector('#dg-mp-name').focus();
+  }
+
+  function renderMetricList() {
+    if (!_metrics.length) return '<p class="dg-mp-empty">No metrics defined yet.</p>';
+    return _metrics.map(function (m) {
+      return '<div class="dg-mp-item" data-testid="metric-item-' + m.name + '">' +
+        '<div class="dg-mp-item-top">' +
+          '<span class="dg-mp-name-chip">' + m.name + '</span>' +
+          '<button class="dg-mp-del" data-delete-metric="' + m.name + '" data-testid="button-delete-metric-' + m.name + '" aria-label="Delete ' + m.name + '">' +
+            '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<code class="dg-mp-expr-preview">' + m.expr + '</code>' +
+        (m.used ? '<span class="dg-mp-used">used ' + m.used + 'x</span>' : '') +
+        '</div>';
+    }).join('');
+  }
+
+  /* ----------------------------------------------------------------
+     NL bar interception -- hook into the existing NL pipeline
+  ---------------------------------------------------------------- */
+  function hookNlBar() {
+    var input = document.getElementById('nl-query-input');
+    if (!input) { setTimeout(hookNlBar, 800); return; }
+
+    /* Intercept submit -- fires before existing NL-to-SQL handler */
+    input.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      if (!_metrics.length) return; /* nothing to substitute */
+      var val = input.value;
+      var result = substituteMetrics(val);
+      if (result.substituted.length) {
+        input.value = result.query;
+        /* Visual feedback */
+        if (typeof window.showToast === 'function') {
+          window.showToast(
+            'Metric substituted: ' + result.substituted.join(', '),
+            'info'
+          );
+        }
+      }
+    }, true /* capture -- runs before existing listeners */);
+  }
+
+  /* ----------------------------------------------------------------
+     Inject define button into agent bar
+  ---------------------------------------------------------------- */
+  function injectDefineButton() {
+    if (document.getElementById('dg-metric-define-btn')) return;
+    var btn = buildDefineBtn();
+
+    /* Place before the mic button if present, else at end of nl-query-wrap */
+    var wrap = document.getElementById('nl-query-wrap');
+    var agentBar = document.getElementById('agent-bar');
+    var micBtn = document.getElementById('dg-mic-btn');
+
+    if (micBtn && micBtn.parentNode) {
+      micBtn.parentNode.insertBefore(btn, micBtn);
+    } else if (wrap) {
+      wrap.appendChild(btn);
+    } else if (agentBar) {
+      agentBar.appendChild(btn);
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Init
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!isEnabled()) return;
+
+    loadMetrics().then(function () {
+      /* Only inject UI when data is present (Tier 1) */
+      document.addEventListener('dataglow:dataset-loaded', function () {
+        injectDefineButton();
+        hookNlBar();
+      });
+
+      /* Also expose globally so other modules can use MetricStudio */
+      window.MetricStudio = {
+        add:         addMetric,
+        remove:      deleteMetric,
+        update:      updateMetric,
+        list:        getMetrics,
+        substitute:  substituteMetrics,
+        openPanel:   toggleMetricPanel
+      };
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/semantic/metric-studio.js ---- */
+
+/* ---- from js/semantic/role-context.js ---- */
+/* ================================================================
+   DataGlow Role Context (Session C, PR #532)
+   Feature flag: window.FEATURE_FLAGS.roleContext
+
+   The problem: a CFO and a bedside nurse can ask the same question
+   of the same dataset and get identical suggested questions, because
+   the system knows nothing about who is asking.
+
+   What it does:
+     - A compact role chip sits in the NL bar, left of the input
+     - On first load: "Who are you?" selector (5 roles, tap once)
+     - Persisted in OPFS (dg-role.json) -- survives refresh
+     - Question Prompter reads window.RoleContext.current()
+       and prepends role-specific question templates
+     - Emits dataglow:role-changed on update
+
+   Roles:
+     analyst     -- Show me distributions, outliers, correlations
+     clinician   -- Flag patient safety signals, abnormal vitals
+     finance     -- Revenue drivers, cost breakdown, variance
+     ops         -- Throughput, SLA breaches, queue depth
+     executive   -- KPI summary, trend vs. prior period, at-risk items
+
+   The chip is compact (initials or icon + label, tappable to change).
+   It does NOT block work -- if the analyst dismisses "Who are you?"
+   without picking, role stays null and Question Prompter uses generic
+   templates. No gate. No friction penalty.
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'roleContext';
+  var OPFS_FILE = 'dg-role.json';
+
+  function isEnabled() {
+    return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]);
+  }
+
+  var ROLES = [
+    {
+      id: 'analyst',
+      label: 'Analyst',
+      icon: '&#x1F4CA;',
+      color: 'var(--primary, #20C5B5)',
+      questions: [
+        'Show me the distribution of {col}',
+        'Which {col} values are outliers?',
+        'Correlation between {col1} and {col2}',
+        'Find rows where {col} is null or blank',
+        'Top 10 {col} by count'
+      ]
+    },
+    {
+      id: 'clinician',
+      label: 'Clinician',
+      icon: '&#x2695;&#xFE0F;',
+      color: '#4AE38A',
+      questions: [
+        'Flag rows with abnormal {col} values',
+        'How many patients have {col} above threshold?',
+        'Show {col} trend for the last 30 days',
+        'Which records are missing required fields?',
+        'Group outcomes by {col}'
+      ]
+    },
+    {
+      id: 'finance',
+      label: 'Finance',
+      icon: '&#x1F4B0;',
+      color: '#F5A623',
+      questions: [
+        'Show revenue by {col} for this period',
+        'What drove the change in {col} vs. prior period?',
+        'Break down costs by {col}',
+        'Find {col} variance > 5%',
+        'Which {col} segments are underperforming?'
+      ]
+    },
+    {
+      id: 'ops',
+      label: 'Operations',
+      icon: '&#x2699;&#xFE0F;',
+      color: '#A86FDF',
+      questions: [
+        'Where are the bottlenecks in {col}?',
+        'Average {col} processing time by {col2}',
+        'Show SLA breaches by {col}',
+        'Queue depth by hour for {col}',
+        'Which {col} steps have the most failures?'
+      ]
+    },
+    {
+      id: 'executive',
+      label: 'Executive',
+      icon: '&#x1F3AF;',
+      color: '#DD6974',
+      questions: [
+        'Summarize key metrics in one paragraph',
+        'What changed most vs. last period?',
+        'Which {col} are at risk?',
+        'Show me the headline KPIs',
+        'What requires immediate attention?'
+      ]
+    }
+  ];
+
+  /* ----------------------------------------------------------------
+     OPFS persistence
+  ---------------------------------------------------------------- */
+  var _role = null;
+  var _loaded = false;
+
+  function loadRole() {
+    if (_loaded) return Promise.resolve(_role);
+    if (!navigator.storage || !navigator.storage.getDirectory) {
+      _loaded = true;
+      return Promise.resolve(null);
+    }
+    return navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE)
+        .then(function (fh) { return fh.getFile(); })
+        .then(function (f)  { return f.text(); })
+        .then(function (t)  {
+          try { _role = JSON.parse(t); } catch (_) { _role = null; }
+          _loaded = true;
+          return _role;
+        });
+    }).catch(function () { _loaded = true; return null; });
+  }
+
+  function saveRole() {
+    if (!navigator.storage || !navigator.storage.getDirectory) return;
+    navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(OPFS_FILE, { create: true })
+        .then(function (fh) { return fh.createWritable(); })
+        .then(function (w)  { return w.write(JSON.stringify(_role)).then(function () { return w.close(); }); });
+    }).catch(function () {});
+  }
+
+  /* ----------------------------------------------------------------
+     Set / get role
+  ---------------------------------------------------------------- */
+  function setRole(roleId) {
+    _role = roleId;
+    saveRole();
+    updateChip();
+    document.dispatchEvent(new CustomEvent('dataglow:role-changed', {
+      detail: { role: roleId, roleData: getRoleData(roleId) }
+    }));
+  }
+
+  function getRoleData(id) {
+    return ROLES.find(function (r) { return r.id === id; }) || null;
+  }
+
+  function currentRole() { return _role; }
+  function currentRoleData() { return getRoleData(_role); }
+
+  /* ----------------------------------------------------------------
+     Role chip
+  ---------------------------------------------------------------- */
+  function buildChip() {
+    var chip = document.createElement('button');
+    chip.id = 'dg-role-chip';
+    chip.className = 'dg-role-chip';
+    chip.setAttribute('data-testid', 'button-role-chip');
+    chip.setAttribute('aria-label', 'Select your role');
+    chip.setAttribute('data-flag-tier', '1');
+    chip.innerHTML = _role
+      ? _renderChipContent(getRoleData(_role))
+      : '<span class="dg-role-chip-placeholder">Who are you?</span>';
+    chip.addEventListener('click', function () { toggleRoleSelector(chip); });
+    return chip;
+  }
+
+  function _renderChipContent(roleData) {
+    if (!roleData) return '<span class="dg-role-chip-placeholder">Role</span>';
+    return '<span class="dg-role-chip-icon" aria-hidden="true">' + roleData.icon + '</span>' +
+           '<span class="dg-role-chip-label">' + roleData.label + '</span>';
+  }
+
+  function updateChip() {
+    var chip = document.getElementById('dg-role-chip');
+    if (!chip) return;
+    var rd = getRoleData(_role);
+    chip.innerHTML = rd ? _renderChipContent(rd) : '<span class="dg-role-chip-placeholder">Who are you?</span>';
+    if (rd) chip.style.borderColor = rd.color;
+    else chip.style.borderColor = '';
+  }
+
+  /* ----------------------------------------------------------------
+     Role selector popover
+  ---------------------------------------------------------------- */
+  var _selectorOpen = false;
+
+  function toggleRoleSelector(anchor) {
+    var existing = document.getElementById('dg-role-selector');
+    if (existing) {
+      if (existing.parentNode) existing.parentNode.removeChild(existing);
+      _selectorOpen = false;
+      return;
+    }
+    _selectorOpen = true;
+    var sel = document.createElement('div');
+    sel.id = 'dg-role-selector';
+    sel.className = 'dg-role-selector';
+    sel.setAttribute('role', 'listbox');
+    sel.setAttribute('aria-label', 'Select your role');
+
+    sel.innerHTML = '<p class="dg-rs-prompt">Who are you today?</p>' +
+      ROLES.map(function (r) {
+        var active = _role === r.id ? ' dg-rs-opt-active' : '';
+        return '<button class="dg-rs-opt' + active + '" data-role="' + r.id + '"' +
+          ' data-testid="button-role-' + r.id + '" role="option"' +
+          ' style="--role-color:' + r.color + '">' +
+          '<span class="dg-rs-icon">' + r.icon + '</span>' +
+          '<div class="dg-rs-text"><span class="dg-rs-label">' + r.label + '</span>' +
+          '<span class="dg-rs-sample">' + r.questions[0].replace('{col}', 'column') + '</span></div>' +
+          '</button>';
+      }).join('') +
+      (_role ? '<button class="dg-rs-clear" data-testid="button-role-clear">Clear role</button>' : '');
+
+    if (anchor) {
+      var rect = anchor.getBoundingClientRect();
+      sel.style.cssText = 'position:fixed;bottom:' + (window.innerHeight - rect.top + 8) + 'px;left:' + Math.max(8, rect.left) + 'px;z-index:15000';
+    }
+
+    document.body.appendChild(sel);
+
+    sel.addEventListener('click', function (e) {
+      var opt = e.target.closest('[data-role]');
+      if (opt) { setRole(opt.getAttribute('data-role')); sel.parentNode.removeChild(sel); _selectorOpen = false; return; }
+      var clr = e.target.closest('.dg-rs-clear');
+      if (clr) { setRole(null); sel.parentNode.removeChild(sel); _selectorOpen = false; }
+    });
+
+    setTimeout(function () {
+      document.addEventListener('click', function onOut(e) {
+        var s = document.getElementById('dg-role-selector');
+        var c = document.getElementById('dg-role-chip');
+        if (s && !s.contains(e.target) && e.target !== c && !c.contains(e.target)) {
+          if (s.parentNode) s.parentNode.removeChild(s);
+          _selectorOpen = false;
+          document.removeEventListener('click', onOut);
+        }
+      });
+    }, 50);
+  }
+
+  /* ----------------------------------------------------------------
+     Inject chip into agent bar (left of nl-query-input)
+  ---------------------------------------------------------------- */
+  function injectChip() {
+    if (document.getElementById('dg-role-chip')) return;
+    var chip = buildChip();
+    var agentBar = document.getElementById('agent-bar');
+    var wrap = document.getElementById('nl-query-wrap');
+    var input = document.getElementById('nl-query-input');
+
+    if (input && input.parentNode) {
+      input.parentNode.insertBefore(chip, input);
+    } else if (wrap) {
+      wrap.insertBefore(chip, wrap.firstChild);
+    } else if (agentBar) {
+      agentBar.insertBefore(chip, agentBar.firstChild);
+    }
+
+    /* If no role set yet, pulse gently to draw attention (once) */
+    if (!_role) {
+      chip.classList.add('dg-role-chip-pulse');
+      setTimeout(function () { chip.classList.remove('dg-role-chip-pulse'); }, 3000);
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Question Prompter integration
+     RoleContext.getQuestions(cols) returns role-aware question suggestions.
+  ---------------------------------------------------------------- */
+  function getQuestions(cols) {
+    var rd = currentRoleData();
+    if (!rd) return null; /* Question Prompter uses its own generic list */
+    var colA = (cols && cols[0]) || 'value';
+    var colB = (cols && cols[1]) || 'category';
+    return rd.questions.map(function (q) {
+      return q.replace(/\{col2\}/g, colB).replace(/\{col\}/g, colA);
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Init
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!isEnabled()) return;
+
+    loadRole().then(function () {
+      document.addEventListener('dataglow:dataset-loaded', function () {
+        injectChip();
+      });
+
+      window.RoleContext = {
+        current:       currentRole,
+        currentData:   currentRoleData,
+        set:           setRole,
+        roles:         ROLES,
+        getQuestions:  getQuestions
+      };
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/semantic/role-context.js ---- */
 
 
 
