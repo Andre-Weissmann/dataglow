@@ -7711,3 +7711,394 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
   .nsg-headline { font-size: 15px; }
   #next-step-guide { padding: 20px 16px; }
 }
+
+/* ============================================================
+   AUTO-PULSE SHEET -- Apple HIG bottom sheet
+   Spring physics, progressive disclosure, purposeful motion.
+   Works on every device: iPhone, Android, iPad, desktop, Fold.
+   ============================================================ */
+
+/* Backdrop */
+.dg-pulse-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 9998;
+  opacity: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* Sheet */
+.dg-pulse-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: var(--surface, #131519);
+  border-radius: 22px 22px 0 0;
+  max-height: 88vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 -8px 40px rgba(0,0,0,0.55), 0 -1px 0 rgba(255,255,255,0.06);
+  will-change: transform, opacity;
+  /* Safe area for notched devices */
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* Desktop: sheet becomes a centered card (HIG: adapt to context) */
+@media (min-width: 768px) {
+  .dg-pulse-sheet {
+    left: 50%;
+    right: auto;
+    margin-left: calc(min(560px, 92vw) / -2);
+    width: min(560px, 92vw);
+    border-radius: 22px;
+    bottom: 24px;
+    max-height: 80vh;
+  }
+}
+
+/* Handle bar */
+.dg-ps-handle-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+  cursor: grab;
+}
+.dg-ps-handle {
+  width: 36px;
+  height: 4px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
+}
+
+/* Header */
+.dg-ps-header {
+  padding: 0 20px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.dg-ps-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.dg-ps-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.dg-ps-title-group {
+  flex: 1;
+  min-width: 0;
+}
+.dg-ps-title {
+  font-family: var(--mono, 'Geist Mono', monospace);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #e8e8e8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+.dg-ps-subtitle {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.dg-ps-close {
+  background: rgba(255,255,255,0.09);
+  border: none;
+  color: rgba(255,255,255,0.55);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+  line-height: 1;
+  padding: 0;
+}
+.dg-ps-close:hover {
+  background: rgba(255,255,255,0.16);
+  color: rgba(255,255,255,0.9);
+}
+
+/* Score row */
+.dg-ps-score-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.dg-ps-score-block {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  padding: 10px 8px 8px;
+  text-align: center;
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+.dg-ps-score-block.skeleton {
+  background: rgba(255,255,255,0.04);
+  animation: dg-pulse-shimmer 1.4s ease-in-out infinite;
+}
+.dg-ps-score-val {
+  font-family: var(--mono, 'Geist Mono', monospace);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text, #e8e8e8);
+  line-height: 1;
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+}
+.dg-ps-score-lbl {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+
+/* Score colors -- semantic, not decorative */
+.pulse-green { color: #4AE38A; }
+.pulse-amber { color: #F5A623; }
+.pulse-red   { color: #FF6B6B; }
+
+/* Body */
+.dg-ps-body {
+  padding: 14px 20px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Finding card */
+.dg-ps-finding {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-left-width: 3px;
+  transition: all 0.2s ease;
+}
+.dg-ps-finding.skeleton {
+  animation: dg-pulse-shimmer 1.4s ease-in-out infinite;
+  border-left-color: rgba(255,255,255,0.08);
+  min-height: 56px;
+}
+.dg-ps-finding-pass  { border-left-color: #4AE38A; }
+.dg-ps-finding-warn  { border-left-color: #F5A623; }
+.dg-ps-finding-error { border-left-color: #FF6B6B; }
+.dg-ps-finding-info  { border-left-color: #20C5B5; }
+
+.dg-ps-finding-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.dg-ps-finding-content {
+  flex: 1;
+  min-width: 0;
+}
+.dg-ps-finding-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #e8e8e8);
+  line-height: 1.3;
+}
+.dg-ps-finding-desc {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.dg-ps-finding-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.dg-ps-badge-pass  { background: rgba(74,227,138,0.15); color: #4AE38A; }
+.dg-ps-badge-warn  { background: rgba(245,166,35,0.15); color: #F5A623; }
+.dg-ps-badge-error { background: rgba(255,107,107,0.15); color: #FF6B6B; }
+.dg-ps-badge-info  { background: rgba(32,197,181,0.15); color: #20C5B5; }
+
+/* Skeleton shimmer */
+.dg-ps-skel-line {
+  height: 10px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 5px;
+  margin-top: 6px;
+}
+.dg-ps-skel-line.long  { width: 75%; }
+.dg-ps-skel-line.med   { width: 55%; }
+.dg-ps-skel-line.short { width: 40%; }
+
+@keyframes dg-pulse-shimmer {
+  0%   { opacity: 0.5; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* Footer CTAs */
+.dg-ps-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.dg-ps-cta {
+  flex: 1;
+  padding: 10px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: var(--text, #e8e8e8);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.dg-ps-cta:hover  { background: rgba(255,255,255,0.1); }
+.dg-ps-cta:active { transform: scale(0.97); }
+.dg-ps-cta-primary {
+  background: var(--primary, #20C5B5);
+  border-color: var(--primary, #20C5B5);
+  color: #0D0E10;
+}
+.dg-ps-cta-primary:hover { background: #1db5a5; border-color: #1db5a5; }
+
+/* ============================================================
+   APPLE HIG GLOBAL MOTION SYSTEM
+   Spring physics for every panel, sheet, modal, and tooltip.
+   Follows HIG: purposeful, brief, directional.
+   ============================================================ */
+
+/* Spring open for any drawer/panel */
+@keyframes dg-spring-in-up {
+  0%   { opacity: 0; transform: translateY(12px) scale(0.98); }
+  60%  { opacity: 1; transform: translateY(-3px) scale(1.002); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dg-spring-in-right {
+  0%   { opacity: 0; transform: translateX(-12px); }
+  60%  { opacity: 1; transform: translateX(3px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* Apply spring-in to panels and cards that appear dynamically */
+.dg-ps-finding:not(.skeleton),
+.sidebar-panel-content > *,
+.dash-kpi-card,
+.finding-card,
+.proof-step-card,
+.prescription-card,
+.narrative-section {
+  animation: dg-spring-in-up 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* HIG: interactive elements must give immediate feedback */
+button:active:not(.dg-ps-cta),
+.nav-btn:active,
+.tool-pill:active,
+.sidebar-nav-item:active {
+  transform: scale(0.96);
+  transition: transform 0.08s ease;
+}
+
+/* HIG: focus rings visible, high contrast (accessibility) */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary, #20C5B5);
+  outline-offset: 2px;
+}
+
+/* Smooth scroll everywhere */
+html { scroll-behavior: smooth; }
+
+/* HIG: reduce motion for users who asked for it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  .dg-pulse-sheet,
+  .dg-ps-finding,
+  .dg-ps-score-block {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+/* ============================================================
+   PWA INSTALL BAR -- Apple-style invite, never interrupt
+   ============================================================ */
+#dg-pwa-install-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9997;
+  background: rgba(19, 21, 25, 0.95);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+.dg-pwa-icon { font-size: 20px; flex-shrink: 0; }
+.dg-pwa-text {
+  flex: 1;
+  font-size: 13px;
+  color: rgba(255,255,255,0.75);
+  line-height: 1.35;
+}
+.dg-pwa-text strong { color: #e8e8e8; }
+.dg-pwa-btn {
+  background: var(--primary, #20C5B5);
+  color: #0D0E10;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.1s ease;
+  letter-spacing: 0.01em;
+}
+.dg-pwa-btn:hover  { background: #1db5a5; }
+.dg-pwa-btn:active { transform: scale(0.96); }
+.dg-pwa-dismiss {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.dg-pwa-dismiss:hover { color: rgba(255,255,255,0.7); }
+
