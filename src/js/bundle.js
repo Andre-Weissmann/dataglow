@@ -10758,6 +10758,11 @@ var InstantInsight = (function () {
 
 
   var FEATURE_FLAGS = {
+    federatedQualityScore: true,
+    flagTiers: true,
+    roleContext: true,
+    gateExporter: true,
+    airGapCert: true,
     gemmaReflex: true,
     chronosForecast: true,
     whisperVoice: true,
@@ -78623,4 +78628,575 @@ var PortfolioExport = (function () {
 
 })();
 /* ---- end js/ai/whisper-engine.js ---- */
+
+/* ================================================================
+   SESSION C: Surface Layer Fixes + Federated Quality Score
+   flag-tiers.js + ethics-escape.js + federated-quality-score.js
+================================================================ */
+/* ---- from js/ux/flag-tiers.js ---- */
+/* ================================================================
+   DataGlow Flag Tiers -- Progressive Disclosure for Feature Flags
+   Feature flag: window.FEATURE_FLAGS.flagTiers
+
+   101 flags all set to true = every feature visible simultaneously.
+   Jobs principle: show only what is relevant to the analyst's
+   current context. Complexity is revealed, not dumped.
+
+   TIER 0 -- Always visible (first screen, no data loaded)
+     Core analysis tools. Minimal. Purposeful.
+
+   TIER 1 -- Unlocked when first dataset loads
+     All analysis, validation, AI tools.
+
+   TIER 2 -- Unlocked at Pulse score >= 70
+     Advanced features requiring clean-enough data.
+
+   TIER 3 -- Unlocked at Pulse score >= 90 (Dashboard gate)
+     Governance exports, provenance, IRB-grade features.
+
+   Implementation:
+     - CSS: [data-flag-tier="N"] hidden unless body has .tier-N-unlocked
+     - JS: listens to dataglow:dataset-loaded and dataglow:pulse-scored
+     - No features are removed -- only their UI visibility changes
+     - Analyst can always unlock all tiers manually in Feature Settings
+================================================================ */
+(function () {
+  'use strict';
+
+  /* Guard */
+  if (!window.FEATURE_FLAGS || !window.FEATURE_FLAGS.flagTiers) return;
+
+  /* ---- Tier definitions ---- */
+  var TIERS = {
+    /* Tier 0: always on. The minimal viable DataGlow. */
+    0: [
+      'nlSql', 'questionPrompter', 'peerReview',
+      'anomalyDetection', 'exportEngine',
+      'purposeContracts', 'biasPreflight',
+      'whisperVoice', 'gemmaReflex'
+    ],
+
+    /* Tier 1: unlocked on first dataset load */
+    1: [
+      'chronosForecast', 'polyglotWorkbench', 'dataVersionControl',
+      'crucibleValidator', 'crucibleValidatorUI',
+      'relationalValidators', 'foreignKeyChecker', 'joinCoverageChecker',
+      'temporalOrderChecker', 'flagConsistencyChecker',
+      'missingnessDetective', 'upperBoundSanity', 'categoricalConsistency',
+      'domainPhysics', 'healthStandards', 'rulepacks',
+      'imputation', 'formatFingerprint', 'selfLearningRules',
+      'adaptivePriority', 'queryMemory', 'memoryStore',
+      'glowCanvas', 'psiHandshake', 'qrTransport',
+      'microLessons', 'drillFloor', 'nutritionBadges',
+      'trustStrip', 'proofExport', 'provenancePacket',
+      'metricStudio', 'roleContext'
+    ],
+
+    /* Tier 2: unlocked at Pulse >= 70 */
+    2: [
+      'aiCouncil', 'semanticLayer', 'semanticDriftWatchdog',
+      'timeMachine', 'digitalTwin', 'syntheticTwin', 'syntheticAdversarial',
+      'equityStratification', 'statisticalRigor', 'devilsAdvocate',
+      'robustnessVerdict', 'goldenSignals', 'calibratedGrades',
+      'problemFramer', 'costOfBadData', 'analysisContract',
+      'spcControl', 'isolationForest', 'anomalyDetection',
+      'guardedCopilot', 'narrativeStory', 'narrativeOverconfidenceGuard',
+      'portfolioNarrativeAssembler', 'meetingScribe',
+      'objectSpace', 'glowOrb', 'glowPathRail',
+      'trustCertificate', 'trustBeam', 'verifiableCheckSeal',
+      'phiPromptGuard', 'querySentinel', 'querySentinelAssist',
+      'privacyBudget', 'deidentificationVerifier',
+      'sqlDialectAdapter', 'communityPack'
+    ],
+
+    /* Tier 3: unlocked at Pulse >= 90 (Dashboard gate) */
+    3: [
+      'irbMode', 'zkThresholdProof', 'analysisFingerprint',
+      'trainingPassport', 'syntheticDataPassport',
+      'gateExporter', 'airGapCert', 'federatedQualityScore',
+      'incidentPostmortem', 'denialRootCause',
+      'drgIcdValidator', 'ncciValidator',
+      'dataDiplomacy', 'sourceConvergence',
+      'dataglowRooms', 'natsConnector', 'tauriConnector',
+      'crucibleOrchestration', 'crucibleRevertProposals',
+      'meetingScribeLiveCapture', 'meetingDecisionLedger',
+      'aiTouchLedger', 'agentGate', 'uncertaintyResolver',
+      'onDeviceLLM'
+    ]
+  };
+
+  /* Reverse map: flag name -> tier number */
+  var FLAG_TIER_MAP = {};
+  Object.keys(TIERS).forEach(function (tier) {
+    TIERS[tier].forEach(function (flag) {
+      FLAG_TIER_MAP[flag] = parseInt(tier, 10);
+    });
+  });
+
+  /* Current unlocked tier level (0 = only tier 0 visible) */
+  var _unlockedTier = 0;
+
+  /* ---- Body class management ---- */
+  function applyTierClasses(tier) {
+    _unlockedTier = tier;
+    for (var t = 0; t <= 3; t++) {
+      if (t <= tier) {
+        document.body.classList.add('tier-' + t + '-unlocked');
+      } else {
+        document.body.classList.remove('tier-' + t + '-unlocked');
+      }
+    }
+    /* Also fire a custom event so other systems can react */
+    document.dispatchEvent(new CustomEvent('dataglow:tier-changed', {
+      detail: { tier: tier }
+    }));
+  }
+
+  /* ---- Annotate sidebar + panel items with their tier ---- */
+  /*
+   * Any DOM element with data-feature="flagName" gets data-flag-tier="N"
+   * added automatically. CSS then handles show/hide.
+   * This runs once on DOMContentLoaded and again after any dynamic render.
+   */
+  function annotateTiers() {
+    document.querySelectorAll('[data-feature]').forEach(function (el) {
+      var flag = el.getAttribute('data-feature');
+      var tier = FLAG_TIER_MAP[flag];
+      if (tier !== undefined) {
+        el.setAttribute('data-flag-tier', tier);
+      }
+    });
+
+    /* Also annotate sidebar nav items by their tool name */
+    var TOOL_TIER_MAP = {
+      'sql':         0,
+      'python':      0,
+      'r':           1,
+      'excel':       1,
+      'validate':    0,
+      'review':      0,
+      'witness':     1,
+      'dashboard':   3,
+      'explore':     0,
+      'query':       0
+    };
+    document.querySelectorAll('[data-panel], [data-tool], .sidebar-nav-item').forEach(function (el) {
+      var tool = el.getAttribute('data-panel') || el.getAttribute('data-tool');
+      if (!tool) return;
+      var key = tool.toLowerCase().replace(/-view$/, '');
+      var tier = TOOL_TIER_MAP[key];
+      if (tier !== undefined && !el.hasAttribute('data-flag-tier')) {
+        el.setAttribute('data-flag-tier', tier);
+      }
+    });
+  }
+
+  /* ---- Event listeners ---- */
+  document.addEventListener('dataglow:dataset-loaded', function () {
+    if (_unlockedTier < 1) applyTierClasses(1);
+    /* Re-annotate in case sidebar was rendered after init */
+    setTimeout(annotateTiers, 200);
+  });
+
+  document.addEventListener('dataglow:pulse-scored', function (e) {
+    var score = e.detail && e.detail.score;
+    if (score === undefined || score === null) return;
+    var newTier = _unlockedTier;
+    if (score >= 90) newTier = 3;
+    else if (score >= 70) newTier = 2;
+    else newTier = 1; /* already past tier 0 since data is loaded */
+    if (newTier > _unlockedTier) applyTierClasses(newTier);
+  });
+
+  /* Manual override from Feature Settings -- unlock all tiers */
+  document.addEventListener('dataglow:unlock-all-tiers', function () {
+    applyTierClasses(3);
+  });
+
+  /* ---- Init ---- */
+  function init() {
+    /* Start at tier 0 */
+    applyTierClasses(0);
+    annotateTiers();
+
+    /* Observe DOM mutations to annotate newly rendered elements */
+    if (window.MutationObserver) {
+      var obs = new MutationObserver(function (mutations) {
+        var needsAnnotation = mutations.some(function (m) {
+          return m.addedNodes.length > 0;
+        });
+        if (needsAnnotation) annotateTiers();
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+    }
+
+    /* Expose for Feature Settings panel */
+    window.FlagTiers = {
+      getCurrentTier: function () { return _unlockedTier; },
+      unlockTier: applyTierClasses,
+      unlockAll: function () { applyTierClasses(3); },
+      getTierForFlag: function (flag) { return FLAG_TIER_MAP[flag]; },
+      TIERS: TIERS
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/ux/flag-tiers.js ---- */
+
+/* ---- from js/ux/ethics-escape.js ---- */
+/* ================================================================
+   DataGlow Ethics Escape Hatch (Session C, PR #531)
+   Steve Jobs audit: "Forgiveness Concern" -- no visible escape path
+   from Purpose Contracts, Bias Preflight ethics flows.
+
+   Fix:
+   - Every ethics overlay/panel gets an X close button (top-right)
+   - Every ethics overlay/panel gets a "Skip for now" link (bottom-left)
+   - Skipping adds a subtle "Governance skipped" badge to the proof chain
+   - Close/skip always returns analyst to where they were
+
+   Selectors targeted:
+     #purpose-contract-overlay, #purpose-contract-panel,
+     #bias-preflight-overlay, #bias-preflight-panel,
+     #training-passport-panel, #irb-mode-panel,
+     .ethics-layer-panel, .governance-overlay
+================================================================ */
+(function () {
+  'use strict';
+
+  var ETHICS_SELECTORS = [
+    '#purpose-contract-overlay',
+    '#purpose-contract-panel',
+    '#bias-preflight-overlay',
+    '#bias-preflight-panel',
+    '#training-passport-panel',
+    '#irb-mode-panel',
+    '.ethics-layer-panel',
+    '.governance-overlay',
+    '[data-ethics-panel]'
+  ];
+
+  var SKIPPED_PANELS = {};
+
+  /* ---- Add escape controls to a panel ---- */
+  function addEscapeControls(panel) {
+    if (panel.dataset.escapeAdded) return;
+    panel.dataset.escapeAdded = '1';
+
+    /* X close button */
+    var xBtn = document.createElement('button');
+    xBtn.className = 'dg-ethics-close';
+    xBtn.setAttribute('aria-label', 'Close');
+    xBtn.setAttribute('data-testid', 'button-ethics-close');
+    xBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>';
+    xBtn.addEventListener('click', function () { closePanel(panel, false); });
+
+    /* Skip for now link */
+    var skipLink = document.createElement('button');
+    skipLink.className = 'dg-ethics-skip';
+    skipLink.setAttribute('data-testid', 'button-ethics-skip');
+    skipLink.textContent = 'Skip for now';
+    skipLink.addEventListener('click', function () { closePanel(panel, true); });
+
+    panel.style.position = panel.style.position || 'relative';
+    panel.appendChild(xBtn);
+    panel.appendChild(skipLink);
+  }
+
+  /* ---- Close/skip a panel ---- */
+  function closePanel(panel, skipped) {
+    var panelId = panel.id || panel.className.split(' ')[0];
+
+    if (skipped) {
+      SKIPPED_PANELS[panelId] = Date.now();
+      addSkippedBadge(panelId);
+    }
+
+    /* Hide the panel */
+    panel.classList.add('hidden');
+    panel.classList.remove('open');
+    panel.style.display = 'none';
+
+    /* Restore focus to the element that was focused before the overlay */
+    if (panel._previousFocus && typeof panel._previousFocus.focus === 'function') {
+      panel._previousFocus.focus();
+    }
+
+    document.dispatchEvent(new CustomEvent('dataglow:ethics-closed', {
+      detail: { panelId: panelId, skipped: skipped }
+    }));
+  }
+
+  /* ---- Add a "Governance skipped" badge to the proof chain ---- */
+  function addSkippedBadge(panelId) {
+    /* Try to find the proof rail or trust strip */
+    var proofRail = document.querySelector(
+      '#dg-proof-rail, .proof-rail, #trust-strip, .dg-trust-strip'
+    );
+    if (!proofRail) return;
+
+    var badge = document.createElement('span');
+    badge.className = 'dg-skipped-badge';
+    badge.title = 'Governance step skipped: ' + panelId;
+    badge.textContent = 'Governance skipped';
+    badge.setAttribute('data-testid', 'badge-governance-skipped');
+    proofRail.appendChild(badge);
+  }
+
+  /* ---- Intercept panel open events to record previous focus ---- */
+  function onPanelOpen(panel) {
+    panel._previousFocus = document.activeElement;
+    addEscapeControls(panel);
+  }
+
+  /* ---- MutationObserver: catch panels that render dynamically ---- */
+  function scanForEthicsPanels() {
+    ETHICS_SELECTORS.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (el) {
+        /* Only add to visible panels */
+        var isVisible = el.offsetParent !== null || el.style.display === 'flex';
+        if (isVisible) {
+          onPanelOpen(el);
+        } else {
+          /* Add controls preemptively for panels that are display:none */
+          addEscapeControls(el);
+        }
+      });
+    });
+  }
+
+  /* ---- Escape key support ---- */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    ETHICS_SELECTORS.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (el) {
+        var isVisible = el.offsetParent !== null ||
+          (el.style.display && el.style.display !== 'none');
+        if (isVisible) closePanel(el, false);
+      });
+    });
+  });
+
+  /* ---- Init ---- */
+  function init() {
+    scanForEthicsPanels();
+
+    if (window.MutationObserver) {
+      var obs = new MutationObserver(function (mutations) {
+        var changed = mutations.some(function (m) {
+          return m.addedNodes.length > 0 ||
+            (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'style'));
+        });
+        if (changed) scanForEthicsPanels();
+      });
+      obs.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style']
+      });
+    }
+
+    window.EthicsEscape = {
+      getSkippedPanels: function () { return Object.assign({}, SKIPPED_PANELS); },
+      hasSkipped: function () { return Object.keys(SKIPPED_PANELS).length > 0; }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/ux/ethics-escape.js ---- */
+
+/* ---- from js/analytics/federated-quality-score.js ---- */
+/* ================================================================
+   DataGlow Federated Quality Score (Session C, PR #533)
+   Feature flag: window.FEATURE_FLAGS.federatedQualityScore
+
+   Composite 0-100 readiness score shown as a ring in the top nav.
+   Aggregates: Pulse (40%) + Bias Preflight (25%) + Peer Review (20%)
+               + Training Passport (15%)
+
+   Ring color: < 50 = red, 50-69 = amber, 70-89 = teal, 90+ = green.
+   Tapping opens a breakdown panel.
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'federatedQualityScore';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var _scores = { pulse: null, bias: null, peer: null, passport: null };
+  var WEIGHTS = { pulse: 0.40, bias: 0.25, peer: 0.20, passport: 0.15 };
+  var LABELS  = { pulse: 'Pulse', bias: 'Bias Check', peer: 'Peer Review', passport: 'Passport' };
+
+  var RING_R = 14;
+  var RING_CIRCUM = 2 * Math.PI * RING_R;
+
+  function compute() {
+    var total = 0, used = 0;
+    Object.keys(WEIGHTS).forEach(function (k) {
+      if (_scores[k] !== null) { total += _scores[k] * WEIGHTS[k]; used += WEIGHTS[k]; }
+    });
+    return used === 0 ? null : Math.round(total / used);
+  }
+
+  function color(s) {
+    if (s === null) return 'var(--border, #252930)';
+    if (s >= 90) return '#4AE38A';
+    if (s >= 70) return 'var(--primary, #20C5B5)';
+    if (s >= 50) return '#F5A623';
+    return '#FF4B6B';
+  }
+
+  function buildRing() {
+    var btn = document.createElement('button');
+    btn.id = 'dg-fqs-ring';
+    btn.className = 'dg-fqs-ring';
+    btn.setAttribute('aria-label', 'Federated Quality Score');
+    btn.setAttribute('data-testid', 'button-fqs-ring');
+    btn.setAttribute('data-flag-tier', '3');
+    btn.title = 'Data readiness score -- tap to see breakdown';
+    btn.innerHTML = '<svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">' +
+      '<circle cx="18" cy="18" r="' + RING_R + '" fill="none" stroke="var(--border,#252930)" stroke-width="3"/>' +
+      '<circle id="dg-fqs-arc" cx="18" cy="18" r="' + RING_R + '" fill="none"' +
+      '  stroke="var(--primary,#20C5B5)" stroke-width="3"' +
+      '  stroke-dasharray="' + RING_CIRCUM + '" stroke-dashoffset="' + RING_CIRCUM + '"' +
+      '  stroke-linecap="round" transform="rotate(-90 18 18)"' +
+      '  style="transition:stroke-dashoffset 0.6s cubic-bezier(0.34,1.56,0.64,1),stroke 0.3s ease"/>' +
+      '<text id="dg-fqs-text" x="18" y="22" text-anchor="middle"' +
+      '  font-size="9" font-family="Geist Mono,monospace" fill="var(--text-muted)">--</text>' +
+      '</svg>';
+    btn.addEventListener('click', togglePanel);
+    return btn;
+  }
+
+  function updateRing(score) {
+    var arc = document.getElementById('dg-fqs-arc');
+    var txt = document.getElementById('dg-fqs-text');
+    if (!arc || !txt) return;
+    if (score === null) {
+      arc.style.strokeDashoffset = RING_CIRCUM;
+      txt.textContent = '--';
+      arc.style.stroke = 'var(--border,#252930)';
+    } else {
+      arc.style.strokeDashoffset = RING_CIRCUM * (1 - score / 100);
+      arc.style.stroke = color(score);
+      txt.textContent = score;
+      txt.style.fill = color(score);
+    }
+  }
+
+  function togglePanel() {
+    var existing = document.getElementById('dg-fqs-panel');
+    if (existing) { existing.parentNode.removeChild(existing); return; }
+    var score = compute();
+    var panel = document.createElement('div');
+    panel.id = 'dg-fqs-panel';
+    panel.className = 'dg-fqs-panel';
+    var rows = Object.keys(LABELS).map(function (k) {
+      var s = _scores[k];
+      return '<div class="dg-fqs-row">' +
+        '<span class="dg-fqs-rl">' + LABELS[k] + '</span>' +
+        '<div class="dg-fqs-track"><div class="dg-fqs-bar" style="width:' + (s || 0) + '%;background:' + color(s) + '"></div></div>' +
+        '<span class="dg-fqs-rs" style="color:' + color(s) + '">' + (s !== null ? s : '--') + '</span>' +
+        '</div>';
+    }).join('');
+    panel.innerHTML = '<div class="dg-fqs-header"><span>Quality Score</span>' +
+      '<span style="color:' + color(score) + ';font-weight:700">' + (score !== null ? score : '--') + '</span></div>' +
+      rows +
+      '<p class="dg-fqs-note">Weighted: Pulse 40% + Bias 25% + Peer Review 20% + Passport 15%</p>';
+    var ring = document.getElementById('dg-fqs-ring');
+    if (ring) {
+      var rect = ring.getBoundingClientRect();
+      panel.style.cssText = 'position:fixed;top:' + (rect.bottom + 8) + 'px;right:' + (window.innerWidth - rect.right) + 'px;z-index:19000';
+    }
+    document.body.appendChild(panel);
+    setTimeout(function () {
+      document.addEventListener('click', function close(e) {
+        if (!panel.contains(e.target) && e.target.id !== 'dg-fqs-ring') {
+          if (panel.parentNode) panel.parentNode.removeChild(panel);
+          document.removeEventListener('click', close);
+        }
+      });
+    }, 10);
+  }
+
+  function injectRing() {
+    if (document.getElementById('dg-fqs-ring')) return;
+    var ring = buildRing();
+    var container = document.querySelector('#nav-right, .nav-right, #top-nav, .top-nav, nav');
+    if (container) container.insertBefore(ring, container.firstChild);
+    else {
+      ring.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top)+8px);right:16px;z-index:9000';
+      document.body.appendChild(ring);
+    }
+  }
+
+  function broadcast() {
+    var score = compute();
+    updateRing(score);
+    document.dispatchEvent(new CustomEvent('dataglow:fqs-updated', {
+      detail: { score: score, breakdown: Object.assign({}, _scores) }
+    }));
+    if (score !== null) {
+      document.dispatchEvent(new CustomEvent('dataglow:pulse-scored', {
+        detail: { score: score, source: 'fqs' }
+      }));
+    }
+  }
+
+  function init() {
+    if (!isEnabled()) return;
+
+    document.addEventListener('dataglow:pulse-scored', function (e) {
+      if (e.detail && e.detail.source === 'fqs') return;
+      if (e.detail && e.detail.score !== undefined) { _scores.pulse = e.detail.score; broadcast(); }
+    });
+    document.addEventListener('dataglow:bias-preflight-complete', function (e) {
+      if (e.detail && e.detail.score !== undefined) { _scores.bias = e.detail.score; broadcast(); }
+    });
+    document.addEventListener('dataglow:peer-review-complete', function (e) {
+      if (e.detail && e.detail.score !== undefined) {
+        _scores.peer = e.detail.score;
+      } else if (e.detail && e.detail.passed !== undefined) {
+        _scores.peer = e.detail.passed ? 85 : 40;
+      }
+      broadcast();
+    });
+    document.addEventListener('dataglow:training-passport-complete', function (e) {
+      if (e.detail && e.detail.completeness !== undefined) { _scores.passport = e.detail.completeness; broadcast(); }
+    });
+    document.addEventListener('dataglow:dataset-loaded', function () {
+      Object.keys(_scores).forEach(function (k) { if (_scores[k] === null) _scores[k] = 0; });
+      injectRing();
+      broadcast();
+    });
+
+    window.FederatedQualityScore = {
+      compute: compute,
+      getBreakdown: function () { return Object.assign({}, _scores); },
+      update: function (key, score) { if (_scores.hasOwnProperty(key)) { _scores[key] = score; broadcast(); } }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/analytics/federated-quality-score.js ---- */
+
 
