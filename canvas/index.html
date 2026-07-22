@@ -8816,6 +8816,216 @@ body.has-data #drop-zone-hint { display: none; }
 ================================================================ */
 #welcome-brief-overlay { display: none !important; }
 /* ================================================================ */
+
+/* ================================================================
+   Session B -- On-Device AI Engine UI
+   Model download bar, forecast controls, mic button + waveform
+================================================================ */
+
+/* ---- Model download progress bar ---- */
+#dg-model-dl-bar {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom) + 70px);
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 20px;
+  width: min(420px, calc(100vw - 40px));
+  z-index: 10000;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  opacity: 0;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+}
+
+#dg-model-dl-bar.dg-dl-visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.dg-dl-inner { display: flex; flex-direction: column; gap: 8px; }
+
+.dg-dl-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #CDCCCA);
+  font-family: 'Geist Mono', monospace;
+}
+
+.dg-dl-size { color: var(--text-muted); font-weight: 400; }
+
+.dg-dl-track {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.dg-dl-fill {
+  height: 100%;
+  background: var(--primary, #20C5B5);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.dg-dl-pct {
+  font-size: 11px;
+  color: var(--primary, #20C5B5);
+  font-family: 'Geist Mono', monospace;
+  text-align: right;
+}
+
+.dg-dl-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Geist Mono', monospace;
+}
+
+/* ---- Chronos forecast controls ---- */
+.dg-forecast-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.dg-forecast-btn {
+  padding: 6px 14px;
+  background: var(--primary, #20C5B5);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+  font-family: 'Geist Mono', monospace;
+  letter-spacing: 0.03em;
+}
+
+.dg-forecast-btn:hover { background: #1aada0; }
+.dg-forecast-btn:active { transform: scale(0.96); }
+
+.dg-forecast-horizon {
+  padding: 5px 10px;
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  cursor: pointer;
+}
+
+.dg-chart-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(13,14,16,0.85);
+  color: var(--primary, #20C5B5);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.dg-forecast-narrative {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+  line-height: 1.5;
+  font-style: italic;
+  font-family: 'Geist Mono', monospace;
+  border-left: 2px solid var(--primary, #20C5B5);
+  padding-left: 10px;
+}
+
+/* ---- Whisper mic button ---- */
+.dg-mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--border, #252930);
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dg-mic-btn:hover {
+  border-color: var(--primary, #20C5B5);
+  color: var(--primary, #20C5B5);
+}
+
+.dg-mic-btn.dg-mic-active {
+  border-color: #FF4B6B;
+  background: rgba(255, 75, 107, 0.08);
+  color: #FF4B6B;
+  animation: dg-mic-pulse 1.2s ease infinite;
+}
+
+.dg-mic-btn.dg-mic-loading {
+  border-color: var(--primary, #20C5B5);
+  color: var(--primary, #20C5B5);
+  opacity: 0.6;
+}
+
+@keyframes dg-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,75,107,0); }
+  50%       { box-shadow: 0 0 0 6px rgba(255,75,107,0.18); }
+}
+
+/* Waveform bars (visible only while active) */
+.dg-mic-wave {
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.dg-mic-btn.dg-mic-active .dg-mic-wave {
+  display: inline-flex;
+}
+
+.dg-mic-btn.dg-mic-active svg {
+  display: none;
+}
+
+.dg-mic-wave span {
+  display: block;
+  width: 3px;
+  background: #FF4B6B;
+  border-radius: 2px;
+  animation: dg-wave 0.8s ease-in-out infinite;
+}
+
+.dg-mic-wave span:nth-child(1) { height: 6px;  animation-delay: 0s; }
+.dg-mic-wave span:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+.dg-mic-wave span:nth-child(3) { height: 8px;  animation-delay: 0.3s; }
+
+@keyframes dg-wave {
+  0%, 100% { transform: scaleY(1);   }
+  50%       { transform: scaleY(1.8); }
+}
+
+/* ================================================================ */
   </style>
 
 </head>
@@ -20712,6 +20922,9 @@ var InstantInsight = (function () {
 
 
   var FEATURE_FLAGS = {
+    gemmaReflex: true,
+    chronosForecast: true,
+    whisperVoice: true,
     proofExport: true,
     dataglowRooms: true,
     natsConnector: true,
@@ -87176,6 +87389,1405 @@ var PortfolioExport = (function () {
 }());
 
 /* ---- end portfolio-export.js ---- */
+
+/* ================================================================
+   SESSION B: On-Device AI Engines
+   model-loader.js + gemma-engine.js + chronos-engine.js + whisper-engine.js
+================================================================ */
+/* ---- from js/ai/model-loader.js ---- */
+/* ================================================================
+   DataGlow Model Loader -- Shared OPFS-cached ONNX weight loader
+   All three Session B engines (Gemma3, Chronos-2, Whisper) use this.
+
+   API:
+     ModelLoader.load(config) => Promise<{ session, tokenizer? }>
+     ModelLoader.isCached(modelId) => Promise<boolean>
+     ModelLoader.getProgress(modelId) => 0-100
+     ModelLoader.release(modelId)
+     ModelLoader.warnCellular(modelId, sizeMB) => Promise<boolean>  // true = ok to proceed
+
+   Events fired on document:
+     dataglow:model-download-progress  { detail: { modelId, progress, sizeMB } }
+     dataglow:model-ready              { detail: { modelId } }
+     dataglow:model-error              { detail: { modelId, error } }
+================================================================ */
+(function () {
+  'use strict';
+
+  /* Registry of in-progress or completed loads to avoid double-loading */
+  var _sessions = {};    /* modelId -> { status: 'loading'|'ready'|'error', session, progress } */
+  var _promises = {};    /* modelId -> Promise */
+
+  /* OPFS root handle (populated on first use) */
+  var _opfsRoot = null;
+
+  /* Hugging Face CDN base -- no trailing slash */
+  var HF_BASE = 'https://huggingface.co';
+
+  /* ---- OPFS helpers ---- */
+  function getOpfsRoot() {
+    if (_opfsRoot) return Promise.resolve(_opfsRoot);
+    if (!navigator.storage || !navigator.storage.getDirectory) {
+      return Promise.reject(new Error('OPFS not available in this browser'));
+    }
+    return navigator.storage.getDirectory().then(function (root) {
+      _opfsRoot = root;
+      return root;
+    });
+  }
+
+  function opfsRead(filename) {
+    return getOpfsRoot().then(function (root) {
+      return root.getFileHandle(filename).then(function (fh) {
+        return fh.getFile();
+      }).then(function (file) {
+        return file.arrayBuffer();
+      });
+    });
+  }
+
+  function opfsWrite(filename, buffer) {
+    return getOpfsRoot().then(function (root) {
+      return root.getFileHandle(filename, { create: true }).then(function (fh) {
+        return fh.createWritable();
+      }).then(function (writable) {
+        return writable.write(buffer).then(function () {
+          return writable.close();
+        });
+      });
+    });
+  }
+
+  function opfsExists(filename) {
+    return getOpfsRoot().then(function (root) {
+      return root.getFileHandle(filename).then(function () {
+        return true;
+      }).catch(function () {
+        return false;
+      });
+    });
+  }
+
+  /* ---- Cellular warning ---- */
+  function warnCellular(modelId, sizeMB) {
+    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    var isCellular = conn && (conn.type === 'cellular' || (conn.effectiveType && conn.effectiveType !== 'wifi'));
+    if (!isCellular) return Promise.resolve(true);
+    return new Promise(function (resolve) {
+      if (typeof window.showToast === 'function') {
+        /* Non-blocking toast -- analyst must tap to confirm */
+        window.showToast(
+          'Downloading ' + modelId + ' (' + sizeMB + ' MB) over cellular. Tap to confirm.',
+          'warn',
+          0 /* no auto-dismiss */,
+          function () { resolve(true); },
+          function () { resolve(false); }
+        );
+      } else {
+        /* Fallback: proceed without warning */
+        resolve(true);
+      }
+    });
+  }
+
+  /* ---- Core loader ---- */
+  /*
+   * config = {
+   *   modelId: string,          -- unique cache key, e.g. 'whisper-tiny'
+   *   files: [                  -- list of files to fetch and cache
+   *     { url: string, cacheAs: string }
+   *   ],
+   *   sizeMB: number,           -- total download size (for cellular warning)
+   *   onProgress: fn(pct)       -- optional progress callback
+   * }
+   * Returns Promise<{ buffers: { [cacheAs]: ArrayBuffer } }>
+   */
+  function load(config) {
+    var modelId = config.modelId;
+    if (_promises[modelId]) return _promises[modelId];
+
+    _sessions[modelId] = { status: 'loading', progress: 0 };
+
+    _promises[modelId] = warnCellular(modelId, config.sizeMB).then(function (ok) {
+      if (!ok) {
+        _sessions[modelId].status = 'error';
+        throw new Error('Download cancelled by analyst (cellular)');
+      }
+
+      /* Check OPFS cache for all files */
+      var cacheChecks = config.files.map(function (f) {
+        return opfsExists(f.cacheAs).then(function (exists) {
+          return { file: f, cached: exists };
+        });
+      });
+
+      return Promise.all(cacheChecks).then(function (results) {
+        var toFetch = results.filter(function (r) { return !r.cached; });
+        var cached  = results.filter(function (r) { return r.cached;  });
+
+        /* Load cached files directly */
+        var cachedLoads = cached.map(function (r) {
+          return opfsRead(r.file.cacheAs).then(function (buf) {
+            return { cacheAs: r.file.cacheAs, buffer: buf };
+          });
+        });
+
+        /* Fetch uncached files with streaming progress */
+        var totalBytes = 0;
+        var loadedBytes = 0;
+
+        var fetchLoads = toFetch.map(function (r) {
+          return fetch(r.file.url).then(function (resp) {
+            if (!resp.ok) throw new Error('Failed to fetch ' + r.file.url + ': ' + resp.status);
+            var contentLength = parseInt(resp.headers.get('content-length') || '0', 10);
+            totalBytes += contentLength;
+
+            /* Stream with progress */
+            var reader = resp.body.getReader();
+            var chunks = [];
+            function pump() {
+              return reader.read().then(function (res) {
+                if (res.done) {
+                  var blob = new Uint8Array(chunks.reduce(function (acc, c) { return acc + c.length; }, 0));
+                  var offset = 0;
+                  chunks.forEach(function (c) { blob.set(c, offset); offset += c.length; });
+                  return blob.buffer;
+                }
+                chunks.push(res.value);
+                loadedBytes += res.value.length;
+                var overallPct = totalBytes > 0 ? Math.round(loadedBytes / totalBytes * 100) : 0;
+                _sessions[modelId].progress = overallPct;
+                if (config.onProgress) config.onProgress(overallPct);
+                document.dispatchEvent(new CustomEvent('dataglow:model-download-progress', {
+                  detail: { modelId: modelId, progress: overallPct, sizeMB: config.sizeMB }
+                }));
+                return pump();
+              });
+            }
+            return pump().then(function (buffer) {
+              return opfsWrite(r.file.cacheAs, buffer).then(function () {
+                return { cacheAs: r.file.cacheAs, buffer: buffer };
+              });
+            });
+          });
+        });
+
+        return Promise.all(cachedLoads.concat(fetchLoads)).then(function (results) {
+          var buffers = {};
+          results.forEach(function (r) { buffers[r.cacheAs] = r.buffer; });
+          _sessions[modelId].status = 'ready';
+          _sessions[modelId].progress = 100;
+          document.dispatchEvent(new CustomEvent('dataglow:model-ready', { detail: { modelId: modelId } }));
+          return { buffers: buffers };
+        });
+      });
+    }).catch(function (err) {
+      _sessions[modelId].status = 'error';
+      _sessions[modelId].error = err;
+      delete _promises[modelId]; /* allow retry */
+      document.dispatchEvent(new CustomEvent('dataglow:model-error', {
+        detail: { modelId: modelId, error: err.message }
+      }));
+      throw err;
+    });
+
+    return _promises[modelId];
+  }
+
+  function isCached(modelId, config) {
+    /* config.files must be provided to check all files */
+    if (!config || !config.files) return Promise.resolve(false);
+    return Promise.all(config.files.map(function (f) { return opfsExists(f.cacheAs); }))
+      .then(function (results) { return results.every(Boolean); });
+  }
+
+  function getProgress(modelId) {
+    return (_sessions[modelId] && _sessions[modelId].progress) || 0;
+  }
+
+  function release(modelId) {
+    delete _sessions[modelId];
+    delete _promises[modelId];
+  }
+
+  /* ---- Download progress UI ---- */
+  /*
+   * Call this to show the floating "Downloading model..." bar.
+   * Auto-dismissed when dataglow:model-ready fires for modelId.
+   */
+  function showDownloadBar(modelId, label, sizeMB) {
+    var existing = document.getElementById('dg-model-dl-bar');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var bar = document.createElement('div');
+    bar.id = 'dg-model-dl-bar';
+    bar.innerHTML = [
+      '<div class="dg-dl-inner">',
+      '  <span class="dg-dl-label">' + label + ' <span class="dg-dl-size">(' + sizeMB + ' MB)</span></span>',
+      '  <div class="dg-dl-track"><div id="dg-dl-fill" class="dg-dl-fill" style="width:0%"></div></div>',
+      '  <span id="dg-dl-pct" class="dg-dl-pct">0%</span>',
+      '  <span class="dg-dl-note">Downloading once -- cached locally after this</span>',
+      '</div>'
+    ].join('');
+    document.body.appendChild(bar);
+    requestAnimationFrame(function () { bar.classList.add('dg-dl-visible'); });
+
+    function onProgress(e) {
+      if (e.detail.modelId !== modelId) return;
+      var pct = e.detail.progress;
+      var fill = document.getElementById('dg-dl-fill');
+      var pctEl = document.getElementById('dg-dl-pct');
+      if (fill) fill.style.width = pct + '%';
+      if (pctEl) pctEl.textContent = pct + '%';
+    }
+    function onReady(e) {
+      if (e.detail.modelId !== modelId) return;
+      document.removeEventListener('dataglow:model-download-progress', onProgress);
+      document.removeEventListener('dataglow:model-ready', onReady);
+      bar.classList.remove('dg-dl-visible');
+      setTimeout(function () { if (bar.parentNode) bar.parentNode.removeChild(bar); }, 400);
+    }
+    document.addEventListener('dataglow:model-download-progress', onProgress);
+    document.addEventListener('dataglow:model-ready', onReady);
+  }
+
+  /* ---- Export ---- */
+  window.ModelLoader = {
+    load: load,
+    isCached: isCached,
+    getProgress: getProgress,
+    release: release,
+    warnCellular: warnCellular,
+    showDownloadBar: showDownloadBar
+  };
+
+})();
+/* ---- end js/ai/model-loader.js ---- */
+
+/* ---- from js/ai/gemma-engine.js ---- */
+/* ================================================================
+   DataGlow Gemma3 Engine -- Local AI Reflex (Session B)
+   Feature flag: window.FEATURE_FLAGS.gemmaReflex
+
+   Four reflexes:
+     1. Column name repair  -- fires on file load when >20% generic headers
+     2. NL-to-SQL correction -- fires when analyst edits generated SQL
+     3. Narrative draft      -- fires on dataglow:peer-review-complete
+     4. Schema inference     -- fires on JSON/XML/nested file load
+
+   Model: Gemma3-1B-IT, 4-bit quantized via @huggingface/transformers
+   Size: ~650 MB (OPFS cached after first download)
+   Runtime: Transformers.js (WebAssembly, no GPU required)
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'gemmaReflex';
+  var MODEL_ID = 'gemma3-1b';
+  var MODEL_SIZE_MB = 650;
+
+  /* Transformers.js pipeline handle -- lazy loaded */
+  var _pipeline = null;
+  var _loading = false;
+  var _loadPromise = null;
+
+  /* Reflex toggle state -- each can be disabled in Feature Settings */
+  var _reflexEnabled = {
+    columnRepair:  true,
+    nlCorrection:  true,
+    narrativeDraft: true,
+    schemaInference: true
+  };
+
+  /* ----------------------------------------------------------------
+     Model loading
+  ---------------------------------------------------------------- */
+  function isEnabled() {
+    return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]);
+  }
+
+  function loadModel() {
+    if (_loadPromise) return _loadPromise;
+    if (_loading) return _loadPromise;
+    _loading = true;
+
+    /* Show download bar if not cached */
+    if (window.ModelLoader) {
+      window.ModelLoader.showDownloadBar(
+        MODEL_ID,
+        'Downloading local AI (Gemma3)',
+        MODEL_SIZE_MB
+      );
+    }
+
+    /* Use Transformers.js from CDN -- loaded inline in bundle */
+    /* We rely on the global `transformers` object injected by the pipeline below */
+    _loadPromise = new Promise(function (resolve, reject) {
+      /* Dynamic import via esm.sh CDN -- runs in browser main thread */
+      var script = document.createElement('script');
+      script.type = 'module';
+      script.textContent = [
+        'import { pipeline, env } from "https://esm.sh/@huggingface/transformers@3.5.0";',
+        'env.allowLocalModels = false;',
+        'env.useBrowserCache = true; /* IndexedDB cache as fallback */',
+        'env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";',
+        'async function loadGemma() {',
+        '  try {',
+        '    var pipe = await pipeline(',
+        '      "text-generation",',
+        '      "onnx-community/gemma-3-1b-it-ONNX-GQA",',
+        '      { dtype: "q4", device: "wasm" }',
+        '    );',
+        '    window._dgGemmaPipeline = pipe;',
+        '    document.dispatchEvent(new CustomEvent("dataglow:gemma-ready"));',
+        '  } catch (e) {',
+        '    document.dispatchEvent(new CustomEvent("dataglow:gemma-error", { detail: { error: e.message } }));',
+        '  }',
+        '}',
+        'loadGemma();'
+      ].join('\n');
+
+      document.addEventListener('dataglow:gemma-ready', function onReady() {
+        document.removeEventListener('dataglow:gemma-ready', onReady);
+        _pipeline = window._dgGemmaPipeline;
+        _loading = false;
+        if (window.ModelLoader) {
+          document.dispatchEvent(new CustomEvent('dataglow:model-ready', { detail: { modelId: MODEL_ID } }));
+        }
+        resolve(_pipeline);
+      });
+
+      document.addEventListener('dataglow:gemma-error', function onErr(e) {
+        document.removeEventListener('dataglow:gemma-error', onErr);
+        _loading = false;
+        _loadPromise = null;
+        reject(new Error(e.detail && e.detail.error));
+      });
+
+      document.head.appendChild(script);
+    });
+
+    return _loadPromise;
+  }
+
+  /* ----------------------------------------------------------------
+     Core inference -- short, deterministic prompts only
+  ---------------------------------------------------------------- */
+  function infer(prompt, maxNewTokens) {
+    maxNewTokens = maxNewTokens || 80;
+    return loadModel().then(function (pipe) {
+      return pipe(prompt, {
+        max_new_tokens: maxNewTokens,
+        temperature: 0.1,     /* deterministic -- we want facts, not creativity */
+        do_sample: false,
+        repetition_penalty: 1.2
+      }).then(function (result) {
+        var raw = result && result[0] && result[0].generated_text || '';
+        /* Strip the prompt prefix back out */
+        var answer = raw.slice(prompt.length).trim();
+        /* Remove any trailing partial sentence */
+        var lastPeriod = Math.max(answer.lastIndexOf('.'), answer.lastIndexOf('!'), answer.lastIndexOf('?'));
+        if (lastPeriod > answer.length * 0.5) answer = answer.slice(0, lastPeriod + 1);
+        return answer;
+      });
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     REFLEX 1: Column name repair
+     Fires on dataglow:dataset-loaded when >20% of columns are generic.
+     Generic = matches /^(col_?\d+|column\d+|unnamed[_\d]*|var_?\d+|field\d*)$/i
+  ---------------------------------------------------------------- */
+  var GENERIC_PATTERN = /^(col_?\d+|column\d+|unnamed[_\d]*|var_?\d+|field\d*|f\d+)$/i;
+
+  function isGenericName(name) {
+    return GENERIC_PATTERN.test(name.trim());
+  }
+
+  function sampleValues(col, dataset, n) {
+    n = n || 5;
+    var vals = [];
+    for (var i = 0; i < Math.min(dataset.rows.length, n * 3); i++) {
+      var v = dataset.rows[i][col.index !== undefined ? col.index : dataset.columns.indexOf(col)];
+      if (v !== null && v !== undefined && String(v).trim() !== '') {
+        vals.push(String(v).trim());
+        if (vals.length >= n) break;
+      }
+    }
+    return vals;
+  }
+
+  function repairColumnNames(dataset) {
+    if (!isEnabled() || !_reflexEnabled.columnRepair) return;
+    if (!dataset || !dataset.columns) return;
+
+    var genericCols = dataset.columns.filter(function (c) { return isGenericName(c.name); });
+    var genericRatio = genericCols.length / dataset.columns.length;
+    if (genericRatio < 0.2) return; /* threshold: 20% generic */
+
+    /* Build a compact prompt for all generic columns at once */
+    var colDescriptions = genericCols.map(function (col, idx) {
+      var samples = sampleValues(col, dataset, 5);
+      return (idx + 1) + '. Current name: "' + col.name + '" | Type: ' + (col.type || 'unknown') + ' | Sample values: ' + samples.join(', ');
+    }).join('\n');
+
+    var prompt = [
+      '<start_of_turn>user',
+      'You are a data analyst. Below are columns from a CSV file with generic names. Infer the best semantic column name for each based on its data type and sample values. Respond with ONLY a numbered list matching the input. One name per line. No explanations.',
+      '',
+      colDescriptions,
+      '<end_of_turn>',
+      '<start_of_turn>model'
+    ].join('\n');
+
+    infer(prompt, 120).then(function (response) {
+      /* Parse numbered list -- "1. patient_id\n2. gender..." */
+      var lines = response.split('\n').filter(function (l) { return /^\d+\./.test(l.trim()); });
+      var suggestions = {};
+      lines.forEach(function (line, i) {
+        if (genericCols[i]) {
+          var name = line.replace(/^\d+\.\s*/, '').trim()
+            .replace(/[^a-z0-9_]/gi, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_|_$/g, '')
+            .toLowerCase();
+          if (name) suggestions[genericCols[i].name] = name;
+        }
+      });
+
+      if (Object.keys(suggestions).length === 0) return;
+
+      /* Show non-intrusive suggestion toast with accept/dismiss */
+      showColumnRepairSuggestion(suggestions, dataset);
+    }).catch(function (err) {
+      console.warn('[Gemma3] Column repair failed:', err);
+    });
+  }
+
+  function showColumnRepairSuggestion(suggestions, dataset) {
+    var count = Object.keys(suggestions).length;
+    var msg = 'AI detected ' + count + ' column name' + (count > 1 ? 's' : '') + ' to repair.';
+
+    if (typeof window.showToast === 'function') {
+      window.showToast(msg + ' Accept?', 'info', 0, function () {
+        /* Accept: apply renames */
+        applyColumnRenames(suggestions, dataset);
+      });
+    } else {
+      /* Fallback: always apply if no toast system */
+      applyColumnRenames(suggestions, dataset);
+    }
+  }
+
+  function applyColumnRenames(suggestions, dataset) {
+    dataset.columns.forEach(function (col) {
+      if (suggestions[col.name]) {
+        col.originalName = col.name;
+        col.name = suggestions[col.name];
+      }
+    });
+    /* Notify grid to re-render headers */
+    document.dispatchEvent(new CustomEvent('dataglow:columns-renamed', { detail: { dataset: dataset } }));
+    if (typeof window.showToast === 'function') {
+      window.showToast('Column names updated.', 'success');
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     REFLEX 2: NL-to-SQL correction
+     Fires when analyst manually edits a generated SQL query.
+     Suggests a corrected NL phrasing for the edited query.
+  ---------------------------------------------------------------- */
+  function suggestNlCorrection(originalNl, generatedSql, editedSql) {
+    if (!isEnabled() || !_reflexEnabled.nlCorrection) return Promise.resolve(null);
+    if (originalNl === editedSql || !editedSql.trim()) return Promise.resolve(null);
+
+    var prompt = [
+      '<start_of_turn>user',
+      'A user asked: "' + originalNl + '"',
+      'The system generated this SQL:',
+      generatedSql,
+      'The user corrected it to:',
+      editedSql,
+      'Write a one-sentence plain-English query that would produce the corrected SQL. Be concise.',
+      '<end_of_turn>',
+      '<start_of_turn>model'
+    ].join('\n');
+
+    return infer(prompt, 60).then(function (suggestion) {
+      return suggestion || null;
+    }).catch(function () { return null; });
+  }
+
+  /* ----------------------------------------------------------------
+     REFLEX 3: Narrative draft
+     Fires on dataglow:peer-review-complete.
+     Returns a plain-English finding summary.
+  ---------------------------------------------------------------- */
+  function draftNarrative(reviewResults) {
+    if (!isEnabled() || !_reflexEnabled.narrativeDraft) return Promise.resolve(null);
+    if (!reviewResults || !reviewResults.findings) return Promise.resolve(null);
+
+    var findings = reviewResults.findings.slice(0, 6).map(function (f, i) {
+      return (i + 1) + '. ' + (f.label || f.type || 'Issue') + ': ' + (f.detail || f.value || '');
+    }).join('\n');
+
+    var prompt = [
+      '<start_of_turn>user',
+      'Write a 2-3 sentence plain-English data quality summary for an analyst. Use specific numbers where provided. Do not use bullet points.',
+      '',
+      'Findings:',
+      findings,
+      '<end_of_turn>',
+      '<start_of_turn>model'
+    ].join('\n');
+
+    return infer(prompt, 120).catch(function () { return null; });
+  }
+
+  /* ----------------------------------------------------------------
+     REFLEX 4: Schema inference
+     Fires on dataglow:json-file-loaded with raw JSON/nested data.
+     Proposes column names and types for a flat schema.
+  ---------------------------------------------------------------- */
+  function inferSchema(rawSample) {
+    if (!isEnabled() || !_reflexEnabled.schemaInference) return Promise.resolve(null);
+    if (!rawSample) return Promise.resolve(null);
+
+    /* Truncate sample to keep prompt short */
+    var sampleStr = JSON.stringify(rawSample).slice(0, 600);
+
+    var prompt = [
+      '<start_of_turn>user',
+      'Given this JSON data sample, propose a flat relational schema. List each column as: name | type (INT/FLOAT/STR/DATE/BOOL). One column per line. No explanations.',
+      '',
+      sampleStr,
+      '<end_of_turn>',
+      '<start_of_turn>model'
+    ].join('\n');
+
+    return infer(prompt, 100).then(function (response) {
+      /* Parse "name | type" lines */
+      var cols = [];
+      response.split('\n').forEach(function (line) {
+        var parts = line.split('|');
+        if (parts.length >= 2) {
+          var name = parts[0].trim().toLowerCase().replace(/\s+/g, '_');
+          var type = parts[1].trim().toUpperCase();
+          if (name && ['INT','FLOAT','STR','DATE','BOOL'].indexOf(type) >= 0) {
+            cols.push({ name: name, type: type });
+          }
+        }
+      });
+      return cols.length ? cols : null;
+    }).catch(function () { return null; });
+  }
+
+  /* ----------------------------------------------------------------
+     Event wiring -- all reflexes connect to DataGlow events here
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!isEnabled()) return;
+
+    /* Reflex 1: column repair on file load */
+    document.addEventListener('dataglow:dataset-loaded', function (e) {
+      if (!_reflexEnabled.columnRepair) return;
+      var ds = e.detail && e.detail.dataset;
+      if (!ds) {
+        /* Try global */
+        ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+      }
+      if (ds) {
+        /* Lazy-load model only if actually needed */
+        var genericCols = (ds.columns || []).filter(function (c) { return isGenericName(c.name); });
+        if (genericCols.length / Math.max(ds.columns.length, 1) >= 0.2) {
+          loadModel().then(function () { repairColumnNames(ds); }).catch(function () {});
+        }
+      }
+    });
+
+    /* Reflex 2: NL correction -- listen for SQL edit event */
+    document.addEventListener('dataglow:sql-edited-after-nl', function (e) {
+      if (!_reflexEnabled.nlCorrection) return;
+      var d = e.detail || {};
+      loadModel().then(function () {
+        return suggestNlCorrection(d.originalNl, d.generatedSql, d.editedSql);
+      }).then(function (suggestion) {
+        if (suggestion && typeof window.showToast === 'function') {
+          window.showToast('Did you mean: "' + suggestion + '"?', 'info');
+        }
+      }).catch(function () {});
+    });
+
+    /* Reflex 3: narrative draft on peer review complete */
+    document.addEventListener('dataglow:peer-review-complete', function (e) {
+      if (!_reflexEnabled.narrativeDraft) return;
+      var results = e.detail && e.detail.results;
+      loadModel().then(function () {
+        return draftNarrative(results);
+      }).then(function (narrative) {
+        if (!narrative) return;
+        document.dispatchEvent(new CustomEvent('dataglow:narrative-draft-ready', {
+          detail: { narrative: narrative }
+        }));
+      }).catch(function () {});
+    });
+
+    /* Reflex 4: schema inference on JSON load */
+    document.addEventListener('dataglow:json-file-loaded', function (e) {
+      if (!_reflexEnabled.schemaInference) return;
+      var sample = e.detail && e.detail.sample;
+      loadModel().then(function () {
+        return inferSchema(sample);
+      }).then(function (cols) {
+        if (!cols) return;
+        document.dispatchEvent(new CustomEvent('dataglow:schema-suggested', { detail: { columns: cols } }));
+      }).catch(function () {});
+    });
+
+    /* Expose reflex toggles for Feature Settings drawer */
+    window.GemmaEngine = {
+      setReflexEnabled: function (reflex, enabled) {
+        if (_reflexEnabled.hasOwnProperty(reflex)) {
+          _reflexEnabled[reflex] = !!enabled;
+        }
+      },
+      getReflexState: function () { return Object.assign({}, _reflexEnabled); },
+      isLoaded: function () { return _pipeline !== null; },
+      loadNow: loadModel,
+      draftNarrative: draftNarrative,
+      inferSchema: inferSchema,
+      suggestNlCorrection: suggestNlCorrection
+    };
+  }
+
+  /* Init after DOM ready */
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/ai/gemma-engine.js ---- */
+
+/* ---- from js/ai/chronos-engine.js ---- */
+/* ================================================================
+   DataGlow Chronos-2 Engine -- Zero-shot Time-Series Forecasting
+   Feature flag: window.FEATURE_FLAGS.chronosForecast
+
+   What it does:
+     When the analyst has a chart with a date/datetime x-axis, a
+     "Forecast" button appears. Clicking it loads Chronos-T5-Tiny
+     (~50 MB) and produces a probabilistic forecast with:
+       - Median forecast line (next N periods)
+       - 10th-90th percentile confidence band
+       - One-sentence AI narrative
+
+   Model: amazon/chronos-t5-tiny via ONNX
+   Size: ~50 MB (OPFS cached after first download)
+   Rendering: draws directly onto the existing Chart.js canvas
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'chronosForecast';
+  var MODEL_ID = 'chronos-t5-tiny';
+  var MODEL_SIZE_MB = 50;
+
+  var _ready = false;
+  var _loadPromise = null;
+
+  /* ----------------------------------------------------------------
+     Feature gate
+  ---------------------------------------------------------------- */
+  function isEnabled() {
+    return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]);
+  }
+
+  /* ----------------------------------------------------------------
+     Model loading via Transformers.js
+  ---------------------------------------------------------------- */
+  function loadModel() {
+    if (_ready) return Promise.resolve(true);
+    if (_loadPromise) return _loadPromise;
+
+    if (window.ModelLoader) {
+      window.ModelLoader.showDownloadBar(MODEL_ID, 'Downloading Chronos-2 forecast model', MODEL_SIZE_MB);
+    }
+
+    _loadPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.type = 'module';
+      script.textContent = [
+        'import { pipeline, env } from "https://esm.sh/@huggingface/transformers@3.5.0";',
+        'env.allowLocalModels = false;',
+        'env.useBrowserCache = true;',
+        'env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";',
+        'async function loadChronos() {',
+        '  try {',
+        '    var pipe = await pipeline(',
+        '      "text-generation",',
+        '      "onnx-community/chronos-t5-tiny",',
+        '      { dtype: "fp32", device: "wasm" }',
+        '    );',
+        '    window._dgChronosPipeline = pipe;',
+        '    document.dispatchEvent(new CustomEvent("dataglow:chronos-ready"));',
+        '  } catch (e) {',
+        '    document.dispatchEvent(new CustomEvent("dataglow:chronos-error", { detail: { error: e.message } }));',
+        '  }',
+        '}',
+        'loadChronos();'
+      ].join('\n');
+
+      document.addEventListener('dataglow:chronos-ready', function onR() {
+        document.removeEventListener('dataglow:chronos-ready', onR);
+        _ready = true;
+        if (window.ModelLoader) {
+          document.dispatchEvent(new CustomEvent('dataglow:model-ready', { detail: { modelId: MODEL_ID } }));
+        }
+        resolve(true);
+      });
+
+      document.addEventListener('dataglow:chronos-error', function onE(e) {
+        document.removeEventListener('dataglow:chronos-error', onE);
+        _loadPromise = null;
+        reject(new Error((e.detail && e.detail.error) || 'Chronos load failed'));
+      });
+
+      document.head.appendChild(script);
+    });
+
+    return _loadPromise;
+  }
+
+  /* ----------------------------------------------------------------
+     Simple statistical fallback forecast (used when model unavailable
+     or for very short series < 8 points)
+
+     Uses Holt-Winters-style double exponential smoothing.
+     Returns { median, lo10, hi90 } arrays of length `horizon`.
+  ---------------------------------------------------------------- */
+  function statisticalForecast(values, horizon) {
+    var n = values.length;
+    if (n < 2) {
+      var v = values[0] || 0;
+      return {
+        median: Array(horizon).fill(v),
+        lo10:   Array(horizon).fill(v * 0.9),
+        hi90:   Array(horizon).fill(v * 1.1)
+      };
+    }
+
+    /* Double exponential smoothing */
+    var alpha = 0.3; /* level smoothing */
+    var beta  = 0.1; /* trend smoothing */
+    var level = values[0];
+    var trend = values[1] - values[0];
+
+    for (var i = 1; i < n; i++) {
+      var prevLevel = level;
+      level = alpha * values[i] + (1 - alpha) * (level + trend);
+      trend = beta  * (level - prevLevel) + (1 - beta) * trend;
+    }
+
+    /* Compute historical RMSE for confidence band width */
+    var sumSq = 0;
+    for (var j = 0; j < n; j++) {
+      var diff = values[j] - (values[0] + j * (values[n-1] - values[0]) / Math.max(n-1, 1));
+      sumSq += diff * diff;
+    }
+    var rmse = Math.sqrt(sumSq / n);
+
+    var median = [], lo10 = [], hi90 = [];
+    for (var h = 1; h <= horizon; h++) {
+      var m = level + h * trend;
+      var band = rmse * Math.sqrt(h) * 1.28; /* ~80% interval */
+      median.push(m);
+      lo10.push(m - band);
+      hi90.push(m + band);
+    }
+
+    return { median: median, lo10: lo10, hi90: hi90 };
+  }
+
+  /* ----------------------------------------------------------------
+     Narrative generation (simple rule-based -- used if Gemma not loaded)
+  ---------------------------------------------------------------- */
+  function generateNarrative(values, forecastResult, horizon, unit) {
+    var last = values[values.length - 1];
+    var forecastEnd = forecastResult.median[forecastResult.median.length - 1];
+    var changePct = last !== 0 ? Math.round((forecastEnd - last) / Math.abs(last) * 100) : 0;
+    var direction = changePct > 2 ? 'increase' : changePct < -2 ? 'decrease' : 'remain stable';
+    var abs = Math.abs(changePct);
+
+    var sentence = 'The series is forecast to ' + direction;
+    if (abs > 2) sentence += ' by approximately ' + abs + '%';
+    sentence += ' over the next ' + horizon + ' ' + (unit || 'period') + (horizon !== 1 ? 's' : '');
+
+    /* Try to contextualize with recent trend */
+    var recentN = Math.min(6, Math.floor(values.length / 2));
+    var recentStart = values[values.length - 1 - recentN];
+    var recentTrendPct = recentStart !== 0 ? Math.round((last - recentStart) / Math.abs(recentStart) * 100) : 0;
+    if (Math.abs(recentTrendPct) > 5) {
+      sentence += ', driven by the ' + (recentTrendPct > 0 ? 'upward' : 'downward') +
+        ' trend in the last ' + recentN + ' ' + (unit || 'period') + (recentN !== 1 ? 's' : '');
+    }
+    sentence += '.';
+    return sentence;
+  }
+
+  /* ----------------------------------------------------------------
+     Forecast entry point
+     Called by the Forecast button with chart context.
+
+     params = {
+       values: number[],      -- historical series
+       labels: string[],      -- date labels for historical points
+       horizon: number,       -- how many periods to forecast (7|30|90|N)
+       unit: string,          -- 'day' | 'week' | 'month' | 'period'
+       chartInstance: Chart,  -- Chart.js instance to overlay on
+       seriesLabel: string    -- e.g. "Daily Readmissions"
+     }
+  ---------------------------------------------------------------- */
+  function runForecast(params) {
+    var values = params.values;
+    var horizon = params.horizon || 30;
+    var unit = params.unit || 'period';
+    var chart = params.chartInstance;
+    var label = params.seriesLabel || 'Forecast';
+
+    if (!values || values.length < 2) {
+      if (typeof window.showToast === 'function') {
+        window.showToast('Need at least 2 data points to forecast.', 'warn');
+      }
+      return;
+    }
+
+    /* Show spinner on chart */
+    showChartSpinner(chart, true);
+
+    /* Use statistical fallback immediately, upgrade with model if loaded */
+    var statResult = statisticalForecast(values, horizon);
+
+    /* Generate future labels */
+    var futureLabels = [];
+    for (var i = 1; i <= horizon; i++) {
+      futureLabels.push('F+' + i);
+    }
+
+    /* Render immediately with statistical result */
+    renderForecastOverlay(chart, values, statResult, futureLabels, label);
+    showChartSpinner(chart, false);
+
+    /* Generate narrative */
+    var narrative = generateNarrative(values, statResult, horizon, unit);
+    showForecastNarrative(chart, narrative);
+
+    /* Attempt to upgrade with Gemma3 narrative if available */
+    if (window.GemmaEngine && window.GemmaEngine.isLoaded()) {
+      /* Use Gemma for a better narrative -- fire and forget */
+      var reviewResults = {
+        findings: [{
+          label: 'Forecast trend',
+          detail: label + ' forecast over ' + horizon + ' ' + unit + 's. ' +
+                  'Last value: ' + values[values.length-1] + '. ' +
+                  'Forecast end: ' + Math.round(statResult.median[statResult.median.length-1]) + '.'
+        }]
+      };
+      window.GemmaEngine.draftNarrative(reviewResults).then(function (enhanced) {
+        if (enhanced) showForecastNarrative(chart, enhanced);
+      }).catch(function () {});
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Chart overlay rendering
+  ---------------------------------------------------------------- */
+  function renderForecastOverlay(chart, historicalValues, forecastResult, futureLabels, label) {
+    if (!chart || !chart.data) return;
+
+    var primaryColor = '#20C5B5';
+    var bandColor = 'rgba(32, 197, 181, 0.12)';
+
+    /* Append future labels to chart labels */
+    var existingLabels = chart.data.labels.slice();
+    chart.data.labels = existingLabels.concat(futureLabels);
+
+    /* Pad historical data with nulls for future slots */
+    var nullPad = Array(futureLabels.length).fill(null);
+
+    /* Pad existing datasets */
+    chart.data.datasets.forEach(function (ds) {
+      if (ds.data.length === historicalValues.length) {
+        ds.data = ds.data.concat(nullPad);
+      }
+    });
+
+    /* Confidence band -- lo10 */
+    chart.data.datasets.push({
+      label: label + ' (10th pct)',
+      data: Array(historicalValues.length).fill(null).concat(forecastResult.lo10),
+      borderColor: 'transparent',
+      backgroundColor: bandColor,
+      fill: '+1',
+      pointRadius: 0,
+      tension: 0.4,
+      order: 10
+    });
+
+    /* Confidence band -- hi90 */
+    chart.data.datasets.push({
+      label: label + ' (90th pct)',
+      data: Array(historicalValues.length).fill(null).concat(forecastResult.hi90),
+      borderColor: 'transparent',
+      backgroundColor: bandColor,
+      fill: false,
+      pointRadius: 0,
+      tension: 0.4,
+      order: 11
+    });
+
+    /* Median forecast line */
+    chart.data.datasets.push({
+      label: label + ' (Forecast)',
+      data: Array(historicalValues.length).fill(null).concat(forecastResult.median),
+      borderColor: primaryColor,
+      borderWidth: 2,
+      borderDash: [5, 4],
+      backgroundColor: 'transparent',
+      pointRadius: 2,
+      pointBackgroundColor: primaryColor,
+      tension: 0.4,
+      order: 9
+    });
+
+    chart.update('active');
+  }
+
+  function showChartSpinner(chart, show) {
+    if (!chart || !chart.canvas) return;
+    var existing = chart.canvas.parentNode.querySelector('.dg-chart-spinner');
+    if (show) {
+      if (existing) return;
+      var s = document.createElement('div');
+      s.className = 'dg-chart-spinner';
+      s.textContent = 'Forecasting...';
+      chart.canvas.parentNode.style.position = 'relative';
+      chart.canvas.parentNode.appendChild(s);
+    } else {
+      if (existing) existing.parentNode.removeChild(existing);
+    }
+  }
+
+  function showForecastNarrative(chart, text) {
+    if (!chart || !chart.canvas) return;
+    var existing = chart.canvas.parentNode.querySelector('.dg-forecast-narrative');
+    if (existing) { existing.textContent = text; return; }
+    var el = document.createElement('p');
+    el.className = 'dg-forecast-narrative';
+    el.textContent = text;
+    chart.canvas.parentNode.appendChild(el);
+  }
+
+  /* ----------------------------------------------------------------
+     Forecast button injection
+     Scans all Chart.js instances and injects "Forecast" button when
+     the chart has a date/time x-axis.
+  ---------------------------------------------------------------- */
+  function isDateLabel(label) {
+    if (!label) return false;
+    return !isNaN(Date.parse(String(label)));
+  }
+
+  function injectForecastButton(chartInstance, container, seriesLabel) {
+    if (container.querySelector('.dg-forecast-btn')) return;
+
+    var btn = document.createElement('button');
+    btn.className = 'dg-forecast-btn';
+    btn.textContent = 'Forecast';
+    btn.setAttribute('data-testid', 'button-forecast-' + (seriesLabel || '').replace(/\s+/g, '-').toLowerCase());
+
+    /* Horizon selector */
+    var horizonSelect = document.createElement('select');
+    horizonSelect.className = 'dg-forecast-horizon';
+    horizonSelect.setAttribute('data-testid', 'select-forecast-horizon');
+    [7, 30, 90].forEach(function (n) {
+      var opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n + ' periods';
+      horizonSelect.appendChild(opt);
+    });
+    horizonSelect.value = 30;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dg-forecast-controls';
+    wrap.appendChild(btn);
+    wrap.appendChild(horizonSelect);
+    container.insertBefore(wrap, container.firstChild);
+
+    btn.addEventListener('click', function () {
+      var ds = chartInstance.data.datasets[0];
+      var values = (ds.data || []).filter(function (v) { return v !== null && v !== undefined; }).map(Number);
+      runForecast({
+        values: values,
+        labels: chartInstance.data.labels,
+        horizon: parseInt(horizonSelect.value, 10),
+        unit: 'period',
+        chartInstance: chartInstance,
+        seriesLabel: seriesLabel || 'Forecast'
+      });
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Watch for charts created via DataGlow's chart panel
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!isEnabled()) return;
+
+    /* Listen for chart-rendered events from DataGlow's chart panel */
+    document.addEventListener('dataglow:chart-rendered', function (e) {
+      var detail = e.detail || {};
+      var chartInstance = detail.chartInstance || detail.chart;
+      var container = detail.container;
+      if (!chartInstance || !container) return;
+
+      /* Check if first dataset has date-like labels */
+      var labels = chartInstance.data.labels || [];
+      var hasDateAxis = labels.length > 0 && isDateLabel(labels[0]);
+      if (!hasDateAxis) return;
+
+      var seriesLabel = (chartInstance.data.datasets[0] && chartInstance.data.datasets[0].label) || 'Series';
+      injectForecastButton(chartInstance, container, seriesLabel);
+    });
+
+    /* Expose for direct call from chart panel */
+    window.ChronosEngine = {
+      runForecast: runForecast,
+      isLoaded: function () { return _ready; },
+      loadNow: loadModel,
+      statisticalForecast: statisticalForecast
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/ai/chronos-engine.js ---- */
+
+/* ---- from js/ai/whisper-engine.js ---- */
+/* ================================================================
+   DataGlow Whisper Engine -- Voice Query (Session B)
+   Feature flag: window.FEATURE_FLAGS.whisperVoice
+
+   The analyst taps the microphone icon in the NL query bar.
+   Whisper-tiny transcribes their speech in real time.
+   Transcription streams into the input field as they speak.
+   Silence detection submits automatically (or analyst taps stop).
+
+   Model: openai/whisper-tiny via Transformers.js
+   Size: ~39 MB (OPFS cached after first download)
+   Access: MediaRecorder API + Web Audio API
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'whisperVoice';
+  var MODEL_ID = 'whisper-tiny';
+  var MODEL_SIZE_MB = 39;
+
+  var _ready = false;
+  var _loadPromise = null;
+  var _recording = false;
+  var _mediaRecorder = null;
+  var _audioChunks = [];
+  var _silenceTimer = null;
+  var SILENCE_TIMEOUT_MS = 2000; /* 2s of silence = stop recording */
+
+  /* ----------------------------------------------------------------
+     Feature gate
+  ---------------------------------------------------------------- */
+  function isEnabled() {
+    return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]);
+  }
+
+  /* ----------------------------------------------------------------
+     Model loading
+  ---------------------------------------------------------------- */
+  function loadModel() {
+    if (_ready) return Promise.resolve(true);
+    if (_loadPromise) return _loadPromise;
+
+    if (window.ModelLoader) {
+      window.ModelLoader.showDownloadBar(MODEL_ID, 'Downloading Whisper voice model', MODEL_SIZE_MB);
+    }
+
+    _loadPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.type = 'module';
+      script.textContent = [
+        'import { pipeline, env } from "https://esm.sh/@huggingface/transformers@3.5.0";',
+        'env.allowLocalModels = false;',
+        'env.useBrowserCache = true;',
+        'env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";',
+        'async function loadWhisper() {',
+        '  try {',
+        '    var pipe = await pipeline(',
+        '      "automatic-speech-recognition",',
+        '      "onnx-community/whisper-tiny",',
+        '      { dtype: "q8", device: "wasm" }',
+        '    );',
+        '    window._dgWhisperPipeline = pipe;',
+        '    document.dispatchEvent(new CustomEvent("dataglow:whisper-ready"));',
+        '  } catch (e) {',
+        '    document.dispatchEvent(new CustomEvent("dataglow:whisper-error", { detail: { error: e.message } }));',
+        '  }',
+        '}',
+        'loadWhisper();'
+      ].join('\n');
+
+      document.addEventListener('dataglow:whisper-ready', function onR() {
+        document.removeEventListener('dataglow:whisper-ready', onR);
+        _ready = true;
+        if (window.ModelLoader) {
+          document.dispatchEvent(new CustomEvent('dataglow:model-ready', { detail: { modelId: MODEL_ID } }));
+        }
+        resolve(true);
+      });
+
+      document.addEventListener('dataglow:whisper-error', function onE(e) {
+        document.removeEventListener('dataglow:whisper-error', onE);
+        _loadPromise = null;
+        reject(new Error((e.detail && e.detail.error) || 'Whisper load failed'));
+      });
+
+      document.head.appendChild(script);
+    });
+
+    return _loadPromise;
+  }
+
+  /* ----------------------------------------------------------------
+     Transcription
+  ---------------------------------------------------------------- */
+  function transcribeBlob(audioBlob) {
+    if (!window._dgWhisperPipeline) return Promise.reject(new Error('Whisper not loaded'));
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        var arrayBuffer = e.target.result;
+        new AudioContext().decodeAudioData(arrayBuffer).then(function (audioBuffer) {
+          /* Convert to Float32Array mono 16kHz */
+          var offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * 16000), 16000);
+          var source = offlineCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(offlineCtx.destination);
+          source.start();
+          return offlineCtx.startRendering();
+        }).then(function (rendered) {
+          var float32 = rendered.getChannelData(0);
+          return window._dgWhisperPipeline(float32, {
+            chunk_length_s: 30,
+            stride_length_s: 5,
+            language: 'english',
+            task: 'transcribe'
+          });
+        }).then(function (result) {
+          resolve(result.text || '');
+        }).catch(reject);
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(audioBlob);
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Recording
+  ---------------------------------------------------------------- */
+  function startRecording(onTranscript, onError) {
+    if (_recording) return;
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      _recording = true;
+      _audioChunks = [];
+      _mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+      _mediaRecorder.ondataavailable = function (e) {
+        if (e.data.size > 0) _audioChunks.push(e.data);
+        resetSilenceTimer(stream, onTranscript);
+      };
+
+      _mediaRecorder.onstop = function () {
+        _recording = false;
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        if (_audioChunks.length === 0) return;
+        var blob = new Blob(_audioChunks, { type: 'audio/webm' });
+        transcribeBlob(blob).then(function (text) {
+          onTranscript(text.trim());
+        }).catch(function (err) {
+          if (onError) onError(err);
+        });
+      };
+
+      _mediaRecorder.start(500); /* collect chunks every 500ms */
+    }).catch(function (err) {
+      _recording = false;
+      if (onError) onError(err);
+    });
+  }
+
+  function stopRecording() {
+    if (!_recording || !_mediaRecorder) return;
+    clearTimeout(_silenceTimer);
+    _mediaRecorder.stop();
+  }
+
+  function resetSilenceTimer(stream, onTranscript) {
+    clearTimeout(_silenceTimer);
+    _silenceTimer = setTimeout(function () {
+      stopRecording();
+    }, SILENCE_TIMEOUT_MS);
+  }
+
+  /* ----------------------------------------------------------------
+     UI -- microphone button + waveform bars
+  ---------------------------------------------------------------- */
+  function buildMicButton(nlInput) {
+    var btn = document.createElement('button');
+    btn.id = 'dg-mic-btn';
+    btn.className = 'dg-mic-btn';
+    btn.setAttribute('aria-label', 'Speak your question');
+    btn.setAttribute('data-testid', 'button-mic-voice');
+    btn.title = 'Speak your question';
+
+    /* SVG microphone icon */
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v4M8 23h8"/></svg>';
+
+    /* Waveform bars (hidden until recording) */
+    var wave = document.createElement('span');
+    wave.className = 'dg-mic-wave';
+    wave.innerHTML = '<span></span><span></span><span></span>';
+    btn.appendChild(wave);
+
+    var thinking = false;
+
+    btn.addEventListener('click', function () {
+      if (thinking) return;
+      if (_recording) {
+        stopRecording();
+        btn.classList.remove('dg-mic-active');
+        return;
+      }
+
+      /* Lazy-load model on first tap */
+      btn.classList.add('dg-mic-loading');
+      loadModel().then(function () {
+        btn.classList.remove('dg-mic-loading');
+        btn.classList.add('dg-mic-active');
+
+        startRecording(
+          function onTranscript(text) {
+            btn.classList.remove('dg-mic-active');
+            if (!text) return;
+            /* Drop transcription into the NL input */
+            if (nlInput) {
+              nlInput.value = text;
+              nlInput.dispatchEvent(new Event('input', { bubbles: true }));
+              /* Auto-submit if there's a submit mechanism */
+              var form = nlInput.closest('form');
+              if (form) {
+                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+              }
+            }
+            if (typeof window.showToast === 'function') {
+              window.showToast('Heard: "' + text.slice(0, 60) + (text.length > 60 ? '...' : '') + '"', 'info');
+            }
+          },
+          function onError(err) {
+            btn.classList.remove('dg-mic-active');
+            console.warn('[Whisper] Recording error:', err);
+            if (typeof window.showToast === 'function') {
+              window.showToast('Microphone error: ' + (err.message || err), 'warn');
+            }
+          }
+        );
+      }).catch(function (err) {
+        btn.classList.remove('dg-mic-loading');
+        console.warn('[Whisper] Model load error:', err);
+        if (typeof window.showToast === 'function') {
+          window.showToast('Voice model unavailable: ' + (err.message || err), 'warn');
+        }
+      });
+    });
+
+    return btn;
+  }
+
+  /* ----------------------------------------------------------------
+     Inject mic button into the NL question bar
+  ---------------------------------------------------------------- */
+  function init() {
+    if (!isEnabled()) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return; /* no mic support */
+
+    /* Find the NL input -- DataGlow uses #nl-query-input or similar */
+    var trySelectors = [
+      '#nl-query-input',
+      '#nl-bar-input',
+      '.nl-bar input[type="text"]',
+      '.nl-bar textarea',
+      '[data-testid="input-nl-query"]'
+    ];
+
+    var nlInput = null;
+    for (var i = 0; i < trySelectors.length; i++) {
+      nlInput = document.querySelector(trySelectors[i]);
+      if (nlInput) break;
+    }
+
+    if (!nlInput) {
+      /* Retry after DOM settles */
+      setTimeout(function () { init(); }, 1000);
+      return;
+    }
+
+    /* Don't double-inject */
+    if (document.getElementById('dg-mic-btn')) return;
+
+    var micBtn = buildMicButton(nlInput);
+
+    /* Insert immediately after the NL input */
+    var parent = nlInput.parentNode;
+    if (parent) {
+      parent.style.position = 'relative';
+      parent.insertBefore(micBtn, nlInput.nextSibling);
+    }
+
+    /* Expose for external control */
+    window.WhisperEngine = {
+      isLoaded: function () { return _ready; },
+      isRecording: function () { return _recording; },
+      loadNow: loadModel,
+      stopRecording: stopRecording,
+      transcribeBlob: transcribeBlob
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    /* Retry in case NL bar renders asynchronously */
+    setTimeout(init, 800);
+  }
+
+})();
+/* ---- end js/ai/whisper-engine.js ---- */
+
 
 })();
 </script>

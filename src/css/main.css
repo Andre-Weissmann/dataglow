@@ -8789,3 +8789,213 @@ body.has-data #drop-zone-hint { display: none; }
 ================================================================ */
 #welcome-brief-overlay { display: none !important; }
 /* ================================================================ */
+
+/* ================================================================
+   Session B -- On-Device AI Engine UI
+   Model download bar, forecast controls, mic button + waveform
+================================================================ */
+
+/* ---- Model download progress bar ---- */
+#dg-model-dl-bar {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom) + 70px);
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 20px;
+  width: min(420px, calc(100vw - 40px));
+  z-index: 10000;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  opacity: 0;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease;
+}
+
+#dg-model-dl-bar.dg-dl-visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.dg-dl-inner { display: flex; flex-direction: column; gap: 8px; }
+
+.dg-dl-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #CDCCCA);
+  font-family: 'Geist Mono', monospace;
+}
+
+.dg-dl-size { color: var(--text-muted); font-weight: 400; }
+
+.dg-dl-track {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.dg-dl-fill {
+  height: 100%;
+  background: var(--primary, #20C5B5);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.dg-dl-pct {
+  font-size: 11px;
+  color: var(--primary, #20C5B5);
+  font-family: 'Geist Mono', monospace;
+  text-align: right;
+}
+
+.dg-dl-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Geist Mono', monospace;
+}
+
+/* ---- Chronos forecast controls ---- */
+.dg-forecast-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.dg-forecast-btn {
+  padding: 6px 14px;
+  background: var(--primary, #20C5B5);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+  font-family: 'Geist Mono', monospace;
+  letter-spacing: 0.03em;
+}
+
+.dg-forecast-btn:hover { background: #1aada0; }
+.dg-forecast-btn:active { transform: scale(0.96); }
+
+.dg-forecast-horizon {
+  padding: 5px 10px;
+  background: var(--surface, #131519);
+  border: 1px solid var(--border, #252930);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  cursor: pointer;
+}
+
+.dg-chart-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(13,14,16,0.85);
+  color: var(--primary, #20C5B5);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.dg-forecast-narrative {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+  line-height: 1.5;
+  font-style: italic;
+  font-family: 'Geist Mono', monospace;
+  border-left: 2px solid var(--primary, #20C5B5);
+  padding-left: 10px;
+}
+
+/* ---- Whisper mic button ---- */
+.dg-mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--border, #252930);
+  border-radius: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dg-mic-btn:hover {
+  border-color: var(--primary, #20C5B5);
+  color: var(--primary, #20C5B5);
+}
+
+.dg-mic-btn.dg-mic-active {
+  border-color: #FF4B6B;
+  background: rgba(255, 75, 107, 0.08);
+  color: #FF4B6B;
+  animation: dg-mic-pulse 1.2s ease infinite;
+}
+
+.dg-mic-btn.dg-mic-loading {
+  border-color: var(--primary, #20C5B5);
+  color: var(--primary, #20C5B5);
+  opacity: 0.6;
+}
+
+@keyframes dg-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,75,107,0); }
+  50%       { box-shadow: 0 0 0 6px rgba(255,75,107,0.18); }
+}
+
+/* Waveform bars (visible only while active) */
+.dg-mic-wave {
+  display: none;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.dg-mic-btn.dg-mic-active .dg-mic-wave {
+  display: inline-flex;
+}
+
+.dg-mic-btn.dg-mic-active svg {
+  display: none;
+}
+
+.dg-mic-wave span {
+  display: block;
+  width: 3px;
+  background: #FF4B6B;
+  border-radius: 2px;
+  animation: dg-wave 0.8s ease-in-out infinite;
+}
+
+.dg-mic-wave span:nth-child(1) { height: 6px;  animation-delay: 0s; }
+.dg-mic-wave span:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+.dg-mic-wave span:nth-child(3) { height: 8px;  animation-delay: 0.3s; }
+
+@keyframes dg-wave {
+  0%, 100% { transform: scaleY(1);   }
+  50%       { transform: scaleY(1.8); }
+}
+
+/* ================================================================ */
