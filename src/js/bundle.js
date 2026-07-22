@@ -10833,6 +10833,7 @@ var InstantInsight = (function () {
     nutritionBadges: true,
     imputation: true,
     formatFingerprint: true,
+    narrativeOverconfidenceGuard: true,
   };
 
   /* Restore any previous-session overrides (sessionStorage ONLY -- never
@@ -23163,6 +23164,7 @@ var InstantInsight = (function () {
 
 /* ---- from js/features/browser-llm.js ---- */
 /* ---- Feature #34: Browser LLM Engine (WebLLM / MLC-AI) ---- */
+/* Model: Qwen2.5-Coder-3B-Instruct (web-llm@0.2.84) -- purpose-built for SQL, data analysis, structured output */
 var BrowserLLM = (function() {
   'use strict';
 
@@ -23170,9 +23172,9 @@ var BrowserLLM = (function() {
   var _loading = false;
   var _ready = false;
   var _queue = [];
-  var _modelId = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
+  var _modelId = 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC';
 
-  var WEBLLM_CDN = 'https://esm.run/@mlc-ai/web-llm@0.2.73';
+  var WEBLLM_CDN = 'https://esm.run/@mlc-ai/web-llm@0.2.84';
 
   var _progressCallbacks = [];
 
@@ -54147,7 +54149,7 @@ async function produceStory(queryResult, tableName, provider, apiKey, opts = {})
         '</div>' +
         '<div class="npe-model-bar" id="npe-model-bar">' +
           '<span class="npe-model-icon">&#x1F4BB;</span>' +
-          '<span class="npe-model-label" id="npe-model-label">On-device AI (Phi-3.5-mini, WebGPU)</span>' +
+          '<span class="npe-model-label" id="npe-model-label">On-device AI (Qwen2.5-Coder-3B, WebGPU)</span>' +
           '<span class="npe-privacy-badge">&#x1F512; Private</span>' +
         '</div>' +
         '<div class="npe-progress-wrap hidden" id="npe-progress-wrap">' +
@@ -54319,7 +54321,7 @@ async function produceStory(queryResult, tableName, provider, apiKey, opts = {})
 
       /* WebGPU path -- on-device streaming */
       if (sourceBadge) { sourceBadge.textContent = 'On-device AI'; sourceBadge.className = 'npe-badge npe-badge-ondevice'; }
-      if (modelLabel) modelLabel.textContent = 'Phi-3.5-mini-instruct (WebGPU, on-device)';
+      if (modelLabel) modelLabel.textContent = 'Qwen2.5-Coder-3B-instruct (WebGPU, on-device)';
       if (footerNote) footerNote.textContent = 'Runs 100% on-device via WebGPU -- zero uploads, zero API keys.';
 
       /* Show model download progress on first load */
@@ -54327,7 +54329,7 @@ async function produceStory(queryResult, tableName, provider, apiKey, opts = {})
       if (isFirstLoad && progressWrap) {
         progressWrap.classList.remove('hidden');
         if (progressBar) progressBar.style.width = '0%';
-        if (progressText) progressText.textContent = 'Downloading Phi-3.5-mini (~1.8 GB, cached after first use)...';
+        if (progressText) progressText.textContent = 'Downloading Qwen2.5-Coder-3B (~1.8 GB, cached after first use)...';
       }
 
       var onProgress = function(p) {
@@ -63073,6 +63075,1427 @@ function applyDomainPack(layerResults, packName, context = {}) {
   });
 
 })();
+
+
+/* ================================================================
+   PR #517 BLOCK 1: DataGlow MCP Server
+   Exposes validated local analysis as a governed tool inside
+   Claude / ChatGPT / Codex via window.DataGlowMCP public API.
+   Zero raw data ever leaves -- only findings, schema, and verdicts.
+   ================================================================ */
+(function() {
+  'use strict';
+
+  /* ---- from js/mcp/dataglow-mcp-server.js ---- */
+
+  var _mcpVersion = '1.0.0';
+  var _mcpSessionId = null;
+  var _mcpConnected = false;
+  var _mcpLog = [];
+
+  function _mcpGenId() {
+    return 'dg-mcp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+  }
+
+  function _mcpTimestamp() {
+    return new Date().toISOString();
+  }
+
+  function _logMcp(action, payload) {
+    _mcpLog.push({ ts: _mcpTimestamp(), action: action, payload: payload });
+    if (_mcpLog.length > 200) _mcpLog.shift();
+  }
+
+  /* Capabilities manifest -- what this MCP server exposes */
+  var MCP_CAPABILITIES = {
+    name: 'dataglow',
+    version: _mcpVersion,
+    description: 'Local-first data intelligence. Zero upload. Validated, signed analysis from any dataset on any device.',
+    tools: [
+      {
+        name: 'get_dataset_summary',
+        description: 'Returns the loaded dataset schema, row/column counts, Health Score, and dataset fingerprint. No raw data.',
+        parameters: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'get_validation_findings',
+        description: 'Returns all validation findings from the Proof Chain rail -- severity, column, message, row count affected. No raw data rows.',
+        parameters: { type: 'object', properties: { severity: { type: 'string', enum: ['all', 'error', 'warning', 'info'], description: 'Filter by severity level' } }, required: [] }
+      },
+      {
+        name: 'get_health_score',
+        description: 'Returns the DataGlow Health Score (0-100) with dimension breakdown: completeness, consistency, validity, uniqueness, timeliness.',
+        parameters: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'get_pulse_findings',
+        description: 'Returns the Auto-Pulse first-contact briefing findings for the loaded dataset.',
+        parameters: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'get_story_summary',
+        description: 'Returns the Story View narrative summary: title, key finding, analyst timeline, and provenance hash. No raw data.',
+        parameters: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'get_semantic_notes',
+        description: 'Returns the analyst Semantic Notes glossary (domain definitions grounding every query).',
+        parameters: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'run_nl_query',
+        description: 'Runs a natural-language question against the loaded dataset using DataGlow AI Council. Returns the answer and the SQL it used. Does NOT return raw rows -- only the aggregated answer.',
+        parameters: { type: 'object', properties: { question: { type: 'string', description: 'The natural language question to answer' } }, required: ['question'] }
+      },
+      {
+        name: 'get_stayed_local_attestation',
+        description: 'Returns the Stayed Local compliance attestation: dataset fingerprint, operations log, and signed confirmation that no data left the device.',
+        parameters: { type: 'object', properties: {}, required: [] }
+      },
+      {
+        name: 'get_column_profile',
+        description: 'Returns statistical profile for a specific column: type, null rate, distinct count, min, max, mean. No raw values.',
+        parameters: { type: 'object', properties: { column_name: { type: 'string', description: 'Column name to profile' } }, required: ['column_name'] }
+      }
+    ]
+  };
+
+  /* Tool dispatcher */
+  function _mcpDispatch(toolName, params) {
+    _logMcp('tool_call', { tool: toolName, params: params });
+
+    var state = window._dgState || {};
+    var dataset = state.dataset || null;
+
+    if (!dataset) {
+      return { error: 'no_dataset', message: 'No dataset is currently loaded in DataGlow. Drop a file to begin.' };
+    }
+
+    switch (toolName) {
+
+      case 'get_dataset_summary': {
+        var cols = (dataset.columns || []).map(function(c) {
+          return { name: typeof c === 'string' ? c : c.name, type: typeof c === 'string' ? 'STR' : (c.type || 'STR') };
+        });
+        return {
+          tool: 'get_dataset_summary',
+          result: {
+            name: dataset.name || 'Untitled',
+            rowCount: dataset.rowCount || (dataset.rows || []).length,
+            columnCount: cols.length,
+            columns: cols,
+            fingerprint: dataset.fingerprint || dataset.sourceFileHash || null,
+            loadedAt: dataset.loadedAt || null,
+            healthScore: state.healthScore || null
+          }
+        };
+      }
+
+      case 'get_validation_findings': {
+        var sev = (params && params.severity) || 'all';
+        var findings = state.findings || dataset.findings || [];
+        var filtered = sev === 'all' ? findings : findings.filter(function(f) { return f.severity === sev; });
+        return {
+          tool: 'get_validation_findings',
+          result: {
+            total: findings.length,
+            filtered: filtered.length,
+            severityFilter: sev,
+            findings: filtered.map(function(f) {
+              return { severity: f.severity, column: f.column || null, message: f.message || f.description || '', rowsAffected: f.rowsAffected || f.count || null };
+            })
+          }
+        };
+      }
+
+      case 'get_health_score': {
+        var hs = state.healthScore;
+        if (!hs) return { tool: 'get_health_score', result: { score: null, message: 'Health Score not yet computed. Run Validate to generate it.' } };
+        return { tool: 'get_health_score', result: hs };
+      }
+
+      case 'get_pulse_findings': {
+        var pf = state.pulseFindings || window._dgLastPulseFindings || [];
+        return {
+          tool: 'get_pulse_findings',
+          result: { count: pf.length, findings: pf }
+        };
+      }
+
+      case 'get_story_summary': {
+        var sd = state.currentStoryDoc || window._dgCurrentStoryDoc;
+        if (!sd) return { tool: 'get_story_summary', result: { available: false, message: 'No Story generated yet. Open the Story tab.' } };
+        return {
+          tool: 'get_story_summary',
+          result: {
+            available: true,
+            title: sd.title,
+            subtitle: sd.subtitle,
+            keyFinding: sd.keyFinding,
+            provenanceHash: sd.provenance && sd.provenance.provenanceHash,
+            generatedAt: sd.generatedAt
+          }
+        };
+      }
+
+      case 'get_semantic_notes': {
+        var notes = window._dgSemanticNotesCache || '';
+        return {
+          tool: 'get_semantic_notes',
+          result: { hasNotes: notes.length > 0, notes: notes }
+        };
+      }
+
+      case 'run_nl_query': {
+        if (!params || !params.question) return { error: 'missing_question', message: 'Provide a question parameter.' };
+        /* Fire the NL query and return a pending token -- async results posted via dataglow:mcp-result event */
+        var queryToken = _mcpGenId();
+        setTimeout(function() {
+          document.dispatchEvent(new CustomEvent('dataglow:mcp-nl-query', {
+            detail: { question: params.question, token: queryToken }
+          }));
+        }, 0);
+        return {
+          tool: 'run_nl_query',
+          status: 'queued',
+          token: queryToken,
+          message: 'Query queued. Listen for dataglow:mcp-result event with matching token, or poll DataGlowMCP.getResult(token).'
+        };
+      }
+
+      case 'get_stayed_local_attestation': {
+        var sl = window._dgStayedLocalReport || null;
+        if (!sl) return { tool: 'get_stayed_local_attestation', result: { available: false, message: 'Open Stayed Local report first to generate attestation.' } };
+        return {
+          tool: 'get_stayed_local_attestation',
+          result: {
+            available: true,
+            datasetName: sl.datasetName,
+            fingerprint: sl.fingerprint,
+            operationsCount: sl.operationsCount,
+            attestation: sl.attestation,
+            generatedAt: sl.generatedAt
+          }
+        };
+      }
+
+      case 'get_column_profile': {
+        var colName = params && params.column_name;
+        if (!colName) return { error: 'missing_column', message: 'Provide a column_name parameter.' };
+        var profile = state.columnProfiles && state.columnProfiles[colName];
+        if (!profile) return { tool: 'get_column_profile', result: { column: colName, available: false, message: 'Column not found or profile not computed.' } };
+        return { tool: 'get_column_profile', result: { column: colName, profile: profile } };
+      }
+
+      default:
+        return { error: 'unknown_tool', message: 'Unknown tool: ' + toolName };
+    }
+  }
+
+  /* Async result store for run_nl_query */
+  var _mcpResultStore = {};
+  document.addEventListener('dataglow:mcp-nl-result', function(e) {
+    if (e.detail && e.detail.token) {
+      _mcpResultStore[e.detail.token] = e.detail.result;
+    }
+  });
+
+  /* Public API */
+  window.DataGlowMCP = {
+    version: _mcpVersion,
+    getCapabilities: function() { return MCP_CAPABILITIES; },
+    call: function(toolName, params) { return _mcpDispatch(toolName, params || {}); },
+    getResult: function(token) { return _mcpResultStore[token] || null; },
+    getLog: function() { return _mcpLog.slice(); },
+    isReady: function() { return !!(window._dgState && window._dgState.dataset); },
+    connect: function(clientName) {
+      _mcpSessionId = _mcpGenId();
+      _mcpConnected = true;
+      _logMcp('connect', { client: clientName, sessionId: _mcpSessionId });
+      console.info('[DataGlow MCP] Connected:', clientName, '| Session:', _mcpSessionId);
+      return { sessionId: _mcpSessionId, capabilities: MCP_CAPABILITIES };
+    },
+    disconnect: function() {
+      _logMcp('disconnect', { sessionId: _mcpSessionId });
+      _mcpConnected = false;
+      _mcpSessionId = null;
+    }
+  };
+
+  /* MCP status badge in nav -- shows green dot when a dataset is loaded */
+  document.addEventListener('dataglow:dataset-loaded', function() {
+    var btn = document.getElementById('dg-mcp-status-btn');
+    if (btn) {
+      btn.style.background = 'rgba(74, 227, 138, 0.15)';
+      btn.title = 'MCP Server ready -- DataGlowMCP.call(tool, params)';
+      var dot = btn.querySelector('.dg-mcp-dot');
+      if (dot) dot.style.background = '#4AE38A';
+    }
+  });
+
+  console.info('[DataGlow MCP] Server v' + _mcpVersion + ' ready. window.DataGlowMCP.getCapabilities() for tools.');
+
+})();
+
+/* ================================================================
+   PR #517 BLOCK 2: RAG Knowledge Engine
+   Healthcare (15 entries) + Finance (12 entries) domain knowledge.
+   Grounds every NL query and council prompt with authoritative
+   regulatory, clinical, and financial definitions -- locally,
+   with no cloud call.
+   ================================================================ */
+(function() {
+  'use strict';
+
+  /* ---- from js/rag/rag-engine.js ---- */
+
+  /* ── Healthcare knowledge base ─────────────────────────────── */
+  var _healthcareKB = [
+    { id: 'hc_001', source: 'HIPAA Safe Harbor (45 CFR 164.514(b)(2))', text: 'HIPAA Safe Harbor de-identifies PHI by removing 18 identifier categories: names, sub-state geographic subdivisions, all date elements except year, phone/fax/email/SSN/MRN/account numbers, full-face photos, and any other unique identifying number. Once removed and no re-identification knowledge exists, data is no longer PHI.' },
+    { id: 'hc_002', source: 'HIPAA Minimum Necessary (45 CFR 164.502(b))', text: 'Covered entities must limit uses, disclosures, and requests for PHI to the minimum reasonably necessary for the intended purpose. Role-based access controls are the standard operationalization. Exceptions: disclosures to the individual, for treatment, or required by law.' },
+    { id: 'hc_003', source: 'HIPAA PHI Definition (45 CFR 160.103)', text: 'PHI is individually identifiable health information transmitted or maintained by a covered entity or BA -- any form or medium -- relating to past/present/future health condition, care provision, or payment. De-identified data meeting Safe Harbor or Expert Determination is excluded.' },
+    { id: 'hc_004', source: 'ICD-10-CM Structure', text: 'ICD-10-CM codes are 3-7 alphanumeric characters. First character is always a letter. Second is a number. Characters 4-6 specify etiology/site/severity. 7th character is an extension (e.g. A=initial, D=subsequent, S=sequela for injuries). Decimal follows character 3. Example: S72.001A.' },
+    { id: 'hc_005', source: 'CMS MS-DRG System', text: 'MS-DRGs group inpatient stays by principal diagnosis, secondary diagnoses (CCs/MCCs), procedures, age, sex, and discharge status. Medicare IPPS pays a fixed rate per DRG. Higher CC/MCC burden increases DRG weight and payment. Accurate secondary diagnosis coding is critical to correct DRG assignment.' },
+    { id: 'hc_006', source: 'ASC X12 837P Professional Claim', text: '837P submits outpatient/professional claims. Requires rendering and billing provider NPIs, ICD-10-CM diagnoses linked to service lines, CPT/HCPCS codes with modifiers, units, and charges. Invalid NPI or mismatched diagnosis pointers cause front-end rejection before adjudication.' },
+    { id: 'hc_007', source: 'NCQA HEDIS', text: 'HEDIS measures quality across effectiveness, access, and utilization domains. Each measure defines a denominator (eligible population) and numerator (met the measure). Computed from claims and/or medical records. Used in Medicare Advantage Star Ratings and NCQA accreditation.' },
+    { id: 'hc_008', source: 'CMS 30-Day Readmission (HRRP)', text: 'Unplanned 30-day readmission = any acute inpatient admission within 30 days of discharge, to any hospital. Window starts at discharge date. HRRP tracks condition-specific rates (HF, pneumonia, COPD, hip/knee). Hospitals with higher-than-expected risk-adjusted rates face Medicare payment reductions.' },
+    { id: 'hc_009', source: 'NCCI Procedure-to-Procedure Edits', text: 'NCCI PTP edits identify CPT/HCPCS pairs that should not be billed together same patient same date -- one is a component of the other. CCMI 0 = never billable together; CCMI 1 = billable with modifier -59; CCMI 9 = edit not applicable. MUEs cap units per service per day.' },
+    { id: 'hc_010', source: 'Medicare Part A vs Part B', text: 'Part A (Hospital Insurance): inpatient, SNF, hospice, home health. Generally premium-free with sufficient work history. Billed on UB-04/837I. Part B (Medical): outpatient, physician, DME, preventive. Requires monthly premium + deductible + 20% coinsurance. Billed on CMS-1500/837P.' },
+    { id: 'hc_011', source: 'Medicaid Managed Care (42 CFR Part 438)', text: 'MCOs receive per-member-per-month capitation from states. MCO adjudicates and pays provider claims directly. 42 CFR 438 requires network adequacy, 90% clean claims paid within 30 days, and encounter data reporting in 837 format even though no direct state payment occurs per claim.' },
+    { id: 'hc_012', source: 'CPT Codes (AMA)', text: 'CPT codes are 5-character (usually numeric). Category I = standard procedures in 6 sections: E&M, Anesthesia, Surgery, Radiology, Pathology/Lab, Medicine. Two-digit modifiers (e.g. -25 significant, separately identifiable E&M; -59 distinct procedural service) indicate service alterations.' },
+    { id: 'hc_013', source: 'NPI (45 CFR Part 162)', text: 'NPI is a unique 10-digit identifier from CMS NPPES. Type 1 = individual provider; Type 2 = organization. 10th digit is a Luhn check digit. Required in all HIPAA standard electronic transactions. Claims without a valid active NPI are rejected at front-end edits.' },
+    { id: 'hc_014', source: 'HIPAA Breach Notification (45 CFR 164.400-414)', text: 'Breach = acquisition/access/use/disclosure of unsecured PHI not permitted by the Privacy Rule, unless low-probability risk assessment applies. Notify individuals, HHS, and (for 500+ affected) prominent media within 60 days of discovery. Breaches under 500 may be reported to HHS annually.' },
+    { id: 'hc_015', source: 'HIPAA Expert Determination (45 CFR 164.514(b)(1))', text: 'Qualified expert applies generally accepted statistical methods to determine re-identification risk is very small. Must document methods. Unlike Safe Harbor, allows retention of granular dates or geographic data when statistically justified. Expert must consider recipient ability to re-identify.' }
+  ];
+
+  /* ── Finance knowledge base ─────────────────────────────────── */
+  var _financeKB = [
+    { id: 'fin_001', source: 'GAAP ASC 606 -- Revenue Recognition', text: 'Recognize revenue when control transfers to the customer, in the amount of expected consideration. Five-step model: identify contract, identify performance obligations, determine transaction price, allocate price, recognize as obligations satisfied.' },
+    { id: 'fin_002', source: 'GAAP Matching Principle', text: 'Expenses recorded in the same period as the revenues they generated, regardless of cash timing. Basis of accrual accounting. Drives depreciation over useful life, bonus accruals in the period worked.' },
+    { id: 'fin_003', source: 'SEC Regulation S-X', text: 'Governs form and content of financial statements in SEC filings. Specifies years to present, pro forma rules, and auditor independence standards. Article 3 covers general balance sheet and income statement requirements.' },
+    { id: 'fin_004', source: 'PCAOB Auditing Standards', text: 'Registered public accounting firms must obtain reasonable assurance financial statements are free of material misstatement via risk assessment, internal control testing, and substantive testing. Integrated audits of ICFR required for accelerated filers.' },
+    { id: 'fin_005', source: 'Sarbanes-Oxley Sections 302 and 404', text: 'SOX 302: CEO/CFO personally certify periodic reports contain no material misstatements and disclose controls evaluation. SOX 404: Management assesses and reports on ICFR effectiveness; external auditor must attest for larger accelerated filers.' },
+    { id: 'fin_006', source: 'IFRS vs GAAP Key Differences', text: 'IFRS permits revaluation of fixed assets to fair value; GAAP requires historical cost. IFRS prohibits LIFO; GAAP permits it. IFRS single-step impairment test; GAAP historically two-step. IFRS more principles-based; GAAP more rules-based with industry-specific guidance.' },
+    { id: 'fin_007', source: 'Cash Flow Statement Structure', text: 'Three sections: Operating (core business cash, starting from net income adjusted for non-cash items and working capital), Investing (long-term asset purchases/sales), Financing (debt/equity issuance, repayments, dividends). Sum reconciles beginning to ending cash.' },
+    { id: 'fin_008', source: 'Debt-to-Equity Ratio', text: 'Total liabilities / total shareholders equity. Measures reliance on debt vs. equity financing. Higher = more leverage, more financial risk. Acceptable levels vary by industry -- utilities and manufacturing typically higher than software.' },
+    { id: 'fin_009', source: 'EBITDA -- Definition and Limitations', text: 'Earnings Before Interest, Taxes, Depreciation, and Amortization. Non-GAAP proxy for operating cash generation. Widely used in EV/EBITDA valuation multiples. Ignores capex requirements, real debt service costs, and can be manipulated through aggressive add-backs.' },
+    { id: 'fin_010', source: 'Accounts Receivable Aging Analysis', text: 'Categorizes outstanding invoices by time unpaid: current, 1-30, 31-60, 61-90, 90+ days past due. Identifies collection risk, supports allowance for doubtful accounts estimation. Rising 90+ day concentration = early warning of credit quality deterioration.' },
+    { id: 'fin_011', source: 'Segregation of Duties', text: 'No single individual should control two or more phases: authorization, custody, and record-keeping must be separated. Prevents a single person from both perpetrating and concealing a misstatement without collusion.' },
+    { id: 'fin_012', source: 'GAAP ASC 820 -- Fair Value Hierarchy', text: 'Level 1: quoted prices in active markets for identical assets (most reliable). Level 2: observable inputs other than quoted prices. Level 3: unobservable inputs requiring management judgment (least reliable, most disclosure). Entities must disclose which level applies to each measured item.' }
+  ];
+
+  /* ── Retail knowledge base ──────────────────────────────────── */
+  var _retailKB = [
+    { id: 'ret_001', source: 'Retail -- Gross Margin', text: 'Gross margin = (revenue - COGS) / revenue. Measures how much of each dollar of sales is profit before operating expenses. Retail gross margins vary widely: grocery 20-30%, apparel 50-60%, luxury goods 60-70%. A declining gross margin signals rising input costs or pricing pressure.' },
+    { id: 'ret_002', source: 'Retail -- Inventory Turnover', text: 'Inventory turnover = COGS / average inventory. Measures how quickly inventory is sold. Higher is generally better but context-dependent: grocery turns 20-30x/year; furniture 3-5x. Low turnover signals overstocking, obsolescence risk, or weak demand.' },
+    { id: 'ret_003', source: 'Retail -- Same-Store Sales (Comparable Sales)', text: 'Measures revenue growth from stores open at least 12-13 months, excluding new or closed locations. Isolates organic growth from expansion. A core KPI for evaluating retail execution quality without the noise of store count changes.' },
+    { id: 'ret_004', source: 'Retail -- Customer Lifetime Value (CLV)', text: 'CLV = average order value x purchase frequency x customer lifespan. Measures the total net profit attributed to a customer relationship. Drives decisions on acquisition spend -- a business should spend less to acquire a customer than their CLV.' },
+    { id: 'ret_005', source: 'Retail -- Return Rate', text: 'Return rate = returns / gross sales. E-commerce return rates are typically 20-30%; in-store 8-10%. High return rates signal sizing/fit issues, product quality problems, or misleading product descriptions. Return costs include shipping, restocking, and lost resale value.' }
+  ];
+
+  /* ── Simple keyword-based retrieval (no embeddings needed) ─── */
+  var _allKB = _healthcareKB.concat(_financeKB).concat(_retailKB);
+
+  function _ragQuery(question, domain, topK) {
+    topK = topK || 3;
+    var q = (question || '').toLowerCase();
+    var pool = _allKB;
+
+    /* Filter by domain if specified */
+    if (domain === 'healthcare') pool = _healthcareKB;
+    else if (domain === 'finance') pool = _financeKB;
+    else if (domain === 'retail') pool = _retailKB;
+
+    /* Score each entry by keyword overlap */
+    var scored = pool.map(function(entry) {
+      var text = (entry.source + ' ' + entry.text).toLowerCase();
+      var words = q.split(/\s+/).filter(function(w) { return w.length > 3; });
+      var score = 0;
+      words.forEach(function(w) { if (text.indexOf(w) >= 0) score++; });
+      return { entry: entry, score: score };
+    });
+
+    scored.sort(function(a, b) { return b.score - a.score; });
+    return scored.slice(0, topK).filter(function(s) { return s.score > 0; }).map(function(s) { return s.entry; });
+  }
+
+  function _ragBuildContext(question, domain) {
+    var results = _ragQuery(question, domain, 3);
+    if (!results.length) return '';
+    var lines = ['[Domain Knowledge -- authoritative reference, cite source in answer]:'];
+    results.forEach(function(r) {
+      lines.push('SOURCE: ' + r.source);
+      lines.push(r.text);
+      lines.push('');
+    });
+    return lines.join('\n');
+  }
+
+  /* Hook into buildCouncilPrompt via wrapper */
+  var _origBuildCouncilPrompt = null;
+  if (window.CouncilOrchestrator && window.CouncilOrchestrator.buildCouncilPrompt) {
+    _origBuildCouncilPrompt = window.CouncilOrchestrator.buildCouncilPrompt.bind(window.CouncilOrchestrator);
+    window.CouncilOrchestrator.buildCouncilPrompt = function(question, schemaContext, modeHint, domain) {
+      var ragContext = _ragBuildContext(question, domain || '');
+      var prompt = _origBuildCouncilPrompt(question, schemaContext, modeHint, domain);
+      if (ragContext) {
+        prompt = ragContext + '\n\n' + prompt;
+      }
+      return prompt;
+    };
+  }
+
+  /* Public API */
+  window.DataGlowRAG = {
+    query: _ragQuery,
+    buildContext: _ragBuildContext,
+    getHealthcareKB: function() { return _healthcareKB.slice(); },
+    getFinanceKB: function() { return _financeKB.slice(); },
+    getRetailKB: function() { return _retailKB.slice(); },
+    getAllKB: function() { return _allKB.slice(); },
+    stats: function() {
+      return {
+        healthcare: _healthcareKB.length,
+        finance: _financeKB.length,
+        retail: _retailKB.length,
+        total: _allKB.length
+      };
+    }
+  };
+
+  console.info('[DataGlow RAG] Knowledge engine ready. Healthcare:', _healthcareKB.length, '| Finance:', _financeKB.length, '| Retail:', _retailKB.length);
+
+})();
+
+/* ================================================================
+   PR #517 BLOCK 3: Streaming Validation Mode
+   Micro-batch drift detection wired into the NATS live feed UI.
+   Four pillars: schema fingerprint, value/distribution drift,
+   arrival-rate anomaly, null-spike tracking.
+   ================================================================ */
+(function() {
+  'use strict';
+
+  /* ---- from js/streaming/streaming-validator.js (UI wire + dashboard) ---- */
+
+  var _svBaseline = null;
+  var _svHistory = [];
+  var _svBatchCount = 0;
+  var _svPanelOpen = false;
+
+  /* Schema fingerprint */
+  function _schemaFingerprint(columns) {
+    return (columns || []).map(function(c) {
+      var name = typeof c === 'string' ? c : c.name;
+      var type = typeof c === 'string' ? 'STR' : (c.type || 'STR');
+      return name + ':' + type;
+    }).sort().join('|');
+  }
+
+  /* Batch stats for a column (works on array rows accessed by index) */
+  function _batchStats(rows, colIdx) {
+    var count = rows.length;
+    var nullCount = 0;
+    var nums = [];
+    for (var i = 0; i < rows.length; i++) {
+      var v = Array.isArray(rows[i]) ? rows[i][colIdx] : null;
+      if (v === null || v === undefined || v === '') { nullCount++; continue; }
+      var n = Number(v);
+      if (!isNaN(n)) nums.push(n);
+    }
+    var nullRatio = count > 0 ? nullCount / count : 0;
+    if (!nums.length) return { count: count, nullCount: nullCount, nullRatio: nullRatio, mean: null, stddev: null };
+    var mean = nums.reduce(function(a, b) { return a + b; }, 0) / nums.length;
+    var variance = nums.reduce(function(a, v) { return a + (v - mean) * (v - mean); }, 0) / nums.length;
+    return { count: count, nullCount: nullCount, nullRatio: nullRatio, mean: mean, stddev: Math.sqrt(variance) };
+  }
+
+  /* Run validation on a new micro-batch */
+  function _runStreamingValidation(batch, baseline) {
+    var now = Date.now();
+    var columns = batch.columns || [];
+    var rows = batch.rows || [];
+    var currentFingerprint = _schemaFingerprint(columns);
+    var alerts = [];
+
+    /* Pillar 1: Schema drift */
+    if (baseline && baseline.schemaFingerprint && baseline.schemaFingerprint !== currentFingerprint) {
+      alerts.push({ pillar: 'schema', severity: 'error', message: 'Schema changed: ' + baseline.schemaFingerprint + ' -> ' + currentFingerprint });
+    }
+
+    /* Pillar 2: Value/distribution drift + null spike */
+    var colStats = {};
+    columns.forEach(function(col, idx) {
+      var name = typeof col === 'string' ? col : col.name;
+      var stats = _batchStats(rows, idx);
+      colStats[name] = stats;
+      if (baseline && baseline.colStats && baseline.colStats[name]) {
+        var prev = baseline.colStats[name];
+        /* Null spike: null rate jumped > 20pp */
+        if (stats.nullRatio - prev.nullRatio > 0.20) {
+          alerts.push({ pillar: 'null_spike', severity: 'warning', message: name + ' null rate spiked from ' + Math.round(prev.nullRatio * 100) + '% to ' + Math.round(stats.nullRatio * 100) + '%' });
+        }
+        /* Mean shift: Z-score > 2 */
+        if (prev.stddev && prev.stddev > 0 && stats.mean !== null && prev.mean !== null) {
+          var z = Math.abs(stats.mean - prev.mean) / prev.stddev;
+          if (z > 2) {
+            alerts.push({ pillar: 'value_drift', severity: 'warning', message: name + ' mean shifted ' + z.toFixed(1) + ' stddevs (' + prev.mean.toFixed(2) + ' -> ' + stats.mean.toFixed(2) + ')' });
+          }
+        }
+      }
+    });
+
+    /* Pillar 3: Arrival-rate anomaly */
+    if (baseline && baseline.lastBatchTime) {
+      var gap = now - baseline.lastBatchTime;
+      if (baseline.avgGap && gap > baseline.avgGap * 3) {
+        alerts.push({ pillar: 'arrival', severity: 'warning', message: 'Batch gap ' + Math.round(gap / 1000) + 's -- expected ~' + Math.round(baseline.avgGap / 1000) + 's' });
+      }
+    }
+
+    var newBaseline = {
+      schemaFingerprint: currentFingerprint,
+      colStats: colStats,
+      lastBatchTime: now,
+      avgGap: baseline && baseline.lastBatchTime ? ((baseline.avgGap || (now - baseline.lastBatchTime)) * 0.8 + (now - baseline.lastBatchTime) * 0.2) : null,
+      batchCount: (baseline ? baseline.batchCount || 0 : 0) + 1
+    };
+
+    return { alerts: alerts, newBaseline: newBaseline, batchRowCount: rows.length };
+  }
+
+  /* Streaming validation dashboard panel */
+  function _buildStreamingPanel() {
+    var panel = document.getElementById('dg-streaming-panel');
+    if (panel) return;
+
+    panel = document.createElement('div');
+    panel.id = 'dg-streaming-panel';
+    panel.setAttribute('role', 'region');
+    panel.setAttribute('aria-label', 'Streaming Validation Dashboard');
+    panel.style.cssText = [
+      'display:none',
+      'position:fixed',
+      'top:0',
+      'right:0',
+      'width:min(380px,100vw)',
+      'height:100vh',
+      'background:var(--surface,#131519)',
+      'border-left:1px solid var(--border,#252930)',
+      'z-index:9900',
+      'overflow-y:auto',
+      'padding:20px 18px 32px',
+      'box-sizing:border-box',
+      'font-family:var(--font-mono,"Geist Mono",monospace)',
+      'transform:translateX(100%)',
+      'transition:transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)',
+      '-webkit-overflow-scrolling:touch'
+    ].join(';');
+
+    panel.innerHTML = [
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">',
+        '<div>',
+          '<div style="font-size:13px;font-weight:700;color:var(--primary,#20C5B5);letter-spacing:0.06em;text-transform:uppercase">Live Stream</div>',
+          '<div style="font-size:11px;color:var(--text-muted,#7A7974);margin-top:2px">Micro-batch drift detection</div>',
+        '</div>',
+        '<button id="dg-streaming-close" aria-label="Close streaming panel" style="background:none;border:none;color:var(--text-muted,#7A7974);cursor:pointer;font-size:18px;padding:4px 6px;border-radius:6px">x</button>',
+      '</div>',
+      '<div id="dg-streaming-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">',
+        '<div class="dg-sv-kpi" id="dg-sv-batches" style="background:var(--surface-2,#191C20);border-radius:8px;padding:10px 12px">',
+          '<div style="font-size:20px;font-weight:700;color:var(--text,#CDCCCA)" id="dg-sv-batch-count">0</div>',
+          '<div style="font-size:10px;color:var(--text-muted,#7A7974);margin-top:2px">Batches</div>',
+        '</div>',
+        '<div class="dg-sv-kpi" style="background:var(--surface-2,#191C20);border-radius:8px;padding:10px 12px">',
+          '<div style="font-size:20px;font-weight:700;color:var(--text,#CDCCCA)" id="dg-sv-alert-count">0</div>',
+          '<div style="font-size:10px;color:var(--text-muted,#7A7974);margin-top:2px">Alerts</div>',
+        '</div>',
+      '</div>',
+      '<div style="font-size:11px;color:var(--text-muted,#7A7974);margin-bottom:8px;letter-spacing:0.05em;text-transform:uppercase">Alert Feed</div>',
+      '<div id="dg-sv-alert-feed" style="display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow-y:auto">',
+        '<div style="font-size:12px;color:var(--text-muted,#7A7974);text-align:center;padding:20px 0">Waiting for first batch...</div>',
+      '</div>',
+      '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border,#252930)">',
+        '<div style="font-size:11px;color:var(--text-muted,#7A7974);margin-bottom:8px;letter-spacing:0.05em;text-transform:uppercase">Four Pillars</div>',
+        '<div style="display:flex;flex-direction:column;gap:5px" id="dg-sv-pillars">',
+          _pillarRow('schema', 'Schema Drift'),
+          _pillarRow('value_drift', 'Value Drift'),
+          _pillarRow('arrival', 'Arrival Rate'),
+          _pillarRow('null_spike', 'Null Spike'),
+        '</div>',
+      '</div>'
+    ].join('');
+
+    document.body.appendChild(panel);
+
+    var closeBtn = document.getElementById('dg-streaming-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function() { _closeStreamingPanel(); });
+    }
+  }
+
+  function _pillarRow(pillarId, label) {
+    return [
+      '<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px">',
+        '<span style="color:var(--text,#CDCCCA)">' + label + '</span>',
+        '<span id="dg-sv-pillar-' + pillarId + '" style="color:var(--text-muted,#7A7974);font-size:11px">OK</span>',
+      '</div>'
+    ].join('');
+  }
+
+  function _openStreamingPanel() {
+    _buildStreamingPanel();
+    var panel = document.getElementById('dg-streaming-panel');
+    if (panel) {
+      panel.style.display = 'block';
+      requestAnimationFrame(function() {
+        panel.style.transform = 'translateX(0)';
+      });
+      _svPanelOpen = true;
+    }
+  }
+
+  function _closeStreamingPanel() {
+    var panel = document.getElementById('dg-streaming-panel');
+    if (panel) {
+      panel.style.transform = 'translateX(100%)';
+      setTimeout(function() { panel.style.display = 'none'; }, 350);
+      _svPanelOpen = false;
+    }
+  }
+
+  function _renderAlert(alert) {
+    var colors = { error: '#F5A623', warning: '#F5A623', info: '#20C5B5' };
+    var color = colors[alert.severity] || '#7A7974';
+    var pillarLabels = { schema: 'SCHEMA', value_drift: 'DRIFT', null_spike: 'NULLS', arrival: 'ARRIVAL' };
+    var pillarLabel = pillarLabels[alert.pillar] || alert.pillar.toUpperCase();
+    return [
+      '<div style="background:var(--surface-2,#191C20);border-radius:7px;padding:9px 11px;border-left:3px solid ' + color + '">',
+        '<div style="display:flex;align-items:center;gap:7px;margin-bottom:3px">',
+          '<span style="font-size:9px;font-weight:700;color:' + color + ';letter-spacing:0.07em;background:rgba(245,166,35,0.1);padding:2px 5px;border-radius:3px">' + pillarLabel + '</span>',
+        '</div>',
+        '<div style="font-size:11px;color:var(--text,#CDCCCA);line-height:1.4">' + alert.message + '</div>',
+      '</div>'
+    ].join('');
+  }
+
+  function _processBatch(batch) {
+    var result = _runStreamingValidation(batch, _svBaseline);
+    _svBaseline = result.newBaseline;
+    _svBatchCount++;
+    _svHistory.push({ ts: Date.now(), alerts: result.alerts, batchRowCount: result.batchRowCount });
+    if (_svHistory.length > 100) _svHistory.shift();
+
+    /* Update dashboard */
+    var batchEl = document.getElementById('dg-sv-batch-count');
+    if (batchEl) batchEl.textContent = _svBatchCount;
+
+    var totalAlerts = _svHistory.reduce(function(sum, h) { return sum + h.alerts.length; }, 0);
+    var alertCountEl = document.getElementById('dg-sv-alert-count');
+    if (alertCountEl) {
+      alertCountEl.textContent = totalAlerts;
+      alertCountEl.style.color = totalAlerts > 0 ? '#F5A623' : '#4AE38A';
+    }
+
+    /* Update pillar statuses */
+    var pillarHit = {};
+    result.alerts.forEach(function(a) { pillarHit[a.pillar] = a.severity; });
+    ['schema', 'value_drift', 'arrival', 'null_spike'].forEach(function(pillar) {
+      var el = document.getElementById('dg-sv-pillar-' + pillar);
+      if (el) {
+        if (pillarHit[pillar]) {
+          el.textContent = pillarHit[pillar].toUpperCase();
+          el.style.color = '#F5A623';
+        } else {
+          el.textContent = 'OK';
+          el.style.color = '#4AE38A';
+        }
+      }
+    });
+
+    /* Render alerts to feed */
+    if (result.alerts.length > 0) {
+      var feed = document.getElementById('dg-sv-alert-feed');
+      if (feed) {
+        /* Clear placeholder on first alert */
+        var placeholder = feed.querySelector('div[style*="Waiting"]');
+        if (placeholder) placeholder.remove();
+        result.alerts.forEach(function(alert) {
+          var div = document.createElement('div');
+          div.innerHTML = _renderAlert(alert);
+          feed.insertBefore(div.firstChild, feed.firstChild);
+        });
+        /* Trim to 50 items */
+        while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+      }
+    }
+
+    /* Auto-open panel if new errors found */
+    if (!_svPanelOpen && result.alerts.some(function(a) { return a.severity === 'error'; })) {
+      _openStreamingPanel();
+    }
+  }
+
+  /* Listen for micro-batch events (fired by NATS bridge or any data source) */
+  document.addEventListener('dataglow:stream-batch', function(e) {
+    if (e.detail && e.detail.batch) _processBatch(e.detail.batch);
+  });
+
+  /* Public API */
+  window.DataGlowStreaming = {
+    open: _openStreamingPanel,
+    close: _closeStreamingPanel,
+    processBatch: _processBatch,
+    getBaseline: function() { return _svBaseline; },
+    getHistory: function() { return _svHistory.slice(); },
+    resetBaseline: function() { _svBaseline = null; _svBatchCount = 0; _svHistory = []; },
+    stats: function() { return { batches: _svBatchCount, historyLen: _svHistory.length, baselineSet: !!_svBaseline }; }
+  };
+
+})();
+
+/* ================================================================
+   PR #517 BLOCK 4: Intent Layer + Command Palette (Cmd/Ctrl+K)
+   
+   Intent Layer: ambient intelligence that watches the dataset and
+   surfaces the next right action before the analyst asks.
+   
+   Command Palette: every DataGlow feature reachable in 2 keystrokes
+   on any device. Cmd+K desktop, floating action button mobile.
+   ================================================================ */
+(function() {
+  'use strict';
+
+  /* ---- from js/intent/intent-layer.js + js/ui/command-palette.js ---- */
+
+  /* ── Intent Engine ──────────────────────────────────────────── */
+  var _intentDismissed = {};
+
+  function _scoreIntents(state) {
+    var dataset = state && state.dataset;
+    if (!dataset) return [];
+
+    var findings = state.findings || dataset.findings || [];
+    var healthScore = state.healthScore;
+    var cols = dataset.columns || [];
+    var rows = dataset.rows || [];
+    var hasNarrative = !!(state.currentStoryDoc || window._dgCurrentStoryDoc);
+    var hasSemantic = !!(window._dgSemanticNotesCache && window._dgSemanticNotesCache.trim().length > 10);
+    var intents = [];
+
+    /* If health score is low: suggest validate */
+    if (healthScore && healthScore.score < 60) {
+      intents.push({ id: 'run_validate', priority: 95, icon: '', label: 'Validate your data', reason: 'Health Score is ' + healthScore.score + '/100 -- issues found', action: function() { _triggerTabClick('validate'); } });
+    }
+
+    /* If high null rate columns found */
+    var nullyCols = findings.filter(function(f) { return f.message && f.message.toLowerCase().indexOf('null') >= 0; });
+    if (nullyCols.length > 2) {
+      intents.push({ id: 'guided_cleaning', priority: 88, icon: '', label: 'Run Guided Cleaning', reason: nullyCols.length + ' columns have null issues', action: function() { _triggerTabClick('validate'); } });
+    }
+
+    /* If no narrative yet and > 1000 rows: suggest story */
+    if (!hasNarrative && rows.length > 1000) {
+      intents.push({ id: 'generate_story', priority: 75, icon: '', label: 'Generate a Data Story', reason: 'Capture your findings as a shareable document', action: function() { _triggerTabClick('story'); } });
+    }
+
+    /* If no semantic notes: nudge */
+    if (!hasSemantic) {
+      intents.push({ id: 'add_semantic', priority: 65, icon: '', label: 'Add Semantic Notes', reason: 'Ground every query in your domain logic', action: function() { if (window.SemanticNotes) window.SemanticNotes.open(); } });
+    }
+
+    /* If date columns exist: suggest time analysis */
+    var dateCols = cols.filter(function(c) { return (typeof c === 'string' ? c : c.type) === 'DATE' || (typeof c !== 'string' && c.name && c.name.toLowerCase().indexOf('date') >= 0); });
+    if (dateCols.length > 0 && rows.length > 100) {
+      intents.push({ id: 'time_analysis', priority: 60, icon: '', label: 'Explore time trends', reason: dateCols.length + ' date column' + (dateCols.length > 1 ? 's' : '') + ' detected', action: function() { var btn = document.getElementById('dg-tab-analyze'); if(btn) btn.click(); } });
+    }
+
+    /* Share findings: suggest Rooms if data > 1000 rows */
+    if (rows.length > 1000 && findings.length > 0) {
+      intents.push({ id: 'share_room', priority: 55, icon: '', label: 'Share findings (DataGlow Room)', reason: 'Share zero-data findings package with a colleague', action: function() { _triggerTabClick('rooms'); } });
+    }
+
+    /* Filter out dismissed */
+    intents = intents.filter(function(i) { return !_intentDismissed[i.id]; });
+    intents.sort(function(a, b) { return b.priority - a.priority; });
+    return intents.slice(0, 3);
+  }
+
+  function _triggerTabClick(tabName) {
+    /* Try data-tab attribute, then data-section, then text match */
+    var btns = document.querySelectorAll('[data-tab],[data-section],[role="tab"]');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      var t = (b.getAttribute('data-tab') || b.getAttribute('data-section') || b.textContent || '').toLowerCase();
+      if (t.indexOf(tabName.toLowerCase()) >= 0) {
+        b.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+
+  function _renderIntentStrip(intents) {
+    var strip = document.getElementById('dg-intent-strip');
+    if (!strip) {
+      strip = document.createElement('div');
+      strip.id = 'dg-intent-strip';
+      strip.style.cssText = [
+        'position:fixed',
+        'bottom:0',
+        'left:50%',
+        'transform:translateX(-50%)',
+        'z-index:8500',
+        'display:flex',
+        'gap:8px',
+        'padding:10px 16px',
+        'align-items:center',
+        'max-width:min(580px,100vw)',
+        'box-sizing:border-box',
+        'pointer-events:none'
+      ].join(';');
+      document.body.appendChild(strip);
+    }
+
+    if (!intents.length) { strip.innerHTML = ''; return; }
+
+    var top = intents[0];
+    strip.innerHTML = [
+      '<div style="pointer-events:all;background:var(--surface,#131519);border:1px solid var(--border,#252930);border-radius:24px;padding:8px 14px 8px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 24px rgba(0,0,0,0.5);cursor:pointer;transition:transform 0.2s;max-width:100%;box-sizing:border-box"',
+        ' id="dg-intent-pill"',
+        ' role="button"',
+        ' tabindex="0"',
+        ' title="' + top.reason + '"',
+        ' data-intent-id="' + top.id + '">',
+        '<span style="font-size:15px">' + top.icon + '</span>',
+        '<div style="flex:1;min-width:0">',
+          '<div style="font-size:12px;font-weight:600;color:var(--text,#CDCCCA);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + top.label + '</div>',
+          '<div style="font-size:10px;color:var(--text-muted,#7A7974);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + top.reason + '</div>',
+        '</div>',
+        '<button aria-label="Dismiss suggestion" style="background:none;border:none;color:var(--text-muted,#7A7974);cursor:pointer;font-size:13px;padding:2px 4px;border-radius:4px;flex-shrink:0" id="dg-intent-dismiss">x</button>',
+      '</div>'
+    ].join('');
+
+    var pill = document.getElementById('dg-intent-pill');
+    var dismiss = document.getElementById('dg-intent-dismiss');
+    if (pill) {
+      pill.addEventListener('click', function(e) {
+        if (e.target === dismiss || dismiss && dismiss.contains(e.target)) return;
+        top.action();
+      });
+      pill.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); top.action(); } });
+    }
+    if (dismiss) {
+      dismiss.addEventListener('click', function(e) {
+        e.stopPropagation();
+        _intentDismissed[top.id] = true;
+        strip.innerHTML = '';
+      });
+    }
+  }
+
+  /* Refresh intents when dataset loads or state changes */
+  function _refreshIntents() {
+    var state = window._dgState || {};
+    var intents = _scoreIntents(state);
+    _renderIntentStrip(intents);
+  }
+
+  document.addEventListener('dataglow:dataset-loaded', function() {
+    setTimeout(_refreshIntents, 1500);
+  });
+  document.addEventListener('dataglow:validation-complete', _refreshIntents);
+  document.addEventListener('dataglow:health-score-updated', _refreshIntents);
+
+  /* ── Command Palette ────────────────────────────────────────── */
+  var _paletteOpen = false;
+  var _paletteItems = null;
+
+  function _buildPaletteItems() {
+    return [
+      /* Analysis */
+      { id: 'nl_ask', group: 'Analyze', label: 'Ask a question', icon: '', shortcut: 'AI', action: function() { _triggerTabClick('ask'); }, keywords: 'question ask query nl ai' },
+      { id: 'run_sql', group: 'Analyze', label: 'SQL Editor', icon: '', shortcut: 'SQL', action: function() { _triggerTabClick('sql'); }, keywords: 'sql query editor duckdb' },
+      { id: 'python_tab', group: 'Analyze', label: 'Python workbench', icon: '', shortcut: 'PY', action: function() { _triggerTabClick('python'); }, keywords: 'python pandas pyodide code' },
+      { id: 'r_tab', group: 'Analyze', label: 'R workbench', icon: '', shortcut: 'R', action: function() { _triggerTabClick('r'); }, keywords: 'r ggplot tidyverse statistics' },
+      /* Validate */
+      { id: 'validate', group: 'Validate', label: 'Run validation', icon: '', shortcut: 'V', action: function() { _triggerTabClick('validate'); }, keywords: 'validate quality check health score' },
+      { id: 'health_score', group: 'Validate', label: 'Health Score', icon: '', shortcut: 'H', action: function() { _triggerTabClick('health'); }, keywords: 'health score quality completeness' },
+      { id: 'crucible', group: 'Validate', label: 'Crucible contract check', icon: '', action: function() { _triggerTabClick('crucible'); }, keywords: 'crucible contract pre-apply check' },
+      { id: 'sentinel', group: 'Validate', label: 'Query Sentinel', icon: '', action: function() { _triggerTabClick('sentinel'); }, keywords: 'sentinel grain join fanout' },
+      /* Trust */
+      { id: 'proof_chain', group: 'Trust', label: 'Proof Chain', icon: '', action: function() { _triggerTabClick('proof'); }, keywords: 'proof chain audit trail signed' },
+      { id: 'stayed_local', group: 'Trust', label: 'Stayed Local report', icon: '', action: function() { if (window.StayedLocal) window.StayedLocal.open(); }, keywords: 'stayed local compliance hipaa audit pdf' },
+      { id: 'rooms', group: 'Trust', label: 'DataGlow Rooms -- share findings', icon: '', action: function() { _triggerTabClick('rooms'); }, keywords: 'rooms share collaborate findings zero data' },
+      /* Intelligence */
+      { id: 'pulse', group: 'Intelligence', label: 'Auto-Pulse briefing', icon: '', action: function() { if (window._dgRunPulse) window._dgRunPulse(); }, keywords: 'pulse auto briefing findings' },
+      { id: 'semantic', group: 'Intelligence', label: 'Semantic Notes', icon: '', action: function() { if (window.SemanticNotes) window.SemanticNotes.open(); }, keywords: 'semantic notes glossary domain' },
+      { id: 'rag_query', group: 'Intelligence', label: 'Domain knowledge (RAG)', icon: '', action: function() { _openPaletteWithQuery('Explain '); }, keywords: 'rag knowledge healthcare finance hipaa gaap' },
+      { id: 'story', group: 'Intelligence', label: 'Generate Data Story', icon: '', action: function() { _triggerTabClick('story'); }, keywords: 'story narrative document pdf' },
+      { id: 'peer_review', group: 'Intelligence', label: 'Peer Review', icon: '', action: function() { _triggerTabClick('peer'); }, keywords: 'peer review quality score' },
+      /* Stream */
+      { id: 'streaming', group: 'Stream', label: 'Streaming validation panel', icon: '', action: function() { if (window.DataGlowStreaming) window.DataGlowStreaming.open(); }, keywords: 'stream live nats batch drift' },
+      { id: 'mcp_info', group: 'Developers', label: 'MCP Server -- connect Claude/ChatGPT', icon: '', action: function() { _showMcpInfo(); }, keywords: 'mcp server api claude chatgpt codex' },
+    ];
+  }
+
+  function _showMcpInfo() {
+    var msg = [
+      'DataGlow MCP Server is ready.',
+      '',
+      'From Claude Desktop or any MCP client:',
+      '  window.DataGlowMCP.connect("Claude")',
+      '  window.DataGlowMCP.call("get_dataset_summary")',
+      '  window.DataGlowMCP.call("get_validation_findings", { severity: "error" })',
+      '  window.DataGlowMCP.call("run_nl_query", { question: "What is the average revenue?" })',
+      '',
+      'getCapabilities() returns full tool manifest.'
+    ].join('\n');
+    alert(msg);
+  }
+
+  function _filterItems(query) {
+    var items = _paletteItems || (_paletteItems = _buildPaletteItems());
+    if (!query) return items;
+    var q = query.toLowerCase().trim();
+    return items.filter(function(item) {
+      return item.label.toLowerCase().indexOf(q) >= 0 ||
+             (item.keywords && item.keywords.indexOf(q) >= 0) ||
+             (item.group && item.group.toLowerCase().indexOf(q) >= 0);
+    });
+  }
+
+  function _buildPalette() {
+    if (document.getElementById('dg-palette-overlay')) return;
+
+    var overlay = document.createElement('div');
+    overlay.id = 'dg-palette-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'DataGlow Command Palette');
+    overlay.style.cssText = [
+      'position:fixed',
+      'inset:0',
+      'z-index:99000',
+      'background:rgba(0,0,0,0.72)',
+      'display:flex',
+      'align-items:flex-start',
+      'justify-content:center',
+      'padding-top:min(12vh,96px)',
+      'padding-left:16px',
+      'padding-right:16px',
+      'box-sizing:border-box',
+      '-webkit-backdrop-filter:blur(8px)',
+      'backdrop-filter:blur(8px)'
+    ].join(';');
+
+    overlay.innerHTML = [
+      '<div style="width:100%;max-width:560px;background:var(--surface,#131519);border:1px solid var(--border,#252930);border-radius:14px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.7)">',
+        '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border,#252930)">',
+          '<span style="font-size:16px;flex-shrink:0"></span>',
+          '<input id="dg-palette-input" type="text" placeholder="Search features..." autocomplete="off" aria-label="Search DataGlow features" style="flex:1;background:none;border:none;outline:none;color:var(--text,#CDCCCA);font-size:15px;font-family:inherit">',
+          '<kbd style="font-size:10px;color:var(--text-muted,#7A7974);background:var(--surface-2,#191C20);border:1px solid var(--border,#252930);border-radius:4px;padding:2px 6px;flex-shrink:0">ESC</kbd>',
+        '</div>',
+        '<div id="dg-palette-results" role="listbox" style="max-height:min(380px,55vh);overflow-y:auto;padding:6px">',
+        '</div>',
+        '<div style="padding:8px 14px;border-top:1px solid var(--border,#252930);display:flex;justify-content:space-between;align-items:center">',
+          '<span style="font-size:10px;color:var(--text-muted,#7A7974)">Navigate with arrow keys  Enter to run</span>',
+          '<span style="font-size:10px;color:var(--text-muted,#7A7974)">Cmd+K to open anytime</span>',
+        '</div>',
+      '</div>'
+    ].join('');
+
+    document.body.appendChild(overlay);
+
+    var input = document.getElementById('dg-palette-input');
+    var results = document.getElementById('dg-palette-results');
+    var _selectedIdx = 0;
+
+    function _renderResults(query) {
+      var items = _filterItems(query);
+      if (!items.length) {
+        results.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted,#7A7974);font-size:13px">No results for "' + query + '"</div>';
+        return;
+      }
+
+      /* Group items */
+      var grouped = {};
+      var groupOrder = [];
+      items.forEach(function(item) {
+        if (!grouped[item.group]) { grouped[item.group] = []; groupOrder.push(item.group); }
+        grouped[item.group].push(item);
+      });
+
+      var html = [];
+      var flatItems = [];
+      groupOrder.forEach(function(group) {
+        html.push('<div style="font-size:10px;color:var(--text-muted,#7A7974);letter-spacing:0.07em;text-transform:uppercase;padding:8px 10px 4px">' + group + '</div>');
+        grouped[group].forEach(function(item, localIdx) {
+          var globalIdx = flatItems.length;
+          flatItems.push(item);
+          html.push([
+            '<div class="dg-palette-item" role="option" data-idx="' + globalIdx + '" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:background 0.1s" aria-selected="false">',
+              '<span style="font-size:16px;flex-shrink:0">' + item.icon + '</span>',
+              '<span style="flex:1;font-size:13px;color:var(--text,#CDCCCA)">' + item.label + '</span>',
+              item.shortcut ? '<kbd style="font-size:9px;color:var(--text-muted,#7A7974);background:var(--surface-2,#191C20);border:1px solid var(--border,#252930);border-radius:3px;padding:1px 5px">' + item.shortcut + '</kbd>' : '',
+            '</div>'
+          ].join(''));
+        });
+      });
+
+      results.innerHTML = html.join('');
+      _selectedIdx = 0;
+      _highlightItem(0);
+
+      /* Click handlers */
+      results.querySelectorAll('.dg-palette-item').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var idx = parseInt(el.getAttribute('data-idx'), 10);
+          if (flatItems[idx]) { _closePalette(); flatItems[idx].action(); }
+        });
+        el.addEventListener('mouseenter', function() {
+          _selectedIdx = parseInt(el.getAttribute('data-idx'), 10);
+          _highlightItem(_selectedIdx);
+        });
+      });
+
+      /* Store flat list for keyboard nav */
+      results._flatItems = flatItems;
+    }
+
+    function _highlightItem(idx) {
+      results.querySelectorAll('.dg-palette-item').forEach(function(el, i) {
+        var active = i === idx;
+        el.style.background = active ? 'var(--surface-2,#191C20)' : '';
+        el.setAttribute('aria-selected', active ? 'true' : 'false');
+        if (active) el.scrollIntoView({ block: 'nearest' });
+      });
+    }
+
+    _renderResults('');
+
+    input.addEventListener('input', function() {
+      _renderResults(input.value);
+      _selectedIdx = 0;
+      _highlightItem(0);
+    });
+
+    input.addEventListener('keydown', function(e) {
+      var flatItems = results._flatItems || [];
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _selectedIdx = Math.min(_selectedIdx + 1, flatItems.length - 1);
+        _highlightItem(_selectedIdx);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _selectedIdx = Math.max(_selectedIdx - 1, 0);
+        _highlightItem(_selectedIdx);
+      } else if (e.key === 'Enter') {
+        if (flatItems[_selectedIdx]) { _closePalette(); flatItems[_selectedIdx].action(); }
+      } else if (e.key === 'Escape') {
+        _closePalette();
+      }
+    });
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) _closePalette();
+    });
+
+    setTimeout(function() { if (input) input.focus(); }, 50);
+  }
+
+  function _openPalette() {
+    _buildPalette();
+    var overlay = document.getElementById('dg-palette-overlay');
+    if (overlay) {
+      overlay.style.display = 'flex';
+      _paletteOpen = true;
+    }
+  }
+
+  function _closePalette() {
+    var overlay = document.getElementById('dg-palette-overlay');
+    if (overlay) {
+      overlay.remove();
+      _paletteOpen = false;
+    }
+  }
+
+  /* Keyboard shortcut: Cmd+K / Ctrl+K */
+  document.addEventListener('keydown', function(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      if (_paletteOpen) { _closePalette(); } else { _openPalette(); }
+    }
+  });
+
+  /* Mobile FAB -- floating action button, bottom-right */
+  function _injectMobileFAB() {
+    if (document.getElementById('dg-palette-fab')) return;
+    var fab = document.createElement('button');
+    fab.id = 'dg-palette-fab';
+    fab.setAttribute('aria-label', 'Open command palette');
+    fab.title = 'Open DataGlow command palette';
+    fab.textContent = '';
+    fab.style.cssText = [
+      'position:fixed',
+      'bottom:calc(env(safe-area-inset-bottom,0px) + 80px)',
+      'right:18px',
+      'width:50px',
+      'height:50px',
+      'border-radius:50%',
+      'background:var(--primary,#20C5B5)',
+      'color:#000',
+      'border:none',
+      'font-size:20px',
+      'cursor:pointer',
+      'z-index:8400',
+      'box-shadow:0 4px 20px rgba(32,197,181,0.4)',
+      'display:none',
+      'align-items:center',
+      'justify-content:center',
+      'transition:transform 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+      '-webkit-tap-highlight-color:transparent'
+    ].join(';');
+
+    fab.addEventListener('click', _openPalette);
+    fab.addEventListener('touchstart', function() { fab.style.transform = 'scale(0.92)'; }, { passive: true });
+    fab.addEventListener('touchend', function() { fab.style.transform = 'scale(1)'; }, { passive: true });
+
+    document.body.appendChild(fab);
+
+    /* Show FAB on mobile only */
+    function _updateFAB() {
+      fab.style.display = window.innerWidth <= 768 ? 'flex' : 'none';
+    }
+    _updateFAB();
+    window.addEventListener('resize', _updateFAB);
+  }
+
+  _injectMobileFAB();
+
+  /* MCP status button injection into nav */
+  function _injectNavBtns() {
+    /* Find share/export area -- try multiple selectors */
+    var targetBtn = document.getElementById('dg-semantic-btn') ||
+                    document.getElementById('dg-stayed-local-btn') ||
+                    document.querySelector('[id^="dg-"][id$="-btn"]');
+
+    if (!targetBtn || document.getElementById('dg-mcp-status-btn')) return;
+
+    /* MCP status button */
+    var mcpBtn = document.createElement('button');
+    mcpBtn.id = 'dg-mcp-status-btn';
+    mcpBtn.setAttribute('aria-label', 'MCP Server status -- not connected');
+    mcpBtn.title = 'MCP Server -- load a dataset to activate';
+    mcpBtn.style.cssText = targetBtn.style.cssText || '';
+    mcpBtn.style.cssText += ';background:rgba(32,197,181,0.08);border:1px solid rgba(32,197,181,0.2);border-radius:8px;padding:6px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-muted,#7A7974);transition:background 0.2s';
+    mcpBtn.innerHTML = '<span class="dg-mcp-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text-muted,#7A7974);display:inline-block"></span> MCP';
+    mcpBtn.addEventListener('click', function() {
+      var info = window.DataGlowMCP ? window.DataGlowMCP.getCapabilities() : null;
+      if (info) {
+        alert('DataGlow MCP Server v' + info.version + '\n' + info.tools.length + ' tools available\n\nwindow.DataGlowMCP.connect("client-name") to start');
+      }
+    });
+
+    targetBtn.parentNode.insertBefore(mcpBtn, targetBtn.nextSibling);
+  }
+
+  /* Intent Layer public API */
+  window.DataGlowIntent = {
+    refresh: _refreshIntents,
+    score: function() { return _scoreIntents(window._dgState || {}); },
+    dismiss: function(intentId) { _intentDismissed[intentId] = true; _refreshIntents(); }
+  };
+
+  function _injectNavBtns() {
+    /* Find share/export area -- try multiple selectors */
+    var targetBtn = document.getElementById('dg-semantic-btn') ||
+                    document.getElementById('dg-stayed-local-btn') ||
+                    document.querySelector('[id^="dg-"][id$="-btn"]');
+
+    if (!targetBtn || document.getElementById('dg-mcp-status-btn')) return;
+
+    /* MCP status button */
+    var mcpBtn = document.createElement('button');
+    mcpBtn.id = 'dg-mcp-status-btn';
+    mcpBtn.setAttribute('aria-label', 'MCP Server status -- not connected');
+    mcpBtn.title = 'MCP Server -- load a dataset to activate';
+    mcpBtn.style.cssText = targetBtn.style.cssText || '';
+    mcpBtn.style.cssText += ';background:rgba(32,197,181,0.08);border:1px solid rgba(32,197,181,0.2);border-radius:8px;padding:6px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-muted,#7A7974);transition:background 0.2s';
+    mcpBtn.innerHTML = '<span class="dg-mcp-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text-muted,#7A7974);display:inline-block"></span> MCP';
+    mcpBtn.addEventListener('click', function() {
+      var info = window.DataGlowMCP ? window.DataGlowMCP.getCapabilities() : null;
+      if (info) {
+        alert('DataGlow MCP Server v' + info.version + '\n' + info.tools.length + ' tools available\n\nwindow.DataGlowMCP.connect("client-name") to start');
+      }
+    });
+
+    targetBtn.parentNode.insertBefore(mcpBtn, targetBtn.nextSibling);
+  }
+
+  /* Command Palette removed per product decision */
+
+
+  /* Inject nav buttons after DOM ready */
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _injectNavBtns);
+  } else {
+    setTimeout(_injectNavBtns, 600);
+  }
+
+  console.info('[DataGlow] Intent Layer + Command Palette (Cmd+K) ready.');
+
+})();
+
+
+
+/* ---- from js/rigor/narrative-overconfidence-guard.js ---- */
+(function() {
+'use strict';
+// ============================================================
+// DATAGLOW — Narrative Overconfidence Guard
+// ============================================================
+// WHY THIS EXISTS: the Story Engine (js/narrative/story.js) already scores
+// each quantitative claim with a per-claim confidence grade (A-D, via the
+// Confidence Layer's scoreClaimConfidence) and its own model prompts already
+// INSTRUCT the model to hedge on weak claims and end with an honest caveat
+// (see STORY_SYSTEM_PROMPT / buildStoryModelPrompt in
+// js/narrative/ondevice-llm.js). But nothing verifies the model's actual
+// GENERATED text obeys that instruction. A model — on-device or an external
+// provider — can silently ignore "hedge on grade C/D" and write confident,
+// assertive prose anyway. That gap is the exact mechanism named in Stanford
+// HAI's reporting on AI "delusional spirals": a model trained to sound
+// agreeable/confident can drift past what its own evidence supports, with
+// nothing in the pipeline catching it (see
+// https://hai.stanford.edu/news/ais-delusional-spirals-and-what-to-do-about-them).
+// DataGlow's stakes here are narrower and lower — this only ever grades
+// wording against a STATISTICAL claim's confidence grade, never a person's
+// beliefs — but the failure mode is the same shape: unearned certainty in
+// generated text, undetected.
+//
+// This module deliberately does NOT re-derive confidence grades (that stays
+// owned by js/validation/validation.js's scoreClaimConfidence, exactly as
+// story.js's buildStoryClaims already does) and does NOT re-implement
+// anything from the Rigor Engine (js/rigor/statistical-rigor.js), which
+// grades STRUCTURED claims (SQL/Visualize sample-size and Simpson's-paradox
+// verdicts). This module's job is narrower and complementary: it grades
+// GENERATED PROSE TEXT against confidence grades that already exist,
+// wherever that text sits next to a claim-confidence badge in the app (today:
+// Story tab; Guarded Copilot's narrative rephrase is a documented future
+// follow-up, not in scope this batch — see NORTH_STAR.md).
+//
+// PURE LOGIC ONLY: no DOM, no network, no model call, no import of anything
+// in js/narrative/ or js/app-shell/ — so it stays trivially Node-testable and
+// composes cleanly with any future caller the same way story.js's own claim
+// scoring does.
+// ============================================================
+
+// Absolute/overconfident language patterns. Deliberately conservative and
+// narrow (word-boundary regexes) so this never flags ordinary hedged prose —
+// false positives here would train the user to ignore the badge, which is
+// worse than under-detecting. Each pattern is checked case-insensitively.
+const OVERCONFIDENT_PATTERNS = [
+  /\bclearly\b/i,
+  /\bdefinitely\b/i,
+  /\bcertainly\b/i,
+  /\bproves?\b/i,
+  /\bconclusively\b/i,
+  /\bundoubtedly\b/i,
+  /\bguarantees?\b/i,
+  /\bwithout (?:a )?doubt\b/i,
+  /\balways\b/i,
+  /\bnever\b/i,
+  /\bevery (?:single )?time\b/i,
+  /\b100% (?:certain|sure|confident)\b/i,
+];
+
+// Hedging language a caveat sentence is expected to contain when a claim's
+// grade is C or D. Mirrors the exact hedge vocabulary story.js's own
+// generateLocalStory() already uses ("treat this ... cautiously", "limited or
+// partly-missing data") plus a few reasonable synonyms, so this module holds
+// the local rule-based path to the same bar it already meets, and holds any
+// model-generated path (on-device or external) to that same bar.
+const HEDGE_PATTERNS = [
+  /\bcaution/i,
+  /\bcautiously/i,
+  /\blimited\b/i,
+  /\bsmall sample/i,
+  /\bfew (?:data points|rows|records)/i,
+  /\bmissing data/i,
+  /\bpartly[- ]missing/i,
+  /\buncertain/i,
+  /\bshould(?:n't| not) be (?:read|taken) as (?:definitive|conclusive)/i,
+  /\bnot (?:definitive|conclusive)/i,
+  /\btentative/i,
+  /\bpreliminary/i,
+  /\bmay not (?:fully )?reflect/i,
+  /\bdoes(?:n't| not) (?:fully )?(?:capture|reflect|show)/i,
+];
+
+const WEAK_GRADES = new Set(['C', 'D']);
+
+/**
+ * Find every sentence in `text` that contains a value/phrase drawn from a
+ * specific claim (matched by the claim's already-rounded display value or
+ * its column name) so overconfident language can be attributed to the RIGHT
+ * claim rather than judged against the whole narrative at once. Falls back
+ * to whole-text scanning for a claim whose value/column can't be located
+ * verbatim (e.g. a model paraphrased the number differently) — see
+ * `findRelevantSentences` for exactly how "relevant" is decided.
+ *
+ * Sentence splitting is intentionally simple (split on ., !, ? followed by
+ * whitespace/end) — this module is a wording-tone check, not an NLP parser,
+ * and a fully correct sentence tokenizer would add a dependency for no real
+ * accuracy gain on the short, plain-English prose the Story tab produces.
+ */
+function splitSentences(text) {
+  if (!text || typeof text !== 'string') return [];
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Build a small set of tokens that would plausibly appear in a sentence
+// discussing this claim: its column name (if any) and a handful of numeric
+// renderings of its value (rounded/toFixed variants), mirroring the same
+// tolerant-numeric-matching approach checkNarrativeConsistency() already uses
+// in js/validation/validation.js so this module stays consistent with how
+// DataGlow already reasons about "does this text describe this number."
+function claimTokens(claim) {
+  const tokens = [];
+  if (claim.column) tokens.push(String(claim.column).toLowerCase());
+  const v = claim.value;
+  if (typeof v === 'number' && !Number.isNaN(v)) {
+    tokens.push(v.toFixed(2));
+    tokens.push(v.toFixed(1));
+    tokens.push(String(Math.round(v)));
+  }
+  return tokens;
+}
+
+function findRelevantSentences(sentences, claim) {
+  const tokens = claimTokens(claim);
+  if (!tokens.length) return [];
+  return sentences.filter((s) => {
+    const lower = s.toLowerCase();
+    return tokens.some((t) => t && lower.includes(t));
+  });
+}
+
+/**
+ * Scan generated narrative text for overconfident wording that is NOT backed
+ * by the claims' own confidence grades. Two independent checks per claim:
+ *
+ *   1. OVERCONFIDENT LANGUAGE — any sentence discussing a claim uses an
+ *      absolute/overconfident word (see OVERCONFIDENT_PATTERNS) while that
+ *      claim's grade is C or D (weak). This is always a flag regardless of
+ *      grade for the STRONGEST patterns is deliberately NOT done — even a
+ *      grade-A claim saying "clearly" is ordinary confident prose, not an
+ *      overconfidence problem; the risk this module targets is specifically
+ *      confident-SOUNDING text that outruns weak evidence.
+ *   2. MISSING HEDGE — a claim graded C or D has no sentence describing it
+ *      that contains ANY recognizable hedge/caveat language. A model that
+ *      simply omits the required caveat sentence entirely is the most direct
+ *      version of the Stanford HAI failure mode (confident by omission,
+ *      rather than confident by word choice).
+ *
+ * Never mutates its inputs. Never throws — a malformed/empty `text` or
+ * `claims` array degrades to `{ status: 'idle', findings: [] }` rather than
+ * blocking the Story tab, matching every other validation module's
+ * fail-open discipline in this codebase (see e.g. findReferenceCandidate in
+ * js/validation/validation.js).
+ *
+ * @param {string} text - The generated narrative (plain text; strip HTML/
+ *   markup before calling, same as state.lastStory in main.js already does).
+ * @param {Array<{kind:string, column:?string, value:*, text:string, confidence:{grade:string,n:number,missingRate:number}}>} claims
+ *   - The exact shape story.js's buildStoryClaims() returns. Never re-derived
+ *   here — always the caller's own already-scored claims.
+ * @returns {{status: 'pass'|'warn'|'idle', findings: Array<{claimKind:string, column:?string, grade:string, issue:'overconfident_language'|'missing_hedge', sentence:?string, pattern:?string}>}}
+ */
+function checkNarrativeOverconfidence(text, claims) {
+  if (typeof text !== 'string' || !text.trim()) return { status: 'idle', findings: [] };
+  if (!Array.isArray(claims) || claims.length === 0) return { status: 'idle', findings: [] };
+
+  const sentences = splitSentences(text);
+  const findings = [];
+
+  for (const claim of claims) {
+    const grade = claim && claim.confidence && claim.confidence.grade;
+    if (!grade) continue;
+
+    const relevant = findRelevantSentences(sentences, claim);
+    // If the claim's value/column can't be located in any sentence, fall back
+    // to scanning the whole narrative — a paraphrased number is still worth
+    // checking for overconfident tone even if this module can't pin it to one
+    // sentence; `sentence: null` in the finding honestly reflects that.
+    const overconfidenceSearchSpace = relevant.length ? relevant : sentences;
+    // A hedge/caveat sentence legitimately does NOT need to repeat the
+    // claim's number or column name verbatim (story.js's own
+    // generateLocalStory() writes "Treat this average cautiously — it rests
+    // on limited or partly-missing data.", a follow-on sentence with no
+    // number in it at all) — so the missing-hedge check always scans the
+    // WHOLE narrative for hedge language, never narrowed to `relevant`. Only
+    // the overconfident-language check (which DOES need to attribute a
+    // specific confident phrase to a specific claim) uses the narrowed set.
+    const hedgeSearchSpace = sentences;
+
+    if (WEAK_GRADES.has(grade)) {
+      // Check 1: overconfident language attached to a weak claim.
+      for (const sentence of overconfidenceSearchSpace) {
+        const hit = OVERCONFIDENT_PATTERNS.find((re) => re.test(sentence));
+        if (hit) {
+          findings.push({
+            claimKind: claim.kind,
+            column: claim.column || null,
+            grade,
+            issue: 'overconfident_language',
+            sentence: relevant.length ? sentence : null,
+            pattern: hit.source,
+          });
+          break; // one finding per claim per issue type is enough signal
+        }
+      }
+
+      // Check 2: no hedge anywhere in the narrative at all for this claim.
+      const hasHedge = hedgeSearchSpace.some((s) => HEDGE_PATTERNS.some((re) => re.test(s)));
+      if (!hasHedge) {
+        findings.push({
+          claimKind: claim.kind,
+          column: claim.column || null,
+          grade,
+          issue: 'missing_hedge',
+          sentence: null,
+          pattern: null,
+        });
+      }
+    }
+  }
+
+  return { status: findings.length ? 'warn' : 'pass', findings };
+}
+
+/**
+ * Render-ready summary line for the finding list, kept here (pure, no DOM) so
+ * the thin presenter that calls this module never needs its own English
+ * strings — same split as story.js's confidenceBadgeHTML vs. buildStoryClaims.
+ */
+function describeOverconfidenceFinding(finding) {
+  const col = finding.column ? ` ("${finding.column}")` : '';
+  if (finding.issue === 'overconfident_language') {
+    return `The ${finding.claimKind}${col} claim is graded ${finding.grade} (weak) but the narrative uses confident language ("${finding.pattern.replace(/\\b/g, '')}") without hedging.`;
+  }
+  return `The ${finding.claimKind}${col} claim is graded ${finding.grade} (weak) but the narrative never hedges or caveats it.`;
+}
+
+/* Export to global scope */
+if (typeof checkNarrativeOverconfidence !== "undefined") {
+  window._checkNarrativeOverconfidence = checkNarrativeOverconfidence;
+  window._describeOverconfidenceFinding = describeOverconfidenceFinding;
+}
+})();
+/* ---- end narrative-overconfidence-guard.js ---- */
 
 /* ---- from js/agents/phi-prompt-guard.js ---- */
 ;(function(){
