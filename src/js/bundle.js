@@ -21638,9 +21638,9 @@ var InstantInsight = (function () {
           if (link) link.click();
         }, 350);
       };
-      if (!hasSeenWelcome()) {
-        setTimeout(showWelcomeBrief, 600);
-      }
+      /* UX Revamp PR #529: welcome-brief-overlay removed.
+         Value folded into landing screen CTAs. No popup ever fires. */
+      markWelcomeSeen(); /* mark seen so no future code tries to show it */
     }());
 
     document.addEventListener('click', function (e) {

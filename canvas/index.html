@@ -8742,6 +8742,80 @@ body.has-data #dg-flow-steps {
   display: none !important;
 }
 /* ================================================================ */
+
+/* ================================================================
+   Landing CTAs -- folded from welcome-brief-overlay (PR #529)
+   Two clear actions live directly on the screen. No popup needed.
+================================================================ */
+#dg-landing-ctas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  width: 100%;
+  max-width: 380px;
+  align-self: center;
+  animation: dg-flow-fadein 0.5s ease 0.2s both;
+}
+
+.dg-cta-primary {
+  width: 100%;
+  padding: 14px 24px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 2px 12px rgba(32, 197, 181, 0.22);
+}
+
+.dg-cta-primary:hover { background: #1aada0; }
+.dg-cta-primary:active { transform: scale(0.97); }
+
+.dg-cta-ghost {
+  width: 100%;
+  padding: 13px 24px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.dg-cta-ghost:hover { border-color: var(--primary); color: var(--primary); }
+.dg-cta-ghost:active { transform: scale(0.97); }
+
+/* Hide the old-style hint line on mobile -- CTAs replace it */
+@media (max-width: 700px) {
+  #drop-zone-hint { display: none; }
+  #dg-landing-ctas { max-width: 100%; }
+  .dg-cta-primary { font-size: 16px; padding: 16px 24px; }
+}
+
+/* Hide CTAs once data is loaded */
+body.has-data #dg-landing-ctas { display: none; }
+body.has-data #drop-zone-hint { display: none; }
+
+/* ================================================================
+   Welcome brief overlay CSS override -- killed in PR #529
+   Belt-and-suspenders: even if the overlay HTML somehow appears,
+   permanently hide it.
+================================================================ */
+#welcome-brief-overlay { display: none !important; }
+/* ================================================================ */
   </style>
 
 </head>
@@ -8805,6 +8879,10 @@ body.has-data #dg-flow-steps {
       <button id="finding-expand">Here is what that means.</button>
     </div>
     <div id="return-use-banner" class="hidden"></div>
+    <div id="dg-landing-ctas">
+      <button id="dg-load-sample-btn" class="dg-cta-primary" onclick="document.getElementById('try-example-link') && document.getElementById('try-example-link').click()">Load sample data</button>
+      <button id="dg-browse-btn" class="dg-cta-ghost" onclick="document.getElementById('file-input') && document.getElementById('file-input').click()">Drop my own file</button>
+    </div>
     <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load example data</span></p>
     <p id="ceremony-privacy">Local-first. Zero uploads. Your data never leaves this tab.</p>
     <div id="dg-flow-steps" aria-label="What happens next">
@@ -31514,9 +31592,9 @@ var InstantInsight = (function () {
           if (link) link.click();
         }, 350);
       };
-      if (!hasSeenWelcome()) {
-        setTimeout(showWelcomeBrief, 600);
-      }
+      /* UX Revamp PR #529: welcome-brief-overlay removed.
+         Value folded into landing screen CTAs. No popup ever fires. */
+      markWelcomeSeen(); /* mark seen so no future code tries to show it */
     }());
 
     document.addEventListener('click', function (e) {
@@ -87656,23 +87734,7 @@ var PortfolioExport = (function () {
   </div>
 
   <!-- Welcome Brief Overlay (first-visit Mission Brief) -->
-  <div id="welcome-brief-overlay" style="display:none; position:fixed; inset:0; z-index:18000; background:rgba(0,0,0,0.88); align-items:center; justify-content:center; padding:20px;">
-    <div class="wb-card">
-      <div class="wb-top-label">Mission Brief</div>
-      <h1 class="wb-headline">Your data.<br>Understood.<br>Instantly. Privately.</h1>
-      <p class="wb-sub">DataGlow runs SQL, Python, and R directly in your browser. Nothing leaves your machine. Drop any CSV, JSON, or Excel file and start exploring in seconds.</p>
-      <div class="wb-engines">
-        <span class="wb-engine-chip">&#128200; DuckDB-WASM</span>
-        <span class="wb-engine-chip">&#128013; Pyodide</span>
-        <span class="wb-engine-chip">&#128202; WebR</span>
-      </div>
-      <div class="wb-actions">
-        <button class="wb-btn-primary" onclick="window.welcomeLoadSample()">Load Sample Dataset</button>
-        <button class="wb-btn-ghost" onclick="window.closeWelcomeBrief()">Drop my own file</button>
-      </div>
-      <p class="wb-privacy-note">&#128274; Zero uploads. Your data stays in this tab.</p>
-    </div>
-  </div>
+  
 
 <script>
 /* DataGlow PWA Install Prompt
