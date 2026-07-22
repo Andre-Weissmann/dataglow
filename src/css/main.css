@@ -8715,3 +8715,77 @@ body.has-data #dg-flow-steps {
   display: none !important;
 }
 /* ================================================================ */
+
+/* ================================================================
+   Landing CTAs -- folded from welcome-brief-overlay (PR #529)
+   Two clear actions live directly on the screen. No popup needed.
+================================================================ */
+#dg-landing-ctas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  width: 100%;
+  max-width: 380px;
+  align-self: center;
+  animation: dg-flow-fadein 0.5s ease 0.2s both;
+}
+
+.dg-cta-primary {
+  width: 100%;
+  padding: 14px 24px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 2px 12px rgba(32, 197, 181, 0.22);
+}
+
+.dg-cta-primary:hover { background: #1aada0; }
+.dg-cta-primary:active { transform: scale(0.97); }
+
+.dg-cta-ghost {
+  width: 100%;
+  padding: 13px 24px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.dg-cta-ghost:hover { border-color: var(--primary); color: var(--primary); }
+.dg-cta-ghost:active { transform: scale(0.97); }
+
+/* Hide the old-style hint line on mobile -- CTAs replace it */
+@media (max-width: 700px) {
+  #drop-zone-hint { display: none; }
+  #dg-landing-ctas { max-width: 100%; }
+  .dg-cta-primary { font-size: 16px; padding: 16px 24px; }
+}
+
+/* Hide CTAs once data is loaded */
+body.has-data #dg-landing-ctas { display: none; }
+body.has-data #drop-zone-hint { display: none; }
+
+/* ================================================================
+   Welcome brief overlay CSS override -- killed in PR #529
+   Belt-and-suspenders: even if the overlay HTML somehow appears,
+   permanently hide it.
+================================================================ */
+#welcome-brief-overlay { display: none !important; }
+/* ================================================================ */

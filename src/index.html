@@ -87,6 +87,10 @@
       <button id="finding-expand">Here is what that means.</button>
     </div>
     <div id="return-use-banner" class="hidden"></div>
+    <div id="dg-landing-ctas">
+      <button id="dg-load-sample-btn" class="dg-cta-primary" onclick="document.getElementById('try-example-link') && document.getElementById('try-example-link').click()">Load sample data</button>
+      <button id="dg-browse-btn" class="dg-cta-ghost" onclick="document.getElementById('file-input') && document.getElementById('file-input').click()">Drop my own file</button>
+    </div>
     <p id="drop-zone-hint">or <span id="browse-link" style="cursor:pointer;">browse files</span> &nbsp;&middot;&nbsp; <span id="try-example-link" style="cursor:pointer;">load example data</span></p>
     <p id="ceremony-privacy">Local-first. Zero uploads. Your data never leaves this tab.</p>
     <div id="dg-flow-steps" aria-label="What happens next">
@@ -1703,23 +1707,7 @@
   </div>
 
   <!-- Welcome Brief Overlay (first-visit Mission Brief) -->
-  <div id="welcome-brief-overlay" style="display:none; position:fixed; inset:0; z-index:18000; background:rgba(0,0,0,0.88); align-items:center; justify-content:center; padding:20px;">
-    <div class="wb-card">
-      <div class="wb-top-label">Mission Brief</div>
-      <h1 class="wb-headline">Your data.<br>Understood.<br>Instantly. Privately.</h1>
-      <p class="wb-sub">DataGlow runs SQL, Python, and R directly in your browser. Nothing leaves your machine. Drop any CSV, JSON, or Excel file and start exploring in seconds.</p>
-      <div class="wb-engines">
-        <span class="wb-engine-chip">&#128200; DuckDB-WASM</span>
-        <span class="wb-engine-chip">&#128013; Pyodide</span>
-        <span class="wb-engine-chip">&#128202; WebR</span>
-      </div>
-      <div class="wb-actions">
-        <button class="wb-btn-primary" onclick="window.welcomeLoadSample()">Load Sample Dataset</button>
-        <button class="wb-btn-ghost" onclick="window.closeWelcomeBrief()">Drop my own file</button>
-      </div>
-      <p class="wb-privacy-note">&#128274; Zero uploads. Your data stays in this tab.</p>
-    </div>
-  </div>
+  
 
 <script>
 /* DataGlow PWA Install Prompt
