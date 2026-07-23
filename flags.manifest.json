@@ -474,6 +474,11 @@
     "storageWatchdog": {
       "enabled": true,
       "description": "Cross-platform storage durability watchdog -- iOS ITP eviction warnings, Android Auto Backup risk notices, Tauri at-rest encryption guidance"
+    },
+    "offlineAICopilot": {
+      "enabled": true,
+      "description": "Sentinel Phase 3 -- Offline AI Copilot toggle. Routes NL queries through local WebGPU/WebLLM engine (Qwen2.5-Coder-3B) when on, falls back to WASM rule engine. Zero data egress on both paths.",
+      "phase": "sentinel-3"
     }
   }
 }
