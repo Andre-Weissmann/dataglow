@@ -83561,7 +83561,7 @@ var PortfolioExport = (function () {
         : 'no steps recorded yet';
 
       var narrative = 'As a ' + role + ', I analyzed ' + ds.filename + ' (' +
-        ds.rows + ' rows, ' + ds.cols + ' columns) using DataGlow's local-first analytics platform. ' +
+        ds.rows + ' rows, ' + ds.cols + ' columns) using DataGlow local-first analytics platform. ' +
         'The dataset received a Federated Quality Score of ' + fqsStr +
         (pulse !== null ? ' and a Pulse score of ' + pulseStr : '') + '. ' +
         'All analysis was performed entirely in-browser with zero data upload -- ' +
