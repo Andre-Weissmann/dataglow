@@ -4184,8 +4184,7 @@
       "area": "Sharing & collaboration",
       "name": "Publish Button (PR AG \u2014 one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload)",
       "files": [
-        "js/publish/publish-engine.js",
-        "canvas/snapshot.html"
+        "js/publish/publish-engine.js"
       ],
       "symbols": [
         {
