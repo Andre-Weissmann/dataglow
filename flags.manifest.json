@@ -499,6 +499,26 @@
       "enabled": true,
       "addedInPR": "feat/team-hub-554",
       "description": "WebRTC P2P Foundation (PR #554, Sentinel Pillar 4 groundwork, part of Team Hub): the Peer Connect subsection of the Team Hub panel. A random 8-char hex Peer ID is generated on first load and persisted in OPFS only (never localStorage/sessionStorage/indexedDB), shown at data-testid=team-hub-peer-id. A 'Connect to Peer' input + Connect button (data-testid=team-hub-connect-btn) drives a status indicator (data-testid=team-hub-status) that moves Disconnected -> Signaling... -> Disconnected in this batch, surfacing the toast 'Ready for WebRTC -- signaling channel stub wired. Full P2P sync ships in Sentinel Pillar 4 (Q3 2026).' A real RTCPeerConnection is instantiated with iceServers: [] (no STUN/TURN, matching the demo-mode LAN-only constraint) so the object's existence is verifiable by automated tests, but it is intentionally NOT wired to any live signaling server yet -- no P2P data channel is opened, no data is exchanged, and no external network call is made. Full peer-to-peer sync (real signaling server, data channel wiring, presence) is separate, later work explicitly named Sentinel Pillar 4."
+    },
+    "mlInferencePanel": {
+      "enabled": true,
+      "addedInPR": "feat/gap-fill-pack-553",
+      "description": "PR #553 -- ONNX-WASM Inference Panel. Drop a local .onnx model (stored in OPFS), inspect input/output tensor metadata, map dataset columns to input tensors, and run inference via onnxruntime-web (WebGPU when available, WASM fallback everywhere, WASM by default on iOS Safari). Predictions append as a new dataset column. Each run is signed into the ProofChain as a ml_inference record with model hash, input schema, and output distribution stats. Zero upload -- inference runs entirely on-device."
+    },
+    "pipelineScheduler": {
+      "enabled": true,
+      "addedInPR": "feat/gap-fill-pack-553",
+      "description": "PR #553 -- Service Worker Pipeline Scheduler. Define named SQL-transform pipelines (steps with name/sql/outputTable), schedule them (every 15 min, hourly, daily at midnight, or on file drop), and let the Service Worker wake the canvas to run them. Pipelines persist to OPFS. A CSS-only DAG visualizes step status, last run time, and row counts. Tauri gets a setInterval fallback since webview Service Worker scheduling varies. Every run appends a pipeline_run record to the ProofChain."
+    },
+    "signedHtmlExport": {
+      "enabled": true,
+      "addedInPR": "feat/gap-fill-pack-553",
+      "description": "PR #553 -- Signed HTML Dashboard Export. One-click export of a fully standalone HTML file: embedded datasets as CSV, chart configs (rendered via Chart.js from CDN inside the exported file, opened offline by the user), SQL query history, and the full ProofChain timeline with a prominent SHA-256 verification hash. Includes a Download Raw Data button and DataGlow Sentinel verification badge. iOS uses the share-sheet fallback when a direct download link does not trigger. Appends a dashboard_export record to the ProofChain."
+    },
+    "modelRegistry": {
+      "enabled": true,
+      "addedInPR": "feat/gap-fill-pack-553",
+      "description": "PR #553 -- ONNX Model Registry. Persistent, OPFS-backed catalog of registered models with automatic versioning (v2, v3, ... on re-add), tags, and schema metadata. Includes a Feast-compatible feature-group interface (named SQL queries producing feature vectors for model input) and point-in-time snapshot signing on every inference run (row count + column hashes + timestamp). A Model Audit Trail view lists all signed inference receipts per model. Appends model_registered, feature_group_defined, and inference_run records to the ProofChain."
     }
   }
 }
