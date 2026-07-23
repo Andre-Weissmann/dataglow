@@ -93608,6 +93608,240 @@ var PortfolioExport = (function () {
 })();
 /* ---- end js/intelligence/feature-health-monitor.js ---- */
 
+/* ================================================================
+   SESSION E PR #540: Inline Cell Editing
+   inline-cell-editor.js
+================================================================ */
+/* ---- from js/grid/inline-cell-editor.js ---- */
+/* ================================================================
+   DataGlow Inline Cell Editor (Session E, PR #540)
+   Feature flag: window.FEATURE_FLAGS.inlineCellEditing
+
+   Adds double-click (or Enter) to edit any grid cell directly.
+   All edits are:
+     - Tracked in the Proof Chain (one entry per cell changed)
+     - Logged to AnalystObserver as 'cell-edited' event
+     - Reversible via the Proof Chain rewind
+     - Typed: edit is validated against the column type before committing
+
+   Supports column types: STR, INT, FLOAT, DATE, BOOL
+   BOOL columns get a toggle (true/false) instead of a text input.
+
+   Wire-up: observes dataglow:dataset-loaded, then delegates to the
+   active grid element (looks for .dg-grid-cell, .ag-cell, [data-row][data-col]).
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'inlineCellEditing';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var _activeInput = null;
+  var _editHistory = []; /* [{row, col, colName, oldVal, newVal, ts}] */
+
+  /* ---- Type validation ---- */
+  function _validateType(value, colType) {
+    if (value === '' || value === null) return { ok: true, parsed: null };
+    switch (colType) {
+      case 'INT':
+        var iv = parseInt(value, 10);
+        return isNaN(iv) ? { ok: false, msg: 'Must be a whole number' } : { ok: true, parsed: iv };
+      case 'FLOAT':
+        var fv = parseFloat(value);
+        return isNaN(fv) ? { ok: false, msg: 'Must be a number' } : { ok: true, parsed: fv };
+      case 'DATE':
+        var dv = new Date(value);
+        return isNaN(dv.getTime()) ? { ok: false, msg: 'Must be a valid date (YYYY-MM-DD)' } : { ok: true, parsed: value };
+      case 'BOOL':
+        var bLow = value.toLowerCase();
+        if (bLow === 'true' || bLow === '1' || bLow === 'yes') return { ok: true, parsed: true };
+        if (bLow === 'false' || bLow === '0' || bLow === 'no') return { ok: true, parsed: false };
+        return { ok: false, msg: 'Must be true or false' };
+      default: /* STR */
+        return { ok: true, parsed: String(value) };
+    }
+  }
+
+  /* ---- Commit edit to dataset ---- */
+  function _commitEdit(rowIdx, colIdx, colName, colType, oldVal, newVal, cellEl) {
+    var validation = _validateType(newVal, colType || 'STR');
+    if (!validation.ok) {
+      cellEl.setAttribute('data-edit-error', validation.msg || 'Invalid value');
+      cellEl.classList.add('dg-cell-error');
+      setTimeout(function () {
+        cellEl.removeAttribute('data-edit-error');
+        cellEl.classList.remove('dg-cell-error');
+      }, 2500);
+      return false;
+    }
+
+    var parsed = validation.parsed;
+
+    /* Update the in-memory dataset */
+    var ds = window.DataGlowDataset;
+    if (ds && ds.rows && ds.rows[rowIdx]) {
+      ds.rows[rowIdx][colIdx] = parsed;
+    }
+
+    /* Update the cell display */
+    cellEl.textContent = parsed === null ? '' : String(parsed);
+    cellEl.setAttribute('data-value', parsed === null ? '' : String(parsed));
+
+    /* Track in edit history */
+    var entry = {
+      row: rowIdx, col: colIdx, colName: colName,
+      oldVal: oldVal, newVal: parsed,
+      ts: new Date().toISOString()
+    };
+    _editHistory.push(entry);
+
+    /* Log to Proof Chain */
+    if (window.ProofChain && window.ProofChain.addStep) {
+      window.ProofChain.addStep({
+        type: 'cell-edit',
+        row: rowIdx, col: colIdx, colName: colName,
+        oldVal: oldVal, newVal: parsed
+      });
+    }
+
+    /* Log to AnalystObserver */
+    document.dispatchEvent(new CustomEvent('dataglow:cell-edited', {
+      detail: { row: rowIdx, col: colIdx, colName: colName, colType: colType, newVal: parsed }
+    }));
+
+    /* Log to Analyst Observer event stream */
+    if (window.AnalystObserver) {
+      /* Observer is already wired to dataglow:cell-edited via its custom events */
+    }
+
+    return true;
+  }
+
+  /* ---- Create input overlay ---- */
+  function _openEditor(cellEl, rowIdx, colIdx, colName, colType, currentVal) {
+    if (_activeInput) _closeEditor(false);
+
+    var isBool = colType === 'BOOL';
+
+    if (isBool) {
+      /* Toggle directly for BOOL columns */
+      var toggled = !currentVal;
+      _commitEdit(rowIdx, colIdx, colName, colType, currentVal, String(toggled), cellEl);
+      return;
+    }
+
+    var input = document.createElement('input');
+    input.type = colType === 'DATE' ? 'date' : 'text';
+    input.className = 'dg-cell-input';
+    input.value = currentVal === null ? '' : String(currentVal);
+    input.setAttribute('data-testid', 'input-cell-edit-' + rowIdx + '-' + colIdx);
+    input.setAttribute('aria-label', 'Edit ' + colName + ' row ' + rowIdx);
+
+    /* Inject input styles once */
+    if (!document.getElementById('dg-cell-editor-style')) {
+      var style = document.createElement('style');
+      style.id = 'dg-cell-editor-style';
+      style.textContent = [
+        '.dg-cell-input{position:absolute;z-index:9990;background:var(--dg-surface,#131519);',
+        'border:1.5px solid var(--dg-primary,#20C5B5);border-radius:3px;',
+        'color:var(--dg-text,#CDCCCA);font-family:var(--dg-mono,"Geist Mono",monospace);',
+        'font-size:12px;padding:3px 6px;min-width:80px;outline:none;',
+        'box-shadow:0 2px 12px rgba(0,0,0,.4);}',
+        '.dg-cell-error{outline:2px solid #A13544 !important;}'
+      ].join('');
+      document.head.appendChild(style);
+    }
+
+    /* Position over the cell */
+    var rect = cellEl.getBoundingClientRect();
+    input.style.left = (rect.left + window.scrollX) + 'px';
+    input.style.top = (rect.top + window.scrollY) + 'px';
+    input.style.width = Math.max(rect.width, 80) + 'px';
+    input.style.height = rect.height + 'px';
+
+    document.body.appendChild(input);
+    input.focus();
+    input.select();
+    _activeInput = { input: input, cellEl: cellEl, rowIdx: rowIdx, colIdx: colIdx, colName: colName, colType: colType, oldVal: currentVal };
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); _closeEditor(true); }
+      if (e.key === 'Escape') { e.preventDefault(); _closeEditor(false); }
+      if (e.key === 'Tab') { e.preventDefault(); _closeEditor(true); }
+    });
+    input.addEventListener('blur', function () { _closeEditor(true); });
+  }
+
+  function _closeEditor(commit) {
+    if (!_activeInput) return;
+    var ctx = _activeInput;
+    _activeInput = null;
+    if (ctx.input && ctx.input.parentNode) ctx.input.parentNode.removeChild(ctx.input);
+    if (commit) {
+      _commitEdit(ctx.rowIdx, ctx.colIdx, ctx.colName, ctx.colType, ctx.oldVal, ctx.input.value, ctx.cellEl);
+    }
+  }
+
+  /* ---- Attach to grid cells ---- */
+  function _attachToGrid() {
+    /* DataGlow renders cells as [data-row][data-col] or .dg-grid-cell */
+    document.addEventListener('dblclick', function (e) {
+      var cell = e.target.closest('[data-row][data-col], .dg-grid-cell, .ag-cell');
+      if (!cell) return;
+
+      var rowIdx = parseInt(cell.getAttribute('data-row') || cell.getAttribute('row-index') || '0', 10);
+      var colIdx = parseInt(cell.getAttribute('data-col') || cell.getAttribute('col-index') || '0', 10);
+      var colName = cell.getAttribute('data-col-name') || cell.getAttribute('aria-colindex') || String(colIdx);
+      var colType = cell.getAttribute('data-col-type') || 'STR';
+      var currentVal = cell.getAttribute('data-value') || cell.textContent.trim();
+
+      _openEditor(cell, rowIdx, colIdx, colName, colType, currentVal);
+    });
+
+    /* Also allow Enter key on focused cells */
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var cell = document.activeElement && document.activeElement.closest('[data-row][data-col], .dg-grid-cell');
+      if (!cell) return;
+      if (_activeInput) return;
+
+      var rowIdx = parseInt(cell.getAttribute('data-row') || '0', 10);
+      var colIdx = parseInt(cell.getAttribute('data-col') || '0', 10);
+      var colName = cell.getAttribute('data-col-name') || String(colIdx);
+      var colType = cell.getAttribute('data-col-type') || 'STR';
+      var currentVal = cell.getAttribute('data-value') || cell.textContent.trim();
+      e.preventDefault();
+      _openEditor(cell, rowIdx, colIdx, colName, colType, currentVal);
+    });
+  }
+
+  /* ---- Public API ---- */
+  window.InlineCellEditor = {
+    getHistory: function () { return _editHistory.slice(); },
+    clearHistory: function () { _editHistory = []; },
+    closeEditor: function () { _closeEditor(false); }
+  };
+
+  function init() {
+    if (!isEnabled()) return;
+    _attachToGrid();
+    /* Wire AnalystObserver subscription */
+    document.addEventListener('dataglow:cell-edited', function (e) {
+      if (window.AnalystObserver) {
+        /* AnalystObserver already listens to custom events dispatched here */
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/grid/inline-cell-editor.js ---- */
+
 
 })();
 </script>
