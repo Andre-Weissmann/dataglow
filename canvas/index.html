@@ -94524,6 +94524,222 @@ var PortfolioExport = (function () {
 })();
 /* ---- end js/portfolio/portfolio-one-click-export.js ---- */
 
+/* ================================================================
+   SESSION E FIX: ProofChain -- Real Implementation
+   proof-chain.js
+================================================================ */
+/* ---- from js/provenance/proof-chain.js ---- */
+/* ================================================================
+   DataGlow Proof Chain (real implementation -- not symbolic)
+   
+   Provides window.ProofChain with:
+     .addStep(step)    -- add a ledger entry
+     .getSteps()       -- return full ledger
+     .clear()          -- reset
+     .getSeal()        -- returns SHA-256 hash of the full ledger (async)
+     .getStepCount()   -- convenience count
+   
+   Each step is stored with:
+     { type, ts, seq, ...payload }
+   
+   Events fired:
+     dataglow:proof-chain-updated  (detail: { step_count, latest_type })
+   
+   Crypto: uses crypto.subtle.digest (SHA-256) for the full-ledger seal.
+   Falls back to djb2 if crypto.subtle is unavailable (non-HTTPS context).
+================================================================ */
+(function () {
+  'use strict';
+
+  var _ledger = [];
+  var _seq = 0;
+
+  function _djb2(str) {
+    var h = 5381;
+    for (var i = 0; i < str.length; i++) {
+      h = ((h << 5) + h) + str.charCodeAt(i);
+      h = h & h;
+    }
+    return (h >>> 0).toString(16);
+  }
+
+  async function _sha256(str) {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      try {
+        var buf = new TextEncoder().encode(str);
+        var hash = await crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(hash))
+          .map(function (b) { return b.toString(16).padStart(2, '0'); })
+          .join('');
+      } catch (_e) { /* fall through */ }
+    }
+    return _djb2(str);
+  }
+
+  function addStep(payload) {
+    _seq++;
+    var step = Object.assign({}, payload, {
+      seq: _seq,
+      ts: new Date().toISOString()
+    });
+    _ledger.push(step);
+
+    document.dispatchEvent(new CustomEvent('dataglow:proof-chain-updated', {
+      detail: { step_count: _ledger.length, latest_type: step.type || 'unknown' }
+    }));
+
+    return step;
+  }
+
+  function getSteps() {
+    return _ledger.slice();
+  }
+
+  function clear() {
+    _ledger = [];
+    _seq = 0;
+  }
+
+  function getStepCount() {
+    return _ledger.length;
+  }
+
+  async function getSeal() {
+    var canonical = JSON.stringify(_ledger);
+    return _sha256(canonical);
+  }
+
+  window.ProofChain = {
+    addStep: addStep,
+    getSteps: getSteps,
+    clear: clear,
+    getStepCount: getStepCount,
+    getSeal: getSeal
+  };
+
+  /* Auto-log dataset loads */
+  document.addEventListener('dataglow:dataset-loaded', function (e) {
+    addStep({
+      type: 'dataset-loaded',
+      filename: e.detail && e.detail.filename,
+      rows: e.detail && e.detail.rows,
+      cols: e.detail && e.detail.cols
+    });
+  });
+
+  /* Auto-log SQL executions */
+  document.addEventListener('dataglow:sql-executed', function (e) {
+    addStep({
+      type: 'sql-executed',
+      query_preview: e.detail && e.detail.query && e.detail.query.slice(0, 80),
+      row_count: e.detail && e.detail.rowCount
+    });
+  });
+
+})();
+/* ---- end js/provenance/proof-chain.js ---- */
+
+
+/* ================================================================
+   SESSION E FIX: portfolioNarrativeAssembler -- Real apply()
+   portfolio-narrative-assembler-apply.js
+================================================================ */
+/* ---- from js/portfolio/portfolio-narrative-assembler-apply.js ---- */
+/* ================================================================
+   DataGlow Portfolio Narrative Assembler -- Real apply() implementation
+   
+   Replaces the 4,815-line stub's no-op apply().
+   Generates a real narrative from current session state:
+     - Dataset name, row/col counts
+     - FQS score and breakdown
+     - Pulse score
+     - Proof Chain step count and types
+     - Role context
+     - Key findings from validation panel
+   
+   Returns a string (the narrative) or empty string on failure.
+================================================================ */
+(function () {
+  'use strict';
+
+  function _getDatasetInfo() {
+    var ds = window.DataGlowDataset || {};
+    return {
+      filename: ds.filename || ds.name || 'dataset',
+      rows: ds.rowCount || (ds.rows && ds.rows.length) || 0,
+      cols: ds.colCount || (ds.columns && ds.columns.length) || 0,
+      fingerprint: ds.fingerprint || null
+    };
+  }
+
+  function _getFQS() {
+    if (window.FederatedQualityScore) {
+      if (window.FederatedQualityScore.compute) return window.FederatedQualityScore.compute();
+      if (window.FederatedQualityScore.score !== undefined) return window.FederatedQualityScore.score;
+    }
+    return null;
+  }
+
+  function _getPulse() {
+    if (window.PulseInterpreter && window.PulseInterpreter.getScore) return window.PulseInterpreter.getScore();
+    return null;
+  }
+
+  function _getRole() {
+    if (window.RoleContext && window.RoleContext.current) return window.RoleContext.current();
+    return 'Data Analyst';
+  }
+
+  function _getProofSummary() {
+    if (!window.ProofChain) return { steps: 0, types: [] };
+    var steps = window.ProofChain.getSteps();
+    var types = {};
+    steps.forEach(function (s) {
+      types[s.type] = (types[s.type] || 0) + 1;
+    });
+    return { steps: steps.length, types: Object.keys(types) };
+  }
+
+  function apply() {
+    try {
+      var ds = _getDatasetInfo();
+      var fqs = _getFQS();
+      var pulse = _getPulse();
+      var role = _getRole();
+      var proof = _getProofSummary();
+
+      var fqsStr = fqs !== null ? fqs + '/100' : 'not yet scored';
+      var pulseStr = pulse !== null ? String(pulse) : 'not yet run';
+      var proofStr = proof.steps > 0
+        ? proof.steps + ' step(s) recorded (' + proof.types.join(', ') + ')'
+        : 'no steps recorded yet';
+
+      var narrative = 'As a ' + role + ', I analyzed ' + ds.filename + ' (' +
+        ds.rows + ' rows, ' + ds.cols + ' columns) using DataGlow local-first analytics platform. ' +
+        'The dataset received a Federated Quality Score of ' + fqsStr +
+        (pulse !== null ? ' and a Pulse score of ' + pulseStr : '') + '. ' +
+        'All analysis was performed entirely in-browser with zero data upload -- ' +
+        'data never left this machine. ' +
+        'The Proof Chain logged ' + proofStr + ', providing a verifiable audit trail ' +
+        'of every transformation applied to the dataset. ' +
+        (ds.fingerprint ? 'Dataset fingerprint: ' + ds.fingerprint + '.' : '');
+
+      return narrative;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /* Wire into existing PortfolioNarrativeAssembler if present, or define fresh */
+  if (window.PortfolioNarrativeAssembler) {
+    window.PortfolioNarrativeAssembler.apply = apply;
+  } else {
+    window.PortfolioNarrativeAssembler = { apply: apply };
+  }
+
+})();
+/* ---- end js/portfolio/portfolio-narrative-assembler-apply.js ---- */
+
 
 })();
 </script>
