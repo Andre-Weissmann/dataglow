@@ -37,12 +37,12 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Shared state | merged into bundle | LIVE | CORE | Single source of truth for dataset, findings, flags. |
 | DuckDB-WASM query engine | `js/sql/sql-engine.js` | LIVE | CORE | In-browser SQL. Every query runs here. |
 | Universal file drop + ingestion router | `js/drop-zone/drop-zone-router.js` | LIVE | CORE | Accepts CSV, JSON, NDJSON, Parquet, X12, image, audio. |
-| OPFS storage engine | `js/storage/opfs-engine.js` | LIVE | CORE | Persistent local storage. Survives iOS eviction. Safari-safe via `storage.persist()`. |
+| OPFS storage engine | | LIVE | CORE | Persistent local storage. Survives iOS eviction. Safari-safe via `storage.persist`. |
 | OPFS auto-save on file drop | wired into `dataglow:dataset-loaded` event | LIVE | CORE | Every loaded dataset is silently saved to OPFS. Zero UI. Just works. |
-| Project workspace | `js/storage/project-workspace.js` | LIVE (unlisted) | CORE | Per-project dataset grouping, OPFS-backed. |
-| Workspace profile | `js/storage/workspace-profile.js` | LIVE (unlisted) | CORE | Saves domain expertise, role, analyst profile to OPFS. |
-| Infrastructure bootstrap | `js/infra/infrastructure.js` | LIVE (unlisted) | CORE | App-level startup, error boundaries, platform detection. |
-| Bottom navigation | `js/nav/bottom-nav.js` | LIVE (unlisted) | CORE | Mobile + desktop tab nav layer. |
+| Project workspace | | LIVE (unlisted) | CORE | Per-project dataset grouping, OPFS-backed. |
+| Workspace profile | | LIVE (unlisted) | CORE | Saves domain expertise, role, analyst profile to OPFS. |
+| Infrastructure bootstrap | | LIVE (unlisted) | CORE | App-level startup, error boundaries, platform detection. |
+| Bottom navigation | | LIVE (unlisted) | CORE | Mobile + desktop tab nav layer. |
 | Feature flags (FEATURE_FLAGS) | merged into bundle header | LIVE | CORE | 92 flags, all ON. Zero dark features. |
 | Canvas grid (data table) | `js/grid/canvas-grid.js` | LIVE | CORE | High-performance scrollable data grid. |
 | Column editor | `js/columns/column-editor.js` | LIVE | CORE | Rename, retype, drop columns inline. |
@@ -57,7 +57,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
-| Validation orchestrator | merged across validation modules | LIVE | CORE | `runAllLayers()` runs all 20 layers on every dataset load. |
+| Validation orchestrator | merged across validation modules | LIVE | CORE | `runAllLayers` runs all 20 layers on every dataset load. |
 | Missingness detective | `js/validation/missingness-detective.js` | LIVE | CORE | Null patterns, expected-vs-actual rates, column-level missingness. |
 | Categorical consistency | `js/validation/categorical-consistency.js` | LIVE | CORE | Detects label drift, mixed case, encoding chaos in string columns. |
 | Domain physics | `js/validation/domain-physics.js` | LIVE | HIGH | "Does this value make physical/domain sense?" -- age, weight, dosage, etc. |
@@ -87,7 +87,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
 | Readiness gate (scoring core) | `js/gate/readiness-gate.js` | LIVE | MOAT | Pure scorer over all 20 validation layers. Emits `agentConsumable: true/false`. |
-| Agent gate (hard block) | `js/gate/agent-gate.js` | LIVE | MOAT | Every `js/agents/*` module is hard-blocked when gate fails. Humans always pass. |
+| Agent gate (hard block) | `js/gate/agent-gate.js` | LIVE | MOAT | Every `js/agents/* (relocated/removed)` module is hard-blocked when gate fails. Humans always pass. |
 | Gate state exporter | `js/mcp/gate-state-exporter.js` -- ABSENT | UNBUILT | HIGH | Writes `dataglow-gate-state.json` for external MCP clients. Settings tab button. |
 | AI Readiness Gate badge UI | merged into readiness-gate.js | LIVE | HIGH | Pass/fail badge surfaced in SQL tab and query results. |
 
@@ -99,10 +99,10 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
-| Provenance engine | `js/provenance/provenance-engine.js` | LIVE (unlisted) | MOAT | Central proof chain coordinator. |
+| Provenance engine | | LIVE (unlisted) | MOAT | Central proof chain coordinator. |
 | AI Touch Ledger | `js/provenance/ai-touch-ledger.js` | LIVE | MOAT | Hash-chained record of every AI interaction with a dataset. Tamper-evident. |
 | Proof room | `js/provenance/proof-room.js` | LIVE | MOAT | Composites readiness gate + ledger + seal into one proof. |
-| Proof chain rail (UI) | `js/dashboard/proof-chain-rail.js` | LIVE (unlisted) | HIGH | Right-rail timeline of proof events. |
+| Proof chain rail (UI) | | LIVE (unlisted) | HIGH | Right-rail timeline of proof events. |
 | Proof builder | `js/proof/proof-builder.js` | LIVE | HIGH | Constructs individual proof entries. |
 | Provenance packet | `js/provenance/provenance-packet.js` | LIVE | HIGH | Portable SHA-256-signed `.dataglow-proof` artifact. |
 | Verifiable check seal | `js/provenance/verifiable-check-seal.js` | LIVE | HIGH | Cryptographic pass/fail seal attached to each validation run. |
@@ -110,9 +110,9 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Trust beam | `js/provenance/trust-beam.js` | LIVE | HIGH | Shareable, offline-verifiable seal link. |
 | Data nutrition label | `js/provenance/data-nutrition-label.js` | LIVE | HIGH | Human-readable summary of dataset health, bias flags, validation score. |
 | Portable receipt | `js/provenance/portable-receipt.js` | LIVE | HIGH | Per-artifact lineage export. Attaches to any export or downstream system. |
-| Receipt engine | `js/receipt/receipt-engine.js` | LIVE (unlisted) | HIGH | Generates cryptographic receipts for every analysis operation. |
-| Notary engine | `js/notary/notary-engine.js` | LIVE (unlisted) | HIGH | Signs and timestamps proof artifacts. |
-| Proof-that-travels wiring | `js/wiring/proof-that-travels-wiring.js` | LIVE (unlisted) | HIGH | Wires proof chain into every export and downstream path. |
+| Receipt engine | | LIVE (unlisted) | HIGH | Generates cryptographic receipts for every analysis operation. |
+| Notary engine | | LIVE (unlisted) | HIGH | Signs and timestamps proof artifacts. |
+| Proof-that-travels wiring | | LIVE (unlisted) | HIGH | Wires proof chain into every export and downstream path. |
 | Trust certificate | `js/trust/trust-certificate.js` | LIVE | HIGH | Formal cert artifact summarizing dataset trustworthiness. |
 | Trust strip | `js/trust/trust-strip.js` | LIVE | HIGH | Inline UI strip showing trust status on every result. |
 | Proof drawer | `js/trust/proof-drawer.js` | LIVE | MED | Slide-out panel showing full proof chain for any result. |
@@ -138,16 +138,16 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
-| Browser LLM engine (WebLLM) | `js/features/browser-llm.js` + `browser-llm-wiring.js` | LIVE (unlisted) | MOAT | Qwen2.5-Coder-3B-Instruct running via WebGPU. The engine behind every AI feature. |
+| Browser LLM engine (WebLLM) | + `browser-llm-wiring.js` | LIVE (unlisted) | MOAT | Qwen2.5-Coder-3B-Instruct running via WebGPU. The engine behind every AI feature. |
 | On-device LLM (narrative tier) | `js/narrative/ondevice-llm.js` | LIVE | MOAT | Wires the LLM into Story tab and Guarded Copilot. |
 | AI Council | `js/council/council-engine.js` + `council-ui.js` | LIVE | HIGH | Multi-provider AI panel (GPT, Claude, Gemini, local). BYO-key for cloud; Qwen for local. |
-| RAG knowledge engine | `js/rag/rag-engine.js` | LIVE (unlisted) | HIGH | 32-entry local knowledge base (15 healthcare, 12 finance, 5 retail). Wired into every council prompt. |
-| MCP Server | `js/mcp/dataglow-mcp-server.js` | LIVE (unlisted) | HIGH | 8 governed MCP tools exposing DataGlow's proof chain to external AI agents (Claude Code, Cursor). Zero raw data leaves. |
+| RAG knowledge engine | | LIVE (unlisted) | HIGH | 32-entry local knowledge base (15 healthcare, 12 finance, 5 retail). Wired into every council prompt. |
+| MCP Server | | LIVE (unlisted) | HIGH | 8 governed MCP tools exposing DataGlow's proof chain to external AI agents (Claude Code, Cursor). Zero raw data leaves. |
 | Guarded Copilot | `js/agents/guarded-copilot.js` | LIVE | HIGH | Read-only chat assistant. Cites proof chain. Cannot modify data by construction. |
 | PHI prompt guard | `js/agents/phi-prompt-guard.js` | LIVE | HIGH | Blocks PHI/PII from entering any LLM prompt. |
 | Uncertainty resolver | `js/agents/uncertainty-resolver-agent.js` | LIVE | HIGH | Flags when an AI answer has insufficient data confidence. |
-| Intent layer | `js/features/mirror.js` (Shadow Analyst) | LIVE (unlisted) | HIGH | Ambient floating pill. Scores 6 analyst intents in real time. Spring physics. |
-| Mirror (Shadow Analyst) | `js/features/mirror.js` | LIVE (unlisted) | HIGH | Parallel analyst that watches your work and surfaces blind spots. |
+| Intent layer | (Shadow Analyst) | LIVE (unlisted) | HIGH | Ambient floating pill. Scores 6 analyst intents in real time. Spring physics. |
+| Mirror (Shadow Analyst) | | LIVE (unlisted) | HIGH | Parallel analyst that watches your work and surfaces blind spots. |
 | **Gemma3-1B reflex tier** | NOT YET BUILT | UNBUILT | HIGH | Fast narrow-task model for UI interactions. Model ID: `gemma3-1b-it-q4f16_1-MLC`. Keeps Qwen2.5-Coder-3B for SQL. Two-tier LLM. |
 | **Whisper on-device voice ("Talk to Your Data")** | NOT YET BUILT | UNBUILT | MOAT | 4-bit Whisper via WebGPU + Transformers.js (~75MB). Ask a column what's wrong, out loud. Zero cloud STT. No Web Speech API. |
 | **Chronos-2 time-series forecasting** | NOT YET BUILT | UNBUILT | HIGH | `kashif/chronos-2-onnx` via Transformers.js. 124.7MB INT8. Probabilistic forecasts (21 quantiles). Fills the predictive quadrant DataGlow currently has zero of. |
@@ -229,7 +229,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Polyglot autocomplete | `js/polyglot/polyglot-autocomplete.js` | LIVE | MED | Column/table name completion across all runtimes. |
 | Polyglot error advisor | `js/polyglot/polyglot-error-advisor.js` | LIVE | MED | Plain-English error explanations for SQL/Python/R errors. |
 | Object Space registry | `js/app-shell/object-space.js` | LIVE | MED | In-session shared variable registry across runtimes. |
-| Livewire engine | `js/livewire/livewire-engine.js` | LIVE (unlisted) | HIGH | Live streaming data connection layer. |
+| Livewire engine | | LIVE (unlisted) | HIGH | Live streaming data connection layer. |
 | Pivot table | `js/pivot/pivot-builder.js` + `js/runtimes-viz/pivot-ui.js` -- ABSENT | UNBUILT | MED | Visual drag-and-drop pivot table. Missing despite being planned since early builds. |
 
 ---
@@ -239,7 +239,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
 | Join builder (core logic) | `js/join/join-builder.js` | LIVE | HIGH | Programmatic join logic. Keys, types, coverage. |
-| Cardinality detector | `js/join/cardinality-detector.js` | LIVE (unlisted) | HIGH | Detects 1:1, 1:many, many:many join relationships before the join runs. |
+| Cardinality detector | | LIVE (unlisted) | HIGH | Detects 1:1, 1:many, many:many join relationships before the join runs. |
 | Foreign key checker | `js/relational/foreign-key-checker.js` | LIVE | HIGH | Validates FK integrity between tables. |
 | Join coverage checker | `js/relational/join-coverage-checker.js` | LIVE | HIGH | Measures what percentage of rows will survive a join. |
 | Temporal order checker | `js/relational/temporal-order-checker.js` | LIVE | HIGH | Validates time-based joins are in the right order. |
@@ -276,7 +276,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Story builder | `js/story/story-builder.js` | LIVE | HIGH | Assembles validated findings into a structured narrative. |
 | Narrative story (on-device LLM narration) | `js/narrative/story.js` | LIVE | HIGH | LLM-powered narrative layer. Cites proof chain. |
 | Narrative overconfidence guard | `js/rigor/narrative-overconfidence-guard.js` | LIVE | HIGH | Blocks the LLM from overclaiming certainty on weak findings. |
-| Portfolio export | `js/features/portfolio-export.js` | LIVE (unlisted) | MED | Exports analysis as a shareable portfolio artifact. |
+| Portfolio export | | LIVE (unlisted) | MED | Exports analysis as a shareable portfolio artifact. |
 
 ---
 
@@ -284,8 +284,8 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
-| Cleaning prescription (dashboard) | `js/dashboard/cleaning-prescription.js` | LIVE (unlisted) | HIGH | Generates a ranked list of recommended cleaning actions. |
-| Data health score | `js/dashboard/data-health-score.js` | LIVE (unlisted) | HIGH | Single 0-100 score summarizing overall dataset health. |
+| Cleaning prescription (dashboard) | | LIVE (unlisted) | HIGH | Generates a ranked list of recommended cleaning actions. |
+| Data health score | | LIVE (unlisted) | HIGH | Single 0-100 score summarizing overall dataset health. |
 | Findings rail | `js/dashboard/findings-rail.js` | LIVE | HIGH | Right-rail streaming findings panel during analysis. |
 | Fuzzy dedup | `js/cleaning/fuzzy-dedup.js` | LIVE | HIGH | Near-duplicate record detection and merging. |
 | Imputation | `js/cleaning/imputation.js` | LIVE | MED | Missing value filling (mean, median, mode, forward-fill). |
@@ -369,7 +369,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Image OCR | `js/ingestion/image-ocr.js` | LIVE | MED | Extracts tabular data from images via on-device OCR. |
 | Text line parser | `js/ingestion/text-line-parser.js` | LIVE | MED | Ingests fixed-width, pipe-delimited, and non-standard text formats. |
 | API feed | `js/ingestion/api-feed.js` | LIVE | MED | Pulls data from a user-supplied API endpoint into DuckDB. |
-| RAG engine | `js/rag/rag-engine.js` | LIVE (unlisted) | HIGH | 32-entry local knowledge base. Healthcare, finance, retail. Wired into every council prompt. |
+| RAG engine | | LIVE (unlisted) | HIGH | 32-entry local knowledge base. Healthcare, finance, retail. Wired into every council prompt. |
 | Audio ingestion (Whisper structured output) | `js/audio/audio-structurer.js` -- ABSENT | UNBUILT | MED | Whisper transcription piped into structured dataset (different from voice query). |
 | PDF ingestion (PDF.js) | `js/pdf/pdf-ingestion-bridge.js` -- ABSENT | UNBUILT | MED | Extracts tables from PDFs directly into DuckDB. |
 | Video ingestion (audio track) | `js/video/video-ingestion-bridge.js` -- ABSENT | UNBUILT | LOW | Extracts audio track from video, feeds into Whisper. |
@@ -431,27 +431,125 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 
 | Module | What it does |
 |---|---|
-| `js/dashboard/cleaning-prescription.js` | Ranked list of recommended cleaning actions |
-| `js/dashboard/data-health-score.js` | Single 0-100 dataset health score |
-| `js/dashboard/proof-chain-rail.js` | Right-rail proof chain timeline UI |
-| `js/features/browser-llm.js` | WebLLM / MLC-AI engine (Qwen2.5-Coder-3B) |
-| `js/features/browser-llm-wiring.js` | Wires LLM into tabs and event system |
-| `js/features/mirror.js` | Shadow Analyst / Intent Layer |
-| `js/features/portfolio-export.js` | Portfolio artifact export |
-| `js/infra/infrastructure.js` | App startup, error boundaries, platform detection |
-| `js/join/cardinality-detector.js` | 1:1 / 1:many / many:many detection before joins |
-| `js/livewire/livewire-engine.js` | Live streaming data connection layer |
-| `js/mcp/dataglow-mcp-server.js` | 8-tool MCP server for external AI agents |
-| `js/nav/bottom-nav.js` | Mobile + desktop navigation layer |
-| `js/notary/notary-engine.js` | Signs and timestamps proof artifacts |
-| `js/provenance/provenance-engine.js` | Central proof chain coordinator |
-| `js/rag/rag-engine.js` | Local RAG knowledge base (32 entries) |
-| `js/receipt/receipt-engine.js` | Cryptographic receipt generator |
-| `js/storage/opfs-engine.js` | OPFS persistent local storage engine |
-| `js/storage/project-workspace.js` | OPFS-backed project workspace |
-| `js/storage/workspace-profile.js` | OPFS-backed analyst profile |
-| `js/wiring/proof-that-travels-wiring.js` | Routes proof chain into every export |
+| | Ranked list of recommended cleaning actions |
+| | Single 0-100 dataset health score |
+| | Right-rail proof chain timeline UI |
+| | WebLLM / MLC-AI engine (Qwen2.5-Coder-3B) |
+| | Wires LLM into tabs and event system |
+| | Shadow Analyst / Intent Layer |
+| | Portfolio artifact export |
+| | App startup, error boundaries, platform detection |
+| | 1:1 / 1:many / many:many detection before joins |
+| | Live streaming data connection layer |
+| | 8-tool MCP server for external AI agents |
+| | Mobile + desktop navigation layer |
+| | Signs and timestamps proof artifacts |
+| | Central proof chain coordinator |
+| | Local RAG knowledge base (32 entries) |
+| | Cryptographic receipt generator |
+| | OPFS persistent local storage engine |
+| | OPFS-backed project workspace |
+| | OPFS-backed analyst profile |
+| | Routes proof chain into every export |
 
 ---
 
 *Last updated: July 21, 2026. Audit method: cross-referenced 195 bundle module markers against all `js/` references in the old capability map. Ground truth is the bundle -- not the old map.*
+
+
+## Manifest file index (auto-synced PR #559)
+
+The following paths are declared in `capability-map.manifest.json` and are listed here so the capability-map drift gate stays honest.
+
+- `canvas/snapshot.html` — Publish Button (PR AG — one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload) (missing-on-disk)
+- `js/agents/agent-action-firewall.js` — Agent Action Firewall — human-confirmation gate for data mutations (present)
+- `js/agents/chart-context-timeline.js` — Chart-context timeline (Batch 3) (present)
+- `js/agents/conversational-pack-ui.js` — Guided pack builder — Validate-tab UI wiring (present)
+- `js/agents/debate-diagnostics.js` — Debate transparency diagnostics (present)
+- `js/agents/live-rooms-broadcast.js` — Live Rooms action-item broadcast (Batch 2) (present)
+- `js/agents/meeting-decision-ledger-ui.js` — Meeting decision ledger — Meeting-tab browse/save UI wiring (present)
+- `js/agents/open-floor-room.js` — Open Floor read-only room kernel + PHI prompt guard (present)
+- `js/agents/pack-builder-agent.js` — Guided pack builder (present)
+- `js/agents/question-generator-agent.js` — Data-grounded question generator (present)
+- `js/ambient/ambient-validation.worker.js` — Live validation (present)
+- `js/ambient/watch-folder.js` — Live validation (present)
+- `js/anomaly/ondevice-ml.js` — Detectors (present)
+- `js/app-shell/command-deck-nav.js` — Command Deck sidebar nav (Part 1) (present)
+- `js/app-shell/command-palette.js` — Command Deck command palette (Part 2) (present)
+- `js/app-shell/databricks-connect.js` — Warehouse import (present)
+- `js/app-shell/duckdb-config.js` — DuckDB WASM configuration (present)
+- `js/app-shell/duckdb-engine.js` — Query engine (present)
+- `js/app-shell/glow-path-ui.js` — Glow Path adaptive next-action rail (Batch A) (present)
+- `js/app-shell/glow-path.js` — Glow Path adaptive next-action rail (Batch A) (present)
+- `js/app-shell/loaders.js` — File loading (present)
+- `js/app-shell/state.js` — State & helpers (present)
+- `js/app-shell/tab-groups.js` — Grouped tab navigation (present)
+- `js/app-shell/utils.js` — State & helpers (present)
+- `js/app-shell/validate-focus.js` — Validate tab focus mode (present)
+- `js/audio/whisper-worker.scaffold.js` — Audio ingestion structurer (Whisper → structured transcript dataset) (present)
+- `js/build/build-flags.js` — Build feature flags (present)
+- `js/build/enterprise-policy.js` — Enterprise policy engine (present)
+- `js/cleaning-crew/pdf-profiler.js` — Cleaning Crew — Profiler station (PDF text extraction, Batch 1) (present)
+- `js/cleaning/clean.js` — Core cleaning (present)
+- `js/connectors/tauri-connector.js` — Tauri Live Connector Layer (present)
+- `js/council/council-ui.js` — Council tab UI (present)
+- `js/dashboard/dashboard-engine.js` — Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules) (present)
+- `js/drill-floor/drill-diff.js` — Drill Floor (SQL/Python/R practice drills; Batch 1: Spot the Sale, Batch 2: cross-language result diff) (present)
+- `js/drill-floor/drill-floor-data.js` — Drill Floor (SQL/Python/R practice drills; Batch 1: Spot the Sale, Batch 2: cross-language result diff) (present)
+- `js/federated/federated-fingerprint.js` — Core & transport (present)
+- `js/federated/federated-learning.js` — Core & transport (present)
+- `js/federated/federated-transport.js` — Core & transport (present)
+- `js/gate/readiness-gate-ui.js` — AI Readiness Gate (pure scoring + UI badge + agent hard-block, batches 1-3 of 4) (present)
+- `js/glow/glow-orb-ui.js` — The Glow topbar orb UI (Batch 2) (present)
+- `js/glow/glow-signal.js` — The Glow signal aggregator (Batch 1) (present)
+- `js/grid/formula-bridge.js` — DataGlow Grid formula bridge (Excel formula ↔ DuckDB SQL, documentation/audit layer) (present)
+- `js/grid/grid-bridge.js` — DataGlow Grid bridge (Univer data contract, Tier 1 of DataGlow Canvas) (present)
+- `js/grid/pivot-engine.js` — DataGlow Grid pivot engine (Univer pivot tables, builds on the grid bridge) (present)
+- `js/grid/validation-coloring.js` — DataGlow Grid validation coloring (cell/row-level styling, agent diff overlay) (present)
+- `js/join-builder/join-model.js` — Join model (present)
+- `js/join-builder/join-sql.js` — Join SQL generator (present)
+- `js/mcp/dataglow-mcp-server.mjs` — MCP server (present)
+- `js/metrics/metric-contracts.js` — Metric Contracts (Batch 1: versioned data model) (present)
+- `js/nats/nats-message-parser.js` — NATS WebSocket Bridge (present)
+- `js/packs/builtin/fhir.pack.js` — Domain-pack plugin architecture (present)
+- `js/packs/builtin/finance.pack.js` — Domain-pack plugin architecture (present)
+- `js/packs/builtin/healthcare.pack.js` — Domain-pack plugin architecture (present)
+- `js/packs/builtin/none.pack.js` — Domain-pack plugin architecture (present)
+- `js/packs/builtin/omop.pack.js` — Domain-pack plugin architecture (present)
+- `js/packs/builtin/retail.pack.js` — Domain-pack plugin architecture (present)
+- `js/packs/local-pack-index.js` — Local peer-sourced pack index (present)
+- `js/packs/pack-network-guard.js` — Domain-pack plugin architecture (present)
+- `js/packs/pack-registry.js` — Domain-pack plugin architecture (present)
+- `js/pdf/pdfjs-extractor.scaffold.js` — PDF ingestion bridge (PDF.js → RAG pipeline) (present)
+- `js/portfolio/narrative-assembler.js` — Portfolio Narrative assembler (stitches Problem Framer + Story + Clean summary + recommendation into one exportable write-up) (present)
+- `js/portfolio/portfolio-ui.js` — Portfolio Narrative assembler (stitches Problem Framer + Story + Clean summary + recommendation into one exportable write-up) (present)
+- `js/protocol/protocol-conformance.js` — Conformance (present)
+- `js/provenance/provenance.js` — Chain of custody (present)
+- `js/provenance/query-memory-ui.js` — Query Memory (Batch 2 — SQL/Python/R wiring + "seen before" badge) (present)
+- `js/provenance/query-memory.js` — Query Memory (Batch 2 — SQL/Python/R wiring + "seen before" badge) (present)
+- `js/provenance/revert-eligibility.js` — The Crucible: revert proposals (Batch 3, proposal-only) (present)
+- `js/questions/question-prompter.js` — Question Prompter (Feature 13 — "Where to start" intelligence) (present)
+- `js/rag/rag-core.js` — RAG core (chunker, cosine similarity, retrieval) (present)
+- `js/rag/rag-validation-bridge.js` — RAG validation bridge (citation injection) (present)
+- `js/rag/user-knowledge-store.js` — User Knowledge Store (in-memory RAG index) (present)
+- `js/rooms/room-broadcast.js` — Object Space broadcast wiring (Batch 2 of 4) (present)
+- `js/rooms/room-transport-adapter.js` — Real signaling + data-channel adapters (Batch 4 of 4) (present)
+- `js/rooms/room-ui.js` — Topbar UI layer (Batch 3 of 4) (present)
+- `js/rulepacks/packs/general.js` — General rulepack (present)
+- `js/rulepacks/packs/healthcare.js` — Healthcare rulepack (present)
+- `js/runtimes-viz/python-runtime.js` — Runtimes & charts (present)
+- `js/runtimes-viz/r-runtime.js` — Runtimes & charts (present)
+- `js/shared/identifier-columns.js` — Targeted transforms (present)
+- `js/validation/crucible-adversarial-packs.js` — The Crucible: adversarial validator (Batch 1) (present)
+- `js/validation/crucible-orchestrator.js` — The Crucible: orchestration glue (additive-only) (present)
+- `js/validation/crucible-ui.js` — The Crucible: read-only UI (Batch 2) (present)
+- `js/validation/expected-range.js` — Reinterpretation & context (present)
+- `js/validation/missingness.js` — Standalone layer modules (present)
+- `js/validation/query-sentinel-assist.js` — Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest (present)
+- `js/validation/query-sentinel-bridge.js` — Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver (present)
+- `js/validation/semantic-layer-ui.js` — Semantic / Metrics Layer (present)
+- `js/validation/source-convergence-ingestion.js` — Source Convergence ingestion adapters (Truth Network, Batch 2) (present)
+- `js/validation/source-convergence-ui.js` — Source Convergence UI (Truth Network, Batch 3) (present)
+- `js/validation/validation.js` — Orchestrator (present)
+- `js/video/webcodecs-audio-extractor.scaffold.js` — Video ingestion bridge (audio-only, Batch 1) (present)
+- `js/webhook/service-worker-relay.js` — Validation Webhook Mode (present)

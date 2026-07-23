@@ -40,6 +40,12 @@ const ALLOWLIST = [
   // Chrome and points Playwright at it — but the package still declares the
   // script, so it is allowlisted rather than treated as a violation.
   'playwright-chromium',
+  // Transitive of @openmined/psi.js (PSI Dataset Handshake). postinstall is
+  // inert when ignore-scripts=true (.npmrc); allowlisted so the gate matches
+  // the reviewed dependency tree rather than failing on nested tooling.
+  'protobufjs',
+  // Transitive of @openmined/psi.js. Same rationale as protobufjs.
+  'protoc-gen-js',
 ];
 
 // "node_modules/a/node_modules/b" -> "b"; "node_modules/@scope/x" -> "@scope/x"

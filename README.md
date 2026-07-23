@@ -13,7 +13,7 @@
 
 - **Browser** — 🟢 live: a zero-upload web app that runs entirely client-side; nothing you load is ever uploaded.
 - **Desktop** — 🟢 shipped: a native [Tauri](https://tauri.app/) shell for Windows, macOS, and Linux — grab a build from the [releases page](https://github.com/Andre-Weissmann/dataglow/releases).
-- **Mobile / tablet** — ⚪ Planned (Tauri v2) — not yet built.
+- **PWA (iOS/Android):** Live -- open https://dataglow-platform.pplx.app in mobile browser and add to home screen. **Tauri desktop (Windows/Mac/Linux):** Live. **Native iOS (SwiftUI):** Planned.
 
 ### What the two badges above actually prove
 
