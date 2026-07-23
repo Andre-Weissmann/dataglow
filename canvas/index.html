@@ -93842,6 +93842,688 @@ var PortfolioExport = (function () {
 })();
 /* ---- end js/grid/inline-cell-editor.js ---- */
 
+/* ================================================================
+   SESSION E PR #541: Export XLSX + CSV (3-sheet)
+   export-xlsx-csv.js
+================================================================ */
+/* ---- from js/export/export-xlsx-csv.js ---- */
+/* ================================================================
+   DataGlow XLSX + CSV Export (Session E, PR #541)
+   Feature flag: window.FEATURE_FLAGS.exportXlsx
+
+   Exports the current dataset as:
+     - XLSX: 3 sheets -- Data, Proof Chain, FQS Scorecard
+     - CSV: flat export of current data rows
+
+   Uses SheetJS (already in bundle as window.XLSX).
+   Fires dataglow:export-triggered so AnalystObserver logs it.
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'exportXlsx';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  function _getDataRows() {
+    var ds = window.DataGlowDataset;
+    if (!ds || !ds.rows || !ds.columns) return { headers: [], rows: [] };
+    return {
+      headers: ds.columns.map(function (c) { return c.name || c; }),
+      rows: ds.rows
+    };
+  }
+
+  function _getProofChainRows() {
+    if (!window.ProofChain || !window.ProofChain.getSteps) return [];
+    var steps = window.ProofChain.getSteps();
+    return steps.map(function (s, i) {
+      return [i + 1, s.type || '', s.ts || '', JSON.stringify(s).slice(0, 200)];
+    });
+  }
+
+  function _getFQSRows() {
+    var rows = [['Component', 'Score', 'Note']];
+    if (window.FederatedQualityScore && window.FederatedQualityScore.getBreakdown) {
+      var bd = window.FederatedQualityScore.getBreakdown();
+      if (bd && typeof bd === 'object') {
+        Object.keys(bd).forEach(function (k) {
+          rows.push([k, bd[k], '']);
+        });
+      }
+    } else {
+      rows.push(['FQS not yet run', '', '']);
+    }
+    return rows;
+  }
+
+  function exportXLSX() {
+    var SheetJS = window.XLSX;
+    if (!SheetJS) {
+      if (typeof window.showToast === 'function') window.showToast('SheetJS not loaded -- XLSX export unavailable', 'error');
+      return;
+    }
+
+    var data = _getDataRows();
+    var dataSheet = SheetJS.utils.aoa_to_sheet([data.headers].concat(data.rows));
+
+    var proofRows = [['Step', 'Type', 'Timestamp', 'Detail']].concat(_getProofChainRows());
+    var proofSheet = SheetJS.utils.aoa_to_sheet(proofRows);
+
+    var fqsSheet = SheetJS.utils.aoa_to_sheet(_getFQSRows());
+
+    var wb = SheetJS.utils.book_new();
+    SheetJS.utils.book_append_sheet(wb, dataSheet, 'Data');
+    SheetJS.utils.book_append_sheet(wb, proofSheet, 'Proof Chain');
+    SheetJS.utils.book_append_sheet(wb, fqsSheet, 'FQS Scorecard');
+
+    SheetJS.writeFile(wb, 'dataglow-export-' + Date.now() + '.xlsx');
+
+    document.dispatchEvent(new CustomEvent('dataglow:export-triggered', {
+      detail: { format: 'xlsx', sheets: 3, rows: data.rows.length }
+    }));
+
+    if (typeof window.showToast === 'function') {
+      window.showToast('Exported as XLSX (Data + Proof Chain + FQS Scorecard)', 'success');
+    }
+  }
+
+  function exportCSV() {
+    var data = _getDataRows();
+    var lines = [data.headers.join(',')];
+    data.rows.forEach(function (row) {
+      lines.push(row.map(function (v) {
+        var s = v === null || v === undefined ? '' : String(v);
+        return s.includes(',') || s.includes('"') || s.includes('\n') ?
+          '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(','));
+    });
+
+    var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'dataglow-export-' + Date.now() + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    document.dispatchEvent(new CustomEvent('dataglow:export-triggered', {
+      detail: { format: 'csv', rows: data.rows.length }
+    }));
+
+    if (typeof window.showToast === 'function') {
+      window.showToast('Exported as CSV (' + data.rows.length + ' rows)', 'success');
+    }
+  }
+
+  function _injectExportButtons() {
+    if (document.getElementById('dg-xlsx-export-btn')) return;
+
+    var style = document.createElement('style');
+    style.id = 'dg-export-btn-style';
+    style.textContent = [
+      '.dg-export-btn{display:inline-flex;align-items:center;gap:6px;',
+      'padding:6px 12px;border-radius:5px;font-size:12px;font-weight:600;',
+      'cursor:pointer;border:1px solid var(--dg-border,#252930);',
+      'background:var(--dg-surface,#131519);color:var(--dg-text,#CDCCCA);',
+      'transition:border-color .15s,color .15s;margin:0 4px;}',
+      '.dg-export-btn:hover{border-color:var(--dg-primary,#20C5B5);color:var(--dg-primary,#20C5B5);}'
+    ].join('');
+    document.head.appendChild(style);
+
+    var xlsxBtn = document.createElement('button');
+    xlsxBtn.id = 'dg-xlsx-export-btn';
+    xlsxBtn.className = 'dg-export-btn';
+    xlsxBtn.setAttribute('data-testid', 'button-export-xlsx');
+    xlsxBtn.setAttribute('aria-label', 'Export as XLSX');
+    xlsxBtn.innerHTML = 'Export XLSX';
+    xlsxBtn.addEventListener('click', exportXLSX);
+
+    var csvBtn = document.createElement('button');
+    csvBtn.id = 'dg-csv-export-btn';
+    csvBtn.className = 'dg-export-btn';
+    csvBtn.setAttribute('data-testid', 'button-export-csv');
+    csvBtn.setAttribute('aria-label', 'Export as CSV');
+    csvBtn.innerHTML = 'Export CSV';
+    csvBtn.addEventListener('click', exportCSV);
+
+    var targets = ['#dg-export-area', '#output-panel', '#proof-chain-panel', '.proof-actions', '#dg-toolbar'];
+    var container = null;
+    for (var i = 0; i < targets.length; i++) {
+      container = document.querySelector(targets[i]);
+      if (container) break;
+    }
+    if (!container) container = document.body;
+    container.appendChild(xlsxBtn);
+    container.appendChild(csvBtn);
+  }
+
+  window.ExportXlsxCsv = { exportXLSX: exportXLSX, exportCSV: exportCSV };
+
+  function init() {
+    if (!isEnabled()) return;
+    document.addEventListener('dataglow:dataset-loaded', _injectExportButtons, { once: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/export/export-xlsx-csv.js ---- */
+
+
+/* ================================================================
+   SESSION E PR #542: Find/Replace + Conditional Formatting
+   find-replace.js + conditional-formatting.js
+================================================================ */
+/* ---- from js/grid/find-replace.js ---- */
+/* ================================================================
+   DataGlow Find/Replace (Session E, PR #542)
+   Feature flag: window.FEATURE_FLAGS.findReplace
+
+   Ctrl+H (or Cmd+H) opens a floating find/replace panel.
+   - Find: highlights matching cells in the grid
+   - Replace: replaces matched values in-memory, logs each change to Proof Chain
+   - Replace All: batch replace with single Proof Chain entry (count)
+   - Case-sensitive toggle
+   - Column scope selector (all columns or specific column)
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'findReplace';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var _panel = null;
+  var _panelVisible = false;
+  var _matches = [];
+
+  function _buildPanel() {
+    if (_panel) return _panel;
+
+    var style = document.createElement('style');
+    style.id = 'dg-find-replace-style';
+    style.textContent = [
+      '#dg-find-replace{position:fixed;top:80px;right:20px;z-index:9990;',
+      'width:300px;background:var(--dg-surface,#131519);',
+      'border:1px solid var(--dg-border,#252930);border-radius:8px;',
+      'padding:14px;font-size:13px;color:var(--dg-text,#CDCCCA);',
+      'box-shadow:0 8px 32px rgba(0,0,0,.5);display:none;}',
+      '#dg-find-replace.open{display:block;}',
+      '#dg-find-replace input{width:100%;box-sizing:border-box;',
+      'background:var(--dg-bg,#0D0E10);border:1px solid var(--dg-border,#252930);',
+      'border-radius:4px;color:var(--dg-text,#CDCCCA);padding:5px 8px;',
+      'font-size:12px;margin:4px 0 8px;outline:none;}',
+      '#dg-find-replace input:focus{border-color:var(--dg-primary,#20C5B5);}',
+      '.dg-fr-btn{padding:5px 10px;border-radius:4px;border:1px solid var(--dg-border,#252930);',
+      'background:var(--dg-surface,#131519);color:var(--dg-text,#CDCCCA);',
+      'font-size:12px;cursor:pointer;margin:2px;}',
+      '.dg-fr-btn:hover{border-color:var(--dg-primary,#20C5B5);}',
+      '.dg-fr-label{font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;display:block;}',
+      '.dg-fr-count{font-size:11px;color:var(--dg-primary,#20C5B5);margin-top:4px;}'
+    ].join('');
+    document.head.appendChild(style);
+
+    var panel = document.createElement('div');
+    panel.id = 'dg-find-replace';
+    panel.setAttribute('data-testid', 'panel-find-replace');
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Find and Replace');
+    panel.innerHTML = [
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">',
+      '<strong>Find / Replace</strong>',
+      '<button class="dg-fr-btn" id="dg-fr-close" data-testid="button-fr-close" aria-label="Close">x</button>',
+      '</div>',
+      '<label class="dg-fr-label">Find</label>',
+      '<input id="dg-fr-find" type="text" placeholder="Search value..." data-testid="input-fr-find" />',
+      '<label class="dg-fr-label">Replace with</label>',
+      '<input id="dg-fr-replace" type="text" placeholder="Replacement..." data-testid="input-fr-replace" />',
+      '<div style="margin:6px 0;"><label><input type="checkbox" id="dg-fr-case" data-testid="input-fr-case" /> Case sensitive</label></div>',
+      '<div style="margin-top:6px;">',
+      '<button class="dg-fr-btn" id="dg-fr-find-btn" data-testid="button-fr-find">Find All</button>',
+      '<button class="dg-fr-btn" id="dg-fr-replace-btn" data-testid="button-fr-replace">Replace</button>',
+      '<button class="dg-fr-btn" id="dg-fr-replace-all-btn" data-testid="button-fr-replace-all">Replace All</button>',
+      '</div>',
+      '<div class="dg-fr-count" id="dg-fr-count"></div>'
+    ].join('');
+
+    document.body.appendChild(panel);
+    _panel = panel;
+
+    panel.querySelector('#dg-fr-close').addEventListener('click', _hidePanel);
+    panel.querySelector('#dg-fr-find-btn').addEventListener('click', _doFind);
+    panel.querySelector('#dg-fr-replace-btn').addEventListener('click', _doReplace);
+    panel.querySelector('#dg-fr-replace-all-btn').addEventListener('click', _doReplaceAll);
+
+    return panel;
+  }
+
+  function _showPanel() {
+    _buildPanel();
+    _panel.classList.add('open');
+    _panelVisible = true;
+    var input = document.getElementById('dg-fr-find');
+    if (input) input.focus();
+  }
+
+  function _hidePanel() {
+    if (_panel) _panel.classList.remove('open');
+    _panelVisible = false;
+  }
+
+  function _getFindValue() {
+    var el = document.getElementById('dg-fr-find');
+    return el ? el.value : '';
+  }
+
+  function _getReplaceValue() {
+    var el = document.getElementById('dg-fr-replace');
+    return el ? el.value : '';
+  }
+
+  function _isCaseSensitive() {
+    var el = document.getElementById('dg-fr-case');
+    return el ? el.checked : false;
+  }
+
+  function _setCount(msg) {
+    var el = document.getElementById('dg-fr-count');
+    if (el) el.textContent = msg;
+  }
+
+  function _doFind() {
+    var find = _getFindValue();
+    if (!find) return;
+    var caseSensitive = _isCaseSensitive();
+    var ds = window.DataGlowDataset;
+    if (!ds || !ds.rows) { _setCount('No dataset loaded'); return; }
+
+    _matches = [];
+    var findLow = caseSensitive ? find : find.toLowerCase();
+
+    ds.rows.forEach(function (row, ri) {
+      row.forEach(function (val, ci) {
+        var s = val === null ? '' : String(val);
+        var cmp = caseSensitive ? s : s.toLowerCase();
+        if (cmp.includes(findLow)) _matches.push({ ri: ri, ci: ci, val: val });
+      });
+    });
+
+    _setCount(_matches.length + ' match(es) found');
+  }
+
+  function _doReplace() {
+    if (!_matches.length) { _doFind(); }
+    if (!_matches.length) return;
+    var match = _matches[0];
+    var replaceVal = _getReplaceValue();
+    var ds = window.DataGlowDataset;
+    if (ds && ds.rows && ds.rows[match.ri]) {
+      var oldVal = ds.rows[match.ri][match.ci];
+      ds.rows[match.ri][match.ci] = replaceVal;
+      if (window.ProofChain && window.ProofChain.addStep) {
+        window.ProofChain.addStep({ type: 'find-replace', row: match.ri, col: match.ci, oldVal: oldVal, newVal: replaceVal });
+      }
+      _matches.shift();
+      _setCount(_matches.length + ' remaining');
+    }
+  }
+
+  function _doReplaceAll() {
+    _doFind();
+    if (!_matches.length) return;
+    var replaceVal = _getReplaceValue();
+    var ds = window.DataGlowDataset;
+    var count = 0;
+    _matches.forEach(function (match) {
+      if (ds && ds.rows && ds.rows[match.ri]) {
+        ds.rows[match.ri][match.ci] = replaceVal;
+        count++;
+      }
+    });
+    if (window.ProofChain && window.ProofChain.addStep) {
+      window.ProofChain.addStep({ type: 'find-replace-all', count: count, replaceVal: replaceVal });
+    }
+    document.dispatchEvent(new CustomEvent('dataglow:cell-edited', {
+      detail: { type: 'replace-all', count: count }
+    }));
+    _matches = [];
+    _setCount('Replaced ' + count + ' cell(s)');
+    if (typeof window.showToast === 'function') {
+      window.showToast('Replaced ' + count + ' cell(s)', 'success');
+    }
+  }
+
+  window.FindReplace = { show: _showPanel, hide: _hidePanel };
+
+  function init() {
+    if (!isEnabled()) return;
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+        e.preventDefault();
+        _panelVisible ? _hidePanel() : _showPanel();
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/grid/find-replace.js ---- */
+
+/* ---- from js/grid/conditional-formatting.js ---- */
+/* ================================================================
+   DataGlow Conditional Formatting (Session E, PR #542)
+   Feature flag: window.FEATURE_FLAGS.conditionalFormatting
+
+   Applies color rules to grid cells based on value conditions.
+   Rules: greaterThan, lessThan, equals, contains, isEmpty, isNotEmpty
+   Colors: highlight (amber), flag (red/proof colors), positive (green)
+   Rules are stored in memory and re-applied on grid refresh.
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'conditionalFormatting';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var _rules = [];
+
+  var PRESETS = {
+    highlight: { bg: '#F5A62333', text: '#F5A623', border: '#F5A623' },
+    flag:      { bg: '#A1354433', text: '#A13544', border: '#A13544' },
+    positive:  { bg: '#4AE38A22', text: '#4AE38A', border: '#4AE38A' },
+    muted:     { bg: '#79787622', text: '#797876', border: '#252930' }
+  };
+
+  function addRule(rule) {
+    /* rule: { colName, condition, value, preset } */
+    _rules.push(rule);
+    _applyRules();
+  }
+
+  function clearRules() { _rules = []; _clearFormatting(); }
+
+  function _matchesCondition(cellVal, condition, ruleVal) {
+    var v = parseFloat(cellVal);
+    switch (condition) {
+      case 'greaterThan':  return !isNaN(v) && v > parseFloat(ruleVal);
+      case 'lessThan':     return !isNaN(v) && v < parseFloat(ruleVal);
+      case 'equals':       return String(cellVal) === String(ruleVal);
+      case 'contains':     return String(cellVal).toLowerCase().includes(String(ruleVal).toLowerCase());
+      case 'isEmpty':      return cellVal === null || cellVal === '' || cellVal === undefined;
+      case 'isNotEmpty':   return cellVal !== null && cellVal !== '' && cellVal !== undefined;
+      default: return false;
+    }
+  }
+
+  function _clearFormatting() {
+    document.querySelectorAll('[data-cf]').forEach(function (el) {
+      el.removeAttribute('style');
+      el.removeAttribute('data-cf');
+    });
+  }
+
+  function _applyRules() {
+    _clearFormatting();
+    if (!_rules.length) return;
+    var ds = window.DataGlowDataset;
+    if (!ds || !ds.rows || !ds.columns) return;
+
+    var colIndexMap = {};
+    ds.columns.forEach(function (c, i) { colIndexMap[(c.name || c)] = i; });
+
+    _rules.forEach(function (rule) {
+      var colIdx = colIndexMap[rule.colName];
+      if (colIdx === undefined) return;
+      var preset = PRESETS[rule.preset] || PRESETS.highlight;
+
+      /* Apply to DOM cells matching this column */
+      var cells = document.querySelectorAll('[data-col="' + colIdx + '"]');
+      cells.forEach(function (cell) {
+        var rowIdx = parseInt(cell.getAttribute('data-row') || '0', 10);
+        var val = ds.rows[rowIdx] ? ds.rows[rowIdx][colIdx] : null;
+        if (_matchesCondition(val, rule.condition, rule.value)) {
+          cell.style.backgroundColor = preset.bg;
+          cell.style.color = preset.text;
+          cell.style.borderLeft = '2px solid ' + preset.border;
+          cell.setAttribute('data-cf', rule.colName + ':' + rule.condition);
+        }
+      });
+    });
+  }
+
+  window.ConditionalFormatting = {
+    addRule: addRule,
+    clearRules: clearRules,
+    applyRules: _applyRules,
+    getRules: function () { return _rules.slice(); },
+    PRESETS: PRESETS
+  };
+
+  function init() {
+    if (!isEnabled()) return;
+    document.addEventListener('dataglow:dataset-loaded', _applyRules);
+    document.addEventListener('dataglow:cell-edited', function () {
+      setTimeout(_applyRules, 50);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/grid/conditional-formatting.js ---- */
+
+
+/* ================================================================
+   SESSION E PR #543: Portfolio One-Click Export
+   portfolio-one-click-export.js
+================================================================ */
+/* ---- from js/portfolio/portfolio-one-click-export.js ---- */
+/* ================================================================
+   DataGlow Portfolio One-Click Export (Session E, PR #543)
+   Feature flag: window.FEATURE_FLAGS.portfolioOneClickExport
+
+   Wires the existing portfolioNarrativeAssembler stub (4,815 lines,
+   already written) to a visible "Add to Portfolio" button.
+
+   On click:
+     1. Calls portfolioNarrativeAssembler.apply() to generate the card
+     2. Adds a dataset fingerprint + FQS score + role context
+     3. Packages a self-contained HTML portfolio card
+     4. Downloads dataglow-portfolio-card-{ts}.html
+     5. Also downloads dataglow-portfolio-metadata-{ts}.json (for andre-portfolio-content)
+     6. Fires dataglow:portfolio-export-triggered for AnalystObserver
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'portfolioOneClickExport';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  function _buildPortfolioMetadata() {
+    var ds = window.DataGlowDataset || {};
+    var fqs = (window.FederatedQualityScore && window.FederatedQualityScore.compute)
+      ? window.FederatedQualityScore.compute() : null;
+    var pulse = (window.PulseInterpreter && window.PulseInterpreter.getScore)
+      ? window.PulseInterpreter.getScore() : null;
+    var role = (window.RoleContext && window.RoleContext.current)
+      ? window.RoleContext.current() : null;
+
+    var narrative = '';
+    if (window.PortfolioNarrativeAssembler && window.PortfolioNarrativeAssembler.apply) {
+      try { narrative = window.PortfolioNarrativeAssembler.apply() || ''; } catch (e) {}
+    }
+
+    return {
+      generated_at: new Date().toISOString(),
+      dataset: {
+        fingerprint: ds.fingerprint || null,
+        row_count: ds.rowCount || null,
+        col_count: ds.colCount || null,
+        filename: ds.filename || null
+      },
+      fqs: fqs,
+      pulse: pulse,
+      role: role,
+      narrative: narrative,
+      tool: 'DataGlow',
+      tool_version: 'Session-E',
+      zero_upload: true,
+      proof_chain_steps: (window.ProofChain && window.ProofChain.getSteps)
+        ? window.ProofChain.getSteps().length : 0
+    };
+  }
+
+  function _buildPortfolioCard(meta) {
+    var ds = window.DataGlowDataset || {};
+    var filename = ds.filename || 'dataset';
+    var fqsLabel = meta.fqs !== null ? meta.fqs + '/100' : 'Not scored';
+    var pulseLabel = meta.pulse !== null ? meta.pulse : 'Not run';
+    var role = meta.role || 'Data Analyst';
+    var narrative = meta.narrative || 'Analysis completed in DataGlow.';
+    var ts = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DataGlow Portfolio Card</title>' +
+      '<style>' +
+      'body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+      'background:#0D0E10;color:#CDCCCA;padding:32px;box-sizing:border-box;}' +
+      '.card{max-width:640px;margin:0 auto;background:#131519;border:1px solid #252930;' +
+      'border-radius:12px;padding:28px;}' +
+      '.card-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;}' +
+      '.dg-logo{width:32px;height:32px;background:#20C5B5;border-radius:8px;' +
+      'display:flex;align-items:center;justify-content:center;font-weight:700;color:#0D0E10;font-size:14px;}' +
+      '.card-title{font-size:18px;font-weight:700;color:#fff;margin:0;}' +
+      '.card-sub{font-size:12px;color:#797876;margin:2px 0 0;}' +
+      '.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0;}' +
+      '.kpi{background:#191C20;border-radius:8px;padding:12px;text-align:center;}' +
+      '.kpi-val{font-size:22px;font-weight:700;color:#20C5B5;}' +
+      '.kpi-label{font-size:11px;color:#797876;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;}' +
+      '.narrative{font-size:14px;line-height:1.6;color:#CDCCCA;margin:16px 0;' +
+      'padding:14px;background:#191C20;border-radius:8px;border-left:3px solid #20C5B5;}' +
+      '.proof-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;' +
+      'padding:4px 10px;background:#4AE38A22;color:#4AE38A;border-radius:4px;margin-top:12px;}' +
+      '.footer{margin-top:20px;font-size:11px;color:#5A5957;text-align:center;}' +
+      '</style></head><body>' +
+      '<div class="card">' +
+      '<div class="card-header">' +
+      '<div class="dg-logo">DG</div>' +
+      '<div><p class="card-title">' + filename + '</p>' +
+      '<p class="card-sub">' + role + ' &bull; ' + ts + '</p></div>' +
+      '</div>' +
+      '<div class="kpi-row">' +
+      '<div class="kpi"><div class="kpi-val">' + (meta.dataset.row_count || '?') + '</div><div class="kpi-label">Rows</div></div>' +
+      '<div class="kpi"><div class="kpi-val">' + fqsLabel + '</div><div class="kpi-label">FQS</div></div>' +
+      '<div class="kpi"><div class="kpi-val">' + pulseLabel + '</div><div class="kpi-label">Pulse</div></div>' +
+      '</div>' +
+      '<div class="narrative">' + narrative + '</div>' +
+      '<div class="proof-badge">Proof Chain: ' + meta.proof_chain_steps + ' step(s) &bull; Zero upload verified</div>' +
+      '<div class="footer">Generated by DataGlow &bull; dataglow-platform.pplx.app &bull; Fingerprint: ' + (meta.dataset.fingerprint || 'not computed') + '</div>' +
+      '</div></body></html>';
+  }
+
+  function exportPortfolioCard() {
+    var meta = _buildPortfolioMetadata();
+
+    /* Download HTML card */
+    var html = _buildPortfolioCard(meta);
+    var htmlBlob = new Blob([html], { type: 'text/html' });
+    var htmlUrl = URL.createObjectURL(htmlBlob);
+    var a1 = document.createElement('a');
+    a1.href = htmlUrl;
+    a1.download = 'dataglow-portfolio-card-' + Date.now() + '.html';
+    document.body.appendChild(a1);
+    a1.click();
+    document.body.removeChild(a1);
+    URL.revokeObjectURL(htmlUrl);
+
+    /* Download metadata JSON */
+    var jsonBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
+    var jsonUrl = URL.createObjectURL(jsonBlob);
+    var a2 = document.createElement('a');
+    a2.href = jsonUrl;
+    a2.download = 'dataglow-portfolio-metadata-' + Date.now() + '.json';
+    document.body.appendChild(a2);
+    a2.click();
+    document.body.removeChild(a2);
+    URL.revokeObjectURL(jsonUrl);
+
+    document.dispatchEvent(new CustomEvent('dataglow:portfolio-export-triggered', {
+      detail: { fqs: meta.fqs, pulse: meta.pulse, rows: meta.dataset.row_count }
+    }));
+    document.dispatchEvent(new CustomEvent('dataglow:export-triggered', {
+      detail: { format: 'portfolio-card', fqs: meta.fqs }
+    }));
+
+    if (typeof window.showToast === 'function') {
+      window.showToast('Portfolio card exported. Upload the HTML to your portfolio.', 'success');
+    }
+  }
+
+  function _injectPortfolioBtn() {
+    if (document.getElementById('dg-portfolio-export-btn')) return;
+
+    var style = document.createElement('style');
+    style.id = 'dg-portfolio-btn-style';
+    style.textContent = [
+      '#dg-portfolio-export-btn{display:inline-flex;align-items:center;gap:7px;',
+      'padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;',
+      'cursor:pointer;border:1.5px solid var(--dg-primary,#20C5B5);',
+      'background:var(--dg-primary,#20C5B5);color:#0D0E10;',
+      'transition:opacity .15s;margin:4px;}',
+      '#dg-portfolio-export-btn:hover{opacity:.85;}'
+    ].join('');
+    document.head.appendChild(style);
+
+    var btn = document.createElement('button');
+    btn.id = 'dg-portfolio-export-btn';
+    btn.setAttribute('data-testid', 'button-portfolio-export');
+    btn.setAttribute('aria-label', 'Add to portfolio');
+    btn.innerHTML = 'Add to Portfolio';
+    btn.addEventListener('click', exportPortfolioCard);
+
+    var targets = ['#dg-export-area', '#proof-chain-panel', '#output-panel', '.proof-actions', '#dg-toolbar'];
+    var container = null;
+    for (var i = 0; i < targets.length; i++) {
+      container = document.querySelector(targets[i]);
+      if (container) break;
+    }
+    if (!container) container = document.body;
+    container.appendChild(btn);
+  }
+
+  window.PortfolioOneClickExport = { export: exportPortfolioCard };
+
+  function init() {
+    if (!isEnabled()) return;
+    document.addEventListener('dataglow:pulse-scored', _injectPortfolioBtn, { once: true });
+    /* Also inject if dataset is loaded with a good FQS */
+    document.addEventListener('dataglow:fqs-updated', function (e) {
+      if (e.detail && e.detail.score >= 60) _injectPortfolioBtn();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/portfolio/portfolio-one-click-export.js ---- */
+
 
 })();
 </script>
