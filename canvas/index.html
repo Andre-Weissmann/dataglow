@@ -93384,6 +93384,230 @@ var PortfolioExport = (function () {
 })();
 /* ---- end js/intelligence/workflow-benchmarks.js ---- */
 
+/* ================================================================
+   SESSION E PR #539: Feature Health Monitor
+   feature-health-monitor.js
+================================================================ */
+/* ---- from js/intelligence/feature-health-monitor.js ---- */
+/* ================================================================
+   DataGlow Feature Health Monitor (Session E, PR #539)
+   Feature flag: window.FEATURE_FLAGS.featureHealthMonitor
+
+   Reads the AnalystObserver session log + WorkflowBenchmarks results
+   and produces a real-time health scorecard for DataGlow's own features.
+
+   Tracked signals per feature:
+     - Last used (timestamp from session log)
+     - Use count this session
+     - Benchmark result (pass/fail for SQL benchmarks)
+     - Dependency health (does the feature depend on another that is failing?)
+
+   Output:
+     - window.FeatureHealthMonitor.getReport() -- full JSON report
+     - dataglow:feature-health-updated event with summary
+     - Optional UI panel (accessible via bottom-right health badge)
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'featureHealthMonitor';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var _report = null;
+  var _benchmarkResults = null;
+  var _panelVisible = false;
+
+  /* ---- Feature registry -- what to track and how ---- */
+  var FEATURES = [
+    { id: 'duckdb', name: 'DuckDB SQL Engine', eventType: 'sql-executed', critical: true },
+    { id: 'pulse', name: 'Pulse Interpreter', eventType: 'pulse-scored', critical: true },
+    { id: 'dataset-load', name: 'Dataset Loading', eventType: 'dataset-loaded', critical: true },
+    { id: 'export', name: 'Export Engine', eventType: 'export-triggered', critical: false },
+    { id: 'gate-export', name: 'Gate State Exporter', eventType: 'gate-exported', critical: false },
+    { id: 'ai-query', name: 'NL-to-SQL Generator', eventType: 'ai-query-generated', critical: false },
+    { id: 'role-set', name: 'Role Context', eventType: 'role-set', critical: false }
+  ];
+
+  var _useCounts = {};
+  var _lastUsed = {};
+
+  FEATURES.forEach(function (f) {
+    _useCounts[f.id] = 0;
+    _lastUsed[f.id] = null;
+  });
+
+  function _buildReport() {
+    var featureHealth = FEATURES.map(function (f) {
+      return {
+        id: f.id,
+        name: f.name,
+        critical: f.critical,
+        use_count: _useCounts[f.id],
+        last_used: _lastUsed[f.id],
+        status: _useCounts[f.id] > 0 ? 'active' : 'idle'
+      };
+    });
+
+    var benchmarks = _benchmarkResults ? {
+      score: _benchmarkResults.score,
+      passed: _benchmarkResults.passed,
+      failed: _benchmarkResults.failed,
+      results: _benchmarkResults.results
+    } : { score: null, note: 'Not yet run -- load a dataset to trigger' };
+
+    var observerStats = (window.AnalystObserver && window.AnalystObserver.getSessionStats)
+      ? window.AnalystObserver.getSessionStats() : null;
+
+    var criticalIdle = featureHealth.filter(function (f) {
+      return f.critical && f.status === 'idle';
+    });
+
+    _report = {
+      generated_at: new Date().toISOString(),
+      overall_status: criticalIdle.length === 0 ? 'healthy' : 'degraded',
+      critical_idle: criticalIdle.map(function (f) { return f.name; }),
+      features: featureHealth,
+      sql_benchmarks: benchmarks,
+      session: observerStats
+    };
+
+    document.dispatchEvent(new CustomEvent('dataglow:feature-health-updated', {
+      detail: { status: _report.overall_status, critical_idle: _report.critical_idle }
+    }));
+
+    return _report;
+  }
+
+  /* ---- Panel UI ---- */
+  function _injectBadge() {
+    if (document.getElementById('dg-health-badge')) return;
+
+    /* Inject styles */
+    if (!document.getElementById('dg-health-style')) {
+      var style = document.createElement('style');
+      style.id = 'dg-health-style';
+      style.textContent = [
+        '#dg-health-badge{position:fixed;bottom:20px;right:20px;z-index:9998;',
+        'width:36px;height:36px;border-radius:50%;background:var(--dg-surface,#131519);',
+        'border:2px solid var(--dg-primary,#20C5B5);cursor:pointer;display:flex;',
+        'align-items:center;justify-content:center;font-size:16px;',
+        'box-shadow:0 2px 12px rgba(0,0,0,.4);transition:border-color .2s;}',
+        '#dg-health-badge.degraded{border-color:#F5A623;}',
+        '#dg-health-panel{position:fixed;bottom:64px;right:20px;z-index:9998;',
+        'width:320px;max-height:420px;overflow-y:auto;',
+        'background:var(--dg-surface,#131519);border:1px solid var(--dg-border,#252930);',
+        'border-radius:10px;padding:16px;font-size:12px;color:var(--dg-text,#CDCCCA);',
+        'box-shadow:0 8px 32px rgba(0,0,0,.5);display:none;}',
+        '#dg-health-panel.open{display:block;}',
+        '.dg-health-feature{display:flex;justify-content:space-between;',
+        'padding:4px 0;border-bottom:1px solid var(--dg-border,#252930);}',
+        '.dg-health-status{font-size:11px;padding:1px 6px;border-radius:3px;font-weight:600;}',
+        '.dg-health-status.active{background:#437A2222;color:#4AE38A;}',
+        '.dg-health-status.idle{background:#F5A62322;color:#F5A623;}',
+        '.dg-health-bench-score{font-size:20px;font-weight:700;',
+        'color:var(--dg-primary,#20C5B5);margin:8px 0 4px;}'
+      ].join('');
+      document.head.appendChild(style);
+    }
+
+    var badge = document.createElement('button');
+    badge.id = 'dg-health-badge';
+    badge.setAttribute('data-testid', 'button-health-badge');
+    badge.setAttribute('aria-label', 'Feature health monitor');
+    badge.title = 'DataGlow feature health';
+    badge.textContent = '?';
+
+    var panel = document.createElement('div');
+    panel.id = 'dg-health-panel';
+    panel.setAttribute('data-testid', 'panel-feature-health');
+
+    badge.addEventListener('click', function () {
+      _panelVisible = !_panelVisible;
+      if (_panelVisible) {
+        _renderPanel(panel);
+        panel.classList.add('open');
+      } else {
+        panel.classList.remove('open');
+      }
+    });
+
+    document.body.appendChild(badge);
+    document.body.appendChild(panel);
+
+    /* Update badge color on health change */
+    document.addEventListener('dataglow:feature-health-updated', function (e) {
+      badge.classList.toggle('degraded', (e.detail && e.detail.status) === 'degraded');
+      if (_panelVisible) _renderPanel(panel);
+    });
+  }
+
+  function _renderPanel(panel) {
+    var r = _buildReport();
+    var benchScore = r.sql_benchmarks.score !== null
+      ? r.sql_benchmarks.score + '/100'
+      : 'pending';
+
+    var featRows = r.features.map(function (f) {
+      return '<div class="dg-health-feature">' +
+        '<span>' + f.name + '</span>' +
+        '<span class="dg-health-status ' + f.status + '">' + f.status + '</span>' +
+        '</div>';
+    }).join('');
+
+    var benchRows = '';
+    if (r.sql_benchmarks.results) {
+      benchRows = r.sql_benchmarks.results.map(function (b) {
+        return '<div class="dg-health-feature">' +
+          '<span>' + b.name + '</span>' +
+          '<span class="dg-health-status ' + (b.passed ? 'active' : 'idle') + '">' +
+          (b.passed ? 'pass' : 'fail') + '</span>' +
+          '</div>';
+      }).join('');
+    }
+
+    panel.innerHTML = '<strong style="font-size:13px;">Feature Health</strong>' +
+      '<div class="dg-health-bench-score">' + benchScore + '</div>' +
+      '<div style="opacity:.6;margin-bottom:8px;">SQL benchmark score</div>' +
+      featRows +
+      (benchRows ? '<div style="margin-top:10px;font-weight:600;font-size:11px;opacity:.5;text-transform:uppercase;letter-spacing:.05em;">SQL Benchmarks</div>' + benchRows : '');
+  }
+
+  /* ---- Wire event tracking ---- */
+  function _wireTracking() {
+    FEATURES.forEach(function (f) {
+      document.addEventListener('dataglow:' + f.eventType, function () {
+        _useCounts[f.id]++;
+        _lastUsed[f.id] = new Date().toISOString();
+        _buildReport();
+      });
+    });
+
+    document.addEventListener('dataglow:benchmark-complete', function (e) {
+      _benchmarkResults = e.detail;
+      _buildReport();
+    });
+  }
+
+  window.FeatureHealthMonitor = {
+    getReport: function () { return _buildReport(); },
+    refresh: _buildReport
+  };
+
+  function init() {
+    if (!isEnabled()) return;
+    _wireTracking();
+    _injectBadge();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/intelligence/feature-health-monitor.js ---- */
+
 
 })();
 </script>
