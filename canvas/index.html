@@ -3536,7 +3536,7 @@
 .dojo-fn-desc { font-size:12px; color:var(--text-muted); line-height:1.5; font-style:italic; }
 
 /* ---- #38 PWA Install Banner ---- */
-#pwa-install-banner { position:fixed; bottom:60px; right:16px; background:var(--surface); border:1px solid var(--primary); border-radius:12px; padding:14px 18px; display:none; align-items:center; gap:12px; box-shadow:0 4px 24px rgba(0,0,0,0.35); z-index:9998; max-width:280px; }
+#pwa-install-banner { position:fixed; bottom:calc(60px + env(safe-area-inset-bottom, 0px)); right:16px; background:var(--surface); border:1px solid var(--primary); border-radius:12px; padding:14px 18px; display:none; align-items:center; gap:12px; box-shadow:0 4px 24px rgba(0,0,0,0.35); z-index:9998; max-width:280px; }
 #pwa-install-banner.visible { display:flex; }
 .pwa-banner-text { flex:1; }
 .pwa-banner-title { font-size:13px; font-weight:700; color:var(--text); margin-bottom:2px; }
@@ -10103,6 +10103,10 @@ body.tier-1-unlocked .dg-st-chips[style*='flex'] { display: flex !important; }
         <button id="export-panel-close" title="Close">&times;</button>
       </div>
       <div id="export-options">
+        <button class="export-option-btn" id="export-xlsx-drawer-btn" data-testid="button-export-xlsx-drawer">
+          <span class="export-icon">&#128200; Excel (XLSX)</span>
+          <span class="export-desc">3-sheet workbook: Data, Proof Chain, FQS Scorecard</span>
+        </button>
         <button class="export-option-btn" id="export-csv-btn">
           <span class="export-icon">&#8595; CSV</span>
           <span class="export-desc">Download raw data as a spreadsheet</span>
@@ -23169,10 +23173,23 @@ var InstantInsight = (function () {
     }
   });
 
+  var exportXlsxDrawerBtn = $('export-xlsx-drawer-btn');
   var exportCsvBtn = $('export-csv-btn');
   var exportPngBtn = $('export-png-btn');
   var exportPdfBtn = $('export-pdf-btn');
 
+  if (exportXlsxDrawerBtn) exportXlsxDrawerBtn.addEventListener('click', function () {
+    if (window.ExportXlsxCsv && typeof window.ExportXlsxCsv.exportXLSX === 'function') {
+      window.ExportXlsxCsv.exportXLSX();
+    } else {
+      var ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+      if (ds && typeof ExportEngine !== 'undefined' && ExportEngine.exportCSV) {
+        ExportEngine.exportCSV(ds, 'dataglow-export');
+        if (typeof window.showToast === 'function') window.showToast('XLSX module loading -- exported CSV instead', 'info');
+      }
+    }
+    exportPanelOpen = false; exportPanel.classList.add('hidden');
+  });
   if (exportCsvBtn) exportCsvBtn.addEventListener('click', function () {
     var ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
     if (ds) ExportEngine.exportCSV(ds, ds.filename ? ds.filename.replace(/\.[^.]+$/, '') : 'dataglow-export');
@@ -86340,6 +86357,7 @@ function filterCommands(commands, query, limit) {
     panel.style.cssText = [
       'background:#131519;border:1px solid #252930;border-radius:16px;',
       'width:min(520px,92vw);padding:32px;font-family:\'Geist Mono\',monospace;',
+      'max-height:calc(90vh - env(safe-area-inset-bottom, 0px));overflow-y:auto;',
       'transform:translateY(16px);transition:transform 0.25s cubic-bezier(0.34,1.56,0.64,1);',
     ].join('');
 
