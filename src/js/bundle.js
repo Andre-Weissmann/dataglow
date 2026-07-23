@@ -82779,8 +82779,7 @@ var PortfolioExport = (function () {
     data.rows.forEach(function (row) {
       lines.push(row.map(function (v) {
         var s = v === null || v === undefined ? '' : String(v);
-        return s.includes(',') || s.includes('"') || s.includes('
-') ?
+        return s.includes(',') || s.includes('"') || s.includes('\n') ?
           '"' + s.replace(/"/g, '""') + '"' : s;
       }).join(','));
     });
