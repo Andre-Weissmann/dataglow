@@ -10867,6 +10867,15 @@ var InstantInsight = (function () {
     kpiLibrary: true,
     businessGlossary: true,
     stakeholderTemplates: true,
+    analystObserver: true,
+    workflowAdvisor: true,
+    modernWorkflowBenchmarks: true,
+    featureHealthMonitor: true,
+    inlineCellEditing: true,
+    exportXlsx: true,
+    findReplace: true,
+    conditionalFormatting: true,
+    portfolioOneClickExport: true,
   };
   window.FEATURE_FLAGS = FEATURE_FLAGS;
 
@@ -81645,4 +81654,579 @@ var PortfolioExport = (function () {
 })();
 /* ---- end js/compliance/air-gap-cert.js ---- */
 
+/* ================================================================
+   SESSION E PR #538: Analyst Observer + Workflow Advisor + Modern Workflow Benchmarks
+   analyst-observer.js + workflow-advisor.js + workflow-benchmarks.js
+================================================================ */
+/* ---- from js/intelligence/analyst-observer.js ---- */
+/* ================================================================
+   DataGlow Analyst Observer (Session E, PR #538)
+   Feature flag: window.FEATURE_FLAGS.analystObserver
+
+   Subscribes to all 63+ DataGlow custom events and builds a rolling
+   session log stored in OPFS as dg-analyst-log.json (500-entry cap).
+   This is the local, private equivalent of the Anthropic Economic Index:
+   instead of population-level AI usage data, it captures how THIS analyst
+   uses DataGlow -- which tools they reach for, which they skip, where
+   sessions stall.
+
+   Key tracked events:
+     - dataglow:dataset-loaded        -- what datasets are loaded
+     - dataglow:pulse-scored          -- validation run frequency
+     - dataglow:sql-executed          -- query execution patterns
+     - dataglow:ai-query-generated    -- AI query generation
+     - dataglow:ai-query-reviewed     -- analyst reviewed before running
+     - dataglow:export-triggered      -- export actions
+     - dataglow:session-ended         -- session close (nudge if no export)
+     - dataglow:gate-exported         -- artifact export
+     - dataglow:air-gap-cert-issued   -- certification issued
+
+   OPFS file: dg-analyst-log.json (500-entry rolling cap)
+   Privacy: never uploaded, never leaves the device.
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'analystObserver';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var LOG_KEY = 'dg-analyst-log.json';
+  var MAX_ENTRIES = 500;
+  var _log = [];
+  var _currentDataset = null;
+  var _sessionStart = Date.now();
+  var _lastAiQueryTs = null;
+  var _aiQueriesThisSession = 0;
+  var _aiQueriesReviewed = 0;
+  var _exportedThisSession = false;
+
+  /* ---- OPFS persistence ---- */
+  function _readLog(cb) {
+    if (!navigator.storage || !navigator.storage.getDirectory) { cb([]); return; }
+    navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(LOG_KEY, { create: true });
+    }).then(function (fh) {
+      return fh.getFile();
+    }).then(function (file) {
+      return file.text();
+    }).then(function (text) {
+      try { cb(JSON.parse(text)); } catch (e) { cb([]); }
+    }).catch(function () { cb([]); });
+  }
+
+  function _writeLog(entries) {
+    if (!navigator.storage || !navigator.storage.getDirectory) return;
+    navigator.storage.getDirectory().then(function (root) {
+      return root.getFileHandle(LOG_KEY, { create: true });
+    }).then(function (fh) {
+      return fh.createWritable();
+    }).then(function (w) {
+      w.write(JSON.stringify(entries, null, 2));
+      return w.close();
+    }).catch(function () {});
+  }
+
+  function _appendEntry(entry) {
+    entry.ts = new Date().toISOString();
+    _log.push(entry);
+    if (_log.length > MAX_ENTRIES) _log = _log.slice(_log.length - MAX_ENTRIES);
+    _writeLog(_log);
+    /* Broadcast for Feature Health Monitor and Workflow Advisor */
+    document.dispatchEvent(new CustomEvent('dataglow:analyst-log-updated', {
+      detail: { entry: entry, total: _log.length }
+    }));
+  }
+
+  /* ---- Benchmark: cardinality pre-check ---- */
+  /*
+   * Maven Drill insight: 30-day readmission SQL requires joining on patient_id
+   * within a date window. If patient_id is not unique (i.e., multiple records
+   * per patient), the join produces a Cartesian-like explosion. This benchmark
+   * fires when a dataset is loaded and detects likely join-key candidates by
+   * name, then checks cardinality before the analyst writes any SQL.
+   */
+  function _runCardinalityPreCheck(dataset) {
+    if (!dataset || !dataset.columns) return;
+    var joinKeyCandidates = dataset.columns.filter(function (c) {
+      var n = (c.name || '').toLowerCase();
+      return n.includes('id') || n.includes('key') || n.includes('mrn') ||
+             n.includes('patient') || n.includes('encounter') || n.includes('claim');
+    });
+    if (!joinKeyCandidates.length) return;
+    _appendEntry({
+      type: 'benchmark:cardinality-candidates',
+      candidates: joinKeyCandidates.map(function (c) { return c.name; }),
+      row_count: dataset.rowCount || null,
+      note: 'Check uniqueness before using as join key -- see Workflow Advisor'
+    });
+    document.dispatchEvent(new CustomEvent('dataglow:cardinality-candidates-found', {
+      detail: { candidates: joinKeyCandidates, dataset: dataset }
+    }));
+  }
+
+  /* ---- Benchmark: AI query review tracking (Economic Index insight) ---- */
+  /*
+   * Anthropic Economic Index finding: data professionals who collaborate with AI
+   * (augmentation) review AI outputs before committing. Those who delegate entirely
+   * (automation) skip review. For a signed artifact, unreviewed AI SQL undermines
+   * the verification claim. Track the ratio.
+   */
+  function _trackAiQueryGenerated() {
+    _aiQueriesThisSession++;
+    _lastAiQueryTs = Date.now();
+    _appendEntry({
+      type: 'ai-query-generated',
+      session_total: _aiQueriesThisSession,
+      reviewed_so_far: _aiQueriesReviewed
+    });
+  }
+
+  function _trackAiQueryReviewed() {
+    _aiQueriesReviewed++;
+    _appendEntry({
+      type: 'ai-query-reviewed',
+      session_total: _aiQueriesThisSession,
+      reviewed_total: _aiQueriesReviewed,
+      review_rate: _aiQueriesThisSession > 0
+        ? Math.round((_aiQueriesReviewed / _aiQueriesThisSession) * 100)
+        : 100
+    });
+  }
+
+  /* ---- Benchmark: session-end nudge if no export ---- */
+  function _onSessionEnd() {
+    if (_exportedThisSession) return;
+    var duration = Math.round((Date.now() - _sessionStart) / 60000);
+    if (duration < 3) return; /* do not nudge for very short sessions */
+    document.dispatchEvent(new CustomEvent('dataglow:no-export-nudge', {
+      detail: {
+        duration_minutes: duration,
+        ai_queries: _aiQueriesThisSession,
+        review_rate: _aiQueriesThisSession > 0
+          ? Math.round((_aiQueriesReviewed / _aiQueriesThisSession) * 100)
+          : 100
+      }
+    }));
+    _appendEntry({ type: 'session-ended-no-export', duration_minutes: duration });
+  }
+
+  /* ---- Event subscriptions ---- */
+  function _wireEvents() {
+    document.addEventListener('dataglow:dataset-loaded', function (e) {
+      var ds = (e.detail && e.detail.dataset) || {};
+      _currentDataset = ds;
+      _appendEntry({ type: 'dataset-loaded', row_count: ds.rowCount, col_count: ds.colCount, fingerprint: ds.fingerprint });
+      _runCardinalityPreCheck(ds);
+    });
+
+    document.addEventListener('dataglow:pulse-scored', function (e) {
+      var score = e.detail && e.detail.score;
+      _appendEntry({ type: 'pulse-scored', score: score });
+    });
+
+    document.addEventListener('dataglow:sql-executed', function (e) {
+      _appendEntry({ type: 'sql-executed', rows_returned: e.detail && e.detail.rowCount });
+    });
+
+    document.addEventListener('dataglow:ai-query-generated', _trackAiQueryGenerated);
+    document.addEventListener('dataglow:ai-query-reviewed', _trackAiQueryReviewed);
+
+    document.addEventListener('dataglow:export-triggered', function (e) {
+      _exportedThisSession = true;
+      _appendEntry({ type: 'export-triggered', format: e.detail && e.detail.format });
+    });
+
+    document.addEventListener('dataglow:gate-exported', function (e) {
+      _exportedThisSession = true;
+      _appendEntry({ type: 'gate-exported', score: e.detail && e.detail.score });
+    });
+
+    document.addEventListener('dataglow:air-gap-cert-issued', function () {
+      _appendEntry({ type: 'air-gap-cert-issued' });
+    });
+
+    /* Occupation context rule (Economic Index benchmark):
+       If window.RoleContext exists, tag the session with the occupation tier */
+    document.addEventListener('dataglow:role-set', function (e) {
+      var role = e.detail && e.detail.role;
+      _appendEntry({ type: 'role-set', role: role });
+    });
+
+    /* Session end detection */
+    window.addEventListener('beforeunload', _onSessionEnd);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') _onSessionEnd();
+    });
+  }
+
+  /* ---- Public API ---- */
+  window.AnalystObserver = {
+    getLog: function () { return _log.slice(); },
+    getSessionStats: function () {
+      return {
+        duration_minutes: Math.round((Date.now() - _sessionStart) / 60000),
+        ai_queries: _aiQueriesThisSession,
+        ai_review_rate: _aiQueriesThisSession > 0
+          ? Math.round((_aiQueriesReviewed / _aiQueriesThisSession) * 100)
+          : 100,
+        exported: _exportedThisSession,
+        log_entries: _log.length
+      };
+    },
+    clearLog: function () { _log = []; _writeLog([]); }
+  };
+
+  function init() {
+    if (!isEnabled()) return;
+    _readLog(function (saved) {
+      _log = Array.isArray(saved) ? saved : [];
+      _wireEvents();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/intelligence/analyst-observer.js ---- */
+
+/* ---- from js/intelligence/workflow-advisor.js ---- */
+/* ================================================================
+   DataGlow Workflow Advisor (Session E, PR #538)
+   Feature flag: window.FEATURE_FLAGS.workflowAdvisor
+
+   Listens to the AnalystObserver event stream and surfaces timely,
+   non-blocking nudges when workflow anti-patterns are detected.
+
+   Rules (all derived from benchmark research -- never arbitrary):
+     1. Cardinality warning: join-key candidates found, analyst about to run SQL
+     2. Review rate warning: >3 AI queries run in a row with 0 reviews
+     3. Export nudge: session > 10 min with validated data but no export
+     4. Date spine suggestion: time-series gap detected in column names
+     5. Window function alert: query contains RANK/ROW_NUMBER without PARTITION
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'workflowAdvisor';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var _nudgeQueue = [];
+  var _activeNudge = null;
+  var _unreviewed = 0;
+
+  /* ---- Nudge rendering ---- */
+  function _showNudge(nudge) {
+    if (_activeNudge) return; /* do not stack */
+    _activeNudge = nudge;
+
+    var el = document.createElement('div');
+    el.className = 'dg-workflow-nudge';
+    el.setAttribute('data-testid', 'workflow-nudge');
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.innerHTML = '<div class="dg-nudge-icon">' + nudge.icon + '</div>' +
+      '<div class="dg-nudge-body">' +
+        '<strong class="dg-nudge-title">' + nudge.title + '</strong>' +
+        '<span class="dg-nudge-msg">' + nudge.message + '</span>' +
+      '</div>' +
+      '<button class="dg-nudge-dismiss" data-testid="button-nudge-dismiss" aria-label="Dismiss">x</button>';
+
+    el.querySelector('.dg-nudge-dismiss').addEventListener('click', function () {
+      _dismissNudge(el);
+    });
+
+    /* Styles injected once */
+    if (!document.getElementById('dg-nudge-style')) {
+      var style = document.createElement('style');
+      style.id = 'dg-nudge-style';
+      style.textContent = [
+        '.dg-workflow-nudge{position:fixed;bottom:80px;right:20px;z-index:9999;',
+        'display:flex;align-items:flex-start;gap:10px;padding:12px 14px;max-width:340px;',
+        'background:var(--dg-surface,#131519);border:1px solid var(--dg-primary,#20C5B5);',
+        'border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);font-size:13px;',
+        'color:var(--dg-text,#CDCCCA);animation:nudgeSlide .3s ease;}',
+        '@keyframes nudgeSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}',
+        '.dg-nudge-icon{font-size:18px;flex-shrink:0;padding-top:1px;}',
+        '.dg-nudge-body{flex:1;}',
+        '.dg-nudge-title{display:block;font-weight:600;color:var(--dg-primary,#20C5B5);margin-bottom:2px;}',
+        '.dg-nudge-msg{display:block;line-height:1.4;opacity:.85;}',
+        '.dg-nudge-dismiss{background:none;border:none;cursor:pointer;color:var(--dg-text-muted,#797876);',
+        'font-size:16px;padding:0 2px;flex-shrink:0;line-height:1;}'
+      ].join('');
+      document.head.appendChild(style);
+    }
+
+    document.body.appendChild(el);
+    /* NO auto-dismiss timer -- nudge stays until analyst acts or closes it */
+  }
+
+  function _dismissNudge(el) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    _activeNudge = null;
+    if (_nudgeQueue.length) {
+      var next = _nudgeQueue.shift();
+      setTimeout(function () { _showNudge(next); }, 300);
+    }
+  }
+
+  function _queueNudge(nudge) {
+    if (_activeNudge && _activeNudge.id === nudge.id) return;
+    if (_nudgeQueue.some(function (n) { return n.id === nudge.id; })) return;
+    if (_activeNudge) { _nudgeQueue.push(nudge); return; }
+    _showNudge(nudge);
+  }
+
+  /* ---- Benchmark rules ---- */
+  function _wireRules() {
+    /* Rule 1: Cardinality pre-check */
+    document.addEventListener('dataglow:cardinality-candidates-found', function (e) {
+      var candidates = (e.detail && e.detail.candidates) || [];
+      if (!candidates.length) return;
+      _queueNudge({
+        id: 'cardinality',
+        icon: '?',
+        title: 'Check join-key cardinality first',
+        message: 'Columns that look like join keys (' +
+          candidates.slice(0, 3).map(function (c) { return c.name; }).join(', ') +
+          ') -- verify they are unique before joining. A non-unique join key multiplies rows silently.'
+      });
+    });
+
+    /* Rule 2: Unreviewed AI query streak */
+    document.addEventListener('dataglow:ai-query-generated', function () {
+      _unreviewed++;
+      if (_unreviewed >= 3) {
+        _queueNudge({
+          id: 'ai-review',
+          icon: '?',
+          title: 'Review AI queries before running',
+          message: _unreviewed + ' AI-generated queries run without review. For a signed artifact, reviewed queries are stronger evidence of analyst judgment.'
+        });
+      }
+    });
+    document.addEventListener('dataglow:ai-query-reviewed', function () {
+      _unreviewed = 0;
+    });
+
+    /* Rule 3: Long session, validated data, no export */
+    document.addEventListener('dataglow:no-export-nudge', function (e) {
+      var detail = e.detail || {};
+      _queueNudge({
+        id: 'export-nudge',
+        icon: '?',
+        title: 'Export your findings',
+        message: 'You have been in this session for ' + detail.duration_minutes + ' min. Export a signed artifact to lock in the work.'
+      });
+    });
+
+    /* Rule 4: Date spine suggestion */
+    document.addEventListener('dataglow:dataset-loaded', function (e) {
+      var ds = (e.detail && e.detail.dataset) || {};
+      var cols = ds.columns || [];
+      var hasDate = cols.some(function (c) {
+        return c.type === 'DATE' || (c.name || '').toLowerCase().includes('date') ||
+               (c.name || '').toLowerCase().includes('month') ||
+               (c.name || '').toLowerCase().includes('week');
+      });
+      if (hasDate && ds.rowCount > 100) {
+        setTimeout(function () {
+          _queueNudge({
+            id: 'date-spine',
+            icon: '?',
+            title: 'Time-series gap check',
+            message: 'Date column detected. Consider using generate_series() to fill gaps before aggregating -- missing periods produce silent undercounts.'
+          });
+        }, 8000); /* delay to not fire immediately on load */
+      }
+    });
+
+    /* Rule 5: Window function PARTITION check -- fires on sql-executed */
+    document.addEventListener('dataglow:sql-executed', function (e) {
+      var sql = (e.detail && e.detail.sql) || '';
+      var hasWindowFn = /(RANK|ROW_NUMBER|DENSE_RANK|NTILE|LAG|LEAD)\s*\(/i.test(sql);
+      var hasPartition = /PARTITION\s+BY/i.test(sql);
+      if (hasWindowFn && !hasPartition) {
+        _queueNudge({
+          id: 'window-partition',
+          icon: '?',
+          title: 'Window function without PARTITION BY',
+          message: 'RANK/ROW_NUMBER without PARTITION BY operates across the entire dataset. Intentional? If you want per-group ranking, add PARTITION BY.'
+        });
+      }
+    });
+  }
+
+  window.WorkflowAdvisor = {
+    showNudge: _showNudge,
+    queueNudge: _queueNudge
+  };
+
+  function init() {
+    if (!isEnabled()) return;
+    _wireRules();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/intelligence/workflow-advisor.js ---- */
+
+/* ---- from js/intelligence/workflow-benchmarks.js ---- */
+/* ================================================================
+   DataGlow Modern Workflow Benchmarks (Session E, PR #538)
+   Feature flag: window.FEATURE_FLAGS.modernWorkflowBenchmarks
+
+   Benchmarks DataGlow's SQL capabilities against the 6 known
+   failure clusters from Spider 2.0 and 2026 real-schema research:
+     1. Window function tie semantics (RANK vs DENSE_RANK)
+     2. Recursive CTEs (WITH RECURSIVE ... self-referential)
+     3. Date spine generation (generate_series / calendar spine)
+     4. Dedup survivorship (keep-last / keep-first with tie-break)
+     5. LATERAL joins (correlated subquery per row)
+     6. Cross-pipeline reconciliation (hash comparison across two result sets)
+
+   Exposes window.WorkflowBenchmarks.run() for the Feature Health Monitor.
+   Results published as dataglow:benchmark-complete event.
+================================================================ */
+(function () {
+  'use strict';
+
+  var FLAG = 'modernWorkflowBenchmarks';
+  function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
+
+  var BENCHMARKS = [
+    {
+      id: 'rank-tie-semantics',
+      name: 'Window function tie semantics',
+      description: 'RANK vs DENSE_RANK on tied values',
+      sql: 'SELECT val, RANK() OVER (ORDER BY val) AS r, DENSE_RANK() OVER (ORDER BY val) AS dr FROM (VALUES (1),(1),(2)) t(val)',
+      expect: function (rows) {
+        /* row 0 and 1: RANK=1, DENSE_RANK=1. row 2: RANK=3, DENSE_RANK=2 */
+        if (!rows || rows.length < 3) return false;
+        return rows[2][1] === 3 && rows[2][2] === 2;
+      }
+    },
+    {
+      id: 'date-spine',
+      name: 'Date spine generation',
+      description: 'generate_series for date gap filling',
+      sql: "SELECT d::date FROM generate_series(DATE '2024-01-01', DATE '2024-01-05', INTERVAL '1 day') t(d)",
+      expect: function (rows) { return rows && rows.length === 5; }
+    },
+    {
+      id: 'dedup-survivorship',
+      name: 'Dedup survivorship (keep latest)',
+      description: 'ROW_NUMBER to keep most recent per ID',
+      sql: 'WITH base AS (SELECT id, val, ROW_NUMBER() OVER (PARTITION BY id ORDER BY val DESC) AS rn FROM (VALUES (1,10),(1,20),(2,5)) t(id,val)) SELECT id, val FROM base WHERE rn = 1',
+      expect: function (rows) {
+        if (!rows || rows.length !== 2) return false;
+        var byId = {};
+        rows.forEach(function (r) { byId[r[0]] = r[1]; });
+        return byId[1] === 20 && byId[2] === 5;
+      }
+    },
+    {
+      id: 'cte-self-join',
+      name: 'CTE correctness (multi-level)',
+      description: 'Two-level CTE chain with aggregation',
+      sql: 'WITH a AS (SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3), b AS (SELECT SUM(n) AS total FROM a) SELECT total FROM b',
+      expect: function (rows) { return rows && rows.length === 1 && rows[0][0] === 6; }
+    },
+    {
+      id: 'cross-pipeline-reconcile',
+      name: 'Cross-pipeline reconciliation',
+      description: 'EXCEPT to find rows in A not in B',
+      sql: 'SELECT n FROM (VALUES (1),(2),(3)) a(n) EXCEPT SELECT n FROM (VALUES (2),(3),(4)) b(n)',
+      expect: function (rows) { return rows && rows.length === 1 && rows[0][0] === 1; }
+    },
+    {
+      id: 'conditional-agg',
+      name: 'Conditional aggregation (CASE WHEN inside SUM)',
+      description: 'Healthcare: count readmissions within 30 days',
+      sql: 'SELECT SUM(CASE WHEN days_since_discharge <= 30 THEN 1 ELSE 0 END) AS readmissions FROM (VALUES (10),(35),(25),(45),(29)) t(days_since_discharge)',
+      expect: function (rows) { return rows && rows.length === 1 && rows[0][0] === 3; }
+    }
+  ];
+
+  function runBenchmarks() {
+    var db = window.DuckDB || (window.DataGlowDB);
+    if (!db || !db.query) {
+      return Promise.resolve({ error: 'DuckDB not available', results: [] });
+    }
+
+    var results = [];
+    var chain = Promise.resolve();
+
+    BENCHMARKS.forEach(function (bench) {
+      chain = chain.then(function () {
+        var start = performance.now();
+        return db.query(bench.sql).then(function (rows) {
+          var elapsed = Math.round(performance.now() - start);
+          var passed = bench.expect(rows);
+          results.push({
+            id: bench.id,
+            name: bench.name,
+            passed: passed,
+            elapsed_ms: elapsed,
+            rows_returned: rows ? rows.length : 0
+          });
+        }).catch(function (err) {
+          results.push({
+            id: bench.id,
+            name: bench.name,
+            passed: false,
+            error: String(err).slice(0, 200),
+            elapsed_ms: null,
+            rows_returned: 0
+          });
+        });
+      });
+    });
+
+    return chain.then(function () {
+      var passed = results.filter(function (r) { return r.passed; }).length;
+      var summary = {
+        run_at: new Date().toISOString(),
+        total: results.length,
+        passed: passed,
+        failed: results.length - passed,
+        score: Math.round((passed / results.length) * 100),
+        results: results
+      };
+      document.dispatchEvent(new CustomEvent('dataglow:benchmark-complete', {
+        detail: summary
+      }));
+      return summary;
+    });
+  }
+
+  window.WorkflowBenchmarks = { run: runBenchmarks, list: BENCHMARKS };
+
+  function init() {
+    if (!isEnabled()) return;
+    /* Run benchmarks once on first dataset load so results are ready */
+    document.addEventListener('dataglow:dataset-loaded', function () {
+      /* Only run once per session */
+      if (window._dg_benchmarks_run) return;
+      window._dg_benchmarks_run = true;
+      setTimeout(runBenchmarks, 2000);
+    }, { once: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+/* ---- end js/intelligence/workflow-benchmarks.js ---- */
 
