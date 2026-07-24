@@ -84,7 +84,7 @@
   }
 
   /**
-   * One scan path — Safe Harbor screen + prompt-guard column/value patterns.
+   * One scan path  -  Safe Harbor screen + prompt-guard column/value patterns.
    * Always on-device. Never uploads.
    */
   function scanDataset(ds) {
@@ -411,7 +411,7 @@
     btn.id = BTN_ID;
     btn.type = 'button';
     btn.setAttribute('aria-label', 'Open PHI Shield');
-    btn.title = 'PHI Shield — on-device privacy screen';
+    btn.title = 'PHI Shield  -  on-device privacy screen';
     btn.innerHTML = '<span class="dg-phi-dot" aria-hidden="true"></span><span data-phi-label>PHI</span>';
     btn.addEventListener('click', function () {
       var panel = document.getElementById(PANEL_ID);
