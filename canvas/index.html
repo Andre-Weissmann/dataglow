@@ -28223,6 +28223,10 @@ var InstantInsight = (function () {
 
     async function loadWebR() {
       if (_webR || _webRLoading) return;
+      /* R Notebooks-lite owns the R tab when its host is mounted, and it runs
+         its own shared WebR kernel. Booting a second runtime here would download
+         and hold a whole extra R in wasm memory for a console nobody can see. */
+      if (document.getElementById('r-notebook-host')) return;
       _webRLoading = true;
       setRProgress(10, 'Loading WebR runtime (~5 MB)...');
       try {
@@ -108867,6 +108871,1207 @@ function calmCopy() {
   }
 })();
 /* ---- end js/intelligence/data-glow-mobile-phi-firstrun-canvas.js ---- */
+
+
+/* ---- from js/intelligence/r-notebook-lite.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - R Notebooks-lite (pure engine, any industry)
+// ============================================================
+// A tiny notebook model for the on-device R (WebR) surface: an ordered
+// list of code and markdown cells that share one R session. Pure state,
+// serialization, starter snippets and R prelude text only. No DOM, no
+// network, no WebR. The canvas wire owns execution and rendering.
+//
+// Data model contract:
+//   Notebook: { id, version:1, title, createdAt, updatedAt, cells: Cell[] }
+//   Cell:     { id, type:'code'|'markdown', source, output?, status?, images?, collapsed? }
+//   output:   { stdout, error, images, notices, elapsedMs, status } (set by the wire)
+//
+// Any industry by design: starter snippets cover general, stats, finance
+// and healthcare shapes. Nothing here assumes pharma, PHI or a schema.
+
+const R_NOTEBOOK_LITE_VERSION = 1;
+
+// WebR builds a whole data.frame in wasm memory, so the bridge reads at most
+// this many rows per table. Matches js/runtimes-viz/r-runtime.js.
+const R_ROW_LIMIT = 200000;
+
+const R_NOTEBOOK_FILE_EXT = '.dgrnb';
+
+var _seq = 0;
+
+function newId(prefix) {
+  _seq += 1;
+  var rand = Math.random().toString(36).slice(2, 8);
+  return (prefix || 'cell') + '-' + _seq + '-' + rand;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+// ---- cells -----------------------------------------------------------------
+
+function createCell(spec) {
+  spec = spec || {};
+  var type = spec.type === 'markdown' ? 'markdown' : 'code';
+  return {
+    id: newId(type === 'markdown' ? 'md' : 'code'),
+    type: type,
+    source: typeof spec.source === 'string' ? spec.source : '',
+    output: null,
+    status: 'idle',
+    images: [],
+    collapsed: false
+  };
+}
+
+function canRunCell(cell) {
+  if (!cell || cell.type !== 'code') return false;
+  return typeof cell.source === 'string' && cell.source.trim().length > 0;
+}
+
+function normalizeCell(c) {
+  c = c || {};
+  var type = c.type === 'markdown' ? 'markdown' : 'code';
+  return {
+    id: typeof c.id === 'string' && c.id ? c.id : newId(type === 'markdown' ? 'md' : 'code'),
+    type: type,
+    source: typeof c.source === 'string' ? c.source : '',
+    output: c.output && typeof c.output === 'object' ? c.output : null,
+    status: typeof c.status === 'string' ? c.status : 'idle',
+    images: Array.isArray(c.images) ? c.images.slice() : [],
+    collapsed: !!c.collapsed
+  };
+}
+
+// ---- notebook --------------------------------------------------------------
+
+function defaultStarterCells() {
+  return [
+    createCell({
+      type: 'markdown',
+      source: '# R notebook\n' +
+        'On-device R for any industry. Stats, finance, research, ops, healthcare.\n\n' +
+        'Use `df` for the active dataset, or `dataglow_get_df("table")` for a named table. ' +
+        'Rows never leave this device.'
+    }),
+    createCell({
+      type: 'code',
+      source: 'df <- dataglow_get_df()\nstr(df)\nsummary(df)'
+    })
+  ];
+}
+
+function createNotebook(seed) {
+  var cells;
+  if (seed && Array.isArray(seed.cells)) {
+    cells = seed.cells.map(normalizeCell);
+  } else if (Array.isArray(seed)) {
+    cells = seed.map(normalizeCell);
+  } else {
+    cells = defaultStarterCells();
+  }
+  var created = (seed && typeof seed.createdAt === 'string' && seed.createdAt) || nowIso();
+  return {
+    id: (seed && typeof seed.id === 'string' && seed.id) || newId('rnb'),
+    version: R_NOTEBOOK_LITE_VERSION,
+    title: (seed && typeof seed.title === 'string' && seed.title) || 'R notebook',
+    createdAt: created,
+    updatedAt: (seed && typeof seed.updatedAt === 'string' && seed.updatedAt) || created,
+    cells: cells
+  };
+}
+
+function touch(nb) {
+  if (nb) nb.updatedAt = nowIso();
+  return nb;
+}
+
+function indexOfCell(nb, cellId) {
+  var cells = (nb && nb.cells) || [];
+  for (var i = 0; i < cells.length; i++) {
+    if (cells[i] && cells[i].id === cellId) return i;
+  }
+  return -1;
+}
+
+function addCell(nb, index, cell) {
+  if (!nb || !Array.isArray(nb.cells)) return nb;
+  var c = cell ? normalizeCell(cell) : createCell({ type: 'code', source: '' });
+  var at = typeof index === 'number' && index >= 0 && index <= nb.cells.length
+    ? index
+    : nb.cells.length;
+  nb.cells.splice(at, 0, c);
+  return touch(nb);
+}
+
+function removeCell(nb, cellId) {
+  if (!nb || !Array.isArray(nb.cells)) return nb;
+  var i = indexOfCell(nb, cellId);
+  if (i !== -1) nb.cells.splice(i, 1);
+  return touch(nb);
+}
+
+function updateCellSource(nb, cellId, source) {
+  if (!nb || !Array.isArray(nb.cells)) return nb;
+  var i = indexOfCell(nb, cellId);
+  if (i !== -1) nb.cells[i].source = typeof source === 'string' ? source : '';
+  return touch(nb);
+}
+
+function moveCell(nb, cellId, toIndex) {
+  if (!nb || !Array.isArray(nb.cells)) return nb;
+  var from = indexOfCell(nb, cellId);
+  if (from === -1 || typeof toIndex !== 'number') return nb;
+  var to = toIndex;
+  if (to < 0) to = 0;
+  if (to >= nb.cells.length) to = nb.cells.length - 1;
+  if (to === from) return nb;
+  var moved = nb.cells.splice(from, 1)[0];
+  nb.cells.splice(to, 0, moved);
+  return touch(nb);
+}
+
+function setCellOutput(nb, cellId, output) {
+  if (!nb || !Array.isArray(nb.cells)) return nb;
+  var i = indexOfCell(nb, cellId);
+  if (i === -1) return nb;
+  var out = output && typeof output === 'object' ? output : null;
+  nb.cells[i].output = out;
+  nb.cells[i].status = out && typeof out.status === 'string' ? out.status : 'idle';
+  nb.cells[i].images = out ? extractImageDataUrls(out.images) : [];
+  return touch(nb);
+}
+
+// ---- serialization ---------------------------------------------------------
+
+function serializeNotebook(nb) {
+  var safe = {
+    id: (nb && nb.id) || newId('rnb'),
+    version: R_NOTEBOOK_LITE_VERSION,
+    kind: 'dataglow-r-notebook',
+    title: (nb && nb.title) || 'R notebook',
+    createdAt: (nb && nb.createdAt) || nowIso(),
+    updatedAt: (nb && nb.updatedAt) || nowIso(),
+    cells: ((nb && nb.cells) || []).map(function (c) {
+      return {
+        id: c.id,
+        type: c.type === 'markdown' ? 'markdown' : 'code',
+        source: typeof c.source === 'string' ? c.source : '',
+        collapsed: !!c.collapsed
+      };
+    })
+  };
+  return JSON.stringify(safe, null, 2);
+}
+
+function parseNotebook(json) {
+  if (typeof json !== 'string' || json.trim() === '') {
+    return { ok: false, error: 'Empty notebook file.' };
+  }
+  var raw;
+  try {
+    raw = JSON.parse(json);
+  } catch (e) {
+    return { ok: false, error: 'Not valid notebook JSON.' };
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'Notebook root must be an object.' };
+  }
+  if (!Array.isArray(raw.cells)) {
+    return { ok: false, error: 'Notebook is missing a cells list.' };
+  }
+  return { ok: true, notebook: createNotebook(raw) };
+}
+
+// ---- R bridge text ---------------------------------------------------------
+
+// Honest one-line notice when a table was read past the row limit. Pure, so
+// the UI and the tests agree on the wording.
+function buildRowCapNotice(totalRows, limit) {
+  var cap = typeof limit === 'number' && limit > 0 ? limit : R_ROW_LIMIT;
+  if (typeof totalRows !== 'number' || totalRows <= cap) return null;
+  return 'R is reading ' + cap.toLocaleString() + ' of ' + totalRows.toLocaleString() +
+    ' rows. Filter or aggregate in SQL first for a full-dataset answer.';
+}
+
+// One-line notices for the optional packages that may or may not install in a
+// given WebR session. Mirrors js/runtimes-viz/r-runtime.js so both paths are
+// honest in the same words.
+function buildRBridgeNotices(opts) {
+  opts = opts || {};
+  var notices = [];
+  if (opts.hasJsonlite === false) {
+    notices.push('Using a simplified data bridge (a package failed to install).');
+  }
+  if (opts.graphicsAvailable === false) {
+    notices.push('ggplot2 could not be installed. Base R plotting still works, but ggplot2 charts are unavailable.');
+  }
+  if (Array.isArray(opts.rowCapNotices)) {
+    opts.rowCapNotices.forEach(function (n) { if (n) notices.push(n); });
+  }
+  return notices;
+}
+
+// Keep only real PNG/SVG data URLs a run produced, so the UI renders exactly
+// the plots R made and nothing else.
+function extractImageDataUrls(images) {
+  if (!Array.isArray(images)) return [];
+  return images.filter(function (s) {
+    return typeof s === 'string' && s.indexOf('data:image/') === 0;
+  });
+}
+
+function rStringLiteral(s) {
+  return '"' + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+}
+
+// R source that defines the dataset bridge. The rows themselves are bound by
+// the runtime (one JSON string per table); this only builds the R side:
+// a comment listing the tables available and dataglow_get_df(name).
+function buildRBridgePrelude(datasetsMeta, opts) {
+  opts = opts || {};
+  var hasJsonlite = opts.hasJsonlite !== false;
+  var meta = Array.isArray(datasetsMeta) ? datasetsMeta : [];
+  var names = meta.map(function (d) { return (d && (d.table || d.name)) || ''; })
+    .filter(function (n) { return n; });
+
+  var header = ['# DATAGLOW bridge: your rows stay on this device.'];
+  if (names.length) {
+    header.push('# Tables available: ' + names.join(', '));
+    meta.forEach(function (d) {
+      var n = (d && (d.table || d.name)) || '';
+      if (!n) return;
+      var rows = d && typeof d.rows === 'number' ? d.rows : null;
+      var cols = d && Array.isArray(d.columns) ? d.columns.length : null;
+      header.push('#   ' + n + (rows === null ? '' : ' (' + rows + ' rows' +
+        (cols === null ? '' : ', ' + cols + ' cols') + ')'));
+    });
+  } else {
+    header.push('# No table is loaded yet. Load a file first, then re-run this cell.');
+  }
+  header.push('# Row limit per table: ' + R_ROW_LIMIT + '.');
+
+  var defaultName = names.length ? names[0] : '';
+  var getter = hasJsonlite
+    ? [
+      'library(jsonlite)',
+      '.dataglow_decode <- function(json_str) jsonlite::fromJSON(json_str)'
+    ].join('\n')
+    : [
+      '# Minimal base-R reader used only when jsonlite could not be installed.',
+      '# Handles the flat {"col": scalar, ...} row shape DATAGLOW emits.',
+      '.dataglow_decode <- function(json_str) {',
+      '  rows_raw <- regmatches(json_str, gregexpr("\\\\{[^{}]*\\\\}", json_str))[[1]]',
+      '  if (length(rows_raw) == 0) return(data.frame())',
+      '  parse_row <- function(r) {',
+      '    pairs <- regmatches(r, gregexpr(\'"[^"]*"\\\\s*:\\\\s*(null|true|false|-?[0-9.]+(?:[eE][-+]?[0-9]+)?|"(?:[^"\\\\\\\\]|\\\\\\\\.)*")\', r, perl = TRUE))[[1]]',
+      '    vals <- list()',
+      '    for (p in pairs) {',
+      '      kv <- regmatches(p, regexec(\'^"([^"]*)"\\\\s*:\\\\s*(.*)$\', p, perl = TRUE))[[1]]',
+      '      key <- kv[2]; raw <- kv[3]',
+      '      if (raw == "null") { v <- NA }',
+      '      else if (raw == "true") { v <- TRUE }',
+      '      else if (raw == "false") { v <- FALSE }',
+      '      else if (grepl(\'^".*"$\', raw)) { v <- substr(raw, 2, nchar(raw) - 1) }',
+      '      else { v <- suppressWarnings(as.numeric(raw)) }',
+      '      vals[[key]] <- v',
+      '    }',
+      '    vals',
+      '  }',
+      '  parsed <- lapply(rows_raw, parse_row)',
+      '  keys <- unique(unlist(lapply(parsed, names)))',
+      '  cols <- lapply(keys, function(k) sapply(parsed, function(r) if (is.null(r[[k]])) NA else r[[k]]))',
+      '  names(cols) <- keys',
+      '  as.data.frame(cols, stringsAsFactors = FALSE)',
+      '}'
+    ].join('\n');
+
+  var body = [
+    '.dataglow_default_table <- ' + rStringLiteral(defaultName),
+    'dataglow_get_df <- function(name = .dataglow_default_table) {',
+    '  if (is.null(name) || !nzchar(name)) stop("No table loaded. Load a file in DATAGLOW first.")',
+    '  var <- paste0(".dataglow_json_", name)',
+    '  if (!exists(var, envir = .GlobalEnv)) stop(paste0("Table \'", name, "\' not loaded."))',
+    '  .dataglow_decode(get(var, envir = .GlobalEnv))',
+    '}',
+    'dataglow_tables <- function() c(' + names.map(rStringLiteral).join(', ') + ')'
+  ].join('\n');
+
+  return header.join('\n') + '\n' + getter + '\n' + body + '\n';
+}
+
+// ---- starter snippets (any industry) ---------------------------------------
+
+var STARTERS = [
+  {
+    id: 'general-summary', industry: 'general', label: 'Summary',
+    code: '# Shape and per-column summary\ndf <- dataglow_get_df()\nstr(df)\nsummary(df)'
+  },
+  {
+    id: 'general-group-mean', industry: 'general', label: 'Group mean',
+    code: '# Mean of the first numeric column by the first text column\ndf <- dataglow_get_df()\nnum <- names(df)[sapply(df, is.numeric)][1]\ngrp <- names(df)[sapply(df, function(x) is.character(x) || is.factor(x))][1]\naggregate(df[[num]], by = list(group = df[[grp]]), FUN = mean, na.rm = TRUE)'
+  },
+  {
+    id: 'general-missing', industry: 'general', label: 'Missing values',
+    code: '# Missing value count per column\ndf <- dataglow_get_df()\nsort(colSums(is.na(df)), decreasing = TRUE)'
+  },
+  {
+    id: 'general-plot', industry: 'general', label: 'Simple plot',
+    code: '# Histogram of the first numeric column (base R graphics)\ndf <- dataglow_get_df()\nnum <- names(df)[sapply(df, is.numeric)][1]\nhist(df[[num]], main = paste("Distribution of", num), xlab = num, col = "steelblue")'
+  },
+  {
+    id: 'stats-ttest', industry: 'stats', label: 't-test',
+    code: '# Two-sample t-test skeleton: replace value_col and group_col\ndf <- dataglow_get_df()\n# t.test(df$value_col ~ df$group_col)\nnum <- names(df)[sapply(df, is.numeric)][1]\ngrp <- names(df)[sapply(df, function(x) is.character(x) || is.factor(x))][1]\nif (!is.na(num) && !is.na(grp) && length(unique(df[[grp]])) == 2) {\n  t.test(df[[num]] ~ df[[grp]])\n} else {\n  cat("Pick a numeric column and a two-level group column.\\n")\n}'
+  },
+  {
+    id: 'stats-lm', industry: 'stats', label: 'Linear model',
+    code: '# Linear model skeleton: replace y_col and x_col\ndf <- dataglow_get_df()\n# fit <- lm(y_col ~ x_col, data = df)\nnums <- names(df)[sapply(df, is.numeric)]\nif (length(nums) >= 2) {\n  fit <- lm(as.formula(paste(nums[1], "~", nums[2])), data = df)\n  summary(fit)\n} else {\n  cat("Needs at least two numeric columns.\\n")\n}'
+  },
+  {
+    id: 'stats-correlation', industry: 'stats', label: 'Correlation',
+    code: '# Correlation matrix across numeric columns\ndf <- dataglow_get_df()\nround(cor(df[sapply(df, is.numeric)], use = "complete.obs"), 3)'
+  },
+  {
+    id: 'finance-returns', industry: 'finance', label: 'Returns summary',
+    code: '# Period returns skeleton: replace price_col with your price column\ndf <- dataglow_get_df()\nprice <- names(df)[sapply(df, is.numeric)][1]\nprices <- df[[price]]\nreturns <- diff(prices) / head(prices, -1)\ncat("Mean return:", round(mean(returns, na.rm = TRUE), 6), "\\n")\ncat("Std dev:", round(sd(returns, na.rm = TRUE), 6), "\\n")\nsummary(returns)'
+  },
+  {
+    id: 'finance-outliers', industry: 'finance', label: 'Outliers (IQR)',
+    code: '# IQR outlier count per numeric column\ndf <- dataglow_get_df()\nfor (nm in names(df)[sapply(df, is.numeric)]) {\n  q <- quantile(df[[nm]], c(0.25, 0.75), na.rm = TRUE)\n  iqr <- q[2] - q[1]\n  n <- sum(df[[nm]] < q[1] - 1.5 * iqr | df[[nm]] > q[2] + 1.5 * iqr, na.rm = TRUE)\n  cat(nm, ":", n, "outliers\\n")\n}'
+  },
+  {
+    id: 'healthcare-count-by-category', industry: 'healthcare', label: 'Count by category',
+    code: '# Counts by category: no assumption about what the categories mean\ndf <- dataglow_get_df()\ncat_col <- names(df)[sapply(df, function(x) is.character(x) || is.factor(x))][1]\nsort(table(df[[cat_col]]), decreasing = TRUE)'
+  },
+  {
+    id: 'healthcare-rate-by-group', industry: 'healthcare', label: 'Rate by group',
+    code: '# Rate of a flag column by group: replace flag_col and group_col\ndf <- dataglow_get_df()\ncats <- names(df)[sapply(df, function(x) is.character(x) || is.factor(x))]\nif (length(cats) >= 2) {\n  tbl <- table(df[[cats[1]]], df[[cats[2]]])\n  round(prop.table(tbl, margin = 1) * 100, 1)\n} else {\n  cat("Needs at least two categorical columns.\\n")\n}'
+  },
+  {
+    id: 'ops-throughput', industry: 'ops', label: 'Throughput',
+    code: '# Totals and percentiles for the first numeric column\ndf <- dataglow_get_df()\nnum <- names(df)[sapply(df, is.numeric)][1]\nv <- df[[num]]\ncat("Total:", sum(v, na.rm = TRUE), "\\n")\ncat("Mean:", round(mean(v, na.rm = TRUE), 3), "\\n")\ncat("P95:", round(quantile(v, 0.95, na.rm = TRUE), 3), "\\n")'
+  }
+];
+
+const R_STARTER_INDUSTRIES = ['general', 'stats', 'finance', 'healthcare', 'ops'];
+
+function suggestStarterSnippets(industry) {
+  if (!industry || industry === 'all') return STARTERS.slice();
+  var key = String(industry).toLowerCase();
+  var picked = STARTERS.filter(function (s) { return s.industry === key; });
+  if (!picked.length) return STARTERS.filter(function (s) { return s.industry === 'general'; });
+  return picked;
+}
+
+// ---- tiny markdown (escaped; bold + inline code + line breaks) -------------
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderMarkdown(source) {
+  var esc = escapeHtml(source);
+  esc = esc.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  esc = esc.replace(/`([^`]+)`/g, '<code>$1</code>');
+  esc = esc.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+  return esc;
+}
+
+
+  var DataGlowRNotebookLite = {
+    version: R_NOTEBOOK_LITE_VERSION,
+    rowLimit: R_ROW_LIMIT,
+    fileExt: R_NOTEBOOK_FILE_EXT,
+    industries: R_STARTER_INDUSTRIES,
+    createNotebook: createNotebook,
+    createCell: createCell,
+    addCell: addCell,
+    removeCell: removeCell,
+    updateCellSource: updateCellSource,
+    moveCell: moveCell,
+    setCellOutput: setCellOutput,
+    serializeNotebook: serializeNotebook,
+    parseNotebook: parseNotebook,
+    defaultStarterCells: defaultStarterCells,
+    canRunCell: canRunCell,
+    buildRBridgePrelude: buildRBridgePrelude,
+    buildRBridgeNotices: buildRBridgeNotices,
+    buildRowCapNotice: buildRowCapNotice,
+    extractImageDataUrls: extractImageDataUrls,
+    suggestStarterSnippets: suggestStarterSnippets,
+    escapeHtml: escapeHtml,
+    renderMarkdown: renderMarkdown
+  };
+  window.DataGlowRNotebookLite = DataGlowRNotebookLite;
+})();
+/* ---- end js/intelligence/r-notebook-lite.js ---- */
+
+/* ---- from js/intelligence/data-glow-r-notebook-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* R Notebooks-lite (any industry): upgrades the single-cell R console into a
+     multi-cell on-device WebR notebook when the rNotebooksLite flag is on.
+     One WebR kernel is shared by every cell (window.DataGlowR), so cell N sees
+     the objects earlier cells created. Flag off leaves the single R console
+     untouched, and the modular js/runtimes-viz/r-runtime.js path is not
+     involved at all. Rows never leave the device: only the WebR runtime itself
+     is fetched, from the official CDN. */
+
+  var HOST_ID = 'r-notebook-host';
+  var TOOLBAR_ID = 'r-notebook-toolbar';
+  var STYLE_ID = 'r-notebook-styles';
+  var WEBR_CDN = 'https://webr.r-wasm.org/v0.6.0/webr.mjs';
+  var ROW_LIMIT = 200000;
+
+  var _nb = null;
+  var _focusedCellId = null;
+  var _wired = false;
+  var _industry = 'all';
+
+  function engine() { return window.DataGlowRNotebookLite || null; }
+
+  function flagOn() {
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('rNotebooksLite') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[R Notebook]', msg);
+  }
+
+  function esc(s) {
+    var eng = engine();
+    if (eng && typeof eng.escapeHtml === 'function') return eng.escapeHtml(s);
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* ------------------------- shared WebR kernel --------------------------- */
+
+  var _webR = null;
+  var _initPromise = null;
+  var _hasJsonlite = null;
+  var _graphicsAvailable = null;
+  var _boundFingerprint = '';
+  var _rowCapNotices = [];
+  var _kernelStatus = 'idle';
+
+  function setKernelStatus(text) {
+    _kernelStatus = text;
+    var el = document.getElementById('r-nb-kernel-status');
+    if (el) el.textContent = text;
+    var legacy = document.getElementById('r-load-status');
+    if (legacy) legacy.textContent = text;
+  }
+
+  function activeDatasets() {
+    var out = [];
+    try {
+      if (typeof window.getAllDatasets === 'function') {
+        var all = window.getAllDatasets() || [];
+        all.forEach(function (d) { if (d && d.columns && d.rows) out.push(d); });
+      }
+      if (!out.length && typeof window.getActiveDataset === 'function') {
+        var ds = window.getActiveDataset();
+        if (ds && ds.columns && ds.rows) out.push(ds);
+      }
+    } catch (_e) {}
+    return out;
+  }
+
+  function tableNameFor(ds, index) {
+    var raw = ds && (ds.table || ds.name) ? String(ds.table || ds.name) : ('dataset_' + (index + 1));
+    var safe = raw.replace(/\.[A-Za-z0-9]+$/, '').replace(/[^A-Za-z0-9_]/g, '_');
+    if (!/^[A-Za-z]/.test(safe)) safe = 't_' + safe;
+    return safe;
+  }
+
+  /* Rows are arrays in the canvas dataset model; R reads them as an array of
+     flat objects, capped at ROW_LIMIT with a visible notice. */
+  function rowsAsObjects(ds) {
+    var cols = (ds.columns || []).map(function (c) { return c && c.name != null ? String(c.name) : ''; });
+    var rows = ds.rows || [];
+    var limited = rows.length > ROW_LIMIT ? rows.slice(0, ROW_LIMIT) : rows;
+    return limited.map(function (r) {
+      var o = {};
+      for (var i = 0; i < cols.length; i++) {
+        var v = Array.isArray(r) ? r[i] : (r ? r[cols[i]] : null);
+        o[cols[i]] = v === undefined || v === '' ? null : v;
+      }
+      return o;
+    });
+  }
+
+  function datasetMeta(list) {
+    return list.map(function (ds, i) {
+      return {
+        table: tableNameFor(ds, i),
+        rows: Math.min((ds.rows || []).length, ROW_LIMIT),
+        columns: (ds.columns || []).map(function (c) { return c && c.name; })
+      };
+    });
+  }
+
+  function fingerprint(list) {
+    return list.map(function (ds, i) {
+      return tableNameFor(ds, i) + ':' + (ds.rows || []).length + ':' + (ds.columns || []).length;
+    }).join('|');
+  }
+
+  function bindDatasets() {
+    var eng = engine();
+    var list = activeDatasets();
+    var fp = fingerprint(list);
+    if (fp === _boundFingerprint && fp !== '') return Promise.resolve();
+    _rowCapNotices = [];
+    var chain = Promise.resolve();
+    list.forEach(function (ds, i) {
+      var name = tableNameFor(ds, i);
+      var total = (ds.rows || []).length;
+      if (eng && typeof eng.buildRowCapNotice === 'function') {
+        var note = eng.buildRowCapNotice(total, ROW_LIMIT);
+        if (note) _rowCapNotices.push(name + ': ' + note);
+      }
+      chain = chain.then(function () {
+        return _webR.objs.globalEnv.bind('.dataglow_json_' + name, JSON.stringify(rowsAsObjects(ds)));
+      });
+    });
+    return chain.then(function () {
+      var prelude = eng && typeof eng.buildRBridgePrelude === 'function'
+        ? eng.buildRBridgePrelude(datasetMeta(list), { hasJsonlite: _hasJsonlite !== false })
+        : '';
+      var setup = prelude + '\ntry(df <- dataglow_get_df(), silent = TRUE)\n';
+      return _webR.evalRVoid(setup);
+    }).then(function () {
+      _boundFingerprint = fp;
+    });
+  }
+
+  function initKernel() {
+    if (_initPromise) return _initPromise;
+    _initPromise = (function () {
+      setKernelStatus('Downloading R runtime...');
+      return import(WEBR_CDN).then(function (mod) {
+        setKernelStatus('Starting R...');
+        var webR = new mod.WebR();
+        return webR.init().then(function () { return webR; });
+      }).then(function (webR) {
+        _webR = webR;
+        setKernelStatus('Installing packages...');
+        // jsonlite powers the dataset bridge; ggplot2 is a nicety. Both are
+        // best-effort: WebR ships base R only, and a failed install must
+        // degrade honestly rather than break the notebook.
+        return webR.installPackages(['jsonlite']).then(function () {
+          _hasJsonlite = true;
+        }).catch(function (e) {
+          console.warn('[R Notebook] jsonlite unavailable, using base-R bridge:', e);
+          _hasJsonlite = false;
+        }).then(function () {
+          return webR.installPackages(['ggplot2']).then(function () {
+            _graphicsAvailable = true;
+          }).catch(function (e) {
+            console.warn('[R Notebook] ggplot2 unavailable, base R plotting still works:', e);
+            _graphicsAvailable = false;
+          });
+        });
+      }).then(function () {
+        setKernelStatus('Loading your tables...');
+        return bindDatasets();
+      }).then(function () {
+        setKernelStatus('R ready');
+        return _webR;
+      }).catch(function (e) {
+        setKernelStatus('R runtime unavailable');
+        _initPromise = null;
+        throw e;
+      });
+    })();
+    return _initPromise;
+  }
+
+  function bitmapsToDataUrls(images) {
+    var urls = [];
+    (images || []).forEach(function (bmp) {
+      try {
+        var cv = document.createElement('canvas');
+        cv.width = bmp.width;
+        cv.height = bmp.height;
+        cv.getContext('2d').drawImage(bmp, 0, 0);
+        urls.push(cv.toDataURL('image/png'));
+        if (typeof bmp.close === 'function') bmp.close();
+      } catch (_e) { /* skip a bitmap we could not rasterize */ }
+    });
+    return urls;
+  }
+
+  function notices() {
+    var eng = engine();
+    if (!eng || typeof eng.buildRBridgeNotices !== 'function') return [];
+    return eng.buildRBridgeNotices({
+      hasJsonlite: _hasJsonlite,
+      graphicsAvailable: _graphicsAvailable,
+      rowCapNotices: _rowCapNotices
+    });
+  }
+
+  function runR(code) {
+    return initKernel().then(function () {
+      if (window.SecurityAdvisor) {
+        var scan = window.SecurityAdvisor.scan(code, 'r');
+        if (scan && scan.ok === false) {
+          (scan.blocked || []).forEach(function (f) {
+            toast('[' + f.id + '] BLOCKED: ' + f.message, 'error');
+          });
+          return {
+            status: 'blocked', stdout: '', error: 'Blocked by SecurityAdvisor - see Sentinel panel.',
+            images: [], notices: notices(), elapsedMs: 0
+          };
+        }
+        ((scan && scan.warned) || []).forEach(function (f) {
+          toast('[' + f.id + '] Warning: ' + f.message, 'warn');
+        });
+      }
+      return bindDatasets().then(function () {
+        var t0 = Date.now();
+        return new _webR.Shelter().then(function (shelter) {
+          return shelter.captureR(code, {
+            withAutoprint: true,
+            captureStreams: true,
+            captureConditions: true,
+            captureGraphics: true
+          }).then(function (result) {
+            var stdout = (result.output || [])
+              .filter(function (o) { return o.type === 'stdout' || o.type === 'stderr'; })
+              .map(function (o) { return o.data; })
+              .join('\n');
+            var images = bitmapsToDataUrls(result.images);
+            return shelter.purge().then(function () {
+              logProvenance(code, Date.now() - t0);
+              return {
+                status: 'ok', stdout: stdout, error: null, images: images,
+                notices: notices(), elapsedMs: Date.now() - t0
+              };
+            });
+          }).catch(function (err) {
+            return shelter.purge().catch(function () {}).then(function () {
+              return {
+                status: 'error', stdout: '', error: explainRError(err),
+                images: [], notices: notices(), elapsedMs: Date.now() - t0
+              };
+            });
+          });
+        });
+      });
+    }).catch(function (e) {
+      return {
+        status: 'error', stdout: '', error: explainRError(e),
+        images: [], notices: notices(), elapsedMs: 0
+      };
+    });
+  }
+
+  function explainRError(err) {
+    var msg = (err && err.message) || String(err);
+    if (/object .* not found/.test(msg)) {
+      return msg + '\nCheck the spelling matches your column names exactly.';
+    }
+    if (msg.indexOf('subscript out of bounds') !== -1) {
+      return msg + '\nYour table may have fewer columns than the code expects.';
+    }
+    return msg;
+  }
+
+  function logProvenance(code, elapsed) {
+    if (!window.ProvenanceFabric) return;
+    try {
+      window.ProvenanceFabric.append('r_exec', {
+        codeHash: window.ProvenanceFabric._fnv1a(code),
+        elapsed: elapsed,
+        via: 'notebook'
+      });
+    } catch (_e) {}
+  }
+
+  /* ------------------------------- styles --------------------------------- */
+
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var st = document.createElement('style');
+    st.id = STYLE_ID;
+    st.textContent = [
+      '#' + TOOLBAR_ID + '{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 10px}',
+      '#' + TOOLBAR_ID + ' .dg-rnb-btn{min-height:44px;padding:0 14px;border:1px solid var(--border,#2A2C31);border-radius:10px;background:var(--surface-alt,#1A1C20);color:var(--text,#E8E8E8);font-size:13px;font-weight:600;cursor:pointer}',
+      '#' + TOOLBAR_ID + ' .dg-rnb-btn.primary{background:var(--primary,#20C5B5);color:#04201C;border-color:transparent}',
+      '#' + TOOLBAR_ID + ' .dg-rnb-btn:hover{opacity:.9}',
+      '.dg-rnb-sub{font-size:12px;color:var(--text-muted,#8A8F98);margin:2px 0 8px}',
+      '.dg-rnb-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}',
+      '.dg-rnb-chip{font-size:12px;min-height:34px;padding:6px 11px;border-radius:999px;border:1px solid var(--border,#2A2C31);background:transparent;color:var(--text-muted,#B4B8C0);cursor:pointer}',
+      '.dg-rnb-chip.pack{font-weight:700;color:var(--text,#E8E8E8)}',
+      '.dg-rnb-chip.pack.on{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '.dg-rnb-chip:hover{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '#' + HOST_ID + '{overflow-y:auto;flex:1;min-height:0}',
+      '.dg-rnb-cell{border:1px solid var(--border,#2A2C31);border-radius:12px;margin:0 0 14px;background:var(--surface,#141518);overflow:hidden}',
+      '.dg-rnb-cell.focused{border-color:var(--primary,#20C5B5)}',
+      '.dg-rnb-head{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border,#22242A);font-size:11px;color:var(--text-muted,#8A8F98)}',
+      '.dg-rnb-head .grow{flex:1}',
+      '.dg-rnb-kind{font-weight:700;letter-spacing:.04em;text-transform:uppercase}',
+      '.dg-rnb-iconbtn{min-height:34px;min-width:34px;border:none;background:transparent;color:var(--text-muted,#8A8F98);font-size:15px;cursor:pointer;border-radius:8px}',
+      '.dg-rnb-iconbtn:hover{color:var(--text,#E8E8E8);background:var(--surface-alt,#1A1C20)}',
+      '.dg-rnb-src{width:100%;box-sizing:border-box;border:none;background:transparent;color:var(--text,#E8E8E8);font-family:var(--mono,"Geist Mono",monospace);font-size:13px;line-height:1.5;padding:10px 12px;resize:vertical;min-height:64px;outline:none}',
+      '.dg-rnb-actions{display:flex;align-items:center;gap:10px;padding:6px 10px;border-top:1px solid var(--border,#22242A);flex-wrap:wrap}',
+      '.dg-rnb-run{min-height:44px;min-width:96px;border:none;border-radius:10px;background:var(--primary,#20C5B5);color:#04201C;font-weight:800;font-size:13px;cursor:pointer}',
+      '.dg-rnb-run:hover{opacity:.9}',
+      '.dg-rnb-status{font-size:11px;color:var(--text-muted,#8A8F98)}',
+      '.dg-rnb-status.error{color:#DC2626}',
+      '.dg-rnb-status.ok{color:var(--proof,#4AE38A)}',
+      '.dg-rnb-out{margin:0;padding:10px 12px;font-family:var(--mono,"Geist Mono",monospace);font-size:12px;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary,#B4B8C0);border-top:1px solid var(--border,#22242A)}',
+      '.dg-rnb-out.error{color:#DC2626}',
+      '.dg-rnb-note{padding:6px 12px;font-size:11px;color:var(--warn,#E3A34A);border-top:1px solid var(--border,#22242A)}',
+      '.dg-rnb-plot{display:block;max-width:100%;border-top:1px solid var(--border,#22242A);background:#fff}',
+      '.dg-rnb-md{padding:12px 14px;font-size:14px;line-height:1.6;color:var(--text,#E8E8E8)}',
+      '.dg-rnb-md code{font-family:var(--mono,"Geist Mono",monospace);background:var(--surface-alt,#1A1C20);padding:1px 5px;border-radius:5px}',
+      '@media (max-width:640px){#' + TOOLBAR_ID + ' .dg-rnb-btn{flex:1 1 44%}.dg-rnb-run{width:100%}}'
+    ].join('\n');
+    document.head.appendChild(st);
+  }
+
+  /* ------------------------------- transform ------------------------------ */
+
+  function hide(el) { if (el) el.style.display = 'none'; }
+
+  function transformPanel() {
+    var pane = document.getElementById('r-view-inner');
+    if (!pane) return false;
+    if (document.getElementById(HOST_ID)) return true;
+
+    ensureStyles();
+
+    // Retitle the panel head, keep the WebR badge.
+    var head = pane.firstElementChild;
+    if (head) {
+      var titleEl = head.firstElementChild;
+      if (titleEl) titleEl.textContent = 'R notebook';
+    }
+
+    // Hide the single-cell console controls.
+    var rInput = document.getElementById('r-input');
+    var rRun = document.getElementById('r-run-btn');
+    hide(rInput);
+    hide(document.getElementById('r-output'));
+    hide(document.getElementById('r-suggestions-bar'));
+    if (rRun && rRun.parentElement) hide(rRun.parentElement);
+    var domainSel = document.getElementById('r-domain-filter');
+    if (domainSel && domainSel.parentElement) hide(domainSel.parentElement);
+
+    var sub = document.createElement('div');
+    sub.className = 'dg-rnb-sub';
+    sub.textContent = 'On-device R for any industry. Stats, finance, research, ops, healthcare. ' +
+      'Rows never leave this browser; only the R runtime is downloaded.';
+
+    var toolbar = document.createElement('div');
+    toolbar.id = TOOLBAR_ID;
+    toolbar.innerHTML =
+      '<button type="button" class="dg-rnb-btn" data-rnb="add-code">+ Code</button>' +
+      '<button type="button" class="dg-rnb-btn" data-rnb="add-text">+ Text</button>' +
+      '<button type="button" class="dg-rnb-btn primary" data-rnb="run-all">Run all</button>' +
+      '<button type="button" class="dg-rnb-btn" data-rnb="save">Save .dgrnb</button>' +
+      '<button type="button" class="dg-rnb-btn" data-rnb="load">Load</button>' +
+      '<span class="dg-rnb-status" id="r-nb-kernel-status" style="margin-left:auto">' +
+      esc(_kernelStatus === 'idle' ? 'R starts on first run' : _kernelStatus) + '</span>';
+
+    var chips = document.createElement('div');
+    chips.className = 'dg-rnb-chips';
+    chips.id = 'r-notebook-chips';
+
+    var host = document.createElement('div');
+    host.id = HOST_ID;
+
+    var file = document.createElement('input');
+    file.type = 'file';
+    file.accept = '.dgrnb,.json,application/json';
+    file.style.display = 'none';
+    file.id = 'r-notebook-file';
+    file.addEventListener('change', onFilePicked);
+
+    pane.appendChild(sub);
+    pane.appendChild(toolbar);
+    pane.appendChild(chips);
+    pane.appendChild(host);
+    pane.appendChild(file);
+
+    toolbar.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-rnb]');
+      if (!btn) return;
+      var act = btn.getAttribute('data-rnb');
+      if (act === 'add-code') addCellAndRender('code');
+      else if (act === 'add-text') addCellAndRender('markdown');
+      else if (act === 'run-all') runAll();
+      else if (act === 'save') saveNotebook();
+      else if (act === 'load') file.click();
+    });
+
+    renderChips();
+    return true;
+  }
+
+  /* Pack-style industry chips: pick a pack, then insert a starter snippet. */
+  function renderChips() {
+    var wrap = document.getElementById('r-notebook-chips');
+    var eng = engine();
+    if (!wrap || !eng) return;
+    wrap.innerHTML = '';
+    var packs = [
+      { id: 'general', label: 'General' },
+      { id: 'stats', label: 'Stats' },
+      { id: 'finance', label: 'Finance' },
+      { id: 'healthcare', label: 'Healthcare' }
+    ];
+    packs.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dg-rnb-chip pack' + (_industry === p.id ? ' on' : '');
+      b.textContent = p.label;
+      b.addEventListener('click', function () {
+        _industry = _industry === p.id ? 'all' : p.id;
+        renderChips();
+      });
+      wrap.appendChild(b);
+    });
+    eng.suggestStarterSnippets(_industry === 'all' ? 'general' : _industry).forEach(function (s) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dg-rnb-chip';
+      b.textContent = s.label;
+      b.addEventListener('click', function () { insertIntoFocused(s.code); });
+      wrap.appendChild(b);
+    });
+  }
+
+  /* ------------------------------- notebook ------------------------------- */
+
+  function ensureNotebook() {
+    var eng = engine();
+    if (!eng) return null;
+    if (!_nb) _nb = eng.createNotebook();
+    return _nb;
+  }
+
+  function focusedCell() {
+    if (!_nb) return null;
+    var byId = _focusedCellId && _nb.cells.filter(function (c) { return c.id === _focusedCellId; })[0];
+    if (byId) return byId;
+    for (var i = _nb.cells.length - 1; i >= 0; i--) {
+      if (_nb.cells[i].type === 'code') return _nb.cells[i];
+    }
+    return _nb.cells[_nb.cells.length - 1] || null;
+  }
+
+  function insertIntoFocused(code) {
+    var cell = focusedCell();
+    if (!cell || cell.type !== 'code') { addCellAndRender('code', code); return; }
+    engine().updateCellSource(_nb, cell.id, code);
+    renderCells();
+    var ta = document.querySelector('[data-rcell-src="' + cell.id + '"]');
+    if (ta) ta.focus();
+  }
+
+  function addCellAndRender(type, source) {
+    var eng = engine();
+    ensureNotebook();
+    var cell = eng.createCell({ type: type, source: source || '' });
+    var idx = -1;
+    var f = focusedCell();
+    if (f) {
+      for (var i = 0; i < _nb.cells.length; i++) { if (_nb.cells[i].id === f.id) { idx = i + 1; break; } }
+    }
+    eng.addCell(_nb, idx === -1 ? _nb.cells.length : idx, cell);
+    _focusedCellId = cell.id;
+    renderCells();
+    var ta = document.querySelector('[data-rcell-src="' + cell.id + '"]');
+    if (ta) ta.focus();
+  }
+
+  /* ------------------------------- rendering ------------------------------ */
+
+  function renderCells() {
+    var host = document.getElementById(HOST_ID);
+    if (!host || !_nb) return;
+    host.innerHTML = '';
+    _nb.cells.forEach(function (cell, index) {
+      host.appendChild(renderCell(cell, index));
+    });
+  }
+
+  function renderCell(cell, index) {
+    var wrap = document.createElement('div');
+    wrap.className = 'dg-rnb-cell' + (cell.id === _focusedCellId ? ' focused' : '');
+    wrap.setAttribute('data-rcell', cell.id);
+
+    var head = document.createElement('div');
+    head.className = 'dg-rnb-head';
+    head.innerHTML =
+      '<span class="dg-rnb-kind">' + (cell.type === 'markdown' ? 'Text' : 'R') + '</span>' +
+      '<span class="grow"></span>' +
+      '<button type="button" class="dg-rnb-iconbtn" data-rcell-up title="Move up">&#8593;</button>' +
+      '<button type="button" class="dg-rnb-iconbtn" data-rcell-down title="Move down">&#8595;</button>' +
+      '<button type="button" class="dg-rnb-iconbtn" data-rcell-del title="Delete cell">&times;</button>';
+    wrap.appendChild(head);
+
+    var ta = document.createElement('textarea');
+    ta.className = 'dg-rnb-src';
+    ta.value = cell.source || '';
+    ta.spellcheck = false;
+    ta.setAttribute('data-rcell-src', cell.id);
+    ta.setAttribute('rows', cell.type === 'markdown' ? '3' : '5');
+    ta.addEventListener('focus', function () {
+      _focusedCellId = cell.id;
+      var cur = document.querySelector('.dg-rnb-cell.focused');
+      if (cur) cur.classList.remove('focused');
+      wrap.classList.add('focused');
+    });
+    ta.addEventListener('input', function () {
+      engine().updateCellSource(_nb, cell.id, ta.value);
+      if (cell.type === 'markdown') {
+        var md = wrap.querySelector('[data-rcell-md]');
+        if (md) md.innerHTML = engine().renderMarkdown(ta.value);
+      }
+    });
+    ta.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (cell.type === 'code') runCell(cell.id);
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        var s = ta.selectionStart, en = ta.selectionEnd;
+        ta.value = ta.value.substring(0, s) + '  ' + ta.value.substring(en);
+        ta.selectionStart = ta.selectionEnd = s + 2;
+        engine().updateCellSource(_nb, cell.id, ta.value);
+      }
+    });
+    wrap.appendChild(ta);
+
+    if (cell.type === 'markdown') {
+      var md = document.createElement('div');
+      md.className = 'dg-rnb-md';
+      md.setAttribute('data-rcell-md', cell.id);
+      md.innerHTML = engine().renderMarkdown(cell.source || '');
+      wrap.appendChild(md);
+    } else {
+      var actions = document.createElement('div');
+      actions.className = 'dg-rnb-actions';
+      actions.innerHTML =
+        '<button type="button" class="dg-rnb-run" data-rcell-run="' + cell.id + '">&#9654; Run</button>' +
+        '<span class="dg-rnb-status" data-rcell-status="' + cell.id + '">Ctrl+Enter</span>';
+      wrap.appendChild(actions);
+
+      var outHost = document.createElement('div');
+      outHost.setAttribute('data-rcell-out', cell.id);
+      wrap.appendChild(outHost);
+      renderOutput(outHost, cell.output);
+    }
+
+    head.querySelector('[data-rcell-del]').addEventListener('click', function () {
+      engine().removeCell(_nb, cell.id);
+      if (_focusedCellId === cell.id) _focusedCellId = null;
+      renderCells();
+    });
+    head.querySelector('[data-rcell-up]').addEventListener('click', function () {
+      engine().moveCell(_nb, cell.id, index - 1);
+      renderCells();
+    });
+    head.querySelector('[data-rcell-down]').addEventListener('click', function () {
+      engine().moveCell(_nb, cell.id, index + 1);
+      renderCells();
+    });
+    var runBtn = wrap.querySelector('[data-rcell-run]');
+    if (runBtn) runBtn.addEventListener('click', function () { runCell(cell.id); });
+
+    return wrap;
+  }
+
+  function renderOutput(hostEl, output) {
+    if (!hostEl) return;
+    hostEl.innerHTML = '';
+    if (!output) return;
+    if (output.status === 'error' || output.status === 'blocked') {
+      var err = document.createElement('pre');
+      err.className = 'dg-rnb-out error';
+      err.textContent = output.error || 'Error';
+      hostEl.appendChild(err);
+    } else if (output.stdout && output.stdout.length) {
+      var pre = document.createElement('pre');
+      pre.className = 'dg-rnb-out';
+      pre.textContent = output.stdout;
+      hostEl.appendChild(pre);
+    }
+    var imgs = engine().extractImageDataUrls(output.images);
+    imgs.forEach(function (src) {
+      var img = document.createElement('img');
+      img.className = 'dg-rnb-plot';
+      img.alt = 'R plot';
+      img.src = src;
+      hostEl.appendChild(img);
+    });
+    (output.notices || []).forEach(function (n) {
+      var note = document.createElement('div');
+      note.className = 'dg-rnb-note';
+      note.textContent = n;
+      hostEl.appendChild(note);
+    });
+    if (output.status === 'ok' && !imgs.length && !(output.stdout && output.stdout.length)) {
+      var empty = document.createElement('pre');
+      empty.className = 'dg-rnb-out';
+      empty.textContent = '(No output)';
+      hostEl.appendChild(empty);
+    }
+  }
+
+  /* ------------------------------- execution ------------------------------ */
+
+  function setStatus(cellId, text, kind) {
+    var el = document.querySelector('[data-rcell-status="' + cellId + '"]');
+    if (!el) return;
+    el.className = 'dg-rnb-status' + (kind ? ' ' + kind : '');
+    el.textContent = text;
+  }
+
+  function runCell(cellId) {
+    var eng = engine();
+    if (!eng || !_nb) return Promise.resolve(null);
+    var cell = _nb.cells.filter(function (c) { return c.id === cellId; })[0];
+    if (!cell || cell.type !== 'code') return Promise.resolve(null);
+    if (!eng.canRunCell(cell)) { setStatus(cellId, 'Nothing to run', 'error'); return Promise.resolve(null); }
+    setStatus(cellId, 'Running...', null);
+    return runR(cell.source).then(function (result) {
+      result = result || { status: 'error', error: 'No result' };
+      eng.setCellOutput(_nb, cellId, result);
+      renderOutput(document.querySelector('[data-rcell-out="' + cellId + '"]'), result);
+      if (result.status === 'ok') setStatus(cellId, 'Done in ' + (result.elapsedMs || 0) + ' ms', 'ok');
+      else if (result.status === 'blocked') setStatus(cellId, 'Blocked by SecurityAdvisor', 'error');
+      else setStatus(cellId, 'Error', 'error');
+      return result;
+    });
+  }
+
+  function runAll() {
+    if (!_nb) return Promise.resolve();
+    var codeCells = _nb.cells.filter(function (c) { return c.type === 'code' && engine().canRunCell(c); });
+    var chain = Promise.resolve();
+    codeCells.forEach(function (c) {
+      chain = chain.then(function () { return runCell(c.id); });
+    });
+    return chain.then(function () {
+      toast('Ran ' + codeCells.length + ' R cell' + (codeCells.length === 1 ? '' : 's') + ' on this device');
+    });
+  }
+
+  /* ------------------------------- save / load ---------------------------- */
+
+  function saveNotebook() {
+    var eng = engine();
+    if (!eng || !_nb) return;
+    try {
+      var blob = new Blob([eng.serializeNotebook(_nb)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'notebook.dgrnb';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+      toast('R notebook saved to this device');
+    } catch (e) {
+      toast('Save failed', 'error');
+    }
+  }
+
+  function onFilePicked(e) {
+    var input = e.target;
+    var f = input.files && input.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed = engine().parseNotebook(String(reader.result || ''));
+      if (!parsed.ok) { toast('Could not load notebook: ' + parsed.error, 'error'); input.value = ''; return; }
+      _nb = parsed.notebook;
+      _focusedCellId = null;
+      renderCells();
+      toast('R notebook loaded on device');
+      input.value = '';
+    };
+    reader.onerror = function () { toast('Could not read file', 'error'); input.value = ''; };
+    reader.readAsText(f);
+  }
+
+  /* ------------------------------- boot ----------------------------------- */
+
+  function activate() {
+    if (!flagOn()) return;
+    if (!engine()) return;
+    if (!transformPanel()) return;
+    ensureNotebook();
+    if (!_wired) {
+      _wired = true;
+      renderCells();
+    }
+  }
+
+  function boot() {
+    if (!flagOn()) return;
+    activate();
+
+    var rNav = document.querySelector('[data-panel="r-view"]');
+    if (rNav) rNav.addEventListener('click', function () { setTimeout(activate, 60); });
+
+    // A new dataset means the R side must rebind before the next run.
+    document.addEventListener('dataglow:dataset-loaded', function () { _boundFingerprint = ''; });
+
+    window.DataGlowR = {
+      version: 1,
+      rowLimit: ROW_LIMIT,
+      init: initKernel,
+      run: runR,
+      status: function () { return _kernelStatus; }
+    };
+
+    window.DataGlowRNotebook = {
+      version: 1,
+      getNotebook: function () { return _nb; },
+      setNotebook: function (nb) {
+        var eng = engine();
+        if (!eng) return;
+        _nb = nb && nb.cells ? eng.createNotebook(nb) : eng.createNotebook();
+        _focusedCellId = null;
+        renderCells();
+      },
+      runCell: runCell,
+      runAll: runAll,
+      setIndustry: function (id) { _industry = id || 'all'; renderChips(); }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 800); });
+  } else {
+    setTimeout(boot, 800);
+  }
+})();
+/* ---- end js/intelligence/data-glow-r-notebook-canvas.js ---- */
 
 
 window.addEventListener('appinstalled', function() {

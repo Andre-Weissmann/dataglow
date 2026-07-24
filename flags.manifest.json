@@ -594,6 +594,11 @@
       "enabled": true,
       "addedInPR": "feat/mobile-phi-firstrun-calm-v1",
       "description": "Mobile-safe PHI chip + first-run calm strip: short on-device privacy labels, 44px touch targets, safe-area aware chip, quiet first-visit strip (no auto-dismiss). Web+desktop+PWA."
+    },
+    "rNotebooksLite": {
+      "enabled": true,
+      "addedInPR": "feat/r-notebooks-lite-any-industry-v1",
+      "description": "R notebooks-lite any-industry: multi-cell on-device WebR notebook (code+markdown), DuckDB table bridge, ggplot2 best-effort, .dgrnb save/load. Stats/finance/bio/ops/healthcare-ready, not pharma-only. Web+desktop+PWA."
     }
   }
 }

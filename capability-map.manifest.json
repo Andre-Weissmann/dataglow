@@ -4525,6 +4525,22 @@
       "notes": "Multi-cell local Pyodide notebook UX over existing Python tab. Zero-upload."
     },
     {
+      "id": "r-notebooks-lite",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Multi-runtime",
+      "name": "R Notebooks-lite (any industry)",
+      "files": [
+        "js/intelligence/r-notebook-lite.js",
+        "js/intelligence/data-glow-r-notebook-canvas.js",
+        "test/r-notebook-lite.test.mjs"
+      ],
+      "notes": "Multi-cell local WebR notebook UX over the existing R tab: shared kernel, DuckDB table bridge capped at 200000 rows, base R / ggplot2 plot capture, .dgrnb save/load, any-industry starter packs. Zero-upload."
+    },
+    {
       "id": "guided-unpivot",
       "platforms": [
         "browser",
