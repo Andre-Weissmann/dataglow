@@ -221,6 +221,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
 | Python runtime (Pyodide) | loaded via CDN, wired in `js/runtimes-viz/visualize.js` | LIVE | CORE | Full CPython in the browser. pandas, numpy, scikit-learn. |
+| Python Notebooks-lite | `js/intelligence/python-notebook-lite.js`<br>`js/intelligence/data-glow-python-notebook-canvas.js` | LIVE | HIGH | Multi-cell on-device Pyodide notebook over the Python tab: code + markdown cells, one shared kernel top-to-bottom, run cell/run all, local `.dgnb` save/load. Zero-upload; SecurityAdvisor scans each cell. Flag `pythonNotebooksLite`. Not full Jupyter. |
 | R runtime (WebR) | loaded via CDN, wired in `js/runtimes-viz/visualize.js` | LIVE | CORE | Full R in the browser. tidyverse, ggplot2. |
 | Visualization engine | `js/runtimes-viz/visualize.js` | LIVE | CORE | Chart rendering layer across all runtimes. |
 | Glow Canvas (multi-chart dashboard) | `js/runtimes-viz/glow-canvas.js` | LIVE | HIGH | Drag-and-arrange multi-chart dashboard. |

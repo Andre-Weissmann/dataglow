@@ -4507,6 +4507,22 @@
         "test/excel-hell-repair.test.mjs"
       ],
       "notes": "On-device detect + reversible repair recipe for messy spreadsheets (header detect, junk row strip, multi-row header collapse, type coercion). Preview-first; Apply needs an explicit click; undo restores pre-image."
+    },
+    {
+      "id": "python-notebooks-lite",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Multi-runtime",
+      "name": "Python Notebooks-lite",
+      "files": [
+        "js/intelligence/python-notebook-lite.js",
+        "js/intelligence/data-glow-python-notebook-canvas.js",
+        "test/python-notebook-lite.test.mjs"
+      ],
+      "notes": "Multi-cell local Pyodide notebook UX over existing Python tab. Zero-upload."
     }
   ]
 }

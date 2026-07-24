@@ -574,6 +574,11 @@
       "enabled": true,
       "addedInPR": "feat/excel-hell-repair-v1",
       "description": "Excel Hell Repair v1: on-device detection of the real header, junk title/blank/footer rows, multi-row header collapse, and type coercion into a reversible, refreshable Power Query-style recipe. Preview-first; Apply requires an explicit click; undo restores the pre-image. Web+desktop+PWA. Product face like PHI Shield with safe defaults."
+    },
+    "pythonNotebooksLite": {
+      "enabled": true,
+      "addedInPR": "feat/python-notebooks-lite-v1",
+      "description": "Python Notebooks-lite: multi-cell on-device Pyodide notebook (code + markdown cells, run cell/all, local .dgnb save/load) on top of existing Python runtime. Web+desktop+PWA. Not full Jupyter."
     }
   }
 }
