@@ -569,6 +569,11 @@
       "enabled": true,
       "addedInPR": "feat/phi-shield-564",
       "description": "PHI Shield: one-button on-device privacy screen (Safe Harbor sample screen + PhiPromptGuard patterns + AI path fail-closed helper). Web+desktop+PWA. Screening aid only, not HIPAA certification."
+    },
+    "excelHellRepair": {
+      "enabled": true,
+      "addedInPR": "feat/excel-hell-repair-v1",
+      "description": "Excel Hell Repair v1: on-device detection of the real header, junk title/blank/footer rows, multi-row header collapse, and type coercion into a reversible, refreshable Power Query-style recipe. Preview-first; Apply requires an explicit click; undo restores the pre-image. Web+desktop+PWA. Product face like PHI Shield with safe defaults."
     }
   }
 }
