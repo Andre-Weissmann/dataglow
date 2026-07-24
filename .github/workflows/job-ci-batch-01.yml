@@ -234,3 +234,17 @@ jobs:
       # Pure CRUD + match-scoring engine and the in-memory store adapter.
       # No IndexedDB, no DuckDB, no network.
       - run: npm run test:recipelib
+
+  mobile-phi-firstrun-calm:
+    name: Mobile PHI chip + first-run calm (pure helper)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure label/first-run/strip-visibility logic with an injected fake
+      # storage. No DOM, no network.
+      - run: npm run test:phicalm

@@ -4561,6 +4561,26 @@
         { "file": "js/intelligence/repair-recipe-store.js", "name": "createRepairRecipeStore" }
       ],
       "notes": "Save/list/reapply Excel Hell (and Guided Unpivot) prep recipes on-device via a standalone IndexedDB. Metadata only (steps + column names), never raw rows. Preview-first; Apply is click-only."
+    },
+    {
+      "id": "mobile-phi-firstrun-calm",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Privacy & trust",
+      "name": "Mobile PHI chip + first-run calm",
+      "files": [
+        "js/intelligence/mobile-phi-firstrun-calm.js",
+        "js/intelligence/data-glow-mobile-phi-firstrun-canvas.js",
+        "test/mobile-phi-firstrun-calm.test.mjs"
+      ],
+      "symbols": [
+        { "file": "js/intelligence/mobile-phi-firstrun-calm.js", "name": "chipLabel" },
+        { "file": "js/intelligence/mobile-phi-firstrun-calm.js", "name": "shouldShowCalmStrip" }
+      ],
+      "notes": "Calm chrome pass over the existing PHI Shield: short never-truncated privacy labels, 44px safe-area-aware topbar chip, and a quiet first-run strip (on-device promise + one Load CTA, no auto-dismiss timer). Additive; does not change PHI detection."
     }
   ]
 }
