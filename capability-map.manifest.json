@@ -4523,6 +4523,22 @@
         "test/python-notebook-lite.test.mjs"
       ],
       "notes": "Multi-cell local Pyodide notebook UX over existing Python tab. Zero-upload."
+    },
+    {
+      "id": "guided-unpivot",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Guided Unpivot",
+      "files": [
+        "js/intelligence/guided-unpivot.js",
+        "js/intelligence/data-glow-guided-unpivot-canvas.js",
+        "test/guided-unpivot.test.mjs"
+      ],
+      "notes": "Wide-to-long reshape with preview/apply; pure transform + DuckDB SQL glass-box."
     }
   ]
 }
