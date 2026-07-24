@@ -148,6 +148,8 @@ export var CanvasGrid = (function () {
     var onRowClick   = opts.onRowClick   || function () {};
     var onColDblClick= opts.onColDblClick|| function () {};
     var onCellFocus  = opts.onCellFocus  || function () {};
+    var onColHover   = opts.onColHover   || function () {};
+    var onColHoverEnd= opts.onColHoverEnd|| function () {};
 
     // Wrapper takes full container space
     var wrapper = document.createElement('div');
@@ -509,15 +511,93 @@ export var CanvasGrid = (function () {
       }
     });
 
-    // Header double-click → rename column
-    headerCanvas.addEventListener('dblclick', function (e) {
+    // Header hit-test helper (shared by dblclick + hover + touch)
+    function colIndexFromHeaderEvent(e) {
       var rect = headerCanvas.getBoundingClientRect();
-      var x = e.clientX - rect.left + state.scrollLeft - FLAG_W;
+      var clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX
+        : (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX
+        : e.clientX;
+      var x = clientX - rect.left + state.scrollLeft - FLAG_W;
+      if (x < 0) return -1;
       var cx = 0;
       for (var ci = 0; ci < state.colWidths.length; ci++) {
         cx += state.colWidths[ci];
-        if (x < cx) { onColDblClick(ci); return; }
+        if (x < cx) return ci;
       }
+      return -1;
+    }
+
+    function headerColScreenRect(ci) {
+      if (ci < 0 || ci >= state.colWidths.length) return null;
+      var rect = headerCanvas.getBoundingClientRect();
+      var left = FLAG_W - state.scrollLeft;
+      for (var i = 0; i < ci; i++) left += state.colWidths[i];
+      return {
+        left: rect.left + left,
+        top: rect.top,
+        width: state.colWidths[ci],
+        height: HEADER_H,
+        right: rect.left + left + state.colWidths[ci],
+        bottom: rect.top + HEADER_H
+      };
+    }
+
+    var hoverCol = -1;
+    var hoverTimer = null;
+    var HOVER_DELAY_MS = 220;
+
+    function clearHoverTimer() {
+      if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+    }
+
+    function emitHover(ci, e) {
+      var col = state.dataset.columns && state.dataset.columns[ci];
+      var name = col ? (typeof col === 'string' ? col : col.name) : ('col' + ci);
+      var box = headerColScreenRect(ci);
+      onColHover(ci, {
+        colIdx: ci,
+        colName: name,
+        clientX: e && (e.clientX || (e.touches && e.touches[0] && e.touches[0].clientX)) || 0,
+        clientY: e && (e.clientY || (e.touches && e.touches[0] && e.touches[0].clientY)) || 0,
+        headerRect: box,
+        dataset: state.dataset
+      });
+    }
+
+    // Header hover → column profiler popover (desktop)
+    headerCanvas.addEventListener('mousemove', function (e) {
+      var ci = colIndexFromHeaderEvent(e);
+      if (ci === hoverCol) return;
+      hoverCol = ci;
+      clearHoverTimer();
+      if (ci < 0) {
+        onColHoverEnd();
+        return;
+      }
+      hoverTimer = setTimeout(function () {
+        hoverTimer = null;
+        if (hoverCol === ci) emitHover(ci, e);
+      }, HOVER_DELAY_MS);
+    });
+
+    headerCanvas.addEventListener('mouseleave', function () {
+      hoverCol = -1;
+      clearHoverTimer();
+      onColHoverEnd();
+    });
+
+    // Touch: tap header to pin profiler (mobile / PWA)
+    headerCanvas.addEventListener('touchend', function (e) {
+      var ci = colIndexFromHeaderEvent(e);
+      if (ci < 0) return;
+      // Do not preventDefault here — allow scroll; profiler is additive
+      emitHover(ci, e);
+    }, { passive: true });
+
+    // Header double-click → rename column
+    headerCanvas.addEventListener('dblclick', function (e) {
+      var ci = colIndexFromHeaderEvent(e);
+      if (ci >= 0) onColDblClick(ci);
     });
 
     // ── Keyboard navigation ───────────────────────────────────────────────
@@ -587,13 +667,22 @@ export var CanvasGrid = (function () {
 
     // ── Public API ────────────────────────────────────────────────────────
     return {
-      update: function (ds) { init(ds); },
+      update: function (ds) {
+        clearHoverTimer();
+        hoverCol = -1;
+        onColHoverEnd();
+        init(ds);
+      },
       destroy: function () {
+        clearHoverTimer();
+        hoverCol = -1;
+        onColHoverEnd();
         if (state.rafId) cancelAnimationFrame(state.rafId);
         ro.disconnect();
         darkObserver.disconnect();
         container.innerHTML = '';
       },
+      getHeaderColRect: headerColScreenRect,
       getActiveCell: function () {
         if (state.activeRow < 0) return null;
         return { row: state.activeRow, col: state.activeCol };

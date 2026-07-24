@@ -4449,6 +4449,31 @@
         "js/build/enterprise-policy.js"
       ],
       "area": "Enterprise & deployment"
+    },
+    {
+      "id": "column-profiler-hover",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data grid & editing",
+      "name": "Column profiler on hover (local stats tip on grid headers + DataLens deep link)",
+      "files": [
+        "js/intelligence/column-profiler-local.js",
+        "js/intelligence/data-glow-column-profiler-hover-canvas.js",
+        "js/grid/canvas-grid.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/intelligence/column-profiler-local.js",
+          "name": "profileColumnLocal"
+        },
+        {
+          "file": "js/intelligence/column-profiler-local.js",
+          "name": "qualityScoreLocal"
+        }
+      ]
     }
   ]
 }
