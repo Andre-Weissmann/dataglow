@@ -176,7 +176,8 @@
     "test:connectormanager": "node test/connectors/connector-manager.test.js",
     "test:questionprompter": "node test/questions/question-prompter.test.js",
     "test:x12parser": "node test/x12-parser.test.mjs",
-    "test:enterprise-policy": "node test/enterprise-policy.test.mjs"
+    "test:enterprise-policy": "node test/enterprise-policy.test.mjs",
+    "test:excelhell": "node test/excel-hell-repair.test.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

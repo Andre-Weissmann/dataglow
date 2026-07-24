@@ -4491,6 +4491,22 @@
         "test/phi-shield-scan.test.mjs"
       ],
       "notes": "One-button on-device PHI/Safe Harbor screen + AI prompt guard. Screening aid only."
+    },
+    {
+      "id": "excel-hell-repair",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Excel Hell Repair",
+      "files": [
+        "js/intelligence/excel-hell-repair.js",
+        "js/intelligence/data-glow-excel-hell-canvas.js",
+        "test/excel-hell-repair.test.mjs"
+      ],
+      "notes": "On-device detect + reversible repair recipe for messy spreadsheets (header detect, junk row strip, multi-row header collapse, type coercion). Preview-first; Apply needs an explicit click; undo restores pre-image."
     }
   ]
 }

@@ -297,6 +297,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Golden signals | `js/grades/golden-signals.js` | LIVE | HIGH | The top-N signals that most reliably predict data quality problems. |
 | Calibrated grades | `js/grades/calibrated-grades.js` | LIVE | HIGH | Letter-grade system calibrated to real-world data quality norms. |
 | Cat scorecard | `js/grades/cat-scorecard.js` | LIVE | MED | Category-level scorecard across validation dimensions. |
+| Excel Hell Repair | `js/intelligence/excel-hell-repair.js`<br>`js/intelligence/data-glow-excel-hell-canvas.js` | LIVE | HIGH | On-device detect of the real header, junk title/blank/footer rows, multi-row header collapse, and type coercion into a reversible, refreshable recipe. Preview-first; Apply needs an explicit click; undo restores the pre-image. |
 
 ---
 
@@ -556,3 +557,6 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 
 ### PHI Shield
 On-device Safe Harbor sample screen + PhiPromptGuard patterns. Web, desktop, PWA. Not a HIPAA certification.
+
+### Excel Hell Repair
+Drop any messy spreadsheet and DataGlow detects the real header, strips junk title/blank/footer rows, collapses multi-row headers, and coerces column types into a reversible, refreshable recipe. Pure engine `js/intelligence/excel-hell-repair.js` (`window.DataGlowExcelHellRepair`: detect/preview/apply/undo/refresh) with the canvas panel in `js/intelligence/data-glow-excel-hell-canvas.js` (`window.DataGlowExcelHell`). Preview-first; Apply requires an explicit click; undo restores the pre-image. Web, desktop, PWA. Screening aid for messy files - review before clinical use.
