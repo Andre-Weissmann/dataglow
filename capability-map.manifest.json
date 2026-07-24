@@ -4539,6 +4539,28 @@
         "test/guided-unpivot.test.mjs"
       ],
       "notes": "Wide-to-long reshape with preview/apply; pure transform + DuckDB SQL glass-box."
+    },
+    {
+      "id": "repair-recipe-library",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Repair Recipe Library",
+      "files": [
+        "js/intelligence/repair-recipe-library.js",
+        "js/intelligence/repair-recipe-store.js",
+        "js/intelligence/data-glow-repair-recipe-library-canvas.js",
+        "test/repair-recipe-library.test.mjs"
+      ],
+      "symbols": [
+        { "file": "js/intelligence/repair-recipe-library.js", "name": "createRecipeRecord" },
+        { "file": "js/intelligence/repair-recipe-library.js", "name": "scoreRecipeMatch" },
+        { "file": "js/intelligence/repair-recipe-store.js", "name": "createRepairRecipeStore" }
+      ],
+      "notes": "Save/list/reapply Excel Hell (and Guided Unpivot) prep recipes on-device via a standalone IndexedDB. Metadata only (steps + column names), never raw rows. Preview-first; Apply is click-only."
     }
   ]
 }

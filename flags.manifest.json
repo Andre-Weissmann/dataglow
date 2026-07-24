@@ -584,6 +584,11 @@
       "enabled": true,
       "addedInPR": "feat/guided-unpivot-v1",
       "description": "Guided Unpivot: on-device wide-to-long reshape UI (keep cols + unpivot cols, preview, apply, glass-box DuckDB SQL). Web+desktop+PWA. Complements Pivot."
+    },
+    "repairRecipeLibrary": {
+      "enabled": true,
+      "addedInPR": "feat/repair-recipe-library-v1",
+      "description": "Repair Recipe Library: save/list/reapply Excel Hell (and Guided Unpivot) prep recipes on-device via IndexedDB. Metadata only, no row upload. Web+desktop+PWA."
     }
   }
 }

@@ -35,6 +35,16 @@
     return true;
   }
 
+  function recipeLibraryOn() {
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        if (window.DataGlowFlags.isEnabled('repairRecipeLibrary') === false) return false;
+      }
+    } catch (_e) {}
+    return !!(window.DataGlowRepairRecipeLibraryUI &&
+      typeof window.DataGlowRepairRecipeLibraryUI.openSaveDialog === 'function');
+  }
+
   function engine() { return window.DataGlowExcelHellRepair || null; }
 
   function activeDataset() {
@@ -212,6 +222,7 @@
     }
 
     var canUndo = !!(_dataset && _dataset._excelHellSnapshot);
+    var libOn = recipeLibraryOn();
 
     body.innerHTML =
       card(
@@ -236,7 +247,13 @@
         '<button type="button" data-eh-apply style="flex:1;min-height:44px;border:none;border-radius:10px;background:var(--primary,#20C5B5);color:#04201C;font-weight:800;font-size:14px;cursor:pointer">Apply repair</button>' +
         (canUndo ? '<button type="button" data-eh-undo style="min-height:44px;border:1px solid var(--border,#2A2C31);border-radius:10px;background:transparent;color:var(--text,#E8E8E8);font-weight:600;font-size:13px;padding:0 14px;cursor:pointer">Undo last repair</button>' : '') +
         '<button type="button" data-eh-rescan style="min-height:44px;border:1px solid var(--border,#2A2C31);border-radius:10px;background:transparent;color:var(--text,#E8E8E8);font-weight:600;font-size:13px;padding:0 14px;cursor:pointer">Rescan</button>' +
-      '</div>';
+      '</div>' +
+      (libOn
+        ? '<div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:16px;margin-top:-6px">' +
+            '<button type="button" data-eh-save-recipe style="flex:1;min-height:44px;border:1px solid var(--border,#2A2C31);border-radius:10px;background:transparent;color:var(--text,#E8E8E8);font-weight:600;font-size:13px;cursor:pointer">Save recipe</button>' +
+            '<button type="button" data-eh-open-library style="flex:1;min-height:44px;border:1px solid var(--border,#2A2C31);border-radius:10px;background:transparent;color:var(--text,#E8E8E8);font-weight:600;font-size:13px;cursor:pointer">Open library</button>' +
+          '</div>'
+        : '');
 
     wireBody(body);
   }
@@ -284,6 +301,26 @@
       renderBody();
       toast('Rescanned on device');
     };
+    var saveBtn = body.querySelector('[data-eh-save-recipe]');
+    if (saveBtn) saveBtn.onclick = doSaveRecipe;
+    var libBtn = body.querySelector('[data-eh-open-library]');
+    if (libBtn) libBtn.onclick = doOpenLibrary;
+  }
+
+  function doSaveRecipe() {
+    var ui = window.DataGlowRepairRecipeLibraryUI;
+    if (!ui || typeof ui.openSaveDialog !== 'function') { toast('Recipe library unavailable', 'warn'); return; }
+    var ds = activeDataset();
+    var recipe = activeRecipe();
+    if (!ds) { toast('Load data first', 'warn'); return; }
+    if (!recipe || !recipe.steps.length) { toast('Nothing to save yet', 'warn'); return; }
+    ui.openSaveDialog({ kind: 'excelHell', dataset: ds, payload: recipe });
+  }
+
+  function doOpenLibrary() {
+    var ui = window.DataGlowRepairRecipeLibraryUI;
+    if (!ui || typeof ui.openLibrary !== 'function') { toast('Recipe library unavailable', 'warn'); return; }
+    ui.openLibrary(activeDataset());
   }
 
   function doApply() {

@@ -179,7 +179,8 @@
     "test:enterprise-policy": "node test/enterprise-policy.test.mjs",
     "test:excelhell": "node test/excel-hell-repair.test.mjs",
     "test:pynotebook": "node test/python-notebook-lite.test.mjs",
-    "test:unpivot": "node test/guided-unpivot.test.mjs"
+    "test:unpivot": "node test/guided-unpivot.test.mjs",
+    "test:recipelib": "node test/repair-recipe-library.test.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
