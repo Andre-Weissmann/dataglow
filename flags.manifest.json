@@ -589,6 +589,11 @@
       "enabled": true,
       "addedInPR": "feat/repair-recipe-library-v1",
       "description": "Repair Recipe Library: save/list/reapply Excel Hell (and Guided Unpivot) prep recipes on-device via IndexedDB. Metadata only, no row upload. Web+desktop+PWA."
+    },
+    "mobilePhiFirstRunCalm": {
+      "enabled": true,
+      "addedInPR": "feat/mobile-phi-firstrun-calm-v1",
+      "description": "Mobile-safe PHI chip + first-run calm strip: short on-device privacy labels, 44px touch targets, safe-area aware chip, quiet first-visit strip (no auto-dismiss). Web+desktop+PWA."
     }
   }
 }
