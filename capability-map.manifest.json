@@ -4474,6 +4474,23 @@
           "name": "qualityScoreLocal"
         }
       ]
+    },
+    {
+      "id": "phi-shield",
+      "platforms": [
+        "browser",
+        "desktop",
+        "pwa"
+      ],
+      "area": "Privacy & trust",
+      "name": "PHI Shield",
+      "files": [
+        "js/agents/phi-prompt-guard.js",
+        "js/provenance/deidentification-verifier.js",
+        "js/intelligence/data-glow-phi-shield-canvas.js",
+        "test/phi-shield-scan.test.mjs"
+      ],
+      "notes": "One-button on-device PHI/Safe Harbor screen + AI prompt guard. Screening aid only."
     }
   ]
 }

@@ -564,6 +564,11 @@
       "enabled": true,
       "description": "DataLens column intelligence -- auto-profiles all columns on dataset load",
       "addedInPR": "feat/stress-fixes-datalens-559"
+    },
+    "phiShield": {
+      "enabled": true,
+      "addedInPR": "feat/phi-shield-564",
+      "description": "PHI Shield: one-button on-device privacy screen (Safe Harbor sample screen + PhiPromptGuard patterns + AI path fail-closed helper). Web+desktop+PWA. Screening aid only, not HIPAA certification."
     }
   }
 }
