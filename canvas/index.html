@@ -28223,6 +28223,9 @@ var InstantInsight = (function () {
 
     async function loadWebR() {
       if (_webR || _webRLoading) return;
+      /* R Notebooks-lite owns the WebR kernel once its host is mounted; a second
+         instance would download and hold a whole extra R runtime in wasm memory. */
+      if (document.getElementById('r-notebook-host')) return;
       /* R Notebooks-lite owns the R tab when its host is mounted, and it runs
          its own shared WebR kernel. Booting a second runtime here would download
          and hold a whole extra R in wasm memory for a console nobody can see. */
