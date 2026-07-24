@@ -4480,7 +4480,7 @@
       "platforms": [
         "browser",
         "desktop",
-        "pwa"
+        "mobile"
       ],
       "area": "Privacy & trust",
       "name": "PHI Shield",
