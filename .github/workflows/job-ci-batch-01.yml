@@ -206,3 +206,17 @@ jobs:
       # js/app-shell/state.js so this can never silently fall out of sync
       # with the app's actual tools.
       - run: npm run test:commandpalette
+
+  guided-unpivot:
+    name: Guided Unpivot (wide-to-long reshape engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure reshape engine: suggest/validate/transform/preview + DuckDB
+      # UNPIVOT SQL glass-box. No DuckDB, no network.
+      - run: npm run test:unpivot

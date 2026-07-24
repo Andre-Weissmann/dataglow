@@ -299,6 +299,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Calibrated grades | `js/grades/calibrated-grades.js` | LIVE | HIGH | Letter-grade system calibrated to real-world data quality norms. |
 | Cat scorecard | `js/grades/cat-scorecard.js` | LIVE | MED | Category-level scorecard across validation dimensions. |
 | Excel Hell Repair | `js/intelligence/excel-hell-repair.js`<br>`js/intelligence/data-glow-excel-hell-canvas.js` | LIVE | HIGH | On-device detect of the real header, junk title/blank/footer rows, multi-row header collapse, and type coercion into a reversible, refreshable recipe. Preview-first; Apply needs an explicit click; undo restores the pre-image. |
+| Guided Unpivot | `js/intelligence/guided-unpivot.js`<br>`js/intelligence/data-glow-guided-unpivot-canvas.js` | LIVE | HIGH | On-device wide-to-long reshape: pick keep (id) columns + wide columns to unpivot, name the new name/value columns, preview a sample with a row-count estimate, then Apply on an explicit click (reversible via Undo). Glass-box shows the equivalent DuckDB `UNPIVOT` SQL. Inverse of the Pivot builder; web, desktop, PWA. |
 
 ---
 

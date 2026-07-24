@@ -579,6 +579,11 @@
       "enabled": true,
       "addedInPR": "feat/python-notebooks-lite-v1",
       "description": "Python Notebooks-lite: multi-cell on-device Pyodide notebook (code + markdown cells, run cell/all, local .dgnb save/load) on top of existing Python runtime. Web+desktop+PWA. Not full Jupyter."
+    },
+    "guidedUnpivot": {
+      "enabled": true,
+      "addedInPR": "feat/guided-unpivot-v1",
+      "description": "Guided Unpivot: on-device wide-to-long reshape UI (keep cols + unpivot cols, preview, apply, glass-box DuckDB SQL). Web+desktop+PWA. Complements Pivot."
     }
   }
 }
