@@ -553,3 +553,6 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/validation/validation.js` — Orchestrator (present)
 - `js/video/webcodecs-audio-extractor.scaffold.js` — Video ingestion bridge (audio-only, Batch 1) (present)
 - `js/webhook/service-worker-relay.js` — Validation Webhook Mode (present)
+
+### PHI Shield
+On-device Safe Harbor sample screen + PhiPromptGuard patterns. Web, desktop, PWA. Not a HIPAA certification.
