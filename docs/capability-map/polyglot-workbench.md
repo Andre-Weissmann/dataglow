@@ -50,6 +50,18 @@ live and tested but currently dark at the UI layer despite its flag being on.
 
 **Tests:** `test/polyglot-autocomplete.test.mjs`.
 
+### Canvas wire (PR #562) — `js/intelligence/data-glow-sql-autocomplete-canvas.js`
+
+Mounts schema-aware suggestions on the live Analyze SQL editor (`#sql-view-input`)
+and legacy `#sql-input`, plus Python/R editors when present. Pulls table/column
+names from loaded datasets / Object Space locally (no network). Mobile-safe 44px
+rows, Arrow/Enter/Tab/Esc keyboard, HIG-aligned menu chrome. Exposes
+`window.DataGlowSqlAutocomplete`. The pure engine remains in
+`js/polyglot/polyglot-autocomplete.js`; canvas also publishes
+`window.PolyglotAutocomplete.getSuggestions` / `topSuggestion`.
+
+**Tests:** `test/sql-autocomplete-canvas-api.test.mjs`.
+
 ## `js/polyglot/polyglot-error-advisor.js` — Batch E (cross-language error advisor)
 
 `POLYGLOT_ERROR_ADVISOR_VERSION = 1`. Public API (`PUBLIC_API_SURFACE`):
