@@ -35,3 +35,15 @@ before analysis. Backing modules: `js/columns/column-editor.js` and
 Columns detected as unique identifiers (`patient_id`, `claim_id`, etc.) are
 excluded from fuzzy-dedup merge suggestions to prevent destructive false-positive
 merges on primary keys.
+
+
+## Column profiler on hover (PR #563)
+
+- `js/intelligence/column-profiler-local.js` — pure on-device column stats (null rate, cardinality, min/max, top values, quality 0–100). Rows never leave the device. Optional sample cap (default 8000) for large files.
+- `js/intelligence/data-glow-column-profiler-hover-canvas.js` — hover/tap tip on CanvasGrid headers; prefers cached DataLens profiles when present; **Open DataLens** for full panel.
+- `js/grid/canvas-grid.js` — `onColHover` / `onColHoverEnd` + touch header tap.
+
+**Platforms:** browser, desktop (Tauri), mobile PWA.
+
+**Tests:** `test/column-profiler-local.test.mjs`.
+
