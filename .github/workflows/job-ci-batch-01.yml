@@ -235,6 +235,20 @@ jobs:
       # No IndexedDB, no DuckDB, no network.
       - run: npm run test:recipelib
 
+  r-notebooks-lite:
+    name: R Notebooks-lite (pure notebook model, any industry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure cell/notebook model, .dgrnb serialization, starter packs and the
+      # R bridge prelude text. No WebR, no DOM, no network.
+      - run: npm run test:rnotebook
+
   mobile-phi-firstrun-calm:
     name: Mobile PHI chip + first-run calm (pure helper)
     runs-on: ubuntu-latest
