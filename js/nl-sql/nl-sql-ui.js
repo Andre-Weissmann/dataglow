@@ -418,6 +418,47 @@ export function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
       });
 
       btnRow.append(runBtn, copyBtn);
+
+      // ---- Add to Proof Board ----
+      // The SQL above is already shown before anything runs, which is the
+      // glass-box half of this. This is the other half: a number that came out
+      // of a generated query can be kept as a tile that carries the query with
+      // it, so it can later be quoted with something behind it. The value is
+      // typed by the person who read the result, and it is never guessed here:
+      // an empty box adds nothing rather than adding a zero.
+      const proofBoard = typeof window !== 'undefined' ? window.DataGlowProofBoard : null;
+      const proofBoardUI = typeof window !== 'undefined' ? window.DataGlowProofBoardUI : null;
+      if (proofBoard && proofBoardUI && typeof proofBoardUI.addTile === 'function') {
+        const addBtn = h('button', {
+          class: 'btn',
+          'data-testid': 'nlsql-add-to-proof-board',
+          style: { fontSize: '13px', padding: '6px 14px' },
+        });
+        addBtn.textContent = 'Add to Proof Board';
+        addBtn.addEventListener('click', () => {
+          const value = window.prompt('What number did this query return?\n\nIt is stored with the SQL above, so the tile can show its work. Leave it blank to cancel: nothing is filled in for you.');
+          if (value === null || String(value).trim() === '') return;
+          const title = window.prompt('What is this number called?', question.trim().slice(0, 80) || 'Result of a generated query');
+          if (title === null || String(title).trim() === '') return;
+          if (!window.confirm('Add "' + String(title).trim() + '" to the Proof Board?\n\nNo check has run on this number, so it will carry the "not checked" badge until one does.')) return;
+          try {
+            proofBoardUI.addTile({
+              title: String(title).trim(),
+              value: String(value).trim(),
+              sqlOrCode: generatedSQL,
+              language: 'sql',
+              engine: 'nl-sql',
+              gateBadge: 'unknown',
+              checksSummary: 'Added from a generated query. No check has reported on this number.',
+            });
+            if (onToast) onToast('Added to the Proof Board as an unchecked number.');
+          } catch (_e) {
+            if (onToast) onToast('Could not add this to the Proof Board.');
+          }
+        });
+        btnRow.appendChild(addBtn);
+      }
+
       resultWrap.appendChild(btnRow);
     }
   }

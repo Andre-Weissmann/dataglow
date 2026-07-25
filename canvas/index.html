@@ -50850,6 +50850,46 @@ function mountNLSQLUI({ host, datasets, onRunSQL, onToast }) {
       });
 
       btnRow.append(runBtn, copyBtn);
+      // ---- Add to Proof Board ----
+      // The SQL above is already shown before anything runs, which is the
+      // glass-box half of this. This is the other half: a number that came out
+      // of a generated query can be kept as a tile that carries the query with
+      // it, so it can later be quoted with something behind it. The value is
+      // typed by the person who read the result, and it is never guessed here:
+      // an empty box adds nothing rather than adding a zero.
+      const proofBoard = typeof window !== 'undefined' ? window.DataGlowProofBoard : null;
+      const proofBoardUI = typeof window !== 'undefined' ? window.DataGlowProofBoardUI : null;
+      if (proofBoard && proofBoardUI && typeof proofBoardUI.addTile === 'function') {
+        const addBtn = h('button', {
+          class: 'btn',
+          'data-testid': 'nlsql-add-to-proof-board',
+          style: { fontSize: '13px', padding: '6px 14px' },
+        });
+        addBtn.textContent = 'Add to Proof Board';
+        addBtn.addEventListener('click', () => {
+          const value = window.prompt('What number did this query return?\n\nIt is stored with the SQL above, so the tile can show its work. Leave it blank to cancel: nothing is filled in for you.');
+          if (value === null || String(value).trim() === '') return;
+          const title = window.prompt('What is this number called?', question.trim().slice(0, 80) || 'Result of a generated query');
+          if (title === null || String(title).trim() === '') return;
+          if (!window.confirm('Add "' + String(title).trim() + '" to the Proof Board?\n\nNo check has run on this number, so it will carry the "not checked" badge until one does.')) return;
+          try {
+            proofBoardUI.addTile({
+              title: String(title).trim(),
+              value: String(value).trim(),
+              sqlOrCode: generatedSQL,
+              language: 'sql',
+              engine: 'nl-sql',
+              gateBadge: 'unknown',
+              checksSummary: 'Added from a generated query. No check has reported on this number.',
+            });
+            if (onToast) onToast('Added to the Proof Board as an unchecked number.');
+          } catch (_e) {
+            if (onToast) onToast('Could not add this to the Proof Board.');
+          }
+        });
+        btnRow.appendChild(addBtn);
+      }
+
       resultWrap.appendChild(btnRow);
     }
   }
@@ -126200,6 +126240,7 @@ function shouldShowCoach(readFlag, flagOn) {
   var COACH_ID = 'dg-pb-coach';
 
   var _board = null;
+  var _extraTiles = [];
   var _coachIndex = 0;
   var _coachSteps = [];
 
@@ -126374,6 +126415,11 @@ function shouldShowCoach(readFlag, flagOn) {
     var cols = (ds && Array.isArray(ds.columns)) ? ds.columns : [];
     var fingerprint = (ds && typeof ds.fingerprint === 'string') ? ds.fingerprint : '';
     var tiles = (te && ds) ? te.tilesFromDataset(ds, { fingerprint: fingerprint }) : [];
+    /* Tiles added by hand from a query result survive a rebuild, because the
+       board is rebuilt every time the panel opens and losing them silently
+       would be worse than not offering the button at all. They are appended
+       rather than merged so a session tile never overwrites one. */
+    if (_extraTiles.length) tiles = tiles.concat(_extraTiles);
     var l = ledger();
     var summary = '';
     try {
@@ -126841,6 +126887,33 @@ function shouldShowCoach(readFlag, flagOn) {
       });
     }
 
+    /* Keep a number that came out of a query the user actually ran. The value
+       is passed in by the caller and never guessed: an empty value is refused
+       here as well as at the prompt, because a tile with no number is the one
+       thing this board must never show. A tile added this way carries the
+       `unknown` badge until a real check reports on it. */
+    function addTile(tile) {
+      var be = boardEngine();
+      if (!be || !tile) return null;
+      if (!be.hasValue(tile.value)) return null;
+      var id = 'added-' + (_extraTiles.length + 1);
+      var kept = {
+        id: tile.id || id,
+        title: tile.title || 'Result of a query',
+        value: tile.value,
+        unit: tile.unit || '',
+        sqlOrCode: tile.sqlOrCode || '',
+        language: tile.language || 'sql',
+        engine: tile.engine || '',
+        gateBadge: 'unknown',
+        checksSummary: tile.checksSummary || 'No check has reported on this number.'
+      };
+      _extraTiles.push(kept);
+      buildBoard();
+      if (isOpen()) renderPanel();
+      return kept;
+    }
+
     /* Published whether or not the surface mounted, matching the other canvas
        surfaces: a caller can build a board without needing a panel to exist.
        With the flag off nothing mounted, so open() is the only way in and the
@@ -126854,6 +126927,8 @@ function shouldShowCoach(readFlag, flagOn) {
       refresh: renderPanel,
       board: function () { return _board; },
       build: buildBoard,
+      addTile: addTile,
+      addedTiles: function () { return _extraTiles.slice(); },
       verify: verifyNow,
       exportGlowbook: exportGlowbook,
       stamp: stampTile,
@@ -126874,6 +126949,1878 @@ function shouldShowCoach(readFlag, flagOn) {
   }
 })();
 /* ---- end js/proofboard/data-glow-proof-board-canvas.js ---- */
+
+/* ---- from js/ai/prove-gate.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - AI prove gate
+// ============================================================
+//
+// The doctrine this file enforces: AI proposes, engines adjudicate, a human
+// confirms. The specific failure it exists to stop is an AI narrative that
+// states a number nothing computed. A sentence like "we cut processing time by
+// 40%" is indistinguishable, to a reader, from a sentence backed by a query.
+// The only difference is whether some engine actually produced the 40, and the
+// only place this app records that is the Proof Board.
+//
+// So this module is a binder, not a spell-checker. It pulls every number out of
+// a piece of prose and tries to bind each one to a tile that carries the value
+// and the code that produced it. A number that binds is quotable. A number that
+// does not bind is refused by name, so the caller can delete it or go compute
+// it, rather than being told the text "may contain unverified claims".
+//
+// WHY A BLOCKED TILE CANNOT BACK A CLAIM.
+// The four badges are not decoration. `blocked` means a check reported that
+// this number is wrong or unsafe to publish. A number whose own check failed is
+// worse than an unbacked number, because quoting it launders a known problem
+// through the Proof Board. `unknown` is different: the number was computed by
+// an engine and no check has reported on it. That binds, but the binding is
+// marked unchecked and the caller is told, because "no check has run" must
+// never quietly read as "this passed".
+//
+// WHY ROUNDING IS ALLOWED AND NOTHING ELSE IS.
+// A tile holding 94.7312 written in prose as "95%" is honest rounding, and
+// forcing the author to paste four decimals into a sentence would make the gate
+// something people route around. So a claim binds if it is a correct rounding
+// of a tile value to the precision the author actually wrote. 94.7312 backs
+// "94.7" and "95". It does not back "96". Rounding is a rendering of a real
+// number; anything else is a different number.
+//
+// Pure. No DOM, no network, no clock. Nothing here throws: a gate that crashes
+// on malformed input is a gate that callers wrap in try/catch and ignore.
+
+const PROVE_GATE_KIND = 'dataglow-prove-gate';
+const PROVE_GATE_VERSION = 1;
+
+// Badges that can back a quoted number, and the one that cannot. Kept as data
+// so the reason for a refusal can be read off the same table that makes it.
+const PROVABLE_BADGES = Object.freeze(['clear', 'caution', 'unknown']);
+const UNPROVABLE_BADGES = Object.freeze(['blocked']);
+
+const BADGE_BINDING_NOTES = Object.freeze({
+  clear: 'A check reported on this number and it passed.',
+  caution: 'A check reported on this number and passed it with cautions.',
+  unknown: 'An engine computed this number but no check has reported on it. That is an absence of evidence, not a pass.',
+  blocked: 'A check reported on this number and blocked it. A blocked number must not be quoted as a result.',
+});
+
+const PROVE_GATE_DOCTRINE =
+  'AI proposes, engines adjudicate, a human confirms. No number is published unless an engine computed it and the code that produced it can be shown.';
+
+const NO_TILES_REASON =
+  'There is nothing on the Proof Board yet, so no number in this text can be traced to anything that was computed.';
+
+// Numbers that are part of a date, a time or a dotted version are not claims
+// about the data, and treating them as claims would make the gate refuse its
+// own method line. They are masked out before extraction rather than special
+// cased afterwards, so the extractor stays a single simple rule.
+const MASK_PATTERNS = Object.freeze([
+  /\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?/g, // ISO timestamp
+  /\d{4}-\d{2}-\d{2}/g, // ISO date
+  /\b\d{1,2}:\d{2}(?::\d{2})?\b/g, // clock time
+  /\bv?\d+\.\d+\.\d+\b/g, // dotted version
+]);
+
+const NUMBER_RE = /-?\d[\d,]*(?:\.\d+)?/g;
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function toFiniteNumber(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const cleaned = v.replace(/,/g, '').trim();
+    if (cleaned === '') return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Replace date-like and version-like runs with spaces of equal length so the
+ *  character offsets of the remaining numbers stay true to the original text. */
+function maskNonClaimNumbers(text) {
+  let out = str(text);
+  for (const re of MASK_PATTERNS) {
+    out = out.replace(re, m => ' '.repeat(m.length));
+  }
+  return out;
+}
+
+/** Every number a reader would take as a claim, in order, with its offset. */
+function extractNumbers(text) {
+  const masked = maskNonClaimNumbers(text);
+  const found = [];
+  let m;
+  NUMBER_RE.lastIndex = 0;
+  while ((m = NUMBER_RE.exec(masked)) !== null) {
+    const raw = m[0];
+    const value = toFiniteNumber(raw);
+    if (value === null) continue;
+    const dot = raw.indexOf('.');
+    found.push({
+      text: raw,
+      value,
+      index: m.index,
+      decimals: dot < 0 ? 0 : raw.length - dot - 1,
+    });
+  }
+  return found;
+}
+
+/** True when `claimed` is what `actual` looks like written to `decimals` places.
+ *  This is the whole of the tolerance policy: a rendering binds, a different
+ *  number does not. */
+function isRoundingOf(claimed, actual, decimals) {
+  if (!Number.isFinite(claimed) || !Number.isFinite(actual)) return false;
+  if (claimed === actual) return true;
+  const d = Number.isInteger(decimals) && decimals >= 0 ? Math.min(decimals, 12) : 0;
+  const factor = Math.pow(10, d);
+  return Math.round(actual * factor) / factor === claimed;
+}
+
+/** The set of numbers the board can currently back, each with its tile. */
+function provableValues(tiles) {
+  const list = Array.isArray(tiles) ? tiles : [];
+  const out = [];
+  for (const t of list) {
+    if (!isPlainObject(t)) continue;
+    const value = toFiniteNumber(t.value);
+    if (value === null) continue;
+    const badge = str(t.gateBadge) || 'unknown';
+    out.push({
+      id: str(t.id),
+      title: str(t.title),
+      value,
+      unit: str(t.unit),
+      gateBadge: badge,
+      provable: UNPROVABLE_BADGES.indexOf(badge) < 0,
+      note: BADGE_BINDING_NOTES[badge] || BADGE_BINDING_NOTES.unknown,
+      hasCode: str(t.sqlOrCode).trim() !== '',
+      source: 'proof-board-tile',
+    });
+  }
+  return out;
+}
+
+/** Engine results a caller vouches for directly, in the same shape as a tile
+ *  binding. Used by the NL to SQL path, where a number exists as a query result
+ *  before anyone has decided to keep it as a tile. */
+function engineValues(results) {
+  const list = Array.isArray(results) ? results : [];
+  const out = [];
+  for (const r of list) {
+    if (!isPlainObject(r)) continue;
+    const value = toFiniteNumber(r.value);
+    if (value === null) continue;
+    out.push({
+      id: str(r.id) || str(r.label),
+      title: str(r.label) || str(r.title),
+      value,
+      unit: str(r.unit),
+      gateBadge: 'unknown',
+      provable: true,
+      note: BADGE_BINDING_NOTES.unknown,
+      hasCode: str(r.sqlOrCode).trim() !== '',
+      source: 'engine-result',
+    });
+  }
+  return out;
+}
+
+/**
+ * Decide whether a piece of prose may be published.
+ *
+ * Returns, never throws:
+ *   { allowed, kind, version, claim, numbers, bindings, unbound, refused,
+ *     cautions, reasons, checkedCount, uncheckedCount }
+ *
+ * `unbound` is the list this exists for: numbers with nothing behind them.
+ * `refused` is narrower and worse: numbers that match a tile whose own check
+ * blocked it.
+ */
+function assertClaimAllowed(claim, proofBoardTiles, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const text = str(claim);
+  const candidates = provableValues(proofBoardTiles).concat(engineValues(options.engineResults));
+  const numbers = extractNumbers(text);
+
+  const bindings = [];
+  const unbound = [];
+  const refused = [];
+  const cautions = [];
+  const reasons = [];
+
+  for (const n of numbers) {
+    const matches = candidates.filter(c => isRoundingOf(n.value, c.value, n.decimals));
+    const usable = matches.filter(c => c.provable);
+    if (usable.length) {
+      const pick = usable[0];
+      bindings.push({ number: n.text, value: n.value, index: n.index, tileId: pick.id, tileTitle: pick.title, gateBadge: pick.gateBadge, source: pick.source, note: pick.note });
+      if (pick.gateBadge === 'unknown') {
+        cautions.push('The number ' + n.text + ' comes from ' + (pick.title || 'an engine result') + ', which no check has reported on. Say so or run a check before publishing it as a result.');
+      }
+      continue;
+    }
+    if (matches.length) {
+      refused.push({ number: n.text, value: n.value, index: n.index, tileId: matches[0].id, tileTitle: matches[0].title, gateBadge: matches[0].gateBadge, why: BADGE_BINDING_NOTES[matches[0].gateBadge] || BADGE_BINDING_NOTES.blocked });
+      continue;
+    }
+    unbound.push({ number: n.text, value: n.value, index: n.index });
+  }
+
+  if (!candidates.length && numbers.length) reasons.push(NO_TILES_REASON);
+  for (const u of unbound) {
+    reasons.push('The number ' + u.number + ' is not on the Proof Board and no engine result was supplied for it, so nothing here shows where it came from.');
+  }
+  for (const r of refused) {
+    reasons.push('The number ' + r.number + ' matches ' + (r.tileTitle || 'a tile') + ', but that tile is ' + r.gateBadge + '. ' + r.why);
+  }
+
+  const checkedCount = bindings.filter(b => b.gateBadge !== 'unknown').length;
+  return {
+    kind: PROVE_GATE_KIND,
+    version: PROVE_GATE_VERSION,
+    allowed: unbound.length === 0 && refused.length === 0,
+    claim: text,
+    numbers,
+    bindings,
+    unbound,
+    refused,
+    cautions,
+    reasons,
+    checkedCount,
+    uncheckedCount: bindings.length - checkedCount,
+  };
+}
+
+/** A one-line human answer for a toast or a status row. */
+function describeGateResult(result) {
+  if (!isPlainObject(result)) return 'No gate result.';
+  if (result.allowed) {
+    if (result.uncheckedCount > 0) {
+      return 'Every number traces to the Proof Board, but ' + result.uncheckedCount + ' of them has had no check reported on it.';
+    }
+    if (!result.bindings.length) return 'No numbers in this text, so there is nothing to prove.';
+    return 'All ' + result.bindings.length + ' number(s) trace to a Proof Board tile that shows its work.';
+  }
+  const parts = [];
+  if (result.unbound.length) parts.push(result.unbound.length + ' number(s) with nothing behind them');
+  if (result.refused.length) parts.push(result.refused.length + ' number(s) from a blocked tile');
+  return 'Refused: ' + parts.join(' and ') + '.';
+}
+  window.DataGlowProveGate = {
+    PROVE_GATE_KIND: PROVE_GATE_KIND,
+    PROVE_GATE_VERSION: PROVE_GATE_VERSION,
+    PROVABLE_BADGES: PROVABLE_BADGES,
+    UNPROVABLE_BADGES: UNPROVABLE_BADGES,
+    BADGE_BINDING_NOTES: BADGE_BINDING_NOTES,
+    PROVE_GATE_DOCTRINE: PROVE_GATE_DOCTRINE,
+    NO_TILES_REASON: NO_TILES_REASON,
+    maskNonClaimNumbers: maskNonClaimNumbers,
+    extractNumbers: extractNumbers,
+    isRoundingOf: isRoundingOf,
+    provableValues: provableValues,
+    engineValues: engineValues,
+    assertClaimAllowed: assertClaimAllowed,
+    describeGateResult: describeGateResult,
+  };
+})();
+/* ---- end js/ai/prove-gate.js ---- */
+/* ---- from js/export/bi-handoff.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Power BI / Tableau hand-off pack
+// ============================================================
+//
+// The handshake this solves is the moment an analyst finishes in DataGlow and
+// someone says "can you put that in Power BI". Today that means exporting a CSV
+// and losing everything around it: which column meant what, which query
+// produced the headline number, and whether the data passed its checks. The
+// number arrives in the BI tool with no way to reconstruct how it was made, and
+// the person rebuilding it guesses.
+//
+// So the pack is five files, not one. The CSV is the least interesting of them.
+// The dictionary says what the columns are, queries.sql says how the numbers
+// were produced so they can be reproduced in the other tool, and the validation
+// summary says what was and was not checked, which is the part a dashboard
+// silently drops.
+//
+// WHY THERE IS NO ZIP.
+// Zipping in the browser means a compression dependency, and DataGlow ships as
+// one file with no build step reaching the network. Five downloads that a
+// person can read individually is a worse click count and a better artifact:
+// each file opens in the tool that wants it, and nothing has to be unpacked on
+// a machine where unpacking downloads is discouraged. The manifest lists the
+// files so nothing is silently missing.
+//
+// WHY THE VALIDATION SUMMARY REFUSES TO GRADE WHAT IT DID NOT SEE.
+// A summary that prints a tick next to every row reads as an audit. Where no
+// check reported, this writes that no check reported. `unknown` is never
+// rendered as a pass, and the header of that file says so before the table.
+//
+// Pure. Builds strings. Downloading and confirming belong to the surface.
+
+const BI_HANDOFF_KIND = 'dataglow-bi-handoff';
+const BI_HANDOFF_VERSION = 1;
+
+const HANDOFF_DISCLAIMER =
+  'This pack is a hand-off aid, not a certified deliverable. It is not a Power BI or Tableau file, it does not reproduce a dashboard, and it is not endorsed by or certified with either tool. It carries the data, what the columns mean, the queries that produced the numbers, and an honest note on what was checked.';
+
+const VALIDATION_HEADER_NOTE =
+  'Where no check reported on a number, this file says so. An entry reading "not checked" is an absence of evidence, not a pass. Do not read this file as an audit.';
+
+const NO_DATASET_NOTE =
+  'No dataset is loaded, so there are no rows and no columns to hand off. Load a file first.';
+
+const CSV_MIME = 'text/csv';
+const MD_MIME = 'text/markdown';
+const SQL_MIME = 'application/sql';
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** A CSV field. Quotes anything that could otherwise change the shape of the
+ *  row, including the leading characters spreadsheets treat as a formula. */
+function csvEscape(value) {
+  if (value === null || value === undefined) return '';
+  let s = typeof value === 'string' ? value : String(value);
+  const risky = /^[=+\-@\t\r]/.test(s);
+  if (risky) s = "'" + s;
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+/** Rows may be positional arrays (the house shape) or objects keyed by column
+ *  name. Both are accepted because both exist in this codebase. */
+function cellAt(row, columnName, columnIndex) {
+  if (Array.isArray(row)) return row[columnIndex];
+  if (isPlainObject(row)) return row[columnName];
+  return undefined;
+}
+
+function toCSV(columns, rows, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const cols = Array.isArray(columns) ? columns : [];
+  const names = cols.map(c => (isPlainObject(c) ? str(c.name) : str(c)));
+  const data = Array.isArray(rows) ? rows : [];
+  const limit = Number.isInteger(options.maxRows) && options.maxRows >= 0 ? options.maxRows : data.length;
+  const out = [names.map(csvEscape).join(',')];
+  for (let i = 0; i < data.length && i < limit; i++) {
+    const row = data[i];
+    out.push(names.map((n, k) => csvEscape(cellAt(row, n, k))).join(','));
+  }
+  return out.join('\n') + '\n';
+}
+
+function isBlank(v) {
+  return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+}
+
+/** Null rate is computed from the rows that are actually present, or reported
+ *  as unknown. It is never estimated. */
+function columnStats(columns, rows) {
+  const cols = Array.isArray(columns) ? columns : [];
+  const data = Array.isArray(rows) ? rows : [];
+  return cols.map((c, k) => {
+    const name = isPlainObject(c) ? str(c.name) : str(c);
+    const type = isPlainObject(c) ? str(c.type) : '';
+    if (!data.length) {
+      return { name, type, rowCount: 0, blankCount: null, nullRate: null, nullRateText: 'not known (no rows were available)' };
+    }
+    let blanks = 0;
+    for (const row of data) if (isBlank(cellAt(row, name, k))) blanks++;
+    const rate = blanks / data.length;
+    return {
+      name,
+      type,
+      rowCount: data.length,
+      blankCount: blanks,
+      nullRate: rate,
+      nullRateText: (Math.round(rate * 1000) / 10) + '%',
+    };
+  });
+}
+
+function buildDictionary(dataset) {
+  const ds = isPlainObject(dataset) ? dataset : {};
+  const stats = columnStats(ds.columns, ds.rows);
+  const out = ['# Column dictionary', ''];
+  const name = str(ds.name);
+  if (name) out.push('Dataset: ' + name, '');
+  if (!stats.length) {
+    out.push(NO_DATASET_NOTE, '');
+    return out.join('\n');
+  }
+  out.push('Blank rate is counted over the rows present in this export. Where no rows were available it says so rather than showing a zero.', '');
+  out.push('| Column | Type | Blank rate | Rows counted |', '|---|---|---|---|');
+  for (const s of stats) {
+    out.push('| ' + cell(s.name) + ' | ' + cell(s.type || 'not recorded') + ' | ' + cell(s.nullRateText) + ' | ' + cell(s.rowCount) + ' |');
+  }
+  out.push('');
+  return out.join('\n');
+}
+
+function cell(v) {
+  return str(v === null || v === undefined ? '' : String(v)).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
+}
+
+/** Every query behind every number, so the other tool can reproduce them rather
+ *  than trusting the CSV. */
+function buildQueriesSQL(tiles, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const list = (Array.isArray(tiles) ? tiles : []).filter(isPlainObject);
+  const out = [
+    '-- DataGlow hand-off: the queries behind the numbers.',
+    '-- Each block is one number on the Proof Board. Table and column names are',
+    '-- as they were in DataGlow; adjust the relation name for your warehouse.',
+    '',
+  ];
+  let written = 0;
+  for (const t of list) {
+    const code = str(t.sqlOrCode).trim();
+    const lang = str(t.language) || 'sql';
+    if (!code) continue;
+    out.push('-- ' + (str(t.title) || str(t.id) || 'untitled number'));
+    if (lang !== 'sql') {
+      out.push('-- This block is ' + lang + ', not SQL. It is included so the method is not lost.');
+      out.push(code.split('\n').map(l => '-- ' + l).join('\n'));
+    } else {
+      out.push(code.endsWith(';') ? code : code + ';');
+    }
+    out.push('');
+    written++;
+  }
+  const sessionSQL = str(options.sessionSQL).trim();
+  if (sessionSQL) {
+    out.push('-- Last query run in this session.', sessionSQL.endsWith(';') ? sessionSQL : sessionSQL + ';', '');
+    written++;
+  }
+  if (!written) {
+    out.push('-- No query was recorded. Nothing is invented here, so this file is empty on purpose.', '');
+  }
+  return out.join('\n');
+}
+
+function buildValidationSummary(tiles, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const list = (Array.isArray(tiles) ? tiles : []).filter(isPlainObject);
+  const out = ['# Validation summary', '', VALIDATION_HEADER_NOTE, ''];
+
+  const gate = isPlainObject(options.gate) ? options.gate : null;
+  if (gate) {
+    out.push('## Readiness gate', '');
+    const consumable = gate.agentConsumable === true ? 'yes' : (gate.agentConsumable === false ? 'no' : 'not reported');
+    out.push('- Agent consumable: ' + consumable);
+    if (typeof gate.score === 'number' && Number.isFinite(gate.score)) out.push('- Score: ' + gate.score);
+    if (typeof gate.threshold === 'number' && Number.isFinite(gate.threshold)) out.push('- Threshold: ' + gate.threshold);
+    out.push('');
+  }
+
+  out.push('## Numbers and their checks', '');
+  if (!list.length) {
+    out.push('No numbers were on the Proof Board, so nothing here has been checked.', '');
+    return out.join('\n');
+  }
+  out.push('| Number | Value | Check reported |', '|---|---|---|');
+  for (const t of list) {
+    const badge = str(t.gateBadge) || 'unknown';
+    const said = badge === 'unknown' || badge === ''
+      ? 'not checked'
+      : (str(t.badgeLabel) || badge);
+    out.push('| ' + cell(t.title) + ' | ' + cell(t.valueText || t.value) + ' | ' + cell(said) + ' |');
+  }
+  out.push('');
+
+  const unchecked = list.filter(t => !str(t.gateBadge) || str(t.gateBadge) === 'unknown').length;
+  const blocked = list.filter(t => str(t.gateBadge) === 'blocked').length;
+  out.push('## What this does not tell you', '');
+  out.push('- Whether each query still returns the number shown. That needs the data and the engine, and re-running here would report a fresh number as if it were the recorded one.');
+  out.push('- Whether these are the right numbers to be looking at. No engine can answer that.');
+  if (unchecked) out.push('- ' + unchecked + ' number(s) have had no check reported on them at all.');
+  if (blocked) out.push('- ' + blocked + ' number(s) were blocked by a check and should not be republished as results.');
+  out.push('');
+  return out.join('\n');
+}
+
+function buildHandoffReadme(meta) {
+  const m = isPlainObject(meta) ? meta : {};
+  const files = Array.isArray(m.files) ? m.files : [];
+  const out = [
+    '# Hand-off to Power BI or Tableau',
+    '',
+    'This folder is what DataGlow can hand a BI tool without pretending to be one.',
+    '',
+    '## What is here',
+    '',
+  ];
+  if (files.length) {
+    out.push('| File | What it is |', '|---|---|');
+    for (const f of files) out.push('| ' + cell(f.name) + ' | ' + cell(f.note) + ' |');
+    out.push('');
+  }
+  out.push(
+    '## Power BI',
+    '',
+    '1. Get Data, then Text/CSV, and pick `data.csv`.',
+    '2. Check the column types on the preview against `dictionary.md` before loading. Power BI guesses types and its guess is not always the type the analysis used.',
+    '3. To reproduce a number rather than trusting the CSV, open `queries.sql` and run the block for that number against your own source.',
+    '',
+    '## Tableau',
+    '',
+    '1. Connect, then Text file, and pick `data.csv`.',
+    '2. Compare the field types on the data source tab against `dictionary.md`.',
+    '3. For a number you intend to publish, use the matching block in `queries.sql` as a custom SQL source instead of the CSV.',
+    '',
+    '## Before you publish anything from this',
+    '',
+    'Read `validation-summary.md`. It lists which numbers had a check reported on them and which did not. A number marked "not checked" has not failed anything, but nothing has passed it either.',
+    '',
+    '---',
+    '',
+    HANDOFF_DISCLAIMER,
+    '',
+  );
+  return out.join('\n');
+}
+
+/**
+ * The pack. Returns file descriptors rather than triggering anything, so the
+ * surface can show the list, get one confirmation for the set, and then write
+ * them.
+ */
+function buildHandoffPack(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const dataset = isPlainObject(inp.dataset) ? inp.dataset : null;
+  const tiles = (Array.isArray(inp.tiles) ? inp.tiles : []).filter(isPlainObject);
+  const problems = [];
+
+  if (!dataset || !Array.isArray(dataset.columns) || !dataset.columns.length) {
+    problems.push(NO_DATASET_NOTE);
+  }
+  if (!tiles.length) {
+    problems.push('The Proof Board has no tiles, so queries.sql and the validation summary will say that nothing was recorded rather than inventing entries.');
+  }
+
+  const csv = toCSV(dataset ? dataset.columns : [], dataset ? dataset.rows : [], { maxRows: inp.maxRows });
+  const files = [
+    { name: 'data.csv', mimeType: CSV_MIME, text: csv, note: 'The rows as they stand in DataGlow right now.' },
+    { name: 'dictionary.md', mimeType: MD_MIME, text: buildDictionary(dataset), note: 'Column names, types, and blank rate counted over the exported rows.' },
+    { name: 'queries.sql', mimeType: SQL_MIME, text: buildQueriesSQL(tiles, { sessionSQL: inp.sessionSQL }), note: 'The query behind each number, so the other tool can reproduce it.' },
+    { name: 'validation-summary.md', mimeType: MD_MIME, text: buildValidationSummary(tiles, { gate: inp.gate }), note: 'What was checked, what was not, and what neither can tell you.' },
+  ];
+  files.push({
+    name: 'README-handoff.md',
+    mimeType: MD_MIME,
+    text: buildHandoffReadme({ files: files.map(f => ({ name: f.name, note: f.note })) }),
+    note: 'How to open these in Power BI or Tableau.',
+  });
+
+  for (const f of files) f.bytes = f.text.length;
+
+  return {
+    kind: BI_HANDOFF_KIND,
+    version: BI_HANDOFF_VERSION,
+    files,
+    manifest: files.map(f => ({ name: f.name, mimeType: f.mimeType, bytes: f.bytes, note: f.note })),
+    rowCount: dataset && Array.isArray(dataset.rows) ? dataset.rows.length : 0,
+    columnCount: dataset && Array.isArray(dataset.columns) ? dataset.columns.length : 0,
+    tileCount: tiles.length,
+    problems,
+    disclaimer: HANDOFF_DISCLAIMER,
+  };
+}
+  window.DataGlowBIHandoff = {
+    BI_HANDOFF_KIND: BI_HANDOFF_KIND,
+    BI_HANDOFF_VERSION: BI_HANDOFF_VERSION,
+    HANDOFF_DISCLAIMER: HANDOFF_DISCLAIMER,
+    VALIDATION_HEADER_NOTE: VALIDATION_HEADER_NOTE,
+    NO_DATASET_NOTE: NO_DATASET_NOTE,
+    csvEscape: csvEscape,
+    cellAt: cellAt,
+    toCSV: toCSV,
+    columnStats: columnStats,
+    buildDictionary: buildDictionary,
+    buildQueriesSQL: buildQueriesSQL,
+    buildValidationSummary: buildValidationSummary,
+    buildHandoffReadme: buildHandoffReadme,
+    buildHandoffPack: buildHandoffPack,
+  };
+})();
+/* ---- end js/export/bi-handoff.js ---- */
+/* ---- from js/privacy/deid-receipt.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - De-identification screening receipt
+// ============================================================
+//
+// The Safe Harbor verifier already does the work: it walks the eighteen HIPAA
+// Safe Harbor categories against the columns and sampled values, and scores how
+// easily a row could be re-identified from the indirect identifiers present.
+// What it does not do is produce something a person can hand to someone else.
+// This turns its report into that artifact.
+//
+// WHY THE VERDICT IS RENAMED ON THE WAY OUT.
+// The verifier returns `pass`, `review` or `fail`. Those are fine as engine
+// states and dangerous as printed words. A document that says "PASS" next to a
+// hospital's dataset will be read as clearance to release it, and it is not:
+// it means a pattern-matching screen did not recognise anything in the column
+// names and the sampled values. It cannot see a free-text note with a name in
+// it, it did not see the rows it was not given, and it has no view of the
+// agreements that actually govern the data. So `pass` is printed as "nothing
+// was flagged by this screen" and every rendering carries the same sentence
+// saying what the screen could not look at.
+//
+// WHY THE DISCLAIMER IS A CONSTANT AND NOT AN ARGUMENT.
+// This file gets forwarded. It will be read by someone who did not run it and
+// has no idea how thin an automated screen is, and a page of clear rows reads
+// as a certification to that person. A caller cannot pass a shorter disclaimer,
+// cannot pass an empty one, and cannot suppress it, because the one time
+// somebody wants to is exactly the time it needs to be there.
+//
+// This is not a HIPAA certification, it does not make anything HIPAA compliant,
+// and nothing in this bundle claims otherwise.
+//
+// Pure. Builds a model and two renderings. Confirming and downloading belong to
+// the surface.
+
+const DEID_RECEIPT_KIND = 'dataglow-deid-screening-receipt';
+const DEID_RECEIPT_VERSION = 1;
+
+const DEID_NOT_CERTIFICATION =
+  'This is an automated screening aid, not a HIPAA certification. It does not certify that this dataset is de-identified, does not make it safe to release, and is not legal or clinical advice. A Safe Harbor determination is made by a person who is accountable for it.';
+
+const DEID_WHAT_IT_CANNOT_SEE =
+  'What this screen cannot see: identifiers hidden in free text or notes, identifiers in rows it was not given, anything outside the columns and sampled values it was handed, and any agreement or policy that governs this data. A clear result is the absence of a match, not the presence of safety.';
+
+const DEID_NO_REPORT =
+  'No screening result was supplied, so this receipt has nothing to report. Run the de-identification check first.';
+
+/** Engine state to printed words. The mapping is the point of this file. */
+const VERDICT_LABELS = Object.freeze({
+  pass: 'Nothing was flagged by this screen',
+  review: 'Needs a human review',
+  fail: 'Flagged by this screen',
+});
+
+const VERDICT_MEANINGS = Object.freeze({
+  pass: 'The screen did not recognise a Safe Harbor identifier in the column names or the sampled values, and the re-identification score came out low. That is not clearance to release.',
+  review: 'No direct identifier was flagged, but enough indirect identifiers are present that a person could plausibly be singled out. A human needs to look at this before it goes anywhere.',
+  fail: 'At least one Safe Harbor category matched, or the re-identification risk scored high. Treat this dataset as identifiable until that is resolved.',
+});
+
+const RISK_MEANINGS = Object.freeze({
+  low: 'Few indirect identifiers were found among the columns.',
+  moderate: 'Enough indirect identifiers are present that combinations of them could narrow a row to a small group.',
+  high: 'The combination of indirect identifiers present is known to single out individuals in real datasets.',
+});
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function escapeHtml(value) {
+  return str(value === null || value === undefined ? '' : String(value))
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Normalize the verifier's report into a receipt model. Tolerates a missing or
+ * malformed report by saying so, because a receipt that renders an empty table
+ * as a clean result would be the worst possible failure of this file.
+ */
+function buildDeidReceipt(report, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const r = isPlainObject(report) ? report : null;
+
+  if (!r) {
+    return {
+      kind: DEID_RECEIPT_KIND,
+      version: DEID_RECEIPT_VERSION,
+      available: false,
+      problem: DEID_NO_REPORT,
+      generatedAt: str(options.generatedAt),
+      dataset: { table: null, rowCount: null, columnCount: 0 },
+      verdict: null,
+      verdictLabel: 'No result',
+      verdictMeaning: DEID_NO_REPORT,
+      flagged: [],
+      clearCount: 0,
+      flaggedCount: 0,
+      risk: null,
+      datasetFingerprint: str(options.datasetFingerprint),
+      notCertification: DEID_NOT_CERTIFICATION,
+      cannotSee: DEID_WHAT_IT_CANNOT_SEE,
+    };
+  }
+
+  const sh = isPlainObject(r.safeHarbor) ? r.safeHarbor : { categories: [], flaggedCount: 0, clearCount: 0 };
+  const categories = Array.isArray(sh.categories) ? sh.categories.filter(isPlainObject) : [];
+  const flagged = categories
+    .filter(c => str(c.status) === 'flag')
+    .map(c => ({
+      id: str(c.id),
+      n: c.n,
+      label: str(c.label),
+      columns: (Array.isArray(c.matchedColumns) ? c.matchedColumns : [])
+        .filter(isPlainObject)
+        .map(m => ({ column: str(m.column), reason: str(m.reason) })),
+    }));
+
+  const reid = isPlainObject(r.reidentification) ? r.reidentification : null;
+  const level = reid ? str(reid.level) : '';
+  const verdict = str(r.verdict);
+
+  return {
+    kind: DEID_RECEIPT_KIND,
+    version: DEID_RECEIPT_VERSION,
+    available: true,
+    problem: '',
+    generatedAt: str(options.generatedAt) || str(r.generatedAt),
+    dataset: {
+      table: isPlainObject(r.dataset) ? (r.dataset.table || null) : null,
+      rowCount: isPlainObject(r.dataset) && typeof r.dataset.rowCount === 'number' ? r.dataset.rowCount : null,
+      columnCount: isPlainObject(r.dataset) && Array.isArray(r.dataset.columns) ? r.dataset.columns.length : 0,
+    },
+    verdict: verdict || null,
+    verdictLabel: VERDICT_LABELS[verdict] || 'Not reported',
+    verdictMeaning: VERDICT_MEANINGS[verdict] || 'The screen did not return a verdict this receipt recognises, so nothing is claimed about it.',
+    categories,
+    flagged,
+    flaggedCount: typeof sh.flaggedCount === 'number' ? sh.flaggedCount : flagged.length,
+    clearCount: typeof sh.clearCount === 'number' ? sh.clearCount : Math.max(0, categories.length - flagged.length),
+    risk: reid
+      ? {
+          score: typeof reid.score === 'number' ? reid.score : null,
+          level: level || null,
+          levelMeaning: RISK_MEANINGS[level] || 'The screen did not return a risk level this receipt recognises.',
+          present: Array.isArray(reid.present) ? reid.present.map(str) : [],
+          quasiIdentifierCount: typeof reid.quasiIdentifierCount === 'number' ? reid.quasiIdentifierCount : null,
+          rationale: str(reid.rationale),
+        }
+      : null,
+    datasetFingerprint: str(options.datasetFingerprint),
+    notCertification: DEID_NOT_CERTIFICATION,
+    cannotSee: DEID_WHAT_IT_CANNOT_SEE,
+  };
+}
+
+function renderDeidReceiptMarkdown(model) {
+  const m = isPlainObject(model) ? model : buildDeidReceipt(null);
+  const out = ['# De-identification screening receipt', ''];
+  out.push('**' + DEID_NOT_CERTIFICATION + '**', '');
+
+  if (!m.available) {
+    out.push(m.problem, '', DEID_WHAT_IT_CANNOT_SEE, '');
+    return out.join('\n');
+  }
+
+  out.push('## Result', '');
+  out.push('- Screen result: ' + m.verdictLabel);
+  out.push('- What that means: ' + m.verdictMeaning);
+  if (m.generatedAt) out.push('- Screened at: ' + m.generatedAt);
+  if (m.dataset.table) out.push('- Table: ' + m.dataset.table);
+  if (typeof m.dataset.rowCount === 'number') out.push('- Rows screened: ' + m.dataset.rowCount);
+  out.push('- Columns screened: ' + m.dataset.columnCount);
+  if (m.datasetFingerprint) out.push('- Dataset fingerprint: ' + m.datasetFingerprint);
+  out.push('');
+
+  out.push('## Safe Harbor categories', '');
+  out.push('- Flagged: ' + m.flaggedCount);
+  out.push('- Not flagged: ' + m.clearCount);
+  out.push('');
+  if (m.flagged.length) {
+    out.push('| Category | Column | Why it was flagged |', '|---|---|---|');
+    for (const f of m.flagged) {
+      if (!f.columns.length) {
+        out.push('| ' + cell(f.label) + ' | (not named) | flagged |');
+        continue;
+      }
+      for (const c of f.columns) {
+        out.push('| ' + cell(f.label) + ' | ' + cell(c.column) + ' | ' + cell(c.reason) + ' |');
+      }
+    }
+    out.push('');
+  } else {
+    out.push('No Safe Harbor category matched. Read that as "this screen did not recognise one", not as "there is none".', '');
+  }
+
+  if (m.risk) {
+    out.push('## Re-identification risk', '');
+    if (m.risk.level) out.push('- Level: ' + m.risk.level);
+    if (typeof m.risk.score === 'number') out.push('- Score: ' + m.risk.score + ' out of 100');
+    out.push('- What that means: ' + m.risk.levelMeaning);
+    if (m.risk.present.length) out.push('- Indirect identifiers present: ' + m.risk.present.join(', '));
+    if (m.risk.rationale) out.push('- Detail: ' + m.risk.rationale);
+    out.push('');
+  }
+
+  out.push('## Limits of this receipt', '');
+  out.push(DEID_WHAT_IT_CANNOT_SEE, '');
+  out.push('---', '', DEID_NOT_CERTIFICATION, '');
+  return out.join('\n');
+}
+
+function cell(v) {
+  return str(v === null || v === undefined ? '' : String(v)).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
+}
+
+const RECEIPT_CSS = [
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.55;',
+  'max-width:820px;margin:0 auto;padding:32px 20px;color:#1a1a1a;background:#fff}',
+  'h1{font-size:22px;margin:0 0 6px}h2{font-size:16px;margin:26px 0 8px}',
+  '.dg-warn{border:2px solid #A12C7B;background:#fdf2f8;color:#7a1f5c;padding:12px 14px;',
+  'border-radius:6px;margin:14px 0;font-weight:600}',
+  '.dg-note{border-left:3px solid #999;background:#f6f6f6;padding:10px 14px;margin:14px 0;font-size:14px}',
+  'table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}',
+  'th,td{border:1px solid #ddd;padding:7px 9px;text-align:left;vertical-align:top}',
+  'th{background:#f2f2f2}ul{margin:8px 0;padding-left:20px}',
+  '.dg-verdict{font-size:17px;font-weight:700;margin:8px 0}',
+].join('');
+
+/** One self-contained HTML file. No script, no stylesheet link, no fetch: this
+ *  document gets forwarded, and a forwarded page must not reach the network. */
+function renderDeidReceiptHTML(model) {
+  const m = isPlainObject(model) ? model : buildDeidReceipt(null);
+  const parts = [
+    '<!DOCTYPE html>',
+    '<html lang="en"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>De-identification screening receipt</title>',
+    '<style>' + RECEIPT_CSS + '</style></head><body>',
+    '<h1>De-identification screening receipt</h1>',
+    '<div class="dg-warn">' + escapeHtml(DEID_NOT_CERTIFICATION) + '</div>',
+  ];
+
+  if (!m.available) {
+    parts.push('<p>' + escapeHtml(m.problem) + '</p>');
+    parts.push('<div class="dg-note">' + escapeHtml(DEID_WHAT_IT_CANNOT_SEE) + '</div>');
+    parts.push('</body></html>');
+    return parts.join('\n');
+  }
+
+  parts.push('<h2>Result</h2>');
+  parts.push('<div class="dg-verdict">' + escapeHtml(m.verdictLabel) + '</div>');
+  parts.push('<p>' + escapeHtml(m.verdictMeaning) + '</p>');
+  parts.push('<ul>');
+  if (m.generatedAt) parts.push('<li>Screened at: ' + escapeHtml(m.generatedAt) + '</li>');
+  if (m.dataset.table) parts.push('<li>Table: ' + escapeHtml(m.dataset.table) + '</li>');
+  if (typeof m.dataset.rowCount === 'number') parts.push('<li>Rows screened: ' + escapeHtml(m.dataset.rowCount) + '</li>');
+  parts.push('<li>Columns screened: ' + escapeHtml(m.dataset.columnCount) + '</li>');
+  if (m.datasetFingerprint) parts.push('<li>Dataset fingerprint: ' + escapeHtml(m.datasetFingerprint) + '</li>');
+  parts.push('</ul>');
+
+  parts.push('<h2>Safe Harbor categories</h2>');
+  parts.push('<p>Flagged: ' + escapeHtml(m.flaggedCount) + '. Not flagged: ' + escapeHtml(m.clearCount) + '.</p>');
+  if (m.flagged.length) {
+    parts.push('<table><thead><tr><th>Category</th><th>Column</th><th>Why it was flagged</th></tr></thead><tbody>');
+    for (const f of m.flagged) {
+      if (!f.columns.length) {
+        parts.push('<tr><td>' + escapeHtml(f.label) + '</td><td>(not named)</td><td>flagged</td></tr>');
+        continue;
+      }
+      for (const c of f.columns) {
+        parts.push('<tr><td>' + escapeHtml(f.label) + '</td><td>' + escapeHtml(c.column) + '</td><td>' + escapeHtml(c.reason) + '</td></tr>');
+      }
+    }
+    parts.push('</tbody></table>');
+  } else {
+    parts.push('<p>No Safe Harbor category matched. Read that as "this screen did not recognise one", not as "there is none".</p>');
+  }
+
+  if (m.risk) {
+    parts.push('<h2>Re-identification risk</h2><ul>');
+    if (m.risk.level) parts.push('<li>Level: ' + escapeHtml(m.risk.level) + '</li>');
+    if (typeof m.risk.score === 'number') parts.push('<li>Score: ' + escapeHtml(m.risk.score) + ' out of 100</li>');
+    parts.push('<li>' + escapeHtml(m.risk.levelMeaning) + '</li>');
+    if (m.risk.present.length) parts.push('<li>Indirect identifiers present: ' + escapeHtml(m.risk.present.join(', ')) + '</li>');
+    if (m.risk.rationale) parts.push('<li>' + escapeHtml(m.risk.rationale) + '</li>');
+    parts.push('</ul>');
+  }
+
+  parts.push('<h2>Limits of this receipt</h2>');
+  parts.push('<div class="dg-note">' + escapeHtml(DEID_WHAT_IT_CANNOT_SEE) + '</div>');
+  parts.push('<div class="dg-warn">' + escapeHtml(DEID_NOT_CERTIFICATION) + '</div>');
+  parts.push('</body></html>');
+  return parts.join('\n');
+}
+  window.DataGlowDeidReceipt = {
+    DEID_RECEIPT_KIND: DEID_RECEIPT_KIND,
+    DEID_RECEIPT_VERSION: DEID_RECEIPT_VERSION,
+    DEID_NOT_CERTIFICATION: DEID_NOT_CERTIFICATION,
+    DEID_WHAT_IT_CANNOT_SEE: DEID_WHAT_IT_CANNOT_SEE,
+    DEID_NO_REPORT: DEID_NO_REPORT,
+    VERDICT_LABELS: VERDICT_LABELS,
+    VERDICT_MEANINGS: VERDICT_MEANINGS,
+    RISK_MEANINGS: RISK_MEANINGS,
+    escapeHtml: escapeHtml,
+    buildDeidReceipt: buildDeidReceipt,
+    renderDeidReceiptMarkdown: renderDeidReceiptMarkdown,
+    renderDeidReceiptHTML: renderDeidReceiptHTML,
+  };
+})();
+/* ---- end js/privacy/deid-receipt.js ---- */
+/* ---- from js/proofpost/proof-to-post.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Proof to Post
+// ============================================================
+//
+// The loop this closes: analyze locally, prove on the Proof Board, publish a
+// Glowbook or a portfolio page, then post about it. The last step is where
+// analysts normally lose the proof. A number that survived a query engine, a
+// validation gate and a receipt chain gets retyped into a social post by hand,
+// and at that moment it becomes a number with nothing behind it.
+//
+// So the draft here is not written by a human and then checked. It is assembled
+// from tiles, which means every number in it came out of an engine by
+// construction, and then it is checked anyway by the prove gate, because
+// assembly can still go wrong and a post is not something you can recall.
+//
+// WHY THERE IS NO POST BUTTON.
+// `NEVER_AUTO_POST` is a constant, not a setting. DataGlow has no server and no
+// outbound network, and an OAuth posting integration would need both. Beyond
+// the architecture, a tool that can post on your behalf is a tool that can post
+// something you did not read. The output is text on a clipboard. The last
+// action is always a human pasting it somewhere.
+//
+// WHY THE TRANSPARENCY LINE IS COMPUTED AND NOT A STRING.
+// "Numbers engine-checked" is a claim about the work, and it is false if any
+// tile in the post is carrying the `unknown` badge. Writing that sentence as a
+// fixed constant would make the post lie about its own rigour in exactly the
+// case where the reader most needs to know. So the line is derived from the
+// badges actually present.
+//
+// Pure. No DOM, no network, no clipboard. Rendering and confirming belong to
+// the canvas surface.
+
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowProofBoard instead of imported.
+  var formatTileValue = window.DataGlowProofBoard.formatTileValue, hasValue = window.DataGlowProofBoard.hasValue;
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowProofBoardCoach instead of imported.
+  var clampStep = window.DataGlowProofBoardCoach.clampStep, coachStripModel = window.DataGlowProofBoardCoach.coachStripModel;
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowProveGate instead of imported.
+  var assertClaimAllowed = window.DataGlowProveGate.assertClaimAllowed, describeGateResult = window.DataGlowProveGate.describeGateResult;
+const PROOF_TO_POST_KIND = 'dataglow-proof-to-post';
+const PROOF_TO_POST_VERSION = 1;
+
+/** Not a preference. See the header. */
+const NEVER_AUTO_POST = true;
+
+const MAX_BULLETS = 5;
+
+const METHOD_LINE =
+  'Method: every number above was produced by a query in DataGlow, and the query is shown next to the number it produced.';
+
+const TRANSPARENCY_CHECKED =
+  'Analyzed locally in DataGlow. Every number here was checked by an engine, and the code that produced it travels with it.';
+
+const TRANSPARENCY_PARTIAL =
+  'Analyzed locally in DataGlow. Every number here was produced by a query that travels with it. Not every number has had a separate check reported on it.';
+
+const POST_DISCLAIMER =
+  'This draft is text for a person to read, edit and paste. DataGlow does not post it, does not send it anywhere, and has no account connected to any network.';
+
+const EMPTY_POST_HEADLINE =
+  'There is nothing to post yet, because nothing has been proved yet.';
+
+const EMPTY_POST_CTA =
+  'Load a file and build a Proof Board first. The post is assembled from the tiles, so there is no draft without them.';
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Accept a board object or a bare tile array, so callers do not have to care. */
+function tilesOf(boardOrTiles) {
+  if (Array.isArray(boardOrTiles)) return boardOrTiles.filter(isPlainObject);
+  if (isPlainObject(boardOrTiles) && Array.isArray(boardOrTiles.tiles)) {
+    return boardOrTiles.tiles.filter(isPlainObject);
+  }
+  return [];
+}
+
+/** Tiles that can carry a number into a post. A tile with no value is not a
+ *  weaker bullet, it is not a bullet at all. */
+function postableTiles(boardOrTiles) {
+  return tilesOf(boardOrTiles).filter(t => hasValue(t.value) && str(t.gateBadge) !== 'blocked');
+}
+
+/** Tiles deliberately left out, with the reason, so the surface can say why a
+ *  number the user can see on the board is missing from the draft. */
+function excludedTiles(boardOrTiles) {
+  const out = [];
+  for (const t of tilesOf(boardOrTiles)) {
+    if (!hasValue(t.value)) {
+      out.push({ id: str(t.id), title: str(t.title), why: 'This tile has no value, so there is no number to quote.' });
+    } else if (str(t.gateBadge) === 'blocked') {
+      out.push({ id: str(t.id), title: str(t.title), why: 'A check blocked this number. Quoting it would publish a known problem.' });
+    }
+  }
+  return out;
+}
+
+function bulletForTile(tile) {
+  const text = formatTileValue(tile && tile.value, tile && tile.unit);
+  const title = str(tile && tile.title).trim();
+  if (!text) return '';
+  return title ? title + ': ' + text : text;
+}
+
+function transparencyFor(tiles) {
+  const anyUnchecked = tiles.some(t => {
+    const b = str(t.gateBadge);
+    return b === '' || b === 'unknown';
+  });
+  return anyUnchecked ? TRANSPARENCY_PARTIAL : TRANSPARENCY_CHECKED;
+}
+
+/**
+ * Assemble the LinkedIn draft. Numbers come from tiles and nowhere else; the
+ * caller may supply a title and a closing line, and neither is allowed to
+ * smuggle a number past the gate because the whole assembled text is validated.
+ */
+function buildLinkedInDraft(boardOrTiles, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const tiles = postableTiles(boardOrTiles).slice(0, MAX_BULLETS);
+  const bullets = tiles.map(bulletForTile).filter(b => b !== '');
+  const title = str(options.title).trim() || 'What I found in this dataset';
+  const closing = str(options.closing).trim();
+  const includeTransparency = options.includeTransparency !== false;
+  const transparencyLine = includeTransparency ? transparencyFor(tiles) : '';
+
+  const lines = [title, ''];
+  for (const b of bullets) lines.push('- ' + b);
+  if (bullets.length) lines.push('');
+  lines.push(METHOD_LINE);
+  if (transparencyLine) lines.push(transparencyLine);
+  if (closing) {
+    lines.push('');
+    lines.push(closing);
+  }
+
+  const text = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const problems = [];
+  if (!bullets.length) problems.push(EMPTY_POST_HEADLINE);
+
+  return {
+    kind: PROOF_TO_POST_KIND,
+    version: PROOF_TO_POST_VERSION,
+    neverAutoPost: NEVER_AUTO_POST,
+    title,
+    bullets,
+    methodLine: METHOD_LINE,
+    transparencyLine,
+    closing,
+    text,
+    tileIds: tiles.map(t => str(t.id)),
+    problems,
+    disclaimer: POST_DISCLAIMER,
+  };
+}
+
+/**
+ * Every numeric claim in the draft must bind to a tile. This runs the same gate
+ * the AI narrative paths run, on the final assembled string rather than on the
+ * pieces, because the pieces are not what gets pasted.
+ */
+function validateLinkedInDraft(draft, boardOrTiles, opts) {
+  const text = isPlainObject(draft) ? str(draft.text) : str(draft);
+  const gate = assertClaimAllowed(text, tilesOf(boardOrTiles), opts);
+  const problems = gate.reasons.slice();
+  if (isPlainObject(draft) && Array.isArray(draft.problems)) {
+    for (const p of draft.problems) if (str(p)) problems.push(str(p));
+  }
+  return {
+    ok: gate.allowed && (!isPlainObject(draft) || !draft.problems || draft.problems.length === 0),
+    gate,
+    summary: describeGateResult(gate),
+    cautions: gate.cautions,
+    problems,
+  };
+}
+
+/** A portfolio page in markdown. Same rule: numbers only from tiles. */
+function buildPortfolioMarkdown(boardOrTiles, opts) {
+  const options = isPlainObject(opts) ? opts : {};
+  const tiles = postableTiles(boardOrTiles);
+  const title = str(options.title).trim() || 'Analysis write-up';
+  const recommendation = str(options.recommendation).trim();
+  const narrative = str(options.portfolioDoc).trim();
+
+  const out = ['# ' + title, ''];
+  if (narrative) {
+    out.push(narrative, '');
+  }
+  out.push('## What the numbers are', '');
+  if (!tiles.length) {
+    out.push(EMPTY_POST_HEADLINE, '', EMPTY_POST_CTA, '');
+  } else {
+    out.push('| Finding | Value | Check |', '|---|---|---|');
+    for (const t of tiles) {
+      out.push('| ' + mdCell(t.title) + ' | ' + mdCell(formatTileValue(t.value, t.unit)) + ' | ' + mdCell(t.badgeLabel || t.gateBadge) + ' |');
+    }
+    out.push('');
+    out.push('## How each number was produced', '');
+    for (const t of tiles) {
+      out.push('### ' + str(t.title));
+      out.push('');
+      const code = str(t.sqlOrCode).trim();
+      if (code) {
+        out.push('```' + (str(t.language) || 'sql'), code, '```', '');
+      } else {
+        out.push('No code was recorded for this number.', '');
+      }
+    }
+  }
+  if (recommendation) {
+    out.push('## Recommendation', '', recommendation, '');
+  }
+  out.push('---', '', POST_DISCLAIMER, '');
+  return out.join('\n');
+}
+
+function mdCell(v) {
+  return str(v).replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
+}
+
+/**
+ * The three-step checklist the panel renders. Each step reports whether it is
+ * ready and, when it is not, exactly what is missing. A step is never reported
+ * ready on the strength of something the user has not actually done.
+ */
+function proofToPostSteps(pack, state) {
+  const s = isPlainObject(state) ? state : {};
+  const tiles = isPlainObject(pack) && Array.isArray(pack.tiles) ? pack.tiles : [];
+  const draftOk = isPlainObject(pack) && isPlainObject(pack.validation) ? pack.validation.ok === true : false;
+
+  const proveReady = tiles.length > 0;
+  return [
+    {
+      id: 'prove',
+      title: 'Prove',
+      body: proveReady
+        ? tiles.length + ' tile(s) on the Proof Board carry a value and the code that produced it.'
+        : 'The Proof Board has no tile with a value yet. Load data and build the board first.',
+      ready: proveReady,
+      blocker: proveReady ? '' : EMPTY_POST_CTA,
+    },
+    {
+      id: 'publish',
+      title: 'Publish',
+      body: proveReady
+        ? 'Download the Glowbook and the portfolio markdown. Each download asks first.'
+        : 'Nothing to publish until something is proved.',
+      ready: proveReady && s.published === true,
+      blocker: proveReady ? (s.published === true ? '' : 'No file has been downloaded yet.') : EMPTY_POST_CTA,
+    },
+    {
+      id: 'post',
+      title: 'Post',
+      body: draftOk
+        ? 'The draft is ready to read. Copy is enabled once you confirm you have reviewed the numbers.'
+        : 'The draft is not ready: at least one number in it does not trace to a tile.',
+      ready: draftOk && s.reviewed === true,
+      blocker: !draftOk
+        ? 'Fix the unbound numbers before copying.'
+        : (s.reviewed === true ? '' : 'Tick the review box to enable Copy draft.'),
+    },
+  ];
+}
+
+/**
+ * The whole pack. Assembles the portfolio doc and the draft, then runs the gate
+ * over the draft and carries the result rather than hiding it, so a surface
+ * cannot render a draft without also being able to render why it was refused.
+ */
+function buildProofToPostPack(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const tiles = postableTiles(inp.tiles);
+  const allTiles = tilesOf(inp.tiles);
+  const boardMeta = isPlainObject(inp.boardMeta) ? inp.boardMeta : {};
+
+  const portfolioMarkdown = buildPortfolioMarkdown(allTiles, {
+    title: str(inp.title) || str(boardMeta.title),
+    recommendation: inp.recommendation,
+    portfolioDoc: inp.portfolioDoc,
+  });
+
+  const linkedInDraft = buildLinkedInDraft(allTiles, {
+    title: str(inp.title) || str(boardMeta.title),
+    closing: inp.closing,
+    includeTransparency: inp.includeTransparency,
+  });
+
+  const validation = validateLinkedInDraft(linkedInDraft, allTiles, { engineResults: inp.engineResults });
+
+  const deidReceipt = isPlainObject(inp.deidReceipt) ? inp.deidReceipt : null;
+
+  const pack = {
+    kind: PROOF_TO_POST_KIND,
+    version: PROOF_TO_POST_VERSION,
+    neverAutoPost: NEVER_AUTO_POST,
+    boardMeta,
+    tiles,
+    excluded: excludedTiles(inp.tiles),
+    portfolioMarkdown,
+    linkedInDraft,
+    validation,
+    deidReceipt,
+    empty: tiles.length === 0,
+    emptyHeadline: EMPTY_POST_HEADLINE,
+    emptyCta: EMPTY_POST_CTA,
+    disclaimer: POST_DISCLAIMER,
+  };
+  pack.steps = proofToPostSteps(pack, inp.state);
+  return pack;
+}
+
+// ---- coach strip -----------------------------------------------------------
+//
+// Four steps, one per thing a person can actually do here, reusing the Bundle 9
+// strip model rather than shipping a second tour framework. Nothing is dimmed
+// and nothing is blocked while it is open.
+
+const POST_COACH_SEEN_KEY = 'dataglow.proofToPost.coachSeen';
+
+const POST_COACH_STEPS = Object.freeze([
+  Object.freeze({
+    id: 'loop',
+    target: 'dg-p2p-steps',
+    title: 'Prove, publish, then post',
+    body: 'Three steps in order. Each one stays greyed out until the one before it is genuinely done, so the post cannot get ahead of the proof.',
+  }),
+  Object.freeze({
+    id: 'numbers-are-bound',
+    target: 'dg-p2p-draft',
+    title: 'The draft is assembled, not typed',
+    body: 'Every number in the draft was lifted from a Proof Board tile. Nothing here was written by hand, which is why it can be checked at all.',
+  }),
+  Object.freeze({
+    id: 'gate',
+    target: 'dg-p2p-gate',
+    title: 'The gate names what it refuses',
+    body: 'If a number does not trace back to a tile it is listed by name. Delete it or go compute it. There is no override.',
+  }),
+  Object.freeze({
+    id: 'copy-only',
+    target: 'dg-p2p-copy',
+    title: 'Copy is the last thing this app does',
+    body: 'There is no connected account and no posting API. You tick the review box, you copy the text, and you paste it yourself.',
+  }),
+]);
+
+function postCoachModel(index) {
+  return coachStripModel(POST_COACH_STEPS.slice(), clampStep(index, POST_COACH_STEPS.length));
+}
+  window.DataGlowProofToPost = {
+    PROOF_TO_POST_KIND: PROOF_TO_POST_KIND,
+    POST_COACH_SEEN_KEY: POST_COACH_SEEN_KEY,
+    POST_COACH_STEPS: POST_COACH_STEPS,
+    postCoachModel: postCoachModel,
+    PROOF_TO_POST_VERSION: PROOF_TO_POST_VERSION,
+    NEVER_AUTO_POST: NEVER_AUTO_POST,
+    MAX_BULLETS: MAX_BULLETS,
+    METHOD_LINE: METHOD_LINE,
+    TRANSPARENCY_CHECKED: TRANSPARENCY_CHECKED,
+    TRANSPARENCY_PARTIAL: TRANSPARENCY_PARTIAL,
+    POST_DISCLAIMER: POST_DISCLAIMER,
+    EMPTY_POST_HEADLINE: EMPTY_POST_HEADLINE,
+    EMPTY_POST_CTA: EMPTY_POST_CTA,
+    tilesOf: tilesOf,
+    postableTiles: postableTiles,
+    excludedTiles: excludedTiles,
+    bulletForTile: bulletForTile,
+    buildLinkedInDraft: buildLinkedInDraft,
+    validateLinkedInDraft: validateLinkedInDraft,
+    buildPortfolioMarkdown: buildPortfolioMarkdown,
+    proofToPostSteps: proofToPostSteps,
+    buildProofToPostPack: buildProofToPostPack,
+  };
+})();
+/* ---- end js/proofpost/proof-to-post.js ---- */
+/* ---- from js/proofpost/data-glow-proof-to-post-canvas.js ---- */
+/*
+ * DATAGLOW - Proof to Post canvas surface.
+ *
+ * The panel that closes the loop: prove on the Proof Board, publish a file,
+ * then copy a draft to post yourself. It is a thin surface. Every decision it
+ * renders was made by a pure engine that can be tested without a browser, and
+ * the only things this file owns are the DOM, the confirms and the clipboard.
+ *
+ * WHY EVERY OUTBOUND ARTIFACT ASKS FIRST.
+ * A download and a clipboard write are the two ways data leaves this app. They
+ * are the moments the zero-upload promise is actually kept or broken by a
+ * person rather than by the architecture, so each one is a confirm a human has
+ * to read. If the browser has no confirm the answer is no, because a silent yes
+ * here writes a file nobody asked for.
+ *
+ * WHY THE STEPS GO GREY INSTEAD OF DISAPPEARING.
+ * A hidden step teaches nothing. A visible step that says why it is not ready
+ * yet tells the person what to go do. So Publish and Post render at all times
+ * and carry their own blocker text.
+ *
+ * Everything is feature-detected. This panel mounts beside surfaces that may or
+ * may not be inlined in a given build, and a missing engine removes a control
+ * rather than throwing.
+ */
+;(function () {
+  'use strict';
+
+  var BTN_ID = 'dg-p2p-btn';
+  var PANEL_ID = 'dg-p2p-panel';
+  var STYLE_ID = 'dg-p2p-styles';
+  var STEPS_ID = 'dg-p2p-steps';
+  var DRAFT_ID = 'dg-p2p-draft';
+  var GATE_ID = 'dg-p2p-gate';
+  var COPY_ID = 'dg-p2p-copy';
+  var COACH_ID = 'dg-p2p-coach';
+  var REVIEW_ID = 'dg-p2p-review';
+
+  var state = { open: false, published: false, reviewed: false, coachIndex: 0, coachOpen: false, pack: null };
+
+  function flag(explicitKey, flagKey) {
+    try { if (window[explicitKey] === false) return false; } catch (_e0) {}
+    try { if (window[explicitKey] === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled(flagKey) !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function flagOn() { return flag('DATAGLOW_PROOF_TO_POST', 'proofToPost'); }
+  function handoffOn() { return flag('DATAGLOW_BI_HANDOFF', 'biHandoff'); }
+  function receiptOn() { return flag('DATAGLOW_DEID_RECEIPT', 'deidReceipt'); }
+  function proveGateOn() { return flag('DATAGLOW_AI_PROVE_GATE', 'aiProveGate'); }
+
+  function engine(name) {
+    try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  /* The one prompt on this page a person cannot mistake for decoration. No
+     confirm available means no. */
+  function askHuman(question) {
+    try {
+      if (typeof window.confirm === 'function') return window.confirm(question) === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function toast(message) {
+    try {
+      if (typeof window.showToast === 'function') { window.showToast(message); return; }
+    } catch (_e) {}
+    try { console.log('[proof-to-post] ' + message); } catch (_e2) {}
+  }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'style') node.setAttribute('style', attrs[k]);
+        else if (k === 'class') node.className = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      }
+    }
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function styles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = [
+      '#' + PANEL_ID + '{position:fixed;right:18px;bottom:74px;width:min(560px,calc(100vw - 36px));',
+      'max-height:min(74vh,700px);overflow:auto;z-index:2147483000;display:none;',
+      'background:var(--color-surface,#fff);color:var(--color-text,#1a1a1a);',
+      'border:1px solid var(--color-border,#ddd);border-radius:10px;padding:16px 18px;',
+      'box-shadow:0 12px 40px rgba(0,0,0,.22);font-size:14px;line-height:1.5}',
+      '#' + PANEL_ID + ' h3{margin:0 0 4px;font-size:16px}',
+      '#' + PANEL_ID + ' h4{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;opacity:.7}',
+      '.dg-p2p-step{border:1px solid var(--color-border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:8px}',
+      '.dg-p2p-step.ready{border-color:#1f9d55;background:rgba(31,157,85,.06)}',
+      '.dg-p2p-step.waiting{opacity:.72}',
+      '.dg-p2p-step-t{font-weight:600;margin-bottom:2px}',
+      '.dg-p2p-blocker{font-size:12px;color:#A12C7B;margin-top:4px}',
+      '.dg-p2p-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}',
+      '.dg-p2p-btn{font:inherit;font-size:13px;padding:6px 12px;border-radius:6px;cursor:pointer;',
+      'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}',
+      '.dg-p2p-btn:disabled{opacity:.45;cursor:not-allowed}',
+      '.dg-p2p-btn.primary{background:#20808D;border-color:#20808D;color:#fff}',
+      '#' + DRAFT_ID + '{white-space:pre-wrap;font-family:inherit;background:var(--color-bg,#f7f7f7);',
+      'border:1px solid var(--color-border,#e2e2e2);border-radius:8px;padding:12px 14px;margin:6px 0;font-size:13px}',
+      '#' + GATE_ID + '{border-radius:8px;padding:10px 12px;margin:8px 0;font-size:13px}',
+      '#' + GATE_ID + '.pass{background:rgba(31,157,85,.08);border:1px solid #1f9d55}',
+      '#' + GATE_ID + '.fail{background:rgba(161,44,123,.08);border:1px solid #A12C7B}',
+      '#' + GATE_ID + ' ul{margin:6px 0 0;padding-left:20px}',
+      '.dg-p2p-note{font-size:12px;opacity:.75;margin-top:10px}',
+      '.dg-p2p-empty{padding:14px;border:1px dashed var(--color-border,#ccc);border-radius:8px;text-align:center}',
+      '#' + COACH_ID + '{border:1px solid #20808D;background:rgba(32,128,141,.07);border-radius:8px;',
+      'padding:10px 12px;margin-bottom:10px;font-size:13px}',
+      '#' + REVIEW_ID + '{margin-right:6px}',
+      '@media (max-width:640px){#' + PANEL_ID + '{right:8px;left:8px;width:auto;bottom:64px}}',
+    ].join('');
+    var tag = el('style', { id: STYLE_ID });
+    tag.textContent = css;
+    document.head.appendChild(tag);
+  }
+
+  /* ---- reading the rest of the app ------------------------------------- */
+
+  function activeDataset() {
+    try {
+      if (typeof window.getActiveDataset === 'function') {
+        var d = window.getActiveDataset();
+        if (d) return d;
+      }
+    } catch (_e) {}
+    try {
+      if (window.state && Array.isArray(window.state.datasets) && window.state.datasets.length) {
+        return window.state.datasets[0];
+      }
+    } catch (_e2) {}
+    return null;
+  }
+
+  /* Tiles come from the Proof Board surface when it is open, and are otherwise
+     recomputed from the loaded rows. Never invented: no dataset means no tiles
+     and the panel says so. */
+  function currentTiles() {
+    var ui = engine('DataGlowProofBoardUI');
+    try {
+      if (ui && typeof ui.board === 'function') {
+        var b = ui.board();
+        if (b && Array.isArray(b.tiles) && b.tiles.length) return b.tiles;
+      }
+    } catch (_e) {}
+    var tilesEngine = engine('DataGlowProofBoardTiles');
+    var boardEngine = engine('DataGlowProofBoard');
+    var ds = activeDataset();
+    if (!tilesEngine || !boardEngine || !ds) return [];
+    try {
+      var raw = tilesEngine.tilesFromDataset(ds, {});
+      var board = boardEngine.buildProofBoard(raw, { title: ds.name || '' });
+      return board && Array.isArray(board.tiles) ? board.tiles : [];
+    } catch (_e2) { return []; }
+  }
+
+  function buildPack() {
+    var post = engine('DataGlowProofToPost');
+    if (!post) return null;
+    var ds = activeDataset();
+    try {
+      return post.buildProofToPostPack({
+        tiles: currentTiles(),
+        boardMeta: { title: (ds && ds.name) ? ds.name : '' },
+        title: (ds && ds.name) ? ('What I found in ' + ds.name) : '',
+        state: { published: state.published, reviewed: state.reviewed },
+      });
+    } catch (_e) { return null; }
+  }
+
+  /* ---- writing files out ------------------------------------------------ */
+
+  function saveText(filename, mimeType, text) {
+    var delivery = engine('ExportDelivery');
+    try {
+      if (delivery && typeof delivery.deliverText === 'function') {
+        delivery.deliverText(text, { filename: filename, mimeType: mimeType });
+        return true;
+      }
+    } catch (_e) {}
+    try {
+      var blob = new window.Blob([text], { type: mimeType });
+      var url = window.URL.createObjectURL(blob);
+      var a = el('a', { href: url, download: filename });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      return true;
+    } catch (_e2) { return false; }
+  }
+
+  function copyText(text) {
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  /* ---- actions ---------------------------------------------------------- */
+
+  function downloadPortfolio() {
+    var pack = state.pack;
+    if (!pack || pack.empty) { toast('There is nothing proved yet, so there is nothing to publish.'); return; }
+    if (!askHuman('Write the portfolio markdown to your downloads folder?\n\nIt contains the numbers from the Proof Board and the queries that produced them.')) return;
+    if (saveText('portfolio.md', 'text/markdown', pack.portfolioMarkdown)) {
+      state.published = true;
+      toast('Portfolio markdown saved.');
+      render();
+    }
+  }
+
+  function downloadGlowbook() {
+    var gb = engine('DataGlowGlowbook');
+    var boardEngine = engine('DataGlowProofBoard');
+    if (!gb || !boardEngine) { toast('The Glowbook export is not available in this build.'); return; }
+    var tiles = currentTiles();
+    if (!tiles.length) { toast('There is nothing proved yet, so there is nothing to publish.'); return; }
+    if (!askHuman('Write the Glowbook to your downloads folder?\n\nIt is one self-contained HTML file containing these numbers and the code behind them. Anyone you send it to can read all of it.')) return;
+    try {
+      var board = boardEngine.buildProofBoard(tiles, {});
+      var model = gb.buildGlowbook(board, { confirmed: true });
+      if (saveText('glowbook.html', 'text/html', gb.renderGlowbookHTML(model))) {
+        state.published = true;
+        toast('Glowbook saved.');
+        render();
+      }
+    } catch (_e) { toast('The Glowbook could not be built from this board.'); }
+  }
+
+  function downloadHandoff() {
+    var bi = engine('DataGlowBIHandoff');
+    if (!bi) { toast('The hand-off pack is not available in this build.'); return; }
+    var ds = activeDataset();
+    var pack;
+    try {
+      pack = bi.buildHandoffPack({ dataset: ds, tiles: currentTiles() });
+    } catch (_e) { toast('The hand-off pack could not be built.'); return; }
+    var names = pack.manifest.map(function (f) { return f.name; }).join(', ');
+    if (!askHuman('Write ' + pack.files.length + ' files to your downloads folder?\n\n' + names + '\n\nThis is a hand-off aid, not a Power BI or Tableau file, and it is not certified by either tool.')) return;
+    var written = 0;
+    for (var i = 0; i < pack.files.length; i++) {
+      var f = pack.files[i];
+      if (saveText(f.name, f.mimeType, f.text)) written++;
+    }
+    state.published = written > 0;
+    toast(written + ' of ' + pack.files.length + ' hand-off files saved.');
+    render();
+  }
+
+  function downloadDeidReceipt() {
+    var receipt = engine('DataGlowDeidReceipt');
+    var verifier = engine('DeidentificationVerifier');
+    if (!receipt) { toast('The de-id receipt is not available in this build.'); return; }
+    var ds = activeDataset();
+    if (!ds || !Array.isArray(ds.columns) || !ds.columns.length) {
+      toast('No data is loaded, so there is nothing to screen.');
+      return;
+    }
+    if (!verifier || typeof verifier.buildDeidReport !== 'function') {
+      toast('The Safe Harbor screen is not available in this build.');
+      return;
+    }
+    if (!askHuman('Run the de-identification screen and write the receipt to your downloads folder?\n\nThis is an automated screening aid. It is NOT a HIPAA certification and it does not make this data safe to release.')) return;
+    try {
+      var samples = {};
+      var rows = Array.isArray(ds.rows) ? ds.rows.slice(0, 200) : [];
+      for (var c = 0; c < ds.columns.length; c++) {
+        var name = ds.columns[c].name;
+        var vals = [];
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          vals.push(Array.isArray(row) ? row[c] : row[name]);
+        }
+        samples[name] = vals;
+      }
+      var report = verifier.buildDeidReport({
+        columns: ds.columns,
+        samples: samples,
+        table: ds.name || null,
+        rowCount: Array.isArray(ds.rows) ? ds.rows.length : null,
+      });
+      var model = receipt.buildDeidReceipt(report, {});
+      if (saveText('deid-screening-receipt.html', 'text/html', receipt.renderDeidReceiptHTML(model))) {
+        toast('De-id screening receipt saved. It is a screening aid, not a certification.');
+      }
+    } catch (_e) { toast('The de-identification screen could not be run on this dataset.'); }
+  }
+
+  function copyDraft() {
+    var pack = state.pack;
+    if (!pack) return;
+    if (!state.reviewed) { toast('Tick the review box first.'); return; }
+    if (!pack.validation.ok) { toast('The draft still has a number that does not trace to a tile.'); return; }
+    if (!askHuman('Copy this draft to your clipboard?\n\nDataGlow does not post it and has no connected account. You paste it yourself, wherever you choose.')) return;
+    if (copyText(pack.linkedInDraft.text)) toast('Draft copied. Nothing was posted.');
+    else toast('This browser did not allow a clipboard write. Select the draft text and copy it manually.');
+  }
+
+  /* ---- rendering -------------------------------------------------------- */
+
+  function renderCoach(host) {
+    var post = engine('DataGlowProofToPost');
+    if (!post || !state.coachOpen) return;
+    var model;
+    try { model = post.postCoachModel(state.coachIndex); } catch (_e) { return; }
+    if (!model) return;
+    var box = el('div', { id: COACH_ID });
+    box.appendChild(el('div', { style: 'font-weight:600' }, model.step.title));
+    box.appendChild(el('div', {}, model.step.body));
+    var row = el('div', { class: 'dg-p2p-row' });
+    var next = el('button', { class: 'dg-p2p-btn' }, model.nextLabel);
+    next.addEventListener('click', function () {
+      if (model.isLast) { state.coachOpen = false; }
+      else { state.coachIndex = model.index + 1; }
+      render();
+    });
+    var skip = el('button', { class: 'dg-p2p-btn' }, 'Dismiss');
+    skip.addEventListener('click', function () { state.coachOpen = false; render(); });
+    row.appendChild(next);
+    row.appendChild(skip);
+    box.appendChild(row);
+    box.appendChild(el('div', { class: 'dg-p2p-note' }, model.progress));
+    host.appendChild(box);
+  }
+
+  function renderSteps(host, pack) {
+    var wrap = el('div', { id: STEPS_ID });
+    for (var i = 0; i < pack.steps.length; i++) {
+      var s = pack.steps[i];
+      var box = el('div', { class: 'dg-p2p-step ' + (s.ready ? 'ready' : 'waiting') });
+      box.appendChild(el('div', { class: 'dg-p2p-step-t' }, (i + 1) + '. ' + s.title + (s.ready ? ' (done)' : '')));
+      box.appendChild(el('div', {}, s.body));
+      if (s.blocker) box.appendChild(el('div', { class: 'dg-p2p-blocker' }, s.blocker));
+      wrap.appendChild(box);
+    }
+    host.appendChild(wrap);
+  }
+
+  function renderGate(host, pack) {
+    if (!proveGateOn()) return;
+    var v = pack.validation;
+    var box = el('div', { id: GATE_ID, class: v.ok ? 'pass' : 'fail' });
+    box.appendChild(el('div', { style: 'font-weight:600' }, v.ok ? 'Every number in this draft traces to a tile.' : 'This draft is refused.'));
+    box.appendChild(el('div', {}, v.summary));
+    var list = [];
+    var k;
+    for (k = 0; k < v.problems.length; k++) list.push(v.problems[k]);
+    for (k = 0; k < v.cautions.length; k++) list.push(v.cautions[k]);
+    if (list.length) {
+      var ul = el('ul');
+      for (k = 0; k < list.length; k++) ul.appendChild(el('li', {}, list[k]));
+      box.appendChild(ul);
+    }
+    host.appendChild(box);
+  }
+
+  function renderBody(host) {
+    var post = engine('DataGlowProofToPost');
+    if (!post) {
+      host.appendChild(el('div', { class: 'dg-p2p-empty' }, 'The Proof to Post engine is not available in this build.'));
+      return;
+    }
+    var pack = buildPack();
+    state.pack = pack;
+    if (!pack) {
+      host.appendChild(el('div', { class: 'dg-p2p-empty' }, 'The Proof to Post engine could not read the board.'));
+      return;
+    }
+
+    renderCoach(host);
+
+    if (pack.empty) {
+      var empty = el('div', { class: 'dg-p2p-empty' });
+      empty.appendChild(el('div', { style: 'font-weight:600;margin-bottom:6px' }, pack.emptyHeadline));
+      empty.appendChild(el('div', {}, pack.emptyCta));
+      host.appendChild(empty);
+      host.appendChild(el('div', { class: 'dg-p2p-note' }, pack.disclaimer));
+      return;
+    }
+
+    renderSteps(host, pack);
+
+    host.appendChild(el('h4', {}, 'Publish'));
+    var pubRow = el('div', { class: 'dg-p2p-row' });
+    var gbBtn = el('button', { class: 'dg-p2p-btn' }, 'Download Glowbook');
+    gbBtn.addEventListener('click', downloadGlowbook);
+    if (!engine('DataGlowGlowbook')) gbBtn.disabled = true;
+    pubRow.appendChild(gbBtn);
+    var pfBtn = el('button', { class: 'dg-p2p-btn' }, 'Download portfolio markdown');
+    pfBtn.addEventListener('click', downloadPortfolio);
+    pubRow.appendChild(pfBtn);
+    if (handoffOn() && engine('DataGlowBIHandoff')) {
+      var biBtn = el('button', { class: 'dg-p2p-btn' }, 'Hand off to Power BI / Tableau');
+      biBtn.addEventListener('click', downloadHandoff);
+      pubRow.appendChild(biBtn);
+    }
+    if (receiptOn() && engine('DataGlowDeidReceipt') && engine('DeidentificationVerifier')) {
+      var deBtn = el('button', { class: 'dg-p2p-btn' }, 'De-id screening receipt');
+      deBtn.addEventListener('click', downloadDeidReceipt);
+      pubRow.appendChild(deBtn);
+    }
+    host.appendChild(pubRow);
+
+    host.appendChild(el('h4', {}, 'Post'));
+    var pre = el('pre', { id: DRAFT_ID });
+    pre.textContent = pack.linkedInDraft.text;
+    host.appendChild(pre);
+
+    if (pack.excluded.length) {
+      var ex = el('div', { class: 'dg-p2p-note' });
+      ex.textContent = 'Left out of the draft: ' + pack.excluded.map(function (e) {
+        return (e.title || e.id) + ' (' + e.why + ')';
+      }).join(' ');
+      host.appendChild(ex);
+    }
+
+    renderGate(host, pack);
+
+    var reviewRow = el('label', { class: 'dg-p2p-row', style: 'align-items:center;cursor:pointer' });
+    var cb = el('input', { type: 'checkbox', id: REVIEW_ID });
+    cb.checked = state.reviewed === true;
+    cb.addEventListener('change', function () { state.reviewed = cb.checked === true; render(); });
+    reviewRow.appendChild(cb);
+    reviewRow.appendChild(el('span', {}, 'I reviewed these numbers.'));
+    host.appendChild(reviewRow);
+
+    var copyRow = el('div', { class: 'dg-p2p-row' });
+    var copyBtn = el('button', { class: 'dg-p2p-btn primary', id: COPY_ID }, 'Copy draft');
+    copyBtn.disabled = !(state.reviewed && pack.validation.ok);
+    copyBtn.addEventListener('click', copyDraft);
+    copyRow.appendChild(copyBtn);
+    host.appendChild(copyRow);
+
+    host.appendChild(el('div', { class: 'dg-p2p-note' }, pack.disclaimer));
+  }
+
+  function render() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    var head = el('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:10px' });
+    var titleWrap = el('div');
+    titleWrap.appendChild(el('h3', {}, 'Proof to Post'));
+    titleWrap.appendChild(el('div', { class: 'dg-p2p-note', style: 'margin:0' }, 'Prove it, publish it, then post it yourself.'));
+    head.appendChild(titleWrap);
+    var btns = el('div', { class: 'dg-p2p-row', style: 'margin:0' });
+    var coachBtn = el('button', { class: 'dg-p2p-btn' }, 'Tips');
+    coachBtn.addEventListener('click', function () { state.coachOpen = !state.coachOpen; state.coachIndex = 0; render(); });
+    btns.appendChild(coachBtn);
+    var closeBtn = el('button', { class: 'dg-p2p-btn' }, 'Close');
+    closeBtn.addEventListener('click', close);
+    btns.appendChild(closeBtn);
+    head.appendChild(btns);
+    panel.appendChild(head);
+
+    renderBody(panel);
+  }
+
+  function open() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    state.open = true;
+    panel.style.display = 'block';
+    render();
+  }
+
+  function close() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    state.open = false;
+    panel.style.display = 'none';
+  }
+
+  function anchorRight() {
+    var ids = ['dg-pb-btn', 'dg-trust-ledger-btn', 'dg-air-gap-btn'];
+    for (var i = 0; i < ids.length; i++) {
+      var node = document.getElementById(ids[i]);
+      if (!node) continue;
+      try {
+        var rect = node.getBoundingClientRect();
+        if (rect && rect.width > 0) return Math.round(window.innerWidth - rect.left + 10);
+      } catch (_e) {}
+    }
+    return 508;
+  }
+
+  function mount() {
+    if (!flagOn()) return;
+    if (document.getElementById(BTN_ID)) return;
+    if (!document.body) return;
+    styles();
+
+    var btn = el('button', {
+      id: BTN_ID,
+      type: 'button',
+      title: 'Turn the Proof Board into a portfolio page and a post draft',
+      style: 'position:fixed;bottom:18px;right:' + anchorRight() + 'px;z-index:2147483000;'
+        + 'font:inherit;font-size:13px;padding:7px 13px;border-radius:8px;cursor:pointer;'
+        + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
+        + 'box-shadow:0 2px 8px rgba(0,0,0,.14)',
+    }, 'Proof to Post');
+    btn.addEventListener('click', function () { if (state.open) close(); else open(); });
+    document.body.appendChild(btn);
+
+    document.body.appendChild(el('div', { id: PANEL_ID, role: 'dialog', 'aria-label': 'Proof to Post' }));
+  }
+
+  function boot() {
+    try { mount(); } catch (_e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 950); });
+  } else {
+    setTimeout(boot, 950);
+  }
+
+  window.DataGlowProofToPostUI = {
+    version: 1,
+    mounted: function () { return !!document.getElementById(BTN_ID); },
+    open: open,
+    close: close,
+    isOpen: function () { return state.open === true; },
+    refresh: render,
+    pack: function () { return state.pack; },
+    tiles: currentTiles,
+    downloadGlowbook: downloadGlowbook,
+    downloadPortfolio: downloadPortfolio,
+    downloadHandoff: downloadHandoff,
+    downloadDeidReceipt: downloadDeidReceipt,
+    copyDraft: copyDraft,
+    coach: {
+      start: function () { state.coachOpen = true; state.coachIndex = 0; render(); },
+      dismiss: function () { state.coachOpen = false; render(); },
+    },
+  };
+})();
+/* ---- end js/proofpost/data-glow-proof-to-post-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

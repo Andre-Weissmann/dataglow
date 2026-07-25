@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5550968,
+  "canvasBytes": 5633731,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -264,9 +264,44 @@
     {
       "source": "js/proofboard/data-glow-proof-board-canvas.js",
       "note": "Proof Board canvas surface: the button, the tile grid, show the work, verify, the confirm-gated Glowbook export and the dismissible coach strip.",
-      "sourceSha256": "781b898e43159b3103570e9e48159603c94e63d338a335317e36640f5e99b43f",
-      "canvasSectionSha256": "9d1c433808ac372f7174c058258a2a2247777fdbb99caaa7e39f14cc9773b72a",
-      "canvasSectionBytes": 31665
+      "sourceSha256": "2f6a49428a905f15c0a733eb3be1a4a2ac2c909751fbf53ecfad1d981e7adfdb",
+      "canvasSectionSha256": "7228cd7abecc914898abc5612617b21a4e80eb2ae8662858c16e586608bef352",
+      "canvasSectionBytes": 33215
+    },
+    {
+      "source": "js/ai/prove-gate.js",
+      "note": "Prove gate: binds every number in an AI or assembled claim to a Proof Board tile or an engine result, and refuses the ones that do not bind. Pure ES module, inlined as an IIFE publishing window.DataGlowProveGate.",
+      "sourceSha256": "dbf50fcb8cfadf35c7a47a997ab365987106c730dd966ad4204fb39029135f78",
+      "canvasSectionSha256": "87d715a0950e84576d7f5f992d14f1ae56293f892138bc4361b8d0c308275a99",
+      "canvasSectionBytes": 11462
+    },
+    {
+      "source": "js/export/bi-handoff.js",
+      "note": "BI hand-off pack for Power BI and Tableau: CSV, data dictionary, the queries, a validation summary and a README. Pure ES module, inlined as an IIFE publishing window.DataGlowBIHandoff.",
+      "sourceSha256": "4f121273c0bb89422aa2304e739b18ae956cef3a18b7dae735a6ceaaccdca003",
+      "canvasSectionSha256": "4432921183b0694784939de99a0c52b1a474441a6aada44cba712479914ef9f0",
+      "canvasSectionBytes": 14111
+    },
+    {
+      "source": "js/privacy/deid-receipt.js",
+      "note": "De-identification screening receipt built from the existing Safe Harbor verifier, labelled as a screening aid and not a certification. Pure ES module, inlined as an IIFE publishing window.DataGlowDeidReceipt.",
+      "sourceSha256": "cf0cbcda44e77ef7c5ac7e7c02c36104b63168ee8bed766b9eaec1f30c9181b4",
+      "canvasSectionSha256": "76065803f68c0b12e5af77887f2307e7e3c86203271a135db15a75a77c33d8ca",
+      "canvasSectionBytes": 14931
+    },
+    {
+      "source": "js/proofpost/proof-to-post.js",
+      "note": "Proof to Post pack: portfolio markdown and a LinkedIn draft assembled from Proof Board tiles only, then run back through the prove gate. Pure ES module, inlined as an IIFE publishing window.DataGlowProofToPost.",
+      "sourceSha256": "e3daba27148d4cbbf5115ce516fa93b6585efed14932fc45c5f696c5211069b5",
+      "canvasSectionSha256": "672180b100fdde726e316b6cbcefb95004ecc59c142fd563dd3f657978661b5b",
+      "canvasSectionBytes": 15136
+    },
+    {
+      "source": "js/proofpost/data-glow-proof-to-post-canvas.js",
+      "note": "Proof to Post canvas surface: the three step checklist, the draft, the gate result, the review confirm and the copy-only action. Already an IIFE, inlined verbatim, publishing window.DataGlowProofToPostUI.",
+      "sourceSha256": "bf49b4dfbe376ab66727d9d39b6af72f13bac276a144361dce3a79b84088ff5e",
+      "canvasSectionSha256": "59441d4e86a77ec975131935b254a25c4e0a2025476fe22ff338b5ae175ebc75",
+      "canvasSectionBytes": 23208
     }
   ]
 }
