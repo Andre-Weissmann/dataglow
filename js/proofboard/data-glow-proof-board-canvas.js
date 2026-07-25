@@ -42,6 +42,7 @@
   var COACH_ID = 'dg-pb-coach';
 
   var _board = null;
+  var _extraTiles = [];
   var _coachIndex = 0;
   var _coachSteps = [];
 
@@ -216,6 +217,11 @@
     var cols = (ds && Array.isArray(ds.columns)) ? ds.columns : [];
     var fingerprint = (ds && typeof ds.fingerprint === 'string') ? ds.fingerprint : '';
     var tiles = (te && ds) ? te.tilesFromDataset(ds, { fingerprint: fingerprint }) : [];
+    /* Tiles added by hand from a query result survive a rebuild, because the
+       board is rebuilt every time the panel opens and losing them silently
+       would be worse than not offering the button at all. They are appended
+       rather than merged so a session tile never overwrites one. */
+    if (_extraTiles.length) tiles = tiles.concat(_extraTiles);
     var l = ledger();
     var summary = '';
     try {
@@ -683,6 +689,33 @@
       });
     }
 
+    /* Keep a number that came out of a query the user actually ran. The value
+       is passed in by the caller and never guessed: an empty value is refused
+       here as well as at the prompt, because a tile with no number is the one
+       thing this board must never show. A tile added this way carries the
+       `unknown` badge until a real check reports on it. */
+    function addTile(tile) {
+      var be = boardEngine();
+      if (!be || !tile) return null;
+      if (!be.hasValue(tile.value)) return null;
+      var id = 'added-' + (_extraTiles.length + 1);
+      var kept = {
+        id: tile.id || id,
+        title: tile.title || 'Result of a query',
+        value: tile.value,
+        unit: tile.unit || '',
+        sqlOrCode: tile.sqlOrCode || '',
+        language: tile.language || 'sql',
+        engine: tile.engine || '',
+        gateBadge: 'unknown',
+        checksSummary: tile.checksSummary || 'No check has reported on this number.'
+      };
+      _extraTiles.push(kept);
+      buildBoard();
+      if (isOpen()) renderPanel();
+      return kept;
+    }
+
     /* Published whether or not the surface mounted, matching the other canvas
        surfaces: a caller can build a board without needing a panel to exist.
        With the flag off nothing mounted, so open() is the only way in and the
@@ -696,6 +729,8 @@
       refresh: renderPanel,
       board: function () { return _board; },
       build: buildBoard,
+      addTile: addTile,
+      addedTiles: function () { return _extraTiles.slice(); },
       verify: verifyNow,
       exportGlowbook: exportGlowbook,
       stamp: stampTile,

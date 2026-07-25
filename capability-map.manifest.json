@@ -6264,6 +6264,236 @@
         "proofBoard"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "prove-gate-no-unproven-numbers",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "Every number in a generated claim is bound to a tile or refused by name",
+      "files": [
+        "js/ai/prove-gate.js",
+        "js/proofboard/proof-board.js",
+        "test/proof-to-post.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "assertClaimAllowed"
+        },
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "extractNumbers"
+        },
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "maskNonClaimNumbers"
+        },
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "isRoundingOf"
+        },
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "provableValues"
+        },
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "engineValues"
+        },
+        {
+          "file": "js/ai/prove-gate.js",
+          "name": "describeGateResult"
+        }
+      ],
+      "notes": "A language model writing prose about a dataset will produce a number that reads correctly and was never computed, and the reader cannot tell the difference by looking. This gate does not ask the model to be careful. It extracts every number from the finished text and requires each one to match a Proof Board tile or an engine result, and it names the ones that do not instead of softening the claim around them. The tolerance is deliberate and narrow: an exact match, or a correct rounding to the precision the author actually wrote, and nothing else, so a claim cannot round 41.6 to about 45 and call it a summary. A tile carrying the blocked badge refuses outright, because a number a check has already objected to is the worst thing to quote; a tile carrying the unknown badge binds but raises a caution, because no check having run is not the same as a check having passed. ISO dates, clock times and dotted version strings are masked out before extraction, so the gate does not refuse the method line that ships with its own output. There is no override: the caller gets the refusal and the list of unbound numbers, and can delete them or go compute them.",
+      "relatedFlags": [
+        "aiProveGate"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "proof-to-post-loop",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "A proved number becomes a post draft without being retyped, and copy is the last thing the app does",
+      "files": [
+        "js/proofpost/proof-to-post.js",
+        "js/proofpost/data-glow-proof-to-post-canvas.js",
+        "js/ai/prove-gate.js",
+        "js/proofboard/coach-moments.js",
+        "test/proof-to-post.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "buildProofToPostPack"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "buildLinkedInDraft"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "validateLinkedInDraft"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "buildPortfolioMarkdown"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "postableTiles"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "excludedTiles"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "proofToPostSteps"
+        },
+        {
+          "file": "js/proofpost/proof-to-post.js",
+          "name": "postCoachModel"
+        }
+      ],
+      "notes": "The loop is analyze locally, prove on the Proof Board, publish, then post, and the last step is where analysts normally lose the proof: a number that survived a query engine, a validation gate and a receipt chain gets retyped by hand into a social post and becomes a number with nothing behind it. So the draft here is not written and then checked. It is assembled from tiles, which means every number in it came out of an engine by construction, and then it is checked anyway through the prove gate, because assembly can still go wrong and a post is not something you can recall. NEVER_AUTO_POST is a constant rather than a setting: DataGlow has no server and no outbound network so an OAuth posting integration would need both, and beyond that a tool that can post on your behalf is a tool that can post something you did not read. The output is text on a clipboard and the last action is always a human pasting it. The transparency line is computed from the badges actually present rather than written as a fixed string, because Numbers engine-checked is a claim about the work and it is false if any tile in the post is carrying the not checked badge, which is exactly the case where the reader most needs to know. A tile with no value is not a weaker bullet, it is not a bullet at all, and a blocked tile is excluded with its reason shown so the user can see why a number visible on the board is missing from the draft. Copy draft needs both a passing gate and a ticked review box.",
+      "relatedFlags": [
+        "proofToPost",
+        "aiProveGate",
+        "proofBoard"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "bi-handoff-pack",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "A Power BI or Tableau user gets the data, the dictionary, the queries and an honest validation summary",
+      "files": [
+        "js/export/bi-handoff.js",
+        "js/proofpost/data-glow-proof-to-post-canvas.js",
+        "test/proof-to-post.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "buildHandoffPack"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "toCSV"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "buildDictionary"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "buildQueriesSQL"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "buildValidationSummary"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "buildHandoffReadme"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "columnStats"
+        },
+        {
+          "file": "js/export/bi-handoff.js",
+          "name": "csvEscape"
+        }
+      ],
+      "notes": "Handing a CSV to a BI team loses everything that made the analysis defensible: the column meanings, the queries, and what was and was not checked. This produces five plain files instead, data.csv, dictionary.md, queries.sql, validation-summary.md and README-handoff.md, and there is no zip because adding a compression dependency to turn five readable files into one opaque archive makes the output harder to inspect for no gain the recipient can feel. The CSV neutralises a leading equals, plus, minus or at sign so a cell cannot execute as a formula when the file is opened in a spreadsheet, which is the one way a pure text export can still hurt someone. The validation summary refuses to grade what it did not see: a null rate over zero rows is reported as not known rather than as zero percent, and a number with no recorded query is said to have none rather than being given a plausible-looking one. The README says in the first paragraph that this is not a certified deliverable, does not reproduce a dashboard, and is not endorsed by or certified with either tool, because the file most likely to be forwarded is the one most likely to be read as a claim. The download asks first.",
+      "relatedFlags": [
+        "biHandoff",
+        "proofToPost"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "deid-screening-receipt",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "A readable receipt for the Safe Harbor screen that refuses to read as a clearance",
+      "files": [
+        "js/privacy/deid-receipt.js",
+        "js/provenance/deidentification-verifier.js",
+        "js/proofpost/data-glow-proof-to-post-canvas.js",
+        "test/proof-to-post.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/privacy/deid-receipt.js",
+          "name": "buildDeidReceipt"
+        },
+        {
+          "file": "js/privacy/deid-receipt.js",
+          "name": "renderDeidReceiptMarkdown"
+        },
+        {
+          "file": "js/privacy/deid-receipt.js",
+          "name": "renderDeidReceiptHTML"
+        },
+        {
+          "file": "js/privacy/deid-receipt.js",
+          "name": "escapeHtml"
+        }
+      ],
+      "notes": "The HIPAA Safe Harbor verifier already existed and already decided; this adds only the record of what it looked at and what it found, in markdown or as one self-contained HTML file, and computes no privacy verdict of its own so there is exactly one thing in the codebase that can say whether a column looks identifying. The renaming on the way out is the point: the engine verdict pass is printed as Nothing was flagged by this screen and never as the bare word it uses internally, because a receipt is precisely the artefact someone forwards to a stakeholder as evidence, and a document with a bare pass at the top will be read as a clearance no matter what the paragraph below it says. The non-certification disclaimer is emitted from a constant that a caller cannot remove or override, and the receipt states plainly what the screen cannot see: it reads column names and sampled values, so free text holding a name in the middle of a sentence, or a combination of columns that identifies someone only together, is outside what it can find. The exported HTML has no script, no stylesheet link, no iframe and no network reference, so the file is the same offline as online. The download asks first.",
+      "relatedFlags": [
+        "deidReceipt",
+        "proofToPost"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "nl-sql-add-to-proof-board",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "A number read off a generated query can be kept as a tile that carries the query with it",
+      "files": [
+        "js/nl-sql/nl-sql-ui.js",
+        "js/proofboard/data-glow-proof-board-canvas.js",
+        "js/proofboard/proof-board.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "normalizeTile"
+        }
+      ],
+      "notes": "The NL to SQL surface already showed the generated SQL before running it, which is the glass-box half of the promise. This is the other half: the number a person reads off the result can be kept on the Proof Board with the query that produced it attached, so it can later be quoted with something behind it rather than retyped from memory. The value is typed by the person who read the result and is never guessed: an empty box adds nothing rather than adding a zero, and the confirm says outright that no check has run on the number so the tile will carry the not checked badge until one does. Tiles added this way survive a board rebuild, because the board is rebuilt every time the panel opens and losing them silently would be worse than not offering the button.",
+      "relatedFlags": [
+        "nlSql",
+        "proofBoard"
+      ],
+      "status": "shipped"
     }
   ]
 }
