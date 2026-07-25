@@ -5298,6 +5298,76 @@
         "airGapMode"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "explain",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Privacy & trust",
+      "name": "Explain (plain language over evidence that already exists)",
+      "files": [
+        "js/explain/explain-engine.js",
+        "js/explain/data-glow-explain-canvas.js",
+        "test/explain-engine.test.mjs",
+        "test/explain-glassbox-canvas-ui.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/explain/explain-engine.js",
+          "name": "explainResult"
+        },
+        {
+          "file": "js/explain/explain-engine.js",
+          "name": "describeExplanation"
+        },
+        {
+          "file": "js/explain/explain-engine.js",
+          "name": "explainBadge"
+        }
+      ],
+      "notes": "Answers the question a person actually asks of a result, which is not what the numbers are but whether they can be relied on. Composes rather than computes: every sentence traces to one of seven sources that already ran and published, and the engine gathers no evidence of its own. Confidence is derived from how many of those sources answered, so a panel built on two checks out of seven cannot present itself as well-evidenced. A source that could not run is named as an unknown, never dropped and never reported as a pass, because the failure mode worth engineering against is a missing check reading as clean. All on-device: no network is touched, so it works identically with Air-Gap Mode on. The canvas panel reads the same gates GlassBox reads, which is what keeps the plain-language summary and the show-the-math block from contradicting each other. Pure engine, browser-only surface.",
+      "relatedFlags": [
+        "explain"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "glass-box",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Privacy & trust",
+      "name": "GlassBox (show the math under a finding)",
+      "files": [
+        "js/glassbox/glass-box.js",
+        "js/glassbox/data-glow-glass-box-canvas.js",
+        "test/glass-box.test.mjs",
+        "test/explain-glassbox-canvas-ui.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/glassbox/glass-box.js",
+          "name": "buildGlassBox"
+        },
+        {
+          "file": "js/glassbox/glass-box.js",
+          "name": "renderGlassBoxText"
+        },
+        {
+          "file": "js/glassbox/glass-box.js",
+          "name": "glassBoxToggleLabel"
+        }
+      ],
+      "notes": "Finding on top, proof underneath, in the same shape on every surface that has one. The proof is the literal code that ran plus the engine that ran it, read from the paired editor at open time rather than reconstructed, because a reconstructed query looks checkable and can be wrong. Badges come only from gates that genuinely reported; an absent gate yields no chip and the panel states that an absence of evidence is not a clean result, which is the difference between this and a green tick that means nothing. Wired on the three real result surfaces today: the SQL view result, the SQL tab result and the Python result. Guided Unpivot is deliberately left alone because it already has its own glass-box toggle and two answers to one question is worse than one. Pure engine, browser-only surface.",
+      "relatedFlags": [
+        "glassBox"
+      ],
+      "status": "shipped"
     }
   ]
 }

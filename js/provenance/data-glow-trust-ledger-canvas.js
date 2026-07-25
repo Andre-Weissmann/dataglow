@@ -145,7 +145,19 @@
       'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
       'color:var(--text-muted,#9AA1AE)}',
       '#' + PANEL_ID + ' .dg-tl-btn.primary{background:var(--primary,#20C5B5);color:#04201C;border-color:transparent}',
-      '#' + PANEL_ID + ' .dg-tl-btn:hover{opacity:.9}'
+      '#' + PANEL_ID + ' .dg-tl-btn:hover{opacity:.9}',
+      /* A14: on a phone the panel is the screen. The head and foot stay put so
+         Verify and Close are reachable without scrolling a long chain, the four
+         save buttons go full width so a thumb cannot miss, and every target
+         clears 44px. Asserted in test/mobile-viewport-smoke.test.mjs. */
+      '@media (max-width:700px){',
+      '#' + BTN_ID + '{min-height:44px}',
+      '#' + PANEL_ID + '{width:100%;left:0;border-left:none}',
+      '#' + PANEL_ID + ' .dg-tl-head{position:sticky;top:0;z-index:2;background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-tl-foot{position:sticky;bottom:0;z-index:2;background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-tl-btn{flex:1 1 100%;min-height:44px}',
+      '#' + BODY_ID + '{padding:12px 14px}',
+      '}'
     ].join('');
     var el = document.createElement('style');
     el.id = STYLE_ID;

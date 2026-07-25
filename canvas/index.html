@@ -113515,7 +113515,19 @@ function publishSafeBadge(verdict) {
       'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
       'color:var(--text-muted,#9AA1AE)}',
       '#' + PANEL_ID + ' .dg-tl-btn.primary{background:var(--primary,#20C5B5);color:#04201C;border-color:transparent}',
-      '#' + PANEL_ID + ' .dg-tl-btn:hover{opacity:.9}'
+      '#' + PANEL_ID + ' .dg-tl-btn:hover{opacity:.9}',
+      /* A14: on a phone the panel is the screen. The head and foot stay put so
+         Verify and Close are reachable without scrolling a long chain, the four
+         save buttons go full width so a thumb cannot miss, and every target
+         clears 44px. Asserted in test/mobile-viewport-smoke.test.mjs. */
+      '@media (max-width:700px){',
+      '#' + BTN_ID + '{min-height:44px}',
+      '#' + PANEL_ID + '{width:100%;left:0;border-left:none}',
+      '#' + PANEL_ID + ' .dg-tl-head{position:sticky;top:0;z-index:2;background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-tl-foot{position:sticky;bottom:0;z-index:2;background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-tl-btn{flex:1 1 100%;min-height:44px}',
+      '#' + BODY_ID + '{padding:12px 14px}',
+      '}'
     ].join('');
     var el = document.createElement('style');
     el.id = STYLE_ID;
@@ -113795,6 +113807,1807 @@ function publishSafeBadge(verdict) {
   }
 })();
 /* ---- end js/provenance/data-glow-trust-ledger-canvas.js ---- */
+
+/* ---- from js/explain/explain-engine.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Explain (pure engine)
+// ============================================================
+// WHY THIS EXISTS
+// By the time a result is on screen, DataGlow already knows a great deal about
+// it, and says none of it in one place. Query Sentinel knows whether the join
+// can multiply rows (js/validation/query-sentinel.js). Query Sentinel Assist
+// knows the shape of the fix (js/validation/query-sentinel-assist.js). The
+// readiness gate knows whether the dataset held up
+// (js/gate/readiness-gate.js). PHI Shield knows whether anything sensitive is
+// in view. Air-Gap Mode knows whether the human asked for nothing to cross the
+// network. Publish-Safe knows whether this may be written. The Trust Ledger
+// knows what has already happened in this tab.
+//
+// A person looking at a number does not want six badges. They want one calm
+// paragraph: what this is, what is known about it, and what is NOT known. This
+// module composes the evidence those engines already produced into exactly
+// that. It computes no findings of its own.
+//
+// THE RULES IT ENCODES
+//   - It never invents certainty. Every source that could not be consulted is
+//     named in `unknowns`, and each one lowers `confidence`. An explanation
+//     built from nothing says so in its headline instead of reassuring anyone.
+//   - It never re-derives. A sentinel flag it repeats is a flag Query Sentinel
+//     already raised; a gate verdict it repeats is one the gate already
+//     reached. It cannot report a problem no engine found, and it cannot
+//     suppress one that was found.
+//   - It never mutates and never acts. There is no export here that writes,
+//     applies, or runs anything. It returns text.
+//
+// ON BORROWED SENTENCES
+// The engines above predate the house rule against em dashes in product text,
+// and their message strings are full of them (js/validation/query-sentinel.js
+// lines 183, 192, 233 and 291; js/gate/readiness-gate.js line 152 onward).
+// Rewriting those strings would invalidate their recorded goldens, so every
+// borrowed sentence passes through plainText() instead, which turns an em dash
+// into the comma it was standing in for. That is why this file reads other
+// engines' structured fields wherever it can and their prose only where it
+// must.
+//
+// PURITY: no DOM, no network, no storage, no imports. Node-testable in full.
+
+const EXPLAIN_KIND = 'dataglow-explain';
+const EXPLAIN_VERSION = 1;
+
+/* The complete set of evidence sources this engine understands. A caller hands
+   over what it has; anything absent becomes an honest unknown rather than a
+   silent gap. */
+const EXPLAIN_SOURCES = Object.freeze([
+  'query-sentinel',
+  'readiness-gate',
+  'result-shape',
+  'phi-shield',
+  'air-gap',
+  'publish-safe',
+  'trust-ledger',
+]);
+
+const EXPLAIN_CONFIDENCE = Object.freeze(['well-evidenced', 'partly-evidenced', 'unevidenced']);
+
+const EXPLAIN_DISCLAIMER =
+  'This explanation only repeats what the checks on this device already found. '
+  + 'It is not advice, it is not a review of your analysis, and it cannot see '
+  + 'anything the checks did not measure.';
+
+/* A source is worth listing as an unknown only if a reader could reasonably
+   expect it. These are the reasons, kept here so the wording is consistent
+   whichever composer notices the gap. */
+const UNKNOWN_REASONS = Object.freeze({
+  'query-sentinel': 'Query Sentinel did not run on this query, so nothing is known about join or grouping risk.',
+  'readiness-gate': 'The readiness gate has no verdict yet, so nothing is known about whether the data held up.',
+  'result-shape': 'The size of the result was not measured, so this cannot say how much data you are looking at.',
+  'phi-shield': 'PHI Shield has not scanned this, so nothing is known about sensitive values.',
+  'air-gap': 'Air-Gap Mode was not readable, so this cannot say whether the network is closed off.',
+  'publish-safe': 'Publish-Safe was not consulted, so nothing is known about whether this is safe to hand over.',
+  'trust-ledger': 'The Trust Ledger was not readable, so this cannot say what else happened in this tab.',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isNum(v) {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * Normalise a sentence borrowed from another engine into house style.
+ *
+ * An em dash is nearly always doing the work of a comma in the strings this
+ * engine borrows, so that is the substitution. Repeated whitespace is
+ * collapsed because the source strings are template-built and sometimes carry
+ * it. Returns '' for anything that is not a usable string, so a caller can
+ * test the result rather than the input.
+ *
+ * @param {*} s
+ * @returns {string}
+ */
+function plainText(s) {
+  if (typeof s !== 'string') return '';
+  // Escapes, not literals, so a grep for a stray em dash in product text does
+  // not trip over the one place that is allowed to mention it.
+  return s
+    .replace(/\s*\u2014\s*/g, ', ')
+    .replace(/\s*\u2013\s*/g, ', ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ ,/g, ',')
+    .trim();
+}
+
+function plural(n, one, many) {
+  return n === 1 ? one : many;
+}
+
+/* -------------------------- per-source composers -------------------------- */
+
+/**
+ * What Query Sentinel found, in one or two sentences, plus the fix shapes
+ * Assist already produced. Both are read as data: the flag count and severity
+ * decide the wording, and only the `message` and `sketch` strings are quoted.
+ *
+ * @param {{status?:string, flagCount?:number, flags?:Array}} report
+ * @param {Array<{kind:string, sketch:string}>} [suggestions] - from
+ *   js/validation/query-sentinel-assist.js's assistDeterministic().
+ * @returns {{text:string, level:string, detail:object}|null} null when there
+ *   is no report to read, so the caller records an unknown instead.
+ */
+function explainSentinel(report, suggestions) {
+  if (!isPlainObject(report) || !Array.isArray(report.flags)) return null;
+  const flags = report.flags.filter(isPlainObject);
+  const fails = flags.filter((f) => f.severity === 'fail');
+  const warns = flags.filter((f) => f.severity === 'warn');
+  const sketches = Array.isArray(suggestions)
+    ? suggestions.filter((s) => isPlainObject(s) && typeof s.sketch === 'string')
+    : [];
+
+  if (flags.length === 0) {
+    return {
+      text: 'Query Sentinel checked this query for the mistakes that quietly change a number, '
+        + 'joins that multiply rows, join keys that do not match, and totals that will not add '
+        + 'back up, and found none of them.',
+      level: 'good',
+      detail: { flagCount: 0, fails: 0, warns: 0 },
+    };
+  }
+
+  const lead = fails.length > 0
+    ? 'Query Sentinel found ' + fails.length + ' ' + plural(fails.length, 'problem', 'problems')
+      + ' that can change the number you are looking at.'
+    : 'Query Sentinel found ' + warns.length + ' thing' + (warns.length === 1 ? '' : 's')
+      + ' worth a second look, none of them certain to be wrong.';
+
+  const quoted = (fails.length > 0 ? fails : warns)
+    .slice(0, 2)
+    .map((f) => plainText(f.message))
+    .filter((t) => t.length > 0);
+
+  const parts = [lead];
+  if (quoted.length > 0) parts.push('In its own words: ' + quoted.join(' Also: '));
+  if (sketches.length > 0) {
+    parts.push('The suggested shape of a fix, which nothing here has applied: '
+      + sketches.slice(0, 2).map((s) => plainText(s.sketch)).join(' '));
+  }
+
+  return {
+    text: parts.join(' '),
+    level: fails.length > 0 ? 'bad' : 'warn',
+    detail: { flagCount: flags.length, fails: fails.length, warns: warns.length },
+  };
+}
+
+/**
+ * What the readiness gate decided, composed from its structured fields rather
+ * than from explainGateReasons(), whose output is em dashed and shaped for a
+ * log line rather than a paragraph.
+ *
+ * @param {{agentConsumable?:boolean, score?:number, threshold?:number,
+ *   failingLayers?:Array, blockedByContract?:boolean, evaluatedLayerCount?:number}} gate
+ * @returns {{text:string, level:string, detail:object}|null}
+ */
+function explainGate(gate) {
+  if (!isPlainObject(gate) || typeof gate.agentConsumable !== 'boolean') return null;
+  const score = isNum(gate.score) ? gate.score : null;
+  const threshold = isNum(gate.threshold) ? gate.threshold : null;
+  const failing = Array.isArray(gate.failingLayers) ? gate.failingLayers.filter(isPlainObject) : [];
+  const evaluated = isNum(gate.evaluatedLayerCount) ? gate.evaluatedLayerCount : 0;
+
+  if (evaluated === 0 && failing.length === 0 && !gate.blockedByContract) {
+    return {
+      text: 'The readiness gate has not been given any validation evidence yet, so it is holding '
+        + 'this back rather than calling it ready. That is the gate being careful, not a finding '
+        + 'against your data.',
+      level: 'unknown',
+      detail: { evaluated: 0 },
+    };
+  }
+
+  const parts = [];
+  if (gate.agentConsumable) {
+    parts.push('The readiness gate passed this'
+      + (score === null ? '.' : ', scoring ' + score + ' out of 100'
+        + (threshold === null ? '.' : ' against a bar of ' + threshold + '.')));
+    parts.push('That means the checks it can run all held up, across ' + evaluated + ' '
+      + plural(evaluated, 'layer', 'layers') + ' of evidence.');
+  } else {
+    parts.push('The readiness gate is holding this back'
+      + (score === null ? '.' : ', scoring ' + score + ' out of 100'
+        + (threshold === null ? '.' : ' against a bar of ' + threshold + '.')));
+    if (gate.blockedByContract) {
+      parts.push('The metric contract behind this no longer matches what was agreed, and that '
+        + 'alone is enough to hold it back.');
+    }
+    if (failing.length > 0) {
+      const named = failing.slice(0, 3)
+        .map((f) => String(f.layer || 'a check') + ' (' + plainText(f.reason) + ')')
+        .join('; ');
+      parts.push('What failed: ' + named + '.');
+    } else if (!gate.blockedByContract) {
+      parts.push('Nothing failed outright. The score is simply below the bar, which usually means '
+        + 'unresolved warnings or too little evidence to be sure.');
+    }
+  }
+
+  return {
+    text: parts.join(' '),
+    level: gate.agentConsumable ? 'good' : 'bad',
+    detail: {
+      agentConsumable: gate.agentConsumable,
+      score,
+      threshold,
+      failing: failing.length,
+      blockedByContract: !!gate.blockedByContract,
+      evaluated,
+    },
+  };
+}
+
+/**
+ * How much data is on screen. Deliberately blunt: a reader who has been handed
+ * a truncated preview should be told, because every other sentence in the
+ * explanation is about a sample if this one is.
+ *
+ * @param {{rows?:number, columns?:number, truncated?:boolean, table?:string}} shape
+ * @returns {{text:string, level:string, detail:object}|null}
+ */
+function explainResultShape(shape) {
+  if (!isPlainObject(shape) || (!isNum(shape.rows) && !isNum(shape.columns))) return null;
+  const rows = isNum(shape.rows) ? shape.rows : null;
+  const cols = isNum(shape.columns) ? shape.columns : null;
+  const bits = [];
+  if (rows !== null && cols !== null) {
+    bits.push('You are looking at ' + rows.toLocaleString() + ' '
+      + plural(rows, 'row', 'rows') + ' across ' + cols + ' ' + plural(cols, 'column', 'columns') + '.');
+  } else if (rows !== null) {
+    bits.push('You are looking at ' + rows.toLocaleString() + ' ' + plural(rows, 'row', 'rows') + '.');
+  } else {
+    bits.push('You are looking at ' + cols + ' ' + plural(cols, 'column', 'columns') + '.');
+  }
+  if (shape.truncated) {
+    bits.push('This is a preview, not the whole result, so any total you read off it is a total '
+      + 'of the preview.');
+  }
+  if (rows === 0) {
+    bits.push('No rows came back. An empty result is a real answer, but it is also what a filter '
+      + 'that is too narrow looks like.');
+  }
+  return {
+    text: bits.join(' '),
+    level: shape.truncated || rows === 0 ? 'warn' : 'good',
+    detail: { rows, columns: cols, truncated: !!shape.truncated },
+  };
+}
+
+/**
+ * What PHI Shield found. Reads the same shape PHI Shield's guardOrBlock()
+ * returns, and treats a scan that could not run as unknown rather than clean,
+ * the same rule js/gate/publish-safe.js holds.
+ *
+ * @param {{available?:boolean, sensitiveFound?:boolean, findings?:Array}} phi
+ * @returns {{text:string, level:string, detail:object}|null}
+ */
+function explainPhi(phi) {
+  if (!isPlainObject(phi)) return null;
+  if (phi.available === false) return null;
+  if (typeof phi.sensitiveFound !== 'boolean') return null;
+  const findings = Array.isArray(phi.findings) ? phi.findings.filter(isPlainObject) : [];
+  const count = findings.reduce((n, f) => n + (isNum(f.count) ? f.count : 1), 0);
+  if (!phi.sensitiveFound) {
+    return {
+      text: 'PHI Shield looked over this and matched nothing it recognises as sensitive. It '
+        + 'matches patterns, so a clean result is a good sign rather than a guarantee.',
+      level: 'good',
+      detail: { sensitiveFound: false, findings: 0 },
+    };
+  }
+  return {
+    text: 'PHI Shield matched ' + count + ' possible sensitive '
+      + plural(count, 'value', 'values') + ' in this. Nothing has been removed or changed: the '
+      + 'match is there so you can decide what should happen before this goes anywhere.',
+    level: 'warn',
+    detail: { sensitiveFound: true, findings: findings.length, matched: count },
+  };
+}
+
+/**
+ * The privacy posture, in the terms the user chose it in.
+ * @param {{active?:boolean}} airGap
+ * @returns {{text:string, level:string, detail:object}|null}
+ */
+function explainAirGap(airGap) {
+  if (!isPlainObject(airGap) || typeof airGap.active !== 'boolean') return null;
+  return airGap.active
+    ? {
+      text: 'Air-Gap Mode is on, so nothing here can reach the network even if something asked it '
+        + 'to. Everything above was worked out on this device.',
+      level: 'good',
+      detail: { active: true },
+    }
+    : {
+      text: 'Air-Gap Mode is off. Nothing here sent anything anywhere, because none of these '
+        + 'checks use the network, but the switch that would refuse an attempt is not thrown.',
+      level: 'unknown',
+      detail: { active: false },
+    };
+}
+
+/**
+ * The Publish-Safe verdict, quoted rather than recomputed. Publish-Safe writes
+ * its own headline in house style, so it is passed through plainText and used.
+ *
+ * @param {{level?:string, headline?:string, blocked?:boolean}} verdict
+ * @returns {{text:string, level:string, detail:object}|null}
+ */
+function explainPublishSafe(verdict) {
+  if (!isPlainObject(verdict) || typeof verdict.level !== 'string') return null;
+  const headline = plainText(verdict.headline);
+  const map = { clear: 'good', caution: 'warn', blocked: 'bad' };
+  return {
+    text: headline || 'Publish-Safe reached a verdict of ' + verdict.level + ' on handing this over.',
+    level: map[verdict.level] || 'unknown',
+    detail: { level: verdict.level, blocked: !!verdict.blocked },
+  };
+}
+
+/**
+ * What else has happened in this tab, from the Trust Ledger's own count.
+ * @param {{size?:number, valid?:boolean}} ledger
+ * @returns {{text:string, level:string, detail:object}|null}
+ */
+function explainTrustLedger(ledger) {
+  if (!isPlainObject(ledger) || !isNum(ledger.size)) return null;
+  if (ledger.size === 0) {
+    return {
+      text: 'The Trust Ledger has nothing in it yet, so nothing that belongs on a record has '
+        + 'happened in this tab so far.',
+      level: 'unknown',
+      detail: { size: 0 },
+    };
+  }
+  const chain = ledger.valid === false
+    ? ' Its chain does not verify, which means a row was changed after it was written and none of '
+      + 'them can be trusted as a record.'
+    : (ledger.valid === true ? ' Its chain verifies, so no row has been altered since it landed.' : '');
+  return {
+    text: 'The Trust Ledger holds ' + ledger.size + ' '
+      + plural(ledger.size, 'row', 'rows') + ' for this tab.' + chain,
+    level: ledger.valid === false ? 'bad' : 'good',
+    detail: { size: ledger.size, valid: ledger.valid === true },
+  };
+}
+
+/* ------------------------------ composition ------------------------------- */
+
+const COMPOSERS = Object.freeze([
+  { id: 'query-sentinel', label: 'The query', run: (e) => explainSentinel(e.sentinel, e.sentinelSuggestions) },
+  { id: 'result-shape', label: 'What is on screen', run: (e) => explainResultShape(e.resultShape) },
+  { id: 'readiness-gate', label: 'Whether the data held up', run: (e) => explainGate(e.gate) },
+  { id: 'phi-shield', label: 'Anything sensitive', run: (e) => explainPhi(e.phi) },
+  { id: 'publish-safe', label: 'Handing it over', run: (e) => explainPublishSafe(e.publishSafe) },
+  { id: 'air-gap', label: 'The network', run: (e) => explainAirGap(e.airGap) },
+  { id: 'trust-ledger', label: 'On the record', run: (e) => explainTrustLedger(e.trustLedger) },
+]);
+
+/* The worst level any section reached decides the headline, because a reader
+   who skims one line must not be told everything is fine when one section says
+   otherwise. */
+const LEVEL_RANK = Object.freeze({ good: 0, unknown: 1, warn: 2, bad: 3 });
+
+function worstLevel(sections) {
+  let worst = 'good';
+  for (const s of sections) {
+    if ((LEVEL_RANK[s.level] || 0) > (LEVEL_RANK[worst] || 0)) worst = s.level;
+  }
+  return worst;
+}
+
+function buildHeadline(sections, unknowns, worst) {
+  if (sections.length === 0) {
+    return 'There is nothing to explain yet. None of the checks on this device have looked at '
+      + 'this, so anything said here would be invented.';
+  }
+  const missing = unknowns.length;
+  const tail = missing === 0
+    ? ' Every check this could ask was asked.'
+    : ' ' + missing + ' ' + plural(missing, 'check', 'checks') + ' could not be asked, so this is '
+      + 'not the whole picture.';
+  if (worst === 'bad') {
+    return 'Something here needs your attention before you rely on this number.' + tail;
+  }
+  if (worst === 'warn') {
+    return 'This looks usable, with something worth reading before you rely on it.' + tail;
+  }
+  if (worst === 'unknown') {
+    return 'Nothing found a problem, and some of what you would want to know was not measured.' + tail;
+  }
+  return 'Everything that was checked here held up.' + tail;
+}
+
+function confidenceFor(sections, unknowns) {
+  if (sections.length === 0) return 'unevidenced';
+  if (unknowns.length === 0) return 'well-evidenced';
+  // A clear minority of sources answering is not enough to call anything
+  // evidenced, even though one section did come back.
+  return sections.length * 2 < unknowns.length ? 'unevidenced' : 'partly-evidenced';
+}
+
+/**
+ * The whole point of this file: one explanation composed from whatever evidence
+ * a surface managed to gather.
+ *
+ * Never throws. A malformed evidence bag produces the same honest "nothing to
+ * explain yet" answer as an empty one, because a surface asking for an
+ * explanation must not be able to break by asking badly.
+ *
+ * @param {{
+ *   subject?: string,
+ *   sentinel?: object, sentinelSuggestions?: Array,
+ *   resultShape?: object, gate?: object, phi?: object,
+ *   airGap?: object, publishSafe?: object, trustLedger?: object,
+ *   expect?: string[]
+ * }} [evidence] - `expect` narrows which sources are worth calling unknown, so
+ *   a surface that has no query does not apologise for having no query.
+ * @returns {{kind:string, version:number, subject:string, headline:string,
+ *   confidence:string, level:string, sections:Array, evidence:Array,
+ *   unknowns:Array, disclaimer:string}}
+ */
+function explainResult(evidence = {}) {
+  const bag = isPlainObject(evidence) ? evidence : {};
+  const expect = Array.isArray(bag.expect)
+    ? bag.expect.filter((s) => EXPLAIN_SOURCES.includes(s))
+    : EXPLAIN_SOURCES.slice();
+
+  const sections = [];
+  const cited = [];
+  const unknowns = [];
+
+  for (const composer of COMPOSERS) {
+    let out = null;
+    try {
+      out = composer.run(bag);
+    } catch (_e) {
+      out = null; // a broken evidence shape is a missing source, not a crash
+    }
+    if (out && typeof out.text === 'string' && out.text.length > 0) {
+      sections.push({
+        id: composer.id,
+        label: composer.label,
+        text: plainText(out.text),
+        level: out.level || 'unknown',
+      });
+      cited.push({ source: composer.id, detail: out.detail || {} });
+    } else if (expect.includes(composer.id)) {
+      unknowns.push({ source: composer.id, why: UNKNOWN_REASONS[composer.id] });
+    }
+  }
+
+  const worst = worstLevel(sections);
+  return {
+    kind: EXPLAIN_KIND,
+    version: EXPLAIN_VERSION,
+    subject: typeof bag.subject === 'string' && bag.subject ? bag.subject : 'this result',
+    headline: buildHeadline(sections, unknowns, worst),
+    confidence: confidenceFor(sections, unknowns),
+    level: sections.length === 0 ? 'unknown' : worst,
+    sections,
+    evidence: cited,
+    unknowns,
+    disclaimer: EXPLAIN_DISCLAIMER,
+  };
+}
+
+/**
+ * The same explanation as plain text, for a copy button or a saved file. Kept
+ * here rather than in the surface so what a user copies is what a test reads.
+ * @param {ReturnType<typeof explainResult>} exp
+ * @returns {string}
+ */
+function describeExplanation(exp) {
+  if (!isPlainObject(exp) || !Array.isArray(exp.sections)) return 'No explanation to show.';
+  const lines = ['Explain: ' + (exp.subject || 'this result'), '', exp.headline, ''];
+  for (const s of exp.sections) {
+    lines.push(s.label + ': ' + s.text);
+  }
+  if (exp.unknowns && exp.unknowns.length > 0) {
+    lines.push('', 'Not known:');
+    for (const u of exp.unknowns) lines.push('- ' + u.why);
+  }
+  lines.push('', exp.disclaimer || EXPLAIN_DISCLAIMER);
+  return lines.join('\n');
+}
+
+/**
+ * A short badge for a surface that has room for three words and not a
+ * paragraph.
+ * @param {ReturnType<typeof explainResult>} exp
+ * @returns {{level:string, text:string, tone:string}}
+ */
+function explainBadge(exp) {
+  const level = isPlainObject(exp) && typeof exp.level === 'string' ? exp.level : 'unknown';
+  if (level === 'bad') return { level, text: 'Needs a look', tone: 'danger' };
+  if (level === 'warn') return { level, text: 'Read this', tone: 'warn' };
+  if (level === 'good') return { level, text: 'Checks held', tone: 'ok' };
+  return { level, text: 'Little is known', tone: 'muted' };
+}
+
+/* Explicit, testable proof that this engine only ever explains: nothing here
+   writes, applies, runs or mutates, and test/explain-engine.test.mjs asserts
+   this list stays exactly this shape. Same red-team pattern as
+   js/validation/query-sentinel-assist.js's PUBLIC_API_SURFACE. */
+const PUBLIC_API_SURFACE = Object.freeze([
+  'plainText',
+  'explainSentinel',
+  'explainGate',
+  'explainResultShape',
+  'explainPhi',
+  'explainAirGap',
+  'explainPublishSafe',
+  'explainTrustLedger',
+  'explainResult',
+  'describeExplanation',
+  'explainBadge',
+]);
+  window.DataGlowExplainEngine = {
+    EXPLAIN_KIND: EXPLAIN_KIND,
+    EXPLAIN_VERSION: EXPLAIN_VERSION,
+    EXPLAIN_SOURCES: EXPLAIN_SOURCES,
+    EXPLAIN_CONFIDENCE: EXPLAIN_CONFIDENCE,
+    EXPLAIN_DISCLAIMER: EXPLAIN_DISCLAIMER,
+    PUBLIC_API_SURFACE: PUBLIC_API_SURFACE,
+    plainText: plainText,
+    explainSentinel: explainSentinel,
+    explainGate: explainGate,
+    explainResultShape: explainResultShape,
+    explainPhi: explainPhi,
+    explainAirGap: explainAirGap,
+    explainPublishSafe: explainPublishSafe,
+    explainTrustLedger: explainTrustLedger,
+    explainResult: explainResult,
+    describeExplanation: describeExplanation,
+    explainBadge: explainBadge,
+  };
+})();
+/* ---- end js/explain/explain-engine.js ---- */
+/* ---- from js/glassbox/glass-box.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - GlassBox (pure engine)
+// ============================================================
+// WHY THIS EXISTS
+// Guided Unpivot already got this right once. Under its result it offers a
+// toggle labelled "DuckDB SQL (glass-box)" that reveals the exact SQL it is
+// about to run (js/intelligence/data-glow-guided-unpivot-canvas.js line 243),
+// so a person can check the machine's arithmetic instead of believing it. The
+// Proof Drawer got it right a second time, in a different shape
+// (js/trust/proof-drawer.js buildProofContent).
+//
+// Nowhere else does. A SQL result, a notebook output and a transform summary
+// each show a finding with no way to see the work behind it, and each would
+// need its own copy of the same idea. This module is the one model of that
+// idea, so a surface can show the math by handing over what it already has.
+//
+// THE SHAPE, AND WHY IT IS THIS WAY AROUND
+// finding first, proof underneath. The field order of the returned object is
+// the reading order of the panel, and test/glass-box.test.mjs asserts it,
+// because the moment proof floats above the answer the panel becomes a wall of
+// code that people learn to scroll past.
+//
+// WHAT IT REFUSES TO DO
+//   - It never writes the code it shows. If a surface has no source text, the
+//     model says so and the panel shows an honest gap. A GlassBox that
+//     reconstructed a plausible query would be worse than no GlassBox, because
+//     it would be checkable and wrong.
+//   - It never grades. Badges come from gates that already ran; a gate that
+//     was not supplied is 'unknown', never 'good'. This is the same rule
+//     js/gate/publish-safe.js holds about a check that could not run.
+//   - It never runs anything. There is no export here that executes SQL or
+//     code, and PUBLIC_API_SURFACE is asserted so a future edit cannot add one
+//     quietly.
+//
+// PURITY: no DOM, no network, no storage, no imports. Node-testable in full.
+
+const GLASS_BOX_KIND = 'dataglow-glass-box';
+const GLASS_BOX_VERSION = 1;
+
+const GLASS_BOX_LANGUAGES = Object.freeze(['sql', 'python', 'r', 'text']);
+
+const GLASS_BOX_BADGE_LEVELS = Object.freeze(['good', 'warn', 'bad', 'unknown']);
+
+/* A long query is worth showing; a thousand-line notebook cell is worth
+   summarising. Sixty lines is roughly a screen on a laptop and two swipes on a
+   phone, and the model always reports when it cut. */
+const GLASS_BOX_MAX_LINES = 60;
+
+const GLASS_BOX_DISCLAIMER =
+  'This is the code that produced the result above, as it was run on this device. '
+  + 'Reading it is the only way to be sure the result means what you think it means.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isNum(v) {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+/**
+ * Cut long source down to a readable window, and say so.
+ *
+ * Cuts from the end rather than the middle: the first lines of a query are the
+ * ones that say what it is selecting from, which is what a reader checks first.
+ *
+ * @param {string} source
+ * @param {number} [maxLines]
+ * @returns {{text:string, lineCount:number, truncated:boolean, shownLines:number}}
+ */
+function truncateSource(source, maxLines = GLASS_BOX_MAX_LINES) {
+  const text = str(source);
+  if (!text) return { text: '', lineCount: 0, truncated: false, shownLines: 0 };
+  const lines = text.replace(/\s+$/, '').split('\n');
+  const limit = isNum(maxLines) && maxLines > 0 ? Math.floor(maxLines) : GLASS_BOX_MAX_LINES;
+  if (lines.length <= limit) {
+    return { text: lines.join('\n'), lineCount: lines.length, truncated: false, shownLines: lines.length };
+  }
+  return {
+    text: lines.slice(0, limit).join('\n'),
+    lineCount: lines.length,
+    truncated: true,
+    shownLines: limit,
+  };
+}
+
+/* Every badge this engine knows how to render, keyed by the gate a surface may
+   hand over. Each entry turns a gate's own result into one chip, and says why
+   in words a reader can act on. A gate absent from the input never appears as
+   a passing chip. */
+const BADGE_BUILDERS = Object.freeze({
+  sentinel(v) {
+    if (!isPlainObject(v) || !Array.isArray(v.flags)) return null;
+    const fails = v.flags.filter((f) => isPlainObject(f) && f.severity === 'fail').length;
+    const warns = v.flags.filter((f) => isPlainObject(f) && f.severity === 'warn').length;
+    if (fails > 0) {
+      return { id: 'sentinel', label: 'Query Sentinel: ' + fails + ' to fix', level: 'bad',
+        why: 'Query Sentinel found something that can change this number.' };
+    }
+    if (warns > 0) {
+      return { id: 'sentinel', label: 'Query Sentinel: ' + warns + ' to read', level: 'warn',
+        why: 'Query Sentinel found something worth a second look.' };
+    }
+    return { id: 'sentinel', label: 'Query Sentinel: clean', level: 'good',
+      why: 'Query Sentinel found none of the mistakes it checks for.' };
+  },
+  gate(v) {
+    if (!isPlainObject(v) || typeof v.agentConsumable !== 'boolean') return null;
+    const score = isNum(v.score) ? ' ' + v.score + '/100' : '';
+    return v.agentConsumable
+      ? { id: 'gate', label: 'Readiness:' + (score || ' passed'), level: 'good',
+        why: 'The readiness gate passed the data behind this.' }
+      : { id: 'gate', label: 'Readiness: held back' + score, level: 'bad',
+        why: 'The readiness gate is holding this back, so treat the result as provisional.' };
+  },
+  phi(v) {
+    if (!isPlainObject(v) || typeof v.sensitiveFound !== 'boolean') return null;
+    return v.sensitiveFound
+      ? { id: 'phi', label: 'PHI Shield: matched', level: 'warn',
+        why: 'PHI Shield matched something sensitive in view. Nothing was removed.' }
+      : { id: 'phi', label: 'PHI Shield: clean', level: 'good',
+        why: 'PHI Shield matched nothing it recognises as sensitive.' };
+  },
+  airGap(v) {
+    if (!isPlainObject(v) || typeof v.active !== 'boolean') return null;
+    return v.active
+      ? { id: 'air-gap', label: 'Air-Gap: on', level: 'good',
+        why: 'Nothing here can reach the network while Air-Gap Mode is on.' }
+      : { id: 'air-gap', label: 'Air-Gap: off', level: 'unknown',
+        why: 'Air-Gap Mode is off. Nothing here used the network, but the refusal is not armed.' };
+  },
+  publishSafe(v) {
+    if (!isPlainObject(v) || typeof v.level !== 'string') return null;
+    const map = { clear: 'good', caution: 'warn', blocked: 'bad' };
+    return { id: 'publish-safe', label: 'Publish-Safe: ' + v.level, level: map[v.level] || 'unknown',
+      why: 'Publish-Safe reached this verdict on handing the result over.' };
+  },
+});
+
+/**
+ * Turn whatever gates a surface has into chips, in a fixed order so the same
+ * result never renders its badges in two different arrangements.
+ *
+ * @param {{sentinel?:object, gate?:object, phi?:object, airGap?:object, publishSafe?:object}} [gates]
+ * @returns {Array<{id:string, label:string, level:string, why:string}>}
+ */
+function glassBoxBadges(gates) {
+  const bag = isPlainObject(gates) ? gates : {};
+  const out = [];
+  for (const key of ['sentinel', 'gate', 'phi', 'airGap', 'publishSafe']) {
+    let chip = null;
+    try {
+      chip = BADGE_BUILDERS[key](bag[key]);
+    } catch (_e) {
+      chip = null; // a malformed gate result is a missing badge, not a crash
+    }
+    if (chip) out.push(chip);
+  }
+  return out;
+}
+
+const LEVEL_RANK = Object.freeze({ good: 0, unknown: 1, warn: 2, bad: 3 });
+
+/**
+ * Build the model a GlassBox panel renders.
+ *
+ * Never throws: a surface asking to show its math must not be able to break the
+ * surface by asking badly.
+ *
+ * @param {{
+ *   surface?: string,
+ *   headline?: string,
+ *   detail?: string,
+ *   language?: string,
+ *   source?: string,
+ *   engine?: string,
+ *   gates?: object,
+ *   maxLines?: number
+ * }} [input] - `source` is the actual SQL or code as it ran, read from the
+ *   surface. `engine` is the thing that ran it, named for a human.
+ * @returns {{kind:string, version:number, surface:string,
+ *   finding:{headline:string, detail:string},
+ *   math:{available:boolean, language:string, engine:string, source:string,
+ *     lineCount:number, shownLines:number, truncated:boolean},
+ *   badges:Array, missing:Array<{what:string, why:string}>,
+ *   level:string, disclaimer:string}}
+ */
+function buildGlassBox(input = {}) {
+  const bag = isPlainObject(input) ? input : {};
+  const language = GLASS_BOX_LANGUAGES.includes(bag.language) ? bag.language : 'text';
+  const cut = truncateSource(bag.source, bag.maxLines);
+  const badges = glassBoxBadges(bag.gates);
+  const missing = [];
+
+  if (!cut.text) {
+    missing.push({
+      what: 'the code',
+      why: 'This surface did not hand over the code it ran, so there is nothing to check here. '
+        + 'Nothing has been reconstructed: a guessed query would look checkable and be wrong.',
+    });
+  }
+  if (badges.length === 0) {
+    missing.push({
+      what: 'the gates',
+      why: 'No check has reported on this yet, so there is no badge to show. That is an absence '
+        + 'of evidence, not a clean result.',
+    });
+  }
+
+  let level = 'good';
+  for (const b of badges) {
+    if ((LEVEL_RANK[b.level] || 0) > (LEVEL_RANK[level] || 0)) level = b.level;
+  }
+  if (badges.length === 0) level = 'unknown';
+
+  // Field order is reading order: finding, then the math, then the badges, then
+  // what is missing. Asserted in test/glass-box.test.mjs.
+  return {
+    kind: GLASS_BOX_KIND,
+    version: GLASS_BOX_VERSION,
+    surface: str(bag.surface) || 'this result',
+    finding: {
+      headline: str(bag.headline) || 'This is the result the code below produced.',
+      detail: str(bag.detail),
+    },
+    math: {
+      available: cut.text.length > 0,
+      language,
+      engine: str(bag.engine) || 'this device',
+      source: cut.text,
+      lineCount: cut.lineCount,
+      shownLines: cut.shownLines,
+      truncated: cut.truncated,
+    },
+    badges,
+    missing,
+    level,
+    disclaimer: GLASS_BOX_DISCLAIMER,
+  };
+}
+
+/**
+ * The same model as plain text, for a copy button or a saved file. What a user
+ * copies is therefore what a test reads.
+ * @param {ReturnType<typeof buildGlassBox>} model
+ * @returns {string}
+ */
+function renderGlassBoxText(model) {
+  if (!isPlainObject(model) || !isPlainObject(model.finding)) return 'No math to show.';
+  const lines = [model.finding.headline];
+  if (model.finding.detail) lines.push(model.finding.detail);
+  lines.push('');
+  if (model.math && model.math.available) {
+    lines.push('Ran by: ' + model.math.engine + ' (' + model.math.language + ')');
+    if (model.math.truncated) {
+      lines.push('Showing the first ' + model.math.shownLines + ' of ' + model.math.lineCount + ' lines.');
+    }
+    lines.push('', model.math.source, '');
+  }
+  if (Array.isArray(model.badges) && model.badges.length > 0) {
+    lines.push('Checks:');
+    for (const b of model.badges) lines.push('- ' + b.label + '. ' + b.why);
+    lines.push('');
+  }
+  if (Array.isArray(model.missing) && model.missing.length > 0) {
+    lines.push('Not shown:');
+    for (const m of model.missing) lines.push('- ' + m.what + ': ' + m.why);
+    lines.push('');
+  }
+  lines.push(model.disclaimer || GLASS_BOX_DISCLAIMER);
+  return lines.join('\n');
+}
+
+/**
+ * The label for the toggle that opens a GlassBox, so every surface uses the
+ * same words. Guided Unpivot's existing toggle says "glass-box"; this keeps
+ * that vocabulary while saying plainly what pressing it does.
+ * @param {ReturnType<typeof buildGlassBox>} model
+ * @returns {string}
+ */
+function glassBoxToggleLabel(model) {
+  if (isPlainObject(model) && isPlainObject(model.math) && model.math.available) {
+    const lang = model.math.language === 'sql' ? 'SQL' : model.math.language;
+    return 'Show the math (' + lang + ')';
+  }
+  return 'Show the math';
+}
+
+/* Explicit, testable proof that this engine only ever describes: nothing here
+   runs, writes or applies anything, and test/glass-box.test.mjs asserts this
+   list stays exactly this shape. */
+const PUBLIC_API_SURFACE = Object.freeze([
+  'truncateSource',
+  'glassBoxBadges',
+  'buildGlassBox',
+  'renderGlassBoxText',
+  'glassBoxToggleLabel',
+]);
+  window.DataGlowGlassBoxEngine = {
+    GLASS_BOX_KIND: GLASS_BOX_KIND,
+    GLASS_BOX_VERSION: GLASS_BOX_VERSION,
+    GLASS_BOX_LANGUAGES: GLASS_BOX_LANGUAGES,
+    GLASS_BOX_BADGE_LEVELS: GLASS_BOX_BADGE_LEVELS,
+    GLASS_BOX_MAX_LINES: GLASS_BOX_MAX_LINES,
+    GLASS_BOX_DISCLAIMER: GLASS_BOX_DISCLAIMER,
+    PUBLIC_API_SURFACE: PUBLIC_API_SURFACE,
+    truncateSource: truncateSource,
+    glassBoxBadges: glassBoxBadges,
+    buildGlassBox: buildGlassBox,
+    renderGlassBoxText: renderGlassBoxText,
+    glassBoxToggleLabel: glassBoxToggleLabel,
+  };
+})();
+/* ---- end js/glassbox/glass-box.js ---- */
+/* ---- from js/glassbox/data-glow-glass-box-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* GlassBox: the "show the math" block that sits under a finding.
+
+     The pure engine (js/glassbox/glass-box.js, published as
+     window.DataGlowGlassBoxEngine) owns the model, the badge vocabulary, the
+     truncation and the disclaimer. This module owns only what the engine
+     cannot: where the block goes, and where the code comes from.
+
+     WHERE IT MOUNTS, and why those three. Each is a place that already shows a
+     result with no way to see the work behind it:
+       #sql-view-results-wrapper   SQL view result   source #sql-view-input
+       #sql-results-wrapper        SQL tab result    source #sql-input
+       #py-result-wrap             Python result     source #py-view-input
+     Guided Unpivot already has its own glass-box toggle and is deliberately left
+     alone: a second one under the same result would be two answers to one
+     question.
+
+     WHERE THE CODE COMES FROM. The paired textarea, read at the moment the
+     block is opened. Nothing is reconstructed and nothing is cached, so the
+     panel either shows the text a person can see in the editor above or says
+     plainly that it has nothing. The engine holds the rule; this module holds
+     the DOM read.
+
+     HOW IT KNOWS A RESULT ARRIVED. A MutationObserver on each wrapper. The
+     result renderers in the canvas are private closures with no event, so
+     watching the DOM is the only way to react without editing them.
+
+     WHAT IT NEVER DOES. It does not run anything, does not edit the editor, and
+     does not grade: every badge comes from a gate that already ran, read off
+     the window namespaces those gates publish. A gate that is not present
+     produces no chip at all rather than a passing one.
+
+     Styles are injected at runtime, matching the other canvas surfaces, and
+     carry the narrow-viewport rules for A14 so the block is usable on a phone
+     without a horizontal trap. */
+
+  var STYLE_ID = 'dg-glass-box-styles';
+  var BLOCK_CLASS = 'dg-gb';
+
+  /* Each host is one surface. `rowsFrom` is the tbody whose row count becomes
+     the finding, because that is the number a person is looking at. */
+  var HOSTS = [
+    {
+      id: 'sql-view',
+      after: 'sql-view-results-wrapper',
+      source: 'sql-view-input',
+      rowsFrom: 'sql-view-results-tbody',
+      language: 'sql',
+      engine: 'DuckDB-WASM on this device',
+      surface: 'this SQL result'
+    },
+    {
+      id: 'sql-tab',
+      after: 'sql-results-wrapper',
+      source: 'sql-input',
+      rowsFrom: 'sql-results-tbody',
+      language: 'sql',
+      engine: 'DuckDB-WASM on this device',
+      surface: 'this SQL result'
+    },
+    {
+      id: 'py-view',
+      after: 'py-result-wrap',
+      source: 'py-view-input',
+      rowsFrom: 'py-result-tbody',
+      language: 'python',
+      engine: 'Pyodide on this device',
+      surface: 'this Python result'
+    }
+  ];
+
+  function engine() { return window.DataGlowGlassBoxEngine || null; }
+
+  function flagOn() {
+    try { if (window.DATAGLOW_GLASS_BOX === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_GLASS_BOX === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('glassBox') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[GlassBox]', msg);
+  }
+
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = [
+      '.' + BLOCK_CLASS + '{margin:10px 0 4px;border:1px solid var(--border,#282D38);border-radius:12px;',
+      'background:var(--surface-2,var(--surface,#151820));overflow:hidden}',
+      '.' + BLOCK_CLASS + '[hidden]{display:none}',
+      '.' + BLOCK_CLASS + ' .dg-gb-toggle{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;',
+      'padding:0 13px;border:none;background:transparent;color:var(--text-secondary,#B4B8C0);font:inherit;',
+      'font-size:12.5px;font-weight:700;cursor:pointer;text-align:left}',
+      '.' + BLOCK_CLASS + ' .dg-gb-toggle:hover{color:var(--text,#E8EAED)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-caret{flex:0 0 auto;font-size:10px;color:var(--text-muted,#9AA1AE)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-lvl{flex:0 0 auto;width:7px;height:7px;border-radius:50%;',
+      'background:var(--text-muted,#9AA1AE)}',
+      '.' + BLOCK_CLASS + '[data-level="good"] .dg-gb-lvl{background:var(--primary,#20C5B5)}',
+      '.' + BLOCK_CLASS + '[data-level="warn"] .dg-gb-lvl{background:var(--warn,#E3A34A)}',
+      '.' + BLOCK_CLASS + '[data-level="bad"] .dg-gb-lvl{background:var(--danger,#E5534B)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-body{display:none;padding:2px 13px 13px;border-top:1px solid var(--border,#282D38)}',
+      '.' + BLOCK_CLASS + '.open .dg-gb-body{display:block}',
+      '.' + BLOCK_CLASS + ' .dg-gb-find{font-size:13px;line-height:1.55;margin:11px 0 0;color:var(--text,#E8EAED)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-detail{font-size:12px;line-height:1.55;margin:4px 0 0;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-ran{font-size:11px;margin:11px 0 5px;color:var(--text-muted,#9AA1AE);',
+      'letter-spacing:.03em}',
+      /* pre wraps rather than scrolls sideways: a phone must never trap the
+         page in a horizontal scroll to read a query. */
+      '.' + BLOCK_CLASS + ' pre.dg-gb-src{margin:0;padding:11px 12px;border-radius:10px;max-height:340px;',
+      'overflow-y:auto;overflow-x:hidden;background:var(--bg,#0E1015);border:1px solid var(--border,#282D38);',
+      'font-family:var(--mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:12px;line-height:1.6;',
+      'color:var(--text-secondary,#B4B8C0);white-space:pre-wrap;word-break:break-word;',
+      '-webkit-overflow-scrolling:touch}',
+      '.' + BLOCK_CLASS + ' .dg-gb-chips{display:flex;flex-wrap:wrap;gap:6px;margin:11px 0 0}',
+      '.' + BLOCK_CLASS + ' .dg-gb-chip{padding:3px 9px;border-radius:999px;font-size:10.5px;font-weight:700;',
+      'border:1px solid var(--border,#282D38);color:var(--text-muted,#9AA1AE)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-chip[data-level="good"]{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-chip[data-level="warn"]{border-color:var(--warn,#E3A34A);color:var(--warn,#E3A34A)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-chip[data-level="bad"]{border-color:var(--danger,#E5534B);color:var(--danger,#E5534B)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-gap{font-size:11.5px;line-height:1.55;margin:9px 0 0;',
+      'color:var(--text-faint,var(--text-muted,#9AA1AE))}',
+      '.' + BLOCK_CLASS + ' .dg-gb-note{font-size:11px;line-height:1.5;margin:11px 0 0;',
+      'color:var(--text-faint,var(--text-muted,#9AA1AE))}',
+      '.' + BLOCK_CLASS + ' .dg-gb-foot{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}',
+      '.' + BLOCK_CLASS + ' .dg-gb-btn{min-height:40px;padding:0 13px;border-radius:10px;font:inherit;',
+      'font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);',
+      'background:transparent;color:var(--text-muted,#9AA1AE)}',
+      '.' + BLOCK_CLASS + ' .dg-gb-btn:hover{color:var(--text,#E8EAED)}',
+      /* A14: at phone width the chips and buttons go full width so a thumb
+         cannot miss, and the block loses its side margins to keep the reading
+         column as wide as the screen allows. */
+      '@media (max-width:700px){',
+      '.' + BLOCK_CLASS + ' .dg-gb-btn{flex:1 1 100%;min-height:44px}',
+      '.' + BLOCK_CLASS + ' .dg-gb-toggle{min-height:48px;font-size:13px}',
+      '.' + BLOCK_CLASS + ' pre.dg-gb-src{max-height:240px;font-size:11.5px}',
+      '}'
+    ].join('');
+    var el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  /* ------------------------- evidence gathering --------------------------- */
+
+  /* Gates handed over explicitly by a surface that holds one, keyed the way the
+     engine expects. Nothing is written here on this module's own initiative. */
+  var _provided = {};
+
+  /* Only two gates publish a readable posture today, and both are read from the
+     namespace they already expose:
+       window.DataGlowAirGap.isAirGapActive()
+       window.DataGlowPhiShield.getLastReport()
+     Query Sentinel and the readiness gate are deliberately absent. Their
+     functions are published but their results are not: runQuerySentinel needs a
+     schema with distinct counts, and computeReadinessGate needs validation layer
+     results, neither of which the app keeps anywhere this module can read. So
+     they are left to provide(), and until a surface hands one over the engine
+     reports their absence rather than a passing chip. Re-deriving them from what
+     the DOM happens to show would be a guess wearing a badge. */
+  function gatherGates() {
+    var gates = {};
+    try {
+      if (window.DataGlowAirGap && typeof window.DataGlowAirGap.isAirGapActive === 'function') {
+        gates.airGap = { active: window.DataGlowAirGap.isAirGapActive() === true };
+      }
+    } catch (_e0) {}
+    try {
+      if (window.DataGlowPhiShield && typeof window.DataGlowPhiShield.getLastReport === 'function') {
+        var rep = window.DataGlowPhiShield.getLastReport();
+        /* The PHI report carries its match under guard.sensitiveFound, and a
+           report with no guard section means the guard could not run, which is
+           not the same as clean. */
+        if (rep && rep.guard && typeof rep.guard.sensitiveFound === 'boolean') {
+          gates.phi = { sensitiveFound: rep.guard.sensitiveFound === true };
+        }
+      }
+    } catch (_e1) {}
+    for (var k in _provided) {
+      if (Object.prototype.hasOwnProperty.call(_provided, k)) gates[k] = _provided[k];
+    }
+    return gates;
+  }
+
+  function sourceText(host) {
+    var el = document.getElementById(host.source);
+    if (!el) return '';
+    var v = el.value;
+    return typeof v === 'string' ? v.trim() : '';
+  }
+
+  function rowCount(host) {
+    var body = document.getElementById(host.rowsFrom);
+    if (!body) return null;
+    return body.querySelectorAll('tr').length;
+  }
+
+  function findingFor(host) {
+    var rows = rowCount(host);
+    if (rows === null) return { headline: '', detail: '' };
+    if (rows === 0) {
+      return {
+        headline: 'No rows came back.',
+        detail: 'That is a real answer, not a failure. The code below is what was asked.'
+      };
+    }
+    var shown = rows === 1 ? '1 row is shown above.' : rows.toLocaleString('en-US') + ' rows are shown above.';
+    return {
+      headline: shown,
+      detail: 'The table above may be a preview of a larger result. The code below is what produced it.'
+    };
+  }
+
+  function modelFor(host) {
+    var e = engine();
+    if (!e) return null;
+    var find = findingFor(host);
+    return e.buildGlassBox({
+      surface: host.surface,
+      headline: find.headline,
+      detail: find.detail,
+      language: host.language,
+      engine: host.engine,
+      source: sourceText(host),
+      gates: gatherGates()
+    });
+  }
+
+  /* ------------------------------ rendering ------------------------------- */
+
+  function renderBody(block, model) {
+    var e = engine();
+    var html = '';
+    html += '<p class="dg-gb-find">' + esc(model.finding.headline) + '</p>';
+    if (model.finding.detail) html += '<p class="dg-gb-detail">' + esc(model.finding.detail) + '</p>';
+
+    if (model.math.available) {
+      var ran = 'Ran by ' + model.math.engine;
+      if (model.math.truncated) {
+        ran += '. Showing the first ' + model.math.shownLines + ' of ' + model.math.lineCount + ' lines';
+      }
+      html += '<p class="dg-gb-ran">' + esc(ran) + '</p>';
+      html += '<pre class="dg-gb-src">' + esc(model.math.source) + '</pre>';
+    }
+
+    if (model.badges.length > 0) {
+      html += '<div class="dg-gb-chips">';
+      for (var i = 0; i < model.badges.length; i++) {
+        var b = model.badges[i];
+        html += '<span class="dg-gb-chip" data-level="' + esc(b.level) + '" title="' + esc(b.why) + '">'
+          + esc(b.label) + '</span>';
+      }
+      html += '</div>';
+    }
+    for (var j = 0; j < model.missing.length; j++) {
+      html += '<p class="dg-gb-gap">' + esc(model.missing[j].why) + '</p>';
+    }
+    html += '<p class="dg-gb-note">' + esc(model.disclaimer) + '</p>';
+    html += '<div class="dg-gb-foot">'
+      + '<button type="button" class="dg-gb-btn" data-gb-copy>Copy the math</button>'
+      + '</div>';
+
+    var body = block.querySelector('.dg-gb-body');
+    body.innerHTML = html;
+    var copy = body.querySelector('[data-gb-copy]');
+    if (copy) {
+      copy.addEventListener('click', function () {
+        var text = e ? e.renderGlassBoxText(model) : '';
+        if (!text) { toast('Nothing to copy', 'error'); return; }
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          navigator.clipboard.writeText(text).then(function () {
+            toast('The math was copied to this device clipboard');
+          }).catch(function () { toast('Could not copy', 'error'); });
+          return;
+        }
+        toast('Copying is unavailable in this browser', 'error');
+      });
+    }
+  }
+
+  function refresh(host) {
+    var block = document.getElementById('dg-gb-' + host.id);
+    var e = engine();
+    if (!block || !e) return null;
+    var rows = rowCount(host);
+    /* Nothing has run yet, so there is no finding to sit above the proof. The
+       block stays out of the way rather than showing an empty frame. */
+    if (rows === null || rows === 0 && !sourceText(host)) {
+      block.hidden = true;
+      return null;
+    }
+    var model = modelFor(host);
+    if (!model) { block.hidden = true; return null; }
+    block.hidden = false;
+    block.setAttribute('data-level', model.level);
+    var label = block.querySelector('[data-gb-label]');
+    if (label) label.textContent = e.glassBoxToggleLabel(model);
+    if (block.classList.contains('open')) renderBody(block, model);
+    block._dgModel = model;
+    return model;
+  }
+
+  function toggle(host) {
+    var block = document.getElementById('dg-gb-' + host.id);
+    if (!block) return false;
+    var open = block.classList.contains('open');
+    if (open) {
+      block.classList.remove('open');
+      block.querySelector('.dg-gb-toggle').setAttribute('aria-expanded', 'false');
+      return false;
+    }
+    var model = modelFor(host);
+    if (model) renderBody(block, model);
+    block.classList.add('open');
+    block.querySelector('.dg-gb-toggle').setAttribute('aria-expanded', 'true');
+    return true;
+  }
+
+  /* ------------------------------ mounting -------------------------------- */
+
+  function mountHost(host) {
+    if (document.getElementById('dg-gb-' + host.id)) return true;
+    var anchor = document.getElementById(host.after);
+    if (!anchor || !anchor.parentNode) return false;
+    ensureStyles();
+    var block = document.createElement('div');
+    block.id = 'dg-gb-' + host.id;
+    block.className = BLOCK_CLASS;
+    block.setAttribute('data-gb-host', host.id);
+    block.hidden = true;
+    block.innerHTML =
+      '<button type="button" class="dg-gb-toggle" aria-expanded="false">'
+        + '<span class="dg-gb-lvl" aria-hidden="true"></span>'
+        + '<span data-gb-label>Show the math</span>'
+        + '<span class="dg-gb-caret" aria-hidden="true">&#9662;</span>'
+      + '</button>'
+      + '<div class="dg-gb-body"></div>';
+    block.querySelector('.dg-gb-toggle').addEventListener('click', function () { toggle(host); });
+    anchor.parentNode.insertBefore(block, anchor.nextSibling);
+
+    /* The result renderers are private closures that fire no event, so the DOM
+       is the only signal available. Watching the tbody keeps the observer off
+       the whole page. */
+    var watched = document.getElementById(host.rowsFrom) || anchor;
+    try {
+      var obs = new MutationObserver(function () { refresh(host); });
+      obs.observe(watched, { childList: true, subtree: true });
+    } catch (_e) { /* an old browser loses live refresh, not the block */ }
+    refresh(host);
+    return true;
+  }
+
+  function mountAll() {
+    var mounted = [];
+    for (var i = 0; i < HOSTS.length; i++) {
+      if (mountHost(HOSTS[i])) mounted.push(HOSTS[i].id);
+    }
+    return mounted;
+  }
+
+  function hostById(id) {
+    for (var i = 0; i < HOSTS.length; i++) if (HOSTS[i].id === id) return HOSTS[i];
+    return null;
+  }
+
+  function boot() {
+    var mounted = [];
+    if (flagOn()) mounted = mountAll();
+
+    /* Published whether or not anything mounted, the same way the other
+       surfaces publish: a caller can build a model without needing to know
+       whether a block exists. */
+    window.DataGlowGlassBox = {
+      version: 1,
+      hosts: HOSTS.map(function (h) { return h.id; }),
+      mounted: mounted,
+      mount: mountAll,
+      refresh: function (id) { var h = hostById(id); return h ? refresh(h) : null; },
+      refreshAll: function () {
+        var out = [];
+        for (var i = 0; i < HOSTS.length; i++) out.push(refresh(HOSTS[i]));
+        return out;
+      },
+      open: function (id) { var h = hostById(id); return h ? toggle(h) : false; },
+      model: function (id) { var h = hostById(id); return h ? modelFor(h) : null; },
+      /* The gates as this surface sees them right now, so a test or another
+         panel can check what evidence was actually available. */
+      gates: gatherGates,
+      /* A surface holding a gate result the app does not publish, a Query
+         Sentinel report or a readiness gate, hands it over here rather than
+         having it guessed. Passing null for a key withdraws it. */
+      provide: function (bag) {
+        if (!bag || typeof bag !== 'object') return gatherGates();
+        var keys = ['sentinel', 'gate', 'phi', 'airGap', 'publishSafe'];
+        for (var i = 0; i < keys.length; i++) {
+          if (!Object.prototype.hasOwnProperty.call(bag, keys[i])) continue;
+          if (bag[keys[i]] == null) delete _provided[keys[i]];
+          else _provided[keys[i]] = bag[keys[i]];
+        }
+        for (var j = 0; j < HOSTS.length; j++) refresh(HOSTS[j]);
+        return gatherGates();
+      }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 860); });
+  } else {
+    setTimeout(boot, 860);
+  }
+})();
+/* ---- end js/glassbox/data-glow-glass-box-canvas.js ---- */
+/* ---- from js/explain/data-glow-explain-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* Explain: one calm panel that says what the thing on screen means, in words,
+     using only what the checks on this device already found.
+
+     The pure engine (js/explain/explain-engine.js, published as
+     window.DataGlowExplainEngine) owns the sentences, the ordering, the
+     confidence rule and the em dash normalisation of anything borrowed from an
+     older engine. This module owns only what the engine cannot: the button, the
+     panel, and gathering the evidence off the surfaces that publish it.
+
+     WHERE THE EVIDENCE COMES FROM. Every source below is read from the namespace
+     that surface already exposes, verified rather than assumed:
+       window.DataGlowAirGap.isAirGapActive()      the network posture
+       window.DataGlowPhiShield.getLastReport()    the last PHI scan, if one ran
+       window.DataGlowTrustLedger.getEntries()     what is on the record
+       window.DataGlowGlassBox.gates()             gates a surface handed over
+       the visible result table                    the shape of the answer
+     Query Sentinel and the readiness gate publish their functions but not their
+     results: runQuerySentinel needs a schema with distinct counts and
+     computeReadinessGate needs validation layer results, and the app keeps
+     neither anywhere a panel can read. They are therefore reported as not known,
+     which is exactly what the engine's unknowns list is for. A surface holding
+     one hands it over through provide().
+
+     WHY IT NEVER RE-DERIVES. Running a check here would produce a second,
+     quieter opinion competing with the panel that owns it. This module composes
+     or says nothing. With no evidence at all the panel says there is nothing to
+     explain, rather than reassuring anyone.
+
+     NO NETWORK. There is no fetch here and no model call. The explanation is
+     composed on this device from local state, so it works with Air-Gap Mode on.
+
+     Styles are injected at runtime, matching the other canvas surfaces, and
+     carry the narrow-viewport rules for A14: full-width panel, sticky header and
+     footer, and 44px targets. */
+
+  var BTN_ID = 'dg-explain-btn';
+  var PANEL_ID = 'dg-explain-panel';
+  var STYLE_ID = 'dg-explain-styles';
+  var BODY_ID = 'dg-explain-body';
+
+  /* Result tables a person could be looking at, most specific first. The first
+     one visible with rows is the subject of the explanation. */
+  var RESULT_HOSTS = [
+    { wrap: 'sql-view-results-wrapper', body: 'sql-view-results-tbody', head: 'sql-view-results-thead', subject: 'this SQL result' },
+    { wrap: 'sql-results-wrapper', body: 'sql-results-tbody', head: 'sql-results-thead', subject: 'this SQL result' },
+    { wrap: 'py-result-wrap', body: 'py-result-tbody', head: 'py-result-thead', subject: 'this Python result' }
+  ];
+
+  var _provided = {};
+
+  function engine() { return window.DataGlowExplainEngine || null; }
+
+  function flagOn() {
+    try { if (window.DATAGLOW_EXPLAIN === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_EXPLAIN === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('explain') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Explain]', msg);
+  }
+
+  function visible(el) {
+    if (!el) return false;
+    if (el.hidden || el.classList.contains('hidden')) return false;
+    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  }
+
+  /* ------------------------- evidence gathering --------------------------- */
+
+  function resultShape() {
+    for (var i = 0; i < RESULT_HOSTS.length; i++) {
+      var host = RESULT_HOSTS[i];
+      var wrap = document.getElementById(host.wrap);
+      var body = document.getElementById(host.body);
+      if (!body || !visible(wrap)) continue;
+      var rows = body.querySelectorAll('tr').length;
+      var head = document.getElementById(host.head);
+      var cols = head ? head.querySelectorAll('th').length : 0;
+      if (rows === 0 && cols === 0) continue;
+      return { shape: { rows: rows, columns: cols }, subject: host.subject };
+    }
+    return { shape: null, subject: 'this result' };
+  }
+
+  function airGapEvidence() {
+    try {
+      if (window.DataGlowAirGap && typeof window.DataGlowAirGap.isAirGapActive === 'function') {
+        return { active: window.DataGlowAirGap.isAirGapActive() === true };
+      }
+    } catch (_e) {}
+    return null;
+  }
+
+  function phiEvidence() {
+    try {
+      if (!window.DataGlowPhiShield || typeof window.DataGlowPhiShield.getLastReport !== 'function') return null;
+      var rep = window.DataGlowPhiShield.getLastReport();
+      if (!rep) return null;
+      /* available:false is the engine's way of saying a check could not run, and
+         it deliberately does not read as clean. A report with no guard section
+         is exactly that case. */
+      if (!rep.guard || typeof rep.guard.sensitiveFound !== 'boolean') return { available: false };
+      var hits = typeof rep.patternHitCount === 'number' ? rep.patternHitCount : 0;
+      return {
+        available: true,
+        sensitiveFound: rep.guard.sensitiveFound === true,
+        findings: hits > 0 ? [{ count: hits }] : []
+      };
+    } catch (_e) {}
+    return null;
+  }
+
+  function trustEvidence() {
+    try {
+      if (!window.DataGlowTrustLedger || typeof window.DataGlowTrustLedger.getEntries !== 'function') return null;
+      var rows = window.DataGlowTrustLedger.getEntries();
+      if (!Array.isArray(rows)) return null;
+      return { size: rows.length };
+    } catch (_e) {}
+    return null;
+  }
+
+  /* Gates GlassBox was handed are the same gates Explain should read: one panel
+     saying a query is clean while the other says nothing is known would be two
+     answers to one question. */
+  function glassBoxGates() {
+    try {
+      if (window.DataGlowGlassBox && typeof window.DataGlowGlassBox.gates === 'function') {
+        var g = window.DataGlowGlassBox.gates();
+        return g && typeof g === 'object' ? g : {};
+      }
+    } catch (_e) {}
+    return {};
+  }
+
+  function gatherEvidence() {
+    var found = resultShape();
+    var borrowed = glassBoxGates();
+    var evidence = {
+      subject: found.subject,
+      resultShape: found.shape,
+      airGap: airGapEvidence(),
+      phi: phiEvidence(),
+      trustLedger: trustEvidence(),
+      sentinel: borrowed.sentinel || null,
+      gate: borrowed.gate || null,
+      publishSafe: borrowed.publishSafe || null
+    };
+    for (var k in _provided) {
+      if (Object.prototype.hasOwnProperty.call(_provided, k)) evidence[k] = _provided[k];
+    }
+    return evidence;
+  }
+
+  function build() {
+    var e = engine();
+    if (!e) return null;
+    return e.explainResult(gatherEvidence());
+  }
+
+  /* ------------------------------- styles --------------------------------- */
+
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = [
+      '#' + BTN_ID + '{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 12px;',
+      'border-radius:10px;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}',
+      '#' + BTN_ID + ':hover{color:var(--text,#E8EAED)}',
+      '#' + BTN_ID + ' .dg-ex-dot{width:7px;height:7px;border-radius:50%;background:var(--text-muted,#9AA1AE)}',
+      '#' + BTN_ID + '[data-level="good"] .dg-ex-dot{background:var(--primary,#20C5B5)}',
+      '#' + BTN_ID + '[data-level="warn"] .dg-ex-dot{background:var(--warn,#E3A34A)}',
+      '#' + BTN_ID + '[data-level="bad"] .dg-ex-dot{background:var(--danger,#E5534B)}',
+      '#' + PANEL_ID + '{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:12080;',
+      'display:none;flex-direction:column;background:var(--surface,#151820);',
+      'border-left:1px solid var(--border,#282D38);box-shadow:-18px 0 48px rgba(0,0,0,.45)}',
+      '#' + PANEL_ID + '.open{display:flex}',
+      '#' + PANEL_ID + ' .dg-ex-head{display:flex;align-items:flex-start;justify-content:space-between;',
+      'gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--border,#282D38);',
+      'background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-ex-title{font-size:16px;font-weight:800;margin:0}',
+      '#' + PANEL_ID + ' .dg-ex-sub{font-size:12px;color:var(--text-muted,#9AA1AE);margin:4px 0 0;line-height:1.55}',
+      '#' + PANEL_ID + ' .dg-ex-x{min-height:44px;min-width:44px;border:none;background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font-size:22px;cursor:pointer;border-radius:10px;flex:0 0 auto}',
+      '#' + BODY_ID + '{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px 18px;',
+      '-webkit-overflow-scrolling:touch}',
+      '#' + PANEL_ID + ' .dg-ex-headline{font-size:14px;line-height:1.6;margin:0 0 4px;font-weight:700;',
+      'color:var(--text,#E8EAED)}',
+      '#' + PANEL_ID + ' .dg-ex-conf{display:inline-block;margin:0 0 12px;padding:2px 9px;border-radius:999px;',
+      'font-size:10.5px;font-weight:700;border:1px solid var(--border,#282D38);color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-ex-sec{padding:11px 0;border-bottom:1px solid var(--border,#282D38)}',
+      '#' + PANEL_ID + ' .dg-ex-sec:last-of-type{border-bottom:none}',
+      '#' + PANEL_ID + ' .dg-ex-label{font-size:11px;letter-spacing:.04em;text-transform:uppercase;',
+      'color:var(--text-muted,#9AA1AE);margin:0 0 3px;display:flex;align-items:center;gap:6px}',
+      '#' + PANEL_ID + ' .dg-ex-pip{width:6px;height:6px;border-radius:50%;flex:0 0 auto;',
+      'background:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-ex-sec[data-level="good"] .dg-ex-pip{background:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + ' .dg-ex-sec[data-level="warn"] .dg-ex-pip{background:var(--warn,#E3A34A)}',
+      '#' + PANEL_ID + ' .dg-ex-sec[data-level="bad"] .dg-ex-pip{background:var(--danger,#E5534B)}',
+      '#' + PANEL_ID + ' .dg-ex-text{font-size:13px;line-height:1.6;margin:0;color:var(--text-secondary,#B4B8C0);',
+      'word-break:break-word}',
+      '#' + PANEL_ID + ' .dg-ex-unknown-h{font-size:11px;letter-spacing:.04em;text-transform:uppercase;',
+      'color:var(--text-muted,#9AA1AE);margin:16px 0 6px}',
+      '#' + PANEL_ID + ' .dg-ex-unknown{font-size:12px;line-height:1.55;margin:0 0 7px;',
+      'color:var(--text-faint,var(--text-muted,#9AA1AE))}',
+      '#' + PANEL_ID + ' .dg-ex-note{font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted,#9AA1AE));',
+      'padding:14px 2px 4px}',
+      '#' + PANEL_ID + ' .dg-ex-foot{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px 16px;',
+      'border-top:1px solid var(--border,#282D38);background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-ex-btn{min-height:44px;padding:0 13px;border-radius:10px;font:inherit;font-size:12.5px;',
+      'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-ex-btn.primary{background:var(--primary,#20C5B5);color:#04201C;border-color:transparent}',
+      '#' + PANEL_ID + ' .dg-ex-btn:hover{opacity:.9}',
+      /* A14: on a phone the panel is the screen. It slides over everything, the
+         head and foot stay put so Refresh and Close are always reachable, and
+         the buttons go full width so a thumb cannot miss. */
+      '@media (max-width:700px){',
+      '#' + PANEL_ID + '{width:100%;left:0;border-left:none}',
+      '#' + PANEL_ID + ' .dg-ex-head{position:sticky;top:0;z-index:2}',
+      '#' + PANEL_ID + ' .dg-ex-foot{position:sticky;bottom:0;z-index:2}',
+      '#' + PANEL_ID + ' .dg-ex-btn{flex:1 1 100%}',
+      '#' + BODY_ID + '{padding:12px 14px}',
+      '#' + BTN_ID + '{min-height:44px}',
+      '}'
+    ].join('');
+    var el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  /* ------------------------------- panel ---------------------------------- */
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    ensureStyles();
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Explain this result');
+    panel.innerHTML =
+      '<div class="dg-ex-head">' +
+        '<div style="min-width:0">' +
+          '<p class="dg-ex-title">Explain</p>' +
+          '<p class="dg-ex-sub" data-ex-subject></p>' +
+        '</div>' +
+        '<button type="button" class="dg-ex-x" data-ex-close aria-label="Close">&times;</button>' +
+      '</div>' +
+      '<div id="' + BODY_ID + '"></div>' +
+      '<div class="dg-ex-foot">' +
+        '<button type="button" class="dg-ex-btn primary" data-ex-refresh>Look again</button>' +
+        '<button type="button" class="dg-ex-btn" data-ex-copy>Copy this explanation</button>' +
+        '<button type="button" class="dg-ex-btn" data-ex-save>Save as text</button>' +
+      '</div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-ex-close]').addEventListener('click', closePanel);
+    panel.querySelector('[data-ex-refresh]').addEventListener('click', function () { render(); });
+    panel.querySelector('[data-ex-copy]').addEventListener('click', copyText);
+    panel.querySelector('[data-ex-save]').addEventListener('click', saveText);
+    return panel;
+  }
+
+  var _last = null;
+
+  function render() {
+    var body = document.getElementById(BODY_ID);
+    var e = engine();
+    if (!body) return null;
+    if (!e) {
+      body.innerHTML = '<p class="dg-ex-text">The Explain engine is unavailable, so nothing can be explained here.</p>';
+      return null;
+    }
+    var exp = build();
+    _last = exp;
+
+    var panel = document.getElementById(PANEL_ID);
+    var sub = panel ? panel.querySelector('[data-ex-subject]') : null;
+    if (sub) sub.textContent = 'What is known about ' + exp.subject + ', and what is not.';
+
+    var html = '';
+    html += '<p class="dg-ex-headline">' + esc(exp.headline) + '</p>';
+    html += '<span class="dg-ex-conf">' + esc(exp.confidence) + '</span>';
+    for (var i = 0; i < exp.sections.length; i++) {
+      var s = exp.sections[i];
+      html += '<div class="dg-ex-sec" data-ex-sec="' + esc(s.id) + '" data-level="' + esc(s.level) + '">'
+        + '<p class="dg-ex-label"><span class="dg-ex-pip" aria-hidden="true"></span>' + esc(s.label) + '</p>'
+        + '<p class="dg-ex-text">' + esc(s.text) + '</p>'
+        + '</div>';
+    }
+    if (exp.unknowns.length > 0) {
+      html += '<p class="dg-ex-unknown-h">Not known</p>';
+      for (var j = 0; j < exp.unknowns.length; j++) {
+        html += '<p class="dg-ex-unknown">' + esc(exp.unknowns[j].why) + '</p>';
+      }
+    }
+    html += '<p class="dg-ex-note">' + esc(exp.disclaimer) + '</p>';
+    body.innerHTML = html;
+    updateBadge(exp);
+    return exp;
+  }
+
+  function textOf() {
+    var e = engine();
+    var exp = _last || build();
+    if (!e || !exp) return '';
+    return e.describeExplanation(exp);
+  }
+
+  function copyText() {
+    var text = textOf();
+    if (!text) { toast('Nothing to copy', 'error'); return; }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(text).then(function () {
+        toast('The explanation was copied to this device clipboard');
+      }).catch(function () { toast('Could not copy', 'error'); });
+      return;
+    }
+    toast('Copying is unavailable in this browser', 'error');
+  }
+
+  /* One file to this device. Same local-only handoff the Trust Ledger uses: a
+     Blob and an anchor, no network. */
+  function saveText() {
+    var text = textOf();
+    if (!text) { toast('Nothing to save', 'error'); return null; }
+    var name = 'dataglow-explanation.txt';
+    var url = '';
+    try {
+      url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (_err) {
+      if (url) URL.revokeObjectURL(url);
+      toast('Could not save the explanation', 'error');
+      return null;
+    }
+    setTimeout(function () { if (url) URL.revokeObjectURL(url); }, 1000);
+    toast('Saved ' + name + ' to this device');
+    return { filename: name, bytes: text.length };
+  }
+
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    if (!flagOn()) return false;
+    ensurePanel().classList.add('open');
+    render();
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  function updateBadge(exp) {
+    var btn = document.getElementById(BTN_ID);
+    var e = engine();
+    if (!btn || !e) return;
+    var badge = e.explainBadge(exp || null);
+    btn.setAttribute('data-level', badge.level);
+    btn.setAttribute('title', 'Explain. ' + badge.text);
+  }
+
+  /* ------------------------------ mounting -------------------------------- */
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Explain what is on screen');
+    btn.title = 'Explain. What is known about this, and what is not';
+    btn.innerHTML = '<span class="dg-ex-dot" aria-hidden="true"></span><span data-ex-label>Explain</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    /* Beside Trust, which sits beside Air-Gap: the whole "can I trust this"
+       row stays together, and Explain is the plain-language door into it. */
+    var anchor = document.getElementById('dg-trust-ledger-btn')
+      || document.getElementById('dg-air-gap-btn')
+      || document.getElementById('dg-shield-packs-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '400px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '400px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      updateBadge(null);
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+
+    /* Published whether or not the panel mounted, the same way the other
+       surfaces publish: a caller can compose an explanation without needing to
+       know whether a button exists. */
+    window.DataGlowExplain = {
+      version: 1,
+      open: openPanel,
+      close: closePanel,
+      isOpen: isOpen,
+      refresh: render,
+      explain: build,
+      evidence: gatherEvidence,
+      text: textOf,
+      save: saveText,
+      /* Evidence the app does not publish anywhere readable, a Query Sentinel
+         report or a readiness gate, is handed over here rather than guessed.
+         Passing null for a key withdraws it. */
+      provide: function (bag) {
+        if (!bag || typeof bag !== 'object') return gatherEvidence();
+        var keys = ['sentinel', 'sentinelSuggestions', 'gate', 'phi', 'airGap',
+          'publishSafe', 'trustLedger', 'resultShape', 'subject', 'expect'];
+        for (var i = 0; i < keys.length; i++) {
+          if (!Object.prototype.hasOwnProperty.call(bag, keys[i])) continue;
+          if (bag[keys[i]] == null) delete _provided[keys[i]];
+          else _provided[keys[i]] = bag[keys[i]];
+        }
+        if (isOpen()) render();
+        return gatherEvidence();
+      }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 880); });
+  } else {
+    setTimeout(boot, 880);
+  }
+})();
+/* ---- end js/explain/data-glow-explain-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

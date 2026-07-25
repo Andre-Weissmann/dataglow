@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 4980806,
+  "canvasBytes": 5057889,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -75,9 +75,37 @@
     {
       "source": "js/provenance/data-glow-trust-ledger-canvas.js",
       "note": "Trust Ledger canvas UI (Trust button beside Air-Gap, panel, verify, local exports). Inlined verbatim by inject_bundle4.py.",
-      "sourceSha256": "1ae1305ffdf273ac1cbd90a7d58f94a9d8dc7c0631f07b416e72dcfd2371b286",
-      "canvasSectionSha256": "8aa256ca77741d5ac26cd59a581bb06b9cf34ce3e1b3428f4e035f89684b39c4",
-      "canvasSectionBytes": 19452
+      "sourceSha256": "4d5c98fe3fb363c4162fd0693e4dac7be2c2a06d5ef84d470755a6173688e140",
+      "canvasSectionSha256": "ff5cb257ba5ea0e06c06d9be64da0f6e1d0af701067208ac95a4773d97162c39",
+      "canvasSectionBytes": 20244
+    },
+    {
+      "source": "js/explain/explain-engine.js",
+      "note": "Explain pure engine (A13): composes the evidence other gates already published into plain language. Transformed on inline (ESM exports stripped, IIFE wrapped, window.DataGlowExplainEngine attached) by inject_bundle5.py, so the inlined section is deliberately not byte-identical to the source.",
+      "sourceSha256": "8a1b97d4e2df51c788b2fb5b48d5fae3db0264300cb4026e1c7ff8b2afafb4c5",
+      "canvasSectionSha256": "13df411e0dfee2610b985e99826ff8fb12514f9e200037fe39a7d2db453d74e6",
+      "canvasSectionBytes": 23624
+    },
+    {
+      "source": "js/glassbox/glass-box.js",
+      "note": "GlassBox pure engine (A15): the show-the-math model, badge vocabulary, source truncation and disclaimer. Transformed on inline (ESM exports stripped, IIFE wrapped, window.DataGlowGlassBoxEngine attached) by inject_bundle5.py, so the inlined section is deliberately not byte-identical to the source.",
+      "sourceSha256": "39bdd5dffd6a77e89a79dbff1368c927ccf249d67efa51c61898fec83211ede3",
+      "canvasSectionSha256": "e59502729ee1cb0f9e674d446350af06fb9df7f4be507ac47026c5b83799ec04",
+      "canvasSectionBytes": 12896
+    },
+    {
+      "source": "js/glassbox/data-glow-glass-box-canvas.js",
+      "note": "GlassBox canvas UI (A15). Inlined verbatim by inject_bundle5.py. Mounts the block under the three real result surfaces, so a DOM id change here must reach the canvas.",
+      "sourceSha256": "c2662c8591d3f4776f755c5832a6becd864667b5b7c22c29d4bc699c32e92c97",
+      "canvasSectionSha256": "ccf5c41110721098f93dc779da2184a851f0030a2c3488a8ee39812547a94ea7",
+      "canvasSectionBytes": 18857
+    },
+    {
+      "source": "js/explain/data-glow-explain-canvas.js",
+      "note": "Explain canvas UI (A13). Inlined verbatim by inject_bundle5.py. Reads the same gates GlassBox reads, so the two panels cannot disagree; tracked so that reading cannot drift between desktop and web.",
+      "sourceSha256": "6ac26c12b9a88ebefedada7d20e5b48732a74fe34e3b91bc6748b7980b4b7634",
+      "canvasSectionSha256": "49328f4957ef14b0b42d7860cfb80160fa31daec6b99cc8a9ca941322e1ac6d9",
+      "canvasSectionBytes": 20909
     }
   ]
 }
