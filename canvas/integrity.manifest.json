@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5927759,
+  "canvasBytes": 5989149,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -404,9 +404,51 @@
     {
       "source": "js/polyglot/data-glow-power-packs-canvas.js",
       "note": "The starter material panel holding the SQL, spreadsheet, Python and R tabs. Already an IIFE, inlined verbatim, publishing window.DataGlowPowerPacksUI.",
-      "sourceSha256": "aba78841dee31f03c9aabcfa755eef15eac608ff2dec8aca86e13b1eb39ff2ab",
-      "canvasSectionSha256": "f83d50f16345f047315523044d3c2962b1b9eca60fafbcf618fe681e22c91212",
-      "canvasSectionBytes": 36394
+      "sourceSha256": "491e01f9c3e32fcb117e40a58a7df6d0a89394d8ad2f4caaabcb019187f8ee4e",
+      "canvasSectionSha256": "6b360ee180040c2930c7f5f4f045c6991b417c38ca93909b28e913f5bc3e9f8f",
+      "canvasSectionBytes": 44419
+    },
+    {
+      "source": "js/spine/repair-ledger.js",
+      "note": "Repair Ledger pure engine: buildStep/appendStep/exportLedgerJson/exportLedgerMarkdown/rerunPlan/wiringReport. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_bundle14.py.",
+      "sourceSha256": "d04e69cbb69c9eaf39cc3e297d552f7d63365e0791292e5bef4b483e1f26328e",
+      "canvasSectionSha256": "01e84ace4b0407b3164cdb5581c96ca4402c4ef96111579d2cbedaec63d5f9e4",
+      "canvasSectionBytes": 11358
+    },
+    {
+      "source": "js/polyglot/pq-parity-recipes.js",
+      "note": "PQ-parity recipes pure registry: 15 DuckDB SQL templates matching Power Query step shapes, never M. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_bundle14.py.",
+      "sourceSha256": "6b8fa7b5b6358d1bf2ee9e3f2343087d3bfbed02d2581b15f5c6af721069c2d4",
+      "canvasSectionSha256": "d3e50651a158e9f7cc592773d5592e06a5a910a7904854d4a3fbb3a4a4a14496",
+      "canvasSectionBytes": 12678
+    },
+    {
+      "source": "js/polyglot/project-lanes.js",
+      "note": "Four polyglot project-lane cards (SQL/Python/Excel/R) naming when to stay and when to hand off. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_bundle14.py.",
+      "sourceSha256": "bdbf47f53d04276ba76426aa72650389c0e8372ade22d92958a44a3dbd8f3979",
+      "canvasSectionSha256": "25d8fa2311b9c335e1489ef93e149148e7650be51bc77494160f4bb89c809810",
+      "canvasSectionBytes": 6574
+    },
+    {
+      "source": "js/polyglot/arrow-bridge.js",
+      "note": "Arrow bridge status (Bundle 13: ready/partial/missing) deepened in Bundle 14 with buildArrowBridgeStatusV2 (arrow_ipc/batch_bridge/json_bridge/missing), encodeColumnBatch/decodeColumnBatch, and roundTripFixture. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_bundle14.py. Newly tracked this bundle.",
+      "sourceSha256": "c97e455debfec1cf6b7ea53f0722208a920ae07cb7c2b98d5f0423665cd485d0",
+      "canvasSectionSha256": "04e882697fbf06bed1ed8fb68435ebde2aafe0b7e92ac0028d40b142bbf3bf2a",
+      "canvasSectionBytes": 15394
+    },
+    {
+      "source": "js/ai/llama-sidecar-packaging.js",
+      "note": "llama.cpp sidecar packaging (Bundle 12/13) extended in Bundle 14 with fetchSidecarStatus (missing/fetched_unwired/ready). Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_bundle14.py. Newly tracked this bundle.",
+      "sourceSha256": "758e0bf433f8a83666aa88b9cb7fd162897cf65d8966a58093246128742ae203",
+      "canvasSectionSha256": "eed1f613f8da6736b60ac8a145974ed8a97de5e0046b50003c1e74e69d0d4181",
+      "canvasSectionBytes": 13543
+    },
+    {
+      "source": "js/spine/data-glow-repair-ledger-canvas.js",
+      "note": "Repair Ledger canvas UI panel: export JSON/Markdown, copy step code, re-run plan for pure SQL inserts, wiring report. Already an IIFE, inlined verbatim by inject_bundle14.py, publishing window.DataGlowRepairLedgerUI.",
+      "sourceSha256": "85fa5337a5f091bfd7a65331f29be16134558e83dafb8bd4e08153b0a21a26e1",
+      "canvasSectionSha256": "44bdbde9abdc017eedf8786744e392466985fae7d42f3352f4020844c7980b93",
+      "canvasSectionBytes": 12341
     }
   ]
 }

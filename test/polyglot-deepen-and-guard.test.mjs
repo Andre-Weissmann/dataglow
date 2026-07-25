@@ -567,12 +567,18 @@ ok('all six Bundle 13 flag-check helpers exist',
   ['sqlDeepOn', 'pyDeepOn', 'rDeepOn', 'typeGuardOn', 'arrowOn', 'pqNoteOn']
     .every(fn => new RegExp('function ' + fn + '\\(').test(canvasSrc)));
 
-ok('no top-level tab was added: tabs() only ever returns sql, excel, python or r ids',
+ok('no top-level tab was added beyond the Bundle 13/14 known set: sql, excel, python, r, lanes',
   (() => {
+    // Bundle 13 pinned sql/excel/python/r. Bundle 14 (see
+    // test/bundle14-ledger-pq-arrow-llama-lanes.test.mjs and
+    // test/bundle14-canvas-ui.test.mjs) intentionally adds a fifth, flagged
+    // tab: 'lanes' (Project fit, gated on polyglotProjectLanes). This
+    // assertion still fails the build the moment a SIXTH, undocumented tab id
+    // shows up, which is the drift the original Bundle 13 check was for.
     const m = canvasSrc.match(/function tabs\(\) \{[\s\S]*?\n  \}/);
     if (!m) return false;
     const ids = [...m[0].matchAll(/id:\s*'([a-z]+)'/g)].map(x => x[1]);
-    return ids.length > 0 && ids.every(id => ['sql', 'excel', 'python', 'r'].includes(id));
+    return ids.length > 0 && ids.every(id => ['sql', 'excel', 'python', 'r', 'lanes'].includes(id));
   })());
 
 ok('the registerDataset CSV load path now sets ignore_errors and store_rejects',

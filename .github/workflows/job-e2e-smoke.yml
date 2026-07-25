@@ -110,6 +110,15 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:airgapui
+      # Bundle 14: Repair Ledger panel mount/unmount by its own flag, and the
+      # power packs "Project fit" lanes tab appearing only when
+      # polyglotProjectLanes is on. The pure engines (ledger, PQ-parity,
+      # Arrow deepen, llama fetch status, project lanes) are unit tested in
+      # test:bundle14ledger (job-ci-batch-04.yml), no browser needed there.
+      - name: Run Bundle 14 canvas UI test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:bundle14canvas
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
