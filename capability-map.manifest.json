@@ -2570,6 +2570,38 @@
       "status": "shipped"
     },
     {
+      "id": "metric-contract-status",
+      "area": "Trust & metrics (OneCanvas Phase 1)",
+      "name": "Metric Contract Status (the contract answer the readiness gate always wanted)",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "files": [
+        "js/metrics/metric-contract-status.js",
+        "test/metric-contract-status.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/metrics/metric-contract-status.js",
+          "name": "computeMetricContractStatus"
+        },
+        {
+          "file": "js/metrics/metric-contract-status.js",
+          "name": "summarizeMetricContractStatus"
+        },
+        {
+          "file": "js/metrics/metric-contract-status.js",
+          "name": "describeMetricContractStatus"
+        }
+      ],
+      "notes": "computeReadinessGate() has always taken a metricContractStatus argument and refused to call a dataset agent-consumable when a contract was broken, but nothing in the running app ever produced that object, so the check was wired and permanently fed null. Five readers of state.metricContractStatus (the readiness badge, the trust certificate, the agent gate, the guarded copilot and the MCP gate exporter) had zero writers. This module is the producer, and js/app-shell/main.js now assigns it whenever a definition is saved. Broken means the definition the app is using right now no longer matches the latest version recorded in that metric's own history, which is drift away from the agreed contract. A metric with no recorded history is untracked, not violated, and a metric with many versions is not broken: change is the point. Honestly scoped: every human save path in Metric Studio records a version in the same breath, so in-app drift is not reachable through the UI today and the immediate value is turning 'contracts were not checked' into 'every contracted definition still matches'. It becomes a real alarm the first time any writer reaches MetricRegistry.update() without recording a version, which the tests pin rather than assume. It only reads, and it records nothing, because recording a version is a human-confirmed mutation.",
+      "relatedFlags": [
+        "metricContracts"
+      ],
+      "status": "shipped"
+    },
+    {
       "id": "metric-contract-diff-view",
       "area": "Trust & metrics (OneCanvas Phase 1)",
       "name": "Metric Contracts (Batch 2: diff view, read-only)",
@@ -5162,6 +5194,74 @@
       "notes": "One calm surface listing four on-device privacy packs. Pack 0 is the existing PHI Shield, reused via window.DataGlowPhiShield rather than reimplemented. Finance PII, Privilege labels, and Justice sensitive add shape/label detectors plus a combined posture; the Justice pack fails closed (blocks AI and export paths, shows a high-sensitivity banner). Session-scoped, in-memory, never uploads rows.",
       "relatedFlags": [
         "shieldPacks"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "trust-ledger",
+      "area": "Privacy & trust",
+      "name": "Trust Ledger (session trust events, hash chained)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/provenance/trust-ledger.js",
+        "js/provenance/data-glow-trust-ledger-canvas.js",
+        "test/trust-ledger.test.mjs",
+        "test/trust-ledger-canvas-ui.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/trust-ledger.js",
+          "name": "createTrustLedger"
+        },
+        {
+          "file": "js/provenance/trust-ledger.js",
+          "name": "verifyTrustLedger"
+        },
+        {
+          "file": "js/provenance/trust-ledger.js",
+          "name": "exportTrustLedger"
+        }
+      ],
+      "notes": "One append-only list of this session's trust events, oldest first, behind a Trust button next to Air-Gap and Shield Packs. Rows are plain sentences plus a hash prefix, chained with SHA-256 using the same genesis anchor and canonical-JSON discipline as js/provenance/provenance.js and the AI Touch Ledger, so it composes the existing provenance rather than adding a second crypto stack; a drift test pins the digest against provenance.js. Verify re-walks the chain and names an edit, reorder or deletion. Malformed input becomes a visibly refused row rather than a dropped one. Session-scoped and in memory: no localStorage, cookies, IndexedDB or network, and the text/Markdown/JSON buttons write one file to this device. Rows come from the events the app already fires (dataglow:pulse-scored, dataglow:export-triggered) plus explicit record() callers such as the Save-as-app sheet. A record of this session, not an audit certification.",
+      "relatedFlags": [
+        "trustLedger"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "publish-safe",
+      "area": "Privacy & trust",
+      "name": "Publish-Safe (one gate before anything is written or shared)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/gate/publish-safe.js",
+        "test/publish-safe.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/gate/publish-safe.js",
+          "name": "evaluatePublishSafe"
+        },
+        {
+          "file": "js/gate/publish-safe.js",
+          "name": "describePublishSafe"
+        },
+        {
+          "file": "js/gate/publish-safe.js",
+          "name": "publishSafeBadge"
+        }
+      ],
+      "notes": "Combines the four checks DataGlow already had but no export path asked together: PHI Shield on the exact text that would travel, the readiness gate on the dataset behind it, Metric Contracts on whether definitions are still the agreed ones, and Air-Gap Mode on whether the human asked for nothing to cross the network. Returns one plain-language verdict of clear, caution or blocked plus a suggested safer default. Sensitive values leaving the device is the one hard refusal, because a file that has left cannot be unshared; sensitive values staying on the device is a caution with results preselected out, since the human owns the disk. Failing readiness or a drifted metric definition is a caution, never a block, because those are quality signals and not privacy ones. A check that could not run is never reported as a pass, and a caller whose artifact has no dataset behind it must pass readiness 'not-applicable' out loud rather than getting that by silence. Wired into the Save-as-app confirm sheet today, where it shows the verdict and records the outcome in the Trust Ledger. Pure: gathers no evidence itself, mutates nothing, decides nothing for the human. There is no off-device export path in the tree today, so the refusal branch guards the Air-Gap egress case and any future destination rather than a path that ships now.",
+      "relatedFlags": [
+        "publishSafe"
       ],
       "status": "shipped"
     },

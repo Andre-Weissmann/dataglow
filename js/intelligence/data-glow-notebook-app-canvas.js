@@ -49,6 +49,15 @@
 
   function engine() { return window.DataGlowNotebookAppExport || null; }
 
+  /* Publish-Safe (js/gate/publish-safe.js) is the gate that composes every
+     check into one verdict. It is consulted here rather than each check being
+     asked separately, so this path cannot drift out of agreement with the other
+     export paths about what counts as safe. Absent, the sheet behaves exactly as
+     it did before Publish-Safe existed. */
+  function publishSafe() { return window.DataGlowPublishSafeEngine || null; }
+
+  function trustLedger() { return window.DataGlowTrustLedger || null; }
+
   /* Same read as the notebook surfaces this sits inside: a flags provider is
      honored when present, and its absence means on. */
   function flagOn() {
@@ -104,6 +113,37 @@
     return out;
   }
 
+  /* The one verdict, recomputed whenever the sheet re-renders so it always
+     describes the file that would actually be written.
+
+     Destination is 'this-device': this writes a file to the machine the human
+     is sitting at and makes no network call. Sharing the file afterwards is a
+     separate human act, which the sheet already says.
+
+     Readiness is passed as 'not-applicable' rather than omitted. A notebook app
+     holds code and the output it already produced, not a dataset extract, so a
+     dataset readiness score does not describe it, and Publish-Safe requires that
+     exception to be named rather than inferred from silence. */
+  function verdictFor(st) {
+    var ps = publishSafe();
+    if (!ps || !st) return null;
+    var airGap = false;
+    try {
+      var ui = window.DataGlowAirGapUI;
+      airGap = !!(ui && typeof ui.isActive === 'function' && ui.isActive());
+    } catch (_e) {}
+    try {
+      return ps.evaluatePublishSafe({
+        destination: 'this-device',
+        artifact: 'this notebook app',
+        phi: st.phi,
+        readiness: 'not-applicable',
+        airGapActive: airGap,
+        includesResults: st.includeOutputs
+      });
+    } catch (_e) { return null; }
+  }
+
   /* Air-Gap Mode blocks paths that leave the device over the network. Writing a
      file to this machine is not one of them, so the mode must not refuse it.
      What it does change is what is worth saying: while the mode is on, the fact
@@ -141,6 +181,12 @@
       '#' + SHEET_ID + ' .dg-nba-flag{margin:10px 0 0;padding:10px 12px;border-radius:10px;font-size:12.5px;',
       'line-height:1.55;border:1px solid var(--border,#282D38);color:var(--text-secondary,#B4B8C0)}',
       '#' + SHEET_ID + ' .dg-nba-flag.warn{border-color:var(--warn,#E3A34A);color:var(--warn,#E3A34A)}',
+      /* The Publish-Safe headline keeps its own class. .warn already means "PHI
+         Shield matched something" in this sheet, so a summary that is often
+         merely cautious must not borrow that colour. */
+      '#' + SHEET_ID + ' .dg-nba-flag.verdict{font-weight:600}',
+      '#' + SHEET_ID + ' .dg-nba-flag.verdict.clear{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '#' + SHEET_ID + ' .dg-nba-flag.verdict.blocked{border-color:var(--danger,#E5534B);color:var(--danger,#E5534B)}',
       '#' + SHEET_ID + ' .dg-nba-opt{display:flex;gap:10px;align-items:flex-start;margin:14px 0 0;',
       'font-size:13px;line-height:1.5;cursor:pointer}',
       '#' + SHEET_ID + ' .dg-nba-opt input{margin:3px 0 0;width:18px;height:18px;flex:0 0 auto}',
@@ -192,7 +238,21 @@
     var summary = e.summarizeNotebook(st.notebook, st.runtime);
     var lines = e.describeDisclosure(summary, { includeOutputs: st.includeOutputs });
 
+    var verdict = verdictFor(st);
+    st.verdict = verdict;
+
+    /* The headline only. The individual PHI and Air-Gap sentences the verdict
+       also carries are already shown below in their own blocks, and saying the
+       same thing twice in one sheet reads as a bug.
+
+       Its own class rather than .warn: .dg-nba-flag.warn means "PHI Shield
+       matched something" everywhere else in this sheet, and reusing it for a
+       summary that is often merely cautious would blunt that meaning. */
     var flags = '';
+    if (verdict) {
+      flags += '<div class="dg-nba-flag verdict ' + esc(verdict.level) + '" data-nba-verdict="' +
+        esc(verdict.level) + '">' + esc(verdict.headline) + '</div>';
+    }
     if (st.phi.sensitiveFound) {
       flags += '<div class="dg-nba-flag warn">' +
         esc('PHI Shield matched ' + st.phi.count + ' possible sensitive value' +
@@ -259,6 +319,18 @@
       includeOutputs: !phi.sensitiveFound,
       phi: phi
     };
+
+    /* Publish-Safe suggests the same safer default from the same evidence, so
+       asking it is how this path stays in agreement with the other export
+       paths instead of keeping its own private copy of the rule. The probe asks
+       "if results were included, would that be the safer start", which is why
+       includesResults is true here rather than the default just written above.
+       Its answer is only ever a preselection: the checkbox stays live. */
+    var probe = verdictFor({ phi: phi, includeOutputs: true });
+    if (probe && probe.preselect && typeof probe.preselect.includeResults === 'boolean') {
+      _sheetState.includeOutputs = probe.preselect.includeResults;
+    }
+
     ensureSheet().classList.add('open');
     renderSheet();
     return true;
@@ -266,10 +338,46 @@
 
   /* ---------------------------- the handoff ------------------------------- */
 
+  /* One row in the Trust Ledger per save that actually happened, composed from
+     the verdict the human just read rather than from words invented here. Fire
+     and forget: a ledger that cannot append must not cost the user their file. */
+  function recordSave(st, built) {
+    var tl = trustLedger();
+    if (!tl || typeof tl.record !== 'function') return;
+    var row = null;
+    if (st.verdict && typeof tl.fromPublishSafe === 'function') {
+      row = tl.fromPublishSafe(st.verdict, {
+        artifact: built.filename,
+        completed: true,
+        includedResults: st.includeOutputs,
+        bytes: built.bytes
+      });
+    }
+    if (!row) {
+      row = {
+        kind: 'export-attempt',
+        subject: built.filename,
+        summary: 'A notebook was saved to this device as a one-file app.'
+          + (st.includeOutputs ? '' : ' The results were left out.'),
+        outcome: 'recorded',
+        detail: { runtime: st.runtime, bytes: built.bytes, includedResults: st.includeOutputs }
+      };
+    }
+    try { tl.record(row); } catch (_e) {}
+  }
+
   function saveApp() {
     var st = _sheetState;
     var e = engine();
     if (!st || !e) return null;
+    /* Fail closed. Nothing on this path can reach a refusal today, because a
+       file written to this device is never egress, but the check is here so a
+       future destination cannot quietly inherit a save button that ignores the
+       verdict shown directly above it. */
+    if (st.verdict && st.verdict.blocked) {
+      toast(st.verdict.headline, 'error');
+      return null;
+    }
     var built = e.buildAppHtml(st.notebook, {
       runtime: st.runtime,
       title: st.title,
@@ -295,6 +403,7 @@
       return null;
     }
     setTimeout(function () { if (url) URL.revokeObjectURL(url); }, 1000);
+    recordSave(st, built);
     closeSheet();
     toast('Saved ' + built.filename + ' to this device');
     try {

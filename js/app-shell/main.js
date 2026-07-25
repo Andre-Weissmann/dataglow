@@ -74,6 +74,7 @@ import { generateQuestions } from '../agents/question-generator-agent.js';
 import { shouldOfferPackBuilder, mountConversationalPackBuilder } from '../agents/conversational-pack-ui.js';
 import { MetricRegistry, renderMetricStudio } from '../metrics/metric-studio.js';
 import { MetricContractRegistry } from '../metrics/metric-contracts.js';
+import { computeMetricContractStatus } from '../metrics/metric-contract-status.js';
 import { buildHistoryListContent, renderDiffView } from '../metrics/metric-contract-diff-view.js';
 import { renderConfirmGate } from '../metrics/metric-contract-confirm-gate.js';
 import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
@@ -1971,10 +1972,11 @@ function renderReadinessGateBadge(resultWrap) {
     host = el('div', { id: 'readiness-gate-host' });
     resultWrap.appendChild(host);
   }
-  // Metric-contract status is not established in the SQL-query context yet, so it
-  // is left undefined here (does not block) — Python/R/Metric Studio wiring and a
-  // real per-query contract status are a documented batch-2 follow-up.
-  const gateResult = computeReadinessGate(state.validationResults);
+  // Metric-contract status is now supplied: refreshMetricContractStatus()
+  // compares each metric's live definition against its own latest recorded
+  // version. It is null while the metricContracts flag is off, which is the same
+  // does-not-block behaviour this line had before that producer existed.
+  const gateResult = computeReadinessGate(state.validationResults, state.metricContractStatus || null);
   renderReadinessBadge({ host, gateResult });
 }
 
@@ -3407,7 +3409,26 @@ function recordMetricDefinitionVersion(metric, meta = {}) {
     reason: meta.reason || '',
     source: 'human',
   });
+  refreshMetricContractStatus();
   renderMetricContractHistoryPanel();
+}
+
+// computeReadinessGate() has always taken a metricContractStatus argument, and
+// four other surfaces read state.metricContractStatus: the trust certificate
+// (js/trust/trust-certificate.js), the agent gate (js/gate/agent-gate.js), the
+// guarded copilot, and the MCP gate exporter. Nothing ever assigned it, so all
+// five received null and a metric whose live definition had drifted away from
+// its own recorded latest version passed readiness silently. This is the
+// producer. It only reads, and it records nothing: recording a version is a
+// human-confirmed mutation and stays on the save path above.
+function refreshMetricContractStatus() {
+  if (!isEnabled('metricContracts')) {
+    state.metricContractStatus = null;
+    return null;
+  }
+  const status = computeMetricContractStatus(metricRegistry, metricContractRegistry);
+  state.metricContractStatus = status;
+  return status;
 }
 
 // Open the Proof Drawer scoped to a Metric Studio metric.
