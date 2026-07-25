@@ -115609,6 +115609,2711 @@ const PUBLIC_API_SURFACE = Object.freeze([
 })();
 /* ---- end js/explain/data-glow-explain-canvas.js ---- */
 
+/* ---- from js/transforms/transform-core.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Shared core for the time and join transforms (Bundle 6)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB. Every function here is
+// deterministic and Node-testable, which is the point: the four transforms in
+// this directory all turn a loaded table plus a config into (a) the SQL a
+// person can read and check, and (b) the rows that SQL would have produced.
+// Both halves have to agree, so the shared vocabulary lives in one place.
+//
+// WHY THE ROWS ARE COMPUTED IN JS AND THE SQL IS ONLY SHOWN.
+// This follows Guided Unpivot (js/intelligence/guided-unpivot.js), which is the
+// house pattern for a confirm-gated transform: buildUnpivotSQL() renders the
+// proof and unpivotTransform() does the work. Computing locally means the
+// transform runs with no engine warm-up, works with Air-Gap Mode on, and can be
+// tested without DuckDB. The SQL is not decoration: it is the glass-box
+// statement of what was done, written so a person can paste it into the SQL tab
+// and get the same answer.
+//
+// DATES ARE THE WHOLE PROBLEM.
+// Every transform here compares dates, and a date column in a real file arrives
+// as a string, a Date, or a number, sometimes with a time attached and sometimes
+// not. parseDateValue() is deliberately strict and returns null rather than
+// guessing, because a date silently misread by a day is exactly the class of
+// wrong number this bundle exists to prevent. A row whose date cannot be read is
+// never quietly dropped and never assumed: it is counted and reported.
+
+const TRANSFORM_CORE_VERSION = 1;
+
+// The grains a period comparison can use. Kept small on purpose: quarter and
+// year are easy to add but each needs its own honest prior-period rule, and an
+// unfinished grain in the dropdown is worse than one that is not offered.
+const PERIOD_GRAINS = Object.freeze(['day', 'week', 'month']);
+
+const PERIOD_GRAIN_LABELS = Object.freeze({
+  day: 'Day over day',
+  week: 'Week over week',
+  month: 'Month over month',
+});
+
+// House type vocabulary, uppercase, as used by guided-unpivot and the grid.
+const TYPE_INT = 'INT';
+const TYPE_FLOAT = 'FLOAT';
+const TYPE_STR = 'STR';
+const TYPE_DATE = 'DATE';
+const TYPE_BOOL = 'BOOL';
+
+const NUMERIC_TYPES = Object.freeze(['INT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'BIGINT', 'NUMBER', 'NUMERIC']);
+const DATE_TYPES = Object.freeze(['DATE', 'DATETIME', 'TIMESTAMP', 'TIME']);
+
+/* ---------------------------- identifiers -------------------------------- */
+
+/** Double-quote an identifier, escaping internal quotes. Same as the house
+    quoteIdent() in guided-unpivot.js and q() in join-builder/join-sql.js. */
+function quoteIdent(name) {
+  return '"' + String(name == null ? '' : name).replace(/"/g, '""') + '"';
+}
+
+/** Single-quote a literal for the glass-box SQL. Only ever used on values this
+    module generated (period keys, grain names), never on raw cell data, but it
+    escapes anyway so a hand-edited config cannot produce broken SQL. */
+function quoteLiteral(value) {
+  return "'" + String(value == null ? '' : value).replace(/'/g, "''") + "'";
+}
+
+/** A relation name safe to interpolate. A dataset name with a quote or a
+    newline in it would otherwise produce SQL that does not parse. */
+function relationName(name, fallback) {
+  const raw = String(name == null ? '' : name).trim();
+  if (!raw) return quoteIdent(fallback || 'source');
+  return quoteIdent(raw);
+}
+
+/* ------------------------------ columns ---------------------------------- */
+
+function columnNamesOf(dataset) {
+  const cols = (dataset && dataset.columns) || [];
+  return cols.map((c) => (c && typeof c === 'object' ? c.name : c));
+}
+
+/** Positional index of a column. Rows are arrays addressed as r[colIdx], never
+    r[col.name], which is the house convention. */
+function indexOfColumn(names, name) {
+  for (let i = 0; i < names.length; i += 1) {
+    if (names[i] === name) return i;
+  }
+  return -1;
+}
+
+function typeOfColumn(dataset, name) {
+  const cols = (dataset && dataset.columns) || [];
+  for (let i = 0; i < cols.length; i += 1) {
+    const c = cols[i];
+    if (c && typeof c === 'object' && c.name === name) {
+      return String(c.type || TYPE_STR).toUpperCase();
+    }
+  }
+  return TYPE_STR;
+}
+
+function isNumericType(type) {
+  return NUMERIC_TYPES.includes(String(type || '').toUpperCase());
+}
+
+function isDateType(type) {
+  return DATE_TYPES.includes(String(type || '').toUpperCase());
+}
+
+function rowsOf(dataset) {
+  return Array.isArray(dataset && dataset.rows) ? dataset.rows : [];
+}
+
+/** Suggest the column most likely to hold the date, by declared type first and
+    name second. A suggestion only: nothing is applied without a person picking. */
+function suggestDateColumn(dataset) {
+  const cols = (dataset && dataset.columns) || [];
+  for (let i = 0; i < cols.length; i += 1) {
+    if (cols[i] && isDateType(cols[i].type)) return cols[i].name;
+  }
+  const hints = ['date', 'day', 'timestamp', 'time', 'created', 'occurred', 'as_of', 'period'];
+  for (let i = 0; i < cols.length; i += 1) {
+    const n = String((cols[i] && cols[i].name) || '').toLowerCase();
+    for (let h = 0; h < hints.length; h += 1) {
+      if (n.includes(hints[h])) return cols[i].name;
+    }
+  }
+  return null;
+}
+
+function suggestNumericColumn(dataset) {
+  const cols = (dataset && dataset.columns) || [];
+  for (let i = 0; i < cols.length; i += 1) {
+    if (cols[i] && isNumericType(cols[i].type)) return cols[i].name;
+  }
+  return null;
+}
+
+/* -------------------------------- dates ---------------------------------- */
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})/;
+const US_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+
+/**
+ * Parse a cell into a UTC calendar date, or null when it cannot be read.
+ *
+ * Returns a Date pinned to UTC midnight, so two dates that name the same day
+ * compare equal regardless of any time component or the machine's timezone. A
+ * local-time Date would shift the day for anyone east or west of UTC, which is
+ * the quiet off-by-one this whole bundle is meant to prevent.
+ *
+ * Deliberately narrow. ISO (the overwhelmingly common case, and what DuckDB
+ * emits), US M/D/YYYY, a real Date, and an epoch number are accepted. Anything
+ * else returns null rather than being handed to Date.parse, whose behaviour on
+ * ambiguous input is implementation-defined: "03/04/2024" is two different days
+ * depending on the reader, and a transform that picks one silently is worse than
+ * one that says it could not read the column.
+ */
+function parseDateValue(value) {
+  if (value == null || value === '') return null;
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return utcDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return utcDate(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  }
+
+  const s = String(value).trim();
+  if (!s) return null;
+
+  const iso = ISO_DATE.exec(s);
+  if (iso) {
+    const y = Number(iso[1]);
+    const m = Number(iso[2]);
+    const d = Number(iso[3]);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const out = utcDate(y, m, d);
+    // Rejects 2024-02-31, which would otherwise roll forward into March and
+    // land the row in the wrong month.
+    if (out.getUTCMonth() + 1 !== m || out.getUTCDate() !== d) return null;
+    return out;
+  }
+
+  const us = US_DATE.exec(s);
+  if (us) {
+    const m = Number(us[1]);
+    const d = Number(us[2]);
+    const y = Number(us[3]);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const out = utcDate(y, m, d);
+    if (out.getUTCMonth() + 1 !== m || out.getUTCDate() !== d) return null;
+    return out;
+  }
+
+  return null;
+}
+
+function utcDate(y, m, d) {
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function pad2(n) {
+  return n < 10 ? '0' + n : String(n);
+}
+
+function formatISODate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  return date.getUTCFullYear() + '-' + pad2(date.getUTCMonth() + 1) + '-' + pad2(date.getUTCDate());
+}
+
+/**
+ * The period a date belongs to, as a sortable string key.
+ *   day    2024-03-05
+ *   week   2024-03-04   (the Monday of that ISO week)
+ *   month  2024-03
+ * Monday is the week anchor because ISO 8601 says so and DuckDB's date_trunc
+ * agrees, so the glass-box SQL and these rows cannot disagree about which week
+ * a Sunday belongs to.
+ */
+function periodKeyOf(date, grain) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  if (grain === 'month') {
+    return date.getUTCFullYear() + '-' + pad2(date.getUTCMonth() + 1);
+  }
+  if (grain === 'week') {
+    const dow = date.getUTCDay(); // 0 Sunday .. 6 Saturday
+    const backToMonday = dow === 0 ? 6 : dow - 1;
+    const monday = new Date(date.getTime() - backToMonday * 86400000);
+    return formatISODate(monday);
+  }
+  return formatISODate(date);
+}
+
+/**
+ * The key of the period immediately before this one.
+ *
+ * This is the honest heart of A18. It steps the calendar back by exactly one
+ * grain rather than reaching for whatever row happens to precede this one, so a
+ * gap in the data produces no prior value instead of silently comparing March
+ * against January and calling it month over month.
+ */
+function priorPeriodKeyOf(key, grain) {
+  if (typeof key !== 'string' || !key) return null;
+  if (grain === 'month') {
+    const m = /^(\d{4})-(\d{2})$/.exec(key);
+    if (!m) return null;
+    let year = Number(m[1]);
+    let month = Number(m[2]) - 1;
+    if (month < 1) { month = 12; year -= 1; }
+    return year + '-' + pad2(month);
+  }
+  const d = parseDateValue(key);
+  if (!d) return null;
+  const stepDays = grain === 'week' ? 7 : 1;
+  return formatISODate(new Date(d.getTime() - stepDays * 86400000));
+}
+
+/** DuckDB's date_trunc unit for a grain, used by the glass-box SQL. */
+function truncUnitFor(grain) {
+  if (grain === 'month') return 'month';
+  if (grain === 'week') return 'week';
+  return 'day';
+}
+
+/** The INTERVAL literal that steps back one grain, for the glass-box SQL. */
+function intervalFor(grain) {
+  if (grain === 'month') return "INTERVAL 1 MONTH";
+  if (grain === 'week') return "INTERVAL 7 DAY";
+  return "INTERVAL 1 DAY";
+}
+
+/* ------------------------------ numbers ---------------------------------- */
+
+/** A cell as a finite number, or null. Blank is null rather than zero: a
+    missing measurement and a measured zero are different facts, and averaging
+    them together is how a dashboard starts lying. */
+function toNumber(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  const s = String(value).trim().replace(/,/g, '');
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Percent change from prior to current, or null when it cannot be stated.
+    A prior of zero has no percent change: dividing by it would produce
+    Infinity, and printing "Infinity%" next to a real number invites someone to
+    act on it. The delta is still reported in that case. */
+function pctChange(current, prior) {
+  if (current == null || prior == null) return null;
+  if (prior === 0) return null;
+  return (current - prior) / Math.abs(prior);
+}
+
+/* ------------------------------- config ---------------------------------- */
+
+/** A plain object, used to reject arrays and null before reading keys. */
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Normalize a column-list config value to an array of non-empty strings. */
+function asColumnList(value) {
+  if (value == null) return [];
+  const arr = Array.isArray(value) ? value : [value];
+  const out = [];
+  for (let i = 0; i < arr.length; i += 1) {
+    const s = arr[i] == null ? '' : String(arr[i]);
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+/** Every named column that is not in the dataset, so validation can name the
+    missing ones instead of failing with a generic message. */
+function missingColumns(names, wanted) {
+  return asColumnList(wanted).filter((n) => !names.includes(n));
+}
+
+// Written as escapes rather than literal control characters so this module stays
+// safe to inline into canvas/index.html: a raw control byte inside the one big
+// inline script is invisible in review and painful to diagnose.
+const UNIT_SEP = '\u001f';
+const NULL_SENTINEL = '\u0000null';
+
+/** The composite key of a row, as a string safe to use as an object key.
+    Values are joined with a unit separator and any embedded separator is
+    stripped, so ['a', 'b'] and ['a<sep>b'] cannot collide into one entity. A
+    null gets its own sentinel rather than an empty string, because a genuinely
+    blank key value and a missing one are different entities. */
+function keyOfRow(row, idxs) {
+  const parts = [];
+  for (let i = 0; i < idxs.length; i += 1) {
+    const v = idxs[i] >= 0 ? row[idxs[i]] : null;
+    parts.push(v == null ? NULL_SENTINEL : String(v).split(UNIT_SEP).join(''));
+  }
+  return parts.join(UNIT_SEP);
+}
+
+/* ------------------------------- output ---------------------------------- */
+
+/** A column descriptor in the house shape. */
+function column(name, type) {
+  return { name: name, type: String(type || TYPE_STR).toUpperCase() };
+}
+
+/**
+ * The standard shape every transform in this directory returns, so the canvas
+ * wire can render any of them with one code path and a test can assert one
+ * contract. `notes` is where a transform says what it could not do: unread
+ * dates, facts with no match, rows with no prior period. It is part of the
+ * result rather than a console warning because an honest gap the user never
+ * sees is the same as a hidden one.
+ */
+function transformResult(fields) {
+  return {
+    ok: true,
+    columns: fields.columns || [],
+    rows: fields.rows || [],
+    sql: fields.sql || '',
+    stats: fields.stats || {},
+    notes: fields.notes || [],
+  };
+}
+
+function transformError(message) {
+  return { ok: false, error: String(message || 'The transform could not run.') };
+}
+
+// The TYPE_* constants belong in the namespace as well as the ESM exports: the
+// canvas build inlines these modules with their imports rewritten to read this
+// object, so a name that is exported but absent here would be undefined only in
+// the shipped page and nowhere in the tests.
+  window.DataGlowTransformCore = {
+    TRANSFORM_CORE_VERSION: TRANSFORM_CORE_VERSION,
+    PERIOD_GRAINS: PERIOD_GRAINS,
+    PERIOD_GRAIN_LABELS: PERIOD_GRAIN_LABELS,
+    TYPE_INT: TYPE_INT,
+    TYPE_FLOAT: TYPE_FLOAT,
+    TYPE_STR: TYPE_STR,
+    TYPE_DATE: TYPE_DATE,
+    TYPE_BOOL: TYPE_BOOL,
+    quoteIdent: quoteIdent,
+    quoteLiteral: quoteLiteral,
+    relationName: relationName,
+    columnNamesOf: columnNamesOf,
+    indexOfColumn: indexOfColumn,
+    typeOfColumn: typeOfColumn,
+    isNumericType: isNumericType,
+    isDateType: isDateType,
+    rowsOf: rowsOf,
+    suggestDateColumn: suggestDateColumn,
+    suggestNumericColumn: suggestNumericColumn,
+    parseDateValue: parseDateValue,
+    formatISODate: formatISODate,
+    periodKeyOf: periodKeyOf,
+    priorPeriodKeyOf: priorPeriodKeyOf,
+    truncUnitFor: truncUnitFor,
+    intervalFor: intervalFor,
+    toNumber: toNumber,
+    pctChange: pctChange,
+    isPlainObject: isPlainObject,
+    asColumnList: asColumnList,
+    missingColumns: missingColumns,
+    keyOfRow: keyOfRow,
+    column: column,
+    transformResult: transformResult,
+    transformError: transformError,
+  };
+})();
+/* ---- end js/transforms/transform-core.js ---- */
+/* ---- from js/transforms/prior-period.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A18 Compare to previous period (day / week / month over month)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. "Is this month better than last month?", per entity if the
+// data has entities. It aggregates a metric into calendar periods and puts the
+// prior period's value, the delta and the percent change beside each one.
+//
+// THE ONE DECISION THAT MATTERS: WHAT "PRIOR" MEANS.
+// The obvious implementation is LAG(value) OVER (ORDER BY period), which returns
+// the previous ROW. That is wrong whenever the data has a gap, and real data has
+// gaps: a shop closed in February, a sensor offline for a week, a customer who
+// bought in January and again in March. LAG would compare March against January
+// and label it "month over month", which is a wrong number that looks completely
+// reasonable on a chart.
+//
+// So prior here means the previous CALENDAR period, computed by stepping the
+// calendar back one grain and looking that key up. If that period is absent, the
+// prior value is null, the delta is null, and the result says so in its notes.
+// The generated SQL uses a LEFT JOIN on the stepped-back period key rather than
+// a bare LAG, for the same reason and so the proof matches the rows.
+//
+// A metric is aggregated by SUM by default because that is what "sales this
+// month" means. AVG, MIN, MAX and COUNT are offered because "average price this
+// month" is just as common a question, and picking SUM for an average is the
+// same class of silent error this module exists to avoid.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var PERIOD_GRAINS = C.PERIOD_GRAINS, quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, suggestNumericColumn = C.suggestNumericColumn, parseDateValue = C.parseDateValue, periodKeyOf = C.periodKeyOf, priorPeriodKeyOf = C.priorPeriodKeyOf, truncUnitFor = C.truncUnitFor, intervalFor = C.intervalFor, toNumber = C.toNumber, pctChange = C.pctChange, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, missingColumns = C.missingColumns, keyOfRow = C.keyOfRow, column = C.column, transformResult = C.transformResult, transformError = C.transformError, TYPE_STR = C.TYPE_STR, TYPE_FLOAT = C.TYPE_FLOAT, TYPE_INT = C.TYPE_INT;
+const PRIOR_PERIOD_VERSION = 1;
+
+// SUM first because it is the common case and the default.
+const PRIOR_PERIOD_AGGREGATES = Object.freeze(['SUM', 'AVG', 'MIN', 'MAX', 'COUNT']);
+
+const PRIOR_PERIOD_AGGREGATE_LABELS = Object.freeze({
+  SUM: 'Total',
+  AVG: 'Average',
+  MIN: 'Lowest',
+  MAX: 'Highest',
+  COUNT: 'How many rows',
+});
+
+function createEmptyPriorPeriodConfig() {
+  return {
+    dateColumn: '',
+    metricColumn: '',
+    aggregate: 'SUM',
+    grain: 'month',
+    entityColumns: [],
+  };
+}
+
+/** A starting point from the loaded table's own shape. A suggestion only:
+    nothing runs until a person picks and confirms. */
+function suggestPriorPeriodConfig(dataset) {
+  const cfg = createEmptyPriorPeriodConfig();
+  cfg.dateColumn = suggestDateColumn(dataset) || '';
+  cfg.metricColumn = suggestNumericColumn(dataset) || '';
+  return cfg;
+}
+
+function validatePriorPeriodConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.dateColumn) errors.push('Pick the column that holds the date.');
+  else if (!names.includes(config.dateColumn)) errors.push('The date column ' + config.dateColumn + ' is not in this table.');
+
+  const agg = String(config.aggregate || 'SUM').toUpperCase();
+  if (!PRIOR_PERIOD_AGGREGATES.includes(agg)) {
+    errors.push('Pick how to combine the metric: ' + PRIOR_PERIOD_AGGREGATES.join(', ') + '.');
+  }
+
+  // COUNT is the one aggregate that needs no metric column, since it counts
+  // rows rather than measuring anything.
+  if (agg !== 'COUNT') {
+    if (!config.metricColumn) errors.push('Pick the column you want to compare.');
+    else if (!names.includes(config.metricColumn)) errors.push('The metric column ' + config.metricColumn + ' is not in this table.');
+  }
+
+  const grain = String(config.grain || 'month');
+  if (!PERIOD_GRAINS.includes(grain)) errors.push('Pick a period: day, week or month.');
+
+  const entities = asColumnList(config.entityColumns);
+  const missingEntities = missingColumns(names, entities);
+  if (missingEntities.length > 0) {
+    errors.push('These grouping columns are not in this table: ' + missingEntities.join(', ') + '.');
+  }
+  if (entities.includes(config.dateColumn)) {
+    errors.push('The date column cannot also be a grouping column.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/**
+ * The glass-box SQL. A LEFT JOIN of the period totals onto themselves on the
+ * stepped-back period key, which is the statement of "the same entity, one
+ * period earlier, and nothing else". A reader can paste this into the SQL tab
+ * and get the rows this module produced.
+ */
+function buildPriorPeriodSQL(config, sourceRelation) {
+  const v = validatePriorPeriodConfig(config, allNamesFrom(config));
+  if (!isPlainObject(config)) return { ok: false, errors: v.errors };
+
+  const rel = relationName(sourceRelation, 'your_table');
+  const grain = String(config.grain || 'month');
+  const unit = truncUnitFor(grain);
+  const step = intervalFor(grain);
+  const agg = String(config.aggregate || 'SUM').toUpperCase();
+  const dateCol = quoteIdent(config.dateColumn);
+  const entities = asColumnList(config.entityColumns);
+  const entityCols = entities.map(quoteIdent);
+
+  const measure = agg === 'COUNT' ? 'COUNT(*)' : agg + '(' + quoteIdent(config.metricColumn) + ')';
+
+  const groupSelect = entityCols.concat([
+    'date_trunc(' + "'" + unit + "'" + ', ' + dateCol + ') AS period_start',
+    measure + ' AS metric_value',
+  ]);
+  const groupBy = entityCols.concat(['period_start']);
+
+  // The join condition: same entity, and the current row's period start minus
+  // exactly one grain equals the other row's period start.
+  const onParts = entities.map((e) => 'prior.' + quoteIdent(e) + ' IS NOT DISTINCT FROM cur.' + quoteIdent(e));
+  onParts.push('prior.period_start = cur.period_start - ' + step);
+
+  const outSelect = entities.map((e) => 'cur.' + quoteIdent(e))
+    .concat([
+      'cur.period_start',
+      'cur.metric_value',
+      'prior.metric_value AS prior_value',
+      'cur.metric_value - prior.metric_value AS change',
+      // Guarded so a prior of zero yields NULL rather than a division error or
+      // an infinity printed next to real numbers.
+      'CASE WHEN prior.metric_value IS NULL OR prior.metric_value = 0 THEN NULL'
+        + ' ELSE (cur.metric_value - prior.metric_value) / abs(prior.metric_value) END AS pct_change',
+    ]);
+
+  const lines = [
+    '-- Compare to previous period (' + grain + ' over ' + grain + ')',
+    '-- Prior is the previous CALENDAR ' + grain + ', not simply the previous row:',
+    '-- a gap in the data yields no prior rather than a misleading comparison.',
+    'WITH by_period AS (',
+    '  SELECT ' + groupSelect.join(', '),
+    '  FROM ' + rel,
+    '  WHERE ' + dateCol + ' IS NOT NULL',
+    '  GROUP BY ' + groupBy.join(', '),
+    ')',
+    'SELECT ' + outSelect.join(', '),
+    'FROM by_period AS cur',
+    'LEFT JOIN by_period AS prior',
+    '  ON ' + onParts.join(' AND '),
+    'ORDER BY ' + (entityCols.length ? entityCols.map((e) => 'cur.' + e).join(', ') + ', ' : '') + 'cur.period_start',
+  ];
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function allNamesFrom(config) {
+  // buildPriorPeriodSQL is sometimes called for display before a dataset is in
+  // hand. Validating against the config's own names keeps it honest about
+  // structure without requiring the table.
+  if (!isPlainObject(config)) return [];
+  return asColumnList(config.entityColumns)
+    .concat([config.dateColumn, config.metricColumn])
+    .filter(Boolean);
+}
+
+/**
+ * Do the work. Returns the standard transform shape: columns, rows, the SQL that
+ * states what happened, counts, and notes naming everything it could not do.
+ */
+function priorPeriodTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded to compare.');
+  const names = columnNamesOf(dataset);
+  const v = validatePriorPeriodConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const grain = String(config.grain || 'month');
+  const agg = String(config.aggregate || 'SUM').toUpperCase();
+  const entities = asColumnList(config.entityColumns);
+  const dateIdx = indexOfColumn(names, config.dateColumn);
+  const metricIdx = agg === 'COUNT' ? -1 : indexOfColumn(names, config.metricColumn);
+  const entityIdxs = entities.map((e) => indexOfColumn(names, e));
+
+  const srcRows = rowsOf(dataset);
+  const buckets = new Map();
+  let unreadableDates = 0;
+  let unreadableMetrics = 0;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    const d = parseDateValue(row[dateIdx]);
+    if (!d) { unreadableDates += 1; continue; }
+    const period = periodKeyOf(d, grain);
+    if (!period) { unreadableDates += 1; continue; }
+
+    let value = null;
+    if (agg === 'COUNT') {
+      value = 1;
+    } else {
+      value = toNumber(row[metricIdx]);
+      if (value === null) { unreadableMetrics += 1; continue; }
+    }
+
+    const entityKey = keyOfRow(row, entityIdxs);
+    // Escape rather than a literal control byte, so this module stays safe to
+    // inline into canvas/index.html and reviewable in a diff.
+    const bucketKey = entityKey + '\u001e' + period;
+    let b = buckets.get(bucketKey);
+    if (!b) {
+      b = {
+        entityKey: entityKey,
+        entityValues: entityIdxs.map((idx) => (idx >= 0 ? row[idx] : null)),
+        period: period,
+        sum: 0, count: 0, min: null, max: null,
+      };
+      buckets.set(bucketKey, b);
+    }
+    b.sum += value;
+    b.count += 1;
+    if (b.min === null || value < b.min) b.min = value;
+    if (b.max === null || value > b.max) b.max = value;
+  }
+
+  // Index by entity then period so the prior lookup is a direct hit rather than
+  // a scan, and so a missing period is genuinely absent instead of being the
+  // nearest neighbour.
+  const byEntityPeriod = new Map();
+  for (const b of buckets.values()) {
+    let m = byEntityPeriod.get(b.entityKey);
+    if (!m) { m = new Map(); byEntityPeriod.set(b.entityKey, m); }
+    m.set(b.period, aggregateOf(b, agg));
+  }
+
+  const outColumns = entities.map((e) => column(e, dsType(dataset, e)))
+    .concat([
+      column('period_start', TYPE_STR),
+      column('metric_value', agg === 'COUNT' ? TYPE_INT : TYPE_FLOAT),
+      column('prior_value', agg === 'COUNT' ? TYPE_INT : TYPE_FLOAT),
+      column('change', TYPE_FLOAT),
+      column('pct_change', TYPE_FLOAT),
+    ]);
+
+  const ordered = Array.from(buckets.values()).sort((a, b) => {
+    if (a.entityKey < b.entityKey) return -1;
+    if (a.entityKey > b.entityKey) return 1;
+    if (a.period < b.period) return -1;
+    if (a.period > b.period) return 1;
+    return 0;
+  });
+
+  const outRows = [];
+  let withoutPrior = 0;
+  for (let i = 0; i < ordered.length; i += 1) {
+    const b = ordered[i];
+    const current = aggregateOf(b, agg);
+    const priorKey = priorPeriodKeyOf(b.period, grain);
+    const periods = byEntityPeriod.get(b.entityKey);
+    const prior = priorKey && periods && periods.has(priorKey) ? periods.get(priorKey) : null;
+    if (prior === null) withoutPrior += 1;
+    const change = prior === null ? null : current - prior;
+    outRows.push(b.entityValues.concat([
+      b.period,
+      current,
+      prior,
+      change,
+      pctChange(current, prior),
+    ]));
+  }
+
+  const built = buildPriorPeriodSQL(config, dataset.name);
+  const notes = [];
+  if (withoutPrior > 0) {
+    notes.push(withoutPrior + ' of ' + outRows.length + ' period'
+      + (outRows.length === 1 ? '' : 's') + ' had no previous ' + grain
+      + ' in this table, so the prior value is blank rather than estimated.');
+  }
+  if (unreadableDates > 0) {
+    notes.push(unreadableDates + ' row' + (unreadableDates === 1 ? '' : 's')
+      + ' had a date that could not be read and were left out. Check the format of '
+      + config.dateColumn + '.');
+  }
+  if (unreadableMetrics > 0) {
+    notes.push(unreadableMetrics + ' row' + (unreadableMetrics === 1 ? '' : 's')
+      + ' had no number in ' + config.metricColumn + ' and were left out of the totals.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: outRows.length,
+      periods: outRows.length,
+      withoutPrior: withoutPrior,
+      unreadableDates: unreadableDates,
+      unreadableMetrics: unreadableMetrics,
+      grain: grain,
+      aggregate: agg,
+    },
+    notes: notes,
+  });
+}
+
+function aggregateOf(bucket, agg) {
+  if (agg === 'COUNT') return bucket.count;
+  if (agg === 'AVG') return bucket.count === 0 ? null : bucket.sum / bucket.count;
+  if (agg === 'MIN') return bucket.min;
+  if (agg === 'MAX') return bucket.max;
+  return bucket.sum;
+}
+
+function dsType(dataset, name) {
+  const cols = (dataset && dataset.columns) || [];
+  for (let i = 0; i < cols.length; i += 1) {
+    if (cols[i] && cols[i].name === name) return String(cols[i].type || TYPE_STR).toUpperCase();
+  }
+  return TYPE_STR;
+}
+
+/** One plain sentence for the panel header, so the finding leads and the proof
+    follows. Never claims a comparison that did not happen. */
+function describePriorPeriod(result, config) {
+  if (!result || !result.ok) return 'This comparison did not run.';
+  const grain = String((config && config.grain) || 'month');
+  const s = result.stats || {};
+  const compared = (s.rowsOut || 0) - (s.withoutPrior || 0);
+  if ((s.rowsOut || 0) === 0) return 'No periods came back, so there is nothing to compare.';
+  if (compared === 0) {
+    return 'None of the ' + s.rowsOut + ' periods had a previous ' + grain + ' to compare against.';
+  }
+  return compared + ' of ' + s.rowsOut + ' periods have a previous ' + grain + ' to compare against.';
+}
+  window.DataGlowPriorPeriod = {
+    PRIOR_PERIOD_VERSION: PRIOR_PERIOD_VERSION,
+    PRIOR_PERIOD_AGGREGATES: PRIOR_PERIOD_AGGREGATES,
+    PRIOR_PERIOD_AGGREGATE_LABELS: PRIOR_PERIOD_AGGREGATE_LABELS,
+    createEmptyPriorPeriodConfig: createEmptyPriorPeriodConfig,
+    suggestPriorPeriodConfig: suggestPriorPeriodConfig,
+    validatePriorPeriodConfig: validatePriorPeriodConfig,
+    buildPriorPeriodSQL: buildPriorPeriodSQL,
+    priorPeriodTransform: priorPeriodTransform,
+    describePriorPeriod: describePriorPeriod,
+  };
+})();
+/* ---- end js/transforms/prior-period.js ---- */
+/* ---- from js/transforms/date-range-join.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A19 Join on date range
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. "Which price list / campaign / shift / contract was in
+// force when this event happened?" One table has events with a date. The other
+// has rows that are valid over a span. This joins them where the event date
+// falls inside the span.
+//
+// WHY THIS IS THE DANGEROUS KIND OF JOIN.
+// An equality join on a key can only ever give you as many rows as the key
+// allows, and everyone already expects a duplicate key to duplicate rows. A
+// range join has no such intuition attached. If two reference ranges overlap by
+// a single day, every event on that day silently becomes two rows, and the total
+// afterwards is quietly larger than the total before. Nobody notices, because
+// each individual row looks correct.
+//
+// So this module refuses to be a one-shot. previewDateRangeJoin() counts what
+// would happen (matched, unmatched, the worst fanout, the ranges that overlap)
+// without producing rows, and that preview is meant to be shown before anyone
+// confirms. The fanout number is the headline, not a footnote.
+//
+// TWO BOUNDARY DECISIONS, BOTH STATED OUT LOUD RATHER THAN GUESSED.
+//   1. An empty end date means STILL IN FORCE, not "matches nothing". A current
+//      price row with no end date is the normal way to represent "current", and
+//      reading it as a closed empty span would drop exactly the rows a person
+//      cares most about. Set openEndedEnd to false to read a blank end as a row
+//      that cannot match.
+//   2. Bounds are inclusive on both sides by default, so an event on the exact
+//      end date matches. That is the more common intent, and it is the ambiguity
+//      most likely to cause a quiet off-by-one-day, so both the notes and the
+//      generated SQL say which rule was applied.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, isPlainObject = C.isPlainObject, keyOfRow = C.keyOfRow, column = C.column, typeOfColumn = C.typeOfColumn, transformResult = C.transformResult, transformError = C.transformError;
+const DATE_RANGE_JOIN_VERSION = 1;
+
+// Above this many output rows per input row on average, the join is reshaping
+// the table rather than annotating it, which is worth saying plainly before a
+// person confirms. Not a hard limit: the preview warns, the human decides.
+const FANOUT_WARN_RATIO = 1.5;
+
+function createEmptyDateRangeJoinConfig() {
+  return {
+    eventDateColumn: '',
+    rangeStartColumn: '',
+    rangeEndColumn: '',
+    keyPairs: [],
+    openEndedEnd: true,
+    inclusiveEnd: true,
+    keepUnmatched: true,
+    rightSuffix: '_range',
+  };
+}
+
+/** A starting point from the two tables' own shapes. A suggestion only. */
+function suggestDateRangeJoinConfig(eventDataset, rangeDataset) {
+  const cfg = createEmptyDateRangeJoinConfig();
+  cfg.eventDateColumn = suggestDateColumn(eventDataset) || '';
+  const rangeNames = columnNamesOf(rangeDataset);
+  cfg.rangeStartColumn = pickByHint(rangeNames, ['start', 'from', 'effective', 'valid_from', 'begin'])
+    || suggestDateColumn(rangeDataset) || '';
+  cfg.rangeEndColumn = pickByHint(rangeNames, ['end', 'to', 'until', 'valid_to', 'expiry', 'expires'])
+    || '';
+  return cfg;
+}
+
+function pickByHint(names, hints) {
+  for (let h = 0; h < hints.length; h += 1) {
+    for (let i = 0; i < names.length; i += 1) {
+      if (String(names[i] || '').toLowerCase().includes(hints[h])) return names[i];
+    }
+  }
+  return null;
+}
+
+function validateDateRangeJoinConfig(config, eventNames, rangeNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const left = Array.isArray(eventNames) ? eventNames : [];
+  const right = Array.isArray(rangeNames) ? rangeNames : [];
+
+  if (!config.eventDateColumn) errors.push('Pick the date column on the events table.');
+  else if (!left.includes(config.eventDateColumn)) {
+    errors.push('The event date column ' + config.eventDateColumn + ' is not in the events table.');
+  }
+
+  if (!config.rangeStartColumn) errors.push('Pick the start-of-range column on the second table.');
+  else if (!right.includes(config.rangeStartColumn)) {
+    errors.push('The start column ' + config.rangeStartColumn + ' is not in the second table.');
+  }
+
+  // An absent end column is a legitimate configuration: every range is then
+  // open-ended and the join means "at or after the start date".
+  if (config.rangeEndColumn && !right.includes(config.rangeEndColumn)) {
+    errors.push('The end column ' + config.rangeEndColumn + ' is not in the second table.');
+  }
+
+  const pairs = normalizeKeyPairs(config.keyPairs);
+  for (let i = 0; i < pairs.length; i += 1) {
+    if (!left.includes(pairs[i].left)) {
+      errors.push('The matching column ' + pairs[i].left + ' is not in the events table.');
+    }
+    if (!right.includes(pairs[i].right)) {
+      errors.push('The matching column ' + pairs[i].right + ' is not in the second table.');
+    }
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+function normalizeKeyPairs(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const p = value[i];
+    if (!isPlainObject(p)) continue;
+    const l = p.left == null ? '' : String(p.left);
+    const r = p.right == null ? '' : String(p.right);
+    if (l && r) out.push({ left: l, right: r });
+  }
+  return out;
+}
+
+/**
+ * The glass-box SQL. A non-equi LEFT JOIN, written so the boundary rules are
+ * visible rather than implied: the open-ended end appears as an explicit
+ * `OR end IS NULL`, and the inclusive end appears as `<=` rather than `<`.
+ */
+function buildDateRangeJoinSQL(config, eventRelation, rangeRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+
+  const l = relationName(eventRelation, 'events');
+  const r = relationName(rangeRelation, 'ranges');
+  const eventDate = 'e.' + quoteIdent(config.eventDateColumn);
+  const startCol = 'r.' + quoteIdent(config.rangeStartColumn);
+  const pairs = normalizeKeyPairs(config.keyPairs);
+  const inclusiveEnd = config.inclusiveEnd !== false;
+  const openEnded = config.openEndedEnd !== false;
+  const keepUnmatched = config.keepUnmatched !== false;
+
+  const onParts = pairs.map((p) => 'e.' + quoteIdent(p.left) + ' = r.' + quoteIdent(p.right));
+  onParts.push(eventDate + ' >= ' + startCol);
+
+  if (config.rangeEndColumn) {
+    const endCol = 'r.' + quoteIdent(config.rangeEndColumn);
+    const cmp = eventDate + (inclusiveEnd ? ' <= ' : ' < ') + endCol;
+    onParts.push(openEnded ? '(' + cmp + ' OR ' + endCol + ' IS NULL)' : cmp);
+  }
+
+  const lines = [
+    '-- Join on date range: the event date falls inside the span on ' + r,
+    '-- ' + (inclusiveEnd ? 'The end date is INCLUDED: an event on the end date matches.'
+      : 'The end date is EXCLUDED: an event on the end date does not match.'),
+  ];
+  if (config.rangeEndColumn && openEnded) {
+    lines.push('-- A blank end date means still in force, so it matches any later event.');
+  }
+  if (!config.rangeEndColumn) {
+    lines.push('-- No end column was chosen, so every range runs from its start onward.');
+  }
+  lines.push(
+    '-- Overlapping ranges produce more than one row per event. That is a fanout,',
+    '-- not an error, and the count is reported beside the result.',
+    'SELECT e.*, r.*',
+    'FROM ' + l + ' AS e',
+    (keepUnmatched ? 'LEFT JOIN ' : 'INNER JOIN ') + r + ' AS r',
+    '  ON ' + onParts.join('\n  AND '),
+  );
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+/**
+ * Count what the join would do, without building the rows.
+ *
+ * This exists so the fanout is knowable before anyone confirms. It is the part
+ * of A19 that earns the module: the join itself is four comparisons, while the
+ * number of rows it will produce is the thing that actually surprises people.
+ */
+function previewDateRangeJoin(eventDataset, rangeDataset, config) {
+  const prep = prepare(eventDataset, rangeDataset, config);
+  if (!prep.ok) return prep;
+
+  let matchedEvents = 0;
+  let unmatchedEvents = 0;
+  let pairs = 0;
+  let maxFanout = 0;
+  let multiMatchEvents = 0;
+
+  for (let i = 0; i < prep.eventRows.length; i += 1) {
+    const hits = prep.matchesFor(prep.eventRows[i]);
+    if (hits === null) { unmatchedEvents += 1; continue; }
+    if (hits.length === 0) { unmatchedEvents += 1; continue; }
+    matchedEvents += 1;
+    pairs += hits.length;
+    if (hits.length > maxFanout) maxFanout = hits.length;
+    if (hits.length > 1) multiMatchEvents += 1;
+  }
+
+  const rowsIn = prep.eventRows.length;
+  const rowsOut = pairs + (config.keepUnmatched !== false ? unmatchedEvents : 0);
+  const ratio = rowsIn === 0 ? 0 : rowsOut / rowsIn;
+
+  const warnings = [];
+  if (multiMatchEvents > 0) {
+    warnings.push(multiMatchEvents + ' of ' + rowsIn + ' event row'
+      + (rowsIn === 1 ? '' : 's') + ' fall inside more than one range, so they will appear '
+      + 'more than once. The most any single row matches is ' + maxFanout + '. '
+      + 'If the ranges are not meant to overlap, that is a problem in the second table, '
+      + 'not in this join.');
+  }
+  if (ratio > FANOUT_WARN_RATIO) {
+    warnings.push('This join would turn ' + rowsIn + ' row' + (rowsIn === 1 ? '' : 's')
+      + ' into ' + rowsOut + '. Any total you take afterwards will be larger than the '
+      + 'same total before the join.');
+  }
+  if (unmatchedEvents > 0) {
+    warnings.push(unmatchedEvents + ' event row' + (unmatchedEvents === 1 ? '' : 's')
+      + ' fall outside every range'
+      + (config.keepUnmatched !== false
+        ? ' and will be kept with blank values from the second table.'
+        : ' and will be dropped.'));
+  }
+  if (prep.unreadableEventDates > 0) {
+    warnings.push(prep.unreadableEventDates + ' event row'
+      + (prep.unreadableEventDates === 1 ? '' : 's')
+      + ' had a date that could not be read, so they can match nothing. Check the format of '
+      + config.eventDateColumn + '.');
+  }
+  if (prep.unreadableRangeBounds > 0) {
+    warnings.push(prep.unreadableRangeBounds + ' row' + (prep.unreadableRangeBounds === 1 ? '' : 's')
+      + ' in the second table had a start date that could not be read and were skipped.');
+  }
+
+  return {
+    ok: true,
+    stats: {
+      rowsIn: rowsIn,
+      rowsOut: rowsOut,
+      matchedEvents: matchedEvents,
+      unmatchedEvents: unmatchedEvents,
+      pairs: pairs,
+      maxFanout: maxFanout,
+      multiMatchEvents: multiMatchEvents,
+      fanoutRatio: ratio,
+      unreadableEventDates: prep.unreadableEventDates,
+      unreadableRangeBounds: prep.unreadableRangeBounds,
+    },
+    warnings: warnings,
+  };
+}
+
+/** Do the work. Same result shape as every other transform here. */
+function dateRangeJoinTransform(eventDataset, rangeDataset, config) {
+  const prep = prepare(eventDataset, rangeDataset, config);
+  if (!prep.ok) return transformError(prep.errors.join(' '));
+
+  const keepUnmatched = config.keepUnmatched !== false;
+  const suffix = String(config.rightSuffix || '_range');
+  const outColumns = prep.eventNames.map((n) => column(n, typeOfColumn(eventDataset, n)))
+    .concat(prep.rangeNames.map((n) => column(
+      prep.eventNames.includes(n) ? n + suffix : n,
+      typeOfColumn(rangeDataset, n),
+    )));
+
+  const blankRight = prep.rangeNames.map(() => null);
+  const outRows = [];
+  let matchedEvents = 0;
+  let unmatchedEvents = 0;
+  let maxFanout = 0;
+  let multiMatchEvents = 0;
+
+  for (let i = 0; i < prep.eventRows.length; i += 1) {
+    const row = prep.eventRows[i];
+    const hits = prep.matchesFor(row);
+    const list = hits === null ? [] : hits;
+    if (list.length === 0) {
+      unmatchedEvents += 1;
+      if (keepUnmatched) outRows.push(row.concat(blankRight));
+      continue;
+    }
+    matchedEvents += 1;
+    if (list.length > maxFanout) maxFanout = list.length;
+    if (list.length > 1) multiMatchEvents += 1;
+    for (let h = 0; h < list.length; h += 1) {
+      outRows.push(row.concat(list[h].values));
+    }
+  }
+
+  const built = buildDateRangeJoinSQL(config, eventDataset && eventDataset.name, rangeDataset && rangeDataset.name);
+  const preview = previewDateRangeJoin(eventDataset, rangeDataset, config);
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: prep.eventRows.length,
+      rowsOut: outRows.length,
+      matchedEvents: matchedEvents,
+      unmatchedEvents: unmatchedEvents,
+      maxFanout: maxFanout,
+      multiMatchEvents: multiMatchEvents,
+      unreadableEventDates: prep.unreadableEventDates,
+      unreadableRangeBounds: prep.unreadableRangeBounds,
+      inclusiveEnd: config.inclusiveEnd !== false,
+      openEndedEnd: config.openEndedEnd !== false,
+    },
+    notes: preview.ok ? preview.warnings : [],
+  });
+}
+
+/**
+ * Shared setup for the preview and the join, so the two cannot disagree about
+ * what matches. A preview that used different rules from the apply would be
+ * worse than no preview at all.
+ */
+function prepare(eventDataset, rangeDataset, config) {
+  if (!eventDataset || typeof eventDataset !== 'object') {
+    return { ok: false, errors: ['There is no events table loaded.'] };
+  }
+  if (!rangeDataset || typeof rangeDataset !== 'object') {
+    return { ok: false, errors: ['Pick a second table that holds the date ranges.'] };
+  }
+  const eventNames = columnNamesOf(eventDataset);
+  const rangeNames = columnNamesOf(rangeDataset);
+  const v = validateDateRangeJoinConfig(config, eventNames, rangeNames);
+  if (!v.ok) return { ok: false, errors: v.errors };
+
+  const pairs = normalizeKeyPairs(config.keyPairs);
+  const eventDateIdx = indexOfColumn(eventNames, config.eventDateColumn);
+  const startIdx = indexOfColumn(rangeNames, config.rangeStartColumn);
+  const endIdx = config.rangeEndColumn ? indexOfColumn(rangeNames, config.rangeEndColumn) : -1;
+  const leftKeyIdxs = pairs.map((p) => indexOfColumn(eventNames, p.left));
+  const rightKeyIdxs = pairs.map((p) => indexOfColumn(rangeNames, p.right));
+  const inclusiveEnd = config.inclusiveEnd !== false;
+  const openEnded = config.openEndedEnd !== false;
+
+  // Group the range rows by their key so a keyed join looks at only its own
+  // candidates. Without a key every event has to consider every range, which is
+  // correct but quadratic; with one it is usually a handful.
+  const byKey = new Map();
+  let unreadableRangeBounds = 0;
+  const rangeRows = rowsOf(rangeDataset);
+  for (let i = 0; i < rangeRows.length; i += 1) {
+    const row = rangeRows[i];
+    if (!Array.isArray(row)) continue;
+    const start = parseDateValue(row[startIdx]);
+    if (!start) { unreadableRangeBounds += 1; continue; }
+    const rawEnd = endIdx >= 0 ? row[endIdx] : null;
+    const endMissing = endIdx < 0 || rawEnd == null || rawEnd === '';
+    let end = null;
+    let isOpen;
+    if (endMissing) {
+      // No end column at all means every range runs onward. A blank end in a
+      // real end column means "still in force" unless the person said otherwise,
+      // in which case the row can match nothing and is dropped here.
+      if (endIdx < 0) isOpen = true;
+      else if (openEnded) isOpen = true;
+      else continue;
+    } else {
+      end = parseDateValue(rawEnd);
+      // An end that is present but unreadable is NOT treated as open: reading
+      // "31/13/2024" as forever would silently extend a closed range.
+      if (!end) { unreadableRangeBounds += 1; continue; }
+      isOpen = false;
+    }
+
+    const key = keyOfRow(row, rightKeyIdxs);
+    let list = byKey.get(key);
+    if (!list) { list = []; byKey.set(key, list); }
+    list.push({
+      start: start.getTime(),
+      end: end ? end.getTime() : null,
+      open: isOpen,
+      values: row.slice(),
+      startISO: formatISODate(start),
+    });
+  }
+
+  let unreadableEventDates = 0;
+  const eventRows = rowsOf(eventDataset).filter((r) => Array.isArray(r));
+
+  function matchesFor(row) {
+    const d = parseDateValue(row[eventDateIdx]);
+    if (!d) { unreadableEventDates += 1; return null; }
+    const t = d.getTime();
+    const candidates = byKey.get(keyOfRow(row, leftKeyIdxs));
+    if (!candidates) return [];
+    const hits = [];
+    for (let i = 0; i < candidates.length; i += 1) {
+      const c = candidates[i];
+      if (t < c.start) continue;
+      if (!c.open) {
+        if (inclusiveEnd ? t > c.end : t >= c.end) continue;
+      }
+      hits.push(c);
+    }
+    return hits;
+  }
+
+  // unreadableEventDates is only known after the caller has walked every row, so
+  // it is a getter rather than a snapshot taken before the walk.
+  return {
+    ok: true,
+    eventNames: eventNames,
+    rangeNames: rangeNames,
+    eventRows: eventRows,
+    matchesFor: matchesFor,
+    unreadableRangeBounds: unreadableRangeBounds,
+    get unreadableEventDates() { return unreadableEventDates; },
+  };
+}
+
+/** One plain sentence for the panel header. Leads with the fanout, because that
+    is the number a person needs before they agree to anything. */
+function describeDateRangeJoin(result) {
+  if (!result || !result.ok) return 'This join did not run.';
+  const s = result.stats || {};
+  if ((s.rowsIn || 0) === 0) return 'The events table has no rows, so there is nothing to join.';
+  const base = (s.matchedEvents || 0) + ' of ' + s.rowsIn + ' event rows fall inside a range';
+  if ((s.maxFanout || 0) > 1) {
+    return base + ', and ' + s.rowsIn + ' rows became ' + s.rowsOut
+      + ' because some fall inside more than one.';
+  }
+  return base + ', one row each.';
+}
+  window.DataGlowDateRangeJoin = {
+    DATE_RANGE_JOIN_VERSION: DATE_RANGE_JOIN_VERSION,
+    FANOUT_WARN_RATIO: FANOUT_WARN_RATIO,
+    createEmptyDateRangeJoinConfig: createEmptyDateRangeJoinConfig,
+    suggestDateRangeJoinConfig: suggestDateRangeJoinConfig,
+    validateDateRangeJoinConfig: validateDateRangeJoinConfig,
+    normalizeKeyPairs: normalizeKeyPairs,
+    buildDateRangeJoinSQL: buildDateRangeJoinSQL,
+    previewDateRangeJoin: previewDateRangeJoin,
+    dateRangeJoinTransform: dateRangeJoinTransform,
+    describeDateRangeJoin: describeDateRangeJoin,
+  };
+})();
+/* ---- end js/transforms/date-range-join.js ---- */
+/* ---- from js/transforms/first-last-event.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A20 First or last event per entity
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. "What did each customer buy first?", "what is the latest
+// reading from each sensor?", "what is the most recent status of each ticket?"
+// One row per entity, chosen by a column you pick.
+//
+// THE PROBLEM THIS MODULE EXISTS TO SOLVE IS TIES, NOT ORDERING.
+// Sorting by a timestamp and taking the top row per group is four lines of code.
+// It is also non-deterministic the moment two rows for one entity share the same
+// timestamp, which happens constantly: two line items on one order, two sensor
+// readings in the same second, a status set twice by a script. ROW_NUMBER() OVER
+// (PARTITION BY entity ORDER BY ts DESC) is free to return either row, and it can
+// return a different one on the next run or on a different engine. A report that
+// changes when nothing changed is one of the hardest bugs to be believed about.
+//
+// So the tie-break here is total and stated: after the order column, rows are
+// compared by every remaining column in table order. That makes the answer a
+// function of the table's contents alone, identical in JS and in the glass-box
+// SQL, and identical run to run. When ties actually occurred, the notes say how
+// many, because a tie-break being deterministic does not make it meaningful:
+// if two rows genuinely tie on the timestamp, the person needs to know that the
+// choice between them was arbitrary even though it was repeatable.
+//
+// Rows whose order value cannot be read are excluded and counted. A row with no
+// timestamp has no claim to being the first or last event, and defaulting it to
+// the epoch would make it the first event for its entity.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, parseDateValue = C.parseDateValue, toNumber = C.toNumber, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, missingColumns = C.missingColumns, keyOfRow = C.keyOfRow, column = C.column, typeOfColumn = C.typeOfColumn, isDateType = C.isDateType, transformResult = C.transformResult, transformError = C.transformError, TYPE_INT = C.TYPE_INT;
+const FIRST_LAST_VERSION = 1;
+
+const FIRST_LAST_PICKS = Object.freeze(['first', 'last']);
+
+const FIRST_LAST_PICK_LABELS = Object.freeze({
+  first: 'First event per group',
+  last: 'Latest event per group',
+});
+
+// 'one' is the default because "one row per entity" is what the question means.
+// 'ranked' keeps every row with its position, which is what you want when the
+// next question is "and what was the one before that?".
+const FIRST_LAST_MODES = Object.freeze(['one', 'ranked']);
+
+function createEmptyFirstLastConfig() {
+  return {
+    entityColumns: [],
+    orderColumn: '',
+    pick: 'last',
+    mode: 'one',
+  };
+}
+
+function suggestFirstLastConfig(dataset) {
+  const cfg = createEmptyFirstLastConfig();
+  cfg.orderColumn = suggestDateColumn(dataset) || '';
+  return cfg;
+}
+
+function validateFirstLastConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  const entities = asColumnList(config.entityColumns);
+  if (entities.length === 0) errors.push('Pick at least one column that identifies the group.');
+  const missing = missingColumns(names, entities);
+  if (missing.length > 0) {
+    errors.push('These group columns are not in this table: ' + missing.join(', ') + '.');
+  }
+
+  if (!config.orderColumn) errors.push('Pick the column that says which event came first.');
+  else if (!names.includes(config.orderColumn)) {
+    errors.push('The order column ' + config.orderColumn + ' is not in this table.');
+  } else if (entities.includes(config.orderColumn)) {
+    errors.push('The order column cannot also be a group column, since every row in a '
+      + 'group would then have the same order value.');
+  }
+
+  const pick = String(config.pick || 'last').toLowerCase();
+  if (!FIRST_LAST_PICKS.includes(pick)) errors.push('Choose first or last.');
+
+  const mode = String(config.mode || 'one').toLowerCase();
+  if (!FIRST_LAST_MODES.includes(mode)) errors.push('Choose one row per group, or all rows ranked.');
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/**
+ * The glass-box SQL. DuckDB's QUALIFY, which is the readable form of "filter on
+ * a window function". The full tie-break appears in the ORDER BY rather than
+ * being left implicit, so the query a person reads is the query that produced
+ * these exact rows.
+ */
+function buildFirstLastSQL(config, sourceRelation, columnNames) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+
+  const rel = relationName(sourceRelation, 'your_table');
+  const entities = asColumnList(config.entityColumns);
+  const pick = String(config.pick || 'last').toLowerCase();
+  const mode = String(config.mode || 'one').toLowerCase();
+  const dir = pick === 'first' ? 'ASC' : 'DESC';
+  const orderCol = quoteIdent(config.orderColumn);
+
+  // NULLS LAST in both directions: a row with no order value must never win the
+  // first or the last slot, which matches the JS engine excluding it outright.
+  const orderParts = [orderCol + ' ' + dir + ' NULLS LAST'];
+  const tieCols = tieBreakColumns(columnNames, config);
+  for (let i = 0; i < tieCols.length; i += 1) {
+    orderParts.push(quoteIdent(tieCols[i]) + ' ' + dir + ' NULLS LAST');
+  }
+
+  const over = 'ROW_NUMBER() OVER (\n'
+    + (entities.length ? '    PARTITION BY ' + entities.map(quoteIdent).join(', ') + '\n' : '')
+    + '    ORDER BY ' + orderParts.join(', ') + '\n  )';
+
+  const lines = [
+    '-- ' + (pick === 'first' ? 'First' : 'Latest') + ' event per group'
+      + (mode === 'ranked' ? ', every row kept with its position' : ', one row per group'),
+    '-- Ties on ' + orderCol + ' are broken by the remaining columns in table order,',
+    '-- so this returns the same row every run rather than whichever the engine',
+    '-- happened to reach first.',
+    'SELECT *,',
+    '  ' + over + ' AS event_rank',
+    'FROM ' + rel,
+    'WHERE ' + orderCol + ' IS NOT NULL',
+  ];
+  if (mode === 'one') lines.push('QUALIFY event_rank = 1');
+  lines.push('ORDER BY ' + (entities.length ? entities.map(quoteIdent).join(', ') + ', ' : '')
+    + 'event_rank');
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+/** Every column that is neither a group column nor the order column, in table
+    order. These are the tie-break, and the order they appear in is the order
+    they are compared in. */
+function tieBreakColumns(columnNames, config) {
+  const names = Array.isArray(columnNames) ? columnNames : [];
+  const entities = asColumnList(config && config.entityColumns);
+  const orderColumn = (config && config.orderColumn) || '';
+  return names.filter((n) => n !== orderColumn && !entities.includes(n));
+}
+
+function firstLastEventTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateFirstLastConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const entities = asColumnList(config.entityColumns);
+  const pick = String(config.pick || 'last').toLowerCase();
+  const mode = String(config.mode || 'one').toLowerCase();
+  const entityIdxs = entities.map((e) => indexOfColumn(names, e));
+  const orderIdx = indexOfColumn(names, config.orderColumn);
+  const orderIsDate = isDateType(typeOfColumn(dataset, config.orderColumn));
+  const tieIdxs = tieBreakColumns(names, config).map((n) => indexOfColumn(names, n));
+
+  const srcRows = rowsOf(dataset);
+  const groups = new Map();
+  let unreadableOrder = 0;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    const sort = sortableOrderValue(row[orderIdx], orderIsDate);
+    if (sort === null) { unreadableOrder += 1; continue; }
+    const key = keyOfRow(row, entityIdxs);
+    let g = groups.get(key);
+    if (!g) { g = { key: key, rows: [] }; groups.set(key, g); }
+    g.rows.push({ row: row, sort: sort });
+  }
+
+  const sign = pick === 'first' ? 1 : -1;
+  const outColumns = names.map((n) => column(n, typeOfColumn(dataset, n)))
+    .concat([column('event_rank', TYPE_INT)]);
+
+  const orderedKeys = Array.from(groups.keys()).sort();
+  const outRows = [];
+  let tiedGroups = 0;
+
+  for (let k = 0; k < orderedKeys.length; k += 1) {
+    const g = groups.get(orderedKeys[k]);
+    g.rows.sort((a, b) => {
+      const c = compareSortable(a.sort, b.sort);
+      if (c !== 0) return sign * c;
+      // Same order value: fall through to the stated tie-break. Counted below
+      // so the result can admit the choice was arbitrary.
+      for (let t = 0; t < tieIdxs.length; t += 1) {
+        const tc = compareValues(a.row[tieIdxs[t]], b.row[tieIdxs[t]]);
+        if (tc !== 0) return sign * tc;
+      }
+      return 0;
+    });
+    if (g.rows.length > 1 && compareSortable(g.rows[0].sort, g.rows[1].sort) === 0) tiedGroups += 1;
+
+    if (mode === 'one') {
+      outRows.push(g.rows[0].row.concat([1]));
+    } else {
+      for (let i = 0; i < g.rows.length; i += 1) outRows.push(g.rows[i].row.concat([i + 1]));
+    }
+  }
+
+  const built = buildFirstLastSQL(config, dataset.name, names);
+  const notes = [];
+  if (tiedGroups > 0) {
+    notes.push(tiedGroups + ' group' + (tiedGroups === 1 ? '' : 's') + ' had two or more rows '
+      + 'sharing the same ' + config.orderColumn + '. The row shown was chosen by comparing the '
+      + 'remaining columns in table order, which is repeatable but arbitrary: if those rows are '
+      + 'genuinely different events, the table needs something finer to tell them apart.');
+  }
+  if (unreadableOrder > 0) {
+    notes.push(unreadableOrder + ' row' + (unreadableOrder === 1 ? '' : 's') + ' had no usable '
+      + 'value in ' + config.orderColumn + ' and were left out, because a row with no order '
+      + 'value cannot be the ' + pick + ' event.');
+  }
+  if (mode === 'one' && groups.size > 0) {
+    notes.push('One row per group: ' + groups.size + ' group'
+      + (groups.size === 1 ? '' : 's') + ' out of ' + srcRows.length + ' row'
+      + (srcRows.length === 1 ? '' : 's') + '.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: outRows.length,
+      groups: groups.size,
+      tiedGroups: tiedGroups,
+      unreadableOrder: unreadableOrder,
+      pick: pick,
+      mode: mode,
+    },
+    notes: notes,
+  });
+}
+
+/**
+ * The order value as something comparable, or null when the row cannot take part.
+ *
+ * A declared date column is parsed as a date so that "2024-3-5" and "2024-03-05"
+ * order correctly rather than as strings. Anything numeric orders as a number so
+ * that 9 comes before 10. Everything else orders as a string, which is at least
+ * total and stable.
+ */
+function sortableOrderValue(value, preferDate) {
+  if (value == null || value === '') return null;
+  if (preferDate || value instanceof Date) {
+    const d = parseDateValue(value);
+    if (d) return { kind: 'n', v: d.getTime() };
+    if (preferDate) return null;
+  }
+  const n = toNumber(value);
+  if (n !== null && typeof value !== 'boolean') return { kind: 'n', v: n };
+  const d2 = parseDateValue(value);
+  if (d2) return { kind: 'n', v: d2.getTime() };
+  return { kind: 's', v: String(value) };
+}
+
+function compareSortable(a, b) {
+  if (a.kind === 'n' && b.kind === 'n') return a.v < b.v ? -1 : (a.v > b.v ? 1 : 0);
+  const as = String(a.v);
+  const bs = String(b.v);
+  return as < bs ? -1 : (as > bs ? 1 : 0);
+}
+
+/** A total order over two raw cells, for the tie-break. Null sorts last in the
+    ascending direction so a blank never wins a slot a real value could take. */
+function compareValues(a, b) {
+  const aNull = a == null || a === '';
+  const bNull = b == null || b === '';
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  const an = toNumber(a);
+  const bn = toNumber(b);
+  if (an !== null && bn !== null) return an < bn ? -1 : (an > bn ? 1 : 0);
+  const as = String(a);
+  const bs = String(b);
+  return as < bs ? -1 : (as > bs ? 1 : 0);
+}
+
+/** One plain sentence for the panel header. */
+function describeFirstLast(result, config) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  const pick = String((config && config.pick) || s.pick || 'last').toLowerCase();
+  const word = pick === 'first' ? 'first' : 'latest';
+  if ((s.groups || 0) === 0) return 'No groups came back, so there is nothing to pick from.';
+  if (s.mode === 'ranked') {
+    return s.rowsOut + ' rows across ' + s.groups + ' groups, ranked with the ' + word
+      + ' event first.';
+  }
+  return 'The ' + word + ' event for each of ' + s.groups + ' group'
+    + (s.groups === 1 ? '' : 's') + ', from ' + s.rowsIn + ' rows.';
+}
+  window.DataGlowFirstLastEvent = {
+    FIRST_LAST_VERSION: FIRST_LAST_VERSION,
+    FIRST_LAST_PICKS: FIRST_LAST_PICKS,
+    FIRST_LAST_PICK_LABELS: FIRST_LAST_PICK_LABELS,
+    FIRST_LAST_MODES: FIRST_LAST_MODES,
+    createEmptyFirstLastConfig: createEmptyFirstLastConfig,
+    suggestFirstLastConfig: suggestFirstLastConfig,
+    validateFirstLastConfig: validateFirstLastConfig,
+    buildFirstLastSQL: buildFirstLastSQL,
+    tieBreakColumns: tieBreakColumns,
+    firstLastEventTransform: firstLastEventTransform,
+    describeFirstLast: describeFirstLast,
+  };
+})();
+/* ---- end js/transforms/first-last-event.js ---- */
+/* ---- from js/transforms/as-of-lookup.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A24 As-of lookup (the value that was true on that date)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. "What was the price when this sale happened?", "what was
+// this account's tier on the day of the claim?", "what was the exchange rate on
+// the invoice date?" For every fact row, it finds the reference row that was in
+// force at that moment: the one with the greatest effective date at or before
+// the fact's date.
+//
+// THE ERROR THIS PREVENTS IS THE MOST EXPENSIVE ONE IN THIS BUNDLE.
+// The natural thing to do with a price table is join on product id. If that table
+// holds one row per product, you get today's price. Multiply it by last year's
+// units and you have revenue that never happened, in a number that looks
+// completely ordinary and will be quoted in a meeting. Nothing in the output of
+// that join says anything is wrong. The only defence is to make the point in time
+// part of the join, which is what this does.
+//
+// WHY IT IS NOT A RANGE JOIN (A19).
+// A19 needs the reference table to carry a start AND an end. Reference data
+// usually does not: a price list is a series of "from this date, the price is X"
+// rows, and the end of each row is implied by the start of the next. Deriving
+// those ends and then range-joining works, but it breaks the moment two rows
+// share an effective date, and it invents data. Taking the latest row at or
+// before the fact date needs no invented column and is what a database's ASOF
+// JOIN does.
+//
+// THREE THINGS IT REFUSES TO DO QUIETLY.
+//   1. A fact earlier than every reference row gets NULLs, never the first
+//      reference row. "The oldest price we have" is not "the price then", and
+//      back-filling it is exactly the fabrication this module exists to stop.
+//      Those facts are counted and named in the notes.
+//   2. Two reference rows sharing one effective date are a genuine ambiguity, so
+//      the tie is broken by taking the LAST such row in table order and the count
+//      is reported. Silently averaging them or picking one without saying so
+//      would hide a defect in the reference table.
+//   3. A fact whose date cannot be read is excluded and counted, not treated as
+//      today. Treating an unreadable date as now is how you get today's price on
+//      an old sale by a different route.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, column = C.column, typeOfColumn = C.typeOfColumn, transformResult = C.transformResult, transformError = C.transformError;
+const AS_OF_LOOKUP_VERSION = 1;
+
+function createEmptyAsOfConfig() {
+  return {
+    factDateColumn: '',
+    refDateColumn: '',
+    keyPairs: [],
+    valueColumns: [],
+    refSuffix: '_asof',
+  };
+}
+
+function suggestAsOfConfig(factDataset, refDataset) {
+  const cfg = createEmptyAsOfConfig();
+  cfg.factDateColumn = suggestDateColumn(factDataset) || '';
+  const refNames = columnNamesOf(refDataset);
+  cfg.refDateColumn = pickByHint(refNames, ['effective', 'valid_from', 'as_of', 'start', 'from'])
+    || suggestDateColumn(refDataset) || '';
+  return cfg;
+}
+
+function pickByHint(names, hints) {
+  for (let h = 0; h < hints.length; h += 1) {
+    for (let i = 0; i < names.length; i += 1) {
+      if (String(names[i] || '').toLowerCase().includes(hints[h])) return names[i];
+    }
+  }
+  return null;
+}
+
+function validateAsOfConfig(config, factNames, refNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const facts = Array.isArray(factNames) ? factNames : [];
+  const refs = Array.isArray(refNames) ? refNames : [];
+
+  if (!config.factDateColumn) errors.push('Pick the date column on the main table.');
+  else if (!facts.includes(config.factDateColumn)) {
+    errors.push('The date column ' + config.factDateColumn + ' is not in the main table.');
+  }
+
+  if (!config.refDateColumn) errors.push('Pick the effective-date column on the lookup table.');
+  else if (!refs.includes(config.refDateColumn)) {
+    errors.push('The effective-date column ' + config.refDateColumn
+      + ' is not in the lookup table.');
+  }
+
+  const pairs = normalizeKeyPairs(config.keyPairs);
+  for (let i = 0; i < pairs.length; i += 1) {
+    if (!facts.includes(pairs[i].left)) {
+      errors.push('The matching column ' + pairs[i].left + ' is not in the main table.');
+    }
+    if (!refs.includes(pairs[i].right)) {
+      errors.push('The matching column ' + pairs[i].right + ' is not in the lookup table.');
+    }
+  }
+
+  const wanted = asColumnList(config.valueColumns);
+  for (let i = 0; i < wanted.length; i += 1) {
+    if (!refs.includes(wanted[i])) {
+      errors.push('The column to bring across, ' + wanted[i] + ', is not in the lookup table.');
+    }
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+function normalizeKeyPairs(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const p = value[i];
+    if (!isPlainObject(p)) continue;
+    const l = p.left == null ? '' : String(p.left);
+    const r = p.right == null ? '' : String(p.right);
+    if (l && r) out.push({ left: l, right: r });
+  }
+  return out;
+}
+
+/** The columns brought across from the lookup table. Defaults to everything
+    except the effective date and the matching keys, since those are already on
+    the fact row and repeating them is noise. */
+function broughtColumns(config, refNames) {
+  const names = Array.isArray(refNames) ? refNames : [];
+  const explicit = asColumnList(config && config.valueColumns);
+  if (explicit.length > 0) return explicit.filter((n) => names.includes(n));
+  const pairs = normalizeKeyPairs(config && config.keyPairs).map((p) => p.right);
+  const dateCol = (config && config.refDateColumn) || '';
+  return names.filter((n) => n !== dateCol && !pairs.includes(n));
+}
+
+/**
+ * The glass-box SQL. DuckDB's ASOF JOIN, which says exactly this in one clause,
+ * with the equivalent window form underneath as a comment for engines that do
+ * not have it. Both are shown because a person checking the number should be
+ * able to run it wherever they are.
+ */
+function buildAsOfSQL(config, factRelation, refRelation, refNames) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+
+  const f = relationName(factRelation, 'facts');
+  const r = relationName(refRelation, 'lookup');
+  const pairs = normalizeKeyPairs(config.keyPairs);
+  const factDate = 'f.' + quoteIdent(config.factDateColumn);
+  const refDate = 'r.' + quoteIdent(config.refDateColumn);
+  const bring = broughtColumns(config, refNames);
+  const suffix = String(config.refSuffix || '_asof');
+
+  const onParts = pairs.map((p) => 'f.' + quoteIdent(p.left) + ' = r.' + quoteIdent(p.right));
+  onParts.push(factDate + ' >= ' + refDate);
+
+  const selected = ['f.*'].concat(bring.map((n) => 'r.' + quoteIdent(n) + ' AS ' + quoteIdent(n + suffix)));
+
+  const lines = [
+    '-- As-of lookup: the ' + r + ' row that was in force on each ' + f + ' date.',
+    '-- Not the current row. A fact dated before every lookup row gets NULL rather',
+    '-- than the oldest value, because the oldest value on record is not the value',
+    '-- that was true then.',
+    'SELECT ' + selected.join(', '),
+    'FROM ' + f + ' AS f',
+    'ASOF LEFT JOIN ' + r + ' AS r',
+    '  ON ' + onParts.join('\n  AND '),
+    '',
+    '-- Equivalent without ASOF JOIN, for engines that do not support it:',
+    '-- SELECT ' + selected.join(', '),
+    '-- FROM ' + f + ' AS f',
+    '-- LEFT JOIN ' + r + ' AS r',
+    '--   ON ' + onParts.join(' AND '),
+    '-- QUALIFY ROW_NUMBER() OVER (',
+    '--   PARTITION BY ' + (pairs.length
+      ? pairs.map((p) => 'f.' + quoteIdent(p.left)).join(', ') + ', ' + factDate
+      : factDate),
+    '--   ORDER BY ' + refDate + ' DESC',
+    '-- ) = 1',
+  ];
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function asOfLookupTransform(factDataset, refDataset, config) {
+  if (!factDataset || typeof factDataset !== 'object') {
+    return transformError('There is no main table loaded.');
+  }
+  if (!refDataset || typeof refDataset !== 'object') {
+    return transformError('Pick a second table to look values up in.');
+  }
+  const factNames = columnNamesOf(factDataset);
+  const refNames = columnNamesOf(refDataset);
+  const v = validateAsOfConfig(config, factNames, refNames);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const pairs = normalizeKeyPairs(config.keyPairs);
+  const factDateIdx = indexOfColumn(factNames, config.factDateColumn);
+  const refDateIdx = indexOfColumn(refNames, config.refDateColumn);
+  const leftKeyIdxs = pairs.map((p) => indexOfColumn(factNames, p.left));
+  const rightKeyIdxs = pairs.map((p) => indexOfColumn(refNames, p.right));
+  const bring = broughtColumns(config, refNames);
+  const bringIdxs = bring.map((n) => indexOfColumn(refNames, n));
+  const suffix = String(config.refSuffix || '_asof');
+
+  // One sorted timeline per key. Sorting once and then walking backwards from a
+  // binary search is what makes this cheap; the alternative, scanning every
+  // reference row for every fact row, is the same answer done slowly.
+  const timelines = new Map();
+  let unreadableRefDates = 0;
+  const refRows = rowsOf(refDataset);
+  for (let i = 0; i < refRows.length; i += 1) {
+    const row = refRows[i];
+    if (!Array.isArray(row)) continue;
+    const d = parseDateValue(row[refDateIdx]);
+    if (!d) { unreadableRefDates += 1; continue; }
+    const key = keyOfRow(row, rightKeyIdxs);
+    let list = timelines.get(key);
+    if (!list) { list = []; timelines.set(key, list); }
+    list.push({ at: d.getTime(), seq: i, values: bringIdxs.map((idx) => row[idx]) });
+  }
+
+  let duplicateEffectiveDates = 0;
+  for (const list of timelines.values()) {
+    // Ascending by date, then by original position, so the tie-break is the
+    // documented one: the last such row in table order wins.
+    list.sort((a, b) => (a.at - b.at) || (a.seq - b.seq));
+    for (let i = 1; i < list.length; i += 1) {
+      if (list[i].at === list[i - 1].at) duplicateEffectiveDates += 1;
+    }
+  }
+
+  // Every brought column is suffixed, even when the name would not have collided.
+  // A "price" column that sometimes means the fact's own and sometimes the
+  // looked-up one is how the point-in-time value gets confused for the current
+  // one two steps later, which is the whole error this transform prevents.
+  const outColumns = factNames.map((n) => column(n, typeOfColumn(factDataset, n)))
+    .concat(bring.map((n) => column(n + suffix, typeOfColumn(refDataset, n))));
+
+  const blank = bring.map(() => null);
+  const outRows = [];
+  let matched = 0;
+  let beforeFirst = 0;
+  let noKey = 0;
+  let unreadableFactDates = 0;
+  let earliestUnmatched = null;
+
+  const factRows = rowsOf(factDataset);
+  for (let i = 0; i < factRows.length; i += 1) {
+    const row = factRows[i];
+    if (!Array.isArray(row)) continue;
+    const d = parseDateValue(row[factDateIdx]);
+    if (!d) {
+      unreadableFactDates += 1;
+      outRows.push(row.concat(blank));
+      continue;
+    }
+    const list = timelines.get(keyOfRow(row, leftKeyIdxs));
+    if (!list || list.length === 0) {
+      noKey += 1;
+      outRows.push(row.concat(blank));
+      continue;
+    }
+    const hit = latestAtOrBefore(list, d.getTime());
+    if (!hit) {
+      beforeFirst += 1;
+      if (earliestUnmatched === null || d.getTime() < earliestUnmatched) {
+        earliestUnmatched = d.getTime();
+      }
+      outRows.push(row.concat(blank));
+      continue;
+    }
+    matched += 1;
+    outRows.push(row.concat(hit.values));
+  }
+
+  const built = buildAsOfSQL(config, factDataset.name, refDataset.name, refNames);
+  const notes = [];
+  if (beforeFirst > 0) {
+    notes.push(beforeFirst + ' row' + (beforeFirst === 1 ? '' : 's') + ' are dated before the '
+      + 'earliest matching row in the lookup table'
+      + (earliestUnmatched === null ? '' : ' (the earliest is ' + formatISODate(new Date(earliestUnmatched)) + ')')
+      + ', so those values are blank. They were not filled in with the oldest value on record, '
+      + 'because that value was not in force then.');
+  }
+  if (noKey > 0) {
+    notes.push(noKey + ' row' + (noKey === 1 ? '' : 's') + ' have no matching entry in the lookup '
+      + 'table at all, on any date.');
+  }
+  if (duplicateEffectiveDates > 0) {
+    notes.push(duplicateEffectiveDates + ' lookup row'
+      + (duplicateEffectiveDates === 1 ? '' : 's') + ' share an effective date with another row '
+      + 'for the same key. The later one in table order was used. If they disagree, the lookup '
+      + 'table cannot say which value was in force and this result inherits that.');
+  }
+  if (unreadableFactDates > 0) {
+    notes.push(unreadableFactDates + ' row' + (unreadableFactDates === 1 ? '' : 's') + ' had a '
+      + 'date that could not be read in ' + config.factDateColumn + ', so they were kept with '
+      + 'blank values rather than being looked up as of today.');
+  }
+  if (unreadableRefDates > 0) {
+    notes.push(unreadableRefDates + ' lookup row' + (unreadableRefDates === 1 ? '' : 's')
+      + ' had an unreadable effective date and were left out of the timeline.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: factRows.length,
+      rowsOut: outRows.length,
+      matched: matched,
+      unmatched: beforeFirst + noKey + unreadableFactDates,
+      beforeFirst: beforeFirst,
+      noKey: noKey,
+      duplicateEffectiveDates: duplicateEffectiveDates,
+      unreadableFactDates: unreadableFactDates,
+      unreadableRefDates: unreadableRefDates,
+      refRowsIn: refRows.length,
+      keys: timelines.size,
+    },
+    notes: notes,
+  });
+}
+
+/** The last entry at or before `at` in a list sorted ascending, or null when the
+    whole timeline starts later. Binary search: the fact table is the big one and
+    this runs once per row. */
+function latestAtOrBefore(list, at) {
+  let lo = 0;
+  let hi = list.length - 1;
+  let found = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].at <= at) { found = list[mid]; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return found;
+}
+
+/** One plain sentence for the panel header. Leads with what was not matched,
+    since that is the part a person would otherwise miss. */
+function describeAsOfLookup(result) {
+  if (!result || !result.ok) return 'This lookup did not run.';
+  const s = result.stats || {};
+  if ((s.rowsIn || 0) === 0) return 'The main table has no rows, so there is nothing to look up.';
+  if ((s.matched || 0) === 0) {
+    return 'None of the ' + s.rowsIn + ' rows had a lookup value in force on their date.';
+  }
+  if ((s.unmatched || 0) === 0) {
+    return 'All ' + s.rowsIn + ' rows got the value that was in force on their own date.';
+  }
+  return s.matched + ' of ' + s.rowsIn + ' rows got the value that was in force on their own '
+    + 'date. The other ' + s.unmatched + ' are blank rather than guessed.';
+}
+  window.DataGlowAsOfLookup = {
+    AS_OF_LOOKUP_VERSION: AS_OF_LOOKUP_VERSION,
+    createEmptyAsOfConfig: createEmptyAsOfConfig,
+    suggestAsOfConfig: suggestAsOfConfig,
+    validateAsOfConfig: validateAsOfConfig,
+    normalizeKeyPairs: normalizeKeyPairs,
+    broughtColumns: broughtColumns,
+    buildAsOfSQL: buildAsOfSQL,
+    asOfLookupTransform: asOfLookupTransform,
+    describeAsOfLookup: describeAsOfLookup,
+  };
+})();
+/* ---- end js/transforms/as-of-lookup.js ---- */
+/* ---- from js/transforms/data-glow-time-joins-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /*
+   * DATAGLOW - Bundle 6 canvas wire: Time and joins
+   *
+   * One calm panel over four pure engines (A18 prior period, A19 date range
+   * join, A20 first/last event, A24 as-of lookup). This file owns no analysis:
+   * every number and every sentence it shows comes from an engine in
+   * js/transforms/, so the panel and a Node test cannot disagree.
+   *
+   * THE SHAPE IS THE HOUSE ONE. Finding first, proof under it, nothing applied
+   * until a person clicks twice. The second click is not ceremony: three of
+   * these four transforms change the row count of the loaded table, and A19 can
+   * multiply it. A person who has read "1,204 rows become 3,610" and then
+   * pressed Confirm has agreed to something specific.
+   *
+   * Each tab is behind its own flag and a tab whose flag is off is not rendered
+   * at all, so a disabled capability leaves no dead control behind.
+   */
+
+  var PANEL_ID = 'time-joins-view';
+  var BODY_ID = 'time-joins-body';
+  var BTN_ID = 'dg-time-joins-btn';
+  var PREVIEW_ROWS = 12;
+
+  var TABS = [
+    { id: 'prior', flag: 'priorPeriodCompare', label: 'Compare to prior period',
+      short: 'Prior period', two: false },
+    { id: 'range', flag: 'dateRangeJoin', label: 'Join on date range',
+      short: 'Date range', two: true },
+    { id: 'firstlast', flag: 'firstLastEvent', label: 'First or last event',
+      short: 'First / last', two: false },
+    { id: 'asof', flag: 'asOfLookup', label: 'As-of lookup',
+      short: 'As-of', two: true },
+  ];
+
+  var _tab = null;
+  var _cfg = {};            // per tab config
+  var _result = null;       // last engine result for the open tab
+  var _resultTab = null;    // which tab produced _result
+  var _pendingConfirm = false;
+  var _secondName = '';     // name of the chosen second table, for A19 and A24
+
+  /* ------------------------------ plumbing -------------------------------- */
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Time and joins]', msg);
+  }
+
+  function flagOn(name) {
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled(name) !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function enabledTabs() {
+    return TABS.filter(function (t) { return flagOn(t.flag); });
+  }
+
+  function engines() {
+    return {
+      prior: window.DataGlowPriorPeriod || null,
+      range: window.DataGlowDateRangeJoin || null,
+      firstlast: window.DataGlowFirstLastEvent || null,
+      asof: window.DataGlowAsOfLookup || null,
+    };
+  }
+
+  function activeDataset() {
+    if (typeof window.getActiveDataset === 'function') {
+      try { var d = window.getActiveDataset(); if (d) return d; } catch (_e) {}
+    }
+    if (window.state && window.state.datasets && window.state.datasets[0]) {
+      return window.state.datasets[0];
+    }
+    return null;
+  }
+
+  function allDatasets() {
+    var list = (window.state && window.state.datasets) || [];
+    return Array.isArray(list) ? list : [];
+  }
+
+  function secondDataset() {
+    var all = allDatasets();
+    var active = activeDataset();
+    for (var i = 0; i < all.length; i += 1) {
+      if (all[i] && all[i].name === _secondName && all[i] !== active) return all[i];
+    }
+    for (var j = 0; j < all.length; j += 1) {
+      if (all[j] && all[j] !== active) return all[j];
+    }
+    return null;
+  }
+
+  function columnNames(ds) {
+    var cols = (ds && ds.columns) || [];
+    return cols.map(function (c, i) {
+      if (c == null) return 'col' + (i + 1);
+      return (typeof c === 'string') ? c : (c.name || ('col' + (i + 1)));
+    });
+  }
+
+  /* ------------------------------- config --------------------------------- */
+
+  function ensureConfig(tabId, force) {
+    var eng = engines();
+    var ds = activeDataset();
+    if (!ds) return null;
+    if (_cfg[tabId] && !force) return _cfg[tabId];
+    var names = columnNames(ds);
+    var other = secondDataset();
+
+    if (tabId === 'prior' && eng.prior) {
+      _cfg.prior = eng.prior.suggestPriorPeriodConfig(ds);
+    } else if (tabId === 'range' && eng.range) {
+      _cfg.range = eng.range.suggestDateRangeJoinConfig(ds, other);
+    } else if (tabId === 'firstlast' && eng.firstlast) {
+      _cfg.firstlast = eng.firstlast.suggestFirstLastConfig(ds);
+      if (!_cfg.firstlast.entityColumns.length) {
+        var firstNonDate = names.filter(function (n) { return n !== _cfg.firstlast.orderColumn; })[0];
+        if (firstNonDate) _cfg.firstlast.entityColumns = [firstNonDate];
+      }
+    } else if (tabId === 'asof' && eng.asof) {
+      _cfg.asof = eng.asof.suggestAsOfConfig(ds, other);
+    }
+    return _cfg[tabId] || null;
+  }
+
+  /* -------------------------------- panel --------------------------------- */
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Time and joins');
+    panel.style.cssText = [
+      'position:fixed', 'top:0', 'right:0', 'height:100%', 'width:min(480px,100%)',
+      'background:var(--surface,#141518)', 'color:var(--text,#E8E8E8)',
+      'border-left:1px solid var(--border,#2A2C31)', 'box-shadow:-8px 0 32px rgba(0,0,0,.4)',
+      'transform:translateX(105%)', 'transition:transform .22s ease', 'z-index:11750',
+      'display:flex', 'flex-direction:column'
+    ].join(';');
+    panel.innerHTML =
+      '<div style="width:36px;height:4px;border-radius:2px;background:var(--border,#2A2C31);margin:10px auto 0;flex-shrink:0"></div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--border,#2A2C31);gap:10px;flex-shrink:0">'
+      +   '<div style="min-width:0">'
+      +     '<div style="font-weight:800;font-size:15px">Time and joins</div>'
+      +     '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:2px">On-device. Nothing changes until you confirm.</div>'
+      +   '</div>'
+      +   '<button type="button" data-tj-close style="min-height:44px;min-width:44px;border:none;background:transparent;color:var(--text-muted,#8A8F98);font-size:22px;cursor:pointer;border-radius:10px" aria-label="Close">&times;</button>'
+      + '</div>'
+      + '<div id="' + BODY_ID + '" style="flex:1;overflow-y:auto;padding:14px 16px;-webkit-overflow-scrolling:touch"></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-tj-close]').addEventListener('click', closePanel);
+    return panel;
+  }
+
+  /* -------------------------------- pieces -------------------------------- */
+
+  function card(inner) {
+    return '<div style="border:1px solid var(--border,#2A2C31);border-radius:12px;padding:12px 14px;'
+      + 'margin-bottom:12px;background:var(--surface-2,#1A1C20)">' + inner + '</div>';
+  }
+
+  function label(text) {
+    return '<div style="font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;'
+      + 'color:var(--text-muted,#8A8F98);margin:0 0 5px">' + esc(text) + '</div>';
+  }
+
+  function select(key, names, current, allowBlank) {
+    var opts = (allowBlank ? '<option value="">(none)</option>' : '')
+      + names.map(function (n) {
+        return '<option value="' + esc(n) + '"' + (n === current ? ' selected' : '') + '>' + esc(n) + '</option>';
+      }).join('');
+    return '<select data-tj-field="' + esc(key) + '" style="width:100%;min-height:44px;font-size:13px;'
+      + 'padding:8px 10px;margin-bottom:10px;border-radius:8px;background:var(--surface,#141518);'
+      + 'color:var(--text,#E8E8E8);border:1px solid var(--border,#2A2C31)">' + opts + '</select>';
+  }
+
+  function toggleRow(key, text, on) {
+    return '<label style="display:flex;align-items:center;gap:9px;min-height:44px;font-size:13px;cursor:pointer">'
+      + '<input type="checkbox" data-tj-toggle="' + esc(key) + '"' + (on ? ' checked' : '')
+      + ' style="width:18px;height:18px;flex-shrink:0">'
+      + '<span>' + esc(text) + '</span></label>';
+  }
+
+  function multiPick(key, names, chosen) {
+    return names.map(function (n) {
+      var on = chosen.indexOf(n) !== -1;
+      return '<button type="button" data-tj-multi="' + esc(key) + '" data-tj-value="' + esc(n) + '" '
+        + 'style="display:inline-flex;align-items:center;min-height:34px;font-size:12px;padding:6px 11px;'
+        + 'border-radius:999px;margin:0 6px 6px 0;cursor:pointer;'
+        + 'background:' + (on ? 'rgba(32,197,181,.14)' : 'var(--surface,#141518)') + ';'
+        + 'color:' + (on ? 'var(--primary,#20C5B5)' : 'var(--text-secondary,#B4B8C0)') + ';'
+        + 'border:1px solid ' + (on ? 'rgba(32,197,181,.4)' : 'var(--border,#2A2C31)') + '">'
+        + esc(n) + '</button>';
+    }).join('');
+  }
+
+  function segmented(key, options, current) {
+    return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">'
+      + options.map(function (o) {
+        var on = o.value === current;
+        return '<button type="button" data-tj-seg="' + esc(key) + '" data-tj-value="' + esc(o.value) + '" '
+          + 'style="flex:1 1 auto;min-height:40px;font-size:12px;font-weight:600;padding:8px 10px;'
+          + 'border-radius:9px;cursor:pointer;'
+          + 'background:' + (on ? 'rgba(32,197,181,.14)' : 'var(--surface,#141518)') + ';'
+          + 'color:' + (on ? 'var(--primary,#20C5B5)' : 'var(--text-secondary,#B4B8C0)') + ';'
+          + 'border:1px solid ' + (on ? 'rgba(32,197,181,.4)' : 'var(--border,#2A2C31)') + '">'
+          + esc(o.label) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  function secondTablePicker() {
+    var all = allDatasets();
+    var active = activeDataset();
+    var others = all.filter(function (d) { return d && d !== active; });
+    if (others.length === 0) {
+      return card(label('Second table')
+        + '<div style="font-size:12px;color:var(--flag,#F5A623)">Load a second table to join against. '
+        + 'Both tables stay on this device.</div>');
+    }
+    var chosen = secondDataset();
+    var opts = others.map(function (d) {
+      var n = d.name || 'table';
+      return '<option value="' + esc(n) + '"' + (chosen && chosen.name === n ? ' selected' : '') + '>'
+        + esc(n) + '</option>';
+    }).join('');
+    return card(label('Second table')
+      + '<select data-tj-second style="width:100%;min-height:44px;font-size:13px;padding:8px 10px;'
+      + 'border-radius:8px;background:var(--surface,#141518);color:var(--text,#E8E8E8);'
+      + 'border:1px solid var(--border,#2A2C31)">' + opts + '</select>');
+  }
+
+  /* ------------------------------- forms ---------------------------------- */
+
+  function formFor(tabId, ds) {
+    var names = columnNames(ds);
+    var cfg = _cfg[tabId] || {};
+    var eng = engines();
+    var other = secondDataset();
+    var otherNames = other ? columnNames(other) : [];
+
+    if (tabId === 'prior') {
+      var aggs = (eng.prior && eng.prior.PRIOR_PERIOD_AGGREGATES) || ['SUM'];
+      var aggLabels = (eng.prior && eng.prior.PRIOR_PERIOD_AGGREGATE_LABELS) || {};
+      return card(label('Date column') + select('dateColumn', names, cfg.dateColumn, false))
+        + card(label('Period')
+          + segmented('grain', [
+            { value: 'day', label: 'Day over day' },
+            { value: 'week', label: 'Week over week' },
+            { value: 'month', label: 'Month over month' },
+          ], cfg.grain || 'month'))
+        + card(label('Combine the metric by')
+          + segmented('aggregate', aggs.map(function (a) {
+            return { value: a, label: aggLabels[a] || a };
+          }), (cfg.aggregate || 'SUM'))
+          + (cfg.aggregate === 'COUNT'
+            ? '<div style="font-size:12px;color:var(--text-muted,#8A8F98)">Counting rows, so no metric column is needed.</div>'
+            : label('Metric column') + select('metricColumn', names, cfg.metricColumn, false)))
+        + card(label('Compare within each (optional)')
+          + multiPick('entityColumns', names, cfg.entityColumns || [])
+          + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:4px">'
+          + 'Leave empty to compare the table as a whole.</div>');
+    }
+
+    if (tabId === 'firstlast') {
+      return card(label('Group by') + multiPick('entityColumns', names, cfg.entityColumns || []))
+        + card(label('Order by') + select('orderColumn', names, cfg.orderColumn, false)
+          + segmented('pick', [
+            { value: 'first', label: 'First event' },
+            { value: 'last', label: 'Latest event' },
+          ], cfg.pick || 'last'))
+        + card(label('Result')
+          + segmented('mode', [
+            { value: 'one', label: 'One row per group' },
+            { value: 'ranked', label: 'All rows, ranked' },
+          ], cfg.mode || 'one')
+          + '<div style="font-size:11px;color:var(--text-muted,#8A8F98)">'
+          + 'Ties on the order column are broken by the remaining columns in table order, '
+          + 'so the same table always gives the same row.</div>');
+    }
+
+    if (tabId === 'range') {
+      if (!other) return secondTablePicker();
+      return secondTablePicker()
+        + card(label('Event date on this table') + select('eventDateColumn', names, cfg.eventDateColumn, false))
+        + card(label('Range start on the second table') + select('rangeStartColumn', otherNames, cfg.rangeStartColumn, false)
+          + label('Range end (leave blank for open-ended)') + select('rangeEndColumn', otherNames, cfg.rangeEndColumn, true))
+        + card(label('Match on') + keyPairEditor(cfg, names, otherNames))
+        + card(label('Rules')
+          + toggleRow('inclusiveEnd', 'An event on the end date is inside the range', cfg.inclusiveEnd !== false)
+          + toggleRow('openEndedEnd', 'A blank end date means still in force', cfg.openEndedEnd !== false)
+          + toggleRow('keepUnmatched', 'Keep events that match no range', cfg.keepUnmatched !== false));
+    }
+
+    if (tabId === 'asof') {
+      if (!other) return secondTablePicker();
+      return secondTablePicker()
+        + card(label('Date on this table') + select('factDateColumn', names, cfg.factDateColumn, false))
+        + card(label('Effective date on the lookup table') + select('refDateColumn', otherNames, cfg.refDateColumn, false))
+        + card(label('Match on') + keyPairEditor(cfg, names, otherNames))
+        + card(label('Bring across')
+          + multiPick('valueColumns', otherNames.filter(function (n) { return n !== cfg.refDateColumn; }),
+            cfg.valueColumns || [])
+          + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:4px">'
+          + 'Leave empty to bring every column that is not a key or the effective date. '
+          + 'Each arrives with an _asof suffix, so it cannot be mistaken for a current value.</div>');
+    }
+    return '';
+  }
+
+  function keyPairEditor(cfg, leftNames, rightNames) {
+    var pairs = Array.isArray(cfg.keyPairs) ? cfg.keyPairs : [];
+    var rows = pairs.map(function (p, i) {
+      return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">'
+        + '<select data-tj-pair="' + i + '" data-tj-side="left" style="flex:1 1 120px;min-height:44px;font-size:12px;'
+        + 'padding:6px 8px;border-radius:8px;background:var(--surface,#141518);color:var(--text,#E8E8E8);'
+        + 'border:1px solid var(--border,#2A2C31)">'
+        + leftNames.map(function (n) {
+          return '<option value="' + esc(n) + '"' + (n === p.left ? ' selected' : '') + '>' + esc(n) + '</option>';
+        }).join('') + '</select>'
+        + '<span style="font-size:12px;color:var(--text-muted,#8A8F98)">=</span>'
+        + '<select data-tj-pair="' + i + '" data-tj-side="right" style="flex:1 1 120px;min-height:44px;font-size:12px;'
+        + 'padding:6px 8px;border-radius:8px;background:var(--surface,#141518);color:var(--text,#E8E8E8);'
+        + 'border:1px solid var(--border,#2A2C31)">'
+        + rightNames.map(function (n) {
+          return '<option value="' + esc(n) + '"' + (n === p.right ? ' selected' : '') + '>' + esc(n) + '</option>';
+        }).join('') + '</select>'
+        + '<button type="button" data-tj-pair-remove="' + i + '" style="min-height:44px;min-width:44px;'
+        + 'border-radius:8px;background:var(--surface,#141518);color:var(--text-muted,#8A8F98);'
+        + 'border:1px solid var(--border,#2A2C31);cursor:pointer" aria-label="Remove">&times;</button>'
+        + '</div>';
+    }).join('');
+    return rows
+      + '<button type="button" data-tj-pair-add style="min-height:40px;font-size:12px;padding:8px 12px;'
+      + 'border-radius:9px;background:var(--surface,#141518);color:var(--text-secondary,#B4B8C0);'
+      + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Add a matching column</button>'
+      + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:6px">'
+      + 'Optional. With no matching column, every row is compared against every range.</div>';
+  }
+
+  /* ------------------------------- result --------------------------------- */
+
+  function runCurrent() {
+    var eng = engines();
+    var ds = activeDataset();
+    if (!ds) return { ok: false, error: 'Load a table first.' };
+    var cfg = _cfg[_tab];
+    if (!cfg) return { ok: false, error: 'Nothing configured yet.' };
+    var other = secondDataset();
+    try {
+      if (_tab === 'prior' && eng.prior) return eng.prior.priorPeriodTransform(ds, cfg);
+      if (_tab === 'firstlast' && eng.firstlast) return eng.firstlast.firstLastEventTransform(ds, cfg);
+      if (_tab === 'range' && eng.range) return eng.range.dateRangeJoinTransform(ds, other, cfg);
+      if (_tab === 'asof' && eng.asof) return eng.asof.asOfLookupTransform(ds, other, cfg);
+    } catch (e) {
+      return { ok: false, error: 'This did not run: ' + (e && e.message ? e.message : 'unknown error') };
+    }
+    return { ok: false, error: 'That transform is not available.' };
+  }
+
+  function findingFor(result) {
+    var eng = engines();
+    try {
+      if (_tab === 'prior' && eng.prior) return eng.prior.describePriorPeriod(result, _cfg.prior);
+      if (_tab === 'firstlast' && eng.firstlast) return eng.firstlast.describeFirstLast(result, _cfg.firstlast);
+      if (_tab === 'range' && eng.range) return eng.range.describeDateRangeJoin(result);
+      if (_tab === 'asof' && eng.asof) return eng.asof.describeAsOfLookup(result);
+    } catch (_e) {}
+    return result && result.ok ? (result.rows.length + ' rows.') : 'This did not run.';
+  }
+
+  function previewTable(result) {
+    var cols = result.columns || [];
+    var rows = (result.rows || []).slice(0, PREVIEW_ROWS);
+    if (!rows.length) {
+      return '<div style="font-size:12px;color:var(--text-muted,#8A8F98)">No rows came back.</div>';
+    }
+    var head = cols.map(function (c) {
+      return '<th style="text-align:left;padding:5px 8px;font-size:11px;font-weight:700;'
+        + 'color:var(--text-muted,#8A8F98);white-space:nowrap;border-bottom:1px solid var(--border,#2A2C31)">'
+        + esc(c.name) + '</th>';
+    }).join('');
+    var body = rows.map(function (r) {
+      return '<tr>' + cols.map(function (_c, i) {
+        var v = r[i];
+        var blank = (v == null || v === '');
+        return '<td style="padding:5px 8px;font-size:12px;white-space:nowrap;'
+          + 'color:' + (blank ? 'var(--text-muted,#8A8F98)' : 'var(--text,#E8E8E8)') + '">'
+          + (blank ? '&mdash;' : esc(v)) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    var more = (result.rows || []).length > PREVIEW_ROWS
+      ? '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:6px">Showing the first '
+        + PREVIEW_ROWS + ' of ' + result.rows.length + ' rows.</div>'
+      : '';
+    return '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="border-collapse:collapse;min-width:100%">'
+      + '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' + more;
+  }
+
+  function resultBlock() {
+    if (!_result || _resultTab !== _tab) return '';
+    if (!_result.ok) {
+      return card('<div style="font-size:13px;color:var(--flag,#F5A623)">' + esc(_result.error) + '</div>');
+    }
+
+    // Finding first.
+    var html = card('<div style="font-size:13px;font-weight:600;line-height:1.45">'
+      + esc(findingFor(_result)) + '</div>');
+
+    // Everything the engine could not do, named rather than hidden.
+    if (_result.notes && _result.notes.length) {
+      html += card(label('What this could not do')
+        + _result.notes.map(function (n) {
+          return '<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);line-height:1.5;margin-bottom:6px">'
+            + esc(n) + '</div>';
+        }).join(''));
+    }
+
+    html += card(label('Preview') + previewTable(_result));
+
+    // Proof under the finding, always.
+    html += card(label('The SQL that says this')
+      + '<pre style="margin:0;max-height:220px;overflow:auto;-webkit-overflow-scrolling:touch;'
+      + 'white-space:pre;font-family:var(--mono,monospace);font-size:11px;line-height:1.5;'
+      + 'color:var(--text-secondary,#B4B8C0)">' + esc(_result.sql) + '</pre>'
+      + '<button type="button" data-tj-copy style="min-height:40px;margin-top:8px;font-size:12px;'
+      + 'padding:8px 12px;border-radius:9px;background:var(--surface,#141518);'
+      + 'color:var(--text-secondary,#B4B8C0);border:1px solid var(--border,#2A2C31);cursor:pointer">'
+      + 'Copy SQL</button>');
+
+    // The confirm gate. Two clicks, and the second one names the consequence.
+    var rowsNow = (activeDataset() && activeDataset().rows || []).length;
+    var rowsAfter = _result.rows.length;
+    var shape = rowsNow === rowsAfter
+      ? 'The table keeps its ' + rowsNow + ' rows.'
+      : rowsNow + ' rows become ' + rowsAfter + '.';
+    html += card('<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);margin-bottom:9px;line-height:1.5">'
+      + esc(shape) + ' This replaces the loaded table in memory. Nothing is uploaded, and Undo puts it back.</div>'
+      + (_pendingConfirm
+        ? '<button type="button" data-tj-confirm style="width:100%;min-height:44px;font-size:13px;'
+          + 'font-weight:700;border-radius:10px;background:var(--primary,#20C5B5);color:#08292A;'
+          + 'border:none;cursor:pointer">Yes, replace the table</button>'
+          + '<button type="button" data-tj-cancel style="width:100%;min-height:44px;margin-top:8px;'
+          + 'font-size:12px;border-radius:10px;background:transparent;color:var(--text-muted,#8A8F98);'
+          + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Cancel</button>'
+        : '<button type="button" data-tj-apply style="width:100%;min-height:44px;font-size:13px;'
+          + 'font-weight:700;border-radius:10px;background:var(--surface,#141518);'
+          + 'color:var(--text,#E8E8E8);border:1px solid var(--border,#2A2C31);cursor:pointer">'
+          + 'Apply to the loaded table</button>')
+      + (activeDataset() && activeDataset()._timeJoinSnapshot
+        ? '<button type="button" data-tj-undo style="width:100%;min-height:44px;margin-top:8px;'
+          + 'font-size:12px;border-radius:10px;background:transparent;color:var(--text-secondary,#B4B8C0);'
+          + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Undo the last apply</button>'
+        : ''));
+    return html;
+  }
+
+  /* -------------------------------- render -------------------------------- */
+
+  function renderBody() {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+    var tabs = enabledTabs();
+    if (!tabs.length) { body.innerHTML = ''; return; }
+    if (!_tab || !tabs.some(function (t) { return t.id === _tab; })) _tab = tabs[0].id;
+
+    var ds = activeDataset();
+    var nav = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">'
+      + tabs.map(function (t) {
+        var on = t.id === _tab;
+        return '<button type="button" data-tj-tab="' + t.id + '" '
+          + 'style="flex:1 1 45%;min-height:42px;font-size:12px;font-weight:600;padding:8px 6px;'
+          + 'border-radius:10px;cursor:pointer;'
+          + 'background:' + (on ? 'rgba(32,197,181,.14)' : 'var(--surface-2,#1A1C20)') + ';'
+          + 'color:' + (on ? 'var(--primary,#20C5B5)' : 'var(--text-secondary,#B4B8C0)') + ';'
+          + 'border:1px solid ' + (on ? 'rgba(32,197,181,.4)' : 'var(--border,#2A2C31)') + '">'
+          + esc(t.short) + '</button>';
+      }).join('') + '</div>';
+
+    if (!ds) {
+      body.innerHTML = nav + card('<div style="font-size:13px;color:var(--text-muted,#8A8F98);line-height:1.5">'
+        + 'Load a table and these four transforms become available. Each one exists to stop a '
+        + 'specific wrong number: comparing across a gap in the calendar, a range join that quietly '
+        + 'doubles a total, a tie that picks a different row every run, and today\'s price on an old sale.'
+        + '</div>');
+      wire();
+      return;
+    }
+
+    ensureConfig(_tab, false);
+    var current = TABS.filter(function (t) { return t.id === _tab; })[0];
+    var head = '<div style="font-size:14px;font-weight:700;margin-bottom:3px">' + esc(current.label) + '</div>'
+      + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-bottom:12px">'
+      + esc(ds.name || 'the loaded table') + '</div>';
+
+    body.innerHTML = nav + head + formFor(_tab, ds)
+      + '<button type="button" data-tj-run style="width:100%;min-height:44px;font-size:13px;font-weight:700;'
+      + 'border-radius:10px;background:var(--surface-2,#1A1C20);color:var(--text,#E8E8E8);'
+      + 'border:1px solid var(--border,#2A2C31);cursor:pointer;margin-bottom:12px">Show me the result</button>'
+      + resultBlock();
+    wire();
+  }
+
+  function wire() {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+
+    body.querySelectorAll('[data-tj-tab]').forEach(function (el) {
+      el.onclick = function () {
+        _tab = el.getAttribute('data-tj-tab');
+        _pendingConfirm = false;
+        renderBody();
+      };
+    });
+
+    body.querySelectorAll('[data-tj-field]').forEach(function (el) {
+      el.onchange = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg) return;
+        cfg[el.getAttribute('data-tj-field')] = el.value;
+        invalidate();
+      };
+    });
+
+    body.querySelectorAll('[data-tj-seg]').forEach(function (el) {
+      el.onclick = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg) return;
+        cfg[el.getAttribute('data-tj-seg')] = el.getAttribute('data-tj-value');
+        invalidate();
+      };
+    });
+
+    body.querySelectorAll('[data-tj-toggle]').forEach(function (el) {
+      el.onchange = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg) return;
+        cfg[el.getAttribute('data-tj-toggle')] = !!el.checked;
+        invalidate();
+      };
+    });
+
+    body.querySelectorAll('[data-tj-multi]').forEach(function (el) {
+      el.onclick = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg) return;
+        var key = el.getAttribute('data-tj-multi');
+        var value = el.getAttribute('data-tj-value');
+        var list = Array.isArray(cfg[key]) ? cfg[key].slice() : [];
+        var at = list.indexOf(value);
+        if (at === -1) list.push(value); else list.splice(at, 1);
+        cfg[key] = list;
+        invalidate();
+      };
+    });
+
+    var second = body.querySelector('[data-tj-second]');
+    if (second) {
+      second.onchange = function () {
+        _secondName = second.value;
+        ensureConfig(_tab, true);
+        invalidate();
+      };
+    }
+
+    body.querySelectorAll('[data-tj-pair]').forEach(function (el) {
+      el.onchange = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg || !Array.isArray(cfg.keyPairs)) return;
+        var i = Number(el.getAttribute('data-tj-pair'));
+        var side = el.getAttribute('data-tj-side');
+        if (cfg.keyPairs[i]) cfg.keyPairs[i][side] = el.value;
+        invalidate();
+      };
+    });
+
+    body.querySelectorAll('[data-tj-pair-remove]').forEach(function (el) {
+      el.onclick = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg || !Array.isArray(cfg.keyPairs)) return;
+        cfg.keyPairs.splice(Number(el.getAttribute('data-tj-pair-remove')), 1);
+        invalidate();
+      };
+    });
+
+    var addPair = body.querySelector('[data-tj-pair-add]');
+    if (addPair) {
+      addPair.onclick = function () {
+        var cfg = _cfg[_tab];
+        var ds = activeDataset();
+        var other = secondDataset();
+        if (!cfg || !ds || !other) return;
+        if (!Array.isArray(cfg.keyPairs)) cfg.keyPairs = [];
+        cfg.keyPairs.push({ left: columnNames(ds)[0], right: columnNames(other)[0] });
+        invalidate();
+      };
+    }
+
+    var runBtn = body.querySelector('[data-tj-run]');
+    if (runBtn) {
+      runBtn.onclick = function () {
+        _result = runCurrent();
+        _resultTab = _tab;
+        _pendingConfirm = false;
+        renderBody();
+      };
+    }
+
+    var copyBtn = body.querySelector('[data-tj-copy]');
+    if (copyBtn) {
+      copyBtn.onclick = function () {
+        var sql = (_result && _result.sql) || '';
+        if (!sql) return;
+        try {
+          navigator.clipboard.writeText(sql);
+          toast('SQL copied');
+        } catch (_e) { toast('Could not copy', 'warn'); }
+      };
+    }
+
+    var applyBtn = body.querySelector('[data-tj-apply]');
+    if (applyBtn) applyBtn.onclick = function () { _pendingConfirm = true; renderBody(); };
+
+    var cancelBtn = body.querySelector('[data-tj-cancel]');
+    if (cancelBtn) cancelBtn.onclick = function () { _pendingConfirm = false; renderBody(); };
+
+    var confirmBtn = body.querySelector('[data-tj-confirm]');
+    if (confirmBtn) confirmBtn.onclick = doApply;
+
+    var undoBtn = body.querySelector('[data-tj-undo]');
+    if (undoBtn) undoBtn.onclick = doUndo;
+  }
+
+  // A config change makes the shown result stale, and a stale result beside a
+  // live Apply button is how someone applies something they did not read.
+  function invalidate() {
+    _result = null;
+    _resultTab = null;
+    _pendingConfirm = false;
+    renderBody();
+  }
+
+  /* -------------------------------- apply --------------------------------- */
+
+  function doApply() {
+    var ds = activeDataset();
+    if (!ds || !_result || !_result.ok) { toast('Nothing to apply', 'warn'); return; }
+    try {
+      ds._timeJoinSnapshot = {
+        columns: JSON.parse(JSON.stringify(ds.columns || [])),
+        rows: JSON.parse(JSON.stringify(ds.rows || [])),
+      };
+    } catch (_e) {}
+    ds.columns = _result.columns;
+    ds.rows = _result.rows;
+    _pendingConfirm = false;
+
+    try {
+      if (window.ProvenanceFabric && typeof window.ProvenanceFabric.append === 'function') {
+        window.ProvenanceFabric.append('time_join_transform', {
+          transform: _tab,
+          rowsIn: (_result.stats && _result.stats.rowsIn) || 0,
+          rowsOut: _result.rows.length,
+          notes: (_result.notes || []).length,
+        });
+      }
+    } catch (_e2) {}
+
+    notifyDatasetChanged(ds);
+    renderBody();
+    toast('Applied: ' + _result.rows.length + ' rows');
+  }
+
+  function doUndo() {
+    var ds = activeDataset();
+    if (!ds || !ds._timeJoinSnapshot) { toast('Nothing to undo', 'warn'); return; }
+    ds.columns = ds._timeJoinSnapshot.columns;
+    ds.rows = ds._timeJoinSnapshot.rows;
+    delete ds._timeJoinSnapshot;
+    _cfg = {};
+    invalidate();
+    notifyDatasetChanged(ds);
+    toast('Put back');
+  }
+
+  function notifyDatasetChanged(ds) {
+    try {
+      document.dispatchEvent(new CustomEvent('dataglow:dataset-updated',
+        { detail: { dataset: ds, source: 'time-joins' } }));
+    } catch (_e) {}
+    try {
+      if (typeof window.renderGrid === 'function') window.renderGrid(ds);
+      else if (typeof window.refreshGrid === 'function') window.refreshGrid();
+    } catch (_e2) {}
+  }
+
+  /* --------------------------------- boot --------------------------------- */
+
+  function openPanel() {
+    if (!enabledTabs().length) return;
+    var panel = ensurePanel();
+    renderBody();
+    panel.style.transform = 'translateX(0)';
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.style.transform = 'translateX(105%)';
+  }
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header, #analyze-pills, .analyze-pills');
+    if (!toolbar) toolbar = document.body;
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open time and joins');
+    btn.title = 'Time and joins: prior period, date range join, first or last event, as-of lookup';
+    btn.style.cssText = [
+      'display:inline-flex', 'align-items:center', 'gap:7px', 'min-height:38px',
+      'padding:0 13px', 'border:1px solid var(--border,#2A2C31)', 'border-radius:10px',
+      'background:var(--surface-2,#1A1C20)', 'color:var(--text,#E8E8E8)',
+      'font-size:13px', 'font-weight:600', 'cursor:pointer'
+    ].join(';');
+    btn.innerHTML = '<span aria-hidden="true" style="width:8px;height:8px;border-radius:50%;'
+      + 'background:var(--primary,#20C5B5);display:inline-block"></span><span>Time &amp; joins</span>';
+    btn.addEventListener('click', function () {
+      var panel = document.getElementById(PANEL_ID);
+      if (panel && panel.style.transform === 'translateX(0px)') closePanel();
+      else openPanel();
+    });
+    if (toolbar === document.body) {
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '300px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    // No enabled tab means no engine a person could use, so nothing mounts and
+    // no dead control is left behind.
+    if (!enabledTabs().length) return;
+    injectButton();
+    ensurePanel();
+
+    document.addEventListener('dataglow:dataset-loaded', function () { _cfg = {}; invalidate(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanel(); });
+
+    window.DataGlowTimeJoinsUI = {
+      version: 1,
+      openPanel: openPanel,
+      closePanel: closePanel,
+      tabs: enabledTabs().map(function (t) { return t.id; }),
+      getConfig: function () { return _cfg; },
+      getResult: function () { return _result; },
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 750); });
+  } else {
+    setTimeout(boot, 750);
+  }
+})();
+/* ---- end js/transforms/data-glow-time-joins-canvas.js ---- */
+
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;
     var bar = document.getElementById('dg-pwa-install-bar');

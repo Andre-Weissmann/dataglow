@@ -5368,6 +5368,162 @@
         "glassBox"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "prior-period-compare",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Compare to prior period (month, week or day over the one before)",
+      "files": [
+        "js/transforms/prior-period.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-time-joins-canvas.js",
+        "test/time-join-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/prior-period.js",
+          "name": "buildPriorPeriodSQL"
+        },
+        {
+          "file": "js/transforms/prior-period.js",
+          "name": "priorPeriodTransform"
+        },
+        {
+          "file": "js/transforms/prior-period.js",
+          "name": "validatePriorPeriodConfig"
+        },
+        {
+          "file": "js/transforms/prior-period.js",
+          "name": "describePriorPeriod"
+        }
+      ],
+      "notes": "Aggregates a metric into calendar periods, per entity when the table has one, and puts the prior period's value, the delta and the percent change beside each. Prior means the previous CALENDAR period, computed by stepping the calendar back one grain and looking that key up, NOT the previous row: LAG would compare March against January whenever February is missing and label it month over month, which is a wrong number that looks reasonable on a chart. A missing prior period yields null for the prior, null for the delta, and a plain note saying how many periods had no predecessor. Percent change is null rather than Infinity when the prior is zero, and the delta is still reported in that case. SUM, AVG, MIN, MAX and COUNT are offered because picking SUM for an average is the same class of silent error. The glass-box SQL is a self LEFT JOIN on the stepped-back period key so the proof matches the rows a person sees. Pure ES module, Node-testable, no DuckDB and no network, so it runs with Air-Gap Mode on.",
+      "relatedFlags": [
+        "priorPeriodCompare"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "date-range-join",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Join Builder",
+      "name": "Join on date range (event date inside a span)",
+      "files": [
+        "js/transforms/date-range-join.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-time-joins-canvas.js",
+        "test/time-join-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/date-range-join.js",
+          "name": "buildDateRangeJoinSQL"
+        },
+        {
+          "file": "js/transforms/date-range-join.js",
+          "name": "previewDateRangeJoin"
+        },
+        {
+          "file": "js/transforms/date-range-join.js",
+          "name": "dateRangeJoinTransform"
+        },
+        {
+          "file": "js/transforms/date-range-join.js",
+          "name": "validateDateRangeJoinConfig"
+        }
+      ],
+      "notes": "Matches each event to the reference rows whose span contains its date, with an optional key. The capability that earns the module is previewDateRangeJoin(), which counts matched rows, unmatched rows, the worst fanout and how many events fall inside more than one range WITHOUT materializing the join, so the fanout is knowable before a person confirms. Overlapping reference ranges are the hazard: one day of overlap silently duplicates every event on that day, and every total taken afterwards is quietly larger, with each individual row still looking correct. Two boundary rules are explicit and configurable rather than assumed, and both appear in the generated non-equi SQL: a blank end date means still in force (an explicit OR end IS NULL), and bounds are inclusive on both sides (a <= rather than a <). An end date that is present but unreadable is never read as open, since that would extend a closed range to forever. Preview and apply share one matching function so they cannot disagree.",
+      "relatedFlags": [
+        "dateRangeJoin"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "first-last-event",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "First or last event per entity",
+      "files": [
+        "js/transforms/first-last-event.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-time-joins-canvas.js",
+        "test/time-join-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/first-last-event.js",
+          "name": "buildFirstLastSQL"
+        },
+        {
+          "file": "js/transforms/first-last-event.js",
+          "name": "firstLastEventTransform"
+        },
+        {
+          "file": "js/transforms/first-last-event.js",
+          "name": "tieBreakColumns"
+        },
+        {
+          "file": "js/transforms/first-last-event.js",
+          "name": "validateFirstLastConfig"
+        }
+      ],
+      "notes": "One row per group chosen by an order column, or every row kept with its rank. This exists for ties rather than for ordering: ROW_NUMBER() OVER (PARTITION BY entity ORDER BY ts DESC) is free to return either of two rows sharing a timestamp and may return a different one on the next run or a different engine, which produces a report that changes when nothing changed. The tie-break here is total and stated: after the order column, rows are compared by every remaining column in table order. That makes the answer a function of the table's contents alone, identical in the JS engine and in the generated DuckDB QUALIFY / ROW_NUMBER SQL, where the full tie-break appears in the ORDER BY rather than only in a comment. When ties actually occurred the notes report how many and say plainly that the choice was repeatable but arbitrary, because determinism is not meaning. Rows with no readable order value are excluded and counted, never defaulted to the epoch where they would win the first slot.",
+      "relatedFlags": [
+        "firstLastEvent"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "as-of-lookup",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Join Builder",
+      "name": "As-of lookup (the value that was in force on that date)",
+      "files": [
+        "js/transforms/as-of-lookup.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-time-joins-canvas.js",
+        "test/time-join-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/as-of-lookup.js",
+          "name": "buildAsOfSQL"
+        },
+        {
+          "file": "js/transforms/as-of-lookup.js",
+          "name": "asOfLookupTransform"
+        },
+        {
+          "file": "js/transforms/as-of-lookup.js",
+          "name": "broughtColumns"
+        },
+        {
+          "file": "js/transforms/as-of-lookup.js",
+          "name": "validateAsOfConfig"
+        }
+      ],
+      "notes": "For each fact row, the reference row with the greatest effective date at or before the fact's date, with an optional key. It prevents the most expensive error in this bundle: joining a sale to a price table on product id alone returns today's price, and today's price multiplied by last year's units is revenue that never happened, in a number that looks completely ordinary and will be quoted in a meeting. Three refusals are deliberate and reported. A fact dated before every reference row gets NULL, never the oldest row on record, because the oldest value is not the value that was true then. Two reference rows sharing one effective date are a genuine ambiguity in the reference table, so the later one in table order is used and the count is named. A fact whose date cannot be read is blanked and counted rather than looked up as of today. Lookup columns always arrive with an _asof suffix so a point-in-time value cannot be mistaken for a current one. The glass-box SQL is DuckDB's ASOF LEFT JOIN with the equivalent ROW_NUMBER form underneath for engines that lack it.",
+      "relatedFlags": [
+        "asOfLookup"
+      ],
+      "status": "shipped"
     }
   ]
 }

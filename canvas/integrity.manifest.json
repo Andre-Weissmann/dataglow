@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5057889,
+  "canvasBytes": 5172745,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -106,6 +106,48 @@
       "sourceSha256": "6ac26c12b9a88ebefedada7d20e5b48732a74fe34e3b91bc6748b7980b4b7634",
       "canvasSectionSha256": "49328f4957ef14b0b42d7860cfb80160fa31daec6b99cc8a9ca941322e1ac6d9",
       "canvasSectionBytes": 20909
+    },
+    {
+      "source": "js/transforms/transform-core.js",
+      "note": "Bundle 6 shared pure core for the time and join transforms. Deliberately NOT byte-identical to source in the canvas: inject_bundle6.py strips the ESM exports and wraps the module in an IIFE that publishes window.DataGlowTransformCore, because the canvas has one big inline script with no module scope.",
+      "sourceSha256": "896fbd0d3a1eef238ab3ab5b290cd62d8b26d0e9bb68208bcc11a846cf89ed07",
+      "canvasSectionSha256": "801510aeab450ebb6fa734b2b7dfc8c220069be1f090bcc464ba7b5327040db9",
+      "canvasSectionBytes": 15850
+    },
+    {
+      "source": "js/transforms/prior-period.js",
+      "note": "A18 compare to previous period. Transformed on inline by inject_bundle6.py: ESM exports stripped, the transform-core import rewritten into a read off window.DataGlowTransformCore, IIFE wrapped.",
+      "sourceSha256": "e10b15f5dd413339cf3e3626f6ef12dc67f6d3cfb794c9c9403db1ad0902caa3",
+      "canvasSectionSha256": "6ae4d284d535938b5efafa552deb46f3710f96fdda426b50f36f9d0a48018bec",
+      "canvasSectionBytes": 15147
+    },
+    {
+      "source": "js/transforms/date-range-join.js",
+      "note": "A19 join on date range. Transformed on inline by inject_bundle6.py: ESM exports stripped, the transform-core import rewritten into a read off window.DataGlowTransformCore, IIFE wrapped.",
+      "sourceSha256": "b6aff5c7b8e6e441856fc79d6db1b232118f1765dcb512ea7224433bfc8c865f",
+      "canvasSectionSha256": "1adca8ce75589914009bfd2a3bfed83ef182987ebc6e53f609a100e5d99a72ca",
+      "canvasSectionBytes": 18676
+    },
+    {
+      "source": "js/transforms/first-last-event.js",
+      "note": "A20 first / last event per entity. Transformed on inline by inject_bundle6.py: ESM exports stripped, the transform-core import rewritten into a read off window.DataGlowTransformCore, IIFE wrapped.",
+      "sourceSha256": "4ba69e6873036380e449c66bc39f65bcf8a13e4187c3bdbf29202e3ce3b03908",
+      "canvasSectionSha256": "32e9437d6a67a8be18a00cd77d4ed0d9dbadd9f57ee5cb3063131cd98090567b",
+      "canvasSectionBytes": 14079
+    },
+    {
+      "source": "js/transforms/as-of-lookup.js",
+      "note": "A24 as-of lookup (point-in-time). Transformed on inline by inject_bundle6.py: ESM exports stripped, the transform-core import rewritten into a read off window.DataGlowTransformCore, IIFE wrapped.",
+      "sourceSha256": "4ccd2623178c32e06ee2126dc9622b7fea296a57c0ebd17d317bd44e60a8f2ef",
+      "canvasSectionSha256": "6554953b5b4190b2c95240b8a3a4222e4d23db6544963b96efc6a2b0fe4b6c21",
+      "canvasSectionBytes": 16129
+    },
+    {
+      "source": "js/transforms/data-glow-time-joins-canvas.js",
+      "note": "Bundle 6 canvas UI for A18/A19/A20/A24. Already an IIFE, inlined verbatim by inject_bundle6.py.",
+      "sourceSha256": "e111deeb2f33c94fe73243cbcebf4ad6842b7cabc720b5946df1267c5b3a291e",
+      "canvasSectionSha256": "bebb872bbe94fcd4efaf8b6582dd71401992abab73a7ba48048d19836909cdd8",
+      "canvasSectionBytes": 34968
     }
   ]
 }
