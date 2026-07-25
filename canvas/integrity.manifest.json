@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5172745,
+  "canvasBytes": 5316643,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -109,10 +109,10 @@
     },
     {
       "source": "js/transforms/transform-core.js",
-      "note": "Bundle 6 shared pure core for the time and join transforms. Deliberately NOT byte-identical to source in the canvas: inject_bundle6.py strips the ESM exports and wraps the module in an IIFE that publishes window.DataGlowTransformCore, because the canvas has one big inline script with no module scope.",
-      "sourceSha256": "896fbd0d3a1eef238ab3ab5b290cd62d8b26d0e9bb68208bcc11a846cf89ed07",
-      "canvasSectionSha256": "801510aeab450ebb6fa734b2b7dfc8c220069be1f090bcc464ba7b5327040db9",
-      "canvasSectionBytes": 15850
+      "note": "Shared pure core for the transform engines. Bundle 7 moved the ordering comparators (sortableOrderValue, compareSortable, compareValues) here so A20 and A29 share one definition of latest. Inlined as an IIFE publishing window.DataGlowTransformCore by inject_transforms.py.",
+      "sourceSha256": "a5c0b95c538321fa92aa9fc8faf06d87afcef3c20ded188a8895b6455816d131",
+      "canvasSectionSha256": "ffc2fed9eebefbd5aa0d85116fe16d606bb6d2120a3189b255d57ac0dc72c24c",
+      "canvasSectionBytes": 17901
     },
     {
       "source": "js/transforms/prior-period.js",
@@ -131,9 +131,9 @@
     {
       "source": "js/transforms/first-last-event.js",
       "note": "A20 first / last event per entity. Transformed on inline by inject_bundle6.py: ESM exports stripped, the transform-core import rewritten into a read off window.DataGlowTransformCore, IIFE wrapped.",
-      "sourceSha256": "4ba69e6873036380e449c66bc39f65bcf8a13e4187c3bdbf29202e3ce3b03908",
-      "canvasSectionSha256": "32e9437d6a67a8be18a00cd77d4ed0d9dbadd9f57ee5cb3063131cd98090567b",
-      "canvasSectionBytes": 14079
+      "sourceSha256": "6dcc1f78456e2c11218b007b59bbdb8e4e7ff44d1ea371a60a2214593026a9cc",
+      "canvasSectionSha256": "7b33920a8519733fe94d4cfa1177f29778af159250a8d017dab647b518587ef2",
+      "canvasSectionBytes": 12486
     },
     {
       "source": "js/transforms/as-of-lookup.js",
@@ -143,11 +143,53 @@
       "canvasSectionBytes": 16129
     },
     {
-      "source": "js/transforms/data-glow-time-joins-canvas.js",
-      "note": "Bundle 6 canvas UI for A18/A19/A20/A24. Already an IIFE, inlined verbatim by inject_bundle6.py.",
-      "sourceSha256": "e111deeb2f33c94fe73243cbcebf4ad6842b7cabc720b5946df1267c5b3a291e",
-      "canvasSectionSha256": "bebb872bbe94fcd4efaf8b6582dd71401992abab73a7ba48048d19836909cdd8",
-      "canvasSectionBytes": 34968
+      "source": "js/transforms/expand-hierarchy.js",
+      "note": "A16 expand a hierarchy into node, parent, depth and path. Reports cycles and orphans rather than truncating the tree. Import of transform-core rewritten to window.DataGlowTransformCore by inject_transforms.py.",
+      "sourceSha256": "2ca9e382a9a6efdc6f21d219efb8929496e0c5de043f37f439c9866bb7a07422",
+      "canvasSectionSha256": "ddf5fd46b4c78aa2d8acd2353720b664fabef9547ad801b017e00d899d158ef7",
+      "canvasSectionBytes": 21485
+    },
+    {
+      "source": "js/transforms/nested-to-rows.js",
+      "note": "A17 nested lists into rows, with the row count previewed before any row is built. Import of transform-core rewritten by inject_transforms.py.",
+      "sourceSha256": "0a3e6b466892ff7b0c2733118a3ba5eb97be1d574d24343aa12d74fa7dd9798c",
+      "canvasSectionSha256": "d1789c07a50248bae7c379633ba548813a79f9b966029e55a277cb62489132fe",
+      "canvasSectionBytes": 18902
+    },
+    {
+      "source": "js/transforms/fill-missing.js",
+      "note": "A25 fill blanks and always add a boolean column flagging the filled cells. No silent-fill path exists. Import of transform-core rewritten by inject_transforms.py.",
+      "sourceSha256": "4a93b1e3095dbf9a454b37279df72f02e357583aa3640a106a33d80edf800845",
+      "canvasSectionSha256": "0fed46d23e960398a3405da9eb028c1dd12f72988997629f45660a1d911c4ecf",
+      "canvasSectionBytes": 20329
+    },
+    {
+      "source": "js/transforms/expand-date-range.js",
+      "note": "A26 a start and end date into one row per calendar day, with an explosion warning that is stricter on narrow screens and a hard cap. Import of transform-core rewritten by inject_transforms.py.",
+      "sourceSha256": "588e1406427e5fb0df211adf873daa4aba19caa948ca96073f247c84ab98820e",
+      "canvasSectionSha256": "278731284f2eb84f472eebca86753e65ed0f61c1561c61dcf4f25af7907b6bac",
+      "canvasSectionBytes": 23692
+    },
+    {
+      "source": "js/transforms/bin-editor.js",
+      "note": "A27 group a number column into bands, with the histogram drawn from the same binCounts the apply uses. Import of transform-core rewritten by inject_transforms.py.",
+      "sourceSha256": "6298acb88a010b6c1d96152bc5c0a02ce2cdf31aebb24537d269549373d4e8b6",
+      "canvasSectionSha256": "f3aa52fa1ccf3f0c6d0b67627b9bf963c3d5d6545b4707ca0ff9b63d40def6ea",
+      "canvasSectionBytes": 22045
+    },
+    {
+      "source": "js/transforms/keep-most-recent.js",
+      "note": "A29 keep the most recent record per group, counting the discarded rows that disagreed and naming the columns. Shares the ordering comparators with A20 through transform-core. Import rewritten by inject_transforms.py.",
+      "sourceSha256": "2b11f73bd36b98f4d9fc2df9b2aa3ac06d6f11a075f380babf9ae3cfc3a77ab5",
+      "canvasSectionSha256": "1a25cd59d7d69aeab478df7fc8febba78ca6ec33fbba599acd850ae2ee7141f2",
+      "canvasSectionBytes": 18969
+    },
+    {
+      "source": "js/transforms/data-glow-transforms-canvas.js",
+      "note": "Canvas UI for all ten transforms (A18/A19/A20/A24 in the Time and joins group, A16/A17/A25/A26/A27/A29 in Shape and clean). Renamed from data-glow-time-joins-canvas.js in Bundle 7. Already an IIFE, inlined verbatim.",
+      "sourceSha256": "7acc73bed20319c30103142b563ee499da9d1037344d2f92762b02be9d41b551",
+      "canvasSectionSha256": "3098eeb5683db3783fd77685d6ed9cf333aa611601f240ead14224727af9e113",
+      "canvasSectionBytes": 52978
     }
   ]
 }

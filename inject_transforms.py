@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
-"""Inline Bundle 6 (A18/A19/A20/A24 time and join transforms) into canvas/index.html.
+"""Inline the js/transforms/ table transforms into canvas/index.html.
 
-Same shape as inject_bundle5.py. Six modules go in right before
-window.addEventListener('appinstalled', so they boot with the other canvas
-surfaces:
+Eleven modules go in right before window.addEventListener('appinstalled', so they
+boot with the other canvas surfaces:
 
   js/transforms/transform-core.js                shared pure core, ESM -> IIFE
   js/transforms/prior-period.js                  A18 engine,       ESM -> IIFE
   js/transforms/date-range-join.js               A19 engine,       ESM -> IIFE
   js/transforms/first-last-event.js              A20 engine,       ESM -> IIFE
   js/transforms/as-of-lookup.js                  A24 engine,       ESM -> IIFE
-  js/transforms/data-glow-time-joins-canvas.js   canvas UI, already an IIFE
+  js/transforms/expand-hierarchy.js              A16 engine,       ESM -> IIFE
+  js/transforms/nested-to-rows.js                A17 engine,       ESM -> IIFE
+  js/transforms/fill-missing.js                  A25 engine,       ESM -> IIFE
+  js/transforms/expand-date-range.js             A26 engine,       ESM -> IIFE
+  js/transforms/bin-editor.js                    A27 engine,       ESM -> IIFE
+  js/transforms/keep-most-recent.js              A29 engine,       ESM -> IIFE
+  js/transforms/data-glow-transforms-canvas.js   canvas UI, already an IIFE
 
-WHAT IS DIFFERENT FROM BUNDLE 5, AND WHY IT MATTERS.
-Bundle 5's two engines were standalone. These four import from a shared core, and
-the canvas has no module scope: it is one big inline script, so an `import`
-statement in it is a syntax error. Each import block is therefore rewritten into
-a destructure off window.DataGlowTransformCore, and the core is injected first so
+WHY THE IMPORTS ARE REWRITTEN RATHER THAN STRIPPED.
+The canvas has no module scope: it is one big inline script, so an `import`
+statement in it is a syntax error. Each import block is rewritten into a
+destructure off window.DataGlowTransformCore, and the core is injected first so
 that object exists by the time the others run.
 
 The rewrite is checked rather than trusted. Every name a module imports must be a
@@ -26,6 +30,16 @@ importing a new helper fails this script instead of failing silently in the
 browser with an undefined function. That is the whole failure mode worth guarding:
 a stripped import produces a page that parses fine and throws only when someone
 clicks.
+
+Only imports from ./transform-core.js are rewritten, and an import from any other
+sibling is refused outright. An engine that needs another engine's helper must
+move that helper into the shared core, which is what A29 did with the ordering
+comparators it shares with A20. Letting a cross-engine import through would ship
+a page that parses and then throws on the first click.
+
+RENAMED tracks spans whose source file has been renamed. Without it the old span
+would stay in the canvas forever as dead code, since the new marker never matches
+it and the splice would append a second copy alongside.
 
 No CSS block: the UI injects its own inline styles at runtime, the way the
 surfaces it mounts beside already do.
@@ -48,13 +62,29 @@ ENGINES = [
     ('js/transforms/date-range-join.js', 'DataGlowDateRangeJoin'),
     ('js/transforms/first-last-event.js', 'DataGlowFirstLastEvent'),
     ('js/transforms/as-of-lookup.js', 'DataGlowAsOfLookup'),
+    ('js/transforms/expand-hierarchy.js', 'DataGlowExpandHierarchy'),
+    ('js/transforms/nested-to-rows.js', 'DataGlowNestedToRows'),
+    ('js/transforms/fill-missing.js', 'DataGlowFillMissing'),
+    ('js/transforms/expand-date-range.js', 'DataGlowExpandDateRange'),
+    ('js/transforms/bin-editor.js', 'DataGlowBinEditor'),
+    ('js/transforms/keep-most-recent.js', 'DataGlowKeepMostRecent'),
 ]
 
-UIS = ['js/transforms/data-glow-time-joins-canvas.js']
+UIS = ['js/transforms/data-glow-transforms-canvas.js']
+
+# Spans left behind by a rename, removed from the canvas before anything is
+# injected. Keep an entry here until the canvas has been rebuilt at least once.
+RENAMED = ['js/transforms/data-glow-time-joins-canvas.js']
 
 IMPORT_RE = re.compile(
     r"^import\s*\{([^}]*)\}\s*from\s*'\./transform-core\.js';\s*$",
     flags=re.M | re.S,
+)
+
+# Any other sibling import. Refused rather than rewritten: see the module docstring.
+FOREIGN_IMPORT_RE = re.compile(
+    r"^import\s.*from\s*'\.\/(?!transform-core\.js)[^']+';\s*$",
+    flags=re.M,
 )
 
 
@@ -95,6 +125,12 @@ def build_engine_iife(path, ns_name, core_keys):
         return ('  // Inlined build: no module scope in the canvas, so the shared core is\n'
                 '  // read off window instead of imported.\n'
                 '  var ' + ', '.join('%s = C.%s' % (n, n) for n in names) + ';')
+
+    foreign = FOREIGN_IMPORT_RE.search(head)
+    if foreign:
+        sys.exit('%s: imports from another engine (%s). Move the shared helper into\n'
+                 '  %s and import it from there, so the inlined canvas can resolve it.'
+                 % (path, foreign.group(0).strip(), CORE[0]))
 
     body, n_imports = IMPORT_RE.subn(rewrite, head)
     if path != CORE[0] and n_imports != 1:
@@ -147,6 +183,11 @@ def guard(block):
     # before it reaches the shipped page.
     if '—' in block:
         sys.exit('Refusing to inject: the block contains an em dash (U+2014).')
+    # A raw control byte inside the one big inline script is invisible in review
+    # and painful to diagnose. Sentinels belong in the source as \\u escapes.
+    bad = [ord(c) for c in block if ord(c) < 32 and c not in '\t\n\r']
+    if bad:
+        sys.exit('Refusing to inject: the block contains control characters %s.' % sorted(set(bad)))
 
 
 def main():
@@ -154,6 +195,18 @@ def main():
     before = len(data)
 
     core_keys = namespace_keys(read(CORE[0]), CORE[1], CORE[0])
+
+    dropped = []
+    for path in RENAMED:
+        start, end = marks(path)
+        i = data.find(start)
+        if i == -1:
+            continue
+        j = data.find(end, i)
+        if j == -1:
+            sys.exit('%s: stale opening marker with no closing marker' % path)
+        data = data[:i] + data[j + len(end):]
+        dropped.append(path)
 
     new_blocks = []
     resynced = []
@@ -191,6 +244,8 @@ def main():
 
     open(CANVAS, 'w', encoding='utf-8').write(data)
 
+    for p in dropped:
+        print('removed    %s (renamed)' % p)
     for p in resynced:
         print('re-synced  %s' % p)
     for b in new_blocks:
