@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5633731,
+  "canvasBytes": 5699037,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -302,6 +302,48 @@
       "sourceSha256": "bf49b4dfbe376ab66727d9d39b6af72f13bac276a144361dce3a79b84088ff5e",
       "canvasSectionSha256": "59441d4e86a77ec975131935b254a25c4e0a2025476fe22ff338b5ae175ebc75",
       "canvasSectionBytes": 23208
+    },
+    {
+      "source": "js/ai/local-ai-status.js",
+      "note": "Built-in AI status engine: derives one of six honest states from four observed facts, and the local model registry in which exactly one entry is marked shipped. Rewritten from ESM into an IIFE publishing window.DataGlowLocalAiStatus.",
+      "sourceSha256": "cbc8036d503cacf292c1b20af7d3bbecf9dac6c5fadb3dcfe116d6dd3dc61147",
+      "canvasSectionSha256": "441681fb36a24e45afa3633f76487cc84b0ddf805c4a697ef735c5e1620d844e",
+      "canvasSectionBytes": 13496
+    },
+    {
+      "source": "js/ai/capability-ceiling.js",
+      "note": "Honest capability ceiling: SQL, Python, R, Excel, size, messy data and privacy, each with a does line and a load-bearing does-not line. Rewritten from ESM into an IIFE publishing window.DataGlowCapabilityCeiling.",
+      "sourceSha256": "846cc465987a64d72cc1441cca46c5a1584beaab4ee1a1fd6c2f6cf4476dad5c",
+      "canvasSectionSha256": "4aeb90835e814c6cbf34299bbaaa59657de199837bb6fde64e7fdfa9186310c7",
+      "canvasSectionBytes": 10110
+    },
+    {
+      "source": "js/ai/ai-claim-guard.js",
+      "note": "The Tier 2 claim guard: checks a model rephrase against the numbers the deterministic answer produced and discards the rephrase if it invented one. Reads window.DataGlowProveGate. Rewritten from ESM into an IIFE publishing window.DataGlowAiClaimGuard.",
+      "sourceSha256": "b518e245706419b37bbbc8412d82aebb0b75c247326f0c4be6bf11a899932baf",
+      "canvasSectionSha256": "9b643bcfdc127e52540cadbfa167fb91b8716a07585511c601d51d36a46a2f00",
+      "canvasSectionBytes": 6336
+    },
+    {
+      "source": "js/ambient/ambient-proof-strip.js",
+      "note": "Ambient proof strip: continuous reporting of prove status, Air-Gap state, open caveats and drift, with a refusal function that answers no question about the data. Rewritten from ESM into an IIFE publishing window.DataGlowAmbientProof.",
+      "sourceSha256": "2023c1180d58f830e2b3bb81a0ff7a67cf00650f22de3c8393aa6aeeab4b3c7b",
+      "canvasSectionSha256": "7cbc2297cbca9efbb07009cfd4ed933e97ec92c3622025aa865aaac55b9bfa95",
+      "canvasSectionBytes": 9408
+    },
+    {
+      "source": "js/polyglot/polars-path.js",
+      "note": "Polars secondary path: status only, never an engine, and never reporting available without a real import. Rewritten from ESM into an IIFE publishing window.DataGlowPolarsPath.",
+      "sourceSha256": "8971fe91554ce3ee5b2d44f7c8a1c19a6e52a5cfaf4eae75ed4e5cea76220c4c",
+      "canvasSectionSha256": "f904e4ffd6482b70e2c6d5802e0d4dfaa683a327011d97ac45b4d8e20711cc06",
+      "canvasSectionBytes": 5718
+    },
+    {
+      "source": "js/ai/data-glow-local-ai-canvas.js",
+      "note": "Built-in AI canvas surface: the persistent status chip and the three-tab panel behind it. Already an IIFE, inlined verbatim, publishing window.DataGlowLocalAiUI.",
+      "sourceSha256": "82a5c758d8c72bd132e8e15547b3c5173a6cb176f7e76f58d857e40a3416c7eb",
+      "canvasSectionSha256": "9bc724bd0cf14dac5be9b3b44cd510c1595c8156874dc4bad19f0025768b0b95",
+      "canvasSectionBytes": 17985
     }
   ]
 }

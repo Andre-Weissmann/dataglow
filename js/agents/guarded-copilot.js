@@ -231,6 +231,39 @@ const REPHRASE_SYSTEM_PROMPT =
   + 'conclusions that are not already in the provided answer. If you are unsure, '
   + 'repeat the answer as-is. Never invent a verdict.';
 
+// Resolve the claim guard from the global surface first, then by module import.
+// The global comes first because inside canvas/index.html every engine is an
+// IIFE publishing onto `window` and there is no module resolver to import from;
+// the import is what makes this work under Node and in the ESM build. Returns
+// null rather than throwing, and the caller treats null as a refusal.
+async function resolveClaimGuard() {
+  try {
+    const g = (typeof globalThis !== 'undefined' && globalThis.DataGlowAiClaimGuard) || null;
+    if (g && typeof g.guardModelRephrase === 'function') return g;
+    const mod = await import('../ai/ai-claim-guard.js');
+    return mod && typeof mod.guardModelRephrase === 'function' ? mod : null;
+  } catch {
+    return null;
+  }
+}
+
+// Record the guard decision on the caller's AI Touch Ledger when there is one.
+// Best-effort by design: a missing ledger must not turn a good answer into a
+// thrown error, and the guard verdict itself has already been applied by the
+// time this runs.
+function logGuardVerdict(tier1Result, verdict, guard) {
+  try {
+    const ledger = tier1Result && tier1Result.ledger;
+    if (!ledger || typeof ledger.record !== 'function') return;
+    const entry = typeof guard.guardLedgerEntry === 'function'
+      ? guard.guardLedgerEntry(verdict)
+      : { step: 'ai-claim-guard', outcome: verdict.allowed ? 'rephrase-kept' : 'rephrase-discarded' };
+    ledger.record(entry);
+  } catch {
+    /* a ledger failure is not an answer failure */
+  }
+}
+
 /**
  * Tier 2 (opt-in): reuse the EXACT on-device model loader + generation machinery
  * Story already uses (js/narrative/ondevice-llm.js) to rephrase the Tier 1
@@ -273,7 +306,20 @@ export async function refineWithOnDeviceModel(question, tier1Result, deps = null
       refined += chunk?.choices?.[0]?.delta?.content || '';
     }
     refined = refined.trim();
-    return refined ? { text: refined, usedOnDeviceModel: true } : fallback;
+    if (!refined) return fallback;
+
+    // The prompt above asks the model not to add numbers. That is a request, not
+    // a control. Bundle 11 makes it a control: the Tier 1 text is ground truth,
+    // and a rephrase that contains a number Tier 1 did not is discarded rather
+    // than shown. See js/ai/ai-claim-guard.js for why falling back beats
+    // stripping the number out.
+    const guard = await resolveClaimGuard();
+    // No guard reachable means no check ran, and an unchecked rephrase is not a
+    // passing one. Fail to the deterministic text rather than to the model.
+    if (!guard) return fallback;
+    const verdict = guard.guardModelRephrase(tier1Result.text, refined);
+    logGuardVerdict(tier1Result, verdict, guard);
+    return { text: verdict.text, usedOnDeviceModel: verdict.allowed };
   } catch {
     // Any failure (no WebGPU, load error, generation error) → exact Tier 1 text.
     return fallback;
