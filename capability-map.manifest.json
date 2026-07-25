@@ -5597,7 +5597,7 @@
           "name": "nestedToRowsTransform"
         },
         {
-          "file": "js/transforms/nested-to-rows.js",
+          "file": "js/transforms/transform-core.js",
           "name": "readList"
         },
         {
