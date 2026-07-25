@@ -1,5 +1,10 @@
 # DataGlow — Deployment Checklist
 
+> Shipping the single-file web surface? `docs/canvas-publish.md` is the checklist
+> for `canvas/index.html` specifically: how a feature lands in it, what
+> `npm run check:canvas-integrity` proves, and what each failure means. The
+> headers below still apply to it.
+
 ## Required HTTP Headers (#4 — COOP/COEP for DuckDB multi-threading)
 
 DuckDB-WASM's multi-threaded (EH) build requires `SharedArrayBuffer`, which is

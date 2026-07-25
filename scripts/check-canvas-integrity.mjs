@@ -35,6 +35,11 @@
 //      change to either without re-injecting fails here.
 //   4. The desktop stage script still ships `js/` (the source of truth the
 //      canvas mirrors) and build.sh still carries the clobber guard.
+//   5. The whole canvas file is the exact size that was last recorded. Checks
+//      1 to 3 only look at tracked spans, so a canvas truncated by a failed
+//      write, a bad merge or a partial upload could still pass them all while
+//      being the wrong artifact to publish. `canvasBytes` was already being
+//      written on --update but never verified, which made it a dead guard.
 //
 // USAGE:
 //   npm run check:canvas-integrity            # verify (this is what CI runs)
@@ -250,6 +255,38 @@ function checkShipPath() {
 }
 
 // ------------------------------------------------------------
+// Check 5: the published artifact is whole.
+// ------------------------------------------------------------
+// Checks 1 to 3 verify tracked spans. Nothing above notices if the rest of the
+// file lost 2 MB: the tracked sections would still hash correctly and every
+// remaining <script> would still parse. Pinning the total size is the cheapest
+// honest answer to "is this the canvas we meant to publish".
+function checkCanvasBytes(html, manifest) {
+  const actual = Buffer.byteLength(html, 'utf8');
+  const recorded = manifest.canvasBytes;
+  if (typeof recorded !== 'number' || !Number.isFinite(recorded)) {
+    failures.push(
+      'canvas/integrity.manifest.json: "canvasBytes" is missing or not a number, so the ' +
+      'published canvas size is unpinned.\n' +
+      '  Fix: npm run check:canvas-integrity -- --update',
+    );
+    return;
+  }
+  if (recorded !== actual) {
+    const delta = actual - recorded;
+    failures.push(
+      `canvas/index.html: the file is ${actual} bytes but ${recorded} was recorded ` +
+      `(${delta > 0 ? '+' : ''}${delta}).\n` +
+      '  If you just injected or edited the canvas on purpose, re-record it:\n' +
+      '       npm run check:canvas-integrity -- --update\n' +
+      '  If you did NOT, treat this as a truncated or wrong canvas and do not publish it.',
+    );
+    return;
+  }
+  notes.push(`publish: canvas/index.html is the recorded ${actual} bytes`);
+}
+
+// ------------------------------------------------------------
 function main() {
   if (!existsSync(CANVAS)) {
     console.error('check-canvas-integrity: canvas/index.html not found');
@@ -267,6 +304,7 @@ function main() {
   checkMarkers(html, manifest);
   checkTracked(html, manifest);
   checkShipPath();
+  if (!UPDATE) checkCanvasBytes(html, manifest);
 
   if (UPDATE) {
     manifest.canvasBytes = Buffer.byteLength(html, 'utf8');
