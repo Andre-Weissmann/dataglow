@@ -125023,6 +125023,1858 @@ function summarizeForConfirm(config) {
 })();
 /* ---- end js/transforms/value-standardizer.js ---- */
 
+/* ---- from js/proofboard/proof-board.js ---- */
+;(function () {
+  'use strict';
+/**
+ * Proof Board: several numbers on one surface, each with its own proof under it.
+ *
+ * WHY THIS IS NOT A DASHBOARD.
+ * A dashboard shows numbers. The reason a dashboard gets argued with in a meeting
+ * is that the number is the whole artifact: there is nowhere to look to find out
+ * how it was computed, so the conversation becomes about whether the person who
+ * made it is trustworthy. The Proof Board puts the query that produced each
+ * number directly underneath it, in the same tile, so the question "where did
+ * this come from" is answered before it is asked.
+ *
+ * WHY THE BADGE HAS FOUR VALUES AND NOT TWO.
+ * The tempting design is a green tick or nothing. That quietly turns "no check
+ * has run" into "this passed", which is the single most expensive lie a surface
+ * like this can tell. `unknown` is therefore a first-class badge with its own
+ * wording, and it can never be promoted to `clear` by the absence of a problem.
+ * A tile with no gate result says out loud that nothing has checked it.
+ *
+ * WHY A BAD TILE IS KEPT RATHER THAN DROPPED.
+ * buildProofBoard() never throws and never silently discards. A caller that
+ * hands over a malformed tile gets it back marked incomplete, with the reasons
+ * listed. Dropping it would leave a board that looks complete and is missing a
+ * number, and a missing tile is much harder to notice than a tile that says what
+ * is wrong with it.
+ *
+ * WHY VALUES ARE NEVER SYNTHESISED.
+ * There is no default value, no zero fallback and no placeholder number anywhere
+ * in this module. A tile whose value did not arrive is incomplete. Showing 0 for
+ * a number that was never computed is inventing a KPI, which is exactly what
+ * this surface exists to make impossible.
+ *
+ * Pure ES module: no DOM, no network, no timers, so it runs identically in Node
+ * and with Air-Gap Mode on. The GlassBox model is not re-implemented here; it is
+ * composed from js/glassbox/glass-box.js, so proof renders the same way on this
+ * surface as on every other one.
+ */
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowGlassBoxEngine instead of imported.
+  var buildGlassBox = window.DataGlowGlassBoxEngine.buildGlassBox;
+const PROOF_BOARD_KIND = 'dataglow-proof-board';
+const PROOF_BOARD_VERSION = 1;
+
+/**
+ * The gate badges a tile may carry. `unknown` is the default and is never
+ * upgraded by this module: only a real gate result can move a tile off it.
+ */
+const TILE_GATE_BADGES = Object.freeze(['clear', 'caution', 'blocked', 'unknown']);
+
+/** How a tile badge maps onto the GlassBox level vocabulary. */
+const BADGE_TO_GLASS_LEVEL = Object.freeze({
+  clear: 'good',
+  caution: 'warn',
+  blocked: 'bad',
+  unknown: 'unknown',
+});
+
+/** Plain wording for each badge, so two surfaces cannot describe one state differently. */
+const BADGE_LABELS = Object.freeze({
+  clear: 'Checks passed',
+  caution: 'Passed with cautions',
+  blocked: 'Blocked by a check',
+  unknown: 'Not checked',
+});
+
+const BADGE_WHY = Object.freeze({
+  clear: 'A check ran on this number and found nothing to raise.',
+  caution: 'A check ran and raised something worth reading before this number is used.',
+  blocked: 'A check refused this number. Read the reason before using it anywhere.',
+  unknown: 'No check has reported on this number. That is an absence of evidence, not a pass.',
+});
+
+const PROOF_BOARD_LANGUAGES = Object.freeze(['sql', 'python', 'r', 'text']);
+
+const PROOF_BOARD_DISCLAIMER =
+  'This board shows the code that produced each number. It is a record of how the '
+  + 'numbers were computed on this device, not a certification, not an audit, and not '
+  + 'legal or clinical advice.';
+
+const EMPTY_BOARD_HEADLINE = 'No data is loaded, so there is nothing to prove yet.';
+const EMPTY_BOARD_CTA = 'Load a file to build a board from real numbers.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/**
+ * A value is only present if it actually arrived. Empty string, null, undefined
+ * and NaN are all absent, because each of them renders as something that looks
+ * like a number was computed when none was.
+ */
+function hasValue(v) {
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'string') return v.trim() !== '';
+  if (typeof v === 'boolean') return true;
+  return false;
+}
+
+/** The value exactly as it arrived, formatted for reading but never invented. */
+function formatTileValue(value, unit) {
+  if (!hasValue(value)) return '';
+  let text;
+  if (typeof value === 'number') {
+    text = Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+  } else {
+    text = String(value).trim();
+  }
+  const u = str(unit);
+  return u ? text + ' ' + u : text;
+}
+
+/**
+ * Normalize one tile, listing what is wrong rather than throwing.
+ *
+ * @param {object} tile
+ * @param {number} index - position in the supplied list, used to name a tile that
+ *   arrived with no id, so two nameless tiles cannot collide.
+ * @returns {{id:string, title:string, value:*, valueText:string, unit:string,
+ *   sqlOrCode:string, language:string, engine:string, gateBadge:string,
+ *   badgeLabel:string, badgeWhy:string, checksSummary:string,
+ *   datasetFingerprint:string, sourceCols:Array<string>,
+ *   complete:boolean, problems:Array<string>}}
+ */
+function normalizeTile(tile, index) {
+  const bag = isPlainObject(tile) ? tile : {};
+  const problems = [];
+
+  const id = str(bag.id) || ('tile-' + (Number.isFinite(index) ? index + 1 : 1));
+  const title = str(bag.title);
+  if (!title) problems.push('This tile has no title, so there is no way to say what the number is.');
+
+  const value = hasValue(bag.value) ? bag.value : null;
+  if (value === null) {
+    problems.push('No value arrived for this tile. It is shown empty rather than as a zero, '
+      + 'because a zero here would be a number nobody computed.');
+  }
+
+  const sqlOrCode = typeof bag.sqlOrCode === 'string' ? bag.sqlOrCode : '';
+  if (!sqlOrCode.trim()) {
+    problems.push('This tile did not hand over the code that produced it, so there is nothing '
+      + 'to check underneath it.');
+  }
+
+  const language = PROOF_BOARD_LANGUAGES.indexOf(bag.language) >= 0 ? bag.language : 'text';
+
+  // The badge is read off a real gate result when one was supplied, and only
+  // falls back to the caller's own word for it otherwise. A caller cannot label a
+  // tile `clear` while handing over a blocked verdict.
+  const gates = isPlainObject(bag.gates) ? bag.gates : null;
+  const fromGate = gates && isPlainObject(gates.publishSafe) && typeof gates.publishSafe.level === 'string'
+    ? gates.publishSafe.level
+    : '';
+  let gateBadge = 'unknown';
+  if (TILE_GATE_BADGES.indexOf(fromGate) >= 0) {
+    gateBadge = fromGate;
+    if (TILE_GATE_BADGES.indexOf(bag.gateBadge) >= 0 && bag.gateBadge !== fromGate) {
+      problems.push('This tile was labelled ' + bag.gateBadge + ' but the gate result on it says '
+        + fromGate + '. The gate result is what is shown.');
+    }
+  } else if (TILE_GATE_BADGES.indexOf(bag.gateBadge) >= 0) {
+    gateBadge = bag.gateBadge;
+  }
+
+  let sourceCols = [];
+  if (Array.isArray(bag.sourceCols)) {
+    sourceCols = bag.sourceCols.map(str).filter(Boolean);
+  }
+
+  return {
+    id: id,
+    title: title,
+    value: value,
+    valueText: formatTileValue(value, bag.unit),
+    unit: str(bag.unit),
+    sqlOrCode: sqlOrCode,
+    language: language,
+    engine: str(bag.engine) || 'this device',
+    gateBadge: gateBadge,
+    badgeLabel: BADGE_LABELS[gateBadge],
+    badgeWhy: BADGE_WHY[gateBadge],
+    checksSummary: str(bag.checksSummary),
+    datasetFingerprint: str(bag.datasetFingerprint),
+    sourceCols: sourceCols,
+    gates: gates || {},
+    complete: problems.length === 0,
+    problems: problems,
+  };
+}
+
+/**
+ * The GlassBox model for one tile: the number on top, the code underneath.
+ *
+ * The model is not built here. It is delegated to js/glassbox/glass-box.js so
+ * that proof on this board is the same object, in the same field order, with the
+ * same disclaimer, as proof anywhere else in DataGlow. This function's whole job
+ * is the mapping from a tile onto that contract.
+ *
+ * Only real gate results are handed to GlassBox. The tile's own badge is
+ * deliberately NOT forged into a gate here: a badge is the board's one word
+ * summary, and passing it off as a gate verdict would put a chip on the proof
+ * panel that no gate ever produced. A tile with no gate result therefore shows
+ * GlassBox reporting the absence, which is the honest rendering.
+ *
+ * @param {object} tile - raw or already normalized
+ * @param {function} [glassBoxImpl] - injected for the canvas, which reads the
+ *   engine off window rather than importing it. Defaults to the imported one.
+ * @returns {object} GlassBox model
+ */
+function buildTileGlassBox(tile, glassBoxImpl) {
+  const t = tile && tile.complete !== undefined ? tile : normalizeTile(tile, 0);
+  const build = typeof glassBoxImpl === 'function' ? glassBoxImpl : buildGlassBox;
+
+  const headline = t.title
+    ? (t.valueText ? t.title + ': ' + t.valueText : t.title + ': no value arrived')
+    : 'This tile has no title.';
+
+  const detailParts = [];
+  if (t.checksSummary) detailParts.push(t.checksSummary);
+  if (t.sourceCols.length > 0) detailParts.push('Columns used: ' + t.sourceCols.join(', ') + '.');
+  if (t.datasetFingerprint) detailParts.push('Dataset fingerprint ' + t.datasetFingerprint + '.');
+  for (let i = 0; i < t.problems.length; i += 1) detailParts.push(t.problems[i]);
+
+  return build({
+    surface: 'Proof Board tile ' + (t.title || t.id),
+    headline: headline,
+    detail: detailParts.join(' '),
+    language: t.language,
+    source: t.sqlOrCode,
+    engine: t.engine,
+    gates: t.gates,
+  });
+}
+
+/**
+ * Build the whole board. Never throws.
+ *
+ * @param {Array<object>} tiles
+ * @param {{datasetName?:string, rowCount?:number, columnCount?:number,
+ *   generatedAt?:number, trustLedgerSummary?:string, datasetFingerprint?:string}} [sessionMeta]
+ * @returns {object} board model
+ */
+function buildProofBoard(tiles, sessionMeta) {
+  const meta = isPlainObject(sessionMeta) ? sessionMeta : {};
+  const list = Array.isArray(tiles) ? tiles : [];
+
+  const out = [];
+  const seen = {};
+  for (let i = 0; i < list.length; i += 1) {
+    const t = normalizeTile(list[i], i);
+    // Two tiles answering to one id would make the receipt and the export
+    // disagree about which number they described.
+    if (Object.prototype.hasOwnProperty.call(seen, t.id)) {
+      t.id = t.id + '-' + (i + 1);
+      t.problems = t.problems.concat(['Another tile already used this id, so this one was renamed.']);
+      t.complete = false;
+    }
+    seen[t.id] = true;
+    out.push(t);
+  }
+
+  let complete = 0;
+  let blocked = 0;
+  let unchecked = 0;
+  for (let i = 0; i < out.length; i += 1) {
+    if (out[i].complete) complete += 1;
+    if (out[i].gateBadge === 'blocked') blocked += 1;
+    if (out[i].gateBadge === 'unknown') unchecked += 1;
+  }
+
+  const empty = out.length === 0;
+
+  return {
+    kind: PROOF_BOARD_KIND,
+    version: PROOF_BOARD_VERSION,
+    generatedAt: Number.isFinite(meta.generatedAt) ? meta.generatedAt : 0,
+    datasetName: str(meta.datasetName),
+    datasetFingerprint: str(meta.datasetFingerprint),
+    rowCount: Number.isFinite(meta.rowCount) ? meta.rowCount : null,
+    columnCount: Number.isFinite(meta.columnCount) ? meta.columnCount : null,
+    trustLedgerSummary: str(meta.trustLedgerSummary),
+    tiles: out,
+    stats: {
+      total: out.length,
+      complete: complete,
+      incomplete: out.length - complete,
+      blocked: blocked,
+      unchecked: unchecked,
+    },
+    empty: empty,
+    emptyState: empty ? { headline: EMPTY_BOARD_HEADLINE, cta: EMPTY_BOARD_CTA } : null,
+    disclaimer: PROOF_BOARD_DISCLAIMER,
+  };
+}
+
+/**
+ * One honest sentence about the board.
+ *
+ * It leads with what is not proven rather than with the count of tiles, because
+ * the count of tiles is the number a person already knows by looking.
+ */
+function summarizeBoard(board) {
+  if (!isPlainObject(board) || !Array.isArray(board.tiles)) return 'No board to describe.';
+  if (board.empty) return EMPTY_BOARD_HEADLINE;
+  const s = board.stats;
+  const parts = [s.total + (s.total === 1 ? ' tile' : ' tiles')];
+  if (s.unchecked > 0) parts.push(s.unchecked + ' with no check reported');
+  if (s.blocked > 0) parts.push(s.blocked + ' blocked by a check');
+  if (s.incomplete > 0) parts.push(s.incomplete + ' incomplete');
+  if (parts.length === 1) parts.push('every one carrying its code and a check result');
+  return parts.join(', ') + '.';
+}
+
+/**
+ * The board-level verify pass.
+ *
+ * This deliberately does not re-run any query. It checks the things that can
+ * actually be checked from what the board holds, and names the things it cannot
+ * check, because a "Verified" stamp covering work that was never done is worse
+ * than no stamp. Recomputation would need the dataset and the engine, which this
+ * pure module does not have and should not reach for.
+ *
+ * @returns {{ok:boolean, checked:Array<{what:string, pass:boolean, note:string}>,
+ *   cannotCheck:Array<string>, headline:string}}
+ */
+function verifyBoard(board) {
+  const checked = [];
+  const cannotCheck = [
+    'Whether each query still returns the number shown. That needs the dataset and the '
+      + 'engine, and re-running here would report a fresh number as if it were the recorded one.',
+    'Whether the numbers are the right numbers to be looking at. No check can answer that.',
+  ];
+
+  if (!isPlainObject(board) || !Array.isArray(board.tiles)) {
+    return { ok: false, checked: checked, cannotCheck: cannotCheck, headline: 'There is no board to verify.' };
+  }
+
+  const tiles = board.tiles;
+  const withCode = tiles.filter(function (t) { return t.sqlOrCode && t.sqlOrCode.trim(); }).length;
+  checked.push({
+    what: 'Every tile carries the code that produced it',
+    pass: tiles.length > 0 && withCode === tiles.length,
+    note: withCode + ' of ' + tiles.length + ' tiles handed over their code.',
+  });
+
+  const withValue = tiles.filter(function (t) { return hasValue(t.value); }).length;
+  checked.push({
+    what: 'Every tile carries a value that was actually computed',
+    pass: tiles.length > 0 && withValue === tiles.length,
+    note: withValue + ' of ' + tiles.length + ' tiles arrived with a value. Empty is shown as '
+      + 'empty and never as zero.',
+  });
+
+  const ids = {};
+  let dupes = 0;
+  for (let i = 0; i < tiles.length; i += 1) {
+    if (Object.prototype.hasOwnProperty.call(ids, tiles[i].id)) dupes += 1;
+    ids[tiles[i].id] = true;
+  }
+  checked.push({
+    what: 'Tile ids are unique',
+    pass: dupes === 0,
+    note: dupes === 0 ? 'No two tiles share an id.' : dupes + ' tile id(s) collided and were renamed.',
+  });
+
+  const unchecked = tiles.filter(function (t) { return t.gateBadge === 'unknown'; }).length;
+  checked.push({
+    what: 'Every tile has a gate result',
+    pass: tiles.length > 0 && unchecked === 0,
+    note: unchecked === 0
+      ? 'Every tile carries a check result.'
+      : unchecked + ' tile(s) have no check reported. They are marked not checked, not passed.',
+  });
+
+  const fingerprints = {};
+  for (let i = 0; i < tiles.length; i += 1) {
+    if (tiles[i].datasetFingerprint) fingerprints[tiles[i].datasetFingerprint] = true;
+  }
+  const distinct = Object.keys(fingerprints).length;
+  checked.push({
+    what: 'Tiles describe one dataset',
+    pass: distinct <= 1,
+    note: distinct <= 1
+      ? 'All tiles that named a dataset named the same one.'
+      : distinct + ' different datasets are mixed on this board, so the numbers are not comparable.',
+  });
+
+  const ok = checked.every(function (c) { return c.pass; });
+  const failed = checked.filter(function (c) { return !c.pass; }).length;
+  return {
+    ok: ok,
+    checked: checked,
+    cannotCheck: cannotCheck,
+    headline: ok
+      ? 'All ' + checked.length + ' board checks passed. This says the board is well formed, '
+        + 'not that the numbers are right.'
+      : failed + ' of ' + checked.length + ' board checks did not pass.',
+  };
+}
+
+/**
+ * What a tile receipt should be stamped over.
+ *
+ * The receipt itself is minted by js/provenance/portable-receipt.js or recorded
+ * on the Trust Ledger. This only assembles the claim, so no hashing or crypto is
+ * written here or anywhere in this bundle.
+ */
+function tileReceiptClaim(tile, board) {
+  const t = tile && tile.complete !== undefined ? tile : normalizeTile(tile, 0);
+  const b = isPlainObject(board) ? board : {};
+  return {
+    claim: {
+      label: t.title || t.id,
+      value: t.valueText,
+      statement: (t.title || t.id) + (t.valueText ? ' is ' + t.valueText : ' has no value recorded'),
+    },
+    queryOrTransformChain: t.sqlOrCode ? [{ step: 'proof-board-tile', language: t.language, source: t.sqlOrCode }] : [],
+    validationStateAtCompute: { grade: t.gateBadge, summary: t.checksSummary || t.badgeWhy },
+    datasetFingerprint: t.datasetFingerprint || str(b.datasetFingerprint),
+  };
+}
+  window.DataGlowProofBoard = {
+    PROOF_BOARD_KIND: PROOF_BOARD_KIND,
+    PROOF_BOARD_VERSION: PROOF_BOARD_VERSION,
+    TILE_GATE_BADGES: TILE_GATE_BADGES,
+    BADGE_TO_GLASS_LEVEL: BADGE_TO_GLASS_LEVEL,
+    BADGE_LABELS: BADGE_LABELS,
+    BADGE_WHY: BADGE_WHY,
+    PROOF_BOARD_LANGUAGES: PROOF_BOARD_LANGUAGES,
+    PROOF_BOARD_DISCLAIMER: PROOF_BOARD_DISCLAIMER,
+    EMPTY_BOARD_HEADLINE: EMPTY_BOARD_HEADLINE,
+    EMPTY_BOARD_CTA: EMPTY_BOARD_CTA,
+    hasValue: hasValue,
+    formatTileValue: formatTileValue,
+    normalizeTile: normalizeTile,
+    buildTileGlassBox: buildTileGlassBox,
+    buildProofBoard: buildProofBoard,
+    summarizeBoard: summarizeBoard,
+    verifyBoard: verifyBoard,
+    tileReceiptClaim: tileReceiptClaim,
+  };
+})();
+/* ---- end js/proofboard/proof-board.js ---- */
+/* ---- from js/proofboard/glowbook.js ---- */
+;(function () {
+  'use strict';
+/**
+ * Glowbook: the Proof Board as one HTML file somebody else can open.
+ *
+ * WHY A FILE AND NOT A LINK.
+ * A link to a result is a promise that a server will still be there, still be
+ * reachable, and still be showing the same thing. DataGlow has no server, so a
+ * shared link would have to be a hosted copy of the data, which is the one thing
+ * this product refuses to do. A Glowbook is a single self-contained file on the
+ * person's own disk. It carries no script, loads nothing, and calls nothing.
+ *
+ * WHY THERE IS NO SCRIPT IN THE OUTPUT.
+ * The export is a document, not an application. An exported page that runs code
+ * is a page whose contents can differ from what the person previewed before they
+ * sent it, and it is also the thing a mail gateway strips or quarantines. Every
+ * number and every query is written into the markup as text.
+ *
+ * WHAT THE DISCLAIMER IS FOR.
+ * This file will be forwarded to people who did not run the analysis, and a page
+ * full of green ticks reads as an audit. It is not one. The disclaimer states in
+ * the document itself that this is a record of how numbers were computed on one
+ * device, that unchecked is not passed, and that nothing here is a
+ * certification, a compliance claim or legal advice. It is emitted from a
+ * constant so it cannot be edited away by a caller.
+ *
+ * Pure ES module: builds a string. It does not download anything, does not touch
+ * the DOM, and has no opinion about when the file should be written. The confirm
+ * gate lives in the canvas surface, because only a surface can ask a person.
+ */
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowProofBoard instead of imported.
+  var summarizeBoard = window.DataGlowProofBoard.summarizeBoard, verifyBoard = window.DataGlowProofBoard.verifyBoard, PROOF_BOARD_KIND = window.DataGlowProofBoard.PROOF_BOARD_KIND;
+const GLOWBOOK_KIND = 'dataglow-glowbook';
+const GLOWBOOK_VERSION = 1;
+
+const GLOWBOOK_DISCLAIMER = [
+  'This document records how each number on it was computed, on one device, at one moment.',
+  'It is not a certification, not an audit, not a compliance claim and not legal or clinical advice.',
+  'A tile marked not checked has not passed anything. It means no check reported on it.',
+  'Nothing in this file runs, loads or sends. It is a static document containing no script.',
+].join(' ');
+
+const GLOWBOOK_NOT_ZK =
+  'The proof here is readable code, not a cryptographic proof. Anyone can read the query and '
+  + 'judge it. Nobody can verify it without the data it ran on.';
+
+/**
+ * HTML escaping for text going into the document.
+ *
+ * Written here rather than imported from js/app-shell/utils.js so this module
+ * stays free of DOM-side dependencies and can be tested in Node on its own. The
+ * five characters are the whole set that matters for text and attributes.
+ */
+function escapeHtml(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * The structured model behind the document, kept separate from the markup so a
+ * test can assert on the content without parsing HTML.
+ *
+ * @param {object} board - a model from buildProofBoard()
+ * @param {{title?:string, author?:string, generatedAt?:number,
+ *   trustLedgerSummary?:string, trustLedgerEntries?:Array}} [opts]
+ */
+function buildGlowbook(board, opts) {
+  const o = isPlainObject(opts) ? opts : {};
+  const b = isPlainObject(board) ? board : { tiles: [], empty: true, stats: {} };
+  const tiles = Array.isArray(b.tiles) ? b.tiles : [];
+
+  return {
+    kind: GLOWBOOK_KIND,
+    version: GLOWBOOK_VERSION,
+    boardKind: b.kind || PROOF_BOARD_KIND,
+    title: typeof o.title === 'string' && o.title.trim() ? o.title.trim() : 'Proof Board',
+    datasetName: b.datasetName || '',
+    generatedAt: Number.isFinite(o.generatedAt) ? o.generatedAt : (b.generatedAt || 0),
+    summary: summarizeBoard(b),
+    verification: verifyBoard(b),
+    tiles: tiles,
+    stats: b.stats || {},
+    empty: !!b.empty,
+    trustLedgerSummary: (typeof o.trustLedgerSummary === 'string' && o.trustLedgerSummary.trim())
+      ? o.trustLedgerSummary.trim()
+      : (b.trustLedgerSummary || ''),
+    trustLedgerEntries: Array.isArray(o.trustLedgerEntries) ? o.trustLedgerEntries : [],
+    disclaimer: GLOWBOOK_DISCLAIMER,
+    notZeroKnowledge: GLOWBOOK_NOT_ZK,
+  };
+}
+
+function badgeChip(tile) {
+  return '<span class="gb-badge gb-badge-' + escapeHtml(tile.gateBadge) + '">'
+    + escapeHtml(tile.badgeLabel) + '</span>';
+}
+
+function tileSection(tile) {
+  const parts = [];
+  parts.push('<section class="gb-tile">');
+  parts.push('<h2 class="gb-tile-title">' + escapeHtml(tile.title || tile.id) + '</h2>');
+
+  // Finding first, then the proof. Same order as the GlassBox panel on screen,
+  // because a reader who has seen one should not have to relearn the other.
+  if (tile.valueText) {
+    parts.push('<p class="gb-value">' + escapeHtml(tile.valueText) + '</p>');
+  } else {
+    parts.push('<p class="gb-value gb-value-missing">No value was recorded for this tile.</p>');
+  }
+
+  parts.push('<p class="gb-badges">' + badgeChip(tile) + ' <span class="gb-why">'
+    + escapeHtml(tile.badgeWhy) + '</span></p>');
+
+  if (tile.checksSummary) {
+    parts.push('<p class="gb-checks">' + escapeHtml(tile.checksSummary) + '</p>');
+  }
+  if (tile.sourceCols && tile.sourceCols.length > 0) {
+    parts.push('<p class="gb-cols">Columns used: ' + escapeHtml(tile.sourceCols.join(', ')) + '</p>');
+  }
+
+  if (tile.sqlOrCode && tile.sqlOrCode.trim()) {
+    parts.push('<p class="gb-proof-label">The code that produced this number ('
+      + escapeHtml(tile.language) + ', run by ' + escapeHtml(tile.engine) + '):</p>');
+    parts.push('<pre class="gb-code"><code>' + escapeHtml(tile.sqlOrCode) + '</code></pre>');
+  } else {
+    parts.push('<p class="gb-proof-missing">This tile did not hand over the code that produced '
+      + 'it, so there is nothing to check here. Nothing has been reconstructed.</p>');
+  }
+
+  if (tile.problems && tile.problems.length > 0) {
+    parts.push('<ul class="gb-problems">');
+    for (let i = 0; i < tile.problems.length; i += 1) {
+      parts.push('<li>' + escapeHtml(tile.problems[i]) + '</li>');
+    }
+    parts.push('</ul>');
+  }
+
+  parts.push('</section>');
+  return parts.join('\n');
+}
+
+const GLOWBOOK_CSS = [
+  ':root{color-scheme:light dark}',
+  'body{margin:0;padding:24px;font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;',
+  'background:#0f1115;color:#e8ecf1}',
+  '.gb-wrap{max-width:900px;margin:0 auto}',
+  'h1{font-size:24px;margin:0 0 4px}',
+  '.gb-sub{color:#9aa4b2;margin:0 0 20px;font-size:14px}',
+  '.gb-tile{border:1px solid #232833;border-radius:12px;padding:16px;margin:0 0 16px;background:#151922}',
+  '.gb-tile-title{font-size:15px;font-weight:600;margin:0 0 6px;color:#9aa4b2}',
+  '.gb-value{font-size:30px;font-weight:700;margin:0 0 10px;letter-spacing:-.01em}',
+  '.gb-value-missing{font-size:15px;font-weight:400;color:#9aa4b2}',
+  '.gb-badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600}',
+  '.gb-badge-clear{background:#123524;color:#6ee7a8}',
+  '.gb-badge-caution{background:#3a3113;color:#f2cd6b}',
+  '.gb-badge-blocked{background:#3d1a1d;color:#f38a8a}',
+  '.gb-badge-unknown{background:#242a35;color:#9aa4b2}',
+  '.gb-why,.gb-checks,.gb-cols,.gb-proof-label{color:#9aa4b2;font-size:13px}',
+  '.gb-proof-missing{color:#f2cd6b;font-size:13px}',
+  '.gb-code{background:#0b0e13;border:1px solid #232833;border-radius:8px;padding:12px;overflow-x:auto;',
+  'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}',
+  '.gb-problems{color:#f2cd6b;font-size:13px;padding-left:18px}',
+  '.gb-note{border:1px solid #232833;border-radius:12px;padding:16px;margin:0 0 16px;background:#12151c}',
+  '.gb-note h2{font-size:14px;margin:0 0 8px}',
+  '.gb-note p,.gb-note li{font-size:13px;color:#9aa4b2;margin:0 0 6px}',
+  '.gb-fail{color:#f38a8a}',
+  '@media print{body{background:#fff;color:#111}.gb-tile,.gb-note{background:#fff;border-color:#ccc}',
+  '.gb-code{background:#f6f7f9;border-color:#ddd;color:#111}.gb-sub,.gb-why,.gb-checks{color:#555}}',
+].join('');
+
+/**
+ * The document. A string, deliberately: writing it to disk is the caller's job,
+ * and only after a person has said so.
+ *
+ * @param {ReturnType<typeof buildGlowbook>} model
+ * @returns {string} complete standalone HTML
+ */
+function renderGlowbookHTML(model) {
+  const m = isPlainObject(model) ? model : buildGlowbook(null, null);
+  const parts = [];
+
+  parts.push('<!DOCTYPE html>');
+  parts.push('<html lang="en"><head><meta charset="utf-8">');
+  parts.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
+  parts.push('<title>' + escapeHtml(m.title) + '</title>');
+  parts.push('<style>' + GLOWBOOK_CSS + '</style>');
+  parts.push('</head><body><div class="gb-wrap">');
+
+  parts.push('<h1>' + escapeHtml(m.title) + '</h1>');
+  const subBits = [];
+  if (m.datasetName) subBits.push(escapeHtml(m.datasetName));
+  subBits.push(escapeHtml(m.summary));
+  parts.push('<p class="gb-sub">' + subBits.join(' &middot; ') + '</p>');
+
+  if (m.empty || !m.tiles || m.tiles.length === 0) {
+    parts.push('<div class="gb-note"><h2>Nothing to show</h2><p>'
+      + 'This board had no tiles when it was exported, so this document carries no numbers. '
+      + 'That is deliberate: an empty board exports as empty rather than as a page of zeroes.'
+      + '</p></div>');
+  } else {
+    for (let i = 0; i < m.tiles.length; i += 1) parts.push(tileSection(m.tiles[i]));
+  }
+
+  const v = m.verification;
+  if (v && Array.isArray(v.checked)) {
+    parts.push('<div class="gb-note"><h2>Board checks</h2>');
+    parts.push('<p>' + escapeHtml(v.headline) + '</p><ul>');
+    for (let i = 0; i < v.checked.length; i += 1) {
+      const c = v.checked[i];
+      parts.push('<li' + (c.pass ? '' : ' class="gb-fail"') + '>'
+        + escapeHtml((c.pass ? 'Passed: ' : 'Did not pass: ') + c.what) + ' '
+        + escapeHtml(c.note) + '</li>');
+    }
+    parts.push('</ul>');
+    if (Array.isArray(v.cannotCheck) && v.cannotCheck.length > 0) {
+      parts.push('<p>What these checks do not cover:</p><ul>');
+      for (let i = 0; i < v.cannotCheck.length; i += 1) {
+        parts.push('<li>' + escapeHtml(v.cannotCheck[i]) + '</li>');
+      }
+      parts.push('</ul>');
+    }
+    parts.push('</div>');
+  }
+
+  if (m.trustLedgerSummary || (m.trustLedgerEntries && m.trustLedgerEntries.length > 0)) {
+    parts.push('<div class="gb-note"><h2>Trust Ledger</h2>');
+    if (m.trustLedgerSummary) parts.push('<p>' + escapeHtml(m.trustLedgerSummary) + '</p>');
+    if (m.trustLedgerEntries && m.trustLedgerEntries.length > 0) {
+      parts.push('<ul>');
+      for (let i = 0; i < m.trustLedgerEntries.length; i += 1) {
+        parts.push('<li>' + escapeHtml(m.trustLedgerEntries[i]) + '</li>');
+      }
+      parts.push('</ul>');
+    }
+    parts.push('</div>');
+  }
+
+  parts.push('<div class="gb-note"><h2>What this document is</h2>');
+  parts.push('<p>' + escapeHtml(m.disclaimer) + '</p>');
+  parts.push('<p>' + escapeHtml(m.notZeroKnowledge) + '</p>');
+  parts.push('</div>');
+
+  parts.push('</div></body></html>');
+  return parts.join('\n');
+}
+
+/** Filename plus payload, so the surface only has to hand it to a download. */
+function glowbookBlob(model, filenameStem) {
+  const stem = (typeof filenameStem === 'string' && filenameStem.trim())
+    ? filenameStem.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
+    : 'glowbook';
+  return {
+    data: renderGlowbookHTML(model),
+    filename: (stem || 'glowbook') + '.html',
+    mimeType: 'text/html;charset=utf-8',
+  };
+}
+  window.DataGlowGlowbook = {
+    GLOWBOOK_KIND: GLOWBOOK_KIND,
+    GLOWBOOK_VERSION: GLOWBOOK_VERSION,
+    GLOWBOOK_DISCLAIMER: GLOWBOOK_DISCLAIMER,
+    GLOWBOOK_NOT_ZK: GLOWBOOK_NOT_ZK,
+    escapeHtml: escapeHtml,
+    buildGlowbook: buildGlowbook,
+    renderGlowbookHTML: renderGlowbookHTML,
+    glowbookBlob: glowbookBlob,
+  };
+})();
+/* ---- end js/proofboard/glowbook.js ---- */
+/* ---- from js/proofboard/session-tiles.js ---- */
+;(function () {
+  'use strict';
+/**
+ * Real tiles from the dataset that is actually loaded.
+ *
+ * WHY THIS MODULE EXISTS AT ALL.
+ * The Proof Board could have shipped with a handful of illustrative tiles so the
+ * surface looks populated on first open. That is the single thing it must not
+ * do. A demo number on a board whose entire promise is "every number shows its
+ * work" is a number with a fabricated proof under it. So the board is built only
+ * from figures this module can compute from the rows in memory, and when there
+ * are no rows it returns an empty list and the surface shows its empty state.
+ *
+ * WHY EACH TILE CARRIES SQL IT DID NOT RUN.
+ * The counts here are computed in JavaScript over the rows in memory, because
+ * DataGlow does not require a query engine to be present. The SQL beside each
+ * one is the query that returns the same number, written so a person can take it
+ * to their own warehouse and check. That is the house pattern from Guided
+ * Unpivot: ship the proof and the transform, and let the tests assert the two
+ * agree. Every count in this file is therefore written twice, once as code and
+ * once as SQL, and test/proof-board.test.mjs pins them against each other.
+ *
+ * WHY THE BADGE IS USUALLY `unknown`.
+ * These tiles are arithmetic over the loaded rows. No gate has run on them, so
+ * they are marked not checked. When a validation result is present on the
+ * dataset the score tile carries it, and only that tile earns a real badge.
+ *
+ * Pure ES module: no DOM, no network.
+ */
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowProofBoard instead of imported.
+  var normalizeTile = window.DataGlowProofBoard.normalizeTile;
+/** Table name used in the generated SQL. Named once so every tile agrees. */
+const SQL_RELATION = 'your_table';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** A cell is blank when there is nothing in it to count. */
+function isBlank(v) {
+  return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+}
+
+/** Double-quote an identifier for the generated SQL. */
+function quoteIdent(name) {
+  return '"' + String(name === null || name === undefined ? '' : name).replace(/"/g, '""') + '"';
+}
+
+function columnNames(ds) {
+  if (!isPlainObject(ds) || !Array.isArray(ds.columns)) return [];
+  return ds.columns.map(function (c) {
+    if (typeof c === 'string') return c;
+    return isPlainObject(c) && typeof c.name === 'string' ? c.name : '';
+  });
+}
+
+/**
+ * Rows with no blank cell in any column.
+ * The SQL beside it is the same predicate, one IS NOT NULL per column.
+ */
+function countCompleteRows(rows, columnCount) {
+  if (!Array.isArray(rows)) return 0;
+  let n = 0;
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    let full = true;
+    for (let c = 0; c < columnCount; c += 1) {
+      if (isBlank(row[c])) { full = false; break; }
+    }
+    if (full) n += 1;
+  }
+  return n;
+}
+
+/** Blank cells per column, in column order. */
+function blanksByColumn(rows, columnCount) {
+  const out = [];
+  for (let c = 0; c < columnCount; c += 1) out.push(0);
+  if (!Array.isArray(rows)) return out;
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    for (let c = 0; c < columnCount; c += 1) {
+      if (isBlank(row[c])) out[c] += 1;
+    }
+  }
+  return out;
+}
+
+/** Distinct non-blank values in one column. */
+function countDistinct(rows, colIndex) {
+  if (!Array.isArray(rows)) return 0;
+  const seen = Object.create(null);
+  let n = 0;
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    const v = row[colIndex];
+    if (isBlank(v)) continue;
+    const key = String(v);
+    if (!seen[key]) { seen[key] = true; n += 1; }
+  }
+  return n;
+}
+
+/**
+ * Build the tiles. Returns [] when there is nothing real to show.
+ *
+ * @param {{name?:string, columns?:Array, rows?:Array, score?:number}} dataset
+ * @param {{fingerprint?:string, validationSummary?:string}} [opts]
+ * @returns {Array<object>} normalized tiles
+ */
+function tilesFromDataset(dataset, opts) {
+  const o = isPlainObject(opts) ? opts : {};
+  if (!isPlainObject(dataset)) return [];
+  const names = columnNames(dataset);
+  const rows = Array.isArray(dataset.rows) ? dataset.rows : [];
+  if (names.length === 0 || rows.length === 0) return [];
+
+  const fingerprint = typeof o.fingerprint === 'string' ? o.fingerprint : '';
+  const raw = [];
+
+  raw.push({
+    id: 'rows',
+    title: 'Rows loaded',
+    value: rows.length,
+    unit: 'rows',
+    language: 'sql',
+    engine: 'this device',
+    sqlOrCode: 'SELECT COUNT(*) AS rows_loaded\nFROM ' + SQL_RELATION + ';',
+    checksSummary: 'Counted from the rows held in memory on this device. Nothing was uploaded to '
+      + 'produce this number.',
+    datasetFingerprint: fingerprint,
+  });
+
+  const complete = countCompleteRows(rows, names.length);
+  const notNullPredicate = names.map(function (n) { return '  ' + quoteIdent(n) + ' IS NOT NULL'; })
+    .join('\n  AND ');
+  raw.push({
+    id: 'complete-rows',
+    title: 'Rows with no blank cell',
+    value: complete,
+    unit: 'of ' + rows.length,
+    language: 'sql',
+    engine: 'this device',
+    sqlOrCode: 'SELECT COUNT(*) AS complete_rows\nFROM ' + SQL_RELATION + '\nWHERE\n'
+      + notNullPredicate + ';',
+    checksSummary: complete === rows.length
+      ? 'Every row is complete across all ' + names.length + ' columns.'
+      : (rows.length - complete) + ' row(s) have at least one blank cell. A blank is counted as '
+        + 'blank and never as a zero.',
+    sourceCols: names.slice(),
+    datasetFingerprint: fingerprint,
+  });
+
+  const blanks = blanksByColumn(rows, names.length);
+  let worst = 0;
+  for (let i = 1; i < blanks.length; i += 1) if (blanks[i] > blanks[worst]) worst = i;
+  if (blanks[worst] > 0) {
+    raw.push({
+      id: 'emptiest-column',
+      title: 'Blank cells in ' + names[worst],
+      value: blanks[worst],
+      unit: 'of ' + rows.length,
+      language: 'sql',
+      engine: 'this device',
+      sqlOrCode: 'SELECT COUNT(*) AS blank_cells\nFROM ' + SQL_RELATION + '\nWHERE '
+        + quoteIdent(names[worst]) + ' IS NULL;',
+      checksSummary: 'The column with the most blanks. It is shown because a column that is mostly '
+        + 'empty makes every average taken over it smaller than it looks.',
+      sourceCols: [names[worst]],
+      datasetFingerprint: fingerprint,
+    });
+  }
+
+  const distinct = countDistinct(rows, 0);
+  raw.push({
+    id: 'distinct-first-column',
+    title: 'Distinct values in ' + names[0],
+    value: distinct,
+    unit: '',
+    language: 'sql',
+    engine: 'this device',
+    sqlOrCode: 'SELECT COUNT(DISTINCT ' + quoteIdent(names[0]) + ') AS distinct_values\nFROM '
+      + SQL_RELATION + '\nWHERE ' + quoteIdent(names[0]) + ' IS NOT NULL;',
+    checksSummary: distinct === rows.length
+      ? 'Every value in this column is different, so it behaves like a key.'
+      : 'Blank values are excluded from the count, the same way COUNT(DISTINCT) excludes NULL.',
+    sourceCols: [names[0]],
+    datasetFingerprint: fingerprint,
+  });
+
+  // Only real when the validation pass has actually run and left a score behind.
+  if (typeof dataset.score === 'number' && Number.isFinite(dataset.score)) {
+    raw.push({
+      id: 'health-score',
+      title: 'Data health score',
+      value: dataset.score,
+      unit: 'of 100',
+      language: 'text',
+      engine: 'DataGlow validation',
+      sqlOrCode: 'Computed by the DataGlow validation pass over this dataset on this device.\n'
+        + 'It is a summary of the checks that ran, not a query result, so there is no SQL\n'
+        + 'that reproduces it.',
+      gateBadge: dataset.score >= 80 ? 'clear' : (dataset.score >= 50 ? 'caution' : 'blocked'),
+      checksSummary: (typeof o.validationSummary === 'string' && o.validationSummary
+        ? o.validationSummary + ' '
+        : 'From the validation pass that has already run on this dataset. ')
+        + 'The badge bands that score: 80 and above reads as passed, 50 to 79 as passed with '
+        + 'cautions, below 50 as blocked. The band is a summary of a check that ran, not a '
+        + 'separate check.',
+      datasetFingerprint: fingerprint,
+    });
+  }
+
+  return raw.map(function (t, i) { return normalizeTile(t, i); });
+}
+  window.DataGlowProofBoardTiles = {
+    SQL_RELATION: SQL_RELATION,
+    isBlank: isBlank,
+    quoteIdent: quoteIdent,
+    countCompleteRows: countCompleteRows,
+    blanksByColumn: blanksByColumn,
+    countDistinct: countDistinct,
+    tilesFromDataset: tilesFromDataset,
+  };
+})();
+/* ---- end js/proofboard/session-tiles.js ---- */
+/* ---- from js/proofboard/coach-moments.js ---- */
+;(function () {
+  'use strict';
+/**
+ * Coach moments for the Proof Board: five short steps, as data.
+ *
+ * WHY THIS IS DATA AND NOT A TOUR LIBRARY.
+ * A tour is usually a framework: an overlay, a backdrop, a step machine and a
+ * scroll lock. All of that exists to hold attention, and holding attention is
+ * the wrong goal for a person who opened a panel because they had a job to do.
+ * These steps are a list of objects with a target element id. The surface points
+ * at the thing and says one sentence. Nothing is dimmed, nothing is blocked, and
+ * the panel stays fully usable with the strip open.
+ *
+ * WHY NO VIDEO.
+ * A video means an asset, an asset means a CDN, and a CDN means the page reaches
+ * the network. This product's whole claim is that it does not. Text next to the
+ * control it is describing also survives being read at 360px, which a 16:9 clip
+ * does not.
+ *
+ * WHY IT IS SEPARATE FROM js/flow/analyst-journey.js.
+ * That module owns the four moments of the whole-app journey: landing, the drop,
+ * the pulse read and the finish. Its moments are hard-coded to those points and
+ * it publishes no way to register more, so a panel cannot add a step to it
+ * without editing it. Rather than widen a working module to carry a second
+ * unrelated concern, these steps stay local to the board and are shaped the same
+ * way, so the two read as one product.
+ *
+ * Pure data plus small pure helpers. No DOM, no timers, no network.
+ */
+
+const COACH_KIND = 'dataglow-proof-board-coach';
+const COACH_VERSION = 1;
+
+/** Where the surface remembers that the strip was dismissed for good. */
+const COACH_SEEN_KEY = 'dataglow.proofBoard.coachSeen';
+
+/**
+ * The steps, in the order a person meets the surface.
+ *
+ * Each `target` is the id of a real element in the Proof Board panel. A step
+ * whose target is missing is skipped rather than pointed at nothing, which is
+ * what stepsForDom() below is for: a coach that highlights empty space is worse
+ * than a coach that stays quiet.
+ */
+const COACH_STEPS = Object.freeze([
+  Object.freeze({
+    id: 'what-this-is',
+    title: 'Every number here shows its work',
+    body: 'Each tile is one number with the query that produced it underneath. Nothing on this '
+      + 'board is typed in by hand.',
+    target: 'dg-pb-grid',
+  }),
+  Object.freeze({
+    id: 'show-the-work',
+    title: 'Open the proof',
+    body: 'Show the work opens the code that produced that tile, exactly as it ran. It is read '
+      + 'from the engine, never rewritten to look tidier.',
+    target: 'dg-pb-grid',
+  }),
+  Object.freeze({
+    id: 'badges-are-honest',
+    title: 'Not checked is not the same as passed',
+    body: 'A tile says Not checked when no gate has reported on it. It never turns green just '
+      + 'because nothing went wrong.',
+    target: 'dg-pb-grid',
+  }),
+  Object.freeze({
+    id: 'verify-board',
+    title: 'Verify the board',
+    body: 'This checks the board is well formed: every tile has its code, its value and a check '
+      + 'result. It does not re-run your queries, and it says so.',
+    target: 'dg-pb-verify',
+  }),
+  Object.freeze({
+    id: 'export-glowbook',
+    title: 'Take it with you',
+    body: 'Export Glowbook writes one HTML file to your device with every tile and every query '
+      + 'in it. It asks first, and it never uploads.',
+    target: 'dg-pb-export',
+  }),
+]);
+
+function isFn(v) {
+  return typeof v === 'function';
+}
+
+/**
+ * The steps whose target actually exists right now.
+ *
+ * @param {function(string):boolean} hasElement - id to presence. Injected so this
+ *   stays pure and Node-testable; the surface passes a document lookup.
+ */
+function stepsForDom(hasElement) {
+  if (!isFn(hasElement)) return COACH_STEPS.slice();
+  const out = [];
+  for (let i = 0; i < COACH_STEPS.length; i += 1) {
+    let present = false;
+    try {
+      present = hasElement(COACH_STEPS[i].target) === true;
+    } catch (_e) {
+      present = false;
+    }
+    if (present) out.push(COACH_STEPS[i]);
+  }
+  return out;
+}
+
+/** Bounded step index, so a stale click cannot walk off either end. */
+function clampStep(index, total) {
+  const n = Number.isFinite(total) ? total : COACH_STEPS.length;
+  if (n <= 0) return 0;
+  const i = Number.isFinite(index) ? Math.floor(index) : 0;
+  if (i < 0) return 0;
+  if (i > n - 1) return n - 1;
+  return i;
+}
+
+/**
+ * What the strip should show for a given position.
+ *
+ * @returns {{step:object, index:number, total:number, isFirst:boolean,
+ *   isLast:boolean, progress:string, nextLabel:string}|null}
+ */
+function coachStripModel(steps, index) {
+  const list = Array.isArray(steps) && steps.length > 0 ? steps : COACH_STEPS.slice();
+  if (list.length === 0) return null;
+  const i = clampStep(index, list.length);
+  const isLast = i === list.length - 1;
+  return {
+    step: list[i],
+    index: i,
+    total: list.length,
+    isFirst: i === 0,
+    isLast: isLast,
+    progress: (i + 1) + ' of ' + list.length,
+    nextLabel: isLast ? 'Done' : 'Next',
+  };
+}
+
+/**
+ * Whether to open the strip at all.
+ *
+ * Once dismissed it stays dismissed. A tip that returns every time the panel is
+ * opened stops being a tip and becomes an obstacle, and the person who most
+ * needs to get work done is the one who has opened the panel most often.
+ *
+ * @param {function(string):(string|null)} readFlag - storage reader, injected.
+ */
+function shouldShowCoach(readFlag, flagOn) {
+  if (flagOn === false) return false;
+  if (!isFn(readFlag)) return true;
+  let seen = null;
+  try {
+    seen = readFlag(COACH_SEEN_KEY);
+  } catch (_e) {
+    // Storage can be unavailable or refused. A coach strip is not worth failing
+    // a panel over, so an unreadable flag is treated as never seen.
+    return true;
+  }
+  return seen !== '1';
+}
+  window.DataGlowProofBoardCoach = {
+    COACH_KIND: COACH_KIND,
+    COACH_VERSION: COACH_VERSION,
+    COACH_SEEN_KEY: COACH_SEEN_KEY,
+    COACH_STEPS: COACH_STEPS,
+    stepsForDom: stepsForDom,
+    clampStep: clampStep,
+    coachStripModel: coachStripModel,
+    shouldShowCoach: shouldShowCoach,
+  };
+})();
+/* ---- end js/proofboard/coach-moments.js ---- */
+/* ---- from js/proofboard/data-glow-proof-board-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* Proof Board: several numbers on one surface, each with its query under it.
+
+     The pure engines own everything that can be decided without a screen:
+       window.DataGlowProofBoard       the tile model, the board, the verify pass
+       window.DataGlowProofBoardTiles  the tiles computed from the loaded rows
+       window.DataGlowGlowbook         the portable HTML document
+       window.DataGlowProofBoardCoach  the coach steps, as data
+     This module owns only what they cannot: the button, the panel, the grid,
+     and the two places a human has to say yes.
+
+     WHERE THE NUMBERS COME FROM. window.state.datasets[0], read at the moment
+     the panel is opened or refreshed. Every tile is arithmetic over those rows
+     done in JavaScript, with the equivalent SQL printed beside it. There is no
+     seed data, no sample board and no placeholder tile anywhere in this file:
+     with no dataset loaded the grid shows its empty state and one call to
+     action, because a board of illustrative numbers on a surface whose whole
+     promise is "every number shows its work" would be a fabricated proof.
+
+     THE TWO CONFIRMS. Export Glowbook asks before it writes a file, and Stamp
+     receipt asks before it appends a row to the Trust Ledger. Both use the
+     browser confirm, which is the only prompt on this page a person cannot
+     mistake for decoration.
+
+     WHAT IT DOES NOT REACH FOR. Portable receipts and the Proof Room are not
+     present in this build, so the controls that would compose them are
+     feature-detected and say why they are unavailable rather than appearing and
+     failing. The Trust Ledger is present, so the stamp path uses it and gets its
+     hash chain for free. No hashing or crypto is written here.
+
+     Styles are injected at runtime, matching the other canvas surfaces. */
+
+  var BTN_ID = 'dg-pb-btn';
+  var PANEL_ID = 'dg-pb-panel';
+  var STYLE_ID = 'dg-pb-styles';
+  var GRID_ID = 'dg-pb-grid';
+  var VERIFY_ID = 'dg-pb-verify';
+  var EXPORT_ID = 'dg-pb-export';
+  var COACH_ID = 'dg-pb-coach';
+
+  var _board = null;
+  var _coachIndex = 0;
+  var _coachSteps = [];
+
+  function boardEngine() { return window.DataGlowProofBoard || null; }
+  function tilesEngine() { return window.DataGlowProofBoardTiles || null; }
+  function glowbookEngine() { return window.DataGlowGlowbook || null; }
+  function coachEngine() { return window.DataGlowProofBoardCoach || null; }
+  function glassEngine() { return window.DataGlowGlassBoxEngine || null; }
+  function ledger() { return window.DataGlowTrustLedger || null; }
+
+  /* Same read as the other canvas surfaces: an explicit override wins, then a
+     flags provider when one is registered, and the absence of both means on. */
+  function flagOn() {
+    try { if (window.DATAGLOW_PROOF_BOARD === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_BOARD === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofBoard') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function coachFlagOn() {
+    try { if (window.DATAGLOW_PROOF_BOARD_COACH === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_BOARD_COACH === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofBoardCoach') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Proof Board]', msg);
+  }
+
+  /* The one prompt on this page a person cannot mistake for decoration. If the
+     browser has no confirm the answer is no, because a silent yes here would
+     write a file or a ledger row nobody asked for. */
+  function askHuman(question) {
+    try {
+      if (typeof window.confirm === 'function') return window.confirm(question) === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function activeDataset() {
+    if (typeof window.getActiveDataset === 'function') {
+      try { var d = window.getActiveDataset(); if (d) return d; } catch (_e) {}
+    }
+    if (window.state && window.state.datasets && window.state.datasets[0]) {
+      return window.state.datasets[0];
+    }
+    return null;
+  }
+
+  /* ------------------------------- styles --------------------------------- */
+
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = [
+      '#' + BTN_ID + '{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 12px;',
+      'border-radius:10px;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}',
+      '#' + BTN_ID + ':hover{color:var(--text,#E8EAED)}',
+      '#' + BTN_ID + ' .dg-pb-dot{width:7px;height:7px;border-radius:50%;background:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + '{position:fixed;top:0;right:0;bottom:0;width:min(720px,100%);z-index:12100;',
+      'display:none;flex-direction:column;background:var(--surface,#151820);',
+      'border-left:1px solid var(--border,#282D38);box-shadow:-18px 0 48px rgba(0,0,0,.45)}',
+      '#' + PANEL_ID + '.open{display:flex}',
+      '#' + PANEL_ID + ' .dg-pb-head{display:flex;align-items:flex-start;justify-content:space-between;',
+      'gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--border,#282D38)}',
+      '#' + PANEL_ID + ' .dg-pb-title{font-size:16px;font-weight:800;margin:0}',
+      '#' + PANEL_ID + ' .dg-pb-sum{font-size:12px;line-height:1.5;margin:4px 0 0;color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-pb-x{min-width:36px;min-height:36px;border-radius:9px;border:1px solid var(--border,#282D38);',
+      'background:transparent;color:var(--text-muted,#9AA1AE);font:inherit;font-size:15px;cursor:pointer}',
+      '#' + PANEL_ID + ' .dg-pb-scroll{flex:1 1 auto;overflow-y:auto;padding:14px 18px 22px;',
+      '-webkit-overflow-scrolling:touch}',
+      /* Two columns on a desktop panel, one everywhere narrower. A tile whose
+         query has wrapped to six lines beside a tile with a one-line query is
+         still readable; three columns is not. */
+      '#' + GRID_ID + '{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}',
+      '@media (max-width:900px){#' + GRID_ID + '{grid-template-columns:minmax(0,1fr)}}',
+      '.dg-pb-tile{border:1px solid var(--border,#282D38);border-radius:12px;padding:13px 14px;',
+      'background:var(--surface-2,var(--bg,#0E1015));min-width:0}',
+      '.dg-pb-tile-title{font-size:11.5px;font-weight:700;letter-spacing:.03em;margin:0;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-val{font-size:27px;font-weight:800;margin:5px 0 0;letter-spacing:-.01em;',
+      'color:var(--text,#E8EAED);word-break:break-word}',
+      '.dg-pb-val-none{font-size:13px;font-weight:600;color:var(--warn,#E3A34A)}',
+      '.dg-pb-badge{display:inline-block;margin:8px 0 0;padding:3px 9px;border-radius:999px;',
+      'font-size:10.5px;font-weight:700;border:1px solid var(--border,#282D38);color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-badge[data-b="clear"]{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '.dg-pb-badge[data-b="caution"]{border-color:var(--warn,#E3A34A);color:var(--warn,#E3A34A)}',
+      '.dg-pb-badge[data-b="blocked"]{border-color:var(--danger,#E5534B);color:var(--danger,#E5534B)}',
+      '.dg-pb-why{font-size:11.5px;line-height:1.5;margin:6px 0 0;color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-acts{display:flex;flex-wrap:wrap;gap:7px;margin:11px 0 0}',
+      '.dg-pb-btn{min-height:38px;padding:0 12px;border-radius:10px;font:inherit;font-size:12px;',
+      'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-btn:hover{color:var(--text,#E8EAED)}',
+      '.dg-pb-work{display:none;margin:11px 0 0;padding:11px 0 0;border-top:1px solid var(--border,#282D38)}',
+      '.dg-pb-tile.open .dg-pb-work{display:block}',
+      '.dg-pb-find{font-size:12.5px;line-height:1.55;margin:0;color:var(--text,#E8EAED)}',
+      '.dg-pb-detail{font-size:11.5px;line-height:1.55;margin:4px 0 0;color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-ran{font-size:11px;margin:9px 0 5px;color:var(--text-muted,#9AA1AE);letter-spacing:.03em}',
+      /* Wraps rather than scrolling sideways, so a phone is never trapped in a
+         horizontal scroll to read the query behind a number. */
+      'pre.dg-pb-src{margin:0;padding:10px 11px;border-radius:10px;max-height:300px;overflow-y:auto;',
+      'overflow-x:hidden;background:var(--bg,#0E1015);border:1px solid var(--border,#282D38);',
+      'font-family:var(--mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;',
+      'line-height:1.6;color:var(--text-secondary,#B4B8C0);white-space:pre-wrap;word-break:break-word}',
+      '.dg-pb-note{font-size:11px;line-height:1.5;margin:9px 0 0;color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-problem{font-size:11.5px;line-height:1.5;margin:6px 0 0;color:var(--warn,#E3A34A)}',
+      '.dg-pb-empty{border:1px dashed var(--border,#282D38);border-radius:12px;padding:22px 18px;text-align:center}',
+      '.dg-pb-empty h3{font-size:14px;font-weight:700;margin:0 0 6px;color:var(--text,#E8EAED)}',
+      '.dg-pb-empty p{font-size:12.5px;line-height:1.55;margin:0;color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-pb-bar{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;',
+      'border-top:1px solid var(--border,#282D38);background:var(--surface,#151820)}',
+      '#' + PANEL_ID + ' .dg-pb-foot{font-size:11px;line-height:1.5;padding:0 18px 14px;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-verdict{border:1px solid var(--border,#282D38);border-radius:12px;padding:12px 13px;',
+      'margin:14px 0 0;background:var(--surface-2,var(--bg,#0E1015))}',
+      '.dg-pb-verdict h4{font-size:12.5px;font-weight:700;margin:0 0 6px;color:var(--text,#E8EAED)}',
+      '.dg-pb-verdict ul{margin:6px 0 0;padding-left:18px}',
+      '.dg-pb-verdict li{font-size:11.5px;line-height:1.55;color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-verdict li[data-pass="no"]{color:var(--danger,#E5534B)}',
+      /* The coach strip sits in the flow above the grid. Nothing is dimmed and
+         nothing is blocked, so the panel stays fully usable with it open. */
+      '#' + COACH_ID + '{border:1px solid var(--primary,#20C5B5);border-radius:12px;padding:12px 13px;',
+      'margin:0 0 13px;background:var(--surface-2,var(--bg,#0E1015))}',
+      '#' + COACH_ID + '[hidden]{display:none}',
+      '#' + COACH_ID + ' .dg-pb-coach-step{font-size:10.5px;font-weight:700;letter-spacing:.04em;',
+      'margin:0;color:var(--primary,#20C5B5)}',
+      '#' + COACH_ID + ' h4{font-size:13px;font-weight:700;margin:4px 0 0;color:var(--text,#E8EAED)}',
+      '#' + COACH_ID + ' p{font-size:12px;line-height:1.55;margin:4px 0 0;color:var(--text-muted,#9AA1AE)}',
+      '.dg-pb-spot{outline:2px solid var(--primary,#20C5B5);outline-offset:3px;border-radius:12px}',
+      '@media (max-width:700px){',
+      '#' + PANEL_ID + ' .dg-pb-bar .dg-pb-btn{flex:1 1 100%;min-height:44px}',
+      '.dg-pb-btn{min-height:44px}',
+      '.dg-pb-val{font-size:24px}',
+      'pre.dg-pb-src{max-height:220px;font-size:11px}',
+      '}'
+    ].join('');
+    var el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  /* ------------------------------ the board ------------------------------- */
+
+  function buildBoard() {
+    var be = boardEngine();
+    var te = tilesEngine();
+    if (!be) return null;
+    var ds = activeDataset();
+    var rows = (ds && Array.isArray(ds.rows)) ? ds.rows : [];
+    var cols = (ds && Array.isArray(ds.columns)) ? ds.columns : [];
+    var fingerprint = (ds && typeof ds.fingerprint === 'string') ? ds.fingerprint : '';
+    var tiles = (te && ds) ? te.tilesFromDataset(ds, { fingerprint: fingerprint }) : [];
+    var l = ledger();
+    var summary = '';
+    try {
+      if (l && typeof l.size === 'function') {
+        var n = l.size();
+        summary = n === 1
+          ? '1 event was recorded on the Trust Ledger this session.'
+          : n + ' events were recorded on the Trust Ledger this session.';
+      }
+    } catch (_e) {}
+    _board = be.buildProofBoard(tiles, {
+      datasetName: (ds && ds.name) || '',
+      datasetFingerprint: fingerprint,
+      rowCount: rows.length,
+      columnCount: cols.length,
+      generatedAt: Date.now(),
+      trustLedgerSummary: summary
+    });
+    return _board;
+  }
+
+  /* --------------------------- rendering tiles ----------------------------- */
+
+  function tileHTML(tile) {
+    var h = '';
+    h += '<article class="dg-pb-tile" data-tile="' + esc(tile.id) + '">';
+    h += '<h3 class="dg-pb-tile-title">' + esc(tile.title || tile.id) + '</h3>';
+    if (tile.valueText) {
+      h += '<p class="dg-pb-val">' + esc(tile.valueText) + '</p>';
+    } else {
+      h += '<p class="dg-pb-val dg-pb-val-none">No value arrived for this tile. '
+        + 'It is left empty rather than shown as a zero.</p>';
+    }
+    h += '<span class="dg-pb-badge" data-b="' + esc(tile.gateBadge) + '">'
+      + esc(tile.badgeLabel) + '</span>';
+    h += '<p class="dg-pb-why">' + esc(tile.badgeWhy) + '</p>';
+    for (var p = 0; p < tile.problems.length; p++) {
+      h += '<p class="dg-pb-problem">' + esc(tile.problems[p]) + '</p>';
+    }
+    h += '<div class="dg-pb-acts">';
+    h += '<button type="button" class="dg-pb-btn" data-pb-work="' + esc(tile.id) + '"'
+      + ' aria-expanded="false">Show the work</button>';
+    if (ledger()) {
+      h += '<button type="button" class="dg-pb-btn" data-pb-stamp="' + esc(tile.id) + '">'
+        + 'Stamp receipt</button>';
+    }
+    h += '</div>';
+    h += '<div class="dg-pb-work" data-pb-workbody="' + esc(tile.id) + '"></div>';
+    h += '</article>';
+    return h;
+  }
+
+  /* The proof under a tile is the GlassBox model, built by the shared engine so
+     it renders here exactly as it does under a SQL result. When that engine is
+     absent the tile still shows its query, because the query is the point. */
+  function renderWork(tile, host) {
+    var be = boardEngine();
+    var ge = glassEngine();
+    var h = '';
+    if (be && ge) {
+      var model = be.buildTileGlassBox(tile, ge.buildGlassBox);
+      h += '<p class="dg-pb-find">' + esc(model.finding.headline) + '</p>';
+      if (model.finding.detail) {
+        h += '<p class="dg-pb-detail">' + esc(model.finding.detail) + '</p>';
+      }
+      if (model.math.available) {
+        var ran = 'Ran by ' + model.math.engine;
+        if (model.math.truncated) {
+          ran += '. Showing the first ' + model.math.shownLines + ' of ' + model.math.lineCount + ' lines';
+        }
+        h += '<p class="dg-pb-ran">' + esc(ran) + '</p>';
+        h += '<pre class="dg-pb-src">' + esc(model.math.source) + '</pre>';
+      }
+      for (var i = 0; i < model.missing.length; i++) {
+        h += '<p class="dg-pb-note">' + esc(model.missing[i].why) + '</p>';
+      }
+      h += '<p class="dg-pb-note">' + esc(model.disclaimer) + '</p>';
+    } else {
+      h += '<p class="dg-pb-find">' + esc(tile.title || tile.id)
+        + (tile.valueText ? ': ' + esc(tile.valueText) : '') + '</p>';
+      if (tile.sqlOrCode) {
+        h += '<p class="dg-pb-ran">Ran by ' + esc(tile.engine) + '</p>';
+        h += '<pre class="dg-pb-src">' + esc(tile.sqlOrCode) + '</pre>';
+      }
+      h += '<p class="dg-pb-note">The shared proof panel is unavailable in this build, so the '
+        + 'query is shown on its own. Nothing has been reconstructed.</p>';
+    }
+    host.innerHTML = h;
+  }
+
+  function tileById(id) {
+    if (!_board || !Array.isArray(_board.tiles)) return null;
+    for (var i = 0; i < _board.tiles.length; i++) {
+      if (_board.tiles[i].id === id) return _board.tiles[i];
+    }
+    return null;
+  }
+
+  function toggleWork(id) {
+    var tile = tileById(id);
+    var art = document.querySelector('[data-tile="' + id + '"]');
+    if (!tile || !art) return false;
+    var btn = art.querySelector('[data-pb-work]');
+    if (art.classList.contains('open')) {
+      art.classList.remove('open');
+      if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.textContent = 'Show the work'; }
+      return false;
+    }
+    renderWork(tile, art.querySelector('[data-pb-workbody]'));
+    art.classList.add('open');
+    if (btn) { btn.setAttribute('aria-expanded', 'true'); btn.textContent = 'Hide the work'; }
+    return true;
+  }
+
+  /* A stamp is a Trust Ledger row carrying the claim, nothing more. The hash
+     chain is the ledger's, and this bundle writes no crypto of its own. */
+  function stampTile(id) {
+    var be = boardEngine();
+    var l = ledger();
+    var tile = tileById(id);
+    if (!be || !l || !tile) { toast('There is nothing to stamp', 'error'); return null; }
+    var claim = be.tileReceiptClaim(tile, _board);
+    var ok = askHuman('Record this number on the Trust Ledger for this session?\n\n'
+      + claim.claim.statement + '\n\n'
+      + 'The row stays on this device and is not uploaded. It is a record of what was '
+      + 'computed, not a certification.');
+    if (!ok) { toast('Nothing was recorded'); return null; }
+    try {
+      l.record({
+        kind: 'claim-stamped',
+        subject: claim.claim.label,
+        summary: claim.claim.statement + ' Check result at the time: ' + tile.badgeLabel + '.',
+        actor: 'proof-board',
+        outcome: 'recorded',
+        detail: {
+          value: claim.claim.value,
+          gateBadge: tile.gateBadge,
+          language: tile.language,
+          datasetFingerprint: claim.datasetFingerprint
+        }
+      });
+    } catch (_e) {
+      toast('Could not record the row', 'error');
+      return null;
+    }
+    toast('Recorded on the Trust Ledger');
+    return claim;
+  }
+
+  /* ------------------------------ board acts ------------------------------- */
+
+  function verifyNow() {
+    var be = boardEngine();
+    if (!be || !_board) return null;
+    var v = be.verifyBoard(_board);
+    var host = document.getElementById('dg-pb-verdict');
+    if (host) {
+      var h = '<h4>' + esc(v.headline) + '</h4><ul>';
+      for (var i = 0; i < v.checked.length; i++) {
+        var c = v.checked[i];
+        h += '<li data-pass="' + (c.pass ? 'yes' : 'no') + '">'
+          + esc((c.pass ? 'Passed: ' : 'Did not pass: ') + c.what + ' ' + c.note) + '</li>';
+      }
+      h += '</ul><p class="dg-pb-note">What this pass does not cover:</p><ul>';
+      for (var j = 0; j < v.cannotCheck.length; j++) {
+        h += '<li>' + esc(v.cannotCheck[j]) + '</li>';
+      }
+      h += '</ul>';
+      host.innerHTML = h;
+      host.hidden = false;
+    }
+    return v;
+  }
+
+  function ledgerEntryLines() {
+    var l = ledger();
+    var out = [];
+    try {
+      if (!l || typeof l.getEntries !== 'function') return out;
+      var rows = l.getEntries() || [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i] || {};
+        out.push(String(r.kind || 'event') + ': ' + String(r.summary || ''));
+      }
+    } catch (_e) {}
+    return out;
+  }
+
+  /* Writes one file, and only after a person has said yes. No network, no
+     auto-export, and no upload anywhere in this path. */
+  function exportGlowbook() {
+    var gb = glowbookEngine();
+    if (!gb || !_board) { toast('There is no board to export', 'error'); return null; }
+    var tileCount = _board.tiles.length;
+    var ok = askHuman('Write this board to one HTML file on this device?\n\n'
+      + 'It will contain all ' + tileCount + ' tile(s), every number and every query behind them. '
+      + 'Anyone you send the file to can read all of it.\n\n'
+      + 'Nothing is uploaded. The file is written to your downloads.');
+    if (!ok) { toast('Nothing was exported'); return null; }
+    var model = gb.buildGlowbook(_board, {
+      title: _board.datasetName ? 'Proof Board for ' + _board.datasetName : 'Proof Board',
+      generatedAt: Date.now(),
+      trustLedgerSummary: _board.trustLedgerSummary,
+      trustLedgerEntries: ledgerEntryLines()
+    });
+    var blob = gb.glowbookBlob(model, _board.datasetName
+      ? 'glowbook-' + _board.datasetName
+      : 'glowbook');
+    var url = '';
+    try {
+      url = URL.createObjectURL(new Blob([blob.data], { type: blob.mimeType }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = blob.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (_err) {
+      if (url) URL.revokeObjectURL(url);
+      toast('Could not write the file', 'error');
+      return null;
+    }
+    setTimeout(function () { if (url) URL.revokeObjectURL(url); }, 1000);
+    try {
+      document.dispatchEvent(new CustomEvent('dataglow:export-triggered', {
+        detail: { format: 'glowbook', rows: tileCount }
+      }));
+    } catch (_e2) {}
+    toast('Saved ' + blob.filename + ' to this device');
+    return { filename: blob.filename, bytes: blob.data.length };
+  }
+
+  /* ------------------------------- the coach ------------------------------- */
+
+  function readFlag(key) {
+    try { return window.localStorage.getItem(key); } catch (_e) { return null; }
+  }
+
+  function writeSeen() {
+    var ce = coachEngine();
+    if (!ce) return;
+    try { window.localStorage.setItem(ce.COACH_SEEN_KEY, '1'); } catch (_e) {}
+  }
+
+  function clearSpotlight() {
+    var lit = document.querySelectorAll('.dg-pb-spot');
+    for (var i = 0; i < lit.length; i++) lit[i].classList.remove('dg-pb-spot');
+  }
+
+  function renderCoach() {
+    var ce = coachEngine();
+    var strip = document.getElementById(COACH_ID);
+    if (!ce || !strip) return;
+    var m = ce.coachStripModel(_coachSteps, _coachIndex);
+    if (!m) { strip.hidden = true; return; }
+    strip.hidden = false;
+    strip.innerHTML =
+      '<p class="dg-pb-coach-step">' + esc(m.progress) + '</p>'
+      + '<h4>' + esc(m.step.title) + '</h4>'
+      + '<p>' + esc(m.step.body) + '</p>'
+      + '<div class="dg-pb-acts">'
+      + (m.isFirst ? '' : '<button type="button" class="dg-pb-btn" data-pb-coach="back">Back</button>')
+      + '<button type="button" class="dg-pb-btn" data-pb-coach="next">' + esc(m.nextLabel) + '</button>'
+      + '<button type="button" class="dg-pb-btn" data-pb-coach="dismiss">Dismiss these tips</button>'
+      + '</div>';
+    clearSpotlight();
+    var target = document.getElementById(m.step.target);
+    if (target) target.classList.add('dg-pb-spot');
+  }
+
+  function closeCoach(remember) {
+    var strip = document.getElementById(COACH_ID);
+    if (strip) strip.hidden = true;
+    clearSpotlight();
+    if (remember) writeSeen();
+  }
+
+  function coachAction(what) {
+    var ce = coachEngine();
+    if (!ce) return;
+    if (what === 'dismiss') { closeCoach(true); return; }
+    if (what === 'back') { _coachIndex = ce.clampStep(_coachIndex - 1, _coachSteps.length); renderCoach(); return; }
+    if (_coachIndex >= _coachSteps.length - 1) { closeCoach(true); return; }
+    _coachIndex = ce.clampStep(_coachIndex + 1, _coachSteps.length);
+    renderCoach();
+  }
+
+  function maybeStartCoach() {
+    var ce = coachEngine();
+    var strip = document.getElementById(COACH_ID);
+    if (!ce || !strip) return;
+    if (!ce.shouldShowCoach(readFlag, coachFlagOn())) { strip.hidden = true; return; }
+    _coachSteps = ce.stepsForDom(function (id) { return !!document.getElementById(id); });
+    if (_coachSteps.length === 0) { strip.hidden = true; return; }
+    _coachIndex = 0;
+    renderCoach();
+  }
+
+  /* ------------------------------ the panel -------------------------------- */
+
+  function renderPanel() {
+    var be = boardEngine();
+    var board = buildBoard();
+    var sum = document.getElementById('dg-pb-sum');
+    if (sum && be) sum.textContent = be.summarizeBoard(board);
+
+    var grid = document.getElementById(GRID_ID);
+    if (!grid) return;
+    if (!board || board.empty) {
+      var state = (board && board.emptyState) || {
+        headline: 'No data is loaded, so there is nothing to prove yet.',
+        cta: 'Load a file to build a board from real numbers.'
+      };
+      grid.innerHTML = '<div class="dg-pb-empty"><h3>' + esc(state.headline) + '</h3>'
+        + '<p>' + esc(state.cta) + '</p></div>';
+      grid.style.gridTemplateColumns = 'minmax(0,1fr)';
+    } else {
+      var h = '';
+      for (var i = 0; i < board.tiles.length; i++) h += tileHTML(board.tiles[i]);
+      grid.innerHTML = h;
+      grid.style.gridTemplateColumns = '';
+    }
+    var verdict = document.getElementById('dg-pb-verdict');
+    if (verdict) { verdict.hidden = true; verdict.innerHTML = ''; }
+  }
+
+  function ensurePanel() {
+    if (document.getElementById(PANEL_ID)) return document.getElementById(PANEL_ID);
+    ensureStyles();
+    var panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Proof Board');
+
+    var links = '';
+    /* Feature-detected rather than assumed. A link to a surface that is not in
+       this build would be a dead end wearing a working button. */
+    if (window.DataGlowTrustLedger) {
+      links += '<button type="button" class="dg-pb-btn" data-pb-open="ledger">Open the Trust Ledger</button>';
+    }
+    if (window.DataGlowProofRoom) {
+      links += '<button type="button" class="dg-pb-btn" data-pb-open="proofroom">Open the Proof Room</button>';
+    }
+
+    panel.innerHTML =
+      '<div class="dg-pb-head">'
+        + '<div><h2 class="dg-pb-title">Proof Board</h2>'
+        + '<p class="dg-pb-sum" id="dg-pb-sum">Reading the loaded rows.</p></div>'
+        + '<button type="button" class="dg-pb-x" data-pb-close aria-label="Close the Proof Board">&#10005;</button>'
+      + '</div>'
+      + '<div class="dg-pb-scroll">'
+        + '<div id="' + COACH_ID + '" hidden></div>'
+        + '<div id="' + GRID_ID + '"></div>'
+        + '<div class="dg-pb-verdict" id="dg-pb-verdict" hidden></div>'
+      + '</div>'
+      + '<div class="dg-pb-bar">'
+        + '<button type="button" class="dg-pb-btn" id="' + VERIFY_ID + '">Verify board</button>'
+        + '<button type="button" class="dg-pb-btn" id="' + EXPORT_ID + '">Export Glowbook</button>'
+        + '<button type="button" class="dg-pb-btn" data-pb-refresh>Rebuild from the data</button>'
+        + links
+      + '</div>'
+      + '<p class="dg-pb-foot">'
+        + esc((boardEngine() && boardEngine().PROOF_BOARD_DISCLAIMER)
+          || 'This board shows the code that produced each number.')
+      + '</p>';
+
+    panel.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (!t || typeof t.getAttribute !== 'function') return;
+      if (t.hasAttribute('data-pb-close')) { closePanel(); return; }
+      if (t.hasAttribute('data-pb-refresh')) { renderPanel(); toast('The board was rebuilt from the loaded rows'); return; }
+      if (t.id === VERIFY_ID) { verifyNow(); return; }
+      if (t.id === EXPORT_ID) { exportGlowbook(); return; }
+      var work = t.getAttribute('data-pb-work');
+      if (work) { toggleWork(work); return; }
+      var stamp = t.getAttribute('data-pb-stamp');
+      if (stamp) { stampTile(stamp); return; }
+      var coach = t.getAttribute('data-pb-coach');
+      if (coach) { coachAction(coach); return; }
+      var open = t.getAttribute('data-pb-open');
+      if (open === 'ledger' && window.DataGlowTrustLedger
+        && typeof window.DataGlowTrustLedger.open === 'function') {
+        window.DataGlowTrustLedger.open();
+        return;
+      }
+      if (open === 'proofroom' && window.DataGlowProofRoom
+        && typeof window.DataGlowProofRoom.open === 'function') {
+        window.DataGlowProofRoom.open();
+      }
+    });
+
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    var panel = ensurePanel();
+    if (!panel) return false;
+    panel.classList.add('open');
+    renderPanel();
+    maybeStartCoach();
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+    clearSpotlight();
+    return true;
+  }
+
+  /* ------------------------------- mounting -------------------------------- */
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open the Proof Board');
+    btn.title = 'Proof Board . every number with the query under it';
+    btn.innerHTML = '<span class="dg-pb-dot" aria-hidden="true"></span><span>Proof</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    /* Beside the Trust Ledger, so the whole "can I trust this" row stays
+       together. Falls back the same way the other surfaces do. */
+    var anchor = document.getElementById('dg-trust-ledger-btn')
+      || document.getElementById('dg-air-gap-btn')
+      || document.getElementById('dg-shield-packs-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '404px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '404px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    var mounted = false;
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      mounted = true;
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+
+    /* Published whether or not the surface mounted, matching the other canvas
+       surfaces: a caller can build a board without needing a panel to exist.
+       With the flag off nothing mounted, so open() is the only way in and the
+       button and panel are absent from the page. */
+    window.DataGlowProofBoardUI = {
+      version: 1,
+      mounted: mounted,
+      open: openPanel,
+      close: closePanel,
+      isOpen: isOpen,
+      refresh: renderPanel,
+      board: function () { return _board; },
+      build: buildBoard,
+      verify: verifyNow,
+      exportGlowbook: exportGlowbook,
+      stamp: stampTile,
+      showWork: toggleWork,
+      coach: {
+        start: maybeStartCoach,
+        step: function () { return _coachIndex; },
+        steps: function () { return _coachSteps.slice(); },
+        dismiss: function () { closeCoach(true); }
+      }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 900); });
+  } else {
+    setTimeout(boot, 900);
+  }
+})();
+/* ---- end js/proofboard/data-glow-proof-board-canvas.js ---- */
+
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;
     var bar = document.getElementById('dg-pwa-install-bar');

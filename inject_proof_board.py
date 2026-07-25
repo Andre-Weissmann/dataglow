@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Inline the js/proofboard/ Proof Board into canvas/index.html.
+
+Five files go in right before window.addEventListener('appinstalled', so they
+boot with the other canvas surfaces:
+
+  js/proofboard/proof-board.js                    board + tile engine, ESM -> IIFE
+  js/proofboard/glowbook.js                       portable export,     ESM -> IIFE
+  js/proofboard/session-tiles.js                  tiles from the rows, ESM -> IIFE
+  js/proofboard/coach-moments.js                  coach steps as data, ESM -> IIFE
+  js/proofboard/data-glow-proof-board-canvas.js   canvas UI, already an IIFE
+
+WHY THE IMPORTS ARE REWRITTEN RATHER THAN STRIPPED.
+The canvas has no module scope: it is one big inline script, so an `import`
+statement in it is a syntax error. Each import block is rewritten into a read off
+the window namespace the imported module already publishes, and the modules are
+injected in dependency order so that object exists by the time the next one runs.
+
+The rewrite is checked rather than trusted. Every name a module imports must be a
+key of the source module's own namespace object, and the key list is read from the
+source rather than hand-written here, so a module that starts importing a new
+helper fails this script instead of failing silently in the browser with an
+undefined function. That is the failure mode worth guarding: a stripped import
+produces a page that parses fine and throws only when someone clicks.
+
+WHY THE GLASS BOX IS AN ALLOWED IMPORT AND NOTHING ELSE IS.
+js/glassbox/glass-box.js is already inlined in the canvas and publishes
+window.DataGlowGlassBoxEngine, so proof-board.js can read it there. Its `export
+const` is named DataGlowGlassBox while the window name is DataGlowGlassBoxEngine,
+which is why ALLOWED carries both names rather than assuming they match. Any
+import this script does not know about is refused outright rather than dropped.
+
+No CSS block: the UI injects its own inline styles at runtime, the way the
+surfaces it mounts beside already do.
+
+Idempotent: re-running after a source edit re-syncs the spans instead of
+appending a second copy.
+"""
+import hashlib
+import re
+import sys
+
+CANVAS = 'canvas/index.html'
+
+# import specifier -> (source file holding the `export const`, its export name,
+#                      the window name it is published under in the canvas)
+ALLOWED = {
+    '../glassbox/glass-box.js': (
+        'js/glassbox/glass-box.js', 'DataGlowGlassBox', 'DataGlowGlassBoxEngine',
+    ),
+    './proof-board.js': (
+        'js/proofboard/proof-board.js', 'DataGlowProofBoard', 'DataGlowProofBoard',
+    ),
+}
+
+# Dependency order. (source path, window namespace == the module's `export const`)
+ENGINES = [
+    ('js/proofboard/proof-board.js', 'DataGlowProofBoard'),
+    ('js/proofboard/glowbook.js', 'DataGlowGlowbook'),
+    ('js/proofboard/session-tiles.js', 'DataGlowProofBoardTiles'),
+    ('js/proofboard/coach-moments.js', 'DataGlowProofBoardCoach'),
+]
+
+UIS = ['js/proofboard/data-glow-proof-board-canvas.js']
+
+IMPORT_RE = re.compile(
+    r"^import\s*\{([^}]*)\}\s*from\s*'([^']+)';\s*$",
+    flags=re.M | re.S,
+)
+
+ANY_IMPORT_RE = re.compile(r'^\s*import\b', flags=re.M)
+
+
+def read(p):
+    return open(p, encoding='utf-8', errors='replace').read()
+
+
+def marks(path):
+    return ('/* ---- from %s ---- */' % path, '/* ---- end %s ---- */' % path)
+
+
+def namespace_keys(src, ns_name, path):
+    """The key list of the module's own `export const <ns> = { ... };`.
+
+    Read from the source so it cannot fall behind when the module gains a
+    function, which is the same reason inject_transforms.py does it this way.
+    """
+    _head, sep, tail = src.partition('export const %s = {' % ns_name)
+    if not sep:
+        sys.exit('%s: namespace `export const %s` not found' % (path, ns_name))
+    keys = re.findall(r'^\s{2}([A-Za-z_$][\w$]*),\s*$', tail.split('};')[0], flags=re.M)
+    if not keys:
+        sys.exit('%s: could not read the namespace key list' % path)
+    return keys
+
+
+def build_engine_iife(path, ns_name):
+    src = read(path)
+    keys = namespace_keys(src, ns_name, path)
+    head = src.partition('export const %s = {' % ns_name)[0]
+
+    reads = []
+
+    def rewrite(m):
+        names = [n.strip() for n in m.group(1).split(',') if n.strip()]
+        spec = m.group(2)
+        if spec not in ALLOWED:
+            sys.exit('%s: refusing to rewrite an import from %s. Add it to ALLOWED with the\n'
+                     '  window name it is published under, or move the helper.' % (path, spec))
+        src_file, src_ns, win_ns = ALLOWED[spec]
+        avail = namespace_keys(read(src_file), src_ns, src_file)
+        missing = [n for n in names if n not in avail]
+        if missing:
+            sys.exit('%s: imports names %s does not publish on its namespace: %s'
+                     % (path, src_file, ', '.join(missing)))
+        reads.append(win_ns)
+        return ('  // Inlined build: no module scope in the canvas, so this is read off\n'
+                '  // window.%s instead of imported.\n' % win_ns
+                + '  var ' + ', '.join('%s = window.%s.%s' % (n, win_ns, n) for n in names) + ';')
+
+    body = IMPORT_RE.sub(rewrite, head)
+    body = re.sub(r'^export (const|function|async function|class|let) ', r'\1 ', body, flags=re.M)
+    if ANY_IMPORT_RE.search(body) or re.search(r'^\s*export\b', body, flags=re.M):
+        sys.exit('%s: an export or import survived the rewrite' % path)
+
+    start, end = marks(path)
+    return (
+        start + '\n'
+        + ';(function () {\n'
+        + "  'use strict';\n"
+        + body.rstrip('\n') + '\n'
+        + '  window.%s = {\n' % ns_name
+        + ''.join('    %s: %s,\n' % (k, k) for k in keys)
+        + '  };\n'
+        + '})();\n'
+        + end + '\n'
+    )
+
+
+def splice(data, path, block):
+    """Replace an existing from/end span, or return None if it is not inlined."""
+    start, end = marks(path)
+    i = data.find(start)
+    if i == -1:
+        return None
+    j = data.find(end, i)
+    if j == -1:
+        sys.exit('%s: opening marker with no closing marker in the canvas' % path)
+    return data[:i] + block.rstrip('\n') + data[j + len(end):]
+
+
+def guard(block):
+    # A literal </script> anywhere in the block would end the canvas's one big
+    # inline <script> early and truncate the page.
+    if '</script>' in block:
+        sys.exit('Refusing to inject: the block contains a literal </script>.')
+    # Bundle 9 ships plain-language product text, generated SQL and an exported
+    # HTML document. An em dash in any of them is a hard rule violation, and this
+    # is the last gate before it reaches the shipped page.
+    if '—' in block:
+        sys.exit('Refusing to inject: the block contains an em dash (U+2014).')
+    # A raw control byte inside the one big inline script is invisible in review
+    # and painful to diagnose. Sentinels belong in the source as \\u escapes.
+    bad = [ord(c) for c in block if ord(c) < 32 and c not in '\t\n\r']
+    if bad:
+        sys.exit('Refusing to inject: the block contains control characters %s.' % sorted(set(bad)))
+
+
+def main():
+    data = read(CANVAS)
+    before = len(data)
+
+    # The Glowbook document is written as a string of HTML, including a
+    # `<style>` block. A `</style>` in the canvas is harmless inside a script,
+    # but a stray `</script>` is not, and guard() covers that. This assertion
+    # only checks that the engine we depend on is actually present first.
+    if '/* ---- from js/glassbox/glass-box.js ---- */' not in data:
+        sys.exit('canvas: js/glassbox/glass-box.js is not inlined, so the Proof Board would\n'
+                 '  read window.DataGlowGlassBoxEngine and find nothing.')
+
+    new_blocks = []
+    resynced = []
+
+    for path, ns_name in ENGINES:
+        block = build_engine_iife(path, ns_name)
+        guard(block)
+        spliced = splice(data, path, block)
+        if spliced is None:
+            new_blocks.append(block)
+        else:
+            data = spliced
+            resynced.append(path)
+
+    for path in UIS:
+        block = read(path).rstrip('\n') + '\n'
+        guard(block)
+        start, _ = marks(path)
+        if start not in block:
+            sys.exit('%s: expected the file to carry its own from marker' % path)
+        spliced = splice(data, path, block)
+        if spliced is None:
+            new_blocks.append(block)
+        else:
+            data = spliced
+            resynced.append(path)
+
+    if new_blocks:
+        anchor = "window.addEventListener('appinstalled'"
+        idx = data.find(anchor)
+        if idx == -1:
+            sys.exit('Script anchor not found')
+        added = '\n'.join(b.rstrip('\n') for b in new_blocks) + '\n\n'
+        data = data[:idx] + added + data[idx:]
+
+    open(CANVAS, 'w', encoding='utf-8').write(data)
+
+    for p in resynced:
+        print('re-synced  %s' % p)
+    for b in new_blocks:
+        print('injected   %s' % b.split(' ---- ')[1].replace('from ', ''))
+    print('canvas %d -> %d chars (%+d)' % (before, len(data), len(data) - before))
+    print('sha256(canvas) = %s' % hashlib.sha256(data.encode('utf-8')).hexdigest()[:16])
+    print('\nNext: node --check the inline script, then')
+    print('      npm run check:canvas-integrity -- --update')
+
+
+if __name__ == '__main__':
+    main()
