@@ -599,6 +599,11 @@
       "enabled": true,
       "addedInPR": "feat/r-notebooks-lite-any-industry-v1",
       "description": "R notebooks-lite any-industry: multi-cell on-device WebR notebook (code+markdown), DuckDB table bridge, ggplot2 best-effort, .dgrnb save/load. Stats/finance/bio/ops/healthcare-ready, not pharma-only. Web+desktop+PWA."
+    },
+    "shieldPacks": {
+      "enabled": true,
+      "addedInPR": "feat/shield-packs-bundle1",
+      "description": "Shield Packs: one calm on-device surface listing domain privacy packs. Pack 0 is the existing PHI Shield, reused not reimplemented (the phiShield flag stays independent and keeps working on its own). Adds three packs: Finance PII (SSN/EIN/account/card/IBAN shapes, detect and flag only, never uploads), Privilege labels (attorney-client style column tagging plus an export caution, not legal advice), and Justice sensitive (CJIS-style shell with a high-sensitivity banner that fails closed by blocking AI and export paths while active). Session-scoped activation, in-memory only, no storage. Web+desktop+PWA. Screening aid only, not a compliance certification."
     }
   }
 }

@@ -186,3 +186,27 @@ jobs:
       - run: npm ci
       - run: npm run test:tauriconnector
       - run: npm run test:connectormanager
+
+  canvas-bundle-integrity:
+    name: Canvas Bundle Integrity (inline-script syntax + tracked js/ vs canvas drift + ship path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check:canvas-integrity
+
+  shield-packs:
+    name: Shield Packs (pack registry + on-device detectors + fail-closed posture, pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:shieldpacks

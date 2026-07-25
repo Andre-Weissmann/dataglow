@@ -3539,6 +3539,65 @@
   .dg-phi-actions .ghost {
     background: transparent; color: var(--text-muted); border: 1px solid var(--border);
   }
+  /* Shield Packs */
+  #dg-shield-packs-btn {
+    min-height: 44px; min-width: 44px; padding: 0 12px; margin-left: 6px;
+    border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2, var(--surface));
+    color: var(--text); cursor: pointer; font-family: inherit;
+    font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+  }
+  #dg-shield-packs-btn .dg-sp-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted);
+    flex: 0 0 auto;
+  }
+  #dg-shield-packs-btn[data-level="elevated"] .dg-sp-dot { background: var(--flag, #F5A623); }
+  #dg-shield-packs-btn[data-level="high"] .dg-sp-dot { background: var(--flag, #F5A623); }
+  #dg-shield-packs-btn[data-level="maximum"] .dg-sp-dot { background: var(--error, #E85D4C); }
+  #dg-shield-packs-btn[data-level="elevated"] { border-color: var(--flag, #F5A623); }
+  #dg-shield-packs-btn[data-level="high"] { border-color: var(--flag, #F5A623); }
+  #dg-shield-packs-btn[data-level="maximum"] { border-color: var(--error, #E85D4C); }
+  #dg-shield-packs-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100vw);
+    z-index: 12061; background: var(--surface, #131519);
+    border-left: 1px solid var(--border);
+    transform: translateX(100%);
+    transition: transform .28s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex; flex-direction: column;
+    box-shadow: -8px 0 24px rgba(0,0,0,.35);
+  }
+  #dg-shield-packs-panel.open { transform: translateX(0); }
+  .dg-sp-card {
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+    background: var(--bg-elevated, var(--bg)); margin-bottom: 10px;
+  }
+  .dg-sp-card.is-active { border-color: var(--primary); }
+  .dg-sp-badge {
+    display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .dg-sp-chip {
+    display: inline-flex; align-items: center; min-height: 28px;
+    padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    border: 1px solid var(--border); margin: 0 6px 6px 0; color: var(--text);
+  }
+  .dg-sp-chip.hot { border-color: var(--error, #E85D4C); color: var(--error, #E85D4C); }
+  .dg-sp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .dg-sp-btn {
+    min-height: 44px; padding: 0 14px; border-radius: 10px; font-family: inherit;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .dg-sp-btn.primary { background: var(--primary); color: #fff; border: 1px solid var(--primary); }
+  .dg-sp-btn.ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+  #dg-shield-packs-banner {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 12062;
+    display: none; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--error, #E85D4C); color: #fff;
+    font-size: 12px; font-weight: 700; text-align: center; line-height: 1.45;
+  }
+  #dg-shield-packs-banner.open { display: block; }
   .dg-sql-ac-item {
     min-height: 44px;
     padding: 10px 12px;
@@ -110075,6 +110134,823 @@ function renderMarkdown(source) {
   }
 })();
 /* ---- end js/intelligence/data-glow-r-notebook-canvas.js ---- */
+
+
+/* ---- from js/intelligence/shield-packs.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Shield Packs (pure registry + detectors)
+// ============================================================
+// Domain privacy/compliance "packs" for the shared canvas. One calm surface,
+// four packs, no settings maze: each pack is a small declarative record with a
+// posture (what it does when active) and, where useful, value patterns it can
+// flag on device.
+//
+// Pack 0 is Healthcare PHI. It is NOT reimplemented here: it delegates to the
+// existing PHI Shield engine (window.DataGlowPhiShield / phiShield flag). The
+// three additional packs are deliberately lighter shells with real rules and a
+// real posture, so they are honest about what they do and never overclaim.
+//
+// This module is PURE and Node-testable: no DOM, no storage, no network. The
+// canvas UI layer (DataGlowShieldPacksUI) consumes it.
+//
+// Public API (never throws from a public fn - returns a safe value instead):
+//   listPacks()                        -> array of pack records (stable order)
+//   getPack(id)                        -> pack record or null
+//   detectPatterns(text, packId?)      -> { findings, hitCount }
+//   scanColumnSamples(samples, packId) -> { columns, hitCount, flaggedColumns }
+//   posture({ activeIds })             -> { level, aiAllowed, exportAllowed, ... }
+//   postureCopy(posture)               -> user-visible strings (no em dash)
+//
+// Zero-upload posture: every detector runs on strings the caller already holds.
+// Nothing here can reach the network, and no pack ever mutates a dataset.
+
+const SHIELD_PACKS_VERSION = 1;
+
+// Sensitivity ranking, low to high. Used to pick the strongest active posture.
+const SENSITIVITY_ORDER = ['standard', 'elevated', 'high', 'maximum'];
+
+// ------------------------------------------------------------
+// Detectors. Each is { id, label, re, note }. `re` is applied with a fresh
+// lastIndex per call (all are global) so detectors are reentrant.
+// ------------------------------------------------------------
+
+// Finance PII. SSN/EIN shapes plus long account/routing-like digit runs and
+// payment-card-shaped groups. Shape-based only: a hit means "look at this",
+// not "this is definitely an SSN".
+const FINANCE_DETECTORS = [
+  {
+    id: 'ssn',
+    label: 'SSN-shaped value',
+    re: /\b(?!000|666|9\d\d)\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b/g,
+    note: 'Nine digits in Social Security number shape.',
+  },
+  {
+    id: 'ein',
+    label: 'EIN-shaped value',
+    re: /\b\d{2}-\d{7}\b/g,
+    note: 'Two digits, hyphen, seven digits: employer identification shape.',
+  },
+  {
+    id: 'card',
+    label: 'Payment-card-shaped value',
+    re: /\b(?:\d[ -]?){13,19}\b/g,
+    note: 'Thirteen to nineteen digits in card-number grouping.',
+  },
+  {
+    id: 'routing',
+    label: 'Routing-number-shaped value',
+    re: /\b\d{9}\b/g,
+    note: 'Nine consecutive digits: ABA routing shape.',
+  },
+  {
+    id: 'iban',
+    label: 'IBAN-shaped value',
+    re: /\b[A-Z]{2}\d{2}[A-Z0-9]{10,26}\b/g,
+    note: 'Country code, check digits, then account body.',
+  },
+  {
+    id: 'account',
+    label: 'Long account-number-shaped value',
+    re: /\b(?:acct|account|acc)[.:# ]{0,3}\d{6,}\b/gi,
+    note: 'Account label followed by a long digit run.',
+  },
+];
+
+// Privilege / attorney-client style labels. Text markers only. This flags
+// wording that people use to mark privileged material so exports can carry a
+// caution. It is not a legal determination and the copy never says otherwise.
+const PRIVILEGE_DETECTORS = [
+  {
+    id: 'attorney-client',
+    label: 'Attorney-client marker',
+    re: /\battorney[\s-]?client\b/gi,
+    note: 'Common privilege marker wording.',
+  },
+  {
+    id: 'privileged',
+    label: 'Privileged marker',
+    re: /\bprivileged\b/gi,
+    note: 'Explicit privilege label.',
+  },
+  {
+    id: 'work-product',
+    label: 'Work-product marker',
+    re: /\bwork\s?product\b/gi,
+    note: 'Attorney work-product label.',
+  },
+  {
+    id: 'legal-hold',
+    label: 'Legal hold marker',
+    re: /\b(?:legal|litigation)\s?hold\b/gi,
+    note: 'Preservation or litigation hold label.',
+  },
+];
+
+// CJIS / justice-sensitive shell. High-sensitivity identifiers that show up in
+// criminal-justice extracts. Detection is deliberately narrow; the pack's real
+// job is the fail-closed posture it applies when active.
+const JUSTICE_DETECTORS = [
+  {
+    id: 'case-number',
+    label: 'Case-number-shaped value',
+    re: /\b(?:case|docket)\s?(?:no\.?|number|#)?\s?[A-Z0-9]{2,}-\d{2,}\b/gi,
+    note: 'Case or docket number shape.',
+  },
+  {
+    id: 'ncic-like',
+    label: 'Justice-record identifier',
+    re: /\b(?:ncic|ori|sid|fbi)\s?(?:no\.?|number|#|id)?\s?[A-Z0-9]{5,}\b/gi,
+    note: 'Named justice-system record identifier.',
+  },
+  {
+    id: 'offense-code',
+    label: 'Offense-code-shaped value',
+    re: /\b(?:offense|charge|statute)\s?(?:code)?\s?[:#]?\s?\d{2,3}\.\d{1,3}\b/gi,
+    note: 'Statute or offense code shape.',
+  },
+];
+
+// Column-name hints per pack. Cheap, high-signal, and complements value
+// patterns for columns whose sample rows happen to be empty.
+const COLUMN_HINTS = {
+  finance: [
+    'ssn', 'social_security', 'socialsecurity', 'ein', 'tax_id', 'taxid',
+    'account_number', 'acct_no', 'acctno', 'routing', 'iban', 'card_number',
+    'cardnumber', 'pan', 'cvv', 'bank_account',
+  ],
+  privilege: [
+    'privilege', 'privileged', 'attorney', 'counsel', 'legal_hold',
+    'work_product', 'confidentiality', 'redaction_status',
+  ],
+  justice: [
+    'case_number', 'caseno', 'docket', 'offender_id', 'inmate_id', 'arrest_id',
+    'ori', 'ncic', 'sid', 'fbi_number', 'offense_code', 'charge_code',
+  ],
+};
+
+// ------------------------------------------------------------
+// Pack registry. Order is the display order and is part of the golden output,
+// so append rather than reorder.
+// ------------------------------------------------------------
+const PACKS = [
+  {
+    id: 'healthcare-phi',
+    index: 0,
+    name: 'Healthcare PHI',
+    domain: 'healthcare',
+    sensitivity: 'high',
+    engine: 'phi-shield',
+    flag: 'phiShield',
+    detectorIds: [],
+    summary: 'Safe Harbor screen plus prompt guard. Pack zero, always available.',
+    blocksAi: false,
+    blocksExport: false,
+    exportCaution: false,
+    columnTagging: false,
+  },
+  {
+    id: 'finance-pii',
+    index: 1,
+    name: 'Finance PII',
+    domain: 'finance',
+    sensitivity: 'elevated',
+    engine: 'patterns',
+    flag: 'shieldPacks',
+    detectorIds: FINANCE_DETECTORS.map((d) => d.id),
+    summary: 'Flags SSN, EIN, account and card shapes on device. Detect and flag only.',
+    blocksAi: false,
+    blocksExport: false,
+    exportCaution: false,
+    columnTagging: false,
+  },
+  {
+    id: 'privilege',
+    index: 2,
+    name: 'Privilege labels',
+    domain: 'legal',
+    sensitivity: 'elevated',
+    engine: 'patterns',
+    flag: 'shieldPacks',
+    detectorIds: PRIVILEGE_DETECTORS.map((d) => d.id),
+    summary: 'Optional column tagging for privileged material plus an export caution.',
+    blocksAi: false,
+    blocksExport: false,
+    exportCaution: true,
+    columnTagging: true,
+  },
+  {
+    id: 'justice-cjis',
+    index: 3,
+    name: 'Justice sensitive',
+    domain: 'justice',
+    sensitivity: 'maximum',
+    engine: 'patterns',
+    flag: 'shieldPacks',
+    detectorIds: JUSTICE_DETECTORS.map((d) => d.id),
+    summary: 'Fail-closed shell. Blocks AI and export paths while active.',
+    blocksAi: true,
+    blocksExport: true,
+    exportCaution: true,
+    columnTagging: true,
+  },
+];
+
+const DETECTORS_BY_PACK = {
+  'healthcare-phi': [],
+  'finance-pii': FINANCE_DETECTORS,
+  privilege: PRIVILEGE_DETECTORS,
+  'justice-cjis': JUSTICE_DETECTORS,
+};
+
+const HINTS_BY_PACK = {
+  'healthcare-phi': [],
+  'finance-pii': COLUMN_HINTS.finance,
+  privilege: COLUMN_HINTS.privilege,
+  'justice-cjis': COLUMN_HINTS.justice,
+};
+
+function clonePack(p) {
+  return {
+    id: p.id,
+    index: p.index,
+    name: p.name,
+    domain: p.domain,
+    sensitivity: p.sensitivity,
+    engine: p.engine,
+    flag: p.flag,
+    detectorIds: p.detectorIds.slice(),
+    summary: p.summary,
+    blocksAi: p.blocksAi,
+    blocksExport: p.blocksExport,
+    exportCaution: p.exportCaution,
+    columnTagging: p.columnTagging,
+  };
+}
+
+/** Every pack, in display order. Returns copies so callers cannot mutate the registry. */
+function listPacks() {
+  return PACKS.map(clonePack);
+}
+
+/** One pack by id, or null when the id is unknown. */
+function getPack(id) {
+  const found = PACKS.find((p) => p.id === id);
+  return found ? clonePack(found) : null;
+}
+
+function detectorsFor(packId) {
+  if (packId == null) {
+    return FINANCE_DETECTORS.concat(PRIVILEGE_DETECTORS, JUSTICE_DETECTORS);
+  }
+  return DETECTORS_BY_PACK[packId] || [];
+}
+
+/**
+ * Run a pack's value detectors over one string. Omit packId to run every
+ * non-PHI detector. Findings are returned in detector order with match counts,
+ * never the matched values, so a finding can be logged without leaking data.
+ */
+function detectPatterns(text, packId) {
+  const out = { findings: [], hitCount: 0 };
+  if (typeof text !== 'string' || text.length === 0) return out;
+  const detectors = detectorsFor(packId);
+  for (const d of detectors) {
+    d.re.lastIndex = 0;
+    const matches = text.match(d.re);
+    if (matches && matches.length > 0) {
+      out.findings.push({ id: d.id, label: d.label, count: matches.length, note: d.note });
+      out.hitCount += matches.length;
+    }
+  }
+  return out;
+}
+
+function normalizeName(name) {
+  return String(name == null ? '' : name).toLowerCase().replace(/[^a-z0-9]+/g, '_');
+}
+
+function nameHints(packId, columnName) {
+  const hints = HINTS_BY_PACK[packId] || [];
+  const norm = normalizeName(columnName);
+  if (!norm) return [];
+  return hints.filter((h) => norm === h || norm.includes(h));
+}
+
+/**
+ * Scan a { columnName: [values] } sample map with one pack. Returns per-column
+ * findings, matched column-name hints, and the flagged column names. Values are
+ * only read, never copied into the result.
+ */
+function scanColumnSamples(samples, packId) {
+  const out = { pack: packId || null, columns: [], hitCount: 0, flaggedColumns: [] };
+  if (!samples || typeof samples !== 'object') return out;
+  const names = Object.keys(samples).sort();
+  for (const name of names) {
+    const values = Array.isArray(samples[name]) ? samples[name] : [];
+    const byDetector = new Map();
+    let colHits = 0;
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const res = detectPatterns(value, packId);
+      for (const f of res.findings) {
+        const prev = byDetector.get(f.id);
+        byDetector.set(f.id, {
+          id: f.id,
+          label: f.label,
+          count: (prev ? prev.count : 0) + f.count,
+        });
+      }
+      colHits += res.hitCount;
+    }
+    const hints = nameHints(packId, name);
+    if (colHits === 0 && hints.length === 0) continue;
+    out.columns.push({
+      column: name,
+      hits: colHits,
+      detectors: Array.from(byDetector.values()).sort((a, b) => (a.id < b.id ? -1 : 1)),
+      nameHints: hints.slice(),
+    });
+    out.hitCount += colHits;
+    out.flaggedColumns.push(name);
+  }
+  return out;
+}
+
+function strongest(levels) {
+  let best = 'standard';
+  for (const level of levels) {
+    if (SENSITIVITY_ORDER.indexOf(level) > SENSITIVITY_ORDER.indexOf(best)) best = level;
+  }
+  return best;
+}
+
+/**
+ * Combine the active packs into one posture. Fail-closed: if ANY active pack
+ * blocks a path, that path is blocked, and an unknown pack id is ignored rather
+ * than silently downgrading the posture.
+ */
+function posture(opts) {
+  const ids = (opts && Array.isArray(opts.activeIds) ? opts.activeIds : []).filter(Boolean);
+  const active = ids.map((id) => PACKS.find((p) => p.id === id)).filter(Boolean);
+  const level = strongest(active.map((p) => p.sensitivity));
+  const blocksAi = active.some((p) => p.blocksAi);
+  const blocksExport = active.some((p) => p.blocksExport);
+  return {
+    activeIds: active.map((p) => p.id),
+    activeCount: active.length,
+    level: active.length === 0 ? 'standard' : level,
+    aiAllowed: !blocksAi,
+    exportAllowed: !blocksExport,
+    exportCaution: active.some((p) => p.exportCaution),
+    columnTagging: active.some((p) => p.columnTagging),
+    banner: active.some((p) => p.sensitivity === 'maximum'),
+    onDevice: true,
+    network: false,
+  };
+}
+
+/** User-visible strings for a posture. No em dash (U+2014) anywhere. */
+function postureCopy(p) {
+  const state = p || posture({ activeIds: [] });
+  const count = state.activeCount || 0;
+  return {
+    title: count === 0 ? 'No pack active' : count + ' pack' + (count === 1 ? '' : 's') + ' active',
+    body: 'Packs run on this device. Rows are never uploaded.',
+    ai: state.aiAllowed
+      ? 'AI paths stay available and still ask before anything changes.'
+      : 'AI paths are blocked while this pack is active.',
+    exportLine: state.exportAllowed
+      ? (state.exportCaution
+        ? 'Export is allowed. Review labels before you share the file.'
+        : 'Export is allowed.')
+      : 'Export is blocked while this pack is active.',
+    disclaimer: 'Screening aid only. Not a compliance certification or legal advice.',
+  };
+}
+
+
+  window.DataGlowShieldPacks = {
+    version: SHIELD_PACKS_VERSION,
+    listPacks: listPacks,
+    getPack: getPack,
+    detectPatterns: detectPatterns,
+    scanColumnSamples: scanColumnSamples,
+    posture: posture,
+    postureCopy: postureCopy
+  };
+})();
+/* ---- end js/intelligence/shield-packs.js ---- */
+
+/* ---- from js/intelligence/data-glow-shield-packs-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  var PANEL_ID = 'dg-shield-packs-panel';
+  var BTN_ID = 'dg-shield-packs-btn';
+  var BANNER_ID = 'dg-shield-packs-banner';
+  var PHI_PACK_ID = 'healthcare-phi';
+  var SAMPLE_CAP = 400;
+
+  /* Active pack ids for this session. In-memory only: no localStorage, no
+     cookies, so the posture never silently persists across visits. */
+  var _active = Object.create(null);
+  var _scans = Object.create(null);
+  var _dataset = null;
+
+  function engine() { return window.DataGlowShieldPacks || null; }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Shield Packs]', msg);
+  }
+
+  function flagOn() {
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('shieldPacks') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function phiFlagOn() {
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('phiShield') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function activeIds() {
+    var out = [];
+    var packs = engine() ? engine().listPacks() : [];
+    for (var i = 0; i < packs.length; i++) {
+      if (_active[packs[i].id]) out.push(packs[i].id);
+    }
+    return out;
+  }
+
+  function currentPosture() {
+    var e = engine();
+    if (!e) return null;
+    try { return e.posture({ activeIds: activeIds() }); } catch (_e) { return null; }
+  }
+
+  function activeDataset() {
+    if (_dataset) return _dataset;
+    try {
+      if (typeof getActiveDataset === 'function') {
+        var ds = getActiveDataset();
+        if (ds) return ds;
+      }
+    } catch (_e) {}
+    try {
+      if (window.state && window.state.datasets && window.state.datasets[0]) {
+        return window.state.datasets[0];
+      }
+    } catch (_e2) {}
+    return null;
+  }
+
+  function colNames(ds) {
+    var cols = (ds && ds.columns) || [];
+    return cols.map(function (c, i) {
+      if (typeof c === 'string') return c;
+      return (c && (c.name || c.field)) || ('col' + i);
+    });
+  }
+
+  /* Column-indexed row access (r[colIdx]), never r[col.name]: canvas grids
+     carry array rows. Object rows are tolerated as a fallback. */
+  function buildSamples(ds) {
+    var names = colNames(ds);
+    var rows = (ds && ds.rows) || [];
+    var n = Math.min(rows.length, SAMPLE_CAP);
+    var samples = {};
+    for (var i = 0; i < names.length; i++) samples[names[i]] = [];
+    for (var r = 0; r < n; r++) {
+      var row = rows[r];
+      if (!row) continue;
+      for (var c = 0; c < names.length; c++) {
+        var v = Array.isArray(row) ? row[c] : row[names[c]];
+        if (v != null && v !== '') samples[names[c]].push(String(v));
+      }
+    }
+    return samples;
+  }
+
+  function scanPack(packId, ds) {
+    var e = engine();
+    if (!e || packId === PHI_PACK_ID) return null;
+    var target = ds || activeDataset();
+    if (!target) return null;
+    try {
+      var res = e.scanColumnSamples(buildSamples(target), packId);
+      _scans[packId] = res;
+      return res;
+    } catch (err) {
+      console.warn('[Shield Packs] scan failed for ' + packId, err);
+      return null;
+    }
+  }
+
+  function rescanActive(ds) {
+    var ids = activeIds();
+    for (var i = 0; i < ids.length; i++) scanPack(ids[i], ds);
+  }
+
+  /* ---------- fail-closed banner ---------- */
+
+  function ensureBanner() {
+    var el = document.getElementById(BANNER_ID);
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = BANNER_ID;
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function renderBanner() {
+    var p = currentPosture();
+    var el = ensureBanner();
+    if (!p || !p.banner) {
+      el.classList.remove('open');
+      el.innerHTML = '';
+      return;
+    }
+    var parts = ['High sensitivity pack active.'];
+    if (!p.aiAllowed) parts.push('AI paths blocked.');
+    if (!p.exportAllowed) parts.push('Export blocked.');
+    parts.push('Everything stays on this device.');
+    el.innerHTML = '<span>' + esc(parts.join(' ')) + '</span>';
+    el.classList.add('open');
+  }
+
+  /* ---------- panel ---------- */
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Shield Packs');
+    panel.innerHTML =
+      '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:10px auto 0;flex-shrink:0"></div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--border);gap:10px">' +
+        '<div style="min-width:0">' +
+          '<div style="font-weight:800;font-size:15px">Shield Packs</div>' +
+          '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">On-device privacy packs. Rows never leave this device.</div>' +
+        '</div>' +
+        '<button type="button" data-sp-close style="min-height:44px;min-width:44px;border:none;background:transparent;color:var(--text-muted);font-size:22px;cursor:pointer;border-radius:10px" aria-label="Close">\u00D7</button>' +
+      '</div>' +
+      '<div id="dg-shield-packs-body" style="flex:1;overflow-y:auto;padding:14px 16px;-webkit-overflow-scrolling:touch"></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-sp-close]').addEventListener('click', closePanel);
+    return panel;
+  }
+
+  function packStatusLine(pack) {
+    if (pack.id === PHI_PACK_ID) {
+      var rep = null;
+      try {
+        rep = window.DataGlowPhiShield && window.DataGlowPhiShield.getLastReport
+          ? window.DataGlowPhiShield.getLastReport() : null;
+      } catch (_e) {}
+      if (!rep) return 'Pack zero. Open the PHI panel to screen this dataset.';
+      var st = rep.status || rep.verdict || 'review';
+      var label = st === 'pass' ? 'Clear' : (st === 'fail' ? 'PHI risk' : 'Review');
+      return 'Pack zero. Last screen: ' + label + '.';
+    }
+    var scan = _scans[pack.id];
+    if (!_active[pack.id]) return pack.summary;
+    if (!scan) return 'Active. Load a dataset to flag matching columns.';
+    if (!scan.flaggedColumns.length) return 'Active. No matching columns in the sample.';
+    return 'Active. ' + scan.flaggedColumns.length + ' column(s) flagged, ' + scan.hitCount + ' hit(s).';
+  }
+
+  function renderBody() {
+    var body = document.getElementById('dg-shield-packs-body');
+    var e = engine();
+    if (!body) return;
+    if (!e) {
+      body.innerHTML = '<div class="dg-sp-card" style="color:var(--text-muted)">Shield Packs engine unavailable.</div>';
+      return;
+    }
+    var packs = e.listPacks();
+    var p = currentPosture();
+    var copy = e.postureCopy(p);
+
+    var cards = packs.map(function (pack) {
+      var on = pack.id === PHI_PACK_ID ? phiFlagOn() : !!_active[pack.id];
+      var isPhi = pack.id === PHI_PACK_ID;
+      var badge = isPhi
+        ? '<span class="dg-sp-badge">Pack 0</span>'
+        : '<span class="dg-sp-badge">' + esc(pack.sensitivity) + '</span>';
+      var action = isPhi
+        ? '<button type="button" class="dg-sp-btn ghost" data-sp-open-phi>Open PHI panel</button>'
+        : '<button type="button" class="dg-sp-btn ' + (on ? 'primary' : 'ghost') + '" data-sp-toggle="' + esc(pack.id) + '">' +
+            (on ? 'Turn off' : 'Activate') + '</button>';
+      var flaggedCols = '';
+      if (!isPhi && on && _scans[pack.id] && _scans[pack.id].flaggedColumns.length) {
+        flaggedCols = '<div style="margin-top:8px">' + _scans[pack.id].columns.slice(0, 12).map(function (c) {
+          return '<span class="dg-sp-chip hot">' + esc(c.column) + '</span>';
+        }).join('') + '</div>';
+      }
+      return '<div class="dg-sp-card' + (on ? ' is-active' : '') + '">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +
+          '<div style="min-width:0">' +
+            '<div style="font-weight:800;font-size:13px">' + esc(pack.name) + ' ' + badge + '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5">' +
+              esc(packStatusLine(pack)) + '</div>' +
+          '</div>' +
+          '<div style="flex:0 0 auto">' + action + '</div>' +
+        '</div>' + flaggedCols +
+      '</div>';
+    }).join('');
+
+    body.innerHTML =
+      '<div class="dg-sp-card" style="border-color:' + (p && p.banner ? 'var(--error, #E85D4C)' : 'var(--border)') + '">' +
+        '<div style="font-size:11px;color:var(--text-muted);letter-spacing:.04em">POSTURE</div>' +
+        '<div style="font-size:20px;font-weight:800;margin-top:2px">' + esc(copy.title) + '</div>' +
+        '<div style="margin-top:8px;font-size:12px;line-height:1.55;color:var(--text-secondary,var(--text-muted))">' +
+          esc(copy.body) + '<br>' + esc(copy.ai) + '<br>' + esc(copy.exportLine) +
+        '</div>' +
+      '</div>' +
+      cards +
+      '<div style="font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted));padding:4px 2px 8px">' +
+        esc(copy.disclaimer) +
+      '</div>' +
+      '<div class="dg-sp-actions">' +
+        '<button type="button" class="dg-sp-btn primary" data-sp-rescan>Scan again</button>' +
+        '<button type="button" class="dg-sp-btn ghost" data-sp-clear>Turn all off</button>' +
+      '</div>';
+
+    Array.prototype.forEach.call(body.querySelectorAll('[data-sp-toggle]'), function (btn) {
+      btn.onclick = function () { togglePack(btn.getAttribute('data-sp-toggle')); };
+    });
+    var phiBtn = body.querySelector('[data-sp-open-phi]');
+    if (phiBtn) phiBtn.onclick = function () {
+      if (window.DataGlowPhiShield && window.DataGlowPhiShield.openPanel) {
+        window.DataGlowPhiShield.openPanel();
+      } else {
+        toast('PHI Shield unavailable', 'warn');
+      }
+    };
+    var rescan = body.querySelector('[data-sp-rescan]');
+    if (rescan) rescan.onclick = function () {
+      if (!activeDataset()) { toast('Load data first', 'warn'); return; }
+      rescanActive();
+      renderBody();
+      toast('Shield Packs rescanned on device');
+    };
+    var clear = body.querySelector('[data-sp-clear]');
+    if (clear) clear.onclick = function () {
+      _active = Object.create(null);
+      _scans = Object.create(null);
+      afterChange();
+      toast('All packs off');
+    };
+  }
+
+  function togglePack(id) {
+    var e = engine();
+    if (!e || !e.getPack(id) || id === PHI_PACK_ID) return;
+    if (_active[id]) {
+      delete _active[id];
+      delete _scans[id];
+    } else {
+      _active[id] = true;
+      scanPack(id);
+    }
+    afterChange();
+  }
+
+  function afterChange() {
+    updateBadge();
+    renderBanner();
+    renderBody();
+    var p = currentPosture();
+    // Deliberately NOT logged to ProvenanceFabric. Its ProofChain mirror resets
+    // its re-entrancy guard synchronously around an async append(), so append()'s
+    // continuation re-enters addStep and recurses without bound, freezing the
+    // page. A posture toggle is the first thing a user clicks, so it must not
+    // reach that path. The posture event below is the integration point instead.
+    try {
+      document.dispatchEvent(new CustomEvent('dataglow:shield-packs-posture', { detail: { posture: p } }));
+    } catch (_e2) {}
+  }
+
+  function updateBadge() {
+    var btn = document.getElementById(BTN_ID);
+    if (!btn) return;
+    var p = currentPosture();
+    var count = p ? p.activeCount : 0;
+    btn.setAttribute('data-level', p ? p.level : 'standard');
+    var label = btn.querySelector('[data-sp-label]');
+    if (label) label.textContent = count > 0 ? 'Packs · ' + count : 'Packs';
+  }
+
+  function openPanel() {
+    if (!flagOn()) return;
+    ensurePanel();
+    rescanActive();
+    renderBody();
+    document.getElementById(PANEL_ID).classList.add('open');
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) toolbar = document.body;
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open Shield Packs');
+    btn.title = 'Shield Packs . on-device privacy packs';
+    btn.innerHTML = '<span class="dg-sp-dot" aria-hidden="true"></span><span data-sp-label>Packs</span>';
+    btn.addEventListener('click', function () {
+      var panel = document.getElementById(PANEL_ID);
+      if (panel && panel.classList.contains('open')) closePanel();
+      else openPanel();
+    });
+    if (toolbar === document.body) {
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '96px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    if (!flagOn()) return;
+    injectButton();
+    ensurePanel();
+    updateBadge();
+
+    document.addEventListener('dataglow:dataset-loaded', function (ev) {
+      var ds = ev && ev.detail && ev.detail.dataset;
+      if (!ds) return;
+      _dataset = ds;
+      rescanActive(ds);
+      updateBadge();
+      if (document.getElementById(PANEL_ID) &&
+          document.getElementById(PANEL_ID).classList.contains('open')) renderBody();
+    });
+
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') closePanel();
+    });
+
+    window.DataGlowShieldPacksUI = {
+      version: 1,
+      openPanel: openPanel,
+      closePanel: closePanel,
+      listPacks: function () { return engine() ? engine().listPacks() : []; },
+      getActiveIds: activeIds,
+      activate: function (id) { if (!_active[id]) togglePack(id); },
+      deactivate: function (id) { if (_active[id]) togglePack(id); },
+      getPosture: currentPosture,
+      getScan: function (id) { return _scans[id] || null; },
+      /* Fail-closed guards any AI or export path can call before acting. */
+      allowAi: function () {
+        var p = currentPosture();
+        return !p || p.aiAllowed === true;
+      },
+      allowExport: function () {
+        var p = currentPosture();
+        return !p || p.exportAllowed === true;
+      }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 700); });
+  } else {
+    setTimeout(boot, 700);
+  }
+})();
+/* ---- end js/intelligence/data-glow-shield-packs-canvas.js ---- */
 
 
 window.addEventListener('appinstalled', function() {

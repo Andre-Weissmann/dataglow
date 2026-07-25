@@ -1,0 +1,213 @@
+{
+  "packs": [
+    {
+      "blocksAi": false,
+      "blocksExport": false,
+      "columnTagging": false,
+      "detectorIds": [],
+      "domain": "healthcare",
+      "engine": "phi-shield",
+      "exportCaution": false,
+      "flag": "phiShield",
+      "id": "healthcare-phi",
+      "index": 0,
+      "name": "Healthcare PHI",
+      "sensitivity": "high",
+      "summary": "Safe Harbor screen plus prompt guard. Pack zero, always available."
+    },
+    {
+      "blocksAi": false,
+      "blocksExport": false,
+      "columnTagging": false,
+      "detectorIds": [
+        "ssn",
+        "ein",
+        "card",
+        "routing",
+        "iban",
+        "account"
+      ],
+      "domain": "finance",
+      "engine": "patterns",
+      "exportCaution": false,
+      "flag": "shieldPacks",
+      "id": "finance-pii",
+      "index": 1,
+      "name": "Finance PII",
+      "sensitivity": "elevated",
+      "summary": "Flags SSN, EIN, account and card shapes on device. Detect and flag only."
+    },
+    {
+      "blocksAi": false,
+      "blocksExport": false,
+      "columnTagging": true,
+      "detectorIds": [
+        "attorney-client",
+        "privileged",
+        "work-product",
+        "legal-hold"
+      ],
+      "domain": "legal",
+      "engine": "patterns",
+      "exportCaution": true,
+      "flag": "shieldPacks",
+      "id": "privilege",
+      "index": 2,
+      "name": "Privilege labels",
+      "sensitivity": "elevated",
+      "summary": "Optional column tagging for privileged material plus an export caution."
+    },
+    {
+      "blocksAi": true,
+      "blocksExport": true,
+      "columnTagging": true,
+      "detectorIds": [
+        "case-number",
+        "ncic-like",
+        "offense-code"
+      ],
+      "domain": "justice",
+      "engine": "patterns",
+      "exportCaution": true,
+      "flag": "shieldPacks",
+      "id": "justice-cjis",
+      "index": 3,
+      "name": "Justice sensitive",
+      "sensitivity": "maximum",
+      "summary": "Fail-closed shell. Blocks AI and export paths while active."
+    }
+  ],
+  "postures": [
+    {
+      "activeIds": [],
+      "copy": {
+        "ai": "AI paths stay available and still ask before anything changes.",
+        "body": "Packs run on this device. Rows are never uploaded.",
+        "disclaimer": "Screening aid only. Not a compliance certification or legal advice.",
+        "exportLine": "Export is allowed.",
+        "title": "No pack active"
+      },
+      "posture": {
+        "activeCount": 0,
+        "activeIds": [],
+        "aiAllowed": true,
+        "banner": false,
+        "columnTagging": false,
+        "exportAllowed": true,
+        "exportCaution": false,
+        "level": "standard",
+        "network": false,
+        "onDevice": true
+      }
+    },
+    {
+      "activeIds": [
+        "finance-pii"
+      ],
+      "copy": {
+        "ai": "AI paths stay available and still ask before anything changes.",
+        "body": "Packs run on this device. Rows are never uploaded.",
+        "disclaimer": "Screening aid only. Not a compliance certification or legal advice.",
+        "exportLine": "Export is allowed.",
+        "title": "1 pack active"
+      },
+      "posture": {
+        "activeCount": 1,
+        "activeIds": [
+          "finance-pii"
+        ],
+        "aiAllowed": true,
+        "banner": false,
+        "columnTagging": false,
+        "exportAllowed": true,
+        "exportCaution": false,
+        "level": "elevated",
+        "network": false,
+        "onDevice": true
+      }
+    },
+    {
+      "activeIds": [
+        "privilege"
+      ],
+      "copy": {
+        "ai": "AI paths stay available and still ask before anything changes.",
+        "body": "Packs run on this device. Rows are never uploaded.",
+        "disclaimer": "Screening aid only. Not a compliance certification or legal advice.",
+        "exportLine": "Export is allowed. Review labels before you share the file.",
+        "title": "1 pack active"
+      },
+      "posture": {
+        "activeCount": 1,
+        "activeIds": [
+          "privilege"
+        ],
+        "aiAllowed": true,
+        "banner": false,
+        "columnTagging": true,
+        "exportAllowed": true,
+        "exportCaution": true,
+        "level": "elevated",
+        "network": false,
+        "onDevice": true
+      }
+    },
+    {
+      "activeIds": [
+        "justice-cjis"
+      ],
+      "copy": {
+        "ai": "AI paths are blocked while this pack is active.",
+        "body": "Packs run on this device. Rows are never uploaded.",
+        "disclaimer": "Screening aid only. Not a compliance certification or legal advice.",
+        "exportLine": "Export is blocked while this pack is active.",
+        "title": "1 pack active"
+      },
+      "posture": {
+        "activeCount": 1,
+        "activeIds": [
+          "justice-cjis"
+        ],
+        "aiAllowed": false,
+        "banner": true,
+        "columnTagging": true,
+        "exportAllowed": false,
+        "exportCaution": true,
+        "level": "maximum",
+        "network": false,
+        "onDevice": true
+      }
+    },
+    {
+      "activeIds": [
+        "finance-pii",
+        "privilege",
+        "justice-cjis"
+      ],
+      "copy": {
+        "ai": "AI paths are blocked while this pack is active.",
+        "body": "Packs run on this device. Rows are never uploaded.",
+        "disclaimer": "Screening aid only. Not a compliance certification or legal advice.",
+        "exportLine": "Export is blocked while this pack is active.",
+        "title": "3 packs active"
+      },
+      "posture": {
+        "activeCount": 3,
+        "activeIds": [
+          "finance-pii",
+          "privilege",
+          "justice-cjis"
+        ],
+        "aiAllowed": false,
+        "banner": true,
+        "columnTagging": true,
+        "exportAllowed": false,
+        "exportCaution": true,
+        "level": "maximum",
+        "network": false,
+        "onDevice": true
+      }
+    }
+  ],
+  "version": 1
+}

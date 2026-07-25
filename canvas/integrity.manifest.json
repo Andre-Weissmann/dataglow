@@ -1,0 +1,34 @@
+{
+  "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code.",
+  "canvasBytes": 4860656,
+  "tracked": [
+    {
+      "source": "js/intelligence/shield-packs.js",
+      "note": "Shield Packs pure registry + detectors. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_shield_packs.py.",
+      "sourceSha256": "c04fecf3b07c0caeabe8ea96c8f3a8f44be9e3dbcea6f7bdf30df44ba3dee5fa",
+      "canvasSectionSha256": "d8ff57a9c7b10df8dd3cc7ad039c0e5d20cbfd6b130bff543409c8e06d049b0e",
+      "canvasSectionBytes": 13610
+    },
+    {
+      "source": "js/intelligence/data-glow-shield-packs-canvas.js",
+      "note": "Shield Packs canvas UI. Inlined verbatim by inject_shield_packs.py.",
+      "sourceSha256": "25391e6333e7014deb101bace5f3ba1d36c1242b9c7924aec78bd5ddb08bfcf6",
+      "canvasSectionSha256": "ca1362eba303e5d05105f10c004424df741fc9981cb7c9d03b663ee5a1ff9844",
+      "canvasSectionBytes": 14979
+    },
+    {
+      "source": "js/intelligence/data-glow-phi-shield-canvas.js",
+      "note": "PHI Shield canvas UI (Shield Packs pack 0). Inlined verbatim; tracked so a PHI Shield edit cannot ship to desktop without the canvas following.",
+      "sourceSha256": "c8ea6249694f0aed743c626908847ce4f4dbf431a24aae996a86e4633d2c3b72",
+      "canvasSectionSha256": "8e7a6d7394c1a4615f94c48479620df4388e4445327d90ca1937149e687d4d2e",
+      "canvasSectionBytes": 18679
+    },
+    {
+      "source": "js/intelligence/data-glow-mobile-phi-firstrun-canvas.js",
+      "note": "Mobile PHI chip + first-run calm strip, the other half of the pack 0 surface. Inlined verbatim.",
+      "sourceSha256": "034ae37ec8bba698d8af56669824b81e04942e10958835876cbf4622f6428828",
+      "canvasSectionSha256": "576ebc7b3aea202eaa2e42559d196d1d49f4447a02dd8b00be0c248ee3b73219",
+      "canvasSectionBytes": 9305
+    }
+  ]
+}

@@ -182,7 +182,9 @@
     "test:rnotebook": "node test/r-notebook-lite.test.mjs",
     "test:unpivot": "node test/guided-unpivot.test.mjs",
     "test:recipelib": "node test/repair-recipe-library.test.mjs",
-    "test:phicalm": "node --test test/mobile-phi-firstrun-calm.test.mjs"
+    "test:phicalm": "node --test test/mobile-phi-firstrun-calm.test.mjs",
+    "test:shieldpacks": "node --test test/shield-packs.test.mjs",
+    "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
