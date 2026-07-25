@@ -254,3 +254,15 @@ jobs:
       - run: npm run test:newmodule
       # A scaffolded file must never change the shipped bundle.
       - run: npm run check:canvas-integrity
+
+  provenance-fabric-mirror:
+    name: ProvenanceFabric / ProofChain mirror (no unbounded re-entrancy on addStep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:pfmirror

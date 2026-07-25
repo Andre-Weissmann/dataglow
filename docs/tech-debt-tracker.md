@@ -713,3 +713,36 @@ Newest entries go at the bottom of **Entries**.
 > **Update (2026-07-14):** PR #121 has since merged onto `main` for real
 > (squash-merged, 2026-07-14). This entry's cherry-pick/retarget fix pattern is
 > the resolution that was ultimately used.
+
+### 2026-07-25 — ProvenanceFabric's ProofChain mirror recursed without bound (fixed)
+
+- **Description:** `ProvenanceFabric._wireProofChainMirror()` wrapped
+  `window.ProofChain.addStep`, set a module-level `_suppressProofChainMirror`
+  flag, called the **async** `append()`, and cleared the flag on the next
+  synchronous line. `append()` awaits `crypto.subtle.digest` before it reaches
+  its own ProofChain mirror, so the flag was already back to `false` by then: the
+  mirrored `addStep` re-entered the wrapper, which appended again, forever. A
+  single `ProofChain.addStep` froze the page.
+- **Root cause / lesson:** a synchronous re-entrancy guard cannot span an `await`.
+  Suppression that has to survive a continuation must travel with the call (an
+  argument or a marker on the record), not live in module scope.
+- **Fix:** `append(type, payload, opts)` now takes `opts.skipProofChainMirror`,
+  which the wrapper passes explicitly; the wrapper also skips steps that already
+  carry `provenanceFabricHash` (those came from `append()`'s own mirror), so one
+  logical event yields exactly one ledger entry and one chain entry in both
+  directions. Appends are additionally serialized through a promise tail, because
+  overlapping callers used to read the same `prevHash` between the read and the
+  push and `verify()` would then report a broken chain. Pinned by
+  `test/provenance-fabric-proofchain-mirror.test.mjs` (`npm run test:pfmirror`),
+  which boots the real inlined canvas sections in a `vm` and caps re-entry so a
+  regression fails fast instead of hanging.
+- **Date:** 2026-07-25
+- **Severity:** was high (page freeze on a shipped code path), now resolved
+- **Area:** `canvas/index.html`, inlined `js/sentinel/provenance-fabric.js`
+  section; ProofChain call sites across SQL history, quality policies,
+  find-replace, ONNX receipts and dashboard export
+- **Status:** resolved. Follow-up left deliberately undone: the Shield Packs and
+  Air-Gap Mode canvas UIs still carry comments saying they route around
+  ProvenanceFabric because of this freeze (`afterChange()` in both). Those files
+  are hash-pinned in `canvas/integrity.manifest.json`, so re-wiring them is its
+  own change with its own re-injection, not part of this fix.
