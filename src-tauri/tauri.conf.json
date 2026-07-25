@@ -42,7 +42,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' blob: data: https://cdn.jsdelivr.net https://unpkg.com; media-src 'none'; object-src 'none'; frame-src 'none';"
+      "csp": "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net https://webr.r-wasm.org https://huggingface.co; worker-src 'self' blob:; child-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob: data: https://esm.run https://cdn.jsdelivr.net https://webr.r-wasm.org https://huggingface.co https://cdn-lfs.hf.co https://cdn-lfs-us-1.hf.co; media-src 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'none';"
     },
     "updater": {
       "active": false

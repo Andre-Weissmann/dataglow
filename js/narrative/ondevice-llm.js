@@ -232,6 +232,14 @@ export function buildStoryModelPrompt({ tableName = 'the dataset', queryResult =
 // ============================================================
 let enginePromise = null;
 
+// `enginePromise != null` used to be the whole definition of "loaded", which
+// meant the model counted as loaded from the instant someone clicked, through
+// the entire multi-minute weight download. Any status surface built on it would
+// show ready while nothing could yet run. These two track the real thing: one
+// says a download is in flight, the other says an engine actually exists.
+let modelReady = false;
+let modelLoading = false;
+
 // Load (download + initialize) the on-device model. `onProgress` receives
 // { progress: 0..1, text } during the one-time weight download, which WebLLM
 // caches in the browser (Cache API / IndexedDB) for fully-offline reuse.
@@ -242,6 +250,7 @@ export async function loadModel(onProgress) {
     throw err;
   }
   if (enginePromise) return enginePromise;
+  modelLoading = true;
   enginePromise = (async () => {
     const webllm = await import(/* @vite-ignore */ WEBLLM_ESM_URL);
     const engine = await webllm.CreateMLCEngine(MODEL_ID, {
@@ -251,16 +260,26 @@ export async function loadModel(onProgress) {
         }
       },
     });
+    modelReady = true;
+    modelLoading = false;
     return engine;
   })().catch(err => {
     enginePromise = null; // allow retry after a failed load
+    modelReady = false;
+    modelLoading = false;
     throw err;
   });
   return enginePromise;
 }
 
+/** True only once an engine exists and inference would actually run. */
 export function isModelLoaded() {
-  return enginePromise != null;
+  return modelReady === true;
+}
+
+/** True while the weights are downloading. Not the same as loaded, on purpose. */
+export function isModelLoading() {
+  return modelLoading === true;
 }
 
 // Generate the plain-English synthesis. `context` is { ledgerEntries,
@@ -313,6 +332,8 @@ export async function generateStoryNarrative(context, onToken) {
 // No-ops safely in Node (no `caches`). Returns the number of caches removed.
 export async function clearModelCache() {
   enginePromise = null;
+  modelReady = false;
+  modelLoading = false;
   if (typeof caches === 'undefined' || typeof caches.keys !== 'function') return 0;
   const keys = await caches.keys();
   const targets = keys.filter(k => /webllm|mlc|model/i.test(k));

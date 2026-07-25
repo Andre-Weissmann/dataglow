@@ -50,6 +50,8 @@
   function ambientOn() { return flag('DATAGLOW_AMBIENT_PROOF_STRIP', 'ambientProofStrip'); }
   function ceilingOn() { return flag('DATAGLOW_CAPABILITY_CEILING', 'capabilityCeiling'); }
   function polarsOn() { return flag('DATAGLOW_POLARS_SECONDARY_PATH', 'polarsSecondaryPath'); }
+  function supplyOn() { return flag('DATAGLOW_MODEL_SUPPLY_CHAIN_PIN', 'modelSupplyChainPin'); }
+  function desktopLlmOn() { return flag('DATAGLOW_DESKTOP_LLAMA_CPP', 'desktopLlamaCpp'); }
 
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
@@ -88,11 +90,19 @@
      because every one of them lives behind an API that may not exist.
      --------------------------------------------------------------- */
 
+  /* The loader's own answer is preferred over reading navigator directly: it is
+     the function that will actually refuse to start, so if the two ever
+     disagree, the loader is the one that is right. navigator.gpu is the
+     fallback for a build where the loader is not published. */
   function hasWebGPU() {
+    var llm = engine('OnDeviceLLM');
+    if (llm && typeof llm.isWebGPUAvailable === 'function') {
+      try { return llm.isWebGPUAvailable() === true; } catch (_e) {}
+    }
     try {
       if (typeof navigator === 'undefined') return false;
       return !!navigator.gpu;
-    } catch (_e) { return false; }
+    } catch (_e2) { return false; }
   }
 
   function modelIsLoaded() {
@@ -100,6 +110,36 @@
     if (!llm) return false;
     try {
       if (typeof llm.isModelLoaded === 'function') return llm.isModelLoaded() === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  /* Weights already in the browser cache mean Air-Gap Mode has nothing to
+     object to, so this is what lets an air-gapped machine still read `ready`
+     rather than `blocked_airgap`. Absence of an answer is reported as not
+     cached, which is the pessimistic direction and the correct one. */
+  function modelIsCached() {
+    var llm = engine('OnDeviceLLM');
+    if (!llm) return false;
+    try {
+      if (typeof llm.isModelCached === 'function') return llm.isModelCached() === true;
+    } catch (_e) {}
+    return modelIsLoaded();
+  }
+
+  function modelIsLoading() {
+    var llm = engine('OnDeviceLLM');
+    if (!llm) return false;
+    try {
+      if (typeof llm.isModelLoading === 'function') return llm.isModelLoading() === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function isTauri() {
+    try {
+      if (window.__TAURI__ || window.__TAURI_INTERNALS__) return true;
+      if (window.DATAGLOW_PLATFORM === 'desktop') return true;
     } catch (_e) {}
     return false;
   }
@@ -140,12 +180,36 @@
       return eng.buildLocalAiStatus({
         webgpu: hasWebGPU(),
         modelLoaded: modelIsLoaded(),
-        loading: false,
+        loading: modelIsLoading(),
         airGap: airGapIsOn(),
-        modelCached: false,
+        modelCached: modelIsCached(),
         enabled: statusOn(),
         platform: platformName(),
       });
+    } catch (_e) { return null; }
+  }
+
+  function supplyChain() {
+    var eng = engine('DataGlowModelSupplyChain');
+    if (!eng || typeof eng.buildModelFetchPolicy !== 'function') return null;
+    try {
+      return eng.buildModelFetchPolicy({
+        airGap: airGapIsOn(),
+        allowCdn: true,
+        cachedRuntimeIds: modelIsCached() ? ['webllm', 'model-weights'] : [],
+      });
+    } catch (_e) { return null; }
+  }
+
+  function desktopLlm() {
+    var eng = engine('DataGlowDesktopLocalLlm');
+    if (!eng || typeof eng.buildDesktopLlmStatus !== 'function') return null;
+    try {
+      /* sidecarPresent is read from a real handshake or not claimed at all.
+         Nothing here infers a running server from the shell being desktop. */
+      var present = false;
+      try { present = window.DATAGLOW_LLAMA_SIDECAR === true; } catch (_e1) {}
+      return eng.buildDesktopLlmStatus({ isTauri: isTauri(), sidecarPresent: present });
     } catch (_e) { return null; }
   }
 
@@ -269,6 +333,35 @@
       row.appendChild(el('div', { class: 'dg-lai-note' }, m.why));
       host.appendChild(row);
     }
+    if (desktopLlmOn()) {
+      var d = desktopLlm();
+      if (d) {
+        host.appendChild(el('h4', {}, 'On the desktop build'));
+        var drow = el('div', { class: 'dg-lai-fact' });
+        drow.appendChild(el('b', {}, d.label));
+        drow.appendChild(el('div', {}, d.detail));
+        drow.appendChild(el('div', { class: 'dg-lai-note' }, d.upgradePitch));
+        drow.appendChild(el('div', { class: 'dg-lai-note' }, d.note));
+        host.appendChild(drow);
+      }
+    }
+
+    if (supplyOn()) {
+      var sc = supplyChain();
+      if (sc) {
+        host.appendChild(el('h4', {}, 'Where the runtimes come from'));
+        host.appendChild(el('p', { class: 'dg-lai-note' }, sc.doctrine));
+        for (var k = 0; k < sc.runtimes.length; k++) {
+          var rt = sc.runtimes[k];
+          var rrow = el('div', { class: 'dg-lai-fact' });
+          rrow.appendChild(el('b', {}, rt.label + (rt.pinned ? '  pinned @' + rt.version : '  unpinned')));
+          rrow.appendChild(el('div', {}, rt.allowed ? rt.origin : 'Blocked: ' + rt.origin));
+          rrow.appendChild(el('div', { class: 'dg-lai-note' }, rt.reason));
+          host.appendChild(rrow);
+        }
+      }
+    }
+
     host.appendChild(el('p', { class: 'dg-lai-note' }, eng.NOT_A_CERTIFICATION_NOTE));
   }
 
@@ -464,6 +557,8 @@
     ambient: ambientStrip,
     ceiling: ceiling,
     polars: polars,
+    supplyChain: supplyChain,
+    desktopLlm: desktopLlm,
     copyCeiling: copyCeiling,
   };
 })();
