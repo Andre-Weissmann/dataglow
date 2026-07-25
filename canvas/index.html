@@ -67766,6 +67766,14 @@ function buildStoryModelPrompt({ tableName = 'the dataset', queryResult = {}, cl
 // ============================================================
 let enginePromise = null;
 
+// `enginePromise != null` used to be the whole definition of "loaded", which
+// meant the model counted as loaded from the instant someone clicked, through
+// the entire multi-minute weight download. Any status surface built on it would
+// show ready while nothing could yet run. These two track the real thing: one
+// says a download is in flight, the other says an engine actually exists.
+let modelReady = false;
+let modelLoading = false;
+
 // Load (download + initialize) the on-device model. `onProgress` receives
 // { progress: 0..1, text } during the one-time weight download, which WebLLM
 // caches in the browser (Cache API / IndexedDB) for fully-offline reuse.
@@ -67776,6 +67784,7 @@ async function loadModel(onProgress) {
     throw err;
   }
   if (enginePromise) return enginePromise;
+  modelLoading = true;
   enginePromise = (async () => {
     const webllm = await import(/* @vite-ignore */ WEBLLM_ESM_URL);
     const engine = await webllm.CreateMLCEngine(MODEL_ID, {
@@ -67785,16 +67794,26 @@ async function loadModel(onProgress) {
         }
       },
     });
+    modelReady = true;
+    modelLoading = false;
     return engine;
   })().catch(err => {
     enginePromise = null; // allow retry after a failed load
+    modelReady = false;
+    modelLoading = false;
     throw err;
   });
   return enginePromise;
 }
 
+/** True only once an engine exists and inference would actually run. */
 function isModelLoaded() {
-  return enginePromise != null;
+  return modelReady === true;
+}
+
+/** True while the weights are downloading. Not the same as loaded, on purpose. */
+function isModelLoading() {
+  return modelLoading === true;
 }
 
 // Generate the plain-English synthesis. `context` is { ledgerEntries,
@@ -67847,6 +67866,8 @@ async function generateStoryNarrative(context, onToken) {
 // No-ops safely in Node (no `caches`). Returns the number of caches removed.
 async function clearModelCache() {
   enginePromise = null;
+  modelReady = false;
+  modelLoading = false;
   if (typeof caches === 'undefined' || typeof caches.keys !== 'function') return 0;
   const keys = await caches.keys();
   const targets = keys.filter(k => /webllm|mlc|model/i.test(k));
@@ -67854,11 +67875,26 @@ async function clearModelCache() {
   return targets.length;
 }
 
+  // The four names below have never been exported by this module, so each one
+  // resolves to its fallback. They are kept because something may read them and
+  // a sudden undefined is worse than a null. Everything after them is real.
   window.OnDeviceLLM = {
     generateNarrative: typeof generateNarrative !== 'undefined' ? generateNarrative : null,
     isOnDeviceAvailable: typeof isOnDeviceAvailable !== 'undefined' ? isOnDeviceAvailable : function(){ return false; },
     buildPromptContext: typeof buildPromptContext !== 'undefined' ? buildPromptContext : null,
     ON_DEVICE_MODELS: typeof ON_DEVICE_MODELS !== 'undefined' ? ON_DEVICE_MODELS : [],
+
+    MODEL_ID: MODEL_ID,
+    MODEL_LABEL: MODEL_LABEL,
+    isWebGPUAvailable: isWebGPUAvailable,
+    isModelLoaded: isModelLoaded,
+    isModelLoading: isModelLoading,
+    loadModel: loadModel,
+    clearModelCache: clearModelCache,
+    synthesizeFindings: synthesizeFindings,
+    generateStoryNarrative: generateStoryNarrative,
+    buildSynthesisPrompt: buildSynthesisPrompt,
+    buildStoryModelPrompt: buildStoryModelPrompt,
   };
 }());
 /* ---- end ondevice-llm.js ---- */
@@ -110258,6 +110294,10 @@ function renderMarkdown(source) {
     window.DataGlowR = {
       version: 1,
       rowLimit: ROW_LIMIT,
+      // The kernel is the only thing that knows whether the two optional
+      // packages installed, because it is what tried. Anything asking from
+      // outside would otherwise have to guess.
+      packages: function () { return { jsonlite: _hasJsonlite === true, ggplot2: _graphicsAvailable === true }; },
       init: initKernel,
       run: runR,
       status: function () { return _kernelStatus; }
@@ -129935,6 +129975,8 @@ function polarsChipLabel(availability) {
   function ambientOn() { return flag('DATAGLOW_AMBIENT_PROOF_STRIP', 'ambientProofStrip'); }
   function ceilingOn() { return flag('DATAGLOW_CAPABILITY_CEILING', 'capabilityCeiling'); }
   function polarsOn() { return flag('DATAGLOW_POLARS_SECONDARY_PATH', 'polarsSecondaryPath'); }
+  function supplyOn() { return flag('DATAGLOW_MODEL_SUPPLY_CHAIN_PIN', 'modelSupplyChainPin'); }
+  function desktopLlmOn() { return flag('DATAGLOW_DESKTOP_LLAMA_CPP', 'desktopLlamaCpp'); }
 
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
@@ -129973,11 +130015,19 @@ function polarsChipLabel(availability) {
      because every one of them lives behind an API that may not exist.
      --------------------------------------------------------------- */
 
+  /* The loader's own answer is preferred over reading navigator directly: it is
+     the function that will actually refuse to start, so if the two ever
+     disagree, the loader is the one that is right. navigator.gpu is the
+     fallback for a build where the loader is not published. */
   function hasWebGPU() {
+    var llm = engine('OnDeviceLLM');
+    if (llm && typeof llm.isWebGPUAvailable === 'function') {
+      try { return llm.isWebGPUAvailable() === true; } catch (_e) {}
+    }
     try {
       if (typeof navigator === 'undefined') return false;
       return !!navigator.gpu;
-    } catch (_e) { return false; }
+    } catch (_e2) { return false; }
   }
 
   function modelIsLoaded() {
@@ -129985,6 +130035,36 @@ function polarsChipLabel(availability) {
     if (!llm) return false;
     try {
       if (typeof llm.isModelLoaded === 'function') return llm.isModelLoaded() === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  /* Weights already in the browser cache mean Air-Gap Mode has nothing to
+     object to, so this is what lets an air-gapped machine still read `ready`
+     rather than `blocked_airgap`. Absence of an answer is reported as not
+     cached, which is the pessimistic direction and the correct one. */
+  function modelIsCached() {
+    var llm = engine('OnDeviceLLM');
+    if (!llm) return false;
+    try {
+      if (typeof llm.isModelCached === 'function') return llm.isModelCached() === true;
+    } catch (_e) {}
+    return modelIsLoaded();
+  }
+
+  function modelIsLoading() {
+    var llm = engine('OnDeviceLLM');
+    if (!llm) return false;
+    try {
+      if (typeof llm.isModelLoading === 'function') return llm.isModelLoading() === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function isTauri() {
+    try {
+      if (window.__TAURI__ || window.__TAURI_INTERNALS__) return true;
+      if (window.DATAGLOW_PLATFORM === 'desktop') return true;
     } catch (_e) {}
     return false;
   }
@@ -130025,12 +130105,36 @@ function polarsChipLabel(availability) {
       return eng.buildLocalAiStatus({
         webgpu: hasWebGPU(),
         modelLoaded: modelIsLoaded(),
-        loading: false,
+        loading: modelIsLoading(),
         airGap: airGapIsOn(),
-        modelCached: false,
+        modelCached: modelIsCached(),
         enabled: statusOn(),
         platform: platformName(),
       });
+    } catch (_e) { return null; }
+  }
+
+  function supplyChain() {
+    var eng = engine('DataGlowModelSupplyChain');
+    if (!eng || typeof eng.buildModelFetchPolicy !== 'function') return null;
+    try {
+      return eng.buildModelFetchPolicy({
+        airGap: airGapIsOn(),
+        allowCdn: true,
+        cachedRuntimeIds: modelIsCached() ? ['webllm', 'model-weights'] : [],
+      });
+    } catch (_e) { return null; }
+  }
+
+  function desktopLlm() {
+    var eng = engine('DataGlowDesktopLocalLlm');
+    if (!eng || typeof eng.buildDesktopLlmStatus !== 'function') return null;
+    try {
+      /* sidecarPresent is read from a real handshake or not claimed at all.
+         Nothing here infers a running server from the shell being desktop. */
+      var present = false;
+      try { present = window.DATAGLOW_LLAMA_SIDECAR === true; } catch (_e1) {}
+      return eng.buildDesktopLlmStatus({ isTauri: isTauri(), sidecarPresent: present });
     } catch (_e) { return null; }
   }
 
@@ -130154,6 +130258,35 @@ function polarsChipLabel(availability) {
       row.appendChild(el('div', { class: 'dg-lai-note' }, m.why));
       host.appendChild(row);
     }
+    if (desktopLlmOn()) {
+      var d = desktopLlm();
+      if (d) {
+        host.appendChild(el('h4', {}, 'On the desktop build'));
+        var drow = el('div', { class: 'dg-lai-fact' });
+        drow.appendChild(el('b', {}, d.label));
+        drow.appendChild(el('div', {}, d.detail));
+        drow.appendChild(el('div', { class: 'dg-lai-note' }, d.upgradePitch));
+        drow.appendChild(el('div', { class: 'dg-lai-note' }, d.note));
+        host.appendChild(drow);
+      }
+    }
+
+    if (supplyOn()) {
+      var sc = supplyChain();
+      if (sc) {
+        host.appendChild(el('h4', {}, 'Where the runtimes come from'));
+        host.appendChild(el('p', { class: 'dg-lai-note' }, sc.doctrine));
+        for (var k = 0; k < sc.runtimes.length; k++) {
+          var rt = sc.runtimes[k];
+          var rrow = el('div', { class: 'dg-lai-fact' });
+          rrow.appendChild(el('b', {}, rt.label + (rt.pinned ? '  pinned @' + rt.version : '  unpinned')));
+          rrow.appendChild(el('div', {}, rt.allowed ? rt.origin : 'Blocked: ' + rt.origin));
+          rrow.appendChild(el('div', { class: 'dg-lai-note' }, rt.reason));
+          host.appendChild(rrow);
+        }
+      }
+    }
+
     host.appendChild(el('p', { class: 'dg-lai-note' }, eng.NOT_A_CERTIFICATION_NOTE));
   }
 
@@ -130349,10 +130482,2563 @@ function polarsChipLabel(availability) {
     ambient: ambientStrip,
     ceiling: ceiling,
     polars: polars,
+    supplyChain: supplyChain,
+    desktopLlm: desktopLlm,
     copyCeiling: copyCeiling,
   };
 })();
 /* ---- end js/ai/data-glow-local-ai-canvas.js ---- */
+
+/* ---- from js/ai/model-supply-chain.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Model and runtime supply-chain policy
+// ============================================================
+//
+// DataGlow's privacy claim is about egress: no user data leaves the machine.
+// That claim is true and it is not the whole story. Four heavy runtimes are
+// fetched from public CDNs on first use, and each one is code that will execute
+// with full access to the page that just read someone's payroll file. A CDN
+// that serves a different file tomorrow than it served today defeats every
+// other control in the product, silently, and no amount of local-first
+// architecture helps.
+//
+// WHY A VERSION IN THE URL IS THE CONTROL WE ACTUALLY HAVE.
+// Subresource Integrity is the right answer for a script tag and the wrong
+// answer here: WebLLM is loaded by dynamic `import()`, which takes no integrity
+// attribute, and the model weights are over a gigabyte fetched in shards by the
+// runtime itself. So the honest control is a pinned, immutable version URL plus
+// an allowlist of the exact origins those URLs live on, and this module is where
+// both are written down once instead of being spelled slightly differently in
+// four loaders.
+//
+// WHY `latest` IS RECORDED AS A FINDING RATHER THAN QUIETLY TOLERATED.
+// One of the four runtimes resolves through a `latest` path. That is a floating
+// reference: the bytes can change under us without any commit in this repo. It
+// is listed here with `pinned: false` and the policy reports it, because a
+// supply-chain module that only lists the things that are already fine is
+// decoration. Naming it is what makes it fixable.
+//
+// WHY THE MODEL ID IS AN ALLOWLIST AND NOT A TEXT BOX.
+// A model id is a path into a remote registry. Accepting one from user input
+// means accepting an arbitrary download instruction, which is the same
+// vulnerability class as an open redirect and is worth exactly nothing to a
+// user who did not ask for it.
+//
+// Pure. No imports, no fetch, no DOM. The loaders ask this module what is
+// allowed; this module never fetches anything itself.
+
+const SUPPLY_CHAIN_KIND = 'dataglow-model-supply-chain';
+const SUPPLY_CHAIN_VERSION = 1;
+
+const SUPPLY_CHAIN_DOCTRINE =
+  'Every runtime this product downloads is code that will run over your data. Each one is pinned to an exact version at an exact origin, the list is short enough to read, and Air-Gap Mode refuses all of them rather than trusting any of them.';
+
+/**
+ * The runtimes DataGlow fetches, with the version each loader actually asks for.
+ *
+ * `pinned` means the URL names an immutable version. It is derived from the
+ * shape of the URL rather than asserted by hand, so a loader that quietly moves
+ * to a floating reference shows up here as a finding instead of as a comment
+ * nobody updated.
+ */
+const PINNED_RUNTIMES = Object.freeze([
+  Object.freeze({
+    id: 'webllm',
+    label: 'WebLLM (MLC)',
+    purpose: 'Runs the built-in language model on your GPU.',
+    origin: 'https://esm.run',
+    url: 'https://esm.run/@mlc-ai/web-llm@0.2.79',
+    version: '0.2.79',
+    pinned: true,
+    loadedBy: 'js/narrative/ondevice-llm.js',
+    license: 'Apache-2.0',
+  }),
+  Object.freeze({
+    id: 'pyodide',
+    label: 'Pyodide',
+    purpose: 'Runs Python, pandas and matplotlib in the browser.',
+    origin: 'https://cdn.jsdelivr.net',
+    url: 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/',
+    version: '0.26.2',
+    pinned: true,
+    loadedBy: 'js/runtimes-viz/python-runtime.js',
+    license: 'MPL-2.0',
+  }),
+  Object.freeze({
+    id: 'webr',
+    label: 'WebR',
+    purpose: 'Runs R in the browser.',
+    origin: 'https://webr.r-wasm.org',
+    url: 'https://webr.r-wasm.org/latest/webr.mjs',
+    version: 'latest',
+    pinned: false,
+    loadedBy: 'js/runtimes-viz/r-runtime.js',
+    license: 'MIT',
+  }),
+  Object.freeze({
+    id: 'model-weights',
+    label: 'Qwen2.5 1.5B Instruct weights',
+    purpose: 'The weights the built-in model runs from, fetched once and cached.',
+    origin: 'https://huggingface.co',
+    url: 'https://huggingface.co/mlc-ai',
+    version: 'q4f16_1-MLC',
+    pinned: true,
+    loadedBy: 'WebLLM, from its prebuilt registry, using the allowlisted model id only.',
+    license: 'Apache-2.0',
+  }),
+]);
+
+/**
+ * Where the weight shards are actually served from once the request redirects.
+ *
+ * A weight file is requested from huggingface.co and answered by that project's
+ * large-file CDN on a different host. A policy that names only the origin in the
+ * URL blocks the download at the redirect, which looks to a user like the model
+ * silently failing to load. This is not a fifth runtime and it is deliberately
+ * not in `PINNED_RUNTIMES`; it is the delivery host for one of them, and it is
+ * separate so that nothing counts it as another piece of code being fetched.
+ */
+const WEIGHT_DELIVERY_ORIGINS = Object.freeze(['https://cdn-lfs.hf.co', 'https://cdn-lfs-us-1.hf.co']);
+
+/**
+ * Model ids this product is permitted to ask a registry for.
+ *
+ * One entry today. The list exists so that adding a second is an edit to this
+ * file rather than a string arriving from somewhere else.
+ */
+const ALLOWED_MODEL_IDS = Object.freeze(['Qwen2.5-1.5B-Instruct-q4f16_1-MLC']);
+
+const UNPINNED_WARNING =
+  'This runtime is fetched through a floating path, so the bytes can change without any change in this repository. It still runs entirely on your machine, but the version you get is not the version this build was tested against.';
+
+const AIR_GAP_BLOCK_REASON =
+  'Air-Gap Mode is on, so no runtime is fetched at all. A runtime already cached by the browser still works; anything not yet downloaded stays unavailable until Air-Gap Mode is off.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** The distinct origins the pinned list depends on, in listed order. */
+function pinnedOrigins() {
+  const seen = [];
+  for (const r of PINNED_RUNTIMES) {
+    if (seen.indexOf(r.origin) < 0) seen.push(r.origin);
+  }
+  return seen;
+}
+
+/** The runtimes whose URL does not name an immutable version. */
+function unpinnedRuntimes() {
+  return PINNED_RUNTIMES.filter(r => r.pinned !== true);
+}
+
+/**
+ * Is this model id one this product is allowed to fetch?
+ *
+ * Exact match only. No prefix matching, because `Qwen2.5-1.5B-Instruct-evil`
+ * has the right prefix.
+ */
+function isModelIdAllowed(modelId) {
+  return ALLOWED_MODEL_IDS.indexOf(str(modelId)) >= 0;
+}
+
+/**
+ * What a loader is permitted to fetch right now.
+ *
+ * @param {{airGap?:boolean, allowCdn?:boolean, cachedRuntimeIds?:string[]}} [input]
+ */
+function buildModelFetchPolicy(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const airGap = inp.airGap === true;
+  const allowCdn = inp.allowCdn !== false;
+  const cached = Array.isArray(inp.cachedRuntimeIds) ? inp.cachedRuntimeIds.map(str) : [];
+
+  const runtimes = PINNED_RUNTIMES.map(r => {
+    const isCached = cached.indexOf(r.id) >= 0;
+    let allowed;
+    let reason;
+    if (airGap && !isCached) {
+      allowed = false;
+      reason = AIR_GAP_BLOCK_REASON;
+    } else if (airGap && isCached) {
+      allowed = true;
+      reason = 'Already cached on this machine, so using it fetches nothing.';
+    } else if (!allowCdn) {
+      allowed = false;
+      reason = 'Remote runtime fetches are switched off for this session.';
+    } else {
+      allowed = true;
+      reason = r.pinned
+        ? 'Pinned to version ' + r.version + ' at ' + r.origin + '.'
+        : UNPINNED_WARNING;
+    }
+    return {
+      id: r.id,
+      label: r.label,
+      origin: r.origin,
+      url: r.url,
+      version: r.version,
+      pinned: r.pinned === true,
+      cached: isCached,
+      allowed,
+      reason,
+    };
+  });
+
+  const unpinned = runtimes.filter(r => !r.pinned);
+  const blocked = runtimes.filter(r => !r.allowed);
+
+  return {
+    kind: SUPPLY_CHAIN_KIND,
+    version: SUPPLY_CHAIN_VERSION,
+    airGap,
+    allowCdn,
+    runtimes,
+    origins: pinnedOrigins(),
+    allowedModelIds: ALLOWED_MODEL_IDS.slice(),
+    unpinnedCount: unpinned.length,
+    blockedCount: blocked.length,
+    anyAllowed: blocked.length < runtimes.length,
+    headline: airGap
+      ? 'Air-Gap Mode: no runtime is fetched'
+      : unpinned.length === 0
+        ? 'All runtimes pinned to an exact version'
+        : unpinned.length + ' runtime' + (unpinned.length === 1 ? '' : 's') + ' fetched through a floating path',
+    doctrine: SUPPLY_CHAIN_DOCTRINE,
+  };
+}
+
+/**
+ * Check what a loader is actually about to fetch against what is pinned here.
+ *
+ * A loader passes the URL string it holds. Divergence means the pin has drifted
+ * out of one of the two places it is written, and drift found by a check beats
+ * drift found by a user.
+ *
+ * @param {{id:string, url?:string, modelId?:string}} [input]
+ */
+function verifyPinnedRuntimeMeta(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const id = str(inp.id);
+  const entry = PINNED_RUNTIMES.filter(r => r.id === id)[0] || null;
+
+  if (!entry) {
+    return {
+      ok: false,
+      id,
+      reason: 'No runtime with that id is on the pinned list, so nothing here vouches for it.',
+      expectedUrl: '',
+      observedUrl: str(inp.url),
+    };
+  }
+
+  const observed = str(inp.url);
+  if (observed && observed !== entry.url) {
+    return {
+      ok: false,
+      id,
+      reason: 'The loader is fetching a different URL than the one pinned here.',
+      expectedUrl: entry.url,
+      observedUrl: observed,
+    };
+  }
+
+  const modelId = str(inp.modelId);
+  if (modelId && !isModelIdAllowed(modelId)) {
+    return {
+      ok: false,
+      id,
+      reason: 'That model id is not on the allowlist, so it will not be requested.',
+      expectedUrl: entry.url,
+      observedUrl: observed,
+    };
+  }
+
+  return {
+    ok: true,
+    id,
+    reason: entry.pinned
+      ? 'Matches the pinned version ' + entry.version + '.'
+      : UNPINNED_WARNING,
+    expectedUrl: entry.url,
+    observedUrl: observed || entry.url,
+  };
+}
+
+/** One line for a status row. Never says pinned when something is not. */
+function supplyChainChipLabel(policy) {
+  if (!isPlainObject(policy)) return 'Runtime pinning: not checked';
+  if (policy.airGap === true) return 'Runtimes: blocked by Air-Gap Mode';
+  if (policy.unpinnedCount > 0) {
+    return 'Runtimes: ' + policy.unpinnedCount + ' unpinned of ' + policy.runtimes.length;
+  }
+  return 'Runtimes: all ' + policy.runtimes.length + ' pinned';
+}
+  window.DataGlowModelSupplyChain = {
+    SUPPLY_CHAIN_KIND: SUPPLY_CHAIN_KIND,
+    SUPPLY_CHAIN_VERSION: SUPPLY_CHAIN_VERSION,
+    SUPPLY_CHAIN_DOCTRINE: SUPPLY_CHAIN_DOCTRINE,
+    PINNED_RUNTIMES: PINNED_RUNTIMES,
+    WEIGHT_DELIVERY_ORIGINS: WEIGHT_DELIVERY_ORIGINS,
+    ALLOWED_MODEL_IDS: ALLOWED_MODEL_IDS,
+    UNPINNED_WARNING: UNPINNED_WARNING,
+    AIR_GAP_BLOCK_REASON: AIR_GAP_BLOCK_REASON,
+    pinnedOrigins: pinnedOrigins,
+    unpinnedRuntimes: unpinnedRuntimes,
+    isModelIdAllowed: isModelIdAllowed,
+    buildModelFetchPolicy: buildModelFetchPolicy,
+    verifyPinnedRuntimeMeta: verifyPinnedRuntimeMeta,
+    supplyChainChipLabel: supplyChainChipLabel,
+  };
+})();
+/* ---- end js/ai/model-supply-chain.js ---- */
+/* ---- from js/security/csp-policy.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Content Security Policy, derived rather than typed
+// ============================================================
+//
+// A CSP is a list of the places code and data are allowed to come from. It is
+// the one control that still works after something else has gone wrong: if an
+// injected string tries to reach an attacker's host, the policy is what refuses.
+// For a product whose entire promise is that nothing leaves the machine, a
+// `connect-src` naming four origins and nothing else is close to being the
+// promise written in a form the browser enforces.
+//
+// WHY THIS IS COMPUTED FROM THE PIN LIST INSTEAD OF WRITTEN OUT.
+// The desktop shell has carried a hand-written CSP for a while, and it has
+// already drifted: it allows two CDNs, neither of which is where the language
+// model runtime or the R runtime actually come from. So on desktop, today, the
+// policy silently blocks two features the product advertises. That is what a
+// hand-maintained duplicate of a list always does eventually. Here the origins
+// come from `PINNED_RUNTIMES`, so adding a runtime updates the policy by
+// construction and a test can assert the two never diverge again.
+//
+// WHY THE POLICY IS NOT AS TIGHT AS A POLICY CAN BE.
+// Three unsafe-looking directives are load-bearing and are kept deliberately:
+//
+//   'unsafe-inline' for scripts - the shipped artifact is one HTML file whose
+//     application code is inline. Removing this removes the product.
+//   'unsafe-eval' - DuckDB compiled to WebAssembly instantiates its module
+//     through a path this directive covers, and the narrower
+//     'wasm-unsafe-eval' is not honoured everywhere the app has to run.
+//   blob: in script-src and worker-src - DuckDB and Pyodide both start workers
+//     from blob URLs they build at runtime.
+//
+// Writing a policy that omits these produces a document that scores better and
+// does not work. Each one is listed in `CSP_RESIDUALS` with what it costs, so
+// the gap is a recorded decision rather than an oversight.
+//
+// Pure. Builds strings. Never installs anything and never touches the DOM.
+
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowModelSupplyChain instead of imported.
+  var pinnedOrigins = window.DataGlowModelSupplyChain.pinnedOrigins, WEIGHT_DELIVERY_ORIGINS = window.DataGlowModelSupplyChain.WEIGHT_DELIVERY_ORIGINS;
+const CSP_POLICY_KIND = 'dataglow-csp-policy';
+const CSP_POLICY_VERSION = 1;
+
+const CSP_DOCTRINE =
+  'The policy names every origin this product is allowed to reach and refuses the rest. Its connect-src is the egress promise in a form the browser enforces rather than a form the marketing page asserts.';
+
+/**
+ * Why each directive reads the way it does.
+ *
+ * Kept next to the policy because a CSP with no rationale gets loosened by the
+ * first person who hits a console error, and a CSP that has been loosened once
+ * for an unrecorded reason gets loosened again.
+ */
+const CSP_DIRECTIVE_NOTES = Object.freeze([
+  Object.freeze({
+    directive: 'default-src',
+    why: "Everything not named below falls back to this machine only.",
+  }),
+  Object.freeze({
+    directive: 'connect-src',
+    why: 'The egress list. Only the pinned runtime origins, plus this machine, blobs and data URLs. There is no analytics host and no API host, because there is no analytics and no API.',
+  }),
+  Object.freeze({
+    directive: 'script-src',
+    why: "Inline is required because the shipped artifact is a single HTML file. eval and blob are required by DuckDB and by the worker-based runtimes.",
+  }),
+  Object.freeze({
+    directive: 'worker-src',
+    why: 'DuckDB and Pyodide start workers from blob URLs they construct at runtime.',
+  }),
+  Object.freeze({
+    directive: 'form-action',
+    why: "Set to 'none'. The product has no form that submits anywhere, so any submission is someone else's idea.",
+  }),
+  Object.freeze({
+    directive: 'frame-ancestors',
+    why: "Set to 'none'. Nothing should be able to embed a page that has a user's spreadsheet open in it.",
+  }),
+  Object.freeze({
+    directive: 'object-src',
+    why: "Set to 'none'. No plugins, ever.",
+  }),
+]);
+
+/**
+ * The gaps, named. Each is a real weakening with a real reason.
+ */
+const CSP_RESIDUALS = Object.freeze([
+  Object.freeze({
+    id: 'unsafe-inline',
+    cost: 'An injected inline script would not be blocked by the policy.',
+    why: 'The shipped artifact is one HTML file with its application code inline. Removing this directive removes the application.',
+    fix: 'A hash or nonce per inline block, which needs a build step the single-file ship path does not have.',
+  }),
+  Object.freeze({
+    id: 'unsafe-eval',
+    cost: 'Code built from a string at runtime is not blocked.',
+    why: "DuckDB's WebAssembly startup path needs it, and the narrower wasm-unsafe-eval is not honoured in every browser this has to run in.",
+    fix: "Move to wasm-unsafe-eval alone once the browser floor allows it.",
+  }),
+  Object.freeze({
+    id: 'cdn-origins',
+    cost: 'Three public CDN origins can serve script to this page.',
+    why: 'The Python, R and model runtimes are megabytes each and are fetched on first use rather than bundled.',
+    fix: 'Vendor them into the repository, which trades the CDN risk for a much larger artifact and a manual update burden.',
+  }),
+]);
+
+/**
+ * The webfont origins, which are not runtimes and so are not in the pin list.
+ *
+ * They are named here rather than derived because they serve stylesheets and
+ * font files, never script, and they get their own directives. Under Air-Gap
+ * they are dropped along with everything else: a font request is still a
+ * request, and the local fallback stack renders the product perfectly well.
+ */
+const STYLE_ORIGINS = Object.freeze(['https://fonts.googleapis.com']);
+const FONT_ORIGINS = Object.freeze(['https://fonts.gstatic.com']);
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function joinSources(list) {
+  return list.filter(Boolean).join(' ');
+}
+
+/**
+ * Build the policy.
+ *
+ * @param {{platform?:string, airGap?:boolean}} [input]
+ * @returns {{policy:string, directives:Array, airGap:boolean, platform:string}}
+ */
+function recommendedCspPolicy(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const platform = inp.platform === 'desktop' ? 'desktop' : 'web';
+  const airGap = inp.airGap === true;
+
+  // Under Air-Gap Mode the runtime origins are not merely unused, they are
+  // refused. Dropping them from connect-src makes the browser enforce what the
+  // mode already promises instead of relying on our own code to be careful.
+  const runtimeOrigins = airGap ? [] : pinnedOrigins();
+  const styleOrigins = airGap ? [] : STYLE_ORIGINS.slice();
+  const fontOrigins = airGap ? [] : FONT_ORIGINS.slice();
+  const deliveryOrigins = airGap ? [] : WEIGHT_DELIVERY_ORIGINS.slice();
+
+  const directives = [
+    ['default-src', ["'self'"]],
+    ['base-uri', ["'self'"]],
+    ['script-src', ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'blob:'].concat(runtimeOrigins)],
+    ['worker-src', ["'self'", 'blob:']],
+    ['child-src', ["'self'", 'blob:']],
+    ['style-src', ["'self'", "'unsafe-inline'"].concat(styleOrigins)],
+    ['font-src', ["'self'", 'data:'].concat(fontOrigins)],
+    ['img-src', ["'self'", 'data:', 'blob:']],
+    // connect-src carries the weight-delivery hosts as well, because the weight
+    // request redirects off the origin in its URL and a policy that stops at the
+    // redirect looks exactly like the model failing to download for no reason.
+    ['connect-src', ["'self'", 'blob:', 'data:'].concat(runtimeOrigins, deliveryOrigins)],
+    ['media-src', ["'none'"]],
+    ['object-src', ["'none'"]],
+    ['frame-src', ["'none'"]],
+    ['frame-ancestors', ["'none'"]],
+    ['form-action', ["'none'"]],
+  ];
+
+  const policy = directives
+    .map(d => d[0] + ' ' + joinSources(d[1]))
+    .join('; ') + ';';
+
+  return {
+    kind: CSP_POLICY_KIND,
+    version: CSP_POLICY_VERSION,
+    platform,
+    airGap,
+    policy,
+    directives: directives.map(d => ({ directive: d[0], sources: d[1].slice() })),
+    origins: runtimeOrigins.slice(),
+    notes: CSP_DIRECTIVE_NOTES,
+    residuals: CSP_RESIDUALS,
+    doctrine: CSP_DOCTRINE,
+  };
+}
+
+/**
+ * Does a policy string actually permit every origin the runtimes need?
+ *
+ * This is the check that would have caught the desktop shell allowing two CDNs
+ * that no loader in the product uses while blocking the two that it does.
+ */
+function checkPolicyCoversRuntimes(policyString) {
+  const s = typeof policyString === 'string' ? policyString : '';
+  const missing = pinnedOrigins().filter(o => s.indexOf(o) < 0);
+  return {
+    ok: missing.length === 0,
+    missing,
+    reason: missing.length === 0
+      ? 'Every pinned runtime origin appears in the policy.'
+      : 'The policy does not permit ' + missing.join(', ') + ', so those runtimes would be blocked at load.',
+  };
+}
+  window.DataGlowCspPolicy = {
+    CSP_POLICY_KIND: CSP_POLICY_KIND,
+    CSP_POLICY_VERSION: CSP_POLICY_VERSION,
+    CSP_DOCTRINE: CSP_DOCTRINE,
+    CSP_DIRECTIVE_NOTES: CSP_DIRECTIVE_NOTES,
+    CSP_RESIDUALS: CSP_RESIDUALS,
+    recommendedCspPolicy: recommendedCspPolicy,
+    checkPolicyCoversRuntimes: checkPolicyCoversRuntimes,
+  };
+})();
+/* ---- end js/security/csp-policy.js ---- */
+/* ---- from js/ai/desktop-local-llm.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Desktop local LLM path (llama.cpp sidecar)
+// ============================================================
+//
+// The browser model runs on WebGPU, which caps what it can be. A 1.5B model at
+// 4-bit is what fits in a tab that also has DuckDB and a spreadsheet in it, and
+// on a machine with no WebGPU there is no model at all. The desktop build has
+// no such ceiling: a llama.cpp server process can use the whole GPU, or the
+// whole CPU, and can run a model several times larger.
+//
+// So the desktop upgrade path is real and worth building. What it must not do
+// is be announced before it exists.
+//
+// WHY THE SIDECAR IS NOT BUNDLED IN THIS BUILD.
+// A llama.cpp binary is platform-specific and tens of megabytes per target, and
+// Tauri's `externalBin` requires the binary to be present at bundle time for
+// every target triple being built. Naming one in `tauri.conf.json` without
+// shipping it does not produce a desktop app with a missing feature, it produces
+// a desktop build that fails. So `externalBin` stays an empty array, this module
+// reports `sidecar_missing` honestly, and `describeSidecarScaffold()` writes down
+// the exact configuration to add on the day the binary is vendored. Complete
+// path, no fake ready.
+//
+// WHY `unavailable_web` IS A STATE AND NOT AN ERROR.
+// Most people run this in a browser, where a sidecar cannot exist by
+// definition. That is the normal case, not a fault, and telling a browser user
+// their sidecar is missing would be describing the absence of something they
+// never could have had.
+//
+// Pure. No imports, no process spawning, no Tauri call. The caller observes the
+// environment and hands the observation in.
+
+const DESKTOP_LLM_KIND = 'dataglow-desktop-local-llm';
+const DESKTOP_LLM_VERSION = 1;
+
+const DESKTOP_LLM_STATES = Object.freeze([
+  'unavailable_web',
+  'sidecar_missing',
+  'ready',
+  'error',
+]);
+
+const SIDECAR_NAME = 'llama-server';
+
+const DESKTOP_UPGRADE_PITCH =
+  'The desktop build can run a larger model than a browser tab can. It talks to a llama.cpp server running on this machine over the loopback interface, so nothing leaves the machine there either.';
+
+const NOT_BUNDLED_NOTE =
+  'This build does not bundle a llama.cpp binary. The code path is complete and the desktop app will use the server the moment one is present, but nothing here downloads or installs it for you.';
+
+const STATE_LABEL = Object.freeze({
+  unavailable_web: 'Desktop model: not applicable in a browser',
+  sidecar_missing: 'Desktop model: llama.cpp not bundled in this build',
+  ready: 'Desktop model: llama.cpp server available',
+  error: 'Desktop model: the local server reported a problem',
+});
+
+const STATE_DETAIL = Object.freeze({
+  unavailable_web:
+    'A sidecar process is a desktop concept. In a browser the built-in model is the WebGPU one, and that is the whole story here.',
+  sidecar_missing:
+    'The desktop shell is running but no llama.cpp server was found beside it. The browser-grade built-in model still works; the larger local model does not.',
+  ready:
+    'A llama.cpp server is reachable on the loopback interface. Prompts go to a process on this machine and no request leaves it.',
+  error:
+    'The desktop shell found a server and could not use it. The built-in WebGPU model remains available, so nothing is blocked by this.',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/**
+ * @param {{isTauri?:boolean, sidecarPresent?:boolean, modelPath?:string, error?:string}} [input]
+ */
+function buildDesktopLlmStatus(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const isTauri = inp.isTauri === true;
+  const sidecarPresent = inp.sidecarPresent === true;
+  const modelPath = str(inp.modelPath);
+  const error = str(inp.error);
+
+  // Precedence. A browser has no sidecar and cannot have one, so that answer
+  // comes first and no later condition can override it. An error only means
+  // something when the desktop shell is the one reporting it, which is why a
+  // stray error string cannot make a browser look broken.
+  let state;
+  if (!isTauri) state = 'unavailable_web';
+  else if (error) state = 'error';
+  else if (!sidecarPresent) state = 'sidecar_missing';
+  else state = 'ready';
+
+  return {
+    kind: DESKTOP_LLM_KIND,
+    version: DESKTOP_LLM_VERSION,
+    state,
+    label: STATE_LABEL[state],
+    detail: state === 'error' && error ? STATE_DETAIL.error + ' Reported: ' + error : STATE_DETAIL[state],
+    usable: state === 'ready',
+    sidecarName: SIDECAR_NAME,
+    modelPath: state === 'ready' ? modelPath : '',
+    bundledInThisBuild: false,
+    note: NOT_BUNDLED_NOTE,
+    upgradePitch: DESKTOP_UPGRADE_PITCH,
+    // The browser model is never taken away by any of this. Whatever the
+    // desktop path is doing, the WebGPU path is the floor.
+    fallsBackTo: 'The built-in WebGPU model, which is unaffected by any state here.',
+    observed: { isTauri, sidecarPresent, hasModelPath: !!modelPath, hasError: !!error },
+  };
+}
+
+/**
+ * The exact configuration change that turns this path on, written down so the
+ * work left to do is a diff rather than an investigation.
+ *
+ * Returned as data rather than prose so a test can assert that the empty
+ * `externalBin` in the shipped Tauri config still matches what this describes.
+ */
+function describeSidecarScaffold() {
+  return {
+    kind: DESKTOP_LLM_KIND,
+    configFile: 'src-tauri/tauri.conf.json',
+    configPath: 'tauri.bundle.externalBin',
+    currentValue: [],
+    valueWhenShipped: ['bin/' + SIDECAR_NAME],
+    whyEmptyToday:
+      'Tauri resolves each externalBin entry to a file named for the target triple at bundle time. An entry with no binary behind it fails the build for every platform, so the slot stays empty until a binary is vendored.',
+    steps: Object.freeze([
+      'Vendor a llama.cpp server binary per target triple as src-tauri/bin/' + SIDECAR_NAME + '-<triple>.',
+      'Add "bin/' + SIDECAR_NAME + '" to tauri.bundle.externalBin.',
+      'Allow the shell scope for that one sidecar in the Tauri allowlist, and nothing else.',
+      'Start it bound to the loopback interface on a port chosen at launch, never a fixed public one.',
+      'Pass sidecarPresent to buildDesktopLlmStatus from the real handshake, not from the config.',
+    ]),
+    boundary:
+      'The server binds to loopback only. There is no remote inference mode here and there is no setting that adds one.',
+    note: NOT_BUNDLED_NOTE,
+  };
+}
+
+/** One line for a status row. */
+function desktopLlmChipLabel(status) {
+  if (!isPlainObject(status)) return STATE_LABEL.unavailable_web;
+  return STATE_LABEL[status.state] || STATE_LABEL.unavailable_web;
+}
+  window.DataGlowDesktopLocalLlm = {
+    DESKTOP_LLM_KIND: DESKTOP_LLM_KIND,
+    DESKTOP_LLM_VERSION: DESKTOP_LLM_VERSION,
+    DESKTOP_LLM_STATES: DESKTOP_LLM_STATES,
+    SIDECAR_NAME: SIDECAR_NAME,
+    DESKTOP_UPGRADE_PITCH: DESKTOP_UPGRADE_PITCH,
+    NOT_BUNDLED_NOTE: NOT_BUNDLED_NOTE,
+    buildDesktopLlmStatus: buildDesktopLlmStatus,
+    describeSidecarScaffold: describeSidecarScaffold,
+    desktopLlmChipLabel: desktopLlmChipLabel,
+  };
+})();
+/* ---- end js/ai/desktop-local-llm.js ---- */
+/* ---- from js/spine/receipt-spine.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - The RECEIPT spine: Drop, Ask, Prove, Ship, Compound
+// ============================================================
+//
+// DataGlow has accumulated a great deal of real capability and no obvious way
+// in. Someone opening it for the first time meets a row of tabs, each of which
+// is a competent tool, and no indication of which one is the beginning. The
+// product's actual shape is a sequence, and the sequence was never drawn.
+//
+// This module draws it. Five steps, in the order the work happens: get the data
+// in, ask something of it, prove the answer, send the answer somewhere, and keep
+// the method so the next month costs less than this one. That last step is the
+// one people skip and it is the only one that compounds, which is why it is on
+// the rail rather than buried in a menu.
+//
+// WHY A STEP IS NEVER MARKED DONE BY OPTIMISM.
+// The rail reads its state from evidence the caller observed: a table is loaded,
+// a query has run, the prove gate returned a verdict, an export was confirmed, a
+// recipe was saved. Nothing is inferred from "the user clicked the tab", because
+// a rail that ticks a step for opening a panel is a progress bar for a
+// motivational app, not a description of what has happened to this data.
+//
+// WHY PROVE CANNOT BE MARKED DONE BY BEING SKIPPED.
+// Every other step in this list can be reached by doing the previous one. Prove
+// can be walked straight past: a query result is already on screen and copying
+// it is one keystroke. So the rail treats an unproven answer as `skipped` rather
+// than as untouched, and says so, because a step nobody visited and a step
+// somebody bypassed on the way to an export are different facts.
+//
+// WHY THIS IS NOT A REDESIGN.
+// Nothing here removes a tab, moves a control or hides a surface. The rail is
+// one strip that names the path and points at surfaces that already exist. The
+// larger question of what this product should look like is a different piece of
+// work and this is deliberately not it.
+//
+// Pure data plus pure helpers. No DOM, no timers, no network. The canvas surface
+// maps each step's `opens` id onto whatever is actually mounted in that build.
+
+const SPINE_KIND = 'dataglow-receipt-spine';
+const SPINE_VERSION = 1;
+
+const SPINE_STATES = Object.freeze(['done', 'current', 'todo', 'skipped']);
+
+const SPINE_DOCTRINE =
+  'A receipt is the point. Every step here exists so the number you end up with can be traced back to the file it came from, by someone who was not in the room.';
+
+const SPINE_TITLE = 'Start here';
+
+/**
+ * The five steps.
+ *
+ * `opens` is an intent, not an element id. The canvas surface resolves it
+ * against whatever is mounted, so a build without the Proof Board renders that
+ * step as text rather than as a button that does nothing.
+ */
+const RECEIPT_STEPS = Object.freeze([
+  Object.freeze({
+    id: 'drop',
+    ordinal: 1,
+    title: 'Drop',
+    oneLine: 'Put a file in. Nothing is uploaded.',
+    body: 'A CSV, an Excel workbook, a Parquet file. It is read by this page on your machine and it does not go anywhere. If the spreadsheet is a mess, the repair path is here too.',
+    opens: 'open-file',
+    also: 'fix-spreadsheet',
+    alsoLabel: 'Fix a messy spreadsheet',
+    doneWhen: 'A table is loaded.',
+  }),
+  Object.freeze({
+    id: 'ask',
+    ordinal: 2,
+    title: 'Ask',
+    oneLine: 'Ask in SQL, in plain English, or in Python or R.',
+    body: 'Plain English is turned into SQL you can read before it runs. The generated query is the answer to how the number was produced, so it is shown rather than hidden.',
+    opens: 'open-ask',
+    doneWhen: 'A query has returned a result.',
+  }),
+  Object.freeze({
+    id: 'prove',
+    ordinal: 3,
+    title: 'Prove',
+    oneLine: 'Bind every number to the query that produced it.',
+    body: 'The Proof Board holds one tile per number with its code underneath. The gate then refuses any claim containing a number that no tile and no engine result accounts for. Not checked is never shown as passed.',
+    opens: 'open-proof-board',
+    doneWhen: 'The prove gate has returned a verdict on a claim.',
+  }),
+  Object.freeze({
+    id: 'ship',
+    ordinal: 4,
+    title: 'Ship',
+    oneLine: 'Send it out with its proof attached, after you confirm.',
+    body: 'A post draft, a hand-off pack for a BI tool, a receipt. Every outbound path asks you first and none of them can be automated, because a number that left without a person deciding is a number nobody owns.',
+    opens: 'open-ship',
+    doneWhen: 'An outbound artefact was confirmed and produced.',
+  }),
+  Object.freeze({
+    id: 'compound',
+    ordinal: 5,
+    title: 'Compound',
+    oneLine: 'Save the method so next month is cheaper than this month.',
+    body: 'Repair steps, queries and checks can be saved and reapplied to the file you get next time. This is the step that turns an afternoon of work into a thing that runs again.',
+    opens: 'open-compound',
+    doneWhen: 'A recipe, saved query or reusable check exists.',
+  }),
+]);
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function bool(v) {
+  return v === true;
+}
+
+/**
+ * Build the rail from observed facts.
+ *
+ * @param {{
+ *   hasTable?:boolean, hasQueryResult?:boolean, proveRan?:boolean,
+ *   hasShipped?:boolean, hasSavedMethod?:boolean
+ * }} [input]
+ */
+function buildReceiptSpine(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const done = {
+    drop: bool(inp.hasTable),
+    ask: bool(inp.hasQueryResult),
+    prove: bool(inp.proveRan),
+    ship: bool(inp.hasShipped),
+    compound: bool(inp.hasSavedMethod),
+  };
+
+  // Prove was skipped, not merely unvisited, if something was shipped without
+  // the gate ever having run. That is the one ordering in this product that
+  // actually matters, so it gets its own state rather than a softer word.
+  const proveSkipped = !done.prove && done.ship;
+
+  let currentAssigned = false;
+  const steps = RECEIPT_STEPS.map(step => {
+    let state;
+    if (step.id === 'prove' && proveSkipped) {
+      state = 'skipped';
+    } else if (done[step.id]) {
+      state = 'done';
+    } else if (!currentAssigned) {
+      state = 'current';
+      currentAssigned = true;
+    } else {
+      state = 'todo';
+    }
+    return {
+      id: step.id,
+      ordinal: step.ordinal,
+      title: step.title,
+      oneLine: step.oneLine,
+      body: step.body,
+      opens: step.opens,
+      also: step.also || '',
+      alsoLabel: step.alsoLabel || '',
+      doneWhen: step.doneWhen,
+      state,
+      note: state === 'skipped'
+        ? 'Something was shipped before the gate ran on it. That is allowed and it is worth knowing.'
+        : '',
+    };
+  });
+
+  const doneCount = steps.filter(s => s.state === 'done').length;
+  const current = steps.filter(s => s.state === 'current')[0] || null;
+
+  return {
+    kind: SPINE_KIND,
+    version: SPINE_VERSION,
+    title: SPINE_TITLE,
+    steps,
+    doneCount,
+    total: steps.length,
+    currentId: current ? current.id : '',
+    proveSkipped,
+    headline: current
+      ? 'Next: ' + current.title + '. ' + current.oneLine
+      : proveSkipped
+        ? 'The path is complete apart from the proof, which was passed over.'
+        : 'The whole path has been walked for this data.',
+    doctrine: SPINE_DOCTRINE,
+    observed: {
+      hasTable: done.drop,
+      hasQueryResult: done.ask,
+      proveRan: done.prove,
+      hasShipped: done.ship,
+      hasSavedMethod: done.compound,
+    },
+  };
+}
+
+/** The step a person should do next, or null when there is none. */
+function nextStep(spine) {
+  if (!isPlainObject(spine) || !Array.isArray(spine.steps)) return null;
+  return spine.steps.filter(s => s.state === 'current')[0] || null;
+}
+
+/** One line for a collapsed rail. */
+function spineChipLabel(spine) {
+  if (!isPlainObject(spine)) return SPINE_TITLE;
+  return SPINE_TITLE + ': ' + spine.doneCount + ' of ' + spine.total;
+}
+  window.DataGlowReceiptSpine = {
+    SPINE_KIND: SPINE_KIND,
+    SPINE_VERSION: SPINE_VERSION,
+    SPINE_STATES: SPINE_STATES,
+    SPINE_DOCTRINE: SPINE_DOCTRINE,
+    SPINE_TITLE: SPINE_TITLE,
+    RECEIPT_STEPS: RECEIPT_STEPS,
+    buildReceiptSpine: buildReceiptSpine,
+    nextStep: nextStep,
+    spineChipLabel: spineChipLabel,
+  };
+})();
+/* ---- end js/spine/receipt-spine.js ---- */
+/* ---- from js/polyglot/sql-power-pack.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - SQL power pack: DuckDB's dialect, written down
+// ============================================================
+//
+// The SQL box in this product is DuckDB, not "SQL". Most of the time that
+// distinction costs nothing, and then someone pastes a query that works in
+// Postgres, gets a parser error on a line that looks fine, and concludes the
+// product is broken. The cheapest fix for that is not a smarter parser. It is a
+// short list of the places the two actually differ, next to the box.
+//
+// WHY THE DIVERGENCE LIST IS SHORT ON PURPOSE.
+// A complete dialect reference is a book, and a book next to a text box does not
+// get read. What gets read is a dozen entries covering the differences a person
+// hits in their first hour. Everything here is something that changes what you
+// type, not a note about internals.
+//
+// WHY EACH SNIPPET IS A WHOLE QUERY.
+// A fragment has to be assembled before it can be run, and assembling it is
+// exactly the part someone reaching for a snippet cannot do yet. Each of these
+// runs as written against a table whose name you substitute, which means it can
+// be pasted, run, and then read backwards from a result that already exists.
+//
+// WHAT THIS DOES NOT CLAIM.
+// It does not claim DuckDB runs any SQL, it does not claim these snippets are
+// the fastest form, and it does not translate a Postgres query for you. The
+// honest offer is a dialect note and a working example.
+//
+// Pure data plus pure selectors. No DOM, no engine, no network. Nothing here
+// executes a query.
+
+const SQL_PACK_KIND = 'dataglow-sql-power-pack';
+const SQL_PACK_VERSION = 1;
+
+const SQL_ENGINE_LABEL = 'DuckDB, compiled to WebAssembly, running in this page';
+
+const SQL_HONESTY_NOTE =
+  'This is DuckDB SQL. It is close to Postgres and it is not Postgres, and it is not the dialect your warehouse speaks either. A query that runs here may need changing before it runs there, and the differences below are the ones people hit first.';
+
+const SQL_NOT_SUPPORTED = Object.freeze([
+  'Stored procedures and user-defined functions written in PL/pgSQL.',
+  'Triggers, and anything that runs on write rather than on read.',
+  'Full-text search without loading an extension, which this build does not do.',
+  'Anything that reaches another database. There is no foreign data wrapper and no network here.',
+]);
+
+/**
+ * Where DuckDB and Postgres differ in ways that change what you type.
+ *
+ * `direction` says who has the feature, so the entry is useful whichever way a
+ * person is translating.
+ */
+const DUCKDB_DIVERGENCES = Object.freeze([
+  Object.freeze({
+    id: 'group-by-all',
+    topic: 'Grouping',
+    duckdb: 'SELECT region, dept, sum(amount) FROM t GROUP BY ALL',
+    postgres: 'SELECT region, dept, sum(amount) FROM t GROUP BY region, dept',
+    direction: 'duckdb_only',
+    note: 'GROUP BY ALL groups by every selected column that is not an aggregate. ORDER BY ALL works the same way.',
+  }),
+  Object.freeze({
+    id: 'select-exclude',
+    topic: 'Column selection',
+    duckdb: 'SELECT * EXCLUDE (ssn, notes) FROM t',
+    postgres: 'SELECT every column you want, by name',
+    direction: 'duckdb_only',
+    note: 'EXCLUDE drops columns from a star. REPLACE rewrites one in place: SELECT * REPLACE (upper(name) AS name) FROM t.',
+  }),
+  Object.freeze({
+    id: 'qualify',
+    topic: 'Window filtering',
+    duckdb: 'SELECT * FROM t QUALIFY row_number() OVER (PARTITION BY id ORDER BY ts DESC) = 1',
+    postgres: 'Wrap it in a subquery and filter the window result outside',
+    direction: 'duckdb_only',
+    note: 'QUALIFY is to window functions what HAVING is to aggregates. It is the shortest correct way to take the latest row per key.',
+  }),
+  Object.freeze({
+    id: 'read-file',
+    topic: 'Reading files',
+    duckdb: "SELECT * FROM read_csv_auto('sales.csv')",
+    postgres: 'COPY into a table first, from the server file system',
+    direction: 'duckdb_only',
+    note: 'DuckDB queries a file directly. Parquet and JSON work the same way with read_parquet and read_json_auto.',
+  }),
+  Object.freeze({
+    id: 'pivot',
+    topic: 'Reshaping',
+    duckdb: 'PIVOT t ON month USING sum(amount) GROUP BY region',
+    postgres: 'crosstab() from the tablefunc extension, with the column list declared up front',
+    direction: 'duckdb_only',
+    note: 'UNPIVOT exists too and is the one people actually need more often, for turning twelve month columns back into rows.',
+  }),
+  Object.freeze({
+    id: 'trailing-comma',
+    topic: 'Syntax',
+    duckdb: 'SELECT a, b, c, FROM t',
+    postgres: 'A trailing comma is a syntax error',
+    direction: 'duckdb_only',
+    note: 'Small, but it removes the most common edit error when commenting a column out of a long select list.',
+  }),
+  Object.freeze({
+    id: 'string-slice',
+    topic: 'Strings',
+    duckdb: "SELECT name[1:3] FROM t",
+    postgres: "SELECT substring(name from 1 for 3) FROM t",
+    direction: 'both_differ',
+    note: 'DuckDB slicing is one-based and inclusive at both ends, which is the opposite of what a Python habit expects.',
+  }),
+  Object.freeze({
+    id: 'date-format',
+    topic: 'Dates',
+    duckdb: "SELECT strftime(ts, '%Y-%m') FROM t",
+    postgres: "SELECT to_char(ts, 'YYYY-MM') FROM t",
+    direction: 'both_differ',
+    note: 'strptime parses the other way. date_trunc behaves the same in both, so prefer it when you only need a month bucket.',
+  }),
+  Object.freeze({
+    id: 'identifier-case',
+    topic: 'Names',
+    duckdb: 'Unquoted identifiers match case-insensitively and keep the case you wrote',
+    postgres: 'Unquoted identifiers are folded to lower case',
+    direction: 'both_differ',
+    note: 'A column arriving from a spreadsheet as "Total Sales" can be written totalsales in DuckDB but needs the quotes in Postgres.',
+  }),
+  Object.freeze({
+    id: 'list-types',
+    topic: 'Nested data',
+    duckdb: "SELECT unnest(tags) FROM t",
+    postgres: "SELECT unnest(tags) FROM t, for arrays only",
+    direction: 'both_differ',
+    note: 'DuckDB lists and structs are first class, and a JSON column can be addressed with dot and bracket notation directly.',
+  }),
+  Object.freeze({
+    id: 'sample',
+    topic: 'Sampling',
+    duckdb: 'SELECT * FROM t USING SAMPLE 5%',
+    postgres: 'SELECT * FROM t TABLESAMPLE BERNOULLI(5)',
+    direction: 'both_differ',
+    note: 'Useful for looking at a wide table quickly. A sample is not an answer; do not put one on the Proof Board.',
+  }),
+  Object.freeze({
+    id: 'integer-division',
+    topic: 'Arithmetic',
+    duckdb: 'SELECT 7 // 2  returns 3',
+    postgres: 'SELECT 7 / 2  returns 3 for integers',
+    direction: 'both_differ',
+    note: 'In DuckDB the single slash on two integers gives a floating result, so the double slash is how you ask for floor division deliberately.',
+  }),
+]);
+
+/**
+ * Snippets. Each one runs as written once the table name is substituted.
+ *
+ * `substitute` names the placeholders so a surface can highlight them rather
+ * than letting someone run a query against a table called `your_table`.
+ */
+const SQL_SNIPPETS = Object.freeze([
+  Object.freeze({
+    id: 'latest-per-key',
+    topic: 'Windows',
+    title: 'Latest row per key',
+    why: 'The single most common shape in analytics, and the one most often written wrong with a GROUP BY that silently mixes columns from different rows.',
+    substitute: ['your_table', 'id', 'ts'],
+    sql: 'SELECT *\nFROM your_table\nQUALIFY row_number() OVER (PARTITION BY id ORDER BY ts DESC) = 1;',
+  }),
+  Object.freeze({
+    id: 'duplicate-keys',
+    topic: 'Data quality',
+    title: 'Find duplicate keys',
+    why: 'Before trusting a join, find out whether the key you are joining on is actually unique.',
+    substitute: ['your_table', 'id'],
+    sql: 'SELECT id, count(*) AS n\nFROM your_table\nGROUP BY id\nHAVING count(*) > 1\nORDER BY n DESC;',
+  }),
+  Object.freeze({
+    id: 'null-audit',
+    topic: 'Data quality',
+    title: 'Null rate for every column',
+    why: 'Answers the question a stakeholder asks after they see the number: how much of this was missing?',
+    substitute: ['your_table'],
+    sql: 'SELECT column_name, null_percentage\nFROM (SUMMARIZE your_table)\nORDER BY null_percentage DESC;',
+  }),
+  Object.freeze({
+    id: 'anti-join',
+    topic: 'Joins',
+    title: 'Rows on the left with no match on the right',
+    why: 'The honest way to size a join problem before you run the join and lose rows without noticing.',
+    substitute: ['left_table', 'right_table', 'id'],
+    sql: 'SELECT l.*\nFROM left_table l\nANTI JOIN right_table r ON l.id = r.id;',
+  }),
+  Object.freeze({
+    id: 'join-fanout',
+    topic: 'Joins',
+    title: 'Check a join for fan-out before running it',
+    why: 'A join that multiplies rows inflates every sum downstream, and it looks like growth.',
+    substitute: ['left_table', 'right_table', 'id'],
+    sql: 'SELECT (SELECT count(*) FROM left_table) AS left_rows,\n       (SELECT count(*) FROM right_table) AS right_rows,\n       (SELECT count(*) FROM left_table l JOIN right_table r ON l.id = r.id) AS joined_rows;',
+  }),
+  Object.freeze({
+    id: 'month-spine',
+    topic: 'Time',
+    title: 'Every month in a range, including the empty ones',
+    why: 'A GROUP BY over months only returns months that had rows, so a chart built from it hides the gaps entirely.',
+    substitute: ['your_table', 'ts', 'amount'],
+    sql: "WITH months AS (\n  SELECT unnest(generate_series(date_trunc('month', (SELECT min(ts) FROM your_table)),\n                               date_trunc('month', (SELECT max(ts) FROM your_table)),\n                               INTERVAL 1 MONTH)) AS month\n)\nSELECT m.month, coalesce(sum(t.amount), 0) AS total\nFROM months m\nLEFT JOIN your_table t ON date_trunc('month', t.ts) = m.month\nGROUP BY m.month\nORDER BY m.month;",
+  }),
+  Object.freeze({
+    id: 'running-total',
+    topic: 'Windows',
+    title: 'Running total and month-over-month change',
+    why: 'Two of the three numbers anyone asks for after seeing a monthly total.',
+    substitute: ['your_table', 'month', 'amount'],
+    sql: 'SELECT month,\n       amount,\n       sum(amount) OVER (ORDER BY month) AS running_total,\n       amount - lag(amount) OVER (ORDER BY month) AS change_vs_prior\nFROM your_table\nORDER BY month;',
+  }),
+  Object.freeze({
+    id: 'unpivot-months',
+    topic: 'Reshaping',
+    title: 'Turn month columns back into rows',
+    why: 'The classic spreadsheet shape: twelve columns that should have been one column and a date.',
+    substitute: ['your_table', 'region'],
+    sql: 'UNPIVOT your_table\nON COLUMNS(* EXCLUDE (region))\nINTO NAME month VALUE amount;',
+  }),
+  Object.freeze({
+    id: 'top-n-per-group',
+    topic: 'Windows',
+    title: 'Top three per group',
+    why: 'Reads far better than the self-join people write instead.',
+    substitute: ['your_table', 'region', 'amount'],
+    sql: 'SELECT *\nFROM your_table\nQUALIFY rank() OVER (PARTITION BY region ORDER BY amount DESC) <= 3;',
+  }),
+  Object.freeze({
+    id: 'profile-table',
+    topic: 'Data quality',
+    title: 'Summarise every column at once',
+    why: 'DuckDB will profile the whole table for you, which is faster than writing eleven aggregates.',
+    substitute: ['your_table'],
+    sql: 'SUMMARIZE your_table;',
+  }),
+]);
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Distinct snippet topics, in first-seen order. */
+function snippetTopics() {
+  const out = [];
+  for (const s of SQL_SNIPPETS) {
+    if (out.indexOf(s.topic) < 0) out.push(s.topic);
+  }
+  return out;
+}
+
+/** Snippets for one topic, or all of them when no topic is given. */
+function listSnippets(topic) {
+  const t = str(topic);
+  if (!t) return SQL_SNIPPETS.slice();
+  return SQL_SNIPPETS.filter(s => s.topic === t);
+}
+
+/** Divergences for one topic, or all of them. */
+function listDivergences(topic) {
+  const t = str(topic);
+  if (!t) return DUCKDB_DIVERGENCES.slice();
+  return DUCKDB_DIVERGENCES.filter(d => d.topic === t);
+}
+
+function buildSqlPowerPack() {
+  return {
+    kind: SQL_PACK_KIND,
+    version: SQL_PACK_VERSION,
+    engine: SQL_ENGINE_LABEL,
+    honesty: SQL_HONESTY_NOTE,
+    notSupported: SQL_NOT_SUPPORTED,
+    divergences: DUCKDB_DIVERGENCES,
+    snippets: SQL_SNIPPETS,
+    topics: snippetTopics(),
+  };
+}
+  window.DataGlowSqlPowerPack = {
+    SQL_PACK_KIND: SQL_PACK_KIND,
+    SQL_PACK_VERSION: SQL_PACK_VERSION,
+    SQL_ENGINE_LABEL: SQL_ENGINE_LABEL,
+    SQL_HONESTY_NOTE: SQL_HONESTY_NOTE,
+    SQL_NOT_SUPPORTED: SQL_NOT_SUPPORTED,
+    DUCKDB_DIVERGENCES: DUCKDB_DIVERGENCES,
+    SQL_SNIPPETS: SQL_SNIPPETS,
+    snippetTopics: snippetTopics,
+    listSnippets: listSnippets,
+    listDivergences: listDivergences,
+    buildSqlPowerPack: buildSqlPowerPack,
+  };
+})();
+/* ---- end js/polyglot/sql-power-pack.js ---- */
+/* ---- from js/polyglot/python-power-pack.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Python power pack: starter cells that already work
+// ============================================================
+//
+// The Python notebook here starts empty, and an empty cell is the hardest thing
+// in the product to face. It is not that people cannot write pandas. It is that
+// the first cell has to know what the dataframe is called, how it got there, and
+// what this particular Pyodide build actually has installed, and none of that is
+// written anywhere near the cursor.
+//
+// So this is a small set of cells that run as written against the bridged
+// dataframe, chosen for the first twenty minutes rather than for breadth.
+//
+// WHY THE ROW LIMIT IS ATTACHED TO THE RECIPES AND NOT TO A SETTINGS PAGE.
+// The bridge that moves a table from DuckDB into pandas has a ceiling, and a
+// person who does not know that will compute a mean over a truncated frame and
+// get a number that is wrong in a way nothing looks wrong about. So the pack
+// takes the real row count, compares it to the real limit, and returns a warning
+// the surface can put next to the cells rather than three panels away.
+//
+// WHY NO PROFILING LIBRARY.
+// The obvious move for a starter pack is to reach for one of the automatic
+// dataframe-profiling packages. They are not in this Pyodide build, installing
+// one is a multi-megabyte network fetch, and the output is a wall nobody reads.
+// Four small cells that each answer one question beat one cell that answers
+// forty.
+//
+// Pure data plus pure helpers. No DOM, no Pyodide, no network. Nothing here runs
+// Python; it produces the text of cells.
+
+const PY_PACK_KIND = 'dataglow-python-power-pack';
+const PY_PACK_VERSION = 1;
+
+/**
+ * The default is the real bridge limit, kept as a parameter rather than a copy
+ * so a test can pin it to the runtime that owns it.
+ */
+const DEFAULT_PY_ROW_LIMIT = 200000;
+
+const PY_RUNTIME_LABEL = 'Pyodide 0.26.2, with pandas, numpy and matplotlib';
+
+const PY_HONESTY_NOTE =
+  'This is CPython compiled to WebAssembly. Pure Python packages generally work; anything needing a compiled wheel that is not already in this build does not, and nothing here installs one for you.';
+
+const PY_NOT_AVAILABLE = Object.freeze([
+  'Packages that are not already in this build. There is no pip install path that reaches the network here.',
+  'Threads and subprocesses. It is one interpreter in one browser tab.',
+  'Reading files from your disk directly. Data arrives through the bridge from a table you already loaded.',
+  'Anything that needs a GPU. The model uses WebGPU; Python does not.',
+]);
+
+const BRIDGE_VARIABLE = 'df';
+
+/**
+ * Starter cells.
+ *
+ * `answers` is the question the cell exists for, which is the thing a person is
+ * actually scanning the list for. The code is second.
+ */
+const PYTHON_RECIPES = Object.freeze([
+  Object.freeze({
+    id: 'shape-and-types',
+    topic: 'First look',
+    title: 'Shape, columns and types',
+    answers: 'What did I actually load?',
+    code: 'print(df.shape)\ndf.dtypes.to_frame("dtype")',
+  }),
+  Object.freeze({
+    id: 'missingness',
+    topic: 'First look',
+    title: 'Missing values per column',
+    answers: 'How much of this is empty, and where?',
+    code: 'miss = df.isna().sum().to_frame("missing")\nmiss["pct"] = (100 * miss["missing"] / len(df)).round(2)\nmiss.sort_values("missing", ascending=False)',
+  }),
+  Object.freeze({
+    id: 'value-counts',
+    topic: 'First look',
+    title: 'What is in a categorical column',
+    answers: 'Is this column five clean categories or four hundred typos?',
+    code: 'col = df.columns[0]\ndf[col].value_counts(dropna=False).head(20).to_frame("n")',
+  }),
+  Object.freeze({
+    id: 'describe',
+    topic: 'First look',
+    title: 'Numeric summary',
+    answers: 'What is the spread, and is there an impossible value in here?',
+    code: 'df.describe(include="number").T',
+  }),
+  Object.freeze({
+    id: 'duplicates',
+    topic: 'Data quality',
+    title: 'Duplicate rows and duplicate keys',
+    answers: 'Is my key unique, and is the whole row repeated?',
+    code: 'key = df.columns[0]\nprint("whole-row duplicates:", int(df.duplicated().sum()))\nprint("duplicate " + key + " values:", int(df[key].duplicated().sum()))\ndf[df.duplicated(subset=[key], keep=False)].sort_values(key).head(20)',
+  }),
+  Object.freeze({
+    id: 'coerce-dates',
+    topic: 'Data quality',
+    title: 'Parse a date column and see what failed',
+    answers: 'Which rows have a date my parser could not read?',
+    code: 'col = "date"\nparsed = pd.to_datetime(df[col], errors="coerce")\nprint("unparsed:", int(parsed.isna().sum() - df[col].isna().sum()))\ndf.loc[parsed.isna() & df[col].notna(), [col]].head(20)',
+  }),
+  Object.freeze({
+    id: 'coerce-numbers',
+    topic: 'Data quality',
+    title: 'Find the text hiding in a numeric column',
+    answers: 'Why is my sum wrong?',
+    code: 'col = df.columns[-1]\nnum = pd.to_numeric(df[col], errors="coerce")\nbad = df.loc[num.isna() & df[col].notna(), [col]]\nprint("non-numeric values:", len(bad))\nbad[col].value_counts().head(20).to_frame("n")',
+  }),
+  Object.freeze({
+    id: 'merge-indicator',
+    topic: 'Joins',
+    title: 'Merge and count what matched',
+    answers: 'How many rows found a partner, and how many quietly did not?',
+    code: 'merged = df.merge(other, on="id", how="left", indicator=True)\nmerged["_merge"].value_counts().to_frame("rows")',
+  }),
+  Object.freeze({
+    id: 'groupby-agg',
+    topic: 'Aggregation',
+    title: 'Group and aggregate several ways at once',
+    answers: 'Total, average and count per category, in one table.',
+    code: 'out = df.groupby("category").agg(\n    rows=("amount", "size"),\n    total=("amount", "sum"),\n    mean=("amount", "mean"),\n).sort_values("total", ascending=False)\nout.round(2)',
+  }),
+  Object.freeze({
+    id: 'plot-bar',
+    topic: 'Charts',
+    title: 'One bar chart',
+    answers: 'What does this look like?',
+    code: 'import matplotlib.pyplot as plt\nax = df.groupby("category")["amount"].sum().sort_values().plot.barh()\nax.set_xlabel("amount")\nplt.tight_layout()\nplt.show()',
+  }),
+  Object.freeze({
+    id: 'plot-hist',
+    topic: 'Charts',
+    title: 'Distribution of one numeric column',
+    answers: 'Is this normal-ish, or is it three things stuck together?',
+    code: 'import matplotlib.pyplot as plt\nax = df["amount"].plot.hist(bins=40)\nax.set_xlabel("amount")\nplt.tight_layout()\nplt.show()',
+  }),
+  Object.freeze({
+    id: 'outliers',
+    topic: 'Data quality',
+    title: 'Rows well outside the middle',
+    answers: 'Which values would move a mean on their own?',
+    code: 'col = "amount"\nq1, q3 = df[col].quantile([0.25, 0.75])\nspan = q3 - q1\nmask = (df[col] < q1 - 1.5 * span) | (df[col] > q3 + 1.5 * span)\nprint("rows outside 1.5x the interquartile range:", int(mask.sum()))\ndf.loc[mask].head(20)',
+  }),
+]);
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function count(v) {
+  return typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+/** Distinct recipe topics, in first-seen order. */
+function recipeTopics() {
+  const out = [];
+  for (const r of PYTHON_RECIPES) {
+    if (out.indexOf(r.topic) < 0) out.push(r.topic);
+  }
+  return out;
+}
+
+function listRecipes(topic) {
+  const t = str(topic);
+  if (!t) return PYTHON_RECIPES.slice();
+  return PYTHON_RECIPES.filter(r => r.topic === t);
+}
+
+/**
+ * The bridge warning, computed rather than worded once and hoped over.
+ *
+ * A frame that was cut is the dangerous case and gets a sentence saying which
+ * numbers are now wrong, not a generic notice about limits.
+ */
+function bridgeTruncationNotice(rowCount, rowLimit) {
+  const rows = count(rowCount);
+  const limit = count(rowLimit) || DEFAULT_PY_ROW_LIMIT;
+  const truncated = rows > limit;
+  return {
+    rows,
+    limit,
+    truncated,
+    delivered: truncated ? limit : rows,
+    headline: truncated
+      ? 'Only the first ' + limit.toLocaleString('en-US') + ' rows of ' + rows.toLocaleString('en-US') + ' reached Python'
+      : rows > 0
+        ? 'All ' + rows.toLocaleString('en-US') + ' rows reached Python'
+        : 'No table is bridged yet',
+    detail: truncated
+      ? 'Any total, mean or count computed in a cell below is a total, mean or count of the first ' + limit.toLocaleString('en-US') + ' rows and not of the table. Aggregate in SQL first if you need the whole thing.'
+      : 'The frame in Python is the whole table, so an aggregate here and an aggregate in SQL should agree.',
+  };
+}
+
+/**
+ * @param {{rowCount?:number, rowLimit?:number, polarsAvailable?:boolean}} [input]
+ */
+function buildPythonPowerPack(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const notice = bridgeTruncationNotice(inp.rowCount, inp.rowLimit);
+  return {
+    kind: PY_PACK_KIND,
+    version: PY_PACK_VERSION,
+    runtime: PY_RUNTIME_LABEL,
+    honesty: PY_HONESTY_NOTE,
+    notAvailable: PY_NOT_AVAILABLE,
+    frameVariable: BRIDGE_VARIABLE,
+    recipes: PYTHON_RECIPES,
+    topics: recipeTopics(),
+    bridge: notice,
+    // Polars is reported, never assumed. The scaffold that owns this answer is
+    // js/polyglot/polars-path.js; this only passes the observation through.
+    polars: inp.polarsAvailable === true
+      ? 'This session can import polars, so a cell can use it directly. Nothing routes through it automatically.'
+      : 'Polars is not importable in this session. Every recipe here is pandas and none of them need it.',
+  };
+}
+  window.DataGlowPythonPowerPack = {
+    PY_PACK_KIND: PY_PACK_KIND,
+    PY_PACK_VERSION: PY_PACK_VERSION,
+    DEFAULT_PY_ROW_LIMIT: DEFAULT_PY_ROW_LIMIT,
+    PY_RUNTIME_LABEL: PY_RUNTIME_LABEL,
+    PY_HONESTY_NOTE: PY_HONESTY_NOTE,
+    PY_NOT_AVAILABLE: PY_NOT_AVAILABLE,
+    BRIDGE_VARIABLE: BRIDGE_VARIABLE,
+    PYTHON_RECIPES: PYTHON_RECIPES,
+    recipeTopics: recipeTopics,
+    listRecipes: listRecipes,
+    bridgeTruncationNotice: bridgeTruncationNotice,
+    buildPythonPowerPack: buildPythonPowerPack,
+  };
+})();
+/* ---- end js/polyglot/python-power-pack.js ---- */
+/* ---- from js/polyglot/r-power-pack.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - R power pack: starter cells for R lite
+// ============================================================
+//
+// The R here is WebR: real R, compiled to WebAssembly, with base R always
+// present and two packages installed best-effort at startup. jsonlite carries
+// the dataframe across the bridge and ggplot2 draws the nicer charts. Either can
+// fail to install, and when one does, R keeps working with less.
+//
+// WHY EVERY RECIPE DECLARES WHAT IT NEEDS.
+// A starter pack that hands someone a ggplot call on a session where ggplot2
+// failed to install has produced an error message instead of a first result, and
+// the person reasonably concludes R is broken here. Each recipe carries a
+// `needs` field, the pack is filtered against what actually installed, and the
+// ones that cannot run are listed separately with the reason rather than hidden.
+// Hiding them would be its own lie: it would suggest base R is all there is.
+//
+// WHY THERE IS NO DPLYR.
+// dplyr is not installed in this build and installing it in WebR pulls a large
+// dependency tree over the network on a page whose whole claim is that it does
+// not need one. So the recipes are base R, which is less pleasant to read and
+// always available. That trade is stated rather than papered over.
+//
+// Pure data plus pure helpers. No DOM, no WebR, no network.
+
+const R_PACK_KIND = 'dataglow-r-power-pack';
+const R_PACK_VERSION = 1;
+
+const R_RUNTIME_LABEL = 'WebR, with base R always and jsonlite and ggplot2 installed best-effort';
+
+const R_HONESTY_NOTE =
+  'This is R lite. Base R is fully here. Two packages are installed at startup if the network allows, and a session where one of them failed still runs R, with fewer recipes available.';
+
+const R_NOT_AVAILABLE = Object.freeze([
+  'CRAN in general. Two packages are attempted at startup and nothing else is installed on demand.',
+  'The tidyverse. dplyr and its dependencies are not in this build, so the recipes here are base R.',
+  'Anything reading from your disk. Data arrives through the bridge from a table you already loaded.',
+  'Long-running or parallel work. It is one R session in a browser tab.',
+]);
+
+const R_BRIDGE_CALL = 'dataglow_get_df("your_table")';
+
+const R_CAPABILITIES = Object.freeze(['base', 'jsonlite', 'ggplot2']);
+
+/**
+ * Starter cells.
+ *
+ * `needs` is one of the capability ids above. Base means it runs on any session
+ * that started at all.
+ */
+const R_RECIPES = Object.freeze([
+  Object.freeze({
+    id: 'load-frame',
+    topic: 'First look',
+    title: 'Bring the table into R',
+    answers: 'How do I get at the data at all?',
+    needs: 'jsonlite',
+    code: 'df <- dataglow_get_df("your_table")\ndim(df)',
+  }),
+  Object.freeze({
+    id: 'structure',
+    topic: 'First look',
+    title: 'Structure and types',
+    answers: 'What are the columns and what did R decide they are?',
+    needs: 'base',
+    code: 'str(df)',
+  }),
+  Object.freeze({
+    id: 'summary',
+    topic: 'First look',
+    title: 'Summary of every column',
+    answers: 'Range, median and how many are missing, in one call.',
+    needs: 'base',
+    code: 'summary(df)',
+  }),
+  Object.freeze({
+    id: 'missingness',
+    topic: 'Data quality',
+    title: 'Missing values per column',
+    answers: 'How much of this is empty, and where?',
+    needs: 'base',
+    code: 'na <- colSums(is.na(df))\ndata.frame(missing = na, pct = round(100 * na / nrow(df), 2))[order(-na), ]',
+  }),
+  Object.freeze({
+    id: 'counts',
+    topic: 'First look',
+    title: 'Counts for a categorical column',
+    answers: 'Is this five clean categories or four hundred typos?',
+    needs: 'base',
+    code: 'sort(table(df[[1]], useNA = "ifany"), decreasing = TRUE)[1:20]',
+  }),
+  Object.freeze({
+    id: 'duplicates',
+    topic: 'Data quality',
+    title: 'Duplicate rows and duplicate keys',
+    answers: 'Is my key unique?',
+    needs: 'base',
+    code: 'key <- names(df)[1]\ncat("whole-row duplicates:", sum(duplicated(df)), "\\n")\ncat("duplicate", key, "values:", sum(duplicated(df[[key]])), "\\n")',
+  }),
+  Object.freeze({
+    id: 'aggregate',
+    topic: 'Aggregation',
+    title: 'Total and mean per group',
+    answers: 'The group-by, in base R.',
+    needs: 'base',
+    code: 'agg <- aggregate(amount ~ category, data = df, FUN = function(x) c(n = length(x), total = sum(x), mean = mean(x)))\ndo.call(data.frame, agg)',
+  }),
+  Object.freeze({
+    id: 'coerce-numbers',
+    topic: 'Data quality',
+    title: 'Find the text hiding in a numeric column',
+    answers: 'Why is my sum wrong?',
+    needs: 'base',
+    code: 'raw <- df[["amount"]]\nnum <- suppressWarnings(as.numeric(as.character(raw)))\nbad <- unique(as.character(raw[is.na(num) & !is.na(raw)]))\ncat("non-numeric values:", length(bad), "\\n")\nhead(bad, 20)',
+  }),
+  Object.freeze({
+    id: 'base-hist',
+    topic: 'Charts',
+    title: 'Distribution, in base R',
+    answers: 'What does this column look like, without any package at all?',
+    needs: 'base',
+    code: 'hist(df$amount, breaks = 40, main = "amount", xlab = "amount")',
+  }),
+  Object.freeze({
+    id: 'base-boxplot',
+    topic: 'Charts',
+    title: 'Spread per group, in base R',
+    answers: 'Which category is the noisy one?',
+    needs: 'base',
+    code: 'boxplot(amount ~ category, data = df, las = 2, main = "amount by category")',
+  }),
+  Object.freeze({
+    id: 'ggplot-bar',
+    topic: 'Charts',
+    title: 'Bar chart with ggplot2',
+    answers: 'The chart you would put in front of someone.',
+    needs: 'ggplot2',
+    code: 'library(ggplot2)\nggplot(df, aes(x = reorder(category, amount), y = amount)) +\n  geom_col() +\n  coord_flip() +\n  labs(x = NULL, y = "amount")',
+  }),
+  Object.freeze({
+    id: 'ggplot-scatter',
+    topic: 'Charts',
+    title: 'Two numeric columns against each other',
+    answers: 'Is there a relationship, or is it a cloud?',
+    needs: 'ggplot2',
+    code: 'library(ggplot2)\nggplot(df, aes(x = x, y = y)) +\n  geom_point(alpha = 0.4) +\n  geom_smooth(method = "lm")',
+  }),
+]);
+
+const NEEDS_REASON = Object.freeze({
+  jsonlite: 'jsonlite did not install in this session, so the dataframe bridge is the simplified base-R one and this recipe cannot run as written.',
+  ggplot2: 'ggplot2 did not install in this session. Base R plotting still works, and the base R chart recipes above are the ones to use.',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Distinct recipe topics, in first-seen order. */
+function recipeTopics() {
+  const out = [];
+  for (const r of R_RECIPES) {
+    if (out.indexOf(r.topic) < 0) out.push(r.topic);
+  }
+  return out;
+}
+
+function listRecipes(topic) {
+  const t = str(topic);
+  if (!t) return R_RECIPES.slice();
+  return R_RECIPES.filter(r => r.topic === t);
+}
+
+/**
+ * Split the recipes by what this session can actually run.
+ *
+ * @param {{hasJsonlite?:boolean, hasGgplot2?:boolean}} [input]
+ */
+function buildRPowerPack(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const has = {
+    base: true,
+    jsonlite: inp.hasJsonlite === true,
+    ggplot2: inp.hasGgplot2 === true,
+  };
+
+  const available = [];
+  const unavailable = [];
+  for (const r of R_RECIPES) {
+    if (has[r.needs]) available.push(r);
+    else unavailable.push({ id: r.id, title: r.title, needs: r.needs, reason: NEEDS_REASON[r.needs] || '' });
+  }
+
+  const missing = R_CAPABILITIES.filter(c => !has[c]);
+
+  return {
+    kind: R_PACK_KIND,
+    version: R_PACK_VERSION,
+    runtime: R_RUNTIME_LABEL,
+    honesty: R_HONESTY_NOTE,
+    notAvailable: R_NOT_AVAILABLE,
+    bridgeCall: R_BRIDGE_CALL,
+    capabilities: has,
+    missingCapabilities: missing,
+    recipes: available,
+    unavailable,
+    topics: recipeTopics(),
+    headline: missing.length === 0
+      ? 'Base R, jsonlite and ggplot2 are all present in this session'
+      : 'Base R is present. ' + missing.join(' and ') + ' did not install, so ' + unavailable.length
+        + ' recipe' + (unavailable.length === 1 ? '' : 's') + ' cannot run here.',
+  };
+}
+  window.DataGlowRPowerPack = {
+    R_PACK_KIND: R_PACK_KIND,
+    R_PACK_VERSION: R_PACK_VERSION,
+    R_RUNTIME_LABEL: R_RUNTIME_LABEL,
+    R_HONESTY_NOTE: R_HONESTY_NOTE,
+    R_NOT_AVAILABLE: R_NOT_AVAILABLE,
+    R_BRIDGE_CALL: R_BRIDGE_CALL,
+    R_CAPABILITIES: R_CAPABILITIES,
+    R_RECIPES: R_RECIPES,
+    recipeTopics: recipeTopics,
+    listRecipes: listRecipes,
+    buildRPowerPack: buildRPowerPack,
+  };
+})();
+/* ---- end js/polyglot/r-power-pack.js ---- */
+/* ---- from js/spine/data-glow-receipt-spine-canvas.js ---- */
+/*
+ * DATAGLOW - The Start here rail.
+ *
+ * A strip across the bottom of the page naming the five steps of the path, with
+ * the one you are on marked and every step openable. It is the smallest thing
+ * that answers "where do I begin", which is the question the product currently
+ * does not answer at all.
+ *
+ * WHY IT DISMISSES AND STAYS DISMISSED.
+ * A rail that reappears on every load is a nag, and a nag gets closed without
+ * being read the second time. Dismissal is remembered. It can be reopened from
+ * the chip, so nothing is lost by closing it.
+ *
+ * WHY EVERY STEP RESOLVES ITS TARGET BEFORE IT RENDERS A BUTTON.
+ * Builds inline different subsets of the modules, so a step can point at a
+ * surface that is not in this build. A button that does nothing is worse than a
+ * line of text, so a step whose target is unresolvable renders as text and says
+ * which surface it wanted.
+ *
+ * WHY THE RAIL NEVER MARKS A STEP DONE BY ITSELF.
+ * Every fact it reports is read from another engine on each render. Nothing is
+ * stored, so the rail cannot get out of step with what has actually happened,
+ * and closing the page does not leave it believing something that is no longer
+ * true.
+ */
+;(function () {
+  'use strict';
+
+  var RAIL_ID = 'dg-spine-rail';
+  var CHIP_ID = 'dg-spine-chip';
+  var STYLE_ID = 'dg-spine-styles';
+  var SEEN_KEY = 'dataglow.receiptSpine.dismissed';
+
+  var state = { open: true, expandedId: '' };
+
+  function flag(explicitKey, flagKey) {
+    try { if (window[explicitKey] === false) return false; } catch (_e0) {}
+    try { if (window[explicitKey] === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled(flagKey) !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function spineOn() { return flag('DATAGLOW_RECEIPT_SPINE', 'receiptSpine'); }
+
+  function engine(name) {
+    try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  function remembered(key) {
+    try { return window.localStorage && window.localStorage.getItem(key) === '1'; } catch (_e) { return false; }
+  }
+
+  function remember(key) {
+    try { if (window.localStorage) window.localStorage.setItem(key, '1'); } catch (_e) {}
+  }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'style') node.setAttribute('style', attrs[k]);
+        else if (k === 'class') node.className = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      }
+    }
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function toast(message) {
+    try {
+      if (typeof window.showToast === 'function') { window.showToast(message); return; }
+    } catch (_e) {}
+    try { console.log('[spine] ' + message); } catch (_e2) {}
+  }
+
+  /* ---------------------------------------------------------------
+     Observation. Each of these is a question asked of the engine that
+     owns the answer, never a flag this module sets when a button is
+     clicked.
+     --------------------------------------------------------------- */
+
+  function hasTable() {
+    try {
+      if (Array.isArray(window.loadedTables) && window.loadedTables.length > 0) return true;
+      if (window.currentTableName) return true;
+      if (window.DATAGLOW_STATE && window.DATAGLOW_STATE.tableName) return true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function hasQueryResult() {
+    try {
+      if (window.lastQueryResult) return true;
+      if (window.DATAGLOW_STATE && window.DATAGLOW_STATE.lastQueryResult) return true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function proveRan() {
+    try {
+      var p2p = engine('DataGlowProofToPostUI');
+      if (p2p && typeof p2p.pack === 'function') {
+        var pack = p2p.pack();
+        if (pack && pack.validation) return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  function hasShipped() {
+    try {
+      var p2p = engine('DataGlowProofToPostUI');
+      if (p2p && typeof p2p.copiedOnce === 'function') return p2p.copiedOnce() === true;
+    } catch (_e) {}
+    try { return window.DATAGLOW_SHIPPED_ONCE === true; } catch (_e2) {}
+    return false;
+  }
+
+  function hasSavedMethod() {
+    try {
+      var lib = engine('DataGlowRepairRecipeLibraryUI') || engine('DataGlowRepairRecipeLibrary');
+      if (lib && typeof lib.count === 'function') return lib.count() > 0;
+      if (lib && typeof lib.list === 'function') {
+        var rows = lib.list() || [];
+        return rows.length > 0;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  function spine() {
+    var eng = engine('DataGlowReceiptSpine');
+    if (!eng || typeof eng.buildReceiptSpine !== 'function') return null;
+    try {
+      return eng.buildReceiptSpine({
+        hasTable: hasTable(),
+        hasQueryResult: hasQueryResult(),
+        proveRan: proveRan(),
+        hasShipped: hasShipped(),
+        hasSavedMethod: hasSavedMethod(),
+      });
+    } catch (_e) { return null; }
+  }
+
+  /* ---------------------------------------------------------------
+     Targets. An intent id becomes a function only when the surface it
+     needs is actually mounted in this build.
+     --------------------------------------------------------------- */
+
+  function resolveTarget(intent) {
+    function panel(globalName, method) {
+      var g = engine(globalName);
+      if (g && typeof g[method] === 'function') return function () { g[method](); };
+      return null;
+    }
+    function clickId(id) {
+      var node = null;
+      try { node = document.getElementById(id); } catch (_e) {}
+      if (!node) return null;
+      return function () {
+        try { node.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_e2) {}
+        try { node.click(); } catch (_e3) {}
+      };
+    }
+
+    if (intent === 'open-file') {
+      return clickId('fileInput') || clickId('dropZone') || clickId('btnLoadFile');
+    }
+    if (intent === 'fix-spreadsheet') {
+      return panel('DataGlowExcelHellUI', 'open') || panel('DataGlowRepairRecipeLibraryUI', 'open');
+    }
+    if (intent === 'open-ask') {
+      return clickId('nlQueryInput') || clickId('sqlEditor') || clickId('tab-sql');
+    }
+    if (intent === 'open-proof-board') {
+      return panel('DataGlowProofBoardUI', 'open');
+    }
+    if (intent === 'open-ship') {
+      return panel('DataGlowProofToPostUI', 'open');
+    }
+    if (intent === 'open-compound') {
+      return panel('DataGlowRepairRecipeLibraryUI', 'open') || panel('DataGlowLocalAiUI', 'open');
+    }
+    return null;
+  }
+
+  /* ---------------------------------------------------------------
+     Rendering
+     --------------------------------------------------------------- */
+
+  function styles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = ''
+      + '#' + RAIL_ID + '{position:fixed;left:0;right:0;bottom:0;z-index:2147482900;display:none;'
+      + 'background:var(--color-surface,#fff);border-top:1px solid var(--color-border,#ccc);'
+      + 'box-shadow:0 -4px 18px rgba(0,0,0,.10);padding:8px 14px;font-size:13px;line-height:1.45}'
+      + '#' + RAIL_ID + ' .dg-sp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
+      + '#' + RAIL_ID + ' .dg-sp-title{font-weight:600}'
+      + '#' + RAIL_ID + ' .dg-sp-head{opacity:.8;flex:1 1 240px;min-width:0}'
+      + '.dg-sp-steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
+      + '.dg-sp-step{font:inherit;font-size:12px;padding:5px 11px;border-radius:999px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;text-align:left}'
+      + '.dg-sp-step[data-state="current"]{font-weight:700;border-color:currentColor;border-width:2px}'
+      + '.dg-sp-step[data-state="done"]{opacity:.62}'
+      + '.dg-sp-step[data-state="skipped"]{border-style:dashed;font-weight:600}'
+      + '.dg-sp-detail{margin-top:8px;padding:9px 11px;border:1px solid var(--color-border,#ddd);border-radius:8px}'
+      + '.dg-sp-detail b{display:block;font-size:12px;opacity:.7}'
+      + '.dg-sp-note{opacity:.75;font-size:12px;margin:5px 0 0}'
+      + '.dg-sp-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
+      + '#' + CHIP_ID + '{position:fixed;bottom:18px;left:210px;z-index:2147482900;'
+      + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}';
+    var tag = el('style', { id: STYLE_ID });
+    tag.textContent = css;
+    (document.head || document.body).appendChild(tag);
+  }
+
+  function stateWord(s) {
+    if (s === 'done') return 'done';
+    if (s === 'current') return 'you are here';
+    if (s === 'skipped') return 'passed over';
+    return 'not yet';
+  }
+
+  function renderDetail(host, step) {
+    var box = el('div', { class: 'dg-sp-detail' });
+    box.appendChild(el('b', {}, step.ordinal + '. ' + step.title + '  (' + stateWord(step.state) + ')'));
+    box.appendChild(el('div', {}, step.body));
+    if (step.note) box.appendChild(el('div', { class: 'dg-sp-note' }, step.note));
+
+    var row = el('div', { class: 'dg-sp-steps' });
+    var go = resolveTarget(step.opens);
+    if (go) {
+      var b = el('button', { class: 'dg-sp-btn' }, 'Take me there');
+      b.addEventListener('click', function () { go(); });
+      row.appendChild(b);
+    } else {
+      box.appendChild(el('div', { class: 'dg-sp-note' }, 'That surface is not mounted in this build, so there is nothing to open from here.'));
+    }
+    if (step.also) {
+      var alsoGo = resolveTarget(step.also);
+      if (alsoGo) {
+        var b2 = el('button', { class: 'dg-sp-btn' }, step.alsoLabel || 'Also');
+        b2.addEventListener('click', function () { alsoGo(); });
+        row.appendChild(b2);
+      }
+    }
+    if (row.childNodes.length) box.appendChild(row);
+    box.appendChild(el('div', { class: 'dg-sp-note' }, 'Marked done when: ' + step.doneWhen));
+    host.appendChild(box);
+  }
+
+  function render() {
+    var rail = document.getElementById(RAIL_ID);
+    if (!rail) return;
+    var model = spine();
+    if (!model) {
+      rail.style.display = 'none';
+      return;
+    }
+    rail.innerHTML = '';
+
+    var top = el('div', { class: 'dg-sp-top' });
+    top.appendChild(el('span', { class: 'dg-sp-title' }, model.title));
+    top.appendChild(el('span', { class: 'dg-sp-head' }, model.headline));
+    var hide = el('button', { class: 'dg-sp-btn' }, 'Hide');
+    hide.addEventListener('click', function () { dismiss(); });
+    top.appendChild(hide);
+    rail.appendChild(top);
+
+    var steps = el('div', { class: 'dg-sp-steps' });
+    for (var i = 0; i < model.steps.length; i++) {
+      (function (step) {
+        var b = el('button', {
+          class: 'dg-sp-step',
+          'data-state': step.state,
+          type: 'button',
+          title: step.oneLine,
+          'aria-expanded': state.expandedId === step.id ? 'true' : 'false',
+        }, step.ordinal + '. ' + step.title);
+        b.addEventListener('click', function () {
+          state.expandedId = state.expandedId === step.id ? '' : step.id;
+          render();
+        });
+        steps.appendChild(b);
+      })(model.steps[i]);
+    }
+    rail.appendChild(steps);
+
+    if (state.expandedId) {
+      var chosen = model.steps.filter(function (s) { return s.id === state.expandedId; })[0];
+      if (chosen) renderDetail(rail, chosen);
+    } else {
+      rail.appendChild(el('p', { class: 'dg-sp-note' }, model.doctrine));
+    }
+
+    rail.style.display = 'block';
+  }
+
+  function refreshChip() {
+    var chip = document.getElementById(CHIP_ID);
+    if (!chip) return;
+    var model = spine();
+    var eng = engine('DataGlowReceiptSpine');
+    var label = 'Start here';
+    if (eng && typeof eng.spineChipLabel === 'function') {
+      try { label = eng.spineChipLabel(model); } catch (_e) {}
+    }
+    chip.textContent = label;
+    chip.style.display = state.open ? 'none' : 'inline-block';
+  }
+
+  function open() {
+    state.open = true;
+    render();
+    refreshChip();
+  }
+
+  function dismiss() {
+    var rail = document.getElementById(RAIL_ID);
+    state.open = false;
+    if (rail) rail.style.display = 'none';
+    remember(SEEN_KEY);
+    refreshChip();
+    toast('Start here hidden. The chip on the left reopens it.');
+  }
+
+  function mount() {
+    if (!spineOn()) return;
+    if (document.getElementById(RAIL_ID)) return;
+    if (!document.body) return;
+    if (!engine('DataGlowReceiptSpine')) return;
+    styles();
+
+    state.open = !remembered(SEEN_KEY);
+
+    document.body.appendChild(el('div', { id: RAIL_ID, role: 'region', 'aria-label': 'Start here' }));
+    var chip = el('button', { id: CHIP_ID, type: 'button' }, 'Start here');
+    chip.addEventListener('click', open);
+    document.body.appendChild(chip);
+
+    if (state.open) render();
+    refreshChip();
+
+    /* The rail is a claim about what has happened so far, and things happen
+       while it is on screen. Re-observe rather than freeze. */
+    try {
+      setInterval(function () {
+        try { if (state.open) render(); refreshChip(); } catch (_e) {}
+      }, 5000);
+    } catch (_e2) {}
+  }
+
+  function boot() {
+    try { mount(); } catch (_e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 1200); });
+  } else {
+    setTimeout(boot, 1200);
+  }
+
+  window.DataGlowReceiptSpineUI = {
+    version: 1,
+    mounted: function () { return !!document.getElementById(RAIL_ID); },
+    open: open,
+    dismiss: dismiss,
+    isOpen: function () { return state.open === true; },
+    refresh: render,
+    model: spine,
+    resolveTarget: resolveTarget,
+  };
+})();
+/* ---- end js/spine/data-glow-receipt-spine-canvas.js ---- */
+/* ---- from js/polyglot/data-glow-power-packs-canvas.js ---- */
+/*
+ * DATAGLOW - The power packs panel.
+ *
+ * One panel holding the starter material for the four places a person writes
+ * something in this product: SQL, the Excel repair path, Python and R. Each tab
+ * leads with what the runtime cannot do before it offers a snippet, because a
+ * snippet that fails is worse than no snippet.
+ *
+ * WHY THE CEILING IS AT THE TOP OF EVERY TAB AND NOT IN A FOOTNOTE.
+ * The reason people distrust in-browser runtimes is not that they are limited.
+ * It is that they discover the limit ten minutes in, from an error message,
+ * after building on the assumption it was not there. Stating it first costs one
+ * paragraph and buys the rest of the panel some credibility.
+ *
+ * WHY COPY IS THE ONLY ACTION.
+ * The panel never runs anything and never inserts into an editor behind your
+ * back. It puts text on the clipboard, tells you it did, and stops. Where a
+ * snippet has placeholders they are named next to the button, because a query
+ * run against a table called your_table is a wasted click.
+ *
+ * WHY R AND PYTHON READ THEIR STATE FROM THE RUNTIMES.
+ * Whether ggplot2 installed and how many rows crossed the Python bridge are
+ * facts owned by the runtime modules. This panel asks them on every render
+ * rather than caching, so a tab opened before a table was loaded and read after
+ * is not stale.
+ */
+;(function () {
+  'use strict';
+
+  var PANEL_ID = 'dg-packs-panel';
+  var BTN_ID = 'dg-packs-btn';
+  var STYLE_ID = 'dg-packs-styles';
+
+  var state = { open: false, tab: 'sql', topic: '' };
+
+  function flag(explicitKey, flagKey) {
+    try { if (window[explicitKey] === false) return false; } catch (_e0) {}
+    try { if (window[explicitKey] === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled(flagKey) !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function sqlOn() { return flag('DATAGLOW_SQL_POWER_PACK', 'sqlPowerPack'); }
+  function pyOn() { return flag('DATAGLOW_PYTHON_POWER_PACK', 'pythonPowerPack'); }
+  function rOn() { return flag('DATAGLOW_R_POWER_PACK', 'rPowerPack'); }
+  function excelOn() { return flag('DATAGLOW_EXCEL_HELL_REPAIR', 'excelHellRepair'); }
+
+  function engine(name) {
+    try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'style') node.setAttribute('style', attrs[k]);
+        else if (k === 'class') node.className = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      }
+    }
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function toast(message) {
+    try {
+      if (typeof window.showToast === 'function') { window.showToast(message); return; }
+    } catch (_e) {}
+    try { console.log('[packs] ' + message); } catch (_e2) {}
+  }
+
+  function copy(text, what) {
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(function () {
+          toast(what + ' copied. Paste it into the editor and change the placeholder names.');
+        }, function () {
+          toast('Could not reach the clipboard. Select the text and copy it by hand.');
+        });
+        return;
+      }
+    } catch (_e) {}
+    toast('Could not reach the clipboard. Select the text and copy it by hand.');
+  }
+
+  /* ---------------------------------------------------------------
+     Observation of the two runtimes that have variable capability.
+     --------------------------------------------------------------- */
+
+  function pythonRowCount() {
+    try {
+      if (window.DATAGLOW_STATE && typeof window.DATAGLOW_STATE.rowCount === 'number') {
+        return window.DATAGLOW_STATE.rowCount;
+      }
+      var r = window.lastQueryResult;
+      if (r && typeof r.rowCount === 'number') return r.rowCount;
+      if (r && Array.isArray(r.rows)) return r.rows.length;
+    } catch (_e) {}
+    return 0;
+  }
+
+  /* Zero means "not observed here", which the pure pack turns into its own
+     default. That default is pinned to the runtime's real limit by a test, so
+     the fallback and the truth cannot drift apart silently. */
+  function pythonRowLimit() {
+    try {
+      var py = engine('DataGlowPython');
+      if (py && typeof py.rowLimit === 'number') return py.rowLimit;
+    } catch (_e) {}
+    return 0;
+  }
+
+  /* Nothing in this build imports polars, so the honest answer is false rather
+     than unknown. When something does, this is the one place to change. */
+  function polarsAvailable() {
+    return false;
+  }
+
+  /* The WebR kernel is the only thing that knows whether the two optional
+     packages installed, because it is what tried. Absent that answer we say no,
+     which lists more recipes as unavailable than may be true. Overstating what
+     installed is the worse error: it hands out a ggplot call that errors. */
+  function rCapabilities() {
+    try {
+      var r = engine('DataGlowR');
+      if (r && typeof r.packages === 'function') {
+        var c = r.packages() || {};
+        return { hasJsonlite: c.jsonlite === true, hasGgplot2: c.ggplot2 === true };
+      }
+    } catch (_e) {}
+    return { hasJsonlite: false, hasGgplot2: false };
+  }
+
+  /* ---------------------------------------------------------------
+     Models
+     --------------------------------------------------------------- */
+
+  function sqlPack() {
+    var eng = engine('DataGlowSqlPowerPack');
+    if (!eng || typeof eng.buildSqlPowerPack !== 'function') return null;
+    try { return eng.buildSqlPowerPack(); } catch (_e) { return null; }
+  }
+
+  function pyPack() {
+    var eng = engine('DataGlowPythonPowerPack');
+    if (!eng || typeof eng.buildPythonPowerPack !== 'function') return null;
+    try {
+      return eng.buildPythonPowerPack({
+        rowCount: pythonRowCount(),
+        rowLimit: pythonRowLimit(),
+        polarsAvailable: polarsAvailable(),
+      });
+    } catch (_e) { return null; }
+  }
+
+  function rPack() {
+    var eng = engine('DataGlowRPowerPack');
+    if (!eng || typeof eng.buildRPowerPack !== 'function') return null;
+    try { return eng.buildRPowerPack(rCapabilities()); } catch (_e) { return null; }
+  }
+
+  /* ---------------------------------------------------------------
+     Rendering
+     --------------------------------------------------------------- */
+
+  function styles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = ''
+      + '#' + PANEL_ID + '{position:fixed;right:16px;bottom:16px;width:min(560px,calc(100vw - 32px));'
+      + 'max-height:min(78vh,780px);overflow:auto;z-index:2147482800;display:none;'
+      + 'background:var(--color-surface,#fff);color:inherit;border:1px solid var(--color-border,#ccc);'
+      + 'border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.22);padding:14px 16px;font-size:13px;line-height:1.5}'
+      + '#' + PANEL_ID + ' h3{margin:0 0 2px;font-size:15px}'
+      + '#' + PANEL_ID + ' h4{margin:14px 0 4px;font-size:13px}'
+      + '.dg-pk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}'
+      + '.dg-pk-note{opacity:.78;font-size:12px;margin:4px 0 0}'
+      + '.dg-pk-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px}'
+      + '.dg-pk-tab,.dg-pk-chip{font:inherit;font-size:12px;padding:5px 11px;border-radius:999px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
+      + '.dg-pk-tab[aria-selected="true"]{font-weight:700;border-color:currentColor;border-width:2px}'
+      + '.dg-pk-chip[aria-pressed="true"]{font-weight:700;border-color:currentColor}'
+      + '.dg-pk-card{border:1px solid var(--color-border,#ddd);border-radius:9px;padding:9px 11px;margin:8px 0}'
+      + '.dg-pk-card b{display:block;font-size:13px}'
+      + '.dg-pk-code{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;'
+      + 'background:var(--color-bg-alt,rgba(127,127,127,.10));border-radius:7px;padding:8px 9px;margin:6px 0 0;overflow-x:auto}'
+      + '.dg-pk-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
+      + '.dg-pk-warn{border-left:3px solid currentColor;padding-left:9px;margin:8px 0}'
+      + '.dg-pk-ul{margin:4px 0 0;padding-left:18px}'
+      + '.dg-pk-ul li{margin:2px 0}'
+      + '#' + BTN_ID + '{position:fixed;bottom:18px;right:16px;z-index:2147482790;'
+      + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}';
+    var tag = el('style', { id: STYLE_ID });
+    tag.textContent = css;
+    (document.head || document.body).appendChild(tag);
+  }
+
+  function bullets(host, items) {
+    var ul = el('ul', { class: 'dg-pk-ul' });
+    for (var i = 0; i < items.length; i++) ul.appendChild(el('li', {}, items[i]));
+    host.appendChild(ul);
+  }
+
+  function topicChips(host, topics) {
+    var row = el('div', { class: 'dg-pk-tabs' });
+    var all = [''].concat(topics);
+    for (var i = 0; i < all.length; i++) {
+      (function (t) {
+        var b = el('button', {
+          class: 'dg-pk-chip',
+          type: 'button',
+          'aria-pressed': state.topic === t ? 'true' : 'false',
+        }, t || 'Everything');
+        b.addEventListener('click', function () {
+          state.topic = state.topic === t ? '' : t;
+          render();
+        });
+        row.appendChild(b);
+      })(all[i]);
+    }
+    host.appendChild(row);
+  }
+
+  function codeCard(host, title, why, code, placeholders, what) {
+    var card = el('div', { class: 'dg-pk-card' });
+    card.appendChild(el('b', {}, title));
+    if (why) card.appendChild(el('div', { class: 'dg-pk-note' }, why));
+    card.appendChild(el('pre', { class: 'dg-pk-code' }, code));
+    var row = el('div', { class: 'dg-pk-row' });
+    var b = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Copy');
+    b.addEventListener('click', function () { copy(code, what || 'Snippet'); });
+    row.appendChild(b);
+    if (placeholders && placeholders.length) {
+      row.appendChild(el('span', { class: 'dg-pk-note' }, 'Replace: ' + placeholders.join(', ')));
+    }
+    card.appendChild(row);
+    host.appendChild(card);
+  }
+
+  function renderSql(host) {
+    var pack = sqlPack();
+    if (!pack) {
+      host.appendChild(el('p', { class: 'dg-pk-note' }, 'The SQL pack is not mounted in this build.'));
+      return;
+    }
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.engine));
+    host.appendChild(el('p', {}, pack.honesty));
+
+    host.appendChild(el('h4', {}, 'Not here at all'));
+    bullets(host, pack.notSupported);
+
+    host.appendChild(el('h4', {}, 'Snippets'));
+    topicChips(host, pack.topics);
+    var eng = engine('DataGlowSqlPowerPack');
+    var rows = state.topic && eng && typeof eng.listSnippets === 'function'
+      ? eng.listSnippets(state.topic)
+      : pack.snippets;
+    for (var i = 0; i < rows.length; i++) {
+      codeCard(host, rows[i].title, rows[i].why, rows[i].sql, rows[i].substitute, 'Query');
+    }
+
+    host.appendChild(el('h4', {}, 'Where DuckDB and Postgres part company'));
+    for (var j = 0; j < pack.divergences.length; j++) {
+      var d = pack.divergences[j];
+      var card = el('div', { class: 'dg-pk-card' });
+      card.appendChild(el('b', {}, d.topic));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, d.note));
+      card.appendChild(el('pre', { class: 'dg-pk-code' }, 'DuckDB:   ' + d.duckdb + '\nPostgres: ' + d.postgres));
+      host.appendChild(card);
+    }
+  }
+
+  function renderExcel(host) {
+    host.appendChild(el('p', {}, 'The spreadsheet path is its own surface rather than a snippet list, because the work is repairing a file rather than writing a query. It reads the sheet, names every repair it wants to make, and applies nothing until you say so.'));
+    var row = el('div', { class: 'dg-pk-row' });
+    var hell = engine('DataGlowExcelHellUI');
+    var lib = engine('DataGlowRepairRecipeLibraryUI');
+    if (hell && typeof hell.open === 'function') {
+      var b = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Open the spreadsheet repair panel');
+      b.addEventListener('click', function () { hell.open(); });
+      row.appendChild(b);
+    }
+    if (lib && typeof lib.open === 'function') {
+      var b2 = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Open saved repair methods');
+      b2.addEventListener('click', function () { lib.open(); });
+      row.appendChild(b2);
+    }
+    if (row.childNodes.length) host.appendChild(row);
+    else host.appendChild(el('p', { class: 'dg-pk-note' }, 'Neither spreadsheet surface is mounted in this build, so there is nothing to open from here.'));
+
+    host.appendChild(el('h4', {}, 'What it will not do'));
+    bullets(host, [
+      'It does not write back to your original file. Nothing on your disk is touched.',
+      'It does not guess a repair and apply it. Every change is proposed, and refusing one is a normal outcome.',
+      'It does not read a password-protected workbook, and it does not evaluate macros.',
+    ]);
+  }
+
+  function renderPython(host) {
+    var pack = pyPack();
+    if (!pack) {
+      host.appendChild(el('p', { class: 'dg-pk-note' }, 'The Python pack is not mounted in this build.'));
+      return;
+    }
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.runtime));
+    host.appendChild(el('p', {}, pack.honesty));
+
+    var warn = el('div', { class: 'dg-pk-warn' });
+    warn.appendChild(el('b', {}, pack.bridge.headline));
+    warn.appendChild(el('div', { class: 'dg-pk-note' }, pack.bridge.detail));
+    host.appendChild(warn);
+
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.polars));
+
+    host.appendChild(el('h4', {}, 'Not here at all'));
+    bullets(host, pack.notAvailable);
+
+    host.appendChild(el('h4', {}, 'Starter cells'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, 'The bridged dataframe is called ' + pack.frameVariable + '.'));
+    topicChips(host, pack.topics);
+    var eng = engine('DataGlowPythonPowerPack');
+    var rows = state.topic && eng && typeof eng.listRecipes === 'function'
+      ? eng.listRecipes(state.topic)
+      : pack.recipes;
+    for (var i = 0; i < rows.length; i++) {
+      codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell');
+    }
+  }
+
+  function renderR(host) {
+    var pack = rPack();
+    if (!pack) {
+      host.appendChild(el('p', { class: 'dg-pk-note' }, 'The R pack is not mounted in this build.'));
+      return;
+    }
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.runtime));
+    host.appendChild(el('p', {}, pack.honesty));
+    host.appendChild(el('p', {}, pack.headline));
+
+    host.appendChild(el('h4', {}, 'Not here at all'));
+    bullets(host, pack.notAvailable);
+
+    host.appendChild(el('h4', {}, 'Starter cells'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, 'The bridge call is ' + pack.bridgeCall + '.'));
+    for (var i = 0; i < pack.recipes.length; i++) {
+      codeCard(host, pack.recipes[i].title, pack.recipes[i].answers, pack.recipes[i].code, null, 'Cell');
+    }
+
+    if (pack.unavailable.length) {
+      host.appendChild(el('h4', {}, 'Listed, but not runnable in this session'));
+      for (var j = 0; j < pack.unavailable.length; j++) {
+        var u = pack.unavailable[j];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, u.title));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, u.reason));
+        host.appendChild(card);
+      }
+    }
+  }
+
+  function tabs() {
+    var out = [];
+    if (sqlOn()) out.push({ id: 'sql', label: 'SQL' });
+    if (excelOn()) out.push({ id: 'excel', label: 'Spreadsheets' });
+    if (pyOn()) out.push({ id: 'python', label: 'Python' });
+    if (rOn()) out.push({ id: 'r', label: 'R' });
+    return out;
+  }
+
+  function render() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    var head = el('div', { class: 'dg-pk-row' });
+    var title = el('div', {});
+    title.appendChild(el('h3', {}, 'Starter material'));
+    title.appendChild(el('div', { class: 'dg-pk-note' }, 'What each runtime here can do, what it cannot, and something that runs.'));
+    head.appendChild(title);
+    var close = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Close');
+    close.addEventListener('click', hide);
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    var list = tabs();
+    if (!list.length) {
+      panel.appendChild(el('p', { class: 'dg-pk-note' }, 'Every pack is switched off in this build.'));
+      panel.style.display = 'block';
+      return;
+    }
+    if (!list.filter(function (t) { return t.id === state.tab; }).length) state.tab = list[0].id;
+
+    var row = el('div', { class: 'dg-pk-tabs', role: 'tablist' });
+    for (var i = 0; i < list.length; i++) {
+      (function (t) {
+        var b = el('button', {
+          class: 'dg-pk-tab',
+          type: 'button',
+          role: 'tab',
+          'aria-selected': state.tab === t.id ? 'true' : 'false',
+        }, t.label);
+        b.addEventListener('click', function () {
+          if (state.tab !== t.id) { state.tab = t.id; state.topic = ''; }
+          render();
+        });
+        row.appendChild(b);
+      })(list[i]);
+    }
+    panel.appendChild(row);
+
+    var body = el('div', {});
+    if (state.tab === 'sql') renderSql(body);
+    else if (state.tab === 'excel') renderExcel(body);
+    else if (state.tab === 'python') renderPython(body);
+    else if (state.tab === 'r') renderR(body);
+    panel.appendChild(body);
+
+    panel.style.display = 'block';
+  }
+
+  function show(tab) {
+    if (typeof tab === 'string' && tab) { state.tab = tab; state.topic = ''; }
+    state.open = true;
+    render();
+  }
+
+  function hide() {
+    state.open = false;
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.style.display = 'none';
+  }
+
+  function toggle() {
+    if (state.open) hide(); else show();
+  }
+
+  function anyOn() { return tabs().length > 0; }
+
+  function mount() {
+    if (!anyOn()) return;
+    if (document.getElementById(PANEL_ID)) return;
+    if (!document.body) return;
+    styles();
+    document.body.appendChild(el('div', {
+      id: PANEL_ID,
+      role: 'dialog',
+      'aria-label': 'Starter material for the runtimes in this page',
+    }));
+    var btn = el('button', { id: BTN_ID, type: 'button' }, 'Starter material');
+    btn.addEventListener('click', toggle);
+    document.body.appendChild(btn);
+  }
+
+  function boot() {
+    try { mount(); } catch (_e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 1400); });
+  } else {
+    setTimeout(boot, 1400);
+  }
+
+  window.DataGlowPowerPacksUI = {
+    version: 1,
+    mounted: function () { return !!document.getElementById(PANEL_ID); },
+    open: show,
+    close: hide,
+    toggle: toggle,
+    isOpen: function () { return state.open === true; },
+    refresh: render,
+    tabs: tabs,
+    models: function () { return { sql: sqlPack(), python: pyPack(), r: rPack() }; },
+  };
+})();
+/* ---- end js/polyglot/data-glow-power-packs-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

@@ -262,3 +262,21 @@ jobs:
       # Pure label/first-run/strip-visibility logic with an injected fake
       # storage. No DOM, no network.
       - run: npm run test:phicalm
+
+  supply-chain-spine-packs:
+    name: Bundle 12 (runtime pins, derived CSP, RECEIPT spine, desktop sidecar, power packs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure policy, spine and pack cores. The CSP assertion reads the real
+      # src-tauri/tauri.conf.json, so the desktop policy cannot drift away from
+      # the pinned origin list again without failing here.
+      - run: npm run test:supplychain
+      # Bundle 11's suite has never run in CI. It does now, in the same job,
+      # because a test nobody runs is a comment.
+      - run: npm run test:localai

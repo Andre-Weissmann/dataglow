@@ -795,6 +795,42 @@
       "addedInPR": "bundle-11",
       "description": "Polars secondary path status only: available, not installed, or not applicable. No engine, and DuckDB is never replaced.",
       "flagOffBehavior": "The Polars status line is omitted from the ceiling tab. window.DataGlowPolarsPath is still published and still refuses to report available without a real import."
+    },
+    "modelSupplyChainPin": {
+      "enabled": true,
+      "addedInPR": "bundle-12",
+      "description": "Runtime supply-chain policy: every runtime this build downloads is listed with the exact version and origin its loader asks for, unpinned ones are reported as findings, and Air-Gap Mode blocks anything not already cached.",
+      "flagOffBehavior": "The runtime origins section is not shown in the local AI panel. window.DataGlowModelSupplyChain is still published, the model id allowlist still applies, and the derived CSP is unchanged."
+    },
+    "receiptSpine": {
+      "enabled": true,
+      "addedInPR": "bundle-12",
+      "description": "A start-here rail across the bottom of the page showing Drop, Ask, Prove, Ship and Compound, each step marked done, current or skipped from what is actually on screen, and each opening a real surface.",
+      "flagOffBehavior": "The rail and its reopen chip are not mounted. Every tab and panel it points at stays exactly where it was, and window.DataGlowReceiptSpine still computes the same steps."
+    },
+    "desktopLlamaCpp": {
+      "enabled": true,
+      "addedInPR": "bundle-12",
+      "description": "Status for the desktop llama.cpp sidecar: unavailable in a browser, missing when the desktop build ships without the binary, ready only when a sidecar is actually present.",
+      "flagOffBehavior": "The desktop build section is omitted from the local AI panel. window.DataGlowDesktopLocalLlm is still published and still refuses to report ready in a browser."
+    },
+    "sqlPowerPack": {
+      "enabled": true,
+      "addedInPR": "bundle-12",
+      "description": "SQL starter material: ten snippets for the queries people actually rewrite from scratch, and the places DuckDB and Postgres part company, with what DuckDB will not do stated first.",
+      "flagOffBehavior": "The SQL tab is not offered in the starter material panel. window.DataGlowSqlPowerPack is still published and the SQL editor is untouched."
+    },
+    "pythonPowerPack": {
+      "enabled": true,
+      "addedInPR": "bundle-12",
+      "description": "Python starter cells for the bridged dataframe, with the row limit of the bridge stated before any recipe so a truncated frame is not discovered from a wrong answer.",
+      "flagOffBehavior": "The Python tab is not offered in the starter material panel. window.DataGlowPythonPowerPack is still published and the Python console is untouched."
+    },
+    "rPowerPack": {
+      "enabled": true,
+      "addedInPR": "bundle-12",
+      "description": "R starter cells that degrade honestly: recipes needing jsonlite or ggplot2 are listed with the reason they cannot run rather than hidden, so the ceiling is visible before the error is.",
+      "flagOffBehavior": "The R tab is not offered in the starter material panel. window.DataGlowRPowerPack is still published and the R console is untouched."
     }
   }
 }

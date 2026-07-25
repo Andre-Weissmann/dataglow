@@ -6676,6 +6676,220 @@
         "polarsSecondaryPath"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "model-supply-chain-pin",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Security and privacy",
+      "name": "Every runtime this build downloads is pinned to an exact version at a named origin, and the CSP is derived from that list",
+      "files": [
+        "js/ai/model-supply-chain.js",
+        "js/security/csp-policy.js",
+        "js/ai/data-glow-local-ai-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ai/model-supply-chain.js",
+          "name": "buildModelFetchPolicy"
+        },
+        {
+          "file": "js/ai/model-supply-chain.js",
+          "name": "verifyPinnedRuntimeMeta"
+        },
+        {
+          "file": "js/security/csp-policy.js",
+          "name": "recommendedCspPolicy"
+        },
+        {
+          "file": "js/security/csp-policy.js",
+          "name": "checkPolicyCoversRuntimes"
+        }
+      ],
+      "notes": "The privacy claim is about egress and it is true, but four heavy runtimes are still fetched from public CDNs and each one is code that will run over the file someone just opened. Subresource Integrity does not reach either of them: WebLLM arrives through a dynamic import, which takes no integrity attribute, and the weights are over a gigabyte fetched in shards by the runtime itself. So the control is a pinned immutable version URL plus a short allowlist of origins, written once here instead of spelled slightly differently in four loaders. One runtime resolves through a floating path and is recorded with pinned false and reported as a finding, because a supply-chain module that lists only what is already fine is decoration. Model ids are an allowlist rather than a text box, since a model id is a path into a remote registry and accepting one from user input is accepting an arbitrary download instruction. The CSP is computed from the same pin list rather than typed, which is how it caught a real shipping bug: the desktop shell permitted two CDNs no loader uses while blocking the three the product depends on, so WebLLM, WebR and the weights were silently dead on desktop. Three residuals are named with what each costs: unsafe-inline, unsafe-eval and the CDN origins themselves.",
+      "relatedFlags": [
+        "modelSupplyChainPin"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "local-ai-chip-readiness",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Built-in AI",
+      "name": "The built-in AI chip can reach ready, because loaded now means an engine exists rather than a download having started",
+      "files": [
+        "js/narrative/ondevice-llm.js",
+        "js/ai/data-glow-local-ai-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/narrative/ondevice-llm.js",
+          "name": "isModelLoaded"
+        },
+        {
+          "file": "js/narrative/ondevice-llm.js",
+          "name": "isModelLoading"
+        },
+        {
+          "file": "js/narrative/ondevice-llm.js",
+          "name": "isWebGPUAvailable"
+        }
+      ],
+      "notes": "The status chip shipped with nothing to read. The inlined window.OnDeviceLLM footer published four names the module has never exported, so all four resolved to a null, a function returning false, a null and an empty array, and the chip could not distinguish a loaded model from an absent one. Worse, isModelLoaded returned enginePromise != null, which is true from the instant someone clicks through the entire multi-minute weight download, so a chip built on it would have said ready while nothing could run. Loaded and loading are now separate observed facts, both cleared when a load fails and both cleared by clearModelCache. The four legacy names stay published because something may read them and a sudden undefined is worse than a null.",
+      "relatedFlags": [
+        "localAiStatus"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "receipt-spine",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Workflow",
+      "name": "A start-here rail showing Drop, Ask, Prove, Ship and Compound, read from what is on screen rather than from a stored step counter",
+      "files": [
+        "js/spine/receipt-spine.js",
+        "js/spine/data-glow-receipt-spine-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/spine/receipt-spine.js",
+          "name": "buildReceiptSpine"
+        },
+        {
+          "file": "js/spine/receipt-spine.js",
+          "name": "spineChipLabel"
+        }
+      ],
+      "notes": "The product has the pieces of a coherent path and no visible path. The rail is five steps and it deletes nothing: every tab, panel and button stays exactly where it was, because removing surfaces is a redesign and this is a signpost. Each step is marked done, current, todo or skipped from observed state rather than from a stored counter, so refreshing the page or arriving mid-session does not reset a progress bar that was never measuring progress. Shipping without proving is reported as skipped rather than quietly counted as done, because that is the one sequence worth naming. A step whose target surface is not mounted in this build renders as text and says so, since a button that opens nothing is worse than a sentence. Dismissing the rail is remembered and leaves a small chip to bring it back.",
+      "relatedFlags": [
+        "receiptSpine"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "desktop-llama-cpp",
+      "platforms": [
+        "desktop"
+      ],
+      "area": "Built-in AI",
+      "name": "The desktop llama.cpp sidecar path is complete and honest about the binary not being in this build",
+      "files": [
+        "js/ai/desktop-local-llm.js",
+        "js/ai/data-glow-local-ai-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/ai/desktop-local-llm.js",
+          "name": "buildDesktopLlmStatus"
+        },
+        {
+          "file": "js/ai/desktop-local-llm.js",
+          "name": "describeSidecarScaffold"
+        }
+      ],
+      "notes": "A desktop build can run a much larger model than a browser tab, through a llama.cpp server shipped beside the app as a Tauri sidecar. The binary is not in this build and pretending otherwise is the failure this module exists to prevent, so the states are exact: unavailable_web in a browser, sidecar_missing on a desktop build with no binary, ready only when one is actually present, and error when the sidecar is there and failed. Running in a browser outranks everything, because a browser cannot have a sidecar under any circumstances and a status that reports otherwise is broken rather than optimistic. bundledInThisBuild is a constant false rather than a computed value, since the honest answer today does not depend on anything observable at runtime. tauri.bundle.externalBin stays an empty array on purpose: Tauri resolves each entry to a per-target-triple file at bundle time, so a named entry with no binary behind it fails the desktop build rather than shipping a promise. describeSidecarScaffold writes down the five steps and the exact config path, so turning this on later is an edit rather than an investigation.",
+      "relatedFlags": [
+        "desktopLlamaCpp"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "sql-power-pack",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "SQL starter material that leads with what DuckDB will not do and then hands over ten queries that run",
+      "files": [
+        "js/polyglot/sql-power-pack.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/sql-power-pack.js",
+          "name": "buildSqlPowerPack"
+        },
+        {
+          "file": "js/polyglot/sql-power-pack.js",
+          "name": "listSnippets"
+        }
+      ],
+      "notes": "Ten snippets for the queries people rewrite from scratch every time: latest row per key, duplicate keys, a null audit, an anti-join, join fan-out, a month spine, a running total, an unpivot, top N per group and a table profile. Each one names the placeholders to replace, because a query run against a table called your_table is a wasted click. Twelve places DuckDB and Postgres part company are listed with both dialects side by side and which of the two is the odd one out, since the expensive way to learn that QUALIFY exists in one and not the other is at three in the morning against a warehouse. Copy is the only action: the panel never runs anything and never writes into an editor behind your back.",
+      "relatedFlags": [
+        "sqlPowerPack"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "python-power-pack",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "Python starter cells that state the bridge row limit before the first recipe rather than after a wrong answer",
+      "files": [
+        "js/polyglot/python-power-pack.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/python-power-pack.js",
+          "name": "buildPythonPowerPack"
+        },
+        {
+          "file": "js/polyglot/python-power-pack.js",
+          "name": "bridgeTruncationNotice"
+        }
+      ],
+      "notes": "Pyodide is real CPython with real pandas, and the thing that catches people is not a missing library, it is that the dataframe crossing the bridge is capped. A truncated frame gives an answer that is the right shape and the wrong number, and nothing on screen says so. The truncation notice is therefore the first thing in the tab and it states the delivered row count against the real one. The default limit is a documented parameter and a test reads PY_BRIDGE_ROW_LIMIT out of js/runtimes-viz/python-runtime.js and pins the default to it, so the fallback and the truth cannot drift apart silently. What is not there is listed plainly: no pip install from the network, no local file access, no database driver. Polars is reported as unavailable rather than unknown, because nothing in this build imports it.",
+      "relatedFlags": [
+        "pythonPowerPack"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "r-power-pack",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "R starter cells that list what cannot run in this session with the reason, rather than hiding it",
+      "files": [
+        "js/polyglot/r-power-pack.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/r-power-pack.js",
+          "name": "buildRPowerPack"
+        },
+        {
+          "file": "js/polyglot/r-power-pack.js",
+          "name": "listRecipes"
+        }
+      ],
+      "notes": "WebR is R and it is not CRAN. Two optional packages, jsonlite and ggplot2, may or may not have installed in a given session, and the kernel is the only thing that knows because it is what tried, so the canvas kernel now answers a packages() call instead of leaving anything outside to guess. Recipes needing a package that did not install are still listed, under a heading saying they cannot run here and naming which package is missing, because a person who came looking for ggplot needs to learn that in the panel rather than from an error. Absent any answer the pack assumes neither installed, which marks more recipes unavailable than may be true; overstating what installed is the worse error, since it hands out a call that fails. Base R plotting is always available and is offered as the fallback rather than presented as a consolation.",
+      "relatedFlags": [
+        "rPowerPack"
+      ],
+      "status": "shipped"
     }
   ]
 }
