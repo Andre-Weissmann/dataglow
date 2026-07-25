@@ -113,12 +113,14 @@ test('every registry record is well formed', () => {
   }
 });
 
-test('Air-Gap Mode is recorded behind its disabled flag, not as shipped', () => {
+test('Air-Gap Mode is recorded as shipped now that its flag ships enabled', () => {
+  const flags = JSON.parse(readFileSync(join(REPO_ROOT, 'flags.manifest.json'), 'utf8')).flags || {};
+  assert.equal(flags.airGapMode.enabled, true, 'airGapMode ships ON');
   const { registry } = runCheck({ root: REPO_ROOT });
   const rec = registry.find((r) => r.id === 'air-gap-mode');
   assert.ok(rec, 'air-gap-mode must be in the capability map');
   assert.deepEqual(rec.relatedFlags, ['airGapMode']);
-  assert.equal(rec.status, 'behind-flag');
+  assert.equal(rec.status, 'shipped');
 });
 
 test('every flag-linked capability agrees with flags.manifest.json', () => {
