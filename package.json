@@ -184,7 +184,13 @@
     "test:recipelib": "node test/repair-recipe-library.test.mjs",
     "test:phicalm": "node --test test/mobile-phi-firstrun-calm.test.mjs",
     "test:shieldpacks": "node --test test/shield-packs.test.mjs",
-    "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs"
+    "test:airgap": "node --test test/air-gap-mode.test.mjs",
+    "test:airgapui": "node test/air-gap-canvas-ui.test.mjs",
+    "test:capmap": "node --test test/capability-map.test.mjs",
+    "test:newmodule": "node --test test/new-module.test.mjs",
+    "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs",
+    "check:capability-map": "node scripts/check-capability-map.mjs",
+    "new-module": "node scripts/new-module.mjs"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",

@@ -101,6 +101,15 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-rigor-engine-badges
+      # Bundle 2 (A8): Air-Gap Mode. The pure posture engine is unit + golden
+      # tested; only a browser can prove the switch has teeth, so this asserts the
+      # surface ships dark with the flag off and, with the local opt-in on, that a
+      # cross-origin fetch is refused while a same-origin asset still loads and
+      # turning the mode off restores window.fetch.
+      - name: Run Air-Gap Mode canvas UI test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:airgapui
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4

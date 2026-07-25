@@ -41,6 +41,12 @@ import {
 import {
   SHIELD_PACKS_VERSION, listPacks, detectPatterns, scanColumnSamples, posture, postureCopy,
 } from '../../js/intelligence/shield-packs.js';
+import {
+  AIR_GAP_VERSION, activate as airGapActivate, deactivate as airGapDeactivate,
+  resetAirGapSession, shouldBlockNetwork, classifyRequestUrl,
+  listLocalFeatures, listEgressFeatures, getPosture as airGapPosture,
+  postureCopy as airGapCopy,
+} from '../../js/privacy/air-gap-mode.js';
 
 // ------------------------------------------------------------
 // Fixed sample datasets. These are the "golden inputs" — never change them
@@ -392,6 +398,63 @@ export function buildCases() {
           amount: ['1200.50'],
         }, 'finance-pii');
         return out;
+      },
+    },
+
+    // ---- Air-Gap Mode: the block matrix in both postures ----
+    // Every feature id and a fixed set of request URLs, decided with the mode
+    // off and then on. This is the regression signal for the two ways the mode
+    // could quietly stop protecting anyone: a path moving off the block list, or
+    // the fail-closed default for an unclassified feature turning into "allow".
+    {
+      name: 'air-gap-posture',
+      run() {
+        resetAirGapSession();
+        const ORIGIN = 'https://dataglow.example';
+        const FEATURES = listLocalFeatures()
+          .concat(listEgressFeatures())
+          .concat(['some-future-uploader', '']);
+        const URLS = [
+          'assets/duckdb/duckdb-eh.wasm',
+          '/assets/plotly.min.js',
+          'https://dataglow.example/assets/sheetjs.js',
+          'blob:https://dataglow.example/1234',
+          'https://api.openai.com/v1/messages',
+          'https://cdn.jsdelivr.net/pyodide/pyodide.js',
+          '//evil.example/beacon',
+          'http://[bad',
+        ];
+        const snapshot = (label) => ({
+          label,
+          posture: (() => {
+            const p = airGapPosture();
+            return {
+              active: p.active,
+              banner: p.banner,
+              failClosed: p.failClosed,
+              sessionScoped: p.sessionScoped,
+              persisted: p.persisted,
+              blockedFeatures: p.blockedFeatures,
+              localFeatures: p.localFeatures,
+            };
+          })(),
+          copy: airGapCopy(airGapPosture()),
+          features: FEATURES.map((f) => {
+            const d = shouldBlockNetwork(f);
+            return { feature: f, blocked: d.blocked, kind: d.kind, reason: d.reason };
+          }),
+          urls: URLS.map((u) => {
+            const v = classifyRequestUrl(u, ORIGIN);
+            return { url: u, blocked: v.blocked, kind: v.kind };
+          }),
+        });
+        const off = snapshot('off');
+        airGapActivate('golden');
+        const on = snapshot('on');
+        airGapDeactivate();
+        const restored = snapshot('restored');
+        resetAirGapSession();
+        return { version: AIR_GAP_VERSION, states: [off, on, restored] };
       },
     },
   ];
