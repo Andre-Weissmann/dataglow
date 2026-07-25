@@ -1,0 +1,575 @@
+{
+  "states": [
+    {
+      "copy": {
+        "blocked": "Nothing is blocked right now.",
+        "body": "Outbound paths are available. Turn this on for a room where data must not leave.",
+        "disclaimer": "DataGlow blocks its own outbound paths. It is not a firewall and does not speak for your browser or operating system.",
+        "local": "Local engines stay available either way. Your rows are never uploaded.",
+        "title": "Air-Gap Mode is off"
+      },
+      "features": [
+        {
+          "blocked": false,
+          "feature": "duckdb",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "sql",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "python",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "r",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "charts",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "pivot",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "local-file",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "local-export",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "validation",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "ai",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "mcp",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "serverOffload",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "cdn",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "telemetry",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "rooms",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "federated",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "outbound",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "some-future-uploader",
+          "kind": "unknown",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "",
+          "kind": "unknown",
+          "reason": "inactive"
+        }
+      ],
+      "label": "off",
+      "posture": {
+        "active": false,
+        "banner": false,
+        "blockedFeatures": [],
+        "failClosed": true,
+        "localFeatures": [
+          "duckdb",
+          "sql",
+          "python",
+          "r",
+          "charts",
+          "pivot",
+          "local-file",
+          "local-export",
+          "validation"
+        ],
+        "persisted": false,
+        "sessionScoped": true
+      },
+      "urls": [
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "assets/duckdb/duckdb-eh.wasm"
+        },
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "/assets/plotly.min.js"
+        },
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "https://dataglow.example/assets/sheetjs.js"
+        },
+        {
+          "blocked": false,
+          "kind": "inline",
+          "url": "blob:https://dataglow.example/1234"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "https://api.openai.com/v1/messages"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "https://cdn.jsdelivr.net/pyodide/pyodide.js"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "//evil.example/beacon"
+        },
+        {
+          "blocked": true,
+          "kind": "unparseable",
+          "url": "http://[bad"
+        }
+      ]
+    },
+    {
+      "copy": {
+        "blocked": "Blocked while on: AI providers, MCP, server offload, CDN runtime downloads, telemetry, Rooms and federated learning.",
+        "body": "Nothing leaves this device. DuckDB, SQL, Python, R and charts keep running locally.",
+        "disclaimer": "DataGlow blocks its own outbound paths. It is not a firewall and does not speak for your browser or operating system.",
+        "local": "Local engines stay available either way. Your rows are never uploaded.",
+        "title": "Air-Gap Mode is on"
+      },
+      "features": [
+        {
+          "blocked": false,
+          "feature": "duckdb",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "sql",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "python",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "r",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "charts",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "pivot",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "local-file",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "local-export",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": false,
+          "feature": "validation",
+          "kind": "local",
+          "reason": "local"
+        },
+        {
+          "blocked": true,
+          "feature": "ai",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "mcp",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "serverOffload",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "cdn",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "telemetry",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "rooms",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "federated",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "outbound",
+          "kind": "egress",
+          "reason": "egress"
+        },
+        {
+          "blocked": true,
+          "feature": "some-future-uploader",
+          "kind": "unknown",
+          "reason": "unknown-fail-closed"
+        },
+        {
+          "blocked": true,
+          "feature": "",
+          "kind": "unknown",
+          "reason": "unknown-fail-closed"
+        }
+      ],
+      "label": "on",
+      "posture": {
+        "active": true,
+        "banner": true,
+        "blockedFeatures": [
+          "ai",
+          "mcp",
+          "serverOffload",
+          "cdn",
+          "telemetry",
+          "rooms",
+          "federated",
+          "outbound"
+        ],
+        "failClosed": true,
+        "localFeatures": [
+          "duckdb",
+          "sql",
+          "python",
+          "r",
+          "charts",
+          "pivot",
+          "local-file",
+          "local-export",
+          "validation"
+        ],
+        "persisted": false,
+        "sessionScoped": true
+      },
+      "urls": [
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "assets/duckdb/duckdb-eh.wasm"
+        },
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "/assets/plotly.min.js"
+        },
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "https://dataglow.example/assets/sheetjs.js"
+        },
+        {
+          "blocked": false,
+          "kind": "inline",
+          "url": "blob:https://dataglow.example/1234"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "https://api.openai.com/v1/messages"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "https://cdn.jsdelivr.net/pyodide/pyodide.js"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "//evil.example/beacon"
+        },
+        {
+          "blocked": true,
+          "kind": "unparseable",
+          "url": "http://[bad"
+        }
+      ]
+    },
+    {
+      "copy": {
+        "blocked": "Nothing is blocked right now.",
+        "body": "Outbound paths are available. Turn this on for a room where data must not leave.",
+        "disclaimer": "DataGlow blocks its own outbound paths. It is not a firewall and does not speak for your browser or operating system.",
+        "local": "Local engines stay available either way. Your rows are never uploaded.",
+        "title": "Air-Gap Mode is off"
+      },
+      "features": [
+        {
+          "blocked": false,
+          "feature": "duckdb",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "sql",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "python",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "r",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "charts",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "pivot",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "local-file",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "local-export",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "validation",
+          "kind": "local",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "ai",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "mcp",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "serverOffload",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "cdn",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "telemetry",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "rooms",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "federated",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "outbound",
+          "kind": "egress",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "some-future-uploader",
+          "kind": "unknown",
+          "reason": "inactive"
+        },
+        {
+          "blocked": false,
+          "feature": "",
+          "kind": "unknown",
+          "reason": "inactive"
+        }
+      ],
+      "label": "restored",
+      "posture": {
+        "active": false,
+        "banner": false,
+        "blockedFeatures": [],
+        "failClosed": true,
+        "localFeatures": [
+          "duckdb",
+          "sql",
+          "python",
+          "r",
+          "charts",
+          "pivot",
+          "local-file",
+          "local-export",
+          "validation"
+        ],
+        "persisted": false,
+        "sessionScoped": true
+      },
+      "urls": [
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "assets/duckdb/duckdb-eh.wasm"
+        },
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "/assets/plotly.min.js"
+        },
+        {
+          "blocked": false,
+          "kind": "same-origin",
+          "url": "https://dataglow.example/assets/sheetjs.js"
+        },
+        {
+          "blocked": false,
+          "kind": "inline",
+          "url": "blob:https://dataglow.example/1234"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "https://api.openai.com/v1/messages"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "https://cdn.jsdelivr.net/pyodide/pyodide.js"
+        },
+        {
+          "blocked": true,
+          "kind": "cross-origin",
+          "url": "//evil.example/beacon"
+        },
+        {
+          "blocked": true,
+          "kind": "unparseable",
+          "url": "http://[bad"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

@@ -600,6 +600,11 @@
       "addedInPR": "feat/r-notebooks-lite-any-industry-v1",
       "description": "R notebooks-lite any-industry: multi-cell on-device WebR notebook (code+markdown), DuckDB table bridge, ggplot2 best-effort, .dgrnb save/load. Stats/finance/bio/ops/healthcare-ready, not pharma-only. Web+desktop+PWA."
     },
+    "airGapMode": {
+      "enabled": false,
+      "addedInPR": "feat/bundle-2-air-gap-capability-scaffold",
+      "description": "Air-Gap Mode. When ON, hard-blocks outbound network for AI/MCP/serverOffload paths (plus CDN runtime downloads, telemetry, Rooms and federated learning). Local DuckDB/SQL/Python/R/charts keep working. Calm banner. Fail-closed: anything not on the on-device allowlist is blocked while active. Session-scoped and in-memory, nothing written to storage. Ships OFF: with this flag off the toggle, panel and banner are never created and no network primitive is wrapped, so every existing path is byte-for-byte unchanged. Complements the deployment-level Enterprise No-Egress policy (js/build/enterprise-policy.js), which an administrator sets; this one is the user's own switch for the session. Web+desktop+PWA. Blocks DataGlow's own outbound paths, not a firewall."
+    },
     "shieldPacks": {
       "enabled": true,
       "addedInPR": "feat/shield-packs-bundle1",

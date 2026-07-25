@@ -3598,6 +3598,56 @@
     font-size: 12px; font-weight: 700; text-align: center; line-height: 1.45;
   }
   #dg-shield-packs-banner.open { display: block; }
+  /* Air-Gap Mode */
+  #dg-air-gap-btn {
+    min-height: 44px; min-width: 44px; padding: 0 12px; margin-left: 6px;
+    border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2, var(--surface));
+    color: var(--text); cursor: pointer; font-family: inherit;
+    font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+  }
+  #dg-air-gap-btn .dg-ag-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted);
+    flex: 0 0 auto;
+  }
+  #dg-air-gap-btn[data-state="on"] .dg-ag-dot { background: var(--success, #4CAF7D); }
+  #dg-air-gap-btn[data-state="on"] { border-color: var(--success, #4CAF7D); }
+  #dg-air-gap-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100vw);
+    z-index: 12063; background: var(--surface, #131519);
+    border-left: 1px solid var(--border);
+    transform: translateX(100%);
+    transition: transform .28s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex; flex-direction: column;
+    box-shadow: -8px 0 24px rgba(0,0,0,.35);
+  }
+  #dg-air-gap-panel.open { transform: translateX(0); }
+  .dg-ag-card {
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+    background: var(--bg-elevated, var(--bg)); margin-bottom: 10px;
+  }
+  .dg-ag-card.is-active { border-color: var(--success, #4CAF7D); }
+  .dg-ag-chip {
+    display: inline-flex; align-items: center; min-height: 28px;
+    padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    border: 1px solid var(--border); margin: 0 6px 6px 0; color: var(--text);
+  }
+  .dg-ag-chip.hot { border-color: var(--error, #E85D4C); color: var(--error, #E85D4C); }
+  .dg-ag-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .dg-ag-btn {
+    min-height: 44px; padding: 0 14px; border-radius: 10px; font-family: inherit;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .dg-ag-btn.primary { background: var(--primary); color: #fff; border: 1px solid var(--primary); }
+  .dg-ag-btn.ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+  #dg-air-gap-banner {
+    position: fixed; left: 0; right: 0; top: 0; z-index: 12064;
+    display: none; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+    background: var(--success, #4CAF7D); color: #05130C;
+    font-size: 12px; font-weight: 700; text-align: center; line-height: 1.45;
+  }
+  #dg-air-gap-banner.open { display: block; }
   .dg-sql-ac-item {
     min-height: 44px;
     padding: 10px 12px;
@@ -110951,6 +111001,617 @@ function postureCopy(p) {
   }
 })();
 /* ---- end js/intelligence/data-glow-shield-packs-canvas.js ---- */
+
+
+/* ---- from js/privacy/air-gap-mode.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Air-Gap Mode (pure posture + egress classifier)
+// ============================================================
+// One switch for the room where nothing may leave the machine. When Air-Gap
+// Mode is ON, every feature that would put bytes on the wire is refused before
+// it can start: the AI/Story providers, MCP paths that hand data to another
+// process, server offload, CDN runtime downloads, telemetry, Rooms/WebRTC and
+// federated learning. Local work is untouched: DuckDB, SQL, Python, R, charts,
+// pivots and local file loads keep running exactly as before.
+//
+// Two design rules make this trustworthy rather than decorative:
+//
+//   1. FAIL CLOSED. The allowlist is the local surface, and anything not on it
+//      is blocked while the mode is active. A feature added next year that
+//      nobody remembered to classify is therefore blocked by default, not
+//      quietly allowed.
+//   2. SESSION SCOPED. Activation lives in memory for this tab only. No
+//      localStorage, no cookies, no IndexedDB, so the posture can never be
+//      resurrected (or silently pre-set) by something the user cannot see.
+//
+// This module is PURE and Node-testable: no DOM, no storage, no network. The
+// canvas UI layer (DataGlowAirGapUI) is what wraps fetch/XHR and paints the
+// banner; everything it decides, it decides by asking the functions here.
+//
+// Public API (never throws from a public fn - returns a safe value instead):
+//   isAirGapActive()                  -> boolean
+//   activate(reason?)                 -> posture after the change
+//   deactivate()                      -> posture after the change
+//   shouldBlockNetwork(feature)       -> { blocked, feature, reason, message }
+//   classifyFeature(feature)          -> 'local' | 'egress' | 'unknown'
+//   classifyRequestUrl(url, origin)   -> { blocked, kind, reason }
+//   getPosture()                      -> { active, ... } snapshot for the UI
+//   postureCopy(posture)              -> user-visible strings (no em dash)
+//
+// Honest scope: this blocks DataGlow's own outbound paths. It is not a firewall
+// and it cannot speak for the browser, an extension, or the operating system.
+// The copy below says exactly that and never claims certification.
+
+const AIR_GAP_VERSION = 1;
+
+// Features that run entirely on this device. This list IS the allowlist: while
+// Air-Gap Mode is active, anything absent from it is blocked.
+const LOCAL_FEATURES = [
+  'duckdb',
+  'sql',
+  'python',
+  'r',
+  'charts',
+  'pivot',
+  'local-file',
+  'local-export',
+  'validation',
+];
+
+// Egress paths, named so a block can explain itself in one plain sentence.
+const EGRESS_FEATURES = {
+  ai: 'AI and Story providers send prompt text off this device.',
+  mcp: 'MCP hands data to another process outside this page.',
+  serverOffload: 'Server offload runs the query somewhere else.',
+  cdn: 'CDN downloads fetch a runtime from a third party.',
+  telemetry: 'Telemetry reports usage to a remote endpoint.',
+  rooms: 'Rooms open a peer connection to another machine.',
+  federated: 'Federated learning exchanges updates with peers.',
+  outbound: 'This is an outbound network request.',
+};
+
+// Session state. In memory, this tab only, never written anywhere.
+let _active = false;
+let _reason = '';
+let _activatedCount = 0;
+let _blockedCount = 0;
+
+function normalizeFeature(feature) {
+  return String(feature == null ? '' : feature).trim();
+}
+
+/** True while Air-Gap Mode is active in this session. */
+function isAirGapActive() {
+  return _active === true;
+}
+
+/**
+ * Where a feature sits relative to the device boundary. Unknown ids are
+ * reported as 'unknown' rather than guessed, and unknown means blocked while
+ * the mode is active.
+ */
+function classifyFeature(feature) {
+  const id = normalizeFeature(feature);
+  if (!id) return 'unknown';
+  if (LOCAL_FEATURES.indexOf(id) !== -1) return 'local';
+  if (Object.prototype.hasOwnProperty.call(EGRESS_FEATURES, id)) return 'egress';
+  return 'unknown';
+}
+
+/** Every local feature id, in a stable order. Copy, so callers cannot mutate it. */
+function listLocalFeatures() {
+  return LOCAL_FEATURES.slice();
+}
+
+/** Every named egress feature id, in a stable order. */
+function listEgressFeatures() {
+  return Object.keys(EGRESS_FEATURES);
+}
+
+/**
+ * The one gate every caller uses. Returns a decision object rather than a bare
+ * boolean so a UI can show the reason without reinventing the copy.
+ */
+function shouldBlockNetwork(feature) {
+  const id = normalizeFeature(feature);
+  const kind = classifyFeature(id);
+  if (!_active) {
+    return { blocked: false, feature: id, kind: kind, reason: 'inactive', message: '' };
+  }
+  if (kind === 'local') {
+    return { blocked: false, feature: id, kind: kind, reason: 'local', message: '' };
+  }
+  const why = kind === 'egress'
+    ? EGRESS_FEATURES[id]
+    : 'This path is not on the on-device allowlist, so Air-Gap Mode blocks it by default.';
+  _blockedCount += 1;
+  return {
+    blocked: true,
+    feature: id,
+    kind: kind,
+    reason: kind === 'egress' ? 'egress' : 'unknown-fail-closed',
+    message: 'Air-Gap Mode is on. ' + why,
+  };
+}
+
+/**
+ * Classify one request URL against the page origin. Same-origin requests are
+ * the app's own self-hosted assets (DuckDB-WASM, Plotly, SheetJS) and stay
+ * allowed so local engines keep working; blob:, data: and about: URLs never
+ * touch the network. Everything else is off device and is blocked.
+ * A URL that cannot be parsed is blocked: fail closed, never guess.
+ */
+function classifyRequestUrl(url, origin) {
+  const raw = String(url == null ? '' : url).trim();
+  if (!raw) return { blocked: true, kind: 'unparseable', reason: 'Empty request URL.' };
+  const lower = raw.toLowerCase();
+  for (const scheme of ['blob:', 'data:', 'about:']) {
+    if (lower.indexOf(scheme) === 0) {
+      return { blocked: false, kind: 'inline', reason: 'Inline resource, no network.' };
+    }
+  }
+  // Relative URLs (no scheme, no protocol-relative prefix) are same origin.
+  if (!/^[a-z][a-z0-9+.-]*:/.test(lower) && lower.indexOf('//') !== 0) {
+    return { blocked: false, kind: 'same-origin', reason: 'Same-origin asset.' };
+  }
+  let base = String(origin == null ? '' : origin);
+  let parsedUrl;
+  let parsedBase;
+  try {
+    parsedUrl = new URL(raw, base || undefined);
+  } catch (_e) {
+    return { blocked: true, kind: 'unparseable', reason: 'Request URL could not be read, so it is blocked.' };
+  }
+  try {
+    parsedBase = base ? new URL(base) : null;
+  } catch (_e2) {
+    parsedBase = null;
+  }
+  if (parsedBase && parsedUrl.origin === parsedBase.origin) {
+    return { blocked: false, kind: 'same-origin', reason: 'Same-origin asset.' };
+  }
+  return {
+    blocked: true,
+    kind: 'cross-origin',
+    reason: 'Request to ' + parsedUrl.origin + ' would leave this device.',
+  };
+}
+
+function snapshot() {
+  return {
+    active: _active,
+    version: AIR_GAP_VERSION,
+    reason: _reason,
+    activatedCount: _activatedCount,
+    blockedCount: _blockedCount,
+    localFeatures: LOCAL_FEATURES.slice(),
+    blockedFeatures: _active ? Object.keys(EGRESS_FEATURES) : [],
+    banner: _active,
+    failClosed: true,
+    sessionScoped: true,
+    persisted: false,
+  };
+}
+
+/** Turn the mode on for this session. Idempotent. Returns the new posture. */
+function activate(reason) {
+  if (!_active) {
+    _active = true;
+    _activatedCount += 1;
+  }
+  const text = normalizeFeature(reason);
+  if (text) _reason = text;
+  return snapshot();
+}
+
+/** Turn the mode off for this session. Idempotent. Returns the new posture. */
+function deactivate() {
+  _active = false;
+  _reason = '';
+  return snapshot();
+}
+
+/** Current posture, safe to call at any time. */
+function getPosture() {
+  return snapshot();
+}
+
+/** Drop all session state. Test and teardown helper; never called by the UI. */
+function resetAirGapSession() {
+  _active = false;
+  _reason = '';
+  _activatedCount = 0;
+  _blockedCount = 0;
+  return snapshot();
+}
+
+/** User-visible strings for a posture. No em dash (U+2014) anywhere. */
+function postureCopy(p) {
+  const state = p && typeof p === 'object' ? p : snapshot();
+  const on = state.active === true;
+  return {
+    title: on ? 'Air-Gap Mode is on' : 'Air-Gap Mode is off',
+    body: on
+      ? 'Nothing leaves this device. DuckDB, SQL, Python, R and charts keep running locally.'
+      : 'Outbound paths are available. Turn this on for a room where data must not leave.',
+    blocked: on
+      ? 'Blocked while on: AI providers, MCP, server offload, CDN runtime downloads, telemetry, Rooms and federated learning.'
+      : 'Nothing is blocked right now.',
+    local: 'Local engines stay available either way. Your rows are never uploaded.',
+    disclaimer: 'DataGlow blocks its own outbound paths. It is not a firewall and does not speak for your browser or operating system.',
+  };
+}
+
+
+  window.DataGlowAirGap = {
+    version: AIR_GAP_VERSION,
+    isAirGapActive: isAirGapActive,
+    activate: activate,
+    deactivate: deactivate,
+    shouldBlockNetwork: shouldBlockNetwork,
+    classifyFeature: classifyFeature,
+    classifyRequestUrl: classifyRequestUrl,
+    listLocalFeatures: listLocalFeatures,
+    listEgressFeatures: listEgressFeatures,
+    getPosture: getPosture,
+    postureCopy: postureCopy,
+    resetAirGapSession: resetAirGapSession
+  };
+})();
+/* ---- end js/privacy/air-gap-mode.js ---- */
+
+/* ---- from js/privacy/data-glow-air-gap-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  var BTN_ID = 'dg-air-gap-btn';
+  var PANEL_ID = 'dg-air-gap-panel';
+  var BANNER_ID = 'dg-air-gap-banner';
+
+  /* Session-scoped only. The engine holds the posture; this layer holds the
+     saved network primitives it swaps out while the mode is on. Nothing here
+     writes to localStorage, cookies, or IndexedDB. */
+  var _savedFetch = null;
+  var _savedXhrOpen = null;
+
+  function engine() { return window.DataGlowAirGap || null; }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Air-Gap]', msg);
+  }
+
+  /* The airGapMode flag ships OFF, so the surface is opt-in: no button, no
+     panel, no banner, and no wrapped network primitive until someone asks for
+     it. window.DATAGLOW_AIR_GAP = true is the explicit local opt-in used for a
+     headless proof and by anyone running the mode before the flag is promoted. */
+  function flagOn() {
+    try { if (window.DATAGLOW_AIR_GAP === true) return true; } catch (_e0) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('airGapMode') === true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  function posture() {
+    var e = engine();
+    if (!e) return null;
+    try { return e.getPosture(); } catch (_e) { return null; }
+  }
+
+  function isActive() {
+    var p = posture();
+    return !!(p && p.active);
+  }
+
+  /* ---------- fail-closed network guards ---------- */
+
+  function pageOrigin() {
+    try { return window.location && window.location.origin ? window.location.origin : ''; } catch (_e) { return ''; }
+  }
+
+  function urlOf(input) {
+    if (typeof input === 'string') return input;
+    if (input && typeof input.url === 'string') return input.url;
+    if (input && typeof input.toString === 'function') return input.toString();
+    return '';
+  }
+
+  function blockedError(target) {
+    var err = new Error('Air-Gap Mode is on. ' + target + ' would leave this device, so the request was refused.');
+    err.name = 'AirGapBlockedError';
+    return err;
+  }
+
+  /* Wrapping fetch/XHR is what gives the toggle teeth: any code path that did
+     not check shouldBlockNetwork() first still cannot reach the wire. Same
+     origin stays open so the self-hosted DuckDB-WASM, Plotly, and SheetJS
+     assets under assets/ keep loading and local engines keep working. */
+  function installGuards() {
+    var e = engine();
+    if (!e || _savedFetch) return;
+    if (typeof window.fetch === 'function') {
+      _savedFetch = window.fetch;
+      window.fetch = function (input, init) {
+        var verdict = e.classifyRequestUrl(urlOf(input), pageOrigin());
+        if (verdict.blocked) {
+          reportBlock(verdict.reason);
+          return Promise.reject(blockedError(verdict.reason));
+        }
+        return _savedFetch.apply(window, arguments);
+      };
+    }
+    if (window.XMLHttpRequest && window.XMLHttpRequest.prototype && !_savedXhrOpen) {
+      _savedXhrOpen = window.XMLHttpRequest.prototype.open;
+      window.XMLHttpRequest.prototype.open = function (method, url) {
+        var verdict = e.classifyRequestUrl(url, pageOrigin());
+        if (verdict.blocked) {
+          reportBlock(verdict.reason);
+          throw blockedError(verdict.reason);
+        }
+        return _savedXhrOpen.apply(this, arguments);
+      };
+    }
+  }
+
+  function removeGuards() {
+    if (_savedFetch) { window.fetch = _savedFetch; _savedFetch = null; }
+    if (_savedXhrOpen) { window.XMLHttpRequest.prototype.open = _savedXhrOpen; _savedXhrOpen = null; }
+  }
+
+  function reportBlock(reason) {
+    toast('Air-Gap Mode blocked an outbound request', 'warn');
+    try {
+      document.dispatchEvent(new CustomEvent('dataglow:air-gap-blocked', { detail: { reason: reason } }));
+    } catch (_e) {}
+  }
+
+  /* The guard any AI, MCP, or server-offload call site can ask before acting.
+     Returns true when the feature may proceed. */
+  function allow(feature) {
+    var e = engine();
+    if (!e) return true;
+    var d;
+    try { d = e.shouldBlockNetwork(feature); } catch (_err) { return true; }
+    if (d && d.blocked) {
+      toast(d.message, 'warn');
+      return false;
+    }
+    return true;
+  }
+
+  /* ---------- banner ---------- */
+
+  function ensureBanner() {
+    var el = document.getElementById(BANNER_ID);
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = BANNER_ID;
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function renderBanner() {
+    var el = ensureBanner();
+    if (!isActive()) {
+      el.classList.remove('open');
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = '<span>' + esc('Air-Gap Mode is on. Nothing leaves this device. Local engines keep working.') + '</span>';
+    el.classList.add('open');
+  }
+
+  /* ---------- panel ---------- */
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Air-Gap Mode');
+    panel.innerHTML =
+      '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:10px auto 0;flex-shrink:0"></div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--border);gap:10px">' +
+        '<div style="min-width:0">' +
+          '<div style="font-weight:800;font-size:15px">Air-Gap Mode</div>' +
+          '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">One switch for a room where data must not leave.</div>' +
+        '</div>' +
+        '<button type="button" data-ag-close style="min-height:44px;min-width:44px;border:none;background:transparent;color:var(--text-muted);font-size:22px;cursor:pointer;border-radius:10px" aria-label="Close">\u00D7</button>' +
+      '</div>' +
+      '<div id="dg-air-gap-body" style="flex:1;overflow-y:auto;padding:14px 16px;-webkit-overflow-scrolling:touch"></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-ag-close]').addEventListener('click', closePanel);
+    return panel;
+  }
+
+  function chips(ids, hot) {
+    return ids.map(function (id) {
+      return '<span class="dg-ag-chip' + (hot ? ' hot' : '') + '">' + esc(id) + '</span>';
+    }).join('');
+  }
+
+  function renderBody() {
+    var body = document.getElementById('dg-air-gap-body');
+    var e = engine();
+    if (!body) return;
+    if (!e) {
+      body.innerHTML = '<div class="dg-ag-card" style="color:var(--text-muted)">Air-Gap engine unavailable.</div>';
+      return;
+    }
+    var p = posture();
+    var copy = e.postureCopy(p);
+    var on = !!(p && p.active);
+
+    body.innerHTML =
+      '<div class="dg-ag-card' + (on ? ' is-active' : '') + '">' +
+        '<div style="font-size:11px;color:var(--text-muted);letter-spacing:.04em">POSTURE</div>' +
+        '<div style="font-size:20px;font-weight:800;margin-top:2px">' + esc(copy.title) + '</div>' +
+        '<div style="margin-top:8px;font-size:12px;line-height:1.55;color:var(--text-secondary,var(--text-muted))">' +
+          esc(copy.body) + '<br>' + esc(copy.blocked) + '<br>' + esc(copy.local) +
+        '</div>' +
+        '<div class="dg-ag-actions">' +
+          '<button type="button" class="dg-ag-btn ' + (on ? 'ghost' : 'primary') + '" data-ag-toggle>' +
+            (on ? 'Turn off' : 'Turn on') + '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dg-ag-card">' +
+        '<div style="font-weight:800;font-size:13px">Stays local</div>' +
+        '<div style="margin-top:8px">' + chips(e.listLocalFeatures(), false) + '</div>' +
+      '</div>' +
+      '<div class="dg-ag-card">' +
+        '<div style="font-weight:800;font-size:13px">Blocked while on</div>' +
+        '<div style="margin-top:8px">' + chips(e.listEgressFeatures(), on) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5">' +
+          esc('Anything not on the local list is blocked too. Air-Gap Mode fails closed.') +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted));padding:4px 2px 8px">' +
+        esc(copy.disclaimer) +
+      '</div>';
+
+    var btn = body.querySelector('[data-ag-toggle]');
+    if (btn) btn.onclick = function () { setActive(!isActive()); };
+  }
+
+  function setActive(next) {
+    var e = engine();
+    if (!e) return;
+    if (next) {
+      e.activate('user toggle');
+      installGuards();
+      toast('Air-Gap Mode on. Outbound paths blocked.');
+    } else {
+      e.deactivate();
+      removeGuards();
+      toast('Air-Gap Mode off. Outbound paths available again.');
+    }
+    afterChange();
+  }
+
+  function afterChange() {
+    updateBadge();
+    renderBanner();
+    renderBody();
+    /* Deliberately NOT logged to ProvenanceFabric: its ProofChain mirror can
+       recurse on append and freeze the page (see the Shield Packs note). The
+       event below is the integration point instead. */
+    try {
+      document.dispatchEvent(new CustomEvent('dataglow:air-gap-posture', { detail: { posture: posture() } }));
+    } catch (_e) {}
+  }
+
+  function updateBadge() {
+    var btn = document.getElementById(BTN_ID);
+    if (!btn) return;
+    var on = isActive();
+    btn.setAttribute('data-state', on ? 'on' : 'off');
+    var label = btn.querySelector('[data-ag-label]');
+    if (label) label.textContent = on ? 'Air-Gap · on' : 'Air-Gap';
+  }
+
+  function openPanel() {
+    if (!flagOn()) return;
+    ensurePanel();
+    renderBody();
+    document.getElementById(PANEL_ID).classList.add('open');
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open Air-Gap Mode');
+    btn.title = 'Air-Gap Mode . block every outbound path';
+    btn.innerHTML = '<span class="dg-ag-dot" aria-hidden="true"></span><span data-ag-label>Air-Gap</span>';
+    btn.addEventListener('click', function () {
+      var panel = document.getElementById(PANEL_ID);
+      if (panel && panel.classList.contains('open')) closePanel();
+      else openPanel();
+    });
+    /* Sits next to the Shield Packs button so the whole privacy posture is one
+       place, and falls back to the same fixed corner when no toolbar exists. */
+    var packs = document.getElementById('dg-shield-packs-btn');
+    if (packs && packs.parentNode) {
+      packs.parentNode.insertBefore(btn, packs.nextSibling);
+      if (packs.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '212px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '212px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    /* The surface is flag-gated, but the guards are always published: an AI or
+       MCP call site can ask allowNetwork() without knowing whether the surface
+       was built, and gets an honest "allowed" while the mode is off. */
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      updateBadge();
+      renderBanner();
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+
+    window.DataGlowAirGapUI = {
+      version: 1,
+      openPanel: openPanel,
+      closePanel: closePanel,
+      activate: function () { setActive(true); },
+      deactivate: function () { setActive(false); },
+      isActive: isActive,
+      getPosture: posture,
+      /* Fail-closed guards an AI, MCP, or offload call site checks first. */
+      allowNetwork: allow,
+      allowAi: function () { return allow('ai'); },
+      allowMcp: function () { return allow('mcp'); },
+      allowServerOffload: function () { return allow('serverOffload'); }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 760); });
+  } else {
+    setTimeout(boot, 760);
+  }
+})();
+/* ---- end js/privacy/data-glow-air-gap-canvas.js ---- */
 
 
 window.addEventListener('appinstalled', function() {

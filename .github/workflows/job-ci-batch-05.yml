@@ -35,6 +35,11 @@
 # `npm ci` needed for this job.
 # 2026-07-19: added `streaming-validator` (Streaming Validation Mode four-pillar
 # micro-batch drift detection, js/streaming/streaming-validator.js).
+# 2026-07-25: added Bundle 2's three jobs here per the same guardrail:
+# `air-gap-mode` (js/privacy/air-gap-mode.js), `capability-registry`
+# (scripts/check-capability-map.mjs) and `module-scaffold`
+# (scripts/new-module.mjs). The Air-Gap browser proof lives in
+# job-e2e-smoke.yml instead, because it needs real Chrome.
 
 name: CI batch 05
 
@@ -210,3 +215,42 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:shieldpacks
+
+  air-gap-mode:
+    name: Air-Gap Mode (session posture engine + fail-closed egress classification, pure logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:airgap
+
+  capability-registry:
+    name: Capability registry as data (derived status + relatedFlags vs flags.manifest.json)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check:capability-map
+      - run: npm run test:capmap
+
+  module-scaffold:
+    name: New module scaffold (emitted stub parses under node --check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:newmodule
+      # A scaffolded file must never change the shipped bundle.
+      - run: npm run check:canvas-integrity

@@ -21,7 +21,9 @@
       "name": "Controller & wiring",
       "files": [
         "js/app-shell/main.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-state",
@@ -34,7 +36,9 @@
       "files": [
         "js/app-shell/state.js",
         "js/app-shell/utils.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-engine",
@@ -46,7 +50,9 @@
       "name": "Query engine",
       "files": [
         "js/app-shell/duckdb-engine.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-loaders",
@@ -58,7 +64,9 @@
       "name": "File loading",
       "files": [
         "js/app-shell/loaders.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-sql-highlight",
@@ -76,7 +84,9 @@
           "file": "js/app-shell/sql-highlight.js",
           "name": "highlightSql"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-sql-dialect-adapter",
@@ -94,7 +104,9 @@
           "file": "js/app-shell/sql-dialect-adapter.js",
           "name": "translateDialectSql"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-warehouse",
@@ -112,7 +124,9 @@
           "file": "js/app-shell/databricks-connect.js",
           "name": "DatabricksConnector"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-object-space",
@@ -130,7 +144,9 @@
           "file": "js/app-shell/object-space.js",
           "name": "createObjectSpace"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-glow-path",
@@ -153,7 +169,9 @@
           "file": "js/app-shell/glow-path-ui.js",
           "name": "renderGlowPath"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "glow-signal-aggregator",
@@ -171,7 +189,9 @@
           "file": "js/glow/glow-signal.js",
           "name": "computeGlowSignal"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "glow-orb-ui",
@@ -189,7 +209,9 @@
           "file": "js/glow/glow-orb-ui.js",
           "name": "renderGlowOrb"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "validation-orchestrator",
@@ -207,7 +229,9 @@
           "file": "js/validation/validation.js",
           "name": "LAYER_DEFS"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "validation-standalone",
@@ -243,7 +267,9 @@
           "file": "js/validation/missingness-detective.js",
           "name": "MIN_MISSING_RATE"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "source-convergence",
@@ -261,7 +287,11 @@
           "file": "js/validation/source-convergence.js",
           "name": "buildConvergenceGraph"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "sourceConvergence"
+      ],
+      "status": "shipped"
     },
     {
       "id": "source-convergence-ingestion",
@@ -279,7 +309,11 @@
           "file": "js/validation/source-convergence-ingestion.js",
           "name": "adaptExcelWorkbook"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "sourceConvergenceIngestion"
+      ],
+      "status": "shipped"
     },
     {
       "id": "source-convergence-ui",
@@ -297,7 +331,11 @@
           "file": "js/validation/source-convergence-ui.js",
           "name": "buildConvergenceView"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "sourceConvergenceUI"
+      ],
+      "status": "shipped"
     },
     {
       "id": "crucible-validator",
@@ -320,7 +358,11 @@
           "file": "js/validation/crucible-adversarial-packs.js",
           "name": "runAdversarialSuite"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "crucibleValidator"
+      ],
+      "status": "shipped"
     },
     {
       "id": "crucible-ui",
@@ -338,7 +380,9 @@
           "file": "js/validation/crucible-ui.js",
           "name": "buildPipelineModel"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "crucible-revert-proposals",
@@ -356,7 +400,11 @@
           "file": "js/provenance/revert-eligibility.js",
           "name": "classifyRevertEligibility"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "crucibleRevertProposals"
+      ],
+      "status": "shipped"
     },
     {
       "id": "crucible-orchestration",
@@ -374,7 +422,11 @@
           "file": "js/validation/crucible-orchestrator.js",
           "name": "runCrucibleForFix"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "crucibleOrchestration"
+      ],
+      "status": "shipped"
     },
     {
       "id": "validation-reinterpretation",
@@ -387,7 +439,9 @@
       "files": [
         "js/validation/domain-physics.js",
         "js/validation/expected-range.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "validation-healthcare-standards",
@@ -409,7 +463,9 @@
           "file": "js/validation/health-standards.js",
           "name": "flattenFhirBundle"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "domain-pack-plugins",
@@ -443,7 +499,9 @@
           "file": "js/packs/pack-registry.js",
           "name": "loadBuiltInPacks"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "anomaly-detectors",
@@ -463,7 +521,9 @@
           "file": "js/anomaly/predictive-anomaly.js",
           "name": "scorePredictiveAnomalies"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "anomaly-baselining",
@@ -476,7 +536,9 @@
       "files": [
         "js/anomaly/entity-baseline.js",
         "js/anomaly/spc-control.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "anomaly-triage",
@@ -488,7 +550,9 @@
       "name": "Triage",
       "files": [
         "js/anomaly/active-learning.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "analysis-robustness-devils-advocate",
@@ -506,7 +570,9 @@
           "file": "js/analysis-robustness/devils-advocate.js",
           "name": "attackAnalysis"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "analysis-robustness-sensitivity-verdict",
@@ -528,7 +594,9 @@
           "file": "js/analysis-robustness/robustness-verdict.js",
           "name": "robustnessVerdict"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "drift-forecasting",
@@ -546,7 +614,9 @@
           "file": "js/drift/drift-forecast.js",
           "name": "MIN_FORECAST_HISTORY"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "drift-narration",
@@ -558,7 +628,9 @@
       "name": "Trend narration",
       "files": [
         "js/validation/expected-range.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "cleaning-core",
@@ -572,7 +644,9 @@
         "js/cleaning/clean.js",
         "js/cleaning/fix-confidence.js",
         "js/cleaning/materiality.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "cleaning-transforms",
@@ -587,7 +661,9 @@
         "js/cleaning/format-fingerprint.js",
         "js/cleaning/fuzzy-dedup.js",
         "js/shared/identifier-columns.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "grades",
@@ -607,7 +683,9 @@
           "file": "js/grades/calibrated-grades.js",
           "name": "computeCalibratedGrades"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "learning-learners",
@@ -631,7 +709,9 @@
           "file": "js/learning/adaptive-priority.js",
           "name": "LayerPriorityModel"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "learning-shared-state",
@@ -650,7 +730,9 @@
           "file": "js/learning/signal-store.js",
           "name": "SignalStore"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "learning-proficiency-signal",
@@ -668,7 +750,9 @@
           "file": "js/learning/proficiency-signal.js",
           "name": "createProficiencyTracker"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "federated",
@@ -688,7 +772,9 @@
           "file": "js/federated/federated-learning.js",
           "name": "MODEL_DIM"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "rooms-signaling",
@@ -706,7 +792,11 @@
           "file": "js/rooms/room-signaling.js",
           "name": "RoomSignalingCoordinator"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "roomsSignaling"
+      ],
+      "status": "shipped"
     },
     {
       "id": "rooms-broadcast",
@@ -724,7 +814,11 @@
           "file": "js/rooms/room-broadcast.js",
           "name": "RoomBroadcastCoordinator"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "roomsBroadcast"
+      ],
+      "status": "shipped"
     },
     {
       "id": "rooms-ui",
@@ -746,7 +840,11 @@
           "file": "js/rooms/room-ui.js",
           "name": "buildRoomPillModel"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "roomsUi"
+      ],
+      "status": "shipped"
     },
     {
       "id": "rooms-transport-adapter",
@@ -768,7 +866,9 @@
           "file": "js/rooms/room-transport-adapter.js",
           "name": "createRoomWebRTCTransport"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "data-diplomacy-claim",
@@ -786,7 +886,9 @@
           "file": "js/diplomacy/diplomacy-claim.js",
           "name": "sealClaim"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "data-diplomacy-reconciliation-engine",
@@ -804,7 +906,9 @@
           "file": "js/diplomacy/reconciliation-engine.js",
           "name": "reconcileClaims"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "data-diplomacy-approval-gate",
@@ -822,7 +926,9 @@
           "file": "js/diplomacy/diplomacy-approval-gate.js",
           "name": "createApprovalRequest"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-custody",
@@ -835,7 +941,9 @@
       "files": [
         "js/provenance/provenance.js",
         "js/provenance/assumption-ledger.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-ai-touch-ledger",
@@ -864,7 +972,9 @@
           "file": "js/narrative/story.js",
           "name": "generateStory"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-query-memory",
@@ -895,7 +1005,9 @@
           "file": "js/provenance/query-memory-ui.js",
           "name": "renderQueryMemoryBadge"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-artifacts",
@@ -921,7 +1033,9 @@
           "file": "js/provenance/data-bom.js",
           "name": "buildPersonalDataBom"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "portable-receipts",
@@ -947,7 +1061,11 @@
           "file": "js/provenance/portable-receipt.js",
           "name": "verifyClaimReceipt"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "portableReceipts"
+      ],
+      "status": "shipped"
     },
     {
       "id": "provenance-packet",
@@ -970,7 +1088,11 @@
           "file": "js/provenance/deidentification-verifier.js",
           "name": "HIPAA_SAFE_HARBOR"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "provenancePacket"
+      ],
+      "status": "shipped"
     },
     {
       "id": "provenance-nutrition-label",
@@ -988,7 +1110,9 @@
           "file": "js/provenance/data-nutrition-label.js",
           "name": "buildDataNutritionLabel"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-check-seal",
@@ -1006,7 +1130,9 @@
           "file": "js/provenance/verifiable-check-seal.js",
           "name": "sealCheckResult"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-trust-beam",
@@ -1024,7 +1150,9 @@
           "file": "js/provenance/trust-beam.js",
           "name": "buildBeamUrl"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-zk-threshold-proof",
@@ -1050,7 +1178,9 @@
           "file": "js/provenance/zk-threshold-proof.js",
           "name": "selfCheckGroup"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-proof-room",
@@ -1072,7 +1202,9 @@
           "file": "js/provenance/proof-room.js",
           "name": "renderProofRoom"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-packet-batch-2",
@@ -1095,7 +1227,9 @@
           "file": "js/provenance/cost-of-bad-data.js",
           "name": "estimateCostOfBadData"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-analysis-fingerprint",
@@ -1126,7 +1260,9 @@
           "file": "js/provenance/nutrition-badges.js",
           "name": "BADGE_CATALOG"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-incident-postmortem",
@@ -1152,7 +1288,9 @@
           "file": "js/provenance/incident-postmortem.js",
           "name": "proposeCorrection"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-ownership-ledger",
@@ -1178,7 +1316,9 @@
           "file": "js/provenance/ownership-ledger.js",
           "name": "claimOwnership"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-packet-format",
@@ -1200,7 +1340,9 @@
           "file": "js/provenance/provenance-packet.js",
           "name": "verifyPacket"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-institutional-memory",
@@ -1254,7 +1396,9 @@
           "file": "js/memory/institutional-memory.js",
           "name": "importNDJSON"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "rooms-builder",
@@ -1296,7 +1440,9 @@
           "file": "js/rooms/rooms-builder.js",
           "name": "isSameDataset"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "provenance-proof-export",
@@ -1330,7 +1476,9 @@
           "file": "js/proof/proof-builder.js",
           "name": "generateVerificationReport"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "privacy-synthetic",
@@ -1344,7 +1492,9 @@
         "js/privacy/privacy-budget.js",
         "js/privacy/synthetic-twin.js",
         "js/privacy/synthetic-adversarial.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "privacy-synthetic-passport",
@@ -1362,7 +1512,9 @@
           "file": "js/privacy/synthetic-data-passport.js",
           "name": "buildSyntheticDataPassport"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "simulation-history",
@@ -1382,7 +1534,9 @@
           "file": "js/simulation/digital-twin.js",
           "name": "inferPerturbations"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "narrative",
@@ -1405,7 +1559,9 @@
           "file": "js/narrative/ondevice-llm.js",
           "name": "MODEL_ID"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "story-view",
@@ -1439,7 +1595,9 @@
           "file": "js/story/story-builder.js",
           "name": "validateStory"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ambient",
@@ -1463,7 +1621,9 @@
           "file": "js/ambient/watch-folder.js",
           "name": "isSupportedFile"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "grouped-tab-navigation",
@@ -1489,7 +1649,9 @@
           "file": "js/app-shell/tab-groups.js",
           "name": "TAB_GROUP_ORDER"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "validate-focus-mode",
@@ -1511,7 +1673,11 @@
           "file": "js/app-shell/validate-focus.js",
           "name": "createValidateFocusStore"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "validateFocusMode"
+      ],
+      "status": "shipped"
     },
     {
       "id": "semantic-drift-watchdog",
@@ -1541,7 +1707,11 @@
           "file": "js/ambient/drift-watchdog.js",
           "name": "formatWatchdogAlert"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "semanticDriftWatchdog"
+      ],
+      "status": "shipped"
     },
     {
       "id": "runtimes-viz",
@@ -1555,7 +1725,9 @@
         "js/runtimes-viz/python-runtime.js",
         "js/runtimes-viz/r-runtime.js",
         "js/runtimes-viz/visualize.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "glow-canvas",
@@ -1589,7 +1761,11 @@
           "file": "js/runtimes-viz/glow-canvas.js",
           "name": "toggleFilter"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "glowCanvas"
+      ],
+      "status": "shipped"
     },
     {
       "id": "pivot-table",
@@ -1621,7 +1797,11 @@
           "file": "js/runtimes-viz/pivot-ui.js",
           "name": "renderPivotTab"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "pivotTable"
+      ],
+      "status": "shipped"
     },
     {
       "id": "drill-floor",
@@ -1685,7 +1865,11 @@
           "file": "js/drill-floor/drill-floor-data.js",
           "name": "buildCreateTableSql"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "drillFloor"
+      ],
+      "status": "shipped"
     },
     {
       "id": "cleaning-crew",
@@ -1719,7 +1903,11 @@
           "file": "js/cleaning-crew/pdf-profiler.js",
           "name": "profilePdf"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "cleaningCrew"
+      ],
+      "status": "shipped"
     },
     {
       "id": "protocol",
@@ -1737,7 +1925,9 @@
           "file": "js/protocol/protocol-conformance.js",
           "name": "toDataset"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "problem-framer",
@@ -1759,7 +1949,9 @@
           "file": "js/problem-framing/problem-framer.js",
           "name": "orderLayersByContext"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-capability-registry",
@@ -1777,7 +1969,9 @@
           "file": "js/app-shell/capability-registry.js",
           "name": "loadRegistry"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-metrics-registry",
@@ -1799,7 +1993,9 @@
           "file": "js/app-shell/metrics-registry.js",
           "name": "expandMetricReferences"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "export-reporting",
@@ -1822,7 +2018,9 @@
           "file": "js/export/export-delivery.js",
           "name": "selectAdapter"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "build-flags",
@@ -1840,7 +2038,9 @@
           "file": "js/build/build-flags.js",
           "name": "isEnabled"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "micro-lessons",
@@ -1862,7 +2062,9 @@
           "file": "js/teaching/micro-lessons.js",
           "name": "coverageFor"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "community-pack",
@@ -1888,7 +2090,9 @@
           "file": "js/teaching/community-pack.js",
           "name": "exportPack"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "pack-builder-question-generator",
@@ -1914,7 +2118,9 @@
           "file": "js/agents/question-generator-agent.js",
           "name": "buildQuestionView"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "pack-builder-uncertainty-resolver",
@@ -1940,7 +2146,9 @@
           "file": "js/agents/uncertainty-resolver-agent.js",
           "name": "ResolverSession"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "pack-builder-local-pack-index",
@@ -1962,7 +2170,9 @@
           "file": "js/packs/local-pack-index.js",
           "name": "loadIndex"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "pack-builder-agent",
@@ -1984,7 +2194,9 @@
           "file": "js/agents/pack-builder-agent.js",
           "name": "interpretAnswer"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "pack-builder-ui",
@@ -2006,7 +2218,9 @@
           "file": "js/agents/conversational-pack-ui.js",
           "name": "mountConversationalPackBuilder"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "local-analysis-contract",
@@ -2044,7 +2258,11 @@
           "file": "js/validation/analysis-contract.js",
           "name": "summarizeAnalysisContract"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "localAnalysisContract"
+      ],
+      "status": "shipped"
     },
     {
       "id": "semantic-metrics-layer",
@@ -2079,7 +2297,11 @@
           "file": "js/validation/semantic-layer-ui.js",
           "name": "mountMetricDefiner"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "semanticMetricsLayer"
+      ],
+      "status": "shipped"
     },
     {
       "id": "meeting-scribe-agent",
@@ -2109,7 +2331,9 @@
           "file": "js/agents/meeting-scribe-agent.js",
           "name": "buildPushbackCandidate"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "meeting-scribe-ui",
@@ -2135,7 +2359,9 @@
           "file": "js/agents/meeting-scribe-ui.js",
           "name": "parseTranscriptText"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "live-transcript-capture",
@@ -2165,7 +2391,9 @@
           "file": "js/agents/live-transcript-capture.js",
           "name": "startLiveCapture"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "meeting-decision-ledger",
@@ -2207,7 +2435,11 @@
           "file": "js/agents/meeting-decision-ledger.js",
           "name": "exportLedgerEntries"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "meetingDecisionLedger"
+      ],
+      "status": "shipped"
     },
     {
       "id": "meeting-decision-ledger-ui",
@@ -2229,7 +2461,9 @@
           "file": "js/agents/meeting-decision-ledger-ui.js",
           "name": "mountDecisionLedger"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "metric-studio",
@@ -2251,7 +2485,11 @@
           "file": "js/metrics/metric-studio.js",
           "name": "computeMetricValue"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "metricStudio"
+      ],
+      "status": "shipped"
     },
     {
       "id": "trust-strip",
@@ -2273,7 +2511,9 @@
           "file": "js/trust/trust-strip.js",
           "name": "renderTrustStrip"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "proof-drawer",
@@ -2295,7 +2535,9 @@
           "file": "js/trust/proof-drawer.js",
           "name": "openProofDrawer"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "metric-contracts",
@@ -2321,7 +2563,11 @@
           "file": "js/metrics/metric-contracts.js",
           "name": "diffVersions"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "metricContracts"
+      ],
+      "status": "shipped"
     },
     {
       "id": "metric-contract-diff-view",
@@ -2343,7 +2589,9 @@
           "file": "js/metrics/metric-contract-diff-view.js",
           "name": "renderDiffView"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "metric-contract-confirm-gate",
@@ -2373,7 +2621,9 @@
           "file": "js/metrics/metric-contract-confirm-gate.js",
           "name": "renderConfirmGate"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "metric-access-rules",
@@ -2399,7 +2649,11 @@
           "file": "js/metrics/metric-access-rules.js",
           "name": "MetricAccessRuleRegistry"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "metricAccessRules"
+      ],
+      "status": "shipped"
     },
     {
       "id": "ai-readiness-gate",
@@ -2439,7 +2693,9 @@
           "file": "js/gate/agent-gate.js",
           "name": "buildAgentRefusal"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "command-deck-nav",
@@ -2469,7 +2725,9 @@
           "file": "js/app-shell/command-deck-nav.js",
           "name": "stageForTab"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "data-diplomacy-ui",
@@ -2495,7 +2753,9 @@
           "file": "js/diplomacy/diplomacy-ui.js",
           "name": "renderDiplomacyPanel"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "agent-action-firewall",
@@ -2525,7 +2785,11 @@
           "file": "js/agents/agent-action-firewall.js",
           "name": "normalizeIdentity"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "agentActionFirewall"
+      ],
+      "status": "shipped"
     },
     {
       "id": "guarded-copilot",
@@ -2555,7 +2819,11 @@
           "file": "js/agents/guarded-copilot.js",
           "name": "refineWithOnDeviceModel"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "guardedCopilot"
+      ],
+      "status": "shipped"
     },
     {
       "id": "pack-builder-debate-diagnostics",
@@ -2577,7 +2845,9 @@
           "file": "js/agents/debate-diagnostics.js",
           "name": "PERSONA_LABELS"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "command-palette",
@@ -2607,7 +2877,9 @@
           "file": "js/app-shell/command-palette.js",
           "name": "filterCommands"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "open-floor-kernel",
@@ -2638,7 +2910,11 @@
           "file": "js/agents/phi-prompt-guard.js",
           "name": "classifySensitiveColumns"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "openFloorKernel"
+      ],
+      "status": "shipped"
     },
     {
       "id": "open-floor-sandbox-twin",
@@ -2656,7 +2932,11 @@
           "file": "js/simulation/sandbox-twin.js",
           "name": "createSandboxTwin"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "openFloorSandboxTwin"
+      ],
+      "status": "shipped"
     },
     {
       "id": "query-sentinel",
@@ -2698,7 +2978,9 @@
           "file": "js/validation/query-sentinel.js",
           "name": "summarizeQuerySentinel"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "query-sentinel-assist",
@@ -2724,7 +3006,11 @@
           "file": "js/validation/query-sentinel-assist.js",
           "name": "assistWithOnDeviceModel"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "querySentinelAssist"
+      ],
+      "status": "shipped"
     },
     {
       "id": "query-sentinel-bridge",
@@ -2750,7 +3036,11 @@
           "file": "js/validation/query-sentinel-bridge.js",
           "name": "summarizeBridgeResolution"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "querySentinelBridge"
+      ],
+      "status": "shipped"
     },
     {
       "id": "statistical-rigor-layer",
@@ -2788,7 +3078,9 @@
           "file": "js/rigor/statistical-rigor.js",
           "name": "detectSimpsonsParadox"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "narrative-overconfidence-guard",
@@ -2811,7 +3103,11 @@
           "file": "js/rigor/narrative-overconfidence-guard.js",
           "name": "describeOverconfidenceFinding"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "narrativeOverconfidenceGuard"
+      ],
+      "status": "shipped"
     },
     {
       "id": "app-shell-duckdb-config",
@@ -2823,7 +3119,9 @@
       "name": "DuckDB WASM configuration",
       "files": [
         "js/app-shell/duckdb-config.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-grid-bridge",
@@ -2869,7 +3167,9 @@
           "file": "js/grid/grid-bridge.js",
           "name": "typeToChip"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-grid-pivot-engine",
@@ -2903,7 +3203,9 @@
           "file": "js/grid/pivot-engine.js",
           "name": "validatePivotConfig"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-grid-formula-bridge",
@@ -2937,7 +3239,9 @@
           "file": "js/grid/formula-bridge.js",
           "name": "validateFormulaResult"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "app-shell-grid-validation-coloring",
@@ -2971,7 +3275,9 @@
           "file": "js/grid/validation-coloring.js",
           "name": "computeRowHealth"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "enterprise-policy",
@@ -2983,7 +3289,9 @@
       "name": "Enterprise policy engine",
       "files": [
         "js/build/enterprise-policy.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "council-engine",
@@ -2995,7 +3303,9 @@
       "name": "Multi-model deliberation engine",
       "files": [
         "js/council/council-engine.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "council-ui",
@@ -3007,7 +3317,9 @@
       "name": "Council tab UI",
       "files": [
         "js/council/council-ui.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "drift-dataset-differ",
@@ -3019,7 +3331,9 @@
       "name": "Dataset differ",
       "files": [
         "js/drift/dataset-differ.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "drift-freshness-decay",
@@ -3031,7 +3345,9 @@
       "name": "Freshness decay calculator",
       "files": [
         "js/drift/freshness-decay.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "dvc-diff",
@@ -3043,7 +3359,9 @@
       "name": "Snapshot diff engine",
       "files": [
         "js/dvc/dvc-diff.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "dvc-store",
@@ -3055,7 +3373,9 @@
       "name": "Snapshot store",
       "files": [
         "js/dvc/dvc-store.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "dvc-ui",
@@ -3067,7 +3387,9 @@
       "name": "Versions tab UI",
       "files": [
         "js/dvc/dvc-ui.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "equity-disparity-scorer",
@@ -3079,7 +3401,9 @@
       "name": "Disparity scorer",
       "files": [
         "js/equity/disparity-scorer.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "equity-attestation",
@@ -3091,7 +3415,9 @@
       "name": "Equity attestation builder",
       "files": [
         "js/equity/equity-attestation.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "equity-detector",
@@ -3103,7 +3429,9 @@
       "name": "Protected-column detector",
       "files": [
         "js/equity/equity-detector.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "equity-stratifier",
@@ -3115,7 +3443,9 @@
       "name": "Outcome stratifier",
       "files": [
         "js/equity/equity-stratifier.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "join-builder-canvas",
@@ -3127,7 +3457,9 @@
       "name": "Visual join canvas",
       "files": [
         "js/join-builder/join-canvas.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "join-builder-model",
@@ -3139,7 +3471,9 @@
       "name": "Join model",
       "files": [
         "js/join-builder/join-model.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "join-builder-sql",
@@ -3151,7 +3485,9 @@
       "name": "Join SQL generator",
       "files": [
         "js/join-builder/join-sql.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nlsql-metric-contracts",
@@ -3163,7 +3499,9 @@
       "name": "Metric contract definitions",
       "files": [
         "js/nl-sql/metric-contracts.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nlsql-engine",
@@ -3175,7 +3513,9 @@
       "name": "NL-to-SQL engine",
       "files": [
         "js/nl-sql/nl-sql-engine.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nlsql-key-store",
@@ -3187,7 +3527,9 @@
       "name": "API key store (in-memory)",
       "files": [
         "js/nl-sql/nl-sql-key-store.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nlsql-pattern-engine",
@@ -3199,7 +3541,9 @@
       "name": "Zero-cost pattern engine",
       "files": [
         "js/nl-sql/nl-sql-pattern-engine.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nlsql-ui",
@@ -3211,7 +3555,9 @@
       "name": "AI tab UI",
       "files": [
         "js/nl-sql/nl-sql-ui.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nlsql-schema-context",
@@ -3223,7 +3569,9 @@
       "name": "Schema context serializer",
       "files": [
         "js/nl-sql/schema-context.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "relational-flag-consistency",
@@ -3235,7 +3583,9 @@
       "name": "Flag consistency checker",
       "files": [
         "js/relational/flag-consistency-checker.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "relational-foreign-key",
@@ -3247,7 +3597,9 @@
       "name": "Foreign key checker",
       "files": [
         "js/relational/foreign-key-checker.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "relational-join-coverage",
@@ -3259,7 +3611,9 @@
       "name": "Join coverage checker",
       "files": [
         "js/relational/join-coverage-checker.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "relational-temporal-order",
@@ -3271,7 +3625,9 @@
       "name": "Temporal order checker",
       "files": [
         "js/relational/temporal-order-checker.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "rulepacks-general",
@@ -3283,7 +3639,9 @@
       "name": "General rulepack",
       "files": [
         "js/rulepacks/packs/general.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "rulepacks-healthcare",
@@ -3295,7 +3653,9 @@
       "name": "Healthcare rulepack",
       "files": [
         "js/rulepacks/packs/healthcare.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "rulepacks-registry",
@@ -3307,7 +3667,9 @@
       "name": "Rulepack registry",
       "files": [
         "js/rulepacks/rulepack-registry.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "trust-certificate",
@@ -3319,7 +3681,11 @@
       "name": "Trust certificate builder",
       "files": [
         "js/trust/trust-certificate.js"
-      ]
+      ],
+      "relatedFlags": [
+        "trustCertificate"
+      ],
+      "status": "shipped"
     },
     {
       "id": "validation-drg-icd",
@@ -3331,7 +3697,9 @@
       "name": "DRG/ICD coding validator",
       "files": [
         "js/validation/drg-icd-validator.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "warehouse-bigquery",
@@ -3343,7 +3711,9 @@
       "name": "BigQuery connector",
       "files": [
         "js/warehouse/bigquery-connector.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "warehouse-s3",
@@ -3355,7 +3725,9 @@
       "name": "S3 connector",
       "files": [
         "js/warehouse/s3-connector.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "mcp-server",
@@ -3371,7 +3743,9 @@
         "js/mcp/dataglow-mcp-server.mjs": [
           "desktop"
         ]
-      }
+      },
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "mcp-gate-state-exporter",
@@ -3383,7 +3757,9 @@
       "name": "Gate state exporter",
       "files": [
         "js/mcp/gate-state-exporter.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "mcp-agent-passport-bridge",
@@ -3404,7 +3780,9 @@
           "browser",
           "desktop"
         ]
-      }
+      },
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "polyglot-autocomplete",
@@ -3418,7 +3796,11 @@
       "files": [
         "js/polyglot/polyglot-autocomplete.js",
         "js/intelligence/data-glow-sql-autocomplete-canvas.js"
-      ]
+      ],
+      "relatedFlags": [
+        "polyglotAutocomplete"
+      ],
+      "status": "shipped"
     },
     {
       "id": "polyglot-error-advisor",
@@ -3430,7 +3812,11 @@
       "name": "Cross-language error advisor with suggested fix",
       "files": [
         "js/polyglot/polyglot-error-advisor.js"
-      ]
+      ],
+      "relatedFlags": [
+        "polyglotErrorAdvisor"
+      ],
+      "status": "shipped"
     },
     {
       "id": "data-diplomacy-loader",
@@ -3442,7 +3828,11 @@
       "name": "Real dataset claim builder (Batch 3)",
       "files": [
         "js/diplomacy/diplomacy-loader.js"
-      ]
+      ],
+      "relatedFlags": [
+        "dataDiplomacyLoader"
+      ],
+      "status": "shipped"
     },
     {
       "id": "data-diplomacy-p2p-transport",
@@ -3454,7 +3844,9 @@
       "name": "Sealed claim P2P exchange adapter (Batch 4)",
       "files": [
         "js/diplomacy/diplomacy-p2p-transport.js"
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "live-rooms-broadcast",
@@ -3480,7 +3872,11 @@
           "file": "js/agents/live-rooms-broadcast.js",
           "name": "isValidActionItemsMessage"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "liveRoomsBroadcast"
+      ],
+      "status": "shipped"
     },
     {
       "id": "chart-context-timeline",
@@ -3502,7 +3898,11 @@
           "file": "js/agents/chart-context-timeline.js",
           "name": "buildChartContextEntry"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "chartContextTimeline"
+      ],
+      "status": "shipped"
     },
     {
       "id": "meeting-synthesis",
@@ -3528,7 +3928,11 @@
           "file": "js/agents/meeting-synthesis.js",
           "name": "isSynthesisAvailable"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "meetingSynthesis"
+      ],
+      "status": "shipped"
     },
     {
       "id": "streaming-validator",
@@ -3558,7 +3962,9 @@
           "file": "js/streaming/streaming-validator.js",
           "name": "detectArrivalAnomaly"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "validation-webhook-mode",
@@ -3589,7 +3995,9 @@
           "file": "js/webhook/webhook-handler.js",
           "name": "processWebhookBatch"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-drop-zone-router",
@@ -3627,7 +4035,9 @@
           "file": "js/drop-zone/drop-zone-router.js",
           "name": "jsonNeedsFlattening"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-rag-core",
@@ -3653,7 +4063,9 @@
           "file": "js/rag/rag-core.js",
           "name": "retrieveTopK"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-rag-validation-bridge",
@@ -3671,7 +4083,9 @@
           "file": "js/rag/rag-validation-bridge.js",
           "name": "attachCitationsToFindings"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-rag-user-knowledge-store",
@@ -3705,7 +4119,9 @@
           "file": "js/rag/user-knowledge-store.js",
           "name": "setChunkEmbedding"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-audio-structurer",
@@ -3732,7 +4148,9 @@
           "file": "js/audio/audio-structurer.js",
           "name": "buildAudioDatasetSummary"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-video-bridge",
@@ -3763,7 +4181,9 @@
           "file": "js/video/video-ingestion-bridge.js",
           "name": "buildVideoTranscriptDatasetName"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-pdf-bridge",
@@ -3798,7 +4218,9 @@
           "file": "js/pdf/pdfjs-extractor.scaffold.js",
           "name": "extractPDFText"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-text-line-parser",
@@ -3824,7 +4246,9 @@
           "file": "js/ingestion/text-line-parser.js",
           "name": "buildTextDataset"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-json-flattener",
@@ -3850,7 +4274,9 @@
           "file": "js/ingestion/json-flattener.js",
           "name": "jsonNeedsFlattening"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-api-feed",
@@ -3884,7 +4310,9 @@
           "file": "js/ingestion/api-feed.js",
           "name": "buildFeedDataset"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nats-websocket-bridge",
@@ -3951,7 +4379,9 @@
           "file": "js/nats/nats-bridge.js",
           "name": "generateConnectionGuide"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "tauri-live-connector",
@@ -4037,7 +4467,9 @@
           "file": "js/connectors/connector-manager.js",
           "name": "hasActiveConnection"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "portfolio-narrative-assembler",
@@ -4073,7 +4505,11 @@
           "file": "js/portfolio/portfolio-ui.js",
           "name": "renderPortfolioTab"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "portfolioNarrativeAssembler"
+      ],
+      "status": "shipped"
     },
     {
       "id": "question-prompter",
@@ -4120,7 +4556,9 @@
           "file": "js/questions/question-prompter.js",
           "name": "QUESTION_TEMPLATES"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-image-ocr",
@@ -4155,7 +4593,9 @@
           "file": "js/ingestion/image-ocr.js",
           "name": "isImageFile"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "instant-insight",
@@ -4174,7 +4614,9 @@
           "file": "js/insight/insight-engine.js",
           "name": "InstantInsight"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "publish-button",
@@ -4193,7 +4635,9 @@
           "file": "js/publish/publish-engine.js",
           "name": "PublishEngine"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "chart-engine",
@@ -4212,7 +4656,9 @@
           "file": "js/chart/chart-engine.js",
           "name": "ChartEngine"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "export-engine",
@@ -4231,7 +4677,9 @@
           "file": "js/export/export-engine.js",
           "name": "ExportEngine"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "column-editor",
@@ -4250,7 +4698,9 @@
           "file": "js/columns/column-editor.js",
           "name": "ColumnEditor"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "join-builder",
@@ -4269,7 +4719,11 @@
           "file": "js/join/join-builder.js",
           "name": "JoinBuilder"
         }
-      ]
+      ],
+      "relatedFlags": [
+        "joinBuilder"
+      ],
+      "status": "shipped"
     },
     {
       "id": "anomaly-timeline",
@@ -4288,7 +4742,9 @@
           "file": "js/anomaly/anomaly-timeline.js",
           "name": "AnomalyTimeline"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "dashboard-engine",
@@ -4307,7 +4763,9 @@
           "file": "js/dashboard/dashboard-engine.js",
           "name": "DashboardEngine"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "canvas-grid",
@@ -4326,7 +4784,9 @@
           "file": "js/grid/canvas-grid.js",
           "name": "CanvasGrid"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "findings-rail",
@@ -4345,7 +4805,9 @@
           "file": "js/dashboard/findings-rail.js",
           "name": "FindingsRail"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "nl-engine",
@@ -4364,7 +4826,9 @@
           "file": "js/nl/nl-engine.js",
           "name": "NLEngine"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "sql-engine",
@@ -4383,7 +4847,9 @@
           "file": "js/sql/sql-engine.js",
           "name": "SQLEngine"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "ingestion-x12-parser",
@@ -4409,7 +4875,9 @@
           "file": "js/ingestion/x12-parser.js",
           "name": "detectType"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "enterprise-no-egress-mode",
@@ -4448,7 +4916,8 @@
       "files": [
         "js/build/enterprise-policy.js"
       ],
-      "area": "Enterprise & deployment"
+      "area": "Enterprise & deployment",
+      "relatedFlags": []
     },
     {
       "id": "column-profiler-hover",
@@ -4473,7 +4942,9 @@
           "file": "js/intelligence/column-profiler-local.js",
           "name": "qualityScoreLocal"
         }
-      ]
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "phi-shield",
@@ -4490,7 +4961,11 @@
         "js/intelligence/data-glow-phi-shield-canvas.js",
         "test/phi-shield-scan.test.mjs"
       ],
-      "notes": "One-button on-device PHI/Safe Harbor screen + AI prompt guard. Screening aid only."
+      "notes": "One-button on-device PHI/Safe Harbor screen + AI prompt guard. Screening aid only.",
+      "relatedFlags": [
+        "phiShield"
+      ],
+      "status": "shipped"
     },
     {
       "id": "excel-hell-repair",
@@ -4506,7 +4981,11 @@
         "js/intelligence/data-glow-excel-hell-canvas.js",
         "test/excel-hell-repair.test.mjs"
       ],
-      "notes": "On-device detect + reversible repair recipe for messy spreadsheets (header detect, junk row strip, multi-row header collapse, type coercion). Preview-first; Apply needs an explicit click; undo restores pre-image."
+      "notes": "On-device detect + reversible repair recipe for messy spreadsheets (header detect, junk row strip, multi-row header collapse, type coercion). Preview-first; Apply needs an explicit click; undo restores pre-image.",
+      "relatedFlags": [
+        "excelHellRepair"
+      ],
+      "status": "shipped"
     },
     {
       "id": "python-notebooks-lite",
@@ -4522,7 +5001,11 @@
         "js/intelligence/data-glow-python-notebook-canvas.js",
         "test/python-notebook-lite.test.mjs"
       ],
-      "notes": "Multi-cell local Pyodide notebook UX over existing Python tab. Zero-upload."
+      "notes": "Multi-cell local Pyodide notebook UX over existing Python tab. Zero-upload.",
+      "relatedFlags": [
+        "pythonNotebooksLite"
+      ],
+      "status": "shipped"
     },
     {
       "id": "r-notebooks-lite",
@@ -4538,7 +5021,11 @@
         "js/intelligence/data-glow-r-notebook-canvas.js",
         "test/r-notebook-lite.test.mjs"
       ],
-      "notes": "Multi-cell local WebR notebook UX over the existing R tab: shared kernel, DuckDB table bridge capped at 200000 rows, base R / ggplot2 plot capture, .dgrnb save/load, any-industry starter packs. Zero-upload."
+      "notes": "Multi-cell local WebR notebook UX over the existing R tab: shared kernel, DuckDB table bridge capped at 200000 rows, base R / ggplot2 plot capture, .dgrnb save/load, any-industry starter packs. Zero-upload.",
+      "relatedFlags": [
+        "rNotebooksLite"
+      ],
+      "status": "shipped"
     },
     {
       "id": "guided-unpivot",
@@ -4554,7 +5041,11 @@
         "js/intelligence/data-glow-guided-unpivot-canvas.js",
         "test/guided-unpivot.test.mjs"
       ],
-      "notes": "Wide-to-long reshape with preview/apply; pure transform + DuckDB SQL glass-box."
+      "notes": "Wide-to-long reshape with preview/apply; pure transform + DuckDB SQL glass-box.",
+      "relatedFlags": [
+        "guidedUnpivot"
+      ],
+      "status": "shipped"
     },
     {
       "id": "repair-recipe-library",
@@ -4572,11 +5063,24 @@
         "test/repair-recipe-library.test.mjs"
       ],
       "symbols": [
-        { "file": "js/intelligence/repair-recipe-library.js", "name": "createRecipeRecord" },
-        { "file": "js/intelligence/repair-recipe-library.js", "name": "scoreRecipeMatch" },
-        { "file": "js/intelligence/repair-recipe-store.js", "name": "createRepairRecipeStore" }
+        {
+          "file": "js/intelligence/repair-recipe-library.js",
+          "name": "createRecipeRecord"
+        },
+        {
+          "file": "js/intelligence/repair-recipe-library.js",
+          "name": "scoreRecipeMatch"
+        },
+        {
+          "file": "js/intelligence/repair-recipe-store.js",
+          "name": "createRepairRecipeStore"
+        }
       ],
-      "notes": "Save/list/reapply Excel Hell (and Guided Unpivot) prep recipes on-device via a standalone IndexedDB. Metadata only (steps + column names), never raw rows. Preview-first; Apply is click-only."
+      "notes": "Save/list/reapply Excel Hell (and Guided Unpivot) prep recipes on-device via a standalone IndexedDB. Metadata only (steps + column names), never raw rows. Preview-first; Apply is click-only.",
+      "relatedFlags": [
+        "repairRecipeLibrary"
+      ],
+      "status": "shipped"
     },
     {
       "id": "mobile-phi-firstrun-calm",
@@ -4593,10 +5097,18 @@
         "test/mobile-phi-firstrun-calm.test.mjs"
       ],
       "symbols": [
-        { "file": "js/intelligence/mobile-phi-firstrun-calm.js", "name": "chipLabel" },
-        { "file": "js/intelligence/mobile-phi-firstrun-calm.js", "name": "shouldShowCalmStrip" }
+        {
+          "file": "js/intelligence/mobile-phi-firstrun-calm.js",
+          "name": "chipLabel"
+        },
+        {
+          "file": "js/intelligence/mobile-phi-firstrun-calm.js",
+          "name": "shouldShowCalmStrip"
+        }
       ],
-      "notes": "Calm chrome pass over the existing PHI Shield: short never-truncated privacy labels, 44px safe-area-aware topbar chip, and a quiet first-run strip (on-device promise + one Load CTA, no auto-dismiss timer). Additive; does not change PHI detection."
+      "notes": "Calm chrome pass over the existing PHI Shield: short never-truncated privacy labels, 44px safe-area-aware topbar chip, and a quiet first-run strip (on-device promise + one Load CTA, no auto-dismiss timer). Additive; does not change PHI detection.",
+      "relatedFlags": [],
+      "status": "shipped"
     },
     {
       "id": "shield-packs",
@@ -4613,11 +5125,58 @@
         "test/shield-packs.test.mjs"
       ],
       "symbols": [
-        { "file": "js/intelligence/shield-packs.js", "name": "listPacks" },
-        { "file": "js/intelligence/shield-packs.js", "name": "detectPatterns" },
-        { "file": "js/intelligence/shield-packs.js", "name": "posture" }
+        {
+          "file": "js/intelligence/shield-packs.js",
+          "name": "listPacks"
+        },
+        {
+          "file": "js/intelligence/shield-packs.js",
+          "name": "detectPatterns"
+        },
+        {
+          "file": "js/intelligence/shield-packs.js",
+          "name": "posture"
+        }
       ],
-      "notes": "One calm surface listing four on-device privacy packs. Pack 0 is the existing PHI Shield, reused via window.DataGlowPhiShield rather than reimplemented. Finance PII, Privilege labels, and Justice sensitive add shape/label detectors plus a combined posture; the Justice pack fails closed (blocks AI and export paths, shows a high-sensitivity banner). Session-scoped, in-memory, never uploads rows."
+      "notes": "One calm surface listing four on-device privacy packs. Pack 0 is the existing PHI Shield, reused via window.DataGlowPhiShield rather than reimplemented. Finance PII, Privilege labels, and Justice sensitive add shape/label detectors plus a combined posture; the Justice pack fails closed (blocks AI and export paths, shows a high-sensitivity banner). Session-scoped, in-memory, never uploads rows.",
+      "relatedFlags": [
+        "shieldPacks"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "air-gap-mode",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Privacy & trust",
+      "name": "Air-Gap Mode",
+      "files": [
+        "js/privacy/air-gap-mode.js",
+        "js/privacy/data-glow-air-gap-canvas.js",
+        "test/air-gap-mode.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/privacy/air-gap-mode.js",
+          "name": "shouldBlockNetwork"
+        },
+        {
+          "file": "js/privacy/air-gap-mode.js",
+          "name": "classifyRequestUrl"
+        },
+        {
+          "file": "js/privacy/air-gap-mode.js",
+          "name": "getPosture"
+        }
+      ],
+      "notes": "One session-scoped switch that hard-blocks DataGlow's outbound paths (AI, MCP, server offload, CDN runtime downloads, telemetry, Rooms, federated learning) while local DuckDB/SQL/Python/R/charts keep running. Fails closed: anything not on the on-device allowlist is blocked while active. In-memory only, nothing written to storage. Complements the administrator-set Enterprise No-Egress policy; this is the user's own switch. Not a firewall.",
+      "relatedFlags": [
+        "airGapMode"
+      ],
+      "status": "behind-flag"
     }
   ]
 }

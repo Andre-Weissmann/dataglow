@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code.",
-  "canvasBytes": 4860656,
+  "canvasBytes": 4885564,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -29,6 +29,20 @@
       "sourceSha256": "034ae37ec8bba698d8af56669824b81e04942e10958835876cbf4622f6428828",
       "canvasSectionSha256": "576ebc7b3aea202eaa2e42559d196d1d49f4447a02dd8b00be0c248ee3b73219",
       "canvasSectionBytes": 9305
+    },
+    {
+      "source": "js/privacy/air-gap-mode.js",
+      "note": "Air-Gap Mode pure posture + egress classifier. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_air_gap_mode.py.",
+      "sourceSha256": "298b6cfe4befe73988a192eee6b16f0c5166acad6e7da7e5d732c26ea4533468",
+      "canvasSectionSha256": "43ae515777ada8f54afe313a8f10f1a5505d37cb11cb0a961359aa1f776f32d3",
+      "canvasSectionBytes": 9462
+    },
+    {
+      "source": "js/privacy/data-glow-air-gap-canvas.js",
+      "note": "Air-Gap Mode canvas UI (toggle, panel, banner, fetch/XHR guards). Inlined verbatim by inject_air_gap_mode.py.",
+      "sourceSha256": "eb806f2d36fc21a9358bda899b0277246e5c935957a7863c12234958fbf84f58",
+      "canvasSectionSha256": "3240aab6b9fe49a91879f5929d8c236cfadc55cd90f25e85ba566eaa84523dcc",
+      "canvasSectionBytes": 12927
     }
   ]
 }
