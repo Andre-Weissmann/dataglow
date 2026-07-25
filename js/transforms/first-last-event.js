@@ -35,8 +35,9 @@ import {
   indexOfColumn,
   rowsOf,
   suggestDateColumn,
-  parseDateValue,
-  toNumber,
+  sortableOrderValue,
+  compareSortable,
+  compareValues,
   isPlainObject,
   asColumnList,
   missingColumns,
@@ -256,51 +257,6 @@ export function firstLastEventTransform(dataset, config) {
     },
     notes: notes,
   });
-}
-
-/**
- * The order value as something comparable, or null when the row cannot take part.
- *
- * A declared date column is parsed as a date so that "2024-3-5" and "2024-03-05"
- * order correctly rather than as strings. Anything numeric orders as a number so
- * that 9 comes before 10. Everything else orders as a string, which is at least
- * total and stable.
- */
-function sortableOrderValue(value, preferDate) {
-  if (value == null || value === '') return null;
-  if (preferDate || value instanceof Date) {
-    const d = parseDateValue(value);
-    if (d) return { kind: 'n', v: d.getTime() };
-    if (preferDate) return null;
-  }
-  const n = toNumber(value);
-  if (n !== null && typeof value !== 'boolean') return { kind: 'n', v: n };
-  const d2 = parseDateValue(value);
-  if (d2) return { kind: 'n', v: d2.getTime() };
-  return { kind: 's', v: String(value) };
-}
-
-function compareSortable(a, b) {
-  if (a.kind === 'n' && b.kind === 'n') return a.v < b.v ? -1 : (a.v > b.v ? 1 : 0);
-  const as = String(a.v);
-  const bs = String(b.v);
-  return as < bs ? -1 : (as > bs ? 1 : 0);
-}
-
-/** A total order over two raw cells, for the tie-break. Null sorts last in the
-    ascending direction so a blank never wins a slot a real value could take. */
-function compareValues(a, b) {
-  const aNull = a == null || a === '';
-  const bNull = b == null || b === '';
-  if (aNull && bNull) return 0;
-  if (aNull) return 1;
-  if (bNull) return -1;
-  const an = toNumber(a);
-  const bn = toNumber(b);
-  if (an !== null && bn !== null) return an < bn ? -1 : (an > bn ? 1 : 0);
-  const as = String(a);
-  const bs = String(b);
-  return as < bs ? -1 : (as > bs ? 1 : 0);
 }
 
 /** One plain sentence for the panel header. */

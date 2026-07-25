@@ -115957,6 +115957,57 @@ function keyOfRow(row, idxs) {
   return parts.join(UNIT_SEP);
 }
 
+/* ------------------------------ ordering --------------------------------- */
+
+/**
+ * The order value as something comparable, or null when the row cannot take part.
+ *
+ * A declared date column is parsed as a date so that "2024-3-5" and "2024-03-05"
+ * order correctly rather than as strings. Anything numeric orders as a number so
+ * that 9 comes before 10. Everything else orders as a string, which is at least
+ * total and stable.
+ *
+ * Lives here rather than in one transform because two transforms now pick a row
+ * per group by an order column, and if they read "latest" differently the app
+ * would give two answers to one question.
+ */
+function sortableOrderValue(value, preferDate) {
+  if (value == null || value === '') return null;
+  if (preferDate || value instanceof Date) {
+    const d = parseDateValue(value);
+    if (d) return { kind: 'n', v: d.getTime() };
+    if (preferDate) return null;
+  }
+  const n = toNumber(value);
+  if (n !== null && typeof value !== 'boolean') return { kind: 'n', v: n };
+  const d2 = parseDateValue(value);
+  if (d2) return { kind: 'n', v: d2.getTime() };
+  return { kind: 's', v: String(value) };
+}
+
+function compareSortable(a, b) {
+  if (a.kind === 'n' && b.kind === 'n') return a.v < b.v ? -1 : (a.v > b.v ? 1 : 0);
+  const as = String(a.v);
+  const bs = String(b.v);
+  return as < bs ? -1 : (as > bs ? 1 : 0);
+}
+
+/** A total order over two raw cells, for the tie-break. Null sorts last in the
+    ascending direction so a blank never wins a slot a real value could take. */
+function compareValues(a, b) {
+  const aNull = a == null || a === '';
+  const bNull = b == null || b === '';
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  const an = toNumber(a);
+  const bn = toNumber(b);
+  if (an !== null && bn !== null) return an < bn ? -1 : (an > bn ? 1 : 0);
+  const as = String(a);
+  const bs = String(b);
+  return as < bs ? -1 : (as > bs ? 1 : 0);
+}
+
 /* ------------------------------- output ---------------------------------- */
 
 /** A column descriptor in the house shape. */
@@ -116023,6 +116074,9 @@ function transformError(message) {
     asColumnList: asColumnList,
     missingColumns: missingColumns,
     keyOfRow: keyOfRow,
+    sortableOrderValue: sortableOrderValue,
+    compareSortable: compareSortable,
+    compareValues: compareValues,
     column: column,
     transformResult: transformResult,
     transformError: transformError,
@@ -116870,7 +116924,7 @@ function describeDateRangeJoin(result) {
 
   // Inlined build: no module scope in the canvas, so the shared core is
   // read off window instead of imported.
-  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, parseDateValue = C.parseDateValue, toNumber = C.toNumber, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, missingColumns = C.missingColumns, keyOfRow = C.keyOfRow, column = C.column, typeOfColumn = C.typeOfColumn, isDateType = C.isDateType, transformResult = C.transformResult, transformError = C.transformError, TYPE_INT = C.TYPE_INT;
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, sortableOrderValue = C.sortableOrderValue, compareSortable = C.compareSortable, compareValues = C.compareValues, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, missingColumns = C.missingColumns, keyOfRow = C.keyOfRow, column = C.column, typeOfColumn = C.typeOfColumn, isDateType = C.isDateType, transformResult = C.transformResult, transformError = C.transformError, TYPE_INT = C.TYPE_INT;
 const FIRST_LAST_VERSION = 1;
 
 const FIRST_LAST_PICKS = Object.freeze(['first', 'last']);
@@ -117078,51 +117132,6 @@ function firstLastEventTransform(dataset, config) {
     },
     notes: notes,
   });
-}
-
-/**
- * The order value as something comparable, or null when the row cannot take part.
- *
- * A declared date column is parsed as a date so that "2024-3-5" and "2024-03-05"
- * order correctly rather than as strings. Anything numeric orders as a number so
- * that 9 comes before 10. Everything else orders as a string, which is at least
- * total and stable.
- */
-function sortableOrderValue(value, preferDate) {
-  if (value == null || value === '') return null;
-  if (preferDate || value instanceof Date) {
-    const d = parseDateValue(value);
-    if (d) return { kind: 'n', v: d.getTime() };
-    if (preferDate) return null;
-  }
-  const n = toNumber(value);
-  if (n !== null && typeof value !== 'boolean') return { kind: 'n', v: n };
-  const d2 = parseDateValue(value);
-  if (d2) return { kind: 'n', v: d2.getTime() };
-  return { kind: 's', v: String(value) };
-}
-
-function compareSortable(a, b) {
-  if (a.kind === 'n' && b.kind === 'n') return a.v < b.v ? -1 : (a.v > b.v ? 1 : 0);
-  const as = String(a.v);
-  const bs = String(b.v);
-  return as < bs ? -1 : (as > bs ? 1 : 0);
-}
-
-/** A total order over two raw cells, for the tie-break. Null sorts last in the
-    ascending direction so a blank never wins a slot a real value could take. */
-function compareValues(a, b) {
-  const aNull = a == null || a === '';
-  const bNull = b == null || b === '';
-  if (aNull && bNull) return 0;
-  if (aNull) return 1;
-  if (bNull) return -1;
-  const an = toNumber(a);
-  const bn = toNumber(b);
-  if (an !== null && bn !== null) return an < bn ? -1 : (an > bn ? 1 : 0);
-  const as = String(a);
-  const bs = String(b);
-  return as < bs ? -1 : (as > bs ? 1 : 0);
 }
 
 /** One plain sentence for the panel header. */
@@ -117526,44 +117535,3032 @@ function describeAsOfLookup(result) {
   };
 })();
 /* ---- end js/transforms/as-of-lookup.js ---- */
-/* ---- from js/transforms/data-glow-time-joins-canvas.js ---- */
+
+
+/* ---- from js/transforms/expand-hierarchy.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A16 Expand hierarchy (who reports to whom, and how far down)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. "How deep is this org?", "which accounts roll up to that
+// one?", "what is the full path from the root to this category?" A parent/child
+// table holds the answer but does not show it: every row knows its own parent
+// and nothing else. This walks the edges and gives each node its depth, its
+// root, and its full path.
+//
+// TWO INPUT SHAPES, ONE OUTPUT.
+// Edge form is two columns, node and parent, one row per node. Path form is one
+// column holding an already-joined string, "Food/Produce/Apples". Both are
+// common and neither is more correct, so both are read. Path form is also the
+// output of A16 on edge form, which means a table can be exported, reloaded and
+// re-expanded without changing meaning.
+//
+// CYCLES ARE THE REASON THIS IS NOT A ONE-LINER.
+// A recursive CTE over a cyclic edge list does not return a wrong answer, it
+// runs until the engine gives up. Real parent/child data has cycles more often
+// than anyone expects: a self-referencing row from a bad merge, two managers who
+// each report to the other after a reorg, a category that was re-parented into
+// its own subtree. So the walk carries the set of nodes already visited on the
+// current path and stops when it meets one again. Those nodes are not dropped
+// and not guessed at: they are emitted with the depth reached, marked, counted,
+// and named in the notes. A hierarchy tool that hangs tells you nothing; one
+// that says "these three rows form a loop" tells you where the data is broken.
+//
+// AN ORPHAN IS NOT A ROOT.
+// A node whose parent id is not in the table is not the top of the tree, it is a
+// row whose parent is missing. Calling it a root would silently repair the data
+// and hide the gap. It is given depth 0 so the output is still usable, and then
+// counted and reported separately from the genuine roots.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR, TYPE_BOOL = C.TYPE_BOOL, transformResult = C.transformResult, transformError = C.transformError;
+const EXPAND_HIERARCHY_VERSION = 1;
+
+// Edge form is two columns (node, parent). Path form is one column holding a
+// delimited string. Kept to these two because a third shape (adjacency plus a
+// separate closure table) needs a second table and belongs with the joins.
+const HIERARCHY_SOURCES = Object.freeze(['edges', 'path']);
+
+const HIERARCHY_SOURCE_LABELS = Object.freeze({
+  edges: 'Parent and child columns',
+  path: 'One column holding a full path',
+});
+
+// A hierarchy deeper than this in real business data is nearly always a cycle
+// the visited-set did not catch because the ids differ by whitespace or case.
+// The walk stops and says so rather than building a million-row path string.
+const MAX_DEPTH = 256;
+
+function createEmptyHierarchyConfig() {
+  return {
+    source: 'edges',
+    nodeColumn: '',
+    parentColumn: '',
+    pathColumn: '',
+    pathDelimiter: '/',
+    includePath: true,
+    includeIsLeaf: true,
+    includeRoot: true,
+  };
+}
+
+function suggestHierarchyConfig(dataset) {
+  const cfg = createEmptyHierarchyConfig();
+  const names = columnNamesOf(dataset);
+
+  const pathCol = pickByHint(names, ['path', 'hierarchy', 'breadcrumb', 'lineage']);
+  const parentCol = pickByHint(names, ['parent', 'manager', 'reports_to', 'reportsto', 'parent_id']);
+  const nodeCol = pickByHint(names, ['id', 'node', 'employee', 'code', 'name']);
+
+  // A parent column is the stronger signal: a column called "path" is sometimes
+  // a file path, but a column called "parent_id" beside an id column is almost
+  // always an edge list.
+  if (parentCol) {
+    cfg.source = 'edges';
+    cfg.parentColumn = parentCol;
+    cfg.nodeColumn = (nodeCol && nodeCol !== parentCol) ? nodeCol : (names.filter((n) => n !== parentCol)[0] || '');
+  } else if (pathCol) {
+    cfg.source = 'path';
+    cfg.pathColumn = pathCol;
+  } else {
+    cfg.source = 'edges';
+    cfg.nodeColumn = names[0] || '';
+    cfg.parentColumn = names[1] || '';
+  }
+  return cfg;
+}
+
+function pickByHint(names, hints) {
+  for (let h = 0; h < hints.length; h += 1) {
+    for (let i = 0; i < names.length; i += 1) {
+      if (String(names[i] || '').toLowerCase() === hints[h]) return names[i];
+    }
+  }
+  for (let h = 0; h < hints.length; h += 1) {
+    for (let i = 0; i < names.length; i += 1) {
+      if (String(names[i] || '').toLowerCase().includes(hints[h])) return names[i];
+    }
+  }
+  return null;
+}
+
+function validateHierarchyConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (HIERARCHY_SOURCES.indexOf(config.source) === -1) {
+    errors.push('Choose whether the hierarchy is in parent and child columns or in one path column.');
+    return { ok: false, errors: errors };
+  }
+
+  if (config.source === 'path') {
+    if (!config.pathColumn) errors.push('Pick the column that holds the path.');
+    else if (!names.includes(config.pathColumn)) {
+      errors.push('The path column ' + config.pathColumn + ' is not in this table.');
+    }
+    if (!String(config.pathDelimiter || '')) {
+      errors.push('Give the character that separates the levels, such as / or >.');
+    }
+  } else {
+    if (!config.nodeColumn) errors.push('Pick the column that identifies each row.');
+    else if (!names.includes(config.nodeColumn)) {
+      errors.push('The column ' + config.nodeColumn + ' is not in this table.');
+    }
+    if (!config.parentColumn) errors.push('Pick the column that holds the parent.');
+    else if (!names.includes(config.parentColumn)) {
+      errors.push('The parent column ' + config.parentColumn + ' is not in this table.');
+    }
+    if (config.nodeColumn && config.nodeColumn === config.parentColumn) {
+      errors.push('The row column and the parent column have to be different columns.');
+    }
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The columns A16 appends, in order. Named here so the SQL, the transform and
+    a test cannot drift apart about what comes out. */
+function hierarchyOutputColumns(config) {
+  const out = [column('depth', TYPE_INT)];
+  if (!config || config.source !== 'path') out.push(column('parent_node', TYPE_STR));
+  if (!config || config.includeRoot !== false) out.push(column('root_node', TYPE_STR));
+  if (!config || config.includePath !== false) out.push(column('node_path', TYPE_STR));
+  if (!config || config.includeIsLeaf !== false) out.push(column('is_leaf', TYPE_BOOL));
+  out.push(column('in_cycle', TYPE_BOOL));
+  return out;
+}
+
+/**
+ * The glass-box SQL. A recursive CTE for the edge form, because that is what a
+ * person checking this would write, with the cycle guard shown rather than
+ * assumed: the `NOT list_contains` line is the whole reason this terminates.
+ */
+function buildHierarchySQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const t = relationName(sourceRelation, 'source');
+
+  if (config.source === 'path') {
+    const p = quoteIdent(config.pathColumn);
+    const d = String(config.pathDelimiter || '/');
+    const lit = "'" + d.replace(/'/g, "''") + "'";
+    const lines = [
+      '-- Expand a path column into node, parent and depth.',
+      '-- str_split turns the path into a list, so depth is just its length and the',
+      '-- parent is the path with the last element removed.',
+      'SELECT',
+      '  *,',
+      '  len(str_split(' + p + ', ' + lit + ')) - 1 AS depth,',
+      '  str_split(' + p + ', ' + lit + ')[1] AS root_node,',
+      '  ' + p + ' AS node_path,',
+      '  list_aggregate(',
+      '    str_split(' + p + ', ' + lit + ')[1:-2], ' + "'string_agg', " + lit,
+      '  ) AS parent_path',
+      'FROM ' + t,
+    ];
+    return { ok: true, sql: lines.join('\n') };
+  }
+
+  const n = quoteIdent(config.nodeColumn);
+  const pa = quoteIdent(config.parentColumn);
+  const dl = "'" + String(config.pathDelimiter || '/').replace(/'/g, "''") + "'";
+  const lines = [
+    '-- Expand a parent/child edge list into depth, root and full path.',
+    '-- The seed is every row whose parent is null or names a row that is not in',
+    '-- this table. An orphan is seeded here too, and is NOT the same thing as a',
+    '-- root: see the "orphan" note on the result.',
+    'WITH RECURSIVE tree AS (',
+    '  SELECT',
+    '    c.*,',
+    '    0 AS depth,',
+    '    CAST(c.' + n + ' AS VARCHAR) AS root_node,',
+    '    CAST(c.' + n + ' AS VARCHAR) AS node_path,',
+    '    [CAST(c.' + n + ' AS VARCHAR)] AS seen',
+    '  FROM ' + t + ' AS c',
+    '  WHERE c.' + pa + ' IS NULL',
+    '     OR NOT EXISTS (SELECT 1 FROM ' + t + ' AS p WHERE p.' + n + ' = c.' + pa + ')',
+    '',
+    '  UNION ALL',
+    '',
+    '  SELECT',
+    '    c.*,',
+    '    t.depth + 1,',
+    '    t.root_node,',
+    '    t.node_path || ' + dl + ' || CAST(c.' + n + ' AS VARCHAR),',
+    '    list_append(t.seen, CAST(c.' + n + ' AS VARCHAR))',
+    '  FROM ' + t + ' AS c',
+    '  JOIN tree AS t ON c.' + pa + ' = t.' + n,
+    '  -- The cycle guard. Without this line a self-referencing row or a',
+    '  -- reorg loop does not give a wrong answer, it never finishes.',
+    '  WHERE NOT list_contains(t.seen, CAST(c.' + n + ' AS VARCHAR))',
+    '    AND t.depth < ' + MAX_DEPTH,
+    ')',
+    'SELECT',
+    '  * EXCLUDE (seen),',
+    '  NOT EXISTS (SELECT 1 FROM ' + t + ' AS k WHERE k.' + pa + ' = tree.' + n + ') AS is_leaf',
+    'FROM tree',
+    'ORDER BY node_path',
+  ];
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function expandHierarchyTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateHierarchyConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const rows = rowsOf(dataset);
+  const built = buildHierarchySQL(config, dataset.name);
+  const sql = built.ok ? built.sql : '';
+
+  const computed = config.source === 'path'
+    ? walkPaths(rows, names, config)
+    : walkEdges(rows, names, config);
+
+  const baseColumns = names.map((n) => column(n, typeOfColumn(dataset, n)));
+  const outColumns = baseColumns.concat(hierarchyOutputColumns(config));
+
+  return transformResult({
+    columns: outColumns,
+    rows: computed.rows,
+    sql: sql,
+    stats: computed.stats,
+    notes: computed.notes,
+  });
+}
+
+/* ------------------------------ edge form -------------------------------- */
+
+function walkEdges(rows, names, config) {
+  const nodeIdx = indexOfColumn(names, config.nodeColumn);
+  const parentIdx = indexOfColumn(names, config.parentColumn);
+  const delim = String(config.pathDelimiter || '/');
+
+  // Index by node id. A duplicate id is a genuine defect: the tree it describes
+  // is ambiguous, so the first row wins and the rest are counted and reported
+  // rather than silently producing two subtrees under one name.
+  const byNode = new Map();
+  const childrenOf = new Map();
+  let duplicateNodes = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const id = idOf(row[nodeIdx]);
+    if (id === null) continue;
+    if (byNode.has(id)) { duplicateNodes += 1; continue; }
+    byNode.set(id, { row: row, index: i });
+  }
+
+  for (const entry of byNode.values()) {
+    const parent = idOf(entry.row[parentIdx]);
+    const key = parent !== null && byNode.has(parent) ? parent : null;
+    let list = childrenOf.get(key);
+    if (!list) { list = []; childrenOf.set(key, list); }
+    list.push(entry);
+  }
+
+  let roots = 0;
+  let orphans = 0;
+  const seeds = childrenOf.get(null) || [];
+  for (let i = 0; i < seeds.length; i += 1) {
+    const parent = idOf(seeds[i].row[parentIdx]);
+    if (parent === null) roots += 1; else orphans += 1;
+  }
+
+  const out = [];
+  let maxDepth = 0;
+  let leaves = 0;
+  let cycleNodes = 0;
+  let depthCapped = 0;
+  const cycleNames = [];
+  const emitted = new Set();
+
+  // Iterative rather than recursive: a 20,000-row org chart is not deep, but a
+  // pathological chain is, and blowing the JS stack in the browser would take
+  // the whole page down rather than just this transform.
+  const stack = [];
+  for (let i = seeds.length - 1; i >= 0; i -= 1) {
+    stack.push({ entry: seeds[i], depth: 0, path: [], ancestors: null });
+  }
+
+  while (stack.length) {
+    const frame = stack.pop();
+    const entry = frame.entry;
+    const id = idOf(entry.row[nodeIdx]);
+    const path = frame.path.concat([id === null ? '' : String(id)]);
+    const ancestors = frame.ancestors ? new Set(frame.ancestors) : new Set();
+
+    const looped = ancestors.has(id);
+    if (looped) {
+      cycleNodes += 1;
+      if (cycleNames.length < 3 && id !== null) cycleNames.push(String(id));
+    }
+    ancestors.add(id);
+
+    // is_leaf is read from the edge list, not from whether the walk descended.
+    // A node the walk stopped at because it closed a loop still has children,
+    // and calling it a leaf would turn a defect into a tidy-looking fact.
+    const kids = childrenOf.get(id) || [];
+    const atCap = frame.depth >= MAX_DEPTH;
+    if (atCap && kids.length) depthCapped += 1;
+
+    emitted.add(id);
+    if (frame.depth > maxDepth) maxDepth = frame.depth;
+    if (kids.length === 0) leaves += 1;
+
+    const parentRaw = entry.row[parentIdx];
+    const extras = [frame.depth];
+    extras.push(parentRaw == null ? null : String(parentRaw));
+    if (config.includeRoot !== false) extras.push(path[0]);
+    if (config.includePath !== false) extras.push(path.join(delim));
+    if (config.includeIsLeaf !== false) extras.push(kids.length === 0);
+    extras.push(looped);
+    out.push(entry.row.concat(extras));
+
+    if (!atCap && !looped) {
+      for (let k = kids.length - 1; k >= 0; k -= 1) {
+        stack.push({ entry: kids[k], depth: frame.depth + 1, path: path, ancestors: ancestors });
+      }
+    }
+  }
+
+  // Anything never reached is inside a cycle with no entry point from a root:
+  // a closed loop. It has no depth that means anything, so it is emitted at the
+  // end, marked, rather than being dropped from the table.
+  let unreachable = 0;
+  for (const [id, entry] of byNode) {
+    if (emitted.has(id)) continue;
+    unreachable += 1;
+    if (cycleNames.length < 3 && id !== null) cycleNames.push(String(id));
+    const parentRaw = entry.row[parentIdx];
+    const extras = [null];
+    extras.push(parentRaw == null ? null : String(parentRaw));
+    if (config.includeRoot !== false) extras.push(null);
+    if (config.includePath !== false) extras.push(null);
+    if (config.includeIsLeaf !== false) extras.push(false);
+    extras.push(true);
+    out.push(entry.row.concat(extras));
+  }
+
+  const notes = [];
+  if (orphans > 0) {
+    notes.push(orphans + ' row' + (orphans === 1 ? '' : 's') + ' name a parent that is not in this '
+      + 'table. They are shown at depth 0 so the result is still usable, but they are not roots: '
+      + 'their parent is missing, which is a gap in the data rather than the top of the tree.');
+  }
+  if (cycleNodes > 0 || unreachable > 0) {
+    const total = cycleNodes + unreachable;
+    notes.push(total + ' row' + (total === 1 ? '' : 's') + ' are part of a loop, where a node ends '
+      + 'up under itself'
+      + (cycleNames.length ? ' (' + cycleNames.join(', ') + ')' : '')
+      + '. The walk stopped at the repeat instead of running forever, and those rows are marked '
+      + 'in the in_cycle column. A loop is a defect in the parent column, not a deep hierarchy.');
+  }
+  if (duplicateNodes > 0) {
+    notes.push(duplicateNodes + ' row' + (duplicateNodes === 1 ? '' : 's') + ' repeat an id that '
+      + 'another row already used. The first was kept. Two rows with one id describe two different '
+      + 'trees and this table cannot say which is meant.');
+  }
+  if (depthCapped > 0) {
+    notes.push('The walk stopped at ' + MAX_DEPTH + ' levels deep in ' + depthCapped + ' place'
+      + (depthCapped === 1 ? '' : 's') + '. Anything genuinely that deep is worth checking for '
+      + 'ids that differ only by spacing or capitalisation.');
+  }
+
+  return {
+    rows: out,
+    notes: notes,
+    stats: {
+      rowsIn: rows.length,
+      rowsOut: out.length,
+      nodes: byNode.size,
+      roots: roots,
+      orphans: orphans,
+      maxDepth: maxDepth,
+      leaves: leaves,
+      cycleNodes: cycleNodes + unreachable,
+      duplicateNodes: duplicateNodes,
+    },
+  };
+}
+
+function idOf(value) {
+  if (value == null || value === '') return null;
+  return String(value);
+}
+
+/* ------------------------------ path form -------------------------------- */
+
+function walkPaths(rows, names, config) {
+  const pathIdx = indexOfColumn(names, config.pathColumn);
+  const delim = String(config.pathDelimiter || '/');
+
+  const out = [];
+  let maxDepth = 0;
+  let unreadable = 0;
+  const parents = new Set();
+  const seenPaths = new Set();
+
+  const parsed = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const raw = row[pathIdx];
+    const text = raw == null ? '' : String(raw);
+    // Empty segments are dropped rather than counted as levels: "a//b" and
+    // "a/b" describe the same place, and a trailing slash is a formatting habit,
+    // not an extra level of hierarchy.
+    const parts = text.split(delim).map((s) => s.trim()).filter((s) => s !== '');
+    if (!parts.length) { unreadable += 1; }
+    parsed.push({ row: row, parts: parts });
+    if (parts.length > 1) parents.add(parts.slice(0, -1).join(delim));
+    seenPaths.add(parts.join(delim));
+  }
+
+  for (let i = 0; i < parsed.length; i += 1) {
+    const parts = parsed[i].parts;
+    const depth = parts.length ? parts.length - 1 : null;
+    if (depth !== null && depth > maxDepth) maxDepth = depth;
+    const full = parts.join(delim);
+    const extras = [depth];
+    if (config.includeRoot !== false) extras.push(parts.length ? parts[0] : null);
+    if (config.includePath !== false) extras.push(parts.length ? full : null);
+    if (config.includeIsLeaf !== false) extras.push(parts.length ? !parents.has(full) : null);
+    extras.push(false);
+    out.push(parsed[i].row.concat(extras));
+  }
+
+  const notes = [];
+  if (unreadable > 0) {
+    notes.push(unreadable + ' row' + (unreadable === 1 ? '' : 's') + ' have a blank path, so they '
+      + 'have no depth. They are kept with blank hierarchy columns rather than being dropped or '
+      + 'placed at the root.');
+  }
+  // Depth is derived from the string alone, so a level that no row names
+  // directly is invisible here in a way it would not be in edge form.
+  const implied = [];
+  for (const p of parents) {
+    if (!seenPaths.has(p) && implied.length < 3) implied.push(p);
+  }
+  if (implied.length) {
+    notes.push('Some levels appear only inside other rows\' paths and have no row of their own ('
+      + implied.join(', ') + '). Depth here counts the separators in each path, so those levels '
+      + 'are counted but you cannot select them as rows.');
+  }
+
+  return {
+    rows: out,
+    notes: notes,
+    stats: {
+      rowsIn: rows.length,
+      rowsOut: out.length,
+      nodes: out.length,
+      roots: 0,
+      orphans: 0,
+      maxDepth: maxDepth,
+      leaves: out.length - parents.size,
+      cycleNodes: 0,
+      duplicateNodes: 0,
+    },
+  };
+}
+
+/** One plain sentence for the panel header. */
+function describeHierarchy(result) {
+  if (!result || !result.ok) return 'This expansion did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is no hierarchy to expand.';
+  const depth = 'The deepest branch is ' + (s.maxDepth || 0) + ' level'
+    + ((s.maxDepth || 0) === 1 ? '' : 's') + ' below the top.';
+  if (s.cycleNodes > 0) {
+    return depth + ' ' + s.cycleNodes + ' row' + (s.cycleNodes === 1 ? ' is' : 's are')
+      + ' in a loop and could not be placed.';
+  }
+  if (s.orphans > 0) {
+    return depth + ' ' + s.orphans + ' row' + (s.orphans === 1 ? '' : 's')
+      + ' name a parent that is not in this table.';
+  }
+  return depth + ' ' + (s.roots || 0) + ' top-level row'
+    + ((s.roots || 0) === 1 ? '' : 's') + ', ' + (s.rowsOut || 0) + ' rows out.';
+}
+  window.DataGlowExpandHierarchy = {
+    EXPAND_HIERARCHY_VERSION: EXPAND_HIERARCHY_VERSION,
+    HIERARCHY_SOURCES: HIERARCHY_SOURCES,
+    HIERARCHY_SOURCE_LABELS: HIERARCHY_SOURCE_LABELS,
+    MAX_DEPTH: MAX_DEPTH,
+    createEmptyHierarchyConfig: createEmptyHierarchyConfig,
+    suggestHierarchyConfig: suggestHierarchyConfig,
+    validateHierarchyConfig: validateHierarchyConfig,
+    hierarchyOutputColumns: hierarchyOutputColumns,
+    buildHierarchySQL: buildHierarchySQL,
+    expandHierarchyTransform: expandHierarchyTransform,
+    describeHierarchy: describeHierarchy,
+  };
+})();
+/* ---- end js/transforms/expand-hierarchy.js ---- */
+/* ---- from js/transforms/nested-to-rows.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A17 Nested to rows (one row per element)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. A column holds a list: tags, line items, diagnosis codes,
+// the `items` array from an API response. You cannot count, group or filter on
+// anything inside it while it is one cell. This gives each element its own row.
+//
+// THIS IS THE OTHER HALF OF THE JSON FLATTENER.
+// js/ingestion/json-flattener.js runs at load and widens nested objects into
+// dot-named columns, but when it meets an array it calls JSON.stringify and puts
+// the text in the cell, because at ingest time there is nowhere else to put it.
+// That is the right call there and it is why this module exists: A17 is where
+// those strings get unpacked. The two are complementary, not two versions of the
+// same thing, and neither should start doing the other's job.
+//
+// THE ROW COUNT IS THE DANGEROUS PART, SO IT IS THE HEADLINE.
+// Unnesting is the transform most likely to turn a table a person understands
+// into one they do not. A 5,000-row export with an average of 6 line items is
+// 30,000 rows, every non-list column repeated six times, and every existing SUM
+// over those columns now six times too big. Nothing about the result looks
+// broken. So previewNestedToRows() counts the elements without building the
+// output, and the confirm names the number before anything happens.
+//
+// WHAT COUNTS AS A LIST.
+// A real array, a JSON array in a string, or a delimited string. JSON is tried
+// before the delimiter, because "[1, 2]" split on a comma gives "[1" and " 2]"
+// and that is a silently mangled value rather than a visible failure. A cell
+// that is neither is not a one-element list by assumption: what happens to it is
+// a choice the person makes, and it is stated in the notes either way.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR, transformResult = C.transformResult, transformError = C.transformError;
+const NESTED_TO_ROWS_VERSION = 1;
+
+const NESTED_SOURCES = Object.freeze(['auto', 'json', 'delimited']);
+
+const NESTED_SOURCE_LABELS = Object.freeze({
+  auto: 'Work it out',
+  json: 'JSON array',
+  delimited: 'Separated by a character',
+});
+
+// What to do with a row whose list is empty or unreadable. Named rather than
+// boolean because "drop" and "keep" are both defensible and the difference
+// changes the row count, which is the number this transform is judged on.
+const EMPTY_HANDLING = Object.freeze(['keep', 'drop']);
+
+// Above this the result stops being a table someone can look at, and on a phone
+// it is enough to make the tab unresponsive. Not a hard stop: it is a warning
+// carried on the preview so the confirm can say it out loud.
+const EXPLOSION_WARN_ROWS = 100000;
+
+// A single cell producing more than this is nearly always a parse gone wrong,
+// such as splitting a paragraph on the space character.
+const PER_ROW_WARN = 500;
+
+function createEmptyNestedConfig() {
+  return {
+    listColumn: '',
+    source: 'auto',
+    delimiter: ',',
+    elementColumn: '',
+    includeIndex: true,
+    emptyHandling: 'keep',
+    trimElements: true,
+  };
+}
+
+function suggestNestedConfig(dataset) {
+  const cfg = createEmptyNestedConfig();
+  const names = columnNamesOf(dataset);
+  const rows = rowsOf(dataset);
+
+  // Pick by what the data looks like, not by the column name: a column called
+  // "tags" holding one word per row is not a list, and a column called "notes"
+  // holding a JSON array is.
+  let best = null;
+  for (let i = 0; i < names.length; i += 1) {
+    let listy = 0;
+    let looked = 0;
+    for (let r = 0; r < rows.length && looked < 40; r += 1) {
+      const row = rows[r];
+      if (!Array.isArray(row)) continue;
+      looked += 1;
+      const parsed = readList(row[i], 'auto', ',');
+      if (parsed.kind !== 'scalar' && parsed.values.length > 1) listy += 1;
+    }
+    const score = looked ? listy / looked : 0;
+    if (score > 0.3 && (!best || score > best.score)) best = { name: names[i], score: score };
+  }
+  cfg.listColumn = best ? best.name : (names[0] || '');
+  if (cfg.listColumn) cfg.elementColumn = cfg.listColumn + '_item';
+  return cfg;
+}
+
+function validateNestedConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.listColumn) errors.push('Pick the column that holds the list.');
+  else if (!names.includes(config.listColumn)) {
+    errors.push('The column ' + config.listColumn + ' is not in this table.');
+  }
+  if (NESTED_SOURCES.indexOf(config.source || 'auto') === -1) {
+    errors.push('Choose how the list is written: JSON, or separated by a character.');
+  }
+  if ((config.source === 'delimited') && !String(config.delimiter || '')) {
+    errors.push('Give the character that separates the values, such as a comma.');
+  }
+  if (config.emptyHandling && EMPTY_HANDLING.indexOf(config.emptyHandling) === -1) {
+    errors.push('Choose whether rows with an empty list are kept or dropped.');
+  }
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The name of the column holding each element. Defaults from the source column
+    so the output is readable without the person having to name it. */
+function elementColumnName(config) {
+  const explicit = String((config && config.elementColumn) || '').trim();
+  if (explicit) return explicit;
+  return String((config && config.listColumn) || 'value') + '_item';
+}
+
+/**
+ * Read one cell as a list.
+ *
+ * Order matters. A real array first, then JSON, then the delimiter. Trying the
+ * delimiter before JSON would turn "[1, 2]" into "[1" and " 2]", which is worse
+ * than failing because it looks like it worked.
+ */
+function readList(value, source, delimiter) {
+  if (Array.isArray(value)) {
+    return { kind: 'array', values: value.slice() };
+  }
+  if (value == null || value === '') {
+    return { kind: 'empty', values: [] };
+  }
+  if (isPlainObject(value)) {
+    // An object is not a list. Widening it is the flattener's job, not this
+    // module's, so it is left alone and reported rather than half-handled.
+    return { kind: 'scalar', values: [value] };
+  }
+
+  const text = String(value).trim();
+  if (!text) return { kind: 'empty', values: [] };
+
+  const mode = source || 'auto';
+  if (mode === 'auto' || mode === 'json') {
+    if (text.charAt(0) === '[' && text.charAt(text.length - 1) === ']') {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return { kind: 'json', values: parsed };
+      } catch (_e) {
+        // Looks like JSON and is not. In auto mode fall through to the
+        // delimiter; in json mode say so rather than quietly splitting.
+        if (mode === 'json') return { kind: 'unreadable', values: [] };
+      }
+    } else if (mode === 'json') {
+      return { kind: 'unreadable', values: [] };
+    }
+  }
+
+  if (mode === 'auto' || mode === 'delimited') {
+    const d = String(delimiter || ',');
+    if (d && text.indexOf(d) !== -1) {
+      return { kind: 'delimited', values: text.split(d) };
+    }
+  }
+
+  return { kind: 'scalar', values: [text] };
+}
+
+function cellText(v, trim) {
+  if (v == null) return null;
+  if (typeof v === 'object') return JSON.stringify(v);
+  const s = String(v);
+  return trim ? s.trim() : s;
+}
+
+/**
+ * Count what apply would produce, without building it.
+ *
+ * Deliberately a separate pass rather than "build it and look at length": the
+ * whole point is to warn before a 40x expansion is materialised in a browser
+ * tab, and building it first defeats that.
+ */
+function previewNestedToRows(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') {
+    return { ok: false, error: 'There is no table loaded.' };
+  }
+  const names = columnNamesOf(dataset);
+  const v = validateNestedConfig(config, names);
+  if (!v.ok) return { ok: false, error: v.errors.join(' ') };
+
+  const idx = indexOfColumn(names, config.listColumn);
+  const rows = rowsOf(dataset);
+  const source = config.source || 'auto';
+  const delimiter = config.delimiter || ',';
+  const dropEmpty = config.emptyHandling === 'drop';
+
+  let elements = 0;
+  let emptyRows = 0;
+  let scalarRows = 0;
+  let unreadableRows = 0;
+  let biggest = 0;
+  let listRows = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const parsed = readList(row[idx], source, delimiter);
+    // These branches mirror nestedToRowsTransform() case for case. Preview and
+    // apply disagreeing about the row count would make the confirm a lie, which
+    // is the one thing this preview exists to prevent.
+    if (parsed.kind === 'empty' || parsed.kind === 'unreadable' || parsed.values.length === 0) {
+      if (parsed.kind === 'empty') emptyRows += 1;
+      else if (parsed.kind === 'unreadable') unreadableRows += 1;
+      if (!dropEmpty) elements += 1;
+      continue;
+    }
+    if (parsed.kind === 'scalar') { scalarRows += 1; elements += 1; continue; }
+    listRows += 1;
+    elements += parsed.values.length;
+    if (parsed.values.length > biggest) biggest = parsed.values.length;
+  }
+
+  const rowsIn = rows.length;
+  const ratio = rowsIn > 0 ? elements / rowsIn : 1;
+  const warnings = [];
+  if (elements > EXPLOSION_WARN_ROWS) {
+    warnings.push('This makes ' + elements.toLocaleString() + ' rows, which is more than '
+      + EXPLOSION_WARN_ROWS.toLocaleString() + '. A table that size is slow to scroll and slow to '
+      + 'chart, and on a phone it may stop responding. Consider filtering first.');
+  }
+  if (biggest > PER_ROW_WARN) {
+    warnings.push('One row alone produces ' + biggest.toLocaleString() + ' elements. That is '
+      + 'usually a sign the separator is wrong, such as splitting a sentence on the space.');
+  }
+  if (rowsIn > 0 && listRows === 0) {
+    warnings.push('No row in ' + config.listColumn + ' looks like a list. Check the column and the '
+      + 'separator: as configured, this would change nothing except adding a column.');
+  }
+
+  return {
+    ok: true,
+    rowsIn: rowsIn,
+    rowsOut: elements,
+    ratio: ratio,
+    listRows: listRows,
+    emptyRows: emptyRows,
+    scalarRows: scalarRows,
+    unreadableRows: unreadableRows,
+    largestList: biggest,
+    willGrow: elements > rowsIn,
+    warnings: warnings,
+  };
+}
+
+/**
+ * The glass-box SQL. DuckDB's UNNEST, with the JSON form shown when the column
+ * holds text rather than a real list, because which one applies depends on how
+ * the file was loaded and a person checking this needs the one that matches.
+ */
+function buildNestedToRowsSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const t = relationName(sourceRelation, 'source');
+  const c = quoteIdent(config.listColumn);
+  const out = quoteIdent(elementColumnName(config));
+  const keepEmpty = config.emptyHandling !== 'drop';
+  const d = String(config.delimiter || ',');
+  const dl = "'" + d.replace(/'/g, "''") + "'";
+  const idxCol = config.includeIndex !== false
+    ? ',\n  generate_subscripts(' + listExpr(config, c, dl) + ', 1) AS ' + quoteIdent(elementColumnName(config) + '_index')
+    : '';
+
+  const lines = [
+    '-- One row per element of ' + c + '.',
+    '-- Every other column is repeated on each new row, so any total already',
+    '-- computed over this table will change. That is the point of the count',
+    '-- shown beside this SQL.',
+    'SELECT',
+    '  * EXCLUDE (' + c + '),',
+    '  ' + c + ',',
+    '  UNNEST(' + listExpr(config, c, dl) + ') AS ' + out + idxCol,
+    'FROM ' + t,
+  ];
+
+  if (!keepEmpty) {
+    lines.push('WHERE len(' + listExpr(config, c, dl) + ') > 0');
+  } else {
+    lines.push('');
+    lines.push('-- Rows with an empty list are kept, with a blank element. UNNEST on its');
+    lines.push('-- own drops them, so the honest equivalent is a left join onto the list:');
+    lines.push('-- SELECT s.*, e.' + out.replace(/"/g, '') + ' FROM ' + t + ' AS s');
+    lines.push('-- LEFT JOIN LATERAL UNNEST(' + listExpr(config, c, dl) + ') AS e(' + out.replace(/"/g, '') + ') ON TRUE');
+  }
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function listExpr(config, quotedCol, quotedDelim) {
+  if (config.source === 'delimited') return 'str_split(' + quotedCol + ', ' + quotedDelim + ')';
+  if (config.source === 'json') return 'from_json(' + quotedCol + ", '[\"VARCHAR\"]')";
+  // Auto: the column may already be a list, or hold JSON text. TRY_CAST keeps a
+  // real list intact and falls back to parsing the string form.
+  return 'COALESCE(TRY_CAST(' + quotedCol + " AS VARCHAR[]), str_split(" + quotedCol + ', ' + quotedDelim + '))';
+}
+
+function nestedToRowsTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateNestedConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const idx = indexOfColumn(names, config.listColumn);
+  const rows = rowsOf(dataset);
+  const source = config.source || 'auto';
+  const delimiter = config.delimiter || ',';
+  const dropEmpty = config.emptyHandling === 'drop';
+  const trim = config.trimElements !== false;
+  const withIndex = config.includeIndex !== false;
+  const elemName = elementColumnName(config);
+
+  const outColumns = names.map((n) => column(n, typeOfColumn(dataset, n)));
+  outColumns.push(column(elemName, TYPE_STR));
+  if (withIndex) outColumns.push(column(elemName + '_index', TYPE_INT));
+
+  const out = [];
+  let emptyRows = 0;
+  let scalarRows = 0;
+  let unreadableRows = 0;
+  let listRows = 0;
+  let biggest = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const parsed = readList(row[idx], source, delimiter);
+
+    if (parsed.kind === 'empty' || parsed.kind === 'unreadable' || parsed.values.length === 0) {
+      if (parsed.kind === 'empty') emptyRows += 1;
+      else if (parsed.kind === 'unreadable') unreadableRows += 1;
+      // A row with nothing in the list is kept by default with a blank element,
+      // because dropping it loses a fact that was in the table: this entity had
+      // no items. Plain UNNEST would drop it silently.
+      if (!dropEmpty) out.push(row.concat(withIndex ? [null, null] : [null]));
+      continue;
+    }
+
+    if (parsed.kind === 'scalar') {
+      scalarRows += 1;
+      out.push(row.concat(withIndex ? [cellText(parsed.values[0], trim), 1] : [cellText(parsed.values[0], trim)]));
+      continue;
+    }
+
+    listRows += 1;
+    if (parsed.values.length > biggest) biggest = parsed.values.length;
+    for (let e = 0; e < parsed.values.length; e += 1) {
+      const text = cellText(parsed.values[e], trim);
+      out.push(row.concat(withIndex ? [text, e + 1] : [text]));
+    }
+  }
+
+  const built = buildNestedToRowsSQL(config, dataset.name);
+  const notes = [];
+
+  if (out.length > rows.length) {
+    notes.push('Every column other than ' + config.listColumn + ' is now repeated once per '
+      + 'element. Any total, average or count already computed over this table will change, and a '
+      + 'sum of a repeated column will be too big. That is expected here, not a fault, but it is '
+      + 'the reason to re-check any number carried over from before.');
+  }
+  if (scalarRows > 0) {
+    notes.push(scalarRows + ' row' + (scalarRows === 1 ? '' : 's') + ' held a single value rather '
+      + 'than a list, so ' + (scalarRows === 1 ? 'it was' : 'they were') + ' carried across '
+      + 'unchanged as a list of one.');
+  }
+  if (emptyRows > 0) {
+    notes.push(emptyRows + ' row' + (emptyRows === 1 ? '' : 's') + ' had nothing in '
+      + config.listColumn + (dropEmpty
+        ? ' and were dropped, as configured.'
+        : '. They were kept with a blank element, because "this one had no items" is a fact worth '
+          + 'keeping. Plain UNNEST would have dropped them without saying so.'));
+  }
+  if (unreadableRows > 0) {
+    notes.push(unreadableRows + ' row' + (unreadableRows === 1 ? '' : 's') + ' could not be read as '
+      + 'a list in the format chosen' + (dropEmpty ? ' and were dropped.' : ' and were kept with a '
+      + 'blank element rather than being split on a guess.'));
+  }
+  if (biggest > PER_ROW_WARN) {
+    notes.push('The longest single list has ' + biggest + ' elements, which usually means the '
+      + 'separator is not the right one for this column.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: out,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: rows.length,
+      rowsOut: out.length,
+      listRows: listRows,
+      emptyRows: emptyRows,
+      scalarRows: scalarRows,
+      unreadableRows: unreadableRows,
+      largestList: biggest,
+      ratio: rows.length ? out.length / rows.length : 1,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header, leading with the row count because
+    that is the consequence a person is agreeing to. */
+function describeNestedToRows(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is nothing to expand.';
+  if (s.rowsOut === s.rowsIn) {
+    return 'The row count does not change: nothing in this column held more than one value.';
+  }
+  const times = (s.ratio || 1).toFixed(1).replace(/\.0$/, '');
+  return s.rowsIn.toLocaleString() + ' rows become ' + s.rowsOut.toLocaleString()
+    + ', about ' + times + ' times as many. Every other column is repeated on each new row.';
+}
+  window.DataGlowNestedToRows = {
+    NESTED_TO_ROWS_VERSION: NESTED_TO_ROWS_VERSION,
+    NESTED_SOURCES: NESTED_SOURCES,
+    NESTED_SOURCE_LABELS: NESTED_SOURCE_LABELS,
+    EMPTY_HANDLING: EMPTY_HANDLING,
+    EXPLOSION_WARN_ROWS: EXPLOSION_WARN_ROWS,
+    PER_ROW_WARN: PER_ROW_WARN,
+    createEmptyNestedConfig: createEmptyNestedConfig,
+    suggestNestedConfig: suggestNestedConfig,
+    validateNestedConfig: validateNestedConfig,
+    elementColumnName: elementColumnName,
+    readList: readList,
+    previewNestedToRows: previewNestedToRows,
+    buildNestedToRowsSQL: buildNestedToRowsSQL,
+    nestedToRowsTransform: nestedToRowsTransform,
+    describeNestedToRows: describeNestedToRows,
+  };
+})();
+/* ---- end js/transforms/nested-to-rows.js ---- */
+/* ---- from js/transforms/fill-missing.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A25 Fill missing, and say which ones were filled
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// THE FLAG COLUMN IS NOT OPTIONAL, AND THAT IS THE ENTIRE DESIGN.
+// Filling a null is the only transform in this bundle that invents data. Once a
+// blank becomes 42, nothing downstream can tell it from a measured 42: not a
+// chart, not an average, not the analyst who opens the file next month. So every
+// fill writes a companion boolean column, <column>_was_filled, and there is no
+// setting to turn it off. If you do not want the flag, you do not want this
+// transform, you want to edit the cells.
+//
+// This matters more than it sounds. A filled column with no flag makes a
+// confidence interval narrower than the data earns, and it makes "we have 1,200
+// readings" true and misleading at the same time. The flag lets someone filter
+// the invented rows back out, count them, or exclude them from a model, months
+// after whoever ran this has forgotten they did.
+//
+// TWO MODES, BOTH HONEST. ON PURPOSE NOT MORE.
+//   forward   Carry the last known value down, within a group and in a stated
+//             order. This is the right answer for a reading that persists until
+//             it next changes: a price, a status, a meter. It is the WRONG answer
+//             for an independent measurement, and the notes say so.
+//   constant  Write one stated value. Blunt, obvious, and unable to be mistaken
+//             for a measurement.
+//
+// GROUP MEAN IS DELIBERATELY NOT HERE.
+// js/cleaning/imputation.js already does stratified group-mean imputation with a
+// global-mean fallback, as a DuckDB preview. Reimplementing it in JS would give
+// this app two answers to one question. If you want a mean, use that. The gap
+// worth knowing about is that it does not write a flag column, so a mean-filled
+// column is not marked the way these two are.
+//
+// FORWARD FILL NEEDS AN ORDER, AND WILL NOT INVENT ONE.
+// "The last known value" is meaningless without saying last by what. Table order
+// is a real answer only if the table is genuinely sorted, and it usually is not
+// after a join. So an order column is required, and if the order column cannot
+// be read for a row, that row is not filled: it is left blank and counted.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, quoteLiteral = C.quoteLiteral, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isDateType = C.isDateType, parseDateValue = C.parseDateValue, toNumber = C.toNumber, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_BOOL = C.TYPE_BOOL, transformResult = C.transformResult, transformError = C.transformError;
+const FILL_MISSING_VERSION = 1;
+
+const FILL_MODES = Object.freeze(['forward', 'constant']);
+
+const FILL_MODE_LABELS = Object.freeze({
+  forward: 'Carry the last value down',
+  constant: 'Use one fixed value',
+});
+
+/** The suffix on the flag column. Fixed, not configurable: a reader who knows
+    the convention can spot an imputed column in any DataGlow export. */
+const FILLED_SUFFIX = '_was_filled';
+
+function createEmptyFillConfig() {
+  return {
+    targetColumns: [],
+    mode: 'forward',
+    orderColumn: '',
+    groupColumns: [],
+    constantValue: '',
+    limit: 0, // 0 means no limit on how far a value carries
+  };
+}
+
+function suggestFillConfig(dataset) {
+  const cfg = createEmptyFillConfig();
+  const names = columnNamesOf(dataset);
+  const rows = rowsOf(dataset);
+
+  // Suggest the column that actually has blanks, because a fill on a full column
+  // is a no-op and picking one wastes the person's first look.
+  let best = null;
+  for (let i = 0; i < names.length; i += 1) {
+    let blanks = 0;
+    for (let r = 0; r < rows.length; r += 1) {
+      const row = rows[r];
+      if (Array.isArray(row) && (row[i] == null || row[i] === '')) blanks += 1;
+    }
+    if (blanks > 0 && (!best || blanks > best.blanks)) best = { name: names[i], blanks: blanks };
+  }
+  if (best) cfg.targetColumns = [best.name];
+
+  const cols = (dataset && dataset.columns) || [];
+  for (let i = 0; i < cols.length; i += 1) {
+    if (cols[i] && isDateType(cols[i].type) && cols[i].name !== cfg.targetColumns[0]) {
+      cfg.orderColumn = cols[i].name;
+      break;
+    }
+  }
+  if (!cfg.orderColumn) {
+    cfg.orderColumn = names.filter((n) => n !== cfg.targetColumns[0])[0] || '';
+  }
+  return cfg;
+}
+
+function validateFillConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  const targets = asColumnList(config.targetColumns);
+  if (!targets.length) errors.push('Pick at least one column to fill.');
+  for (let i = 0; i < targets.length; i += 1) {
+    if (!names.includes(targets[i])) {
+      errors.push('The column ' + targets[i] + ' is not in this table.');
+    }
+    if (names.includes(targets[i] + FILLED_SUFFIX)) {
+      errors.push('This table already has a column called ' + targets[i] + FILLED_SUFFIX
+        + '. Rename or remove it first, so the record of what was filled is not overwritten.');
+    }
+  }
+
+  if (FILL_MODES.indexOf(config.mode) === -1) {
+    errors.push('Choose how the blanks are filled.');
+    return { ok: false, errors: errors };
+  }
+
+  if (config.mode === 'forward') {
+    if (!config.orderColumn) {
+      errors.push('Pick the column that says what order the rows are in. '
+        + '"The last value" has no meaning without it.');
+    } else if (!names.includes(config.orderColumn)) {
+      errors.push('The order column ' + config.orderColumn + ' is not in this table.');
+    }
+    const groups = asColumnList(config.groupColumns);
+    for (let g = 0; g < groups.length; g += 1) {
+      if (!names.includes(groups[g])) {
+        errors.push('The grouping column ' + groups[g] + ' is not in this table.');
+      }
+      if (targets.includes(groups[g])) {
+        errors.push('The column ' + groups[g] + ' cannot be both filled and used to group.');
+      }
+    }
+    if (config.orderColumn && targets.includes(config.orderColumn)) {
+      errors.push('The order column cannot also be one of the columns being filled.');
+    }
+  }
+
+  if (config.mode === 'constant') {
+    if (config.constantValue == null || String(config.constantValue) === '') {
+      errors.push('Give the value to write into the blanks. '
+        + 'If the honest answer is that you do not have one, do not fill this column.');
+    }
+  }
+
+  if (config.limit != null && config.limit !== '' && !(Number(config.limit) >= 0)) {
+    errors.push('The limit on how far a value carries has to be zero or more.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The flag column name for a target column. */
+function flagColumnFor(name) {
+  return String(name) + FILLED_SUFFIX;
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * Forward fill is a window function, and the `IGNORE NULLS` is the part worth
+ * reading: without it `last_value` returns the null it just passed over and the
+ * fill silently does nothing. The flag column is in the SQL too, so the proof
+ * and the result agree about the shape of the output as well as the values.
+ */
+function buildFillMissingSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const t = relationName(sourceRelation, 'source');
+  const targets = asColumnList(config.targetColumns);
+  const groups = asColumnList(config.groupColumns);
+
+  if (config.mode === 'constant') {
+    const lit = quoteLiteral(config.constantValue);
+    const selected = targets.map((n) => {
+      const c = quoteIdent(n);
+      return '  COALESCE(' + c + ', ' + lit + ') AS ' + c + ',\n'
+        + '  (' + c + ' IS NULL) AS ' + quoteIdent(flagColumnFor(n));
+    });
+    const lines = [
+      '-- Fill blanks in ' + targets.map(quoteIdent).join(', ') + ' with a fixed value,',
+      '-- and record which rows were filled. The flag column is not optional: once a',
+      '-- blank becomes a value, nothing downstream can tell it from a measurement.',
+      'SELECT',
+      '  * EXCLUDE (' + targets.map(quoteIdent).join(', ') + '),',
+      selected.join(',\n'),
+      'FROM ' + t,
+    ];
+    return { ok: true, sql: lines.join('\n') };
+  }
+
+  const order = quoteIdent(config.orderColumn);
+  const partition = groups.length
+    ? 'PARTITION BY ' + groups.map(quoteIdent).join(', ') + ' '
+    : '';
+  const frame = 'OVER (' + partition + 'ORDER BY ' + order
+    + ' ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)';
+  const selected = targets.map((n) => {
+    const c = quoteIdent(n);
+    return '  COALESCE(' + c + ', last_value(' + c + ' IGNORE NULLS) ' + frame + ') AS ' + c + ',\n'
+      + '  (' + c + ' IS NULL AND last_value(' + c + ' IGNORE NULLS) ' + frame + ' IS NOT NULL)'
+      + ' AS ' + quoteIdent(flagColumnFor(n));
+  });
+
+  const lines = [
+    '-- Carry the last known value down ' + (groups.length
+      ? 'within ' + groups.map(quoteIdent).join(', ') : 'across the whole table')
+      + ', ordered by ' + order + '.',
+    '-- IGNORE NULLS is the load-bearing part: without it last_value returns the',
+    '-- null it just passed and the fill quietly does nothing.',
+    '-- The flag column records which rows were filled, so an invented value can',
+    '-- always be told from a measured one.',
+    'SELECT',
+    '  * EXCLUDE (' + targets.map(quoteIdent).join(', ') + '),',
+    selected.join(',\n'),
+    'FROM ' + t,
+    'ORDER BY ' + (groups.length ? groups.map(quoteIdent).join(', ') + ', ' : '') + order,
+  ];
+
+  if (Number(config.limit) > 0) {
+    lines.push('');
+    lines.push('-- A limit of ' + Number(config.limit) + ' row(s) is applied in the computed');
+    lines.push('-- result: a value does not carry further than that. Plain last_value has no');
+    lines.push('-- such bound, so this SQL fills further than the preview does.');
+  }
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function fillMissingTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateFillConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const targets = asColumnList(config.targetColumns);
+  const targetIdxs = targets.map((n) => indexOfColumn(names, n));
+  const rows = rowsOf(dataset);
+
+  // Output columns: every original column, then one flag per filled column. The
+  // flags go at the end rather than beside their column so the original column
+  // order is untouched, which matters when something downstream reads by index.
+  const outColumns = names.map((n) => column(n, typeOfColumn(dataset, n)))
+    .concat(targets.map((n) => column(flagColumnFor(n), TYPE_BOOL)));
+
+  const filledCount = targets.map(() => 0);
+  const blankBefore = targets.map(() => 0);
+  const stillBlank = targets.map(() => 0);
+
+  let outRows;
+  let unorderable = 0;
+
+  if (config.mode === 'constant') {
+    const value = config.constantValue;
+    outRows = [];
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!Array.isArray(row)) continue;
+      const copy = row.slice();
+      const flags = [];
+      for (let t = 0; t < targetIdxs.length; t += 1) {
+        const at = targetIdxs[t];
+        const missing = copy[at] == null || copy[at] === '';
+        if (missing) {
+          blankBefore[t] += 1;
+          copy[at] = value;
+          filledCount[t] += 1;
+          flags.push(true);
+        } else {
+          flags.push(false);
+        }
+      }
+      outRows.push(copy.concat(flags));
+    }
+  } else {
+    const orderIdx = indexOfColumn(names, config.orderColumn);
+    const groups = asColumnList(config.groupColumns);
+    const groupIdxs = groups.map((n) => indexOfColumn(names, n));
+    const orderIsDate = isDateType(typeOfColumn(dataset, config.orderColumn));
+    const limit = Number(config.limit) > 0 ? Number(config.limit) : 0;
+
+    // Sort a copy of the row references, never the dataset's own array: applying
+    // is a separate confirmed step and a preview must not reorder the live table.
+    const indexed = [];
+    for (let i = 0; i < rows.length; i += 1) {
+      if (!Array.isArray(rows[i])) continue;
+      const sortKey = orderKeyOf(rows[i][orderIdx], orderIsDate);
+      if (sortKey === null) unorderable += 1;
+      indexed.push({ row: rows[i], seq: i, key: sortKey });
+    }
+
+    // Rows whose order value cannot be read keep their table position at the end
+    // rather than being treated as the earliest, which would make them the seed
+    // value for everything after them.
+    indexed.sort((a, b) => {
+      if (a.key === null && b.key === null) return a.seq - b.seq;
+      if (a.key === null) return 1;
+      if (b.key === null) return -1;
+      if (a.key < b.key) return -1;
+      if (a.key > b.key) return 1;
+      return a.seq - b.seq;
+    });
+
+    const carried = new Map(); // group key -> { value, distance } per target
+    const built = new Array(indexed.length);
+
+    for (let i = 0; i < indexed.length; i += 1) {
+      const row = indexed[i].row;
+      const copy = row.slice();
+      const flags = [];
+      const gk = keyOfRow(row, groupIdxs);
+      let state = carried.get(gk);
+      if (!state) {
+        state = targets.map(() => ({ value: null, has: false, distance: 0 }));
+        carried.set(gk, state);
+      }
+
+      const orderable = indexed[i].key !== null;
+
+      for (let t = 0; t < targetIdxs.length; t += 1) {
+        const at = targetIdxs[t];
+        const missing = copy[at] == null || copy[at] === '';
+        const slot = state[t];
+
+        if (!missing) {
+          slot.value = copy[at];
+          slot.has = true;
+          slot.distance = 0;
+          flags.push(false);
+          continue;
+        }
+
+        blankBefore[t] += 1;
+
+        // A row with no readable order value is not filled. It has no position,
+        // so "the last value before it" does not exist, and filling it from
+        // whatever happened to sort next to it would be a guess dressed as data.
+        const tooFar = limit > 0 && slot.distance >= limit;
+        if (!orderable || !slot.has || tooFar) {
+          stillBlank[t] += 1;
+          flags.push(false);
+          continue;
+        }
+
+        copy[at] = slot.value;
+        slot.distance += 1;
+        filledCount[t] += 1;
+        flags.push(true);
+      }
+
+      built[i] = copy.concat(flags);
+    }
+    outRows = built;
+  }
+
+  const built = buildFillMissingSQL(config, dataset.name);
+  const totalFilled = filledCount.reduce((a, b) => a + b, 0);
+  const totalBlank = blankBefore.reduce((a, b) => a + b, 0);
+  const totalLeft = stillBlank.reduce((a, b) => a + b, 0);
+  const notes = [];
+
+  notes.push('Every value written is marked in '
+    + targets.map((n) => flagColumnFor(n)).join(', ')
+    + '. Keep '
+    + (targets.length === 1 ? 'that column' : 'those columns')
+    + ' with the data: without '
+    + (targets.length === 1 ? 'it' : 'them')
+    + ' there is no way to tell a filled value from a measured one, and an average over the '
+    + 'result would count invented numbers as evidence.');
+
+  if (config.mode === 'forward') {
+    notes.push('Carrying the last value down assumes the value held until it next changed, which '
+      + 'is true for a price, a status or a meter reading. It is not true for an independent '
+      + 'measurement: if a sensor missed a reading, the previous reading is not what it would have '
+      + 'said.');
+    if (!asColumnList(config.groupColumns).length) {
+      notes.push('No grouping column was chosen, so a value carries across the whole table. If '
+        + 'these rows cover more than one entity, one entity\'s value will be carried onto '
+        + 'another\'s blank.');
+    }
+    notes.push('The rows are put in ' + config.orderColumn + ' order to do this, and stay in that '
+      + 'order in the result.');
+    if (unorderable > 0) {
+      notes.push(unorderable + ' row' + (unorderable === 1 ? '' : 's') + ' have no readable value '
+        + 'in ' + config.orderColumn + '. They were left at the end and were not filled, because a '
+        + 'row with no position has no "last value before it".');
+    }
+  } else {
+    notes.push('A fixed value is blunt on purpose. It cannot be mistaken for a measurement the way '
+      + 'a mean or an interpolation can, and the flag column says exactly which rows carry it.');
+  }
+
+  if (totalLeft > 0) {
+    notes.push(totalLeft + ' blank' + (totalLeft === 1 ? '' : 's') + ' could not be filled and were '
+      + 'left blank' + (Number(config.limit) > 0
+        ? ', either because nothing came before them or because the limit of ' + Number(config.limit)
+          + ' row' + (Number(config.limit) === 1 ? '' : 's') + ' was reached.'
+        : ', because nothing came before them in the chosen order.'));
+  }
+  if (totalBlank === 0) {
+    notes.push('There were no blanks to fill in '
+      + targets.join(', ') + ', so only the flag column' + (targets.length === 1 ? '' : 's')
+      + ' were added, all false.');
+  }
+  // Naming the sibling capability rather than silently offering a third answer
+  // to the same question.
+  notes.push('A group mean is not offered here. The Grouped Imputation Wizard already does that '
+    + 'against the query engine. Note that it does not add a flag column, so a mean-filled column '
+    + 'is not marked the way this one is.');
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: rows.length,
+      rowsOut: outRows.length,
+      filled: totalFilled,
+      blankBefore: totalBlank,
+      stillBlank: totalLeft,
+      unorderable: unorderable,
+      perColumn: targets.map((n, i) => ({
+        column: n, blankBefore: blankBefore[i], filled: filledCount[i], stillBlank: stillBlank[i],
+      })),
+    },
+    notes: notes,
+  });
+}
+
+/** A comparable sort key for the order column: a timestamp for dates, a number
+    for numbers, a string otherwise. Mixed types in one column sort by the type
+    the column declares, which is why the declared type is passed in. */
+function orderKeyOf(value, isDate) {
+  if (value == null || value === '') return null;
+  if (isDate) {
+    const d = parseDateValue(value);
+    return d ? d.getTime() : null;
+  }
+  const n = toNumber(value);
+  if (n !== null) return n;
+  const d = parseDateValue(value);
+  if (d) return d.getTime();
+  return String(value);
+}
+
+/** One plain sentence for the panel header. Leads with the count of invented
+    values, because that is the part a reader needs to weigh. */
+function describeFillMissing(result) {
+  if (!result || !result.ok) return 'This fill did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is nothing to fill.';
+  if (!s.blankBefore) return 'There were no blanks to fill. Nothing was invented.';
+  if (!s.filled) {
+    return 'None of the ' + s.blankBefore + ' blanks could be filled, so nothing was invented.';
+  }
+  const left = s.stillBlank
+    ? ' ' + s.stillBlank + ' blank' + (s.stillBlank === 1 ? '' : 's') + ' could not be filled.'
+    : '';
+  return s.filled + ' of ' + s.blankBefore + ' blank'
+    + (s.blankBefore === 1 ? '' : 's') + ' were filled, and all '
+    + (s.filled === 1 ? 'of them is' : 'of them are') + ' marked as filled.' + left;
+}
+  window.DataGlowFillMissing = {
+    FILL_MISSING_VERSION: FILL_MISSING_VERSION,
+    FILL_MODES: FILL_MODES,
+    FILL_MODE_LABELS: FILL_MODE_LABELS,
+    FILLED_SUFFIX: FILLED_SUFFIX,
+    createEmptyFillConfig: createEmptyFillConfig,
+    suggestFillConfig: suggestFillConfig,
+    validateFillConfig: validateFillConfig,
+    flagColumnFor: flagColumnFor,
+    buildFillMissingSQL: buildFillMissingSQL,
+    fillMissingTransform: fillMissingTransform,
+    describeFillMissing: describeFillMissing,
+  };
+})();
+/* ---- end js/transforms/fill-missing.js ---- */
+/* ---- from js/transforms/expand-date-range.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A26 Expand a date range into one row per day
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. A row says "bed 4 was occupied from the 3rd to the 9th".
+// That is one row, and it cannot be counted, charted by day, or joined to a
+// daily calendar. This turns it into seven rows, one per calendar day, which is
+// the shape every occupancy, bed-days, licence-days and utilisation question
+// actually needs.
+//
+// THIS IS THE HIGHEST MULTIPLIER IN THE BUNDLE, SO THE COUNT COMES FIRST.
+// A17 multiplies by the length of a list, which a person can usually picture. A
+// date range multiplies by its length in days, which they cannot: a table of
+// annual contracts is a 365x expansion, and 3,000 contracts is 1.1 million rows.
+// That is not a slow table, it is a browser tab that stops responding, on a
+// phone possibly for good. So previewExpandDateRange() computes the exact output
+// count without building a single row, the confirm names it, and above
+// MAX_DAILY_ROWS the transform refuses outright rather than trying and dying
+// halfway with the dataset already replaced.
+//
+// AN OPEN END IS A REAL ANSWER, NOT A MISSING ONE, AND IT STILL NEEDS A DATE.
+// A blank end date usually means "still going". Expanding that requires knowing
+// up to when, and the honest answer is not "today" chosen silently: run the same
+// table next month and the numbers change with no edit to the data. So an open
+// range is skipped unless the person states an as-at date, and either way the
+// count of open rows is reported.
+//
+// THE END DAY IS INCLUDED BY DEFAULT, AND THAT IS A CHOICE WORTH STATING.
+// The 3rd to the 9th is seven days if the end is a stay and six if it is a
+// checkout. Both conventions are real and live in different systems, so the
+// setting is explicit, defaults to inclusive, and the day count in the notes
+// says which was used.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, quoteLiteral = C.quoteLiteral, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isDateType = C.isDateType, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_DATE = C.TYPE_DATE, transformResult = C.transformResult, transformError = C.transformError;
+const EXPAND_DATE_RANGE_VERSION = 1;
+
+const OPEN_END_MODES = Object.freeze(['skip', 'asAt']);
+
+const OPEN_END_LABELS = Object.freeze({
+  skip: 'Leave rows with no end date alone',
+  asAt: 'Run them up to a date I choose',
+});
+
+const MS_PER_DAY = 86400000;
+
+// Above this the result is slow to scroll and slow to chart. A warning, not a
+// stop: 150,000 daily rows is a legitimate year of a mid-sized service.
+const DAILY_WARN_ROWS = 100000;
+
+// The narrow-screen threshold is much lower, because the same table that is
+// merely sluggish on a laptop is what makes a phone tab unresponsive.
+const DAILY_WARN_ROWS_NARROW = 20000;
+
+// A hard refusal. Past this, building the array is itself the failure: the tab
+// runs out of memory partway through, and it does so after the person has
+// already clicked apply.
+const MAX_DAILY_ROWS = 2000000;
+
+// One range this long is nearly always a data fault, such as a sentinel end date
+// of 9999-12-31, rather than a genuinely century-long contract.
+const LONG_RANGE_WARN_DAYS = 3650;
+
+function createEmptyDateRangeConfig() {
+  return {
+    startColumn: '',
+    endColumn: '',
+    dayColumn: 'day',
+    includeDayIndex: true,
+    includeSpanDays: false,
+    endInclusive: true,
+    openEnd: 'skip',
+    asAtDate: '',
+  };
+}
+
+function suggestDateRangeConfig(dataset) {
+  const cfg = createEmptyDateRangeConfig();
+  const cols = (dataset && dataset.columns) || [];
+  const names = columnNamesOf(dataset);
+
+  // Prefer columns the person named, because start/end pairs are almost always
+  // named as such, and fall back to the first two date-typed columns in order.
+  const hinted = (words) => names.find((n) => {
+    const low = String(n).toLowerCase();
+    return words.some((w) => low.includes(w));
+  }) || '';
+
+  cfg.startColumn = hinted(['start', 'from', 'admit', 'begin', 'open']);
+  cfg.endColumn = hinted(['end', 'to_', 'until', 'discharge', 'finish', 'close']);
+
+  if (!cfg.startColumn || !cfg.endColumn || cfg.startColumn === cfg.endColumn) {
+    const dates = [];
+    for (let i = 0; i < cols.length; i += 1) {
+      if (cols[i] && isDateType(cols[i].type)) dates.push(cols[i].name);
+    }
+    if (!cfg.startColumn) cfg.startColumn = dates[0] || names[0] || '';
+    if (!cfg.endColumn || cfg.endColumn === cfg.startColumn) {
+      cfg.endColumn = dates.find((n) => n !== cfg.startColumn) || '';
+    }
+  }
+  return cfg;
+}
+
+function validateDateRangeConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.startColumn) errors.push('Pick the column holding the start date.');
+  else if (!names.includes(config.startColumn)) {
+    errors.push('The column ' + config.startColumn + ' is not in this table.');
+  }
+  if (!config.endColumn) errors.push('Pick the column holding the end date.');
+  else if (!names.includes(config.endColumn)) {
+    errors.push('The column ' + config.endColumn + ' is not in this table.');
+  }
+  if (config.startColumn && config.startColumn === config.endColumn) {
+    errors.push('The start and end columns have to be different. '
+      + 'A range from a day to itself is one row, which is what you already have.');
+  }
+
+  const day = dayColumnName(config);
+  if (names.includes(day)) {
+    errors.push('This table already has a column called ' + day
+      + '. Choose another name for the day column, so the original is not overwritten.');
+  }
+  if (config.includeDayIndex !== false && names.includes(day + '_index')) {
+    errors.push('This table already has a column called ' + day + '_index.');
+  }
+
+  const mode = config.openEnd || 'skip';
+  if (OPEN_END_MODES.indexOf(mode) === -1) {
+    errors.push('Choose what happens to rows with no end date.');
+  } else if (mode === 'asAt') {
+    if (!config.asAtDate) {
+      errors.push('Give the date to run open ranges up to. '
+        + 'Leaving it to "today" would change the answer every time this is run.');
+    } else if (!parseDateValue(config.asAtDate)) {
+      errors.push('The as-at date ' + config.asAtDate + ' could not be read. Use YYYY-MM-DD.');
+    }
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The name of the generated day column. */
+function dayColumnName(config) {
+  const explicit = String((config && config.dayColumn) || '').trim();
+  return explicit || 'day';
+}
+
+/** Whole days from a to b, both as UTC midnights, so no daylight-saving hour
+    can shorten a day and lose one off the end of a long range. */
+function daysBetween(a, b) {
+  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
+}
+
+/**
+ * Read one row's range.
+ *
+ * Returns the reason as well as the dates, because every reason here is a
+ * counted, reported outcome rather than a row that quietly vanishes.
+ */
+function readRange(row, startIdx, endIdx, config, asAt) {
+  const start = parseDateValue(row[startIdx]);
+  if (!start) return { kind: 'unreadableStart', days: 0 };
+
+  const rawEnd = row[endIdx];
+  const blankEnd = rawEnd == null || rawEnd === '';
+  let end;
+  if (blankEnd) {
+    if (!asAt) return { kind: 'open', days: 0 };
+    end = asAt;
+    // An open range that started after the as-at date has not begun yet. It is
+    // not a reversed range and calling it one would misreport the cause.
+    if (daysBetween(start, end) < 0) return { kind: 'notYetStarted', days: 0 };
+  } else {
+    end = parseDateValue(rawEnd);
+    // An unreadable end is not an open end. Reading 31/13/2024 as "still going"
+    // would silently stretch a closed range to the as-at date.
+    if (!end) return { kind: 'unreadableEnd', days: 0 };
+    if (daysBetween(start, end) < 0) return { kind: 'reversed', days: 0 };
+  }
+
+  const inclusive = config.endInclusive !== false;
+  const days = daysBetween(start, end) + (inclusive ? 1 : 0);
+  if (days <= 0) {
+    // Only reachable with an exclusive end on a same-day range, which is a
+    // zero-length stay: a real thing, and correctly zero rows.
+    return { kind: 'zeroLength', days: 0, start: start, end: end };
+  }
+  return { kind: 'range', days: days, start: start, end: end, open: blankEnd };
+}
+
+/**
+ * Count what apply would produce, without building it.
+ *
+ * A separate pass on purpose. "Build it and read length" is exactly the thing
+ * this exists to prevent, since the build is what runs the tab out of memory.
+ */
+function previewExpandDateRange(dataset, config, options) {
+  if (!dataset || typeof dataset !== 'object') {
+    return { ok: false, error: 'There is no table loaded.' };
+  }
+  const names = columnNamesOf(dataset);
+  const v = validateDateRangeConfig(config, names);
+  if (!v.ok) return { ok: false, error: v.errors.join(' ') };
+
+  const startIdx = indexOfColumn(names, config.startColumn);
+  const endIdx = indexOfColumn(names, config.endColumn);
+  const rows = rowsOf(dataset);
+  const asAt = (config.openEnd === 'asAt') ? parseDateValue(config.asAtDate) : null;
+  const narrow = !!(options && options.narrow);
+
+  const counts = {
+    range: 0, open: 0, reversed: 0, zeroLength: 0,
+    unreadableStart: 0, unreadableEnd: 0, notYetStarted: 0,
+  };
+  let days = 0;
+  let longest = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const r = readRange(row, startIdx, endIdx, config, asAt);
+    counts[r.kind] = (counts[r.kind] || 0) + 1;
+    if (r.kind !== 'range') continue;
+    days += r.days;
+    if (r.days > longest) longest = r.days;
+  }
+
+  const rowsIn = rows.length;
+  const warnings = [];
+  const overCap = days > MAX_DAILY_ROWS;
+
+  if (overCap) {
+    warnings.push('This would make ' + days.toLocaleString() + ' rows, which is over the limit of '
+      + MAX_DAILY_ROWS.toLocaleString() + '. It will not run. Filter the table down or narrow the '
+      + 'date range first: a table this size does not finish building in a browser tab.');
+  } else if (narrow && days > DAILY_WARN_ROWS_NARROW) {
+    warnings.push('This makes ' + days.toLocaleString() + ' rows on a phone-sized screen. That is '
+      + 'enough to make this tab stop responding. Consider doing it on a larger screen, or '
+      + 'filtering the table first.');
+  } else if (days > DAILY_WARN_ROWS) {
+    warnings.push('This makes ' + days.toLocaleString() + ' rows, which is more than '
+      + DAILY_WARN_ROWS.toLocaleString() + '. A table that size is slow to scroll and slow to '
+      + 'chart. Consider filtering first.');
+  }
+
+  if (longest > LONG_RANGE_WARN_DAYS) {
+    warnings.push('One range alone covers ' + longest.toLocaleString() + ' days. That is usually a '
+      + 'placeholder end date such as 9999-12-31 rather than a real span.');
+  }
+  if (counts.open > 0 && config.openEnd !== 'asAt') {
+    warnings.push(counts.open + ' row' + (counts.open === 1 ? ' has' : 's have') + ' no end date '
+      + 'and will not be expanded. Set an as-at date if those should run up to a chosen day.');
+  }
+
+  return {
+    ok: true,
+    rowsIn: rowsIn,
+    rowsOut: days,
+    ratio: rowsIn > 0 ? days / rowsIn : 1,
+    expandable: counts.range,
+    openRows: counts.open,
+    reversedRows: counts.reversed,
+    zeroLengthRows: counts.zeroLength,
+    unreadableStart: counts.unreadableStart,
+    unreadableEnd: counts.unreadableEnd,
+    notYetStarted: counts.notYetStarted,
+    longestRange: longest,
+    overCap: overCap,
+    willGrow: days > rowsIn,
+    warnings: warnings,
+  };
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * generate_series over a date range, joined laterally so every source column
+ * comes with each day. The INTERVAL 1 DAY step and the inclusive/exclusive end
+ * are both visible in the text, because those are the two things a reader needs
+ * to check against their own definition of a day count.
+ */
+function buildExpandDateRangeSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const t = relationName(sourceRelation, 'source');
+  const s = quoteIdent(config.startColumn);
+  const e = quoteIdent(config.endColumn);
+  const day = quoteIdent(dayColumnName(config));
+  const inclusive = config.endInclusive !== false;
+  const asAt = (config.openEnd === 'asAt') ? parseDateValue(config.asAtDate) : null;
+
+  // The upper bound of the series. An exclusive end stops a day short; an as-at
+  // date substitutes for a null end, and is a literal so the query means the
+  // same thing tomorrow as it does today.
+  const endExpr = asAt
+    ? 'COALESCE(src.' + e + ', CAST(' + quoteLiteral(formatISODate(asAt)) + ' AS DATE))'
+    : 'src.' + e;
+  const upper = inclusive ? endExpr : '(' + endExpr + ' - INTERVAL 1 DAY)';
+
+  const idxCol = config.includeDayIndex !== false
+    ? ',\n  CAST(date_diff(' + quoteLiteral('day') + ', src.' + s + ', d.' + day
+      + ') AS BIGINT) + 1 AS ' + quoteIdent(dayColumnName(config) + '_index')
+    : '';
+  const spanCol = config.includeSpanDays
+    ? ',\n  CAST(date_diff(' + quoteLiteral('day') + ', src.' + s + ', ' + endExpr + ') AS BIGINT) + '
+      + (inclusive ? '1' : '0') + ' AS ' + quoteIdent(dayColumnName(config) + '_span')
+    : '';
+
+  const lines = [
+    '-- One row per calendar day between ' + s + ' and ' + e + '.',
+    '-- Every other column is repeated on each day, so any total already computed',
+    '-- over this table will be multiplied by the length of each range. That is the',
+    '-- reason for the row count shown beside this SQL.',
+    '-- The end day is ' + (inclusive ? 'included' : 'excluded')
+      + ': the 3rd to the 9th is ' + (inclusive ? 'seven' : 'six') + ' days.',
+    'SELECT',
+    '  src.*,',
+    '  CAST(d.' + day + ' AS DATE) AS ' + day + idxCol + spanCol,
+    'FROM ' + t + ' AS src',
+    'CROSS JOIN LATERAL generate_series(',
+    '  CAST(src.' + s + ' AS DATE),',
+    '  CAST(' + upper + ' AS DATE),',
+    '  INTERVAL 1 DAY',
+    ') AS d(' + day + ')',
+  ];
+
+  if (asAt) {
+    lines.push('');
+    lines.push('-- Rows with no end date run to ' + formatISODate(asAt) + ', written as a literal');
+    lines.push('-- rather than current_date so this query gives the same answer next month.');
+  } else {
+    lines.push('');
+    lines.push('-- Rows with no end date produce nothing here, because generate_series with a');
+    lines.push('-- NULL bound returns no rows. They are counted and named in the notes rather');
+    lines.push('-- than being run to today, which would change the answer on every rerun.');
+  }
+  lines.push('-- A range whose end is before its start also produces nothing, which is the');
+  lines.push('-- same refusal the computed result makes.');
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function expandDateRangeTransform(dataset, config, options) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateDateRangeConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  // The cap is checked before anything is built, not while building. A refusal
+  // partway through would leave the caller holding half a table.
+  const pre = previewExpandDateRange(dataset, config, options);
+  if (pre.ok && pre.overCap) {
+    return transformError('This would make ' + pre.rowsOut.toLocaleString() + ' rows, over the '
+      + 'limit of ' + MAX_DAILY_ROWS.toLocaleString() + '. Filter the table or narrow the dates '
+      + 'first. Nothing was changed.');
+  }
+
+  const startIdx = indexOfColumn(names, config.startColumn);
+  const endIdx = indexOfColumn(names, config.endColumn);
+  const rows = rowsOf(dataset);
+  const asAt = (config.openEnd === 'asAt') ? parseDateValue(config.asAtDate) : null;
+  const withIndex = config.includeDayIndex !== false;
+  const withSpan = !!config.includeSpanDays;
+  const dayName = dayColumnName(config);
+
+  const outColumns = names.map((n) => column(n, typeOfColumn(dataset, n)));
+  outColumns.push(column(dayName, TYPE_DATE));
+  if (withIndex) outColumns.push(column(dayName + '_index', TYPE_INT));
+  if (withSpan) outColumns.push(column(dayName + '_span', TYPE_INT));
+
+  const counts = {
+    range: 0, open: 0, reversed: 0, zeroLength: 0,
+    unreadableStart: 0, unreadableEnd: 0, notYetStarted: 0,
+  };
+  const out = [];
+  let longest = 0;
+  let openExpanded = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const r = readRange(row, startIdx, endIdx, config, asAt);
+    counts[r.kind] = (counts[r.kind] || 0) + 1;
+    // Branches mirror previewExpandDateRange() case for case. The two
+    // disagreeing about the row count would make the confirm a lie, which is the
+    // one thing the preview exists to prevent.
+    if (r.kind !== 'range') continue;
+    if (r.open) openExpanded += 1;
+    if (r.days > longest) longest = r.days;
+
+    for (let d = 0; d < r.days; d += 1) {
+      const day = formatISODate(new Date(r.start.getTime() + d * MS_PER_DAY));
+      const extra = [day];
+      if (withIndex) extra.push(d + 1);
+      if (withSpan) extra.push(r.days);
+      out.push(row.concat(extra));
+    }
+  }
+
+  const built = buildExpandDateRangeSQL(config, dataset.name);
+  const notes = [];
+  const inclusive = config.endInclusive !== false;
+
+  // Keyed on whether any row actually multiplied, not on whether the table grew
+  // overall. A table can come out shorter because unreadable rows were left
+  // behind while every row that did expand still repeats its values.
+  if (longest > 1) {
+    notes.push('Every column other than the new ones is repeated once per day. Any total, average '
+      + 'or count already computed over this table will change, and a sum of a repeated column '
+      + 'will be multiplied by the length of each range. That is expected here, not a fault, but '
+      + 'it is the reason to re-check any number carried over from before.');
+  }
+  notes.push('The end day is ' + (inclusive ? 'counted' : 'not counted')
+    + ', so a range from the 3rd to the 9th is ' + (inclusive ? 'seven' : 'six') + ' days. '
+    + 'Both conventions are in use, and which one is right depends on whether the end date is the '
+    + 'last day of the stay or the day it ended.');
+
+  // With an as-at date an open row is expanded, so it counts as a range and
+  // never lands in counts.open. openExpanded is the count that survives it.
+  const openSeen = asAt ? openExpanded : counts.open;
+  if (openSeen > 0) {
+    notes.push(asAt
+      ? openSeen + ' row' + (openSeen === 1 ? '' : 's') + ' had no end date and '
+        + (openSeen === 1 ? 'was' : 'were') + ' run up to ' + formatISODate(asAt)
+        + '. That date is recorded here because the answer depends on it: run against a different '
+        + 'as-at date, these counts change.'
+      : counts.open + ' row' + (counts.open === 1 ? '' : 's') + ' had no end date and produced no '
+        + 'days. An open range needs an as-at date to expand, and defaulting to today would mean '
+        + 'this table gave a different answer every time it was built.');
+  }
+  if (counts.reversed > 0) {
+    notes.push(counts.reversed + ' row' + (counts.reversed === 1 ? ' has an end date' : 's have end '
+      + 'dates') + ' before ' + (counts.reversed === 1 ? 'its' : 'their') + ' start date and '
+      + 'produced no days. That is a data fault worth looking at rather than something to expand.');
+  }
+  if (counts.zeroLength > 0) {
+    notes.push(counts.zeroLength + ' row' + (counts.zeroLength === 1 ? '' : 's')
+      + ' started and ended on the same day, which is zero days with the end excluded, so '
+      + (counts.zeroLength === 1 ? 'it' : 'they') + ' produced no rows.');
+  }
+  if (counts.unreadableStart > 0 || counts.unreadableEnd > 0) {
+    const bad = counts.unreadableStart + counts.unreadableEnd;
+    notes.push(bad + ' row' + (bad === 1 ? '' : 's') + ' had a date that could not be read and '
+      + (bad === 1 ? 'was' : 'were') + ' left out. An unreadable end is not treated as an open '
+      + 'range: stretching a closed range to the as-at date because its end was mistyped would be '
+      + 'a much larger error than dropping it.');
+  }
+  if (counts.notYetStarted > 0) {
+    notes.push(counts.notYetStarted + ' open row' + (counts.notYetStarted === 1 ? '' : 's')
+      + ' started after the as-at date, so ' + (counts.notYetStarted === 1 ? 'it has' : 'they have')
+      + ' not begun yet and produced no days.');
+  }
+  if (longest > LONG_RANGE_WARN_DAYS) {
+    notes.push('The longest single range covers ' + longest + ' days, which usually means a '
+      + 'placeholder end date rather than a real span.');
+  }
+  if (out.length === 0 && rows.length > 0) {
+    notes.push('No row produced a day. Check that the start and end columns are the right ones and '
+      + 'that their dates can be read.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: out,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: rows.length,
+      rowsOut: out.length,
+      expandable: counts.range,
+      openRows: counts.open,
+      openExpanded: openExpanded,
+      reversedRows: counts.reversed,
+      zeroLengthRows: counts.zeroLength,
+      unreadableStart: counts.unreadableStart,
+      unreadableEnd: counts.unreadableEnd,
+      notYetStarted: counts.notYetStarted,
+      longestRange: longest,
+      ratio: rows.length ? out.length / rows.length : 1,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header, leading with the row count because
+    that is the consequence a person is agreeing to. */
+function describeExpandDateRange(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is nothing to expand.';
+  if (!s.rowsOut) return 'No row produced a day, so this would leave an empty table.';
+  const times = (s.ratio || 1).toFixed(1).replace(/\.0$/, '');
+  const left = s.openRows && !s.openExpanded
+    ? ' ' + s.openRows + ' row' + (s.openRows === 1 ? '' : 's') + ' with no end date produced none.'
+    : '';
+  return s.rowsIn.toLocaleString() + ' rows become ' + s.rowsOut.toLocaleString()
+    + ', about ' + times + ' times as many, one per calendar day.' + left;
+}
+  window.DataGlowExpandDateRange = {
+    EXPAND_DATE_RANGE_VERSION: EXPAND_DATE_RANGE_VERSION,
+    OPEN_END_MODES: OPEN_END_MODES,
+    OPEN_END_LABELS: OPEN_END_LABELS,
+    DAILY_WARN_ROWS: DAILY_WARN_ROWS,
+    DAILY_WARN_ROWS_NARROW: DAILY_WARN_ROWS_NARROW,
+    MAX_DAILY_ROWS: MAX_DAILY_ROWS,
+    LONG_RANGE_WARN_DAYS: LONG_RANGE_WARN_DAYS,
+    createEmptyDateRangeConfig: createEmptyDateRangeConfig,
+    suggestDateRangeConfig: suggestDateRangeConfig,
+    validateDateRangeConfig: validateDateRangeConfig,
+    dayColumnName: dayColumnName,
+    previewExpandDateRange: previewExpandDateRange,
+    buildExpandDateRangeSQL: buildExpandDateRangeSQL,
+    expandDateRangeTransform: expandDateRangeTransform,
+    describeExpandDateRange: describeExpandDateRange,
+  };
+})();
+/* ---- end js/transforms/expand-date-range.js ---- */
+/* ---- from js/transforms/bin-editor.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A27 Bin a numeric column, with the edges shown
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. Age becomes age bands, spend becomes spend bands, response
+// time becomes fast/slow. Every grouped chart and every crosstab of a continuous
+// number needs this, and the edges are the whole argument: 0 to 17, 18 to 64,
+// 65 and over says one thing about a population, and 0 to 29, 30 to 59, 60 and
+// over says another about the same people.
+//
+// THE HISTOGRAM IS NOT DECORATION.
+// Equal-width bins on a skewed column are the classic quiet mistake: ten bins
+// across a spend column with one outlier at a million puts 99% of the rows in
+// the first bin and produces a chart that looks fine and says nothing. So
+// binCounts() returns the count in every bin as part of the engine, not as a
+// drawing step, which means the UI can show the shape before the person commits
+// and a test can assert that shape without a canvas.
+//
+// EDGES ARE HALF-OPEN, AND THAT IS SAID EVERYWHERE.
+// A bin is [low, high): the low edge belongs to it, the high edge belongs to the
+// next one. The last bin is closed at the top so the maximum value has somewhere
+// to go. Without stating this, a value exactly on an edge lands in whichever bin
+// the reader assumed, and two people counting "under 18" get different answers.
+// The rule is in the labels, in the SQL comment, and in the notes.
+//
+// A VALUE OUTSIDE THE EDGES IS NOT FORCED INTO THE NEAREST BIN.
+// With custom edges someone will type a range that does not cover the data.
+// Widening the end bins to swallow the strays would hide exactly the values
+// worth seeing, so they get a blank label and a count in the notes.
+//
+// THIS IS NOT THE CHART HISTOGRAM.
+// js/chart/chart-engine.js draws a histogram for display and throws its buckets
+// away. This produces a real column that persists into the table, joins, and
+// exports. They answer different questions and neither should call the other.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, quoteLiteral = C.quoteLiteral, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isNumericType = C.isNumericType, toNumber = C.toNumber, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR, transformResult = C.transformResult, transformError = C.transformError;
+const BIN_EDITOR_VERSION = 1;
+
+const BIN_MODES = Object.freeze(['equalWidth', 'custom']);
+
+const BIN_MODE_LABELS = Object.freeze({
+  equalWidth: 'Same-width bins',
+  custom: 'Edges I choose',
+});
+
+const MIN_BINS = 2;
+
+// Past this the bands stop being a summary. Forty bins on a bar chart is a
+// histogram with extra steps, and the point of binning was to reduce.
+const MAX_BINS = 100;
+
+const DEFAULT_BINS = 10;
+
+function createEmptyBinConfig() {
+  return {
+    column: '',
+    mode: 'equalWidth',
+    binCount: DEFAULT_BINS,
+    edges: [],
+    labelColumn: '',
+    includeBinIndex: true,
+    keepOriginal: true,
+    decimals: null, // null means work it out from the width of a bin
+  };
+}
+
+function suggestBinConfig(dataset) {
+  const cfg = createEmptyBinConfig();
+  const cols = (dataset && dataset.columns) || [];
+  const rows = rowsOf(dataset);
+  const names = columnNamesOf(dataset);
+
+  // A numeric column with many distinct values is the one worth binning. An
+  // integer flag column is numeric and binning it is meaningless, so distinctness
+  // is the test rather than the declared type alone.
+  let best = null;
+  for (let i = 0; i < cols.length; i += 1) {
+    if (!cols[i] || !isNumericType(cols[i].type)) continue;
+    const seen = new Set();
+    let looked = 0;
+    for (let r = 0; r < rows.length && looked < 200; r += 1) {
+      if (!Array.isArray(rows[r])) continue;
+      looked += 1;
+      const n = toNumber(rows[r][i]);
+      if (n !== null) seen.add(n);
+    }
+    if (seen.size < 4) continue;
+    if (!best || seen.size > best.distinct) best = { name: cols[i].name, distinct: seen.size };
+  }
+  cfg.column = best ? best.name : (names[0] || '');
+  if (cfg.column) cfg.labelColumn = cfg.column + '_bin';
+  return cfg;
+}
+
+/** The name of the generated label column. */
+function binLabelColumn(config) {
+  const explicit = String((config && config.labelColumn) || '').trim();
+  if (explicit) return explicit;
+  return String((config && config.column) || 'value') + '_bin';
+}
+
+/** Edges given by the person: numeric, sorted, de-duplicated. Sorting rather
+    than rejecting an unsorted list is safe because the set of edges means the
+    same thing in any order, unlike a list of bin labels. */
+function normalizeEdges(edges) {
+  const list = Array.isArray(edges) ? edges : String(edges || '').split(',');
+  const out = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const n = toNumber(list[i]);
+    if (n === null) continue;
+    if (out.indexOf(n) === -1) out.push(n);
+  }
+  out.sort((a, b) => a - b);
+  return out;
+}
+
+function validateBinConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.column) errors.push('Pick the number column to put into bands.');
+  else if (!names.includes(config.column)) {
+    errors.push('The column ' + config.column + ' is not in this table.');
+  }
+
+  const label = binLabelColumn(config);
+  if (names.includes(label)) {
+    errors.push('This table already has a column called ' + label
+      + '. Choose another name for the band column.');
+  }
+  if (config.includeBinIndex !== false && names.includes(label + '_index')) {
+    errors.push('This table already has a column called ' + label + '_index.');
+  }
+
+  const mode = config.mode || 'equalWidth';
+  if (BIN_MODES.indexOf(mode) === -1) {
+    errors.push('Choose whether the bands are the same width or set by hand.');
+    return { ok: false, errors: errors };
+  }
+
+  if (mode === 'equalWidth') {
+    const n = Number(config.binCount);
+    if (!Number.isFinite(n) || Math.floor(n) !== n) {
+      errors.push('Give the number of bands as a whole number.');
+    } else if (n < MIN_BINS || n > MAX_BINS) {
+      errors.push('The number of bands has to be between ' + MIN_BINS + ' and ' + MAX_BINS + '.');
+    }
+  } else {
+    const edges = normalizeEdges(config.edges);
+    if (edges.length < 2) {
+      errors.push('Give at least two edges, such as 0, 18, 65. '
+        + 'Two edges make one band, three make two, and so on.');
+    } else if (edges.length - 1 > MAX_BINS) {
+      errors.push('That is more than ' + MAX_BINS + ' bands.');
+    }
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The smallest and largest readable value, plus how many rows could not be
+    read. Returns nulls rather than Infinity for an empty column, so a caller
+    cannot accidentally build a bin from
+    Infinity to -Infinity. */
+function numericExtent(dataset, columnName) {
+  const names = columnNamesOf(dataset);
+  const idx = indexOfColumn(names, columnName);
+  const rows = rowsOf(dataset);
+  let min = null;
+  let max = null;
+  let readable = 0;
+  let unreadable = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const v = row[idx];
+    if (v == null || v === '') { unreadable += 1; continue; }
+    const n = toNumber(v);
+    if (n === null) { unreadable += 1; continue; }
+    readable += 1;
+    if (min === null || n < min) min = n;
+    if (max === null || n > max) max = n;
+  }
+  return { min: min, max: max, readable: readable, unreadable: unreadable };
+}
+
+function roundTo(value, decimals) {
+  const f = Math.pow(10, decimals);
+  return Math.round(value * f) / f;
+}
+
+/** How many decimals a label needs, from how wide a bin is. Ten bins over 0 to 1
+    labelled as whole numbers would read "0 to 0" ten times, which is not a
+    labelling problem, it is an unreadable result. */
+function decimalsFor(width, configured) {
+  if (configured != null && configured !== '' && Number.isFinite(Number(configured))) {
+    return Math.max(0, Math.min(10, Math.floor(Number(configured))));
+  }
+  if (!Number.isFinite(width) || width <= 0) return 0;
+  if (width >= 10) return 0;
+  if (width >= 1) return 1;
+  return Math.min(10, Math.ceil(-Math.log10(width)) + 1);
+}
+
+/**
+ * The edges this configuration produces against this table.
+ *
+ * Equal-width edges depend on the data, so they cannot be computed from the
+ * config alone. One function owns that so the label text, the counts, the rows
+ * and the SQL all come from the same list and cannot drift apart.
+ */
+function resolveBins(dataset, config) {
+  const mode = config.mode || 'equalWidth';
+  if (mode === 'custom') {
+    const edges = normalizeEdges(config.edges);
+    return { ok: edges.length >= 2, edges: edges, extent: numericExtent(dataset, config.column) };
+  }
+
+  const extent = numericExtent(dataset, config.column);
+  if (extent.min === null) return { ok: false, edges: [], extent: extent };
+
+  const count = Math.max(MIN_BINS, Math.min(MAX_BINS, Math.floor(Number(config.binCount) || DEFAULT_BINS)));
+  if (extent.max === extent.min) {
+    // Every value is the same. One bin wide enough to hold it is the honest
+    // answer; splitting a zero-width range into ten bands would invent nine
+    // empty ones and imply a spread that is not there.
+    return { ok: true, edges: [extent.min, extent.min + 1], extent: extent, degenerate: true };
+  }
+
+  const width = (extent.max - extent.min) / count;
+  const edges = [];
+  for (let i = 0; i <= count; i += 1) edges.push(extent.min + width * i);
+  // The top edge is set exactly rather than accumulated, so floating point drift
+  // cannot leave the maximum value a hair outside the last bin.
+  edges[count] = extent.max;
+  return { ok: true, edges: edges, extent: extent };
+}
+
+/** The label for bin i, in the half-open convention. The last bin says "or more"
+    only when it is genuinely the top of the data. */
+function binLabels(edges, decimals) {
+  const out = [];
+  for (let i = 0; i < edges.length - 1; i += 1) {
+    const lo = roundTo(edges[i], decimals);
+    const hi = roundTo(edges[i + 1], decimals);
+    out.push(String(lo) + ' to ' + String(hi));
+  }
+  return out;
+}
+
+/** Which bin a value falls in, or -1 if it is outside every bin. Half-open on
+    the low edge, with the top bin closed so the maximum has a home. */
+function binIndexOf(value, edges) {
+  const n = toNumber(value);
+  if (n === null) return -1;
+  if (n < edges[0]) return -1;
+  const last = edges.length - 1;
+  if (n > edges[last]) return -1;
+  if (n === edges[last]) return last - 1;
+  for (let i = 0; i < last; i += 1) {
+    if (n >= edges[i] && n < edges[i + 1]) return i;
+  }
+  return -1;
+}
+
+/**
+ * The count in every bin, for the live histogram.
+ *
+ * Part of the engine rather than the drawing code because the shape is the
+ * argument for or against the edges, and a shape a test cannot see is a shape
+ * nobody checked.
+ */
+function binCounts(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') {
+    return { ok: false, error: 'There is no table loaded.' };
+  }
+  const names = columnNamesOf(dataset);
+  const v = validateBinConfig(config, names);
+  if (!v.ok) return { ok: false, error: v.errors.join(' ') };
+
+  const resolved = resolveBins(dataset, config);
+  if (!resolved.ok) {
+    return { ok: false, error: 'No readable number was found in ' + config.column + '.' };
+  }
+  const edges = resolved.edges;
+  const width = edges.length > 1 ? (edges[1] - edges[0]) : 0;
+  const decimals = decimalsFor(width, config.decimals);
+  const labels = binLabels(edges, decimals);
+
+  const idx = indexOfColumn(names, config.column);
+  const rows = rowsOf(dataset);
+  const counts = labels.map(() => 0);
+  let below = 0;
+  let above = 0;
+  let unreadable = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!Array.isArray(row)) continue;
+    const n = toNumber(row[idx]);
+    if (n === null) { unreadable += 1; continue; }
+    if (n < edges[0]) { below += 1; continue; }
+    if (n > edges[edges.length - 1]) { above += 1; continue; }
+    counts[binIndexOf(n, edges)] += 1;
+  }
+
+  const inRange = counts.reduce((a, b) => a + b, 0);
+  const biggest = counts.reduce((a, b) => (b > a ? b : a), 0);
+  const warnings = [];
+
+  // The skew check that makes equal-width binning honest. One bin holding almost
+  // everything means the edges are describing an outlier, not the data.
+  if (inRange > 0 && counts.length > 2 && biggest / inRange >= 0.9) {
+    warnings.push('One band holds ' + Math.round((biggest / inRange) * 100) + '% of the rows. '
+      + 'Same-width bands do that on a skewed column: one very large value stretches the range and '
+      + 'everything else lands in the first band. Custom edges usually read better here.');
+  }
+  const empties = counts.filter((c) => c === 0).length;
+  if (empties > 0 && counts.length > 2) {
+    warnings.push(empties + ' band' + (empties === 1 ? ' is' : 's are') + ' empty.');
+  }
+  if (below > 0 || above > 0) {
+    warnings.push((below + above) + ' value' + (below + above === 1 ? ' falls' : 's fall')
+      + ' outside the edges and will get a blank band. Widening the end bands to swallow them '
+      + 'would hide the values most worth looking at.');
+  }
+
+  return {
+    ok: true,
+    edges: edges.slice(),
+    labels: labels,
+    counts: counts,
+    decimals: decimals,
+    below: below,
+    above: above,
+    unreadable: unreadable,
+    inRange: inRange,
+    largestBin: biggest,
+    extent: resolved.extent,
+    warnings: warnings,
+  };
+}
+
+/**
+ * The glass-box SQL. A plain CASE ladder rather than DuckDB's width_bucket,
+ * because the reader has to be able to check the edges against their own
+ * definition, and a bucket number does not show them.
+ */
+function buildBinSQL(config, sourceRelation, edges, decimals) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const t = relationName(sourceRelation, 'source');
+  const c = quoteIdent(config.column);
+  const label = quoteIdent(binLabelColumn(config));
+  const list = Array.isArray(edges) && edges.length >= 2 ? edges : normalizeEdges(config.edges);
+  if (list.length < 2) {
+    return { ok: false, errors: ['There are no edges to write a CASE over yet.'] };
+  }
+  const dp = Number.isFinite(Number(decimals)) ? Number(decimals) : 0;
+  const labels = binLabels(list, dp);
+  const keep = config.keepOriginal !== false;
+
+  const caseLines = ['  CASE'];
+  for (let i = 0; i < labels.length; i += 1) {
+    const lo = roundTo(list[i], dp);
+    const hi = roundTo(list[i + 1], dp);
+    const isLast = i === labels.length - 1;
+    caseLines.push('    WHEN ' + c + ' >= ' + lo + ' AND ' + c
+      + (isLast ? ' <= ' : ' < ') + hi + ' THEN ' + quoteLiteral(labels[i]));
+  }
+  // No ELSE branch that invents a catch-all band. A value outside every edge is
+  // NULL here for the same reason it is blank in the computed result.
+  caseLines.push('    ELSE NULL');
+  caseLines.push('  END AS ' + label);
+
+  const idxLines = [];
+  if (config.includeBinIndex !== false) {
+    idxLines.push('  CASE');
+    for (let i = 0; i < labels.length; i += 1) {
+      const lo = roundTo(list[i], dp);
+      const hi = roundTo(list[i + 1], dp);
+      const isLast = i === labels.length - 1;
+      idxLines.push('    WHEN ' + c + ' >= ' + lo + ' AND ' + c
+        + (isLast ? ' <= ' : ' < ') + hi + ' THEN ' + (i + 1));
+    }
+    idxLines.push('    ELSE NULL');
+    idxLines.push('  END AS ' + quoteIdent(binLabelColumn(config) + '_index'));
+  }
+
+  const lines = [
+    '-- Put ' + c + ' into ' + labels.length + ' band'
+      + (labels.length === 1 ? '' : 's') + '.',
+    '-- Bands are half-open: a value on an edge belongs to the band above it, so',
+    '-- 18 is in "18 to 65" and not in "0 to 18". The top band is closed at the',
+    '-- top so the largest value has somewhere to go.',
+    '-- A value outside every band is NULL rather than being pulled into the',
+    '-- nearest one, because a value out of range is worth seeing.',
+    'SELECT',
+    keep ? '  *,' : '  * EXCLUDE (' + c + '),',
+  ];
+  lines.push(caseLines.join('\n') + (idxLines.length ? ',' : ''));
+  if (idxLines.length) lines.push(idxLines.join('\n'));
+  lines.push('FROM ' + t);
+
+  if (!keep) {
+    lines.push('');
+    lines.push('-- The original ' + c + ' is dropped, as configured. Once it is gone the exact');
+    lines.push('-- value cannot be recovered from the band, so keeping it is the safer default.');
+  }
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function binColumnTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateBinConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const counted = binCounts(dataset, config);
+  if (!counted.ok) return transformError(counted.error);
+
+  const edges = counted.edges;
+  const labels = counted.labels;
+  const idx = indexOfColumn(names, config.column);
+  const rows = rowsOf(dataset);
+  const keep = config.keepOriginal !== false;
+  const withIndex = config.includeBinIndex !== false;
+  const labelName = binLabelColumn(config);
+
+  const outColumns = [];
+  for (let i = 0; i < names.length; i += 1) {
+    if (!keep && i === idx) continue;
+    outColumns.push(column(names[i], typeOfColumn(dataset, names[i])));
+  }
+  outColumns.push(column(labelName, TYPE_STR));
+  if (withIndex) outColumns.push(column(labelName + '_index', TYPE_INT));
+
+  const out = [];
+  let labelled = 0;
+  let blank = 0;
+
+  for (let r = 0; r < rows.length; r += 1) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    const b = binIndexOf(row[idx], edges);
+    const base = keep ? row.slice() : row.slice(0, idx).concat(row.slice(idx + 1));
+    if (b === -1) {
+      blank += 1;
+      out.push(base.concat(withIndex ? [null, null] : [null]));
+    } else {
+      labelled += 1;
+      out.push(base.concat(withIndex ? [labels[b], b + 1] : [labels[b]]));
+    }
+  }
+
+  const built = buildBinSQL(config, dataset.name, edges, counted.decimals);
+  const notes = [];
+
+  notes.push('Bands are half-open: a value sitting exactly on an edge goes into the band above it, '
+    + 'so 18 is in "18 to 65" and not in "0 to 18". The top band is closed at the top so the '
+    + 'largest value is not left out. Say this out loud when someone quotes a band count, because '
+    + 'the other convention gives a different number over the same data.');
+
+  if (config.mode !== 'custom') {
+    notes.push('The edges come from the smallest and largest value in ' + config.column
+      + ' (' + counted.extent.min + ' to ' + counted.extent.max + '), so they are a property of '
+      + 'this table and not a fixed scale. Filter the table differently and the same setting gives '
+      + 'different bands, which makes two runs hard to compare. Custom edges are the fix when the '
+      + 'bands need to mean the same thing twice.');
+  }
+  if (blank > 0) {
+    notes.push(blank + ' row' + (blank === 1 ? '' : 's') + ' got a blank band, either because the '
+      + 'value could not be read as a number or because it falls outside the edges. Neither was '
+      + 'pulled into the nearest band: an out-of-range value is usually the one worth looking at.');
+  }
+  if (counted.unreadable > 0) {
+    notes.push('Of those, ' + counted.unreadable + ' had no readable number in ' + config.column
+      + '.');
+  }
+  if (!keep) {
+    notes.push('The original ' + config.column + ' has been dropped. The exact value cannot be '
+      + 'recovered from a band, so anything downstream that needs the number needs it from before '
+      + 'this step.');
+  }
+  for (let i = 0; i < counted.warnings.length; i += 1) notes.push(counted.warnings[i]);
+
+  return transformResult({
+    columns: outColumns,
+    rows: out,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: rows.length,
+      rowsOut: out.length,
+      bins: labels.length,
+      labelled: labelled,
+      blank: blank,
+      below: counted.below,
+      above: counted.above,
+      unreadable: counted.unreadable,
+      edges: edges.slice(),
+      labels: labels.slice(),
+      counts: counted.counts.slice(),
+      min: counted.extent.min,
+      max: counted.extent.max,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. */
+function describeBinColumn(result) {
+  if (!result || !result.ok) return 'This binning did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is nothing to band.';
+  const blank = s.blank
+    ? ' ' + s.blank + ' row' + (s.blank === 1 ? '' : 's') + ' got a blank band.'
+    : '';
+  return s.labelled.toLocaleString() + ' of ' + s.rowsIn.toLocaleString() + ' rows fall into '
+    + s.bins + ' band' + (s.bins === 1 ? '' : 's') + '. The row count does not change.' + blank;
+}
+  window.DataGlowBinEditor = {
+    BIN_EDITOR_VERSION: BIN_EDITOR_VERSION,
+    BIN_MODES: BIN_MODES,
+    BIN_MODE_LABELS: BIN_MODE_LABELS,
+    MIN_BINS: MIN_BINS,
+    MAX_BINS: MAX_BINS,
+    DEFAULT_BINS: DEFAULT_BINS,
+    createEmptyBinConfig: createEmptyBinConfig,
+    suggestBinConfig: suggestBinConfig,
+    binLabelColumn: binLabelColumn,
+    normalizeEdges: normalizeEdges,
+    validateBinConfig: validateBinConfig,
+    numericExtent: numericExtent,
+    resolveBins: resolveBins,
+    binLabels: binLabels,
+    binIndexOf: binIndexOf,
+    binCounts: binCounts,
+    buildBinSQL: buildBinSQL,
+    binColumnTransform: binColumnTransform,
+    describeBinColumn: describeBinColumn,
+  };
+})();
+/* ---- end js/transforms/bin-editor.js ---- */
+/* ---- from js/transforms/keep-most-recent.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A29 Keep the most recent record per group
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. A table has a customer three times because they were
+// exported three times, or a patient twice because two systems fed the same
+// registry. You want one row each, the newest. This is the single most common
+// cleaning step before any count, because "how many customers" over a table with
+// duplicates is wrong in a way nobody notices until two reports disagree.
+//
+// THIS IS A DELETION, WHICH MAKES IT DIFFERENT FROM A20.
+// js/transforms/first-last-event.js answers a question: "what was each entity's
+// latest event?" The dropped rows were never wanted. Here the dropped rows were
+// part of the table a moment ago, and the whole risk is that they were not
+// duplicates at all. So the two modules share their ordering rules, deliberately,
+// through sortableOrderValue and compareValues in transform-core, and then part
+// ways on what they report: A20 reports the events it found, and this reports
+// what it destroyed.
+//
+// THE NUMBER THAT MATTERS IS NOT "ROWS REMOVED", IT IS "ROWS REMOVED THAT
+// DISAGREED".
+// Dropping an exact copy of a row loses nothing. Dropping a row that shared the
+// key but held a different address, a different amount, a different diagnosis is
+// throwing away a fact. Those two cases have the same row count and are not the
+// same event, so this counts them separately and names the columns where the
+// discarded rows disagreed with the row that was kept. That list is the actual
+// output worth reading: it says whether this was a de-duplication or a choice.
+//
+// TIES ARE STILL THE HARD PART, AND THE RULE IS THE SAME ONE.
+// Two rows for one key with the same timestamp: the winner is decided by every
+// remaining column in table order, which is total, identical in the JS and in the
+// SQL, and identical run to run. It is also arbitrary, and when it happens the
+// notes say so, because deterministic is not the same as correct.
+//
+// A ROW WITH NO READABLE ORDER VALUE IS NOT SILENTLY DELETED.
+// It cannot be the most recent anything. By default such rows are kept, because
+// dropping a row on the grounds that its date was mistyped is a data loss the
+// person did not ask for. Dropping them is available and stated.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, sortableOrderValue = C.sortableOrderValue, compareSortable = C.compareSortable, compareValues = C.compareValues, column = C.column, typeOfColumn = C.typeOfColumn, isDateType = C.isDateType, TYPE_INT = C.TYPE_INT, transformResult = C.transformResult, transformError = C.transformError;
+const KEEP_MOST_RECENT_VERSION = 1;
+
+const KEEP_PICKS = Object.freeze(['newest', 'oldest']);
+
+const KEEP_PICK_LABELS = Object.freeze({
+  newest: 'Keep the newest',
+  oldest: 'Keep the oldest',
+});
+
+// What happens to a row whose order value cannot be read. Keeping is the default
+// because this transform deletes, and a deletion caused by a typo in a date is
+// the worst outcome available here.
+const UNDATED_MODES = Object.freeze(['keep', 'drop']);
+
+const UNDATED_LABELS = Object.freeze({
+  keep: 'Keep rows with no readable date',
+  drop: 'Drop rows with no readable date',
+});
+
+// A sentinel so a blank cell and a missing one are not counted as the same
+// value while looking for a column that repeats. Written as an escape rather
+// than a literal control byte, which would be invisible in review and would
+// travel into the one big inline script in canvas/index.html.
+const NULL_TALLY = '\u0000null';
+
+function createEmptyKeepConfig() {
+  return {
+    keyColumns: [],
+    orderColumn: '',
+    pick: 'newest',
+    undated: 'keep',
+    includeDroppedCount: true,
+  };
+}
+
+function suggestKeepConfig(dataset) {
+  const cfg = createEmptyKeepConfig();
+  const names = columnNamesOf(dataset);
+  const rows = rowsOf(dataset);
+  cfg.orderColumn = suggestDateColumn(dataset) || '';
+
+  // Suggest the column that actually repeats, since a key with no duplicates
+  // makes this a no-op and the first thing shown should demonstrate the point.
+  // An id column that is unique per row is exactly the wrong suggestion.
+  let best = null;
+  for (let i = 0; i < names.length; i += 1) {
+    if (names[i] === cfg.orderColumn) continue;
+    const seen = new Set();
+    let looked = 0;
+    for (let r = 0; r < rows.length && looked < 500; r += 1) {
+      if (!Array.isArray(rows[r])) continue;
+      looked += 1;
+      seen.add(rows[r][i] == null ? NULL_TALLY : String(rows[r][i]));
+    }
+    if (!looked || seen.size < 2 || seen.size >= looked) continue;
+    const dupes = looked - seen.size;
+    if (!best || dupes > best.dupes) best = { name: names[i], dupes: dupes };
+  }
+  if (best) cfg.keyColumns = [best.name];
+  else cfg.keyColumns = names.filter((n) => n !== cfg.orderColumn).slice(0, 1);
+  return cfg;
+}
+
+function validateKeepConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  const keys = asColumnList(config.keyColumns);
+  if (!keys.length) {
+    errors.push('Pick the column or columns that say which rows are the same thing. '
+      + 'Without them this would keep one row for the whole table.');
+  }
+  for (let i = 0; i < keys.length; i += 1) {
+    if (!names.includes(keys[i])) {
+      errors.push('The column ' + keys[i] + ' is not in this table.');
+    }
+  }
+
+  if (!config.orderColumn) {
+    errors.push('Pick the column that says which row is more recent.');
+  } else if (!names.includes(config.orderColumn)) {
+    errors.push('The order column ' + config.orderColumn + ' is not in this table.');
+  } else if (keys.includes(config.orderColumn)) {
+    errors.push('The order column cannot also be one of the key columns. '
+      + 'If it were, every row would already be its own group and nothing would be removed.');
+  }
+
+  if (config.pick && KEEP_PICKS.indexOf(config.pick) === -1) {
+    errors.push('Choose whether the newest or the oldest row is kept.');
+  }
+  if (config.undated && UNDATED_MODES.indexOf(config.undated) === -1) {
+    errors.push('Choose what happens to rows with no readable date.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** Every column that is neither a key column nor the order column, in table
+    order. These are both the tie-break and the columns worth comparing when a
+    discarded row disagreed with the kept one. */
+function comparableColumns(columnNames, config) {
+  const names = Array.isArray(columnNames) ? columnNames : [];
+  const keys = asColumnList(config && config.keyColumns);
+  const orderColumn = (config && config.orderColumn) || '';
+  return names.filter((n) => n !== orderColumn && !keys.includes(n));
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * QUALIFY on ROW_NUMBER, with the whole tie-break written into the ORDER BY
+ * rather than left implicit, so the query a person reads returns these exact
+ * rows. Without the tie-break columns the same query is free to keep a different
+ * row on the next run, and a de-duplication that is not reproducible is not a
+ * cleaning step, it is a coin toss.
+ */
+function buildKeepMostRecentSQL(config, sourceRelation, columnNames) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const keys = asColumnList(config.keyColumns);
+  const pick = String(config.pick || 'newest').toLowerCase();
+  const dir = pick === 'oldest' ? 'ASC' : 'DESC';
+  const orderCol = quoteIdent(config.orderColumn);
+  const dropUndated = config.undated === 'drop';
+
+  // NULLS LAST in both directions: a row with no order value must never win the
+  // slot, which is what the computed result does too.
+  const orderParts = [orderCol + ' ' + dir + ' NULLS LAST'];
+  const tie = comparableColumns(columnNames, config);
+  for (let i = 0; i < tie.length; i += 1) {
+    orderParts.push(quoteIdent(tie[i]) + ' ' + dir + ' NULLS LAST');
+  }
+
+  const over = 'ROW_NUMBER() OVER (\n'
+    + (keys.length ? '    PARTITION BY ' + keys.map(quoteIdent).join(', ') + '\n' : '')
+    + '    ORDER BY ' + orderParts.join(', ') + '\n  )';
+
+  const lines = [
+    '-- Keep one row per ' + (keys.length ? keys.map(quoteIdent).join(', ') : 'table')
+      + ', the ' + (pick === 'oldest' ? 'oldest' : 'newest') + ' by ' + orderCol + '.',
+    '-- This deletes rows. Rows sharing a key are only duplicates if they agree on',
+    '-- their other columns; where they disagree, the ones dropped here held facts',
+    '-- that are now gone. The computed result names those columns.',
+    '-- Ties on ' + orderCol + ' are broken by every remaining column in table order,',
+    '-- so this keeps the same row on every run rather than whichever the engine',
+    '-- reached first. Repeatable, and still arbitrary.',
+    'SELECT * EXCLUDE (keep_rank) FROM (',
+    '  SELECT *,',
+    '  ' + over + ' AS keep_rank',
+    '  FROM ' + rel,
+  ];
+  if (dropUndated) {
+    lines.push('  WHERE ' + orderCol + ' IS NOT NULL');
+  }
+  lines.push(')');
+  lines.push('WHERE keep_rank = 1');
+  lines.push('ORDER BY ' + (keys.length ? keys.map(quoteIdent).join(', ') : orderCol));
+
+  if (!dropUndated) {
+    lines.push('');
+    lines.push('-- Rows with no ' + config.orderColumn + ' are kept in the running above rather');
+    lines.push('-- than filtered out, and NULLS LAST stops them winning a slot a dated row');
+    lines.push('-- could take. A key whose every row is undated still keeps one, because');
+    lines.push('-- deleting an entity outright over an unreadable date is not a cleaning step.');
+  }
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function keepMostRecentTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateKeepConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const keys = asColumnList(config.keyColumns);
+  const keyIdxs = keys.map((k) => indexOfColumn(names, k));
+  const orderIdx = indexOfColumn(names, config.orderColumn);
+  const orderIsDate = isDateType(typeOfColumn(dataset, config.orderColumn));
+  const pick = String(config.pick || 'newest').toLowerCase();
+  const dropUndated = config.undated === 'drop';
+  const withCount = config.includeDroppedCount !== false;
+  const compareCols = comparableColumns(names, config);
+  const compareIdxs = compareCols.map((n) => indexOfColumn(names, n));
+
+  const srcRows = rowsOf(dataset);
+  const groups = new Map();
+  let undatedRows = 0;
+  let droppedUndated = 0;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    const sort = sortableOrderValue(row[orderIdx], orderIsDate);
+    if (sort === null) {
+      undatedRows += 1;
+      if (dropUndated) { droppedUndated += 1; continue; }
+    }
+    const key = keyOfRow(row, keyIdxs);
+    let g = groups.get(key);
+    if (!g) { g = { key: key, rows: [], seq: groups.size }; groups.set(key, g); }
+    g.rows.push({ row: row, sort: sort });
+  }
+
+  const sign = pick === 'oldest' ? 1 : -1;
+  const outColumns = names.map((n) => column(n, typeOfColumn(dataset, n)));
+  if (withCount) outColumns.push(column('rows_dropped', TYPE_INT));
+
+  // Groups come out in the order they were first seen, not sorted by key: a
+  // cleaning step that also silently reorders the table makes a diff against the
+  // original unreadable.
+  const ordered = Array.from(groups.values()).sort((a, b) => a.seq - b.seq);
+  const outRows = [];
+  let removed = 0;
+  let tiedGroups = 0;
+  let conflictedGroups = 0;
+  const conflictColumns = new Map();
+
+  for (let k = 0; k < ordered.length; k += 1) {
+    const g = ordered[k];
+    g.rows.sort((a, b) => {
+      // An undated row never wins, in either direction. This is the JS form of
+      // NULLS LAST, and it is why the comparison cannot just be sign * compare.
+      if (a.sort === null && b.sort === null) return 0;
+      if (a.sort === null) return 1;
+      if (b.sort === null) return -1;
+      const c = compareSortable(a.sort, b.sort);
+      if (c !== 0) return sign * c;
+      for (let t = 0; t < compareIdxs.length; t += 1) {
+        const tc = compareValues(a.row[compareIdxs[t]], b.row[compareIdxs[t]]);
+        if (tc !== 0) return sign * tc;
+      }
+      return 0;
+    });
+
+    const kept = g.rows[0];
+    const dropped = g.rows.length - 1;
+    removed += dropped;
+
+    if (g.rows.length > 1 && kept.sort !== null && g.rows[1].sort !== null
+      && compareSortable(kept.sort, g.rows[1].sort) === 0) {
+      tiedGroups += 1;
+    }
+
+    // The distinction the whole module turns on: was the dropped row a copy, or
+    // did it hold something different?
+    let conflicted = false;
+    for (let r = 1; r < g.rows.length; r += 1) {
+      for (let t = 0; t < compareIdxs.length; t += 1) {
+        if (compareValues(kept.row[compareIdxs[t]], g.rows[r].row[compareIdxs[t]]) !== 0) {
+          conflicted = true;
+          const name = compareCols[t];
+          conflictColumns.set(name, (conflictColumns.get(name) || 0) + 1);
+        }
+      }
+    }
+    if (conflicted) conflictedGroups += 1;
+
+    outRows.push(withCount ? kept.row.concat([dropped]) : kept.row.slice());
+  }
+
+  const built = buildKeepMostRecentSQL(config, dataset.name, names);
+  const notes = [];
+  const word = pick === 'oldest' ? 'oldest' : 'newest';
+  const conflictList = Array.from(conflictColumns.keys());
+
+  if (removed === 0) {
+    notes.push('No row was removed: every combination of '
+      + keys.join(', ') + ' appears once already. Nothing was lost, and nothing was gained '
+      + 'either, which is worth knowing before this step is added to a routine.');
+  } else {
+    notes.push(removed + ' row' + (removed === 1 ? ' was' : 's were') + ' removed. This is a '
+      + 'deletion, not a filter: the values in those rows are not in the result and cannot be '
+      + 'recovered from it. Undo restores them.');
+  }
+
+  if (conflictedGroups > 0) {
+    notes.push(conflictedGroups + ' group' + (conflictedGroups === 1 ? '' : 's')
+      + ' had rows that disagreed with the row kept, in: ' + conflictList.join(', ')
+      + '. Those are not duplicate records, they are different records sharing a key, and the '
+      + 'earlier values have now been discarded. If any of those columns matters, this was a '
+      + 'choice about the data rather than a tidy-up, and it is worth looking at those groups '
+      + 'before moving on.');
+  } else if (removed > 0) {
+    notes.push('Every removed row agreed with the row kept on all its other columns, so nothing '
+      + 'beyond the duplicate rows themselves was lost.');
+  }
+
+  if (tiedGroups > 0) {
+    notes.push(tiedGroups + ' group' + (tiedGroups === 1 ? '' : 's') + ' had two or more rows '
+      + 'sharing the same ' + config.orderColumn + '. The row kept was chosen by comparing the '
+      + 'remaining columns in table order, which gives the same answer every run but is arbitrary: '
+      + 'when two records genuinely share a timestamp, no rule recovers which one is current.');
+  }
+  if (undatedRows > 0) {
+    notes.push(undatedRows + ' row' + (undatedRows === 1 ? '' : 's') + ' had no readable value in '
+      + config.orderColumn + (dropUndated
+        ? ' and ' + (undatedRows === 1 ? 'was' : 'were') + ' dropped, as configured. That is a '
+          + 'deletion on the strength of an unreadable date, so it is worth confirming those rows '
+          + 'were not simply mistyped.'
+        : '. They cannot be the ' + word + ' record, so they never win a group that has a dated '
+          + 'row. A group where every row is undated still keeps one, rather than losing the '
+          + 'entity entirely.'));
+  }
+  if (withCount) {
+    notes.push('The rows_dropped column says how many rows each kept row stands for. A value above '
+      + 'zero means that row is a survivor rather than a sole record, which is the difference '
+      + 'between "one customer" and "one customer, three times".');
+  }
+  notes.push('Counts over this table now mean something different: one row per '
+    + keys.join(', ') + ' rather than one row per record. A sum of a value column will be smaller, '
+    + 'correctly if the duplicates were duplicates, and wrongly if they were separate events.');
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: outRows.length,
+      groups: ordered.length,
+      removed: removed,
+      conflictedGroups: conflictedGroups,
+      conflictColumns: conflictList,
+      tiedGroups: tiedGroups,
+      undatedRows: undatedRows,
+      droppedUndated: droppedUndated,
+      pick: pick,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. Leads with what is removed, because
+    this transform's consequence is a deletion. */
+function describeKeepMostRecent(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is nothing to de-duplicate.';
+  if (!s.removed) {
+    return 'No rows would be removed: each key appears once already.';
+  }
+  const conflict = s.conflictedGroups
+    ? ' ' + s.conflictedGroups + ' group' + (s.conflictedGroups === 1 ? '' : 's')
+      + ' had rows that disagreed with the one kept, so real values are discarded.'
+    : ' Every removed row was an exact match on its other columns.';
+  return s.rowsIn.toLocaleString() + ' rows become ' + s.rowsOut.toLocaleString() + ', removing '
+    + s.removed.toLocaleString() + ' row' + (s.removed === 1 ? '' : 's') + '.' + conflict;
+}
+  window.DataGlowKeepMostRecent = {
+    KEEP_MOST_RECENT_VERSION: KEEP_MOST_RECENT_VERSION,
+    KEEP_PICKS: KEEP_PICKS,
+    KEEP_PICK_LABELS: KEEP_PICK_LABELS,
+    UNDATED_MODES: UNDATED_MODES,
+    UNDATED_LABELS: UNDATED_LABELS,
+    createEmptyKeepConfig: createEmptyKeepConfig,
+    suggestKeepConfig: suggestKeepConfig,
+    validateKeepConfig: validateKeepConfig,
+    comparableColumns: comparableColumns,
+    buildKeepMostRecentSQL: buildKeepMostRecentSQL,
+    keepMostRecentTransform: keepMostRecentTransform,
+    describeKeepMostRecent: describeKeepMostRecent,
+  };
+})();
+/* ---- end js/transforms/keep-most-recent.js ---- */
+/* ---- from js/transforms/data-glow-transforms-canvas.js ---- */
 ;(function () {
   'use strict';
 
   /*
-   * DATAGLOW - Bundle 6 canvas wire: Time and joins
+   * DATAGLOW - canvas wire for the table transforms
    *
-   * One calm panel over four pure engines (A18 prior period, A19 date range
-   * join, A20 first/last event, A24 as-of lookup). This file owns no analysis:
-   * every number and every sentence it shows comes from an engine in
-   * js/transforms/, so the panel and a Node test cannot disagree.
+   * One calm panel over ten pure engines in js/transforms/. This file owns no
+   * analysis: every number and every sentence it shows comes from an engine, so
+   * the panel and a Node test cannot disagree.
+   *
+   * WHY TWO GROUPS AND NOT TEN TABS. Bundle 6 shipped four tabs in a flat row,
+   * which read fine. Ten would not: at 360px a ten-item row wraps to three lines
+   * of near-identical pills and picking the right one becomes a memory game. So
+   * the tabs are split by what a person came to do. Time and joins answers a
+   * question about dates. Shape and clean changes the shape of the table itself.
+   * That is one extra click to reach a tab and one fewer wrong tab opened.
    *
    * THE SHAPE IS THE HOUSE ONE. Finding first, proof under it, nothing applied
-   * until a person clicks twice. The second click is not ceremony: three of
-   * these four transforms change the row count of the loaded table, and A19 can
-   * multiply it. A person who has read "1,204 rows become 3,610" and then
-   * pressed Confirm has agreed to something specific.
+   * until a person clicks twice. The second click is not ceremony: most of these
+   * change the row count and three can multiply it. A person who has read
+   * "1,204 rows become 3,610" and then pressed Confirm has agreed to something
+   * specific.
+   *
+   * THE TRANSFORMS THAT MULTIPLY SHOW THE COUNT BEFORE THE RUN, NOT AFTER.
+   * Nested lists and daily rows can turn a small table into one a phone cannot
+   * hold. Their engines expose a preview that counts the output without building
+   * it, and the panel shows that count and its warnings above the run button, so
+   * the warning arrives while it is still free to change the settings.
    *
    * Each tab is behind its own flag and a tab whose flag is off is not rendered
-   * at all, so a disabled capability leaves no dead control behind.
+   * at all, so a disabled capability leaves no dead control behind. A group with
+   * no enabled tab is not offered either.
    */
 
-  var PANEL_ID = 'time-joins-view';
-  var BODY_ID = 'time-joins-body';
-  var BTN_ID = 'dg-time-joins-btn';
+  var PANEL_ID = 'transforms-view';
+  var BODY_ID = 'transforms-body';
+  var BTN_ID = 'dg-transforms-btn';
   var PREVIEW_ROWS = 12;
+  var NARROW_PX = 700;
 
-  var TABS = [
-    { id: 'prior', flag: 'priorPeriodCompare', label: 'Compare to prior period',
-      short: 'Prior period', two: false },
-    { id: 'range', flag: 'dateRangeJoin', label: 'Join on date range',
-      short: 'Date range', two: true },
-    { id: 'firstlast', flag: 'firstLastEvent', label: 'First or last event',
-      short: 'First / last', two: false },
-    { id: 'asof', flag: 'asOfLookup', label: 'As-of lookup',
-      short: 'As-of', two: true },
+  var GROUPS = [
+    { id: 'time', label: 'Time & joins', plain: 'Time and joins' },
+    { id: 'shape', label: 'Shape & clean', plain: 'Shape and clean' },
   ];
 
+  var TABS = [
+    { id: 'prior', group: 'time', flag: 'priorPeriodCompare',
+      label: 'Compare to prior period', short: 'Prior period' },
+    { id: 'range', group: 'time', flag: 'dateRangeJoin',
+      label: 'Join on date range', short: 'Date range' },
+    { id: 'firstlast', group: 'time', flag: 'firstLastEvent',
+      label: 'First or last event', short: 'First / last' },
+    { id: 'asof', group: 'time', flag: 'asOfLookup',
+      label: 'As-of lookup', short: 'As-of' },
+    { id: 'hierarchy', group: 'shape', flag: 'expandHierarchy',
+      label: 'Expand a hierarchy', short: 'Hierarchy' },
+    { id: 'nested', group: 'shape', flag: 'nestedToRows',
+      label: 'Nested lists into rows', short: 'Nested lists' },
+    { id: 'fill', group: 'shape', flag: 'fillMissingFlagged',
+      label: 'Fill blanks and flag them', short: 'Fill blanks' },
+    { id: 'daily', group: 'shape', flag: 'expandDailyRows',
+      label: 'Date range into daily rows', short: 'Daily rows' },
+    { id: 'bins', group: 'shape', flag: 'visualBinEditor',
+      label: 'Group a number into bands', short: 'Bands' },
+    { id: 'keep', group: 'shape', flag: 'keepMostRecent',
+      label: 'Keep the most recent per group', short: 'Keep recent' },
+  ];
+
+  var _group = null;
   var _tab = null;
   var _cfg = {};            // per tab config
   var _result = null;       // last engine result for the open tab
@@ -117583,7 +120580,7 @@ function describeAsOfLookup(result) {
     if (typeof window.showToast === 'function') {
       try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
     }
-    console.info('[Time and joins]', msg);
+    console.info('[Transforms]', msg);
   }
 
   function flagOn(name) {
@@ -117599,12 +120596,30 @@ function describeAsOfLookup(result) {
     return TABS.filter(function (t) { return flagOn(t.flag); });
   }
 
+  function tabsInGroup(groupId) {
+    return enabledTabs().filter(function (t) { return t.group === groupId; });
+  }
+
+  function enabledGroups() {
+    return GROUPS.filter(function (g) { return tabsInGroup(g.id).length > 0; });
+  }
+
+  function isNarrow() {
+    try { return window.innerWidth > 0 && window.innerWidth < NARROW_PX; } catch (_e) { return false; }
+  }
+
   function engines() {
     return {
       prior: window.DataGlowPriorPeriod || null,
       range: window.DataGlowDateRangeJoin || null,
       firstlast: window.DataGlowFirstLastEvent || null,
       asof: window.DataGlowAsOfLookup || null,
+      hierarchy: window.DataGlowExpandHierarchy || null,
+      nested: window.DataGlowNestedToRows || null,
+      fill: window.DataGlowFillMissing || null,
+      daily: window.DataGlowExpandDateRange || null,
+      bins: window.DataGlowBinEditor || null,
+      keep: window.DataGlowKeepMostRecent || null,
     };
   }
 
@@ -117665,6 +120680,19 @@ function describeAsOfLookup(result) {
       }
     } else if (tabId === 'asof' && eng.asof) {
       _cfg.asof = eng.asof.suggestAsOfConfig(ds, other);
+    } else if (tabId === 'hierarchy' && eng.hierarchy) {
+      _cfg.hierarchy = eng.hierarchy.suggestHierarchyConfig(ds);
+    } else if (tabId === 'nested' && eng.nested) {
+      _cfg.nested = eng.nested.suggestNestedConfig(ds);
+      if (!_cfg.nested.listColumn && names.length) _cfg.nested.listColumn = names[0];
+    } else if (tabId === 'fill' && eng.fill) {
+      _cfg.fill = eng.fill.suggestFillConfig(ds);
+    } else if (tabId === 'daily' && eng.daily) {
+      _cfg.daily = eng.daily.suggestDateRangeConfig(ds);
+    } else if (tabId === 'bins' && eng.bins) {
+      _cfg.bins = eng.bins.suggestBinConfig(ds);
+    } else if (tabId === 'keep' && eng.keep) {
+      _cfg.keep = eng.keep.suggestKeepConfig(ds);
     }
     return _cfg[tabId] || null;
   }
@@ -117677,7 +120705,7 @@ function describeAsOfLookup(result) {
     panel = document.createElement('div');
     panel.id = PANEL_ID;
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', 'Time and joins');
+    panel.setAttribute('aria-label', 'Table transforms');
     panel.style.cssText = [
       'position:fixed', 'top:0', 'right:0', 'height:100%', 'width:min(480px,100%)',
       'background:var(--surface,#141518)', 'color:var(--text,#E8E8E8)',
@@ -117689,7 +120717,7 @@ function describeAsOfLookup(result) {
       '<div style="width:36px;height:4px;border-radius:2px;background:var(--border,#2A2C31);margin:10px auto 0;flex-shrink:0"></div>'
       + '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;border-bottom:1px solid var(--border,#2A2C31);gap:10px;flex-shrink:0">'
       +   '<div style="min-width:0">'
-      +     '<div style="font-weight:800;font-size:15px">Time and joins</div>'
+      +     '<div style="font-weight:800;font-size:15px">Transforms</div>'
       +     '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:2px">On-device. Nothing changes until you confirm.</div>'
       +   '</div>'
       +   '<button type="button" data-tj-close style="min-height:44px;min-width:44px;border:none;background:transparent;color:var(--text-muted,#8A8F98);font-size:22px;cursor:pointer;border-radius:10px" aria-label="Close">&times;</button>'
@@ -117754,6 +120782,30 @@ function describeAsOfLookup(result) {
           + 'border:1px solid ' + (on ? 'rgba(32,197,181,.4)' : 'var(--border,#2A2C31)') + '">'
           + esc(o.label) + '</button>';
       }).join('') + '</div>';
+  }
+
+  function textInput(key, value, placeholder) {
+    return '<input type="text" data-tj-field="' + esc(key) + '" value="' + esc(value == null ? '' : value)
+      + '" placeholder="' + esc(placeholder || '') + '" style="width:100%;min-height:44px;font-size:13px;'
+      + 'padding:8px 10px;margin-bottom:10px;border-radius:8px;background:var(--surface,#141518);'
+      + 'color:var(--text,#E8E8E8);border:1px solid var(--border,#2A2C31)">';
+  }
+
+  function numberInput(key, value, min, max) {
+    return '<input type="number" data-tj-num="' + esc(key) + '" value="' + esc(value == null ? '' : value)
+      + '" min="' + esc(min) + '" max="' + esc(max) + '" style="width:100%;min-height:44px;font-size:13px;'
+      + 'padding:8px 10px;margin-bottom:10px;border-radius:8px;background:var(--surface,#141518);'
+      + 'color:var(--text,#E8E8E8);border:1px solid var(--border,#2A2C31)">';
+  }
+
+  function hint(text) {
+    return '<div style="font-size:11px;color:var(--text-muted,#8A8F98);line-height:1.5;margin-top:4px">'
+      + esc(text) + '</div>';
+  }
+
+  function warnLine(text) {
+    return '<div style="font-size:12px;color:var(--flag,#F5A623);line-height:1.5;margin-bottom:6px">'
+      + esc(text) + '</div>';
   }
 
   function secondTablePicker() {
@@ -117852,7 +120904,197 @@ function describeAsOfLookup(result) {
           + 'Leave empty to bring every column that is not a key or the effective date. '
           + 'Each arrives with an _asof suffix, so it cannot be mistaken for a current value.</div>');
     }
+    if (tabId === 'hierarchy') {
+      var byPath = cfg.source === 'path';
+      return card(label('How the hierarchy is written')
+        + segmented('source', [
+          { value: 'edges', label: 'A parent column' },
+          { value: 'path', label: 'A path column' },
+        ], cfg.source || 'edges')
+        + hint(byPath
+          ? 'Each row carries its whole line of ancestors in one column, split by a separator.'
+          : 'Each row names its own parent, and the chain is followed from the roots down.'))
+        + (byPath
+          ? card(label('Path column') + select('pathColumn', names, cfg.pathColumn, false)
+            + label('Separator') + textInput('pathDelimiter', cfg.pathDelimiter || '/', '/'))
+          : card(label('Node column') + select('nodeColumn', names, cfg.nodeColumn, false)
+            + label('Parent column') + select('parentColumn', names, cfg.parentColumn, false)))
+        + card(label('Add')
+          + toggleRow('includePath', 'The full path to each node', cfg.includePath !== false)
+          + toggleRow('includeIsLeaf', 'Whether a node has children', cfg.includeIsLeaf !== false)
+          + toggleRow('includeRoot', 'The root each node sits under', cfg.includeRoot !== false)
+          + hint('A node caught in a loop is reported with no depth rather than followed forever.'));
+    }
+
+    if (tabId === 'nested') {
+      var srcLabels = (eng.nested && eng.nested.NESTED_SOURCE_LABELS) || {};
+      var showDelim = (cfg.source || 'auto') !== 'json';
+      return card(label('The column holding the lists') + select('listColumn', names, cfg.listColumn, false))
+        + card(label('How to read it')
+          + segmented('source', [
+            { value: 'auto', label: srcLabels.auto || 'Work it out' },
+            { value: 'json', label: srcLabels.json || 'JSON array' },
+            { value: 'delimited', label: srcLabels.delimited || 'Separated text' },
+          ], cfg.source || 'auto')
+          + (showDelim ? label('Separator') + textInput('delimiter', cfg.delimiter || ',', ',') : ''))
+        + card(label('Result')
+          + toggleRow('includeIndex', 'Number each element within its row', cfg.includeIndex !== false)
+          + toggleRow('trimElements', 'Trim spaces around each element', cfg.trimElements !== false)
+          + segmented('emptyHandling', [
+            { value: 'keep', label: 'Keep rows with an empty list' },
+            { value: 'drop', label: 'Drop them' },
+          ], cfg.emptyHandling || 'keep')
+          + hint('Keeping them is the default because a plain UNNEST drops those rows silently, '
+            + 'and a row vanishing from a count is harder to notice than a blank cell.'));
+    }
+
+    if (tabId === 'fill') {
+      var byConstant = cfg.mode === 'constant';
+      var suffix = (eng.fill && eng.fill.FILLED_SUFFIX) || '_was_filled';
+      return card(label('Columns to fill') + multiPick('targetColumns', names, cfg.targetColumns || []))
+        + card(label('Fill with')
+          + segmented('mode', [
+            { value: 'forward', label: 'The last value above' },
+            { value: 'constant', label: 'A value I choose' },
+          ], cfg.mode || 'forward')
+          + (byConstant
+            ? label('Value') + textInput('constantValue', cfg.constantValue, 'unknown')
+            : label('Read the rows in this order') + select('orderColumn', names, cfg.orderColumn, false)
+              + label('Carry forward within each (optional)')
+              + multiPick('groupColumns', names, cfg.groupColumns || [])
+              + label('Stop after this many rows (0 for no limit)')
+              + numberInput('limit', cfg.limit || 0, 0, 100000)))
+        + card('<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);line-height:1.5">'
+          + 'Every column filled here gets a companion ' + esc(suffix) + ' column marking which '
+          + 'cells were invented. That column is not optional: a filled value that looks like a '
+          + 'measured one is the reason this transform is dangerous.</div>');
+    }
+
+    if (tabId === 'daily') {
+      var byAsAt = cfg.openEnd === 'asAt';
+      return card(label('Start date') + select('startColumn', names, cfg.startColumn, false)
+        + label('End date') + select('endColumn', names, cfg.endColumn, false))
+        + card(label('New column name') + textInput('dayColumn', cfg.dayColumn || 'day', 'day')
+          + toggleRow('includeDayIndex', 'Number the days within each range', cfg.includeDayIndex !== false)
+          + toggleRow('includeSpanDays', 'Add the length of the range', !!cfg.includeSpanDays)
+          + toggleRow('endInclusive', 'The end date counts as a day', cfg.endInclusive !== false))
+        + card(label('Rows with no end date')
+          + segmented('openEnd', [
+            { value: 'skip', label: 'Leave them out' },
+            { value: 'asAt', label: 'Run them to a date' },
+          ], cfg.openEnd || 'skip')
+          + (byAsAt ? textInput('asAtDate', cfg.asAtDate, 'YYYY-MM-DD') : '')
+          + hint('There is no "up to today" option on purpose: a table built that way gives a '
+            + 'different answer every time it is built.'));
+    }
+
+    if (tabId === 'bins') {
+      var custom = cfg.mode === 'custom';
+      return card(label('Column') + select('column', names, cfg.column, false))
+        + card(label('Bands')
+          + segmented('mode', [
+            { value: 'equalWidth', label: 'Same width' },
+            { value: 'custom', label: 'Edges I choose' },
+          ], cfg.mode || 'equalWidth')
+          + (custom
+            ? label('Edges, lowest first') + textInput('edgesText', edgesText(cfg), '0, 10, 50, 100')
+            : label('How many bands') + numberInput('binCount', cfg.binCount || 10, 2, 100)))
+        + histogramCard()
+        + card(label('Result')
+          + toggleRow('keepOriginal', 'Keep the original number column', cfg.keepOriginal !== false)
+          + toggleRow('includeBinIndex', 'Add the band number', cfg.includeBinIndex !== false)
+          + hint('Bands are half-open: a value equal to an edge belongs to the band above it, and '
+            + 'only the top band includes its own upper edge.'));
+    }
+
+    if (tabId === 'keep') {
+      return card(label('Rows are the same thing when these match')
+        + multiPick('keyColumns', names, cfg.keyColumns || []))
+        + card(label('More recent means a later') + select('orderColumn', names, cfg.orderColumn, false)
+          + segmented('pick', [
+            { value: 'newest', label: 'Keep the newest' },
+            { value: 'oldest', label: 'Keep the oldest' },
+          ], cfg.pick || 'newest'))
+        + card(label('Rows with no readable date')
+          + segmented('undated', [
+            { value: 'keep', label: 'Keep them' },
+            { value: 'drop', label: 'Drop them' },
+          ], cfg.undated || 'keep')
+          + toggleRow('includeDroppedCount', 'Say how many rows each kept row stands for',
+            cfg.includeDroppedCount !== false)
+          + hint('This deletes rows. Rows sharing a key are only duplicates if they agree on '
+            + 'their other columns, and the result names the columns where they did not.'));
+    }
+
     return '';
+  }
+
+  /** The custom edges as the text a person types, so the field round-trips. */
+  function edgesText(cfg) {
+    var edges = Array.isArray(cfg && cfg.edges) ? cfg.edges : [];
+    return edges.join(', ');
+  }
+
+  /**
+   * The histogram, drawn from the engine's own counts rather than from a second
+   * pass over the rows. If the bars and the applied bands could disagree, the
+   * picture would be the thing people trusted and the wrong one.
+   */
+  function histogramCard() {
+    var eng = engines();
+    var ds = activeDataset();
+    var cfg = _cfg.bins;
+    if (!eng.bins || !ds || !cfg || !cfg.column) return '';
+    var counted;
+    try { counted = eng.bins.binCounts(ds, cfg); } catch (_e) { return ''; }
+    if (!counted || !counted.ok) {
+      return card(label('Bands') + warnLine(counted && counted.error ? counted.error
+        : 'These bands cannot be drawn yet.'));
+    }
+    var most = counted.counts.reduce(function (a, b) { return b > a ? b : a; }, 0) || 1;
+    var bars = counted.counts.map(function (n, i) {
+      var pct = Math.round((n / most) * 100);
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
+        + '<div style="flex:0 0 96px;font-size:10px;color:var(--text-muted,#8A8F98);'
+        + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(counted.labels[i]) + '</div>'
+        + '<div style="flex:1;height:12px;background:var(--surface,#141518);border-radius:3px;overflow:hidden">'
+        + '<div style="height:100%;width:' + pct + '%;background:var(--primary,#20C5B5);opacity:.75"></div></div>'
+        + '<div style="flex:0 0 40px;text-align:right;font-size:10px;color:var(--text-secondary,#B4B8C0)">'
+        + n + '</div></div>';
+    }).join('');
+    var warn = (counted.warnings || []).map(warnLine).join('');
+    return card(label('How the rows fall') + bars + (warn ? '<div style="margin-top:8px">' + warn + '</div>' : ''));
+  }
+
+  /**
+   * The row count before the run, for the two transforms that can multiply a
+   * table. Shown above the run button rather than beside the result, because a
+   * warning that arrives after the browser has already built two million rows
+   * has warned nobody.
+   */
+  function previewCard(tabId) {
+    var eng = engines();
+    var ds = activeDataset();
+    var cfg = _cfg[tabId];
+    if (!ds || !cfg) return '';
+    var p = null;
+    try {
+      if (tabId === 'nested' && eng.nested) p = eng.nested.previewNestedToRows(ds, cfg);
+      if (tabId === 'daily' && eng.daily) p = eng.daily.previewExpandDateRange(ds, cfg, { narrow: isNarrow() });
+    } catch (_e) { return ''; }
+    if (!p) return '';
+    if (!p.ok) return card(label('Before you run this') + warnLine(p.error));
+
+    var line = p.rowsIn + ' row' + (p.rowsIn === 1 ? '' : 's') + ' would become '
+      + p.rowsOut.toLocaleString() + '.';
+    var warns = (p.warnings || []).map(warnLine).join('');
+    var blocked = p.overCap
+      ? warnLine('This will not run at that size. Narrow the table or the range first, and nothing '
+        + 'will be changed in the meantime.')
+      : '';
+    return card(label('Before you run this')
+      + '<div style="font-size:13px;font-weight:600;line-height:1.45;margin-bottom:8px">'
+      + esc(line) + '</div>' + warns + blocked);
   }
 
   function keyPairEditor(cfg, leftNames, rightNames) {
@@ -117899,6 +121141,12 @@ function describeAsOfLookup(result) {
       if (_tab === 'firstlast' && eng.firstlast) return eng.firstlast.firstLastEventTransform(ds, cfg);
       if (_tab === 'range' && eng.range) return eng.range.dateRangeJoinTransform(ds, other, cfg);
       if (_tab === 'asof' && eng.asof) return eng.asof.asOfLookupTransform(ds, other, cfg);
+      if (_tab === 'hierarchy' && eng.hierarchy) return eng.hierarchy.expandHierarchyTransform(ds, cfg);
+      if (_tab === 'nested' && eng.nested) return eng.nested.nestedToRowsTransform(ds, cfg);
+      if (_tab === 'fill' && eng.fill) return eng.fill.fillMissingTransform(ds, cfg);
+      if (_tab === 'daily' && eng.daily) return eng.daily.expandDateRangeTransform(ds, cfg);
+      if (_tab === 'bins' && eng.bins) return eng.bins.binColumnTransform(ds, cfg);
+      if (_tab === 'keep' && eng.keep) return eng.keep.keepMostRecentTransform(ds, cfg);
     } catch (e) {
       return { ok: false, error: 'This did not run: ' + (e && e.message ? e.message : 'unknown error') };
     }
@@ -117912,6 +121160,12 @@ function describeAsOfLookup(result) {
       if (_tab === 'firstlast' && eng.firstlast) return eng.firstlast.describeFirstLast(result, _cfg.firstlast);
       if (_tab === 'range' && eng.range) return eng.range.describeDateRangeJoin(result);
       if (_tab === 'asof' && eng.asof) return eng.asof.describeAsOfLookup(result);
+      if (_tab === 'hierarchy' && eng.hierarchy) return eng.hierarchy.describeHierarchy(result);
+      if (_tab === 'nested' && eng.nested) return eng.nested.describeNestedToRows(result);
+      if (_tab === 'fill' && eng.fill) return eng.fill.describeFillMissing(result);
+      if (_tab === 'daily' && eng.daily) return eng.daily.describeExpandDateRange(result);
+      if (_tab === 'bins' && eng.bins) return eng.bins.describeBinColumn(result);
+      if (_tab === 'keep' && eng.keep) return eng.keep.describeKeepMostRecent(result);
     } catch (_e) {}
     return result && result.ok ? (result.rows.length + ' rows.') : 'This did not run.';
   }
@@ -117994,7 +121248,7 @@ function describeAsOfLookup(result) {
           + 'font-weight:700;border-radius:10px;background:var(--surface,#141518);'
           + 'color:var(--text,#E8E8E8);border:1px solid var(--border,#2A2C31);cursor:pointer">'
           + 'Apply to the loaded table</button>')
-      + (activeDataset() && activeDataset()._timeJoinSnapshot
+      + (activeDataset() && activeDataset()._transformSnapshot
         ? '<button type="button" data-tj-undo style="width:100%;min-height:44px;margin-top:8px;'
           + 'font-size:12px;border-radius:10px;background:transparent;color:var(--text-secondary,#B4B8C0);'
           + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Undo the last apply</button>'
@@ -118007,12 +121261,30 @@ function describeAsOfLookup(result) {
   function renderBody() {
     var body = document.getElementById(BODY_ID);
     if (!body) return;
-    var tabs = enabledTabs();
-    if (!tabs.length) { body.innerHTML = ''; return; }
+    var groups = enabledGroups();
+    if (!groups.length) { body.innerHTML = ''; return; }
+    if (!_group || !groups.some(function (g) { return g.id === _group; })) _group = groups[0].id;
+
+    var tabs = tabsInGroup(_group);
     if (!_tab || !tabs.some(function (t) { return t.id === _tab; })) _tab = tabs[0].id;
 
     var ds = activeDataset();
-    var nav = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">'
+
+    // The group switch is only worth its space when there is a choice to make.
+    var groupNav = groups.length < 2 ? ''
+      : '<div style="display:flex;gap:6px;margin-bottom:10px">'
+        + groups.map(function (g) {
+          var on = g.id === _group;
+          return '<button type="button" data-tj-group="' + esc(g.id) + '" '
+            + 'style="flex:1 1 50%;min-height:42px;font-size:12px;font-weight:700;padding:8px 6px;'
+            + 'border-radius:10px;cursor:pointer;'
+            + 'background:' + (on ? 'var(--primary,#20C5B5)' : 'var(--surface-2,#1A1C20)') + ';'
+            + 'color:' + (on ? '#08292A' : 'var(--text-secondary,#B4B8C0)') + ';'
+            + 'border:1px solid ' + (on ? 'var(--primary,#20C5B5)' : 'var(--border,#2A2C31)') + '">'
+            + esc(g.label) + '</button>';
+        }).join('') + '</div>';
+
+    var nav = groupNav + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">'
       + tabs.map(function (t) {
         var on = t.id === _tab;
         return '<button type="button" data-tj-tab="' + t.id + '" '
@@ -118026,9 +121298,10 @@ function describeAsOfLookup(result) {
 
     if (!ds) {
       body.innerHTML = nav + card('<div style="font-size:13px;color:var(--text-muted,#8A8F98);line-height:1.5">'
-        + 'Load a table and these four transforms become available. Each one exists to stop a '
-        + 'specific wrong number: comparing across a gap in the calendar, a range join that quietly '
-        + 'doubles a total, a tie that picks a different row every run, and today\'s price on an old sale.'
+        + 'Load a table and these transforms become available. Each one exists to stop a specific '
+        + 'wrong number: comparing across a gap in the calendar, a join that quietly doubles a '
+        + 'total, a tie that picks a different row every run, a filled blank that reads like a '
+        + 'measurement, and a de-duplication that threw away a fact.'
         + '</div>');
       wire();
       return;
@@ -118040,7 +121313,7 @@ function describeAsOfLookup(result) {
       + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-bottom:12px">'
       + esc(ds.name || 'the loaded table') + '</div>';
 
-    body.innerHTML = nav + head + formFor(_tab, ds)
+    body.innerHTML = nav + head + formFor(_tab, ds) + previewCard(_tab)
       + '<button type="button" data-tj-run style="width:100%;min-height:44px;font-size:13px;font-weight:700;'
       + 'border-radius:10px;background:var(--surface-2,#1A1C20);color:var(--text,#E8E8E8);'
       + 'border:1px solid var(--border,#2A2C31);cursor:pointer;margin-bottom:12px">Show me the result</button>'
@@ -118051,6 +121324,25 @@ function describeAsOfLookup(result) {
   function wire() {
     var body = document.getElementById(BODY_ID);
     if (!body) return;
+
+    body.querySelectorAll('[data-tj-group]').forEach(function (el) {
+      el.onclick = function () {
+        _group = el.getAttribute('data-tj-group');
+        _tab = null;
+        _pendingConfirm = false;
+        renderBody();
+      };
+    });
+
+    body.querySelectorAll('[data-tj-num]').forEach(function (el) {
+      el.onchange = function () {
+        var cfg = _cfg[_tab];
+        if (!cfg) return;
+        var n = Number(el.value);
+        cfg[el.getAttribute('data-tj-num')] = Number.isFinite(n) ? n : 0;
+        invalidate();
+      };
+    });
 
     body.querySelectorAll('[data-tj-tab]').forEach(function (el) {
       el.onclick = function () {
@@ -118064,7 +121356,15 @@ function describeAsOfLookup(result) {
       el.onchange = function () {
         var cfg = _cfg[_tab];
         if (!cfg) return;
-        cfg[el.getAttribute('data-tj-field')] = el.value;
+        var key = el.getAttribute('data-tj-field');
+        // The edges field is typed as text and stored as numbers, so the engine
+        // never has to guess what "0, 10, 50" meant.
+        if (key === 'edgesText') {
+          var eng = engines();
+          cfg.edges = eng.bins ? eng.bins.normalizeEdges(el.value) : [];
+        } else {
+          cfg[key] = el.value;
+        }
         invalidate();
       };
     });
@@ -118193,7 +121493,7 @@ function describeAsOfLookup(result) {
     var ds = activeDataset();
     if (!ds || !_result || !_result.ok) { toast('Nothing to apply', 'warn'); return; }
     try {
-      ds._timeJoinSnapshot = {
+      ds._transformSnapshot = {
         columns: JSON.parse(JSON.stringify(ds.columns || [])),
         rows: JSON.parse(JSON.stringify(ds.rows || [])),
       };
@@ -118204,8 +121504,9 @@ function describeAsOfLookup(result) {
 
     try {
       if (window.ProvenanceFabric && typeof window.ProvenanceFabric.append === 'function') {
-        window.ProvenanceFabric.append('time_join_transform', {
+        window.ProvenanceFabric.append('table_transform', {
           transform: _tab,
+          group: _group,
           rowsIn: (_result.stats && _result.stats.rowsIn) || 0,
           rowsOut: _result.rows.length,
           notes: (_result.notes || []).length,
@@ -118220,10 +121521,10 @@ function describeAsOfLookup(result) {
 
   function doUndo() {
     var ds = activeDataset();
-    if (!ds || !ds._timeJoinSnapshot) { toast('Nothing to undo', 'warn'); return; }
-    ds.columns = ds._timeJoinSnapshot.columns;
-    ds.rows = ds._timeJoinSnapshot.rows;
-    delete ds._timeJoinSnapshot;
+    if (!ds || !ds._transformSnapshot) { toast('Nothing to undo', 'warn'); return; }
+    ds.columns = ds._transformSnapshot.columns;
+    ds.rows = ds._transformSnapshot.rows;
+    delete ds._transformSnapshot;
     _cfg = {};
     invalidate();
     notifyDatasetChanged(ds);
@@ -118233,7 +121534,7 @@ function describeAsOfLookup(result) {
   function notifyDatasetChanged(ds) {
     try {
       document.dispatchEvent(new CustomEvent('dataglow:dataset-updated',
-        { detail: { dataset: ds, source: 'time-joins' } }));
+        { detail: { dataset: ds, source: 'transforms' } }));
     } catch (_e) {}
     try {
       if (typeof window.renderGrid === 'function') window.renderGrid(ds);
@@ -118262,8 +121563,8 @@ function describeAsOfLookup(result) {
     var btn = document.createElement('button');
     btn.id = BTN_ID;
     btn.type = 'button';
-    btn.setAttribute('aria-label', 'Open time and joins');
-    btn.title = 'Time and joins: prior period, date range join, first or last event, as-of lookup';
+    btn.setAttribute('aria-label', 'Open table transforms');
+    btn.title = enabledGroups().map(function (g) { return g.plain; }).join(', ');
     btn.style.cssText = [
       'display:inline-flex', 'align-items:center', 'gap:7px', 'min-height:38px',
       'padding:0 13px', 'border:1px solid var(--border,#2A2C31)', 'border-radius:10px',
@@ -118271,7 +121572,7 @@ function describeAsOfLookup(result) {
       'font-size:13px', 'font-weight:600', 'cursor:pointer'
     ].join(';');
     btn.innerHTML = '<span aria-hidden="true" style="width:8px;height:8px;border-radius:50%;'
-      + 'background:var(--primary,#20C5B5);display:inline-block"></span><span>Time &amp; joins</span>';
+      + 'background:var(--primary,#20C5B5);display:inline-block"></span><span>Transforms</span>';
     btn.addEventListener('click', function () {
       var panel = document.getElementById(PANEL_ID);
       if (panel && panel.style.transform === 'translateX(0px)') closePanel();
@@ -118288,7 +121589,8 @@ function describeAsOfLookup(result) {
 
   function boot() {
     // No enabled tab means no engine a person could use, so nothing mounts and
-    // no dead control is left behind.
+    // no dead control is left behind. This is what makes the flags honest: a
+    // flag that is off leaves no button, no panel and no global.
     if (!enabledTabs().length) return;
     injectButton();
     ensurePanel();
@@ -118296,10 +121598,11 @@ function describeAsOfLookup(result) {
     document.addEventListener('dataglow:dataset-loaded', function () { _cfg = {}; invalidate(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanel(); });
 
-    window.DataGlowTimeJoinsUI = {
-      version: 1,
+    window.DataGlowTransformsUI = {
+      version: 2,
       openPanel: openPanel,
       closePanel: closePanel,
+      groups: enabledGroups().map(function (g) { return g.id; }),
       tabs: enabledTabs().map(function (t) { return t.id; }),
       getConfig: function () { return _cfg; },
       getResult: function () { return _result; },
@@ -118312,7 +121615,7 @@ function describeAsOfLookup(result) {
     setTimeout(boot, 750);
   }
 })();
-/* ---- end js/transforms/data-glow-time-joins-canvas.js ---- */
+/* ---- end js/transforms/data-glow-transforms-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

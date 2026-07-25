@@ -1,6 +1,6 @@
 {
-  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and \u2014 for the identity-defining modules \u2014 a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list \u2014 a subset of [\"browser\",\"desktop\",\"mobile\"] \u2014 read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API \u2014 see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
+  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -952,7 +952,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "AI Touch Ledger (Batch 1 + Batch 2 \u2014 wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
+      "name": "AI Touch Ledger (Batch 1 + Batch 2 — wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
       "files": [
         "js/provenance/ai-touch-ledger.js",
         "js/narrative/story.js",
@@ -983,7 +983,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Query Memory (Batch 2 \u2014 SQL/Python/R wiring + \"seen before\" badge)",
+      "name": "Query Memory (Batch 2 — SQL/Python/R wiring + \"seen before\" badge)",
       "files": [
         "js/provenance/query-memory.js",
         "js/provenance/query-memory-ui.js"
@@ -1044,7 +1044,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Portable Receipts \u2014 per-artifact lineage stamp",
+      "name": "Portable Receipts — per-artifact lineage stamp",
       "files": [
         "js/provenance/portable-receipt.js"
       ],
@@ -1074,7 +1074,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet \u2014 data blame + de-identification verifier",
+      "name": "Provenance Packet — data blame + de-identification verifier",
       "files": [
         "js/provenance/data-blame.js",
         "js/provenance/deidentification-verifier.js"
@@ -1161,7 +1161,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) \u2014 first genuine zero-knowledge proof in DataGlow",
+      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) — first genuine zero-knowledge proof in DataGlow",
       "files": [
         "js/provenance/zk-threshold-proof.js"
       ],
@@ -1213,7 +1213,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 2) \u2014 denial root-cause profiler + cost-of-bad-data quantifier",
+      "name": "Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier",
       "files": [
         "js/provenance/denial-root-cause.js",
         "js/provenance/cost-of-bad-data.js"
@@ -1327,7 +1327,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 3) \u2014 portable signed .dataglow packet format (export/import)",
+      "name": "Provenance Packet (Batch 3) — portable signed .dataglow packet format (export/import)",
       "files": [
         "js/provenance/provenance-packet.js"
       ],
@@ -1351,7 +1351,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Institutional Memory Layer \u2014 decision log, timeline, provenance hash",
+      "name": "Institutional Memory Layer — decision log, timeline, provenance hash",
       "files": [
         "js/memory/institutional-memory.js"
       ],
@@ -1451,7 +1451,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Proof Export \u2014 .proof bundle, four-hash integrity chain (Feature 12)",
+      "name": "Proof Export — .proof bundle, four-hash integrity chain (Feature 12)",
       "files": [
         "js/proof/proof-builder.js"
       ],
@@ -1878,7 +1878,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1)",
+      "name": "Cleaning Crew — Profiler station (PDF text extraction, Batch 1)",
       "files": [
         "js/cleaning-crew/pdf-profiler.js"
       ],
@@ -2201,7 +2201,7 @@
     {
       "id": "pack-builder-ui",
       "area": "Conversational pack builder",
-      "name": "Guided pack builder \u2014 Validate-tab UI wiring",
+      "name": "Guided pack builder — Validate-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2338,7 +2338,7 @@
     {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
-      "name": "Meeting scribe \u2014 Meeting-tab UI wiring",
+      "name": "Meeting scribe — Meeting-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2444,7 +2444,7 @@
     {
       "id": "meeting-decision-ledger-ui",
       "area": "Meeting scribe",
-      "name": "Meeting decision ledger \u2014 Meeting-tab browse/save UI wiring",
+      "name": "Meeting decision ledger — Meeting-tab browse/save UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2764,7 +2764,7 @@
     {
       "id": "data-diplomacy-ui",
       "area": "Data Diplomacy",
-      "name": "Data Diplomacy \u2014 two-key panel UI (Batch 2)",
+      "name": "Data Diplomacy — two-key panel UI (Batch 2)",
       "platforms": [
         "browser",
         "desktop"
@@ -2792,7 +2792,7 @@
     {
       "id": "agent-action-firewall",
       "area": "Provenance, audit & trust",
-      "name": "Agent Action Firewall \u2014 human-confirmation gate for data mutations",
+      "name": "Agent Action Firewall — human-confirmation gate for data mutations",
       "platforms": [
         "browser",
         "desktop"
@@ -2826,7 +2826,7 @@
     {
       "id": "guarded-copilot",
       "area": "Provenance, audit & trust",
-      "name": "Guarded Copilot (Batch 2) \u2014 read-only, lineage-citing chat core + chat panel UI",
+      "name": "Guarded Copilot (Batch 2) — read-only, lineage-citing chat core + chat panel UI",
       "platforms": [
         "browser",
         "desktop"
@@ -2951,7 +2951,7 @@
     {
       "id": "open-floor-sandbox-twin",
       "area": "Open Floor",
-      "name": "Open Floor Sandbox Twin \u2014 forkable disposable dataset copy; every mutation & promote firewall-gated",
+      "name": "Open Floor Sandbox Twin — forkable disposable dataset copy; every mutation & promote firewall-gated",
       "platforms": [
         "browser",
         "desktop"
@@ -2973,7 +2973,7 @@
     {
       "id": "query-sentinel",
       "area": "Validation layers",
-      "name": "Query Sentinel (Batch 1) \u2014 deterministic per-query SQL correctness verifier",
+      "name": "Query Sentinel (Batch 1) — deterministic per-query SQL correctness verifier",
       "platforms": [
         "browser",
         "desktop"
@@ -3017,7 +3017,7 @@
     {
       "id": "query-sentinel-assist",
       "area": "Validation layers",
-      "name": "Query Sentinel Assist (Batch 2) \u2014 bounded on-device explain & fix-suggest",
+      "name": "Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest",
       "platforms": [
         "browser",
         "desktop"
@@ -3047,7 +3047,7 @@
     {
       "id": "query-sentinel-bridge",
       "area": "Validation layers",
-      "name": "Query Sentinel Bridge (Batch 3, final) \u2014 FROM py./r. cross-runtime table resolver",
+      "name": "Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver",
       "platforms": [
         "browser",
         "desktop"
@@ -3077,7 +3077,7 @@
     {
       "id": "statistical-rigor-layer",
       "area": "Analysis robustness",
-      "name": "Statistical Rigor Layer (Batch 1) \u2014 confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
+      "name": "Statistical Rigor Layer (Batch 1) — confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
       "platforms": [
         "browser",
         "desktop"
@@ -3117,7 +3117,7 @@
     {
       "id": "narrative-overconfidence-guard",
       "area": "Analysis robustness",
-      "name": "Narrative Overconfidence Guard \u2014 verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
+      "name": "Narrative Overconfidence Guard — verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
       "platforms": [
         "browser",
         "desktop",
@@ -3246,7 +3246,7 @@
         "desktop"
       ],
       "area": "App shell & data engine",
-      "name": "DataGlow Grid formula bridge (Excel formula \u2194 DuckDB SQL, documentation/audit layer)",
+      "name": "DataGlow Grid formula bridge (Excel formula ↔ DuckDB SQL, documentation/audit layer)",
       "files": [
         "js/grid/formula-bridge.js"
       ],
@@ -4162,7 +4162,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Audio ingestion structurer (Whisper \u2192 structured transcript dataset)",
+      "name": "Audio ingestion structurer (Whisper → structured transcript dataset)",
       "files": [
         "js/audio/audio-structurer.js",
         "js/audio/whisper-worker.scaffold.js"
@@ -4224,7 +4224,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "PDF ingestion bridge (PDF.js \u2192 RAG pipeline)",
+      "name": "PDF ingestion bridge (PDF.js → RAG pipeline)",
       "files": [
         "js/pdf/pdf-ingestion-bridge.js",
         "js/pdf/pdfjs-extractor.scaffold.js"
@@ -4261,7 +4261,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Text / Log line parser \u2014 .txt and .log to queryable rows",
+      "name": "Text / Log line parser — .txt and .log to queryable rows",
       "files": [
         "js/ingestion/text-line-parser.js"
       ],
@@ -4289,7 +4289,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Semi-structured JSON flattener \u2014 nested JSON, FHIR bundles, API envelopes",
+      "name": "Semi-structured JSON flattener — nested JSON, FHIR bundles, API envelopes",
       "files": [
         "js/ingestion/json-flattener.js"
       ],
@@ -4317,7 +4317,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Live API / Webhook feed \u2014 REST endpoint fetch with polling, auto-normalization",
+      "name": "Live API / Webhook feed — REST endpoint fetch with polling, auto-normalization",
       "files": [
         "js/ingestion/api-feed.js"
       ],
@@ -4551,7 +4551,7 @@
         "mobile"
       ],
       "area": "Narrative & storytelling",
-      "name": "Question Prompter (Feature 13 \u2014 \"Where to start\" intelligence)",
+      "name": "Question Prompter (Feature 13 — \"Where to start\" intelligence)",
       "files": [
         "js/questions/question-prompter.js"
       ],
@@ -4600,7 +4600,7 @@
         "mobile"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Image OCR \u2014 Tesseract.js client-side text extraction from PNG/JPG/WEBP/BMP/GIF",
+      "name": "Image OCR — Tesseract.js client-side text extraction from PNG/JPG/WEBP/BMP/GIF",
       "files": [
         "js/ingestion/image-ocr.js"
       ],
@@ -4637,7 +4637,7 @@
         "mobile"
       ],
       "area": "Insight & discovery",
-      "name": "Instant Insight (PR AF \u2014 surfaces the single most interesting statistical finding on file load, zero LLM, pure heuristics)",
+      "name": "Instant Insight (PR AF — surfaces the single most interesting statistical finding on file load, zero LLM, pure heuristics)",
       "files": [
         "js/insight/insight-engine.js"
       ],
@@ -4658,7 +4658,7 @@
         "mobile"
       ],
       "area": "Sharing & collaboration",
-      "name": "Publish Button (PR AG \u2014 one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload)",
+      "name": "Publish Button (PR AG — one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload)",
       "files": [
         "js/publish/publish-engine.js"
       ],
@@ -4674,7 +4674,7 @@
     {
       "id": "chart-engine",
       "area": "Visualization",
-      "name": "Chart Layer (PR AI \u2014 auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
+      "name": "Chart Layer (PR AI — auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
       "platforms": [
         "browser",
         "desktop",
@@ -4695,7 +4695,7 @@
     {
       "id": "export-engine",
       "area": "Sharing & collaboration",
-      "name": "Export Everything (PR AJ \u2014 CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
+      "name": "Export Everything (PR AJ — CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
       "platforms": [
         "browser",
         "desktop",
@@ -4716,7 +4716,7 @@
     {
       "id": "column-editor",
       "area": "Data grid & editing",
-      "name": "Smart Column Editor (PR AK \u2014 inline rename, type cycle, add column with formula, clean-name suggestions)",
+      "name": "Smart Column Editor (PR AK — inline rename, type cycle, add column with formula, clean-name suggestions)",
       "platforms": [
         "browser",
         "desktop",
@@ -4737,7 +4737,7 @@
     {
       "id": "join-builder",
       "area": "Data grid & editing",
-      "name": "Multi-file Join Builder (PR AL \u2014 auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
+      "name": "Multi-file Join Builder (PR AL — auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
       "platforms": [
         "browser",
         "desktop",
@@ -4760,7 +4760,7 @@
     {
       "id": "anomaly-timeline",
       "area": "Validation & data quality",
-      "name": "Anomaly Timeline (PR AM \u2014 spike/drop/gap/duplicate/shift detection in the validation rail)",
+      "name": "Anomaly Timeline (PR AM — spike/drop/gap/duplicate/shift detection in the validation rail)",
       "platforms": [
         "browser",
         "desktop",
@@ -4781,7 +4781,7 @@
     {
       "id": "dashboard-engine",
       "area": "Visualization",
-      "name": "Dashboard View (PR AN \u2014 readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
+      "name": "Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
       "platforms": [
         "browser",
         "desktop",
@@ -4802,7 +4802,7 @@
     {
       "id": "canvas-grid",
       "area": "Data grid & editing",
-      "name": "High-Performance Canvas Grid (PR AO \u2014 pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
+      "name": "High-Performance Canvas Grid (PR AO — pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
       "platforms": [
         "browser",
         "desktop",
@@ -4823,7 +4823,7 @@
     {
       "id": "findings-rail",
       "area": "Validation & data quality",
-      "name": "Findings Rail (PR AU \u2014 ranked, plain-English insight cards above the dashboard KPI row)",
+      "name": "Findings Rail (PR AU — ranked, plain-English insight cards above the dashboard KPI row)",
       "platforms": [
         "browser",
         "desktop",
@@ -4844,7 +4844,7 @@
     {
       "id": "nl-engine",
       "area": "Query & analysis",
-      "name": "Natural Language to Everything (PR AH \u2014 plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
+      "name": "Natural Language to Everything (PR AH — plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
       "platforms": [
         "browser",
         "desktop",
@@ -4865,7 +4865,7 @@
     {
       "id": "sql-engine",
       "area": "Query & analysis",
-      "name": "Real SQL Engine (PR AO \u2014 SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
+      "name": "Real SQL Engine (PR AO — SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
       "platforms": [
         "browser",
         "desktop",
@@ -5381,7 +5381,7 @@
       "files": [
         "js/transforms/prior-period.js",
         "js/transforms/transform-core.js",
-        "js/transforms/data-glow-time-joins-canvas.js",
+        "js/transforms/data-glow-transforms-canvas.js",
         "test/time-join-transforms.test.mjs"
       ],
       "symbols": [
@@ -5420,7 +5420,7 @@
       "files": [
         "js/transforms/date-range-join.js",
         "js/transforms/transform-core.js",
-        "js/transforms/data-glow-time-joins-canvas.js",
+        "js/transforms/data-glow-transforms-canvas.js",
         "test/time-join-transforms.test.mjs"
       ],
       "symbols": [
@@ -5459,7 +5459,7 @@
       "files": [
         "js/transforms/first-last-event.js",
         "js/transforms/transform-core.js",
-        "js/transforms/data-glow-time-joins-canvas.js",
+        "js/transforms/data-glow-transforms-canvas.js",
         "test/time-join-transforms.test.mjs"
       ],
       "symbols": [
@@ -5498,7 +5498,7 @@
       "files": [
         "js/transforms/as-of-lookup.js",
         "js/transforms/transform-core.js",
-        "js/transforms/data-glow-time-joins-canvas.js",
+        "js/transforms/data-glow-transforms-canvas.js",
         "test/time-join-transforms.test.mjs"
       ],
       "symbols": [
@@ -5522,6 +5522,268 @@
       "notes": "For each fact row, the reference row with the greatest effective date at or before the fact's date, with an optional key. It prevents the most expensive error in this bundle: joining a sale to a price table on product id alone returns today's price, and today's price multiplied by last year's units is revenue that never happened, in a number that looks completely ordinary and will be quoted in a meeting. Three refusals are deliberate and reported. A fact dated before every reference row gets NULL, never the oldest row on record, because the oldest value is not the value that was true then. Two reference rows sharing one effective date are a genuine ambiguity in the reference table, so the later one in table order is used and the count is named. A fact whose date cannot be read is blanked and counted rather than looked up as of today. Lookup columns always arrive with an _asof suffix so a point-in-time value cannot be mistaken for a current one. The glass-box SQL is DuckDB's ASOF LEFT JOIN with the equivalent ROW_NUMBER form underneath for engines that lack it.",
       "relatedFlags": [
         "asOfLookup"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "expand-hierarchy",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Expand a hierarchy into node, parent, depth and path",
+      "files": [
+        "js/transforms/expand-hierarchy.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-transforms-canvas.js",
+        "test/shape-clean-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/expand-hierarchy.js",
+          "name": "buildHierarchySQL"
+        },
+        {
+          "file": "js/transforms/expand-hierarchy.js",
+          "name": "expandHierarchyTransform"
+        },
+        {
+          "file": "js/transforms/expand-hierarchy.js",
+          "name": "validateHierarchyConfig"
+        },
+        {
+          "file": "js/transforms/expand-hierarchy.js",
+          "name": "hierarchyOutputColumns"
+        },
+        {
+          "file": "js/transforms/expand-hierarchy.js",
+          "name": "describeHierarchy"
+        }
+      ],
+      "notes": "Turns a parent/child column pair or a single path column into one row per node carrying its depth, its parent, the root it sits under, its full path and whether it is a leaf. The decisions that matter are about broken trees, because real org charts and account hierarchies are broken. A node whose parent id is not in the table is a root for the purposes of the walk and is reported as one rather than silently dropped. A node that is its own ancestor is not followed forever: the walk carries its visited list, stops at 256 levels, and emits the nodes it could never reach with a null depth and an in_cycle marker, so a self-referencing row produces a finding instead of a hung tab. The glass-box SQL is a WITH RECURSIVE CTE seeded on the rows with no findable parent and carrying the same visited list, so the cycle guard a person reads is the guard the rows came from. Pure ES module, Node-testable, no DuckDB and no network, so it runs with Air-Gap Mode on.",
+      "relatedFlags": [
+        "expandHierarchy"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "nested-to-rows",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Nested lists into rows, with the row count shown first",
+      "files": [
+        "js/transforms/nested-to-rows.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-transforms-canvas.js",
+        "test/shape-clean-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/nested-to-rows.js",
+          "name": "previewNestedToRows"
+        },
+        {
+          "file": "js/transforms/nested-to-rows.js",
+          "name": "buildNestedToRowsSQL"
+        },
+        {
+          "file": "js/transforms/nested-to-rows.js",
+          "name": "nestedToRowsTransform"
+        },
+        {
+          "file": "js/transforms/nested-to-rows.js",
+          "name": "readList"
+        },
+        {
+          "file": "js/transforms/nested-to-rows.js",
+          "name": "describeNestedToRows"
+        }
+      ],
+      "notes": "Turns a column of JSON arrays or separated text into one row per element, repeating the other columns. Two things separate it from a split. The row count comes first: previewNestedToRows() counts the output WITHOUT building it, so the panel states \"1,204 rows would become 38,911\" and raises its warnings above the run button, while it is still free to change the settings. And an empty list is kept rather than dropped: a plain UNNEST removes those rows silently, and a row disappearing from a count is far harder to notice than a blank cell, so by default the row survives with a blank element and the count is reported. Dropping them is available and stated. A cell that looks like JSON and does not parse is reported as unreadable rather than split on a comma and passed off as a list. Complementary to the semi-structured JSON flattener in js/ingestion/json-flattener.js, which widens an object into columns; this lengthens a list into rows. Glass-box SQL is the DuckDB UNNEST form, written with the LEFT JOIN that keeps the empty rows. Pure ES module, Node-testable, no DuckDB and no network.",
+      "relatedFlags": [
+        "nestedToRows"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "fill-missing-flagged",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data cleaning",
+      "name": "Fill blanks and always flag the cells that were filled",
+      "files": [
+        "js/transforms/fill-missing.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-transforms-canvas.js",
+        "test/shape-clean-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/fill-missing.js",
+          "name": "buildFillMissingSQL"
+        },
+        {
+          "file": "js/transforms/fill-missing.js",
+          "name": "fillMissingTransform"
+        },
+        {
+          "file": "js/transforms/fill-missing.js",
+          "name": "validateFillConfig"
+        },
+        {
+          "file": "js/transforms/fill-missing.js",
+          "name": "flagColumnFor"
+        },
+        {
+          "file": "js/transforms/fill-missing.js",
+          "name": "describeFillMissing"
+        }
+      ],
+      "notes": "Forward fill from the last value above, or a constant chosen by the person. Every filled column gets a companion _was_filled boolean column, and that is deliberately not configurable: an invented value that reads like a measured one is the entire risk here, and a fill with no flag is indistinguishable downstream from data that was always there. Only two modes ship. A group mean or median needs its own account of what it assumes, and js/cleaning/imputation.js already offers the statistical modes, so rather than duplicating them the runtime notes name that wizard and say plainly that it does not add a flag column, which is the difference a person choosing between the two needs to know. Forward fill requires an order column, and rows whose order value cannot be read sort last and are never filled, because carrying a value into a row whose position is unknown is guessing twice. The glass-box SQL is last_value(...) IGNORE NULLS over an unbounded preceding window, with the IGNORE NULLS called out as the load-bearing part. Pure ES module, Node-testable, no DuckDB and no network.",
+      "relatedFlags": [
+        "fillMissingFlagged"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "expand-date-range-daily",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "A start and end date into one row per calendar day",
+      "files": [
+        "js/transforms/expand-date-range.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-transforms-canvas.js",
+        "test/shape-clean-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/expand-date-range.js",
+          "name": "previewExpandDateRange"
+        },
+        {
+          "file": "js/transforms/expand-date-range.js",
+          "name": "buildExpandDateRangeSQL"
+        },
+        {
+          "file": "js/transforms/expand-date-range.js",
+          "name": "expandDateRangeTransform"
+        },
+        {
+          "file": "js/transforms/expand-date-range.js",
+          "name": "validateDateRangeConfig"
+        },
+        {
+          "file": "js/transforms/expand-date-range.js",
+          "name": "describeExpandDateRange"
+        }
+      ],
+      "notes": "Turns a start and end date per row into one row per calendar day, which is the occupancy, bed-days and licence-coverage shape. This is the largest multiplier in the transforms set, so the count comes before the rows: previewExpandDateRange() counts the days without building any, warns at 100,000 output rows and at 20,000 on a narrow screen, and refuses outright above 2,000,000 BEFORE anything is built, so a refusal never leaves the caller holding a half-expanded table. There is deliberately no option to run an open range up to today. An open-ended range is skipped unless the person states an as-at date, and that date is written into both the notes and the generated SQL as a literal, because a table built against current_date gives a different answer every time it is built and nobody can reproduce last month's number from it. An end date that is present but unreadable is not treated as open, since reading a mistyped date as \"still going\" would stretch a closed range to the as-at date. The end day counts by default and the notes state which convention was used, because both are in real use and which is right depends on whether the end date is the last day or the day it ended. Glass-box SQL is a CROSS JOIN LATERAL generate_series. Pure ES module, Node-testable, no DuckDB and no network.",
+      "relatedFlags": [
+        "expandDailyRows"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "visual-bin-editor",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data preparation",
+      "name": "Group a number column into bands, with the histogram from the same counts",
+      "files": [
+        "js/transforms/bin-editor.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-transforms-canvas.js",
+        "test/shape-clean-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/bin-editor.js",
+          "name": "binCounts"
+        },
+        {
+          "file": "js/transforms/bin-editor.js",
+          "name": "resolveBins"
+        },
+        {
+          "file": "js/transforms/bin-editor.js",
+          "name": "buildBinSQL"
+        },
+        {
+          "file": "js/transforms/bin-editor.js",
+          "name": "binColumnTransform"
+        },
+        {
+          "file": "js/transforms/bin-editor.js",
+          "name": "binIndexOf"
+        },
+        {
+          "file": "js/transforms/bin-editor.js",
+          "name": "describeBinColumn"
+        }
+      ],
+      "notes": "Equal-width bands by default, or edges typed by hand. The histogram is drawn from the same binCounts() the apply uses rather than from a separate pass over the rows, so the bars a person read and the bands they applied cannot come to disagree; that also makes the picture testable in Node without a canvas. Equal-width binning is quietly wrong on skewed columns, where one very large value stretches the range and everything else lands in the first band, so the engine warns when a single band holds 90 percent or more of the rows in range and points at custom edges. Bands are half-open, said in the labels, in the notes and in the generated CASE ladder, with only the top band including its own upper edge, so the largest value has somewhere to go. A value outside the edges gets a blank band rather than being pushed into the nearest one, because the values that fell outside are exactly the ones worth looking at, and the CASE ladder therefore ends in ELSE NULL rather than a catch-all band. A column with no spread is reported as such instead of being split into ten bands that would imply a range that is not there. Separate from the chart histogram in js/chart/chart-engine.js, which draws a picture; this adds a column. Pure ES module, Node-testable, no DuckDB and no network.",
+      "relatedFlags": [
+        "visualBinEditor"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "keep-most-recent-per-group",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Data cleaning",
+      "name": "Keep the most recent record per group, and name what was discarded",
+      "files": [
+        "js/transforms/keep-most-recent.js",
+        "js/transforms/transform-core.js",
+        "js/transforms/data-glow-transforms-canvas.js",
+        "test/shape-clean-transforms.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/transforms/keep-most-recent.js",
+          "name": "buildKeepMostRecentSQL"
+        },
+        {
+          "file": "js/transforms/keep-most-recent.js",
+          "name": "keepMostRecentTransform"
+        },
+        {
+          "file": "js/transforms/keep-most-recent.js",
+          "name": "validateKeepConfig"
+        },
+        {
+          "file": "js/transforms/keep-most-recent.js",
+          "name": "comparableColumns"
+        },
+        {
+          "file": "js/transforms/keep-most-recent.js",
+          "name": "describeKeepMostRecent"
+        }
+      ],
+      "notes": "Entity keys plus an order column leave one row per group. Unlike the first/last event transform, which answers a question about events that were never wanted, this DELETES rows that were in the table a moment ago, and the whole risk is that they were not duplicates at all. So the number it leads with is not \"rows removed\" but \"rows removed that disagreed\": dropping an exact copy of a row loses nothing, while dropping a row that shared the key and held a different address, amount or diagnosis is throwing away a fact, and those two cases have the same row count. The result counts the conflicting groups separately and names the columns where the discarded rows disagreed with the row kept, which is what tells a person whether this was a de-duplication or a choice about the data. Ties on the order column are broken by every remaining column in table order, identically in the engine and in the generated ROW_NUMBER SQL, and the notes admit that repeatable is not the same as correct. A row whose order value cannot be read is kept by default and never wins a group that has a dated row, because deleting a row on the strength of a mistyped date is a loss nobody asked for. It shares sortableOrderValue, compareSortable and compareValues with the first/last event engine through js/transforms/transform-core.js rather than copying them, so the two cannot come to disagree about what latest means. Rows come out in the order their groups were first seen, so a diff against the original stays readable. Pure ES module, Node-testable, no DuckDB and no network.",
+      "relatedFlags": [
+        "keepMostRecent"
       ],
       "status": "shipped"
     }
