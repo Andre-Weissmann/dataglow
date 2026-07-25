@@ -771,6 +771,30 @@
       "addedInPR": "feat/bundle-10-proof-to-post-ai-prove",
       "description": "De-identification screening receipt (Bundle 10): a readable record of what the existing HIPAA Safe Harbor verifier looked at and what it found, in markdown or as one self-contained HTML file. js/privacy/deid-receipt.js is the PURE, Node-testable engine and it computes no new privacy verdict of its own: js/provenance/deidentification-verifier.js remains the only thing that decides. The engine verdict pass is never printed as the word PASS, because a receipt is exactly the artefact someone forwards as evidence and a bare pass would be read as a clearance it is not. The non-certification disclaimer is emitted from a constant a caller cannot remove, and the receipt states what the screen cannot see. The exported HTML has no script, no link and no network reference. Every download asks first. Enabled because the Publish row on the Proof to Post panel offers it.",
       "flagOffBehavior": "The receipt download is not offered on the panel. window.DataGlowDeidReceipt is still published for programmatic use and the Safe Harbor verifier itself is unaffected."
+    },
+    "localAiStatus": {
+      "enabled": true,
+      "addedInPR": "bundle-11",
+      "description": "Persistent built-in AI status chip plus the panel behind it: derived on-device model state, the propose/explain/draft division of labour, and the local model registry.",
+      "flagOffBehavior": "Neither the chip nor the panel is created, so the ambient proof and capability ceiling tabs cannot be reached either. window.DataGlowLocalAiStatus is still published and buildLocalAiStatus still derives the same states when called directly."
+    },
+    "ambientProofStrip": {
+      "enabled": true,
+      "addedInPR": "bundle-11",
+      "description": "Ambient proof strip: last prove-gate status, Air-Gap state, open caveat count and drift severity, reported continuously and answering nothing.",
+      "flagOffBehavior": "The Ambient proof tab is not offered on the panel. window.DataGlowAmbientProof is still published and answerAmbientQuestion still declines."
+    },
+    "capabilityCeiling": {
+      "enabled": true,
+      "addedInPR": "bundle-11",
+      "description": "What this machine can do: the honest ceiling for SQL, Python, R, Excel, data size, messy data and privacy, each with a does and a does-not line.",
+      "flagOffBehavior": "The ceiling tab and its markdown copy action are not offered. window.DataGlowCapabilityCeiling is still published and renderCeilingMarkdown still produces the same text."
+    },
+    "polarsSecondaryPath": {
+      "enabled": true,
+      "addedInPR": "bundle-11",
+      "description": "Polars secondary path status only: available, not installed, or not applicable. No engine, and DuckDB is never replaced.",
+      "flagOffBehavior": "The Polars status line is omitted from the ceiling tab. window.DataGlowPolarsPath is still published and still refuses to report available without a real import."
     }
   }
 }

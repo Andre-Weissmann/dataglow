@@ -48551,6 +48551,39 @@ const REPHRASE_SYSTEM_PROMPT =
  *   - injectable on-device-LLM surface; defaults to the real module.
  * @returns {Promise<{text:string, usedOnDeviceModel:boolean}>}
  */
+// Resolve the claim guard from the global surface first, then by module import.
+// The global comes first because inside canvas/index.html every engine is an
+// IIFE publishing onto `window` and there is no module resolver to import from;
+// the import is what makes this work under Node and in the ESM build. Returns
+// null rather than throwing, and the caller treats null as a refusal.
+async function resolveClaimGuard() {
+  try {
+    const g = (typeof globalThis !== 'undefined' && globalThis.DataGlowAiClaimGuard) || null;
+    if (g && typeof g.guardModelRephrase === 'function') return g;
+    const mod = await import('../ai/ai-claim-guard.js');
+    return mod && typeof mod.guardModelRephrase === 'function' ? mod : null;
+  } catch {
+    return null;
+  }
+}
+
+// Record the guard decision on the caller's AI Touch Ledger when there is one.
+// Best-effort by design: a missing ledger must not turn a good answer into a
+// thrown error, and the guard verdict itself has already been applied by the
+// time this runs.
+function logGuardVerdict(tier1Result, verdict, guard) {
+  try {
+    const ledger = tier1Result && tier1Result.ledger;
+    if (!ledger || typeof ledger.record !== 'function') return;
+    const entry = typeof guard.guardLedgerEntry === 'function'
+      ? guard.guardLedgerEntry(verdict)
+      : { step: 'ai-claim-guard', outcome: verdict.allowed ? 'rephrase-kept' : 'rephrase-discarded' };
+    ledger.record(entry);
+  } catch {
+    /* a ledger failure is not an answer failure */
+  }
+}
+
 async function refineWithOnDeviceModel(question, tier1Result, deps = null) {
   const fallback = { text: tier1Result.text, usedOnDeviceModel: false };
   try {
@@ -48574,7 +48607,20 @@ async function refineWithOnDeviceModel(question, tier1Result, deps = null) {
       refined += chunk?.choices?.[0]?.delta?.content || '';
     }
     refined = refined.trim();
-    return refined ? { text: refined, usedOnDeviceModel: true } : fallback;
+    if (!refined) return fallback;
+
+    // The prompt above asks the model not to add numbers. That is a request, not
+    // a control. Bundle 11 makes it a control: the Tier 1 text is ground truth,
+    // and a rephrase that contains a number Tier 1 did not is discarded rather
+    // than shown. See js/ai/ai-claim-guard.js for why falling back beats
+    // stripping the number out.
+    const guard = await resolveClaimGuard();
+    // No guard reachable means no check ran, and an unchecked rephrase is not a
+    // passing one. Fail to the deterministic text rather than to the model.
+    if (!guard) return fallback;
+    const verdict = guard.guardModelRephrase(tier1Result.text, refined);
+    logGuardVerdict(tier1Result, verdict, guard);
+    return { text: verdict.text, usedOnDeviceModel: verdict.allowed };
   } catch {
     // Any failure (no WebGPU, load error, generation error) → exact Tier 1 text.
     return fallback;
@@ -128821,6 +128867,1492 @@ function postCoachModel(index) {
   };
 })();
 /* ---- end js/proofpost/data-glow-proof-to-post-canvas.js ---- */
+
+/* ---- from js/ai/local-ai-status.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Built-in AI status and local model registry
+// ============================================================
+//
+// DataGlow has had a local model running in the browser for a long time and
+// almost nobody could tell. There was no place on the page that said so, which
+// means the single most differentiating thing about the product was invisible
+// unless you opened a panel and got lucky. This module exists so a status can
+// be shown continuously, and so that status is computed rather than asserted.
+//
+// WHY THE STATE IS DERIVED AND NOT STORED.
+// "Built-in AI: ready" is a claim about this machine at this moment, and it is
+// wrong the instant WebGPU is missing, or Air-Gap Mode is on with nothing
+// cached, or the model has simply not been downloaded yet. A stored boolean
+// drifts from the truth silently. So the state is a function of four observed
+// facts and nothing else, and every state carries the reason it is in that
+// state, because a chip that says "not available" without saying why sends the
+// user to a support page that does not exist.
+//
+// WHY `rule_only` IS A FIRST-CLASS STATE AND NOT A FAILURE.
+// Most of what DataGlow calls AI is not the model. Validation, profiling, the
+// readiness gate, the repair recipes and the deterministic tier of the Copilot
+// are all rules, and they run everywhere with no download and no GPU. Treating
+// "no model" as a broken state would be a lie in the unhelpful direction: it
+// would tell a person on a machine without WebGPU that the product does not
+// work for them, when in fact almost all of it does. So `rule_only` says what
+// still works, and `canUseBuiltInAi` is false only for the generative tier.
+//
+// WHY THE REGISTRY LISTS MODELS THAT ARE NOT SHIPPED.
+// A registry with one entry is not a registry, it is a constant wearing a
+// costume. The honest thing is to name the alternatives that were considered
+// with what is actually true about each: what it would cost to download, what
+// licence it carries, and whether it runs in a browser tab at all. Every entry
+// carries a `fit` that is `shipped` for exactly one model and something honest
+// for the rest, so nobody reads the list as a menu of things they can pick
+// today.
+//
+// Pure. No DOM, no network, no model loading. The canvas surface observes the
+// four facts and calls in; this module never touches navigator.gpu itself,
+// because a module that probes the machine cannot be tested on a machine that
+// does not have one.
+
+const LOCAL_AI_STATUS_KIND = 'dataglow-local-ai-status';
+const LOCAL_AI_STATUS_VERSION = 1;
+
+/** The model actually shipped today. Kept in step with js/narrative/ondevice-llm.js
+ *  by a test rather than by hope: test/local-ai-ambient.test.mjs reads MODEL_ID
+ *  out of that module and fails if these two ever disagree. */
+const SHIPPED_MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
+const SHIPPED_MODEL_LABEL = 'Qwen2.5 1.5B Instruct (4-bit, ~1.1 GB)';
+
+const LOCAL_AI_STATES = Object.freeze([
+  'ready',
+  'available',
+  'loading',
+  'blocked_airgap',
+  'no_webgpu',
+  'rule_only',
+]);
+
+/** What the built-in AI is for, in the order a person meets it. Deliberately
+ *  three verbs and not a feature list: the point is the division of labour. */
+const WHAT_BUILT_IN_AI_DOES = Object.freeze([
+  Object.freeze({
+    id: 'propose',
+    title: 'It proposes',
+    body: 'It suggests a query, a repair or a way to phrase a finding. A suggestion is a starting point and it is never applied on its own.',
+  }),
+  Object.freeze({
+    id: 'explain',
+    title: 'It explains',
+    body: 'It puts a readiness grade, a validation result or a drift warning into plain sentences. The grade itself is computed by a rule, not by the model.',
+  }),
+  Object.freeze({
+    id: 'draft',
+    title: 'It drafts',
+    body: 'It writes the prose around numbers that already exist. Every number in that prose is checked against the Proof Board before it can leave.',
+  }),
+]);
+
+const AI_DIVISION_OF_LABOUR =
+  'AI proposes, engines adjudicate, a human confirms. The model never decides whether a number is right and it never sends anything anywhere.';
+
+const NOT_A_CERTIFICATION_NOTE =
+  'A local model is a privacy property, not a compliance one. Running on this machine means the data did not leave it. It does not make any output certified, audited or safe to release.';
+
+const DETAIL = Object.freeze({
+  ready:
+    'The model is downloaded and loaded in this tab. Prompts and data stay on this machine, and no request goes out when it runs.',
+  available:
+    'This machine can run the built-in model, but it has not been downloaded yet. The download is about a gigabyte and it only happens when you ask for it.',
+  loading:
+    'The model is downloading or warming up. Nothing is blocked while this happens, and every rule-based feature keeps working.',
+  blocked_airgap:
+    'Air-Gap Mode is on and the model is not already cached, so fetching it would mean a network request. Air-Gap Mode wins: nothing is downloaded.',
+  no_webgpu:
+    'This browser does not expose WebGPU, so the generative tier cannot run here. Everything computed by rules still runs, and it runs at full strength.',
+  rule_only:
+    'The generative tier is off. Validation, profiling, the readiness gate and the repair recipes are all rules and they need no model at all.',
+});
+
+const HEADLINE = Object.freeze({
+  ready: 'Built-in AI: on-device, ready',
+  available: 'Built-in AI: on-device, not downloaded',
+  loading: 'Built-in AI: loading on this machine',
+  blocked_airgap: 'Built-in AI: blocked by Air-Gap, model not cached',
+  no_webgpu: 'Built-in AI: rule-based, no WebGPU here',
+  rule_only: 'Built-in AI: rule-based',
+});
+
+/** What a person can actually do from each state. Empty when there is nothing
+ *  honest to offer, rather than a button that cannot help. */
+const NEXT_STEP = Object.freeze({
+  ready: '',
+  available: 'Load the model when you want the generative tier. It is a one-time download and it is cached afterwards.',
+  loading: 'Nothing to do. Carry on working while it finishes.',
+  blocked_airgap: 'Turn off Air-Gap Mode if you want to download the model, or keep Air-Gap Mode and stay on the rule-based tier.',
+  no_webgpu: 'Try a browser with WebGPU, or use the desktop build. Neither is required for the rule-based tier.',
+  rule_only: '',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+/**
+ * Derive the state from what is actually true about this machine.
+ *
+ * The order of the checks is the point. Air-Gap outranks capability, because a
+ * machine that could download the model must not be told it can when the whole
+ * posture of the session is that nothing goes out. Capability outranks
+ * loadedness, because a loaded flag on a machine with no WebGPU is a stale flag
+ * and trusting it would put a ready chip on a page that cannot generate a word.
+ */
+function buildLocalAiStatus(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const webgpu = inp.webgpu === true;
+  const modelLoaded = inp.modelLoaded === true;
+  const loading = inp.loading === true;
+  const airGap = inp.airGap === true;
+  const modelCached = inp.modelCached === true;
+  const enabled = inp.enabled !== false;
+
+  const modelId = str(inp.modelId) || SHIPPED_MODEL_ID;
+  const modelLabel = str(inp.modelLabel) || SHIPPED_MODEL_LABEL;
+  const platform = str(inp.platform) || 'web';
+
+  let state;
+  if (!enabled) {
+    state = 'rule_only';
+  } else if (!webgpu) {
+    state = 'no_webgpu';
+  } else if (modelLoaded) {
+    // Loaded beats Air-Gap: the model is already here, so running it sends
+    // nothing. Air-Gap only ever objects to the download.
+    state = 'ready';
+  } else if (airGap && !modelCached) {
+    state = 'blocked_airgap';
+  } else if (loading) {
+    state = 'loading';
+  } else {
+    state = 'available';
+  }
+
+  return {
+    kind: LOCAL_AI_STATUS_KIND,
+    version: LOCAL_AI_STATUS_VERSION,
+    state,
+    headline: HEADLINE[state],
+    detail: DETAIL[state],
+    nextStep: NEXT_STEP[state],
+    canUseBuiltInAi: state === 'ready',
+    ruleTierAvailable: true,
+    onDevice: true,
+    sendsNothing: true,
+    modelId,
+    modelLabel,
+    platform,
+    observed: { webgpu, modelLoaded, loading, airGap, modelCached, enabled },
+    note: NOT_A_CERTIFICATION_NOTE,
+  };
+}
+
+/** One short line for a chip that has no room for the detail. */
+function statusChipLabel(status) {
+  if (!isPlainObject(status)) return HEADLINE.rule_only;
+  return HEADLINE[status.state] || HEADLINE.rule_only;
+}
+
+/**
+ * The models considered for the in-browser generative tier, as of July 2026.
+ *
+ * `fit` is the honest field. Exactly one entry is `shipped`. The rest say what
+ * is actually in the way, so the list reads as a record of a decision rather
+ * than as a set of options waiting behind a switch.
+ */
+function listRecommendedLocalModels() {
+  return [
+    {
+      id: SHIPPED_MODEL_ID,
+      label: SHIPPED_MODEL_LABEL,
+      family: 'Qwen2.5',
+      params: '1.5B',
+      quantization: '4-bit (q4f16_1, MLC)',
+      sizeHint: 'about 1.1 GB once downloaded',
+      license: 'Apache-2.0',
+      runtime: 'WebLLM / WebGPU',
+      platforms: {
+        web: 'Runs in a browser tab that exposes WebGPU.',
+        desktop: 'Runs in the desktop build with the same WebGPU path.',
+        mobile: 'Usually too large for a phone browser tab. Treat as unavailable there.',
+      },
+      fit: 'shipped',
+      why: 'Small enough that the download is a decision a person can live with, permissive enough to ship, and good enough at rephrasing a sentence it was handed. It is not asked to compute anything.',
+    },
+    {
+      id: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC',
+      label: 'Qwen2.5 Coder 3B Instruct (4-bit)',
+      family: 'Qwen2.5-Coder',
+      params: '3B',
+      quantization: '4-bit (q4f16_1, MLC)',
+      sizeHint: 'about 2.1 GB once downloaded',
+      license: 'Apache-2.0',
+      runtime: 'WebLLM / WebGPU',
+      platforms: {
+        web: 'Runs where WebGPU is present and there is memory headroom.',
+        desktop: 'Comfortable on the desktop build.',
+        mobile: 'No.',
+      },
+      fit: 'candidate',
+      why: 'Better at SQL than the shipped model, but it roughly doubles a download that is already the largest thing DataGlow ever asks for. Held as a candidate for the desktop build rather than made the default for everyone.',
+    },
+    {
+      id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+      label: 'Llama 3.2 1B Instruct (4-bit)',
+      family: 'Llama 3.2',
+      params: '1B',
+      quantization: '4-bit (q4f16_1, MLC)',
+      sizeHint: 'about 0.8 GB once downloaded',
+      license: 'Llama 3.2 Community License (not OSI-approved)',
+      runtime: 'WebLLM / WebGPU',
+      platforms: {
+        web: 'Runs where WebGPU is present.',
+        desktop: 'Runs.',
+        mobile: 'Borderline. Not relied on.',
+      },
+      fit: 'candidate',
+      why: 'The smallest credible option, which matters because download size is the real barrier. The licence is a community licence with use restrictions rather than Apache-2.0, so it is not the default in a tool people ship work from.',
+    },
+    {
+      id: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+      label: 'Phi-3.5 mini Instruct (4-bit)',
+      family: 'Phi-3.5',
+      params: '3.8B',
+      quantization: '4-bit (q4f16_1, MLC)',
+      sizeHint: 'about 2.4 GB once downloaded',
+      license: 'MIT',
+      runtime: 'WebLLM / WebGPU',
+      platforms: {
+        web: 'Needs real memory headroom in the tab.',
+        desktop: 'Reasonable on the desktop build.',
+        mobile: 'No.',
+      },
+      fit: 'desktop_only',
+      why: 'Strong for its size and cleanly licensed, but the download and the memory footprint are past what a browser tab should ask of someone who just wanted to clean a spreadsheet.',
+    },
+    {
+      id: 'whisper-base-q4',
+      label: 'Whisper base (4-bit) for on-device speech',
+      family: 'Whisper',
+      params: '74M',
+      quantization: '4-bit',
+      sizeHint: 'about 75 MB once downloaded',
+      license: 'MIT',
+      runtime: 'Transformers.js / WebGPU',
+      platforms: {
+        web: 'Feasible in a tab.',
+        desktop: 'Feasible.',
+        mobile: 'Feasible in principle.',
+      },
+      fit: 'not_yet',
+      why: 'Would let a person ask a column what is wrong out loud with no cloud speech service. Scaffolded in js/audio/ and not wired to anything, so it is listed here as not yet rather than as a feature.',
+    },
+  ];
+}
+
+/** The shipped entry, for a surface that wants to name it without filtering. */
+function shippedModel() {
+  return listRecommendedLocalModels().find(m => m.fit === 'shipped') || null;
+}
+  window.DataGlowLocalAiStatus = {
+    LOCAL_AI_STATUS_KIND: LOCAL_AI_STATUS_KIND,
+    LOCAL_AI_STATUS_VERSION: LOCAL_AI_STATUS_VERSION,
+    SHIPPED_MODEL_ID: SHIPPED_MODEL_ID,
+    SHIPPED_MODEL_LABEL: SHIPPED_MODEL_LABEL,
+    LOCAL_AI_STATES: LOCAL_AI_STATES,
+    WHAT_BUILT_IN_AI_DOES: WHAT_BUILT_IN_AI_DOES,
+    AI_DIVISION_OF_LABOUR: AI_DIVISION_OF_LABOUR,
+    NOT_A_CERTIFICATION_NOTE: NOT_A_CERTIFICATION_NOTE,
+    buildLocalAiStatus: buildLocalAiStatus,
+    statusChipLabel: statusChipLabel,
+    listRecommendedLocalModels: listRecommendedLocalModels,
+    shippedModel: shippedModel,
+  };
+})();
+/* ---- end js/ai/local-ai-status.js ---- */
+/* ---- from js/ai/capability-ceiling.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Honest capability ceiling
+// ============================================================
+//
+// Every tool that runs SQL says it runs SQL, and every one of them means a
+// different SQL. Every tool that reads spreadsheets implies it reads yours.
+// The gap between what a person hears and what the software does is where
+// trust goes, and it goes quietly: nobody files a bug saying "your claim was
+// broader than your product", they just stop believing the next claim too.
+//
+// This module is the ceiling written down. For each runtime it states what
+// actually ships, and then, in a separate field that cannot be skimmed past,
+// what it does not do. The `notThis` line is the load-bearing one. A features
+// list with no ceiling is a marketing page; the ceiling is what makes the
+// features believable.
+//
+// WHY THE NUMBERS ARE PASSED IN AND NOT WRITTEN HERE.
+// The Python bridge truncates at PY_BRIDGE_ROW_LIMIT, which lives in
+// js/runtimes-viz/python-runtime.js. Copying 200000 into this file would create
+// a second place for it to be true, and the copy would go stale the first time
+// someone tuned the real one, at which point this module would be confidently
+// telling users a limit the product no longer has. So the limit is a parameter
+// with a documented default, and a test reads the real constant and asserts the
+// default still matches it.
+//
+// WHY "MESSY DATA" IS SPLIT IN TWO.
+// DataGlow is good at a messy file: merged cells, a title row above the header,
+// numbers stored as text, three date formats in one column. It is not a tool
+// for a messy data estate: forty spreadsheets that disagree about what a
+// customer is. Those are different problems and only one of them is solved
+// here. Blurring them is the single easiest way for this product to overpromise,
+// because both get called "messy data" in the same sentence by the same person.
+//
+// Pure. No DOM, no network, no runtime probing.
+
+const CAPABILITY_CEILING_KIND = 'dataglow-capability-ceiling';
+const CAPABILITY_CEILING_VERSION = 1;
+
+/** Matches PY_BRIDGE_ROW_LIMIT in js/runtimes-viz/python-runtime.js. A test
+ *  pins the two together so this cannot quietly go stale. */
+const DEFAULT_PY_BRIDGE_ROW_LIMIT = 200000;
+
+/** The R tab bridges rows through the same kind of LIMIT clause. */
+const DEFAULT_R_BRIDGE_ROW_LIMIT = 200000;
+
+const CEILING_PREAMBLE =
+  'This is what this machine can actually do today. It is written down so a claim in a portfolio or a meeting can be checked against it rather than guessed at.';
+
+const CEILING_CLOSING =
+  'Where a limit here is inconvenient, it is still the limit. A tool that quietly does less than it says is worse than one that says less.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function num(v, fallback) {
+  return typeof v === 'number' && isFinite(v) && v >= 0 ? v : fallback;
+}
+
+function group(id, title, does, notThis, detail) {
+  return { id, title, does, notThis, detail };
+}
+
+/**
+ * The ceiling, as data.
+ *
+ * @param {{pyBridgeRowLimit?:number, rBridgeRowLimit?:number, platform?:string}} [opts]
+ */
+function buildCapabilityCeiling(opts) {
+  const o = isPlainObject(opts) ? opts : {};
+  const pyLimit = num(o.pyBridgeRowLimit, DEFAULT_PY_BRIDGE_ROW_LIMIT);
+  const rLimit = num(o.rBridgeRowLimit, DEFAULT_R_BRIDGE_ROW_LIMIT);
+  const platform = typeof o.platform === 'string' && o.platform ? o.platform : 'web';
+  const desktop = platform === 'desktop';
+
+  const groups = [
+    group(
+      'sql',
+      'SQL',
+      'Real DuckDB running as WebAssembly in this tab. Joins, window functions, CTEs, aggregates and the rest of the DuckDB dialect, over the data you loaded, with the query text always visible before it runs.',
+      'It is not every warehouse dialect. A query written for BigQuery, Snowflake, Redshift or T-SQL may use functions DuckDB does not have, and it will fail rather than silently do something close to it.',
+      'DuckDB was chosen because it is the only serious analytical engine that runs entirely in a browser tab with no server. That choice is also the limit: the dialect is the DuckDB one. Generated SQL is shown before it runs precisely so a dialect mismatch is something you see rather than something you discover from a wrong number.',
+    ),
+    group(
+      'python',
+      'Python',
+      'Real CPython through Pyodide, in the browser, with pandas and numpy available. Multi-cell notebooks, charts, and a bridge that hands your loaded tables to Python as dataframes.',
+      'It is not an unbounded Python environment. The bridge passes at most ' + pyLimit.toLocaleString('en-US') + ' rows per table, and any package that needs to compile native code outside what Pyodide already ships is not installable here.',
+      'The row limit is real and it truncates rather than fails, which is the dangerous kind of limit, so the truncation is reported rather than left for you to notice in a total that looks slightly wrong. Anything above that ceiling should be aggregated in SQL first and handed to Python already small.',
+    ),
+    group(
+      'r',
+      'R',
+      'Real R through WebR, in the browser, with base R and a small set of installed packages. Enough for a summary, a model fit and base or ggplot2 graphics.',
+      'It is not CRAN. WebR ships base R and packages must be installed explicitly into the session, so most of CRAN is simply not reachable. The same ' + rLimit.toLocaleString('en-US') + ' row bridge limit applies.',
+      'This is the lightest of the three runtimes and it is described as notebooks-lite rather than as an R environment on purpose. If an analysis needs a specific CRAN package, this is not where it runs.',
+    ),
+    group(
+      'excel',
+      'Excel and messy files',
+      'Excel Hell Repair detects the specific ways a spreadsheet is broken: merged cells, a title above the real header, numbers stored as text, several date formats in one column, totals rows mixed in with data. It previews the repair, applies it only when you confirm, and it can be undone.',
+      'It is not a spreadsheet application and it does not read VBA, macros, pivot caches or cell formulas. It repairs the data in the file, not the workbook as a program.',
+      'Every repair is a recipe you can inspect, save and reapply to the file you get next month, which is the part that actually saves time. Nothing is repaired silently: the preview names what changes and what it destroys before you agree to it.',
+    ),
+    group(
+      'size',
+      'How much data',
+      desktop
+        ? 'The desktop build has the whole machine to work with, so the practical ceiling is disk and RAM rather than a browser tab.'
+        : 'Comfortable through the low millions of rows in a browser tab, depending on column count, types and how much memory the browser will give this page.',
+      'There is no "any size". A browser tab has a memory ceiling, WebAssembly has its own, and a file large enough to cross either will fail or crawl. Nothing here streams from a warehouse you have not loaded.',
+      'The honest number is not a number, because it depends on the shape of the data and the machine. What can be promised is that it fails visibly rather than producing a partial answer that looks whole.',
+    ),
+    group(
+      'messy',
+      'Messy data, in the sense that is actually meant',
+      'A messy file is solved here: detect, preview, confirm, repair, save the recipe, reapply it next month, and keep a record of what was changed.',
+      'A messy data estate is not solved here. Forty files that disagree about what a customer is, no shared key, and no owner is an organisational problem, and no local tool fixes it.',
+      'Both get called messy data in the same breath, and conflating them is the fastest way for this product to promise something it cannot do. The relational checks can tell you two tables disagree; they cannot tell you which one the business meant.',
+    ),
+    group(
+      'privacy',
+      'Privacy and compliance',
+      'Nothing is uploaded. Analysis, the model, the exports and the receipts all run on this machine, and Air-Gap Mode can hard-block network paths for a session.',
+      'It is not a certification of anything. The Safe Harbor screen is an automated screening aid, not a HIPAA certification and not a safe-to-release judgement, and no output here is audited or endorsed by anyone.',
+      'Local execution is a strong privacy property and a weak compliance one. It removes an entire class of risk, which is worth saying plainly, and it substitutes for no review that your organisation requires.',
+    ),
+  ];
+
+  return {
+    kind: CAPABILITY_CEILING_KIND,
+    version: CAPABILITY_CEILING_VERSION,
+    platform,
+    preamble: CEILING_PREAMBLE,
+    groups,
+    closing: CEILING_CLOSING,
+    limits: { pyBridgeRowLimit: pyLimit, rBridgeRowLimit: rLimit },
+  };
+}
+
+/** Markdown, for a person who wants to paste the ceiling into a portfolio page
+ *  rather than screenshot a panel. */
+function renderCeilingMarkdown(ceiling) {
+  const c = isPlainObject(ceiling) ? ceiling : buildCapabilityCeiling();
+  const out = ['## What this machine can do', '', c.preamble, ''];
+  for (const g of c.groups) {
+    out.push('### ' + g.title, '');
+    out.push('**It does:** ' + g.does, '');
+    out.push('**It does not:** ' + g.notThis, '');
+    if (g.detail) out.push(g.detail, '');
+  }
+  out.push('---', '', c.closing, '');
+  return out.join('\n');
+}
+  window.DataGlowCapabilityCeiling = {
+    CAPABILITY_CEILING_KIND: CAPABILITY_CEILING_KIND,
+    CAPABILITY_CEILING_VERSION: CAPABILITY_CEILING_VERSION,
+    DEFAULT_PY_BRIDGE_ROW_LIMIT: DEFAULT_PY_BRIDGE_ROW_LIMIT,
+    DEFAULT_R_BRIDGE_ROW_LIMIT: DEFAULT_R_BRIDGE_ROW_LIMIT,
+    CEILING_PREAMBLE: CEILING_PREAMBLE,
+    CEILING_CLOSING: CEILING_CLOSING,
+    buildCapabilityCeiling: buildCapabilityCeiling,
+    renderCeilingMarkdown: renderCeilingMarkdown,
+  };
+})();
+/* ---- end js/ai/capability-ceiling.js ---- */
+/* ---- from js/ai/ai-claim-guard.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - AI claim guard
+// ============================================================
+//
+// The Guarded Copilot answers in two tiers. Tier 1 is deterministic: a rule
+// reads an engine result and produces a sentence, and every number in that
+// sentence came from the engine. Tier 2 hands that sentence to the on-device
+// model and asks it to say the same thing better.
+//
+// The prompt tells the model not to invent numbers. That is the correct thing
+// to put in a prompt and it is not a control. A model that transposes 1,204
+// into 1,240, or helpfully rounds 47.3% to "nearly half" and then writes 50%,
+// has done exactly what language models do, and the result is a wrong number in
+// a confident sentence with no mark on it. The only reliable place to catch
+// that is after generation, by comparing.
+//
+// WHAT THIS DOES.
+// Tier 1's text is the ground truth. Its numbers become the set of values the
+// rephrase is allowed to contain, and Bundle 10's prove gate does the comparing,
+// including its rounding policy: a number rendered to fewer places still binds,
+// a different number does not. If the rephrase introduces anything unbound, the
+// deterministic text is returned verbatim and the reason is named.
+//
+// WHY FALLING BACK BEATS STRIPPING.
+// A sentence with its numbers removed is worse than the plain sentence it was
+// meant to improve: it reads as prose, it has lost the thing it was about, and
+// nobody can tell by looking that it was edited. Tier 1's text always exists and
+// is always correct, so the cheapest safe move is to use it. The refusal is
+// reported rather than hidden, because a silent downgrade teaches the user
+// nothing about why the answer looks plainer than usual.
+//
+// WHY THIS IS NOT INSIDE guarded-copilot.js.
+// That module declares a frozen four-function public surface that a red-team
+// test asserts by exact equality, and its whole claim is that it is read-only.
+// Growing it is the wrong direction. The guard lives here, is called from
+// there, and can be tested on its own.
+//
+// Pure apart from importing the gate. No DOM, no network, no model.
+
+  // Inlined build: no module scope in the canvas, so this is read off
+  // window.DataGlowProveGate instead of imported.
+  var extractNumbers = window.DataGlowProveGate.extractNumbers, assertClaimAllowed = window.DataGlowProveGate.assertClaimAllowed, describeGateResult = window.DataGlowProveGate.describeGateResult;
+const AI_CLAIM_GUARD_KIND = 'dataglow-ai-claim-guard';
+const AI_CLAIM_GUARD_VERSION = 1;
+
+const GUARD_DOCTRINE =
+  'A model may rephrase a sentence. It may not introduce a number. Every number in a rephrase is checked against the numbers the engine produced, and a rephrase that fails the check is discarded in favour of the sentence it was given.';
+
+const FALLBACK_REASON =
+  'The rephrased answer contained a number the engine did not produce, so the deterministic answer was kept instead.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v : '';
+}
+
+/**
+ * Turn a trusted deterministic sentence into the set of values a rephrase of it
+ * is permitted to contain.
+ *
+ * Each is labelled by its position rather than by meaning, because this layer
+ * does not know what the numbers are about. It only knows the engine said them.
+ */
+function groundTruthValues(deterministicText) {
+  const found = extractNumbers(str(deterministicText));
+  return found.map((n, i) => ({
+    id: 'tier1-' + i,
+    label: 'Deterministic answer value ' + (i + 1),
+    value: n.value,
+    unit: '',
+    sqlOrCode: 'deterministic',
+  }));
+}
+
+/**
+ * Check a model rephrase against the deterministic answer it was given.
+ *
+ * @param {string} deterministicText the Tier 1 answer, treated as ground truth
+ * @param {string} modelText the Tier 2 rephrase
+ * @param {{proofBoardTiles?:Array}} [opts]
+ * @returns {{allowed:boolean, text:string, usedOnDeviceModel:boolean, reason:string, gate:object, summary:string}}
+ */
+function guardModelRephrase(deterministicText, modelText, opts) {
+  const o = isPlainObject(opts) ? opts : {};
+  const base = str(deterministicText);
+  const candidate = str(modelText).trim();
+
+  if (!candidate || candidate === base.trim()) {
+    return {
+      allowed: true,
+      text: base,
+      usedOnDeviceModel: false,
+      reason: 'No rephrase to check.',
+      gate: null,
+      summary: 'No rephrase to check.',
+    };
+  }
+
+  const tiles = Array.isArray(o.proofBoardTiles) ? o.proofBoardTiles : [];
+  const gate = assertClaimAllowed(candidate, tiles, {
+    engineResults: groundTruthValues(base),
+  });
+
+  if (gate.allowed) {
+    return {
+      allowed: true,
+      text: candidate,
+      usedOnDeviceModel: true,
+      reason: 'Every number in the rephrase matched a number the engine produced.',
+      gate,
+      summary: describeGateResult(gate),
+    };
+  }
+
+  return {
+    allowed: false,
+    text: base,
+    usedOnDeviceModel: false,
+    reason: FALLBACK_REASON,
+    gate,
+    summary: describeGateResult(gate),
+  };
+}
+
+/**
+ * A ledger entry for the guard decision, in the shape the AI Touch Ledger takes.
+ *
+ * Recorded whether or not the rephrase passed. A ledger that only holds the
+ * refusals cannot tell you how often the model was trusted, and a ledger that
+ * only holds the passes is a highlight reel.
+ */
+function guardLedgerEntry(result) {
+  const r = isPlainObject(result) ? result : {};
+  const gate = isPlainObject(r.gate) ? r.gate : null;
+  return {
+    step: 'ai-claim-guard',
+    outcome: r.allowed ? 'rephrase-kept' : 'rephrase-discarded',
+    reason: str(r.reason),
+    numbersChecked: gate && Array.isArray(gate.numbers) ? gate.numbers.length : 0,
+    unbound: gate && Array.isArray(gate.unbound) ? gate.unbound.map(u => str(u.number)) : [],
+  };
+}
+  window.DataGlowAiClaimGuard = {
+    AI_CLAIM_GUARD_KIND: AI_CLAIM_GUARD_KIND,
+    AI_CLAIM_GUARD_VERSION: AI_CLAIM_GUARD_VERSION,
+    GUARD_DOCTRINE: GUARD_DOCTRINE,
+    FALLBACK_REASON: FALLBACK_REASON,
+    groundTruthValues: groundTruthValues,
+    guardModelRephrase: guardModelRephrase,
+    guardLedgerEntry: guardLedgerEntry,
+  };
+})();
+/* ---- end js/ai/ai-claim-guard.js ---- */
+/* ---- from js/ambient/ambient-proof-strip.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Ambient proof strip
+// ============================================================
+//
+// The ambient assistants shipping in operating systems this year are always
+// watching and always willing to answer. That combination is the product, and
+// it is also the failure mode: the thing is never allowed to say it does not
+// know, so it says something. An assistant that has read your spreadsheet and
+// will confidently tell you the revenue figure is not a better analyst, it is
+// a faster way to be wrong in a meeting.
+//
+// DataGlow's answer is not a competing ambient assistant. It is the opposite
+// half: continuous, yes, but continuously reporting the state of the proof
+// rather than continuously generating answers. The strip is always there, it
+// never volunteers a number, and the only things on it are facts that some
+// engine already established.
+//
+// WHY THIS MODULE CANNOT ANSWER A QUESTION.
+// `answerAmbientQuestion` exists and always declines. That looks like dead
+// code until you notice that the pressure on this surface will be to add "just
+// a small one" later: a strip that already knows the row count is one commit
+// away from answering "how many customers do we have". So the refusal is a
+// function with a name, a reason, and a test, which makes adding an answer path
+// a deliberate act rather than a convenience.
+//
+// WHY A STALE PROVE RESULT IS NOT A PASSING ONE.
+// The strip reports the last gate run. If that run happened before the data
+// changed, "passed" is a statement about a table that no longer exists. So the
+// caller passes `dataVersion` and the strip compares it to the version the
+// gate ran against; a mismatch downgrades the tone to `stale` and says so.
+// A strip that shows a green tick for yesterday's data is worse than no strip.
+//
+// Pure. No DOM, no timers, no network. The canvas surface polls whatever it
+// polls and hands the facts in.
+
+const AMBIENT_PROOF_KIND = 'dataglow-ambient-proof-strip';
+const AMBIENT_PROOF_VERSION = 1;
+
+const AMBIENT_TONES = Object.freeze(['clear', 'caution', 'blocked', 'stale', 'idle']);
+
+const AMBIENT_DOCTRINE =
+  'Ambient assistants guess continuously. This strip proves continuously. It reports what an engine has already established and it answers nothing on its own.';
+
+const OUTBOUND_RULE =
+  'Numbers leaving this machine must pass the prove gate first. There is no override and there is no automatic send.';
+
+const NOT_AN_ASSISTANT_NOTE =
+  'This strip does not read your screen, does not listen, and does not answer questions about your data. It only reports the state of checks that have already run.';
+
+const TONE_LABEL = Object.freeze({
+  clear: 'Ambient proof: clear',
+  caution: 'Ambient proof: open caveats',
+  blocked: 'Ambient proof: blocked claim',
+  stale: 'Ambient proof: stale, data changed',
+  idle: 'Ambient proof: nothing checked yet',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function count(v) {
+  return typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+function plural(n, one, many) {
+  return n === 1 ? one : many;
+}
+
+/**
+ * Read the last prove-gate run into the two things the strip needs from it:
+ * whether it allowed the claim, and whether it is still about current data.
+ *
+ * Accepts the shape `assertClaimAllowed` returns, so a caller can hand the
+ * result straight in without translating it and getting the translation wrong.
+ */
+function readProve(prove, dataVersion) {
+  if (!isPlainObject(prove)) {
+    return { ran: false, allowed: false, stale: false, unbound: 0, cautions: 0, refused: 0 };
+  }
+  const ranAgainst = str(prove.dataVersion);
+  const now = str(dataVersion);
+  const stale = !!(ranAgainst && now && ranAgainst !== now);
+  return {
+    ran: true,
+    allowed: prove.allowed === true,
+    stale,
+    unbound: Array.isArray(prove.unbound) ? prove.unbound.length : 0,
+    cautions: Array.isArray(prove.cautions) ? prove.cautions.length : 0,
+    refused: Array.isArray(prove.refused) ? prove.refused.length : 0,
+  };
+}
+
+/**
+ * Build the strip.
+ *
+ * @param {{
+ *   prove?: object, dataVersion?: string, airGap?: boolean, airGapCached?: boolean,
+ *   openCaveats?: number, driftHeadline?: string, driftSeverity?: string,
+ *   localAiState?: string, lastCheckedLabel?: string
+ * }} [input]
+ */
+function buildAmbientProofStrip(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const p = readProve(inp.prove, inp.dataVersion);
+  const airGap = inp.airGap === true;
+  const caveats = count(inp.openCaveats);
+  const driftSeverity = ['fail', 'warn', 'pass'].indexOf(str(inp.driftSeverity)) >= 0 ? str(inp.driftSeverity) : '';
+  const driftHeadline = str(inp.driftHeadline);
+  const lastCheckedLabel = str(inp.lastCheckedLabel);
+
+  let tone;
+  if (!p.ran) tone = 'idle';
+  else if (p.stale) tone = 'stale';
+  else if (!p.allowed || p.refused > 0) tone = 'blocked';
+  else if (p.cautions > 0 || caveats > 0 || driftSeverity === 'warn' || driftSeverity === 'fail') tone = 'caution';
+  else tone = 'clear';
+
+  const facts = [];
+
+  if (!p.ran) {
+    facts.push({
+      id: 'prove',
+      label: 'Last prove run',
+      value: 'None yet',
+      detail: 'No claim has been through the gate in this session. That is not a pass, it is an absence.',
+    });
+  } else {
+    facts.push({
+      id: 'prove',
+      label: 'Last prove run',
+      value: p.stale
+        ? 'Ran, but the data has changed since'
+        : p.allowed
+          ? 'Every number bound to a proof'
+          : p.unbound + ' ' + plural(p.unbound, 'number', 'numbers') + ' not bound to any proof',
+      detail: p.stale
+        ? 'The gate passed against an earlier version of the data. Run it again before quoting anything from it.'
+        : p.allowed
+          ? 'Each number in the last checked claim matched a Proof Board tile or an engine result.'
+          : 'A claim was refused. The unbound numbers are named on the gate result rather than quietly removed.',
+    });
+  }
+
+  facts.push({
+    id: 'airgap',
+    label: 'Air-Gap Mode',
+    value: airGap ? 'On, network paths blocked' : 'Off',
+    detail: airGap
+      ? 'Network paths are hard-blocked for this session. Nothing can be fetched and nothing can be sent.'
+      : 'Air-Gap Mode is not on. Analysis still runs locally, and nothing leaves without a confirmation, but the block is not enforced.',
+  });
+
+  facts.push({
+    id: 'caveats',
+    label: 'Open caveats',
+    value: caveats === 0 ? 'None recorded' : String(caveats) + ' ' + plural(caveats, 'caveat', 'caveats'),
+    detail: caveats === 0
+      ? 'No caveat is currently attached to the working set. Absence of a recorded caveat is not proof there is nothing to say about the data.'
+      : 'A caveat travels with any number it applies to, including into an export.',
+  });
+
+  if (driftSeverity) {
+    facts.push({
+      id: 'drift',
+      label: 'Drift watch',
+      value: driftSeverity === 'fail' ? 'Drift detected' : driftSeverity === 'warn' ? 'Drift warning' : 'Stable',
+      detail: driftHeadline || 'Reported by the drift watchdog against the last automatic re-check.',
+    });
+  }
+
+  if (lastCheckedLabel) {
+    facts.push({
+      id: 'when',
+      label: 'Last checked',
+      value: lastCheckedLabel,
+      detail: 'The strip reports when a check ran. It does not re-run anything on its own.',
+    });
+  }
+
+  return {
+    kind: AMBIENT_PROOF_KIND,
+    version: AMBIENT_PROOF_VERSION,
+    tone,
+    label: TONE_LABEL[tone],
+    facts,
+    outboundRule: OUTBOUND_RULE,
+    doctrine: AMBIENT_DOCTRINE,
+    note: NOT_AN_ASSISTANT_NOTE,
+    answersQuestions: false,
+    observed: {
+      proveRan: p.ran,
+      proveAllowed: p.allowed,
+      proveStale: p.stale,
+      unbound: p.unbound,
+      cautions: p.cautions,
+      refused: p.refused,
+      airGap,
+      openCaveats: caveats,
+      driftSeverity,
+    },
+  };
+}
+
+/**
+ * The refusal, as a function.
+ *
+ * Every ambient assistant that answers a question about data it has merely
+ * observed is guessing, and this one will not start. The reply names the
+ * surface that can actually answer, so declining is a redirection rather than
+ * a dead end.
+ */
+function answerAmbientQuestion(question) {
+  const q = str(question);
+  return {
+    answered: false,
+    question: q,
+    reason: 'This strip has no engine path to your data and will not infer an answer from what it can see.',
+    redirect: 'Ask it in SQL, in the notebook, or through the Copilot, where the answer comes from a query you can read.',
+  };
+}
+
+/** One line for a surface with no room for the facts. */
+function ambientChipLabel(strip) {
+  if (!isPlainObject(strip)) return TONE_LABEL.idle;
+  return TONE_LABEL[strip.tone] || TONE_LABEL.idle;
+}
+  window.DataGlowAmbientProof = {
+    AMBIENT_PROOF_KIND: AMBIENT_PROOF_KIND,
+    AMBIENT_PROOF_VERSION: AMBIENT_PROOF_VERSION,
+    AMBIENT_TONES: AMBIENT_TONES,
+    AMBIENT_DOCTRINE: AMBIENT_DOCTRINE,
+    OUTBOUND_RULE: OUTBOUND_RULE,
+    NOT_AN_ASSISTANT_NOTE: NOT_AN_ASSISTANT_NOTE,
+    buildAmbientProofStrip: buildAmbientProofStrip,
+    answerAmbientQuestion: answerAmbientQuestion,
+    ambientChipLabel: ambientChipLabel,
+  };
+})();
+/* ---- end js/ambient/ambient-proof-strip.js ---- */
+/* ---- from js/polyglot/polars-path.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Polars secondary path (status and honesty, not an engine)
+// ============================================================
+//
+// Polars keeps being the right answer to a question DataGlow does not have.
+// It is genuinely fast at dataframe work, people ask for it by name, and a
+// chip saying "Polars ready" would be the single cheapest way to look more
+// serious than the product is. That is exactly why this file exists and why it
+// contains no engine.
+//
+// WHAT IS ACTUALLY TRUE TODAY.
+// DuckDB WASM is the analytical engine and it is not being replaced. Polars is
+// reachable only if the Pyodide session happens to have the wheel available,
+// which is not something DataGlow ships or guarantees. So the honest surface is
+// a status: available, not installed, or not applicable on this platform. There
+// is no fourth state that means "coming soon", because a state nobody can
+// currently be in is a promise wearing the costume of a status.
+//
+// WHY THE AVAILABILITY IS PASSED IN.
+// Detecting Polars means running `import polars` inside Pyodide, which is a
+// runtime probe with a load cost and a failure mode. This module takes the
+// answer as an argument so it stays pure, so it can be tested on a machine with
+// no Pyodide at all, and so the probe lives in one place next to the runtime
+// that owns it rather than being reimplemented by every surface that wants a
+// chip.
+//
+// Pure. No imports, no probing, no engine.
+
+const POLARS_PATH_KIND = 'dataglow-polars-path';
+const POLARS_PATH_VERSION = 1;
+
+const POLARS_STATES = Object.freeze(['available', 'not_installed', 'not_on_platform']);
+
+const DUCKDB_STAYS_PRIMARY =
+  'DuckDB running as WebAssembly is the analytical engine here and it is not being replaced. Any Polars path is a second way to do dataframe work beside it, never underneath it.';
+
+const STATE_LABEL = Object.freeze({
+  available: 'Polars path: available in this Python session',
+  not_installed: 'Polars path: not installed',
+  not_on_platform: 'Polars path: not applicable here',
+});
+
+const STATE_DETAIL = Object.freeze({
+  available:
+    'This Pyodide session can import polars, so a Python cell can use it directly. DataGlow does not route anything through it automatically and no query planner knows it is there.',
+  not_installed:
+    'Polars is not importable in this Pyodide session. Nothing here installs it, and the SQL path is unaffected because it never used Polars in the first place.',
+  not_on_platform:
+    'The Python runtime is not running, so the question of whether Polars is importable has no answer yet. Start a Python session first.',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * What a Polars path would be for, written down so the scaffold is legible as a
+ * decision rather than as an unfinished feature.
+ */
+function describePolarsSecondaryPath() {
+  return {
+    kind: POLARS_PATH_KIND,
+    version: POLARS_PATH_VERSION,
+    title: 'Polars, as a second path',
+    summary:
+      'Fast dataframe operations beside DuckDB SQL, for the work that is awkward to phrase as a query: reshaping, chained transforms, and expression pipelines over a table already loaded.',
+    wouldDo: [
+      'Run group-by, join and window expressions over a loaded table without writing SQL for it.',
+      'Chain transforms in a way that reads as steps rather than as one nested query.',
+      'Hand the result back as a dataframe the rest of the Python cell already understands.',
+    ],
+    wouldNotDo: [
+      'Replace DuckDB. The SQL tab, the generated SQL and the query receipts all stay on DuckDB.',
+      'Become an automatic fast path. Nothing would silently choose Polars for you, because a query that ran somewhere you did not pick is a query you cannot reason about.',
+      'Ship a wheel. DataGlow does not bundle Polars and does not install it for you.',
+    ],
+    status: 'scaffold',
+    statusMeaning:
+      'This module reports whether Polars is reachable and describes what a Polars path would be. It contains no engine and routes nothing.',
+    primaryEngine: DUCKDB_STAYS_PRIMARY,
+  };
+}
+
+/**
+ * @param {{pyodideHasPolars?:boolean, pythonReady?:boolean, platform?:string}} [input]
+ */
+function buildPolarsAvailability(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const pythonReady = inp.pythonReady !== false;
+  const has = inp.pyodideHasPolars === true;
+  const platform = typeof inp.platform === 'string' && inp.platform ? inp.platform : 'web';
+
+  const state = !pythonReady ? 'not_on_platform' : has ? 'available' : 'not_installed';
+
+  return {
+    kind: POLARS_PATH_KIND,
+    version: POLARS_PATH_VERSION,
+    state,
+    label: STATE_LABEL[state],
+    detail: STATE_DETAIL[state],
+    usable: state === 'available',
+    replacesDuckDb: false,
+    primaryEngine: DUCKDB_STAYS_PRIMARY,
+    platform,
+    observed: { pyodideHasPolars: has, pythonReady },
+  };
+}
+
+/** One line for a chip. Never says ready when it is not. */
+function polarsChipLabel(availability) {
+  if (!isPlainObject(availability)) return STATE_LABEL.not_on_platform;
+  return STATE_LABEL[availability.state] || STATE_LABEL.not_on_platform;
+}
+  window.DataGlowPolarsPath = {
+    POLARS_PATH_KIND: POLARS_PATH_KIND,
+    POLARS_PATH_VERSION: POLARS_PATH_VERSION,
+    POLARS_STATES: POLARS_STATES,
+    DUCKDB_STAYS_PRIMARY: DUCKDB_STAYS_PRIMARY,
+    describePolarsSecondaryPath: describePolarsSecondaryPath,
+    buildPolarsAvailability: buildPolarsAvailability,
+    polarsChipLabel: polarsChipLabel,
+  };
+})();
+/* ---- end js/polyglot/polars-path.js ---- */
+/* ---- from js/ai/data-glow-local-ai-canvas.js ---- */
+/*
+ * DATAGLOW - Built-in AI status, ambient proof and capability ceiling surface.
+ *
+ * DataGlow has been running a language model on the user's own machine for
+ * months and there was nowhere on the page that said so. The most distinctive
+ * property of the product was invisible. This surface fixes that with a chip
+ * that is always present and a panel behind it that says, in order: what the
+ * built-in AI is, what state it is in right now and why, what the proof
+ * situation is, and where the product stops.
+ *
+ * WHY THE CHIP READS THE MACHINE ON EVERY RENDER.
+ * WebGPU can be absent, Air-Gap Mode can be toggled mid-session, and the model
+ * can finish loading while the panel is open. A chip rendered once is a chip
+ * that is wrong later, so every render re-observes and re-derives. The
+ * derivation itself lives in the pure engine; this file only reports what it
+ * can see.
+ *
+ * WHY THE CEILING IS IN THE SAME PANEL AS THE AI STATUS.
+ * They answer the same question. Someone reading "Built-in AI: ready" is
+ * forming a belief about what this thing can do, and the honest completion of
+ * that sentence is the list of what it cannot. Putting the ceiling behind a
+ * separate Help link would let the optimistic half travel on its own.
+ *
+ * Everything is feature-detected. A missing engine removes a section rather
+ * than throwing, because this panel mounts over builds that inline different
+ * subsets of the modules.
+ */
+;(function () {
+  'use strict';
+
+  var CHIP_ID = 'dg-lai-chip';
+  var PANEL_ID = 'dg-lai-panel';
+  var STYLE_ID = 'dg-lai-styles';
+
+  var state = { open: false, tab: 'ai', copiedOnce: false };
+
+  function flag(explicitKey, flagKey) {
+    try { if (window[explicitKey] === false) return false; } catch (_e0) {}
+    try { if (window[explicitKey] === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled(flagKey) !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function statusOn() { return flag('DATAGLOW_LOCAL_AI_STATUS', 'localAiStatus'); }
+  function ambientOn() { return flag('DATAGLOW_AMBIENT_PROOF_STRIP', 'ambientProofStrip'); }
+  function ceilingOn() { return flag('DATAGLOW_CAPABILITY_CEILING', 'capabilityCeiling'); }
+  function polarsOn() { return flag('DATAGLOW_POLARS_SECONDARY_PATH', 'polarsSecondaryPath'); }
+
+  function engine(name) {
+    try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  function askHuman(question) {
+    try {
+      if (typeof window.confirm === 'function') return window.confirm(question) === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function toast(message) {
+    try {
+      if (typeof window.showToast === 'function') { window.showToast(message); return; }
+    } catch (_e) {}
+    try { console.log('[local-ai] ' + message); } catch (_e2) {}
+  }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'style') node.setAttribute('style', attrs[k]);
+        else if (k === 'class') node.className = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      }
+    }
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  /* ---------------------------------------------------------------
+     Observation. Four facts about this machine, each read defensively,
+     because every one of them lives behind an API that may not exist.
+     --------------------------------------------------------------- */
+
+  function hasWebGPU() {
+    try {
+      if (typeof navigator === 'undefined') return false;
+      return !!navigator.gpu;
+    } catch (_e) { return false; }
+  }
+
+  function modelIsLoaded() {
+    var llm = engine('OnDeviceLLM');
+    if (!llm) return false;
+    try {
+      if (typeof llm.isModelLoaded === 'function') return llm.isModelLoaded() === true;
+    } catch (_e) {}
+    return false;
+  }
+
+  function airGapIsOn() {
+    var ag = engine('DataGlowAirGap');
+    if (ag) {
+      try {
+        if (typeof ag.isAirGapEnabled === 'function') return ag.isAirGapEnabled() === true;
+        if (typeof ag.isEnabled === 'function') return ag.isEnabled() === true;
+      } catch (_e) {}
+    }
+    try { if (window.DATAGLOW_AIR_GAP === true) return true; } catch (_e2) {}
+    return false;
+  }
+
+  function pythonIsReady() {
+    try {
+      if (window.DataGlowPython && typeof window.DataGlowPython.isReady === 'function') {
+        return window.DataGlowPython.isReady() === true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  function platformName() {
+    try {
+      if (window.DATAGLOW_PLATFORM === 'desktop') return 'desktop';
+      if (window.__TAURI__ || window.electronAPI) return 'desktop';
+    } catch (_e) {}
+    return 'web';
+  }
+
+  function aiStatus() {
+    var eng = engine('DataGlowLocalAiStatus');
+    if (!eng || typeof eng.buildLocalAiStatus !== 'function') return null;
+    try {
+      return eng.buildLocalAiStatus({
+        webgpu: hasWebGPU(),
+        modelLoaded: modelIsLoaded(),
+        loading: false,
+        airGap: airGapIsOn(),
+        modelCached: false,
+        enabled: statusOn(),
+        platform: platformName(),
+      });
+    } catch (_e) { return null; }
+  }
+
+  function ambientStrip() {
+    var eng = engine('DataGlowAmbientProof');
+    if (!eng || typeof eng.buildAmbientProofStrip !== 'function') return null;
+    var caveats = 0;
+    try {
+      var board = engine('DataGlowProofBoardUI');
+      if (board && typeof board.tiles === 'function') {
+        var tiles = board.tiles() || [];
+        for (var i = 0; i < tiles.length; i++) {
+          if (tiles[i] && tiles[i].gateBadge && tiles[i].gateBadge !== 'clear') caveats++;
+        }
+      }
+    } catch (_e) {}
+    try {
+      return eng.buildAmbientProofStrip({
+        prove: lastProve(),
+        airGap: airGapIsOn(),
+        openCaveats: caveats,
+      });
+    } catch (_e2) { return null; }
+  }
+
+  /* The last gate result this session, if some surface recorded one. Nothing
+     is fabricated when none has: the strip reports "nothing checked yet",
+     which is the truth and is not a pass. */
+  function lastProve() {
+    try {
+      var p2p = engine('DataGlowProofToPostUI');
+      if (p2p && typeof p2p.pack === 'function') {
+        var pack = p2p.pack();
+        if (pack && pack.validation) return pack.validation;
+      }
+    } catch (_e) {}
+    return null;
+  }
+
+  function ceiling() {
+    var eng = engine('DataGlowCapabilityCeiling');
+    if (!eng || typeof eng.buildCapabilityCeiling !== 'function') return null;
+    try { return eng.buildCapabilityCeiling({ platform: platformName() }); } catch (_e) { return null; }
+  }
+
+  function polars() {
+    var eng = engine('DataGlowPolarsPath');
+    if (!eng || typeof eng.buildPolarsAvailability !== 'function') return null;
+    try {
+      return eng.buildPolarsAvailability({ pythonReady: pythonIsReady(), pyodideHasPolars: false, platform: platformName() });
+    } catch (_e) { return null; }
+  }
+
+  /* ---------------------------------------------------------------
+     Rendering
+     --------------------------------------------------------------- */
+
+  function styles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = ''
+      + '#' + PANEL_ID + '{position:fixed;bottom:60px;right:16px;width:min(520px,calc(100vw - 32px));'
+      + 'max-height:min(72vh,720px);overflow:auto;z-index:2147483000;display:none;'
+      + 'background:var(--color-surface,#fff);color:inherit;border:1px solid var(--color-border,#ccc);'
+      + 'border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.22);padding:16px;font-size:13px;line-height:1.5}'
+      + '#' + PANEL_ID + ' h3{margin:0 0 2px;font-size:15px}'
+      + '#' + PANEL_ID + ' h4{margin:14px 0 4px;font-size:13px}'
+      + '.dg-lai-note{opacity:.75;font-size:12px;margin:6px 0}'
+      + '.dg-lai-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
+      + '.dg-lai-btn[aria-selected="true"]{font-weight:600;border-color:currentColor}'
+      + '.dg-lai-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}'
+      + '.dg-lai-fact{border:1px solid var(--color-border,#ddd);border-radius:8px;padding:8px 10px;margin:6px 0}'
+      + '.dg-lai-fact b{display:block;font-size:12px;opacity:.7;font-weight:600}'
+      + '.dg-lai-not{margin:4px 0 0;padding-left:10px;border-left:2px solid currentColor;opacity:.9}';
+    var tag = el('style', { id: STYLE_ID });
+    tag.textContent = css;
+    (document.head || document.body).appendChild(tag);
+  }
+
+  function chipText() {
+    var eng = engine('DataGlowLocalAiStatus');
+    var st = aiStatus();
+    if (eng && typeof eng.statusChipLabel === 'function') {
+      try { return eng.statusChipLabel(st); } catch (_e) {}
+    }
+    return 'Built-in AI';
+  }
+
+  function renderAiTab(host) {
+    var st = aiStatus();
+    var eng = engine('DataGlowLocalAiStatus');
+    if (!st || !eng) {
+      host.appendChild(el('p', { class: 'dg-lai-note' }, 'The built-in AI status engine is not present in this build.'));
+      return;
+    }
+
+    var top = el('div', { class: 'dg-lai-fact' });
+    top.appendChild(el('b', {}, st.headline));
+    top.appendChild(el('div', {}, st.detail));
+    if (st.nextStep) top.appendChild(el('div', { class: 'dg-lai-note' }, st.nextStep));
+    host.appendChild(top);
+
+    host.appendChild(el('h4', {}, 'What the built-in AI does'));
+    var list = eng.WHAT_BUILT_IN_AI_DOES || [];
+    for (var i = 0; i < list.length; i++) {
+      var f = el('div', { class: 'dg-lai-fact' });
+      f.appendChild(el('b', {}, list[i].title));
+      f.appendChild(el('div', {}, list[i].body));
+      host.appendChild(f);
+    }
+    host.appendChild(el('p', { class: 'dg-lai-note' }, eng.AI_DIVISION_OF_LABOUR));
+
+    host.appendChild(el('h4', {}, 'The model'));
+    host.appendChild(el('div', {}, st.modelLabel));
+    var models = typeof eng.listRecommendedLocalModels === 'function' ? eng.listRecommendedLocalModels() : [];
+    for (var j = 0; j < models.length; j++) {
+      var m = models[j];
+      var row = el('div', { class: 'dg-lai-fact' });
+      row.appendChild(el('b', {}, m.label + '  (' + m.fit.replace(/_/g, ' ') + ')'));
+      row.appendChild(el('div', {}, m.sizeHint + ', ' + m.license));
+      row.appendChild(el('div', { class: 'dg-lai-note' }, m.why));
+      host.appendChild(row);
+    }
+    host.appendChild(el('p', { class: 'dg-lai-note' }, eng.NOT_A_CERTIFICATION_NOTE));
+  }
+
+  function renderAmbientTab(host) {
+    var strip = ambientStrip();
+    var eng = engine('DataGlowAmbientProof');
+    if (!strip || !eng) {
+      host.appendChild(el('p', { class: 'dg-lai-note' }, 'The ambient proof engine is not present in this build.'));
+      return;
+    }
+    var top = el('div', { class: 'dg-lai-fact' });
+    top.appendChild(el('b', {}, strip.label));
+    top.appendChild(el('div', {}, strip.doctrine));
+    host.appendChild(top);
+
+    for (var i = 0; i < strip.facts.length; i++) {
+      var f = strip.facts[i];
+      var row = el('div', { class: 'dg-lai-fact' });
+      row.appendChild(el('b', {}, f.label));
+      row.appendChild(el('div', {}, f.value));
+      row.appendChild(el('div', { class: 'dg-lai-note' }, f.detail));
+      host.appendChild(row);
+    }
+    host.appendChild(el('p', { class: 'dg-lai-note' }, strip.outboundRule));
+    host.appendChild(el('p', { class: 'dg-lai-note' }, strip.note));
+  }
+
+  function renderCeilingTab(host) {
+    var c = ceiling();
+    if (!c) {
+      host.appendChild(el('p', { class: 'dg-lai-note' }, 'The capability ceiling engine is not present in this build.'));
+      return;
+    }
+    host.appendChild(el('p', { class: 'dg-lai-note' }, c.preamble));
+    for (var i = 0; i < c.groups.length; i++) {
+      var g = c.groups[i];
+      var row = el('div', { class: 'dg-lai-fact' });
+      row.appendChild(el('b', {}, g.title));
+      row.appendChild(el('div', {}, g.does));
+      row.appendChild(el('div', { class: 'dg-lai-not' }, g.notThis));
+      if (g.detail) row.appendChild(el('div', { class: 'dg-lai-note' }, g.detail));
+      host.appendChild(row);
+    }
+
+    if (polarsOn()) {
+      var p = polars();
+      if (p) {
+        var pr = el('div', { class: 'dg-lai-fact' });
+        pr.appendChild(el('b', {}, p.label));
+        pr.appendChild(el('div', {}, p.detail));
+        pr.appendChild(el('div', { class: 'dg-lai-note' }, p.primaryEngine));
+        host.appendChild(pr);
+      }
+    }
+
+    host.appendChild(el('p', { class: 'dg-lai-note' }, c.closing));
+
+    var row2 = el('div', { class: 'dg-lai-row' });
+    var copyBtn = el('button', { class: 'dg-lai-btn' }, 'Copy as markdown');
+    copyBtn.addEventListener('click', function () { copyCeiling(); });
+    row2.appendChild(copyBtn);
+    host.appendChild(row2);
+  }
+
+  /* The one outbound action on this panel. It writes to the clipboard, which is
+     a way data leaves the app, so it asks first exactly like every other
+     outbound path in the product. */
+  function copyCeiling() {
+    var eng = engine('DataGlowCapabilityCeiling');
+    var c = ceiling();
+    if (!eng || !c || typeof eng.renderCeilingMarkdown !== 'function') { toast('Nothing to copy.'); return; }
+    if (!askHuman('Copy the capability ceiling to your clipboard as markdown?')) { toast('Not copied.'); return; }
+    var text = eng.renderCeilingMarkdown(c);
+    try {
+      if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(function () {
+          state.copiedOnce = true;
+          toast('Capability ceiling copied.');
+        }, function () { toast('The browser refused the clipboard.'); });
+        return;
+      }
+    } catch (_e) {}
+    toast('No clipboard access in this browser.');
+  }
+
+  function render() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    var head = el('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:10px' });
+    var titleWrap = el('div');
+    titleWrap.appendChild(el('h3', {}, 'Built-in AI, on this machine'));
+    titleWrap.appendChild(el('div', { class: 'dg-lai-note', style: 'margin:0' }, 'What it is, what state it is in, and where it stops.'));
+    head.appendChild(titleWrap);
+    var closeBtn = el('button', { class: 'dg-lai-btn' }, 'Close');
+    closeBtn.addEventListener('click', close);
+    head.appendChild(closeBtn);
+    panel.appendChild(head);
+
+    var tabs = el('div', { class: 'dg-lai-row', role: 'tablist' });
+    var defs = [['ai', 'Built-in AI']];
+    if (ambientOn()) defs.push(['ambient', 'Ambient proof']);
+    if (ceilingOn()) defs.push(['ceiling', 'What this machine can do']);
+    if (defs.length > 1) {
+      for (var i = 0; i < defs.length; i++) {
+        (function (key, label) {
+          var b = el('button', { class: 'dg-lai-btn', role: 'tab', 'aria-selected': state.tab === key ? 'true' : 'false' }, label);
+          b.addEventListener('click', function () { state.tab = key; render(); });
+          tabs.appendChild(b);
+        })(defs[i][0], defs[i][1]);
+      }
+      panel.appendChild(tabs);
+    }
+
+    var body = el('div');
+    panel.appendChild(body);
+    if (state.tab === 'ambient' && ambientOn()) renderAmbientTab(body);
+    else if (state.tab === 'ceiling' && ceilingOn()) renderCeilingTab(body);
+    else renderAiTab(body);
+  }
+
+  function refreshChip() {
+    var chip = document.getElementById(CHIP_ID);
+    if (!chip) return;
+    chip.textContent = chipText();
+    var st = aiStatus();
+    chip.setAttribute('title', st ? st.detail : 'Built-in AI status');
+  }
+
+  function open() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    state.open = true;
+    panel.style.display = 'block';
+    render();
+  }
+
+  function close() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    state.open = false;
+    panel.style.display = 'none';
+  }
+
+  function mount() {
+    if (!statusOn()) return;
+    if (document.getElementById(CHIP_ID)) return;
+    if (!document.body) return;
+    styles();
+
+    var chip = el('button', {
+      id: CHIP_ID,
+      type: 'button',
+      style: 'position:fixed;bottom:18px;left:18px;z-index:2147483000;'
+        + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;'
+        + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
+        + 'box-shadow:0 2px 8px rgba(0,0,0,.14)',
+    }, chipText());
+    chip.addEventListener('click', function () { if (state.open) close(); else open(); });
+    document.body.appendChild(chip);
+    document.body.appendChild(el('div', { id: PANEL_ID, role: 'dialog', 'aria-label': 'Built-in AI status' }));
+    refreshChip();
+
+    /* Re-observe on a slow interval. The chip is a claim about right now, and
+       WebGPU, Air-Gap Mode and model loadedness all change without telling us. */
+    try {
+      setInterval(function () {
+        try { refreshChip(); if (state.open) render(); } catch (_e) {}
+      }, 5000);
+    } catch (_e2) {}
+  }
+
+  function boot() {
+    try { mount(); } catch (_e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 1000); });
+  } else {
+    setTimeout(boot, 1000);
+  }
+
+  window.DataGlowLocalAiUI = {
+    version: 1,
+    mounted: function () { return !!document.getElementById(CHIP_ID); },
+    open: open,
+    close: close,
+    isOpen: function () { return state.open === true; },
+    refresh: render,
+    chipText: chipText,
+    status: aiStatus,
+    ambient: ambientStrip,
+    ceiling: ceiling,
+    polars: polars,
+    copyCeiling: copyCeiling,
+  };
+})();
+/* ---- end js/ai/data-glow-local-ai-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

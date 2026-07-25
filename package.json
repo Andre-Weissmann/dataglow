@@ -200,6 +200,7 @@
     "test:advanced": "node test/advanced-transforms.test.mjs",
     "test:proofboard": "node test/proof-board.test.mjs",
     "test:prooftopost": "node test/proof-to-post.test.mjs",
+    "test:localai": "node test/local-ai-ambient.test.mjs",
     "test:metriccontractstatus": "node test/metric-contract-status.test.mjs",
     "test:metricaccessrules": "node test/metric-access-rules.test.mjs",
     "test:pfmirror": "node --test test/provenance-fabric-proofchain-mirror.test.mjs",
