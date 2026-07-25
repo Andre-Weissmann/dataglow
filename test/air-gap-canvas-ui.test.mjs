@@ -7,10 +7,14 @@
 // request, and that turning it OFF gives the page its network back.
 //
 // It asserts, in order:
-//   FLAG OFF (the shipped default): no button, no panel, no banner, and
-//     window.fetch is the untouched original. The feature ships dark.
-//   FLAG ON: the button mounts with a 44px touch target, the panel opens, and
-//     the toggle flips the posture and raises the calm banner.
+//   OPT-OUT (window.DATAGLOW_AIR_GAP = false): no button, no panel, no banner,
+//     and window.fetch is the untouched original.
+//   PROVIDER OFF (a flags provider reporting airGapMode disabled): the same,
+//     which is what proves the flag is read rather than assumed.
+//   DEFAULT LOAD (no override, no provider): airGapMode ships enabled, so the
+//     button mounts and the panel opens with no console opt-in. The block itself
+//     still starts off, because mounting the surface is not engaging it.
+//   TOGGLE: the toggle flips the posture and raises the calm banner.
 //   BLOCK: with the mode on, a cross-origin fetch is refused before it leaves,
 //     while a same-origin asset fetch still succeeds (local engines keep working).
 //   RESTORE: turning the mode off restores window.fetch and the cross-origin
@@ -32,12 +36,23 @@ import assert from 'node:assert/strict';
 
 const REPO_ROOT = normalize(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const TEST_PAGE = '/__airgap_test__.html';
+const OPT_OUT_PAGE = '/__airgap_test__opt-out.html';
+const FLAG_OFF_PAGE = '/__airgap_test__flag-off.html';
 const LOCAL_ASSET = '/__airgap_local_asset__.txt';
 const CROSS_ORIGIN = 'https://api.openai.example/v1/messages';
 
-function page(optIn) {
-  return '<!doctype html><html><head><meta charset="utf-8"></head><body>' +
-    (optIn ? '<script>window.DATAGLOW_AIR_GAP = true;<\/script>' : '') +
+/* Three boot conditions:
+     'default'  no override and no flags provider, which is how the app loads.
+                airGapMode ships enabled, so the surface must mount.
+     'optout'   window.DATAGLOW_AIR_GAP = false, the explicit local opt-out.
+     'flagoff'  a flags provider that reports airGapMode disabled. */
+function page(mode) {
+  var pre = '';
+  if (mode === 'optout') pre = '<script>window.DATAGLOW_AIR_GAP = false;<\/script>';
+  if (mode === 'flagoff') {
+    pre = '<script>window.DataGlowFlags = { isEnabled: function (n) { return n !== "airGapMode"; } };<\/script>';
+  }
+  return '<!doctype html><html><head><meta charset="utf-8"></head><body>' + pre +
     '<script type="module" src="/js/privacy/air-gap-mode.js"><\/script>' +
     '<script src="/js/privacy/data-glow-air-gap-canvas.js"><\/script>' +
     '</body></html>';
@@ -47,9 +62,9 @@ function startServer() {
   return new Promise((resolve) => {
     const server = createServer(async (req, res) => {
       const urlPath = decodeURIComponent(req.url.split('?')[0]);
-      if (urlPath === TEST_PAGE || urlPath === TEST_PAGE + '-off') {
+      if (urlPath === TEST_PAGE || urlPath === OPT_OUT_PAGE || urlPath === FLAG_OFF_PAGE) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(page(urlPath === TEST_PAGE));
+        res.end(page(urlPath === OPT_OUT_PAGE ? 'optout' : (urlPath === FLAG_OFF_PAGE ? 'flagoff' : 'default')));
         return;
       }
       if (urlPath === LOCAL_ASSET) {
@@ -93,23 +108,33 @@ async function run() {
   const p = await ctx.newPage();
 
   try {
-    // ---- FLAG OFF: ships dark ----
-    await p.goto(base + TEST_PAGE + '-off');
-    await waitForBoot(p);
-    const dark = await p.evaluate(() => ({
+    const surfaceState = () => p.evaluate(() => ({
       btn: !!document.getElementById('dg-air-gap-btn'),
       panel: !!document.getElementById('dg-air-gap-panel'),
       banner: !!document.getElementById('dg-air-gap-banner'),
       fetchIsNative: /\[native code\]/.test(String(window.fetch)),
       allowsAi: window.DataGlowAirGapUI.allowAi(),
     }));
-    assert.equal(dark.btn, false, 'flag off must not mount the button');
-    assert.equal(dark.panel, false, 'flag off must not mount the panel');
-    assert.equal(dark.banner, false, 'flag off must not mount the banner');
-    assert.equal(dark.fetchIsNative, true, 'flag off must not wrap window.fetch');
-    assert.equal(dark.allowsAi, true, 'flag off must not block anything');
 
-    // ---- FLAG ON: the surface mounts, calm and off ----
+    // ---- EXPLICIT OPT-OUT: window.DATAGLOW_AIR_GAP = false keeps it off ----
+    await p.goto(base + OPT_OUT_PAGE);
+    await waitForBoot(p);
+    const optedOut = await surfaceState();
+    assert.equal(optedOut.btn, false, 'the opt-out must not mount the button');
+    assert.equal(optedOut.panel, false, 'the opt-out must not mount the panel');
+    assert.equal(optedOut.banner, false, 'the opt-out must not mount the banner');
+    assert.equal(optedOut.fetchIsNative, true, 'the opt-out must not wrap window.fetch');
+    assert.equal(optedOut.allowsAi, true, 'the opt-out must not block anything');
+
+    // ---- FLAGS PROVIDER SAYS DISABLED: the flag read is honored ----
+    await p.goto(base + FLAG_OFF_PAGE);
+    await waitForBoot(p);
+    const flagOff = await surfaceState();
+    assert.equal(flagOff.btn, false, 'a provider reporting airGapMode disabled must not mount the button');
+    assert.equal(flagOff.fetchIsNative, true, 'a disabled flag must not wrap window.fetch');
+    assert.equal(flagOff.allowsAi, true, 'a disabled flag must not block anything');
+
+    // ---- DEFAULT LOAD: ships ON, so the surface mounts with no opt-in ----
     await p.goto(base + TEST_PAGE);
     await waitForBoot(p);
     await p.waitForSelector('#dg-air-gap-btn', { timeout: 15000 });
@@ -123,11 +148,15 @@ async function run() {
         width: box.width,
         active: window.DataGlowAirGapUI.isActive(),
         bannerOpen: document.getElementById('dg-air-gap-banner').classList.contains('open'),
+        mountedWithoutOptIn: window.DATAGLOW_AIR_GAP === undefined && !window.DataGlowFlags,
       };
     });
     assert.equal(mounted.label, 'Air-Gap', 'button starts in the off label');
+    assert.equal(mounted.mountedWithoutOptIn, true, 'the surface must mount with no console opt-in');
     assert.equal(mounted.state, 'off');
-    assert.equal(mounted.active, false, 'the mode itself still defaults off');
+    // Mounting the surface is not the same as engaging the block: the toggle is
+    // there by default, and turning it on stays the user's session choice.
+    assert.equal(mounted.active, false, 'the block itself is still the user session choice');
     assert.equal(mounted.bannerOpen, false, 'no banner while off');
     // The inline canvas CSS is what sizes the button to 44px; on this bare page
     // it is unstyled, so only assert it is a real, clickable element.
@@ -205,7 +234,7 @@ async function run() {
     assert.equal(restored.allowsAi, true);
     assert.equal(restored.remote, 'remote-ok', 'outbound requests must work again');
 
-    console.log('air-gap canvas UI: 24 assertion(s) passed (dark default, mount, open, toggle, block, restore)');
+    console.log('air-gap canvas UI: 32 assertion(s) passed (opt-out, provider off, default mount, open, toggle, block, restore)');
   } finally {
     await browser.close();
     server.close();

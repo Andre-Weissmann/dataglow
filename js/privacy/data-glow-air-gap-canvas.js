@@ -29,18 +29,25 @@
     console.info('[Air-Gap]', msg);
   }
 
-  /* The airGapMode flag ships OFF, so the surface is opt-in: no button, no
-     panel, no banner, and no wrapped network primitive until someone asks for
-     it. window.DATAGLOW_AIR_GAP = true is the explicit local opt-in used for a
-     headless proof and by anyone running the mode before the flag is promoted. */
+  /* The airGapMode flag ships ON, so the surface mounts by default: the toggle,
+     panel and banner are there on every load with no console opt-in. This is the
+     same read the other canvas surfaces use (Shield Packs, PHI Shield, Excel
+     Hell): a flags provider is honored when one is present, and its absence
+     means on rather than off, since the app registers no provider today.
+     Mounting the surface does not engage the block. The posture still starts
+     off and the user turns it on, or back off, for the session.
+     window.DATAGLOW_AIR_GAP is the explicit local override in either
+     direction: false keeps the surface off entirely, true forces it on even if a
+     provider reports the flag disabled. */
   function flagOn() {
-    try { if (window.DATAGLOW_AIR_GAP === true) return true; } catch (_e0) {}
+    try { if (window.DATAGLOW_AIR_GAP === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_AIR_GAP === true) return true; } catch (_e1) {}
     try {
       if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
-        return window.DataGlowFlags.isEnabled('airGapMode') === true;
+        return window.DataGlowFlags.isEnabled('airGapMode') !== false;
       }
     } catch (_e) {}
-    return false;
+    return true;
   }
 
   function posture() {
