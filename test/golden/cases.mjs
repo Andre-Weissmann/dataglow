@@ -38,6 +38,9 @@ import {
 import {
   runUpperBoundChecks, matchBoundedType, decideBound,
 } from '../../js/validation/upper-bound-sanity.js';
+import {
+  SHIELD_PACKS_VERSION, listPacks, detectPatterns, scanColumnSamples, posture, postureCopy,
+} from '../../js/intelligence/shield-packs.js';
 
 // ------------------------------------------------------------
 // Fixed sample datasets. These are the "golden inputs" — never change them
@@ -329,6 +332,66 @@ export function buildCases() {
           confidenceGrade: results.confidence?.grade ?? null,
           calibratedGrades: results.calibratedGrades ?? null,
         };
+      },
+    },
+
+    // ---- Shield Packs: pack registry and the posture matrix ----
+    // Registry order is the canvas display order, and the posture flags are what
+    // the UI's fail-closed AI/export guards read. Pinning both means a reorder, a
+    // renamed pack, or a posture that quietly stops blocking shows up as a
+    // reviewable fixture diff rather than a silent privacy regression.
+    {
+      name: 'shield-packs-registry-posture',
+      run() {
+        const sets = [
+          [],
+          ['finance-pii'],
+          ['privilege'],
+          ['justice-cjis'],
+          ['finance-pii', 'privilege', 'justice-cjis'],
+        ];
+        return {
+          version: SHIELD_PACKS_VERSION,
+          packs: listPacks(),
+          postures: sets.map((activeIds) => {
+            const p = posture({ activeIds });
+            return { activeIds, posture: p, copy: postureCopy(p) };
+          }),
+        };
+      },
+    },
+
+    // ---- Shield Packs: on-device detectors over one fixed corpus ----
+    // Every non-PHI detector against the same deliberately-mixed strings, per
+    // pack. Counts only, never matched values. This is the regression signal for
+    // a detector regex that widens (false positives on ordinary text) or narrows
+    // (misses a shape it used to flag).
+    {
+      name: 'shield-packs-detectors',
+      run() {
+        const CORPUS = [
+          'member 123-45-6789 filed under EIN 12-3456789',
+          'ATTORNEY-CLIENT privileged work product, litigation hold in force',
+          'Case No. CR-2024 charged under statute 187.2, ORI CA0123456',
+          'acct #10029384 routed via 021000021',
+          'total revenue grew 12 percent quarter over quarter',
+          'IBAN GB29NWBK60161331926819 on file',
+        ];
+        const out = {};
+        for (const pack of [undefined, 'healthcare-phi', 'finance-pii', 'privilege', 'justice-cjis']) {
+          out[pack || 'allNonPhi'] = CORPUS.map((text) => {
+            const res = detectPatterns(text, pack);
+            return { hitCount: res.hitCount, ids: res.findings.map((f) => f.id) };
+          });
+        }
+        out.columnScan = scanColumnSamples({
+          member_ssn: ['123-45-6789', '234-56-7890'],
+          tax_id: [],
+          case_number: ['Case No. CR-2024'],
+          notes: ['routine follow up', 'no issues'],
+          amount: ['1200.50'],
+        }, 'finance-pii');
+        return out;
       },
     },
   ];

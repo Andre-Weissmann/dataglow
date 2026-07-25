@@ -4597,6 +4597,27 @@
         { "file": "js/intelligence/mobile-phi-firstrun-calm.js", "name": "shouldShowCalmStrip" }
       ],
       "notes": "Calm chrome pass over the existing PHI Shield: short never-truncated privacy labels, 44px safe-area-aware topbar chip, and a quiet first-run strip (on-device promise + one Load CTA, no auto-dismiss timer). Additive; does not change PHI detection."
+    },
+    {
+      "id": "shield-packs",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Privacy & trust",
+      "name": "Shield Packs (domain privacy packs, PHI is pack 0)",
+      "files": [
+        "js/intelligence/shield-packs.js",
+        "js/intelligence/data-glow-shield-packs-canvas.js",
+        "test/shield-packs.test.mjs"
+      ],
+      "symbols": [
+        { "file": "js/intelligence/shield-packs.js", "name": "listPacks" },
+        { "file": "js/intelligence/shield-packs.js", "name": "detectPatterns" },
+        { "file": "js/intelligence/shield-packs.js", "name": "posture" }
+      ],
+      "notes": "One calm surface listing four on-device privacy packs. Pack 0 is the existing PHI Shield, reused via window.DataGlowPhiShield rather than reimplemented. Finance PII, Privilege labels, and Justice sensitive add shape/label detectors plus a combined posture; the Justice pack fails closed (blocks AI and export paths, shows a high-sensitivity banner). Session-scoped, in-memory, never uploads rows."
     }
   ]
 }

@@ -12,15 +12,25 @@
 #   ├── index.html           — HTML shell (edit this for markup changes)
 #   └── js/
 #       ├── bundle.js        — full JS bundle (inner IIFE content, no wrapper)
-#       │                      This is the authoritative JS source.
-#       │                      Individual module files in subdirs are for
-#       │                      reference/documentation only.
 #       ├── main.js          — module manifest (@@INCLUDE directives)
 #       ├── core/            — grid, sql, chart, dashboard, nl-engine
 #       ├── ingestion/       — drop-zone, parsers, OCR
 #       ├── features/        — mirror, replay, browser-llm
 #       ├── panels/          — analyze-tab panels
 #       └── data/            — sample datasets
+#
+# CANVAS IS AUTHORITATIVE (read this before running a full rebuild).
+# This script's src/ -> canvas/index.html path has been bypassed for a long
+# time: features now land by inlining a js/ module straight into
+# canvas/index.html (see the inject_*.py scripts and the
+# /* ---- from <path> ---- */ markers). src/js/bundle.js is a stale legacy
+# snapshot, so a full rebuild would silently DROP every injected feature.
+# A write to canvas/index.html therefore requires an explicit opt-in:
+#
+#   ALLOW_CANVAS_REBUILD=1 ./build.sh
+#
+# `./build.sh --check` (syntax only, no write) needs no opt-in.
+# scripts/check-canvas-integrity.mjs asserts this guard still exists.
 
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -30,6 +40,16 @@ TMP="$ROOT/.build_tmp"
 
 CHECK_ONLY=0
 if [ "$1" = "--check" ]; then CHECK_ONLY=1; fi
+
+# Clobber guard: canvas/index.html is authoritative (see header). Refuse to
+# overwrite it from the stale src/ tree unless the caller opts in explicitly.
+if [ $CHECK_ONLY -eq 0 ] && [ "${ALLOW_CANVAS_REBUILD:-}" != "1" ] && [ -f "$OUT" ]; then
+  echo "Refusing to overwrite canvas/index.html from src/."
+  echo "canvas/index.html is authoritative; src/js/bundle.js is a stale legacy snapshot,"
+  echo "so a rebuild would drop every feature injected directly into the canvas."
+  echo "Re-run with ALLOW_CANVAS_REBUILD=1 if you really mean it, or use --check."
+  exit 1
+fi
 
 echo "Building DataGlow..."
 

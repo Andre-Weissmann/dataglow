@@ -1,0 +1,198 @@
+{
+  "allNonPhi": [
+    {
+      "hitCount": 2,
+      "ids": [
+        "ssn",
+        "ein"
+      ]
+    },
+    {
+      "hitCount": 4,
+      "ids": [
+        "attorney-client",
+        "privileged",
+        "work-product",
+        "legal-hold"
+      ]
+    },
+    {
+      "hitCount": 3,
+      "ids": [
+        "case-number",
+        "ncic-like",
+        "offense-code"
+      ]
+    },
+    {
+      "hitCount": 2,
+      "ids": [
+        "routing",
+        "account"
+      ]
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 1,
+      "ids": [
+        "iban"
+      ]
+    }
+  ],
+  "columnScan": {
+    "columns": [
+      {
+        "column": "member_ssn",
+        "detectors": [
+          {
+            "count": 2,
+            "id": "ssn",
+            "label": "SSN-shaped value"
+          }
+        ],
+        "hits": 2,
+        "nameHints": [
+          "ssn"
+        ]
+      },
+      {
+        "column": "tax_id",
+        "detectors": [],
+        "hits": 0,
+        "nameHints": [
+          "tax_id"
+        ]
+      }
+    ],
+    "flaggedColumns": [
+      "member_ssn",
+      "tax_id"
+    ],
+    "hitCount": 2,
+    "pack": "finance-pii"
+  },
+  "finance-pii": [
+    {
+      "hitCount": 2,
+      "ids": [
+        "ssn",
+        "ein"
+      ]
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 2,
+      "ids": [
+        "routing",
+        "account"
+      ]
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 1,
+      "ids": [
+        "iban"
+      ]
+    }
+  ],
+  "healthcare-phi": [
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    }
+  ],
+  "justice-cjis": [
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 3,
+      "ids": [
+        "case-number",
+        "ncic-like",
+        "offense-code"
+      ]
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    }
+  ],
+  "privilege": [
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 4,
+      "ids": [
+        "attorney-client",
+        "privileged",
+        "work-product",
+        "legal-hold"
+      ]
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    },
+    {
+      "hitCount": 0,
+      "ids": []
+    }
+  ]
+}
