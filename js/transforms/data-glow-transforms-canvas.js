@@ -5,16 +5,21 @@
   /*
    * DATAGLOW - canvas wire for the table transforms
    *
-   * One calm panel over ten pure engines in js/transforms/. This file owns no
+   * One calm panel over sixteen pure engines in js/transforms/. This file owns no
    * analysis: every number and every sentence it shows comes from an engine, so
    * the panel and a Node test cannot disagree.
    *
-   * WHY TWO GROUPS AND NOT TEN TABS. Bundle 6 shipped four tabs in a flat row,
-   * which read fine. Ten would not: at 360px a ten-item row wraps to three lines
-   * of near-identical pills and picking the right one becomes a memory game. So
-   * the tabs are split by what a person came to do. Time and joins answers a
-   * question about dates. Shape and clean changes the shape of the table itself.
-   * That is one extra click to reach a tab and one fewer wrong tab opened.
+   * WHY THREE GROUPS AND NOT SIXTEEN TABS. Bundle 6 shipped four tabs in a flat
+   * row, which read fine. Sixteen would not: at 360px a row that long wraps to
+   * four lines of near-identical pills and picking the right one becomes a memory
+   * game. So the tabs are split by what a person came to do. Time and joins
+   * answers a question about dates. Shape and clean changes the shape of the
+   * table itself. Advanced answers a question that has a wrong answer people
+   * reach for by default: a streak broken by a duplicate row, an average of a
+   * window that was not full, a multi-membership count read as if it were
+   * exclusive, a pair count read as an association, a recurrence rate measured
+   * over entities the data ran out on. That is one extra click to reach a tab and
+   * one fewer wrong tab opened.
    *
    * THE SHAPE IS THE HOUSE ONE. Finding first, proof under it, nothing applied
    * until a person clicks twice. The second click is not ceremony: most of these
@@ -42,6 +47,7 @@
   var GROUPS = [
     { id: 'time', label: 'Time & joins', plain: 'Time and joins' },
     { id: 'shape', label: 'Shape & clean', plain: 'Shape and clean' },
+    { id: 'advanced', label: 'Advanced', plain: 'Advanced' },
   ];
 
   var TABS = [
@@ -65,6 +71,18 @@
       label: 'Group a number into bands', short: 'Bands' },
     { id: 'keep', group: 'shape', flag: 'keepMostRecent',
       label: 'Keep the most recent per group', short: 'Keep recent' },
+    { id: 'standardize', group: 'shape', flag: 'valueStandardizer',
+      label: 'Standardise category values', short: 'Standardise' },
+    { id: 'runs', group: 'advanced', flag: 'consecutiveRun',
+      label: 'Consecutive runs of active days', short: 'Runs' },
+    { id: 'avg', group: 'advanced', flag: 'movingAverageCross',
+      label: 'Moving average and crossovers', short: 'Moving avg' },
+    { id: 'members', group: 'advanced', flag: 'multiValueMembership',
+      label: 'Counts for a multi-value column', short: 'Multi-value' },
+    { id: 'combos', group: 'advanced', flag: 'frequentCombinations',
+      label: 'Which values appear together', short: 'Combinations' },
+    { id: 'recur', group: 'advanced', flag: 'windowRecurrence',
+      label: 'Return within a window', short: 'Recurrence' },
   ];
 
   var _group = null;
@@ -127,6 +145,12 @@
       daily: window.DataGlowExpandDateRange || null,
       bins: window.DataGlowBinEditor || null,
       keep: window.DataGlowKeepMostRecent || null,
+      standardize: window.DataGlowValueStandardizer || null,
+      runs: window.DataGlowConsecutiveRun || null,
+      avg: window.DataGlowMovingAverage || null,
+      members: window.DataGlowMultiValueCounts || null,
+      combos: window.DataGlowFrequentCombinations || null,
+      recur: window.DataGlowWindowRecurrence || null,
     };
   }
 
@@ -200,8 +224,44 @@
       _cfg.bins = eng.bins.suggestBinConfig(ds);
     } else if (tabId === 'keep' && eng.keep) {
       _cfg.keep = eng.keep.suggestKeepConfig(ds);
+    } else if (tabId === 'runs' && eng.runs) {
+      _cfg.runs = eng.runs.suggestRunConfig(ds);
+    } else if (tabId === 'avg' && eng.avg) {
+      _cfg.avg = eng.avg.suggestMovingAverageConfig(ds);
+    } else if (tabId === 'members' && eng.members) {
+      _cfg.members = eng.members.suggestMultiValueConfig(ds);
+      if (!_cfg.members.valueColumn && names.length) _cfg.members.valueColumn = names[0];
+    } else if (tabId === 'combos' && eng.combos) {
+      _cfg.combos = eng.combos.suggestCombinationsConfig(ds);
+    } else if (tabId === 'recur' && eng.recur) {
+      _cfg.recur = eng.recur.suggestRecurrenceConfig(ds);
+    } else if (tabId === 'standardize' && eng.standardize) {
+      _cfg.standardize = eng.standardize.createEmptyStandardizerConfig();
+      _cfg.standardize.valueColumn = likelyCategoryColumn(ds, names, eng.standardize);
+      _cfg.standardize.excluded = [];
     }
     return _cfg[tabId] || null;
+  }
+
+  /**
+   * A column worth standardising has repeated values. Suggesting a near-unique
+   * column instead would open the panel on a merge proposal that must be refused,
+   * which reads as the feature being broken rather than as the column being wrong.
+   */
+  function likelyCategoryColumn(ds, names, engine) {
+    var best = '';
+    var bestDistinct = 0;
+    for (var i = 0; i < names.length; i += 1) {
+      var found;
+      try { found = engine.distinctValuesOf(ds, names[i]); } catch (_e) { continue; }
+      if (!found) continue;
+      var filled = found.rows - found.blanks;
+      var distinct = found.values.length;
+      if (distinct < 2 || filled < 2) continue;
+      if (distinct / filled > 0.5) continue;
+      if (!best || distinct > bestDistinct) { best = names[i]; bestDistinct = distinct; }
+    }
+    return best || names[0] || '';
   }
 
   /* -------------------------------- panel --------------------------------- */
@@ -533,7 +593,211 @@
             + 'their other columns, and the result names the columns where they did not.'));
     }
 
+    if (tabId === 'runs') {
+      var actLabels = (eng.runs && eng.runs.ACTIVITY_LABELS) || {};
+      var needsColumn = (cfg.activity || 'present') !== 'present';
+      var needsValue = cfg.activity === 'equals' || cfg.activity === 'atLeast'
+        || cfg.activity === 'greaterThan';
+      return card(label('One run per') + multiPick('entityColumns', names, cfg.entityColumns || []))
+        + card(label('Date column') + select('dateColumn', names, cfg.dateColumn, false))
+        + card(label('A day counts as active when')
+          + segmented('activity', [
+            { value: 'present', label: actLabels.present || 'There is a row' },
+            { value: 'truthy', label: actLabels.truthy || 'A column is set' },
+            { value: 'atLeast', label: actLabels.atLeast || 'A number reaches' },
+          ], cfg.activity || 'present')
+          + (needsColumn ? label('Column') + select('activityColumn', names, cfg.activityColumn, false) : '')
+          + (needsValue ? label('Value') + textInput('activityValue', cfg.activityValue, '1') : '')
+          + hint('Two rows on the same date are one active day, not two, so a duplicated export '
+            + 'does not lengthen a run.'))
+        + card(label('Shortest run to show') + numberInput('minLength', cfg.minLength || 1, 1, 100000)
+          + label('Active as of (optional)') + textInput('asOf', cfg.asOf, 'YYYY-MM-DD')
+          + toggleRow('longestOnly', 'Only the longest run for each', !!cfg.longestOnly)
+          + hint('An as-of date adds a still_running column. Without one there is no way to tell a '
+            + 'run that ended from a run the export stopped short of.'));
+    }
+
+    if (tabId === 'avg') {
+      return card(label('Value to smooth') + select('valueColumn', names, cfg.valueColumn, false)
+        + label('Read the rows in this order') + select('orderColumn', names, cfg.orderColumn, false))
+        + card(label('Window, in rows') + numberInput('window', cfg.window || 7, 1, 100000)
+          + label('Second window (0 for none)') + numberInput('secondWindow', cfg.secondWindow || 0, 0, 100000)
+          + toggleRow('markCrossovers', 'Mark where the two averages cross', cfg.markCrossovers !== false)
+          + hint('A crossover needs both averages on this row and on the row before it, so the first '
+            + 'row where both exist is never called a crossing.'))
+        + card(label('Rows before the window is full')
+          + segmented('warmup', [
+            { value: 'blank', label: 'Leave blank' },
+            { value: 'partial', label: 'Average what there is' },
+          ], cfg.warmup || 'blank')
+          + hint('Blank is the default because a 7 day average of 2 days is not a 7 day average, and '
+            + 'a chart cannot show the difference. Either way rows_in_window states the real count.'))
+        + card(label('Average within each (optional)')
+          + multiPick('groupColumns', names, cfg.groupColumns || [])
+          + toggleRow('keepOriginal', 'Keep the original value column', cfg.keepOriginal !== false));
+    }
+
+    if (tabId === 'members') {
+      var mvLabels = (eng.members && eng.members.VALUE_SOURCE_LABELS) || {};
+      var mvDelim = (cfg.source || 'auto') !== 'json';
+      return card(label('The column holding several values') + select('valueColumn', names, cfg.valueColumn, false))
+        + card(label('How the values are separated')
+          + segmented('source', [
+            { value: 'auto', label: mvLabels.auto || 'Work it out' },
+            { value: 'json', label: mvLabels.json || 'JSON array' },
+            { value: 'delimited', label: mvLabels.delimited || 'A character' },
+          ], cfg.source || 'auto')
+          + (mvDelim ? label('Separator') + textInput('delimiter', cfg.delimiter || ',', ',') : '')
+          + segmented('caseMode', [
+            { value: 'fold', label: 'Email is email' },
+            { value: 'exact', label: 'Email is not email' },
+          ], cfg.caseMode || 'fold'))
+        + card(label('What counts as one record (optional)')
+          + multiPick('recordColumns', names, cfg.recordColumns || [])
+          + hint('Leave empty to treat each row as its own record. A record is counted once per '
+            + 'category however many times its cell repeats that category.'))
+        + card(label('Smallest count to show') + numberInput('minCount', cfg.minCount || 1, 1, 100000)
+          + label('Show at most (0 for all)') + numberInput('topN', cfg.topN || 0, 0, 10000)
+          + toggleRow('includeEmpty', 'Show a row for records with no value', cfg.includeEmpty !== false)
+          + hint('Records with no value stay in the denominator either way. Dropping them would '
+            + 'raise every percentage in the table.'));
+    }
+
+    if (tabId === 'combos') {
+      var byMulti = cfg.source === 'multivalue';
+      var comboLabels = (eng.combos && eng.combos.COMBO_SOURCE_LABELS) || {};
+      return card(label('Where the items come from')
+        + segmented('source', [
+          { value: 'columns', label: comboLabels.columns || 'Several columns' },
+          { value: 'multivalue', label: comboLabels.multivalue || 'One list column' },
+        ], cfg.source || 'columns'))
+        + (byMulti
+          ? card(label('The list column') + select('valueColumn', names, cfg.valueColumn, false)
+            + label('Separator') + textInput('delimiter', cfg.delimiter || ',', ','))
+          : card(label('Columns to pair up') + multiPick('itemColumns', names, cfg.itemColumns || [])
+            + toggleRow('labelWithColumn', 'Prefix each value with its column name',
+              cfg.labelWithColumn !== false)
+            + hint('Without the prefix, a value of yes in two different columns looks like the same '
+              + 'item and the pair count is meaningless.')))
+        + card(label('Smallest number of records') + numberInput('minSupport', cfg.minSupport || 2, 1, 100000)
+          + label('Show at most') + numberInput('topN', cfg.topN || 25, 1, 1000)
+          + hint('Pairs are ranked by how many records hold both. Lift beside each one says whether '
+            + 'that is more than the two values being common would already produce.'));
+    }
+
+    if (tabId === 'recur') {
+      var scopeLabels = (eng.recur && eng.recur.INDEX_SCOPE_LABELS) || {};
+      return card(label('One entity is') + multiPick('entityColumns', names, cfg.entityColumns || []))
+        + card(label('Event date') + select('dateColumn', names, cfg.dateColumn, false)
+          + label('Window, in days') + numberInput('windowDays', cfg.windowDays || 30, 1, 100000)
+          + label('Ignore a return within this many days')
+          + numberInput('minGapDays', cfg.minGapDays == null ? 1 : cfg.minGapDays, 0, 100000)
+          + hint('The default of one day treats two events on the same date as the same event '
+            + 'entered twice, which it usually is.'))
+        + card(label('Which events start a window')
+          + segmented('indexScope', [
+            { value: 'all', label: scopeLabels.all || 'Every event' },
+            { value: 'first', label: scopeLabels.first || 'The first only' },
+            { value: 'last', label: scopeLabels.last || 'The last only' },
+          ], cfg.indexScope || 'all')
+          + hint('Every event pairs each one with the next event only, never with all of them, so '
+            + 'three events give two pairs rather than three.'))
+        + card(label('Observation ends (optional)') + textInput('observationEnd', cfg.observationEnd, 'YYYY-MM-DD')
+          + toggleRow('excludeCensored', 'Leave out events with no time left to recur in',
+            cfg.excludeCensored !== false)
+          + hint('An event in the last days of the data has not had the full window to recur. '
+            + 'Counting it as no return is the most common way this number comes out too low.'))
+        + card(label('Carry across from the index event (optional)')
+          + multiPick('carryColumns', names, cfg.carryColumns || []));
+    }
+
+    if (tabId === 'standardize') {
+      var modeLabels = (eng.standardize && eng.standardize.MATCH_MODE_LABELS) || {};
+      var modes = Array.isArray(cfg.matchModes) ? cfg.matchModes : [];
+      var suffix = (eng.standardize && eng.standardize.DEFAULT_AUDIT_SUFFIX) || '_original';
+      return card(label('Column') + select('valueColumn', names, cfg.valueColumn, false))
+        + card(label('Treat two values as the same when they differ only by')
+          + multiPick('matchModes', ['case', 'whitespace', 'punctuation'], modes)
+          + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:4px;line-height:1.5">'
+          + esc([modeLabels.case, modeLabels.whitespace, modeLabels.punctuation]
+            .filter(Boolean).join('. ')) + '</div>')
+        + card(label('Keep a record')
+          + toggleRow('keepAudit', 'Add a column holding the original value', cfg.keepAudit !== false)
+          + (cfg.keepAudit !== false
+            ? label('Name of that column')
+              + textInput('auditColumn', cfg.auditColumn,
+                (cfg.valueColumn || 'value') + suffix)
+            : warnLine('Without it the old spellings are gone and the merge cannot be reviewed.')))
+        + mergeProposalCard(ds, cfg);
+    }
+
     return '';
+  }
+
+  /**
+   * The proposed merges, listed one group at a time with the value each group
+   * would collapse onto. A group can be switched off here, which is the whole
+   * point: the proposal is a starting list, not the map, and the map is whatever
+   * a person leaves switched on.
+   */
+  function mergeProposalCard(ds, cfg) {
+    var eng = engines();
+    if (!eng.standardize || !cfg.valueColumn) return '';
+    var proposal;
+    try {
+      proposal = eng.standardize.proposeMergeGroups(ds, cfg, {
+        isSensitive: (window.CategoricalConsistency
+          && window.CategoricalConsistency.isSensitiveCategory) || null,
+      });
+    } catch (_e) { return ''; }
+    if (!proposal) return '';
+
+    var warns = (proposal.warnings || []).map(warnLine).join('');
+    if (!proposal.groups.length) {
+      return card(label('Proposed merges')
+        + '<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);line-height:1.5">'
+        + 'Nothing in this column differs only by the rules above. '
+        + esc(proposal.distinct + ' distinct value' + (proposal.distinct === 1 ? '' : 's')
+          + ' would be left exactly as they are.') + '</div>' + warns);
+    }
+
+    var excluded = Array.isArray(cfg.excluded) ? cfg.excluded : [];
+    var rows = proposal.groups.map(function (g) {
+      var off = excluded.indexOf(g.canonical) !== -1;
+      var others = g.members.filter(function (m) { return m.value !== g.canonical; });
+      return '<button type="button" data-tj-multi="excluded" data-tj-value="' + esc(g.canonical) + '" '
+        + 'style="display:block;width:100%;text-align:left;margin-bottom:8px;padding:9px 11px;'
+        + 'border-radius:9px;cursor:pointer;min-height:44px;'
+        + 'background:' + (off ? 'var(--surface,#141518)' : 'rgba(32,197,181,.10)') + ';'
+        + 'color:var(--text,#E8E8E8);'
+        + 'border:1px solid ' + (off ? 'var(--border,#2A2C31)' : 'rgba(32,197,181,.4)') + '">'
+        + '<div style="font-size:12px;font-weight:700;' + (off ? 'text-decoration:line-through;' : '')
+        + '">' + esc(others.map(function (m) { return '"' + m.value + '"'; }).join(', '))
+        + ' &rarr; "' + esc(g.canonical) + '"</div>'
+        + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:3px;line-height:1.45">'
+        + esc(g.reason + ' ' + g.totalCount + ' row' + (g.totalCount === 1 ? '' : 's') + '.')
+        + (off ? ' Switched off.' : '') + '</div></button>';
+    }).join('');
+
+    return card(label('Proposed merges')
+      + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-bottom:8px;line-height:1.5">'
+      + 'Tap a group to leave it alone. Nothing here is applied until you confirm below.</div>'
+      + rows + warns);
+  }
+
+  /** The map a person has actually left switched on, which is what gets applied. */
+  function standardizerMap(ds, cfg) {
+    var eng = engines();
+    if (!eng.standardize) return {};
+    var proposal;
+    try {
+      proposal = eng.standardize.proposeMergeGroups(ds, cfg, {});
+    } catch (_e) { return {}; }
+    var excluded = Array.isArray(cfg.excluded) ? cfg.excluded : [];
+    var kept = (proposal.groups || []).filter(function (g) {
+      return excluded.indexOf(g.canonical) === -1;
+    });
+    return eng.standardize.mapFromGroups(kept);
   }
 
   /** The custom edges as the text a person types, so the field round-trips. */
@@ -654,10 +918,35 @@
       if (_tab === 'daily' && eng.daily) return eng.daily.expandDateRangeTransform(ds, cfg);
       if (_tab === 'bins' && eng.bins) return eng.bins.binColumnTransform(ds, cfg);
       if (_tab === 'keep' && eng.keep) return eng.keep.keepMostRecentTransform(ds, cfg);
+      if (_tab === 'runs' && eng.runs) return eng.runs.consecutiveRunTransform(ds, cfg);
+      if (_tab === 'avg' && eng.avg) return eng.avg.movingAverageTransform(ds, cfg);
+      if (_tab === 'members' && eng.members) return eng.members.multiValueCountsTransform(ds, cfg);
+      if (_tab === 'combos' && eng.combos) return eng.combos.frequentCombinationsTransform(ds, cfg);
+      if (_tab === 'recur' && eng.recur) return eng.recur.windowRecurrenceTransform(ds, cfg);
+      if (_tab === 'standardize' && eng.standardize) return runStandardizer(ds, cfg, false);
     } catch (e) {
       return { ok: false, error: 'This did not run: ' + (e && e.message ? e.message : 'unknown error') };
     }
     return { ok: false, error: 'That transform is not available.' };
+  }
+
+  /**
+   * The standardizer twice: once to show, once to apply.
+   *
+   * The engine refuses any config that is not confirmed, which is what stops a
+   * script merging categories on its own. The panel is the person that flag is
+   * asking about, so the shown table is built with confirmed set and is never
+   * written anywhere, and the applied table is rebuilt from the stored config
+   * only after somebody has clicked through the gate below and set it for real.
+   */
+  function runStandardizer(ds, cfg, forApply) {
+    var eng = engines();
+    var map = standardizerMap(ds, cfg);
+    var use = {};
+    for (var k in cfg) if (Object.prototype.hasOwnProperty.call(cfg, k)) use[k] = cfg[k];
+    use.map = map;
+    use.confirmed = forApply ? cfg.confirmed === true : true;
+    return eng.standardize.valueStandardizerTransform(ds, use);
   }
 
   function findingFor(result) {
@@ -673,6 +962,14 @@
       if (_tab === 'daily' && eng.daily) return eng.daily.describeExpandDateRange(result);
       if (_tab === 'bins' && eng.bins) return eng.bins.describeBinColumn(result);
       if (_tab === 'keep' && eng.keep) return eng.keep.describeKeepMostRecent(result);
+      if (_tab === 'runs' && eng.runs) return eng.runs.describeConsecutiveRun(result);
+      if (_tab === 'avg' && eng.avg) return eng.avg.describeMovingAverage(result);
+      if (_tab === 'members' && eng.members) return eng.members.describeMultiValueCounts(result);
+      if (_tab === 'combos' && eng.combos) return eng.combos.describeFrequentCombinations(result);
+      if (_tab === 'recur' && eng.recur) return eng.recur.describeWindowRecurrence(result);
+      if (_tab === 'standardize' && eng.standardize) {
+        return eng.standardize.describeValueStandardizer(result);
+      }
     } catch (_e) {}
     return result && result.ok ? (result.rows.length + ' rows.') : 'This did not run.';
   }
@@ -705,6 +1002,36 @@
       + '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' + more;
   }
 
+  /**
+   * The recurrence rate as two stacked figures rather than as another column on
+   * the pairs table. The pairs table is wide and scrolls sideways on a tablet,
+   * and the rate is the answer somebody came for, so it is not allowed to be the
+   * thing that scrolled off the edge.
+   */
+  function rateSummaryCard() {
+    if (_tab !== 'recur' || !_result || !_result.ok) return '';
+    var s = _result.stats || {};
+    if (!s.eligibleIndexEvents && !s.indexEvents) return '';
+    var figures = [
+      { value: s.rateEligible + '%', text: 'of the ' + s.eligibleIndexEvents + ' events that had a '
+        + 'full ' + s.windowDays + ' days to recur in were followed by another one.' },
+      { value: s.rateAll + '%', text: 'of all ' + s.indexEvents + ' events, including the '
+        + s.censoredIndexEvents + ' the data ran out on. This is the lower of the two and it is '
+        + 'lower because of the calendar, not because of the entities.' },
+    ];
+    return card(label('Return rate')
+      + figures.map(function (f) {
+        return '<div style="display:flex;gap:10px;align-items:baseline;margin-bottom:9px">'
+          + '<div style="flex:0 0 auto;font-size:20px;font-weight:800;color:var(--primary,#20C5B5)">'
+          + esc(f.value) + '</div>'
+          + '<div style="flex:1 1 0;min-width:0;font-size:12px;line-height:1.5;'
+          + 'color:var(--text-secondary,#B4B8C0)">' + esc(f.text) + '</div></div>';
+      }).join('')
+      + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);line-height:1.5">'
+      + 'Quote the first one and say which window it used. Quoting the second without saying the '
+      + 'data ran out understates the rate.</div>');
+  }
+
   function resultBlock() {
     if (!_result || _resultTab !== _tab) return '';
     if (!_result.ok) {
@@ -714,6 +1041,8 @@
     // Finding first.
     var html = card('<div style="font-size:13px;font-weight:600;line-height:1.45">'
       + esc(findingFor(_result)) + '</div>');
+
+    html += rateSummaryCard();
 
     // Everything the engine could not do, named rather than hidden.
     if (_result.notes && _result.notes.length) {
@@ -744,10 +1073,12 @@
       : rowsNow + ' rows become ' + rowsAfter + '.';
     html += card('<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);margin-bottom:9px;line-height:1.5">'
       + esc(shape) + ' This replaces the loaded table in memory. Nothing is uploaded, and Undo puts it back.</div>'
+      + confirmDetail()
       + (_pendingConfirm
         ? '<button type="button" data-tj-confirm style="width:100%;min-height:44px;font-size:13px;'
           + 'font-weight:700;border-radius:10px;background:var(--primary,#20C5B5);color:#08292A;'
-          + 'border:none;cursor:pointer">Yes, replace the table</button>'
+          + 'border:none;cursor:pointer">'
+          + (_tab === 'standardize' ? 'Yes, rename these values' : 'Yes, replace the table') + '</button>'
           + '<button type="button" data-tj-cancel style="width:100%;min-height:44px;margin-top:8px;'
           + 'font-size:12px;border-radius:10px;background:transparent;color:var(--text-muted,#8A8F98);'
           + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Cancel</button>'
@@ -761,6 +1092,27 @@
           + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Undo the last apply</button>'
         : ''));
     return html;
+  }
+
+  /**
+   * The exact list of replacements, above the confirm button rather than further
+   * up the panel. A person scrolling straight to Apply should not be able to
+   * confirm a rename without the renames being on the same screen as the button.
+   */
+  function confirmDetail() {
+    if (_tab !== 'standardize') return '';
+    var eng = engines();
+    var ds = activeDataset();
+    var cfg = _cfg.standardize;
+    if (!eng.standardize || !ds || !cfg) return '';
+    var map = standardizerMap(ds, cfg);
+    var text;
+    try {
+      text = eng.standardize.summarizeForConfirm({ valueColumn: cfg.valueColumn, map: map });
+    } catch (_e) { return ''; }
+    return '<pre style="margin:0 0 9px;max-height:180px;overflow:auto;white-space:pre-wrap;'
+      + 'font-family:var(--mono,monospace);font-size:11px;line-height:1.55;'
+      + 'color:var(--text-secondary,#B4B8C0)">' + esc(text) + '</pre>';
   }
 
   /* -------------------------------- render -------------------------------- */
@@ -783,7 +1135,7 @@
         + groups.map(function (g) {
           var on = g.id === _group;
           return '<button type="button" data-tj-group="' + esc(g.id) + '" '
-            + 'style="flex:1 1 50%;min-height:42px;font-size:12px;font-weight:700;padding:8px 6px;'
+            + 'style="flex:1 1 0;min-width:0;min-height:42px;font-size:12px;font-weight:700;padding:8px 4px;'
             + 'border-radius:10px;cursor:pointer;'
             + 'background:' + (on ? 'var(--primary,#20C5B5)' : 'var(--surface-2,#1A1C20)') + ';'
             + 'color:' + (on ? '#08292A' : 'var(--text-secondary,#B4B8C0)') + ';'
@@ -999,6 +1351,25 @@
   function doApply() {
     var ds = activeDataset();
     if (!ds || !_result || !_result.ok) { toast('Nothing to apply', 'warn'); return; }
+
+    // The click that got here is the confirmation the standardizer's engine asks
+    // for, so it is recorded on the stored config and the table that gets written
+    // is rebuilt from that config rather than from the preview.
+    if (_tab === 'standardize') {
+      var cfg = _cfg.standardize;
+      if (!cfg) { toast('Nothing to apply', 'warn'); return; }
+      cfg.confirmed = true;
+      var applied = runStandardizer(ds, cfg, true);
+      cfg.confirmed = false;
+      if (!applied || !applied.ok) {
+        _pendingConfirm = false;
+        toast((applied && applied.error) || 'These merges were refused', 'warn');
+        renderBody();
+        return;
+      }
+      _result = applied;
+    }
+
     try {
       ds._transformSnapshot = {
         columns: JSON.parse(JSON.stringify(ds.columns || [])),

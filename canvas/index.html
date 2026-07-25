@@ -115826,6 +115826,92 @@ function formatISODate(date) {
   return date.getUTCFullYear() + '-' + pad2(date.getUTCMonth() + 1) + '-' + pad2(date.getUTCDate());
 }
 
+const MS_PER_DAY = 86400000;
+
+/**
+ * Whole days from a to b, both UTC midnights, so no daylight-saving hour makes a
+ * span one day short. Negative when b precedes a; null when either is unreadable.
+ *
+ * Lives here rather than in one engine because three transforms count days and
+ * they must all count them the same way: a streak that thinks March 10 to March
+ * 11 is two days apart and a return-window that thinks it is one would disagree
+ * about the same table.
+ */
+function daysBetween(a, b) {
+  if (!(a instanceof Date) || !(b instanceof Date)) return null;
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
+}
+
+/** A date shifted by whole days, still at UTC midnight. */
+function addDays(date, days) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + Math.round(days) * MS_PER_DAY);
+}
+
+/**
+ * Read one cell as a list.
+ *
+ * Order matters. A real array first, then JSON, then the delimiter. Trying the
+ * delimiter before JSON would turn "[1, 2]" into "[1" and " 2]", which is worse
+ * than failing because it looks like it worked.
+ *
+ * Shared by every transform that treats one cell as several values, so the row
+ * count one of them previews and the memberships another one counts are always
+ * derived from the same reading of the same cell.
+ */
+function readList(value, source, delimiter) {
+  if (Array.isArray(value)) {
+    return { kind: 'array', values: value.slice() };
+  }
+  if (value == null || value === '') {
+    return { kind: 'empty', values: [] };
+  }
+  if (isPlainObject(value)) {
+    // An object is not a list. Widening it is the flattener's job, not this
+    // module's, so it is left alone and reported rather than half-handled.
+    return { kind: 'scalar', values: [value] };
+  }
+
+  const text = String(value).trim();
+  if (!text) return { kind: 'empty', values: [] };
+
+  const mode = source || 'auto';
+  if (mode === 'auto' || mode === 'json') {
+    if (text.charAt(0) === '[' && text.charAt(text.length - 1) === ']') {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return { kind: 'json', values: parsed };
+      } catch (_e) {
+        // Looks like JSON and is not. In auto mode fall through to the
+        // delimiter; in json mode say so rather than quietly splitting.
+        if (mode === 'json') return { kind: 'unreadable', values: [] };
+      }
+    } else if (mode === 'json') {
+      return { kind: 'unreadable', values: [] };
+    }
+  }
+
+  if (mode === 'auto' || mode === 'delimited') {
+    const d = String(delimiter || ',');
+    if (d && text.indexOf(d) !== -1) {
+      return { kind: 'delimited', values: text.split(d) };
+    }
+  }
+
+  return { kind: 'scalar', values: [text] };
+}
+
+/** One cell as text, with objects stringified rather than rendered as
+    [object Object]. Trimming is the caller's decision because A17 keeps
+    element-level whitespace on purpose and the counting transforms do not. */
+function cellText(v, trim) {
+  if (v == null) return null;
+  if (typeof v === 'object') return JSON.stringify(v);
+  const s = String(v);
+  return trim ? s.trim() : s;
+}
+
 /**
  * The period a date belongs to, as a sortable string key.
  *   day    2024-03-05
@@ -116064,6 +116150,11 @@ function transformError(message) {
     suggestNumericColumn: suggestNumericColumn,
     parseDateValue: parseDateValue,
     formatISODate: formatISODate,
+    MS_PER_DAY: MS_PER_DAY,
+    daysBetween: daysBetween,
+    addDays: addDays,
+    readList: readList,
+    cellText: cellText,
     periodKeyOf: periodKeyOf,
     priorPeriodKeyOf: priorPeriodKeyOf,
     truncUnitFor: truncUnitFor,
@@ -118103,7 +118194,7 @@ function describeHierarchy(result) {
 
   // Inlined build: no module scope in the canvas, so the shared core is
   // read off window instead of imported.
-  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR, transformResult = C.transformResult, transformError = C.transformError;
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, readList = C.readList, cellText = C.cellText, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR, transformResult = C.transformResult, transformError = C.transformError;
 const NESTED_TO_ROWS_VERSION = 1;
 
 const NESTED_SOURCES = Object.freeze(['auto', 'json', 'delimited']);
@@ -118194,62 +118285,6 @@ function elementColumnName(config) {
   const explicit = String((config && config.elementColumn) || '').trim();
   if (explicit) return explicit;
   return String((config && config.listColumn) || 'value') + '_item';
-}
-
-/**
- * Read one cell as a list.
- *
- * Order matters. A real array first, then JSON, then the delimiter. Trying the
- * delimiter before JSON would turn "[1, 2]" into "[1" and " 2]", which is worse
- * than failing because it looks like it worked.
- */
-function readList(value, source, delimiter) {
-  if (Array.isArray(value)) {
-    return { kind: 'array', values: value.slice() };
-  }
-  if (value == null || value === '') {
-    return { kind: 'empty', values: [] };
-  }
-  if (isPlainObject(value)) {
-    // An object is not a list. Widening it is the flattener's job, not this
-    // module's, so it is left alone and reported rather than half-handled.
-    return { kind: 'scalar', values: [value] };
-  }
-
-  const text = String(value).trim();
-  if (!text) return { kind: 'empty', values: [] };
-
-  const mode = source || 'auto';
-  if (mode === 'auto' || mode === 'json') {
-    if (text.charAt(0) === '[' && text.charAt(text.length - 1) === ']') {
-      try {
-        const parsed = JSON.parse(text);
-        if (Array.isArray(parsed)) return { kind: 'json', values: parsed };
-      } catch (_e) {
-        // Looks like JSON and is not. In auto mode fall through to the
-        // delimiter; in json mode say so rather than quietly splitting.
-        if (mode === 'json') return { kind: 'unreadable', values: [] };
-      }
-    } else if (mode === 'json') {
-      return { kind: 'unreadable', values: [] };
-    }
-  }
-
-  if (mode === 'auto' || mode === 'delimited') {
-    const d = String(delimiter || ',');
-    if (d && text.indexOf(d) !== -1) {
-      return { kind: 'delimited', values: text.split(d) };
-    }
-  }
-
-  return { kind: 'scalar', values: [text] };
-}
-
-function cellText(v, trim) {
-  if (v == null) return null;
-  if (typeof v === 'object') return JSON.stringify(v);
-  const s = String(v);
-  return trim ? s.trim() : s;
 }
 
 /**
@@ -119040,7 +119075,7 @@ function describeFillMissing(result) {
 
   // Inlined build: no module scope in the canvas, so the shared core is
   // read off window instead of imported.
-  var quoteIdent = C.quoteIdent, quoteLiteral = C.quoteLiteral, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isDateType = C.isDateType, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_DATE = C.TYPE_DATE, transformResult = C.transformResult, transformError = C.transformError;
+  var quoteIdent = C.quoteIdent, quoteLiteral = C.quoteLiteral, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isDateType = C.isDateType, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, MS_PER_DAY = C.MS_PER_DAY, daysBetween = C.daysBetween, isPlainObject = C.isPlainObject, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_DATE = C.TYPE_DATE, transformResult = C.transformResult, transformError = C.transformError;
 const EXPAND_DATE_RANGE_VERSION = 1;
 
 const OPEN_END_MODES = Object.freeze(['skip', 'asAt']);
@@ -119049,8 +119084,6 @@ const OPEN_END_LABELS = Object.freeze({
   skip: 'Leave rows with no end date alone',
   asAt: 'Run them up to a date I choose',
 });
-
-const MS_PER_DAY = 86400000;
 
 // Above this the result is slow to scroll and slow to chart. A warning, not a
 // stop: 150,000 daily rows is a legitimate year of a mid-sized service.
@@ -119156,12 +119189,6 @@ function validateDateRangeConfig(config, columnNames) {
 function dayColumnName(config) {
   const explicit = String((config && config.dayColumn) || '').trim();
   return explicit || 'day';
-}
-
-/** Whole days from a to b, both as UTC midnights, so no daylight-saving hour
-    can shorten a day and lose one off the end of a long range. */
-function daysBetween(a, b) {
-  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
 }
 
 /**
@@ -120498,16 +120525,21 @@ function describeKeepMostRecent(result) {
   /*
    * DATAGLOW - canvas wire for the table transforms
    *
-   * One calm panel over ten pure engines in js/transforms/. This file owns no
+   * One calm panel over sixteen pure engines in js/transforms/. This file owns no
    * analysis: every number and every sentence it shows comes from an engine, so
    * the panel and a Node test cannot disagree.
    *
-   * WHY TWO GROUPS AND NOT TEN TABS. Bundle 6 shipped four tabs in a flat row,
-   * which read fine. Ten would not: at 360px a ten-item row wraps to three lines
-   * of near-identical pills and picking the right one becomes a memory game. So
-   * the tabs are split by what a person came to do. Time and joins answers a
-   * question about dates. Shape and clean changes the shape of the table itself.
-   * That is one extra click to reach a tab and one fewer wrong tab opened.
+   * WHY THREE GROUPS AND NOT SIXTEEN TABS. Bundle 6 shipped four tabs in a flat
+   * row, which read fine. Sixteen would not: at 360px a row that long wraps to
+   * four lines of near-identical pills and picking the right one becomes a memory
+   * game. So the tabs are split by what a person came to do. Time and joins
+   * answers a question about dates. Shape and clean changes the shape of the
+   * table itself. Advanced answers a question that has a wrong answer people
+   * reach for by default: a streak broken by a duplicate row, an average of a
+   * window that was not full, a multi-membership count read as if it were
+   * exclusive, a pair count read as an association, a recurrence rate measured
+   * over entities the data ran out on. That is one extra click to reach a tab and
+   * one fewer wrong tab opened.
    *
    * THE SHAPE IS THE HOUSE ONE. Finding first, proof under it, nothing applied
    * until a person clicks twice. The second click is not ceremony: most of these
@@ -120535,6 +120567,7 @@ function describeKeepMostRecent(result) {
   var GROUPS = [
     { id: 'time', label: 'Time & joins', plain: 'Time and joins' },
     { id: 'shape', label: 'Shape & clean', plain: 'Shape and clean' },
+    { id: 'advanced', label: 'Advanced', plain: 'Advanced' },
   ];
 
   var TABS = [
@@ -120558,6 +120591,18 @@ function describeKeepMostRecent(result) {
       label: 'Group a number into bands', short: 'Bands' },
     { id: 'keep', group: 'shape', flag: 'keepMostRecent',
       label: 'Keep the most recent per group', short: 'Keep recent' },
+    { id: 'standardize', group: 'shape', flag: 'valueStandardizer',
+      label: 'Standardise category values', short: 'Standardise' },
+    { id: 'runs', group: 'advanced', flag: 'consecutiveRun',
+      label: 'Consecutive runs of active days', short: 'Runs' },
+    { id: 'avg', group: 'advanced', flag: 'movingAverageCross',
+      label: 'Moving average and crossovers', short: 'Moving avg' },
+    { id: 'members', group: 'advanced', flag: 'multiValueMembership',
+      label: 'Counts for a multi-value column', short: 'Multi-value' },
+    { id: 'combos', group: 'advanced', flag: 'frequentCombinations',
+      label: 'Which values appear together', short: 'Combinations' },
+    { id: 'recur', group: 'advanced', flag: 'windowRecurrence',
+      label: 'Return within a window', short: 'Recurrence' },
   ];
 
   var _group = null;
@@ -120620,6 +120665,12 @@ function describeKeepMostRecent(result) {
       daily: window.DataGlowExpandDateRange || null,
       bins: window.DataGlowBinEditor || null,
       keep: window.DataGlowKeepMostRecent || null,
+      standardize: window.DataGlowValueStandardizer || null,
+      runs: window.DataGlowConsecutiveRun || null,
+      avg: window.DataGlowMovingAverage || null,
+      members: window.DataGlowMultiValueCounts || null,
+      combos: window.DataGlowFrequentCombinations || null,
+      recur: window.DataGlowWindowRecurrence || null,
     };
   }
 
@@ -120693,8 +120744,44 @@ function describeKeepMostRecent(result) {
       _cfg.bins = eng.bins.suggestBinConfig(ds);
     } else if (tabId === 'keep' && eng.keep) {
       _cfg.keep = eng.keep.suggestKeepConfig(ds);
+    } else if (tabId === 'runs' && eng.runs) {
+      _cfg.runs = eng.runs.suggestRunConfig(ds);
+    } else if (tabId === 'avg' && eng.avg) {
+      _cfg.avg = eng.avg.suggestMovingAverageConfig(ds);
+    } else if (tabId === 'members' && eng.members) {
+      _cfg.members = eng.members.suggestMultiValueConfig(ds);
+      if (!_cfg.members.valueColumn && names.length) _cfg.members.valueColumn = names[0];
+    } else if (tabId === 'combos' && eng.combos) {
+      _cfg.combos = eng.combos.suggestCombinationsConfig(ds);
+    } else if (tabId === 'recur' && eng.recur) {
+      _cfg.recur = eng.recur.suggestRecurrenceConfig(ds);
+    } else if (tabId === 'standardize' && eng.standardize) {
+      _cfg.standardize = eng.standardize.createEmptyStandardizerConfig();
+      _cfg.standardize.valueColumn = likelyCategoryColumn(ds, names, eng.standardize);
+      _cfg.standardize.excluded = [];
     }
     return _cfg[tabId] || null;
+  }
+
+  /**
+   * A column worth standardising has repeated values. Suggesting a near-unique
+   * column instead would open the panel on a merge proposal that must be refused,
+   * which reads as the feature being broken rather than as the column being wrong.
+   */
+  function likelyCategoryColumn(ds, names, engine) {
+    var best = '';
+    var bestDistinct = 0;
+    for (var i = 0; i < names.length; i += 1) {
+      var found;
+      try { found = engine.distinctValuesOf(ds, names[i]); } catch (_e) { continue; }
+      if (!found) continue;
+      var filled = found.rows - found.blanks;
+      var distinct = found.values.length;
+      if (distinct < 2 || filled < 2) continue;
+      if (distinct / filled > 0.5) continue;
+      if (!best || distinct > bestDistinct) { best = names[i]; bestDistinct = distinct; }
+    }
+    return best || names[0] || '';
   }
 
   /* -------------------------------- panel --------------------------------- */
@@ -121026,7 +121113,211 @@ function describeKeepMostRecent(result) {
             + 'their other columns, and the result names the columns where they did not.'));
     }
 
+    if (tabId === 'runs') {
+      var actLabels = (eng.runs && eng.runs.ACTIVITY_LABELS) || {};
+      var needsColumn = (cfg.activity || 'present') !== 'present';
+      var needsValue = cfg.activity === 'equals' || cfg.activity === 'atLeast'
+        || cfg.activity === 'greaterThan';
+      return card(label('One run per') + multiPick('entityColumns', names, cfg.entityColumns || []))
+        + card(label('Date column') + select('dateColumn', names, cfg.dateColumn, false))
+        + card(label('A day counts as active when')
+          + segmented('activity', [
+            { value: 'present', label: actLabels.present || 'There is a row' },
+            { value: 'truthy', label: actLabels.truthy || 'A column is set' },
+            { value: 'atLeast', label: actLabels.atLeast || 'A number reaches' },
+          ], cfg.activity || 'present')
+          + (needsColumn ? label('Column') + select('activityColumn', names, cfg.activityColumn, false) : '')
+          + (needsValue ? label('Value') + textInput('activityValue', cfg.activityValue, '1') : '')
+          + hint('Two rows on the same date are one active day, not two, so a duplicated export '
+            + 'does not lengthen a run.'))
+        + card(label('Shortest run to show') + numberInput('minLength', cfg.minLength || 1, 1, 100000)
+          + label('Active as of (optional)') + textInput('asOf', cfg.asOf, 'YYYY-MM-DD')
+          + toggleRow('longestOnly', 'Only the longest run for each', !!cfg.longestOnly)
+          + hint('An as-of date adds a still_running column. Without one there is no way to tell a '
+            + 'run that ended from a run the export stopped short of.'));
+    }
+
+    if (tabId === 'avg') {
+      return card(label('Value to smooth') + select('valueColumn', names, cfg.valueColumn, false)
+        + label('Read the rows in this order') + select('orderColumn', names, cfg.orderColumn, false))
+        + card(label('Window, in rows') + numberInput('window', cfg.window || 7, 1, 100000)
+          + label('Second window (0 for none)') + numberInput('secondWindow', cfg.secondWindow || 0, 0, 100000)
+          + toggleRow('markCrossovers', 'Mark where the two averages cross', cfg.markCrossovers !== false)
+          + hint('A crossover needs both averages on this row and on the row before it, so the first '
+            + 'row where both exist is never called a crossing.'))
+        + card(label('Rows before the window is full')
+          + segmented('warmup', [
+            { value: 'blank', label: 'Leave blank' },
+            { value: 'partial', label: 'Average what there is' },
+          ], cfg.warmup || 'blank')
+          + hint('Blank is the default because a 7 day average of 2 days is not a 7 day average, and '
+            + 'a chart cannot show the difference. Either way rows_in_window states the real count.'))
+        + card(label('Average within each (optional)')
+          + multiPick('groupColumns', names, cfg.groupColumns || [])
+          + toggleRow('keepOriginal', 'Keep the original value column', cfg.keepOriginal !== false));
+    }
+
+    if (tabId === 'members') {
+      var mvLabels = (eng.members && eng.members.VALUE_SOURCE_LABELS) || {};
+      var mvDelim = (cfg.source || 'auto') !== 'json';
+      return card(label('The column holding several values') + select('valueColumn', names, cfg.valueColumn, false))
+        + card(label('How the values are separated')
+          + segmented('source', [
+            { value: 'auto', label: mvLabels.auto || 'Work it out' },
+            { value: 'json', label: mvLabels.json || 'JSON array' },
+            { value: 'delimited', label: mvLabels.delimited || 'A character' },
+          ], cfg.source || 'auto')
+          + (mvDelim ? label('Separator') + textInput('delimiter', cfg.delimiter || ',', ',') : '')
+          + segmented('caseMode', [
+            { value: 'fold', label: 'Email is email' },
+            { value: 'exact', label: 'Email is not email' },
+          ], cfg.caseMode || 'fold'))
+        + card(label('What counts as one record (optional)')
+          + multiPick('recordColumns', names, cfg.recordColumns || [])
+          + hint('Leave empty to treat each row as its own record. A record is counted once per '
+            + 'category however many times its cell repeats that category.'))
+        + card(label('Smallest count to show') + numberInput('minCount', cfg.minCount || 1, 1, 100000)
+          + label('Show at most (0 for all)') + numberInput('topN', cfg.topN || 0, 0, 10000)
+          + toggleRow('includeEmpty', 'Show a row for records with no value', cfg.includeEmpty !== false)
+          + hint('Records with no value stay in the denominator either way. Dropping them would '
+            + 'raise every percentage in the table.'));
+    }
+
+    if (tabId === 'combos') {
+      var byMulti = cfg.source === 'multivalue';
+      var comboLabels = (eng.combos && eng.combos.COMBO_SOURCE_LABELS) || {};
+      return card(label('Where the items come from')
+        + segmented('source', [
+          { value: 'columns', label: comboLabels.columns || 'Several columns' },
+          { value: 'multivalue', label: comboLabels.multivalue || 'One list column' },
+        ], cfg.source || 'columns'))
+        + (byMulti
+          ? card(label('The list column') + select('valueColumn', names, cfg.valueColumn, false)
+            + label('Separator') + textInput('delimiter', cfg.delimiter || ',', ','))
+          : card(label('Columns to pair up') + multiPick('itemColumns', names, cfg.itemColumns || [])
+            + toggleRow('labelWithColumn', 'Prefix each value with its column name',
+              cfg.labelWithColumn !== false)
+            + hint('Without the prefix, a value of yes in two different columns looks like the same '
+              + 'item and the pair count is meaningless.')))
+        + card(label('Smallest number of records') + numberInput('minSupport', cfg.minSupport || 2, 1, 100000)
+          + label('Show at most') + numberInput('topN', cfg.topN || 25, 1, 1000)
+          + hint('Pairs are ranked by how many records hold both. Lift beside each one says whether '
+            + 'that is more than the two values being common would already produce.'));
+    }
+
+    if (tabId === 'recur') {
+      var scopeLabels = (eng.recur && eng.recur.INDEX_SCOPE_LABELS) || {};
+      return card(label('One entity is') + multiPick('entityColumns', names, cfg.entityColumns || []))
+        + card(label('Event date') + select('dateColumn', names, cfg.dateColumn, false)
+          + label('Window, in days') + numberInput('windowDays', cfg.windowDays || 30, 1, 100000)
+          + label('Ignore a return within this many days')
+          + numberInput('minGapDays', cfg.minGapDays == null ? 1 : cfg.minGapDays, 0, 100000)
+          + hint('The default of one day treats two events on the same date as the same event '
+            + 'entered twice, which it usually is.'))
+        + card(label('Which events start a window')
+          + segmented('indexScope', [
+            { value: 'all', label: scopeLabels.all || 'Every event' },
+            { value: 'first', label: scopeLabels.first || 'The first only' },
+            { value: 'last', label: scopeLabels.last || 'The last only' },
+          ], cfg.indexScope || 'all')
+          + hint('Every event pairs each one with the next event only, never with all of them, so '
+            + 'three events give two pairs rather than three.'))
+        + card(label('Observation ends (optional)') + textInput('observationEnd', cfg.observationEnd, 'YYYY-MM-DD')
+          + toggleRow('excludeCensored', 'Leave out events with no time left to recur in',
+            cfg.excludeCensored !== false)
+          + hint('An event in the last days of the data has not had the full window to recur. '
+            + 'Counting it as no return is the most common way this number comes out too low.'))
+        + card(label('Carry across from the index event (optional)')
+          + multiPick('carryColumns', names, cfg.carryColumns || []));
+    }
+
+    if (tabId === 'standardize') {
+      var modeLabels = (eng.standardize && eng.standardize.MATCH_MODE_LABELS) || {};
+      var modes = Array.isArray(cfg.matchModes) ? cfg.matchModes : [];
+      var suffix = (eng.standardize && eng.standardize.DEFAULT_AUDIT_SUFFIX) || '_original';
+      return card(label('Column') + select('valueColumn', names, cfg.valueColumn, false))
+        + card(label('Treat two values as the same when they differ only by')
+          + multiPick('matchModes', ['case', 'whitespace', 'punctuation'], modes)
+          + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:4px;line-height:1.5">'
+          + esc([modeLabels.case, modeLabels.whitespace, modeLabels.punctuation]
+            .filter(Boolean).join('. ')) + '</div>')
+        + card(label('Keep a record')
+          + toggleRow('keepAudit', 'Add a column holding the original value', cfg.keepAudit !== false)
+          + (cfg.keepAudit !== false
+            ? label('Name of that column')
+              + textInput('auditColumn', cfg.auditColumn,
+                (cfg.valueColumn || 'value') + suffix)
+            : warnLine('Without it the old spellings are gone and the merge cannot be reviewed.')))
+        + mergeProposalCard(ds, cfg);
+    }
+
     return '';
+  }
+
+  /**
+   * The proposed merges, listed one group at a time with the value each group
+   * would collapse onto. A group can be switched off here, which is the whole
+   * point: the proposal is a starting list, not the map, and the map is whatever
+   * a person leaves switched on.
+   */
+  function mergeProposalCard(ds, cfg) {
+    var eng = engines();
+    if (!eng.standardize || !cfg.valueColumn) return '';
+    var proposal;
+    try {
+      proposal = eng.standardize.proposeMergeGroups(ds, cfg, {
+        isSensitive: (window.CategoricalConsistency
+          && window.CategoricalConsistency.isSensitiveCategory) || null,
+      });
+    } catch (_e) { return ''; }
+    if (!proposal) return '';
+
+    var warns = (proposal.warnings || []).map(warnLine).join('');
+    if (!proposal.groups.length) {
+      return card(label('Proposed merges')
+        + '<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);line-height:1.5">'
+        + 'Nothing in this column differs only by the rules above. '
+        + esc(proposal.distinct + ' distinct value' + (proposal.distinct === 1 ? '' : 's')
+          + ' would be left exactly as they are.') + '</div>' + warns);
+    }
+
+    var excluded = Array.isArray(cfg.excluded) ? cfg.excluded : [];
+    var rows = proposal.groups.map(function (g) {
+      var off = excluded.indexOf(g.canonical) !== -1;
+      var others = g.members.filter(function (m) { return m.value !== g.canonical; });
+      return '<button type="button" data-tj-multi="excluded" data-tj-value="' + esc(g.canonical) + '" '
+        + 'style="display:block;width:100%;text-align:left;margin-bottom:8px;padding:9px 11px;'
+        + 'border-radius:9px;cursor:pointer;min-height:44px;'
+        + 'background:' + (off ? 'var(--surface,#141518)' : 'rgba(32,197,181,.10)') + ';'
+        + 'color:var(--text,#E8E8E8);'
+        + 'border:1px solid ' + (off ? 'var(--border,#2A2C31)' : 'rgba(32,197,181,.4)') + '">'
+        + '<div style="font-size:12px;font-weight:700;' + (off ? 'text-decoration:line-through;' : '')
+        + '">' + esc(others.map(function (m) { return '"' + m.value + '"'; }).join(', '))
+        + ' &rarr; "' + esc(g.canonical) + '"</div>'
+        + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-top:3px;line-height:1.45">'
+        + esc(g.reason + ' ' + g.totalCount + ' row' + (g.totalCount === 1 ? '' : 's') + '.')
+        + (off ? ' Switched off.' : '') + '</div></button>';
+    }).join('');
+
+    return card(label('Proposed merges')
+      + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);margin-bottom:8px;line-height:1.5">'
+      + 'Tap a group to leave it alone. Nothing here is applied until you confirm below.</div>'
+      + rows + warns);
+  }
+
+  /** The map a person has actually left switched on, which is what gets applied. */
+  function standardizerMap(ds, cfg) {
+    var eng = engines();
+    if (!eng.standardize) return {};
+    var proposal;
+    try {
+      proposal = eng.standardize.proposeMergeGroups(ds, cfg, {});
+    } catch (_e) { return {}; }
+    var excluded = Array.isArray(cfg.excluded) ? cfg.excluded : [];
+    var kept = (proposal.groups || []).filter(function (g) {
+      return excluded.indexOf(g.canonical) === -1;
+    });
+    return eng.standardize.mapFromGroups(kept);
   }
 
   /** The custom edges as the text a person types, so the field round-trips. */
@@ -121147,10 +121438,35 @@ function describeKeepMostRecent(result) {
       if (_tab === 'daily' && eng.daily) return eng.daily.expandDateRangeTransform(ds, cfg);
       if (_tab === 'bins' && eng.bins) return eng.bins.binColumnTransform(ds, cfg);
       if (_tab === 'keep' && eng.keep) return eng.keep.keepMostRecentTransform(ds, cfg);
+      if (_tab === 'runs' && eng.runs) return eng.runs.consecutiveRunTransform(ds, cfg);
+      if (_tab === 'avg' && eng.avg) return eng.avg.movingAverageTransform(ds, cfg);
+      if (_tab === 'members' && eng.members) return eng.members.multiValueCountsTransform(ds, cfg);
+      if (_tab === 'combos' && eng.combos) return eng.combos.frequentCombinationsTransform(ds, cfg);
+      if (_tab === 'recur' && eng.recur) return eng.recur.windowRecurrenceTransform(ds, cfg);
+      if (_tab === 'standardize' && eng.standardize) return runStandardizer(ds, cfg, false);
     } catch (e) {
       return { ok: false, error: 'This did not run: ' + (e && e.message ? e.message : 'unknown error') };
     }
     return { ok: false, error: 'That transform is not available.' };
+  }
+
+  /**
+   * The standardizer twice: once to show, once to apply.
+   *
+   * The engine refuses any config that is not confirmed, which is what stops a
+   * script merging categories on its own. The panel is the person that flag is
+   * asking about, so the shown table is built with confirmed set and is never
+   * written anywhere, and the applied table is rebuilt from the stored config
+   * only after somebody has clicked through the gate below and set it for real.
+   */
+  function runStandardizer(ds, cfg, forApply) {
+    var eng = engines();
+    var map = standardizerMap(ds, cfg);
+    var use = {};
+    for (var k in cfg) if (Object.prototype.hasOwnProperty.call(cfg, k)) use[k] = cfg[k];
+    use.map = map;
+    use.confirmed = forApply ? cfg.confirmed === true : true;
+    return eng.standardize.valueStandardizerTransform(ds, use);
   }
 
   function findingFor(result) {
@@ -121166,6 +121482,14 @@ function describeKeepMostRecent(result) {
       if (_tab === 'daily' && eng.daily) return eng.daily.describeExpandDateRange(result);
       if (_tab === 'bins' && eng.bins) return eng.bins.describeBinColumn(result);
       if (_tab === 'keep' && eng.keep) return eng.keep.describeKeepMostRecent(result);
+      if (_tab === 'runs' && eng.runs) return eng.runs.describeConsecutiveRun(result);
+      if (_tab === 'avg' && eng.avg) return eng.avg.describeMovingAverage(result);
+      if (_tab === 'members' && eng.members) return eng.members.describeMultiValueCounts(result);
+      if (_tab === 'combos' && eng.combos) return eng.combos.describeFrequentCombinations(result);
+      if (_tab === 'recur' && eng.recur) return eng.recur.describeWindowRecurrence(result);
+      if (_tab === 'standardize' && eng.standardize) {
+        return eng.standardize.describeValueStandardizer(result);
+      }
     } catch (_e) {}
     return result && result.ok ? (result.rows.length + ' rows.') : 'This did not run.';
   }
@@ -121198,6 +121522,36 @@ function describeKeepMostRecent(result) {
       + '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' + more;
   }
 
+  /**
+   * The recurrence rate as two stacked figures rather than as another column on
+   * the pairs table. The pairs table is wide and scrolls sideways on a tablet,
+   * and the rate is the answer somebody came for, so it is not allowed to be the
+   * thing that scrolled off the edge.
+   */
+  function rateSummaryCard() {
+    if (_tab !== 'recur' || !_result || !_result.ok) return '';
+    var s = _result.stats || {};
+    if (!s.eligibleIndexEvents && !s.indexEvents) return '';
+    var figures = [
+      { value: s.rateEligible + '%', text: 'of the ' + s.eligibleIndexEvents + ' events that had a '
+        + 'full ' + s.windowDays + ' days to recur in were followed by another one.' },
+      { value: s.rateAll + '%', text: 'of all ' + s.indexEvents + ' events, including the '
+        + s.censoredIndexEvents + ' the data ran out on. This is the lower of the two and it is '
+        + 'lower because of the calendar, not because of the entities.' },
+    ];
+    return card(label('Return rate')
+      + figures.map(function (f) {
+        return '<div style="display:flex;gap:10px;align-items:baseline;margin-bottom:9px">'
+          + '<div style="flex:0 0 auto;font-size:20px;font-weight:800;color:var(--primary,#20C5B5)">'
+          + esc(f.value) + '</div>'
+          + '<div style="flex:1 1 0;min-width:0;font-size:12px;line-height:1.5;'
+          + 'color:var(--text-secondary,#B4B8C0)">' + esc(f.text) + '</div></div>';
+      }).join('')
+      + '<div style="font-size:11px;color:var(--text-muted,#8A8F98);line-height:1.5">'
+      + 'Quote the first one and say which window it used. Quoting the second without saying the '
+      + 'data ran out understates the rate.</div>');
+  }
+
   function resultBlock() {
     if (!_result || _resultTab !== _tab) return '';
     if (!_result.ok) {
@@ -121207,6 +121561,8 @@ function describeKeepMostRecent(result) {
     // Finding first.
     var html = card('<div style="font-size:13px;font-weight:600;line-height:1.45">'
       + esc(findingFor(_result)) + '</div>');
+
+    html += rateSummaryCard();
 
     // Everything the engine could not do, named rather than hidden.
     if (_result.notes && _result.notes.length) {
@@ -121237,10 +121593,12 @@ function describeKeepMostRecent(result) {
       : rowsNow + ' rows become ' + rowsAfter + '.';
     html += card('<div style="font-size:12px;color:var(--text-secondary,#B4B8C0);margin-bottom:9px;line-height:1.5">'
       + esc(shape) + ' This replaces the loaded table in memory. Nothing is uploaded, and Undo puts it back.</div>'
+      + confirmDetail()
       + (_pendingConfirm
         ? '<button type="button" data-tj-confirm style="width:100%;min-height:44px;font-size:13px;'
           + 'font-weight:700;border-radius:10px;background:var(--primary,#20C5B5);color:#08292A;'
-          + 'border:none;cursor:pointer">Yes, replace the table</button>'
+          + 'border:none;cursor:pointer">'
+          + (_tab === 'standardize' ? 'Yes, rename these values' : 'Yes, replace the table') + '</button>'
           + '<button type="button" data-tj-cancel style="width:100%;min-height:44px;margin-top:8px;'
           + 'font-size:12px;border-radius:10px;background:transparent;color:var(--text-muted,#8A8F98);'
           + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Cancel</button>'
@@ -121254,6 +121612,27 @@ function describeKeepMostRecent(result) {
           + 'border:1px solid var(--border,#2A2C31);cursor:pointer">Undo the last apply</button>'
         : ''));
     return html;
+  }
+
+  /**
+   * The exact list of replacements, above the confirm button rather than further
+   * up the panel. A person scrolling straight to Apply should not be able to
+   * confirm a rename without the renames being on the same screen as the button.
+   */
+  function confirmDetail() {
+    if (_tab !== 'standardize') return '';
+    var eng = engines();
+    var ds = activeDataset();
+    var cfg = _cfg.standardize;
+    if (!eng.standardize || !ds || !cfg) return '';
+    var map = standardizerMap(ds, cfg);
+    var text;
+    try {
+      text = eng.standardize.summarizeForConfirm({ valueColumn: cfg.valueColumn, map: map });
+    } catch (_e) { return ''; }
+    return '<pre style="margin:0 0 9px;max-height:180px;overflow:auto;white-space:pre-wrap;'
+      + 'font-family:var(--mono,monospace);font-size:11px;line-height:1.55;'
+      + 'color:var(--text-secondary,#B4B8C0)">' + esc(text) + '</pre>';
   }
 
   /* -------------------------------- render -------------------------------- */
@@ -121276,7 +121655,7 @@ function describeKeepMostRecent(result) {
         + groups.map(function (g) {
           var on = g.id === _group;
           return '<button type="button" data-tj-group="' + esc(g.id) + '" '
-            + 'style="flex:1 1 50%;min-height:42px;font-size:12px;font-weight:700;padding:8px 6px;'
+            + 'style="flex:1 1 0;min-width:0;min-height:42px;font-size:12px;font-weight:700;padding:8px 4px;'
             + 'border-radius:10px;cursor:pointer;'
             + 'background:' + (on ? 'var(--primary,#20C5B5)' : 'var(--surface-2,#1A1C20)') + ';'
             + 'color:' + (on ? '#08292A' : 'var(--text-secondary,#B4B8C0)') + ';'
@@ -121492,6 +121871,25 @@ function describeKeepMostRecent(result) {
   function doApply() {
     var ds = activeDataset();
     if (!ds || !_result || !_result.ok) { toast('Nothing to apply', 'warn'); return; }
+
+    // The click that got here is the confirmation the standardizer's engine asks
+    // for, so it is recorded on the stored config and the table that gets written
+    // is rebuilt from that config rather than from the preview.
+    if (_tab === 'standardize') {
+      var cfg = _cfg.standardize;
+      if (!cfg) { toast('Nothing to apply', 'warn'); return; }
+      cfg.confirmed = true;
+      var applied = runStandardizer(ds, cfg, true);
+      cfg.confirmed = false;
+      if (!applied || !applied.ok) {
+        _pendingConfirm = false;
+        toast((applied && applied.error) || 'These merges were refused', 'warn');
+        renderBody();
+        return;
+      }
+      _result = applied;
+    }
+
     try {
       ds._transformSnapshot = {
         columns: JSON.parse(JSON.stringify(ds.columns || [])),
@@ -121616,6 +122014,3014 @@ function describeKeepMostRecent(result) {
   }
 })();
 /* ---- end js/transforms/data-glow-transforms-canvas.js ---- */
+
+/* ---- from js/transforms/consecutive-run.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A21 Consecutive runs (gaps and islands)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. "How many days in a row?" A member who trained eleven days
+// straight, a machine that ran forty shifts without a stop, a patient on a drug
+// for six weeks continuously. Every one of those is a streak, and a streak is
+// not something a GROUP BY can count, because the answer depends on what is
+// missing rather than on what is present.
+//
+// THE WHOLE TRANSFORM IS ONE IDEA. Sort each entity's active dates, then subtract
+// a row number from the date. Inside an unbroken run that difference is constant,
+// because both sides advance by one; the moment a day is skipped the difference
+// jumps and a new run starts. That constant is the island id. It is the standard
+// gaps-and-islands trick and it appears in the glass-box SQL in exactly that
+// form, so the query a person reads is the method, not a paraphrase of it.
+//
+// A DUPLICATE DAY IS NOT A SECOND DAY, AND THIS IS WHERE THE COUNT GOES WRONG.
+// Two rows for the same entity on the same date are one active day. A row number
+// that counts them twice makes the date-minus-row-number difference drift by one
+// inside a genuine run and splits it in half. So dates are collapsed to distinct
+// days per entity before anything is numbered, the collapsing is counted, and the
+// notes say how many rows it absorbed. Without that step this transform reports
+// shorter streaks than the data contains and it does so silently.
+//
+// A STREAK OF ONE IS STILL A STREAK, AND SAYING SO MATTERS.
+// A single active day is a run of length 1. Hiding those makes "average run
+// length" a much larger number than the truth, because the short runs are
+// exactly the ones dropped. They are kept by default and the minimum length is
+// an explicit setting rather than a silent floor.
+//
+// WHAT "ACTIVE" MEANS IS THE PERSON'S DECISION, NOT THIS MODULE'S.
+// A row counts toward a streak when its activity condition holds. That condition
+// can be "this row exists", "this column is true", or a comparison against a
+// value. Guessing it would be the one part of this nobody could check, so it is
+// stated in the config, printed in the SQL WHERE clause, and repeated in the
+// notes.
+//
+// AN OPEN RUN IS NOT A CLOSED ONE.
+// The last run for an entity may still be going. Compared against an as-of date
+// it is marked open, because "a 40 day streak that ended in March" and "a 40 day
+// streak still running" are different facts and a table that renders them
+// identically invites the wrong one.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, quoteLiteral = C.quoteLiteral, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, daysBetween = C.daysBetween, toNumber = C.toNumber, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR, TYPE_DATE = C.TYPE_DATE, TYPE_BOOL = C.TYPE_BOOL, transformResult = C.transformResult, transformError = C.transformError;
+const CONSECUTIVE_RUN_VERSION = 1;
+
+// How a row is judged active. "present" is the honest default: the row being in
+// the table at all is the event.
+const ACTIVITY_MODES = Object.freeze(['present', 'truthy', 'equals', 'atLeast', 'greaterThan']);
+
+const ACTIVITY_LABELS = Object.freeze({
+  present: 'Every row counts as an active day',
+  truthy: 'Active when a column is true or non-zero',
+  equals: 'Active when a column equals a value',
+  atLeast: 'Active when a number is at or above a value',
+  greaterThan: 'Active when a number is above a value',
+});
+
+// Values a spreadsheet export uses for false. Without this list a column of the
+// string "FALSE" reads as active on every row, and the streaks come out as long
+// as the table.
+const FALSEY_TEXT = Object.freeze(['', '0', 'false', 'f', 'no', 'n', 'off', 'null', 'na', 'n/a']);
+
+function createEmptyRunConfig() {
+  return {
+    entityColumns: [],
+    dateColumn: '',
+    activity: 'present',
+    activityColumn: '',
+    activityValue: '',
+    minLength: 1,
+    asOf: '',
+    longestOnly: false,
+  };
+}
+
+function suggestRunConfig(dataset) {
+  const cfg = createEmptyRunConfig();
+  const names = columnNamesOf(dataset);
+  cfg.dateColumn = suggestDateColumn(dataset) || '';
+
+  // The entity column should be the one that repeats most, since a streak needs
+  // several rows per entity. A column that is unique per row produces nothing
+  // but runs of length one, which would demonstrate the opposite of the point.
+  const rows = rowsOf(dataset);
+  let best = null;
+  for (let i = 0; i < names.length; i += 1) {
+    if (names[i] === cfg.dateColumn) continue;
+    const seen = new Set();
+    let looked = 0;
+    for (let r = 0; r < rows.length && looked < 500; r += 1) {
+      if (!Array.isArray(rows[r])) continue;
+      looked += 1;
+      seen.add(rows[r][i] == null ? '\u0000null' : String(rows[r][i]));
+    }
+    if (!looked || seen.size < 2 || seen.size >= looked) continue;
+    const perEntity = looked / seen.size;
+    if (!best || perEntity > best.perEntity) best = { name: names[i], perEntity: perEntity };
+  }
+  if (best) cfg.entityColumns = [best.name];
+  return cfg;
+}
+
+function validateRunConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  const entity = asColumnList(config.entityColumns);
+  if (!entity.length) {
+    errors.push('Pick the column that says whose streak this is. Without it every row in '
+      + 'the table would be counted as one entity and the answer would be a single run.');
+  }
+  for (let i = 0; i < entity.length; i += 1) {
+    if (!names.includes(entity[i])) errors.push('The column ' + entity[i] + ' is not in this table.');
+  }
+
+  if (!config.dateColumn) {
+    errors.push('Pick the date column. Consecutive means consecutive in days, so this needs one.');
+  } else if (!names.includes(config.dateColumn)) {
+    errors.push('The date column ' + config.dateColumn + ' is not in this table.');
+  } else if (entity.includes(config.dateColumn)) {
+    errors.push('The date column cannot also be an entity column.');
+  }
+
+  const mode = String(config.activity || 'present');
+  if (ACTIVITY_MODES.indexOf(mode) === -1) {
+    errors.push('Choose how a row is judged active.');
+  }
+  if (mode !== 'present') {
+    if (!config.activityColumn) {
+      errors.push('Pick the column that says whether the row was active.');
+    } else if (!names.includes(config.activityColumn)) {
+      errors.push('The column ' + config.activityColumn + ' is not in this table.');
+    }
+  }
+  if ((mode === 'atLeast' || mode === 'greaterThan') && toNumber(config.activityValue) === null) {
+    errors.push('Give the number to compare against.');
+  }
+  if (mode === 'equals' && (config.activityValue === '' || config.activityValue == null)) {
+    errors.push('Give the value a row must equal to count as active.');
+  }
+
+  const min = Number(config.minLength);
+  if (config.minLength !== '' && config.minLength != null
+    && (!Number.isFinite(min) || min < 1 || Math.floor(min) !== min)) {
+    errors.push('The shortest run to report has to be a whole number of one or more.');
+  }
+
+  if (config.asOf && !parseDateValue(config.asOf)) {
+    errors.push('The as-of date could not be read. Use a form like 2024-03-05.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** Whether one row counts as an active day, by the stated rule. */
+function isActiveRow(row, activityIdx, config) {
+  const mode = String((config && config.activity) || 'present');
+  if (mode === 'present') return true;
+  if (activityIdx < 0) return false;
+  const raw = row[activityIdx];
+
+  if (mode === 'truthy') {
+    if (raw == null) return false;
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw === 'number') return raw !== 0;
+    return FALSEY_TEXT.indexOf(String(raw).trim().toLowerCase()) === -1;
+  }
+  if (mode === 'equals') {
+    if (raw == null) return false;
+    return String(raw).trim().toLowerCase()
+      === String(config.activityValue == null ? '' : config.activityValue).trim().toLowerCase();
+  }
+  const n = toNumber(raw);
+  const against = toNumber(config.activityValue);
+  if (n === null || against === null) return false;
+  if (mode === 'atLeast') return n >= against;
+  return n > against;
+}
+
+/** The activity condition as one SQL predicate, so the glass-box query filters
+    on exactly the rule the computed table used. */
+function activityPredicate(config) {
+  const mode = String((config && config.activity) || 'present');
+  if (mode === 'present') return '';
+  const col = quoteIdent(config.activityColumn);
+  if (mode === 'truthy') {
+    return col + ' IS NOT NULL AND lower(trim(CAST(' + col + " AS VARCHAR))) NOT IN ('', '0', "
+      + "'false', 'f', 'no', 'n', 'off', 'null', 'na', 'n/a')";
+  }
+  if (mode === 'equals') {
+    return 'lower(trim(CAST(' + col + ' AS VARCHAR))) = lower(trim('
+      + quoteLiteral(String(config.activityValue == null ? '' : config.activityValue)) + '))';
+  }
+  const op = mode === 'atLeast' ? '>=' : '>';
+  return col + ' ' + op + ' ' + String(toNumber(config.activityValue));
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * Written as the actual island trick rather than a description of one: DISTINCT
+ * the active days per entity, number them, and subtract the row number from the
+ * date. Rows sharing an island key are one run. The DISTINCT is not decoration,
+ * it is the step that stops a duplicated day splitting a real streak, and it is
+ * commented as such because it is the line a reader is most likely to delete.
+ */
+function buildConsecutiveRunSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const entity = asColumnList(config.entityColumns);
+  const keys = entity.map(quoteIdent).join(', ');
+  const dateCol = quoteIdent(config.dateColumn);
+  const pred = activityPredicate(config);
+  const min = Math.max(1, Math.floor(Number(config.minLength) || 1));
+  const asOf = config.asOf ? parseDateValue(config.asOf) : null;
+
+  const lines = [
+    '-- Consecutive runs of active days per ' + (keys || 'table') + '.',
+    '-- The method is date minus row number. Inside an unbroken run both advance by',
+    '-- one, so the difference is constant and identifies the run. A skipped day makes',
+    '-- it jump, which is where one run ends and the next begins.',
+    'WITH active_days AS (',
+    '  -- DISTINCT is load-bearing. Two rows on one date are one active day; counting',
+    '  -- them twice would drift the row number and split a real streak in half.',
+    '  SELECT DISTINCT ' + (keys ? keys + ', ' : '') + 'CAST(' + dateCol + ' AS DATE) AS day',
+    '  FROM ' + rel,
+    '  WHERE ' + dateCol + ' IS NOT NULL' + (pred ? '\n    AND (' + pred + ')' : ''),
+    '), islands AS (',
+    '  SELECT *,',
+    '    day - CAST(ROW_NUMBER() OVER (',
+    '      ' + (keys ? 'PARTITION BY ' + keys + ' ' : '') + 'ORDER BY day',
+    "    ) AS INTEGER) * INTERVAL '1 day' AS island_key",
+    '  FROM active_days',
+    ')',
+    'SELECT ' + (keys ? keys + ',' : ''),
+    '  MIN(day) AS run_start,',
+    '  MAX(day) AS run_end,',
+    '  COUNT(*) AS run_days',
+  ];
+  if (asOf) {
+    lines.push('  , MAX(day) >= DATE ' + quoteLiteral(formatISODate(asOf)) + ' AS still_running');
+  }
+  lines.push('FROM islands');
+  lines.push('GROUP BY ' + (keys ? keys + ', island_key' : 'island_key'));
+  if (min > 1) {
+    lines.push('HAVING COUNT(*) >= ' + min);
+  }
+  lines.push('ORDER BY run_days DESC' + (keys ? ', ' + keys : '') + ', run_start');
+
+  if (min <= 1) {
+    lines.push('');
+    lines.push('-- Runs of a single day are included. Dropping them would make an average run');
+    lines.push('-- length far longer than the truth, because the short runs are exactly the');
+    lines.push('-- ones removed.');
+  }
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function consecutiveRunTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateRunConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const entity = asColumnList(config.entityColumns);
+  const entityIdxs = entity.map((n) => indexOfColumn(names, n));
+  const dateIdx = indexOfColumn(names, config.dateColumn);
+  const activityIdx = config.activityColumn ? indexOfColumn(names, config.activityColumn) : -1;
+  const min = Math.max(1, Math.floor(Number(config.minLength) || 1));
+  const asOf = config.asOf ? parseDateValue(config.asOf) : null;
+  const longestOnly = config.longestOnly === true;
+
+  const srcRows = rowsOf(dataset);
+  const groups = new Map();
+  let inactive = 0;
+  let unreadableDates = 0;
+  let duplicateDays = 0;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    if (!isActiveRow(row, activityIdx, config)) { inactive += 1; continue; }
+    const d = parseDateValue(row[dateIdx]);
+    if (!d) { unreadableDates += 1; continue; }
+
+    const key = keyOfRow(row, entityIdxs);
+    let g = groups.get(key);
+    if (!g) {
+      g = { key: key, label: entityIdxs.map((ix) => row[ix]), days: new Map(), seq: groups.size };
+      groups.set(key, g);
+    }
+    const iso = formatISODate(d);
+    // The collapse that keeps a duplicated day from splitting a streak. Counted
+    // rather than absorbed silently, because a table with many of these is a
+    // table where somebody's export ran twice.
+    if (g.days.has(iso)) { duplicateDays += 1; continue; }
+    g.days.set(iso, d);
+  }
+
+  const outColumns = entity.map((n) => column(n, typeOfColumn(dataset, n)))
+    .concat([
+      column('run_start', TYPE_DATE),
+      column('run_end', TYPE_DATE),
+      column('run_days', TYPE_INT),
+    ]);
+  if (asOf) outColumns.push(column('still_running', TYPE_BOOL));
+  if (!entity.length) outColumns.unshift(column('group', TYPE_STR));
+
+  const ordered = Array.from(groups.values()).sort((a, b) => a.seq - b.seq);
+  const outRows = [];
+  let runsFound = 0;
+  let runsHidden = 0;
+  let openRuns = 0;
+  let longest = 0;
+  let totalRunDays = 0;
+  let singleDayRuns = 0;
+  let entitiesWithRun = 0;
+
+  for (let k = 0; k < ordered.length; k += 1) {
+    const g = ordered[k];
+    const isos = Array.from(g.days.keys()).sort();
+    const runs = [];
+    let start = 0;
+    for (let i = 1; i <= isos.length; i += 1) {
+      const broken = i === isos.length
+        || daysBetween(g.days.get(isos[i - 1]), g.days.get(isos[i])) !== 1;
+      if (broken) {
+        runs.push({ start: isos[start], end: isos[i - 1], days: i - start });
+        start = i;
+      }
+    }
+    if (!runs.length) continue;
+    entitiesWithRun += 1;
+
+    let keep = runs;
+    if (longestOnly) {
+      // Ties on length go to the earlier run, which is at least stated rather
+      // than being whichever the sort happened to leave first.
+      let pickIdx = 0;
+      for (let i = 1; i < runs.length; i += 1) {
+        if (runs[i].days > runs[pickIdx].days) pickIdx = i;
+      }
+      keep = [runs[pickIdx]];
+      runsHidden += runs.length - 1;
+    }
+
+    for (let i = 0; i < keep.length; i += 1) {
+      const r = keep[i];
+      runsFound += 1;
+      totalRunDays += r.days;
+      if (r.days === 1) singleDayRuns += 1;
+      if (r.days > longest) longest = r.days;
+      if (r.days < min) { runsHidden += 1; continue; }
+      const open = asOf ? daysBetween(parseDateValue(r.end), asOf) <= 0 : false;
+      if (open) openRuns += 1;
+      const base = entity.length ? g.label.slice() : [g.key];
+      const out = base.concat([r.start, r.end, r.days]);
+      if (asOf) out.push(open);
+      outRows.push(out);
+    }
+  }
+
+  // Longest first: the question behind this transform is almost always "who has
+  // the longest", and making that the first row saves a sort nobody thinks to do.
+  const lenIdx = outColumns.length - (asOf ? 2 : 1);
+  outRows.sort((a, b) => (b[lenIdx] - a[lenIdx]) || String(a[0]).localeCompare(String(b[0])));
+
+  const built = buildConsecutiveRunSQL(config, dataset.name);
+  const notes = [];
+
+  if (!runsFound) {
+    notes.push('No run was found. Either no row met the activity condition, or no date could '
+      + 'be read in ' + config.dateColumn + '. This is a real answer about the table rather '
+      + 'than an error, but it is worth checking the condition before believing it.');
+  } else {
+    notes.push('The longest run is ' + longest + ' day' + (longest === 1 ? '' : 's') + ', across '
+      + entitiesWithRun + ' ' + (entity.length ? entity.join(', ') : 'group')
+      + ' value' + (entitiesWithRun === 1 ? '' : 's') + ' that had at least one active day.');
+  }
+
+  if (duplicateDays > 0) {
+    notes.push(duplicateDays + ' row' + (duplicateDays === 1 ? '' : 's')
+      + ' repeated a date that was already counted for the same entity and '
+      + (duplicateDays === 1 ? 'was' : 'were') + ' collapsed into the single active day '
+      + (duplicateDays === 1 ? 'it' : 'they') + ' represents. This step is why the run lengths '
+      + 'below are day counts and not row counts. A large number here usually means an export '
+      + 'ran more than once.');
+  }
+  if (singleDayRuns > 0 && min <= 1) {
+    notes.push(singleDayRuns + ' of the runs '
+      + (singleDayRuns === 1 ? 'is' : 'are') + ' a single day long and '
+      + (singleDayRuns === 1 ? 'is' : 'are') + ' included. An average taken over these rows is '
+      + 'the honest average; leaving them out would raise it by removing exactly the short runs.');
+  }
+  if (runsHidden > 0) {
+    notes.push(runsHidden + ' run' + (runsHidden === 1 ? ' was' : 's were') + ' found but not '
+      + 'shown, because of the ' + (longestOnly ? 'longest-run-only setting' : 'minimum length of '
+        + min) + '. They still exist in the data, so any total taken from this table is a total '
+      + 'over the runs shown and not over the table.');
+  }
+  if (asOf) {
+    notes.push(openRuns + ' run' + (openRuns === 1 ? '' : 's') + ' reach '
+      + formatISODate(asOf) + ' and '
+      + (openRuns === 1 ? 'is' : 'are') + ' marked still_running. A streak that is still going '
+      + 'and one that ended are different facts, and a run marked open will be longer tomorrow.');
+  } else {
+    notes.push('No as-of date was given, so no run is marked as still running. The last run for '
+      + 'each entity may simply be the point where the data stops rather than where the activity '
+      + 'stopped.');
+  }
+  if (inactive > 0) {
+    notes.push(inactive + ' row' + (inactive === 1 ? '' : 's') + ' did not meet the condition "'
+      + (ACTIVITY_LABELS[String(config.activity || 'present')] || 'active')
+      + '" and ' + (inactive === 1 ? 'was' : 'were') + ' treated as a gap. A gap is what breaks '
+      + 'a run, so this count is the other half of every number above.');
+  }
+  if (unreadableDates > 0) {
+    notes.push(unreadableDates + ' active row' + (unreadableDates === 1 ? '' : 's') + ' had no '
+      + 'readable date and could not be placed in any run. Those days are missing from the '
+      + 'streaks rather than breaking them, which means a run here could be shorter than the '
+      + 'truth, not longer.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: outRows.length,
+      entities: ordered.length,
+      entitiesWithRun: entitiesWithRun,
+      runsFound: runsFound,
+      runsHidden: runsHidden,
+      longestRun: longest,
+      singleDayRuns: singleDayRuns,
+      averageRun: runsFound ? totalRunDays / runsFound : 0,
+      openRuns: openRuns,
+      inactiveRows: inactive,
+      duplicateDays: duplicateDays,
+      unreadableDates: unreadableDates,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. */
+function describeConsecutiveRun(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is no run to find.';
+  if (!s.runsFound) return 'No active day was found, so there is no run to report.';
+  const avg = Math.round(s.averageRun * 10) / 10;
+  return s.runsFound.toLocaleString() + ' run' + (s.runsFound === 1 ? '' : 's') + ' found. The '
+    + 'longest is ' + s.longestRun.toLocaleString() + ' day'
+    + (s.longestRun === 1 ? '' : 's') + ', the average is ' + avg + '.'
+    + (s.duplicateDays ? ' ' + s.duplicateDays.toLocaleString() + ' repeated date'
+      + (s.duplicateDays === 1 ? '' : 's') + ' collapsed first.' : '');
+}
+  window.DataGlowConsecutiveRun = {
+    CONSECUTIVE_RUN_VERSION: CONSECUTIVE_RUN_VERSION,
+    ACTIVITY_MODES: ACTIVITY_MODES,
+    ACTIVITY_LABELS: ACTIVITY_LABELS,
+    createEmptyRunConfig: createEmptyRunConfig,
+    suggestRunConfig: suggestRunConfig,
+    validateRunConfig: validateRunConfig,
+    isActiveRow: isActiveRow,
+    activityPredicate: activityPredicate,
+    buildConsecutiveRunSQL: buildConsecutiveRunSQL,
+    consecutiveRunTransform: consecutiveRunTransform,
+    describeConsecutiveRun: describeConsecutiveRun,
+  };
+})();
+/* ---- end js/transforms/consecutive-run.js ---- */
+/* ---- from js/transforms/moving-average.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A22 Moving average, and the crossover between two
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. A daily series is too noisy to read. A seven day average
+// makes the trend visible, and a second, longer average makes a change of trend
+// visible: the short one crossing above the long one is the pattern people call
+// a golden cross, crossing below is a death cross. Those names come from finance
+// and the arithmetic is the same for daily signups, ward occupancy or scrap rate.
+//
+// THE FIRST N-1 ROWS ARE THE WHOLE PROBLEM.
+// A seven day average of the first three days of data is an average of three
+// days. Reporting it as if it were a seven day average is the single most common
+// error here, and it is invisible: the column is full, the chart starts at the
+// left edge, and the early values are simply wrong in a way that always makes the
+// series look flatter or smoother than it was. So the default leaves those rows
+// blank and says how many were left blank, a partial window is an explicit
+// choice, and either way a rows_in_window column records how many values each
+// average actually covers.
+//
+// A GAP IN THE DATES IS NOT A GAP IN THE WINDOW, AND THIS IS THE HONEST WARNING.
+// This averages over ROWS, not over days, exactly as SQL's ROWS BETWEEN does.
+// If a date is missing from the table the window silently reaches further back in
+// time than the number of days it claims: a "7 day average" over a series missing
+// Sundays is really a nine day average. This module counts the gaps and says so
+// rather than pretending row order is calendar order. Filling the calendar first
+// (A26 expand date range) is the fix, and the note says that too.
+//
+// A CROSSOVER NEEDS BOTH SIDES TO EXIST.
+// The first row where the short average is above the long one is not a crossover
+// if the row before it had no long average at all. Warm-up rows produce no signal
+// rather than a spurious one on the first complete row, which is where a naive
+// implementation reliably fires.
+//
+// WHAT A CROSSOVER IS NOT.
+// It is an arithmetic fact about two averages, not a prediction. Two smoothed
+// lines crossing tells you the recent mean moved relative to the older mean. The
+// notes say this in plain words, because the pattern's name carries a promise
+// that the arithmetic does not.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, suggestDateColumn = C.suggestDateColumn, suggestNumericColumn = C.suggestNumericColumn, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, daysBetween = C.daysBetween, toNumber = C.toNumber, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_FLOAT = C.TYPE_FLOAT, TYPE_STR = C.TYPE_STR, transformResult = C.transformResult, transformError = C.transformError;
+const MOVING_AVERAGE_VERSION = 1;
+
+// A window of 1 is the series itself, which is a legitimate thing to ask for but
+// worth naming rather than silently accepting as smoothing.
+const MIN_WINDOW = 1;
+
+// Past this the average is flatter than most series are long, and the warm-up
+// blanks dominate the column.
+const LARGE_WINDOW_WARN = 90;
+
+const WARMUP_MODES = Object.freeze(['blank', 'partial']);
+
+const WARMUP_LABELS = Object.freeze({
+  blank: 'Leave the first rows blank until the window is full',
+  partial: 'Average whatever rows exist so far',
+});
+
+const CROSS_SIGNALS = Object.freeze({
+  up: 'up',
+  down: 'down',
+  none: '',
+});
+
+function createEmptyMovingAverageConfig() {
+  return {
+    valueColumn: '',
+    orderColumn: '',
+    groupColumns: [],
+    window: 7,
+    secondWindow: 0,
+    warmup: 'blank',
+    markCrossovers: true,
+    keepOriginal: true,
+  };
+}
+
+function suggestMovingAverageConfig(dataset) {
+  const cfg = createEmptyMovingAverageConfig();
+  cfg.orderColumn = suggestDateColumn(dataset) || '';
+  cfg.valueColumn = suggestNumericColumn(dataset) || '';
+  return cfg;
+}
+
+function validateMovingAverageConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.valueColumn) {
+    errors.push('Pick the number column to smooth.');
+  } else if (!names.includes(config.valueColumn)) {
+    errors.push('The value column ' + config.valueColumn + ' is not in this table.');
+  }
+
+  if (!config.orderColumn) {
+    errors.push('Pick the column that puts the rows in order. A moving average over rows in an '
+      + 'arbitrary order is not a moving average of anything.');
+  } else if (!names.includes(config.orderColumn)) {
+    errors.push('The order column ' + config.orderColumn + ' is not in this table.');
+  } else if (config.orderColumn === config.valueColumn) {
+    errors.push('The order column and the value column cannot be the same column.');
+  }
+
+  const groups = asColumnList(config.groupColumns);
+  for (let i = 0; i < groups.length; i += 1) {
+    if (!names.includes(groups[i])) {
+      errors.push('The column ' + groups[i] + ' is not in this table.');
+    } else if (groups[i] === config.valueColumn) {
+      errors.push('The value column cannot also be a grouping column.');
+    }
+  }
+
+  const w = Number(config.window);
+  if (!Number.isFinite(w) || w < MIN_WINDOW || Math.floor(w) !== w) {
+    errors.push('The window has to be a whole number of rows, one or more.');
+  }
+
+  const w2 = Number(config.secondWindow || 0);
+  if (config.secondWindow && (!Number.isFinite(w2) || w2 < MIN_WINDOW || Math.floor(w2) !== w2)) {
+    errors.push('The second window has to be a whole number of rows, one or more.');
+  }
+  if (w2 && w2 === w) {
+    errors.push('The two windows are the same size, so the two averages would be identical and '
+      + 'could never cross. Use different lengths or leave the second one empty.');
+  }
+
+  if (config.warmup && WARMUP_MODES.indexOf(config.warmup) === -1) {
+    errors.push('Choose what happens to the rows before the window is full.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The name of the average column for a given window, so the SQL and the table
+    cannot disagree about what to call it. */
+function averageColumnName(config, windowSize) {
+  const base = String((config && config.valueColumn) || 'value');
+  return base + '_ma' + String(windowSize);
+}
+
+function crossColumnName() {
+  return 'ma_cross';
+}
+
+/** Whether the pair of windows can produce a crossover at all. */
+function hasCrossover(config) {
+  const w2 = Number((config && config.secondWindow) || 0);
+  return Boolean(w2) && w2 !== Number(config && config.window)
+    && (config && config.markCrossovers) !== false;
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * ROWS BETWEEN n-1 PRECEDING AND CURRENT ROW, which is what the computed column
+ * does. The comment says out loud that this counts rows and not days, because
+ * that is the difference between the query being right and the answer being
+ * right, and only the reader knows whether their calendar has holes in it.
+ */
+function buildMovingAverageSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const val = quoteIdent(config.valueColumn);
+  const ord = quoteIdent(config.orderColumn);
+  const groups = asColumnList(config.groupColumns);
+  const part = groups.length ? 'PARTITION BY ' + groups.map(quoteIdent).join(', ') + ' ' : '';
+  const w = Math.max(MIN_WINDOW, Math.floor(Number(config.window) || 1));
+  const w2 = Math.max(0, Math.floor(Number(config.secondWindow) || 0));
+  const blank = String(config.warmup || 'blank') !== 'partial';
+
+  function avgExpr(size) {
+    const over = 'OVER (' + part + 'ORDER BY ' + ord
+      + ' ROWS BETWEEN ' + (size - 1) + ' PRECEDING AND CURRENT ROW)';
+    const avg = 'AVG(' + val + ') ' + over;
+    if (!blank) return avg;
+    // The blank until full rule, written as SQL rather than described: an average
+    // over fewer rows than asked for is not the average that was asked for.
+    return 'CASE WHEN COUNT(' + val + ') ' + over + ' = ' + size
+      + ' THEN ' + avg + ' END';
+  }
+
+  const lines = [
+    '-- A ' + w + ' row moving average of ' + val + ', in ' + ord + ' order'
+      + (groups.length ? ', per ' + groups.map(quoteIdent).join(', ') : '') + '.',
+    '-- ROWS BETWEEN counts ROWS, not days. If a date is missing from the table this',
+    '-- window reaches further back in time than ' + w + ' days while still being',
+    '-- labelled ' + w + '. Fill the calendar first if that matters.',
+  ];
+  if (blank) {
+    lines.push('-- The CASE leaves a row blank until ' + w + ' values exist. An average of the');
+    lines.push('-- first three rows is not a ' + w + ' row average, and printing it as one makes');
+    lines.push('-- the start of the series look smoother than it was.');
+  } else {
+    lines.push('-- Partial windows are averaged as-is, so the earliest rows average fewer than');
+    lines.push('-- ' + w + ' values. rows_in_window says how many each one covers.');
+  }
+
+  const selects = [];
+  if (config.keepOriginal !== false) selects.push('  *,');
+  else selects.push('  ' + (groups.length ? groups.map(quoteIdent).join(', ') + ', ' : '')
+    + ord + ', ' + val + ',');
+  selects.push('  ' + avgExpr(w) + ' AS ' + quoteIdent(averageColumnName(config, w)) + ',');
+  selects.push('  COUNT(' + val + ') OVER (' + part + 'ORDER BY ' + ord
+    + ' ROWS BETWEEN ' + (w - 1) + ' PRECEDING AND CURRENT ROW) AS rows_in_window');
+  if (w2) {
+    selects[selects.length - 1] += ',';
+    selects.push('  ' + avgExpr(w2) + ' AS ' + quoteIdent(averageColumnName(config, w2)));
+  }
+
+  lines.push('SELECT');
+  for (let i = 0; i < selects.length; i += 1) lines.push(selects[i]);
+  lines.push('FROM ' + rel);
+  lines.push('ORDER BY ' + (groups.length ? groups.map(quoteIdent).join(', ') + ', ' : '') + ord);
+
+  if (w2 && hasCrossover(config)) {
+    lines.push('');
+    lines.push('-- The crossover column above is computed in the table rather than here, because');
+    lines.push('-- it compares each row to the one before it AND requires both averages to exist');
+    lines.push('-- on both rows. Expressed in SQL that is a LAG over the two CASE expressions:');
+    lines.push('--   short > long AND LAG(short) <= LAG(long)  ->  up');
+    lines.push('--   short < long AND LAG(short) >= LAG(long)  ->  down');
+    lines.push('-- Without the both-exist condition the first complete row always reports a');
+    lines.push('-- crossover, which is an artefact of the warm-up and not a change in the series.');
+  }
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function movingAverageTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateMovingAverageConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const valIdx = indexOfColumn(names, config.valueColumn);
+  const ordIdx = indexOfColumn(names, config.orderColumn);
+  const groups = asColumnList(config.groupColumns);
+  const groupIdxs = groups.map((n) => indexOfColumn(names, n));
+  const w = Math.max(MIN_WINDOW, Math.floor(Number(config.window) || 1));
+  const w2 = Math.max(0, Math.floor(Number(config.secondWindow) || 0));
+  const blank = String(config.warmup || 'blank') !== 'partial';
+  const keepOriginal = config.keepOriginal !== false;
+  const wantCross = Boolean(w2) && hasCrossover(config);
+
+  const orderIsDate = Boolean(parseDateValue((rowsOf(dataset)[0] || [])[ordIdx]));
+  const srcRows = rowsOf(dataset);
+
+  const series = new Map();
+  let unreadableOrder = 0;
+  let nonNumeric = 0;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    const rawOrder = row[ordIdx];
+    const asDate = parseDateValue(rawOrder);
+    const sortKey = asDate ? asDate.getTime() : toNumber(rawOrder);
+    if (sortKey === null || sortKey === undefined) {
+      // A row with no readable position cannot be placed in a window at all.
+      // Dropping it silently would shorten the series without saying so.
+      unreadableOrder += 1;
+      continue;
+    }
+    const n = toNumber(row[valIdx]);
+    if (n === null) nonNumeric += 1;
+
+    const key = keyOfRow(row, groupIdxs);
+    let s = series.get(key);
+    if (!s) { s = { key: key, rows: [], seq: series.size }; series.set(key, s); }
+    s.rows.push({ row: row, sortKey: sortKey, value: n, date: asDate });
+  }
+
+  const outColumns = [];
+  if (keepOriginal) {
+    for (let i = 0; i < names.length; i += 1) outColumns.push(column(names[i], typeOfColumn(dataset, names[i])));
+  } else {
+    for (let i = 0; i < groups.length; i += 1) outColumns.push(column(groups[i], typeOfColumn(dataset, groups[i])));
+    outColumns.push(column(config.orderColumn, typeOfColumn(dataset, config.orderColumn)));
+    outColumns.push(column(config.valueColumn, typeOfColumn(dataset, config.valueColumn)));
+  }
+  outColumns.push(column(averageColumnName(config, w), TYPE_FLOAT));
+  outColumns.push(column('rows_in_window', TYPE_INT));
+  if (w2) outColumns.push(column(averageColumnName(config, w2), TYPE_FLOAT));
+  if (wantCross) outColumns.push(column(crossColumnName(), TYPE_STR));
+
+  const outRows = [];
+  let warmupBlanks = 0;
+  let partialWindows = 0;
+  let dateGaps = 0;
+  let largestGapDays = 0;
+  let crossUp = 0;
+  let crossDown = 0;
+
+  function windowAverage(rows, at, size) {
+    let sum = 0;
+    let count = 0;
+    for (let i = at; i > at - size && i >= 0; i -= 1) {
+      if (rows[i].value !== null) { sum += rows[i].value; count += 1; }
+    }
+    // A window whose rows exist but whose values are all blank has no average,
+    // which is different from a window that is not full yet.
+    if (!count) return { avg: null, count: 0, full: at + 1 >= size };
+    return { avg: sum / count, count: count, full: at + 1 >= size };
+  }
+
+  const ordered = Array.from(series.values()).sort((a, b) => a.seq - b.seq);
+  for (let g = 0; g < ordered.length; g += 1) {
+    const rows = ordered[g].rows;
+    rows.sort((a, b) => a.sortKey - b.sortKey);
+
+    let prevShort = null;
+    let prevLong = null;
+
+    for (let i = 0; i < rows.length; i += 1) {
+      if (i > 0 && rows[i].date && rows[i - 1].date) {
+        const step = daysBetween(rows[i - 1].date, rows[i].date);
+        if (step !== null && step > 1) {
+          dateGaps += 1;
+          if (step - 1 > largestGapDays) largestGapDays = step - 1;
+        }
+      }
+
+      const short = windowAverage(rows, i, w);
+      let shortValue = short.avg;
+      if (blank && !short.full) { shortValue = null; warmupBlanks += 1; }
+      else if (!short.full) partialWindows += 1;
+
+      let longValue = null;
+      if (w2) {
+        const long = windowAverage(rows, i, w2);
+        longValue = long.avg;
+        if (blank && !long.full) longValue = null;
+      }
+
+      let signal = '';
+      if (wantCross && shortValue !== null && longValue !== null
+        && prevShort !== null && prevLong !== null) {
+        // Both averages must exist on this row AND the row before it. Without
+        // that the first complete row always fires, which is a warm-up artefact.
+        if (shortValue > longValue && prevShort <= prevLong) { signal = CROSS_SIGNALS.up; crossUp += 1; }
+        else if (shortValue < longValue && prevShort >= prevLong) { signal = CROSS_SIGNALS.down; crossDown += 1; }
+      }
+      prevShort = shortValue;
+      prevLong = longValue;
+
+      const base = keepOriginal ? rows[i].row.slice()
+        : groupIdxs.map((ix) => rows[i].row[ix])
+          .concat([rows[i].row[ordIdx], rows[i].row[valIdx]]);
+      base.push(shortValue);
+      base.push(short.count);
+      if (w2) base.push(longValue);
+      if (wantCross) base.push(signal);
+      outRows.push(base);
+    }
+  }
+
+  const built = buildMovingAverageSQL(config, dataset.name);
+  const notes = [];
+
+  notes.push('The average covers ' + w + ' row' + (w === 1 ? '' : 's') + ', not ' + w + ' '
+    + (orderIsDate ? 'days' : 'units') + '. Those are the same thing only when every step in '
+    + config.orderColumn + ' is present. This is the same ROWS BETWEEN rule the SQL uses, so the '
+    + 'two agree, including where they are both wrong about the calendar.');
+
+  if (dateGaps > 0) {
+    notes.push(dateGaps + ' gap' + (dateGaps === 1 ? '' : 's') + ' were found in '
+      + config.orderColumn + ', the largest skipping ' + largestGapDays + ' day'
+      + (largestGapDays === 1 ? '' : 's') + '. Across a gap the window reaches further back in '
+      + 'time than ' + w + ' days while still being labelled ' + w + '. If that matters, expand '
+      + 'the calendar to one row per day first, then average.');
+  } else {
+    notes.push('No gap was found in ' + config.orderColumn + ', so a window of ' + w + ' rows is '
+      + 'also a window of ' + w + ' steps here.');
+  }
+
+  if (blank && warmupBlanks > 0) {
+    notes.push('The first ' + warmupBlanks + ' row' + (warmupBlanks === 1 ? '' : 's')
+      + (ordered.length > 1 ? ' across all series' : '') + ' have a blank average, because fewer '
+      + 'than ' + w + ' values existed yet. That blank is deliberate. Filling it with an average '
+      + 'of three rows and calling it a ' + w + ' row average would make the start of the series '
+      + 'look smoother than it was.');
+  }
+  if (!blank && partialWindows > 0) {
+    notes.push(partialWindows + ' row' + (partialWindows === 1 ? '' : 's') + ' were averaged over '
+      + 'fewer than ' + w + ' values, as configured. Read rows_in_window before comparing the '
+      + 'start of the series to the rest of it: those early points are noisier, not smoother, '
+      + 'and any conclusion about a trend beginning there is about the window and not the data.');
+  }
+
+  if (w2) {
+    notes.push('Two averages are shown, over ' + w + ' and ' + w2 + ' rows. The longer one moves '
+      + 'later, which is the whole reason a crossing between them is treated as a change of '
+      + 'direction.');
+  }
+  if (wantCross) {
+    if (crossUp || crossDown) {
+      notes.push(crossUp + ' crossing' + (crossUp === 1 ? '' : 's') + ' upward and ' + crossDown
+        + ' downward were marked in ' + crossColumnName() + '. A crossing is an arithmetic fact '
+        + 'about two averages: the recent mean moved relative to the older mean. It is not a '
+        + 'forecast, and on a short or noisy series these will appear and reverse repeatedly.');
+    } else {
+      notes.push('No crossing was found. The two averages never changed which one was on top, '
+        + 'within the rows where both existed.');
+    }
+    notes.push('A crossing is only marked where both averages exist on this row and on the row '
+      + 'before it. Otherwise the first row with a full window would always look like a crossing, '
+      + 'which is an artefact of the warm-up rather than anything in the series.');
+  }
+
+  if (w >= LARGE_WINDOW_WARN || (w2 && w2 >= LARGE_WINDOW_WARN)) {
+    notes.push('A window this long removes most of the variation, including real movements that '
+      + 'lasted weeks. It also blanks or weakens a long run at the start of the series.');
+  }
+  if (nonNumeric > 0) {
+    notes.push(nonNumeric + ' row' + (nonNumeric === 1 ? '' : 's') + ' had no readable number in '
+      + config.valueColumn + '. Those rows still occupy a position in the window, so a window '
+      + 'containing them averages fewer values than its label; rows_in_window shows the real count.');
+  }
+  if (unreadableOrder > 0) {
+    notes.push(unreadableOrder + ' row' + (unreadableOrder === 1 ? '' : 's') + ' had no readable '
+      + config.orderColumn + ' and are not in this result at all, because a row with no position '
+      + 'cannot be placed in a window.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: outRows,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: outRows.length,
+      series: ordered.length,
+      window: w,
+      secondWindow: w2,
+      warmupBlanks: warmupBlanks,
+      partialWindows: partialWindows,
+      dateGaps: dateGaps,
+      largestGapDays: largestGapDays,
+      crossUp: crossUp,
+      crossDown: crossDown,
+      nonNumeric: nonNumeric,
+      unreadableOrder: unreadableOrder,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. */
+function describeMovingAverage(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.rowsIn) return 'The table has no rows, so there is nothing to smooth.';
+  const parts = ['A ' + s.window + ' row average'
+    + (s.secondWindow ? ' and a ' + s.secondWindow + ' row average' : '') + ' over '
+    + s.rowsOut.toLocaleString() + ' rows'
+    + (s.series > 1 ? ' in ' + s.series + ' series' : '') + '.'];
+  if (s.warmupBlanks) {
+    parts.push(s.warmupBlanks.toLocaleString() + ' warm-up row'
+      + (s.warmupBlanks === 1 ? '' : 's') + ' left blank.');
+  }
+  if (s.secondWindow) {
+    parts.push((s.crossUp + s.crossDown) + ' crossing'
+      + (s.crossUp + s.crossDown === 1 ? '' : 's') + ' marked.');
+  }
+  if (s.dateGaps) {
+    parts.push(s.dateGaps.toLocaleString() + ' date gap'
+      + (s.dateGaps === 1 ? '' : 's') + ', so the window is wider in days than in rows.');
+  }
+  return parts.join(' ');
+}
+  window.DataGlowMovingAverage = {
+    MOVING_AVERAGE_VERSION: MOVING_AVERAGE_VERSION,
+    MIN_WINDOW: MIN_WINDOW,
+    LARGE_WINDOW_WARN: LARGE_WINDOW_WARN,
+    WARMUP_MODES: WARMUP_MODES,
+    WARMUP_LABELS: WARMUP_LABELS,
+    CROSS_SIGNALS: CROSS_SIGNALS,
+    createEmptyMovingAverageConfig: createEmptyMovingAverageConfig,
+    suggestMovingAverageConfig: suggestMovingAverageConfig,
+    validateMovingAverageConfig: validateMovingAverageConfig,
+    averageColumnName: averageColumnName,
+    crossColumnName: crossColumnName,
+    hasCrossover: hasCrossover,
+    buildMovingAverageSQL: buildMovingAverageSQL,
+    movingAverageTransform: movingAverageTransform,
+    describeMovingAverage: describeMovingAverage,
+  };
+})();
+/* ---- end js/transforms/moving-average.js ---- */
+/* ---- from js/transforms/multi-value-counts.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A23 Multi-value field counts, honestly
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. A column holds "Cardiology; Endocrinology" or
+// "email,sms,push" or a JSON array of tags. Somebody wants to know how many
+// records fall in each category. Counting the raw cell counts the combination,
+// not the categories, so "Cardiology; Endocrinology" becomes its own bucket with
+// a count of one and neither real category is counted at all.
+//
+// THE POINT OF THIS MODULE IS THE ARITHMETIC IT REFUSES TO HIDE.
+// Split the cell and count each value, and the counts now sum to more than the
+// number of records, because one record is in several categories. That is not an
+// error, it is what multi-membership means. The error is presenting those counts
+// with a percentage denominator that implies they are exclusive, which is what
+// every naive version of this does: percentages that sum to 180% get quietly
+// rescaled by a reader into something that adds to 100, and the conclusion drawn
+// from it is wrong.
+//
+// SO EVERY COUNT HERE CARRIES TWO PERCENTAGES, BOTH LABELLED.
+//   pct_of_records  count / number of records. Reads as "34% of patients have a
+//                   cardiology tag". These sum to more than 100 whenever any
+//                   record has more than one value, and that is correct.
+//   pct_of_mentions count / total number of values mentioned. These sum to 100
+//                   and answer a different question: share of tags, not share of
+//                   people.
+// Both are shown because either one alone gets misread as the other. The notes
+// state the sum out loud whenever it exceeds 100.
+//
+// A RECORD IS COUNTED ONCE PER CATEGORY, NOT ONCE PER MENTION.
+// "asthma, asthma" is one record with asthma, not two. The duplicate mentions are
+// counted separately and reported, because a column full of them is usually a
+// concatenation bug rather than a fact about the record.
+//
+// AN EMPTY CELL IS A REAL ANSWER AND IS NOT DROPPED FROM THE DENOMINATOR.
+// A record with no tags is still a record. Removing it from the denominator
+// inflates every percentage, so it is kept, counted, and reported as its own line
+// when asked for.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, readList = C.readList, cellText = C.cellText, column = C.column, typeOfColumn = C.typeOfColumn, TYPE_INT = C.TYPE_INT, TYPE_FLOAT = C.TYPE_FLOAT, TYPE_STR = C.TYPE_STR, transformResult = C.transformResult, transformError = C.transformError;
+const MULTI_VALUE_COUNTS_VERSION = 1;
+
+const VALUE_SOURCES = Object.freeze(['auto', 'json', 'delimited']);
+
+const VALUE_SOURCE_LABELS = Object.freeze({
+  auto: 'Work it out from the cell',
+  json: 'A JSON array',
+  delimited: 'Separated by a character',
+});
+
+const CASE_MODES = Object.freeze(['exact', 'fold']);
+
+const CASE_LABELS = Object.freeze({
+  exact: 'Treat different capitalisation as different values',
+  fold: 'Treat Email and email as the same value',
+});
+
+// Above this the list is no longer a list of categories, it is free text, and
+// counting it produces a table with one row per record and no insight.
+const TOO_MANY_DISTINCT = 500;
+
+/** Separators worth guessing at, most common first. */
+const CANDIDATE_DELIMITERS = Object.freeze([',', ';', '|']);
+
+function createEmptyMultiValueConfig() {
+  return {
+    valueColumn: '',
+    source: 'auto',
+    delimiter: ',',
+    caseMode: 'fold',
+    trim: true,
+    recordColumns: [],
+    includeEmpty: true,
+    minCount: 1,
+    topN: 0,
+  };
+}
+
+function suggestMultiValueConfig(dataset) {
+  const cfg = createEmptyMultiValueConfig();
+  const names = columnNamesOf(dataset);
+  const rows = rowsOf(dataset);
+
+  // Suggest the column that most often holds several values. A column that never
+  // splits makes this transform a plain value count, which is not the point.
+  // Each candidate separator is tried, because guessing a comma against a
+  // semicolon-separated column finds nothing and reads as "no such column here".
+  let best = null;
+  for (let i = 0; i < names.length; i += 1) {
+    for (let d = 0; d < CANDIDATE_DELIMITERS.length; d += 1) {
+      const delim = CANDIDATE_DELIMITERS[d];
+      let multi = 0;
+      let looked = 0;
+      for (let r = 0; r < rows.length && looked < 400; r += 1) {
+        if (!Array.isArray(rows[r])) continue;
+        const cell = rows[r][i];
+        if (cell == null || cell === '') continue;
+        looked += 1;
+        if (readList(cell, 'auto', delim).values.length > 1) multi += 1;
+      }
+      if (!looked) continue;
+      const share = multi / looked;
+      if (share > 0 && (!best || share > best.share)) {
+        best = { name: names[i], share: share, delimiter: delim };
+      }
+    }
+  }
+  if (best) {
+    cfg.valueColumn = best.name;
+    cfg.delimiter = best.delimiter;
+  }
+  return cfg;
+}
+
+function validateMultiValueConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.valueColumn) {
+    errors.push('Pick the column that holds several values in one cell.');
+  } else if (!names.includes(config.valueColumn)) {
+    errors.push('The column ' + config.valueColumn + ' is not in this table.');
+  }
+
+  if (config.source && VALUE_SOURCES.indexOf(config.source) === -1) {
+    errors.push('Choose how the values in a cell are separated.');
+  }
+  if (String(config.source || 'auto') === 'delimited' && !String(config.delimiter || '')) {
+    errors.push('Give the character that separates the values.');
+  }
+  if (config.caseMode && CASE_MODES.indexOf(config.caseMode) === -1) {
+    errors.push('Choose whether capitalisation makes two values different.');
+  }
+
+  const recs = asColumnList(config.recordColumns);
+  for (let i = 0; i < recs.length; i += 1) {
+    if (!names.includes(recs[i])) {
+      errors.push('The column ' + recs[i] + ' is not in this table.');
+    } else if (recs[i] === config.valueColumn) {
+      errors.push('The value column cannot also identify the record.');
+    }
+  }
+
+  const min = Number(config.minCount);
+  if (config.minCount !== '' && config.minCount != null
+    && (!Number.isFinite(min) || min < 1 || Math.floor(min) !== min)) {
+    errors.push('The smallest count to show has to be a whole number of one or more.');
+  }
+  const top = Number(config.topN || 0);
+  if (config.topN && (!Number.isFinite(top) || top < 1 || Math.floor(top) !== top)) {
+    errors.push('The number of values to show has to be a whole number of one or more.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/** The label used for a record that has no values at all. Written out rather than
+    left blank, because a blank row in a count table reads as a bug. */
+const NO_VALUE_LABEL = '(no value)';
+
+function normalise(text, config) {
+  let s = config && config.trim === false ? text : text.trim();
+  if (String((config && config.caseMode) || 'fold') === 'fold') s = s.toLowerCase();
+  return s;
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * UNNEST over the split list, then count DISTINCT records per value, not COUNT(*).
+ * That DISTINCT is the difference between counting records and counting mentions,
+ * and both denominators appear as scalar subqueries so a reader can see exactly
+ * what each percentage is a percentage of.
+ */
+function buildMultiValueCountsSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const col = quoteIdent(config.valueColumn);
+  const source = String(config.source || 'auto');
+  const delim = String(config.delimiter || ',');
+  const fold = String(config.caseMode || 'fold') === 'fold';
+  const recs = asColumnList(config.recordColumns);
+  const recordKey = recs.length ? recs.map(quoteIdent).join(', ') : 'rowid';
+  const min = Math.max(1, Math.floor(Number(config.minCount) || 1));
+  const top = Math.max(0, Math.floor(Number(config.topN) || 0));
+
+  const split = source === 'json'
+    ? 'json_extract_string(' + col + ", '$[*]')"
+    : 'str_split(CAST(' + col + ' AS VARCHAR), ' + "'" + delim.replace(/'/g, "''") + "')";
+  const value = fold ? 'lower(trim(item))' : 'trim(item)';
+
+  const lines = [
+    '-- How many records fall in each value of ' + col + ', where one cell can hold several.',
+    '-- The two percentages answer two different questions and are both shown on purpose:',
+    '--   pct_of_records  share of RECORDS carrying this value. Sums to MORE than 100',
+    '--                   whenever a record has more than one value. That is correct.',
+    '--   pct_of_mentions share of MENTIONS. Sums to 100.',
+    '-- Reading the first as if it were the second is the mistake this table exists to stop.',
+    'WITH exploded AS (',
+    '  SELECT ' + recordKey + ' AS record_key, ' + value + ' AS value',
+    '  FROM ' + rel + ', UNNEST(' + split + ') AS dg_values(item)',
+    "  WHERE item IS NOT NULL AND trim(item) <> ''",
+    '), per_value AS (',
+    '  -- COUNT(DISTINCT record_key), not COUNT(*): a cell reading "asthma, asthma" is',
+    '  -- one record with asthma, not two.',
+    '  SELECT value,',
+    '    COUNT(DISTINCT record_key) AS records,',
+    '    COUNT(*) AS mentions',
+    '  FROM exploded GROUP BY value',
+    ')',
+    'SELECT value,',
+    '  records,',
+    '  mentions,',
+    '  ROUND(100.0 * records / (SELECT COUNT(*) FROM ' + rel + '), 1) AS pct_of_records,',
+    '  ROUND(100.0 * mentions / (SELECT SUM(mentions) FROM per_value), 1) AS pct_of_mentions',
+    'FROM per_value',
+  ];
+  if (min > 1) lines.push('WHERE records >= ' + min);
+  lines.push('ORDER BY records DESC, value');
+  if (top) lines.push('LIMIT ' + top);
+
+  lines.push('');
+  lines.push('-- The denominator of pct_of_records is COUNT(*) over the whole table, which');
+  lines.push('-- includes records whose cell was empty. Excluding them would raise every');
+  lines.push('-- percentage here, and a record with no value is still a record.');
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function multiValueCountsTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateMultiValueConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const valIdx = indexOfColumn(names, config.valueColumn);
+  const recs = asColumnList(config.recordColumns);
+  const recIdxs = recs.map((n) => indexOfColumn(names, n));
+  const source = String(config.source || 'auto');
+  const delim = String(config.delimiter || ',');
+  const min = Math.max(1, Math.floor(Number(config.minCount) || 1));
+  const top = Math.max(0, Math.floor(Number(config.topN) || 0));
+
+  const srcRows = rowsOf(dataset);
+  const tally = new Map();
+  let records = 0;
+  let emptyRecords = 0;
+  let mentions = 0;
+  let duplicateMentions = 0;
+  let unreadable = 0;
+  let multiValueRecords = 0;
+  let maxPerRecord = 0;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    records += 1;
+
+    const parsed = readList(row[valIdx], source, delim);
+    if (parsed.kind === 'unreadable') { unreadable += 1; continue; }
+    if (parsed.kind === 'empty') { emptyRecords += 1; continue; }
+
+    // Per record, so a record is counted once per category however many times it
+    // mentions it. The identity of the record is its key columns when given, and
+    // its position otherwise, which is what rowid means in the SQL above.
+    const seenHere = new Set();
+    let kept = 0;
+    for (let j = 0; j < parsed.values.length; j += 1) {
+      const text = cellText(parsed.values[j], config.trim !== false);
+      if (text == null || text === '') continue;
+      const key = normalise(text, config);
+      if (key === '') continue;
+      mentions += 1;
+      kept += 1;
+      if (seenHere.has(key)) { duplicateMentions += 1; continue; }
+      seenHere.add(key);
+
+      let t = tally.get(key);
+      if (!t) { t = { key: key, label: text, records: 0, mentions: 0, seq: tally.size }; tally.set(key, t); }
+      t.records += 1;
+    }
+    // Mentions are tallied per value after the record loop so a repeated value
+    // adds to mentions without adding to records.
+    for (let j = 0; j < parsed.values.length; j += 1) {
+      const text = cellText(parsed.values[j], config.trim !== false);
+      if (text == null || text === '') continue;
+      const key = normalise(text, config);
+      if (key === '') continue;
+      const t = tally.get(key);
+      if (t) t.mentions += 1;
+    }
+
+    if (!kept) { emptyRecords += 1; continue; }
+    if (seenHere.size > 1) multiValueRecords += 1;
+    if (seenHere.size > maxPerRecord) maxPerRecord = seenHere.size;
+  }
+
+  const outColumns = [
+    column(config.valueColumn, TYPE_STR),
+    column('records', TYPE_INT),
+    column('mentions', TYPE_INT),
+    column('pct_of_records', TYPE_FLOAT),
+    column('pct_of_mentions', TYPE_FLOAT),
+  ];
+
+  const all = Array.from(tally.values());
+  all.sort((a, b) => (b.records - a.records) || a.label.localeCompare(b.label));
+
+  const distinct = all.length;
+  let hidden = 0;
+  const rowsOut = [];
+  for (let i = 0; i < all.length; i += 1) {
+    const t = all[i];
+    if (t.records < min) { hidden += 1; continue; }
+    if (top && rowsOut.length >= top) { hidden += 1; continue; }
+    rowsOut.push([
+      t.label,
+      t.records,
+      t.mentions,
+      records ? Math.round((1000 * t.records) / records) / 10 : 0,
+      mentions ? Math.round((1000 * t.mentions) / mentions) / 10 : 0,
+    ]);
+  }
+
+  if (config.includeEmpty !== false && emptyRecords > 0) {
+    rowsOut.push([
+      NO_VALUE_LABEL,
+      emptyRecords,
+      0,
+      records ? Math.round((1000 * emptyRecords) / records) / 10 : 0,
+      0,
+    ]);
+  }
+
+  const pctSum = records
+    ? Math.round((1000 * mentions) / records) / 10
+    : 0;
+  const recordPctSum = rowsOut.reduce((acc, r) => (r[0] === NO_VALUE_LABEL ? acc : acc + r[3]), 0);
+
+  const built = buildMultiValueCountsSQL(config, dataset.name);
+  const notes = [];
+
+  if (!records) {
+    notes.push('The table has no rows, so there is nothing to count.');
+  } else if (multiValueRecords > 0) {
+    notes.push(multiValueRecords + ' of ' + records + ' record'
+      + (records === 1 ? '' : 's') + ' hold more than one value, up to ' + maxPerRecord
+      + ' at once. This means a record is counted in several rows below, on purpose. '
+      + 'pct_of_records therefore adds up to about ' + Math.round(recordPctSum * 10) / 10
+      + '%, not 100%, and that is the correct answer rather than a rounding fault.');
+  } else {
+    notes.push('No record holds more than one value, so every record appears in exactly one row '
+      + 'below and pct_of_records behaves like an ordinary share. The moment a multi-value cell '
+      + 'appears that stops being true.');
+  }
+
+  notes.push('The two percentage columns answer different questions. pct_of_records is the share '
+    + 'of records carrying the value, which is what "how many of our customers use sms" means. '
+    + 'pct_of_mentions is the share of all values mentioned, which sums to 100 and is what a pie '
+    + 'chart of this column would show. They are not interchangeable and neither one is a '
+    + 'correction of the other.');
+
+  if (records && mentions) {
+    notes.push('There are ' + mentions + ' value mentions across ' + records + ' record'
+      + (records === 1 ? '' : 's') + ', an average of ' + (Math.round((10 * mentions) / records) / 10)
+      + ' each. Any total, average or chart built from the records column is over memberships and '
+      + 'not over records, so it should not be compared against a plain row count of this table.');
+  }
+
+  if (duplicateMentions > 0) {
+    notes.push(duplicateMentions + ' mention' + (duplicateMentions === 1 ? '' : 's') + ' repeated a '
+      + 'value already present in the same record, and '
+      + (duplicateMentions === 1 ? 'was' : 'were') + ' counted in mentions but not twice in '
+      + 'records. A cell holding the same value twice is usually a concatenation that ran more '
+      + 'than once rather than a fact about the record.');
+  }
+  if (emptyRecords > 0) {
+    notes.push(emptyRecords + ' record' + (emptyRecords === 1 ? ' has' : 's have') + ' no value at '
+      + 'all. ' + (config.includeEmpty !== false
+        ? 'They are shown as the ' + NO_VALUE_LABEL + ' row, and they stay in the denominator of '
+          + 'pct_of_records.'
+        : 'They are not shown, but they are still in the denominator of pct_of_records, because '
+          + 'dropping them would raise every percentage in this table.'));
+  }
+  if (unreadable > 0) {
+    notes.push(unreadable + ' cell' + (unreadable === 1 ? '' : 's') + ' could not be read as a list '
+      + 'in the chosen format and were skipped entirely. Those records are in the denominator but '
+      + 'in none of the values, so every percentage here is slightly low rather than slightly high.');
+  }
+  if (hidden > 0) {
+    notes.push(hidden + ' value' + (hidden === 1 ? ' is' : 's are') + ' not shown, because of the '
+      + (top ? 'top ' + top + ' limit' : 'minimum count of ' + min)
+      + '. The percentages are still calculated over everything, so the visible rows will not add '
+      + 'up to the totals stated above.');
+  }
+  if (distinct >= TOO_MANY_DISTINCT) {
+    notes.push('There are ' + distinct + ' distinct values, which is more than this kind of count '
+      + 'usually means anything at. A column with this many distinct entries is closer to free '
+      + 'text than to a set of categories; standardising the values first would change the answer '
+      + 'substantially.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: rowsOut,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: rowsOut.length,
+      records: records,
+      distinctValues: distinct,
+      mentions: mentions,
+      mentionsPerRecord: records ? mentions / records : 0,
+      multiValueRecords: multiValueRecords,
+      maxPerRecord: maxPerRecord,
+      duplicateMentions: duplicateMentions,
+      emptyRecords: emptyRecords,
+      unreadable: unreadable,
+      hidden: hidden,
+      recordPctSum: Math.round(recordPctSum * 10) / 10,
+      mentionsPctOfRecords: pctSum,
+      exclusive: multiValueRecords === 0,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. Leads with the double count when
+    there is one, because that is the thing a reader must know before the number. */
+function describeMultiValueCounts(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.records) return 'The table has no rows, so there is nothing to count.';
+  if (!s.distinctValues) return 'No value could be read from that column.';
+  const head = s.distinctValues.toLocaleString() + ' distinct value'
+    + (s.distinctValues === 1 ? '' : 's') + ' across ' + s.records.toLocaleString() + ' record'
+    + (s.records === 1 ? '' : 's') + '.';
+  if (s.exclusive) {
+    return head + ' No record has more than one, so the shares behave like ordinary percentages.';
+  }
+  return head + ' ' + s.multiValueRecords.toLocaleString() + ' record'
+    + (s.multiValueRecords === 1 ? '' : 's') + ' hold several values, so the record shares sum to '
+    + 'about ' + s.recordPctSum + '% rather than 100%.';
+}
+  window.DataGlowMultiValueCounts = {
+    MULTI_VALUE_COUNTS_VERSION: MULTI_VALUE_COUNTS_VERSION,
+    VALUE_SOURCES: VALUE_SOURCES,
+    VALUE_SOURCE_LABELS: VALUE_SOURCE_LABELS,
+    CASE_MODES: CASE_MODES,
+    CASE_LABELS: CASE_LABELS,
+    TOO_MANY_DISTINCT: TOO_MANY_DISTINCT,
+    CANDIDATE_DELIMITERS: CANDIDATE_DELIMITERS,
+    NO_VALUE_LABEL: NO_VALUE_LABEL,
+    createEmptyMultiValueConfig: createEmptyMultiValueConfig,
+    suggestMultiValueConfig: suggestMultiValueConfig,
+    validateMultiValueConfig: validateMultiValueConfig,
+    buildMultiValueCountsSQL: buildMultiValueCountsSQL,
+    multiValueCountsTransform: multiValueCountsTransform,
+    describeMultiValueCounts: describeMultiValueCounts,
+  };
+})();
+/* ---- end js/transforms/multi-value-counts.js ---- */
+/* ---- from js/transforms/frequent-combinations.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A28 Frequent combinations (co-occurrence)
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. Which values turn up together in the same record. Two
+// category columns, or one multi-value cell, and the question is "what pairs
+// with what": which two products are bought together, which two tags sit on the
+// same ticket, which two diagnoses appear on the same patient.
+//
+// THE ARITHMETIC THIS REFUSES TO HIDE IS THAT A BIG PAIR COUNT IS USUALLY JUST
+// TWO BIG VALUES. If 80% of records carry "email" and 70% carry "sms", then
+// roughly 56% of records carry both, and that pair will sit at the top of any
+// support-ordered list while telling you nothing at all. Ranking pairs by raw
+// count therefore ranks popularity, not association, and reading it as
+// association is the standard mistake.
+//
+// SO EVERY PAIR CARRIES ITS OWN MARGINALS AND A LIFT.
+//   records      how many records hold both values.
+//   count_a      how many hold the first, count_b how many hold the second.
+//   pct_of_records share of all records holding both.
+//   lift         observed together / expected together if the two were
+//                independent. 1.0 means "exactly as often as chance", above
+//                means they attract, below means they avoid. It is a ratio of
+//                two estimates, so at small counts it is noise, and this module
+//                says so rather than printing a confident 4.7.
+//
+// PAIRS ARE UNORDERED AND COUNTED ONCE. (email, sms) and (sms, email) are the
+// same pair, so the values are ordered within the pair and the mirror image is
+// never emitted. Emitting both halves doubles every count and is the second
+// standard mistake.
+//
+// A RECORD WITH ONE VALUE CONTRIBUTES NO PAIR, AND IS STILL A RECORD.
+// It stays in the denominator of every percentage, because "how many of our
+// records show this combination" is a question about all records, not only the
+// ones that happened to combine.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, readList = C.readList, cellText = C.cellText, column = C.column, transformResult = C.transformResult, transformError = C.transformError, TYPE_INT = C.TYPE_INT, TYPE_FLOAT = C.TYPE_FLOAT, TYPE_STR = C.TYPE_STR;
+const FREQUENT_COMBINATIONS_VERSION = 1;
+
+const COMBO_SOURCES = Object.freeze(['columns', 'multivalue']);
+
+const COMBO_SOURCE_LABELS = Object.freeze({
+  columns: 'Values from several columns',
+  multivalue: 'Values inside one multi-value column',
+});
+
+/** Below this a lift is arithmetic on almost no data. Reported, but flagged. */
+const THIN_SUPPORT = 5;
+
+// Pairs grow as the square of the distinct values, so a column with thousands of
+// them produces millions of pairs and no insight. Stop rather than hang.
+const MAX_ITEMS_PER_RECORD = 40;
+const MAX_PAIRS = 200000;
+
+function createEmptyCombinationsConfig() {
+  return {
+    source: 'columns',
+    itemColumns: [],
+    valueColumn: '',
+    valueSource: 'auto',
+    delimiter: ',',
+    caseMode: 'fold',
+    labelWithColumn: true,
+    minSupport: 2,
+    topN: 25,
+  };
+}
+
+function suggestCombinationsConfig(dataset) {
+  const cfg = createEmptyCombinationsConfig();
+  const names = columnNamesOf(dataset);
+  const rows = rowsOf(dataset);
+
+  // A column worth pairing has few distinct values relative to its rows. One
+  // distinct value pairs with nothing; one per row is an identifier.
+  const scored = [];
+  for (let i = 0; i < names.length; i += 1) {
+    const seen = new Set();
+    let looked = 0;
+    let multi = 0;
+    for (let r = 0; r < rows.length && looked < 400; r += 1) {
+      if (!Array.isArray(rows[r])) continue;
+      const cell = rows[r][i];
+      if (cell == null || cell === '') continue;
+      looked += 1;
+      seen.add(String(cell));
+      if (readList(cell, 'auto', ',').values.length > 1) multi += 1;
+    }
+    if (!looked) continue;
+    if (multi / looked > 0.3) {
+      cfg.source = 'multivalue';
+      cfg.valueColumn = names[i];
+      return cfg;
+    }
+    if (seen.size > 1 && seen.size <= Math.max(2, looked * 0.5)) {
+      scored.push({ name: names[i], distinct: seen.size });
+    }
+  }
+  scored.sort((a, b) => a.distinct - b.distinct);
+  cfg.itemColumns = scored.slice(0, 2).map((s) => s.name);
+  return cfg;
+}
+
+function validateCombinationsConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+  const source = String(config.source || 'columns');
+
+  if (COMBO_SOURCES.indexOf(source) === -1) {
+    errors.push('Choose where the values to combine come from.');
+  }
+
+  if (source === 'multivalue') {
+    if (!config.valueColumn) {
+      errors.push('Pick the column that holds several values in one cell.');
+    } else if (!names.includes(config.valueColumn)) {
+      errors.push('The column ' + config.valueColumn + ' is not in this table.');
+    }
+  } else {
+    const cols = asColumnList(config.itemColumns);
+    if (cols.length < 2) {
+      errors.push('Pick at least two columns, because a combination needs two values.');
+    }
+    for (let i = 0; i < cols.length; i += 1) {
+      if (!names.includes(cols[i])) {
+        errors.push('The column ' + cols[i] + ' is not in this table.');
+      }
+    }
+  }
+
+  const min = Number(config.minSupport);
+  if (config.minSupport !== '' && config.minSupport != null
+    && (!Number.isFinite(min) || min < 1 || Math.floor(min) !== min)) {
+    errors.push('The smallest number of records to show has to be a whole number of one or more.');
+  }
+  const top = Number(config.topN || 0);
+  if (config.topN && (!Number.isFinite(top) || top < 1 || Math.floor(top) !== top)) {
+    errors.push('The number of combinations to show has to be a whole number of one or more.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+function fold(text, config) {
+  const s = String(text).trim();
+  return String((config && config.caseMode) || 'fold') === 'fold' ? s.toLowerCase() : s;
+}
+
+/** The items one record contributes, deduplicated, as {key, label} pairs. */
+function itemsOfRow(row, config, plan) {
+  const out = [];
+  const seen = new Set();
+  const push = (label, key) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ key: key, label: label });
+  };
+
+  if (String(config.source || 'columns') === 'multivalue') {
+    const parsed = readList(row[plan.valueIdx], String(config.valueSource || 'auto'),
+      String(config.delimiter || ','));
+    for (let i = 0; i < parsed.values.length; i += 1) {
+      const text = cellText(parsed.values[i], true);
+      if (text == null || text === '') continue;
+      const key = fold(text, config);
+      if (key === '') continue;
+      push(text, key);
+    }
+    return out;
+  }
+
+  for (let i = 0; i < plan.itemIdxs.length; i += 1) {
+    const text = cellText(row[plan.itemIdxs[i]], true);
+    if (text == null || text === '') continue;
+    // Labelled with the column by default, because "active" in status and
+    // "active" in subscription are different facts that must not merge.
+    const name = plan.itemNames[i];
+    const label = config.labelWithColumn === false ? text : name + '=' + text;
+    push(label, fold(label, config));
+  }
+  return out;
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * A self join on the record key with a < b on the value, which is the whole of
+ * unordered pair counting: the inequality both removes the mirror image and stops
+ * a value pairing with itself. The marginal counts join back in so the lift is
+ * visible as division rather than arriving as a finished number.
+ */
+function buildCombinationsSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const source = String(config.source || 'columns');
+  const folded = String(config.caseMode || 'fold') === 'fold';
+  const min = Math.max(1, Math.floor(Number(config.minSupport) || 1));
+  const top = Math.max(0, Math.floor(Number(config.topN) || 0));
+  const wrap = (e) => (folded ? 'lower(trim(' + e + '))' : 'trim(' + e + ')');
+
+  const lines = [
+    '-- Which values turn up together in the same record.',
+    '-- records is the count of records holding BOTH values. count_a and count_b are',
+    '-- how common each value is on its own, and they are here because a large pair',
+    '-- count is usually just two common values rather than a real association.',
+    '-- lift compares the two: above 1 the pair happens more than chance would give.',
+    'WITH items AS (',
+  ];
+
+  if (source === 'multivalue') {
+    const col = quoteIdent(config.valueColumn);
+    const delim = String(config.delimiter || ',');
+    const split = String(config.valueSource || 'auto') === 'json'
+      ? 'json_extract_string(' + col + ", '$[*]')"
+      : 'str_split(CAST(' + col + ' AS VARCHAR), ' + "'" + delim.replace(/'/g, "''") + "')";
+    lines.push('  -- One row per record per value. DISTINCT so a cell listing a value twice');
+    lines.push('  -- does not pair it with itself or double the pair count.');
+    lines.push('  SELECT DISTINCT rowid AS record_key, ' + wrap('item') + ' AS item');
+    lines.push('  FROM ' + rel + ', UNNEST(' + split + ') AS dg_values(item)');
+    lines.push("  WHERE item IS NOT NULL AND trim(item) <> ''");
+  } else {
+    const cols = asColumnList(config.itemColumns);
+    const parts = cols.map((name) => {
+      const q = quoteIdent(name);
+      const label = config.labelWithColumn === false
+        ? 'CAST(' + q + ' AS VARCHAR)'
+        : "'" + name.replace(/'/g, "''") + "=' || CAST(" + q + ' AS VARCHAR)';
+      return '  SELECT rowid AS record_key, ' + wrap(label) + ' AS item FROM ' + rel
+        + ' WHERE ' + q + ' IS NOT NULL AND CAST(' + q + " AS VARCHAR) <> ''";
+    });
+    lines.push('  -- Every column contributes its value as one item, tagged with the column');
+    lines.push('  -- name so the same word in two columns stays two different facts.');
+    lines.push(parts.join('\n  UNION ALL\n'));
+  }
+
+  lines.push('), marginals AS (');
+  lines.push('  SELECT item, COUNT(DISTINCT record_key) AS records FROM items GROUP BY item');
+  lines.push('), pairs AS (');
+  lines.push('  -- a.item < b.item is the unordered pair. It drops the mirror image and');
+  lines.push('  -- stops a value pairing with itself, so no count is doubled.');
+  lines.push('  SELECT a.item AS item_a, b.item AS item_b,');
+  lines.push('    COUNT(DISTINCT a.record_key) AS records');
+  lines.push('  FROM items a JOIN items b');
+  lines.push('    ON a.record_key = b.record_key AND a.item < b.item');
+  lines.push('  GROUP BY a.item, b.item');
+  lines.push(')');
+  lines.push('SELECT p.item_a, p.item_b, p.records,');
+  lines.push('  ma.records AS count_a,');
+  lines.push('  mb.records AS count_b,');
+  lines.push('  ROUND(100.0 * p.records / (SELECT COUNT(*) FROM ' + rel + '), 1) AS pct_of_records,');
+  lines.push('  ROUND(');
+  lines.push('    (1.0 * p.records / (SELECT COUNT(*) FROM ' + rel + '))');
+  lines.push('    / NULLIF(');
+  lines.push('      (1.0 * ma.records / (SELECT COUNT(*) FROM ' + rel + '))');
+  lines.push('      * (1.0 * mb.records / (SELECT COUNT(*) FROM ' + rel + ')), 0), 2) AS lift');
+  lines.push('FROM pairs p');
+  lines.push('  JOIN marginals ma ON ma.item = p.item_a');
+  lines.push('  JOIN marginals mb ON mb.item = p.item_b');
+  if (min > 1) lines.push('WHERE p.records >= ' + min);
+  lines.push('ORDER BY p.records DESC, p.item_a, p.item_b');
+  if (top) lines.push('LIMIT ' + top);
+
+  lines.push('');
+  lines.push('-- Every percentage and every lift here uses COUNT(*) over the whole table as');
+  lines.push('-- the denominator, including records that held one value or none and so could');
+  lines.push('-- not form a pair. Those records are real and stay in the denominator.');
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function frequentCombinationsTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateCombinationsConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const source = String(config.source || 'columns');
+  const itemNames = source === 'multivalue' ? [] : asColumnList(config.itemColumns);
+  const plan = {
+    valueIdx: indexOfColumn(names, config.valueColumn),
+    itemNames: itemNames,
+    itemIdxs: itemNames.map((n) => indexOfColumn(names, n)),
+  };
+  const min = Math.max(1, Math.floor(Number(config.minSupport) || 1));
+  const top = Math.max(0, Math.floor(Number(config.topN) || 0));
+
+  const srcRows = rowsOf(dataset);
+  const marginal = new Map();
+  const pairs = new Map();
+  let records = 0;
+  let noItemRecords = 0;
+  let singleItemRecords = 0;
+  let pairedRecords = 0;
+  let truncatedRecords = 0;
+  let maxItems = 0;
+  let overflowed = false;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    records += 1;
+
+    let items = itemsOfRow(row, config, plan);
+    if (items.length > maxItems) maxItems = items.length;
+    if (items.length > MAX_ITEMS_PER_RECORD) {
+      // Truncating is a lie of omission, so it is counted and reported rather
+      // than silently capping the table at a plausible-looking size.
+      items = items.slice(0, MAX_ITEMS_PER_RECORD);
+      truncatedRecords += 1;
+    }
+    if (!items.length) { noItemRecords += 1; continue; }
+
+    for (let a = 0; a < items.length; a += 1) {
+      const m = marginal.get(items[a].key);
+      if (m) m.records += 1;
+      else marginal.set(items[a].key, { label: items[a].label, records: 1 });
+    }
+    if (items.length < 2) { singleItemRecords += 1; continue; }
+    pairedRecords += 1;
+
+    items.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+    for (let a = 0; a < items.length && !overflowed; a += 1) {
+      for (let b = a + 1; b < items.length; b += 1) {
+        const key = items[a].key + '\u0000' + items[b].key;
+        const p = pairs.get(key);
+        if (p) { p.records += 1; continue; }
+        if (pairs.size >= MAX_PAIRS) { overflowed = true; break; }
+        pairs.set(key, {
+          labelA: items[a].label,
+          labelB: items[b].label,
+          keyA: items[a].key,
+          keyB: items[b].key,
+          records: 1,
+        });
+      }
+    }
+  }
+
+  const outColumns = [
+    column('item_a', TYPE_STR),
+    column('item_b', TYPE_STR),
+    column('records', TYPE_INT),
+    column('count_a', TYPE_INT),
+    column('count_b', TYPE_INT),
+    column('pct_of_records', TYPE_FLOAT),
+    column('lift', TYPE_FLOAT),
+  ];
+
+  const all = Array.from(pairs.values());
+  for (let i = 0; i < all.length; i += 1) {
+    const p = all[i];
+    p.countA = (marginal.get(p.keyA) || { records: 0 }).records;
+    p.countB = (marginal.get(p.keyB) || { records: 0 }).records;
+    // expected = records * P(a) * P(b), which reduces to countA*countB/records.
+    const expected = records ? (p.countA * p.countB) / records : 0;
+    p.lift = expected > 0 ? p.records / expected : null;
+  }
+  all.sort((a, b) => (b.records - a.records)
+    || a.labelA.localeCompare(b.labelA) || a.labelB.localeCompare(b.labelB));
+
+  let hidden = 0;
+  let thin = 0;
+  const rowsOut = [];
+  for (let i = 0; i < all.length; i += 1) {
+    const p = all[i];
+    if (p.records < min) { hidden += 1; continue; }
+    if (top && rowsOut.length >= top) { hidden += 1; continue; }
+    if (p.records < THIN_SUPPORT) thin += 1;
+    rowsOut.push([
+      p.labelA,
+      p.labelB,
+      p.records,
+      p.countA,
+      p.countB,
+      records ? Math.round((1000 * p.records) / records) / 10 : 0,
+      p.lift == null ? null : Math.round(p.lift * 100) / 100,
+    ]);
+  }
+
+  const built = buildCombinationsSQL(config, dataset.name);
+  const notes = [];
+
+  if (!records) {
+    notes.push('The table has no rows, so there is nothing to combine.');
+  } else if (!all.length) {
+    notes.push('No record holds two values at once, so there are no combinations to count. '
+      + (source === 'multivalue'
+        ? 'Every cell in that column held a single value, which makes this a plain value count.'
+        : 'Check that the chosen columns are filled in on the same rows.'));
+  }
+
+  notes.push('records counts records holding both values. count_a and count_b are how common '
+    + 'each value is on its own, and they are shown next to every pair because a large pair '
+    + 'count is usually two common values rather than a real association. lift divides the '
+    + 'first by what the other two predict: 1.0 means exactly as often as chance, 2.0 means '
+    + 'twice as often, and below 1 means the two values avoid each other.');
+
+  if (records && pairedRecords) {
+    notes.push(pairedRecords + ' of ' + records + ' record'
+      + (records === 1 ? '' : 's') + ' hold at least two values and so can form a combination, '
+      + 'at most ' + maxItems + ' values in one record. The other '
+      + (records - pairedRecords) + ' stay in the denominator of every percentage here, '
+      + 'because a record that combined nothing is still a record.');
+  }
+  if (singleItemRecords > 0) {
+    notes.push(singleItemRecords + ' record' + (singleItemRecords === 1 ? ' holds' : 's hold')
+      + ' exactly one value and contribute to count_a and count_b but to no pair. That is why '
+      + 'the marginal counts are larger than any pair count they sit beside.');
+  }
+  if (noItemRecords > 0) {
+    notes.push(noItemRecords + ' record' + (noItemRecords === 1 ? ' has' : 's have')
+      + ' no usable value at all. They are counted in the denominator and in nothing else, so '
+      + 'every percentage here is a share of all records rather than of the ones that had data.');
+  }
+  if (thin > 0) {
+    notes.push(thin + ' of the combination' + (thin === 1 ? '' : 's') + ' shown rest'
+      + (thin === 1 ? 's' : '') + ' on fewer than ' + THIN_SUPPORT + ' records. A lift computed '
+      + 'from a handful of records moves wildly on one more record, so treat those numbers as a '
+      + 'hint to go and look rather than as a measurement.');
+  }
+  if (truncatedRecords > 0) {
+    notes.push(truncatedRecords + ' record' + (truncatedRecords === 1 ? '' : 's') + ' held more '
+      + 'than ' + MAX_ITEMS_PER_RECORD + ' values and only the first ' + MAX_ITEMS_PER_RECORD
+      + ' were paired. Counts involving those records are therefore low, not exact.');
+  }
+  if (overflowed) {
+    notes.push('There were more than ' + MAX_PAIRS.toLocaleString() + ' distinct combinations and '
+      + 'counting stopped there, so this table is incomplete. Pairs grow as the square of the '
+      + 'distinct values, so narrowing the values first is the only way to get a complete answer.');
+  }
+  if (hidden > 0) {
+    notes.push(hidden + ' combination' + (hidden === 1 ? ' is' : 's are') + ' not shown, because of '
+      + 'the ' + (top && rowsOut.length >= top ? 'top ' + top + ' limit' : 'minimum of ' + min
+        + ' record' + (min === 1 ? '' : 's'))
+      + '. They still count towards the marginal counts, so the visible rows do not add up to '
+      + 'anything in particular.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: rowsOut,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: rowsOut.length,
+      records: records,
+      distinctItems: marginal.size,
+      combinations: all.length,
+      pairedRecords: pairedRecords,
+      singleItemRecords: singleItemRecords,
+      noItemRecords: noItemRecords,
+      maxItemsPerRecord: maxItems,
+      truncatedRecords: truncatedRecords,
+      thinSupport: thin,
+      hidden: hidden,
+      overflowed: overflowed,
+      topRecords: rowsOut.length ? rowsOut[0][2] : 0,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. */
+function describeFrequentCombinations(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.records) return 'The table has no rows, so there is nothing to combine.';
+  if (!s.combinations) return 'No record holds two values at once, so there are no combinations.';
+  return s.combinations.toLocaleString() + ' combination'
+    + (s.combinations === 1 ? '' : 's') + ' across ' + s.distinctItems.toLocaleString()
+    + ' value' + (s.distinctItems === 1 ? '' : 's') + ', from the '
+    + s.pairedRecords.toLocaleString() + ' of ' + s.records.toLocaleString()
+    + ' records that hold at least two. The most common appears in '
+    + s.topRecords.toLocaleString() + ' record' + (s.topRecords === 1 ? '' : 's') + '.';
+}
+  window.DataGlowFrequentCombinations = {
+    FREQUENT_COMBINATIONS_VERSION: FREQUENT_COMBINATIONS_VERSION,
+    COMBO_SOURCES: COMBO_SOURCES,
+    COMBO_SOURCE_LABELS: COMBO_SOURCE_LABELS,
+    THIN_SUPPORT: THIN_SUPPORT,
+    MAX_ITEMS_PER_RECORD: MAX_ITEMS_PER_RECORD,
+    MAX_PAIRS: MAX_PAIRS,
+    createEmptyCombinationsConfig: createEmptyCombinationsConfig,
+    suggestCombinationsConfig: suggestCombinationsConfig,
+    validateCombinationsConfig: validateCombinationsConfig,
+    itemsOfRow: itemsOfRow,
+    buildCombinationsSQL: buildCombinationsSQL,
+    frequentCombinationsTransform: frequentCombinationsTransform,
+    describeFrequentCombinations: describeFrequentCombinations,
+  };
+})();
+/* ---- end js/transforms/frequent-combinations.js ---- */
+/* ---- from js/transforms/window-recurrence.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - A30 Return within a window
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS ANSWERS. An entity has an event. Does it have another one within N
+// days. That is a 30-day readmission, a 7-day repeat purchase, a 14-day support
+// re-contact, a 90-day churn-and-return. One shape, one arithmetic.
+//
+// THE POINT OF THIS MODULE IS THE DENOMINATOR, WHICH IS WHERE THIS MEASURE GOES
+// WRONG IN PRACTICE.
+//
+// AN EVENT IN THE LAST N DAYS OF THE DATA HAS NOT HAD N DAYS TO RECUR.
+// If the table ends on March 31 and the window is 30 days, then an event on
+// March 20 has only been observed for 11 days. Counting it as "did not return"
+// is not a finding, it is the calendar. Those events are censored, and a rate
+// that includes them in the denominator is biased downward by an amount that
+// grows with the window. So this module reports two rates, both labelled:
+//   rate over eligible events   the honest one, censored events excluded.
+//   rate over all events        the number a naive query returns, shown so the
+//                               gap between them is visible rather than argued.
+// The count of censored events and the last date in the data are both stated.
+//
+// A PAIR IS AN INDEX EVENT AND THE NEXT EVENT INSIDE THE WINDOW, NOT EVERY PAIR.
+// If an entity has events on day 1, 3 and 5 with a 30-day window, that is not
+// three pairs. Day 1 pairs with day 3, and day 3 pairs with day 5. Counting all
+// combinations inflates the count quadratically and is the second standard error.
+// Every index event contributes at most one return.
+//
+// SAME-DAY EVENTS ARE USUALLY ONE EVENT ENTERED TWICE.
+// A gap of zero days is duplicate data far more often than it is a genuine
+// same-day return, so the minimum gap defaults to one day, the excluded pairs are
+// counted, and the choice is stated rather than buried.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, asColumnList = C.asColumnList, keyOfRow = C.keyOfRow, parseDateValue = C.parseDateValue, formatISODate = C.formatISODate, daysBetween = C.daysBetween, addDays = C.addDays, column = C.column, transformResult = C.transformResult, transformError = C.transformError, TYPE_INT = C.TYPE_INT, TYPE_FLOAT = C.TYPE_FLOAT, TYPE_STR = C.TYPE_STR, TYPE_DATE = C.TYPE_DATE, TYPE_BOOL = C.TYPE_BOOL;
+const WINDOW_RECURRENCE_VERSION = 1;
+
+const INDEX_SCOPES = Object.freeze(['all', 'first', 'last']);
+
+const INDEX_SCOPE_LABELS = Object.freeze({
+  all: 'Every event can start a window',
+  first: 'Only the first event per entity',
+  last: 'Only the most recent event per entity',
+});
+
+const DEFAULT_WINDOW_DAYS = 30;
+
+function createEmptyRecurrenceConfig() {
+  return {
+    entityColumns: [],
+    dateColumn: '',
+    windowDays: DEFAULT_WINDOW_DAYS,
+    minGapDays: 1,
+    indexScope: 'all',
+    observationEnd: '',
+    excludeCensored: true,
+    carryColumns: [],
+  };
+}
+
+function suggestRecurrenceConfig(dataset) {
+  const cfg = createEmptyRecurrenceConfig();
+  const names = columnNamesOf(dataset);
+  const rows = rowsOf(dataset);
+
+  for (let i = 0; i < names.length; i += 1) {
+    let dates = 0;
+    let looked = 0;
+    for (let r = 0; r < rows.length && looked < 200; r += 1) {
+      if (!Array.isArray(rows[r])) continue;
+      const cell = rows[r][i];
+      if (cell == null || cell === '') continue;
+      looked += 1;
+      if (parseDateValue(cell)) dates += 1;
+    }
+    if (looked && dates / looked > 0.8 && !cfg.dateColumn) cfg.dateColumn = names[i];
+  }
+
+  // An entity column repeats: the whole question is whether the same entity comes
+  // back, so a column with one distinct value per row cannot be one.
+  for (let i = 0; i < names.length && !cfg.entityColumns.length; i += 1) {
+    if (names[i] === cfg.dateColumn) continue;
+    const seen = new Set();
+    let looked = 0;
+    for (let r = 0; r < rows.length && looked < 400; r += 1) {
+      if (!Array.isArray(rows[r])) continue;
+      const cell = rows[r][i];
+      if (cell == null || cell === '') continue;
+      looked += 1;
+      seen.add(String(cell));
+    }
+    if (looked > 1 && seen.size > 1 && seen.size < looked) cfg.entityColumns = [names[i]];
+  }
+  return cfg;
+}
+
+function validateRecurrenceConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  const ents = asColumnList(config.entityColumns);
+  if (!ents.length) {
+    errors.push('Pick the column that identifies the entity, so a return can be recognised.');
+  }
+  for (let i = 0; i < ents.length; i += 1) {
+    if (!names.includes(ents[i])) errors.push('The column ' + ents[i] + ' is not in this table.');
+  }
+
+  if (!config.dateColumn) {
+    errors.push('Pick the column that holds the event date.');
+  } else if (!names.includes(config.dateColumn)) {
+    errors.push('The column ' + config.dateColumn + ' is not in this table.');
+  } else if (ents.includes(config.dateColumn)) {
+    errors.push('The date column cannot also identify the entity.');
+  }
+
+  const win = Number(config.windowDays);
+  if (!Number.isFinite(win) || win < 1 || Math.floor(win) !== win) {
+    errors.push('The window has to be a whole number of days, one or more.');
+  }
+  const gap = Number(config.minGapDays == null ? 1 : config.minGapDays);
+  if (!Number.isFinite(gap) || gap < 0 || Math.floor(gap) !== gap) {
+    errors.push('The smallest gap has to be a whole number of days, zero or more.');
+  }
+  if (Number.isFinite(win) && Number.isFinite(gap) && gap > win) {
+    errors.push('The smallest gap cannot be larger than the window, or no return could ever count.');
+  }
+  if (config.indexScope && INDEX_SCOPES.indexOf(config.indexScope) === -1) {
+    errors.push('Choose which events can start a window.');
+  }
+  if (config.observationEnd && !parseDateValue(config.observationEnd)) {
+    errors.push('The last date of observation could not be read as a date.');
+  }
+
+  const carry = asColumnList(config.carryColumns);
+  for (let i = 0; i < carry.length; i += 1) {
+    if (!names.includes(carry[i])) {
+      errors.push('The column ' + carry[i] + ' is not in this table.');
+    }
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * LEAD over the entity gives each event the next event's date, and the window test
+ * is one BETWEEN on the difference. The censoring cut is a separate, visible
+ * predicate rather than something folded into the rate, because it is the part a
+ * reader most needs to check.
+ */
+function buildRecurrenceSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const ents = asColumnList(config.entityColumns);
+  const keys = ents.map(quoteIdent);
+  const date = quoteIdent(config.dateColumn);
+  const win = Math.max(1, Math.floor(Number(config.windowDays) || DEFAULT_WINDOW_DAYS));
+  const gap = Math.max(0, Math.floor(Number(config.minGapDays == null ? 1 : config.minGapDays)));
+  const partition = keys.length ? keys.join(', ') : '1';
+  const scope = String(config.indexScope || 'all');
+
+  const lines = [
+    '-- Does the same entity have another event within ' + win + ' days.',
+    '-- days_to_return is the gap from the index event to the very next event, so an',
+    '-- entity with events on day 1, 3 and 5 gives two pairs and not three: every',
+    '-- index event contributes at most one return.',
+    'WITH events AS (',
+    '  SELECT ' + keys.concat([
+      'CAST(' + date + ' AS DATE) AS event_date',
+    ]).join(', ') + ',',
+    '    LEAD(CAST(' + date + ' AS DATE)) OVER (',
+    '      PARTITION BY ' + partition + ' ORDER BY CAST(' + date + ' AS DATE)',
+    '    ) AS next_date',
+    '  FROM ' + rel,
+    '  WHERE ' + date + ' IS NOT NULL',
+    '), scored AS (',
+    '  SELECT *,',
+    '    date_diff(' + "'day'" + ', event_date, next_date) AS days_to_return,',
+    '    -- An event this close to the end of the data has not had ' + win + ' days to',
+    '    -- recur yet. Calling it "did not return" would be reading the calendar as a',
+    '    -- finding, so it is marked and excluded from the honest rate.',
+    "    event_date > (SELECT MAX(CAST(" + date + ' AS DATE)) FROM ' + rel + ') - INTERVAL \''
+      + win + " day' AS censored",
+    '  FROM events',
+    ')',
+    'SELECT ' + keys.concat([
+      'event_date AS index_date',
+    ]).join(', ') + ',',
+    '  next_date AS return_date,',
+    '  days_to_return,',
+    '  censored',
+    'FROM scored',
+    'WHERE days_to_return BETWEEN ' + gap + ' AND ' + win,
+  ];
+  if (scope === 'first') {
+    lines.push('  -- Only the first event per entity starts a window.');
+    lines.push('  AND event_date = (SELECT MIN(CAST(' + date + ' AS DATE)) FROM ' + rel + ' e2');
+    lines.push('    WHERE ' + (keys.length
+      ? keys.map((k) => 'e2.' + k + ' IS NOT DISTINCT FROM scored.' + k).join(' AND ')
+      : 'TRUE') + ')');
+  } else if (scope === 'last') {
+    lines.push('  -- Only the most recent event per entity starts a window.');
+    lines.push('  AND event_date = (SELECT MAX(CAST(' + date + ' AS DATE)) FROM ' + rel + ' e2');
+    lines.push('    WHERE ' + (keys.length
+      ? keys.map((k) => 'e2.' + k + ' IS NOT DISTINCT FROM scored.' + k).join(' AND ')
+      : 'TRUE') + ')');
+  }
+  lines.push('ORDER BY ' + keys.concat(['index_date']).join(', '));
+
+  lines.push('');
+  lines.push('-- The rate. Two of them, because the denominator is the whole argument:');
+  lines.push('--   returns / eligible events is the honest rate, where an eligible event is one');
+  lines.push('--   with a full ' + win + ' days of data after it.');
+  lines.push('--   returns / all events is what a query without the censoring test returns. It');
+  lines.push('--   is always lower, by an amount that grows with the window.');
+  lines.push('-- SELECT');
+  lines.push('--   COUNT(*) FILTER (WHERE days_to_return BETWEEN ' + gap + ' AND ' + win
+    + ') AS returns,');
+  lines.push('--   COUNT(*) FILTER (WHERE NOT censored) AS eligible_events,');
+  lines.push('--   COUNT(*) AS all_events');
+  lines.push('-- FROM scored;');
+  if (gap > 0) {
+    lines.push('-- The gap starts at ' + gap + ' day' + (gap === 1 ? '' : 's') + ', so two events on');
+    lines.push('-- the same date are not a return. A zero-day gap is duplicate data far more');
+    lines.push('-- often than it is a genuine same-day return.');
+  }
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function windowRecurrenceTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateRecurrenceConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const ents = asColumnList(config.entityColumns);
+  const entIdxs = ents.map((n) => indexOfColumn(names, n));
+  const dateIdx = indexOfColumn(names, config.dateColumn);
+  const carry = asColumnList(config.carryColumns);
+  const carryIdxs = carry.map((n) => indexOfColumn(names, n));
+  const win = Math.max(1, Math.floor(Number(config.windowDays) || DEFAULT_WINDOW_DAYS));
+  const gap = Math.max(0, Math.floor(Number(config.minGapDays == null ? 1 : config.minGapDays)));
+  const scope = String(config.indexScope || 'all');
+
+  const srcRows = rowsOf(dataset);
+  const byEntity = new Map();
+  let unreadableDates = 0;
+  let latest = null;
+
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    const d = parseDateValue(row[dateIdx]);
+    if (!d) { unreadableDates += 1; continue; }
+    if (!latest || d.getTime() > latest.getTime()) latest = d;
+    const key = keyOfRow(row, entIdxs);
+    let bucket = byEntity.get(key);
+    if (!bucket) { bucket = { rows: [], key: key }; byEntity.set(key, bucket); }
+    bucket.rows.push({ date: d, row: row });
+  }
+
+  // The end of observation is the last date in the data unless told otherwise. A
+  // table that stops because the export stopped is not a table where nothing
+  // happened after that, and the caller may know the real cut-off.
+  const declaredEnd = config.observationEnd ? parseDateValue(config.observationEnd) : null;
+  const observationEnd = declaredEnd || latest;
+  const censorCut = observationEnd ? addDays(observationEnd, -win) : null;
+
+  const pairs = [];
+  let events = 0;
+  let indexEvents = 0;
+  let eligibleIndexEvents = 0;
+  let censoredIndexEvents = 0;
+  let returns = 0;
+  let censoredReturns = 0;
+  let sameDayPairs = 0;
+  let beyondWindow = 0;
+  let singleEventEntities = 0;
+  let daysTotal = 0;
+
+  const entities = Array.from(byEntity.values());
+  for (let e = 0; e < entities.length; e += 1) {
+    const list = entities[e].rows;
+    list.sort((a, b) => a.date.getTime() - b.date.getTime());
+    events += list.length;
+    if (list.length === 1) singleEventEntities += 1;
+
+    for (let i = 0; i < list.length; i += 1) {
+      if (scope === 'first' && i !== 0) continue;
+      if (scope === 'last' && i !== list.length - 1) continue;
+      indexEvents += 1;
+      const censored = censorCut ? list[i].date.getTime() > censorCut.getTime() : false;
+      if (censored) censoredIndexEvents += 1; else eligibleIndexEvents += 1;
+
+      // The next event only. Day 1, 3, 5 is two pairs, not three.
+      if (i + 1 >= list.length) continue;
+      const days = daysBetween(list[i].date, list[i + 1].date);
+      if (days == null) continue;
+      if (days < gap) {
+        if (days === 0) sameDayPairs += 1;
+        continue;
+      }
+      if (days > win) { beyondWindow += 1; continue; }
+
+      returns += 1;
+      daysTotal += days;
+      if (censored) censoredReturns += 1;
+      pairs.push({
+        row: list[i].row,
+        indexDate: list[i].date,
+        returnDate: list[i + 1].date,
+        days: days,
+        censored: censored,
+      });
+    }
+  }
+
+  const outColumns = ents.map((n) => column(n, TYPE_STR))
+    .concat([
+      column('index_date', TYPE_DATE),
+      column('return_date', TYPE_DATE),
+      column('days_to_return', TYPE_INT),
+      column('within_censored_tail', TYPE_BOOL),
+    ])
+    .concat(carry.map((n) => column(n, TYPE_STR)));
+
+  pairs.sort((a, b) => (a.indexDate.getTime() - b.indexDate.getTime())
+    || (a.returnDate.getTime() - b.returnDate.getTime()));
+
+  const rowsOut = pairs.map((p) => entIdxs.map((idx) => {
+    const cell = p.row[idx];
+    return cell == null ? '' : String(cell);
+  }).concat([
+    formatISODate(p.indexDate),
+    formatISODate(p.returnDate),
+    p.days,
+    p.censored,
+  ]).concat(carryIdxs.map((idx) => {
+    const cell = p.row[idx];
+    return cell == null ? '' : String(cell);
+  })));
+
+  const eligibleReturns = returns - censoredReturns;
+  const rateEligible = eligibleIndexEvents
+    ? Math.round((1000 * eligibleReturns) / eligibleIndexEvents) / 10
+    : 0;
+  const rateAll = indexEvents ? Math.round((1000 * returns) / indexEvents) / 10 : 0;
+  const averageDays = returns ? Math.round((10 * daysTotal) / returns) / 10 : 0;
+
+  const built = buildRecurrenceSQL(config, dataset.name);
+  const notes = [];
+
+  if (!events) {
+    notes.push('No row had a readable date, so no window could be measured.');
+  } else {
+    notes.push('The rate of return within ' + win + ' days is ' + rateEligible + '%, counted as '
+      + eligibleReturns + ' return' + (eligibleReturns === 1 ? '' : 's') + ' out of '
+      + eligibleIndexEvents + ' eligible event' + (eligibleIndexEvents === 1 ? '' : 's') + '. '
+      + 'An eligible event is one with a full ' + win + ' days of data after it.');
+    notes.push('Over every event instead, including the ones too recent to have had ' + win
+      + ' days, the same figure reads ' + rateAll + '%. That lower number is what a query '
+      + 'without the censoring test returns. The difference is not a correction of one by the '
+      + 'other: the first answers "how often do entities come back", the second answers "what '
+      + 'share of the rows in this file are followed by a return", and only the first is a rate.');
+  }
+
+  if (censoredIndexEvents > 0 && observationEnd) {
+    notes.push(censoredIndexEvents + ' event' + (censoredIndexEvents === 1 ? '' : 's')
+      + ' fall in the last ' + win + ' days of the data, which ends '
+      + formatISODate(observationEnd) + (declaredEnd ? ' as given' : ' as far as this table shows')
+      + '. They have not been observed long enough to return, so they are '
+      + (config.excludeCensored === false
+        ? 'included in the rate above anyway, at your instruction, which pushes it down.'
+        : 'left out of the eligible denominator.')
+      + (declaredEnd ? '' : ' If the export simply stopped there rather than the observation '
+        + 'ending there, say so, because it changes this count.'));
+  }
+
+  if (sameDayPairs > 0) {
+    notes.push(sameDayPairs + ' pair' + (sameDayPairs === 1 ? '' : 's') + ' of events share a date '
+      + 'and ' + (sameDayPairs === 1 ? 'was' : 'were') + ' not counted as a return, because the '
+      + 'smallest gap is ' + gap + ' day' + (gap === 1 ? '' : 's') + '. A zero-day gap is the same '
+      + 'event entered twice far more often than it is a genuine same-day return, but if these are '
+      + 'real, set the smallest gap to zero.');
+  }
+  if (beyondWindow > 0) {
+    notes.push(beyondWindow + ' event' + (beyondWindow === 1 ? '' : 's') + ' had a next event, but '
+      + 'later than ' + win + ' days, so ' + (beyondWindow === 1 ? 'it is' : 'they are')
+      + ' counted as no return. Widening the window would move '
+      + (beyondWindow === 1 ? 'it' : 'them') + ' across, which is worth '
+      + 'knowing before treating ' + win + ' days as a natural boundary.');
+  }
+  if (singleEventEntities > 0) {
+    notes.push(singleEventEntities + ' entit' + (singleEventEntities === 1 ? 'y has' : 'ies have')
+      + ' a single event and so cannot return. They are in the denominator, because "never came '
+      + 'back" is the answer this measure exists to count.');
+  }
+  if (returns > 0) {
+    notes.push('The average gap on the returns found is ' + averageDays + ' day'
+      + (averageDays === 1 ? '' : 's') + '. A gap clustered right at ' + win + ' days usually means '
+      + 'the window is cutting through a real pattern rather than containing one.');
+  }
+  if (unreadableDates > 0) {
+    notes.push(unreadableDates + ' row' + (unreadableDates === 1 ? '' : 's') + ' had no readable '
+      + 'date and ' + (unreadableDates === 1 ? 'was' : 'were') + ' dropped before any counting. '
+      + 'A dropped row between two events can turn a real return into a gap, so this count '
+      + 'is a floor on the returns rather than an exact figure.');
+  }
+  if (scope !== 'all') {
+    notes.push('Only the ' + (scope === 'first' ? 'first' : 'most recent') + ' event per entity '
+      + 'starts a window, so this is a rate per entity and not per event. The two differ whenever '
+      + 'an entity has several events, and they are not comparable.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: rowsOut,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: rowsOut.length,
+      entities: byEntity.size,
+      events: events,
+      indexEvents: indexEvents,
+      eligibleIndexEvents: eligibleIndexEvents,
+      censoredIndexEvents: censoredIndexEvents,
+      returns: returns,
+      eligibleReturns: eligibleReturns,
+      rateEligible: rateEligible,
+      rateAll: rateAll,
+      averageDays: averageDays,
+      sameDayPairs: sameDayPairs,
+      beyondWindow: beyondWindow,
+      singleEventEntities: singleEventEntities,
+      unreadableDates: unreadableDates,
+      windowDays: win,
+      observationEnd: observationEnd ? formatISODate(observationEnd) : '',
+      observationEndDeclared: !!declaredEnd,
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. Leads with the honest rate and names
+    its denominator in the same breath, because the rate alone is ambiguous. */
+function describeWindowRecurrence(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  if (!s.events) return 'No row had a readable date, so no window could be measured.';
+  const head = s.rateEligible + '% return within ' + s.windowDays + ' days, from '
+    + s.eligibleReturns.toLocaleString() + ' return'
+    + (s.eligibleReturns === 1 ? '' : 's') + ' out of ' + s.eligibleIndexEvents.toLocaleString()
+    + ' event' + (s.eligibleIndexEvents === 1 ? '' : 's') + ' observed long enough to count.';
+  if (!s.censoredIndexEvents) return head;
+  return head + ' ' + s.censoredIndexEvents.toLocaleString() + ' event'
+    + (s.censoredIndexEvents === 1 ? ' is' : 's are') + ' too recent to have had '
+    + s.windowDays + ' days, and counting ' + (s.censoredIndexEvents === 1 ? 'it' : 'them')
+    + ' anyway would read the rate as ' + s.rateAll + '%.';
+}
+  window.DataGlowWindowRecurrence = {
+    WINDOW_RECURRENCE_VERSION: WINDOW_RECURRENCE_VERSION,
+    INDEX_SCOPES: INDEX_SCOPES,
+    INDEX_SCOPE_LABELS: INDEX_SCOPE_LABELS,
+    DEFAULT_WINDOW_DAYS: DEFAULT_WINDOW_DAYS,
+    createEmptyRecurrenceConfig: createEmptyRecurrenceConfig,
+    suggestRecurrenceConfig: suggestRecurrenceConfig,
+    validateRecurrenceConfig: validateRecurrenceConfig,
+    buildRecurrenceSQL: buildRecurrenceSQL,
+    windowRecurrenceTransform: windowRecurrenceTransform,
+    describeWindowRecurrence: describeWindowRecurrence,
+  };
+})();
+/* ---- end js/transforms/window-recurrence.js ---- */
+/* ---- from js/transforms/value-standardizer.js ---- */
+;(function () {
+  'use strict';
+  var C = window.DataGlowTransformCore;
+// ============================================================
+// DATAGLOW - Value standardizer
+// ============================================================
+// Pure ES module. No DOM, no network, no DuckDB.
+//
+// WHAT THIS DOES. A category column holds "CA", "ca", "Calif.", "California" and
+// " California ". Those are one category typed five ways, and every count, chart
+// and group-by over that column is wrong until they are one value. This proposes
+// the merges, shows the arithmetic, and applies only the map a person confirmed.
+//
+// NOTHING IS APPLIED WITHOUT CONFIRMATION, AND THE PROPOSAL IS NOT THE MAP.
+// proposeMergeGroups() returns suggestions and nothing else. It cannot change a
+// table. Applying requires a map that a person has seen, plus confirmed:true, and
+// the transform refuses to run without both. This is not ceremony: a wrong merge
+// is invisible afterwards, because the evidence that it was wrong is the thing
+// that got overwritten.
+//
+// SO THE ORIGINAL VALUE IS KEPT. An audit column records what each recoded cell
+// used to say. Without it the merge is unreviewable and unpickable, and "we
+// standardised the values" becomes an unfalsifiable claim.
+//
+// THE ARITHMETIC THIS REFUSES TO HIDE.
+// Merging never drops a row, it only relabels one, so the total row count is
+// unchanged and every group count after the merge is exactly the sum of the
+// counts before it. That sum is shown per group, so a merge that quietly doubles
+// a category is visible as a sum rather than discovered later in a chart.
+//
+// CASE IS NOT ALWAYS NOISE. "CA" and "ca" are the same state, but in gene names,
+// SKUs, currency pairs and file paths they are different things, and a column
+// where almost every value is distinct is not a set of categories at all. Both
+// conditions are detected and reported before anything is proposed.
+//
+// FUZZY MATCHING IS OPTIONAL AND INJECTED, NEVER ASSUMED.
+// The deterministic modes (case, whitespace, punctuation) are reversible facts
+// about the text. Similarity scoring is a guess, so it only runs when a clusterer
+// is handed in, and its groups are labelled as guesses in the reason field.
+
+  // Inlined build: no module scope in the canvas, so the shared core is
+  // read off window instead of imported.
+  var quoteIdent = C.quoteIdent, relationName = C.relationName, columnNamesOf = C.columnNamesOf, indexOfColumn = C.indexOfColumn, rowsOf = C.rowsOf, isPlainObject = C.isPlainObject, cellText = C.cellText, column = C.column, typeOfColumn = C.typeOfColumn, transformResult = C.transformResult, transformError = C.transformError, TYPE_INT = C.TYPE_INT, TYPE_STR = C.TYPE_STR;
+const VALUE_STANDARDIZER_VERSION = 1;
+
+const MATCH_MODES = Object.freeze(['case', 'whitespace', 'punctuation']);
+
+const MATCH_MODE_LABELS = Object.freeze({
+  case: 'Ignore capitalisation',
+  whitespace: 'Ignore extra spaces',
+  punctuation: 'Ignore dots, dashes and underscores',
+});
+
+/** Above this share of distinct values per row the column is closer to an
+    identifier than to a category, and merging identifiers destroys the join. */
+const IDENTIFIER_DISTINCT_SHARE = 0.9;
+
+/** More distinct values than this and a person cannot review the map, which means
+    confirmation stops being confirmation. */
+const TOO_MANY_TO_REVIEW = 300;
+
+const DEFAULT_AUDIT_SUFFIX = '_original';
+
+function createEmptyStandardizerConfig() {
+  return {
+    valueColumn: '',
+    matchModes: ['case', 'whitespace'],
+    fuzzy: false,
+    map: {},
+    keepAudit: true,
+    auditColumn: '',
+    confirmed: false,
+  };
+}
+
+function auditColumnName(config) {
+  if (config && config.auditColumn) return String(config.auditColumn);
+  return String((config && config.valueColumn) || 'value') + DEFAULT_AUDIT_SUFFIX;
+}
+
+/** Every distinct value with its row count, most common first. This is the thing
+    a person reads before confirming anything, so the count is not optional. */
+function distinctValuesOf(dataset, columnName) {
+  const names = columnNamesOf(dataset);
+  const idx = indexOfColumn(names, columnName);
+  const rows = rowsOf(dataset);
+  const counts = new Map();
+  let blanks = 0;
+  if (idx < 0) return { values: [], blanks: 0, rows: rows.length };
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!Array.isArray(rows[i])) continue;
+    const text = cellText(rows[i][idx], false);
+    if (text == null || text.trim() === '') { blanks += 1; continue; }
+    counts.set(text, (counts.get(text) || 0) + 1);
+  }
+  const values = Array.from(counts.entries()).map((e) => ({ value: e[0], count: e[1] }));
+  values.sort((a, b) => (b.count - a.count) || a.value.localeCompare(b.value));
+  return { values: values, blanks: blanks, rows: rows.length };
+}
+
+/**
+ * The comparison key. Each mode strips one kind of difference that is a fact
+ * about the typing rather than about the category, so two values sharing a key
+ * differ only in ways the caller declared irrelevant.
+ */
+function normalizeKey(text, config) {
+  const modes = Array.isArray(config && config.matchModes) ? config.matchModes : [];
+  let s = String(text == null ? '' : text).trim();
+  if (modes.indexOf('punctuation') !== -1) s = s.replace(/[.\-_/\\]+/g, ' ');
+  if (modes.indexOf('whitespace') !== -1) s = s.replace(/\s+/g, ' ').trim();
+  else s = s.trim();
+  if (modes.indexOf('case') !== -1) s = s.toLowerCase();
+  return s;
+}
+
+/**
+ * Groups of values that look like one category. Proposals only: this returns
+ * nothing that can be applied, and the caller must build a map from it and have
+ * a person confirm that map.
+ *
+ * `options.clusterer` may be a function (values) => arrays of grouped values, for
+ * the fuzzy pass. `options.isSensitive` may be a function (columnName) => boolean.
+ */
+function proposeMergeGroups(dataset, config, options) {
+  const opts = isPlainObject(options) ? options : {};
+  const found = distinctValuesOf(dataset, (config || {}).valueColumn);
+  const warnings = [];
+  const groups = [];
+
+  const distinct = found.values.length;
+  const filled = found.rows - found.blanks;
+  if (filled > 0 && distinct / filled >= IDENTIFIER_DISTINCT_SHARE && distinct > 20) {
+    warnings.push('Nearly every row in this column holds a different value, so it is closer to an '
+      + 'identifier than to a category. Merging identifiers breaks whatever joins on them, and no '
+      + 'grouping of this column would have been meaningful in the first place.');
+  }
+  if (distinct > TOO_MANY_TO_REVIEW) {
+    warnings.push('There are ' + distinct + ' distinct values, which is more than anybody will '
+      + 'actually read before confirming. Confirming a map this size is a rubber stamp rather '
+      + 'than a review, so narrow the column or standardise it in passes.');
+  }
+  if (typeof opts.isSensitive === 'function' && config && config.valueColumn
+    && opts.isSensitive(config.valueColumn)) {
+    warnings.push('This column looks like a sensitive category. Merging its values changes what '
+      + 'is reported about the people in those groups, so the merge needs a stated reason and not '
+      + 'just a similarity score.');
+  }
+
+  // Deterministic pass: values that share a normalised key differ only in ways
+  // the caller declared irrelevant, which is a fact rather than a guess.
+  const byKey = new Map();
+  for (let i = 0; i < found.values.length; i += 1) {
+    const v = found.values[i];
+    const key = normalizeKey(v.value, config);
+    if (key === '') continue;
+    let bucket = byKey.get(key);
+    if (!bucket) { bucket = []; byKey.set(key, bucket); }
+    bucket.push(v);
+  }
+  const grouped = new Set();
+  const keys = Array.from(byKey.keys());
+  for (let i = 0; i < keys.length; i += 1) {
+    const members = byKey.get(keys[i]);
+    if (members.length < 2) continue;
+    // The most common tidy spelling wins: it is the one already in use everywhere
+    // else and the one a reader will recognise.
+    members.sort(preferCanonical);
+    for (let m = 0; m < members.length; m += 1) grouped.add(members[m].value);
+    groups.push({
+      canonical: members[0].value,
+      members: members.slice(),
+      totalCount: members.reduce((acc, m) => acc + m.count, 0),
+      certain: true,
+      reason: 'These differ only by ' + describeModes(config) + ', so they are the same value '
+        + 'typed differently.',
+    });
+  }
+
+  // Fuzzy pass, only when a clusterer was handed in. Guesses are labelled.
+  if (config && config.fuzzy && typeof opts.clusterer === 'function') {
+    const remaining = found.values.filter((v) => !grouped.has(v.value));
+    let clusters = [];
+    try {
+      clusters = opts.clusterer(remaining) || [];
+    } catch (err) {
+      warnings.push('The similarity matcher failed, so only the exact matches above are proposed.');
+      clusters = [];
+    }
+    for (let i = 0; i < clusters.length; i += 1) {
+      const raw = Array.isArray(clusters[i]) ? clusters[i] : [];
+      const members = raw.map((entry) => (isPlainObject(entry)
+        ? { value: String(entry.value), count: Number(entry.count) || 0 }
+        : { value: String(entry), count: (found.values.find((v) => v.value === String(entry))
+          || { count: 0 }).count }))
+        .filter((m) => m.value !== '' && !grouped.has(m.value));
+      if (members.length < 2) continue;
+      members.sort(preferCanonical);
+      for (let m = 0; m < members.length; m += 1) grouped.add(members[m].value);
+      groups.push({
+        canonical: members[0].value,
+        members: members,
+        totalCount: members.reduce((acc, m) => acc + m.count, 0),
+        certain: false,
+        reason: 'These only look similar. That is a guess and not a fact about the text, so check '
+          + 'each one before confirming it.',
+      });
+    }
+    if (clusters.length) {
+      warnings.push('Some groups below come from similarity scoring rather than from an exact '
+        + 'match. A similarity score cannot tell "Smith Ltd" from "Smyth Ltd", so those groups '
+        + 'need reading one by one.');
+    }
+  }
+
+  groups.sort((a, b) => (b.totalCount - a.totalCount)
+    || a.canonical.localeCompare(b.canonical));
+
+  return {
+    groups: groups,
+    distinct: distinct,
+    blanks: found.blanks,
+    rows: found.rows,
+    ungrouped: distinct - grouped.size,
+    warnings: warnings,
+  };
+}
+
+/** A value with no stray or doubled whitespace. Untidy spacing is a typing
+    artifact, so merging everything into it would propagate the artifact rather
+    than remove it, however common that spelling happens to be. */
+function isTidy(value) {
+  const s = String(value);
+  return s === s.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Order the members of a group so the first one is the canonical spelling.
+ *
+ * Tidiness comes before frequency on purpose: if " California " appears fifty
+ * times and "California" twice, the majority spelling is still a mistake, and
+ * standardising onto it would write the mistake into every row.
+ */
+function preferCanonical(a, b) {
+  const ta = isTidy(a.value);
+  const tb = isTidy(b.value);
+  if (ta !== tb) return ta ? -1 : 1;
+  if (a.count !== b.count) return b.count - a.count;
+  // Counts are equal, so there is no evidence about which spelling is in use.
+  // Prefer deliberate capitalisation over all-caps or all-lowercase, which are
+  // usually a habit of entry rather than the name of the category.
+  const ca = caseScore(a.value);
+  const cb = caseScore(b.value);
+  if (ca !== cb) return ca - cb;
+  return a.value.localeCompare(b.value);
+}
+
+function caseScore(value) {
+  const s = String(value);
+  if (!/[a-z]/i.test(s)) return 1;
+  if (s === s.toLowerCase() || s === s.toUpperCase()) return 1;
+  return 0;
+}
+
+function describeModes(config) {
+  const modes = Array.isArray(config && config.matchModes) ? config.matchModes : [];
+  const parts = [];
+  if (modes.indexOf('case') !== -1) parts.push('capitalisation');
+  if (modes.indexOf('whitespace') !== -1) parts.push('spacing');
+  if (modes.indexOf('punctuation') !== -1) parts.push('punctuation');
+  if (!parts.length) return 'nothing at all, so they are already identical';
+  if (parts.length === 1) return parts[0];
+  return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+}
+
+/** A starting map from proposed groups: every non-canonical member points at the
+    canonical one. The caller must show this to a person and let them edit it. */
+function mapFromGroups(groups) {
+  const map = {};
+  const list = Array.isArray(groups) ? groups : [];
+  for (let i = 0; i < list.length; i += 1) {
+    const g = list[i];
+    if (!g || !Array.isArray(g.members)) continue;
+    for (let m = 0; m < g.members.length; m += 1) {
+      const from = g.members[m].value;
+      if (from === g.canonical) continue;
+      map[from] = g.canonical;
+    }
+  }
+  return map;
+}
+
+function validateStandardizerConfig(config, columnNames) {
+  const errors = [];
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const names = Array.isArray(columnNames) ? columnNames : [];
+
+  if (!config.valueColumn) {
+    errors.push('Pick the column whose values should be standardised.');
+  } else if (!names.includes(config.valueColumn)) {
+    errors.push('The column ' + config.valueColumn + ' is not in this table.');
+  }
+
+  const modes = Array.isArray(config.matchModes) ? config.matchModes : [];
+  for (let i = 0; i < modes.length; i += 1) {
+    if (MATCH_MODES.indexOf(modes[i]) === -1) {
+      errors.push('The matching option ' + modes[i] + ' is not one this can do.');
+    }
+  }
+
+  const map = isPlainObject(config.map) ? config.map : {};
+  const froms = Object.keys(map);
+  if (!froms.length) {
+    errors.push('There are no merges to apply. Confirm at least one before running this.');
+  }
+  for (let i = 0; i < froms.length; i += 1) {
+    const to = map[froms[i]];
+    if (typeof to !== 'string' || to.trim() === '') {
+      errors.push('The value ' + froms[i] + ' has no replacement, so it is not clear what to do '
+        + 'with it. To delete a value, filter the rows out instead of blanking them.');
+    } else if (to === froms[i]) {
+      errors.push('The value ' + froms[i] + ' is mapped to itself, which does nothing.');
+    } else if (Object.prototype.hasOwnProperty.call(map, to)) {
+      // a -> b and b -> c would give a different table depending on which
+      // replacement ran first, which is not a merge, it is a coin flip.
+      errors.push('The value ' + froms[i] + ' is replaced by ' + to + ', but ' + to
+        + ' is itself being replaced. Point them both at the final value instead, because a chain '
+        + 'gives a different answer depending on the order the replacements run in.');
+    }
+  }
+
+  if (config.keepAudit !== false) {
+    const audit = auditColumnName(config);
+    if (names.includes(audit)) {
+      errors.push('The table already has a column called ' + audit
+        + '. Choose another name for the record of the original values.');
+    }
+  }
+
+  if (config.confirmed !== true) {
+    errors.push('These merges have not been confirmed. Nothing is changed until somebody has read '
+      + 'the list of replacements and said yes to it.');
+  }
+
+  return { ok: errors.length === 0, errors: errors };
+}
+
+/**
+ * The glass-box SQL.
+ *
+ * Two statements, in this order, because the audit column has to capture the old
+ * value before the UPDATE overwrites it. Every replacement is one WHEN, spelled
+ * out, so the map a person confirmed and the SQL that runs are the same list read
+ * twice rather than two things that have to be trusted to agree.
+ */
+function buildStandardizerSQL(config, sourceRelation) {
+  if (!isPlainObject(config)) return { ok: false, errors: ['There is no configuration to check.'] };
+  const rel = relationName(sourceRelation, 'your_table');
+  const col = quoteIdent(config.valueColumn);
+  const map = isPlainObject(config.map) ? config.map : {};
+  const froms = Object.keys(map);
+  const lit = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+
+  const lines = [
+    '-- Standardise ' + col + ' by applying the confirmed replacements below.',
+    '-- ' + froms.length + ' value' + (froms.length === 1 ? '' : 's') + ' ' + (froms.length === 1
+      ? 'is' : 'are') + ' replaced. No row is added or removed by this, only relabelled, so the',
+    '-- row count is unchanged and each group count afterwards is the sum of the ones before.',
+  ];
+
+  if (config.keepAudit !== false) {
+    const audit = quoteIdent(auditColumnName(config));
+    lines.push('');
+    lines.push('-- First, keep what the cell used to say. This runs BEFORE the update, because');
+    lines.push('-- afterwards the original value no longer exists anywhere and the merge could');
+    lines.push('-- not be reviewed or undone.');
+    lines.push('ALTER TABLE ' + rel + ' ADD COLUMN ' + audit + ' VARCHAR;');
+    lines.push('UPDATE ' + rel + ' SET ' + audit + ' = CAST(' + col + ' AS VARCHAR)');
+    lines.push('WHERE CAST(' + col + ' AS VARCHAR) IN (');
+    lines.push('  ' + froms.map(lit).join(', '));
+    lines.push(');');
+  }
+
+  lines.push('');
+  lines.push('-- Then the merge itself. One WHEN per confirmed replacement, and the ELSE hands');
+  lines.push('-- back the value untouched, so anything not in the map keeps exactly what it had.');
+  lines.push('UPDATE ' + rel + ' SET ' + col + ' = CASE CAST(' + col + ' AS VARCHAR)');
+  for (let i = 0; i < froms.length; i += 1) {
+    lines.push('  WHEN ' + lit(froms[i]) + ' THEN ' + lit(map[froms[i]]));
+  }
+  lines.push('  ELSE CAST(' + col + ' AS VARCHAR)');
+  lines.push('END');
+  lines.push('WHERE CAST(' + col + ' AS VARCHAR) IN (');
+  lines.push('  ' + froms.map(lit).join(', '));
+  lines.push(');');
+  lines.push('');
+  lines.push('-- Check afterwards: the count per value should have moved between groups without');
+  lines.push('-- the total moving at all.');
+  lines.push('-- SELECT ' + col + ', COUNT(*) FROM ' + rel + ' GROUP BY 1 ORDER BY 2 DESC;');
+
+  return { ok: true, sql: lines.join('\n') };
+}
+
+function valueStandardizerTransform(dataset, config) {
+  if (!dataset || typeof dataset !== 'object') return transformError('There is no table loaded.');
+  const names = columnNamesOf(dataset);
+  const v = validateStandardizerConfig(config, names);
+  if (!v.ok) return transformError(v.errors.join(' '));
+
+  const idx = indexOfColumn(names, config.valueColumn);
+  const map = config.map;
+  const keepAudit = config.keepAudit !== false;
+  const audit = auditColumnName(config);
+
+  const srcRows = rowsOf(dataset);
+  const outColumns = names.map((n) => column(n, typeOfColumn(dataset, n) || TYPE_STR));
+  if (keepAudit) outColumns.push(column(audit, TYPE_STR));
+
+  const before = new Map();
+  const after = new Map();
+  const usedFrom = new Map();
+  let recoded = 0;
+  let untouched = 0;
+  let blanks = 0;
+
+  const rowsOut = [];
+  for (let i = 0; i < srcRows.length; i += 1) {
+    const row = srcRows[i];
+    if (!Array.isArray(row)) continue;
+    const out = row.slice();
+    const text = cellText(row[idx], false);
+    const key = text == null ? '' : text;
+    if (key.trim() === '') blanks += 1;
+    before.set(key, (before.get(key) || 0) + 1);
+
+    let changed = false;
+    if (Object.prototype.hasOwnProperty.call(map, key)) {
+      out[idx] = map[key];
+      usedFrom.set(key, (usedFrom.get(key) || 0) + 1);
+      recoded += 1;
+      changed = true;
+    } else {
+      untouched += 1;
+    }
+    const nowText = cellText(out[idx], false);
+    after.set(nowText == null ? '' : nowText, (after.get(nowText == null ? '' : nowText) || 0) + 1);
+    // The audit column is blank where nothing changed, so a filled cell always
+    // means "this was recoded" and never "this happened to be the same".
+    if (keepAudit) out.push(changed ? key : '');
+    rowsOut.push(out);
+  }
+
+  const froms = Object.keys(map);
+  const unusedFrom = froms.filter((f) => !usedFrom.has(f));
+  const targets = Object.keys(map).map((f) => map[f]);
+  const newLabels = targets.filter((t, i) => targets.indexOf(t) === i && !before.has(t));
+
+  const built = buildStandardizerSQL(config, dataset.name);
+  const notes = [];
+
+  notes.push(recoded + ' cell' + (recoded === 1 ? '' : 's') + ' in ' + config.valueColumn
+    + ' ' + (recoded === 1 ? 'was' : 'were') + ' relabelled and ' + untouched + ' '
+    + (untouched === 1 ? 'was' : 'were') + ' left exactly as ' + (untouched === 1 ? 'it was'
+      : 'they were') + '. No row was added or removed, so the table still has '
+    + rowsOut.length + ' row' + (rowsOut.length === 1 ? '' : 's') + ' and every count that grew '
+    + 'here grew by exactly what another count lost.');
+
+  notes.push('The values went from ' + before.size + ' distinct to ' + after.size + '. '
+    + (before.size === after.size
+      ? 'That is the same number, which means the merges renamed values rather than combining '
+        + 'them. Check that this is what was wanted.'
+      : 'That is ' + (before.size - after.size) + ' fewer, which is the point, and it also means '
+        + 'any earlier count, chart or export from this column will no longer match this one.'));
+
+  if (keepAudit) {
+    notes.push('The column ' + audit + ' holds what each relabelled cell used to say, and is '
+      + 'blank on the rows that were not touched. Keep it: it is the only record that the merge '
+      + 'happened, the only way to review whether each merge was right, and the only way back.');
+  } else {
+    notes.push('No record of the original values was kept, at your instruction. The merge is now '
+      + 'unreviewable and cannot be undone from this table, because the evidence that a cell said '
+      + 'something else is the thing that was overwritten.');
+  }
+
+  if (newLabels.length) {
+    notes.push(newLabels.length + ' replacement'
+      + (newLabels.length === 1 ? ' introduces' : 's introduce')
+      + ' a label that was not in the column before: ' + newLabels.slice(0, 5).join(', ')
+      + (newLabels.length > 5 ? ' and others' : '') + '. That is allowed, but it means the '
+      + 'standardised column now contains a value no source row ever held.');
+  }
+  if (unusedFrom.length) {
+    notes.push(unusedFrom.length + ' confirmed replacement'
+      + (unusedFrom.length === 1 ? ' matched no row' : 's matched no rows') + ': '
+      + unusedFrom.slice(0, 5).join(', ') + (unusedFrom.length > 5 ? ' and others' : '')
+      + '. Either the value is spelled differently from the map, or it was already merged by '
+      + 'an earlier pass. Nothing was changed for ' + (unusedFrom.length === 1 ? 'it' : 'them') + '.');
+  }
+  if (blanks > 0) {
+    notes.push(blanks + ' row' + (blanks === 1 ? ' has' : 's have') + ' no value in this column at '
+      + 'all. Blank is not a spelling of anything, so nothing was merged into it and nothing was '
+      + 'merged out of it.');
+  }
+
+  return transformResult({
+    columns: outColumns,
+    rows: rowsOut,
+    sql: built.ok ? built.sql : '',
+    stats: {
+      rowsIn: srcRows.length,
+      rowsOut: rowsOut.length,
+      recodedCells: recoded,
+      untouchedCells: untouched,
+      distinctBefore: before.size,
+      distinctAfter: after.size,
+      distinctRemoved: before.size - after.size,
+      replacements: froms.length,
+      unusedReplacements: unusedFrom.length,
+      newLabels: newLabels.length,
+      blanks: blanks,
+      auditColumn: keepAudit ? audit : '',
+    },
+    notes: notes,
+  });
+}
+
+/** One plain sentence for the panel header. */
+function describeValueStandardizer(result) {
+  if (!result || !result.ok) return 'This did not run.';
+  const s = result.stats || {};
+  return s.recodedCells.toLocaleString() + ' cell'
+    + (s.recodedCells === 1 ? '' : 's') + ' relabelled, taking the column from '
+    + s.distinctBefore.toLocaleString() + ' distinct values to '
+    + s.distinctAfter.toLocaleString() + '. No row was added or removed.'
+    + (s.auditColumn ? ' The original values are kept in ' + s.auditColumn + '.'
+      : ' The original values were not kept.');
+}
+
+/** The confirmation text a person reads before anything is applied. Every
+    replacement is listed, because "12 merges" is not something you can agree to.
+    Values are quoted, because stray whitespace is exactly what is being merged and
+    an unquoted "California -> California" looks like a pointless no-op. */
+function summarizeForConfirm(config) {
+  const map = isPlainObject(config && config.map) ? config.map : {};
+  const froms = Object.keys(map).sort();
+  if (!froms.length) return 'There are no merges to confirm.';
+  const lines = froms.map((f) => '  "' + f + '"  ->  "' + map[f] + '"');
+  return froms.length + ' value' + (froms.length === 1 ? '' : 's') + ' in '
+    + String((config && config.valueColumn) || 'the column') + ' will be relabelled:\n'
+    + lines.join('\n')
+    + '\nNothing else in the table changes, and no row is added or removed.';
+}
+  window.DataGlowValueStandardizer = {
+    VALUE_STANDARDIZER_VERSION: VALUE_STANDARDIZER_VERSION,
+    MATCH_MODES: MATCH_MODES,
+    MATCH_MODE_LABELS: MATCH_MODE_LABELS,
+    IDENTIFIER_DISTINCT_SHARE: IDENTIFIER_DISTINCT_SHARE,
+    TOO_MANY_TO_REVIEW: TOO_MANY_TO_REVIEW,
+    DEFAULT_AUDIT_SUFFIX: DEFAULT_AUDIT_SUFFIX,
+    createEmptyStandardizerConfig: createEmptyStandardizerConfig,
+    auditColumnName: auditColumnName,
+    distinctValuesOf: distinctValuesOf,
+    normalizeKey: normalizeKey,
+    proposeMergeGroups: proposeMergeGroups,
+    mapFromGroups: mapFromGroups,
+    validateStandardizerConfig: validateStandardizerConfig,
+    buildStandardizerSQL: buildStandardizerSQL,
+    valueStandardizerTransform: valueStandardizerTransform,
+    describeValueStandardizer: describeValueStandardizer,
+    summarizeForConfirm: summarizeForConfirm,
+  };
+})();
+/* ---- end js/transforms/value-standardizer.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

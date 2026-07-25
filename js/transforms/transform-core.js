@@ -212,6 +212,92 @@ export function formatISODate(date) {
   return date.getUTCFullYear() + '-' + pad2(date.getUTCMonth() + 1) + '-' + pad2(date.getUTCDate());
 }
 
+export const MS_PER_DAY = 86400000;
+
+/**
+ * Whole days from a to b, both UTC midnights, so no daylight-saving hour makes a
+ * span one day short. Negative when b precedes a; null when either is unreadable.
+ *
+ * Lives here rather than in one engine because three transforms count days and
+ * they must all count them the same way: a streak that thinks March 10 to March
+ * 11 is two days apart and a return-window that thinks it is one would disagree
+ * about the same table.
+ */
+export function daysBetween(a, b) {
+  if (!(a instanceof Date) || !(b instanceof Date)) return null;
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
+}
+
+/** A date shifted by whole days, still at UTC midnight. */
+export function addDays(date, days) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + Math.round(days) * MS_PER_DAY);
+}
+
+/**
+ * Read one cell as a list.
+ *
+ * Order matters. A real array first, then JSON, then the delimiter. Trying the
+ * delimiter before JSON would turn "[1, 2]" into "[1" and " 2]", which is worse
+ * than failing because it looks like it worked.
+ *
+ * Shared by every transform that treats one cell as several values, so the row
+ * count one of them previews and the memberships another one counts are always
+ * derived from the same reading of the same cell.
+ */
+export function readList(value, source, delimiter) {
+  if (Array.isArray(value)) {
+    return { kind: 'array', values: value.slice() };
+  }
+  if (value == null || value === '') {
+    return { kind: 'empty', values: [] };
+  }
+  if (isPlainObject(value)) {
+    // An object is not a list. Widening it is the flattener's job, not this
+    // module's, so it is left alone and reported rather than half-handled.
+    return { kind: 'scalar', values: [value] };
+  }
+
+  const text = String(value).trim();
+  if (!text) return { kind: 'empty', values: [] };
+
+  const mode = source || 'auto';
+  if (mode === 'auto' || mode === 'json') {
+    if (text.charAt(0) === '[' && text.charAt(text.length - 1) === ']') {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return { kind: 'json', values: parsed };
+      } catch (_e) {
+        // Looks like JSON and is not. In auto mode fall through to the
+        // delimiter; in json mode say so rather than quietly splitting.
+        if (mode === 'json') return { kind: 'unreadable', values: [] };
+      }
+    } else if (mode === 'json') {
+      return { kind: 'unreadable', values: [] };
+    }
+  }
+
+  if (mode === 'auto' || mode === 'delimited') {
+    const d = String(delimiter || ',');
+    if (d && text.indexOf(d) !== -1) {
+      return { kind: 'delimited', values: text.split(d) };
+    }
+  }
+
+  return { kind: 'scalar', values: [text] };
+}
+
+/** One cell as text, with objects stringified rather than rendered as
+    [object Object]. Trimming is the caller's decision because A17 keeps
+    element-level whitespace on purpose and the counting transforms do not. */
+export function cellText(v, trim) {
+  if (v == null) return null;
+  if (typeof v === 'object') return JSON.stringify(v);
+  const s = String(v);
+  return trim ? s.trim() : s;
+}
+
 /**
  * The period a date belongs to, as a sortable string key.
  *   day    2024-03-05
@@ -450,6 +536,11 @@ export const DataGlowTransformCore = {
   suggestNumericColumn,
   parseDateValue,
   formatISODate,
+  MS_PER_DAY,
+  daysBetween,
+  addDays,
+  readList,
+  cellText,
   periodKeyOf,
   priorPeriodKeyOf,
   truncUnitFor,

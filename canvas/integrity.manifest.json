@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5316643,
+  "canvasBytes": 5474013,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -110,9 +110,9 @@
     {
       "source": "js/transforms/transform-core.js",
       "note": "Shared pure core for the transform engines. Bundle 7 moved the ordering comparators (sortableOrderValue, compareSortable, compareValues) here so A20 and A29 share one definition of latest. Inlined as an IIFE publishing window.DataGlowTransformCore by inject_transforms.py.",
-      "sourceSha256": "a5c0b95c538321fa92aa9fc8faf06d87afcef3c20ded188a8895b6455816d131",
-      "canvasSectionSha256": "ffc2fed9eebefbd5aa0d85116fe16d606bb6d2120a3189b255d57ac0dc72c24c",
-      "canvasSectionBytes": 17901
+      "sourceSha256": "528ca734aefb142fa9e2a735b9fb671c5390222bfa35546368c578d2482e125d",
+      "canvasSectionSha256": "c429f5aaee30e8f8b1e25fc3fc9082cf3eee3186479b51914d3600c8d6a58871",
+      "canvasSectionBytes": 21239
     },
     {
       "source": "js/transforms/prior-period.js",
@@ -152,9 +152,9 @@
     {
       "source": "js/transforms/nested-to-rows.js",
       "note": "A17 nested lists into rows, with the row count previewed before any row is built. Import of transform-core rewritten by inject_transforms.py.",
-      "sourceSha256": "0a3e6b466892ff7b0c2733118a3ba5eb97be1d574d24343aa12d74fa7dd9798c",
-      "canvasSectionSha256": "d1789c07a50248bae7c379633ba548813a79f9b966029e55a277cb62489132fe",
-      "canvasSectionBytes": 18902
+      "sourceSha256": "5c0d84a7b28c4dc470de9bf4a0b903fcbe6f671caa1f2c36e45dc7c4a396c9b3",
+      "canvasSectionSha256": "06f3aed3b82a0d2bc98319484b4410913388d3f0fd5bf3173073745c2bbf72c5",
+      "canvasSectionBytes": 17120
     },
     {
       "source": "js/transforms/fill-missing.js",
@@ -166,9 +166,9 @@
     {
       "source": "js/transforms/expand-date-range.js",
       "note": "A26 a start and end date into one row per calendar day, with an explosion warning that is stricter on narrow screens and a hard cap. Import of transform-core rewritten by inject_transforms.py.",
-      "sourceSha256": "588e1406427e5fb0df211adf873daa4aba19caa948ca96073f247c84ab98820e",
-      "canvasSectionSha256": "278731284f2eb84f472eebca86753e65ed0f61c1561c61dcf4f25af7907b6bac",
-      "canvasSectionBytes": 23692
+      "sourceSha256": "27969697688c91bc9d192203403b5720402561d763ea5ebeb745325da0396e15",
+      "canvasSectionSha256": "0b467f2e3691742b662fff30515846f850c425765a28516f2cefb3aaee27af42",
+      "canvasSectionBytes": 23478
     },
     {
       "source": "js/transforms/bin-editor.js",
@@ -186,10 +186,52 @@
     },
     {
       "source": "js/transforms/data-glow-transforms-canvas.js",
-      "note": "Canvas UI for all ten transforms (A18/A19/A20/A24 in the Time and joins group, A16/A17/A25/A26/A27/A29 in Shape and clean). Renamed from data-glow-time-joins-canvas.js in Bundle 7. Already an IIFE, inlined verbatim.",
-      "sourceSha256": "7acc73bed20319c30103142b563ee499da9d1037344d2f92762b02be9d41b551",
-      "canvasSectionSha256": "3098eeb5683db3783fd77685d6ed9cf333aa611601f240ead14224727af9e113",
-      "canvasSectionBytes": 52978
+      "note": "Canvas UI for all sixteen transforms (A18/A19/A20/A24 in the Time and joins group, A16/A17/A25/A26/A27/A29 plus the value standardizer in Shape and clean, A21/A22/A23/A28/A30 in Advanced). Renamed from data-glow-time-joins-canvas.js in Bundle 7. Already an IIFE, inlined verbatim.",
+      "sourceSha256": "3c5752b60e8a51634aed3f054fedd4020a8513cad52b62bd3c9df44e0dc33e0e",
+      "canvasSectionSha256": "7b42ec468b0b24a0fa2ce1f0855bfb8f83a7e384902c20f2b5d9395a0eed04ad",
+      "canvasSectionBytes": 74181
+    },
+    {
+      "source": "js/transforms/consecutive-run.js",
+      "note": "A21 consecutive runs: gaps-and-islands over an entity and a date. Pure ES module, inlined as an IIFE publishing window.DataGlowConsecutiveRun.",
+      "sourceSha256": "43a94de9dcd2383d1e89be7cdb32991901f0a4529b3e8a9ab4fcb2ec7fb46a98",
+      "canvasSectionSha256": "95e4bf6de343dcd7b471d49f30a38dda5d6353a87f1e7e20388423f576aa2d84",
+      "canvasSectionBytes": 21837
+    },
+    {
+      "source": "js/transforms/moving-average.js",
+      "note": "A22 moving average with optional second window and crossover marks. Pure ES module, inlined as an IIFE publishing window.DataGlowMovingAverage.",
+      "sourceSha256": "39f403b8a4e1808f6fec710427ab971d5a5b9f4e22d0f4364d59c0a7907a11c9",
+      "canvasSectionSha256": "cf3b8b40f0c3075b7438b2f49108d8d87a13339db2a21c9e0b9b6083950fa2f2",
+      "canvasSectionBytes": 22632
+    },
+    {
+      "source": "js/transforms/multi-value-counts.js",
+      "note": "A23 multi-value field counts with both percentage denominators labelled. Pure ES module, inlined as an IIFE publishing window.DataGlowMultiValueCounts.",
+      "sourceSha256": "48c3e6e959a961da2ca283f779c040ee0f675f31a8921f592afcf14456371ccf",
+      "canvasSectionSha256": "4e6ace6c1535e3d273a83d35814ffac39b581ec65842d227caaa32a9f9da8cf4",
+      "canvasSectionBytes": 20766
+    },
+    {
+      "source": "js/transforms/frequent-combinations.js",
+      "note": "A28 frequent combinations with support counts and lift. Pure ES module, inlined as an IIFE publishing window.DataGlowFrequentCombinations.",
+      "sourceSha256": "54006f1b27f79d41f1fc0b9a56dea89f4bdeec6e50d8cd09a2187c3ce00d7046",
+      "canvasSectionSha256": "aaf211ff4aa0aac90581289be43d93045790a0dbd131e4a4e56f3b03cd39616d",
+      "canvasSectionBytes": 21885
+    },
+    {
+      "source": "js/transforms/window-recurrence.js",
+      "note": "A30 within-window recurrence pairs plus censored and uncensored rates. Pure ES module, inlined as an IIFE publishing window.DataGlowWindowRecurrence.",
+      "sourceSha256": "f079160e6358dd54218e5c0d8a0181a52692201ec42d2ee1c425273e4445b187",
+      "canvasSectionSha256": "a05e3df48bfbda6767b99861459a7f61d977377fced012a5cbd79ce840450abb",
+      "canvasSectionBytes": 22006
+    },
+    {
+      "source": "js/transforms/value-standardizer.js",
+      "note": "Value standardizer: merge proposal, human-confirmed map, glass-box UPDATE with an audit column. Pure ES module, inlined as an IIFE publishing window.DataGlowValueStandardizer.",
+      "sourceSha256": "cfda11b34edd02276d552a0d5a54d4e91e8325b909704b48f3056fc2be3c6e6e",
+      "canvasSectionSha256": "1d6aec23eb835ef8ff917a53252a485293395edf7a98db379af2b608b8e17a8a",
+      "canvasSectionBytes": 25692
     }
   ]
 }

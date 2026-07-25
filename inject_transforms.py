@@ -68,6 +68,12 @@ ENGINES = [
     ('js/transforms/expand-date-range.js', 'DataGlowExpandDateRange'),
     ('js/transforms/bin-editor.js', 'DataGlowBinEditor'),
     ('js/transforms/keep-most-recent.js', 'DataGlowKeepMostRecent'),
+    ('js/transforms/consecutive-run.js', 'DataGlowConsecutiveRun'),
+    ('js/transforms/moving-average.js', 'DataGlowMovingAverage'),
+    ('js/transforms/multi-value-counts.js', 'DataGlowMultiValueCounts'),
+    ('js/transforms/frequent-combinations.js', 'DataGlowFrequentCombinations'),
+    ('js/transforms/window-recurrence.js', 'DataGlowWindowRecurrence'),
+    ('js/transforms/value-standardizer.js', 'DataGlowValueStandardizer'),
 ]
 
 UIS = ['js/transforms/data-glow-transforms-canvas.js']

@@ -42,6 +42,8 @@ import {
   isDateType,
   parseDateValue,
   formatISODate,
+  MS_PER_DAY,
+  daysBetween,
   isPlainObject,
   column,
   typeOfColumn,
@@ -59,8 +61,6 @@ export const OPEN_END_LABELS = Object.freeze({
   skip: 'Leave rows with no end date alone',
   asAt: 'Run them up to a date I choose',
 });
-
-const MS_PER_DAY = 86400000;
 
 // Above this the result is slow to scroll and slow to chart. A warning, not a
 // stop: 150,000 daily rows is a legitimate year of a mid-sized service.
@@ -166,12 +166,6 @@ export function validateDateRangeConfig(config, columnNames) {
 export function dayColumnName(config) {
   const explicit = String((config && config.dayColumn) || '').trim();
   return explicit || 'day';
-}
-
-/** Whole days from a to b, both as UTC midnights, so no daylight-saving hour
-    can shorten a day and lose one off the end of a long range. */
-function daysBetween(a, b) {
-  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
 }
 
 /**
