@@ -1,6 +1,6 @@
 {
-  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and \u2014 for the identity-defining modules \u2014 a symbol that must still be exported.",
-  "_platforms": "Each capability declares a non-empty `platforms` list \u2014 a subset of [\"browser\",\"desktop\",\"mobile\"] \u2014 read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API \u2014 see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
+  "_about": "Hand-authored map of DATAGLOW's documented capabilities to the js/ code that backs them. Consumed by .github/scripts/capability-drift.mjs (npm run test:capdrift) to keep docs/capability-map.md and README claims honest against shipped code. When you add, remove, or repurpose a js/ module, update this manifest and the capability map in the SAME PR (see AGENTS.md). Each capability lists the file(s) that MUST exist for it to be real, and — for the identity-defining modules — a symbol that must still be exported.",
+  "_platforms": "Each capability declares a non-empty `platforms` list — a subset of [\"browser\",\"desktop\",\"mobile\"] — read at runtime by js/app-shell/capability-registry.js to decide which capability modules to dynamically import on the detected runtime (plain browser vs. Tauri desktop shell; mobile is forward-looking and unused today). browser+desktop is the default: the Tauri v1 shell is 'a browser tab in a native window', so anything that works in the browser works there too. A capability is browser-only when it depends on a browser web API the desktop shell deliberately excludes (e.g. the File System Access API — see docs/desktop-shell.md); it is desktop-only when it needs a Tauri/Node native API a plain browser lacks (none today). When a single capability groups files with different reach, an optional `platformsByFile` map overrides `platforms` per file (the capability-level list stays the union of where the capability as a whole is usable).",
   "docs": [
     "docs/capability-map.md",
     "docs/capability-map/validation-layers.md",
@@ -952,7 +952,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "AI Touch Ledger (Batch 1 + Batch 2 \u2014 wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
+      "name": "AI Touch Ledger (Batch 1 + Batch 2 — wired into Story Engine + Proof Room, feature-flagged: aiTouchLedger)",
       "files": [
         "js/provenance/ai-touch-ledger.js",
         "js/narrative/story.js",
@@ -983,7 +983,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Query Memory (Batch 2 \u2014 SQL/Python/R wiring + \"seen before\" badge)",
+      "name": "Query Memory (Batch 2 — SQL/Python/R wiring + \"seen before\" badge)",
       "files": [
         "js/provenance/query-memory.js",
         "js/provenance/query-memory-ui.js"
@@ -1044,7 +1044,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Portable Receipts \u2014 per-artifact lineage stamp",
+      "name": "Portable Receipts — per-artifact lineage stamp",
       "files": [
         "js/provenance/portable-receipt.js"
       ],
@@ -1074,7 +1074,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet \u2014 data blame + de-identification verifier",
+      "name": "Provenance Packet — data blame + de-identification verifier",
       "files": [
         "js/provenance/data-blame.js",
         "js/provenance/deidentification-verifier.js"
@@ -1161,7 +1161,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) \u2014 first genuine zero-knowledge proof in DataGlow",
+      "name": "Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) — first genuine zero-knowledge proof in DataGlow",
       "files": [
         "js/provenance/zk-threshold-proof.js"
       ],
@@ -1213,7 +1213,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 2) \u2014 denial root-cause profiler + cost-of-bad-data quantifier",
+      "name": "Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier",
       "files": [
         "js/provenance/denial-root-cause.js",
         "js/provenance/cost-of-bad-data.js"
@@ -1327,7 +1327,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Provenance Packet (Batch 3) \u2014 portable signed .dataglow packet format (export/import)",
+      "name": "Provenance Packet (Batch 3) — portable signed .dataglow packet format (export/import)",
       "files": [
         "js/provenance/provenance-packet.js"
       ],
@@ -1351,7 +1351,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Institutional Memory Layer \u2014 decision log, timeline, provenance hash",
+      "name": "Institutional Memory Layer — decision log, timeline, provenance hash",
       "files": [
         "js/memory/institutional-memory.js"
       ],
@@ -1451,7 +1451,7 @@
         "desktop"
       ],
       "area": "Provenance, audit & trust",
-      "name": "Proof Export \u2014 .proof bundle, four-hash integrity chain (Feature 12)",
+      "name": "Proof Export — .proof bundle, four-hash integrity chain (Feature 12)",
       "files": [
         "js/proof/proof-builder.js"
       ],
@@ -1878,7 +1878,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1)",
+      "name": "Cleaning Crew — Profiler station (PDF text extraction, Batch 1)",
       "files": [
         "js/cleaning-crew/pdf-profiler.js"
       ],
@@ -2201,7 +2201,7 @@
     {
       "id": "pack-builder-ui",
       "area": "Conversational pack builder",
-      "name": "Guided pack builder \u2014 Validate-tab UI wiring",
+      "name": "Guided pack builder — Validate-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2338,7 +2338,7 @@
     {
       "id": "meeting-scribe-ui",
       "area": "Meeting scribe",
-      "name": "Meeting scribe \u2014 Meeting-tab UI wiring",
+      "name": "Meeting scribe — Meeting-tab UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2444,7 +2444,7 @@
     {
       "id": "meeting-decision-ledger-ui",
       "area": "Meeting scribe",
-      "name": "Meeting decision ledger \u2014 Meeting-tab browse/save UI wiring",
+      "name": "Meeting decision ledger — Meeting-tab browse/save UI wiring",
       "platforms": [
         "browser",
         "desktop"
@@ -2764,7 +2764,7 @@
     {
       "id": "data-diplomacy-ui",
       "area": "Data Diplomacy",
-      "name": "Data Diplomacy \u2014 two-key panel UI (Batch 2)",
+      "name": "Data Diplomacy — two-key panel UI (Batch 2)",
       "platforms": [
         "browser",
         "desktop"
@@ -2792,7 +2792,7 @@
     {
       "id": "agent-action-firewall",
       "area": "Provenance, audit & trust",
-      "name": "Agent Action Firewall \u2014 human-confirmation gate for data mutations",
+      "name": "Agent Action Firewall — human-confirmation gate for data mutations",
       "platforms": [
         "browser",
         "desktop"
@@ -2826,7 +2826,7 @@
     {
       "id": "guarded-copilot",
       "area": "Provenance, audit & trust",
-      "name": "Guarded Copilot (Batch 2) \u2014 read-only, lineage-citing chat core + chat panel UI",
+      "name": "Guarded Copilot (Batch 2) — read-only, lineage-citing chat core + chat panel UI",
       "platforms": [
         "browser",
         "desktop"
@@ -2951,7 +2951,7 @@
     {
       "id": "open-floor-sandbox-twin",
       "area": "Open Floor",
-      "name": "Open Floor Sandbox Twin \u2014 forkable disposable dataset copy; every mutation & promote firewall-gated",
+      "name": "Open Floor Sandbox Twin — forkable disposable dataset copy; every mutation & promote firewall-gated",
       "platforms": [
         "browser",
         "desktop"
@@ -2973,7 +2973,7 @@
     {
       "id": "query-sentinel",
       "area": "Validation layers",
-      "name": "Query Sentinel (Batch 1) \u2014 deterministic per-query SQL correctness verifier",
+      "name": "Query Sentinel (Batch 1) — deterministic per-query SQL correctness verifier",
       "platforms": [
         "browser",
         "desktop"
@@ -3017,7 +3017,7 @@
     {
       "id": "query-sentinel-assist",
       "area": "Validation layers",
-      "name": "Query Sentinel Assist (Batch 2) \u2014 bounded on-device explain & fix-suggest",
+      "name": "Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest",
       "platforms": [
         "browser",
         "desktop"
@@ -3047,7 +3047,7 @@
     {
       "id": "query-sentinel-bridge",
       "area": "Validation layers",
-      "name": "Query Sentinel Bridge (Batch 3, final) \u2014 FROM py./r. cross-runtime table resolver",
+      "name": "Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver",
       "platforms": [
         "browser",
         "desktop"
@@ -3077,7 +3077,7 @@
     {
       "id": "statistical-rigor-layer",
       "area": "Analysis robustness",
-      "name": "Statistical Rigor Layer (Batch 1) \u2014 confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
+      "name": "Statistical Rigor Layer (Batch 1) — confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks",
       "platforms": [
         "browser",
         "desktop"
@@ -3117,7 +3117,7 @@
     {
       "id": "narrative-overconfidence-guard",
       "area": "Analysis robustness",
-      "name": "Narrative Overconfidence Guard \u2014 verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
+      "name": "Narrative Overconfidence Guard — verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap)",
       "platforms": [
         "browser",
         "desktop",
@@ -3246,7 +3246,7 @@
         "desktop"
       ],
       "area": "App shell & data engine",
-      "name": "DataGlow Grid formula bridge (Excel formula \u2194 DuckDB SQL, documentation/audit layer)",
+      "name": "DataGlow Grid formula bridge (Excel formula ↔ DuckDB SQL, documentation/audit layer)",
       "files": [
         "js/grid/formula-bridge.js"
       ],
@@ -4162,7 +4162,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Audio ingestion structurer (Whisper \u2192 structured transcript dataset)",
+      "name": "Audio ingestion structurer (Whisper → structured transcript dataset)",
       "files": [
         "js/audio/audio-structurer.js",
         "js/audio/whisper-worker.scaffold.js"
@@ -4224,7 +4224,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "PDF ingestion bridge (PDF.js \u2192 RAG pipeline)",
+      "name": "PDF ingestion bridge (PDF.js → RAG pipeline)",
       "files": [
         "js/pdf/pdf-ingestion-bridge.js",
         "js/pdf/pdfjs-extractor.scaffold.js"
@@ -4261,7 +4261,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Text / Log line parser \u2014 .txt and .log to queryable rows",
+      "name": "Text / Log line parser — .txt and .log to queryable rows",
       "files": [
         "js/ingestion/text-line-parser.js"
       ],
@@ -4289,7 +4289,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Semi-structured JSON flattener \u2014 nested JSON, FHIR bundles, API envelopes",
+      "name": "Semi-structured JSON flattener — nested JSON, FHIR bundles, API envelopes",
       "files": [
         "js/ingestion/json-flattener.js"
       ],
@@ -4317,7 +4317,7 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Live API / Webhook feed \u2014 REST endpoint fetch with polling, auto-normalization",
+      "name": "Live API / Webhook feed — REST endpoint fetch with polling, auto-normalization",
       "files": [
         "js/ingestion/api-feed.js"
       ],
@@ -4551,7 +4551,7 @@
         "mobile"
       ],
       "area": "Narrative & storytelling",
-      "name": "Question Prompter (Feature 13 \u2014 \"Where to start\" intelligence)",
+      "name": "Question Prompter (Feature 13 — \"Where to start\" intelligence)",
       "files": [
         "js/questions/question-prompter.js"
       ],
@@ -4600,7 +4600,7 @@
         "mobile"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Image OCR \u2014 Tesseract.js client-side text extraction from PNG/JPG/WEBP/BMP/GIF",
+      "name": "Image OCR — Tesseract.js client-side text extraction from PNG/JPG/WEBP/BMP/GIF",
       "files": [
         "js/ingestion/image-ocr.js"
       ],
@@ -4637,7 +4637,7 @@
         "mobile"
       ],
       "area": "Insight & discovery",
-      "name": "Instant Insight (PR AF \u2014 surfaces the single most interesting statistical finding on file load, zero LLM, pure heuristics)",
+      "name": "Instant Insight (PR AF — surfaces the single most interesting statistical finding on file load, zero LLM, pure heuristics)",
       "files": [
         "js/insight/insight-engine.js"
       ],
@@ -4658,7 +4658,7 @@
         "mobile"
       ],
       "area": "Sharing & collaboration",
-      "name": "Publish Button (PR AG \u2014 one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload)",
+      "name": "Publish Button (PR AG — one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload)",
       "files": [
         "js/publish/publish-engine.js"
       ],
@@ -4674,7 +4674,7 @@
     {
       "id": "chart-engine",
       "area": "Visualization",
-      "name": "Chart Layer (PR AI \u2014 auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
+      "name": "Chart Layer (PR AI — auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies)",
       "platforms": [
         "browser",
         "desktop",
@@ -4695,7 +4695,7 @@
     {
       "id": "export-engine",
       "area": "Sharing & collaboration",
-      "name": "Export Everything (PR AJ \u2014 CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
+      "name": "Export Everything (PR AJ — CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",
       "platforms": [
         "browser",
         "desktop",
@@ -4716,7 +4716,7 @@
     {
       "id": "column-editor",
       "area": "Data grid & editing",
-      "name": "Smart Column Editor (PR AK \u2014 inline rename, type cycle, add column with formula, clean-name suggestions)",
+      "name": "Smart Column Editor (PR AK — inline rename, type cycle, add column with formula, clean-name suggestions)",
       "platforms": [
         "browser",
         "desktop",
@@ -4737,7 +4737,7 @@
     {
       "id": "join-builder",
       "area": "Data grid & editing",
-      "name": "Multi-file Join Builder (PR AL \u2014 auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
+      "name": "Multi-file Join Builder (PR AL — auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview)",
       "platforms": [
         "browser",
         "desktop",
@@ -4760,7 +4760,7 @@
     {
       "id": "anomaly-timeline",
       "area": "Validation & data quality",
-      "name": "Anomaly Timeline (PR AM \u2014 spike/drop/gap/duplicate/shift detection in the validation rail)",
+      "name": "Anomaly Timeline (PR AM — spike/drop/gap/duplicate/shift detection in the validation rail)",
       "platforms": [
         "browser",
         "desktop",
@@ -4781,7 +4781,7 @@
     {
       "id": "dashboard-engine",
       "area": "Visualization",
-      "name": "Dashboard View (PR AN \u2014 readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
+      "name": "Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules)",
       "platforms": [
         "browser",
         "desktop",
@@ -4802,7 +4802,7 @@
     {
       "id": "canvas-grid",
       "area": "Data grid & editing",
-      "name": "High-Performance Canvas Grid (PR AO \u2014 pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
+      "name": "High-Performance Canvas Grid (PR AO — pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell)",
       "platforms": [
         "browser",
         "desktop",
@@ -4823,7 +4823,7 @@
     {
       "id": "findings-rail",
       "area": "Validation & data quality",
-      "name": "Findings Rail (PR AU \u2014 ranked, plain-English insight cards above the dashboard KPI row)",
+      "name": "Findings Rail (PR AU — ranked, plain-English insight cards above the dashboard KPI row)",
       "platforms": [
         "browser",
         "desktop",
@@ -4844,7 +4844,7 @@
     {
       "id": "nl-engine",
       "area": "Query & analysis",
-      "name": "Natural Language to Everything (PR AH \u2014 plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
+      "name": "Natural Language to Everything (PR AH — plain-English questions answered via deterministic keyword-pattern query logic, zero LLM)",
       "platforms": [
         "browser",
         "desktop",
@@ -4865,7 +4865,7 @@
     {
       "id": "sql-engine",
       "area": "Query & analysis",
-      "name": "Real SQL Engine (PR AO \u2014 SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
+      "name": "Real SQL Engine (PR AO — SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar)",
       "platforms": [
         "browser",
         "desktop",
@@ -6046,6 +6046,222 @@
       "notes": "Distinct values of a category column, proposed merge groups, a human-confirmed map, and a glass-box UPDATE. Nothing is applied without confirmation, and the proposal is deliberately not the map: proposeMergeGroups returns groups and no map at all, the panel lets any group be switched off before it counts, and validation refuses outright any configuration whose confirmed flag is not literally true. The default modes are deterministic (case, whitespace, punctuation) because those are reversible facts about the text rather than opinions about meaning; similarity scoring is a guess, so it only runs when a clusterer is handed in and every group it produces is labelled as a guess in its own reason field. Canonical choice prefers a tidy, deliberately capitalised spelling over the merely most frequent one, so a value with a stray leading space cannot win a tie and write that space into every row it absorbs. A chained recode, where a becomes b while b becomes c, is refused rather than resolved, because the resulting table depends on which replacement ran first and that is a coin flip and not a merge. An audit column captures the original value BEFORE the update, in that order in the generated SQL, since afterwards the old spelling exists nowhere and the merge could be neither reviewed nor undone. Columns that are nearly all distinct are called out as identifiers whose merging breaks joins, and sensitive categories are told that a merge there needs a stated reason rather than a similarity score. Pure ES module, Node-testable, no DuckDB and no network.",
       "relatedFlags": [
         "valueStandardizer"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "proof-board-tiles-with-proof",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "Several numbers on one surface, each with the query that produced it in the same tile",
+      "files": [
+        "js/proofboard/proof-board.js",
+        "js/proofboard/session-tiles.js",
+        "js/proofboard/data-glow-proof-board-canvas.js",
+        "js/glassbox/glass-box.js",
+        "test/proof-board.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "buildProofBoard"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "normalizeTile"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "buildTileGlassBox"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "summarizeBoard"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "hasValue"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "formatTileValue"
+        },
+        {
+          "file": "js/proofboard/session-tiles.js",
+          "name": "tilesFromDataset"
+        },
+        {
+          "file": "js/proofboard/session-tiles.js",
+          "name": "countCompleteRows"
+        },
+        {
+          "file": "js/proofboard/session-tiles.js",
+          "name": "blanksByColumn"
+        },
+        {
+          "file": "js/proofboard/session-tiles.js",
+          "name": "countDistinct"
+        }
+      ],
+      "notes": "A dashboard shows numbers and nowhere to look for how they were computed, so the argument in the meeting becomes about whether the person who made it is trustworthy. Every tile here carries the query underneath it, in the same tile, and the proof block is the shared GlassBox model rather than a second implementation, so proof reads the same here as it does under a SQL result. Every tile is arithmetic over the rows actually in memory, computed in JavaScript because DataGlow does not require a query engine to be present, with the equivalent SQL printed beside it so a person can take it to their own warehouse; test/proof-board.test.mjs pins the two against each other. Nothing is seeded: tilesFromDataset returns an empty list when there are no rows and the panel shows its empty state with one call to action. There is no default value, no zero fallback and no placeholder number anywhere, because showing 0 for a number nobody computed is inventing a KPI, and hasValue rejects NaN and blank strings so formatTileValue returns empty rather than a plausible-looking zero. A malformed tile is kept and marked incomplete with its reasons listed rather than dropped, since a board that looks complete and is quietly missing a number is much harder to notice.",
+      "relatedFlags": [
+        "proofBoard"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "proof-board-badge-honesty",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "Not checked is a first-class badge that nothing can promote to passed",
+      "files": [
+        "js/proofboard/proof-board.js",
+        "js/proofboard/data-glow-proof-board-canvas.js",
+        "test/proof-board.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "TILE_GATE_BADGES"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "BADGE_LABELS"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "BADGE_WHY"
+        },
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "verifyBoard"
+        }
+      ],
+      "notes": "The tempting design is a green tick or nothing, which quietly turns no check has run into this passed. That is the single most expensive lie a surface like this can tell, so unknown is a badge with its own wording and its own sentence saying it is an absence of evidence rather than a pass. The badge is read off a real gate result when one is supplied; a caller that labels a tile clear while handing over a blocked verdict gets the gate result shown and the disagreement recorded as a problem on the tile. Nothing forges a gate either: the tile badge is deliberately not passed to GlassBox as a Publish-Safe verdict, because that would render a chip no gate ever produced, so a tile with no gate result shows GlassBox reporting the absence. Verify board checks the five things the board can actually check, that every tile carries its code, that every value was computed, that ids are unique, that a gate reported, and that all tiles describe one dataset, and it names the two it cannot: whether each query still returns the number shown, which would need the dataset and the engine and would report a fresh number as if it were the recorded one, and whether these are the right numbers to look at, which no check can answer.",
+      "relatedFlags": [
+        "proofBoard"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "glowbook-portable-export",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "Glowbook: the board as one HTML file with no script, written only after a human says yes",
+      "files": [
+        "js/proofboard/glowbook.js",
+        "js/proofboard/data-glow-proof-board-canvas.js",
+        "test/proof-board.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofboard/glowbook.js",
+          "name": "buildGlowbook"
+        },
+        {
+          "file": "js/proofboard/glowbook.js",
+          "name": "renderGlowbookHTML"
+        },
+        {
+          "file": "js/proofboard/glowbook.js",
+          "name": "glowbookBlob"
+        },
+        {
+          "file": "js/proofboard/glowbook.js",
+          "name": "escapeHtml"
+        },
+        {
+          "file": "js/proofboard/glowbook.js",
+          "name": "GLOWBOOK_DISCLAIMER"
+        },
+        {
+          "file": "js/proofboard/glowbook.js",
+          "name": "GLOWBOOK_NOT_ZK"
+        }
+      ],
+      "notes": "A link to a result is a promise that a server will still be there showing the same thing, and DataGlow has no server, so a shared link would have to be a hosted copy of the data. A Glowbook is instead one self-contained file on the person's own disk: no script, no stylesheet link, no iframe, no fetch, nothing that loads. It is a document, not an application, because an exported page that runs code can differ from what the sender previewed and is also the thing a mail gateway quarantines. Every tile is written finding first and then the proof, the same order as the panel on screen, so a reader who has seen one does not have to relearn the other, and every value and query is escaped into the markup as text. The file will be forwarded to people who did not run the analysis and a page of green ticks reads as an audit, so the disclaimer is emitted from a constant a caller cannot edit away: it states that this is a record of how numbers were computed on one device, that a tile marked not checked has not passed anything, and that it is not a certification, not an audit, not a compliance claim and not legal or clinical advice. A separate line says the proof is readable code and not a cryptographic proof, so nobody reads it as zero-knowledge. The engine returns a string and never writes it; the canvas surface asks the person first, because only a surface can ask.",
+      "relatedFlags": [
+        "proofBoard"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "proof-board-coach-strip",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "Five coach steps that point at real controls, dismissed once and gone for good",
+      "files": [
+        "js/proofboard/coach-moments.js",
+        "js/proofboard/data-glow-proof-board-canvas.js",
+        "test/proof-board.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofboard/coach-moments.js",
+          "name": "COACH_STEPS"
+        },
+        {
+          "file": "js/proofboard/coach-moments.js",
+          "name": "stepsForDom"
+        },
+        {
+          "file": "js/proofboard/coach-moments.js",
+          "name": "coachStripModel"
+        },
+        {
+          "file": "js/proofboard/coach-moments.js",
+          "name": "clampStep"
+        },
+        {
+          "file": "js/proofboard/coach-moments.js",
+          "name": "shouldShowCoach"
+        }
+      ],
+      "notes": "A tour is usually a framework: an overlay, a backdrop, a step machine and a scroll lock, all of it built to hold attention, which is the wrong goal for someone who opened a panel because they had a job to do. These steps are a list of objects with a target element id. The strip points at the thing and says one sentence, nothing is dimmed, nothing is blocked, and the panel stays fully usable with it open. There is no video, because a video means an asset, an asset means a CDN and a CDN means the page reaches the network, which is the one claim this product cannot give up; text beside the control it describes also survives being read at 360px, which a 16:9 clip does not. A step whose target is missing is skipped rather than pointed at empty space, and an id lookup that throws drops the step rather than the strip. Once dismissed it stays dismissed, because a tip that returns on every open becomes an obstacle for exactly the person who has opened the panel most often, and unreadable storage is treated as never seen so a refused localStorage costs a tip and not the panel. Kept separate from the whole-app journey in analyst-journey.js, whose four moments are hard-coded to the landing, the drop, the pulse read and the finish and which publishes no way to register more, so it is shaped the same way rather than widened to carry a second concern.",
+      "relatedFlags": [
+        "proofBoardCoach"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "proof-board-receipt-composition",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance and proof",
+      "name": "Stamping a tile composes the Trust Ledger rather than inventing a second chain",
+      "files": [
+        "js/proofboard/proof-board.js",
+        "js/proofboard/data-glow-proof-board-canvas.js",
+        "test/proof-board.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proofboard/proof-board.js",
+          "name": "tileReceiptClaim"
+        }
+      ],
+      "notes": "tileReceiptClaim assembles only the claim: the label, the value as it was formatted, a plain statement of what is being asserted, the query chain behind it, the validation state at the moment it was computed and the dataset fingerprint. It computes no hash and no commitment, because the hash chain already exists on the Trust Ledger and a second one written here would be a competing record of the same session. The canvas surface asks the person before appending the row and says in the prompt that the row stays on this device and is a record of what was computed rather than a certification. Portable receipts and the Proof Room are not present in this build, so the controls that would compose them are feature-detected and simply absent rather than mounted and failing: a link to a surface that does not exist is a dead end wearing a working button.",
+      "relatedFlags": [
+        "proofBoard"
       ],
       "status": "shipped"
     }

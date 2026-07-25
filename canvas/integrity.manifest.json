@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5474013,
+  "canvasBytes": 5550968,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -232,6 +232,41 @@
       "sourceSha256": "cfda11b34edd02276d552a0d5a54d4e91e8325b909704b48f3056fc2be3c6e6e",
       "canvasSectionSha256": "1d6aec23eb835ef8ff917a53252a485293395edf7a98db379af2b608b8e17a8a",
       "canvasSectionBytes": 25692
+    },
+    {
+      "source": "js/proofboard/proof-board.js",
+      "note": "Proof Board tile model, board builder, GlassBox composition and the board verify pass. Pure ES module, inlined as an IIFE publishing window.DataGlowProofBoard.",
+      "sourceSha256": "5e5108cd32ac2dfdb96588d5522c95078ff78ea11df0ccea0817ec0d8d1b6d7e",
+      "canvasSectionSha256": "97b8640ce02520e0f01a93005d01bfd9113d9793258ce324d51746f74df8c540",
+      "canvasSectionBytes": 17981
+    },
+    {
+      "source": "js/proofboard/glowbook.js",
+      "note": "Glowbook: the board as one self-contained HTML file with no script and no network. Pure ES module, inlined as an IIFE publishing window.DataGlowGlowbook.",
+      "sourceSha256": "bdb3932df2a5f5caf4399b333a57e69fb6ae68cc72b789d9e385ae6442d450e0",
+      "canvasSectionSha256": "28b37948193f1c7ff105643717412550b7eaed392f768243b410606a3d47030d",
+      "canvasSectionBytes": 12353
+    },
+    {
+      "source": "js/proofboard/session-tiles.js",
+      "note": "Tiles computed from the rows actually loaded, each with the SQL that returns the same number. Pure ES module, inlined as an IIFE publishing window.DataGlowProofBoardTiles.",
+      "sourceSha256": "44d1ede2605fe4f73ebb09307891d23dc06c6fa60cc606cadbed0ca4ebc0bcd2",
+      "canvasSectionSha256": "88be3e1b35ddcf78f588032a2c27d679306b62ca15770f9986d2d9cf24d4c3db",
+      "canvasSectionBytes": 8809
+    },
+    {
+      "source": "js/proofboard/coach-moments.js",
+      "note": "Five coach steps for the Proof Board, as data. Pure ES module, inlined as an IIFE publishing window.DataGlowProofBoardCoach.",
+      "sourceSha256": "03afd332d261412d467a47dea4fdbd6e76c694924dfca83d7422251bffaf5747",
+      "canvasSectionSha256": "38c3dc63260395cc97d25ef3494cbf72140e627123764c7b49a7fe82131caacd",
+      "canvasSectionBytes": 6141
+    },
+    {
+      "source": "js/proofboard/data-glow-proof-board-canvas.js",
+      "note": "Proof Board canvas surface: the button, the tile grid, show the work, verify, the confirm-gated Glowbook export and the dismissible coach strip.",
+      "sourceSha256": "781b898e43159b3103570e9e48159603c94e63d338a335317e36640f5e99b43f",
+      "canvasSectionSha256": "9d1c433808ac372f7174c058258a2a2247777fdbb99caaa7e39f14cc9773b72a",
+      "canvasSectionBytes": 31665
     }
   ]
 }
