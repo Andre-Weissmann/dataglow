@@ -5028,6 +5028,27 @@
       "status": "shipped"
     },
     {
+      "id": "notebook-to-app",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Multi-runtime",
+      "name": "Notebook to App",
+      "files": [
+        "js/intelligence/notebook-app-export.js",
+        "js/intelligence/data-glow-notebook-app-canvas.js",
+        "test/notebook-app-export.test.mjs",
+        "test/notebook-app-canvas-ui.test.mjs"
+      ],
+      "notes": "Save as app on the Python and R notebook toolbars: turns a notebook that already ran on this device into ONE self-contained HTML file (cells, captured text output, captured plots) that opens by double click with no server, no install and no internet. A confirm sheet lists what goes in the file and nothing is written until the human presses Save. PHI Shield scans first and a hit preselects leaving results out; the builder refuses to emit a file that references anything off the device. Zero-upload.",
+      "relatedFlags": [
+        "notebookToApp"
+      ],
+      "status": "shipped"
+    },
+    {
       "id": "guided-unpivot",
       "platforms": [
         "browser",

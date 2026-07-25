@@ -186,6 +186,8 @@
     "test:shieldpacks": "node --test test/shield-packs.test.mjs",
     "test:airgap": "node --test test/air-gap-mode.test.mjs",
     "test:airgapui": "node test/air-gap-canvas-ui.test.mjs",
+    "test:notebookapp": "node --test test/notebook-app-export.test.mjs",
+    "test:notebookappui": "node test/notebook-app-canvas-ui.test.mjs",
     "test:pfmirror": "node --test test/provenance-fabric-proofchain-mirror.test.mjs",
     "test:capmap": "node --test test/capability-map.test.mjs",
     "test:newmodule": "node --test test/new-module.test.mjs",
