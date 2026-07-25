@@ -50,6 +50,17 @@
   function rOn() { return flag('DATAGLOW_R_POWER_PACK', 'rPowerPack'); }
   function excelOn() { return flag('DATAGLOW_EXCEL_HELL_REPAIR', 'excelHellRepair'); }
 
+  /* Bundle 13 deepen flags. Each one gates a section inside an existing tab and
+     none of them adds a tab, because the point of the drawer was to stop this
+     product growing a button per capability. Off means the section is absent
+     and the tab renders exactly as it did before. */
+  function sqlDeepOn() { return flag('DATAGLOW_SQL_POWER_DEEPEN', 'sqlPowerDeepen'); }
+  function pyDeepOn() { return flag('DATAGLOW_PYTHON_POWER_DEEPEN', 'pythonPowerDeepen'); }
+  function rDeepOn() { return flag('DATAGLOW_R_POWER_DEEPEN', 'rPowerDeepen'); }
+  function typeGuardOn() { return flag('DATAGLOW_EXCEL_TYPE_GUARD', 'excelTypeGuard'); }
+  function arrowOn() { return flag('DATAGLOW_ARROW_BRIDGE', 'arrowBridge'); }
+  function pqNoteOn() { return flag('DATAGLOW_POWER_QUERY_HONEST_NOTE', 'powerQueryHonestNote'); }
+
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
   }
@@ -116,9 +127,29 @@
     return 0;
   }
 
-  /* Nothing in this build imports polars, so the honest answer is false rather
-     than unknown. When something does, this is the one place to change. */
+  /* Bundle 11 and 12 answered this with a hard-coded false. That was the right
+     answer and it was arrived at the wrong way: nobody asked. Now the probe in
+     js/polyglot/python-deepen.js records what the interpreter said, and this
+     reads that record. An unprobed session still answers false, because the
+     recipes are gated on `available` and not on `not known to be absent`. */
+  function pythonProbe() {
+    try {
+      var p = window.DATAGLOW_PY_PROBE;
+      if (p && typeof p === 'object') return { probed: true, packages: p };
+    } catch (_e) {}
+    return { probed: false, packages: {} };
+  }
+
   function polarsAvailable() {
+    var p = pythonProbe();
+    return p.probed === true && p.packages.polars === true;
+  }
+
+  function airGapActive() {
+    try {
+      var ag = window.DataGlowAirGap;
+      if (ag && typeof ag.isAirGapActive === 'function') return ag.isAirGapActive() === true;
+    } catch (_e) {}
     return false;
   }
 
@@ -245,6 +276,120 @@
     host.appendChild(card);
   }
 
+  /* ---------------------------------------------------------------
+     Bundle 13: profiling that becomes proof
+     --------------------------------------------------------------- */
+
+  async function runSql(sql) {
+    var conn = null;
+    try { conn = window.duckdbConn; } catch (_e) {}
+    if (!conn || typeof conn.query !== 'function') throw new Error('no-engine');
+    var res = await conn.query(sql);
+    var rows = [];
+    try {
+      rows = typeof res.toArray === 'function'
+        ? res.toArray().map(function (r) { return typeof r.toJSON === 'function' ? r.toJSON() : r; })
+        : (Array.isArray(res) ? res : []);
+    } catch (_e2) { rows = []; }
+    return rows;
+  }
+
+  function activeTable() {
+    try {
+      var s = window.DATAGLOW_STATE;
+      if (s && Array.isArray(s.datasets) && s.datasets.length) {
+        var ds = s.datasets[s.activeDatasetIndex || 0] || s.datasets[0];
+        if (ds && (ds.table || ds.name)) return ds.table || ds.name;
+      }
+    } catch (_e) {}
+    return '';
+  }
+
+  /* One button, pressed by a person, which is the only thing in this panel that
+     executes anything. Everything it produces is a Proof Board tile carrying
+     the SQL that produced it, so "show the work" is a real link. */
+  function profileTable(statusHost) {
+    var eng = engine('DataGlowSqlDeepen');
+    var board = engine('DataGlowProofBoardUI');
+    var table = activeTable();
+
+    function say(text) {
+      statusHost.textContent = text;
+    }
+
+    if (!eng || typeof eng.summarizeToTiles !== 'function') {
+      say('The profiling engine is not mounted in this build.');
+      return;
+    }
+    if (!table) {
+      say('No table is loaded, so there is nothing to profile. Load a file first.');
+      return;
+    }
+    say('Profiling ' + table + '...');
+
+    runSql(eng.summarizeSql(table)).then(function (rows) {
+      var out = eng.summarizeToTiles({ table: table, rows: rows });
+      if (!out.tiles.length) {
+        say(out.headline);
+        return;
+      }
+      var added = 0;
+      if (board && typeof board.addTile === 'function') {
+        for (var i = 0; i < out.tiles.length; i++) {
+          try { if (board.addTile(out.tiles[i])) added++; } catch (_e) {}
+        }
+      }
+      say(added
+        ? out.headline + ' ' + added + ' tile' + (added === 1 ? '' : 's') + ' added to the Proof Board.'
+        : out.headline + ' The Proof Board is not mounted in this build, so nothing was added to it.');
+      toast(out.headline);
+    }, function (err) {
+      say(String(err && err.message) === 'no-engine'
+        ? 'DuckDB has not started in this page yet, so there is nothing to profile. Run a query first.'
+        : 'SUMMARIZE did not run against ' + table + '. The table may be empty or the engine may still be starting.');
+    });
+  }
+
+  function renderSqlDeepen(host) {
+    var eng = engine('DataGlowSqlDeepen');
+    if (!eng || typeof eng.buildSqlDeepen !== 'function') return;
+    var deep;
+    try { deep = eng.buildSqlDeepen(); } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Profile the table, and keep what it finds'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, deep.summarizeHonesty));
+    var row = el('div', { class: 'dg-pk-row' });
+    var btn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Run SUMMARIZE and add findings to the Proof Board');
+    var status = el('div', { class: 'dg-pk-note' }, activeTable()
+      ? 'Ready to profile ' + activeTable() + '.'
+      : 'No table is loaded yet.');
+    btn.addEventListener('click', function () { profileTable(status); });
+    row.appendChild(btn);
+    host.appendChild(row);
+    host.appendChild(status);
+
+    var q = engine('DataGlowCsvQuarantineUI');
+    if (q && typeof q.open === 'function') {
+      var qrow = el('div', { class: 'dg-pk-row' });
+      var qbtn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Show the last quarantined rows');
+      qbtn.addEventListener('click', function () {
+        var m = typeof q.model === 'function' ? q.model() : null;
+        if (m) q.open(m, null);
+        else toast('Nothing has been quarantined in this session. Every line of every file loaded so far parsed.');
+      });
+      qrow.appendChild(qbtn);
+      qrow.appendChild(el('span', { class: 'dg-pk-note' },
+        'Rows a CSV load could not parse are held out and listed rather than dropped silently.'));
+      host.appendChild(qrow);
+    }
+
+    host.appendChild(el('h4', {}, 'The shapes people rebuild from memory'));
+    for (var i = 0; i < deep.snippets.length; i++) {
+      codeCard(host, deep.snippets[i].title, deep.snippets[i].why, deep.snippets[i].sql,
+        deep.snippets[i].substitute, 'Query');
+    }
+  }
+
   function renderSql(host) {
     var pack = sqlPack();
     if (!pack) {
@@ -256,6 +401,8 @@
 
     host.appendChild(el('h4', {}, 'Not here at all'));
     bullets(host, pack.notSupported);
+
+    if (sqlDeepOn()) renderSqlDeepen(host);
 
     host.appendChild(el('h4', {}, 'Snippets'));
     topicChips(host, pack.topics);
@@ -276,6 +423,126 @@
       card.appendChild(el('pre', { class: 'dg-pk-code' }, 'DuckDB:   ' + d.duckdb + '\nPostgres: ' + d.postgres));
       host.appendChild(card);
     }
+  }
+
+  /* ---------------------------------------------------------------
+     Bundle 13: the import type guard, and the Power Query answer
+     --------------------------------------------------------------- */
+
+  function activeDataset() {
+    try {
+      var s = window.DATAGLOW_STATE;
+      if (s && Array.isArray(s.datasets) && s.datasets.length) {
+        return s.datasets[s.activeDatasetIndex || 0] || s.datasets[0];
+      }
+    } catch (_e) {}
+    return null;
+  }
+
+  function recordGuardReceipt(line) {
+    if (!line) return;
+    try {
+      var t = window.DataGlowTrustLedger;
+      if (t && typeof t.record === 'function') { t.record(line); }
+    } catch (_e) {}
+    try { console.log('[type guard receipt] ' + line.line); } catch (_e2) {}
+    try { window.DataGlowPowerPacksUI._lastGuardReceipt = line; } catch (_e3) {}
+  }
+
+  function renderTypeGuard(host) {
+    var eng = engine('DataGlowExcelTypeGuard');
+    if (!eng || typeof eng.detectTypeRisks !== 'function') return;
+
+    host.appendChild(el('h4', {}, 'Identifiers a spreadsheet eats'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, eng.TYPE_GUARD_HONESTY));
+
+    var results = el('div', {});
+    var row = el('div', { class: 'dg-pk-row' });
+    var btn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Check the loaded table');
+    btn.addEventListener('click', function () {
+      results.innerHTML = '';
+      var ds = activeDataset();
+      if (!ds || !Array.isArray(ds.rows) || !ds.rows.length) {
+        results.appendChild(el('p', { class: 'dg-pk-note' }, 'No table is loaded, so there is nothing to check.'));
+        return;
+      }
+      var det;
+      try { det = eng.detectTypeRisks({ columns: ds.columns, rows: ds.rows }); }
+      catch (_e) {
+        results.appendChild(el('p', { class: 'dg-pk-note' }, 'The guard could not read this table.'));
+        return;
+      }
+      results.appendChild(el('p', {}, det.headline));
+      if (!det.fired) {
+        recordGuardReceipt(eng.typeGuardReceiptLine(det, 'clean'));
+        return;
+      }
+      for (var i = 0; i < det.findings.length; i++) {
+        var f = det.findings[i];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, f.column + ': ' + f.label));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, f.detail));
+        card.appendChild(el('div', { class: 'dg-pk-note' },
+          f.matched + ' of ' + f.sampled + ' sampled cells (' + f.sharePercent + ' percent). For example: ' + f.examples.join(', ')));
+        results.appendChild(card);
+      }
+
+      // Preview, then confirm. Nothing is applied by looking.
+      var prev = eng.previewGuard(det, null);
+      var pv = el('div', { class: 'dg-pk-warn' });
+      pv.appendChild(el('b', {}, prev.summary));
+      for (var d = 0; d < prev.declined.length; d++) {
+        pv.appendChild(el('div', { class: 'dg-pk-note' }, prev.declined[d].column + ': ' + prev.declined[d].why));
+      }
+      results.appendChild(pv);
+
+      if (prev.steps.length) {
+        var actions = el('div', { class: 'dg-pk-row' });
+        var apply = el('button', { class: 'dg-pk-btn', type: 'button' }, prev.confirmPrompt);
+        apply.addEventListener('click', function () {
+          var cols = prev.steps.map(function (s) { return s.column; });
+          var applied = false;
+          var hell = engine('DataGlowExcelHellUI');
+          if (hell && typeof hell.open === 'function') {
+            // The repair panel owns apply and undo. This hands the columns over
+            // rather than mutating a dataset behind that panel's back.
+            try { window.DATAGLOW_TYPE_GUARD_HOLD = cols; hell.open(); applied = true; } catch (_e2) {}
+          }
+          recordGuardReceipt(eng.typeGuardReceiptLine(det, 'applied', cols));
+          toast(applied
+            ? 'Opened the repair panel with ' + cols.join(', ') + ' marked to hold as text. Confirm there to apply, and it is undoable.'
+            : 'Recorded that ' + cols.join(', ') + ' should be held as text. The repair panel is not mounted in this build, so apply it there when it is.');
+        });
+        var override = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Import unchanged');
+        override.addEventListener('click', function () {
+          recordGuardReceipt(eng.typeGuardReceiptLine(det, 'overridden', det.findings.map(function (f2) { return f2.column; })));
+          toast('Recorded as an override. The columns stay as they are and the receipt says who decided that.');
+        });
+        actions.appendChild(apply);
+        actions.appendChild(override);
+        results.appendChild(actions);
+      }
+    });
+    row.appendChild(btn);
+    host.appendChild(row);
+    host.appendChild(results);
+  }
+
+  function renderPowerQueryNote(host) {
+    var eng = engine('DataGlowPowerQueryNote');
+    if (!eng || typeof eng.buildPowerQueryNote !== 'function') return;
+    var pq;
+    try { pq = eng.buildPowerQueryNote(); } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Power Query'));
+    host.appendChild(el('p', {}, pq.note));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pq.detail));
+    var ul = el('ul', { class: 'dg-pk-ul' });
+    for (var i = 0; i < pq.equivalents.length; i++) {
+      ul.appendChild(el('li', {}, pq.equivalents[i].step + ': ' + pq.equivalents[i].here));
+    }
+    host.appendChild(ul);
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pq.handoff));
   }
 
   function renderExcel(host) {
@@ -302,6 +569,75 @@
       'It does not guess a repair and apply it. Every change is proposed, and refusing one is a normal outcome.',
       'It does not read a password-protected workbook, and it does not evaluate macros.',
     ]);
+
+    if (typeGuardOn()) renderTypeGuard(host);
+    if (pqNoteOn()) renderPowerQueryNote(host);
+  }
+
+  /* ---------------------------------------------------------------
+     Bundle 13: the probe, the packages it unlocks, and the Arrow status
+     --------------------------------------------------------------- */
+
+  function renderArrowStatus(host) {
+    var eng = engine('DataGlowArrowBridge');
+    if (!eng || typeof eng.buildArrowBridgeStatus !== 'function') return;
+    var probe = pythonProbe();
+    var status;
+    try {
+      status = eng.buildArrowBridgeStatus({
+        // DuckDB-WASM in this page materialises rows for the bridge rather than
+        // handing out an Arrow buffer, so this is false until that changes. It
+        // is written as an observation rather than a constant so the one place
+        // to change is here.
+        duckdbArrow: false,
+        pyarrow: probe.packages.pyarrow === true,
+        pythonReady: pythonRowLimit() > 0,
+        rowLimit: pythonRowLimit(),
+        rowCount: pythonRowCount(),
+      });
+    } catch (_e) { return; }
+
+    var warn = el('div', { class: 'dg-pk-warn' });
+    warn.appendChild(el('b', {}, status.label));
+    warn.appendChild(el('div', { class: 'dg-pk-note' }, status.detail));
+    for (var i = 0; i < status.missingPieces.length; i++) {
+      warn.appendChild(el('div', { class: 'dg-pk-note' }, 'Missing: ' + status.missingPieces[i] + '.'));
+    }
+    warn.appendChild(el('div', { class: 'dg-pk-note' }, status.neverUnlimited));
+    host.appendChild(warn);
+  }
+
+  function renderPythonDeepen(host) {
+    var eng = engine('DataGlowPythonDeepen');
+    if (!eng || typeof eng.buildPythonDeepen !== 'function') return;
+    var probe = pythonProbe();
+    var deep;
+    try {
+      deep = eng.buildPythonDeepen({ probed: probe.probed, packages: probe.packages, airGap: airGapActive() });
+    } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Beyond pandas'));
+    host.appendChild(el('p', {}, deep.headline));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, deep.honesty));
+    codeCard(host, 'Ask this session what it has', 'One line per package, so a missing one does not hide the others. Paste the printed answers into window.DATAGLOW_PY_PROBE to make this panel read them.', deep.probeCell, null, 'Probe cell');
+
+    if (arrowOn()) renderArrowStatus(host);
+
+    for (var i = 0; i < deep.recipes.length; i++) {
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+    }
+
+    if (deep.blocked.length) {
+      host.appendChild(el('h4', {}, 'Listed, but not runnable in this session'));
+      for (var j = 0; j < deep.blocked.length; j++) {
+        var b = deep.blocked[j];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, b.title));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, b.reason));
+        if (b.howToEnable) card.appendChild(el('div', { class: 'dg-pk-note' }, b.howToEnable));
+        host.appendChild(card);
+      }
+    }
   }
 
   function renderPython(host) {
@@ -332,6 +668,59 @@
       : pack.recipes;
     for (var i = 0; i < rows.length; i++) {
       codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell');
+    }
+
+    if (pyDeepOn()) renderPythonDeepen(host);
+  }
+
+  /* Bundle 13. dplyr and tidyr are never fetched by the runtime at startup, so
+     there is nothing in rCapabilities() that could answer for them; the only
+     honest source is a person running install.packages and reporting back,
+     the same probe shape the Python deepen pack uses. */
+  function rProbe() {
+    try {
+      var p = window.DATAGLOW_R_PROBE;
+      if (p && typeof p === 'object') return p;
+    } catch (_e) {}
+    return {};
+  }
+
+  function renderRDeepen(host) {
+    var eng = engine('DataGlowRDeepen');
+    if (!eng || typeof eng.buildRDeepen !== 'function') return;
+    var caps = rCapabilities();
+    var probe = rProbe();
+    var deep;
+    try {
+      deep = eng.buildRDeepen({
+        hasJsonlite: caps.hasJsonlite,
+        hasGgplot2: caps.hasGgplot2,
+        hasDplyr: probe.dplyr === true,
+        hasTidyr: probe.tidyr === true,
+        airGap: airGapActive(),
+        offline: (typeof navigator !== 'undefined' && navigator.onLine === false),
+      });
+    } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Beyond base R'));
+    host.appendChild(el('p', {}, deep.headline));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, deep.honesty));
+
+    for (var i = 0; i < deep.recipes.length; i++) {
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+    }
+
+    if (deep.blocked.length) {
+      host.appendChild(el('h4', {}, 'Listed, but not runnable in this session'));
+      for (var j = 0; j < deep.blocked.length; j++) {
+        var b = deep.blocked[j];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, b.title));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, b.reason));
+        if (b.instead) card.appendChild(el('div', { class: 'dg-pk-note' }, 'Instead: ' + b.instead.title + '.'));
+        if (b.howToEnable) card.appendChild(el('div', { class: 'dg-pk-note' }, b.howToEnable));
+        host.appendChild(card);
+      }
     }
   }
 
@@ -364,6 +753,8 @@
         host.appendChild(card);
       }
     }
+
+    if (rDeepOn()) renderRDeepen(host);
   }
 
   function tabs() {

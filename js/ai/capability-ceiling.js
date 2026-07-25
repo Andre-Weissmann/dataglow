@@ -57,6 +57,10 @@ function num(v, fallback) {
   return typeof v === 'number' && isFinite(v) && v >= 0 ? v : fallback;
 }
 
+/** Verbatim from POWER_QUERY_NOTE in js/polyglot/power-query-note.js. */
+export const POWER_QUERY_CEILING_NOTE =
+  'Power Query M is not embedded. DataGlow covers reshape and clean via Excel Hell plus DuckDB SQL plus Python and R. For M-only enterprise workbooks, export remains the hand-off.';
+
 function group(id, title, does, notThis, detail) {
   return { id, title, does, notThis, detail };
 }
@@ -127,6 +131,22 @@ export function buildCapabilityCeiling(opts) {
     ),
   ];
 
+  // The Power Query gap, named before someone finds it.
+  //
+  // The sentence is duplicated from js/polyglot/power-query-note.js rather than
+  // imported, because this module is inlined into the canvas by a script that
+  // does not rewrite imports for it. A test asserts the two strings are
+  // identical, so the copy cannot drift from the original.
+  if (o.powerQueryNote !== false) {
+    groups.splice(4, 0, group(
+      'power-query',
+      'Power Query',
+      'Reshape and clean the same data through Excel Hell Repair, DuckDB SQL, Python and R.',
+      'Run your Power Query M steps. The M runtime is not embedded and there is no plan for it to be.',
+      POWER_QUERY_CEILING_NOTE + ' M is a language with its own runtime and a connector library that reaches databases and services. None of that is here, and building a partial copy of it would produce something that runs some steps and silently skips others, which is worse than not having it.',
+    ));
+  }
+
   return {
     kind: CAPABILITY_CEILING_KIND,
     version: CAPABILITY_CEILING_VERSION,
@@ -160,6 +180,7 @@ export const DataGlowCapabilityCeiling = {
   DEFAULT_R_BRIDGE_ROW_LIMIT,
   CEILING_PREAMBLE,
   CEILING_CLOSING,
+  POWER_QUERY_CEILING_NOTE,
   buildCapabilityCeiling,
   renderCeilingMarkdown,
 };

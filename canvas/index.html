@@ -19506,7 +19506,46 @@ var SQLEngine = (function () {
       var bytes = encoder.encode(csv);
       var fname = tbl + '.csv';
       await db.registerFileBuffer(fname, bytes);
-      await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true)");
+      // ignore_errors plus store_rejects means a malformed line does not abort
+      // the whole load, and the line is not silently gone either: it lands in a
+      // rejects table this reads before dropping it. Most loads never populate
+      // that table, because parseCSV() upstream already normalised ragged rows;
+      // this is what runs on the rows DuckDB itself refuses, such as a value
+      // that cannot cast to the column type it inferred.
+      var rejectsTbl = '_dg_csv_rejects_' + tbl;
+      var rejectsScan = '_dg_csv_scans_' + tbl;
+      try {
+        await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true, ignore_errors=true, store_rejects=true, rejects_table='" + rejectsTbl + "', rejects_scan='" + rejectsScan + "')");
+      } catch (eRejectLoad) {
+        // Older DuckDB-WASM builds do not support store_rejects. Falling back
+        // keeps the load working; it just means nothing is quarantined this run.
+        await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true)");
+        registeredTables[tbl] = true;
+        return tbl;
+      }
+      try {
+        var rejRes = await conn.query("SELECT line, column_name, error_type, error_message, csv_line FROM \"" + rejectsTbl + "\" ORDER BY line LIMIT 200");
+        var rejRows = rejRes.toArray().map(function (r) { return r.toJSON ? r.toJSON() : r; });
+        if (rejRows.length) {
+          var qEng = window.DataGlowCsvQuarantine;
+          var qUi = window.DataGlowCsvQuarantineUI;
+          if (qEng && typeof qEng.buildQuarantine === 'function') {
+            var countRes = await conn.query("SELECT COUNT(DISTINCT line) AS dropped FROM \"" + rejectsTbl + "\"");
+            var countRows = countRes.toArray().map(function (r) { return r.toJSON ? r.toJSON() : r; });
+            var dropped = countRows.length ? Number(countRows[0].dropped) : rejRows.length;
+            var kept = dataset.rows.length;
+            var model = qEng.buildQuarantine({
+              fileName: dataset.name, table: tbl, keptRows: kept,
+              rejectRows: rejRows, droppedLines: dropped, truncated: rejRows.length >= 200,
+            });
+            if (qUi && typeof qUi.openFor === 'function') {
+              qUi.open(model, null);
+            }
+          }
+        }
+      } catch (eRejectRead) { /* the rejects table did not fire this load, which is the good outcome */ }
+      await conn.query("DROP TABLE IF EXISTS \"" + rejectsTbl + "\"").catch(function () {});
+      await conn.query("DROP TABLE IF EXISTS \"" + rejectsScan + "\"").catch(function () {});
       registeredTables[tbl] = true;
       return tbl;
     }
@@ -129283,6 +129322,10 @@ function num(v, fallback) {
   return typeof v === 'number' && isFinite(v) && v >= 0 ? v : fallback;
 }
 
+/** Verbatim from POWER_QUERY_NOTE in js/polyglot/power-query-note.js. */
+const POWER_QUERY_CEILING_NOTE =
+  'Power Query M is not embedded. DataGlow covers reshape and clean via Excel Hell plus DuckDB SQL plus Python and R. For M-only enterprise workbooks, export remains the hand-off.';
+
 function group(id, title, does, notThis, detail) {
   return { id, title, does, notThis, detail };
 }
@@ -129353,6 +129396,22 @@ function buildCapabilityCeiling(opts) {
     ),
   ];
 
+  // The Power Query gap, named before someone finds it.
+  //
+  // The sentence is duplicated from js/polyglot/power-query-note.js rather than
+  // imported, because this module is inlined into the canvas by a script that
+  // does not rewrite imports for it. A test asserts the two strings are
+  // identical, so the copy cannot drift from the original.
+  if (o.powerQueryNote !== false) {
+    groups.splice(4, 0, group(
+      'power-query',
+      'Power Query',
+      'Reshape and clean the same data through Excel Hell Repair, DuckDB SQL, Python and R.',
+      'Run your Power Query M steps. The M runtime is not embedded and there is no plan for it to be.',
+      POWER_QUERY_CEILING_NOTE + ' M is a language with its own runtime and a connector library that reaches databases and services. None of that is here, and building a partial copy of it would produce something that runs some steps and silently skips others, which is worse than not having it.',
+    ));
+  }
+
   return {
     kind: CAPABILITY_CEILING_KIND,
     version: CAPABILITY_CEILING_VERSION,
@@ -129385,6 +129444,7 @@ function renderCeilingMarkdown(ceiling) {
     DEFAULT_R_BRIDGE_ROW_LIMIT: DEFAULT_R_BRIDGE_ROW_LIMIT,
     CEILING_PREAMBLE: CEILING_PREAMBLE,
     CEILING_CLOSING: CEILING_CLOSING,
+    POWER_QUERY_CEILING_NOTE: POWER_QUERY_CEILING_NOTE,
     buildCapabilityCeiling: buildCapabilityCeiling,
     renderCeilingMarkdown: renderCeilingMarkdown,
   };
@@ -132607,6 +132667,17 @@ function buildRPowerPack(input) {
   function rOn() { return flag('DATAGLOW_R_POWER_PACK', 'rPowerPack'); }
   function excelOn() { return flag('DATAGLOW_EXCEL_HELL_REPAIR', 'excelHellRepair'); }
 
+  /* Bundle 13 deepen flags. Each one gates a section inside an existing tab and
+     none of them adds a tab, because the point of the drawer was to stop this
+     product growing a button per capability. Off means the section is absent
+     and the tab renders exactly as it did before. */
+  function sqlDeepOn() { return flag('DATAGLOW_SQL_POWER_DEEPEN', 'sqlPowerDeepen'); }
+  function pyDeepOn() { return flag('DATAGLOW_PYTHON_POWER_DEEPEN', 'pythonPowerDeepen'); }
+  function rDeepOn() { return flag('DATAGLOW_R_POWER_DEEPEN', 'rPowerDeepen'); }
+  function typeGuardOn() { return flag('DATAGLOW_EXCEL_TYPE_GUARD', 'excelTypeGuard'); }
+  function arrowOn() { return flag('DATAGLOW_ARROW_BRIDGE', 'arrowBridge'); }
+  function pqNoteOn() { return flag('DATAGLOW_POWER_QUERY_HONEST_NOTE', 'powerQueryHonestNote'); }
+
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
   }
@@ -132673,9 +132744,29 @@ function buildRPowerPack(input) {
     return 0;
   }
 
-  /* Nothing in this build imports polars, so the honest answer is false rather
-     than unknown. When something does, this is the one place to change. */
+  /* Bundle 11 and 12 answered this with a hard-coded false. That was the right
+     answer and it was arrived at the wrong way: nobody asked. Now the probe in
+     js/polyglot/python-deepen.js records what the interpreter said, and this
+     reads that record. An unprobed session still answers false, because the
+     recipes are gated on `available` and not on `not known to be absent`. */
+  function pythonProbe() {
+    try {
+      var p = window.DATAGLOW_PY_PROBE;
+      if (p && typeof p === 'object') return { probed: true, packages: p };
+    } catch (_e) {}
+    return { probed: false, packages: {} };
+  }
+
   function polarsAvailable() {
+    var p = pythonProbe();
+    return p.probed === true && p.packages.polars === true;
+  }
+
+  function airGapActive() {
+    try {
+      var ag = window.DataGlowAirGap;
+      if (ag && typeof ag.isAirGapActive === 'function') return ag.isAirGapActive() === true;
+    } catch (_e) {}
     return false;
   }
 
@@ -132802,6 +132893,120 @@ function buildRPowerPack(input) {
     host.appendChild(card);
   }
 
+  /* ---------------------------------------------------------------
+     Bundle 13: profiling that becomes proof
+     --------------------------------------------------------------- */
+
+  async function runSql(sql) {
+    var conn = null;
+    try { conn = window.duckdbConn; } catch (_e) {}
+    if (!conn || typeof conn.query !== 'function') throw new Error('no-engine');
+    var res = await conn.query(sql);
+    var rows = [];
+    try {
+      rows = typeof res.toArray === 'function'
+        ? res.toArray().map(function (r) { return typeof r.toJSON === 'function' ? r.toJSON() : r; })
+        : (Array.isArray(res) ? res : []);
+    } catch (_e2) { rows = []; }
+    return rows;
+  }
+
+  function activeTable() {
+    try {
+      var s = window.DATAGLOW_STATE;
+      if (s && Array.isArray(s.datasets) && s.datasets.length) {
+        var ds = s.datasets[s.activeDatasetIndex || 0] || s.datasets[0];
+        if (ds && (ds.table || ds.name)) return ds.table || ds.name;
+      }
+    } catch (_e) {}
+    return '';
+  }
+
+  /* One button, pressed by a person, which is the only thing in this panel that
+     executes anything. Everything it produces is a Proof Board tile carrying
+     the SQL that produced it, so "show the work" is a real link. */
+  function profileTable(statusHost) {
+    var eng = engine('DataGlowSqlDeepen');
+    var board = engine('DataGlowProofBoardUI');
+    var table = activeTable();
+
+    function say(text) {
+      statusHost.textContent = text;
+    }
+
+    if (!eng || typeof eng.summarizeToTiles !== 'function') {
+      say('The profiling engine is not mounted in this build.');
+      return;
+    }
+    if (!table) {
+      say('No table is loaded, so there is nothing to profile. Load a file first.');
+      return;
+    }
+    say('Profiling ' + table + '...');
+
+    runSql(eng.summarizeSql(table)).then(function (rows) {
+      var out = eng.summarizeToTiles({ table: table, rows: rows });
+      if (!out.tiles.length) {
+        say(out.headline);
+        return;
+      }
+      var added = 0;
+      if (board && typeof board.addTile === 'function') {
+        for (var i = 0; i < out.tiles.length; i++) {
+          try { if (board.addTile(out.tiles[i])) added++; } catch (_e) {}
+        }
+      }
+      say(added
+        ? out.headline + ' ' + added + ' tile' + (added === 1 ? '' : 's') + ' added to the Proof Board.'
+        : out.headline + ' The Proof Board is not mounted in this build, so nothing was added to it.');
+      toast(out.headline);
+    }, function (err) {
+      say(String(err && err.message) === 'no-engine'
+        ? 'DuckDB has not started in this page yet, so there is nothing to profile. Run a query first.'
+        : 'SUMMARIZE did not run against ' + table + '. The table may be empty or the engine may still be starting.');
+    });
+  }
+
+  function renderSqlDeepen(host) {
+    var eng = engine('DataGlowSqlDeepen');
+    if (!eng || typeof eng.buildSqlDeepen !== 'function') return;
+    var deep;
+    try { deep = eng.buildSqlDeepen(); } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Profile the table, and keep what it finds'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, deep.summarizeHonesty));
+    var row = el('div', { class: 'dg-pk-row' });
+    var btn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Run SUMMARIZE and add findings to the Proof Board');
+    var status = el('div', { class: 'dg-pk-note' }, activeTable()
+      ? 'Ready to profile ' + activeTable() + '.'
+      : 'No table is loaded yet.');
+    btn.addEventListener('click', function () { profileTable(status); });
+    row.appendChild(btn);
+    host.appendChild(row);
+    host.appendChild(status);
+
+    var q = engine('DataGlowCsvQuarantineUI');
+    if (q && typeof q.open === 'function') {
+      var qrow = el('div', { class: 'dg-pk-row' });
+      var qbtn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Show the last quarantined rows');
+      qbtn.addEventListener('click', function () {
+        var m = typeof q.model === 'function' ? q.model() : null;
+        if (m) q.open(m, null);
+        else toast('Nothing has been quarantined in this session. Every line of every file loaded so far parsed.');
+      });
+      qrow.appendChild(qbtn);
+      qrow.appendChild(el('span', { class: 'dg-pk-note' },
+        'Rows a CSV load could not parse are held out and listed rather than dropped silently.'));
+      host.appendChild(qrow);
+    }
+
+    host.appendChild(el('h4', {}, 'The shapes people rebuild from memory'));
+    for (var i = 0; i < deep.snippets.length; i++) {
+      codeCard(host, deep.snippets[i].title, deep.snippets[i].why, deep.snippets[i].sql,
+        deep.snippets[i].substitute, 'Query');
+    }
+  }
+
   function renderSql(host) {
     var pack = sqlPack();
     if (!pack) {
@@ -132813,6 +133018,8 @@ function buildRPowerPack(input) {
 
     host.appendChild(el('h4', {}, 'Not here at all'));
     bullets(host, pack.notSupported);
+
+    if (sqlDeepOn()) renderSqlDeepen(host);
 
     host.appendChild(el('h4', {}, 'Snippets'));
     topicChips(host, pack.topics);
@@ -132833,6 +133040,126 @@ function buildRPowerPack(input) {
       card.appendChild(el('pre', { class: 'dg-pk-code' }, 'DuckDB:   ' + d.duckdb + '\nPostgres: ' + d.postgres));
       host.appendChild(card);
     }
+  }
+
+  /* ---------------------------------------------------------------
+     Bundle 13: the import type guard, and the Power Query answer
+     --------------------------------------------------------------- */
+
+  function activeDataset() {
+    try {
+      var s = window.DATAGLOW_STATE;
+      if (s && Array.isArray(s.datasets) && s.datasets.length) {
+        return s.datasets[s.activeDatasetIndex || 0] || s.datasets[0];
+      }
+    } catch (_e) {}
+    return null;
+  }
+
+  function recordGuardReceipt(line) {
+    if (!line) return;
+    try {
+      var t = window.DataGlowTrustLedger;
+      if (t && typeof t.record === 'function') { t.record(line); }
+    } catch (_e) {}
+    try { console.log('[type guard receipt] ' + line.line); } catch (_e2) {}
+    try { window.DataGlowPowerPacksUI._lastGuardReceipt = line; } catch (_e3) {}
+  }
+
+  function renderTypeGuard(host) {
+    var eng = engine('DataGlowExcelTypeGuard');
+    if (!eng || typeof eng.detectTypeRisks !== 'function') return;
+
+    host.appendChild(el('h4', {}, 'Identifiers a spreadsheet eats'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, eng.TYPE_GUARD_HONESTY));
+
+    var results = el('div', {});
+    var row = el('div', { class: 'dg-pk-row' });
+    var btn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Check the loaded table');
+    btn.addEventListener('click', function () {
+      results.innerHTML = '';
+      var ds = activeDataset();
+      if (!ds || !Array.isArray(ds.rows) || !ds.rows.length) {
+        results.appendChild(el('p', { class: 'dg-pk-note' }, 'No table is loaded, so there is nothing to check.'));
+        return;
+      }
+      var det;
+      try { det = eng.detectTypeRisks({ columns: ds.columns, rows: ds.rows }); }
+      catch (_e) {
+        results.appendChild(el('p', { class: 'dg-pk-note' }, 'The guard could not read this table.'));
+        return;
+      }
+      results.appendChild(el('p', {}, det.headline));
+      if (!det.fired) {
+        recordGuardReceipt(eng.typeGuardReceiptLine(det, 'clean'));
+        return;
+      }
+      for (var i = 0; i < det.findings.length; i++) {
+        var f = det.findings[i];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, f.column + ': ' + f.label));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, f.detail));
+        card.appendChild(el('div', { class: 'dg-pk-note' },
+          f.matched + ' of ' + f.sampled + ' sampled cells (' + f.sharePercent + ' percent). For example: ' + f.examples.join(', ')));
+        results.appendChild(card);
+      }
+
+      // Preview, then confirm. Nothing is applied by looking.
+      var prev = eng.previewGuard(det, null);
+      var pv = el('div', { class: 'dg-pk-warn' });
+      pv.appendChild(el('b', {}, prev.summary));
+      for (var d = 0; d < prev.declined.length; d++) {
+        pv.appendChild(el('div', { class: 'dg-pk-note' }, prev.declined[d].column + ': ' + prev.declined[d].why));
+      }
+      results.appendChild(pv);
+
+      if (prev.steps.length) {
+        var actions = el('div', { class: 'dg-pk-row' });
+        var apply = el('button', { class: 'dg-pk-btn', type: 'button' }, prev.confirmPrompt);
+        apply.addEventListener('click', function () {
+          var cols = prev.steps.map(function (s) { return s.column; });
+          var applied = false;
+          var hell = engine('DataGlowExcelHellUI');
+          if (hell && typeof hell.open === 'function') {
+            // The repair panel owns apply and undo. This hands the columns over
+            // rather than mutating a dataset behind that panel's back.
+            try { window.DATAGLOW_TYPE_GUARD_HOLD = cols; hell.open(); applied = true; } catch (_e2) {}
+          }
+          recordGuardReceipt(eng.typeGuardReceiptLine(det, 'applied', cols));
+          toast(applied
+            ? 'Opened the repair panel with ' + cols.join(', ') + ' marked to hold as text. Confirm there to apply, and it is undoable.'
+            : 'Recorded that ' + cols.join(', ') + ' should be held as text. The repair panel is not mounted in this build, so apply it there when it is.');
+        });
+        var override = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Import unchanged');
+        override.addEventListener('click', function () {
+          recordGuardReceipt(eng.typeGuardReceiptLine(det, 'overridden', det.findings.map(function (f2) { return f2.column; })));
+          toast('Recorded as an override. The columns stay as they are and the receipt says who decided that.');
+        });
+        actions.appendChild(apply);
+        actions.appendChild(override);
+        results.appendChild(actions);
+      }
+    });
+    row.appendChild(btn);
+    host.appendChild(row);
+    host.appendChild(results);
+  }
+
+  function renderPowerQueryNote(host) {
+    var eng = engine('DataGlowPowerQueryNote');
+    if (!eng || typeof eng.buildPowerQueryNote !== 'function') return;
+    var pq;
+    try { pq = eng.buildPowerQueryNote(); } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Power Query'));
+    host.appendChild(el('p', {}, pq.note));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pq.detail));
+    var ul = el('ul', { class: 'dg-pk-ul' });
+    for (var i = 0; i < pq.equivalents.length; i++) {
+      ul.appendChild(el('li', {}, pq.equivalents[i].step + ': ' + pq.equivalents[i].here));
+    }
+    host.appendChild(ul);
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pq.handoff));
   }
 
   function renderExcel(host) {
@@ -132859,6 +133186,75 @@ function buildRPowerPack(input) {
       'It does not guess a repair and apply it. Every change is proposed, and refusing one is a normal outcome.',
       'It does not read a password-protected workbook, and it does not evaluate macros.',
     ]);
+
+    if (typeGuardOn()) renderTypeGuard(host);
+    if (pqNoteOn()) renderPowerQueryNote(host);
+  }
+
+  /* ---------------------------------------------------------------
+     Bundle 13: the probe, the packages it unlocks, and the Arrow status
+     --------------------------------------------------------------- */
+
+  function renderArrowStatus(host) {
+    var eng = engine('DataGlowArrowBridge');
+    if (!eng || typeof eng.buildArrowBridgeStatus !== 'function') return;
+    var probe = pythonProbe();
+    var status;
+    try {
+      status = eng.buildArrowBridgeStatus({
+        // DuckDB-WASM in this page materialises rows for the bridge rather than
+        // handing out an Arrow buffer, so this is false until that changes. It
+        // is written as an observation rather than a constant so the one place
+        // to change is here.
+        duckdbArrow: false,
+        pyarrow: probe.packages.pyarrow === true,
+        pythonReady: pythonRowLimit() > 0,
+        rowLimit: pythonRowLimit(),
+        rowCount: pythonRowCount(),
+      });
+    } catch (_e) { return; }
+
+    var warn = el('div', { class: 'dg-pk-warn' });
+    warn.appendChild(el('b', {}, status.label));
+    warn.appendChild(el('div', { class: 'dg-pk-note' }, status.detail));
+    for (var i = 0; i < status.missingPieces.length; i++) {
+      warn.appendChild(el('div', { class: 'dg-pk-note' }, 'Missing: ' + status.missingPieces[i] + '.'));
+    }
+    warn.appendChild(el('div', { class: 'dg-pk-note' }, status.neverUnlimited));
+    host.appendChild(warn);
+  }
+
+  function renderPythonDeepen(host) {
+    var eng = engine('DataGlowPythonDeepen');
+    if (!eng || typeof eng.buildPythonDeepen !== 'function') return;
+    var probe = pythonProbe();
+    var deep;
+    try {
+      deep = eng.buildPythonDeepen({ probed: probe.probed, packages: probe.packages, airGap: airGapActive() });
+    } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Beyond pandas'));
+    host.appendChild(el('p', {}, deep.headline));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, deep.honesty));
+    codeCard(host, 'Ask this session what it has', 'One line per package, so a missing one does not hide the others. Paste the printed answers into window.DATAGLOW_PY_PROBE to make this panel read them.', deep.probeCell, null, 'Probe cell');
+
+    if (arrowOn()) renderArrowStatus(host);
+
+    for (var i = 0; i < deep.recipes.length; i++) {
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+    }
+
+    if (deep.blocked.length) {
+      host.appendChild(el('h4', {}, 'Listed, but not runnable in this session'));
+      for (var j = 0; j < deep.blocked.length; j++) {
+        var b = deep.blocked[j];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, b.title));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, b.reason));
+        if (b.howToEnable) card.appendChild(el('div', { class: 'dg-pk-note' }, b.howToEnable));
+        host.appendChild(card);
+      }
+    }
   }
 
   function renderPython(host) {
@@ -132889,6 +133285,59 @@ function buildRPowerPack(input) {
       : pack.recipes;
     for (var i = 0; i < rows.length; i++) {
       codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell');
+    }
+
+    if (pyDeepOn()) renderPythonDeepen(host);
+  }
+
+  /* Bundle 13. dplyr and tidyr are never fetched by the runtime at startup, so
+     there is nothing in rCapabilities() that could answer for them; the only
+     honest source is a person running install.packages and reporting back,
+     the same probe shape the Python deepen pack uses. */
+  function rProbe() {
+    try {
+      var p = window.DATAGLOW_R_PROBE;
+      if (p && typeof p === 'object') return p;
+    } catch (_e) {}
+    return {};
+  }
+
+  function renderRDeepen(host) {
+    var eng = engine('DataGlowRDeepen');
+    if (!eng || typeof eng.buildRDeepen !== 'function') return;
+    var caps = rCapabilities();
+    var probe = rProbe();
+    var deep;
+    try {
+      deep = eng.buildRDeepen({
+        hasJsonlite: caps.hasJsonlite,
+        hasGgplot2: caps.hasGgplot2,
+        hasDplyr: probe.dplyr === true,
+        hasTidyr: probe.tidyr === true,
+        airGap: airGapActive(),
+        offline: (typeof navigator !== 'undefined' && navigator.onLine === false),
+      });
+    } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'Beyond base R'));
+    host.appendChild(el('p', {}, deep.headline));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, deep.honesty));
+
+    for (var i = 0; i < deep.recipes.length; i++) {
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+    }
+
+    if (deep.blocked.length) {
+      host.appendChild(el('h4', {}, 'Listed, but not runnable in this session'));
+      for (var j = 0; j < deep.blocked.length; j++) {
+        var b = deep.blocked[j];
+        var card = el('div', { class: 'dg-pk-card' });
+        card.appendChild(el('b', {}, b.title));
+        card.appendChild(el('div', { class: 'dg-pk-note' }, b.reason));
+        if (b.instead) card.appendChild(el('div', { class: 'dg-pk-note' }, 'Instead: ' + b.instead.title + '.'));
+        if (b.howToEnable) card.appendChild(el('div', { class: 'dg-pk-note' }, b.howToEnable));
+        host.appendChild(card);
+      }
     }
   }
 
@@ -132921,6 +133370,8 @@ function buildRPowerPack(input) {
         host.appendChild(card);
       }
     }
+
+    if (rDeepOn()) renderRDeepen(host);
   }
 
   function tabs() {
@@ -133039,6 +133490,2419 @@ function buildRPowerPack(input) {
   };
 })();
 /* ---- end js/polyglot/data-glow-power-packs-canvas.js ---- */
+
+/* ---- from js/polyglot/sql-deepen.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - SQL deepen: profiling that becomes proof, and the templates
+//            people rewrite from memory every time
+// ============================================================
+//
+// Two things sit in this file, and they are here together because they are the
+// same complaint from two directions.
+//
+// The first is SUMMARIZE. DuckDB will profile an entire table in one statement
+// and hand back a row per column with the null rate, the distinct count, the
+// min, the max and the quartiles already computed. Almost nobody uses it,
+// because it returns a wide result that reads like a debug dump and there is
+// nothing to do with it afterwards. So this turns the interesting parts of that
+// result into Proof Board tiles: a null rate that is high enough to change an
+// answer, a column that is entirely one value, a key that is not unique. Each
+// tile carries the SQL that produced it, so "show the work" is a real link and
+// not a label.
+//
+// WHY THE TILES ARE FILTERED RATHER THAN ONE PER COLUMN.
+// A forty-column table produces forty rows from SUMMARIZE, and a Proof Board
+// with forty tiles on it is a Proof Board nobody reads. The findings worth a
+// tile are the ones that would change what someone concludes: a column that is
+// mostly empty, a column with exactly one distinct value, a candidate key with
+// duplicates. Everything else stays in the profile table where it can be read
+// on demand.
+//
+// WHY EVERY TILE IS `gateBadge: 'unknown'`.
+// A profile finding is an observation, not an adjudication. The gates on the
+// Proof Board are a separate engine and this module does not get to speak for
+// them. Claiming `clear` here would be putting a stamp on something nothing
+// checked.
+//
+// The second thing is the template set. The existing pack has ten snippets
+// chosen for the first hour. These are the next tier: the shapes people know
+// exist, cannot remember the syntax for, and reconstruct badly from memory. An
+// ASOF join written by hand as a correlated subquery is correct and thirty
+// times slower; a PIVOT written by hand is a CASE expression per value that
+// silently omits any value nobody thought of.
+//
+// Pure data plus pure functions. No DOM, no engine, no network. Nothing here
+// runs a query; `summarizeSql()` returns the text of one.
+
+const SQL_DEEPEN_KIND = 'dataglow-sql-deepen';
+const SQL_DEEPEN_VERSION = 1;
+
+/**
+ * A null rate below this is normal in real data and a tile about it is noise.
+ * Above it, an average or a count computed over the column is describing a
+ * different population than the one the person thinks they are looking at.
+ */
+const NULL_RATE_TILE_THRESHOLD = 20;
+
+const SUMMARIZE_HONESTY =
+  'SUMMARIZE profiles the table DuckDB currently holds. If rows were dropped on load, or a filter is applied upstream, this describes what is in the table and not what was in the file.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function num(v) {
+  if (typeof v === 'number' && isFinite(v)) return v;
+  if (typeof v === 'bigint') return Number(v);
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v.replace(/[%,]/g, ''));
+    if (isFinite(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * Quote an identifier the DuckDB way, doubling any embedded quote.
+ *
+ * A table name arriving from a spreadsheet tab can contain a space, a hyphen or
+ * a quote, and every one of those turns an unquoted statement into either a
+ * parse error or, worse, a statement that parses as something else.
+ */
+function quoteIdent(name) {
+  return '"' + String(name == null ? '' : name).replace(/"/g, '""') + '"';
+}
+
+/** The profiling statement for one table. */
+function summarizeSql(tableName) {
+  return 'SUMMARIZE ' + quoteIdent(tableName) + ';';
+}
+
+/** The statement behind a single null-rate tile, so the tile can show its work. */
+function nullRateSql(tableName, column) {
+  const t = quoteIdent(tableName);
+  const c = quoteIdent(column);
+  return 'SELECT count(*) AS rows,\n'
+    + '       count(*) FILTER (WHERE ' + c + ' IS NULL) AS missing,\n'
+    + '       round(100.0 * count(*) FILTER (WHERE ' + c + ' IS NULL) / nullif(count(*), 0), 2) AS pct_missing\n'
+    + 'FROM ' + t + ';';
+}
+
+/** The statement behind a distinctness tile. */
+function distinctnessSql(tableName, column) {
+  const t = quoteIdent(tableName);
+  const c = quoteIdent(column);
+  return 'SELECT count(*) AS rows,\n'
+    + '       count(DISTINCT ' + c + ') AS distinct_values\n'
+    + 'FROM ' + t + ';';
+}
+
+/**
+ * Read one SUMMARIZE row into the fields this module needs.
+ *
+ * DuckDB has changed the shape of this result between versions and the numeric
+ * columns come back as strings in some builds and as BigInt in others, so every
+ * field is looked up under several names and coerced rather than trusted.
+ */
+function readSummarizeRow(row) {
+  if (!isPlainObject(row)) return null;
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, k) && row[k] != null) return row[k];
+    }
+    return null;
+  };
+  const column = str(pick('column_name', 'column', 'name'));
+  if (!column) return null;
+  return {
+    column,
+    type: str(pick('column_type', 'type')) || 'unknown',
+    nullPercentage: num(pick('null_percentage', 'null_pct', 'nulls')),
+    approxUnique: num(pick('approx_unique', 'approx_unique_count', 'distinct')),
+    count: num(pick('count', 'row_count')),
+    min: pick('min'),
+    max: pick('max'),
+  };
+}
+
+/**
+ * Turn a SUMMARIZE result into Proof Board tiles.
+ *
+ * Returns tiles in the shape `normalizeTile()` on the Proof Board expects, so
+ * the caller passes them straight to `addTile` without reshaping anything.
+ *
+ * @param {{table?:string, rows?:Array, columns?:Array, rowCount?:number}} [input]
+ */
+function summarizeToTiles(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const table = str(inp.table) || 'table';
+  const rows = Array.isArray(inp.rows) ? inp.rows : [];
+  const profile = rows.map(readSummarizeRow).filter(Boolean);
+
+  const tiles = [];
+  const findings = [];
+
+  if (!profile.length) {
+    return {
+      kind: SQL_DEEPEN_KIND,
+      table,
+      profiled: 0,
+      tiles: [],
+      findings: [],
+      honesty: SUMMARIZE_HONESTY,
+      headline: rows.length
+        ? 'SUMMARIZE returned rows this build could not read, so no tile was built from them.'
+        : 'Nothing to profile. SUMMARIZE returned no rows, which means the table has no columns or does not exist yet.',
+    };
+  }
+
+  const totalRows = num(inp.rowCount) != null ? num(inp.rowCount) : (profile[0].count != null ? profile[0].count : null);
+
+  for (const p of profile) {
+    if (p.nullPercentage != null && p.nullPercentage >= NULL_RATE_TILE_THRESHOLD) {
+      findings.push({ kind: 'null_rate', column: p.column, value: p.nullPercentage });
+      tiles.push({
+        id: 'summarize-null-' + p.column,
+        title: 'Missing values in ' + p.column,
+        value: Math.round(p.nullPercentage * 100) / 100,
+        unit: '%',
+        sqlOrCode: nullRateSql(table, p.column),
+        language: 'sql',
+        engine: 'duckdb-summarize',
+        gateBadge: 'unknown',
+        checksSummary: 'Read from SUMMARIZE ' + table + '. An average over this column describes the '
+          + (Math.round((100 - p.nullPercentage) * 10) / 10) + ' percent that is present, not the whole table.',
+        sourceCols: [p.column],
+      });
+    }
+
+    if (p.approxUnique === 1 && totalRows != null && totalRows > 1) {
+      findings.push({ kind: 'constant', column: p.column, value: 1 });
+      tiles.push({
+        id: 'summarize-constant-' + p.column,
+        title: p.column + ' is the same value in every row',
+        value: 1,
+        unit: 'distinct value',
+        sqlOrCode: distinctnessSql(table, p.column),
+        language: 'sql',
+        engine: 'duckdb-summarize',
+        gateBadge: 'unknown',
+        checksSummary: 'A column with one distinct value cannot explain variation in anything, and grouping by it produces one group.',
+        sourceCols: [p.column],
+      });
+    }
+
+    if (p.approxUnique != null && totalRows != null && totalRows > 0
+        && p.approxUnique >= totalRows && p.nullPercentage === 0) {
+      findings.push({ kind: 'candidate_key', column: p.column, value: p.approxUnique });
+      tiles.push({
+        id: 'summarize-key-' + p.column,
+        title: p.column + ' looks like a key',
+        value: p.approxUnique,
+        unit: 'distinct values',
+        sqlOrCode: distinctnessSql(table, p.column),
+        language: 'sql',
+        engine: 'duckdb-summarize',
+        gateBadge: 'unknown',
+        checksSummary: 'Distinct count matches the row count and nothing is missing, so a join on this column will not fan out. SUMMARIZE reports an approximate distinct count, so confirm before relying on it.',
+        sourceCols: [p.column],
+      });
+    }
+  }
+
+  return {
+    kind: SQL_DEEPEN_KIND,
+    table,
+    profiled: profile.length,
+    profile,
+    tiles,
+    findings,
+    honesty: SUMMARIZE_HONESTY,
+    headline: tiles.length
+      ? 'Profiled ' + profile.length + ' column' + (profile.length === 1 ? '' : 's') + ' and found '
+        + tiles.length + ' thing' + (tiles.length === 1 ? '' : 's') + ' worth a tile.'
+      : 'Profiled ' + profile.length + ' column' + (profile.length === 1 ? '' : 's')
+        + '. Nothing crossed the threshold for a tile, which is the good outcome.',
+  };
+}
+
+/**
+ * The next tier of templates.
+ *
+ * Same shape as SQL_SNIPPETS in the base pack, so the same renderer takes both
+ * and neither has to know about the other.
+ */
+const SQL_DEEPEN_SNIPPETS = Object.freeze([
+  Object.freeze({
+    id: 'qualify-top-n',
+    topic: 'Windows',
+    title: 'Top N per group, with the N in one place',
+    why: 'The rank goes in QUALIFY rather than a subquery, so changing three to ten is one edit and the row order is not accidentally load-bearing.',
+    substitute: ['your_table', 'region', 'amount'],
+    sql: 'SELECT *\nFROM your_table\nQUALIFY dense_rank() OVER (PARTITION BY region ORDER BY amount DESC) <= 3\nORDER BY region, amount DESC;',
+  }),
+  Object.freeze({
+    id: 'asof-join',
+    topic: 'Joins',
+    title: 'ASOF join: the most recent match at or before each row',
+    why: 'Price at the time of trade, exchange rate on the day, status as of the event. Written by hand this is a correlated subquery that is correct and far slower.',
+    substitute: ['events', 'rates', 'ts', 'rate'],
+    // Both sides need a time key, and the inequality goes on that key. Without
+    // one there is nothing for ASOF to be "as of" and DuckDB rejects the join.
+    sql: '-- Both tables need a time column, and the ASOF condition is the inequality on it.\n'
+      + '-- The right side should be sorted by that column for this to be cheap.\n'
+      + 'SELECT e.*, r.rate\nFROM events e\nASOF LEFT JOIN rates r\n  ON e.ts >= r.ts;',
+  }),
+  Object.freeze({
+    id: 'pivot-wide',
+    topic: 'Reshaping',
+    title: 'PIVOT: one column of values becomes many columns',
+    why: 'The shape a stakeholder asks for. DuckDB discovers the column list from the data, so a value nobody anticipated still gets a column.',
+    substitute: ['your_table', 'month', 'amount', 'region'],
+    sql: 'PIVOT your_table\n  ON month\n  USING sum(amount)\n  GROUP BY region;',
+  }),
+  Object.freeze({
+    id: 'unpivot-wide',
+    topic: 'Reshaping',
+    title: 'UNPIVOT: many columns become one column of values',
+    why: 'The inverse, and the one that comes up more often, because the file already arrived wide.',
+    substitute: ['your_table', 'region'],
+    sql: 'UNPIVOT your_table\n  ON COLUMNS(* EXCLUDE (region))\n  INTO NAME period VALUE amount;',
+  }),
+  Object.freeze({
+    id: 'group-by-all',
+    topic: 'Grouping',
+    title: 'GROUP BY ALL, so the group list cannot drift from the select list',
+    why: 'The bug this removes is adding a column to SELECT and forgetting to add it to GROUP BY, which in DuckDB is an error and in some engines is a silently wrong answer.',
+    substitute: ['your_table', 'region', 'dept', 'amount'],
+    sql: 'SELECT region,\n       dept,\n       count(*) AS rows,\n       sum(amount) AS total\nFROM your_table\nGROUP BY ALL\nORDER BY ALL;',
+  }),
+  Object.freeze({
+    id: 'select-exclude',
+    topic: 'Column selection',
+    title: 'Everything except a few columns',
+    why: 'Reading a wide table without the three columns that make it unreadable, and without typing the other forty by name.',
+    substitute: ['your_table', 'ssn', 'notes'],
+    sql: 'SELECT * EXCLUDE (ssn, notes)\nFROM your_table\nLIMIT 50;',
+  }),
+  Object.freeze({
+    id: 'select-replace',
+    topic: 'Column selection',
+    title: 'Rewrite one column and keep the rest of the star',
+    why: 'Trimming or upper-casing one field without turning a star into an explicit column list that then rots.',
+    substitute: ['your_table', 'name'],
+    sql: 'SELECT * REPLACE (trim(name) AS name)\nFROM your_table\nLIMIT 50;',
+  }),
+  Object.freeze({
+    id: 'moving-average',
+    topic: 'Windows',
+    title: 'Moving average over a fixed number of rows',
+    why: 'The rolling number people plot. The frame is stated explicitly, because the default frame is not what most people assume it is.',
+    substitute: ['your_table', 'month', 'amount'],
+    sql: 'SELECT month,\n       amount,\n       avg(amount) OVER (\n         ORDER BY month\n         ROWS BETWEEN 2 PRECEDING AND CURRENT ROW\n       ) AS moving_avg_3\nFROM your_table\nORDER BY month;',
+  }),
+  Object.freeze({
+    id: 'moving-window-range',
+    topic: 'Windows',
+    title: 'Trailing 30 days, by time rather than by row count',
+    why: 'ROWS counts rows and RANGE counts time. With gaps in the data these give different answers, and the time one is almost always what was meant.',
+    substitute: ['your_table', 'ts', 'amount'],
+    sql: 'SELECT ts,\n       sum(amount) OVER (\n         ORDER BY ts\n         RANGE BETWEEN INTERVAL 30 DAYS PRECEDING AND CURRENT ROW\n       ) AS trailing_30d\nFROM your_table\nORDER BY ts;',
+  }),
+  Object.freeze({
+    id: 'share-of-total',
+    topic: 'Windows',
+    title: 'Each row as a share of its group',
+    why: 'Percentages that add to a hundred within a group, without a second pass over the table.',
+    substitute: ['your_table', 'region', 'amount'],
+    sql: 'SELECT region,\n       amount,\n       round(100.0 * amount / sum(amount) OVER (PARTITION BY region), 2) AS pct_of_region\nFROM your_table\nORDER BY region, pct_of_region DESC;',
+  }),
+  Object.freeze({
+    id: 'summarize-profile',
+    topic: 'Data quality',
+    title: 'Profile every column, then keep the interesting rows',
+    why: 'The statement behind the profile tiles. Run it directly when you want the whole picture rather than the findings.',
+    substitute: ['your_table'],
+    sql: 'SELECT column_name, column_type, null_percentage, approx_unique, min, max\n'
+      + 'FROM (SUMMARIZE your_table)\n'
+      + 'ORDER BY null_percentage DESC;',
+  }),
+]);
+
+/** Distinct topics across the deepened set, in first-seen order. */
+function deepenTopics() {
+  const out = [];
+  for (const s of SQL_DEEPEN_SNIPPETS) {
+    if (out.indexOf(s.topic) < 0) out.push(s.topic);
+  }
+  return out;
+}
+
+function listDeepenSnippets(topic) {
+  const t = str(topic);
+  if (!t) return SQL_DEEPEN_SNIPPETS.slice();
+  return SQL_DEEPEN_SNIPPETS.filter(s => s.topic === t);
+}
+
+function buildSqlDeepen() {
+  return {
+    kind: SQL_DEEPEN_KIND,
+    version: SQL_DEEPEN_VERSION,
+    snippets: SQL_DEEPEN_SNIPPETS,
+    topics: deepenTopics(),
+    summarizeHonesty: SUMMARIZE_HONESTY,
+    nullRateThreshold: NULL_RATE_TILE_THRESHOLD,
+    // Copy, then confirm, then run. The base pack never runs anything and this
+    // does not change that: profiling is the one action here and it is a button
+    // the person presses, not something a recipe triggers on insert.
+    interactionNote:
+      'Snippets are copied, never run for you. Profiling is the one thing this pack executes, and only when you press the button.',
+  };
+}
+  window.DataGlowSqlDeepen = {
+    SQL_DEEPEN_KIND: SQL_DEEPEN_KIND,
+    SQL_DEEPEN_VERSION: SQL_DEEPEN_VERSION,
+    NULL_RATE_TILE_THRESHOLD: NULL_RATE_TILE_THRESHOLD,
+    SUMMARIZE_HONESTY: SUMMARIZE_HONESTY,
+    SQL_DEEPEN_SNIPPETS: SQL_DEEPEN_SNIPPETS,
+    quoteIdent: quoteIdent,
+    summarizeSql: summarizeSql,
+    nullRateSql: nullRateSql,
+    distinctnessSql: distinctnessSql,
+    readSummarizeRow: readSummarizeRow,
+    summarizeToTiles: summarizeToTiles,
+    deepenTopics: deepenTopics,
+    listDeepenSnippets: listDeepenSnippets,
+    buildSqlDeepen: buildSqlDeepen,
+  };
+})();
+/* ---- end js/polyglot/sql-deepen.js ---- */
+/* ---- from js/intelligence/excel-type-guard.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Excel type guard: identifiers a spreadsheet already destroyed
+// ============================================================
+//
+// In 2016 a study found that roughly a fifth of published genomics papers with
+// supplementary spreadsheets contained gene names that Excel had silently
+// converted to dates. SEPT2 became 2-Sep. MARCH1 became 1-Mar. The authors did
+// not do anything wrong; they opened a file. In 2020 the gene naming committee
+// renamed the genes, because renaming twenty-seven genes turned out to be
+// easier than changing Excel.
+//
+// That is the famous case. The same coercion eats a lot of other things:
+// part numbers like 3-10 or 1E5, ISBNs and account codes that lose a leading
+// zero, phone numbers, postcodes, version strings like 1.10 that become 1.1.
+//
+// WHAT THIS CAN AND CANNOT SEE.
+// By the time a value reaches this product it is usually already a string, and
+// the damage, if it happened, happened in Excel before the file was saved. So
+// there are two different findings here and they are not the same claim:
+//
+//   `already_coerced`  a column of identifiers where some cells now look like
+//                      dates or scientific notation. The conversion has already
+//                      happened upstream and the original text may be gone.
+//   `at_risk`          a column of identifiers that would be converted if this
+//                      file were opened in a spreadsheet and saved. Nothing is
+//                      wrong yet.
+//
+// Saying "we fixed your gene names" would be a lie in the first case, because
+// 2-Sep does not carry enough information to know whether it was SEPT2 or
+// SEPT02. So the guard names the column, shows the cells, and offers to keep
+// the column as text. Recovering the original value is the person's call and
+// sometimes it is not possible at all, which is worth saying out loud.
+//
+// WHY IT IS A PREVIEW AND A CONFIRM.
+// Forcing a column to text is the right answer often and not always: a column
+// of real dates that happens to be named something gene-like should stay a
+// date. The detector is a heuristic and heuristics that apply themselves are
+// how a repair tool becomes a thing people turn off.
+//
+// Pure. No DOM, no file handle, no network. Rows in, findings out.
+
+const TYPE_GUARD_KIND = 'dataglow-excel-type-guard';
+const TYPE_GUARD_VERSION = 1;
+
+/** Below this share of matching cells a column is a coincidence, not a pattern. */
+const GUARD_MIN_SHARE = 0.15;
+
+/** Cells sampled per column. Enough to be confident, small enough to be instant. */
+const GUARD_SAMPLE = 500;
+
+/** How many offending cells a finding carries as evidence. */
+const GUARD_EXAMPLES = 8;
+
+const TYPE_GUARD_HONESTY =
+  'This finds columns a spreadsheet would convert, and columns where it looks like one already did. It does not undo a conversion that happened before the file reached this page, because the original text is not in the file any more.';
+
+/**
+ * Values that look like what Excel turns an identifier into.
+ *
+ * `1-Mar` / `Mar-1` is the gene case. A bare `1.10E+05` is the scientific
+ * notation case, which eats long numeric identifiers.
+ */
+const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec';
+const COERCED_DATE_RE = new RegExp('^(?:(\\d{1,2})[-/](' + MONTHS + ')|(' + MONTHS + ')[-/](\\d{1,2}))$', 'i');
+const SCIENTIFIC_RE = /^[+-]?\d(?:\.\d+)?[eE][+-]?\d+$/;
+
+/** Identifiers a spreadsheet would eat on the next save. */
+const AT_RISK_DATE_RE = new RegExp('^(?:' + MONTHS + ')[0-9]{1,2}$|^[0-9]{1,2}(?:' + MONTHS + ')$', 'i');
+const AT_RISK_SCIENTIFIC_RE = /^[0-9]+[eE][0-9]+$/;
+const AT_RISK_LEADING_ZERO_RE = /^0[0-9]{3,}$/;
+const AT_RISK_RATIO_RE = /^[0-9]{1,2}[-/][0-9]{1,2}$/;
+
+const RULES = Object.freeze([
+  Object.freeze({
+    id: 'coerced-date',
+    severity: 'already_coerced',
+    test: v => COERCED_DATE_RE.test(v),
+    label: 'Values that look like a spreadsheet already turned them into dates',
+    detail: 'Cells such as 1-Mar are what Excel writes when it decides an identifier like MARCH1 was a date. The original text is not recoverable from the converted value, so this is a finding rather than a repair.',
+  }),
+  Object.freeze({
+    id: 'coerced-scientific',
+    severity: 'already_coerced',
+    test: v => SCIENTIFIC_RE.test(v),
+    label: 'Values already written in scientific notation',
+    detail: 'A long numeric identifier stored as 1.23E+11 has lost its final digits. Widening the column does not bring them back; the file has to be produced again with the column as text.',
+  }),
+  Object.freeze({
+    id: 'risk-gene-date',
+    severity: 'at_risk',
+    test: v => AT_RISK_DATE_RE.test(v),
+    label: 'Identifiers a spreadsheet would convert to dates',
+    detail: 'Values of the SEPT2 or 2SEP shape are converted on open by default in most spreadsheet software. They are intact here. They will not survive a round trip through a spreadsheet unless the column is imported as text.',
+  }),
+  Object.freeze({
+    id: 'risk-scientific',
+    severity: 'at_risk',
+    test: v => AT_RISK_SCIENTIFIC_RE.test(v),
+    label: 'Identifiers a spreadsheet would read as scientific notation',
+    detail: 'A code like 1E5 is read as one hundred thousand. Intact here, lost on the next spreadsheet round trip.',
+  }),
+  Object.freeze({
+    id: 'risk-leading-zero',
+    severity: 'at_risk',
+    test: v => AT_RISK_LEADING_ZERO_RE.test(v),
+    label: 'Codes with a leading zero',
+    detail: 'Account numbers, postcodes and product codes lose the leading zero when a column is read as a number. Keeping the column as text preserves it.',
+  }),
+  Object.freeze({
+    id: 'risk-ratio-date',
+    severity: 'at_risk',
+    test: v => AT_RISK_RATIO_RE.test(v),
+    label: 'Values of the form 3-10 that a spreadsheet reads as a date',
+    detail: 'Part numbers, ratios and score lines in this shape become dates on open. Intact here.',
+  }),
+]);
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function cellText(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'bigint' || typeof v === 'boolean') return String(v);
+  return '';
+}
+
+function columnValues(rows, index, key) {
+  const out = [];
+  const cap = Math.min(rows.length, GUARD_SAMPLE);
+  for (let i = 0; i < cap; i++) {
+    const row = rows[i];
+    let v;
+    if (Array.isArray(row)) v = row[index];
+    else if (isPlainObject(row)) v = row[key];
+    const t = cellText(v);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Scan one column.
+ *
+ * Returns null when nothing crosses the threshold, so a caller can map and
+ * filter without a shape check per column.
+ */
+function scanColumn(name, values) {
+  const vals = Array.isArray(values) ? values.map(cellText).filter(Boolean) : [];
+  if (!vals.length) return null;
+
+  let best = null;
+  for (const rule of RULES) {
+    const hits = [];
+    for (const v of vals) {
+      if (rule.test(v)) hits.push(v);
+    }
+    if (!hits.length) continue;
+    const share = hits.length / vals.length;
+    if (share < GUARD_MIN_SHARE) continue;
+    // `already_coerced` outranks `at_risk` regardless of share: damage that has
+    // happened matters more than damage that might.
+    const better = !best
+      || (best.severity === 'at_risk' && rule.severity === 'already_coerced')
+      || (best.severity === rule.severity && share > best.share);
+    if (better) {
+      best = {
+        column: name,
+        ruleId: rule.id,
+        severity: rule.severity,
+        label: rule.label,
+        detail: rule.detail,
+        matched: hits.length,
+        sampled: vals.length,
+        share,
+        sharePercent: Math.round(share * 1000) / 10,
+        examples: hits.slice(0, GUARD_EXAMPLES),
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * Scan a dataset.
+ *
+ * Accepts the two row shapes this product carries: arrays of arrays with a
+ * separate `columns` list, and arrays of objects.
+ *
+ * @param {{columns?:Array<string>, rows?:Array}} [dataset]
+ */
+function detectTypeRisks(dataset) {
+  const ds = isPlainObject(dataset) ? dataset : {};
+  const rows = Array.isArray(ds.rows) ? ds.rows : [];
+  let columns = Array.isArray(ds.columns) ? ds.columns.slice() : [];
+  if (!columns.length && rows.length && isPlainObject(rows[0])) columns = Object.keys(rows[0]);
+
+  const findings = [];
+  for (let i = 0; i < columns.length; i++) {
+    const name = typeof columns[i] === 'string' ? columns[i] : String(columns[i] && columns[i].name || i);
+    const found = scanColumn(name, columnValues(rows, i, name));
+    if (found) findings.push(found);
+  }
+
+  const coerced = findings.filter(f => f.severity === 'already_coerced');
+  const atRisk = findings.filter(f => f.severity === 'at_risk');
+
+  return {
+    kind: TYPE_GUARD_KIND,
+    version: TYPE_GUARD_VERSION,
+    scannedColumns: columns.length,
+    sampledRows: Math.min(rows.length, GUARD_SAMPLE),
+    totalRows: rows.length,
+    findings,
+    alreadyCoerced: coerced,
+    atRisk,
+    fired: findings.length > 0,
+    honesty: TYPE_GUARD_HONESTY,
+    headline: !findings.length
+      ? 'No column looks like a spreadsheet ate it, and none is at risk of that on the next round trip.'
+      : coerced.length
+        ? coerced.length + ' column' + (coerced.length === 1 ? '' : 's') + ' contain values that a spreadsheet appears to have already converted'
+        : atRisk.length + ' column' + (atRisk.length === 1 ? '' : 's') + ' hold identifiers a spreadsheet would convert on the next save',
+  };
+}
+
+/**
+ * What applying the guard would change, before it changes it.
+ *
+ * The only action offered is keeping the column as text, because that is the
+ * only action that is safe in every case. Reversing a conversion is guesswork
+ * and this module does not guess.
+ */
+function previewGuard(detection, columnNames) {
+  const det = isPlainObject(detection) ? detection : { findings: [] };
+  const wanted = Array.isArray(columnNames) && columnNames.length
+    ? columnNames
+    : (det.findings || []).filter(f => f.severity === 'at_risk').map(f => f.column);
+
+  const steps = [];
+  const declined = [];
+  for (const f of (det.findings || [])) {
+    if (wanted.indexOf(f.column) < 0) continue;
+    if (f.severity === 'already_coerced') {
+      declined.push({
+        column: f.column,
+        why: 'The conversion is already in the file. Forcing this column to text preserves the converted value, it does not restore the original one.',
+      });
+      continue;
+    }
+    steps.push({
+      op: 'holdAsText',
+      column: f.column,
+      why: f.label,
+      affects: f.matched,
+    });
+  }
+
+  return {
+    kind: TYPE_GUARD_KIND,
+    steps,
+    declined,
+    // Nothing has happened yet. The caller has to say so separately.
+    applied: false,
+    reversible: true,
+    summary: steps.length
+      ? 'Hold ' + steps.length + ' column' + (steps.length === 1 ? '' : 's') + ' as text. No cell value changes; the type does.'
+      : 'Nothing to apply. Either no column is at risk, or the only findings are conversions that already happened.',
+    confirmRequired: true,
+    confirmPrompt: steps.length
+      ? 'Keep ' + steps.map(s => s.column).join(', ') + ' as text?'
+      : '',
+  };
+}
+
+/**
+ * The receipt line.
+ *
+ * Written when the guard fires and the person accepts, and written when the
+ * person overrides it. An override is a decision and a decision without a
+ * record is the thing this module exists to prevent.
+ *
+ * @param {object} detection
+ * @param {'applied'|'overridden'|'clean'} outcome
+ * @param {Array<string>} [columns]
+ */
+function typeGuardReceiptLine(detection, outcome, columns) {
+  const det = isPlainObject(detection) ? detection : {};
+  const cols = Array.isArray(columns) && columns.length
+    ? columns
+    : (det.findings || []).map(f => f.column);
+  const list = cols.join(', ');
+
+  if (outcome === 'clean' || !det.fired) {
+    return {
+      kind: TYPE_GUARD_KIND,
+      outcome: 'clean',
+      severity: 'info',
+      line: 'Import type guard ran over ' + (det.scannedColumns || 0)
+        + ' column(s) and found nothing a spreadsheet would have converted.',
+    };
+  }
+  if (outcome === 'overridden') {
+    return {
+      kind: TYPE_GUARD_KIND,
+      outcome: 'overridden',
+      severity: 'caution',
+      line: 'Import type guard flagged ' + list + ' and the person chose to import unchanged. '
+        + 'Values in those columns may be read as dates or numbers downstream.',
+      columns: cols,
+    };
+  }
+  return {
+    kind: TYPE_GUARD_KIND,
+    outcome: 'applied',
+    severity: 'info',
+    line: 'Import type guard held ' + list + ' as text, confirmed by the person importing. '
+      + 'Cell values are unchanged; only the column type was pinned.',
+    columns: cols,
+  };
+}
+  window.DataGlowExcelTypeGuard = {
+    TYPE_GUARD_KIND: TYPE_GUARD_KIND,
+    TYPE_GUARD_VERSION: TYPE_GUARD_VERSION,
+    GUARD_MIN_SHARE: GUARD_MIN_SHARE,
+    GUARD_SAMPLE: GUARD_SAMPLE,
+    GUARD_EXAMPLES: GUARD_EXAMPLES,
+    TYPE_GUARD_HONESTY: TYPE_GUARD_HONESTY,
+    scanColumn: scanColumn,
+    detectTypeRisks: detectTypeRisks,
+    previewGuard: previewGuard,
+    typeGuardReceiptLine: typeGuardReceiptLine,
+  };
+})();
+/* ---- end js/intelligence/excel-type-guard.js ---- */
+/* ---- from js/polyglot/python-deepen.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Python deepen: probing for packages instead of assuming
+// ============================================================
+//
+// Bundle 11 shipped a Polars scaffold whose availability answer was a hard-coded
+// `false` in the panel that displayed it. That was the honest answer at the time
+// and it was honest for the wrong reason: nobody had asked. A constant that
+// happens to be true is indistinguishable from a constant that has gone stale,
+// and the second one is how a product ends up telling people a package is
+// missing while it sits in the interpreter.
+//
+// So this file is a probe and the recipes that the probe unlocks. The probe is
+// pure: it takes the result of an import attempt and turns it into a state. The
+// caller runs the import, because running Python is not this module's job.
+//
+// WHY THE PROBE SNIPPET IS ONE LINE PER PACKAGE AND NOT A TRY BLOCK OVER ALL OF
+// THEM. A single try that imports four packages reports the first failure and
+// nothing about the other three, so a session with statsmodels but not sklearn
+// looks identical to a session with neither.
+//
+// WHY THERE IS AN "IT IS NOT HERE, AND HERE IS WHY" PATH RATHER THAN A HIDDEN
+// TAB. Pyodide can install a pure-Python wheel from PyPI at runtime, which means
+// the honest sentence about polars is not "no" but "not loaded, and loading it
+// is a download this build does not do for you, and under Air-Gap will not do at
+// all". Hiding the recipes would make that a mystery instead of a decision.
+//
+// Pure data plus pure functions. No Pyodide handle, no DOM, no network.
+
+const PY_DEEPEN_KIND = 'dataglow-python-deepen';
+const PY_DEEPEN_VERSION = 1;
+
+/** Packages this file has recipes for, beyond the ones the base build carries. */
+const PROBED_PACKAGES = Object.freeze(['polars', 'sklearn', 'statsmodels', 'pyarrow']);
+
+/**
+ * The cell that answers the question, run once per session.
+ *
+ * Emits one line per package so a partial answer is still a full answer about
+ * the packages it covers.
+ */
+const PROBE_CELL = [
+  '# Ask the interpreter what it actually has. One line per package, so a',
+  '# missing one does not hide the others.',
+  'import importlib.util as _u',
+  'for _name in [' + PROBED_PACKAGES.map(n => '"' + n + '"').join(', ') + ']:',
+  '    print(_name, _u.find_spec(_name) is not None)',
+].join('\n');
+
+const PY_DEEPEN_HONESTY =
+  'Nothing here installs a package. The recipes for a package that is not loaded are shown with the reason rather than hidden, because a hidden recipe reads as a feature the product does not have.';
+
+const MISSING_REASON = Object.freeze({
+  polars:
+    'polars is not loaded in this session. Pyodide can fetch a wheel at runtime, which is a download over the network, so this build does not do it for you and Air-Gap mode blocks it outright.',
+  sklearn:
+    'scikit-learn is not loaded in this session. It is a large compiled package and pulling it in doubles the size of what a first query has to wait for, so it is not in the default set.',
+  statsmodels:
+    'statsmodels is not loaded in this session. Same reason as scikit-learn: it is not free to load and most sessions never touch it.',
+  pyarrow:
+    'pyarrow is not loaded in this session, so the Arrow transfer path is unavailable and the bridge falls back to its JSON form.',
+});
+
+const ENABLE_HINT = Object.freeze({
+  polars: 'To try it in a session that has network access: await micropip.install("polars") in a cell, then re-run the probe.',
+  sklearn: 'To try it: await micropip.install("scikit-learn") in a cell. Expect a large download.',
+  statsmodels: 'To try it: await micropip.install("statsmodels") in a cell. Expect a large download.',
+  pyarrow: 'To try it: await micropip.install("pyarrow") in a cell, then re-run the probe.',
+});
+
+/**
+ * Recipes grouped by the package they need.
+ *
+ * `needs: 'pandas'` is the base build and is always available, which is why the
+ * base pack does not carry a needs field at all.
+ */
+const PY_DEEPEN_RECIPES = Object.freeze([
+  Object.freeze({
+    id: 'polars-filter-group',
+    needs: 'polars',
+    topic: 'Polars',
+    title: 'Filter, group and aggregate',
+    answers: 'The group-by, in polars expressions rather than pandas indexing.',
+    code: 'import polars as pl\n'
+      + 'lf = pl.from_pandas(df).lazy()\n'
+      + 'out = (\n'
+      + '    lf.filter(pl.col("amount") > 0)\n'
+      + '      .group_by("category")\n'
+      + '      .agg([\n'
+      + '          pl.len().alias("rows"),\n'
+      + '          pl.col("amount").sum().alias("total"),\n'
+      + '          pl.col("amount").mean().alias("mean"),\n'
+      + '      ])\n'
+      + '      .sort("total", descending=True)\n'
+      + ')\n'
+      + 'out.collect()',
+  }),
+  Object.freeze({
+    id: 'polars-join',
+    needs: 'polars',
+    topic: 'Polars',
+    title: 'Join and see what did not match',
+    answers: 'How many rows found a partner, without a merge indicator column.',
+    code: 'import polars as pl\n'
+      + 'left = pl.from_pandas(df)\n'
+      + 'right = pl.from_pandas(other)\n'
+      + 'joined = left.join(right, on="id", how="left")\n'
+      + 'print("left rows:", left.height, "joined rows:", joined.height)\n'
+      + 'unmatched = left.join(right, on="id", how="anti")\n'
+      + 'print("no match on the right:", unmatched.height)\n'
+      + 'unmatched.head(10)',
+  }),
+  Object.freeze({
+    id: 'polars-with-columns',
+    needs: 'polars',
+    topic: 'Polars',
+    title: 'Derive several columns in one pass',
+    answers: 'Chained transforms that read as steps instead of as nested assignments.',
+    code: 'import polars as pl\n'
+      + 'out = (\n'
+      + '    pl.from_pandas(df)\n'
+      + '      .with_columns([\n'
+      + '          pl.col("amount").cast(pl.Float64).alias("amount"),\n'
+      + '          (pl.col("amount") / pl.col("amount").sum().over("category")).alias("share_of_category"),\n'
+      + '          pl.col("name").str.strip_chars().str.to_lowercase().alias("name_key"),\n'
+      + '      ])\n'
+      + ')\n'
+      + 'out.head(10)',
+  }),
+  Object.freeze({
+    id: 'polars-to-pandas',
+    needs: 'polars',
+    topic: 'Polars',
+    title: 'Hand the result back to pandas',
+    answers: 'Everything downstream in this page speaks pandas, so this is the exit door.',
+    code: 'result = out.collect() if hasattr(out, "collect") else out\n'
+      + 'df2 = result.to_pandas()\n'
+      + 'df2.head()',
+  }),
+  Object.freeze({
+    id: 'sklearn-baseline',
+    needs: 'sklearn',
+    topic: 'Models',
+    title: 'A baseline before anything clever',
+    answers: 'What score does predicting the mean get? Anything that does not beat this is not a model.',
+    code: 'from sklearn.dummy import DummyRegressor\n'
+      + 'from sklearn.model_selection import train_test_split\n'
+      + 'from sklearn.metrics import mean_absolute_error\n'
+      + 'X = df[["x1", "x2"]].fillna(0)\n'
+      + 'y = df["target"]\n'
+      + 'Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0)\n'
+      + 'base = DummyRegressor(strategy="mean").fit(Xtr, ytr)\n'
+      + 'print("baseline MAE:", round(mean_absolute_error(yte, base.predict(Xte)), 4))',
+  }),
+  Object.freeze({
+    id: 'sklearn-linear',
+    needs: 'sklearn',
+    topic: 'Models',
+    title: 'Linear regression with a held-out score',
+    answers: 'Fit on one part, score on another, so the number means something.',
+    code: 'from sklearn.linear_model import LinearRegression\n'
+      + 'from sklearn.metrics import mean_absolute_error, r2_score\n'
+      + 'model = LinearRegression().fit(Xtr, ytr)\n'
+      + 'pred = model.predict(Xte)\n'
+      + 'print("MAE:", round(mean_absolute_error(yte, pred), 4))\n'
+      + 'print("R2 :", round(r2_score(yte, pred), 4))\n'
+      + 'dict(zip(X.columns, model.coef_.round(4)))',
+  }),
+  Object.freeze({
+    id: 'statsmodels-ols',
+    needs: 'statsmodels',
+    topic: 'Models',
+    title: 'OLS with confidence intervals',
+    answers: 'The coefficients with an interval around them, which is the part a regression in a spreadsheet leaves out.',
+    code: 'import statsmodels.formula.api as smf\n'
+      + 'fit = smf.ols("target ~ x1 + x2", data=df).fit()\n'
+      + 'print(fit.summary())\n'
+      + 'fit.conf_int().rename(columns={0: "lo", 1: "hi"})',
+  }),
+  Object.freeze({
+    id: 'statsmodels-seasonal',
+    needs: 'statsmodels',
+    topic: 'Models',
+    title: 'Split a series into trend and season',
+    answers: 'Is the rise real, or is it the same December it is every year?',
+    code: 'from statsmodels.tsa.seasonal import STL\n'
+      + 'series = df.set_index("date")["amount"].asfreq("MS").interpolate()\n'
+      + 'res = STL(series, period=12).fit()\n'
+      + 'res.plot()',
+  }),
+]);
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Read a probe result into a fixed shape.
+ *
+ * Accepts an object of booleans, which is what the caller builds from the probe
+ * cell's output. An absent key is `false`, not `unknown`, because a probe that
+ * ran and did not mention a package did not find it.
+ */
+function readProbe(observed) {
+  const o = isPlainObject(observed) ? observed : {};
+  const out = {};
+  for (const name of PROBED_PACKAGES) out[name] = o[name] === true;
+  return out;
+}
+
+/**
+ * The honest availability answer for one package.
+ *
+ * @param {string} name
+ * @param {{probed?:boolean, present?:boolean, airGap?:boolean}} [input]
+ */
+function packageAvailability(name, input) {
+  const inp = isPlainObject(input) ? input : {};
+  const probed = inp.probed === true;
+  const present = inp.present === true;
+  const airGap = inp.airGap === true;
+
+  // Unprobed is its own answer and is not the same as absent. Saying "missing"
+  // about something nobody asked about is the bug this file was written to fix.
+  const state = !probed ? 'unknown' : present ? 'available' : 'not_loaded';
+
+  return {
+    name,
+    state,
+    usable: state === 'available',
+    reason: state === 'available'
+      ? ''
+      : state === 'unknown'
+        ? 'Nobody has asked this session whether ' + name + ' is importable yet. Run the probe cell and the answer replaces this sentence.'
+        : MISSING_REASON[name] || (name + ' is not loaded in this session.'),
+    howToEnable: state === 'available'
+      ? ''
+      : airGap
+        ? 'Air-Gap mode is on, so nothing can be fetched. Turn it off deliberately if you want to try installing this, and understand that installing is a network request.'
+        : (ENABLE_HINT[name] || ''),
+  };
+}
+
+/**
+ * @param {{probed?:boolean, packages?:object, airGap?:boolean}} [input]
+ */
+function buildPythonDeepen(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const probed = inp.probed === true;
+  const found = readProbe(inp.packages);
+  const airGap = inp.airGap === true;
+
+  const availability = {};
+  for (const name of PROBED_PACKAGES) {
+    availability[name] = packageAvailability(name, { probed, present: found[name], airGap });
+  }
+
+  const runnable = [];
+  const blocked = [];
+  for (const r of PY_DEEPEN_RECIPES) {
+    const a = availability[r.needs];
+    if (a && a.usable) runnable.push(r);
+    else {
+      blocked.push({
+        id: r.id,
+        title: r.title,
+        needs: r.needs,
+        reason: a ? a.reason : (r.needs + ' is not available in this session.'),
+        howToEnable: a ? a.howToEnable : '',
+      });
+    }
+  }
+
+  const usableNames = PROBED_PACKAGES.filter(n => availability[n].usable);
+
+  return {
+    kind: PY_DEEPEN_KIND,
+    version: PY_DEEPEN_VERSION,
+    probed,
+    airGap,
+    probeCell: PROBE_CELL,
+    honesty: PY_DEEPEN_HONESTY,
+    availability,
+    recipes: runnable,
+    blocked,
+    headline: !probed
+      ? 'This session has not been probed. Run the probe cell once and every recipe below moves from "unknown" to either runnable or refused with a reason.'
+      : usableNames.length
+        ? 'Available beyond the base build: ' + usableNames.join(', ') + '.'
+        : 'Nothing beyond pandas, numpy and matplotlib is loaded in this session, so every recipe below is listed with the reason it cannot run.',
+  };
+}
+  window.DataGlowPythonDeepen = {
+    PY_DEEPEN_KIND: PY_DEEPEN_KIND,
+    PY_DEEPEN_VERSION: PY_DEEPEN_VERSION,
+    PROBED_PACKAGES: PROBED_PACKAGES,
+    PROBE_CELL: PROBE_CELL,
+    PY_DEEPEN_HONESTY: PY_DEEPEN_HONESTY,
+    PY_DEEPEN_RECIPES: PY_DEEPEN_RECIPES,
+    readProbe: readProbe,
+    packageAvailability: packageAvailability,
+    buildPythonDeepen: buildPythonDeepen,
+  };
+})();
+/* ---- end js/polyglot/python-deepen.js ---- */
+/* ---- from js/polyglot/r-deepen.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - R deepen: dplyr and ggplot, and what happens when they are not here
+// ============================================================
+//
+// The R session in this page is WebR. Base R is complete. Everything past base R
+// is a package that has to be fetched from the WebR binary repository at
+// startup, over the network, which means three things that the existing pack
+// only says one of.
+//
+// The first: a session with no network has base R and nothing else, and every
+// dplyr recipe in a list is a recipe that errors. The pack already handles this
+// by splitting available from unavailable.
+//
+// The second, and the one this file is really about: **Air-Gap mode did not stop
+// the fetch.** The R runtime called installPackages at startup with no check
+// against the air-gap flag anywhere in it. A mode whose entire promise is that
+// nothing leaves the machine was making two package requests on the way up. The
+// guard for that is in this module as a pure decision function, and the runtime
+// asks it before it calls.
+//
+// The third: dplyr is not in the two packages the runtime tries. It is a much
+// larger dependency tree and this build does not pull it. So the dplyr recipes
+// here are honest about being for a session that installed it deliberately, and
+// every one of them is paired with the base R form that always works. A recipe
+// list that only works if you already solved the hard part is decoration.
+//
+// WHY NO CRAN CLAIM.
+// WebR serves a subset of CRAN compiled to WebAssembly. It is a large subset and
+// it is not CRAN, and a package that is not in it cannot be installed at all,
+// not slowly. Saying "install any package" would be false in a way someone finds
+// out ten minutes in.
+//
+// Pure. No WebR handle, no DOM, no network.
+
+const R_DEEPEN_KIND = 'dataglow-r-deepen';
+const R_DEEPEN_VERSION = 1;
+
+/** Packages the runtime attempts at startup, plus the ones a person might add. */
+const R_STARTUP_PACKAGES = Object.freeze(['jsonlite', 'ggplot2']);
+const R_OPTIONAL_PACKAGES = Object.freeze(['dplyr', 'tidyr']);
+
+const R_DEEPEN_HONESTY =
+  'WebR serves a subset of CRAN compiled to WebAssembly. It is a large subset and it is not CRAN. A package outside it cannot be installed here at all, and every install is a network request.';
+
+const AIR_GAP_BLOCK_REASON =
+  'Air-Gap mode is on. Installing an R package is a network request to the WebR repository, so it is blocked. Base R is complete and the base R recipes below all run.';
+
+/**
+ * The one decision the R runtime has to make before it calls installPackages.
+ *
+ * Pure so it can be asserted without a browser, and separate from the runtime so
+ * the runtime's job stays "run R" rather than "know about product modes".
+ *
+ * @param {{airGap?:boolean, offline?:boolean, packages?:Array<string>}} [input]
+ */
+function packageInstallDecision(input) {
+  const inp = input && typeof input === 'object' ? input : {};
+  const packages = Array.isArray(inp.packages) ? inp.packages.slice() : R_STARTUP_PACKAGES.slice();
+
+  if (inp.airGap === true) {
+    return {
+      kind: R_DEEPEN_KIND,
+      allowed: false,
+      blockedBy: 'air_gap',
+      packages,
+      reason: AIR_GAP_BLOCK_REASON,
+      // Not an error. The session still starts and base R is fully there.
+      degradesTo: 'Base R only. The dataframe bridge uses its base R form and plotting uses the base graphics device.',
+    };
+  }
+  if (inp.offline === true) {
+    return {
+      kind: R_DEEPEN_KIND,
+      allowed: false,
+      blockedBy: 'offline',
+      packages,
+      reason: 'This page reports no network connection, so a package fetch would fail rather than hang. Base R is complete and starts either way.',
+      degradesTo: 'Base R only, until the connection returns and the session is restarted.',
+    };
+  }
+  return {
+    kind: R_DEEPEN_KIND,
+    allowed: true,
+    blockedBy: '',
+    packages,
+    reason: 'Fetching ' + packages.join(' and ') + ' from the WebR repository. This is a network request and it is the only one the R session makes.',
+    degradesTo: 'If the fetch fails the session still starts with base R, and the recipes needing a missing package are listed as unavailable rather than hidden.',
+  };
+}
+
+/**
+ * Recipes.
+ *
+ * `needs` is a package name or 'base'. `baseAlternative` is the id of the base R
+ * recipe that answers the same question, so a session without the package is
+ * pointed somewhere rather than told no.
+ */
+const R_DEEPEN_RECIPES = Object.freeze([
+  Object.freeze({
+    id: 'dplyr-verbs',
+    needs: 'dplyr',
+    topic: 'Aggregation',
+    title: 'filter, group_by, summarise, arrange',
+    answers: 'The four verbs, in the order they are almost always written.',
+    baseAlternative: 'base-aggregate',
+    code: 'library(dplyr)\n'
+      + 'df %>%\n'
+      + '  filter(!is.na(amount), amount > 0) %>%\n'
+      + '  group_by(category) %>%\n'
+      + '  summarise(rows = n(), total = sum(amount), mean = mean(amount), .groups = "drop") %>%\n'
+      + '  arrange(desc(total))',
+  }),
+  Object.freeze({
+    id: 'dplyr-mutate',
+    needs: 'dplyr',
+    topic: 'Aggregation',
+    title: 'mutate with a window over the group',
+    answers: 'Each row as a share of its group, without a second pass.',
+    baseAlternative: 'base-share',
+    code: 'library(dplyr)\n'
+      + 'df %>%\n'
+      + '  group_by(category) %>%\n'
+      + '  mutate(share = round(100 * amount / sum(amount, na.rm = TRUE), 2)) %>%\n'
+      + '  ungroup() %>%\n'
+      + '  arrange(category, desc(share))',
+  }),
+  Object.freeze({
+    id: 'dplyr-join',
+    needs: 'dplyr',
+    topic: 'Joins',
+    title: 'left_join and count what did not match',
+    answers: 'How many rows found a partner and how many quietly did not.',
+    baseAlternative: 'base-merge',
+    code: 'library(dplyr)\n'
+      + 'joined <- left_join(df, other, by = "id")\n'
+      + 'cat("left rows:", nrow(df), " joined rows:", nrow(joined), "\\n")\n'
+      + 'anti_join(df, other, by = "id")',
+  }),
+  Object.freeze({
+    id: 'base-aggregate',
+    needs: 'base',
+    topic: 'Aggregation',
+    title: 'The same group-by, in base R',
+    answers: 'Total, mean and count per category with no package at all.',
+    code: 'agg <- aggregate(amount ~ category, data = df,\n'
+      + '                 FUN = function(x) c(rows = length(x), total = sum(x), mean = mean(x)))\n'
+      + 'out <- do.call(data.frame, agg)\n'
+      + 'out[order(-out$amount.total), ]',
+  }),
+  Object.freeze({
+    id: 'base-share',
+    needs: 'base',
+    topic: 'Aggregation',
+    title: 'Share of group, in base R',
+    answers: 'The same percentage column, using ave().',
+    code: 'df$share <- round(100 * df$amount / ave(df$amount, df$category, FUN = function(x) sum(x, na.rm = TRUE)), 2)\n'
+      + 'head(df[order(df$category, -df$share), ], 20)',
+  }),
+  Object.freeze({
+    id: 'base-merge',
+    needs: 'base',
+    topic: 'Joins',
+    title: 'The same join, in base R',
+    answers: 'merge() with all.x, and the unmatched rows counted.',
+    code: 'joined <- merge(df, other, by = "id", all.x = TRUE)\n'
+      + 'cat("left rows:", nrow(df), " joined rows:", nrow(joined), "\\n")\n'
+      + 'df[!(df$id %in% other$id), ]',
+  }),
+  Object.freeze({
+    id: 'base-summary-table',
+    needs: 'base',
+    topic: 'First look',
+    title: 'A summary table you can read',
+    answers: 'summary() is wide and hard to scan. This is the same content as a data frame.',
+    code: 'num <- df[sapply(df, is.numeric)]\n'
+      + 'data.frame(\n'
+      + '  column = names(num),\n'
+      + '  missing = sapply(num, function(x) sum(is.na(x))),\n'
+      + '  min = sapply(num, function(x) min(x, na.rm = TRUE)),\n'
+      + '  median = sapply(num, function(x) median(x, na.rm = TRUE)),\n'
+      + '  mean = round(sapply(num, function(x) mean(x, na.rm = TRUE)), 3),\n'
+      + '  max = sapply(num, function(x) max(x, na.rm = TRUE)),\n'
+      + '  row.names = NULL\n'
+      + ')',
+  }),
+  Object.freeze({
+    id: 'base-crosstab',
+    needs: 'base',
+    topic: 'First look',
+    title: 'Cross-tabulate two columns',
+    answers: 'The contingency table, with margins, in one call.',
+    code: 'tab <- table(df$category, df$region, useNA = "ifany")\n'
+      + 'addmargins(tab)',
+  }),
+  Object.freeze({
+    id: 'ggplot-skeleton',
+    needs: 'ggplot2',
+    topic: 'Charts',
+    title: 'The ggplot skeleton, with every slot named',
+    answers: 'The grammar written out once, so the next chart is an edit rather than a search.',
+    baseAlternative: 'base-summary-table',
+    code: 'library(ggplot2)\n'
+      + 'ggplot(df, aes(x = category, y = amount)) +   # data and the mapping\n'
+      + '  geom_col() +                                # the layer\n'
+      + '  facet_wrap(~ region) +                      # small multiples, optional\n'
+      + '  scale_y_continuous(labels = scales::comma) +\n'
+      + '  coord_flip() +\n'
+      + '  labs(title = "amount by category", x = NULL, y = "amount") +\n'
+      + '  theme_minimal()',
+  }),
+  Object.freeze({
+    id: 'ggplot-timeseries',
+    needs: 'ggplot2',
+    topic: 'Charts',
+    title: 'A line over time with the gaps visible',
+    answers: 'A line chart that does not join across a month with no data.',
+    code: 'library(ggplot2)\n'
+      + 'ggplot(df, aes(x = as.Date(date), y = amount)) +\n'
+      + '  geom_line() +\n'
+      + '  geom_point(size = 0.8) +\n'
+      + '  labs(x = NULL, y = "amount") +\n'
+      + '  theme_minimal()',
+  }),
+]);
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function recipeById(id) {
+  for (const r of R_DEEPEN_RECIPES) if (r.id === id) return r;
+  return null;
+}
+
+/**
+ * @param {{hasJsonlite?:boolean, hasGgplot2?:boolean, hasDplyr?:boolean,
+ *          hasTidyr?:boolean, airGap?:boolean, offline?:boolean}} [input]
+ */
+function buildRDeepen(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const has = {
+    base: true,
+    jsonlite: inp.hasJsonlite === true,
+    ggplot2: inp.hasGgplot2 === true,
+    dplyr: inp.hasDplyr === true,
+    tidyr: inp.hasTidyr === true,
+  };
+  const decision = packageInstallDecision({ airGap: inp.airGap, offline: inp.offline });
+
+  const runnable = [];
+  const blocked = [];
+  for (const r of R_DEEPEN_RECIPES) {
+    if (has[r.needs]) { runnable.push(r); continue; }
+    const alt = r.baseAlternative ? recipeById(r.baseAlternative) : null;
+    blocked.push({
+      id: r.id,
+      title: r.title,
+      needs: r.needs,
+      reason: decision.allowed
+        ? r.needs + ' is not loaded in this session. It is not one of the two packages the runtime installs at startup, so it would have to be installed deliberately.'
+        : decision.reason,
+      // Never a dead end. Every blocked recipe that has a base R equivalent
+      // points at it by name.
+      instead: alt ? { id: alt.id, title: alt.title } : null,
+      howToEnable: decision.allowed
+        ? 'In a cell: webr::install("' + r.needs + '") if the WebR repository carries it. This is a network request.'
+        : '',
+    });
+  }
+
+  return {
+    kind: R_DEEPEN_KIND,
+    version: R_DEEPEN_VERSION,
+    honesty: R_DEEPEN_HONESTY,
+    capabilities: has,
+    install: decision,
+    recipes: runnable,
+    blocked,
+    airGapBlocksInstall: decision.blockedBy === 'air_gap',
+    headline: decision.allowed
+      ? 'Base R is here. ' + (blocked.length
+          ? blocked.length + ' recipe' + (blocked.length === 1 ? '' : 's') + ' need a package this session does not have, and each one names the base R form that does the same job.'
+          : 'Every package these recipes need is loaded.')
+      : AIR_GAP_BLOCK_REASON,
+  };
+}
+  window.DataGlowRDeepen = {
+    R_DEEPEN_KIND: R_DEEPEN_KIND,
+    R_DEEPEN_VERSION: R_DEEPEN_VERSION,
+    R_STARTUP_PACKAGES: R_STARTUP_PACKAGES,
+    R_OPTIONAL_PACKAGES: R_OPTIONAL_PACKAGES,
+    R_DEEPEN_HONESTY: R_DEEPEN_HONESTY,
+    AIR_GAP_BLOCK_REASON: AIR_GAP_BLOCK_REASON,
+    R_DEEPEN_RECIPES: R_DEEPEN_RECIPES,
+    packageInstallDecision: packageInstallDecision,
+    buildRDeepen: buildRDeepen,
+  };
+})();
+/* ---- end js/polyglot/r-deepen.js ---- */
+/* ---- from js/polyglot/arrow-bridge.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Arrow bridge: what the DuckDB to Python handoff costs today
+// ============================================================
+//
+// The bridge that moves a table from DuckDB into pandas works like this: run
+// the query with a LIMIT of two hundred thousand, walk the result into plain
+// JavaScript objects, JSON.stringify the whole thing, hand the string to
+// Pyodide, and let pandas parse it back. It works, and every step of it is a
+// full copy of the data in a format that is not the format either end wanted.
+//
+// Both DuckDB-WASM and pandas already speak Arrow. DuckDB's result is Arrow
+// internally; pyarrow reads an Arrow IPC buffer without parsing anything. The
+// zero-copy path between them is real and it is not long. What it needs is
+// pyarrow present in the Pyodide session, and pyarrow is not in the default
+// package set for this build.
+//
+// WHY THIS MODULE REPORTS A STATE INSTEAD OF SHIPPING THE PATH.
+// The transfer is only one of three things that have to be true, and the other
+// two are not under this bundle's control: the DuckDB build has to expose the
+// Arrow buffer rather than only materialised rows, and the Python side has to
+// have pyarrow. Writing the transfer and letting it fail at runtime in a
+// session that has neither is how a feature becomes a support burden. So the
+// state is computed from what is observed and the three states mean exactly
+// what they say:
+//
+//   `ready`    both ends can speak Arrow, so the buffer path is available
+//   `partial`  one end can, which is worth reporting because it names the one
+//              thing missing rather than saying no
+//   `missing`  neither, and the JSON bridge with its row limit is what runs
+//
+// WHAT THIS NEVER SAYS.
+// It never says unlimited. Arrow removes the parse cost and most of the copy
+// cost; it does not remove the fact that the frame has to fit in the memory of
+// one browser tab that is also running DuckDB. A limit still exists after this
+// lands, it is just a different and larger one, and pretending otherwise trades
+// a known ceiling for an unknown crash.
+//
+// Pure. No DuckDB handle, no Pyodide handle, no DOM.
+
+const ARROW_BRIDGE_KIND = 'dataglow-arrow-bridge';
+const ARROW_BRIDGE_VERSION = 1;
+
+const ARROW_BRIDGE_STATES = Object.freeze(['ready', 'partial', 'missing']);
+
+/** The limit the JSON bridge enforces today. Pinned to the runtime by a test. */
+const JSON_BRIDGE_ROW_LIMIT = 200000;
+
+const NEVER_UNLIMITED =
+  'An Arrow path removes the JSON parse and most of the copying. It does not remove the ceiling: the frame still has to fit in the memory of one browser tab that is also running DuckDB. There is no unlimited mode here and there is not going to be one.';
+
+const STATE_LABEL = Object.freeze({
+  ready: 'Arrow bridge: available',
+  partial: 'Arrow bridge: one end ready',
+  missing: 'Arrow bridge: not available, JSON bridge in use',
+});
+
+const STATE_DETAIL = Object.freeze({
+  ready:
+    'DuckDB can hand out an Arrow buffer and this Python session has pyarrow, so a table can cross without being serialised to text on the way.',
+  partial:
+    'One side of the transfer can speak Arrow and the other cannot, so the JSON bridge is still what runs. The missing piece is named below rather than left as a general failure.',
+  missing:
+    'Neither end is set up for Arrow in this session, so tables cross as JSON with the row limit that implies. Everything works; large tables are slower and get truncated.',
+});
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function count(v) {
+  return typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+/**
+ * @param {{duckdbArrow?:boolean, pyarrow?:boolean, pythonReady?:boolean,
+ *          rowLimit?:number, rowCount?:number}} [input]
+ */
+function buildArrowBridgeStatus(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const duckdbArrow = inp.duckdbArrow === true;
+  const pyarrow = inp.pyarrow === true;
+  const pythonReady = inp.pythonReady === true;
+  const limit = count(inp.rowLimit) || JSON_BRIDGE_ROW_LIMIT;
+  const rows = count(inp.rowCount);
+
+  let state;
+  if (duckdbArrow && pyarrow) state = 'ready';
+  else if (duckdbArrow || pyarrow) state = 'partial';
+  else state = 'missing';
+
+  const missingPieces = [];
+  if (!duckdbArrow) missingPieces.push('the DuckDB build in this page does not expose an Arrow result buffer to JavaScript');
+  if (!pyarrow) missingPieces.push('pyarrow is not loaded in this Python session');
+  if (!pythonReady) missingPieces.push('the Python runtime has not started, so nothing has been asked yet');
+
+  return {
+    kind: ARROW_BRIDGE_KIND,
+    version: ARROW_BRIDGE_VERSION,
+    state,
+    label: STATE_LABEL[state],
+    detail: STATE_DETAIL[state],
+    usable: state === 'ready',
+    // What actually runs today, whatever the state says about what could.
+    activeTransport: state === 'ready' ? 'arrow_ipc' : 'json',
+    rowLimit: limit,
+    rowsWouldTruncate: rows > limit,
+    missingPieces,
+    neverUnlimited: NEVER_UNLIMITED,
+    observed: { duckdbArrow, pyarrow, pythonReady, rowCount: rows },
+    headline: state === 'ready'
+      ? 'Both ends speak Arrow in this session.'
+      : 'The JSON bridge is what runs. ' + (missingPieces[0] ? missingPieces[0].charAt(0).toUpperCase() + missingPieces[0].slice(1) + '.' : ''),
+  };
+}
+
+/**
+ * The step-up from the JSON bridge, written down as data.
+ *
+ * Each step names the observable that proves it happened, so a later session
+ * can tell how far the path got rather than reading the code to find out.
+ */
+function describeArrowStepUp() {
+  return {
+    kind: ARROW_BRIDGE_KIND,
+    from: 'A LIMIT ' + JSON_BRIDGE_ROW_LIMIT + ' query, walked into plain objects, JSON.stringify, parsed back by pandas.',
+    to: 'A DuckDB Arrow result buffer handed to pyarrow as bytes, read as a table without parsing.',
+    steps: Object.freeze([
+      Object.freeze({
+        id: 'probe-pyarrow',
+        do: 'Probe the Python session for pyarrow rather than assuming it.',
+        provenBy: 'buildArrowBridgeStatus reports pyarrow true for a session that has it.',
+        done: true,
+      }),
+      Object.freeze({
+        id: 'expose-arrow-result',
+        do: 'Take the Arrow result from the DuckDB connection instead of materialising rows.',
+        provenBy: 'The DuckDB result object exposes a buffer this page can read without a row walk.',
+        done: false,
+      }),
+      Object.freeze({
+        id: 'write-buffer',
+        do: 'Write the buffer into the Pyodide filesystem or pass it as bytes, then read it with pyarrow.ipc.',
+        provenBy: 'A Python cell can open the table without a JSON string existing at any point.',
+        done: false,
+      }),
+      Object.freeze({
+        id: 'raise-the-limit',
+        do: 'Raise the row limit to a memory-derived number and keep reporting it.',
+        provenBy: 'The bridge notice quotes a limit that is larger and still a number.',
+        done: false,
+      }),
+    ]),
+    status: 'partial',
+    statusMeaning:
+      'The probe and the status reporting are here. The transfer itself is not, so the JSON bridge is still what moves data and its row limit is still the real one.',
+    neverUnlimited: NEVER_UNLIMITED,
+  };
+}
+
+/** One line for a chip. Never claims ready without both ends. */
+function arrowBridgeChipLabel(status) {
+  if (!isPlainObject(status)) return STATE_LABEL.missing;
+  return STATE_LABEL[status.state] || STATE_LABEL.missing;
+}
+  window.DataGlowArrowBridge = {
+    ARROW_BRIDGE_KIND: ARROW_BRIDGE_KIND,
+    ARROW_BRIDGE_VERSION: ARROW_BRIDGE_VERSION,
+    ARROW_BRIDGE_STATES: ARROW_BRIDGE_STATES,
+    JSON_BRIDGE_ROW_LIMIT: JSON_BRIDGE_ROW_LIMIT,
+    NEVER_UNLIMITED: NEVER_UNLIMITED,
+    buildArrowBridgeStatus: buildArrowBridgeStatus,
+    describeArrowStepUp: describeArrowStepUp,
+    arrowBridgeChipLabel: arrowBridgeChipLabel,
+  };
+})();
+/* ---- end js/polyglot/arrow-bridge.js ---- */
+/* ---- from js/polyglot/power-query-note.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Power Query: what this product is not
+// ============================================================
+//
+// Somebody arriving from Excel with a workbook full of Power Query steps will
+// ask whether those steps run here. The answer is no, and the useful version of
+// no names what does the same job and where the hand-off is.
+//
+// WHY THIS IS ONE SENTENCE AND NOT A COMPARISON TABLE.
+// A feature-by-feature comparison against a Microsoft product is a document
+// that ages badly, reads as defensive, and is longer than the thing it is
+// comparing. The person asking wants to know whether to keep the workbook open.
+// One sentence answers that.
+//
+// WHY IT IS SHIPPED AT ALL RATHER THAN LEFT UNSAID.
+// The gap is discoverable in about a minute, and the version discovered by
+// accident costs more trust than the version that was written down. Naming a
+// limit before someone finds it is the cheapest credibility available.
+//
+// Pure text. No DOM, no engine.
+
+const PQ_NOTE_KIND = 'dataglow-power-query-note';
+const PQ_NOTE_VERSION = 1;
+
+/** The sentence. Verbatim wherever it appears. */
+const POWER_QUERY_NOTE =
+  'Power Query M is not embedded. DataGlow covers reshape and clean via Excel Hell plus DuckDB SQL plus Python and R. For M-only enterprise workbooks, export remains the hand-off.';
+
+const POWER_QUERY_DETAIL =
+  'M is a language with its own runtime and a connector library that reaches databases and services. None of that is here, and building a partial copy of it would produce something that runs some steps and silently skips others, which is worse than not having it.';
+
+/**
+ * Where the same work gets done instead.
+ *
+ * Each entry is a real surface in this product, named so the note is a
+ * signpost rather than an apology.
+ */
+const POWER_QUERY_EQUIVALENTS = Object.freeze([
+  Object.freeze({
+    step: 'Promote headers, remove blank rows, unmerge and fix types',
+    here: 'Excel Hell Repair, which proposes each change and applies none until you confirm.',
+  }),
+  Object.freeze({
+    step: 'Filter, group, join, pivot and unpivot',
+    here: 'DuckDB SQL, which has PIVOT and UNPIVOT as statements rather than as a dialog.',
+  }),
+  Object.freeze({
+    step: 'Custom columns and multi-step transforms',
+    here: 'Python with pandas, or R, both running in the page.',
+  }),
+  Object.freeze({
+    step: 'Applied steps you can re-run on next month\'s file',
+    here: 'The saved repair methods library, which records the steps and replays them.',
+  }),
+  Object.freeze({
+    step: 'Connectors to SQL Server, SharePoint, an API',
+    here: 'Nothing. This product has no network data path by design, and Air-Gap mode makes that enforceable rather than promised.',
+  }),
+]);
+
+/** The ceiling-group shape used by js/ai/capability-ceiling.js. */
+function powerQueryCeilingGroup() {
+  return {
+    id: 'power-query',
+    title: 'Power Query',
+    does: 'Reshape and clean the same data through Excel Hell Repair, DuckDB SQL, Python and R.',
+    notThis: 'Run your Power Query M steps. The M runtime is not embedded and there is no plan for it to be.',
+    detail: POWER_QUERY_NOTE + ' ' + POWER_QUERY_DETAIL,
+  };
+}
+
+function buildPowerQueryNote() {
+  return {
+    kind: PQ_NOTE_KIND,
+    version: PQ_NOTE_VERSION,
+    note: POWER_QUERY_NOTE,
+    detail: POWER_QUERY_DETAIL,
+    equivalents: POWER_QUERY_EQUIVALENTS,
+    handoff: 'For a workbook whose logic only exists as M, the hand-off is an export: run the query in Excel, save the result, and bring that here.',
+    claims: false,
+  };
+}
+  window.DataGlowPowerQueryNote = {
+    PQ_NOTE_KIND: PQ_NOTE_KIND,
+    PQ_NOTE_VERSION: PQ_NOTE_VERSION,
+    POWER_QUERY_NOTE: POWER_QUERY_NOTE,
+    POWER_QUERY_DETAIL: POWER_QUERY_DETAIL,
+    POWER_QUERY_EQUIVALENTS: POWER_QUERY_EQUIVALENTS,
+    powerQueryCeilingGroup: powerQueryCeilingGroup,
+    buildPowerQueryNote: buildPowerQueryNote,
+  };
+})();
+/* ---- end js/polyglot/power-query-note.js ---- */
+/* ---- from js/dataquality/csv-quarantine.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - CSV quarantine: the rows that did not make it in
+// ============================================================
+//
+// The CSV loader in this product already asks DuckDB for the rejected rows. It
+// sets `ignore_errors=true` and `store_rejects=true`, which writes every line
+// DuckDB refused into a rejects table together with the column it failed on and
+// the reason it failed. Then it runs one COUNT over that table, drops it, and
+// returns a number.
+//
+// So a person who loads a hundred thousand row file and gets ninety-eight
+// thousand rows is told two thousand were skipped and has no way to find out
+// which two thousand, or why, or whether the two thousand were the ones that
+// mattered. The information existed. It was thrown away between two statements.
+//
+// This module keeps it. It is the pure half: the SQL that reads the rejects
+// table before anything drops it, the normalisation of DuckDB's reject rows
+// into something a table can render, and the receipt line that has to be
+// written whether the person keeps the good rows or abandons the load.
+//
+// WHY "KEEP THE GOOD ROWS" IS A CONFIRM AND NOT A DEFAULT.
+// Dropping two percent of a file is sometimes correct and sometimes the whole
+// answer. A malformed trailing section is noise; a numeric column that failed
+// to parse on every row after a certain date is the finding. The product cannot
+// tell those apart, and the person can, in about four seconds, given the rows.
+// So the load pauses and asks.
+//
+// WHY THERE IS A RECEIPT EITHER WAY.
+// If someone keeps the good rows and later publishes a total, that total is a
+// total of the rows that parsed. The receipt is what makes that recoverable six
+// weeks later. Discarding rows silently is the failure mode this whole module
+// exists to remove, so an override without a receipt line would reintroduce it
+// through the back door.
+//
+// Pure. No DOM, no DuckDB handle, no network. The caller runs the SQL and hands
+// the rows back.
+
+const QUARANTINE_KIND = 'dataglow-csv-quarantine';
+const QUARANTINE_VERSION = 1;
+
+/** How many reject rows a surface should render before it stops and says so. */
+const REJECT_PREVIEW_LIMIT = 200;
+
+const QUARANTINE_DOCTRINE =
+  'A row DuckDB could not parse is not a row that never existed. It is quarantined, shown, and either accepted as a loss on the record or the load is abandoned.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'bigint') return String(v);
+  return '';
+}
+
+function int(v) {
+  if (typeof v === 'bigint') return Number(v);
+  if (typeof v === 'number' && isFinite(v)) return Math.floor(v);
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    if (isFinite(n)) return Math.floor(n);
+  }
+  return null;
+}
+
+function quoteIdent(name) {
+  return '"' + String(name == null ? '' : name).replace(/"/g, '""') + '"';
+}
+
+/**
+ * Suffix for the pair of temporary tables DuckDB writes rejects into.
+ *
+ * Deterministic when a seed is given, so a test does not have to stub
+ * Math.random to assert the SQL.
+ */
+function rejectTableNames(seed) {
+  const s = str(seed) || Math.random().toString(36).slice(2, 10);
+  const safe = s.replace(/[^A-Za-z0-9_]/g, '').slice(0, 16) || 'x';
+  return {
+    rejectsTable: '_dg_csv_rejects_' + safe,
+    rejectsScan: '_dg_csv_scans_' + safe,
+  };
+}
+
+/**
+ * Read the quarantined rows themselves, not just their count.
+ *
+ * The columns named here are DuckDB's reject-table schema. Older builds do not
+ * have every one of them, which is why the reader below looks each field up
+ * defensively rather than indexing a fixed position.
+ */
+function rejectRowsSql(rejectsTable, limit) {
+  const cap = int(limit) && int(limit) > 0 ? int(limit) : REJECT_PREVIEW_LIMIT;
+  return 'SELECT line, column_idx, column_name, error_type, error_message, csv_line\n'
+    + 'FROM ' + quoteIdent(rejectsTable) + '\n'
+    + 'ORDER BY line\n'
+    + 'LIMIT ' + cap + ';';
+}
+
+/** Distinct source lines rejected. One line can raise several column errors. */
+function rejectCountSql(rejectsTable) {
+  return 'SELECT count(DISTINCT line) AS dropped, count(*) AS errors\n'
+    + 'FROM ' + quoteIdent(rejectsTable) + ';';
+}
+
+/** Errors grouped by reason, which is the summary that makes the cause obvious. */
+function rejectReasonsSql(rejectsTable) {
+  return 'SELECT error_type, column_name, count(*) AS n\n'
+    + 'FROM ' + quoteIdent(rejectsTable) + '\n'
+    + 'GROUP BY ALL\n'
+    + 'ORDER BY n DESC;';
+}
+
+/** Both temporary tables, dropped after the rows have been read out. */
+function dropRejectTablesSql(rejectsTable, rejectsScan) {
+  return [
+    'DROP TABLE IF EXISTS ' + quoteIdent(rejectsTable) + ';',
+    'DROP TABLE IF EXISTS ' + quoteIdent(rejectsScan) + ';',
+  ];
+}
+
+/**
+ * One DuckDB reject row, read defensively into a fixed shape.
+ *
+ * `csv_line` is the original text of the line. It is the single most useful
+ * field and the one most likely to be absent, because it is large and some
+ * builds omit it.
+ */
+function readRejectRow(row) {
+  if (!isPlainObject(row)) return null;
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, k) && row[k] != null) return row[k];
+    }
+    return null;
+  };
+  const line = int(pick('line', 'line_number', 'row'));
+  if (line == null) return null;
+  return {
+    line,
+    columnIndex: int(pick('column_idx', 'column_index')),
+    column: str(pick('column_name', 'column')) || 'unknown column',
+    reason: str(pick('error_type', 'error')) || 'unknown',
+    message: str(pick('error_message', 'message')),
+    text: str(pick('csv_line', 'line_text', 'raw')),
+  };
+}
+
+/**
+ * The quarantine model a surface renders.
+ *
+ * @param {{fileName?:string, table?:string, keptRows?:number, rejectRows?:Array,
+ *          droppedLines?:number, errorCount?:number, truncated?:boolean}} [input]
+ */
+function buildQuarantine(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const rows = (Array.isArray(inp.rejectRows) ? inp.rejectRows : []).map(readRejectRow).filter(Boolean);
+
+  const distinctLines = [];
+  for (const r of rows) if (distinctLines.indexOf(r.line) < 0) distinctLines.push(r.line);
+
+  const dropped = int(inp.droppedLines) != null ? int(inp.droppedLines) : distinctLines.length;
+  const kept = int(inp.keptRows) != null ? int(inp.keptRows) : 0;
+  const total = kept + dropped;
+
+  const byReason = [];
+  for (const r of rows) {
+    const key = r.reason + ' | ' + r.column;
+    let found = null;
+    for (const b of byReason) if (b.key === key) { found = b; break; }
+    if (found) found.n += 1;
+    else byReason.push({ key, reason: r.reason, column: r.column, n: 1, example: r.message || r.text });
+  }
+  byReason.sort((a, b) => b.n - a.n);
+
+  const clean = dropped === 0;
+  const pct = total > 0 ? Math.round((10000 * dropped) / total) / 100 : 0;
+
+  return {
+    kind: QUARANTINE_KIND,
+    version: QUARANTINE_VERSION,
+    fileName: str(inp.fileName),
+    table: str(inp.table),
+    clean,
+    keptRows: kept,
+    droppedRows: dropped,
+    totalRows: total,
+    droppedPercent: pct,
+    errorCount: int(inp.errorCount) != null ? int(inp.errorCount) : rows.length,
+    rows,
+    // A reject table can hold more rows than anyone will read. The surface shows
+    // a bounded slice and this says so, rather than letting a truncated list
+    // read as the complete one.
+    shown: rows.length,
+    truncated: inp.truncated === true || rows.length >= REJECT_PREVIEW_LIMIT,
+    reasons: byReason.map(b => ({ reason: b.reason, column: b.column, n: b.n, example: b.example })),
+    doctrine: QUARANTINE_DOCTRINE,
+    headline: clean
+      ? 'Every line in this file parsed. Nothing was quarantined.'
+      : dropped + ' line' + (dropped === 1 ? '' : 's') + ' of ' + total
+        + ' could not be parsed and are held out of the table',
+    detail: clean
+      ? 'The row count in the table is the row count in the file.'
+      : 'That is ' + pct + ' percent of the file. Any total computed from this table is a total of the '
+        + kept + ' line' + (kept === 1 ? '' : 's') + ' that parsed, and the quarantined lines are listed below with the reason each one failed.',
+    // Never the default. The surface presents both and waits.
+    choices: Object.freeze([
+      Object.freeze({
+        id: 'keep_good',
+        label: 'Keep the ' + kept + ' rows that parsed',
+        consequence: 'The table holds the parsed rows only. A receipt line records what was dropped and why.',
+      }),
+      Object.freeze({
+        id: 'abandon',
+        label: 'Abandon this load',
+        consequence: 'The table is not created. Fix the file or the delimiter and try again.',
+      }),
+    ]),
+  };
+}
+
+/**
+ * The receipt line. Written on both outcomes, on purpose.
+ *
+ * @param {object} quarantine  the model above
+ * @param {'keep_good'|'abandon'} decision
+ */
+function quarantineReceiptLine(quarantine, decision) {
+  const q = isPlainObject(quarantine) ? quarantine : {};
+  const name = str(q.fileName) || str(q.table) || 'the file';
+  if (q.clean === true) {
+    return {
+      kind: QUARANTINE_KIND,
+      decision: 'clean',
+      severity: 'info',
+      line: 'Loaded ' + name + '. Every line parsed and nothing was quarantined.',
+    };
+  }
+  if (decision === 'abandon') {
+    return {
+      kind: QUARANTINE_KIND,
+      decision: 'abandon',
+      severity: 'info',
+      line: 'Abandoned the load of ' + name + ' after ' + (q.droppedRows || 0)
+        + ' line(s) failed to parse. No table was created.',
+    };
+  }
+  return {
+    kind: QUARANTINE_KIND,
+    decision: 'keep_good',
+    severity: 'caution',
+    line: 'Loaded ' + name + ' with ' + (q.keptRows || 0) + ' of ' + (q.totalRows || 0)
+      + ' line(s). ' + (q.droppedRows || 0) + ' line(s) failed to parse and were held out, confirmed by the person loading it. '
+      + 'Numbers from this table describe the rows that parsed.',
+    reasons: Array.isArray(q.reasons) ? q.reasons.slice(0, 5) : [],
+  };
+}
+  window.DataGlowCsvQuarantine = {
+    QUARANTINE_KIND: QUARANTINE_KIND,
+    QUARANTINE_VERSION: QUARANTINE_VERSION,
+    REJECT_PREVIEW_LIMIT: REJECT_PREVIEW_LIMIT,
+    QUARANTINE_DOCTRINE: QUARANTINE_DOCTRINE,
+    rejectTableNames: rejectTableNames,
+    rejectRowsSql: rejectRowsSql,
+    rejectCountSql: rejectCountSql,
+    rejectReasonsSql: rejectReasonsSql,
+    dropRejectTablesSql: dropRejectTablesSql,
+    readRejectRow: readRejectRow,
+    buildQuarantine: buildQuarantine,
+    quarantineReceiptLine: quarantineReceiptLine,
+  };
+})();
+/* ---- end js/dataquality/csv-quarantine.js ---- */
+/* ---- from js/ai/llama-sidecar-packaging.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - llama.cpp sidecar packaging: the naming, and the agreement check
+// ============================================================
+//
+// Bundle 12 established that the desktop path reports `sidecar_missing` and that
+// `tauri.bundle.externalBin` is empty on purpose, because Tauri resolves each
+// entry to a per-target-triple file at bundle time and an entry with no file
+// behind it fails the build rather than shipping a missing feature.
+//
+// What was left was the packaging itself: where a binary goes, what it has to be
+// called, and how anyone would get one. This file is the first two, and
+// scripts/fetch-llama-sidecar.mjs is the third.
+//
+// WHY THE TRIPLE NAMING IS A FUNCTION AND NOT A README PARAGRAPH.
+// Tauri's rule is that `externalBin: ["binaries/llama-server"]` resolves to
+// `binaries/llama-server-x86_64-apple-darwin`, with `.exe` appended on Windows,
+// and it fails the build with a message that does not say this. Every project
+// that uses externalBin gets this wrong once. A function that produces the name
+// can be called by the fetch script and asserted by a test, which is two places
+// the mistake cannot happen.
+//
+// WHY THE CONFIG AND THE STATUS ARE CHECKED AGAINST EACH OTHER.
+// There are two ways to ship a lie here. Naming the binary in the config without
+// vendoring it breaks the build, which is loud. Vendoring the binary without
+// naming it in the config produces a desktop app that reports `ready` from a
+// file the bundle never included, which is quiet and much worse.
+// `checkPackagingAgreement()` fails on both, and CI runs it against the real
+// tauri.conf.json.
+//
+// WHAT IS NOT HERE.
+// No binary, no weights, nothing multi-hundred-megabyte in git. The fetch script
+// downloads on a developer's machine into an ignored directory and the bundle
+// stays empty until someone decides otherwise with a licence answer in hand.
+//
+// Pure. No filesystem, no process, no network. The caller observes and hands in.
+
+const SIDECAR_PACKAGING_KIND = 'dataglow-llama-sidecar-packaging';
+const SIDECAR_PACKAGING_VERSION = 1;
+
+/** Matches SIDECAR_NAME in js/ai/desktop-local-llm.js, asserted by a test. */
+const SIDECAR_BASENAME = 'llama-server';
+
+/** Relative to src-tauri/. Tauri resolves externalBin entries from there. */
+const SIDECAR_DIR = 'binaries';
+
+/** The externalBin entry, if and when one is ever added. */
+const EXTERNAL_BIN_ENTRY = SIDECAR_DIR + '/' + SIDECAR_BASENAME;
+
+/**
+ * The target triples a desktop build would cover.
+ *
+ * Rust triples, because that is what Tauri appends. `windows` carries the `.exe`
+ * because Tauri expects the extension on the vendored file as well as on the
+ * resolved one.
+ */
+const TARGET_TRIPLES = Object.freeze([
+  Object.freeze({ triple: 'x86_64-apple-darwin', os: 'macOS', arch: 'Intel', ext: '' }),
+  Object.freeze({ triple: 'aarch64-apple-darwin', os: 'macOS', arch: 'Apple silicon', ext: '' }),
+  Object.freeze({ triple: 'x86_64-unknown-linux-gnu', os: 'Linux', arch: 'x86_64', ext: '' }),
+  Object.freeze({ triple: 'aarch64-unknown-linux-gnu', os: 'Linux', arch: 'arm64', ext: '' }),
+  Object.freeze({ triple: 'x86_64-pc-windows-msvc', os: 'Windows', arch: 'x86_64', ext: '.exe' }),
+]);
+
+const NO_WEIGHTS_IN_GIT =
+  'The binary is a few tens of megabytes and a model is hundreds. Neither belongs in this repository. The fetch script writes into an ignored directory on a developer machine and nothing it produces is committed.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * The exact filename Tauri will look for.
+ *
+ * @param {string} triple  a Rust target triple
+ * @returns {string} e.g. binaries/llama-server-aarch64-apple-darwin
+ */
+function sidecarFileName(triple) {
+  const t = typeof triple === 'string' ? triple.trim() : '';
+  if (!t) return '';
+  const known = TARGET_TRIPLES.filter(x => x.triple === t)[0];
+  const ext = known ? known.ext : (/windows/.test(t) ? '.exe' : '');
+  return SIDECAR_DIR + '/' + SIDECAR_BASENAME + '-' + t + ext;
+}
+
+/** Every path a full five-platform build would need, in one list. */
+function expectedSidecarPaths() {
+  return TARGET_TRIPLES.map(t => ({
+    triple: t.triple,
+    os: t.os,
+    arch: t.arch,
+    path: sidecarFileName(t.triple),
+    fullPath: 'src-tauri/' + sidecarFileName(t.triple),
+  }));
+}
+
+/**
+ * Presence, from an observation of the filesystem the caller made.
+ *
+ * `sidecar_ready` requires a file for the triple being asked about, not a file
+ * for some triple. A macOS binary present while building for Windows is not a
+ * Windows sidecar.
+ *
+ * @param {{triple?:string, presentTriples?:Array<string>}} [input]
+ */
+function sidecarPresence(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const present = Array.isArray(inp.presentTriples) ? inp.presentTriples.filter(t => typeof t === 'string') : [];
+  const triple = typeof inp.triple === 'string' ? inp.triple.trim() : '';
+
+  const ready = triple ? present.indexOf(triple) >= 0 : present.length > 0;
+
+  return {
+    kind: SIDECAR_PACKAGING_KIND,
+    state: ready ? 'sidecar_ready' : 'sidecar_missing',
+    ready,
+    triple,
+    presentTriples: present,
+    expectedPath: triple ? sidecarFileName(triple) : '',
+    detail: ready
+      ? 'A llama.cpp server binary is present for ' + (triple || 'at least one target') + '.'
+      : triple
+        ? 'No binary at src-tauri/' + sidecarFileName(triple) + '. Run scripts/fetch-llama-sidecar.mjs, or build llama.cpp and place the server binary there under that exact name.'
+        : 'No llama.cpp server binary is vendored in this checkout, which is the committed state of the repository.',
+    note: NO_WEIGHTS_IN_GIT,
+  };
+}
+
+/**
+ * Do the shipped Tauri config and the reported status agree?
+ *
+ * Both failure directions are errors:
+ *   config names a binary that is not vendored  -> the desktop build fails
+ *   a binary is vendored but not named          -> the app reports ready from
+ *                                                  something the bundle omitted
+ *
+ * @param {{externalBin?:Array<string>, presentTriples?:Array<string>,
+ *          statusBundled?:boolean}} [input]
+ */
+function checkPackagingAgreement(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const externalBin = Array.isArray(inp.externalBin) ? inp.externalBin.slice() : [];
+  const present = Array.isArray(inp.presentTriples) ? inp.presentTriples.slice() : [];
+  const declared = externalBin.indexOf(EXTERNAL_BIN_ENTRY) >= 0 || externalBin.length > 0;
+  const vendored = present.length > 0;
+
+  const problems = [];
+  if (declared && !vendored) {
+    problems.push('tauri.bundle.externalBin names ' + externalBin.join(', ')
+      + ' but no binary is vendored under src-tauri/' + SIDECAR_DIR
+      + '. Tauri resolves each entry at bundle time, so this build fails for every target.');
+  }
+  if (!declared && vendored) {
+    problems.push('A binary is vendored for ' + present.join(', ')
+      + ' but tauri.bundle.externalBin is empty, so the bundle will not include it. '
+      + 'Anything reporting the sidecar as ready would be reading a file the shipped app does not have.');
+  }
+  if (inp.statusBundled === true && !declared) {
+    problems.push('The desktop status module reports the sidecar as bundled while externalBin is empty. '
+      + 'These are the same claim and they disagree.');
+  }
+  if (inp.statusBundled === false && declared && vendored) {
+    problems.push('externalBin names a vendored binary but the status module still reports bundledInThisBuild false. '
+      + 'Flip that constant in the same change that fills externalBin.');
+  }
+
+  return {
+    kind: SIDECAR_PACKAGING_KIND,
+    ok: problems.length === 0,
+    declared,
+    vendored,
+    externalBin,
+    presentTriples: present,
+    problems,
+    // The committed state, so a check can say "this is expected" rather than
+    // "nothing is wrong" when nothing is wrong for a reason.
+    committedState: 'externalBin empty, no binary vendored, status reports sidecar_missing.',
+    reason: problems.length === 0 && !declared && !vendored
+      ? 'Config and status agree: no sidecar is shipped and none is claimed.'
+      : problems.length === 0
+        ? 'Config and status agree: a sidecar is vendored and declared.'
+        : 'Config and status disagree.',
+  };
+}
+
+/** The packaging path as data, for a README section or a status panel. */
+function describePackagingPath() {
+  return {
+    kind: SIDECAR_PACKAGING_KIND,
+    version: SIDECAR_PACKAGING_VERSION,
+    script: 'scripts/fetch-llama-sidecar.mjs',
+    directory: 'src-tauri/' + SIDECAR_DIR + '/',
+    externalBinEntry: EXTERNAL_BIN_ENTRY,
+    targets: expectedSidecarPaths(),
+    steps: Object.freeze([
+      'Run node scripts/fetch-llama-sidecar.mjs --triple <target> to download a llama.cpp release build, or --stub for a local development placeholder.',
+      'The script writes src-tauri/' + SIDECAR_DIR + '/' + SIDECAR_BASENAME + '-<triple>, which is the exact name Tauri resolves.',
+      'That directory is git-ignored. Nothing the script produces is committed.',
+      'Add "' + EXTERNAL_BIN_ENTRY + '" to tauri.bundle.externalBin only once a binary exists for every target being built.',
+      'Flip bundledInThisBuild in js/ai/desktop-local-llm.js in the same change, so the status and the config cannot disagree.',
+      'Pass the result of a real handshake with the running server to buildDesktopLlmStatus, never the config.',
+    ]),
+    licence:
+      'llama.cpp is MIT. A model is not covered by that and every model has its own terms, so vendoring weights is a separate decision that this path deliberately does not make for anyone.',
+    note: NO_WEIGHTS_IN_GIT,
+  };
+}
+  window.DataGlowLlamaSidecarPackaging = {
+    SIDECAR_PACKAGING_KIND: SIDECAR_PACKAGING_KIND,
+    SIDECAR_PACKAGING_VERSION: SIDECAR_PACKAGING_VERSION,
+    SIDECAR_BASENAME: SIDECAR_BASENAME,
+    SIDECAR_DIR: SIDECAR_DIR,
+    EXTERNAL_BIN_ENTRY: EXTERNAL_BIN_ENTRY,
+    TARGET_TRIPLES: TARGET_TRIPLES,
+    NO_WEIGHTS_IN_GIT: NO_WEIGHTS_IN_GIT,
+    sidecarFileName: sidecarFileName,
+    expectedSidecarPaths: expectedSidecarPaths,
+    sidecarPresence: sidecarPresence,
+    checkPackagingAgreement: checkPackagingAgreement,
+    describePackagingPath: describePackagingPath,
+  };
+})();
+/* ---- end js/ai/llama-sidecar-packaging.js ---- */
+/* ---- from js/dataquality/data-glow-csv-quarantine-canvas.js ---- */
+/*
+ * DATAGLOW - The quarantine panel.
+ *
+ * When a CSV load leaves rows behind, this is where they go. A table of the
+ * lines that did not parse, the column each one failed on, the reason DuckDB
+ * gave, and the original text of the line. Then two buttons, neither of which
+ * is pressed for you.
+ *
+ * WHY THIS IS A MODAL AND NOT A TOAST.
+ * A toast saying "2,431 rows skipped" is technically a disclosure and
+ * practically a dismissal. It appears while someone is looking at the table
+ * that just loaded, it goes away on its own, and the decision it was reporting
+ * has already been made by then. The load pauses here instead.
+ *
+ * WHY THE ORIGINAL LINE TEXT IS THE WIDEST COLUMN.
+ * The reason string tells you what the parser thought. The line tells you what
+ * is actually wrong, and it is usually obvious in one glance: a stray quote, a
+ * comma inside an unquoted field, a footer row that is not data. Everything
+ * else on the row is there to help you find that line.
+ *
+ * WHY THE RECEIPT IS WRITTEN ON BOTH OUTCOMES.
+ * Keeping the good rows is a legitimate choice and abandoning the load is a
+ * legitimate choice. Making either one without a record is how a total in a
+ * deck ends up describing ninety-eight percent of a file with nothing anywhere
+ * saying so.
+ */
+;(function () {
+  'use strict';
+
+  var PANEL_ID = 'dg-quarantine-panel';
+  var STYLE_ID = 'dg-quarantine-styles';
+
+  var state = { model: null, onDecision: null };
+
+  function flag() {
+    try { if (window.DATAGLOW_SQL_POWER_DEEPEN === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_SQL_POWER_DEEPEN === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('sqlPowerDeepen') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'style') node.setAttribute('style', attrs[k]);
+        else if (k === 'class') node.className = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      }
+    }
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function styles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = ''
+      + '#' + PANEL_ID + '{position:fixed;inset:0;z-index:2147483000;display:none;'
+      + 'align-items:center;justify-content:center;background:rgba(0,0,0,.42);padding:18px}'
+      + '#' + PANEL_ID + ' .dg-q-box{background:var(--color-surface,#fff);color:inherit;'
+      + 'border:1px solid var(--color-border,#ccc);border-radius:12px;box-shadow:0 16px 44px rgba(0,0,0,.28);'
+      + 'width:min(880px,100%);max-height:88vh;overflow:auto;padding:16px 18px;font-size:13px;line-height:1.5}'
+      + '#' + PANEL_ID + ' h3{margin:0 0 4px;font-size:16px}'
+      + '#' + PANEL_ID + ' h4{margin:14px 0 4px;font-size:13px}'
+      + '.dg-q-note{opacity:.78;font-size:12px}'
+      + '.dg-q-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}'
+      + '.dg-q-btn{font:inherit;font-size:13px;padding:7px 13px;border-radius:8px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
+      + '.dg-q-btn[data-primary="true"]{border-width:2px;border-color:currentColor;font-weight:700}'
+      + '.dg-q-tablewrap{max-height:320px;overflow:auto;border:1px solid var(--color-border,#ddd);border-radius:8px;margin-top:6px}'
+      + '.dg-q-table{border-collapse:collapse;width:100%;font-size:12px}'
+      + '.dg-q-table th,.dg-q-table td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--color-border,#eee);vertical-align:top}'
+      + '.dg-q-table th{position:sticky;top:0;background:var(--color-surface,#fff);font-weight:700}'
+      + '.dg-q-table td.dg-q-text{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;max-width:380px}'
+      + '.dg-q-choice{border:1px solid var(--color-border,#ddd);border-radius:9px;padding:9px 11px;margin:8px 0}';
+    var tag = el('style', { id: STYLE_ID });
+    tag.textContent = css;
+    (document.head || document.body).appendChild(tag);
+  }
+
+  function receiptLine(model, decision) {
+    try {
+      var eng = window.DataGlowCsvQuarantine;
+      if (eng && typeof eng.quarantineReceiptLine === 'function') {
+        return eng.quarantineReceiptLine(model, decision);
+      }
+    } catch (_e) {}
+    return null;
+  }
+
+  /* The receipt goes wherever this build keeps one. Every sink is optional and
+     a build with none of them still gets the line in the console, because a
+     decision with no record anywhere is the outcome this panel exists to
+     prevent. */
+  function recordReceipt(line) {
+    if (!line) return;
+    var wrote = false;
+    try {
+      var t = window.DataGlowTrustLedger;
+      if (t && typeof t.record === 'function') { t.record(line); wrote = true; }
+    } catch (_e) {}
+    try {
+      var c = window.DataGlowChainOfCustody;
+      if (!wrote && c && typeof c.append === 'function') { c.append(line); wrote = true; }
+    } catch (_e2) {}
+    try {
+      if (typeof window.showToast === 'function') window.showToast(line.line);
+    } catch (_e3) {}
+    try { console.log('[quarantine receipt] ' + line.line); } catch (_e4) {}
+    try {
+      window.DataGlowCsvQuarantineUI._lastReceipt = line;
+    } catch (_e5) {}
+  }
+
+  function decide(id) {
+    var line = receiptLine(state.model, id);
+    recordReceipt(line);
+    var cb = state.onDecision;
+    hide();
+    if (typeof cb === 'function') {
+      try { cb({ decision: id, receipt: line, quarantine: state.model }); } catch (_e) {}
+    }
+  }
+
+  function renderTable(host, rows) {
+    var wrap = el('div', { class: 'dg-q-tablewrap' });
+    var table = el('table', { class: 'dg-q-table' });
+    var thead = el('thead');
+    var hr = el('tr');
+    var heads = ['Line', 'Column', 'Reason', 'What the parser said', 'The line itself'];
+    for (var h = 0; h < heads.length; h++) hr.appendChild(el('th', {}, heads[h]));
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    var tbody = el('tbody');
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var tr = el('tr');
+      tr.appendChild(el('td', {}, r.line));
+      tr.appendChild(el('td', {}, r.column));
+      tr.appendChild(el('td', {}, r.reason));
+      tr.appendChild(el('td', {}, r.message || ''));
+      tr.appendChild(el('td', { class: 'dg-q-text' }, r.text || ''));
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    host.appendChild(wrap);
+  }
+
+  function render() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    var m = state.model;
+    panel.innerHTML = '';
+
+    var box = el('div', { class: 'dg-q-box' });
+    if (!m) {
+      box.appendChild(el('h3', {}, 'Nothing is quarantined'));
+      panel.appendChild(box);
+      panel.style.display = 'flex';
+      return;
+    }
+
+    box.appendChild(el('h3', {}, m.headline));
+    box.appendChild(el('p', {}, m.detail));
+
+    if (m.reasons && m.reasons.length) {
+      box.appendChild(el('h4', {}, 'Why they failed'));
+      var ul = el('ul', { class: 'dg-q-note' });
+      for (var i = 0; i < m.reasons.length && i < 8; i++) {
+        var rr = m.reasons[i];
+        ul.appendChild(el('li', {}, rr.n + ' x ' + rr.reason + ' in ' + rr.column
+          + (rr.example ? ' (for example: ' + rr.example + ')' : '')));
+      }
+      box.appendChild(ul);
+    }
+
+    if (m.rows && m.rows.length) {
+      box.appendChild(el('h4', {}, 'The quarantined lines'));
+      if (m.truncated) {
+        box.appendChild(el('div', { class: 'dg-q-note' },
+          'Showing the first ' + m.shown + ' of ' + m.droppedRows + '. The rest failed the same way or a similar one.'));
+      }
+      renderTable(box, m.rows);
+    } else {
+      box.appendChild(el('p', { class: 'dg-q-note' },
+        'This build could not read the individual rejected lines back out of DuckDB, so only the count is available. The count is real.'));
+    }
+
+    box.appendChild(el('h4', {}, 'What happens next is your call'));
+    for (var c = 0; c < m.choices.length; c++) {
+      var ch = m.choices[c];
+      var card = el('div', { class: 'dg-q-choice' });
+      card.appendChild(el('b', {}, ch.label));
+      card.appendChild(el('div', { class: 'dg-q-note' }, ch.consequence));
+      box.appendChild(card);
+    }
+
+    var row = el('div', { class: 'dg-q-row' });
+    var keep = el('button', { class: 'dg-q-btn', type: 'button', 'data-primary': 'true' }, m.choices[0].label);
+    keep.addEventListener('click', function () { decide('keep_good'); });
+    var abandon = el('button', { class: 'dg-q-btn', type: 'button' }, m.choices[1].label);
+    abandon.addEventListener('click', function () { decide('abandon'); });
+    row.appendChild(keep);
+    row.appendChild(abandon);
+    box.appendChild(row);
+
+    box.appendChild(el('p', { class: 'dg-q-note' }, m.doctrine));
+
+    panel.appendChild(box);
+    panel.style.display = 'flex';
+  }
+
+  function mount() {
+    if (!flag()) return false;
+    if (document.getElementById(PANEL_ID)) return true;
+    if (!document.body) return false;
+    styles();
+    document.body.appendChild(el('div', {
+      id: PANEL_ID,
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': 'Rows that could not be parsed',
+    }));
+    return true;
+  }
+
+  /**
+   * Show the panel for a quarantine model.
+   *
+   * `onDecision` is called with the decision id and the receipt line after the
+   * person chooses. There is no close button and no escape path that skips the
+   * choice, because a load left in an undecided state is worse than either
+   * answer.
+   */
+  function show(model, onDecision) {
+    if (!flag()) {
+      // Flag off means no panel. The caller still gets an answer so a load does
+      // not hang waiting for a surface that was never mounted.
+      if (typeof onDecision === 'function') onDecision({ decision: 'keep_good', receipt: null, quarantine: model });
+      return false;
+    }
+    if (!mount()) return false;
+    state.model = model || null;
+    state.onDecision = typeof onDecision === 'function' ? onDecision : null;
+    render();
+    return true;
+  }
+
+  function hide() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.style.display = 'none';
+    state.onDecision = null;
+  }
+
+  /** Build the model from raw pieces, then show it. The convenience entry. */
+  function showFor(input, onDecision) {
+    var eng = null;
+    try { eng = window.DataGlowCsvQuarantine; } catch (_e) {}
+    if (!eng || typeof eng.buildQuarantine !== 'function') return false;
+    var model;
+    try { model = eng.buildQuarantine(input); } catch (_e2) { return false; }
+    if (model.clean) {
+      // Nothing was dropped, so there is nothing to decide and no modal. The
+      // clean receipt is still written, because "we checked and it was fine" is
+      // a useful thing to have on the record.
+      recordReceipt(receiptLine(model, 'keep_good'));
+      if (typeof onDecision === 'function') onDecision({ decision: 'clean', receipt: null, quarantine: model });
+      return false;
+    }
+    return show(model, onDecision);
+  }
+
+  window.DataGlowCsvQuarantineUI = {
+    version: 1,
+    mounted: function () { return !!document.getElementById(PANEL_ID); },
+    enabled: flag,
+    open: show,
+    openFor: showFor,
+    close: hide,
+    isOpen: function () {
+      var p = document.getElementById(PANEL_ID);
+      return !!p && p.style.display === 'flex';
+    },
+    model: function () { return state.model; },
+    _lastReceipt: null,
+  };
+})();
+/* ---- end js/dataquality/data-glow-csv-quarantine-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

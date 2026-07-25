@@ -6890,6 +6890,211 @@
         "rPowerPack"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "sql-power-deepen",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "SUMMARIZE promoted to Proof Board tiles, CSV rejects surfaced, and eleven more SQL recipes",
+      "files": [
+        "js/polyglot/sql-deepen.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/sql-deepen.js",
+          "name": "buildSqlDeepen"
+        },
+        {
+          "file": "js/polyglot/sql-deepen.js",
+          "name": "summarizeToTiles"
+        }
+      ],
+      "notes": "Running SUMMARIZE against the active table turns null rates and distinctness into Proof Board tiles marked unknown until a person reviews them, never auto-graded. Eleven more recipes cover pivot and unpivot, group by all, select exclude and replace, moving windows, share of total and a profile query, each still copy-only. The CSV load path now runs with ignore_errors and store_rejects so a malformed line lands in a quarantine panel instead of silently vanishing, with the option to keep the good rows or abandon the load.",
+      "relatedFlags": [
+        "sqlPowerDeepen"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "excel-type-guard",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Excel Hell",
+      "name": "Import-time scan for values at risk of silent type coercion, such as a gene symbol read as a date",
+      "files": [
+        "js/intelligence/excel-type-guard.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/intelligence/excel-type-guard.js",
+          "name": "detectTypeRisks"
+        },
+        {
+          "file": "js/intelligence/excel-type-guard.js",
+          "name": "previewGuard"
+        }
+      ],
+      "notes": "Six rules catch both already-coerced values, a date that used to be a gene symbol, scientific notation that used to be an ID, and values still at risk in this column. The only action offered is holding the column as text; the person reviewing decides, and every outcome (clean, applied, overridden) is written to the receipt line.",
+      "relatedFlags": [
+        "excelTypeGuard"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "python-power-deepen",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "A real polars, scikit-learn, statsmodels and pyarrow probe, with recipes gated on what it finds",
+      "files": [
+        "js/polyglot/python-deepen.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/python-deepen.js",
+          "name": "buildPythonDeepen"
+        },
+        {
+          "file": "js/polyglot/python-deepen.js",
+          "name": "packageAvailability"
+        }
+      ],
+      "notes": "The Bundle 11 polars status was a hard-coded false. The probe cell here uses importlib.util.find_spec against all four packages and reports unknown, available or not_loaded; nine recipes for polars, scikit-learn and statsmodels are only shown live once the probe says so, with the rest listed as not runnable and why.",
+      "relatedFlags": [
+        "pythonPowerDeepen"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "r-power-deepen",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "dplyr, tidyr and base R recipes gated on real package state, with Air-Gap Mode blocking any install",
+      "files": [
+        "js/polyglot/r-deepen.js",
+        "js/runtimes-viz/r-runtime.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/r-deepen.js",
+          "name": "buildRDeepen"
+        },
+        {
+          "file": "js/polyglot/r-deepen.js",
+          "name": "packageInstallDecision"
+        },
+        {
+          "file": "js/runtimes-viz/r-runtime.js",
+          "name": "rPackageInstallAllowed"
+        }
+      ],
+      "notes": "The WebR startup path previously called installPackages with no Air-Gap or offline check, so Air-Gap Mode did not stop the fetch. rPackageInstallAllowed() now gates that call and reports which of the two blocked it; ten more recipes (dplyr verbs, base aggregate and crosstab, ggplot skeletons) are listed as not runnable with the specific reason, air gap, offline, or simply not installed, rather than hidden.",
+      "relatedFlags": [
+        "rPowerDeepen"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "arrow-bridge-status",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "Ready, partial or missing status for the DuckDB-to-Python bridge, with the 200,000-row JSON ceiling stated",
+      "files": [
+        "js/polyglot/arrow-bridge.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/arrow-bridge.js",
+          "name": "buildArrowBridgeStatus"
+        },
+        {
+          "file": "js/polyglot/arrow-bridge.js",
+          "name": "describeArrowStepUp"
+        }
+      ],
+      "notes": "The bridge today is JSON rows, capped at 200,000, never described as unlimited. The status chip reports ready, partial or missing from whether pyarrow is actually probed present, and the four concrete steps left before an Arrow-native path exists are listed with which are done today (only the pyarrow probe) and which are not (exposing an Arrow result, writing a shared buffer, raising the limit).",
+      "relatedFlags": [
+        "arrowBridge"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "power-query-honest-note",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Excel Hell",
+      "name": "A plain statement that Power Query M is not embedded, with the concrete DataGlow equivalent for each M step",
+      "files": [
+        "js/polyglot/power-query-note.js",
+        "js/ai/capability-ceiling.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/power-query-note.js",
+          "name": "buildPowerQueryNote"
+        },
+        {
+          "file": "js/polyglot/power-query-note.js",
+          "name": "powerQueryCeilingGroup"
+        }
+      ],
+      "notes": "Five common Power Query M steps are matched to their DataGlow equivalent across Excel Hell, DuckDB SQL, Python and R, and the note states plainly that for M-only enterprise workbooks the hand-off is still export. The same note is folded into the capability ceiling as its own group, not buried inside Excel.",
+      "relatedFlags": [
+        "powerQueryHonestNote"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "llama-sidecar-packaging",
+      "platforms": [
+        "desktop"
+      ],
+      "area": "Local AI",
+      "name": "A packaging path and status for the desktop llama.cpp sidecar binary, present only when the binary is present",
+      "files": [
+        "js/ai/llama-sidecar-packaging.js",
+        "scripts/fetch-llama-sidecar.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/ai/llama-sidecar-packaging.js",
+          "name": "sidecarPresence"
+        },
+        {
+          "file": "js/ai/llama-sidecar-packaging.js",
+          "name": "checkPackagingAgreement"
+        }
+      ],
+      "notes": "scripts/fetch-llama-sidecar.mjs places a per-target-triple binary into src-tauri/binaries/, which is git-ignored and never committed: tens of megabytes per triple with no model weights ever included. The script does not run in CI and does not touch tauri.conf.json. checkPackagingAgreement() catches the case where Tauri's externalBin config and the actual on-disk binary disagree, so a build never silently claims a sidecar that is not there.",
+      "relatedFlags": [],
+      "status": "shipped"
     }
   ]
 }

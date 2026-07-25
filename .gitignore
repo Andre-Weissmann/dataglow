@@ -4,3 +4,8 @@ canvas/index.html.bak_pre_refactor
 
 # Node
 node_modules/
+
+# llama.cpp desktop sidecar binaries, placed by scripts/fetch-llama-sidecar.mjs.
+# Tens of megabytes per target triple and never committed. See the packaging
+# section in README.md.
+src-tauri/binaries/

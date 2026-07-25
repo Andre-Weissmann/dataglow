@@ -207,6 +207,7 @@
     "test:pfmirror": "node --test test/provenance-fabric-proofchain-mirror.test.mjs",
     "test:capmap": "node --test test/capability-map.test.mjs",
     "test:newmodule": "node --test test/new-module.test.mjs",
+    "test:polyglotdeepen": "node test/polyglot-deepen-and-guard.test.mjs",
     "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs",
     "check:capability-map": "node scripts/check-capability-map.mjs",
     "new-module": "node scripts/new-module.mjs"
