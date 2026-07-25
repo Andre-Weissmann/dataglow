@@ -132678,6 +132678,14 @@ function buildRPowerPack(input) {
   function arrowOn() { return flag('DATAGLOW_ARROW_BRIDGE', 'arrowBridge'); }
   function pqNoteOn() { return flag('DATAGLOW_POWER_QUERY_HONEST_NOTE', 'powerQueryHonestNote'); }
 
+  /* Bundle 14 flags. Same rule as Bundle 13's: each one gates a section inside
+     an existing tab, or (project lanes) a tab of its own, never a new top-nav
+     item. */
+  function pqParityOn() { return flag('DATAGLOW_PQ_PARITY_RECIPES', 'pqParityRecipes'); }
+  function arrowDeepenOn() { return flag('DATAGLOW_ARROW_BRIDGE_DEEPEN', 'arrowBridgeDeepen'); }
+  function lanesOn() { return flag('DATAGLOW_POLYGLOT_PROJECT_LANES', 'polyglotProjectLanes'); }
+  function ledgerOn() { return flag('DATAGLOW_REPAIR_LEDGER', 'repairLedger'); }
+
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
   }
@@ -132884,7 +132892,19 @@ function buildRPowerPack(input) {
     card.appendChild(el('pre', { class: 'dg-pk-code' }, code));
     var row = el('div', { class: 'dg-pk-row' });
     var b = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Copy');
-    b.addEventListener('click', function () { copy(code, what || 'Snippet'); });
+    b.addEventListener('click', function () {
+      copy(code, what || 'Snippet');
+      if (what === 'Query') {
+        ledgerAppend({
+          kind: 'sql_recipe_run',
+          engine: 'sql',
+          title: title,
+          code: code,
+          summary: title + ' copied to the clipboard',
+          status: 'proposed',
+        });
+      }
+    });
     row.appendChild(b);
     if (placeholders && placeholders.length) {
       row.appendChild(el('span', { class: 'dg-pk-note' }, 'Replace: ' + placeholders.join(', ')));
@@ -132960,6 +132980,15 @@ function buildRPowerPack(input) {
         ? out.headline + ' ' + added + ' tile' + (added === 1 ? '' : 's') + ' added to the Proof Board.'
         : out.headline + ' The Proof Board is not mounted in this build, so nothing was added to it.');
       toast(out.headline);
+      ledgerAppend({
+        kind: 'summarize_tiles',
+        engine: 'sql',
+        title: 'SUMMARIZE profile of ' + table,
+        code: eng.summarizeSql(table),
+        inputTable: table,
+        summary: out.headline,
+        status: 'applied',
+      });
     }, function (err) {
       say(String(err && err.message) === 'no-engine'
         ? 'DuckDB has not started in this page yet, so there is nothing to profile. Run a query first.'
@@ -133007,6 +133036,36 @@ function buildRPowerPack(input) {
     }
   }
 
+  /* ---------------------------------------------------------------
+     Bundle 14: PQ-parity recipes. DuckDB SQL, never M. Same codeCard shape
+     as every other snippet list in this panel, so it reads as one more
+     section rather than a bolted-on feature.
+     --------------------------------------------------------------- */
+  function renderPqParity(host) {
+    var eng = engine('DataGlowPqParityRecipes');
+    if (!eng || typeof eng.buildPqParityPack !== 'function') return;
+    var pack;
+    try { pack = eng.buildPqParityPack(); } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'The Power Query steps, as DuckDB SQL'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.honesty));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.appliedStepsBlurb));
+
+    var ledger = engine('DataGlowRepairLedgerUI');
+    if (ledger && typeof ledger.open === 'function') {
+      var lrow = el('div', { class: 'dg-pk-row' });
+      var lbtn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Open the Repair Ledger');
+      lbtn.addEventListener('click', function () { ledger.open(); });
+      lrow.appendChild(lbtn);
+      host.appendChild(lrow);
+    }
+
+    for (var i = 0; i < pack.recipes.length; i++) {
+      var r = pack.recipes[i];
+      codeCard(host, r.title + ' (' + r.pqStep + ')', r.why, r.sql, r.substitute, 'Query');
+    }
+  }
+
   function renderSql(host) {
     var pack = sqlPack();
     if (!pack) {
@@ -133020,6 +133079,7 @@ function buildRPowerPack(input) {
     bullets(host, pack.notSupported);
 
     if (sqlDeepOn()) renderSqlDeepen(host);
+    if (pqParityOn()) renderPqParity(host);
 
     host.appendChild(el('h4', {}, 'Snippets'));
     topicChips(host, pack.topics);
@@ -133064,6 +133124,33 @@ function buildRPowerPack(input) {
     } catch (_e) {}
     try { console.log('[type guard receipt] ' + line.line); } catch (_e2) {}
     try { window.DataGlowPowerPacksUI._lastGuardReceipt = line; } catch (_e3) {}
+    ledgerAppend({ kind: 'type_guard', engine: 'excel', title: 'Excel type guard check', summary: String(line && line.line || 'Type guard ran'), status: 'applied' });
+  }
+
+  /* ---------------------------------------------------------------
+     Bundle 14: best-effort Repair Ledger wiring. Never throws, never blocks
+     the surface it is called from; a ledger append that fails is a step this
+     panel loses sight of, not a step that fails to happen for the user.
+     Sources fired are recorded on window.DataGlowPowerPacksUI._ledgerFired so
+     wiringReport() can name what has and has not appended this session.
+     --------------------------------------------------------------- */
+  function ledgerAppend(input) {
+    try {
+      var eng = engine('DataGlowRepairLedger');
+      var ui = engine('DataGlowRepairLedgerUI');
+      if (!eng || typeof eng.appendStep !== 'function' || !ui || typeof ui.ledgerArray !== 'function') return null;
+      var arr = ui.ledgerArray();
+      if (!Array.isArray(arr)) return null;
+      var step = eng.appendStep(arr, input);
+      try {
+        var fired = window.DataGlowPowerPacksUI && window.DataGlowPowerPacksUI._ledgerFired;
+        if (!Array.isArray(fired)) { fired = []; window.DataGlowPowerPacksUI._ledgerFired = fired; }
+        var src = input && input.kind === 'type_guard' ? 'type_guard' : (input && input.kind === 'summarize_tiles' ? 'summarize_tiles' : (input && input.kind));
+        if (src && fired.indexOf(src) < 0) fired.push(src);
+      } catch (_e4) {}
+      if (ui && typeof ui.refresh === 'function') { try { ui.refresh(); } catch (_e5) {} }
+      return step;
+    } catch (_e) { return null; }
   }
 
   function renderTypeGuard(host) {
@@ -133199,20 +133286,19 @@ function buildRPowerPack(input) {
     var eng = engine('DataGlowArrowBridge');
     if (!eng || typeof eng.buildArrowBridgeStatus !== 'function') return;
     var probe = pythonProbe();
+    var input = {
+      // DuckDB-WASM in this page materialises rows for the bridge rather than
+      // handing out an Arrow buffer, so this is false until that changes. It
+      // is written as an observation rather than a constant so the one place
+      // to change is here.
+      duckdbArrow: false,
+      pyarrow: probe.packages.pyarrow === true,
+      pythonReady: pythonRowLimit() > 0,
+      rowLimit: pythonRowLimit(),
+      rowCount: pythonRowCount(),
+    };
     var status;
-    try {
-      status = eng.buildArrowBridgeStatus({
-        // DuckDB-WASM in this page materialises rows for the bridge rather than
-        // handing out an Arrow buffer, so this is false until that changes. It
-        // is written as an observation rather than a constant so the one place
-        // to change is here.
-        duckdbArrow: false,
-        pyarrow: probe.packages.pyarrow === true,
-        pythonReady: pythonRowLimit() > 0,
-        rowLimit: pythonRowLimit(),
-        rowCount: pythonRowCount(),
-      });
-    } catch (_e) { return; }
+    try { status = eng.buildArrowBridgeStatus(input); } catch (_e) { return; }
 
     var warn = el('div', { class: 'dg-pk-warn' });
     warn.appendChild(el('b', {}, status.label));
@@ -133222,6 +133308,34 @@ function buildRPowerPack(input) {
     }
     warn.appendChild(el('div', { class: 'dg-pk-note' }, status.neverUnlimited));
     host.appendChild(warn);
+
+    if (arrowDeepenOn() && typeof eng.buildArrowBridgeStatusV2 === 'function') {
+      var v2;
+      try { v2 = eng.buildArrowBridgeStatusV2(input); } catch (_e2) { v2 = null; }
+      if (v2) {
+        var deep = el('div', { class: 'dg-pk-warn' });
+        deep.appendChild(el('b', {}, 'Transfer in use: ' + v2.transferKind));
+        deep.appendChild(el('div', { class: 'dg-pk-note' }, v2.headline));
+        host.appendChild(deep);
+
+        if (typeof eng.roundTripFixture === 'function') {
+          var rtRow = el('div', { class: 'dg-pk-row' });
+          var rtBtn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Prove the batch round trip on a fixture');
+          var rtStatus = el('span', { class: 'dg-pk-note' }, '');
+          rtBtn.addEventListener('click', function () {
+            var proof;
+            try { proof = eng.roundTripFixture(); } catch (_e3) { proof = null; }
+            rtStatus.textContent = proof ? proof.note : 'The round-trip proof did not run in this build.';
+          });
+          rtRow.appendChild(rtBtn);
+          rtRow.appendChild(rtStatus);
+          host.appendChild(rtRow);
+        }
+        if (eng.BATCH_BRIDGE_CEILING) {
+          host.appendChild(el('div', { class: 'dg-pk-note' }, eng.BATCH_BRIDGE_CEILING));
+        }
+      }
+    }
   }
 
   function renderPythonDeepen(host) {
@@ -133374,12 +133488,53 @@ function buildRPowerPack(input) {
     if (rDeepOn()) renderRDeepen(host);
   }
 
+  /* ---------------------------------------------------------------
+     Bundle 14: full-project lane cards. "Can I do a whole project here",
+     answered per lane, with a named hand-off. Its own tab because it is a
+     different question from any single runtime's snippet list, not a
+     capability of one runtime.
+     --------------------------------------------------------------- */
+  function renderLanes(host) {
+    var eng = engine('DataGlowProjectLanes');
+    if (!eng || typeof eng.buildProjectLanes !== 'function') {
+      host.appendChild(el('p', { class: 'dg-pk-note' }, 'The project lanes engine is not mounted in this build.'));
+      return;
+    }
+    var model;
+    try { model = eng.buildProjectLanes(); } catch (_e) { return; }
+
+    host.appendChild(el('p', {}, model.headline));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, model.neverClaims));
+
+    for (var i = 0; i < model.lanes.length; i++) {
+      var lane = model.lanes[i];
+      var card = el('div', { class: 'dg-pk-card' });
+      card.appendChild(el('b', {}, lane.label + ': ' + (lane.canDoWholeProject ? 'yes, within limits' : 'partial, named limits')));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Yes for: ' + lane.yesFor));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Stay here when: ' + lane.stayWhen));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Hand off when: ' + lane.handOffWhen));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Hand off to: ' + lane.handOffTo));
+      var ul = el('ul', { class: 'dg-pk-ul' });
+      for (var j = 0; j < lane.limits.length; j++) ul.appendChild(el('li', {}, lane.limits[j]));
+      card.appendChild(ul);
+      var row = el('div', { class: 'dg-pk-row' });
+      var b = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Go to ' + lane.label);
+      b.addEventListener('click', function (targetTab) {
+        return function () { show(targetTab); };
+      }(lane.id === 'excel' ? 'excel' : lane.id));
+      row.appendChild(b);
+      card.appendChild(row);
+      host.appendChild(card);
+    }
+  }
+
   function tabs() {
     var out = [];
     if (sqlOn()) out.push({ id: 'sql', label: 'SQL' });
     if (excelOn()) out.push({ id: 'excel', label: 'Spreadsheets' });
     if (pyOn()) out.push({ id: 'python', label: 'Python' });
     if (rOn()) out.push({ id: 'r', label: 'R' });
+    if (lanesOn()) out.push({ id: 'lanes', label: 'Project fit' });
     return out;
   }
 
@@ -133429,6 +133584,7 @@ function buildRPowerPack(input) {
     else if (state.tab === 'excel') renderExcel(body);
     else if (state.tab === 'python') renderPython(body);
     else if (state.tab === 'r') renderR(body);
+    else if (state.tab === 'lanes') renderLanes(body);
     panel.appendChild(body);
 
     panel.style.display = 'block';
@@ -133486,7 +133642,17 @@ function buildRPowerPack(input) {
     isOpen: function () { return state.open === true; },
     refresh: render,
     tabs: tabs,
-    models: function () { return { sql: sqlPack(), python: pyPack(), r: rPack() }; },
+    models: function () {
+      var lanesEng = engine('DataGlowProjectLanes');
+      var pqEng = engine('DataGlowPqParityRecipes');
+      return {
+        sql: sqlPack(),
+        python: pyPack(),
+        r: rPack(),
+        lanes: lanesEng && typeof lanesEng.buildProjectLanes === 'function' ? lanesEng.buildProjectLanes() : null,
+        pqParity: pqEng && typeof pqEng.buildPqParityPack === 'function' ? pqEng.buildPqParityPack() : null,
+      };
+    },
   };
 })();
 /* ---- end js/polyglot/data-glow-power-packs-canvas.js ---- */
@@ -134997,13 +135163,175 @@ function arrowBridgeChipLabel(status) {
   if (!isPlainObject(status)) return STATE_LABEL.missing;
   return STATE_LABEL[status.state] || STATE_LABEL.missing;
 }
+
+
+// ============================================================
+// Bundle 14 - arrowBridgeDeepen: a transfer that actually beats a JSON dump
+// ============================================================
+//
+// Bundle 13 shipped the honest status (ready/partial/missing) for whether
+// both ends of the DuckDB-to-Python handoff speak Arrow. It did not ship any
+// transfer, because full Arrow IPC needs the DuckDB build in this page to
+// expose a raw Arrow buffer, and it does not today: the bridge still walks a
+// materialised result into plain JS objects. That is unchanged here.
+//
+// What is new is the rung in between. A batched transfer, typed arrays per
+// column instead of one big JSON string, removes the per-row object
+// allocation and the string-parse cost on both ends without requiring the
+// DuckDB Arrow buffer this build does not have. It is not zero-copy and it is
+// not Arrow IPC; it is real work that is not the JSON path either, which is
+// why the status now names four states instead of collapsing "no IPC yet"
+// into "nothing happened":
+//
+//   `arrow_ipc`    a real Arrow IPC byte buffer crossed, no JSON, no per-row walk
+//   `batch_bridge` typed-array column batches crossed; faster than JSON, not IPC
+//   `json_bridge`  today's default: rows walked to objects, JSON.stringify'd
+//   `missing`      neither end can do anything better than nothing
+//
+// WHY THE FIXTURE ROUND-TRIP IS SMALL AND SYNCHRONOUS.
+// `roundTripFixture()` proves the batch path end-to-end on a small, fixed
+// input: encode a column to a typed array, hand it across (a plain function
+// call stands in for the postMessage/Pyodide-FS boundary a real transfer
+// would cross), decode it, and compare. It is a correctness proof for the
+// encode/decode pair, not a benchmark, and it never claims to model what a
+// 200,000-row transfer costs in a real browser tab.
+//
+// NEVER UNLIMITED, STILL. Batching changes the constant, not the ceiling: the
+// frame still has to fit in the memory of one tab running DuckDB. The row
+// limit reported alongside `batch_bridge` is the same JSON_BRIDGE_ROW_LIMIT
+// unless the caller has actual evidence for a higher one, because a bigger
+// number written in without evidence is exactly the claim this module refuses
+// to make.
+
+const ARROW_BRIDGE_STATUS_KINDS = Object.freeze(['arrow_ipc', 'batch_bridge', 'json_bridge', 'missing']);
+
+/** Numeric typed-array kinds this module knows how to encode. Extend deliberately. */
+const BATCH_DTYPES = Object.freeze(['float64', 'int32']);
+
+function isPlainObjectDeepen(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * The four-state status. Superset of buildArrowBridgeStatus(): everything
+ * that function reports is still here under the same field names, plus
+ * `transferKind` naming which of the four states is actually true, and
+ * `batchBridgeAvailable` naming whether the typed-array path below can run in
+ * this session (it only needs TypedArrays, which every supported browser and
+ * every Node used in CI already has).
+ *
+ * @param {{duckdbArrow?:boolean, pyarrow?:boolean, pythonReady?:boolean,
+ *          rowLimit?:number, rowCount?:number, typedArraysAvailable?:boolean}} [input]
+ */
+function buildArrowBridgeStatusV2(input) {
+  const inp = isPlainObjectDeepen(input) ? input : {};
+  const base = buildArrowBridgeStatus(inp);
+
+  const typedArraysAvailable = inp.typedArraysAvailable !== false
+    && typeof Float64Array !== 'undefined';
+
+  let transferKind;
+  if (base.state === 'ready') transferKind = 'arrow_ipc';
+  else if (typedArraysAvailable && inp.pythonReady === true) transferKind = 'batch_bridge';
+  else if (inp.pythonReady === true) transferKind = 'json_bridge';
+  else transferKind = 'missing';
+
+  return Object.assign({}, base, {
+    transferKind,
+    batchBridgeAvailable: typedArraysAvailable,
+    activeTransport: transferKind,
+    headline: transferKind === 'arrow_ipc'
+      ? base.headline
+      : transferKind === 'batch_bridge'
+        ? 'Typed-array column batches cross today: faster than the JSON dump, still not Arrow IPC.'
+        : transferKind === 'json_bridge'
+          ? 'Rows are walked to objects and JSON.stringify\'d. The batch path is not active for this session.'
+          : base.headline,
+  });
+}
+
+/**
+ * Encode one numeric column into a typed array plus the metadata a decoder
+ * needs. This is the whole "batch" in batch_bridge: no JSON string exists at
+ * any point in this path, only a typed array and a small header object.
+ *
+ * @param {Array<number|null>} values
+ * @param {string} [dtype] one of BATCH_DTYPES, default float64
+ */
+function encodeColumnBatch(values, dtype) {
+  const rows = Array.isArray(values) ? values : [];
+  const kind = BATCH_DTYPES.indexOf(dtype) >= 0 ? dtype : 'float64';
+  const Ctor = kind === 'int32' ? Int32Array : Float64Array;
+  const nullMask = new Uint8Array(rows.length);
+  const buf = new Ctor(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    const v = rows[i];
+    if (v === null || v === undefined || (typeof v === 'number' && !isFinite(v))) {
+      nullMask[i] = 1;
+      buf[i] = 0;
+    } else {
+      buf[i] = Number(v);
+    }
+  }
+  return {
+    kind: ARROW_BRIDGE_KIND,
+    dtype: kind,
+    length: rows.length,
+    values: buf,
+    nullMask,
+    bytes: buf.byteLength + nullMask.byteLength,
+  };
+}
+
+/** Decode a batch built by encodeColumnBatch() back into a plain array. */
+function decodeColumnBatch(batch) {
+  if (!isPlainObjectDeepen(batch) || !batch.values) return [];
+  const out = new Array(batch.length);
+  for (let i = 0; i < batch.length; i++) {
+    out[i] = batch.nullMask && batch.nullMask[i] ? null : batch.values[i];
+  }
+  return out;
+}
+
+/**
+ * Prove the batch path end to end on a small fixed fixture. Synchronous, pure,
+ * no timing claim: this is a correctness check, not a benchmark.
+ */
+function roundTripFixture() {
+  const fixture = [1, 2, null, 4.5, -3, null, 0];
+  const batch = encodeColumnBatch(fixture, 'float64');
+  const back = decodeColumnBatch(batch);
+  const matches = fixture.length === back.length
+    && fixture.every((v, i) => (v === null ? back[i] === null : back[i] === v));
+  return {
+    kind: ARROW_BRIDGE_KIND,
+    ok: matches,
+    fixtureLength: fixture.length,
+    bytes: batch.bytes,
+    dtype: batch.dtype,
+    note: matches
+      ? 'Encoded ' + fixture.length + ' values to ' + batch.bytes + ' bytes of typed array and decoded them back exactly, nulls included.'
+      : 'Round trip did not match. This would be a real bug in the encode/decode pair, not an environment issue.',
+  };
+}
+
+/** Ceiling text for the batch path specifically, so it is never read as unlimited either. */
+const BATCH_BRIDGE_CEILING =
+  'A typed-array batch removes the JSON parse and the per-row object allocation on both ends. It does not remove the ceiling: the column still has to fit in memory as a contiguous typed array on both sides, and it is still capped at the same row limit as the JSON path until there is real evidence for a higher one.';
   window.DataGlowArrowBridge = {
     ARROW_BRIDGE_KIND: ARROW_BRIDGE_KIND,
     ARROW_BRIDGE_VERSION: ARROW_BRIDGE_VERSION,
     ARROW_BRIDGE_STATES: ARROW_BRIDGE_STATES,
+    ARROW_BRIDGE_STATUS_KINDS: ARROW_BRIDGE_STATUS_KINDS,
+    BATCH_DTYPES: BATCH_DTYPES,
     JSON_BRIDGE_ROW_LIMIT: JSON_BRIDGE_ROW_LIMIT,
+    BATCH_BRIDGE_CEILING: BATCH_BRIDGE_CEILING,
     NEVER_UNLIMITED: NEVER_UNLIMITED,
     buildArrowBridgeStatus: buildArrowBridgeStatus,
+    buildArrowBridgeStatusV2: buildArrowBridgeStatusV2,
+    encodeColumnBatch: encodeColumnBatch,
+    decodeColumnBatch: decodeColumnBatch,
+    roundTripFixture: roundTripFixture,
     describeArrowStepUp: describeArrowStepUp,
     arrowBridgeChipLabel: arrowBridgeChipLabel,
   };
@@ -135591,6 +135919,73 @@ function describePackagingPath() {
     note: NO_WEIGHTS_IN_GIT,
   };
 }
+
+
+// ============================================================
+// Bundle 14 - llamaSidecarFetch: a three-state status for the fetch step
+// ============================================================
+//
+// sidecarPresence() above answers "is a binary on disk for this triple". That
+// collapses two different situations into one `sidecar_ready` state: a binary
+// that scripts/fetch-llama-sidecar.mjs placed but tauri.conf.json has not been
+// told about yet, and a binary that is both vendored AND declared in
+// externalBin so a real desktop build would actually include it. Those are
+// not the same claim, and Bundle 12/13 already established that
+// checkPackagingAgreement() treats the first as a build-breaking mismatch, not
+// as ready.
+//
+// fetchSidecarStatus() names the three states plainly instead of overloading
+// sidecarPresence()'s boolean:
+//
+//   `missing`          nothing on disk for this triple
+//   `fetched_unwired`  a binary is on disk, but externalBin does not name it
+//                      (or the packaging agreement disagrees for any reason)
+//   `ready`            on disk AND declared AND the agreement holds
+//
+// This never runs a handshake against the binary. "ready" here means the
+// packaging is honest, not that the server answers a request; that second
+// claim belongs to buildDesktopLlmStatus() in js/ai/desktop-local-llm.js,
+// which only reports its own `ready` from an actual observed handshake.
+
+const SIDECAR_FETCH_STATES = Object.freeze(['missing', 'fetched_unwired', 'ready']);
+
+function isPlainObjectFetch(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * @param {{triple?:string, presentTriples?:Array<string>, externalBin?:Array<string>}} [input]
+ */
+function fetchSidecarStatus(input) {
+  const inp = isPlainObjectFetch(input) ? input : {};
+  const presence = sidecarPresence(inp);
+  const agreement = checkPackagingAgreement({
+    externalBin: inp.externalBin,
+    presentTriples: inp.presentTriples,
+    statusBundled: false,
+  });
+
+  let state;
+  if (!presence.ready) state = 'missing';
+  else if (agreement.declared && agreement.ok) state = 'ready';
+  else state = 'fetched_unwired';
+
+  return {
+    kind: SIDECAR_PACKAGING_KIND,
+    state,
+    triple: presence.triple,
+    expectedPath: presence.expectedPath,
+    declared: agreement.declared,
+    vendored: agreement.vendored,
+    detail: state === 'missing'
+      ? presence.detail
+      : state === 'ready'
+        ? 'A binary is vendored for ' + (presence.triple || 'this target') + ' and tauri.bundle.externalBin declares it. A desktop build would include it.'
+        : 'A binary is vendored for ' + (presence.triple || 'this target') + ' but tauri.bundle.externalBin does not (yet) declare it, or the packaging check found a mismatch. Add "' + EXTERNAL_BIN_ENTRY + '" to tauri.bundle.externalBin and flip bundledInThisBuild in js/ai/desktop-local-llm.js in the same change.',
+    agreementProblems: agreement.problems,
+    note: NO_WEIGHTS_IN_GIT,
+  };
+}
   window.DataGlowLlamaSidecarPackaging = {
     SIDECAR_PACKAGING_KIND: SIDECAR_PACKAGING_KIND,
     SIDECAR_PACKAGING_VERSION: SIDECAR_PACKAGING_VERSION,
@@ -135599,10 +135994,12 @@ function describePackagingPath() {
     EXTERNAL_BIN_ENTRY: EXTERNAL_BIN_ENTRY,
     TARGET_TRIPLES: TARGET_TRIPLES,
     NO_WEIGHTS_IN_GIT: NO_WEIGHTS_IN_GIT,
+    SIDECAR_FETCH_STATES: SIDECAR_FETCH_STATES,
     sidecarFileName: sidecarFileName,
     expectedSidecarPaths: expectedSidecarPaths,
     sidecarPresence: sidecarPresence,
     checkPackagingAgreement: checkPackagingAgreement,
+    fetchSidecarStatus: fetchSidecarStatus,
     describePackagingPath: describePackagingPath,
   };
 })();
@@ -135903,6 +136300,958 @@ function describePackagingPath() {
   };
 })();
 /* ---- end js/dataquality/data-glow-csv-quarantine-canvas.js ---- */
+
+/* ---- from js/spine/repair-ledger.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Repair Ledger: the Applied Steps list this product never had
+// ============================================================
+//
+// Power Query has one thing DataGlow's polyglot surfaces do not: a visible,
+// ordered, append-only list of every step that touched the data, each one
+// clickable back to the transform that produced it. DataGlow has the same
+// facts scattered across five surfaces (CSV quarantine, the Excel type guard,
+// Excel Hell repairs, SUMMARIZE tiles, power-pack recipe runs) and no single
+// place that lines them up in the order they happened.
+//
+// This module is that place. It is a plain append-only log, kept in memory by
+// the caller and handed to `appendStep()` on every call, because a step that
+// already happened cannot un-happen and a log that could silently lose a step
+// is worse than not keeping one.
+//
+// WHY EVERY STEP CARRIES A STATUS RATHER THAN JUST EXISTING.
+// A step that ran and a step that was proposed and declined are both facts
+// worth keeping, and they are not the same fact. `applied` | `skipped` |
+// `failed` | `proposed` says which, so the ledger can show the guided-unpivot
+// someone declined next to the type guard they accepted, instead of only
+// showing what happened to go well.
+//
+// WHY RE-RUN IS HONEST ABOUT WHAT IT CANNOT DO.
+// A step that is a pure SQL insert (a recipe card copied and run) can be
+// handed back verbatim; that is a re-run. A step that was a decision made by
+// a person looking at a preview (a type-guard hold, an Excel Hell repair) is
+// not something this module can safely replay, because the input it was
+// judged against may no longer be the input on screen. `canRerun()` says so
+// per step rather than offering a button that would silently do the wrong
+// thing.
+//
+// WHAT THIS DOES NOT DO.
+// It does not touch DuckDB, the DOM, or storage. It does not decide when a
+// step happened; every caller passes in the timestamp, or this module stamps
+// one at append time from Date.now(), which is the only clock it owns. It does
+// not replace the Trust Ledger or the Proof Board; buildLedgerLink() hands out
+// a plain object either of those can log or link to, on a best-effort basis.
+//
+// Pure. No DOM, no engine, no network, no storage. The canvas surface owns the
+// array this operates on and calls appendStep()/exportLedger() against it.
+
+const REPAIR_LEDGER_KIND = 'dataglow-repair-ledger';
+const REPAIR_LEDGER_VERSION = 1;
+
+const REPAIR_LEDGER_KINDS = Object.freeze([
+  'load', 'quarantine_decision', 'type_guard', 'excel_hell_apply',
+  'sql_recipe_run', 'python_recipe', 'r_recipe', 'summarize_tiles', 'export',
+]);
+
+const REPAIR_LEDGER_ENGINES = Object.freeze(['sql', 'python', 'r', 'excel', 'system']);
+
+const REPAIR_LEDGER_STATUSES = Object.freeze(['applied', 'skipped', 'failed', 'proposed']);
+
+/** Step kinds whose code is a pure insert DuckDB will run again unchanged. */
+const RERUNNABLE_KINDS = Object.freeze(['sql_recipe_run']);
+
+const APPLIED_STEPS_EQUIVALENT =
+  'Power Query calls this the Applied Steps list: every transform, in order, each one clickable back to what it did. This is that list for DataGlow. It is not Power Query M and nothing here is replayed automatically; re-run only offers itself for a step that is a pure SQL insert, and says so when it cannot.';
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function oneOf(v, list, fallback) {
+  const s = str(v);
+  return list.indexOf(s) >= 0 ? s : fallback;
+}
+
+let counter = 0;
+/** Monotonic id, so two steps appended in the same millisecond still sort. */
+function nextId() {
+  counter += 1;
+  return 'rl-' + Date.now().toString(36) + '-' + counter.toString(36);
+}
+
+/**
+ * Build one ledger entry. Does not append it anywhere; `appendStep()` does
+ * that. Kept separate so a caller can build a step, inspect it, and decide.
+ *
+ * @param {{kind?:string, title?:string, engine?:string, code?:string,
+ *   recipeId?:string, inputTable?:string, outputTable?:string,
+ *   summary?:string, status?:string, at?:number}} [input]
+ */
+function buildStep(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const kind = oneOf(inp.kind, REPAIR_LEDGER_KINDS, 'sql_recipe_run');
+  const engine = oneOf(inp.engine, REPAIR_LEDGER_ENGINES, 'system');
+  const status = oneOf(inp.status, REPAIR_LEDGER_STATUSES, 'applied');
+  const title = str(inp.title) || kind.replace(/_/g, ' ');
+  const code = str(inp.code);
+  const at = typeof inp.at === 'number' && isFinite(inp.at) ? inp.at : Date.now();
+
+  return {
+    id: nextId(),
+    at,
+    kind,
+    title,
+    engine,
+    code,
+    recipeId: str(inp.recipeId),
+    inputTable: str(inp.inputTable),
+    outputTable: str(inp.outputTable),
+    summary: str(inp.summary) || title,
+    status,
+    rerunnable: status === 'applied' && RERUNNABLE_KINDS.indexOf(kind) >= 0 && !!code,
+  };
+}
+
+/**
+ * Append one step to a ledger array and return the new step.
+ *
+ * The array itself is the caller's; this never allocates a new one, so a
+ * reference held elsewhere (a UI's own `state.steps`) stays valid across
+ * every append. Append-only: nothing here removes or reorders an entry.
+ *
+ * @param {Array} ledger  a plain array, mutated in place
+ * @param {object} [input]  see buildStep()
+ */
+function appendStep(ledger, input) {
+  if (!Array.isArray(ledger)) throw new Error('appendStep: ledger must be an array');
+  const step = buildStep(input);
+  ledger.push(step);
+  return step;
+}
+
+/** Steps in the order they happened. A copy, so a caller cannot mutate the log by holding this. */
+function listSteps(ledger) {
+  return Array.isArray(ledger) ? ledger.slice() : [];
+}
+
+/** Steps of one status, or every status when none is given. */
+function stepsByStatus(ledger, status) {
+  const rows = listSteps(ledger);
+  const s = str(status);
+  if (!s) return rows;
+  return rows.filter((r) => r.status === s);
+}
+
+/** Whether a specific step (by id or the step object itself) can be re-run. */
+function canRerun(step) {
+  if (!isPlainObject(step)) return false;
+  return step.status === 'applied' && RERUNNABLE_KINDS.indexOf(step.kind) >= 0 && !!str(step.code);
+}
+
+/**
+ * "Re-run" a rerunnable step: hands back the exact code to execute, and never
+ * executes it here. The caller's SQL engine runs it and appends a new step
+ * for the result, because a re-run is itself a new fact in the ledger, not an
+ * edit to the old one.
+ */
+function rerunPlan(step) {
+  if (!canRerun(step)) {
+    return {
+      kind: REPAIR_LEDGER_KIND,
+      ok: false,
+      reason: !isPlainObject(step)
+        ? 'No step given.'
+        : step.status !== 'applied'
+          ? 'This step is marked ' + step.status + ', not applied, so there is nothing finished to repeat.'
+          : RERUNNABLE_KINDS.indexOf(step.kind) < 0
+            ? 'This step was a decision (' + step.kind + '), not a pure insert. Replaying it could judge stale input, so it is not offered.'
+            : 'This step has no code recorded, so there is nothing to hand back.',
+    };
+  }
+  return {
+    kind: REPAIR_LEDGER_KIND,
+    ok: true,
+    code: step.code,
+    engine: step.engine,
+    note: 'This is the exact SQL that ran. Nothing here executes it; run it and append the result as a new step.',
+  };
+}
+
+/** One receipt-friendly line, for a toast or a Trust Ledger line. */
+function stepReceiptLine(step) {
+  if (!isPlainObject(step)) return '';
+  const when = new Date(step.at).toISOString();
+  return '[' + when + '] ' + step.engine + ' ' + step.kind + ': ' + step.summary + ' (' + step.status + ')';
+}
+
+/** The whole ledger as JSON text, for a download or a paste target. */
+function exportLedgerJson(ledger) {
+  return JSON.stringify(
+    {
+      kind: REPAIR_LEDGER_KIND,
+      version: REPAIR_LEDGER_VERSION,
+      exportedAt: new Date().toISOString(),
+      steps: listSteps(ledger),
+    },
+    null,
+    2,
+  );
+}
+
+/** The whole ledger as a markdown table, for a receipt or a hand-off doc. */
+function exportLedgerMarkdown(ledger) {
+  const rows = listSteps(ledger);
+  const lines = [
+    '# Repair Ledger',
+    '',
+    APPLIED_STEPS_EQUIVALENT,
+    '',
+    '| # | When | Kind | Engine | Title | Status | Code / recipe |',
+    '|---|---|---|---|---|---|---|',
+  ];
+  rows.forEach((s, i) => {
+    const when = new Date(s.at).toISOString();
+    const code = s.code ? '`' + s.code.replace(/\n/g, ' ').slice(0, 80).replace(/\|/g, '\\|') + '`' : (s.recipeId || '');
+    lines.push('| ' + (i + 1) + ' | ' + when + ' | ' + s.kind + ' | ' + s.engine + ' | ' + s.title + ' | ' + s.status + ' | ' + code + ' |');
+  });
+  if (!rows.length) lines.push('| - | - | - | - | *(nothing logged yet)* | - | - |');
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * A best-effort record of which upstream surfaces this ledger has ever heard
+ * from, so an honest "the following did not wire up" list can be produced
+ * instead of a silent gap. Callers pass in which sources fired at least once
+ * this session; nothing here observes anything on its own.
+ *
+ * @param {{firedSources?:Array<string>}} [input]
+ */
+function wiringReport(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const known = Object.freeze([
+    'load', 'csv_quarantine', 'type_guard', 'excel_hell', 'sql_recipe',
+    'python_recipe', 'r_recipe', 'summarize_tiles', 'export',
+  ]);
+  const fired = Array.isArray(inp.firedSources) ? inp.firedSources.filter((s) => typeof s === 'string') : [];
+  const unwired = known.filter((k) => fired.indexOf(k) < 0);
+  return {
+    kind: REPAIR_LEDGER_KIND,
+    known,
+    fired,
+    unwired,
+    headline: unwired.length
+      ? 'Wired and observed this session: ' + fired.length + ' of ' + known.length + '. Not yet seen: ' + unwired.join(', ') + '.'
+      : 'Every known surface has appended at least one step this session.',
+  };
+}
+
+/** Summary counts, for a chip. */
+function ledgerSummary(ledger) {
+  const rows = listSteps(ledger);
+  const byStatus = {};
+  REPAIR_LEDGER_STATUSES.forEach((s) => { byStatus[s] = 0; });
+  rows.forEach((r) => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
+  return {
+    kind: REPAIR_LEDGER_KIND,
+    total: rows.length,
+    byStatus,
+    lastStep: rows.length ? rows[rows.length - 1] : null,
+    headline: rows.length
+      ? rows.length + ' step' + (rows.length === 1 ? '' : 's') + ' logged. Last: ' + rows[rows.length - 1].title + '.'
+      : 'No steps logged yet in this session.',
+  };
+}
+  window.DataGlowRepairLedger = {
+    REPAIR_LEDGER_KIND: REPAIR_LEDGER_KIND,
+    REPAIR_LEDGER_VERSION: REPAIR_LEDGER_VERSION,
+    REPAIR_LEDGER_KINDS: REPAIR_LEDGER_KINDS,
+    REPAIR_LEDGER_ENGINES: REPAIR_LEDGER_ENGINES,
+    REPAIR_LEDGER_STATUSES: REPAIR_LEDGER_STATUSES,
+    RERUNNABLE_KINDS: RERUNNABLE_KINDS,
+    APPLIED_STEPS_EQUIVALENT: APPLIED_STEPS_EQUIVALENT,
+    buildStep: buildStep,
+    appendStep: appendStep,
+    listSteps: listSteps,
+    stepsByStatus: stepsByStatus,
+    canRerun: canRerun,
+    rerunPlan: rerunPlan,
+    stepReceiptLine: stepReceiptLine,
+    exportLedgerJson: exportLedgerJson,
+    exportLedgerMarkdown: exportLedgerMarkdown,
+    wiringReport: wiringReport,
+    ledgerSummary: ledgerSummary,
+  };
+})();
+/* ---- end js/spine/repair-ledger.js ---- */
+/* ---- from js/polyglot/pq-parity-recipes.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - PQ-parity recipes: the Power Query transforms, in DuckDB SQL
+// ============================================================
+//
+// Power Query's step list covers a small, well-known set of shapes: promote
+// headers, change type, fill down, split a column, merge two queries, append
+// queries, group and aggregate, unpivot, pivot, remove duplicates, replace
+// values. Almost none of it is special to M; it is SQL wearing a different
+// syntax. This module writes the DuckDB SQL for each shape as an insertable
+// template, so the honest answer to "does this have Power Query" is a
+// concrete list of what runs today, in a language DataGlow actually embeds.
+//
+// WHY THIS IS TEMPLATES, NOT A TRANSPILER.
+// A transpiler that reads M and emits SQL has to track M's evaluation
+// semantics, which are lazy, and it would be maintaining a second SQL engine
+// in disguise. A template only has to be a correct answer to one named
+// question, with the placeholders that need substituting called out next to
+// it, which is the same shape the SQL power pack already uses and the same
+// honest limit: copied, never run for you, except where a card says
+// otherwise.
+//
+// WHY THE FUZZY JOIN IS A SKETCH.
+// jaro_winkler and levenshtein exist in DuckDB and a similarity join over an
+// unindexed cross product is O(n*m); it is fine at the row counts this
+// product already caps Python transfers to, and it is the wrong default for
+// anything bigger. The card says both things instead of pretending fuzzy
+// matching at scale is free.
+//
+// Reuses `powerQueryHonestNote` from js/polyglot/power-query-note.js and adds
+// nothing to what that module already says about M not being embedded; this
+// module is the concrete SQL that note points at.
+//
+// Pure data plus pure selectors. No DOM, no engine, no network. Nothing here
+// runs a query.
+
+const PQ_PARITY_KIND = 'dataglow-pq-parity-recipes';
+const PQ_PARITY_VERSION = 1;
+
+const PQ_PARITY_HONESTY =
+  'These are DuckDB SQL templates that do what a named Power Query step does. Power Query M is not embedded in DataGlow and never will be here; every card below is a real query you copy and run, and the Repair Ledger keeps the order they ran in the way Power Query keeps Applied Steps.';
+
+const APPLIED_STEPS_BLURB =
+  'Power Query keeps every transform in an Applied Steps list you can click back through. Running a recipe below and logging it is the DataGlow equivalent: open the Repair Ledger to see the same list for this session.';
+
+/**
+ * The twelve minimum recipes the spec calls for, each a whole runnable
+ * statement once placeholders are substituted. `guided` names an existing
+ * DataGlow surface that already does the step interactively, when one exists,
+ * so a person is pointed at the friendlier path first.
+ */
+const PQ_PARITY_RECIPES = Object.freeze([
+  Object.freeze({
+    id: 'promote-headers',
+    pqStep: 'Use First Row as Headers',
+    topic: 'Shape',
+    title: 'Promote the first row to column headers',
+    why: 'A file loaded with a generic header row (column0, column1...) because the real header was one row down.',
+    substitute: ['your_table'],
+    sql: "-- Assumes column0..columnN were auto-named on load. Adjust the names to match.\nCREATE OR REPLACE TABLE your_table AS\nSELECT * FROM (\n  SELECT * FROM your_table OFFSET 1\n) t;\n-- Then rename columns to the values that were in row 1, by hand or with\n-- ALTER TABLE your_table RENAME COLUMN column0 TO \"<value from row 1>\";",
+  }),
+  Object.freeze({
+    id: 'change-type',
+    pqStep: 'Change Type',
+    topic: 'Types',
+    title: 'Cast a column to a type, locale-honest',
+    why: 'A number or date read as text needs an explicit cast, and a cast that silently returns NULL on a bad row hides the row that failed.',
+    substitute: ['your_table', 'amount_text', 'amount'],
+    sql: "SELECT amount_text,\n       TRY_CAST(amount_text AS DOUBLE) AS amount,\n       (amount_text IS NOT NULL AND TRY_CAST(amount_text AS DOUBLE) IS NULL) AS cast_failed\nFROM your_table;\n-- TRY_CAST never throws; cast_failed flags the rows a plain CAST would have\n-- aborted on, so a locale mismatch (comma decimal, currency symbol) is seen\n-- rather than silently turned into every row failing.",
+  }),
+  Object.freeze({
+    id: 'fill-down',
+    pqStep: 'Fill Down',
+    topic: 'Shape',
+    title: 'Fill down: carry the last non-null value forward',
+    why: 'A spreadsheet with a merged-looking category column that is blank on every row but the first of each group.',
+    substitute: ['your_table', 'category', 'sort_col'],
+    sql: 'SELECT *,\n       last_value(category IGNORE NULLS) OVER (\n         ORDER BY sort_col\n         ROWS UNBOUNDED PRECEDING\n       ) AS category_filled\nFROM your_table\nORDER BY sort_col;',
+  }),
+  Object.freeze({
+    id: 'fill-up',
+    pqStep: 'Fill Up',
+    topic: 'Shape',
+    title: 'Fill up: carry the next non-null value backward',
+    why: 'The mirror of fill down, for a total row that labels the block above it rather than below.',
+    substitute: ['your_table', 'category', 'sort_col'],
+    sql: 'SELECT *,\n       first_value(category IGNORE NULLS) OVER (\n         ORDER BY sort_col\n         ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING\n       ) AS category_filled\nFROM your_table\nORDER BY sort_col;',
+  }),
+  Object.freeze({
+    id: 'split-column',
+    pqStep: 'Split Column by Delimiter',
+    topic: 'Shape',
+    title: 'Split a column by delimiter',
+    why: 'A "City, State" column that should be two columns, without losing rows that have no delimiter at all.',
+    substitute: ['your_table', 'full_name', ','],
+    sql: "SELECT full_name,\n       split_part(full_name, ',', 1) AS part_1,\n       split_part(full_name, ',', 2) AS part_2\nFROM your_table;\n-- split_part returns an empty string, not NULL, when the delimiter is absent,\n-- so check for '' rather than assuming every row split cleanly.",
+  }),
+  Object.freeze({
+    id: 'merge-queries-left',
+    pqStep: 'Merge Queries (left outer)',
+    topic: 'Joins',
+    title: 'Merge queries: left outer join template',
+    why: 'Keep every row on the left whether or not the right side matched.',
+    substitute: ['left_table', 'right_table', 'key'],
+    sql: 'SELECT l.*, r.* EXCLUDE (key)\nFROM left_table l\nLEFT JOIN right_table r ON l.key = r.key;',
+  }),
+  Object.freeze({
+    id: 'merge-queries-inner',
+    pqStep: 'Merge Queries (inner)',
+    topic: 'Joins',
+    title: 'Merge queries: inner join template',
+    why: 'Keep only rows that matched on both sides, which is Power Query\'s default merge kind.',
+    substitute: ['left_table', 'right_table', 'key'],
+    sql: 'SELECT l.*, r.* EXCLUDE (key)\nFROM left_table l\nINNER JOIN right_table r ON l.key = r.key;',
+  }),
+  Object.freeze({
+    id: 'merge-queries-full',
+    pqStep: 'Merge Queries (full outer)',
+    topic: 'Joins',
+    title: 'Merge queries: full outer join template',
+    why: 'Keep every row from both sides, matched or not, so nothing on either side is silently dropped.',
+    substitute: ['left_table', 'right_table', 'key'],
+    sql: 'SELECT *\nFROM left_table l\nFULL OUTER JOIN right_table r ON l.key = r.key;',
+  }),
+  Object.freeze({
+    id: 'append-queries',
+    pqStep: 'Append Queries',
+    topic: 'Combine',
+    title: 'Append queries: stack tables by column name, not position',
+    why: 'Power Query appends by name; UNION ALL by position silently mismatches columns that are in a different order between files. UNION BY NAME is the honest equivalent.',
+    substitute: ['table_a', 'table_b'],
+    sql: 'SELECT * FROM table_a\nUNION ALL BY NAME\nSELECT * FROM table_b;',
+  }),
+  Object.freeze({
+    id: 'group-by-aggregate',
+    pqStep: 'Group By',
+    topic: 'Aggregate',
+    title: 'Group by and aggregate',
+    why: 'The step almost every workbook needs eventually: one row per group with the sums and counts Power Query\'s Group By dialog builds one click at a time.',
+    substitute: ['your_table', 'region', 'amount'],
+    sql: 'SELECT region,\n       count(*) AS rows,\n       sum(amount) AS total_amount,\n       avg(amount) AS avg_amount\nFROM your_table\nGROUP BY ALL\nORDER BY region;',
+  }),
+  Object.freeze({
+    id: 'unpivot-dynamic',
+    pqStep: 'Unpivot Columns (dynamic)',
+    topic: 'Reshape',
+    title: 'Unpivot: dynamic EXCLUDE form',
+    why: 'Twelve month columns that should be one column and a date, without naming every month column by hand. The guided unpivot panel does this interactively if it is mounted in this build; this is the raw statement it runs.',
+    substitute: ['your_table', 'region'],
+    sql: 'UNPIVOT your_table\nON COLUMNS(* EXCLUDE (region))\nINTO NAME period VALUE amount;',
+    guided: 'guided-unpivot',
+  }),
+  Object.freeze({
+    id: 'pivot',
+    pqStep: 'Pivot Column',
+    topic: 'Reshape',
+    title: 'Pivot: one column of values becomes many columns',
+    why: 'The inverse of unpivot, and the shape a stakeholder usually asks for by name.',
+    substitute: ['your_table', 'month', 'amount', 'region'],
+    sql: 'PIVOT your_table\n  ON month\n  USING sum(amount)\n  GROUP BY region;',
+  }),
+  Object.freeze({
+    id: 'remove-duplicates',
+    pqStep: 'Remove Duplicates',
+    topic: 'Data quality',
+    title: 'Remove duplicate rows',
+    why: 'Exact full-row duplicates, kept as one. For duplicates on a key with differing other columns, see the duplicate-keys SQL snippet instead, which finds them without deciding which to keep.',
+    substitute: ['your_table'],
+    sql: 'CREATE OR REPLACE TABLE your_table AS\nSELECT DISTINCT * FROM your_table;',
+  }),
+  Object.freeze({
+    id: 'replace-trim-clean',
+    pqStep: 'Replace Values / Trim / Clean',
+    topic: 'Data quality',
+    title: 'Replace values, trim, and strip non-printable characters',
+    why: 'The three small text repairs that come up on almost every imported column, done in one pass rather than three.',
+    substitute: ['your_table', 'name', 'old_value', 'new_value'],
+    sql: "SELECT name,\n       trim(regexp_replace(\n         replace(name, 'old_value', 'new_value'),\n         '[\\x00-\\x1F]', '', 'g'\n       )) AS name_clean\nFROM your_table;",
+  }),
+  Object.freeze({
+    id: 'fuzzy-join-sketch',
+    pqStep: '(no direct M equivalent, common follow-on need)',
+    topic: 'Joins',
+    title: 'Fuzzy join sketch: jaro_winkler / levenshtein',
+    why: 'When a key does not match exactly (typos, abbreviations) a similarity score finds candidate matches. This is a sketch, not a default: an unindexed similarity join is a cross product, which is fine at the row counts the Python bridge already caps this product to and the wrong tool at warehouse scale.',
+    substitute: ['left_table', 'right_table', 'name'],
+    sql: '-- O(n*m): fine for a few thousand rows on each side, not for a big warehouse table.\n-- jaro_winkler returns 0..1 (1 = identical); levenshtein returns an edit distance (0 = identical).\nSELECT l.name AS left_name, r.name AS right_name,\n       jaro_winkler_similarity(l.name, r.name) AS similarity\nFROM left_table l, right_table r\nWHERE jaro_winkler_similarity(l.name, r.name) > 0.85\nORDER BY similarity DESC;',
+  }),
+]);
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Distinct recipe topics, in first-seen order. */
+function pqParityTopics() {
+  const out = [];
+  for (const r of PQ_PARITY_RECIPES) {
+    if (out.indexOf(r.topic) < 0) out.push(r.topic);
+  }
+  return out;
+}
+
+/** Recipes for one topic, or all of them. */
+function listPqParityRecipes(topic) {
+  const t = str(topic);
+  if (!t) return PQ_PARITY_RECIPES.slice();
+  return PQ_PARITY_RECIPES.filter((r) => r.topic === t);
+}
+
+/** One recipe by id, or null. */
+function findPqParityRecipe(id) {
+  const i = str(id);
+  return PQ_PARITY_RECIPES.filter((r) => r.id === i)[0] || null;
+}
+
+function buildPqParityPack() {
+  return {
+    kind: PQ_PARITY_KIND,
+    version: PQ_PARITY_VERSION,
+    honesty: PQ_PARITY_HONESTY,
+    appliedStepsBlurb: APPLIED_STEPS_BLURB,
+    recipes: PQ_PARITY_RECIPES,
+    topics: pqParityTopics(),
+    count: PQ_PARITY_RECIPES.length,
+  };
+}
+  window.DataGlowPqParityRecipes = {
+    PQ_PARITY_KIND: PQ_PARITY_KIND,
+    PQ_PARITY_VERSION: PQ_PARITY_VERSION,
+    PQ_PARITY_HONESTY: PQ_PARITY_HONESTY,
+    APPLIED_STEPS_BLURB: APPLIED_STEPS_BLURB,
+    PQ_PARITY_RECIPES: PQ_PARITY_RECIPES,
+    pqParityTopics: pqParityTopics,
+    listPqParityRecipes: listPqParityRecipes,
+    findPqParityRecipe: findPqParityRecipe,
+    buildPqParityPack: buildPqParityPack,
+  };
+})();
+/* ---- end js/polyglot/pq-parity-recipes.js ---- */
+/* ---- from js/polyglot/project-lanes.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Project lanes: "can I do a whole project here?", answered per lane
+// ============================================================
+//
+// The polyglot surfaces (SQL, Python, R) and the Excel repair path each read
+// as a competent tool in isolation, and nothing in the product ever answers
+// the question someone actually has before starting: can I do the whole
+// project in here, or am I going to hit a wall at step six and have to start
+// over somewhere else? This module answers that question once per lane,
+// honestly, instead of leaving it to be discovered.
+//
+// WHY EVERY CARD NAMES A HAND-OFF.
+// "Yes for X, no false claim of everything" is only useful if the boundary is
+// specific enough to plan around. Each lane below names the concrete point
+// where DataGlow is no longer the right tool and where to go instead, because
+// a limit without a next step is just a warning.
+//
+// WHAT THIS NEVER SAYS.
+// It never says "yes, any project". A project that needs a CRAN package
+// webR does not ship, a native Python wheel Pyodide cannot build, or Excel
+// VBA and Power Pivot is a project this product hands off on, and the card
+// for that lane says so before someone spends an afternoon finding out.
+//
+// Pure data plus pure selectors. No DOM, no engine, no network.
+
+const PROJECT_LANES_KIND = 'dataglow-project-lanes';
+const PROJECT_LANES_VERSION = 1;
+
+const PROJECT_LANES = Object.freeze([
+  Object.freeze({
+    id: 'sql',
+    label: 'SQL',
+    canDoWholeProject: true,
+    yesFor: 'Load, profile, transform, join, aggregate, and export, end to end, for a file or a handful of files that fit in one browser tab.',
+    stayWhen: 'The work is shaping and answering questions about tabular data you already have loaded: joins, group-bys, window functions, reshaping, dedup, the PQ-parity recipes.',
+    handOffWhen: 'You need a warehouse-scale dataset, a dialect DuckDB does not speak (stored procedures, triggers), or a scheduled/production pipeline rather than a one-off analysis.',
+    handOffTo: 'Your actual warehouse (Snowflake, Databricks, Postgres) or an orchestrator, once the shape of the query is proven here.',
+    limits: Object.freeze(['DuckDB dialect, not Postgres or your warehouse\'s dialect verbatim', 'No stored procedures, triggers, or scheduled jobs', 'No CRAN-depth statistics; that is R\'s lane']),
+    recipesLink: 'pq-parity-recipes',
+  }),
+  Object.freeze({
+    id: 'python',
+    label: 'Python',
+    canDoWholeProject: true,
+    yesFor: 'pandas/polars-style wrangling, plotting, and sklearn-lite modeling on a table that already crossed the DuckDB-to-Python bridge.',
+    stayWhen: 'The work is a wrangling or lightweight modeling pass on a table this session already loaded, and the row count fits under the bridge\'s limit.',
+    handOffWhen: 'The dataset is bigger than the bridge will carry, or the project needs a native wheel Pyodide cannot build (most GPU-backed and many compiled packages), or a training run that needs real hardware.',
+    handOffTo: 'A real Python environment (local venv, a notebook service, a training cluster) once the approach is validated here on a sample.',
+    limits: Object.freeze(['Row count capped by the DuckDB-to-Python bridge (see Arrow bridge status)', 'No native wheels Pyodide has not built; pure-Python and the pinned scientific stack only', 'No GPU, no multi-hour training run']),
+    recipesLink: 'python-power-pack',
+  }),
+  Object.freeze({
+    id: 'excel',
+    label: 'Excel',
+    canDoWholeProject: false,
+    yesFor: 'Messy file repair (headers, types, split columns, duplicates), a working grid view, and export back to a clean file.',
+    stayWhen: 'The problem is "this spreadsheet is a mess and I need clean data out of it," not "I need to keep authoring in Excel."',
+    handOffWhen: 'The workbook depends on VBA macros, Power Pivot data models, or formulas that have to keep working after export.',
+    handOffTo: 'Microsoft Excel itself, for anything that has to remain a living, formula-driven, macro-capable workbook.',
+    limits: Object.freeze(['Not a VBA runtime; macros are never evaluated', 'Not a Power Pivot replacement; no in-workbook data model', 'Password-protected workbooks are not read']),
+    recipesLink: 'pq-parity-recipes',
+  }),
+  Object.freeze({
+    id: 'r',
+    label: 'R',
+    canDoWholeProject: false,
+    yesFor: 'Tidy summary and plot recipes available in webR: base R, and dplyr/tidyr/ggplot2/jsonlite when the session actually has them installed.',
+    stayWhen: 'The task is a summary table or a standard plot from a tidy data frame, using packages this session already probed as installed.',
+    handOffWhen: 'The project needs a CRAN package outside the small pinned set, a statistical model with real depth (mixed effects, survival analysis, Bayesian fitting), or a package with compiled dependencies webR cannot build in-browser.',
+    handOffTo: 'Local R or RStudio, or a hosted R environment, for full CRAN access and heavier statistical modeling.',
+    limits: Object.freeze(['Not full CRAN; only the packages this session actually probed as installed', 'Air-Gap Mode or offline blocks any install attempt, honestly, rather than silently degrading', 'No heavy/compiled statistical packages beyond the pinned tidy set']),
+    recipesLink: 'r-power-pack',
+  }),
+]);
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** One lane by id, or null. */
+function findLane(id) {
+  const i = str(id);
+  return PROJECT_LANES.filter((l) => l.id === i)[0] || null;
+}
+
+/** All lanes, or only the ones that can carry a whole project unaided. */
+function listLanes(onlyFullProject) {
+  if (onlyFullProject === true) return PROJECT_LANES.filter((l) => l.canDoWholeProject);
+  return PROJECT_LANES.slice();
+}
+
+function buildProjectLanes() {
+  return {
+    kind: PROJECT_LANES_KIND,
+    version: PROJECT_LANES_VERSION,
+    lanes: PROJECT_LANES,
+    headline: 'Four honest answers to "can I do a whole project here", not one blanket yes.',
+    neverClaims: 'None of these cards says "any project". Each names the concrete point it hands off, and to what.',
+  };
+}
+  window.DataGlowProjectLanes = {
+    PROJECT_LANES_KIND: PROJECT_LANES_KIND,
+    PROJECT_LANES_VERSION: PROJECT_LANES_VERSION,
+    PROJECT_LANES: PROJECT_LANES,
+    findLane: findLane,
+    listLanes: listLanes,
+    buildProjectLanes: buildProjectLanes,
+  };
+})();
+/* ---- end js/polyglot/project-lanes.js ---- */
+/* ---- from js/spine/data-glow-repair-ledger-canvas.js ---- */
+/*
+ * DATAGLOW - The Repair Ledger panel.
+ *
+ * An append-only list of every step logged this session: what ran, in what
+ * engine, against what table, and whether it was applied, skipped, failed, or
+ * only proposed. This is the Applied Steps list Power Query has and DataGlow
+ * never did, mounted as a panel rather than a 24th top-nav item, opened from
+ * the power packs panel or the RECEIPT spine chip.
+ *
+ * WHY THE ARRAY LIVES HERE, NOT IN THE ENGINE.
+ * js/spine/repair-ledger.js is pure: it builds and reads entries but owns no
+ * storage of its own, on purpose, so it has no global state to leak between
+ * tests. This canvas module is the one place that holds the actual array for
+ * the running page and exposes it as `ledgerArray()`, so any other canvas
+ * module (power packs, the type guard, Excel Hell) can append to the same
+ * log by asking this module for it rather than each other.
+ *
+ * WHY EXPORT NEVER RUNS ANYTHING AND RE-RUN NEVER EITHER.
+ * Export builds a JSON or markdown string and copies it or triggers a
+ * download; it does not touch a database. Re-run resolves to `rerunPlan()`
+ * from the engine, which for a rerunnable step hands back the exact SQL and
+ * stops. Whether it actually runs again is a click on a "Copy" button, same
+ * as every other snippet in this product; nothing in this panel executes SQL
+ * on its own initiative.
+ *
+ * WHY UNWIRED SOURCES ARE NAMED RATHER THAN HIDDEN.
+ * wiringReport() compares which of the nine known surfaces have appended at
+ * least one step this session against the full known list, and the panel
+ * shows the gap in plain text. A ledger that quietly only reflects some of
+ * what happened is more misleading than an empty one that says so.
+ */
+;(function () {
+  'use strict';
+
+  var PANEL_ID = 'dg-ledger-panel';
+  var BTN_ID = 'dg-ledger-btn';
+  var STYLE_ID = 'dg-ledger-styles';
+
+  var state = { open: false, ledger: [] };
+
+  function flag(explicitKey, flagKey) {
+    try { if (window[explicitKey] === false) return false; } catch (_e0) {}
+    try { if (window[explicitKey] === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled(flagKey) !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function ledgerOn() { return flag('DATAGLOW_REPAIR_LEDGER', 'repairLedger'); }
+
+  function engine(name) {
+    try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'style') node.setAttribute('style', attrs[k]);
+        else if (k === 'class') node.className = attrs[k];
+        else node.setAttribute(k, attrs[k]);
+      }
+    }
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function toast(message) {
+    try {
+      if (typeof window.showToast === 'function') { window.showToast(message); return; }
+    } catch (_e) {}
+    try { console.log('[repair ledger] ' + message); } catch (_e2) {}
+  }
+
+  function copy(text, what) {
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(function () {
+          toast((what || 'Text') + ' copied to the clipboard.');
+        }, function () {
+          toast('Could not copy ' + (what || 'text') + '. Select and copy it by hand.');
+        });
+        return;
+      }
+    } catch (_e) {}
+    toast('Clipboard is not available here. Select and copy the text by hand.');
+  }
+
+  function download(filename, contents, mime) {
+    try {
+      var blob = new Blob([contents], { type: mime || 'text/plain' });
+      var url = URL.createObjectURL(blob);
+      var a = el('a', { href: url, download: filename });
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (_e) {} }, 2000);
+      return true;
+    } catch (_e2) { return false; }
+  }
+
+  function styles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = ''
+      + '#' + PANEL_ID + '{position:fixed;left:16px;bottom:16px;width:min(560px,calc(100vw - 32px));'
+      + 'max-height:70vh;overflow:auto;background:#11151c;color:#e7ebf3;border:1px solid #2a3140;'
+      + 'border-radius:10px;padding:14px;box-shadow:0 12px 28px rgba(0,0,0,.4);z-index:2147482800;display:none;'
+      + 'font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif}'
+      + '#' + PANEL_ID + ' h3{margin:0 0 2px;font-size:15px}'
+      + '#' + PANEL_ID + ' h4{margin:12px 0 4px;font-size:13px}'
+      + '.dg-lg-note{color:#9aa4b6;font-size:12px;margin:4px 0}'
+      + '.dg-lg-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}'
+      + '.dg-lg-btn{background:#1d2430;color:#e7ebf3;border:1px solid #33405a;border-radius:6px;'
+      + 'padding:5px 10px;font-size:12px;cursor:pointer}'
+      + '.dg-lg-btn:hover{background:#242c3a}'
+      + '.dg-lg-step{border:1px solid #262d3a;border-radius:8px;padding:8px;margin:6px 0;background:#0d1017}'
+      + '.dg-lg-badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;margin-left:6px}'
+      + '.dg-lg-badge.applied{background:#173a24;color:#7be1a0}'
+      + '.dg-lg-badge.proposed{background:#3a3417;color:#e1cc7b}'
+      + '.dg-lg-badge.skipped{background:#33384a;color:#b7bfd6}'
+      + '.dg-lg-badge.failed{background:#3a1717;color:#e17b7b}'
+      + '#' + BTN_ID + '{position:fixed;bottom:18px;left:16px;z-index:2147482790;'
+      + 'background:#1d2430;color:#e7ebf3;border:1px solid #33405a;border-radius:999px;'
+      + 'padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,.35)}';
+    var style = el('style', { id: STYLE_ID });
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  /** The shared array. Any other canvas module can append to this same log. */
+  function ledgerArray() {
+    return state.ledger;
+  }
+
+  function summary() {
+    var eng = engine('DataGlowRepairLedger');
+    if (!eng || typeof eng.ledgerSummary !== 'function') return null;
+    try { return eng.ledgerSummary(state.ledger); } catch (_e) { return null; }
+  }
+
+  function renderStep(host, step) {
+    var eng = engine('DataGlowRepairLedger');
+    var row = el('div', { class: 'dg-lg-step' });
+    var head = el('div', {});
+    head.appendChild(el('b', {}, step.title));
+    head.appendChild(el('span', { class: 'dg-lg-badge ' + step.status }, step.status));
+    row.appendChild(head);
+    row.appendChild(el('div', { class: 'dg-lg-note' }, step.engine + ' / ' + step.kind + ' - ' + new Date(step.at).toLocaleString()));
+    if (step.summary) row.appendChild(el('div', { class: 'dg-lg-note' }, step.summary));
+
+    var actions = el('div', { class: 'dg-lg-row' });
+    if (step.code) {
+      var copyBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Copy code');
+      copyBtn.addEventListener('click', function () { copy(step.code, 'Step code'); });
+      actions.appendChild(copyBtn);
+    }
+    if (eng && typeof eng.canRerun === 'function' && eng.canRerun(step)) {
+      var rerunBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Re-run plan');
+      rerunBtn.addEventListener('click', function () {
+        var plan = eng.rerunPlan(step);
+        if (plan.ok) { copy(plan.code, 'Re-run SQL'); toast(plan.note); }
+        else toast(plan.reason);
+      });
+      actions.appendChild(rerunBtn);
+    }
+    if (actions.childNodes.length) row.appendChild(actions);
+    host.appendChild(row);
+  }
+
+  function render() {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    var head = el('div', { class: 'dg-lg-row' });
+    var title = el('div', {});
+    title.appendChild(el('h3', {}, 'Repair Ledger'));
+    var eng = engine('DataGlowRepairLedger');
+    title.appendChild(el('div', { class: 'dg-lg-note' }, eng ? eng.APPLIED_STEPS_EQUIVALENT : 'The ledger engine is not mounted in this build.'));
+    head.appendChild(title);
+    var close = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Close');
+    close.addEventListener('click', dismiss);
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    if (!eng) { panel.style.display = 'block'; return; }
+
+    var sum = summary();
+    if (sum) panel.appendChild(el('p', { class: 'dg-lg-note' }, sum.headline));
+
+    var actions = el('div', { class: 'dg-lg-row' });
+    var exportJsonBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Export JSON');
+    exportJsonBtn.addEventListener('click', function () {
+      var json = eng.exportLedgerJson(state.ledger);
+      if (download('repair-ledger.json', json, 'application/json')) toast('Ledger exported as JSON.');
+      else copy(json, 'Ledger JSON');
+    });
+    actions.appendChild(exportJsonBtn);
+
+    var exportMdBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Export Markdown');
+    exportMdBtn.addEventListener('click', function () {
+      var md = eng.exportLedgerMarkdown(state.ledger);
+      if (download('repair-ledger.md', md, 'text/markdown')) toast('Ledger exported as Markdown.');
+      else copy(md, 'Ledger Markdown');
+    });
+    actions.appendChild(exportMdBtn);
+    panel.appendChild(actions);
+
+    if (typeof eng.wiringReport === 'function') {
+      var fired = [];
+      try {
+        var pk = window.DataGlowPowerPacksUI;
+        if (pk && Array.isArray(pk._ledgerFired)) fired = fired.concat(pk._ledgerFired);
+      } catch (_e) {}
+      var report = eng.wiringReport({ firedSources: fired });
+      panel.appendChild(el('p', { class: 'dg-lg-note' }, report.headline));
+    }
+
+    var steps = eng.listSteps(state.ledger);
+    if (!steps.length) {
+      panel.appendChild(el('p', { class: 'dg-lg-note' }, 'Nothing logged yet this session. Run a SUMMARIZE profile, check the type guard, or copy a PQ-parity recipe to see a step here.'));
+    } else {
+      var list = el('div', {});
+      for (var i = steps.length - 1; i >= 0; i--) renderStep(list, steps[i]);
+      panel.appendChild(list);
+    }
+
+    panel.style.display = 'block';
+  }
+
+  function refreshChip() {
+    var btn = document.getElementById(BTN_ID);
+    if (!btn) return;
+    var sum = summary();
+    btn.textContent = 'Repair Ledger' + (sum && sum.total ? ' (' + sum.total + ')' : '');
+  }
+
+  function open() {
+    state.open = true;
+    render();
+    refreshChip();
+  }
+
+  function dismiss() {
+    var panel = document.getElementById(PANEL_ID);
+    state.open = false;
+    if (panel) panel.style.display = 'none';
+  }
+
+  function toggle() {
+    if (state.open) dismiss(); else open();
+  }
+
+  function mount() {
+    if (!ledgerOn()) return;
+    if (document.getElementById(PANEL_ID)) return;
+    if (!document.body) return;
+    if (!engine('DataGlowRepairLedger')) return;
+    styles();
+
+    document.body.appendChild(el('div', {
+      id: PANEL_ID,
+      role: 'dialog',
+      'aria-label': 'Repair Ledger: every step logged this session',
+    }));
+    var btn = el('button', { id: BTN_ID, type: 'button' }, 'Repair Ledger');
+    btn.addEventListener('click', toggle);
+    document.body.appendChild(btn);
+    refreshChip();
+  }
+
+  function unmount() {
+    var panel = document.getElementById(PANEL_ID);
+    var btn = document.getElementById(BTN_ID);
+    if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+  }
+
+  function boot() {
+    try {
+      if (!ledgerOn()) { unmount(); return; }
+      mount();
+    } catch (_e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 1400); });
+  } else {
+    setTimeout(boot, 1400);
+  }
+
+  window.DataGlowRepairLedgerUI = {
+    version: 1,
+    mounted: function () { return !!document.getElementById(PANEL_ID); },
+    open: open,
+    close: dismiss,
+    toggle: toggle,
+    isOpen: function () { return state.open === true; },
+    refresh: render,
+    ledgerArray: ledgerArray,
+    summary: summary,
+  };
+})();
+/* ---- end js/spine/data-glow-repair-ledger-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

@@ -7124,6 +7124,163 @@
       "notes": "scripts/fetch-llama-sidecar.mjs places a per-target-triple binary into src-tauri/binaries/, which is git-ignored and never committed: tens of megabytes per triple with no model weights ever included. The script does not run in CI and does not touch tauri.conf.json. checkPackagingAgreement() catches the case where Tauri's externalBin config and the actual on-disk binary disagree, so a build never silently claims a sidecar that is not there.",
       "relatedFlags": [],
       "status": "shipped"
+    },
+    {
+      "id": "repair-ledger",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "An append-only Repair Ledger of every step this session, the Applied Steps list Power Query has and DataGlow did not",
+      "files": [
+        "js/spine/repair-ledger.js",
+        "js/spine/data-glow-repair-ledger-canvas.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/spine/repair-ledger.js",
+          "name": "appendStep"
+        },
+        {
+          "file": "js/spine/repair-ledger.js",
+          "name": "exportLedgerJson"
+        },
+        {
+          "file": "js/spine/repair-ledger.js",
+          "name": "exportLedgerMarkdown"
+        },
+        {
+          "file": "js/spine/repair-ledger.js",
+          "name": "rerunPlan"
+        }
+      ],
+      "notes": "A plain, in-memory, append-only array of steps, each with an id, timestamp, kind, engine (sql/python/r/excel/system), the code or recipe id, input/output table hint, a receipt-friendly summary, and a status of applied, skipped, failed, or proposed. Export as JSON or Markdown; a step that is a pure SQL insert can offer a re-run plan that hands back the exact code and never executes it. The panel opens from the power packs SQL tab (PQ-parity section) rather than a new top-nav item. Best-effort wiring appends from the Excel type guard, SUMMARIZE profiling, and PQ-parity/SQL recipe copies; CSV quarantine and Excel Hell apply are not yet wired and wiringReport() names the gap rather than hiding it.",
+      "relatedFlags": [
+        "repairLedger"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "pq-parity-recipes",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "Fifteen DuckDB SQL templates matching the Power Query step shapes, never M",
+      "files": [
+        "js/polyglot/pq-parity-recipes.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/pq-parity-recipes.js",
+          "name": "buildPqParityPack"
+        },
+        {
+          "file": "js/polyglot/pq-parity-recipes.js",
+          "name": "listPqParityRecipes"
+        }
+      ],
+      "notes": "Promote headers, change type, fill down/up, split column, merge (left/inner/full), append (UNION BY NAME), group by, unpivot (dynamic EXCLUDE form), pivot, remove duplicates, replace/trim/clean, and a fuzzy-join sketch using jaro_winkler_similarity with an explicit O(n*m) warning. Each card names the DuckDB SQL, why it matters, and the placeholders to replace. Power Query M is not embedded and is not the substitute claimed; the Repair Ledger is named as the Applied Steps equivalent. Reuses powerQueryHonestNote's stance rather than repeating it.",
+      "relatedFlags": [
+        "pqParityRecipes"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "arrow-bridge-deepen",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "Four-state Arrow bridge transfer status (arrow_ipc/batch_bridge/json_bridge/missing) plus a working typed-array batch path",
+      "files": [
+        "js/polyglot/arrow-bridge.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/arrow-bridge.js",
+          "name": "buildArrowBridgeStatusV2"
+        },
+        {
+          "file": "js/polyglot/arrow-bridge.js",
+          "name": "encodeColumnBatch"
+        },
+        {
+          "file": "js/polyglot/arrow-bridge.js",
+          "name": "decodeColumnBatch"
+        },
+        {
+          "file": "js/polyglot/arrow-bridge.js",
+          "name": "roundTripFixture"
+        }
+      ],
+      "notes": "DuckDB-WASM in this page still does not expose an Arrow result buffer, so arrow_ipc is not reachable yet; that ceiling is stated, not hidden. batch_bridge is real: values are encoded into a typed array plus a null mask, decoded back, and proven correct on a small fixed fixture with roundTripFixture(), which is a correctness check and not a timing benchmark. The row ceiling is unchanged (JSON_BRIDGE_ROW_LIMIT) until there is actual evidence for a higher one; BATCH_BRIDGE_CEILING says so explicitly. Superset of the Bundle 13 ready/partial/missing status, which is unchanged for any caller still using buildArrowBridgeStatus().",
+      "relatedFlags": [
+        "arrowBridgeDeepen"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "llama-sidecar-fetch",
+      "platforms": [
+        "desktop"
+      ],
+      "area": "Local AI",
+      "name": "Dry-run and three-state fetch status (missing/fetched_unwired/ready) for the desktop llama.cpp sidecar binary",
+      "files": [
+        "scripts/fetch-llama-sidecar.mjs",
+        "js/ai/llama-sidecar-packaging.js",
+        "docs/desktop-llama-sidecar.md"
+      ],
+      "symbols": [
+        {
+          "file": "js/ai/llama-sidecar-packaging.js",
+          "name": "fetchSidecarStatus"
+        }
+      ],
+      "notes": "node scripts/fetch-llama-sidecar.mjs --dry-run prints the exact destination and next command without creating a directory or writing a file. --status reports missing (nothing on disk), fetched_unwired (vendored but tauri.bundle.externalBin does not declare it, or checkPackagingAgreement() disagrees), or ready (vendored, declared, and the agreement holds) for the host target triple. This is a packaging claim, not a runtime handshake result; buildDesktopLlmStatus() in js/ai/desktop-local-llm.js is the only module that ever reports the sidecar as actually answering requests. Documented in docs/desktop-llama-sidecar.md. No binary of any kind is committed; src-tauri/binaries/ stays git-ignored.",
+      "relatedFlags": [
+        "llamaSidecarFetch"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "polyglot-project-lanes",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "Four project-fit lane cards (SQL, Python, Excel, R) naming when to stay and when to hand off, never any project",
+      "files": [
+        "js/polyglot/project-lanes.js",
+        "js/polyglot/data-glow-power-packs-canvas.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/project-lanes.js",
+          "name": "buildProjectLanes"
+        },
+        {
+          "file": "js/polyglot/project-lanes.js",
+          "name": "findLane"
+        }
+      ],
+      "notes": "SQL and Python are named as able to carry a whole project within stated limits (SQL: DuckDB dialect, no scheduled jobs; Python: bridge row ceiling, no native wheels or GPU). Excel and R are named as partial: Excel repairs and exports but is not a VBA or Power Pivot replacement, R covers tidy summary and plot recipes in webR but not full CRAN or heavy statistical modeling. Every card names a concrete hand-off target. Rendered as its own 'Project fit' tab in the power packs panel rather than folded into an existing tab, since it answers a different question than any single runtime's snippet list.",
+      "relatedFlags": [
+        "polyglotProjectLanes"
+      ],
+      "status": "shipped"
     }
   ]
 }

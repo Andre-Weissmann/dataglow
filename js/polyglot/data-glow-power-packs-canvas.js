@@ -61,6 +61,14 @@
   function arrowOn() { return flag('DATAGLOW_ARROW_BRIDGE', 'arrowBridge'); }
   function pqNoteOn() { return flag('DATAGLOW_POWER_QUERY_HONEST_NOTE', 'powerQueryHonestNote'); }
 
+  /* Bundle 14 flags. Same rule as Bundle 13's: each one gates a section inside
+     an existing tab, or (project lanes) a tab of its own, never a new top-nav
+     item. */
+  function pqParityOn() { return flag('DATAGLOW_PQ_PARITY_RECIPES', 'pqParityRecipes'); }
+  function arrowDeepenOn() { return flag('DATAGLOW_ARROW_BRIDGE_DEEPEN', 'arrowBridgeDeepen'); }
+  function lanesOn() { return flag('DATAGLOW_POLYGLOT_PROJECT_LANES', 'polyglotProjectLanes'); }
+  function ledgerOn() { return flag('DATAGLOW_REPAIR_LEDGER', 'repairLedger'); }
+
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
   }
@@ -267,7 +275,19 @@
     card.appendChild(el('pre', { class: 'dg-pk-code' }, code));
     var row = el('div', { class: 'dg-pk-row' });
     var b = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Copy');
-    b.addEventListener('click', function () { copy(code, what || 'Snippet'); });
+    b.addEventListener('click', function () {
+      copy(code, what || 'Snippet');
+      if (what === 'Query') {
+        ledgerAppend({
+          kind: 'sql_recipe_run',
+          engine: 'sql',
+          title: title,
+          code: code,
+          summary: title + ' copied to the clipboard',
+          status: 'proposed',
+        });
+      }
+    });
     row.appendChild(b);
     if (placeholders && placeholders.length) {
       row.appendChild(el('span', { class: 'dg-pk-note' }, 'Replace: ' + placeholders.join(', ')));
@@ -343,6 +363,15 @@
         ? out.headline + ' ' + added + ' tile' + (added === 1 ? '' : 's') + ' added to the Proof Board.'
         : out.headline + ' The Proof Board is not mounted in this build, so nothing was added to it.');
       toast(out.headline);
+      ledgerAppend({
+        kind: 'summarize_tiles',
+        engine: 'sql',
+        title: 'SUMMARIZE profile of ' + table,
+        code: eng.summarizeSql(table),
+        inputTable: table,
+        summary: out.headline,
+        status: 'applied',
+      });
     }, function (err) {
       say(String(err && err.message) === 'no-engine'
         ? 'DuckDB has not started in this page yet, so there is nothing to profile. Run a query first.'
@@ -390,6 +419,36 @@
     }
   }
 
+  /* ---------------------------------------------------------------
+     Bundle 14: PQ-parity recipes. DuckDB SQL, never M. Same codeCard shape
+     as every other snippet list in this panel, so it reads as one more
+     section rather than a bolted-on feature.
+     --------------------------------------------------------------- */
+  function renderPqParity(host) {
+    var eng = engine('DataGlowPqParityRecipes');
+    if (!eng || typeof eng.buildPqParityPack !== 'function') return;
+    var pack;
+    try { pack = eng.buildPqParityPack(); } catch (_e) { return; }
+
+    host.appendChild(el('h4', {}, 'The Power Query steps, as DuckDB SQL'));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.honesty));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, pack.appliedStepsBlurb));
+
+    var ledger = engine('DataGlowRepairLedgerUI');
+    if (ledger && typeof ledger.open === 'function') {
+      var lrow = el('div', { class: 'dg-pk-row' });
+      var lbtn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Open the Repair Ledger');
+      lbtn.addEventListener('click', function () { ledger.open(); });
+      lrow.appendChild(lbtn);
+      host.appendChild(lrow);
+    }
+
+    for (var i = 0; i < pack.recipes.length; i++) {
+      var r = pack.recipes[i];
+      codeCard(host, r.title + ' (' + r.pqStep + ')', r.why, r.sql, r.substitute, 'Query');
+    }
+  }
+
   function renderSql(host) {
     var pack = sqlPack();
     if (!pack) {
@@ -403,6 +462,7 @@
     bullets(host, pack.notSupported);
 
     if (sqlDeepOn()) renderSqlDeepen(host);
+    if (pqParityOn()) renderPqParity(host);
 
     host.appendChild(el('h4', {}, 'Snippets'));
     topicChips(host, pack.topics);
@@ -447,6 +507,33 @@
     } catch (_e) {}
     try { console.log('[type guard receipt] ' + line.line); } catch (_e2) {}
     try { window.DataGlowPowerPacksUI._lastGuardReceipt = line; } catch (_e3) {}
+    ledgerAppend({ kind: 'type_guard', engine: 'excel', title: 'Excel type guard check', summary: String(line && line.line || 'Type guard ran'), status: 'applied' });
+  }
+
+  /* ---------------------------------------------------------------
+     Bundle 14: best-effort Repair Ledger wiring. Never throws, never blocks
+     the surface it is called from; a ledger append that fails is a step this
+     panel loses sight of, not a step that fails to happen for the user.
+     Sources fired are recorded on window.DataGlowPowerPacksUI._ledgerFired so
+     wiringReport() can name what has and has not appended this session.
+     --------------------------------------------------------------- */
+  function ledgerAppend(input) {
+    try {
+      var eng = engine('DataGlowRepairLedger');
+      var ui = engine('DataGlowRepairLedgerUI');
+      if (!eng || typeof eng.appendStep !== 'function' || !ui || typeof ui.ledgerArray !== 'function') return null;
+      var arr = ui.ledgerArray();
+      if (!Array.isArray(arr)) return null;
+      var step = eng.appendStep(arr, input);
+      try {
+        var fired = window.DataGlowPowerPacksUI && window.DataGlowPowerPacksUI._ledgerFired;
+        if (!Array.isArray(fired)) { fired = []; window.DataGlowPowerPacksUI._ledgerFired = fired; }
+        var src = input && input.kind === 'type_guard' ? 'type_guard' : (input && input.kind === 'summarize_tiles' ? 'summarize_tiles' : (input && input.kind));
+        if (src && fired.indexOf(src) < 0) fired.push(src);
+      } catch (_e4) {}
+      if (ui && typeof ui.refresh === 'function') { try { ui.refresh(); } catch (_e5) {} }
+      return step;
+    } catch (_e) { return null; }
   }
 
   function renderTypeGuard(host) {
@@ -582,20 +669,19 @@
     var eng = engine('DataGlowArrowBridge');
     if (!eng || typeof eng.buildArrowBridgeStatus !== 'function') return;
     var probe = pythonProbe();
+    var input = {
+      // DuckDB-WASM in this page materialises rows for the bridge rather than
+      // handing out an Arrow buffer, so this is false until that changes. It
+      // is written as an observation rather than a constant so the one place
+      // to change is here.
+      duckdbArrow: false,
+      pyarrow: probe.packages.pyarrow === true,
+      pythonReady: pythonRowLimit() > 0,
+      rowLimit: pythonRowLimit(),
+      rowCount: pythonRowCount(),
+    };
     var status;
-    try {
-      status = eng.buildArrowBridgeStatus({
-        // DuckDB-WASM in this page materialises rows for the bridge rather than
-        // handing out an Arrow buffer, so this is false until that changes. It
-        // is written as an observation rather than a constant so the one place
-        // to change is here.
-        duckdbArrow: false,
-        pyarrow: probe.packages.pyarrow === true,
-        pythonReady: pythonRowLimit() > 0,
-        rowLimit: pythonRowLimit(),
-        rowCount: pythonRowCount(),
-      });
-    } catch (_e) { return; }
+    try { status = eng.buildArrowBridgeStatus(input); } catch (_e) { return; }
 
     var warn = el('div', { class: 'dg-pk-warn' });
     warn.appendChild(el('b', {}, status.label));
@@ -605,6 +691,34 @@
     }
     warn.appendChild(el('div', { class: 'dg-pk-note' }, status.neverUnlimited));
     host.appendChild(warn);
+
+    if (arrowDeepenOn() && typeof eng.buildArrowBridgeStatusV2 === 'function') {
+      var v2;
+      try { v2 = eng.buildArrowBridgeStatusV2(input); } catch (_e2) { v2 = null; }
+      if (v2) {
+        var deep = el('div', { class: 'dg-pk-warn' });
+        deep.appendChild(el('b', {}, 'Transfer in use: ' + v2.transferKind));
+        deep.appendChild(el('div', { class: 'dg-pk-note' }, v2.headline));
+        host.appendChild(deep);
+
+        if (typeof eng.roundTripFixture === 'function') {
+          var rtRow = el('div', { class: 'dg-pk-row' });
+          var rtBtn = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Prove the batch round trip on a fixture');
+          var rtStatus = el('span', { class: 'dg-pk-note' }, '');
+          rtBtn.addEventListener('click', function () {
+            var proof;
+            try { proof = eng.roundTripFixture(); } catch (_e3) { proof = null; }
+            rtStatus.textContent = proof ? proof.note : 'The round-trip proof did not run in this build.';
+          });
+          rtRow.appendChild(rtBtn);
+          rtRow.appendChild(rtStatus);
+          host.appendChild(rtRow);
+        }
+        if (eng.BATCH_BRIDGE_CEILING) {
+          host.appendChild(el('div', { class: 'dg-pk-note' }, eng.BATCH_BRIDGE_CEILING));
+        }
+      }
+    }
   }
 
   function renderPythonDeepen(host) {
@@ -757,12 +871,53 @@
     if (rDeepOn()) renderRDeepen(host);
   }
 
+  /* ---------------------------------------------------------------
+     Bundle 14: full-project lane cards. "Can I do a whole project here",
+     answered per lane, with a named hand-off. Its own tab because it is a
+     different question from any single runtime's snippet list, not a
+     capability of one runtime.
+     --------------------------------------------------------------- */
+  function renderLanes(host) {
+    var eng = engine('DataGlowProjectLanes');
+    if (!eng || typeof eng.buildProjectLanes !== 'function') {
+      host.appendChild(el('p', { class: 'dg-pk-note' }, 'The project lanes engine is not mounted in this build.'));
+      return;
+    }
+    var model;
+    try { model = eng.buildProjectLanes(); } catch (_e) { return; }
+
+    host.appendChild(el('p', {}, model.headline));
+    host.appendChild(el('p', { class: 'dg-pk-note' }, model.neverClaims));
+
+    for (var i = 0; i < model.lanes.length; i++) {
+      var lane = model.lanes[i];
+      var card = el('div', { class: 'dg-pk-card' });
+      card.appendChild(el('b', {}, lane.label + ': ' + (lane.canDoWholeProject ? 'yes, within limits' : 'partial, named limits')));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Yes for: ' + lane.yesFor));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Stay here when: ' + lane.stayWhen));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Hand off when: ' + lane.handOffWhen));
+      card.appendChild(el('div', { class: 'dg-pk-note' }, 'Hand off to: ' + lane.handOffTo));
+      var ul = el('ul', { class: 'dg-pk-ul' });
+      for (var j = 0; j < lane.limits.length; j++) ul.appendChild(el('li', {}, lane.limits[j]));
+      card.appendChild(ul);
+      var row = el('div', { class: 'dg-pk-row' });
+      var b = el('button', { class: 'dg-pk-btn', type: 'button' }, 'Go to ' + lane.label);
+      b.addEventListener('click', function (targetTab) {
+        return function () { show(targetTab); };
+      }(lane.id === 'excel' ? 'excel' : lane.id));
+      row.appendChild(b);
+      card.appendChild(row);
+      host.appendChild(card);
+    }
+  }
+
   function tabs() {
     var out = [];
     if (sqlOn()) out.push({ id: 'sql', label: 'SQL' });
     if (excelOn()) out.push({ id: 'excel', label: 'Spreadsheets' });
     if (pyOn()) out.push({ id: 'python', label: 'Python' });
     if (rOn()) out.push({ id: 'r', label: 'R' });
+    if (lanesOn()) out.push({ id: 'lanes', label: 'Project fit' });
     return out;
   }
 
@@ -812,6 +967,7 @@
     else if (state.tab === 'excel') renderExcel(body);
     else if (state.tab === 'python') renderPython(body);
     else if (state.tab === 'r') renderR(body);
+    else if (state.tab === 'lanes') renderLanes(body);
     panel.appendChild(body);
 
     panel.style.display = 'block';
@@ -869,7 +1025,17 @@
     isOpen: function () { return state.open === true; },
     refresh: render,
     tabs: tabs,
-    models: function () { return { sql: sqlPack(), python: pyPack(), r: rPack() }; },
+    models: function () {
+      var lanesEng = engine('DataGlowProjectLanes');
+      var pqEng = engine('DataGlowPqParityRecipes');
+      return {
+        sql: sqlPack(),
+        python: pyPack(),
+        r: rPack(),
+        lanes: lanesEng && typeof lanesEng.buildProjectLanes === 'function' ? lanesEng.buildProjectLanes() : null,
+        pqParity: pqEng && typeof pqEng.buildPqParityPack === 'function' ? pqEng.buildPqParityPack() : null,
+      };
+    },
   };
 })();
 /* ---- end js/polyglot/data-glow-power-packs-canvas.js ---- */

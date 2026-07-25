@@ -173,3 +173,23 @@ jobs:
       - run: npm run test:uploadformats
       # Bug 4: offline-capability claims match the self-hosted vs CDN split.
       - run: npm run test:offlineclaims
+
+  bundle-14-repair-ledger-pq-parity:
+    name: Bundle 14 (Repair Ledger, PQ-parity recipes, Arrow deepen, llama fetch, project lanes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure-Node engine coverage: repair-ledger append/rerun/export/wiring-
+      # report, the 15-recipe PQ-parity registry (DuckDB SQL, never M), the
+      # four-state Arrow bridge deepen (arrow_ipc/batch_bridge/json_bridge/
+      # missing) plus its encode/decode round-trip fixture, the llama sidecar
+      # fetch three-state status (missing/fetched_unwired/ready), and the four
+      # polyglot project lanes. Canvas UI mount/unmount for the same bundle is
+      # covered separately by test:bundle14canvas in job-e2e-smoke.yml, since
+      # that needs a real browser.
+      - run: npm run test:bundle14ledger

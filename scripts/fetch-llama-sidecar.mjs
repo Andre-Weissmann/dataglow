@@ -28,10 +28,19 @@
  *
  * Usage:
  *   node scripts/fetch-llama-sidecar.mjs --list
+ *   node scripts/fetch-llama-sidecar.mjs --status
  *   node scripts/fetch-llama-sidecar.mjs --stub
  *   node scripts/fetch-llama-sidecar.mjs --stub --triple aarch64-apple-darwin
+ *   node scripts/fetch-llama-sidecar.mjs --stub --dry-run
  *   node scripts/fetch-llama-sidecar.mjs --from ./llama-server --triple x86_64-unknown-linux-gnu
+ *   node scripts/fetch-llama-sidecar.mjs --from ./llama-server --dry-run
  *   node scripts/fetch-llama-sidecar.mjs --check
+ *
+ * --dry-run never touches the filesystem: no directory created, no file
+ * written. It prints the destination path and the triple it resolved to, so
+ * "what would this do" has an answer that costs nothing and cannot go wrong.
+ * --status reports one of missing | fetched_unwired | ready for the host
+ * triple, from js/ai/llama-sidecar-packaging.js's fetchSidecarStatus().
  */
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -46,6 +55,7 @@ import {
   expectedSidecarPaths,
   sidecarPresence,
   checkPackagingAgreement,
+  fetchSidecarStatus,
 } from '../js/ai/llama-sidecar-packaging.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -109,7 +119,7 @@ function check() {
   process.exit(agreement.ok ? 0 : 1);
 }
 
-function place(triple, sourcePath, stub) {
+function place(triple, sourcePath, stub, dryRun) {
   const rel = sidecarFileName(triple);
   if (!rel) {
     console.error('Unknown target triple: ' + triple);
@@ -117,6 +127,25 @@ function place(triple, sourcePath, stub) {
     process.exit(2);
   }
   const dest = join(TAURI_DIR, rel);
+
+  if (dryRun) {
+    // Dry-run answers "what would happen" without creating a directory,
+    // writing a file, or touching the filesystem at all beyond the read-only
+    // existsSync() checks list()/check() already do. This is what CI and a
+    // first-time developer should reach for before downloading or stubbing
+    // anything: it names the exact destination and the exact next command.
+    console.log('Dry run. Nothing was written.');
+    console.log('Would place a ' + (stub ? 'stub' : (sourcePath ? 'copy of ' + resolve(sourcePath) : '(no --from given, so nothing to copy)')));
+    console.log('  destination : ' + dest);
+    console.log('  triple      : ' + triple);
+    console.log('  already there: ' + (existsSync(dest) ? 'yes' : 'no'));
+    if (!stub && !sourcePath) {
+      console.log('\nNo --from path and no --stub, so a real run would exit 2 here without writing anything.');
+    }
+    console.log('\nNext without --dry-run: node scripts/fetch-llama-sidecar.mjs' + (stub ? ' --stub' : ' --from <path>') + ' --triple ' + triple);
+    return;
+  }
+
   mkdirSync(dirname(dest), { recursive: true });
 
   if (stub) {
@@ -158,11 +187,28 @@ function place(triple, sourcePath, stub) {
   console.log('externalBin stays empty until a binary exists for every target being built.');
 }
 
+function fetchStatus() {
+  const confPath = join(TAURI_DIR, 'tauri.conf.json');
+  let externalBin = [];
+  try {
+    const conf = JSON.parse(readFileSync(confPath, 'utf8'));
+    externalBin = (conf.tauri && conf.tauri.bundle && conf.tauri.bundle.externalBin) || [];
+  } catch (_e) { /* no config yet is a normal state, not an error here */ }
+  const triple = hostTriple();
+  const s = fetchSidecarStatus({ triple, presentTriples: presentTriples(), externalBin });
+  console.log('fetch status: ' + s.state);
+  console.log(s.detail);
+  return s;
+}
+
 function main() {
   if (has('list')) return list();
   if (has('check')) return check();
+  if (has('status')) return fetchStatus();
   const triple = arg('triple') || hostTriple();
-  place(triple, arg('from'), has('stub'));
+  const dryRun = has('dry-run');
+  place(triple, arg('from'), has('stub'), dryRun);
+  if (dryRun) return;
   console.log('\nVendored now: ' + (presentTriples().join(', ') || 'nothing'));
   console.log('Next: node scripts/fetch-llama-sidecar.mjs --check');
 }

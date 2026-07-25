@@ -205,6 +205,73 @@ export function describePackagingPath() {
   };
 }
 
+
+// ============================================================
+// Bundle 14 - llamaSidecarFetch: a three-state status for the fetch step
+// ============================================================
+//
+// sidecarPresence() above answers "is a binary on disk for this triple". That
+// collapses two different situations into one `sidecar_ready` state: a binary
+// that scripts/fetch-llama-sidecar.mjs placed but tauri.conf.json has not been
+// told about yet, and a binary that is both vendored AND declared in
+// externalBin so a real desktop build would actually include it. Those are
+// not the same claim, and Bundle 12/13 already established that
+// checkPackagingAgreement() treats the first as a build-breaking mismatch, not
+// as ready.
+//
+// fetchSidecarStatus() names the three states plainly instead of overloading
+// sidecarPresence()'s boolean:
+//
+//   `missing`          nothing on disk for this triple
+//   `fetched_unwired`  a binary is on disk, but externalBin does not name it
+//                      (or the packaging agreement disagrees for any reason)
+//   `ready`            on disk AND declared AND the agreement holds
+//
+// This never runs a handshake against the binary. "ready" here means the
+// packaging is honest, not that the server answers a request; that second
+// claim belongs to buildDesktopLlmStatus() in js/ai/desktop-local-llm.js,
+// which only reports its own `ready` from an actual observed handshake.
+
+export const SIDECAR_FETCH_STATES = Object.freeze(['missing', 'fetched_unwired', 'ready']);
+
+function isPlainObjectFetch(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * @param {{triple?:string, presentTriples?:Array<string>, externalBin?:Array<string>}} [input]
+ */
+export function fetchSidecarStatus(input) {
+  const inp = isPlainObjectFetch(input) ? input : {};
+  const presence = sidecarPresence(inp);
+  const agreement = checkPackagingAgreement({
+    externalBin: inp.externalBin,
+    presentTriples: inp.presentTriples,
+    statusBundled: false,
+  });
+
+  let state;
+  if (!presence.ready) state = 'missing';
+  else if (agreement.declared && agreement.ok) state = 'ready';
+  else state = 'fetched_unwired';
+
+  return {
+    kind: SIDECAR_PACKAGING_KIND,
+    state,
+    triple: presence.triple,
+    expectedPath: presence.expectedPath,
+    declared: agreement.declared,
+    vendored: agreement.vendored,
+    detail: state === 'missing'
+      ? presence.detail
+      : state === 'ready'
+        ? 'A binary is vendored for ' + (presence.triple || 'this target') + ' and tauri.bundle.externalBin declares it. A desktop build would include it.'
+        : 'A binary is vendored for ' + (presence.triple || 'this target') + ' but tauri.bundle.externalBin does not (yet) declare it, or the packaging check found a mismatch. Add "' + EXTERNAL_BIN_ENTRY + '" to tauri.bundle.externalBin and flip bundledInThisBuild in js/ai/desktop-local-llm.js in the same change.',
+    agreementProblems: agreement.problems,
+    note: NO_WEIGHTS_IN_GIT,
+  };
+}
+
 export const DataGlowLlamaSidecarPackaging = {
   SIDECAR_PACKAGING_KIND,
   SIDECAR_PACKAGING_VERSION,
@@ -213,10 +280,12 @@ export const DataGlowLlamaSidecarPackaging = {
   EXTERNAL_BIN_ENTRY,
   TARGET_TRIPLES,
   NO_WEIGHTS_IN_GIT,
+  SIDECAR_FETCH_STATES,
   sidecarFileName,
   expectedSidecarPaths,
   sidecarPresence,
   checkPackagingAgreement,
+  fetchSidecarStatus,
   describePackagingPath,
 };
 
