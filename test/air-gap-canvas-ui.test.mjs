@@ -80,7 +80,12 @@ async function waitForBoot(p) {
 async function run() {
   const server = await startServer();
   const base = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch({ args: ['--no-sandbox'] });
+  // CI installs real Chrome via setup-chrome and points at it here, the same way
+  // the other e2e tests do; locally this is unset and Playwright's own build runs.
+  const browser = await chromium.launch({
+    args: ['--no-sandbox'],
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+  });
   const ctx = await browser.newContext();
   // Any request to the fake external origin resolves, so a blocked request is
   // proof of the guard and not of an unreachable host.
