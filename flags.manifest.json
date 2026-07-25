@@ -627,6 +627,18 @@
       "enabled": true,
       "addedInPR": "feat/shield-packs-bundle1",
       "description": "Shield Packs: one calm on-device surface listing domain privacy packs. Pack 0 is the existing PHI Shield, reused not reimplemented (the phiShield flag stays independent and keeps working on its own). Adds three packs: Finance PII (SSN/EIN/account/card/IBAN shapes, detect and flag only, never uploads), Privilege labels (attorney-client style column tagging plus an export caution, not legal advice), and Justice sensitive (CJIS-style shell with a high-sensitivity banner that fails closed by blocking AI and export paths while active). Session-scoped activation, in-memory only, no storage. Web+desktop+PWA. Screening aid only, not a compliance certification."
+    },
+    "explain": {
+      "enabled": true,
+      "addedInPR": "feat/bundle-5-explain-mobile-glassbox",
+      "description": "Explain (Bundle 5, A13): the plain-language door into evidence DataGlow already has. js/explain/explain-engine.js is the PURE, Node-testable composer -- explainResult() gathers what seven named sources reported (Query Sentinel, the readiness gate, result shape, PHI Shield, Air-Gap Mode, Publish-Safe and the Trust Ledger), turns each into one calm sentence, and returns an explanation carrying its own confidence: well-evidenced when every source answered, partly-evidenced when some did not, unevidenced when a clear majority could not. It never invents certainty: a source that could not run is reported by name as an unknown rather than omitted or passed, because a missing check silently reading as clean is the one failure that would make the whole panel untrustworthy. js/explain/data-glow-explain-canvas.js is the canvas surface: a panel beside Trust and Air-Gap that reads the same gates GlassBox reads, so the two cannot disagree, and offers the explanation as copyable plain text. Enabled because the surface is complete: it mounts, composes from real published state, and degrades to naming what it could not see.",
+      "flagOffBehavior": "No Explain button and no panel mount. window.DataGlowExplain is still published, so a caller can compose an explanation programmatically; nothing in the app depends on the panel existing."
+    },
+    "glassBox": {
+      "enabled": true,
+      "addedInPR": "feat/bundle-5-explain-mobile-glassbox",
+      "description": "GlassBox (Bundle 5, A15): the show-the-math block under a finding. js/glassbox/glass-box.js is the PURE, Node-testable model -- buildGlassBox() puts the finding on top and the proof underneath, returning the actual code that ran, which engine ran it, and a fixed-order badge row read only from gates that genuinely reported. A gate that is absent produces no chip at all rather than a passing one, and the model says out loud that an absence of evidence is not a clean result. Source longer than 60 lines is truncated with the real line count kept, so the panel is never quietly partial. js/glassbox/data-glow-glass-box-canvas.js mounts the block on the three real result surfaces (the SQL view result, the SQL tab result and the Python result), reading the paired editor at the moment the block opens so the code shown is the text a person can see above it. Nothing is reconstructed and nothing is cached: a guessed query would look checkable and be wrong. Enabled because the surface is complete on all three hosts.",
+      "flagOffBehavior": "No blocks mount under any result. window.DataGlowGlassBox is still published so a model can be built without a block existing; result rendering is untouched either way."
     }
   }
 }
