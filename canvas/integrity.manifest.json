@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5806798,
+  "canvasBytes": 5927759,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -313,9 +313,9 @@
     {
       "source": "js/ai/capability-ceiling.js",
       "note": "Honest capability ceiling: SQL, Python, R, Excel, size, messy data and privacy, each with a does line and a load-bearing does-not line. Rewritten from ESM into an IIFE publishing window.DataGlowCapabilityCeiling.",
-      "sourceSha256": "846cc465987a64d72cc1441cca46c5a1584beaab4ee1a1fd6c2f6cf4476dad5c",
-      "canvasSectionSha256": "4aeb90835e814c6cbf34299bbaaa59657de199837bb6fde64e7fdfa9186310c7",
-      "canvasSectionBytes": 10110
+      "sourceSha256": "4eea01a3ec7d3b58f942b804cfef146d0088ac1b3478e231f7bf41975d360331",
+      "canvasSectionSha256": "2d17408583cd61e185baeeaa88255995ef9c9fe05cec66eb33a20b9f814e7db1",
+      "canvasSectionBytes": 11429
     },
     {
       "source": "js/ai/ai-claim-guard.js",
@@ -404,9 +404,9 @@
     {
       "source": "js/polyglot/data-glow-power-packs-canvas.js",
       "note": "The starter material panel holding the SQL, spreadsheet, Python and R tabs. Already an IIFE, inlined verbatim, publishing window.DataGlowPowerPacksUI.",
-      "sourceSha256": "3f584f38275b407f841d76937ca42fd0b80109deb7a92d8c23e5d5a23836791f",
-      "canvasSectionSha256": "178346467f4ac40877f2faee16f1a1a689693ec8de94000b87fc346ac1d9b340",
-      "canvasSectionBytes": 19592
+      "sourceSha256": "aba78841dee31f03c9aabcfa755eef15eac608ff2dec8aca86e13b1eb39ff2ab",
+      "canvasSectionSha256": "f83d50f16345f047315523044d3c2962b1b9eca60fafbcf618fe681e22c91212",
+      "canvasSectionBytes": 36394
     }
   ]
 }

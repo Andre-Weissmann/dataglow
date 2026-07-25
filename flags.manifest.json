@@ -831,6 +831,42 @@
       "addedInPR": "bundle-12",
       "description": "R starter cells that degrade honestly: recipes needing jsonlite or ggplot2 are listed with the reason they cannot run rather than hidden, so the ceiling is visible before the error is.",
       "flagOffBehavior": "The R tab is not offered in the starter material panel. window.DataGlowRPowerPack is still published and the R console is untouched."
+    },
+    "sqlPowerDeepen": {
+      "enabled": true,
+      "addedInPR": "bundle-13",
+      "description": "Deeper SQL starter material beyond the ten Bundle 12 snippets: SUMMARIZE promoted to Proof Board tiles marked unknown until reviewed, plus eleven more recipes for the rewrites that come up after qualify and asof-join.",
+      "flagOffBehavior": "The SUMMARIZE-to-Proof-Board button and the extra recipe cards are not offered in the SQL tab. window.DataGlowSqlDeepen is still published and the base sqlPowerPack tab is untouched."
+    },
+    "excelTypeGuard": {
+      "enabled": true,
+      "addedInPR": "bundle-13",
+      "description": "Scans an imported column for values that look coerced or at risk of coercion, such as a gene symbol read as a date or an ID read as scientific notation, and offers to hold the column as text before the damage is silent.",
+      "flagOffBehavior": "The type-guard check is not offered in the Excel tab and no column is held as text automatically. window.DataGlowExcelTypeGuard is still published and Excel Hell import is otherwise unchanged."
+    },
+    "pythonPowerDeepen": {
+      "enabled": true,
+      "addedInPR": "bundle-13",
+      "description": "A real probe cell for polars, scikit-learn, statsmodels and pyarrow (find_spec, not a guess) plus nine recipes gated on what the probe actually reports installed in this session.",
+      "flagOffBehavior": "The probe cell and the extra Python recipes are not offered. window.DataGlowPythonDeepen is still published and the base pythonPowerPack tab is untouched."
+    },
+    "rPowerDeepen": {
+      "enabled": true,
+      "addedInPR": "bundle-13",
+      "description": "Ten more R recipes past base plotting and summary, dplyr and tidyr verbs included, each gated on jsonlite, ggplot2, dplyr or tidyr actually reporting installed, and on Air-Gap Mode or offline correctly blocking any install this session.",
+      "flagOffBehavior": "The extra R recipes are not offered. window.DataGlowRDeepen is still published and the base rPowerPack tab is untouched."
+    },
+    "arrowBridge": {
+      "enabled": true,
+      "addedInPR": "bundle-13",
+      "description": "Honest status for the DuckDB-to-Python dataframe bridge: ready, partial or missing, with the JSON bridge's 200,000-row ceiling stated as a real limit rather than implied as unlimited, and the concrete steps left before an Arrow-native path exists.",
+      "flagOffBehavior": "The bridge status chip is not shown in the Python tab. window.DataGlowArrowBridge is still published and the bridge itself, JSON rows capped at 200,000, is unchanged."
+    },
+    "powerQueryHonestNote": {
+      "enabled": true,
+      "addedInPR": "bundle-13",
+      "description": "States plainly that Power Query M is not embedded in DataGlow, and lists the concrete DataGlow equivalent for each common M step so the gap is named instead of discovered mid-import.",
+      "flagOffBehavior": "The Power Query note and its equivalents list are not shown in the Excel tab or the capability ceiling. window.DataGlowPowerQueryNote is still published."
     }
   }
 }

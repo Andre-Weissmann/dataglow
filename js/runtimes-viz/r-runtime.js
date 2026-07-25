@@ -27,9 +27,35 @@ export function buildRBridgeNotices({ graphicsAvailable, hasJsonlite } = {}) {
     notices.push('Using a simplified data bridge (a package failed to install).');
   }
   if (graphicsAvailable === false) {
-    notices.push('ggplot2 could not be installed — base R plotting still works, but ggplot2 charts are unavailable.');
+    notices.push('ggplot2 could not be installed. Base R plotting still works, but ggplot2 charts are unavailable.');
   }
   return notices;
+}
+
+// Whether this session may fetch R packages at all.
+//
+// WHY THIS EXISTS. Installing a WebR package is a network request to the WebR
+// binary repository, and until this check was added the R session made two of
+// them at startup with nothing consulted first. Air-Gap mode promises that
+// nothing leaves the machine, so a mode that let this through was not enforcing
+// its own claim. The decision itself lives in js/polyglot/r-deepen.js as a pure
+// function; this reads the mode and asks it.
+//
+// Blocked is not an error. Base R is complete, the session starts, and the
+// recipes needing a package are listed as unavailable with the reason.
+export function rPackageInstallAllowed() {
+  try {
+    const ag = typeof window !== 'undefined' ? window.DataGlowAirGap : null;
+    if (ag && typeof ag.isAirGapActive === 'function' && ag.isAirGapActive() === true) {
+      return { allowed: false, blockedBy: 'air_gap' };
+    }
+  } catch (_e) { /* no air-gap module in this build means no air-gap mode */ }
+  try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return { allowed: false, blockedBy: 'offline' };
+    }
+  } catch (_e2) {}
+  return { allowed: true, blockedBy: '' };
 }
 
 // Draw each captured ImageBitmap onto a canvas and read it back as a base64 PNG
@@ -57,6 +83,20 @@ export function initWebRRuntime(onStatus) {
     const { WebR } = await import('https://webr.r-wasm.org/latest/webr.mjs');
     const webR = new WebR();
     await webR.init();
+    const install = rPackageInstallAllowed();
+    if (!install.allowed) {
+      // Base R only, deliberately. Both flags go to false so the notices and the
+      // power pack list the right recipes as unavailable rather than handing out
+      // a library() call that errors.
+      onStatus?.(install.blockedBy === 'air_gap'
+        ? 'Air-Gap mode is on, so no R packages are fetched. Base R is ready.'
+        : 'No network, so no R packages are fetched. Base R is ready.');
+      jsonlitePromise = false;
+      ggplot2Promise = false;
+      onStatus?.('ready');
+      state.webR = webR;
+      return webR;
+    }
     onStatus?.('Installing packages…');
     try {
       // jsonlite lets the dataglow_get_df() bridge deserialize table data into a data.frame.
