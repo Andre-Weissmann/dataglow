@@ -37,6 +37,8 @@ import {
   indexOfColumn,
   rowsOf,
   isPlainObject,
+  readList,
+  cellText,
   column,
   typeOfColumn,
   TYPE_INT,
@@ -135,62 +137,6 @@ export function elementColumnName(config) {
   const explicit = String((config && config.elementColumn) || '').trim();
   if (explicit) return explicit;
   return String((config && config.listColumn) || 'value') + '_item';
-}
-
-/**
- * Read one cell as a list.
- *
- * Order matters. A real array first, then JSON, then the delimiter. Trying the
- * delimiter before JSON would turn "[1, 2]" into "[1" and " 2]", which is worse
- * than failing because it looks like it worked.
- */
-export function readList(value, source, delimiter) {
-  if (Array.isArray(value)) {
-    return { kind: 'array', values: value.slice() };
-  }
-  if (value == null || value === '') {
-    return { kind: 'empty', values: [] };
-  }
-  if (isPlainObject(value)) {
-    // An object is not a list. Widening it is the flattener's job, not this
-    // module's, so it is left alone and reported rather than half-handled.
-    return { kind: 'scalar', values: [value] };
-  }
-
-  const text = String(value).trim();
-  if (!text) return { kind: 'empty', values: [] };
-
-  const mode = source || 'auto';
-  if (mode === 'auto' || mode === 'json') {
-    if (text.charAt(0) === '[' && text.charAt(text.length - 1) === ']') {
-      try {
-        const parsed = JSON.parse(text);
-        if (Array.isArray(parsed)) return { kind: 'json', values: parsed };
-      } catch (_e) {
-        // Looks like JSON and is not. In auto mode fall through to the
-        // delimiter; in json mode say so rather than quietly splitting.
-        if (mode === 'json') return { kind: 'unreadable', values: [] };
-      }
-    } else if (mode === 'json') {
-      return { kind: 'unreadable', values: [] };
-    }
-  }
-
-  if (mode === 'auto' || mode === 'delimited') {
-    const d = String(delimiter || ',');
-    if (d && text.indexOf(d) !== -1) {
-      return { kind: 'delimited', values: text.split(d) };
-    }
-  }
-
-  return { kind: 'scalar', values: [text] };
-}
-
-function cellText(v, trim) {
-  if (v == null) return null;
-  if (typeof v === 'object') return JSON.stringify(v);
-  const s = String(v);
-  return trim ? s.trim() : s;
 }
 
 /**

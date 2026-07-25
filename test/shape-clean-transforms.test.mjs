@@ -19,6 +19,7 @@ import {
   sortableOrderValue,
   compareSortable,
   compareValues,
+  readList,
 } from '../js/transforms/transform-core.js';
 
 import {
@@ -38,7 +39,6 @@ import {
   suggestNestedConfig,
   validateNestedConfig,
   elementColumnName,
-  readList,
   previewNestedToRows,
   buildNestedToRowsSQL,
   nestedToRowsTransform,
