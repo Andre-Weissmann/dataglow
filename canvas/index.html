@@ -102218,7 +102218,6 @@ var PortfolioExport = (function () {
   var _sessionStart = Date.now();
   var _appendCountSinceVerify = 0;
   var _lastVerifyResult = null;
-  var _suppressProofChainMirror = false; /* re-entrancy guard, see _wireProofChainMirror() */
 
   /* ---------------------------------------------------------------
      Hashing primitives
@@ -102289,7 +102288,12 @@ var PortfolioExport = (function () {
      Core chain operations
   --------------------------------------------------------------- */
 
-  async function append(type, payload) {
+  /* opts.skipProofChainMirror is internal: set only by the ProofChain.addStep
+     wrapper in _wireProofChainMirror(). It must travel as an argument rather
+     than a module-level flag, because append() awaits before it reaches the
+     mirror below: a flag cleared by the synchronous caller would already be
+     back to false by then and the mirror would recurse without bound. */
+  async function _appendEntry(type, payload, opts) {
     var prevHash = _chain.length > 0 ? _chain[_chain.length - 1].hash : await _genesisHash();
     var ts = Date.now();
     var safePayload = payload || {};
@@ -102311,7 +102315,8 @@ var PortfolioExport = (function () {
        append() call was itself triggered by the ProofChain.addStep mirror
        below, in which case the original addStep already ran and pushing
        again here would double the ledger for one logical event. */
-    if (!_suppressProofChainMirror && window.ProofChain && typeof window.ProofChain.addStep === 'function') {
+    var skipMirror = !!(opts && opts.skipProofChainMirror);
+    if (!skipMirror && window.ProofChain && typeof window.ProofChain.addStep === 'function') {
       window.ProofChain.addStep({
         type: type,
         provenanceFabricSeq: _seq,
@@ -102332,6 +102337,16 @@ var PortfolioExport = (function () {
     }
 
     return { hash: hash, seq: _seq, ts: ts };
+  }
+
+  /* Appends are serialized. _appendEntry() reads the previous hash, then awaits
+     the digest before pushing, so two overlapping callers would otherwise both
+     link to the same prevHash and verify() would report a broken chain. */
+  var _appendTail = Promise.resolve();
+  function append(type, payload, opts) {
+    var run = _appendTail.then(function () { return _appendEntry(type, payload, opts); });
+    _appendTail = run.catch(function () { /* one failed append must not stall the queue */ });
+    return run;
   }
 
   async function verify() {
@@ -102617,20 +102632,21 @@ var PortfolioExport = (function () {
     if (window.ProofChain.addStep._pfWrapped) return;
 
     var _origAddStep = window.ProofChain.addStep;
-    var _mirroring = false;
 
     var wrapped = function (step) {
       var result = _origAddStep(step);
-      if (!_mirroring) {
-        _mirroring = true;
-        _suppressProofChainMirror = true;
-        try {
-          var type = (step && step.type) ? ('proofchain:' + step.type) : 'proofchain:step';
-          append(type, step || {});
-        } catch (_e) { /* never let mirroring break the original call */ }
-        _suppressProofChainMirror = false;
-        _mirroring = false;
-      }
+      /* Steps written by append()'s own mirror already have a fabric entry;
+         appending again here would double the chain for one logical event. */
+      if (step && step.provenanceFabricHash) return result;
+      try {
+        var type = (step && step.type) ? ('proofchain:' + step.type) : 'proofchain:step';
+        /* Suppression is passed per call, so it still holds after append()'s
+           awaits and the mirrored entry cannot re-enter this wrapper. */
+        var mirrored = append(type, step || {}, { skipProofChainMirror: true });
+        if (mirrored && typeof mirrored.catch === 'function') {
+          mirrored.catch(function () { /* never let mirroring break the original call */ });
+        }
+      } catch (_e) { /* never let mirroring break the original call */ }
       return result;
     };
     wrapped._pfWrapped = true;
