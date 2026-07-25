@@ -112175,6 +112175,15 @@ function buildAppHtml(nb, opts) {
 
   function engine() { return window.DataGlowNotebookAppExport || null; }
 
+  /* Publish-Safe (js/gate/publish-safe.js) is the gate that composes every
+     check into one verdict. It is consulted here rather than each check being
+     asked separately, so this path cannot drift out of agreement with the other
+     export paths about what counts as safe. Absent, the sheet behaves exactly as
+     it did before Publish-Safe existed. */
+  function publishSafe() { return window.DataGlowPublishSafeEngine || null; }
+
+  function trustLedger() { return window.DataGlowTrustLedger || null; }
+
   /* Same read as the notebook surfaces this sits inside: a flags provider is
      honored when present, and its absence means on. */
   function flagOn() {
@@ -112230,6 +112239,37 @@ function buildAppHtml(nb, opts) {
     return out;
   }
 
+  /* The one verdict, recomputed whenever the sheet re-renders so it always
+     describes the file that would actually be written.
+
+     Destination is 'this-device': this writes a file to the machine the human
+     is sitting at and makes no network call. Sharing the file afterwards is a
+     separate human act, which the sheet already says.
+
+     Readiness is passed as 'not-applicable' rather than omitted. A notebook app
+     holds code and the output it already produced, not a dataset extract, so a
+     dataset readiness score does not describe it, and Publish-Safe requires that
+     exception to be named rather than inferred from silence. */
+  function verdictFor(st) {
+    var ps = publishSafe();
+    if (!ps || !st) return null;
+    var airGap = false;
+    try {
+      var ui = window.DataGlowAirGapUI;
+      airGap = !!(ui && typeof ui.isActive === 'function' && ui.isActive());
+    } catch (_e) {}
+    try {
+      return ps.evaluatePublishSafe({
+        destination: 'this-device',
+        artifact: 'this notebook app',
+        phi: st.phi,
+        readiness: 'not-applicable',
+        airGapActive: airGap,
+        includesResults: st.includeOutputs
+      });
+    } catch (_e) { return null; }
+  }
+
   /* Air-Gap Mode blocks paths that leave the device over the network. Writing a
      file to this machine is not one of them, so the mode must not refuse it.
      What it does change is what is worth saying: while the mode is on, the fact
@@ -112267,6 +112307,12 @@ function buildAppHtml(nb, opts) {
       '#' + SHEET_ID + ' .dg-nba-flag{margin:10px 0 0;padding:10px 12px;border-radius:10px;font-size:12.5px;',
       'line-height:1.55;border:1px solid var(--border,#282D38);color:var(--text-secondary,#B4B8C0)}',
       '#' + SHEET_ID + ' .dg-nba-flag.warn{border-color:var(--warn,#E3A34A);color:var(--warn,#E3A34A)}',
+      /* The Publish-Safe headline keeps its own class. .warn already means "PHI
+         Shield matched something" in this sheet, so a summary that is often
+         merely cautious must not borrow that colour. */
+      '#' + SHEET_ID + ' .dg-nba-flag.verdict{font-weight:600}',
+      '#' + SHEET_ID + ' .dg-nba-flag.verdict.clear{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '#' + SHEET_ID + ' .dg-nba-flag.verdict.blocked{border-color:var(--danger,#E5534B);color:var(--danger,#E5534B)}',
       '#' + SHEET_ID + ' .dg-nba-opt{display:flex;gap:10px;align-items:flex-start;margin:14px 0 0;',
       'font-size:13px;line-height:1.5;cursor:pointer}',
       '#' + SHEET_ID + ' .dg-nba-opt input{margin:3px 0 0;width:18px;height:18px;flex:0 0 auto}',
@@ -112318,7 +112364,21 @@ function buildAppHtml(nb, opts) {
     var summary = e.summarizeNotebook(st.notebook, st.runtime);
     var lines = e.describeDisclosure(summary, { includeOutputs: st.includeOutputs });
 
+    var verdict = verdictFor(st);
+    st.verdict = verdict;
+
+    /* The headline only. The individual PHI and Air-Gap sentences the verdict
+       also carries are already shown below in their own blocks, and saying the
+       same thing twice in one sheet reads as a bug.
+
+       Its own class rather than .warn: .dg-nba-flag.warn means "PHI Shield
+       matched something" everywhere else in this sheet, and reusing it for a
+       summary that is often merely cautious would blunt that meaning. */
     var flags = '';
+    if (verdict) {
+      flags += '<div class="dg-nba-flag verdict ' + esc(verdict.level) + '" data-nba-verdict="' +
+        esc(verdict.level) + '">' + esc(verdict.headline) + '</div>';
+    }
     if (st.phi.sensitiveFound) {
       flags += '<div class="dg-nba-flag warn">' +
         esc('PHI Shield matched ' + st.phi.count + ' possible sensitive value' +
@@ -112385,6 +112445,18 @@ function buildAppHtml(nb, opts) {
       includeOutputs: !phi.sensitiveFound,
       phi: phi
     };
+
+    /* Publish-Safe suggests the same safer default from the same evidence, so
+       asking it is how this path stays in agreement with the other export
+       paths instead of keeping its own private copy of the rule. The probe asks
+       "if results were included, would that be the safer start", which is why
+       includesResults is true here rather than the default just written above.
+       Its answer is only ever a preselection: the checkbox stays live. */
+    var probe = verdictFor({ phi: phi, includeOutputs: true });
+    if (probe && probe.preselect && typeof probe.preselect.includeResults === 'boolean') {
+      _sheetState.includeOutputs = probe.preselect.includeResults;
+    }
+
     ensureSheet().classList.add('open');
     renderSheet();
     return true;
@@ -112392,10 +112464,46 @@ function buildAppHtml(nb, opts) {
 
   /* ---------------------------- the handoff ------------------------------- */
 
+  /* One row in the Trust Ledger per save that actually happened, composed from
+     the verdict the human just read rather than from words invented here. Fire
+     and forget: a ledger that cannot append must not cost the user their file. */
+  function recordSave(st, built) {
+    var tl = trustLedger();
+    if (!tl || typeof tl.record !== 'function') return;
+    var row = null;
+    if (st.verdict && typeof tl.fromPublishSafe === 'function') {
+      row = tl.fromPublishSafe(st.verdict, {
+        artifact: built.filename,
+        completed: true,
+        includedResults: st.includeOutputs,
+        bytes: built.bytes
+      });
+    }
+    if (!row) {
+      row = {
+        kind: 'export-attempt',
+        subject: built.filename,
+        summary: 'A notebook was saved to this device as a one-file app.'
+          + (st.includeOutputs ? '' : ' The results were left out.'),
+        outcome: 'recorded',
+        detail: { runtime: st.runtime, bytes: built.bytes, includedResults: st.includeOutputs }
+      };
+    }
+    try { tl.record(row); } catch (_e) {}
+  }
+
   function saveApp() {
     var st = _sheetState;
     var e = engine();
     if (!st || !e) return null;
+    /* Fail closed. Nothing on this path can reach a refusal today, because a
+       file written to this device is never egress, but the check is here so a
+       future destination cannot quietly inherit a save button that ignores the
+       verdict shown directly above it. */
+    if (st.verdict && st.verdict.blocked) {
+      toast(st.verdict.headline, 'error');
+      return null;
+    }
     var built = e.buildAppHtml(st.notebook, {
       runtime: st.runtime,
       title: st.title,
@@ -112421,6 +112529,7 @@ function buildAppHtml(nb, opts) {
       return null;
     }
     setTimeout(function () { if (url) URL.revokeObjectURL(url); }, 1000);
+    recordSave(st, built);
     closeSheet();
     toast('Saved ' + built.filename + ' to this device');
     try {
@@ -112496,6 +112605,1196 @@ function buildAppHtml(nb, opts) {
 })();
 /* ---- end js/intelligence/data-glow-notebook-app-canvas.js ---- */
 
+
+/* ---- from js/provenance/trust-ledger.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Trust Ledger (pure engine)
+// ============================================================
+// WHY THIS EXISTS
+// DataGlow already proves a lot of individual things. Validation grades a
+// dataset (js/validation/validation.js). The readiness gate turns those grades
+// into an agent-consumability verdict (js/gate/readiness-gate.js). Metric
+// Contracts keep an append-only version trail per metric definition
+// (js/metrics/metric-contracts.js). PHI Shield scans text before it travels.
+// Publish-Safe (js/gate/publish-safe.js) decides whether an export may leave.
+//
+// What nothing answered was the question a human actually asks when they are
+// held responsible for a number: "what happened here, in order, and can I show
+// someone?" Each of those surfaces knows its own moment and forgets it. This
+// module is the one calm place those moments land, oldest first, in rows a
+// person can read out loud.
+//
+// WHAT IT IS NOT. This invents no new crypto scheme and no second source of
+// truth. It records that an event happened, with these parameters, in this
+// order, and that the log has not been silently edited since. It is not a
+// zero-knowledge proof, not "blockchain", and not a claim that the event it
+// records was correct. The hash chain is the same SHA-256 discipline every
+// other ledger in js/provenance/ uses: canonical JSON over the fields the hash
+// commits to, each entry carrying the previous entry's hash.
+//
+// WHY sha256Hex IS RESTATED HERE. js/provenance/provenance.js exports the same
+// three-line function, and ai-touch-ledger.js imports it. This module cannot:
+// it is inlined into canvas/index.html's single inline <script>, where ESM
+// imports do not resolve, so a cross-module import would break the canvas
+// surface. test/trust-ledger.test.mjs pins this copy against provenance.js's
+// by digesting the same inputs through both, so the two cannot drift apart
+// without a test failing.
+//
+// PURITY: no DOM, no network, no engine. Identical in the browser, the Tauri
+// desktop webview, and headless Node tests.
+
+const TRUST_LEDGER_KIND = 'dataglow-trust-ledger';
+const TRUST_LEDGER_VERSION = 1;
+
+// Mirrors GENESIS_PARENT in provenance.js and ai-touch-ledger.js so every
+// hash-chained ledger in this codebase anchors identically.
+const GENESIS_PARENT = '0'.repeat(64);
+
+// The closed vocabulary of what this ledger records. A kind outside this list
+// is recorded as rejected rather than silently accepted, so the ledger cannot
+// quietly become a general-purpose log.
+const TRUST_EVENT_KINDS = Object.freeze([
+  'validation-run',
+  'metric-contract-version',
+  'export-attempt',
+  'gate-verdict',
+]);
+
+// What each kind means in one line, for the panel header and the exports.
+const TRUST_EVENT_LABELS = Object.freeze({
+  'validation-run': 'Validation run',
+  'metric-contract-version': 'Metric definition version',
+  'export-attempt': 'Export attempt',
+  'gate-verdict': 'Gate verdict',
+});
+
+// The honest outcome vocabulary, shared with Publish-Safe's levels so a verdict
+// does not get relabelled on its way into the ledger.
+const TRUST_OUTCOMES = Object.freeze(['clear', 'caution', 'blocked', 'recorded']);
+
+const TRUST_LEDGER_DISCLAIMER =
+  'This is a Trust Ledger: a SHA-256 hash chain of the trust events this '
+  + 'session produced, oldest first. Each row carries the hash of the row '
+  + 'before it, so an entry that was edited or removed after the fact breaks '
+  + 'the chain and is reported. It attests that these events happened, in this '
+  + 'order, and that the log has not been silently altered. It does not certify '
+  + 'that any recorded result was correct, and it is not a zero-knowledge proof.';
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * SHA-256 of a string, lowercase hex. Behaviourally identical to
+ * js/provenance/provenance.js's sha256Hex; see the header for why it is
+ * restated rather than imported, and test/trust-ledger.test.mjs for the test
+ * that pins the two together.
+ */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Deterministic serialization of exactly the fields the hash commits to, so the
+// same event always hashes identically regardless of key order. Same
+// canonicalJSON discipline as verifiable-check-seal.js and ai-touch-ledger.js.
+function canonicalEventPayload(parentHash, ev) {
+  const fields = {
+    actor: ev.actor ?? null,
+    detail: isPlainObject(ev.detail) ? stableDetail(ev.detail) : null,
+    kind: ev.kind ?? null,
+    outcome: ev.outcome ?? null,
+    parentHash,
+    subject: ev.subject ?? null,
+    summary: ev.summary ?? null,
+    ts: ev.ts ?? null,
+  };
+  // Keys are written in sorted order above, and stableDetail sorts the nested
+  // ones, so plain stringify is already canonical. Passing a key array as
+  // JSON.stringify's replacer would look equivalent but is not: a replacer
+  // array filters at every depth, so it would silently drop every detail key
+  // and the hash would stop committing to the detail it displays.
+  return JSON.stringify(fields);
+}
+
+// Details are free-form per kind, so they are flattened to sorted key/value
+// pairs before hashing. Values are stringified: the hash commits to what the
+// row displays, not to a nested object's shape.
+function stableDetail(detail) {
+  const out = {};
+  for (const key of Object.keys(detail).sort()) {
+    const v = detail[key];
+    if (v === undefined) continue;
+    out[key] = v === null ? null : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+  }
+  return out;
+}
+
+/**
+ * Checks an event before it is allowed into the chain. Never throws: returns
+ * { valid, reason } so a logging mistake cannot break the real work that was
+ * being recorded.
+ */
+function validateTrustEvent(ev) {
+  if (!isPlainObject(ev)) {
+    return { valid: false, reason: 'event must be a plain object' };
+  }
+  if (!TRUST_EVENT_KINDS.includes(ev.kind)) {
+    return { valid: false, reason: `event.kind must be one of: ${TRUST_EVENT_KINDS.join(', ')}` };
+  }
+  if (typeof ev.summary !== 'string' || !ev.summary.trim()) {
+    return { valid: false, reason: 'event.summary is required and must say what happened in plain language' };
+  }
+  if (ev.outcome !== undefined && !TRUST_OUTCOMES.includes(ev.outcome)) {
+    return { valid: false, reason: `event.outcome must be one of: ${TRUST_OUTCOMES.join(', ')}` };
+  }
+  if (ev.detail !== undefined && !isPlainObject(ev.detail)) {
+    return { valid: false, reason: 'event.detail must be a plain object when provided' };
+  }
+  return { valid: true, reason: null };
+}
+
+/**
+ * A hash-chained, append-only ledger for one session. Plain data and closures,
+ * no browser-only APIs beyond crypto.subtle, so it behaves identically in Node
+ * tests. Same shape as createProvenanceChain() and createTouchLedger().
+ */
+function createTrustLedger() {
+  const chain = [];
+
+  /**
+   * Appends one event. NEVER throws and never silently drops: a malformed
+   * event is appended as a clearly marked rejected row, because a log that can
+   * lose entries on bad input defeats its own purpose.
+   */
+  async function record(ev) {
+    const { valid, reason } = validateTrustEvent(ev);
+    const parentHash = chain.length ? chain[chain.length - 1].hash : GENESIS_PARENT;
+    const ts = isPlainObject(ev) && Number.isFinite(ev.ts) ? ev.ts : Date.now();
+
+    if (!valid) {
+      const rejected = {
+        index: chain.length,
+        rejected: true,
+        reason,
+        raw: ev,
+        ts,
+        parentHash,
+      };
+      rejected.hash = await sha256Hex(
+        canonicalEventPayload(parentHash, { ...(isPlainObject(ev) ? ev : {}), ts }) + `|rejected:${reason}`,
+      );
+      chain.push(rejected);
+      return rejected;
+    }
+
+    const entry = {
+      index: chain.length,
+      rejected: false,
+      kind: ev.kind,
+      subject: typeof ev.subject === 'string' && ev.subject.trim() ? ev.subject : null,
+      summary: ev.summary,
+      outcome: ev.outcome || 'recorded',
+      actor: typeof ev.actor === 'string' && ev.actor.trim() ? ev.actor : 'you',
+      detail: isPlainObject(ev.detail) ? { ...ev.detail } : {},
+      ts,
+      parentHash,
+    };
+    entry.hash = await sha256Hex(canonicalEventPayload(parentHash, entry));
+    chain.push(entry);
+    return entry;
+  }
+
+  return {
+    record,
+    getEntries: () => chain.slice(),
+    clear: () => { chain.length = 0; },
+    get size() { return chain.length; },
+  };
+}
+
+/**
+ * Re-derives every entry's hash from its recorded fields and confirms it still
+ * matches, the same verifyProvenanceChain() discipline as provenance.js. Any
+ * edit, reorder or deletion breaks the chain at the first altered link.
+ */
+async function verifyTrustLedger(entries) {
+  if (!Array.isArray(entries)) {
+    return { valid: false, brokenAt: -1, reason: 'entries must be an array' };
+  }
+  if (entries.length === 0) {
+    return { valid: true, brokenAt: -1, reason: 'Nothing recorded yet, so there is nothing to verify.' };
+  }
+  let parentHash = GENESIS_PARENT;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!e || typeof e.hash !== 'string' || e.parentHash !== parentHash) {
+      return {
+        valid: false,
+        brokenAt: i,
+        reason: `Row ${i + 1} does not follow from the row before it, so the ledger has been reordered, edited, or a row was removed.`,
+      };
+    }
+    const expected = e.rejected
+      ? await sha256Hex(canonicalEventPayload(parentHash, { ...(e.raw || {}), ts: e.ts }) + `|rejected:${e.reason}`)
+      : await sha256Hex(canonicalEventPayload(parentHash, e));
+    if (expected !== e.hash) {
+      return {
+        valid: false,
+        brokenAt: i,
+        reason: `Row ${i + 1} has been changed since it was recorded, so its contents no longer match its hash.`,
+      };
+    }
+    parentHash = e.hash;
+  }
+  return {
+    valid: true,
+    brokenAt: -1,
+    reason: `All ${entries.length} row${entries.length === 1 ? '' : 's'} verified. The chain is intact.`,
+  };
+}
+
+/** UTC timestamp trimmed to the second, the format the ledger exports use. */
+function formatTrustTime(ts) {
+  if (!Number.isFinite(ts)) return 'unknown time';
+  return new Date(ts).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+}
+
+/**
+ * One human-readable row. This is the string the panel shows and the text
+ * export writes, so it stays plain: what happened, to what, and how it came
+ * out. No em dash.
+ */
+function describeTrustEntry(entry) {
+  if (!isPlainObject(entry)) return 'Unreadable row.';
+  if (entry.rejected) {
+    return `${formatTrustTime(entry.ts)}: a row was refused because ${entry.reason || 'it was malformed'}. It is kept here so nothing is lost.`;
+  }
+  const label = TRUST_EVENT_LABELS[entry.kind] || entry.kind;
+  const parts = [`${formatTrustTime(entry.ts)}: ${label}`];
+  if (entry.subject) parts.push(`for ${entry.subject}`);
+  let line = parts.join(' ') + '. ' + entry.summary;
+  if (!/[.!?]$/.test(line)) line += '.';
+  if (entry.outcome && entry.outcome !== 'recorded') line += ` Outcome: ${entry.outcome}.`;
+  return line;
+}
+
+/** Plain-language one-liner for the panel header. */
+function summarizeTrustLedger(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return 'No trust events recorded yet this session.';
+  }
+  const kept = entries.filter((e) => e && !e.rejected);
+  const rejected = entries.length - kept.length;
+  const blocked = kept.filter((e) => e.outcome === 'blocked').length;
+  const caution = kept.filter((e) => e.outcome === 'caution').length;
+  const parts = [`${entries.length} row${entries.length === 1 ? '' : 's'} recorded this session`];
+  if (blocked > 0) parts.push(`${blocked} blocked`);
+  if (caution > 0) parts.push(`${caution} needed care`);
+  if (rejected > 0) parts.push(`${rejected} refused as malformed`);
+  if (blocked === 0 && caution === 0 && rejected === 0) parts.push('nothing was blocked');
+  return parts.join(', ') + '.';
+}
+
+/** Count of each kind present, for the panel and for tests. */
+function countTrustKinds(entries) {
+  const out = {};
+  for (const kind of TRUST_EVENT_KINDS) out[kind] = 0;
+  if (!Array.isArray(entries)) return out;
+  for (const e of entries) {
+    if (e && !e.rejected && Object.prototype.hasOwnProperty.call(out, e.kind)) out[e.kind] += 1;
+  }
+  return out;
+}
+
+/**
+ * Exports the ledger for download. Mirrors exportLedger()'s format contract in
+ * assumption-ledger.js and exportTouchLedger()'s in ai-touch-ledger.js:
+ * 'json' | 'markdown' | 'text'.
+ */
+function exportTrustLedger(entries, format = 'json') {
+  const rows = Array.isArray(entries) ? entries : [];
+  const generatedAt = new Date().toISOString();
+  if (format === 'json') {
+    return JSON.stringify({
+      kind: TRUST_LEDGER_KIND,
+      version: TRUST_LEDGER_VERSION,
+      generatedAt,
+      disclaimer: TRUST_LEDGER_DISCLAIMER,
+      entries: rows,
+    }, null, 2);
+  }
+  if (format === 'markdown') {
+    const lines = ['# DataGlow Trust Ledger', '', `Exported ${generatedAt}`, '', TRUST_LEDGER_DISCLAIMER, ''];
+    if (rows.length === 0) {
+      lines.push('No trust events recorded yet this session.');
+    } else {
+      lines.push('| Time (UTC) | Event | Subject | What happened | Outcome |', '| --- | --- | --- | --- | --- |');
+      for (const e of rows) {
+        if (e && e.rejected) {
+          lines.push(`| ${formatTrustTime(e.ts)} | refused | | ${e.reason || 'malformed row'} | refused |`);
+        } else if (e) {
+          lines.push(`| ${formatTrustTime(e.ts)} | ${TRUST_EVENT_LABELS[e.kind] || e.kind} | ${e.subject || ''} | ${e.summary} | ${e.outcome} |`);
+        }
+      }
+    }
+    return lines.join('\n');
+  }
+  const lines = ['DataGlow Trust Ledger', `Exported ${generatedAt}`, '', summarizeTrustLedger(rows), ''];
+  for (const e of rows) lines.push(describeTrustEntry(e));
+  return lines.join('\n');
+}
+
+/* ------------------------------------------------------------------
+   Composers: turn what an existing surface already produced into an
+   event, so no caller has to invent ledger vocabulary of its own.
+   ------------------------------------------------------------------ */
+
+/**
+ * A readiness gate verdict (js/gate/readiness-gate.js computeReadinessGate)
+ * becomes a gate-verdict row. The gate's own passingSummary is deliberately
+ * NOT reused: it contains an em dash, which product text here must not carry.
+ */
+function fromReadinessGate(gateResult, opts = {}) {
+  const g = isPlainObject(gateResult) ? gateResult : {};
+  const failing = Array.isArray(g.failingLayers) ? g.failingLayers : [];
+  const ready = g.agentConsumable === true;
+  const summary = ready
+    ? `Readiness passed with a score of ${g.score}/100 against a threshold of ${g.threshold}.`
+    : `Readiness did not pass: score ${g.score}/100 against a threshold of ${g.threshold}`
+      + (g.blockedByContract ? ', and a metric contract is broken' : '')
+      + (failing.length > 0 ? `, with ${failing.length} check${failing.length === 1 ? '' : 's'} failing` : '')
+      + '.';
+  return {
+    kind: 'gate-verdict',
+    subject: opts.subject || 'this dataset',
+    summary,
+    outcome: ready ? 'clear' : 'blocked',
+    actor: opts.actor || 'readiness gate',
+    detail: {
+      score: g.score,
+      threshold: g.threshold,
+      failingLayers: failing.map((f) => f && f.layer).filter(Boolean).join(', '),
+      blockedByContract: !!g.blockedByContract,
+    },
+  };
+}
+
+/**
+ * One recorded Metric Contract version (js/metrics/metric-contracts.js, the
+ * entries MetricContractHistory.list() returns) becomes a
+ * metric-contract-version row.
+ */
+function fromContractVersion(version, opts = {}) {
+  const v = isPlainObject(version) ? version : {};
+  const snap = isPlainObject(v.snapshot) ? v.snapshot : {};
+  const name = opts.metricName || snap.name || opts.metricId || 'a metric';
+  const proposed = v.source === 'agent-proposed';
+  return {
+    kind: 'metric-contract-version',
+    subject: name,
+    summary: `Version ${v.version} of this definition was recorded`
+      + (proposed ? ' after a human approved a proposed change' : ' by a human edit')
+      + (v.reason ? `. Reason given: ${v.reason}` : '')
+      + '.',
+    outcome: 'recorded',
+    actor: v.changedBy || 'you',
+    ts: Number.isFinite(v.changedAt) ? v.changedAt : undefined,
+    detail: {
+      version: v.version,
+      metricId: opts.metricId || null,
+      source: v.source || 'human',
+      expression: snap.expression || null,
+    },
+  };
+}
+
+/**
+ * A Publish-Safe verdict (js/gate/publish-safe.js evaluatePublishSafe) becomes
+ * an export-attempt row. The verdict's level is carried through unchanged so
+ * the ledger cannot report an outcome softer than the gate reached.
+ */
+function fromPublishSafe(verdict, opts = {}) {
+  const v = isPlainObject(verdict) ? verdict : {};
+  const level = TRUST_OUTCOMES.includes(v.level) ? v.level : 'caution';
+  const what = opts.artifact || 'a file';
+  const where = v.destination === 'off-device' ? 'somewhere off this device' : 'this device';
+  const acted = opts.completed === true;
+  return {
+    kind: 'export-attempt',
+    subject: what,
+    summary: (acted ? 'Written to ' : 'Offered to write to ') + where + '. '
+      + (v.headline || 'Publish-Safe reached no verdict.'),
+    outcome: level,
+    actor: opts.actor || 'you',
+    detail: {
+      destination: v.destination || 'this-device',
+      completed: acted,
+      phiFound: !!(v.checked && v.checked.phiFound),
+      includedResults: opts.includedResults === undefined ? null : !!opts.includedResults,
+      bytes: Number.isFinite(opts.bytes) ? opts.bytes : null,
+    },
+  };
+}
+  window.DataGlowTrustLedgerEngine = {
+    TRUST_LEDGER_KIND: TRUST_LEDGER_KIND,
+    TRUST_LEDGER_VERSION: TRUST_LEDGER_VERSION,
+    TRUST_EVENT_KINDS: TRUST_EVENT_KINDS,
+    TRUST_EVENT_LABELS: TRUST_EVENT_LABELS,
+    TRUST_OUTCOMES: TRUST_OUTCOMES,
+    TRUST_LEDGER_DISCLAIMER: TRUST_LEDGER_DISCLAIMER,
+    GENESIS_PARENT: GENESIS_PARENT,
+    sha256Hex: sha256Hex,
+    validateTrustEvent: validateTrustEvent,
+    createTrustLedger: createTrustLedger,
+    verifyTrustLedger: verifyTrustLedger,
+    formatTrustTime: formatTrustTime,
+    describeTrustEntry: describeTrustEntry,
+    summarizeTrustLedger: summarizeTrustLedger,
+    countTrustKinds: countTrustKinds,
+    exportTrustLedger: exportTrustLedger,
+    fromReadinessGate: fromReadinessGate,
+    fromContractVersion: fromContractVersion,
+    fromPublishSafe: fromPublishSafe,
+  };
+})();
+/* ---- end js/provenance/trust-ledger.js ---- */
+/* ---- from js/gate/publish-safe.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - Publish-Safe (pure engine)
+// ============================================================
+// WHY THIS EXISTS
+// DataGlow already knows, separately, most of what it needs to know before a
+// file leaves: PHI Shield knows whether the text holds anything sensitive
+// (js/intelligence/data-glow-phi-shield-canvas.js), the readiness gate knows
+// whether the dataset held up (js/gate/readiness-gate.js), Metric Contracts
+// know whether a definition is still the one that was agreed
+// (js/metrics/metric-contracts.js), and Air-Gap Mode knows whether the human
+// asked for nothing to cross the network (js/privacy/air-gap-mode.js).
+//
+// Every export path had to remember to ask all four, in the right order, and
+// none of them asked all four. This module is the single place that combines
+// them into one verdict a person can read before they press the button.
+//
+// THE RULES IT ENCODES, and why each is where it is:
+//   - Sensitive values plus a destination off this device is BLOCKED. That is
+//     the one hard refusal, because it is the only case where being wrong is
+//     unrecoverable: a file that has left cannot be unshared.
+//   - Sensitive values staying on this device is CAUTION with a safer default
+//     preselected, not a refusal. The human owns the disk. Refusing would be
+//     theatre, and it is the same call Notebook-to-App already made.
+//   - Air-Gap Mode plus a destination off this device is BLOCKED, because that
+//     is exactly the crossing the mode exists to prevent.
+//   - Missing evidence is never a clear. No PHI scan, or no readiness result,
+//     produces CAUTION that says which check could not run. A gate that
+//     reports "fine" when it did not look is worse than no gate. A caller whose
+//     artifact genuinely has no dataset behind it must say so out loud, by
+//     passing readiness: 'not-applicable'; it cannot get that by staying quiet.
+//   - Failing readiness, or a broken metric contract, is CAUTION and not a
+//     block. Both are quality signals about the numbers, not privacy ones, and
+//     a human is allowed to export a draft they know is a draft.
+//
+// WHAT IT NEVER DOES. It does not mutate anything, it does not write, and it
+// does not decide on the human's behalf: it returns a verdict plus a suggested
+// safer default, and the caller still has to show it and wait. It also cannot
+// gather its own evidence, on purpose. Every input is passed in by the surface
+// that already had it, so this file has no idea what a window is.
+//
+// PURITY: no DOM, no network, no crypto, no engine. Identical in the browser,
+// the Tauri desktop webview, and headless Node tests.
+
+const PUBLISH_SAFE_KIND = 'dataglow-publish-safe';
+const PUBLISH_SAFE_VERSION = 1;
+
+// Ordered least to most severe. The verdict is the most severe reason found,
+// so adding a level here means deciding where it sits in that order.
+const PUBLISH_SAFE_LEVELS = Object.freeze(['clear', 'caution', 'blocked']);
+
+// Where the artifact is going. 'this-device' is a file written to the machine
+// the human is sitting at. 'off-device' is anything else: an upload, a share
+// link, a cloud publish, a paste into a chat.
+const PUBLISH_DESTINATIONS = Object.freeze(['this-device', 'off-device']);
+
+const LEVEL_RANK = Object.freeze({ clear: 0, caution: 1, blocked: 2 });
+
+const PUBLISH_SAFE_DISCLAIMER =
+  'Publish-Safe checks what is known about this export before it happens: '
+  + 'whether sensitive values were found in what would travel, whether the '
+  + 'dataset passed its readiness checks, whether the metric definitions '
+  + 'behind it are still the agreed ones, and whether Air-Gap Mode is on. It '
+  + 'reports what it found and suggests the safer default. It cannot see '
+  + 'anything it was not given, so it says which checks could not run rather '
+  + 'than treating a missing check as a pass.';
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function worst(a, b) {
+  return (LEVEL_RANK[b] ?? 0) > (LEVEL_RANK[a] ?? 0) ? b : a;
+}
+
+function normalizeDestination(destination) {
+  if (destination === 'off-device' || destination === 'offdevice' || destination === 'remote') {
+    return 'off-device';
+  }
+  return 'this-device';
+}
+
+function countPhrase(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Reads the shape PHI Shield's guardOrBlock() returns, or the smaller shape a
+ * caller may already have. Anything unreadable counts as "could not run",
+ * never as "clean".
+ */
+function readPhi(phi) {
+  if (!isPlainObject(phi)) return { ran: false, found: false, count: 0, patterns: [] };
+  const ran = phi.available === true || phi.ok === true;
+  if (!ran) return { ran: false, found: false, count: 0, patterns: [] };
+  const patterns = Array.isArray(phi.patterns)
+    ? phi.patterns.filter((p) => typeof p === 'string' && p)
+    : [];
+  const count = Number.isFinite(phi.count) ? phi.count : (phi.sensitiveFound ? 1 : 0);
+  return { ran: true, found: !!phi.sensitiveFound, count, patterns };
+}
+
+/**
+ * Reads a computeReadinessGate() result. An absent result is "not checked",
+ * which is a caution and not a pass: a dataset extract whose quality was never
+ * measured is exactly the thing a reader would want warned about.
+ *
+ * The one exception is the literal string 'not-applicable', which a caller
+ * passes when the artifact is not a dataset extract at all. A notebook saved as
+ * a one-file app holds code and the output it already produced, so a dataset
+ * readiness score says nothing about it, and cautioning on every save would
+ * teach people to ignore the caution. Saying it out loud is required: the
+ * caller has to name the exception rather than get it by passing nothing.
+ */
+function readReadiness(readiness) {
+  if (readiness === 'not-applicable') {
+    return { ran: false, applicable: false, passed: false, score: null, threshold: null, failing: 0 };
+  }
+  if (!isPlainObject(readiness)) {
+    return { ran: false, applicable: true, passed: false, score: null, threshold: null, failing: 0 };
+  }
+  const failing = Array.isArray(readiness.failingLayers) ? readiness.failingLayers.length : 0;
+  return {
+    ran: true,
+    applicable: true,
+    passed: readiness.agentConsumable === true,
+    score: Number.isFinite(readiness.score) ? readiness.score : null,
+    threshold: Number.isFinite(readiness.threshold) ? readiness.threshold : null,
+    failing,
+  };
+}
+
+/**
+ * Reads the metric contract status shape js/metrics/metric-contract-status.js
+ * produces, which is the same shape computeReadinessGate() already accepts.
+ * Optional: no status means the export is not metric-backed, which is normal
+ * and not a caution.
+ */
+function readContract(status) {
+  if (!isPlainObject(status)) return { present: false, broken: false, brokenNames: [] };
+  const broken = status.ok === false || status.valid === false || status.broken === true;
+  const brokenNames = Array.isArray(status.brokenMetrics)
+    ? status.brokenMetrics.map((m) => (typeof m === 'string' ? m : (m && m.name))).filter(Boolean)
+    : [];
+  return { present: true, broken, brokenNames };
+}
+
+/**
+ * The gate. Takes only evidence the calling surface already gathered and
+ * returns a verdict. Never throws: an export path must not break because a
+ * check could not be read.
+ *
+ * @param {object} input
+ * @param {string} input.destination      'this-device' | 'off-device'
+ * @param {object} input.phi              PHI Shield guardOrBlock() result, or null
+ * @param {object} input.readiness        computeReadinessGate() result, or null
+ * @param {object} input.metricContract   metric contract status, or null
+ * @param {boolean} input.airGapActive    whether Air-Gap Mode is on
+ * @param {boolean} input.includesResults whether computed results travel too
+ * @param {string} input.artifact         what is being written, for the copy
+ */
+function evaluatePublishSafe(input = {}) {
+  const opts = isPlainObject(input) ? input : {};
+  const destination = normalizeDestination(opts.destination);
+  const offDevice = destination === 'off-device';
+  const artifact = typeof opts.artifact === 'string' && opts.artifact.trim() ? opts.artifact.trim() : 'this file';
+  const phi = readPhi(opts.phi);
+  const readiness = readReadiness(opts.readiness);
+  const contract = readContract(opts.metricContract);
+  const airGapActive = opts.airGapActive === true;
+  const includesResults = opts.includesResults !== false;
+
+  const reasons = [];
+  const add = (code, level, text) => reasons.push({ code, level, text });
+
+  if (airGapActive && offDevice) {
+    add('air-gap-egress', 'blocked',
+      'Air-Gap Mode is on, and this would send something off this device. That is the crossing the mode exists to stop, so it is refused.');
+  } else if (airGapActive) {
+    add('air-gap-local', 'clear',
+      'Air-Gap Mode is on. Writing a file to this device crosses no network, so it is allowed.');
+  }
+
+  if (!phi.ran) {
+    add('phi-unavailable', 'caution',
+      'PHI Shield could not check this text, so nothing is known about whether it holds sensitive values. Read it yourself before it travels.');
+  } else if (phi.found && offDevice) {
+    const what = phi.patterns.length ? ` (${phi.patterns.join(', ')})` : '';
+    add('phi-off-device', 'blocked',
+      `PHI Shield found ${countPhrase(phi.count, 'possible sensitive value', 'possible sensitive values')}${what} in what would travel, and this would leave the device. A file that has left cannot be unshared, so it is refused.`);
+  } else if (phi.found) {
+    const what = phi.patterns.length ? ` (${phi.patterns.join(', ')})` : '';
+    add('phi-this-device', 'caution',
+      `PHI Shield found ${countPhrase(phi.count, 'possible sensitive value', 'possible sensitive values')}${what}. This stays on your device, so it is your call, but leaving the results out is the safer start and is preselected.`);
+  } else {
+    add('phi-clear', 'clear', 'PHI Shield found no sensitive values in what would be written.');
+  }
+
+  if (!readiness.applicable) {
+    // Deliberately silent: a row saying "this check does not apply" is noise.
+    // checked.readiness still reports 'not-applicable' for anything auditing it.
+  } else if (!readiness.ran) {
+    add('readiness-unknown', 'caution',
+      'This dataset has not been through the readiness checks in this session, so how well it holds up is unknown.');
+  } else if (!readiness.passed) {
+    const score = readiness.score === null ? 'below' : `${readiness.score}/100, below`;
+    const threshold = readiness.threshold === null ? 'the threshold' : `the threshold of ${readiness.threshold}`;
+    const failing = readiness.failing > 0
+      ? ` ${countPhrase(readiness.failing, 'check', 'checks')} did not pass.`
+      : '';
+    add('readiness-failed', 'caution',
+      `Readiness scored ${score} ${threshold}.${failing} Exporting is allowed, but whoever reads this should know it is a draft.`);
+  } else {
+    const score = readiness.score === null ? '' : ` with a score of ${readiness.score}/100`;
+    add('readiness-passed', 'clear', `This dataset passed its readiness checks${score}.`);
+  }
+
+  if (contract.present && contract.broken) {
+    const named = contract.brokenNames.length ? `: ${contract.brokenNames.join(', ')}` : '';
+    add('contract-broken', 'caution',
+      `A metric definition behind these numbers no longer matches the version that was agreed${named}. The numbers may not mean what a reader expects.`);
+  } else if (contract.present) {
+    add('contract-ok', 'clear', 'Every metric definition behind these numbers is the version that was agreed.');
+  }
+
+  let level = 'clear';
+  for (const r of reasons) level = worst(level, r.level);
+  const blocked = level === 'blocked';
+
+  const where = offDevice ? 'off this device' : 'to this device';
+  let headline;
+  if (blocked) {
+    headline = `Publish-Safe is refusing to send ${artifact} ${where}. `
+      + reasons.filter((r) => r.level === 'blocked').map((r) => r.text).join(' ');
+  } else if (level === 'caution') {
+    const n = reasons.filter((r) => r.level === 'caution').length;
+    headline = `${artifact} can be written ${where}, with ${countPhrase(n, 'thing', 'things')} worth reading first.`;
+  } else {
+    headline = `Every check passed. ${artifact} can be written ${where}.`;
+  }
+
+  return {
+    version: PUBLISH_SAFE_VERSION,
+    level,
+    blocked,
+    destination,
+    artifact,
+    headline,
+    reasons,
+    // Ordered worst first, because a person reads the top of a list.
+    lines: reasons
+      .slice()
+      .sort((a, b) => (LEVEL_RANK[b.level] ?? 0) - (LEVEL_RANK[a.level] ?? 0))
+      .map((r) => r.text),
+    // A suggestion, never an action. The caller preselects it and the human
+    // can still change it, the same order Notebook-to-App uses for a PHI hit.
+    preselect: {
+      includeResults: !(phi.found && includesResults) && !blocked,
+    },
+    checked: {
+      phi: phi.ran ? (phi.found ? 'found' : 'clear') : 'unavailable',
+      phiFound: phi.found,
+      phiCount: phi.count,
+      readiness: readiness.applicable
+        ? (readiness.ran ? (readiness.passed ? 'passed' : 'failed') : 'unavailable')
+        : 'not-applicable',
+      readinessScore: readiness.score,
+      metricContract: contract.present ? (contract.broken ? 'broken' : 'ok') : 'not-applicable',
+      airGapActive,
+      includesResults,
+    },
+  };
+}
+
+/** Plain text rendering, for a toast, a log, or an export footer. */
+function describePublishSafe(verdict) {
+  if (!isPlainObject(verdict)) return 'Publish-Safe reached no verdict.';
+  const lines = [verdict.headline || 'Publish-Safe reached no verdict.'];
+  for (const l of Array.isArray(verdict.lines) ? verdict.lines : []) lines.push(`- ${l}`);
+  return lines.join('\n');
+}
+
+/**
+ * One short label for a badge. Deliberately not the headline: a badge that
+ * repeats a paragraph is not a badge.
+ */
+function publishSafeBadge(verdict) {
+  const level = isPlainObject(verdict) && PUBLISH_SAFE_LEVELS.includes(verdict.level) ? verdict.level : 'caution';
+  if (level === 'blocked') return { level, text: 'Refused', tone: 'danger' };
+  if (level === 'caution') return { level, text: 'Check first', tone: 'warn' };
+  return { level, text: 'Safe to write', tone: 'ok' };
+}
+  window.DataGlowPublishSafeEngine = {
+    PUBLISH_SAFE_KIND: PUBLISH_SAFE_KIND,
+    PUBLISH_SAFE_VERSION: PUBLISH_SAFE_VERSION,
+    PUBLISH_SAFE_LEVELS: PUBLISH_SAFE_LEVELS,
+    PUBLISH_DESTINATIONS: PUBLISH_DESTINATIONS,
+    PUBLISH_SAFE_DISCLAIMER: PUBLISH_SAFE_DISCLAIMER,
+    normalizeDestination: normalizeDestination,
+    evaluatePublishSafe: evaluatePublishSafe,
+    describePublishSafe: describePublishSafe,
+    publishSafeBadge: publishSafeBadge,
+  };
+})();
+/* ---- end js/gate/publish-safe.js ---- */
+/* ---- from js/provenance/data-glow-trust-ledger-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* Trust Ledger: the calm place the session's trust events land, oldest first.
+
+     The pure engine (js/provenance/trust-ledger.js, published as
+     window.DataGlowTrustLedgerEngine) owns the hash chain, the vocabulary and
+     the exports. This module owns only what the engine cannot: the button, the
+     panel, and the listeners that catch the events the app already dispatches.
+
+     WHAT IT LISTENS TO, and why those. Every source below is an event the app
+     genuinely fires today, verified rather than assumed:
+       dataglow:pulse-scored      a real validation score was produced
+       dataglow:export-triggered  a CSV, XLSX or portfolio card was written
+     Nothing is invented for the ledger to look busy. A surface that wants a row
+     recorded calls window.DataGlowTrustLedger.record() explicitly, which is how
+     the Publish-Safe wire in the notebook toolbar adds its verdict, and why
+     dataglow:notebook-app-saved is not in the list above.
+
+     WHAT IT NEVER DOES. It does not persist. The ledger is session-scoped and
+     in memory, so closing the tab ends it, and the export buttons are the only
+     way a row leaves. It writes nothing to localStorage, cookies or IndexedDB,
+     and it makes no network call. It also never edits a row: the panel is a
+     reader over an append-only chain.
+
+     Styles are injected at runtime rather than added to the canvas stylesheet,
+     matching data-glow-notebook-app-canvas.js. */
+
+  var BTN_ID = 'dg-trust-ledger-btn';
+  var PANEL_ID = 'dg-trust-ledger-panel';
+  var STYLE_ID = 'dg-trust-ledger-styles';
+  var BODY_ID = 'dg-trust-ledger-body';
+
+  var _ledger = null;
+  var _verify = null;
+
+  function engine() { return window.DataGlowTrustLedgerEngine || null; }
+
+  /* Same read as the other canvas surfaces (Air-Gap, Shield Packs, PHI Shield):
+     a flags provider is honored when present, and its absence means on, since
+     the app registers no provider today. window.DATAGLOW_TRUST_LEDGER is the
+     explicit local override in either direction. */
+  function flagOn() {
+    try { if (window.DATAGLOW_TRUST_LEDGER === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_TRUST_LEDGER === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('trustLedger') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Trust Ledger]', msg);
+  }
+
+  function ledger() {
+    if (_ledger) return _ledger;
+    var e = engine();
+    if (!e) return null;
+    _ledger = e.createTrustLedger();
+    return _ledger;
+  }
+
+  function entries() {
+    var l = ledger();
+    return l ? l.getEntries() : [];
+  }
+
+  /* ---------------------------- recording -------------------------------- */
+
+  /* Appending is fire and forget on purpose: the engine's record() is async
+     because SHA-256 is, and no caller should have to await a log line. A
+     failure here must never break the work that was being recorded, so the
+     rejected-row discipline in the engine plus this catch are both needed. */
+  function record(ev) {
+    var l = ledger();
+    if (!l) return null;
+    var p = l.record(ev);
+    /* The badge is refreshed on every append, not only while the panel is open.
+       The count and the alert dot are the only signal a user gets that something
+       landed in here without them looking, so they must not wait for a render. */
+    p.then(function () {
+      updateBadge();
+      if (isOpen()) renderBody();
+    }).catch(function (_e) {});
+    return p;
+  }
+
+  /* ---------------------------- styles ------------------------------------ */
+
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = [
+      '#' + BTN_ID + '{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 12px;',
+      'border-radius:10px;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}',
+      '#' + BTN_ID + ':hover{color:var(--text,#E8EAED)}',
+      '#' + BTN_ID + ' .dg-tl-dot{width:7px;height:7px;border-radius:50%;background:var(--primary,#20C5B5)}',
+      '#' + BTN_ID + '[data-state="alert"] .dg-tl-dot{background:var(--warn,#E3A34A)}',
+      '#' + PANEL_ID + '{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:12090;',
+      'display:none;flex-direction:column;background:var(--surface,#151820);',
+      'border-left:1px solid var(--border,#282D38);box-shadow:-18px 0 48px rgba(0,0,0,.45)}',
+      '#' + PANEL_ID + '.open{display:flex}',
+      '#' + PANEL_ID + ' .dg-tl-head{display:flex;align-items:flex-start;justify-content:space-between;',
+      'gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--border,#282D38)}',
+      '#' + PANEL_ID + ' .dg-tl-title{font-size:16px;font-weight:800;margin:0}',
+      '#' + PANEL_ID + ' .dg-tl-sub{font-size:12px;color:var(--text-muted,#9AA1AE);margin:4px 0 0;line-height:1.55}',
+      '#' + PANEL_ID + ' .dg-tl-x{min-height:44px;min-width:44px;border:none;background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font-size:22px;cursor:pointer;border-radius:10px;flex:0 0 auto}',
+      '#' + BODY_ID + '{flex:1;overflow-y:auto;padding:14px 18px;-webkit-overflow-scrolling:touch}',
+      '#' + PANEL_ID + ' .dg-tl-row{padding:11px 0;border-bottom:1px solid var(--border,#282D38);font-size:13px;line-height:1.55}',
+      '#' + PANEL_ID + ' .dg-tl-row:last-child{border-bottom:none}',
+      '#' + PANEL_ID + ' .dg-tl-when{font-size:11px;color:var(--text-muted,#9AA1AE);letter-spacing:.03em}',
+      '#' + PANEL_ID + ' .dg-tl-what{margin:3px 0 0}',
+      '#' + PANEL_ID + ' .dg-tl-hash{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;',
+      'color:var(--text-faint,var(--text-muted,#9AA1AE));margin:4px 0 0;word-break:break-all}',
+      '#' + PANEL_ID + ' .dg-tl-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;',
+      'font-size:10.5px;font-weight:700;border:1px solid var(--border,#282D38);color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-tl-chip.blocked{border-color:var(--danger,#E5534B);color:var(--danger,#E5534B)}',
+      '#' + PANEL_ID + ' .dg-tl-chip.caution{border-color:var(--warn,#E3A34A);color:var(--warn,#E3A34A)}',
+      '#' + PANEL_ID + ' .dg-tl-chip.clear{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + ' .dg-tl-verify{margin:0 0 12px;padding:10px 12px;border-radius:10px;font-size:12.5px;',
+      'line-height:1.55;border:1px solid var(--border,#282D38);color:var(--text-secondary,#B4B8C0)}',
+      '#' + PANEL_ID + ' .dg-tl-verify.bad{border-color:var(--danger,#E5534B);color:var(--danger,#E5534B)}',
+      '#' + PANEL_ID + ' .dg-tl-verify.good{border-color:var(--primary,#20C5B5);color:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + ' .dg-tl-note{font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted,#9AA1AE));',
+      'padding:10px 2px 4px}',
+      '#' + PANEL_ID + ' .dg-tl-foot{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px 16px;',
+      'border-top:1px solid var(--border,#282D38)}',
+      '#' + PANEL_ID + ' .dg-tl-btn{min-height:40px;padding:0 13px;border-radius:10px;font:inherit;font-size:12.5px;',
+      'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-tl-btn.primary{background:var(--primary,#20C5B5);color:#04201C;border-color:transparent}',
+      '#' + PANEL_ID + ' .dg-tl-btn:hover{opacity:.9}'
+    ].join('');
+    var el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  /* ---------------------------- panel ------------------------------------ */
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    ensureStyles();
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Trust Ledger');
+    panel.innerHTML =
+      '<div class="dg-tl-head">' +
+        '<div style="min-width:0">' +
+          '<p class="dg-tl-title">Trust Ledger</p>' +
+          '<p class="dg-tl-sub" data-tl-summary></p>' +
+        '</div>' +
+        '<button type="button" class="dg-tl-x" data-tl-close aria-label="Close">×</button>' +
+      '</div>' +
+      '<div id="' + BODY_ID + '"></div>' +
+      '<div class="dg-tl-foot">' +
+        '<button type="button" class="dg-tl-btn primary" data-tl-verify>Verify the chain</button>' +
+        '<button type="button" class="dg-tl-btn" data-tl-export="text">Save as text</button>' +
+        '<button type="button" class="dg-tl-btn" data-tl-export="markdown">Save as Markdown</button>' +
+        '<button type="button" class="dg-tl-btn" data-tl-export="json">Save as JSON</button>' +
+      '</div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-tl-close]').addEventListener('click', closePanel);
+    panel.querySelector('[data-tl-verify]').addEventListener('click', verifyNow);
+    var exporters = panel.querySelectorAll('[data-tl-export]');
+    for (var i = 0; i < exporters.length; i++) {
+      (function (btn) {
+        btn.addEventListener('click', function () { saveExport(btn.getAttribute('data-tl-export')); });
+      })(exporters[i]);
+    }
+    return panel;
+  }
+
+  function outcomeChip(entry) {
+    if (!entry || entry.rejected) return '<span class="dg-tl-chip">refused</span>';
+    if (!entry.outcome || entry.outcome === 'recorded') return '';
+    return '<span class="dg-tl-chip ' + esc(entry.outcome) + '">' + esc(entry.outcome) + '</span>';
+  }
+
+  function renderBody() {
+    var body = document.getElementById(BODY_ID);
+    var e = engine();
+    if (!body) return;
+    if (!e) {
+      body.innerHTML = '<div class="dg-tl-verify">The Trust Ledger engine is unavailable, so nothing can be recorded or shown.</div>';
+      return;
+    }
+    var rows = entries();
+    var panel = document.getElementById(PANEL_ID);
+    var summary = panel ? panel.querySelector('[data-tl-summary]') : null;
+    if (summary) summary.textContent = e.summarizeTrustLedger(rows);
+
+    var html = '';
+    if (_verify) {
+      html += '<div class="dg-tl-verify ' + (_verify.valid ? 'good' : 'bad') + '">' + esc(_verify.reason) + '</div>';
+    }
+    if (rows.length === 0) {
+      html += '<div class="dg-tl-row"><div class="dg-tl-what">' +
+        esc('Nothing has happened yet that belongs in here. Run validation, save a metric definition, '
+          + 'or export something, and the row will appear at the bottom of this list.') +
+        '</div></div>';
+    } else {
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var label = row.rejected ? 'Refused row' : (e.TRUST_EVENT_LABELS[row.kind] || row.kind);
+        html += '<div class="dg-tl-row" data-tl-index="' + esc(row.index) + '">' +
+          '<div class="dg-tl-when">' + esc(e.formatTrustTime(row.ts)) + ' · ' + esc(label) +
+            outcomeChip(row) + '</div>' +
+          '<div class="dg-tl-what">' + esc(e.describeTrustEntry(row)) + '</div>' +
+          '<div class="dg-tl-hash">' + esc(String(row.hash || '').slice(0, 16)) + '</div>' +
+        '</div>';
+      }
+    }
+    html += '<div class="dg-tl-note">' + esc(e.TRUST_LEDGER_DISCLAIMER) + '</div>' +
+      '<div class="dg-tl-note">' + esc('This ledger lives in this tab only. It is never saved to disk on '
+        + 'its own, so closing the tab ends it and the buttons below are the only way a row leaves.') + '</div>';
+    body.innerHTML = html;
+  }
+
+  function verifyNow() {
+    var e = engine();
+    if (!e) return null;
+    var p = e.verifyTrustLedger(entries());
+    p.then(function (res) {
+      _verify = res;
+      renderBody();
+      updateBadge();
+      toast(res.valid ? 'Trust Ledger verified' : 'Trust Ledger chain is broken', res.valid ? 'success' : 'error');
+    }).catch(function (_e) {});
+    return p;
+  }
+
+  /* One file to this device. Same local-only handoff as Notebook to App: a Blob
+     and an anchor, no network. */
+  function saveExport(format) {
+    var e = engine();
+    if (!e) return null;
+    var text = e.exportTrustLedger(entries(), format);
+    var ext = format === 'json' ? 'json' : (format === 'markdown' ? 'md' : 'txt');
+    var type = format === 'json' ? 'application/json' : 'text/plain';
+    var name = 'dataglow-trust-ledger.' + ext;
+    var url = '';
+    try {
+      url = URL.createObjectURL(new Blob([text], { type: type + ';charset=utf-8' }));
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (_err) {
+      if (url) URL.revokeObjectURL(url);
+      toast('Could not save the ledger', 'error');
+      return null;
+    }
+    setTimeout(function () { if (url) URL.revokeObjectURL(url); }, 1000);
+    toast('Saved ' + name + ' to this device');
+    return { filename: name, bytes: text.length };
+  }
+
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    if (!flagOn()) return false;
+    ensurePanel().classList.add('open');
+    renderBody();
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  function updateBadge() {
+    var btn = document.getElementById(BTN_ID);
+    if (!btn) return;
+    var rows = entries();
+    var alert = false;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && (rows[i].rejected || rows[i].outcome === 'blocked')) { alert = true; break; }
+    }
+    if (_verify && !_verify.valid) alert = true;
+    btn.setAttribute('data-state', alert ? 'alert' : 'ok');
+    var label = btn.querySelector('[data-tl-label]');
+    if (label) label.textContent = rows.length > 0 ? 'Trust · ' + rows.length : 'Trust';
+  }
+
+  /* ---------------------------- mounting --------------------------------- */
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open the Trust Ledger');
+    btn.title = 'Trust Ledger . what happened here, in order';
+    btn.innerHTML = '<span class="dg-tl-dot" aria-hidden="true"></span><span data-tl-label>Trust</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    /* Next to Air-Gap, which sits next to Shield Packs, so the whole "can I
+       trust this" posture is one row of buttons. Falls back the same way. */
+    var anchor = document.getElementById('dg-air-gap-btn') || document.getElementById('dg-shield-packs-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '312px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '312px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  /* Every listener below maps an event the app already fires onto one row. The
+     detail shapes are read defensively: a changed payload should cost a vaguer
+     sentence, not a thrown error inside someone else's export. */
+  function installListeners() {
+    document.addEventListener('dataglow:pulse-scored', function (ev) {
+      var d = (ev && ev.detail) || {};
+      var score = typeof d.score === 'number' ? d.score : null;
+      record({
+        kind: 'validation-run',
+        subject: typeof d.table === 'string' ? d.table : null,
+        summary: score === null
+          ? 'Validation ran and produced a score.'
+          : 'Validation ran and scored ' + score + ' out of 100.',
+        actor: 'validation',
+        detail: { score: score, source: d.source || null }
+      });
+    });
+
+    document.addEventListener('dataglow:export-triggered', function (ev) {
+      var d = (ev && ev.detail) || {};
+      var fmt = typeof d.format === 'string' ? d.format : 'a file';
+      record({
+        kind: 'export-attempt',
+        subject: fmt,
+        summary: 'An export was written to this device as ' + fmt + '.'
+          + (typeof d.rows === 'number' ? ' It covered ' + d.rows + ' rows.' : ''),
+        outcome: 'recorded',
+        detail: { format: fmt, rows: typeof d.rows === 'number' ? d.rows : null }
+      });
+    });
+
+    /* dataglow:notebook-app-saved is deliberately NOT listened to here. That
+       surface calls record() itself, because it is the only place holding the
+       Publish-Safe verdict the human just read, and a row carrying that verdict
+       says more than one reconstructed from the event detail. Listening here as
+       well would append the same save twice. */
+  }
+
+  function boot() {
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      updateBadge();
+      installListeners();
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+
+    /* Published whether or not the surface mounted, the same way Air-Gap
+       publishes its guards: a caller records a row without needing to know
+       whether a panel exists. With the flag off nothing mounted, so the
+       listeners are not installed and only explicit callers can append. */
+    window.DataGlowTrustLedger = {
+      version: 1,
+      open: openPanel,
+      close: closePanel,
+      isOpen: isOpen,
+      record: record,
+      verify: verifyNow,
+      save: saveExport,
+      getEntries: entries,
+      size: function () { return entries().length; },
+      clear: function () { if (_ledger) _ledger.clear(); _verify = null; updateBadge(); if (isOpen()) renderBody(); },
+      /* The composers, so a caller hands over what it already produced rather
+         than inventing ledger vocabulary. */
+      fromReadinessGate: function (g, o) { var e = engine(); return e ? e.fromReadinessGate(g, o || {}) : null; },
+      fromContractVersion: function (v, o) { var e = engine(); return e ? e.fromContractVersion(v, o || {}) : null; },
+      fromPublishSafe: function (v, o) { var e = engine(); return e ? e.fromPublishSafe(v, o || {}) : null; }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 840); });
+  } else {
+    setTimeout(boot, 840);
+  }
+})();
+/* ---- end js/provenance/data-glow-trust-ledger-canvas.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;
