@@ -35,16 +35,44 @@ export const DUCKDB_LOAD_HARDEN_VERSION = 1;
 /** Single source of truth for the pinned DuckDB-WASM version. Bump here only. */
 export const DUCKDB_WASM_PIN = '1.29.0';
 
-// Self-host relative path: assets/duckdb/ is the real, already-vendored
+// Self-host root-absolute path: assets/duckdb/ is the real, already-vendored
 // DuckDB-WASM 1.29.0 runtime this repo ships (root index.html's own import
 // map self-hosts apache-arrow/tslib/flatbuffers from the same directory --
 // see index.html). Pointing here instead of a second canvas/vendor/ copy
 // avoids duplicating ~74MB of wasm/worker files a second time just for the
-// canvas surface. A relative path (not origin-absolute) so this works
-// whether the app is served from a domain root or a sub-path, and whether
-// the caller is root index.html (assets/duckdb/ is a direct child) or a
-// flat single-file deploy that has assets/duckdb/ copied next to it.
-export const SELF_HOST_BASE_URL = './assets/duckdb/';
+// canvas surface.
+//
+// ROOT-ABSOLUTE, NOT RELATIVE. A relative "./assets/duckdb/" resolves
+// against whatever base the CONSUMER of the path is running from, not
+// against the document. The DuckDB-WASM worker script itself lives at
+// /assets/duckdb/duckdb-browser-eh.worker.js, and that worker constructs
+// its own mainModule wasm URL by resolving the baseUrl it was handed
+// relative to ITS OWN location, not the page's. A relative baseUrl of
+// "./assets/duckdb/" handed to a worker already inside /assets/duckdb/
+// resolves to a nested, 404ing path with the assets/duckdb/ segment
+// doubled (see BUNDLE18_HOTFIX2_RESULT.md). A root-absolute
+// "/assets/duckdb/" resolves the same way no matter who is asking: the
+// page, the worker, or a future nested worker. This repo is always served
+// from a domain root (see DEPLOY.md / dataglow-live-publish), so a
+// root-absolute path is safe here; resolveSelfHostBaseUrl() below covers
+// callers that instead need an origin-qualified absolute URL.
+export const SELF_HOST_BASE_URL = '/assets/duckdb/';
+
+/**
+ * Resolve the self-host base URL against a page/worker location so callers
+ * that need an origin-qualified absolute URL (rather than the root-absolute
+ * path above) can get one that a Worker and its parent page always agree
+ * on. Falls back to a fixed placeholder origin under plain Node (no DOM, no
+ * `location`), which keeps this pure and testable while still proving the
+ * resolved path never doubles the assets/duckdb/ segment.
+ *
+ * @param {string} [href] - defaults to globalThis.location.href when present
+ * @returns {string} an absolute, single-assets/duckdb/-segment URL string
+ */
+export function resolveSelfHostBaseUrl(href) {
+  const base = href || (typeof globalThis !== 'undefined' && globalThis.location && globalThis.location.href) || 'http://localhost/';
+  return new URL(SELF_HOST_BASE_URL, base).href;
+}
 
 /**
  * Self-host has no duckdb-esm.js (that filename is a jsDelivr-only rewrite of
@@ -176,6 +204,7 @@ export const DataGlowDuckDBLoadHarden = {
   DUCKDB_LOAD_HARDEN_VERSION,
   DUCKDB_WASM_PIN,
   SELF_HOST_BASE_URL,
+  resolveSelfHostBaseUrl,
   SELF_HOST_CANDIDATE,
   CANDIDATE_HOSTS,
   MAX_ATTEMPTS,

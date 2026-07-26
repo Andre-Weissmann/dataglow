@@ -61,12 +61,30 @@ describe('bundle18 hotfix A: shared candidate list (js/sql/duckdb-load-harden.js
     assert.equal(list[0].id, 'self-host');
   });
 
-  it('self-host candidate base URL is a same-origin relative path under assets/duckdb/', async () => {
+  it('self-host candidate base URL is a same-origin, root-absolute path under assets/duckdb/ (not relative)', async () => {
     const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
     const self_host = mod.SELF_HOST_CANDIDATE;
-    assert.match(self_host.baseUrl, /^\.\/assets\/duckdb\/$/);
+    // Bundle 18 hotfix 2: root-absolute ("/assets/duckdb/"), not relative
+    // ("./assets/duckdb/"). A relative base resolves against whatever is
+    // asking (page vs. worker), which is exactly what doubled the path into
+    // /assets/duckdb/assets/duckdb/duckdb-eh.wasm in the live bug.
+    assert.match(self_host.baseUrl, /^\/assets\/duckdb\/$/);
+    assert.doesNotMatch(self_host.baseUrl, /^\.\//);
     assert.doesNotMatch(self_host.baseUrl, /^https?:\/\//);
     assert.doesNotMatch(self_host.baseUrl, /esm\.sh|jsdelivr|unpkg/);
+  });
+
+  it('resolveSelfHostBaseUrl() resolves to a single, non-doubled assets/duckdb/ segment against any origin', async () => {
+    const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
+    assert.equal(typeof mod.resolveSelfHostBaseUrl, 'function');
+    const fromPageRoot = mod.resolveSelfHostBaseUrl('http://localhost/index.html');
+    const fromWorkerInsideAssets = mod.resolveSelfHostBaseUrl('http://localhost/assets/duckdb/duckdb-browser-eh.worker.js');
+    // A root-absolute path resolved against ANY same-origin href (the page's
+    // or the worker's own script location) must land on the exact same
+    // single-segment URL -- this is the guarantee that fixes the doubling.
+    assert.equal(fromPageRoot, 'http://localhost/assets/duckdb/');
+    assert.equal(fromWorkerInsideAssets, 'http://localhost/assets/duckdb/');
+    assert.doesNotMatch(fromWorkerInsideAssets, /assets\/duckdb\/assets\/duckdb/);
   });
 
   it('self-host candidate cdnUrl (the main ESM module) resolves under the same self-host base', async () => {
@@ -86,8 +104,13 @@ describe('bundle18 hotfix A: shared candidate list (js/sql/duckdb-load-harden.js
       // the SAME host as cdnUrl -- i.e. baseUrl is always a prefix relationship
       // consistent with cdnUrl, never pointing worker/wasm fetches at a
       // different host than the main module was loaded from.
-      const cdnHost = cand.cdnUrl.startsWith('.') ? 'self' : new URL(cand.cdnUrl).host;
-      const baseHost = cand.baseUrl.startsWith('.') ? 'self' : new URL(cand.baseUrl).host;
+      // A root-absolute or dot-relative candidate path (self-host) has no
+      // parseable `new URL()` host of its own -- treat any non-http(s)
+      // candidate as same-origin ('self') for this comparison instead of
+      // throwing on `new URL()`.
+      const isAbsolute = (u) => /^https?:\/\//.test(u);
+      const cdnHost = isAbsolute(cand.cdnUrl) ? new URL(cand.cdnUrl).host : 'self';
+      const baseHost = isAbsolute(cand.baseUrl) ? new URL(cand.baseUrl).host : 'self';
       assert.equal(cdnHost, baseHost, `candidate ${cand.id} has mismatched cdnUrl/baseUrl hosts`);
     }
   });
@@ -104,8 +127,13 @@ describe('bundle18 hotfix A: shared candidate list (js/sql/duckdb-load-harden.js
     for (const bundle of Object.values(manualBundles)) {
       assert.doesNotMatch(bundle.mainModule, /esm\.sh|jsdelivr\.net|unpkg\.com/);
       assert.doesNotMatch(bundle.mainWorker, /esm\.sh|jsdelivr\.net|unpkg\.com/);
-      assert.match(bundle.mainModule, /^\.\/assets\/duckdb\//);
-      assert.match(bundle.mainWorker, /^\.\/assets\/duckdb\//);
+      // Root-absolute, single assets/duckdb/ segment -- never doubled and
+      // never a bare relative "./assets/duckdb/" that would double against a
+      // worker's own location.
+      assert.match(bundle.mainModule, /^\/assets\/duckdb\//);
+      assert.match(bundle.mainWorker, /^\/assets\/duckdb\//);
+      assert.doesNotMatch(bundle.mainModule, /assets\/duckdb\/assets\/duckdb/);
+      assert.doesNotMatch(bundle.mainWorker, /assets\/duckdb\/assets\/duckdb/);
     }
   });
 
