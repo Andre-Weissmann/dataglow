@@ -717,7 +717,85 @@
      failure and silently fall through to pyodide-pandas. The payload is run
      through pyToJs(...) before JSON.parse so a PyProxy-wrapped JSON string
      is unwrapped/converted first instead of being JSON.parse()'d directly
-     (which throws on a proxy object rather than its string content). */
+     (which throws on a proxy object rather than its string content).
+
+     HOTFIX_PYODIDE_LOAD_SQLITE3_SPEC.md: live root cause (proven against
+     the deployed canvas on 945166e) -- Pyodide UNVENDORS the `sqlite3`
+     stdlib module. It is not bundled in the core Pyodide runtime the way
+     CPython's own stdlib docs might suggest; the module only becomes
+     importable after `await pyodide.loadPackage('sqlite3')` has resolved,
+     exactly the same shape as `pandas`/`numpy`/`matplotlib` in
+     js/runtimes-viz/python-runtime.js's `initPyodideRuntime`. Every line
+     of `buildSqliteRegisterAndQuerySnippet`'s generated Python starts with
+     `import ... sqlite3 ...`, so without this load every single call here
+     threw `ModuleNotFoundError: No module named 'sqlite3'` inside the
+     generated snippet's own try/except, which correctly (but uselessly)
+     surfaced as `_dg_second_engine_sqlite_error` and sent every
+     corroboration down to the narrower pyodide-pandas COUNT-only path --
+     the pyodide-sqlite full-SQL rung of the fallback ladder could never
+     actually be reached on a real device. `ensureSqlite3InPyodide(py)`
+     below closes that gap the same way `ensureDuckdbInPyodide` already
+     guards the duckdb rung: cached (promise, not just a boolean, so
+     concurrent callers share one in-flight load rather than issuing the
+     CDN fetch twice), timed out at ~12s, and non-throwing -- a failure
+     honestly resolves to false so the caller falls through to
+     pyodide-pandas exactly as it already does for any other sqlite
+     failure, never a fabricated result. */
+
+  var SQLITE3_LOAD_TIMEOUT_MS = 12000;
+  var _sqlite3ReadyPromise = null; // null=not started, else a shared in-flight/resolved Promise<boolean>
+
+  /* Loads the Pyodide-distributed `sqlite3` package (from the same Pyodide
+     CDN/lockfile pandas/numpy already come from -- jsdelivr, already
+     allowlisted; NOT a pypi/micropip install, so this is not subject to
+     the "no native wheel" impossibility that blocks duckdb) so that
+     `import sqlite3` succeeds inside the generated snippet.
+
+     Resolution order, mirroring the spec:
+       1. `py.loadPackage` -- present when `py` is the full Pyodide API
+          object (true for every real caller: both the notebook-lite
+          bridge's `loadPyodide()` in canvas/index.html and
+          js/runtimes-viz/python-runtime.js's `initPyodideRuntime` return
+          the real pyodide module object, not a restricted proxy).
+       2. `window.DataGlowPython.getPyodide?.()` -- an alternate seam some
+          hosts may expose a full pyodide handle through, tried only when
+          `py` itself lacks `loadPackage` (defensive; no current caller
+          needs this, but the spec calls for it explicitly).
+       3. Neither is available -- `py.runPythonAsync` alone cannot install
+          packages, so this honestly returns false (never throws) and the
+          caller falls through to pyodide-pandas, same as any other
+          sqlite-path failure.
+
+     Cached as a shared promise (not re-attempted every call once it
+     settles either way) so a slow/failed CDN fetch is not retried on
+     every single corroboration click in the same session. */
+  function ensureSqlite3InPyodide(py) {
+    if (_sqlite3ReadyPromise) return _sqlite3ReadyPromise;
+    _sqlite3ReadyPromise = (async () => {
+      try {
+        var loader = null;
+        if (py && typeof py.loadPackage === 'function') {
+          loader = py;
+        } else if (window.DataGlowPython && typeof window.DataGlowPython.getPyodide === 'function') {
+          try {
+            var maybePy = await window.DataGlowPython.getPyodide();
+            if (maybePy && typeof maybePy.loadPackage === 'function') loader = maybePy;
+          } catch (_eGet) { /* seam not available on this host -- fall through to false below */ }
+        }
+        if (!loader) return false;
+        await withTimeout(Promise.resolve(loader.loadPackage('sqlite3')), SQLITE3_LOAD_TIMEOUT_MS);
+        // Confirm the import actually succeeds post-load rather than trusting
+        // loadPackage's resolution alone (spec step 3: "After load, `import
+        // sqlite3` must succeed").
+        py.runPython('import sqlite3');
+        return true;
+      } catch (_eLoad) {
+        return false;
+      }
+    })();
+    return _sqlite3ReadyPromise;
+  }
+
   async function runViaPyodideSqlite(py, statement) {
     var tableNames;
     try {
@@ -726,6 +804,7 @@
       tableNames = [];
     }
     try {
+      await ensureSqlite3InPyodide(py);
       var snippet = buildSqliteRegisterAndQuerySnippet(statement, tableNames);
       await py.runPythonAsync(snippet);
       var errProxy = py.globals.get('_dg_second_engine_sqlite_error');
@@ -1721,6 +1800,17 @@
 
   /* ---------------------------- Mesh attestation actions (v2) ------------ */
 
+  /* HOTFIX_PYODIDE_LOAD_SQLITE3_SPEC.md #4 (mesh prove script note):
+     `exportMeshAttestation` (js/proof-harness/mesh-attestation.js) is an
+     `async function` -- it awaits `sha256Hex` internally to build
+     `inputDigest`/`attestationHash`. This handler is itself declared
+     `async` and already `await`s the call below, so a caller reading
+     `onMeshExport()`'s own return value (there is none awaited at the
+     click-handler call site further down -- a fire-and-forget UI click is
+     the correct, standard pattern here) still gets the fully-resolved
+     attestation inside this function before `_lastMeshExport` is set and
+     `renderBody()` runs. Confirmed correct as-is; documented per spec so a
+     future edit does not accidentally drop the `await` on the line below. */
   async function onMeshExport() {
     var e = engine();
     if (!e || typeof e.exportMeshAttestation !== 'function' || !_lastResult) return;

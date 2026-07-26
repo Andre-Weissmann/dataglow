@@ -170,17 +170,28 @@ if (buildSqliteRegisterAndQuerySnippet) {
   const isRealErrSrc = extractFunctionSource(canvasModuleSrc, 'function isRealPyodideErrorValue(v) {');
   const buildSqliteSnippetSrc = extractFunctionSource(canvasModuleSrc, 'function buildSqliteRegisterAndQuerySnippet(statement, tableNames) {');
   const runViaSqliteSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodideSqlite(py, statement) {');
+  // HOTFIX_PYODIDE_LOAD_SQLITE3_SPEC.md: runViaPyodideSqlite now calls
+  // ensureSqlite3InPyodide(py) first, so the harness must include it (and
+  // its withTimeout dependency) or the call throws ReferenceError inside
+  // runViaPyodideSqlite's own try/catch, masking every result as null.
+  const ensureSqlite3Src = extractFunctionSource(canvasModuleSrc, 'function ensureSqlite3InPyodide(py) {');
+  const withTimeoutSrc = extractFunctionSource(canvasModuleSrc, 'function withTimeout(promise, ms) {');
   const dgCsvGlobalReSrc = (() => {
     const m = /var DG_CSV_GLOBAL_RE = [^\n]+\n/.exec(canvasModuleSrc);
     return m ? m[0] : 'var DG_CSV_GLOBAL_RE = /^dg_csv_(.+)$/;\n';
   })();
 
-  const allPresent = [listCsvSrc, pyToJsSrc, isRealErrSrc, buildSqliteSnippetSrc, runViaSqliteSrc].every(Boolean);
-  ok(allPresent, 'all pieces needed to run runViaPyodideSqlite in isolation are present verbatim in the shipped source');
+  const allPresent = [listCsvSrc, pyToJsSrc, isRealErrSrc, buildSqliteSnippetSrc, runViaSqliteSrc, ensureSqlite3Src, withTimeoutSrc].every(Boolean);
+  ok(allPresent, 'all pieces needed to run runViaPyodideSqlite in isolation (including the sqlite3-load guard) are present verbatim in the shipped source');
 
   if (allPresent) {
     const harnessSrc = `
+      var window = globalThis.__mockWindowProxyMesh || {};
       ${dgCsvGlobalReSrc}
+      ${withTimeoutSrc}
+      var SQLITE3_LOAD_TIMEOUT_MS = 150;
+      var _sqlite3ReadyPromise = null;
+      ${ensureSqlite3Src}
       ${pyToJsSrc}
       ${isRealErrSrc}
       ${listCsvSrc}
