@@ -357,6 +357,67 @@
     return out;
   }
 
+  /* Pure helper (HOTFIX_SQLITE_PROXY_MESH_SPEC.md #1): given ANY value a
+     Pyodide PyProxy hands back through py.globals.get(...) -- a real Python
+     object, a PyProxy wrapping one, `undefined` (key never set), or a
+     genuine JS primitive already (e.g. in unit tests that pass in plain
+     mocks, never a real Pyodide runtime) -- return the best-effort plain JS
+     value:
+       - null/undefined -> null (never "None"/"undefined" strings)
+       - a proxy with a real .toJs() -> its converted plain-JS value
+         ({create_proxies:false} so nothing borrows Pyodide memory that would
+         need an explicit .destroy() the caller cannot know to call)
+       - a genuine string -> itself, unchanged
+       - anything else convertible -> String(v), swallowing a conversion
+         throw into null rather than ever letting it escape
+     This function itself never throws. */
+  function pyToJs(v) {
+    if (v === undefined || v === null) return null;
+    if (typeof v === 'object' && v !== null && typeof v.toJs === 'function') {
+      try {
+        return v.toJs({ create_proxies: false });
+      } catch (_eToJs) {
+        // fall through to the string paths below rather than propagate
+      }
+    }
+    if (typeof v === 'string') return v;
+    try {
+      return String(v);
+    } catch (_eStr) {
+      return null;
+    }
+  }
+
+  /* Pure helper (HOTFIX_SQLITE_PROXY_MESH_SPEC.md #1): Pyodide's Python
+     `None` frequently comes back through the JS boundary as a PyProxy that
+     is truthy under `!== undefined && !== null` (it is an object, not the
+     JS null it represents) and whose `String(proxy)` is the literal text
+     `"None"` -- NOT a real error message. The old
+     `errProxy !== undefined && errProxy !== null` check therefore treated
+     every successful sqlite run as an error, because
+     `_dg_second_engine_sqlite_error` starts life as Python `None` in the
+     snippet below and a real Pyodide proxy for that None is neither
+     undefined nor JS null. This helper is the single place that decides
+     "is this actually a reported error string" -- true Python None (via
+     pyToJs converting it to JS null/undefined), an empty string, or the
+     literal text "None" (a stringified None proxy that slipped past a
+     conversion attempt) are ALL treated as "no error", exactly per spec:
+     "ignore null/undefined/''/'None'". Anything else non-empty is a real
+     error message. */
+  function isRealPyodideErrorValue(v) {
+    var jsVal = pyToJs(v);
+    if (jsVal === null || jsVal === undefined) return false;
+    if (typeof jsVal !== 'string') {
+      try {
+        jsVal = String(jsVal);
+      } catch (_eCoerce) {
+        return false;
+      }
+    }
+    var trimmed = jsVal.trim();
+    return trimmed !== '' && trimmed !== 'None';
+  }
+
   /* Pure helper (ship item #2): build the Python snippet that, given a list
      of table names already known to have a `dg_csv_<name>` global string in
      scope, reads each as a pandas DataFrame from the in-memory CSV and
@@ -559,11 +620,23 @@
           Pyodide call boundary itself.
      Kept pure/string-only (no py handle), exactly like
      buildRegisterPythonSnippet, so it is unit-testable without a real
-     Pyodide runtime. */
+     Pyodide runtime.
+
+     HOTFIX_SQLITE_PROXY_MESH_SPEC.md #2: when the caller's JS-side
+     `tableNames` list is empty (listCsvGlobalTableNames(py.globals) found
+     nothing -- Pyodide's globals PyProxy iteration is not always reliable
+     the very first tick after buildHelper(py) just ran), the generated
+     snippet ALSO discovers `dg_csv_*` names for itself from directly inside
+     the Python runtime via `list(globals())`, which is the authoritative
+     source of truth the JS-side proxy walk is only mirroring. This makes
+     Python-side discovery a fallback, never a replacement: an explicit,
+     non-empty `tableNames` from the JS side is still honored exactly as
+     before (same registered-name order, same behavior), so this is purely
+     additive for the empty-list case. */
   function buildSqliteRegisterAndQuerySnippet(statement, tableNames) {
     var names = Array.isArray(tableNames) ? tableNames : [];
     var lines = [
-      'import pandas as pd, io, sqlite3, json',
+      'import pandas as pd, io, sqlite3, json, re as _dg_re',
       '_dg_second_engine_sqlite_tables_registered = []',
       '_dg_second_engine_sqlite_error = None',
       '_dg_second_engine_sqlite_payload = None',
@@ -571,14 +644,36 @@
       'try:',
     ];
     var body = [];
-    names.forEach(function (name) {
-      var safe = String(name).replace(/[^a-zA-Z0-9_]/g, '_');
-      var globalKey = 'dg_csv_' + safe;
-      body.push('    if globals().get(' + JSON.stringify(globalKey) + ') is not None:');
-      body.push('        _dg_df = pd.read_csv(io.StringIO(str(globals()[' + JSON.stringify(globalKey) + '])))');
-      body.push('        _dg_df.to_sql(' + JSON.stringify(safe) + ', _dg_sqlite_conn, index=False, if_exists="replace")');
-      body.push('        _dg_second_engine_sqlite_tables_registered.append(' + JSON.stringify(safe) + ')');
-    });
+    if (names.length > 0) {
+      names.forEach(function (name) {
+        var safe = String(name).replace(/[^a-zA-Z0-9_]/g, '_');
+        var globalKey = 'dg_csv_' + safe;
+        body.push('    if globals().get(' + JSON.stringify(globalKey) + ') is not None:');
+        body.push('        _dg_df = pd.read_csv(io.StringIO(str(globals()[' + JSON.stringify(globalKey) + '])))');
+        body.push('        _dg_df.to_sql(' + JSON.stringify(safe) + ', _dg_sqlite_conn, index=False, if_exists="replace")');
+        body.push('        _dg_second_engine_sqlite_tables_registered.append(' + JSON.stringify(safe) + ')');
+      });
+    } else {
+      // HOTFIX_SQLITE_PROXY_MESH_SPEC.md #2: no names came from the JS-side
+      // proxy walk -- discover dg_csv_* globals directly inside Python via
+      // list(globals()), which sees the real interpreter namespace rather
+      // than whatever the JS<->Pyodide proxy iteration surfaced (or failed
+      // to surface). Every matching key is registered under the same
+      // sanitized-name discipline listCsvGlobalTableNames already uses on
+      // the JS side (non [A-Za-z0-9_] -> "_"), so a table registered this
+      // way is named identically to how it would have been named had the
+      // JS list not been empty.
+      body.push('    _dg_discovered_csv_names = []');
+      body.push('    for _dg_key in list(globals()):');
+      body.push('        _dg_m = _dg_re.match(r"^dg_csv_(.+)$", _dg_key)');
+      body.push('        if _dg_m and globals().get(_dg_key) is not None:');
+      body.push('            _dg_discovered_csv_names.append(_dg_m.group(1))');
+      body.push('    for _dg_name in _dg_discovered_csv_names:');
+      body.push('        _dg_safe = _dg_re.sub(r"[^a-zA-Z0-9_]", "_", _dg_name)');
+      body.push('        _dg_df = pd.read_csv(io.StringIO(str(globals()["dg_csv_" + _dg_name])))');
+      body.push('        _dg_df.to_sql(_dg_safe, _dg_sqlite_conn, index=False, if_exists="replace")');
+      body.push('        _dg_second_engine_sqlite_tables_registered.append(_dg_safe)');
+    }
     body.push('    _dg_sqlite_res = pd.read_sql_query(' + JSON.stringify(String(statement)) + ', _dg_sqlite_conn)');
     body.push('    _dg_second_engine_sqlite_payload = json.dumps({');
     body.push('        "columns": list(_dg_sqlite_res.columns),');
@@ -611,7 +706,18 @@
      duckdb.sql call would. A real dialect/runtime failure from sqlite
      itself is returned as {error: <message>} so the caller's honest
      fall-through logic (identical shape to a duckdb.sql() throw) still
-     applies uniformly across both engines. */
+     applies uniformly across both engines.
+
+     HOTFIX_SQLITE_PROXY_MESH_SPEC.md #1: reads every Pyodide global through
+     pyToJs(...) rather than raw truthiness/String() checks, and treats
+     `_dg_second_engine_sqlite_error` as a real error only via
+     isRealPyodideErrorValue(...) -- a stringified Python None (proxy or
+     literal "None" text) is never mistaken for an error message, which is
+     exactly the live bug that made every successful sqlite run look like a
+     failure and silently fall through to pyodide-pandas. The payload is run
+     through pyToJs(...) before JSON.parse so a PyProxy-wrapped JSON string
+     is unwrapped/converted first instead of being JSON.parse()'d directly
+     (which throws on a proxy object rather than its string content). */
   async function runViaPyodideSqlite(py, statement) {
     var tableNames;
     try {
@@ -623,26 +729,27 @@
       var snippet = buildSqliteRegisterAndQuerySnippet(statement, tableNames);
       await py.runPythonAsync(snippet);
       var errProxy = py.globals.get('_dg_second_engine_sqlite_error');
-      if (errProxy !== undefined && errProxy !== null) {
-        return { error: String(errProxy) };
+      if (isRealPyodideErrorValue(errProxy)) {
+        var errJs = pyToJs(errProxy);
+        return { error: typeof errJs === 'string' ? errJs : String(errJs) };
       }
-      var payloadJson = py.globals.get('_dg_second_engine_sqlite_payload');
-      if (payloadJson === undefined || payloadJson === null) return null;
-      var payload = JSON.parse(payloadJson);
+      var payloadProxy = py.globals.get('_dg_second_engine_sqlite_payload');
+      var payloadJs = pyToJs(payloadProxy);
+      if (payloadJs === null || payloadJs === undefined || payloadJs === '' || payloadJs === 'None') return null;
+      var payload = typeof payloadJs === 'string' ? JSON.parse(payloadJs) : payloadJs;
       var scalars = {};
       if (payload.rows && payload.rows.length && payload.columns) {
         payload.columns.forEach(function (col, i) { scalars[col] = payload.rows[0][i]; });
       }
       var registeredProxy = py.globals.get('_dg_second_engine_sqlite_tables_registered');
-      var registered = (registeredProxy && typeof registeredProxy.toJs === 'function')
-        ? registeredProxy.toJs()
-        : registeredProxy;
+      var registeredJs = pyToJs(registeredProxy);
+      var registered = Array.isArray(registeredJs) ? registeredJs : null;
       return {
         rowCount: payload.rowCount,
         rows: payload.rows,
         scalars: scalars,
         engine: 'pyodide-sqlite',
-        tablesRegistered: Array.isArray(registered) ? registered : tableNames,
+        tablesRegistered: registered || (tableNames.length ? tableNames : []),
       };
     } catch (_eRun) {
       // Registration/query Python itself failed to even run (should be
