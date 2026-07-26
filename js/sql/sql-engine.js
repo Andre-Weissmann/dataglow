@@ -128,10 +128,29 @@ export var SQLEngine = (function () {
           if (!bundle || !bundle.mainModule || !bundle.mainWorker) {
             bundle = { mainModule: cand.baseUrl + 'duckdb-eh.wasm', mainWorker: cand.baseUrl + 'duckdb-browser-eh.worker.js' };
           }
-          var worker = new Worker(bundle.mainWorker);
+          // Construct the Worker from an absolute URL, resolved against this
+          // document, not left relative. A relative mainWorker resolves fine
+          // for `new Worker()` (which always resolves against the page), but
+          // the worker script's OWN relative resolution of mainModule (the
+          // wasm file) happens against the WORKER's location, not the page's.
+          // Handing the worker an absolute URL up front keeps every later
+          // relative-looking segment resolving against the same origin the
+          // page already agrees on, instead of depending on baseUrl already
+          // being absolute (self-host's baseUrl now is, via SELF_HOST_BASE_URL
+          // in js/sql/duckdb-load-harden.js, but this guards any candidate).
+          var isAbsoluteUrl = function (u) { return /^[a-z][a-z0-9+.-]*:/i.test(u || ''); };
+          var workerHref = isAbsoluteUrl(bundle.mainWorker) ? bundle.mainWorker : new URL(bundle.mainWorker, location.href).href;
+          // mainModule (the wasm binary) is read by db.instantiate() INSIDE the
+          // worker. If it were left relative, it would resolve against the
+          // worker's own script location, not the page's -- exactly the
+          // doubled-path bug this hotfix fixes (see BUNDLE18_HOTFIX2_RESULT.md).
+          // Resolving here, against the page, guarantees worker and page agree
+          // on the same absolute wasm URL regardless of candidate baseUrl shape.
+          var mainModuleHref = isAbsoluteUrl(bundle.mainModule) ? bundle.mainModule : new URL(bundle.mainModule, location.href).href;
+          var worker = new Worker(workerHref);
           var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
           db = new mod.AsyncDuckDB(logger, worker);
-          await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+          await db.instantiate(mainModuleHref, bundle.pthreadWorker);
           conn = await db.connect();
           lastErr = null;
           break;
