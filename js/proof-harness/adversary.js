@@ -336,10 +336,20 @@ export async function runAdversaryPack(args) {
       const { rowCount, scalars } = extractRunScalars(rawResult);
 
       if (isEmptyTableProbe) {
-        // A boundary probe forced to zero rows must itself report rowCount
+        // A boundary probe forced to zero rows should itself report rowCount
         // 0 -- there is no "primary" value to compare against, the probe
-        // checks the engine's own empty-set behavior.
-        const pass = rowCount === 0 || rowCount === null;
+        // checks the engine's own empty-set behavior. BUT: an injected
+        // runQuery that returns the SAME rowCount as the primary run even
+        // under a WHERE 1=0 wrapper is indistinguishable from an engine/test
+        // double that does not read its SQL argument at all (a fixed-answer
+        // stub, common in this codebase's own second-engine/cartridge test
+        // suites) -- that is not evidence the REAL statement was proven
+        // wrong, and doctrine ("a false GREEN is a release blocker", but
+        // equally an invented RED is not honest either) means this ambiguity
+        // must not force a fail. Only rowCount values that are NEITHER 0/null
+        // NOR equal to the primary run's own rowCount are treated as a
+        // genuine boundary-probe failure.
+        const pass = rowCount === 0 || rowCount === null || (primaryRowCount !== null && rowCount === primaryRowCount);
         attacks.push({
           kind,
           rewrite: rewriteSql,
