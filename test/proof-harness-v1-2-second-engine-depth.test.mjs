@@ -239,8 +239,19 @@ if (evalTrivialLiteralSelect) {
   const runViaWebRSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaWebRNarrowCount(statement) {');
   const withTimeoutSrc = extractFunctionSource(canvasModuleSrc, 'function withTimeout(promise, ms) {');
   const runViaPandasSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodidePandasCount(py, statement) {');
+  // HOTFIX_SECOND_ENGINE_SQLITE_SQL_SPEC.md: the bridge now has a new
+  // pyodide-sqlite rung between pyodide-duckdb and pyodide-pandas, so this
+  // harness must assemble it too or every call into the real, extracted
+  // runProofSecondEngineBridge throws a ReferenceError on
+  // runViaPyodideSqlite before ever reaching the pandas/literal/webR
+  // scenarios this file tests -- this addition is purely to keep this
+  // PRE-EXISTING suite passing against the real shipped bridge (spec
+  // Tests #5: "Existing pandas COUNT / literal / adversary tests still
+  // pass"); no assertions in this file change.
+  const buildSqliteSnippetSrc = extractFunctionSource(canvasModuleSrc, 'function buildSqliteRegisterAndQuerySnippet(statement, tableNames) {');
+  const runViaSqliteSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodideSqlite(py, statement) {');
 
-  const allPresent = [bridgeSrc, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc2, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc].every(Boolean);
+  const allPresent = [bridgeSrc, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc2, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc, buildSqliteSnippetSrc, runViaSqliteSrc].every(Boolean);
   ok(allPresent, 'all pieces needed to assemble the full second-engine bridge are present verbatim in the shipped source');
   ok(runViaPandasSrc !== null, 'runViaPyodidePandasCount(py, statement) is present verbatim in the shipped source (HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F1)');
 
@@ -263,6 +274,8 @@ if (evalTrivialLiteralSelect) {
       ${runViaDuckdbSrc2}
       ${parseCountSrc}
       ${runViaPandasSrc}
+      ${buildSqliteSnippetSrc}
+      ${runViaSqliteSrc}
       ${runViaWebRSrc}
       ${bridgeSrc}
       return runProofSecondEngineBridge;
@@ -307,6 +320,14 @@ if (evalTrivialLiteralSelect) {
           }
           throw new Error('unsupported runPython: ' + code);
         },
+        // HOTFIX_SECOND_ENGINE_SQLITE_SQL_SPEC.md: this mock intentionally
+        // does NOT implement the new pyodide-sqlite snippet's runPythonAsync
+        // shape below -- it throws 'unsupported runPythonAsync', which
+        // runViaPyodideSqlite's own try/catch treats as a non-fatal null,
+        // so every existing scenario in THIS file falls through to pandas
+        // exactly as it did before this hotfix (this file's job is to
+        // pin the pandas/literal/webR behavior, not to test sqlite -- that
+        // is test/hotfix-second-engine-sqlite-sql.test.mjs's job).
         async runPythonAsync(code) {
           if (/micropip\.install\("duckdb"\)/.test(code)) {
             // this is ensureDuckdbInPyodide's install attempt -- simulate the
