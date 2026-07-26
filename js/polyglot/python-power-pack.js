@@ -142,6 +142,24 @@ export const PYTHON_RECIPES = Object.freeze([
     answers: 'Which values would move a mean on their own?',
     code: 'col = "amount"\nq1, q3 = df[col].quantile([0.25, 0.75])\nspan = q3 - q1\nmask = (df[col] < q1 - 1.5 * span) | (df[col] > q3 + 1.5 * span)\nprint("rows outside 1.5x the interquartile range:", int(mask.sum()))\ndf.loc[mask].head(20)',
   }),
+  // ---- pythonShowdownPatterns (Bundle 17): two more original recipes for
+  // shapes that come up constantly in timed practice-problem formats.
+  // Original synthetic column names (order/claim style), matching the rest
+  // of this pack; no third-party dataset names or branding.
+  Object.freeze({
+    id: 'groupby-first-last-after-filter',
+    topic: 'Aggregation',
+    title: 'First and last row per group, after a filter',
+    answers: 'Of the rows that qualify, which one came first and which came last for each key?',
+    code: 'sub = df[df["status"] == "finished"].sort_values("order_date")\nfirsts = sub.groupby("customer_id", as_index=False).first()\nlasts = sub.groupby("customer_id", as_index=False).last()\nfirsts.merge(lasts, on="customer_id", suffixes=("_first", "_last")).head(20)',
+  }),
+  Object.freeze({
+    id: 'merge-user-level-summary',
+    topic: 'Joins',
+    title: 'Merge two tables, then summarize per key',
+    answers: 'After joining orders to a lookup table, what does each customer look like in one row?',
+    code: 'merged = df.merge(other, on="customer_id", how="left", indicator=True)\nsummary = merged.groupby("customer_id", as_index=False).agg(\n    orders=("order_id", "count"),\n    total_amount=("amount", "sum"),\n    matched=("_merge", lambda s: (s == "both").sum()),\n)\nsummary.sort_values("total_amount", ascending=False).head(20)',
+  }),
 ]);
 
 function isPlainObject(v) {

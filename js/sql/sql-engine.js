@@ -100,8 +100,12 @@ export var SQLEngine = (function () {
       if (initialised) return;
       initialised = true;
       // Never a single silent hang: walk every candidate host in the shared
-      // pin list (js/sql/duckdb-load-harden.js) before giving up. A candidate
-      // list of one (the fallback default above) still walks correctly here.
+      // pin list (js/sql/duckdb-load-harden.js) before giving up. Self-host
+      // (the already-vendored assets/duckdb/, same directory root index.html's
+      // own import map self-hosts from) is tried FIRST; jsDelivr/unpkg/esm.sh
+      // remain as fallbacks for a deploy missing assets/duckdb/. A candidate
+      // list of one (the hardcoded fallback default below) still walks
+      // correctly here.
       var candidates = (LOAD_HARDEN && typeof LOAD_HARDEN.buildCandidateList === 'function')
         ? LOAD_HARDEN.buildCandidateList()
         : [{ id: 'jsdelivr', cdnUrl: DUCKDB_CDN, baseUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/' }];
@@ -110,12 +114,20 @@ export var SQLEngine = (function () {
         var cand = candidates[i];
         try {
           var mod = await import(cand.cdnUrl);
-          var JSDELIVR_BUNDLES = mod.getJsDelivrBundles ? mod.getJsDelivrBundles() : mod.selectBundle ? mod.selectBundle(mod.getJsDelivrBundles()) : null;
-          var bundle = JSDELIVR_BUNDLES || {
-            mainModule: cand.baseUrl + 'duckdb-eh.wasm',
-            mainWorker: cand.baseUrl + 'duckdb-browser-eh.worker.js'
+          // Self-host (and any non-jsDelivr host) has no duckdb-esm.js and
+          // getJsDelivrBundles() always points at jsDelivr's own URL regardless
+          // of which host actually served the module -- so build the bundle
+          // manually from THIS candidate's baseUrl instead of trusting that
+          // helper whenever we are not literally on jsDelivr.
+          var manualBundles = {
+            mvp: { mainModule: cand.baseUrl + 'duckdb-mvp.wasm', mainWorker: cand.baseUrl + 'duckdb-browser-mvp.worker.js' },
+            eh: { mainModule: cand.baseUrl + 'duckdb-eh.wasm', mainWorker: cand.baseUrl + 'duckdb-browser-eh.worker.js' },
           };
-          if (mod.selectBundle) bundle = mod.selectBundle(mod.getJsDelivrBundles());
+          var bundleSource = (cand.id === 'jsdelivr' && mod.getJsDelivrBundles) ? mod.getJsDelivrBundles() : manualBundles;
+          var bundle = mod.selectBundle ? await mod.selectBundle(bundleSource) : bundleSource.eh || bundleSource.mvp;
+          if (!bundle || !bundle.mainModule || !bundle.mainWorker) {
+            bundle = { mainModule: cand.baseUrl + 'duckdb-eh.wasm', mainWorker: cand.baseUrl + 'duckdb-browser-eh.worker.js' };
+          }
           var worker = new Worker(bundle.mainWorker);
           var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
           db = new mod.AsyncDuckDB(logger, worker);
@@ -137,6 +149,22 @@ export var SQLEngine = (function () {
 
     async function registerDataset(dataset) {
       await ensureInit();
+      // Guard: ensureInit() can return with db still null if a prior call
+      // already flipped `initialised` to true but every candidate host
+      // failed (see the lastErr branch above, which resets initialised so a
+      // *fresh* ensureInit() call retries -- but a caller who raced in
+      // between, or an ensureInit() bug, must never reach a bare
+      // `db.registerFileBuffer` and throw a bare "Cannot read properties of
+      // null" with no actionable message). Retry ensureInit() exactly once;
+      // if the engine is still not ready after that, fail with a clear
+      // banner-friendly message instead of a null read.
+      if (!db || !conn) {
+        initialised = false;
+        await ensureInit();
+      }
+      if (!db || !conn) {
+        throw new Error('DuckDB-WASM engine not ready: no candidate host finished loading. Retry to try the next host.');
+      }
       var tbl = safeTableName(dataset.name);
       if (registeredTables[tbl]) return tbl; // already registered
 
@@ -156,6 +184,9 @@ export var SQLEngine = (function () {
       var encoder = new TextEncoder();
       var bytes = encoder.encode(csv);
       var fname = tbl + '.csv';
+      if (!db) {
+        throw new Error('DuckDB-WASM engine not ready: cannot register dataset before the engine finishes loading.');
+      }
       await db.registerFileBuffer(fname, bytes);
       await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true)");
       registeredTables[tbl] = true;

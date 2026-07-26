@@ -904,6 +904,30 @@
       "description": "Multi-CDN load hardening for the DuckDB-WASM SQL engine: jsDelivr, unpkg, and esm.sh candidates share one pinned version (js/sql/duckdb-load-harden.js), tried in order with a clear loading/ok/error banner naming which host succeeded or failed, and Retry advances to the next untried candidate instead of repeating a dead one.",
       "flagOffBehavior": "Both the SQL Editor engine and the canvas inlined loader fall back to a single hardcoded jsDelivr URL with no fallback host and no candidate-aware Retry, matching pre-Bundle-15 behavior."
     },
+    "duckdbSelfHost": {
+      "enabled": true,
+      "addedInPR": "feat/bundle-17-duckdb-selfhost-drillfloor-nav-showdown-deepen",
+      "description": "Adds a same-origin self-host candidate as the FIRST entry in the shared js/sql/duckdb-load-harden.js CANDIDATE_HOSTS list, pointing at assets/duckdb/, the repo's single already-vendored @duckdb/duckdb-wasm@1.29.0 runtime (ESM entry, EH+MVP workers, EH+MVP wasm; the same directory root index.html's own import map self-hosts apache-arrow/tslib/flatbuffers from, and scripts/vendor-duckdb-wasm.mjs regenerates from node_modules if needed). Both the SQL Editor engine and the canvas inlined loader read this same candidate list, and canvas/index.html carries its own same-origin assets/duckdb/ next to it for the published single-file surface. jsDelivr, unpkg, and esm.sh remain as fallbacks after self-host for a deploy missing assets/duckdb/. registerFileBuffer on both the SQL Editor engine (js/sql/sql-engine.js) and the canvas inlined loader is guarded against a null engine: a stalled or fully-failed load retries ensureInit() once, then fails with a clear 'engine not ready' message instead of a bare null-property-read error.",
+      "flagOffBehavior": "With this flag off, the app behaves exactly as Bundle 15/16 did: CANDIDATE_HOSTS starts at jsDelivr with unpkg and esm.sh as fallbacks, and no same-origin candidate is tried. The vendored files under assets/duckdb/ still exist on disk either way -- this flag only controls whether the self-host candidate is inserted into the list DataGlowDuckDBLoadHarden.buildCandidateList() returns."
+    },
+    "sqlShowdownPatterns": {
+      "enabled": true,
+      "addedInPR": "feat/bundle-17-duckdb-selfhost-drillfloor-nav-showdown-deepen",
+      "description": "Adds four more original SQL power-pack recipes to js/polyglot/sql-power-pack.js modeled on common practice-problem archetypes from public SQL/analytics education content (never on any vendor's proprietary dataset or file): first/last value within a partition after a filter, a dual COUNT(DISTINCT ...) FILTER-style started-vs-finished aggregate, a top-N-per-group window recipe, and a running-total window recipe. All sample data, column names, and query text are original and synthetic (clinic/claims/orders style), matching the rest of the pack.",
+      "flagOffBehavior": "The four additional recipes are not offered in the SQL power-pack tab; the pre-existing sqlPowerDeepen recipe set is unaffected and still renders."
+    },
+    "pythonShowdownPatterns": {
+      "enabled": true,
+      "addedInPR": "feat/bundle-17-duckdb-selfhost-drillfloor-nav-showdown-deepen",
+      "description": "Adds two more original pandas power-pack recipes to js/polyglot/python-power-pack.js: groupby-then-first/last-after-filter, and a merge plus per-key summary rollup. Original synthetic column names (clinic/claim/orders style) throughout, matching the SQL and R packs; no third-party dataset names or branding.",
+      "flagOffBehavior": "The two additional recipes are not offered in the Python power-pack tab; the pre-existing pythonPowerDeepen recipe set is unaffected and still renders."
+    },
+    "rShowdownPatterns": {
+      "enabled": true,
+      "addedInPR": "feat/bundle-17-duckdb-selfhost-drillfloor-nav-showdown-deepen",
+      "description": "Adds two more original base-R power-pack recipes to js/polyglot/r-power-pack.js mirroring the SQL golden drills: a dplyr-style first/last-per-group using base R (no dplyr dependency in webR's default preload set), and a between-dates join. Original synthetic data throughout.",
+      "flagOffBehavior": "The two additional recipes are not offered in the R power-pack tab; the pre-existing rPowerDeepen recipe set is unaffected and still renders."
+    },
     "repairLedgerSpine": {
       "enabled": true,
       "addedInPR": "bundle-15",

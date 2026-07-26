@@ -50,18 +50,32 @@ describe('duckdb-load-harden: single pin, ordered candidate list', () => {
     assert.match(DUCKDB_WASM_PIN, /^\d+\.\d+\.\d+$/);
   });
 
-  it('every candidate host URL is built from the same single pin', () => {
+  it('every CDN candidate host URL is built from the same single pin', () => {
+    // self-host is the one exception: it is a single unversioned same-origin
+    // copy at assets/duckdb/ (Bundle 17), pinned instead via the committed
+    // assets/duckdb/duckdb-wasm.package.json, not via a versioned URL path --
+    // there is nowhere to put a version segment in a same-origin relative
+    // path that is also meant to survive a version bump without an edit.
     for (const host of CANDIDATE_HOSTS) {
+      if (host.id === 'self-host') continue;
       assert.ok(host.cdnUrl.includes(DUCKDB_WASM_PIN), `${host.id} cdnUrl must carry the pin`);
       assert.ok(host.baseUrl.includes(DUCKDB_WASM_PIN), `${host.id} baseUrl must carry the pin`);
     }
   });
 
-  it('jsDelivr is first, unpkg second: primary then fallback order', () => {
+  it('self-host candidate points at assets/duckdb/, not a versioned URL', () => {
+    const host = CANDIDATE_HOSTS.find((h) => h.id === 'self-host');
+    assert.ok(host, 'self-host candidate missing');
+    assert.match(host.baseUrl, /assets\/duckdb\/$/);
+    assert.match(host.cdnUrl, /assets\/duckdb\/duckdb-browser\.mjs$/);
+  });
+
+  it('self-host is first, jsDelivr second, unpkg third: same-origin then CDN fallback order (Bundle 17)', () => {
     const ids = CANDIDATE_HOSTS.map((h) => h.id);
-    assert.equal(ids[0], 'jsdelivr');
-    assert.equal(ids[1], 'unpkg');
-    assert.ok(ids.length >= 2);
+    assert.equal(ids[0], 'self-host');
+    assert.equal(ids[1], 'jsdelivr');
+    assert.equal(ids[2], 'unpkg');
+    assert.ok(ids.length >= 3);
   });
 
   it('buildCandidateList returns a defensive copy, not the frozen original', () => {
