@@ -389,8 +389,11 @@ export const DRILLS = [
       'new streak whenever a sorted date is not exactly one day after the row ' +
       'above, then a PivotTable MAX of streak length per user, reaches the ' +
       'same 9-day answer; this build does not simulate dragging that formula.',
+    // SQL rowCount is the starter's own RESULT SHAPE (LIMIT 1 winner row),
+    // not the underlying activity table size; Python/R rowCount below is the
+    // activity table size printed by their starters' "matched rows: N" line.
     goldenAnswers: {
-      sql: { rowCount: 474, maxStreak: 9, userId: 1, islandCount: 106 },
+      sql: { rowCount: 1, maxStreak: 9, userId: 1, islandCount: 106 },
       python: { rowCount: 474 },
       r: { rowCount: 474 },
     },
