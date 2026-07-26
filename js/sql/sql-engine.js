@@ -543,3 +543,9 @@ export var SQLEngine = (function () {
 
   return { init: init, SQL_KEYWORDS: SQL_KEYWORDS, safeTableName: safeTableName, exportResultsCSV: exportResultsCSV };
 })();
+/* Bundle 18 hotfix 5: publish the SQLEngine factory on window so any other
+   surface that inlines this module (see canvas/index.html, authoritative)
+   can reach the SAME engine instead of inventing its own lookup. Kept in
+   sync with the canvas splice; does not change this file's own behavior
+   when loaded standalone. */
+if (typeof window !== 'undefined') { window.SQLEngine = SQLEngine; }

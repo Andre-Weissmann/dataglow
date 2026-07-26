@@ -20026,6 +20026,11 @@ var SQLEngine = (function () {
 
   return { init: init, SQL_KEYWORDS: SQL_KEYWORDS, safeTableName: safeTableName, exportResultsCSV: exportResultsCSV };
 })();
+/* Bundle 18 hotfix 5: publish the SQLEngine factory on window so any canvas
+   surface (Drill Floor included) can reach the SAME engine the main SQL
+   view uses, instead of each surface inventing its own lookup. No new
+   wasm load path; this is a plain object reference assignment. */
+window.SQLEngine = SQLEngine;
   /* ---- end sql-engine.js ---- */
 
   /* ---- from js/dashboard/findings-rail.js ---- */
@@ -27200,6 +27205,13 @@ var InstantInsight = (function () {
       onResultReady: renderSQLResult,
       onError: function (msg) { renderSQLError(msg); }
     });
+    // Bundle 18 hotfix 5: publish the SAME live singleton every other canvas
+    // surface (Drill Floor's Run/Check paths) resolves against, so there is
+    // only ever one DuckDB connection, never a second wasm load path.
+    window._sqlEngineSingleton = sqlEngineInstance;
+    window.DuckDBEngine = sqlEngineInstance;
+    window.engine = sqlEngineInstance;
+    window._dgGetSQLEngine = getSQLEngine;
     return Promise.resolve(sqlEngineInstance);
   }
 
@@ -83124,6 +83136,99 @@ function scoreDrillExtras(drillId, observed) {
   }
   return { pass: allPass, drillId, fields };
 }
+
+// ---------------------------------------------------------------
+// Bundle 18 hotfix 5: shared live-engine resolver for Drill Floor SQL.
+// ---------------------------------------------------------------
+// ROOT CAUSE this replaces: the drill shell used to resolve SQL ONLY as
+// `(window.engine && window.engine.runQuery) || (window.DuckDBEngine &&
+// window.DuckDBEngine.runQuery) || null`, and neither global was ever
+// assigned anywhere in canvas, so Drill Floor always fell through to
+// "SQL engine not ready in this canvas." even while the main SQL view's
+// own DuckDB connection was live. This resolver reaches the SAME singleton
+// the main SQL view uses (getSQLEngine()/sqlEngineInstance), publishing no
+// second wasm load path of its own, with graduated fallbacks so a future
+// refactor of any one publish point cannot regress Drill Floor silently.
+var _dgDrillTablesLoaded = false;
+var _dgDrillTablesLoadingPromise = null;
+
+function _dgWrapEngineRunQuery(engineObj) {
+  // Drill injects runQuery(sql) with exactly one argument; the shared engine
+  // instance accepts (sql, datasets). Passing an empty datasets array here
+  // is correct for drill CREATE/SELECT: drill_* tables are registered ahead
+  // of time by loadDrillTables() directly against the same live DB, so the
+  // query path never needs to re-register anything to see them.
+  return function (sql) { return engineObj.runQuery(sql, []); };
+}
+
+function resolveDrillSqlRunQuery() {
+  try {
+    if (window.engine && typeof window.engine.runQuery === 'function') {
+      return _dgWrapEngineRunQuery(window.engine);
+    }
+  } catch (_e1) {}
+  try {
+    if (window.DuckDBEngine && typeof window.DuckDBEngine.runQuery === 'function') {
+      return _dgWrapEngineRunQuery(window.DuckDBEngine);
+    }
+  } catch (_e2) {}
+  try {
+    if (window._sqlEngineSingleton && typeof window._sqlEngineSingleton.runQuery === 'function') {
+      return _dgWrapEngineRunQuery(window._sqlEngineSingleton);
+    }
+  } catch (_e3) {}
+  if (typeof window._dgGetSQLEngine === 'function') {
+    return async function (sql) {
+      var eng = await window._dgGetSQLEngine();
+      if (!eng || typeof eng.runQuery !== 'function') {
+        throw new Error('SQL engine not ready in this canvas.');
+      }
+      return eng.runQuery(sql, []);
+    };
+  }
+  try {
+    if (window.SQLEngine && typeof window.SQLEngine.init === 'function') {
+      return async function (sql) {
+        if (!window._sqlEngineSingleton) {
+          window._sqlEngineSingleton = window.SQLEngine.init({});
+          window.DuckDBEngine = window._sqlEngineSingleton;
+          window.engine = window._sqlEngineSingleton;
+        }
+        return window._sqlEngineSingleton.runQuery(sql, []);
+      };
+    }
+  } catch (_e4) {}
+  try {
+    if (window.duckdbConn && typeof window.duckdbConn.query === 'function') {
+      return async function (sql) {
+        var result = await window.duckdbConn.query(sql);
+        var schema = result.schema.fields;
+        var columns = schema.map(function (f) { return { name: f.name, type: String(f.type) }; });
+        var rows = result.toArray().map(function (r) {
+          return r.toJSON ? r.toJSON() : Object.fromEntries(columns.map(function (c) { return [c.name, r[c.name]]; }));
+        });
+        return { columns: columns, rows: rows };
+      };
+    }
+  } catch (_e5) {}
+  return null;
+}
+
+// Loads drill_orders/drill_promos (+ archetype tables) into the SAME live
+// DuckDB the resolved runQuery talks to, once per session. Safe to call
+// before every Run: it is a no-op after the first successful load, and it
+// never wipes a user's own tables (drill_* names are dedicated/namespaced).
+function ensureDrillTablesLoaded(runQuery) {
+  if (_dgDrillTablesLoaded) return Promise.resolve();
+  if (_dgDrillTablesLoadingPromise) return _dgDrillTablesLoadingPromise;
+  var dfd = window.DrillFloorData;
+  if (!dfd || typeof dfd.loadDrillTables !== 'function') return Promise.resolve();
+  _dgDrillTablesLoadingPromise = dfd.loadDrillTables({ runQuery: runQuery })
+    .then(function () { _dgDrillTablesLoaded = true; _dgDrillTablesLoadingPromise = null; })
+    .catch(function (e) { _dgDrillTablesLoadingPromise = null; throw e; });
+  return _dgDrillTablesLoadingPromise;
+}
+
   // Bundle 16: the canvas overlay panel previously had no real mount function
   // (this evaluated to `typeof mountDrillFloor === 'undefined'`, so opening
   // the Drill overlay button only ever showed a static placeholder sentence).
@@ -83137,6 +83242,17 @@ function scoreDrillExtras(drillId, observed) {
     var host = opts.host;
     if (!host || typeof document === 'undefined') return;
     var onToast = typeof opts.onToast === 'function' ? opts.onToast : function () {};
+
+    // Bundle 18 hotfix 5: best-effort preload of drill_orders/drill_promos
+    // (+ archetype tables) as soon as the panel opens, against whichever
+    // live engine is reachable right now. Purely additive: if the engine
+    // is not ready yet, this silently does nothing and the first SQL Run
+    // click resolves and loads on demand instead, so there is no new
+    // required-load-order dependency for Check to work after Run.
+    try {
+      var _preloadRunQuery = resolveDrillSqlRunQuery();
+      if (_preloadRunQuery) ensureDrillTablesLoaded(_preloadRunQuery).catch(function () {});
+    } catch (_preloadErr) {}
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -83268,8 +83384,18 @@ function scoreDrillExtras(drillId, observed) {
           var code = document.getElementById(inId).value;
           var p;
           if (lang === 'sql') {
-            var runQuery = (window.engine && window.engine.runQuery) || (window.DuckDBEngine && window.DuckDBEngine.runQuery) || null;
-            p = runQuery ? runDrillSql(code, { runQuery: runQuery }) : Promise.resolve({ error: 'SQL engine not ready in this canvas.' });
+            // Bundle 18 hotfix 5: resolve against the SAME live DuckDB the main
+            // SQL view uses (shared resolver, graduated fallbacks), then make
+            // sure drill_orders/drill_promos exist in that same DB before the
+            // drill's own SQL runs against them, loading them once per session.
+            var drillRunQuery = resolveDrillSqlRunQuery();
+            if (!drillRunQuery) {
+              p = Promise.resolve({ error: 'SQL engine not ready in this canvas.' });
+            } else {
+              p = ensureDrillTablesLoaded(drillRunQuery)
+                .catch(function () { /* table load failure surfaces via the query itself below */ })
+                .then(function () { return runDrillSql(code, { runQuery: drillRunQuery }); });
+            }
           } else if (lang === 'python') {
             var runPython = window.dgRunPython || (window.pyRuntime && window.pyRuntime.runPython) || null;
             p = runPython ? runDrillPython(code, { runPython: runPython }) : Promise.resolve({ error: 'Python runtime not ready in this canvas.' });
