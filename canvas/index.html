@@ -142024,7 +142024,127 @@ async function roundTripCartridge(args) {
     }
   }
 
+  /* ---- v1.2: pyodide-duckdb TABLE registration (PROOF_HARNESS_V1_2_SPEC.md
+     pillar A) ----
+
+     The v1.1 bridge called duckdb.sql(statement) directly against the
+     dataset CSVs buildHelper(py) already dropped into Pyodide's globals as
+     `dg_csv_<safeTableName>` strings, but it never registered any of those
+     frames as duckdb TABLES first. duckdb.sql has its own separate
+     in-memory catalog from that global namespace, so any `FROM <table>`
+     statement always failed there and silently fell back to the trivial
+     literal probe (or the honest unavailable error) -- real FROM-queries
+     never actually corroborated against pyodide-duckdb. This section fixes
+     that: register every `dg_csv_*` frame as a same-named duckdb table
+     BEFORE running the statement, every bridge call (never assume a stale
+     registration from a previous dataset survives a swap). */
+
+  var DG_CSV_GLOBAL_RE = /^dg_csv_(.+)$/;
+
+  /* Pure helper (spec success criterion #2 / ship item #2): given an
+     iterable of Pyodide global KEY NAMES (not the globals map itself, so
+     this is trivially unit-testable with a plain array or Set/Map keys),
+     return the list of duckdb table names to register -- the capture group
+     after the `dg_csv_` prefix, i.e. exactly SQLEngine.safeTableName(name)
+     as buildDGHelper already produces. Order is preserved from the input;
+     duplicates (should not occur -- one CSV global per dataset -- but a
+     defensive dedupe costs nothing) are collapsed. */
+  function listCsvGlobalTableNames(globalKeys) {
+    var seen = {};
+    var out = [];
+    var keys = [];
+    if (globalKeys && typeof globalKeys.keys === 'function' && typeof globalKeys.get === 'function') {
+      // Map-shaped (a real Pyodide globals PyProxy behaves as a JS Map, or a
+      // plain JS Map in tests) -- .keys() is the unambiguous source of key
+      // names; forEach on a Map instead hands (value, key), which is not
+      // what we want here, so a Map-shaped object always prefers .keys().
+      var keysIter = globalKeys.keys();
+      if (keysIter && typeof keysIter[Symbol.iterator] === 'function') {
+        for (var kk of keysIter) keys.push(kk);
+      } else if (keysIter && typeof keysIter.forEach === 'function') {
+        keysIter.forEach(function (k) { keys.push(k); });
+      }
+    } else if (Array.isArray(globalKeys) || globalKeys instanceof Set) {
+      // Array/Set forEach hands (value, index/value) -- value IS the key name.
+      globalKeys.forEach(function (k) { keys.push(k); });
+    } else if (globalKeys && typeof globalKeys[Symbol.iterator] === 'function') {
+      for (var k2 of globalKeys) keys.push(k2);
+    } else if (globalKeys && typeof globalKeys === 'object') {
+      keys = Object.keys(globalKeys);
+    }
+    keys.forEach(function (key) {
+      var m = DG_CSV_GLOBAL_RE.exec(String(key));
+      if (!m) return;
+      var tableName = m[1];
+      if (!tableName || seen[tableName]) return;
+      seen[tableName] = true;
+      out.push(tableName);
+    });
+    return out;
+  }
+
+  /* Pure helper (ship item #2): build the Python snippet that, given a list
+     of table names already known to have a `dg_csv_<name>` global string in
+     scope, reads each as a pandas DataFrame from the in-memory CSV and
+     registers it with duckdb under its bare table name -- pd.read_csv +
+     duckdb.register, no filesystem, no re-fetch, matching spec A1 exactly.
+     Kept pure/string-only (no py handle) so it is unit-testable without a
+     real Pyodide runtime; the caller is responsible for actually running
+     this snippet via py.runPythonAsync. */
+  function buildRegisterPythonSnippet(tableNames) {
+    var names = Array.isArray(tableNames) ? tableNames : [];
+    var lines = [
+      'import pandas as pd, io, duckdb as _dg_duckdb',
+      '_dg_second_engine_tables_registered = []',
+    ];
+    names.forEach(function (name) {
+      var safe = String(name).replace(/[^a-zA-Z0-9_]/g, '_');
+      var globalKey = 'dg_csv_' + safe;
+      lines.push('if globals().get(' + JSON.stringify(globalKey) + ') is not None:');
+      lines.push('    _dg_df = pd.read_csv(io.StringIO(str(globals()[' + JSON.stringify(globalKey) + '])))');
+      lines.push('    _dg_duckdb.register(' + JSON.stringify(safe) + ', _dg_df)');
+      lines.push('    _dg_second_engine_tables_registered.append(' + JSON.stringify(safe) + ')');
+    });
+    return lines.join('\n');
+  }
+
+  /* Registers every dg_csv_* global as a duckdb table on the SAME duckdb
+     module/connection that runViaPyodideDuckdb's duckdb.sql(...) call uses
+     (duckdb.register binds into duckdb's default in-process connection, the
+     same one duckdb.sql() reads from -- no separate connection object is
+     created here so there is nothing for the two calls to disagree about).
+     Re-run on every bridge call per spec A3: no fingerprint/skip-if-unchanged
+     shortcut, so a dataset swap can never leave a stale table silently
+     corroborating a claim against old data. Returns the list of table names
+     actually registered (empty array if there were no dg_csv_* globals or
+     the registration Python failed, both non-fatal for the caller). */
+  async function registerCsvGlobalsAsDuckdbTables(py) {
+    var tableNames;
+    try {
+      tableNames = listCsvGlobalTableNames(py.globals);
+    } catch (_eList) {
+      return [];
+    }
+    if (!tableNames.length) return [];
+    try {
+      var snippet = buildRegisterPythonSnippet(tableNames);
+      await py.runPythonAsync(snippet);
+      var registeredProxy = py.globals.get('_dg_second_engine_tables_registered');
+      var registered = (registeredProxy && typeof registeredProxy.toJs === 'function')
+        ? registeredProxy.toJs()
+        : registeredProxy;
+      return Array.isArray(registered) ? registered : tableNames;
+    } catch (_eRegister) {
+      // Registration is best-effort: a bad CSV for one dataset should not
+      // block corroboration of statements that do not touch it, and the
+      // caller's duckdb.sql() will honestly fail on any table that never
+      // got registered rather than fabricate a match.
+      return [];
+    }
+  }
+
   async function runViaPyodideDuckdb(py, statement) {
+    var tablesRegistered = await registerCsvGlobalsAsDuckdbTables(py);
     py.globals.set('_dg_second_engine_sql', String(statement));
     var code = [
       'import duckdb, json',
@@ -142042,7 +142162,69 @@ async function roundTripCartridge(args) {
     if (payload.rows && payload.rows.length && payload.columns) {
       payload.columns.forEach(function (col, i) { scalars[col] = payload.rows[0][i]; });
     }
-    return { rowCount: payload.rowCount, rows: payload.rows, scalars: scalars, engine: 'pyodide-duckdb' };
+    return { rowCount: payload.rowCount, rows: payload.rows, scalars: scalars, engine: 'pyodide-duckdb', tablesRegistered: tablesRegistered };
+  }
+
+  /* ---- v1.2 pillar B: webR best-effort second path ----
+
+     Only reached when the Pyodide path could not answer the statement at
+     all (window.DataGlowPython missing, or duckdb-in-pyodide unavailable
+     AND the statement was not a trivial literal). Never boots a second
+     WebR runtime if a notebook host already owns one -- window.DataGlowR is
+     the only public seam this bridge is allowed to use; if it is not
+     present (no R Notebooks-lite host mounted / not initialized), this
+     path honestly no-ops rather than reaching into the R tab's private
+     closure state (_webR) which is not a public contract. */
+
+  /* Pure helper (ship item #2 / spec B4 narrow COUNT pattern): recognize
+     `SELECT COUNT(*) FROM t` / `SELECT count(*) AS c FROM t` (optionally
+     quoted table name, optional trailing semicolon) and return the table
+     name plus the alias to report the count under, or null for anything
+     else -- deliberately narrow, refuses rather than guesses per spec B2.2. */
+  function parseCountStarFrom(statement) {
+    var stmt = String(statement || '').trim().replace(/;\s*$/, '');
+    var m = /^select\s+count\s*\(\s*\*\s*\)\s*(?:as\s+([a-zA-Z_][a-zA-Z0-9_]*))?\s+from\s+"?([a-zA-Z_][a-zA-Z0-9_]*)"?\s*$/i.exec(stmt);
+    if (!m) return null;
+    return { table: m[2], alias: m[1] || 'c' };
+  }
+
+  async function runViaWebRNarrowCount(statement) {
+    if (!window.DataGlowR || typeof window.DataGlowR.init !== 'function') return { error: 'pyodide-sql-unavailable' };
+    var parsed = parseCountStarFrom(statement);
+    if (!parsed) return { error: 'pyodide-sql-unavailable' };
+    try {
+      var r = await window.DataGlowR.init();
+      if (!r || typeof r.evalR !== 'function') return { error: 'pyodide-sql-unavailable' };
+      // duckdb-in-R path first, if the host's webR happens to already have
+      // the duckdb R package available -- best-effort, no install attempt
+      // here (spec B2.1 allows a quick import try; a slow install is not
+      // worth blocking the narrow COUNT fallback that already works
+      // without it).
+      try {
+        var dbShelter = await r.evalR(
+          'if (requireNamespace("duckdb", quietly = TRUE)) { ' +
+          'con <- duckdb::dbConnect(duckdb::duckdb()); duckdb::duckdb_register(con, "' + parsed.table + '", ' + parsed.table + '); ' +
+          'res <- DBI::dbGetQuery(con, ' + JSON.stringify(statement.replace(/;\s*$/, '')) + '); DBI::dbDisconnect(con, shutdown = TRUE); res[[1]][1] } else { NA }'
+        );
+        var dbRows = await dbShelter.toArray();
+        var dbVal = dbRows && dbRows.length ? Number(dbRows[0]) : NaN;
+        if (!isNaN(dbVal)) {
+          var dbScalars = {}; dbScalars[parsed.alias] = dbVal;
+          return { rowCount: 1, rows: [dbScalars], scalars: dbScalars, engine: 'webr-duckdb' };
+        }
+      } catch (_eDbR) { /* duckdb R package not available or query failed; fall through to nrow() */ }
+      // Narrow fallback: the table must already be bound as an R
+      // data.frame by the notebook prelude (e.g. `t <- data.frame(...)`).
+      // Only COUNT(*) is answered this way -- anything else stays refused.
+      var shelter = await r.evalR('nrow(' + parsed.table + ')');
+      var rows = await shelter.toArray();
+      var n = rows && rows.length ? Number(rows[0]) : NaN;
+      if (isNaN(n)) return { error: 'pyodide-sql-unavailable' };
+      var scalars = {}; scalars[parsed.alias] = n;
+      return { rowCount: 1, rows: [scalars], scalars: scalars, engine: 'webr-df' };
+    } catch (_eR) {
+      return { error: 'pyodide-sql-unavailable' };
+    }
   }
 
   /* Published as window.runProofSecondEngine. Matches the {rowCount, rows?,
@@ -142053,8 +142235,9 @@ async function roundTripCartridge(args) {
   async function runProofSecondEngineBridge(statement) {
     try {
       if (!window.DataGlowPython || typeof window.DataGlowPython.loadRuntime !== 'function') {
-        var literal = evalTrivialLiteralSelect(statement);
-        return literal || { error: 'pyodide-sql-unavailable' };
+        var literalNoPython = evalTrivialLiteralSelect(statement);
+        if (literalNoPython) return literalNoPython;
+        return await runViaWebRNarrowCount(statement);
       }
       var py = await window.DataGlowPython.loadRuntime();
       if (typeof window.DataGlowPython.buildHelper === 'function') {
@@ -142065,17 +142248,19 @@ async function roundTripCartridge(args) {
         try {
           return await runViaPyodideDuckdb(py, statement);
         } catch (_eRun) {
-          // duckdb loaded but this particular statement failed (e.g. an
-          // unresolvable table name inside Pyodide's own duckdb, which has
-          // its own separate in-memory catalog from the main-thread
-          // DuckDB-WASM instance) -- fall through to the literal probe
-          // rather than silently pretending the run succeeded.
+          // duckdb loaded but this particular statement failed (e.g. a
+          // table that has no dg_csv_* source to register, or a dialect
+          // feature duckdb-in-pyodide's version does not support) -- fall
+          // through to the literal probe, then webR, rather than silently
+          // pretending the run succeeded.
           var literalAfterFail = evalTrivialLiteralSelect(statement);
-          return literalAfterFail || { error: 'pyodide-sql-unavailable' };
+          if (literalAfterFail) return literalAfterFail;
+          return await runViaWebRNarrowCount(statement);
         }
       }
       var literalFallback = evalTrivialLiteralSelect(statement);
-      return literalFallback || { error: 'pyodide-sql-unavailable' };
+      if (literalFallback) return literalFallback;
+      return await runViaWebRNarrowCount(statement);
     } catch (_eOuter) {
       return { error: 'pyodide-sql-unavailable' };
     }
@@ -142832,6 +143017,9 @@ async function roundTripCartridge(args) {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
+
 
 
 
