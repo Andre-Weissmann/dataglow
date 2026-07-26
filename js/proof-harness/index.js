@@ -46,6 +46,20 @@
 // can be exercised with a fake in tests, exactly like drill-floor.js's
 // runDrillSql accepts an injected runtime. The vault's storage may reach
 // localStorage (browser only, never uploads) via vault.js's own resolver.
+//
+// HOTFIX (post-#622): runProofCycle's primary run always reported
+// `scalars: {}` -- it never read the first result row at all, so any named
+// scalar in `expected.scalars` (e.g. {n:10}) could only ever be found via
+// score-claim.js's own `run.result` fallback extraction, and a second
+// engine corroborating that scalar had nothing on `primary.scalars` to
+// compare against (second-engine.js's corroborateRun reads
+// `primary.scalars[key]`, not `primary.result`). Separately, DuckDB-WASM
+// returns BigInt for COUNT/SUM-style aggregates, which fails strict
+// `typeof === 'number'` checks throughout scalarMatches/valuesAgree and
+// breaks JSON.stringify in receipt hashing if never coerced. See
+// extractRunScalars()/coerceBigInt() below, and the matching defense-in-depth
+// coercion added to second-engine.js's corroborateRun and score-claim.js's
+// extractScalar.
 
 import { createTypedProposal, proposalMatchesDigest, digestProposal } from './proposal.js';
 import { decideVerdict, VERDICT_STATES, VERDICT_REASON_CODES } from './verdict.js';
@@ -61,6 +75,83 @@ const vault = createVault();
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Coerce a BigInt to a Number, passing everything else through unchanged.
+ * DuckDB-WASM returns BigInt for COUNT/SUM-style integer aggregates (so the
+ * value round-trips exactly through its own Arrow-backed types), but a raw
+ * BigInt breaks JSON.stringify (receipt.js's ledger hashing), strict/epsilon
+ * numeric comparison in score-claim.js's scalarMatches (`typeof x ===
+ * 'number'` is false for a BigInt), and second-engine.js's valuesAgree the
+ * same way. Coercing at the boundary, once, here (and mirrored defensively
+ * in second-engine.js/score-claim.js) means every downstream consumer only
+ * ever sees a plain Number.
+ * @param {*} v
+ */
+function coerceBigInt(v) {
+  return typeof v === 'bigint' ? Number(v) : v;
+}
+
+/**
+ * Extract a {rowCount, scalars} pair from a raw engine result, coercing any
+ * BigInt to Number throughout. Mirrors score-claim.js's extractRowCount/
+ * extractScalar reading discipline (object rows -> keys directly; array
+ * rows + a parallel `columns` array -> map positionally by column name),
+ * so a primary engine result is read exactly the same way score-claim.js
+ * would read it later for comparison -- the whole point of this fix is that
+ * `run.scalars` is no longer always `{}`.
+ *
+ * Precedence for rowCount: an explicit numeric `result.rowCount` always wins
+ * over inferring length from `result.rows`, matching normalizeSecondRun's
+ * existing precedence in second-engine.js (an explicit rowCount from the
+ * engine is authoritative; a fake/partial rows array must never override it).
+ * @param {*} result
+ * @returns {{rowCount: number|null, scalars: object}}
+ */
+function extractRunScalars(result) {
+  const scalars = {};
+  if (!isPlainObject(result)) {
+    return { rowCount: null, scalars };
+  }
+
+  let rowCount = null;
+  if (typeof result.rowCount === 'number' || typeof result.rowCount === 'bigint') {
+    rowCount = Number(coerceBigInt(result.rowCount));
+  } else if (Array.isArray(result.rows)) {
+    rowCount = result.rows.length;
+  }
+
+  if (Array.isArray(result.rows) && result.rows.length > 0) {
+    const firstRow = result.rows[0];
+    if (Array.isArray(firstRow)) {
+      // Array row shape: only readable with a parallel `columns` array naming
+      // each position (string column names, or {name} column-descriptor
+      // objects, matching score-claim.js's extractScalar column lookup).
+      if (Array.isArray(result.columns)) {
+        result.columns.forEach((col, i) => {
+          const name = typeof col === 'string' ? col : (col && col.name);
+          if (typeof name === 'string' && i < firstRow.length) {
+            scalars[name] = coerceBigInt(firstRow[i]);
+          }
+        });
+      }
+    } else if (isPlainObject(firstRow)) {
+      // Object row shape: every key on the first row is a scalar.
+      for (const key of Object.keys(firstRow)) {
+        scalars[key] = coerceBigInt(firstRow[key]);
+      }
+    }
+  } else if (isPlainObject(result.scalars)) {
+    // A caller/engine that already supplies its own `scalars` map (e.g. the
+    // canvas bridge's pyodide-duckdb/pyodide-pandas/webr paths) is still
+    // coerced defensively, in case that map itself carries a raw BigInt.
+    for (const key of Object.keys(result.scalars)) {
+      scalars[key] = coerceBigInt(result.scalars[key]);
+    }
+  }
+
+  return { rowCount, scalars };
 }
 
 /**
@@ -145,9 +236,8 @@ export async function runProofCycle(args) {
   try {
     const result = await a.runQuery(proposal.statement);
     const durationMs = Date.now() - startedAt;
-    const rowCount = Array.isArray(result && result.rows) ? result.rows.length
-      : (typeof (result && result.rowCount) === 'number' ? result.rowCount : null);
-    run = { status: 'ok', rowCount, scalars: {}, result, durationMs, error: null };
+    const { rowCount, scalars } = extractRunScalars(result);
+    run = { status: 'ok', rowCount, scalars, result, durationMs, error: null };
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     run = { status: 'error', rowCount: null, scalars: {}, result: null, durationMs, error: err && err.message ? err.message : String(err) };
@@ -421,6 +511,7 @@ export { corroborateRun, resolveSecondEngine, normalizeSecondRun, buildCorrobora
 export { createVault, runVault, buildVaultTest, VAULT_STORAGE_KEY } from './vault.js';
 export { normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
 export { createInbox, buildPendingItem, itemFromCycleResult, statusLabel, INBOX_ITEM_STATUSES } from './inbox.js';
+export { extractRunScalars, coerceBigInt };
 
 const DataGlowProofHarness = {
   version: 3,

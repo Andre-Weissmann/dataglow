@@ -22,6 +22,19 @@ function isPlainObject(v) {
 }
 
 /**
+ * Coerce a BigInt to a Number, passing everything else through unchanged.
+ * DuckDB-WASM returns BigInt for COUNT/SUM-style integer aggregates; without
+ * this, `typeof observed === 'number'` below is false for a BigInt and the
+ * comparison silently falls through to strict `===`, where a BigInt 10n
+ * never equals the Number 10 an `expected.scalars` claim writes in JS/JSON.
+ * See index.js's HOTFIX comment (post-#622) for the full root cause.
+ * @param {*} v
+ */
+function coerceBigInt(v) {
+  return typeof v === 'bigint' ? Number(v) : v;
+}
+
+/**
  * Compare one expected scalar to an observed value. Numbers use an absolute
  * epsilon; strings compare exact, case-sensitive, after trim; everything else
  * is strict equality. Never throws. Mirrors drill-floor.js's scalarMatches.
@@ -30,14 +43,16 @@ function isPlainObject(v) {
  * @returns {boolean}
  */
 export function scalarMatches(expected, observed) {
-  if (typeof expected === 'number' && typeof observed === 'number') {
-    if (!Number.isFinite(expected) || !Number.isFinite(observed)) return expected === observed;
-    return Math.abs(expected - observed) <= NUMERIC_EPSILON;
+  const exp = coerceBigInt(expected);
+  const obs = coerceBigInt(observed);
+  if (typeof exp === 'number' && typeof obs === 'number') {
+    if (!Number.isFinite(exp) || !Number.isFinite(obs)) return exp === obs;
+    return Math.abs(exp - obs) <= NUMERIC_EPSILON;
   }
-  if (typeof expected === 'string' && typeof observed === 'string') {
-    return expected.trim() === observed.trim();
+  if (typeof exp === 'string' && typeof obs === 'string') {
+    return exp.trim() === obs.trim();
   }
-  return expected === observed;
+  return exp === obs;
 }
 
 /**
@@ -50,7 +65,7 @@ export function extractRowCount(result) {
   if (Array.isArray(result)) return result.length;
   if (isPlainObject(result)) {
     if (Array.isArray(result.rows)) return result.rows.length;
-    if (typeof result.rowCount === 'number') return result.rowCount;
+    if (typeof result.rowCount === 'number' || typeof result.rowCount === 'bigint') return Number(coerceBigInt(result.rowCount));
   }
   return null;
 }
@@ -67,9 +82,9 @@ export function extractScalar(result, column) {
   if (Array.isArray(row)) {
     if (!Array.isArray(result.columns)) return undefined;
     const idx = result.columns.findIndex((c) => (typeof c === 'string' ? c : c && c.name) === column);
-    return idx === -1 ? undefined : row[idx];
+    return idx === -1 ? undefined : coerceBigInt(row[idx]);
   }
-  if (isPlainObject(row)) return row[column];
+  if (isPlainObject(row)) return coerceBigInt(row[column]);
   return undefined;
 }
 
@@ -95,7 +110,8 @@ export function compareClaimToRun(expected, run) {
   const exp = isPlainObject(expected) ? expected : {};
   const r = isPlainObject(run) ? run : {};
 
-  const observedRowCount = typeof r.rowCount === 'number' ? r.rowCount : extractRowCount(r.result);
+  const observedRowCount = (typeof r.rowCount === 'number' || typeof r.rowCount === 'bigint')
+    ? Number(coerceBigInt(r.rowCount)) : extractRowCount(r.result);
 
   if (typeof exp.rowCount === 'number') {
     if (observedRowCount === null || observedRowCount === undefined || !scalarMatches(exp.rowCount, observedRowCount)) {
