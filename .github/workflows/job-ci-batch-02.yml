@@ -200,3 +200,22 @@ jobs:
       # and scoreDrillAnswer() against the four-drill original RECEIPT battery's
       # goldenAnswers, independently reproduced from the deterministic generators.
       - run: npm run test:bundle16ledgerwiringdrillbattery
+
+  bundle17-selfhost-drillnav-showdown-pqparity:
+    name: Bundle 17 pure logic (self-host DuckDB candidate order, Drill Floor nav, SQL/Python/R showdown + PQ-parity expansion)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure Node + static-source checks: vendored duckdb-wasm 1.29.0 essentials
+      # exist and are non-trivially sized, self-host is first in the candidate
+      # order, registerFileBuffer is null-guarded in both js/sql/sql-engine.js
+      # and the canvas inline loader, the primary drillfloor-trigger-btn exists
+      # separate from osce-trigger-btn, the new SQL/Python/R/PQ-parity recipes
+      # are present with no em dash and no Maven references, the four new
+      # Bundle 17 flags are enabled, and the strengthened honesty notes match.
+      - run: npm run test:bundle17selfhostdrillnavshowdownpqparity

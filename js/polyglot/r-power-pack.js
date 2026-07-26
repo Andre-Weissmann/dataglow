@@ -145,6 +145,26 @@ export const R_RECIPES = Object.freeze([
     needs: 'ggplot2',
     code: 'library(ggplot2)\nggplot(df, aes(x = x, y = y)) +\n  geom_point(alpha = 0.4) +\n  geom_smooth(method = "lm")',
   }),
+  // ---- rShowdownPatterns (Bundle 17): two more original recipes mirroring
+  // the SQL golden drills, written in base R only (no dplyr dependency,
+  // since dplyr is not in webR's default preload set here). Original
+  // synthetic column names, matching the rest of this pack.
+  Object.freeze({
+    id: 'first-last-per-group-base-r',
+    topic: 'Aggregation',
+    title: 'First and last row per group (dplyr-style, in base R)',
+    answers: 'The same "first row per group after sorting" that dplyr does with slice_head/slice_tail, written without dplyr.',
+    needs: 'base',
+    code: 'ord <- df[order(df$customer_id, df$order_date), ]\nfirsts <- ord[!duplicated(ord$customer_id), ]\nlasts <- ord[!duplicated(ord$customer_id, fromLast = TRUE), ]\nmerge(firsts, lasts, by = "customer_id", suffixes = c("_first", "_last"))',
+  }),
+  Object.freeze({
+    id: 'between-dates-join-base-r',
+    topic: 'Joins',
+    title: 'Join orders to the promo active on that date',
+    answers: 'Which promo, if any, was running on the day of each order, done as a between-dates join instead of a plain equi-join.',
+    needs: 'base',
+    code: 'hits <- merge(df, promos, by = character(0))\nhits <- hits[hits$order_date >= hits$start_date & hits$order_date <= hits$end_date, ]\nmatched <- hits[!duplicated(hits$order_id), ]\nunmatched <- df[!(df$order_id %in% matched$order_id), ]\ncat("orders matched to a promo:", nrow(matched), "of", nrow(df), "\\n")\nhead(matched, 20)',
+  }),
 ]);
 
 const NEEDS_REASON = Object.freeze({

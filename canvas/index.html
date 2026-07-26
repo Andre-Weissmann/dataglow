@@ -11636,6 +11636,7 @@ body {
         <button class="skills-trigger-btn" id="skills-trigger-btn" title="Your Skills">Skills</button>
         <button class="skills-trigger-btn" id="badges-trigger-btn" title="Your Badges">Badges</button>
         <button class="skills-trigger-btn" id="osce-trigger-btn" title="Clinical Data Exam">OSCE</button>
+        <button class="skills-trigger-btn" id="drillfloor-trigger-btn" title="Drill Floor: SQL/Python/R practice problems">Drill</button>
         <button class="skills-trigger-btn" id="takehome-trigger-btn" title="Generate Take-Home Case">Case</button>
         <button class="skills-trigger-btn" id="questions-trigger-btn" title="Questions Worth Asking">?</button>
         <button class="skills-trigger-btn" id="witness-trigger-btn" title="PHI/PII De-identification">Witness</button>
@@ -19312,6 +19313,18 @@ var SQLEngine = (function () {
   var DUCKDB_CDN = DUCKDB_CDN_PRIMARY;
   var DUCKDB_BASE_PRIMARY = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
   var DUCKDB_BASE_FALLBACK = 'https://unpkg.com/@duckdb/duckdb-wasm@1.29.0/dist/';
+  /* Bundle 17: same-origin self-host from assets/duckdb/, the real,
+     already-vendored DuckDB-WASM 1.29.0 runtime (root index.html's own
+     import map self-hosts apache-arrow/tslib/flatbuffers from the same
+     directory -- see index.html). A relative "./assets/duckdb/" (not
+     "../assets/duckdb/") so this resolves whether canvas/index.html is
+     served in-repo (canvas/assets/duckdb/ is rsynced alongside it) or as a
+     flat single-file deploy with assets/duckdb/ copied next to it (see
+     dataglow-live-publish). Tried FIRST -- see _dgDuckCandidates() -- so a
+     normal load never needs a third-party network round trip and keeps
+     working if every CDN below is blocked or down. */
+  var DUCKDB_SELF_HOST_BASE = './assets/duckdb/';
+  var DUCKDB_SELF_HOST_ESM = DUCKDB_SELF_HOST_BASE + 'duckdb-browser.mjs';
   function _dgDuckCandidates() {
     try {
       if (_dgLoadHardenOn() && window.DataGlowDuckDBLoadHarden &&
@@ -19321,6 +19334,7 @@ var SQLEngine = (function () {
       }
     } catch (_lhe3) {}
     return [
+      { id: 'self-host', label: 'self-host', cdnUrl: DUCKDB_SELF_HOST_ESM, baseUrl: DUCKDB_SELF_HOST_BASE },
       { id: 'jsdelivr', label: 'jsDelivr', cdnUrl: DUCKDB_CDN_PRIMARY, baseUrl: DUCKDB_BASE_PRIMARY },
       { id: 'unpkg', label: 'unpkg', cdnUrl: DUCKDB_CDN_FALLBACK, baseUrl: DUCKDB_BASE_FALLBACK }
     ];
@@ -19444,18 +19458,33 @@ var SQLEngine = (function () {
         }
         async function _loadDuckFrom(cdnUrl, baseUrl) {
           var mod = await import(cdnUrl);
+          /* getJsDelivrBundles() always returns jsDelivr's own absolute URLs
+             regardless of which host actually served this module -- calling
+             it for self-host or unpkg or esm.sh would silently point the
+             worker/wasm fetch back at jsDelivr. Only trust it when baseUrl
+             really is the jsDelivr base; every other candidate (self-host
+             included) builds its bundle manually from ITS OWN baseUrl. */
+          var isJsDelivrBase = baseUrl.indexOf('cdn.jsdelivr.net') !== -1;
           var bundles = null;
-          try {
-            if (mod.getJsDelivrBundles) bundles = mod.getJsDelivrBundles();
-          } catch (_bErr) { bundles = null; }
-          var bundle = {
-            mainModule: baseUrl + 'duckdb-eh.wasm',
-            mainWorker: baseUrl + 'duckdb-browser-eh.worker.js'
+          if (isJsDelivrBase) {
+            try {
+              if (mod.getJsDelivrBundles) bundles = mod.getJsDelivrBundles();
+            } catch (_bErr) { bundles = null; }
+          }
+          var manualBundles = {
+            mvp: { mainModule: baseUrl + 'duckdb-mvp.wasm', mainWorker: baseUrl + 'duckdb-browser-mvp.worker.js' },
+            eh: { mainModule: baseUrl + 'duckdb-eh.wasm', mainWorker: baseUrl + 'duckdb-browser-eh.worker.js' }
           };
+          var bundle = manualBundles.eh;
           try {
-            if (mod.selectBundle && bundles) bundle = mod.selectBundle(bundles);
+            if (mod.selectBundle) bundle = await mod.selectBundle(bundles || manualBundles);
           } catch (_sErr) { /* keep manual bundle */ }
-          /* When primary CDN failed, rewrite bundle URLs to the working base */
+          if (!bundle || !bundle.mainModule || !bundle.mainWorker) bundle = manualBundles.eh;
+          /* When primary CDN failed over to unpkg but selectBundle still
+             returned jsDelivr-shaped URLs (e.g. bundles came from
+             getJsDelivrBundles on a stale isJsDelivrBase check), rewrite to
+             the working base rather than fetching from a host that just
+             failed. */
           if (bundle && bundle.mainModule && baseUrl.indexOf('unpkg.com') !== -1) {
             bundle = {
               mainModule: String(bundle.mainModule).replace(/https:\/\/cdn\.jsdelivr\.net\/npm\/@duckdb\/duckdb-wasm@[^/]+\/dist\//, baseUrl),
@@ -19528,6 +19557,20 @@ var SQLEngine = (function () {
 
     async function registerDataset(dataset) {
       await ensureInit();
+      // Guard: never reach a bare `db.registerFileBuffer` on a null db (a
+      // "Cannot read properties of null" with no actionable message). If
+      // ensureInit() returned without a live engine -- e.g. `initialised`
+      // was already true from a previous call that had every candidate host
+      // fail -- retry once, then fail with a clear engine-not-ready banner
+      // message instead of a null read.
+      if (!db || !conn) {
+        initialised = false;
+        await ensureInit().catch(function () {});
+      }
+      if (!db || !conn) {
+        _dgShowSqlEngineBanner('error', 'DuckDB-WASM engine not ready: no candidate host finished loading. Retry to try the next host.');
+        throw new Error('DuckDB-WASM engine not ready: no candidate host finished loading.');
+      }
       var tbl = safeTableName(dataset.name);
       if (registeredTables[tbl]) return tbl; // already registered
 
@@ -19547,6 +19590,9 @@ var SQLEngine = (function () {
       var encoder = new TextEncoder();
       var bytes = encoder.encode(csv);
       var fname = tbl + '.csv';
+      if (!db) {
+        throw new Error('DuckDB-WASM engine not ready: cannot register dataset before the engine finishes loading.');
+      }
       await db.registerFileBuffer(fname, bytes);
       // ignore_errors plus store_rejects means a malformed line does not abort
       // the whole load, and the line is not silently gone either: it lands in a
@@ -82595,6 +82641,33 @@ function scoreDrillAnswer(drillId, engineName, result) {
         }
       } else { p.style.display = 'none'; }
     }
+    // Bundle 17: the Drill Floor previously had NO primary, always-visible
+    // entry point of its own -- it was reachable only through the overflow
+    // popover / mobile tools sheet, which are both appended at runtime and
+    // easy to miss next to OSCE's dedicated agent-bar button. This wires a
+    // primary #drillfloor-trigger-btn (agent-bar-right, next to but visually
+    // and functionally SEPARATE from #osce-trigger-btn -- different id,
+    // different label "Drill" vs "OSCE", same click-to-toggle-panel pattern)
+    // so Drill Floor is findable without opening the overflow grid at all.
+    var primaryBtn = document.getElementById('drillfloor-trigger-btn');
+    if (primaryBtn && !primaryBtn._dgWired) {
+      primaryBtn._dgWired = true;
+      try {
+        var flagsOff = window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function'
+          && window.DataGlowFlags.isEnabled('drillFloor') === false;
+        if (flagsOff) primaryBtn.style.display = 'none';
+      } catch (_flagErr) {}
+      primaryBtn.addEventListener('click', function () {
+        // Close any open OSCE panel first so the two never visually stack --
+        // this is the "nav collision" fix: Drill Floor and OSCE Exam are
+        // reachable independently and never fight for the same screen space.
+        try {
+          var osceOverlay = document.getElementById('osce-overlay') || document.getElementById('osce-screen');
+          if (osceOverlay && typeof closeOSCE === 'function') closeOSCE();
+        } catch (_osceErr) {}
+        toggle();
+      });
+    }
     ['dg-overflow-grid','dg-tools-sheet-grid'].forEach(function(gridId, i) {
       var grid = document.getElementById(gridId);
       var btnId = i === 0 ? 'dg-ov-drillfloor' : 'dg-ts-drillfloor';
@@ -138203,8 +138276,42 @@ const DUCKDB_LOAD_HARDEN_VERSION = 1;
 /** Single source of truth for the pinned DuckDB-WASM version. Bump here only. */
 const DUCKDB_WASM_PIN = '1.29.0';
 
-/** Ordered CDN hosts to try, primary first. Every caller walks this same list. */
+// Self-host relative path: assets/duckdb/ is the real, already-vendored
+// DuckDB-WASM 1.29.0 runtime this repo ships (root index.html's own import
+// map self-hosts apache-arrow/tslib/flatbuffers from the same directory --
+// see index.html). Pointing here instead of a second canvas/vendor/ copy
+// avoids duplicating ~74MB of wasm/worker files a second time just for the
+// canvas surface. A relative path (not origin-absolute) so this works
+// whether the app is served from a domain root or a sub-path, and whether
+// the caller is root index.html (assets/duckdb/ is a direct child) or a
+// flat single-file deploy that has assets/duckdb/ copied next to it.
+const SELF_HOST_BASE_URL = './assets/duckdb/';
+
+/**
+ * Self-host has no duckdb-esm.js (that filename is a jsDelivr-only rewrite of
+ * duckdb-browser.mjs; the npm package itself never ships it). The self-host
+ * candidate points cdnUrl at the real ESM entry the package ships,
+ * duckdb-browser.mjs, and the adapter's bundle-selection falls back to
+ * baseUrl + duckdb-eh.wasm / duckdb-browser-eh.worker.js when a module has no
+ * getJsDelivrBundles export (see js/sql/sql-engine.js ensureInit).
+ */
+const SELF_HOST_CANDIDATE = Object.freeze({
+  id: 'self-host',
+  label: 'self-host',
+  cdnUrl: SELF_HOST_BASE_URL + 'duckdb-browser.mjs',
+  baseUrl: SELF_HOST_BASE_URL,
+});
+
+/**
+ * Ordered hosts to try, primary first. Self-host is FIRST: a same-origin
+ * vendored copy loads without a third-party network round trip and keeps
+ * working if a CDN is blocked, rate-limited, or down; jsDelivr/unpkg/esm.sh
+ * remain as fallbacks for a deploy that is missing assets/duckdb/ (or a
+ * dev checkout where it was not fetched). Every caller walks this
+ * same list.
+ */
 const CANDIDATE_HOSTS = Object.freeze([
+  SELF_HOST_CANDIDATE,
   Object.freeze({
     id: 'jsdelivr',
     label: 'jsDelivr',
@@ -138308,6 +138415,8 @@ function nextCandidate(attempts) {
     DUCKDB_LOAD_HARDEN_KIND: DUCKDB_LOAD_HARDEN_KIND,
     DUCKDB_LOAD_HARDEN_VERSION: DUCKDB_LOAD_HARDEN_VERSION,
     DUCKDB_WASM_PIN: DUCKDB_WASM_PIN,
+    SELF_HOST_BASE_URL: SELF_HOST_BASE_URL,
+    SELF_HOST_CANDIDATE: SELF_HOST_CANDIDATE,
     CANDIDATE_HOSTS: CANDIDATE_HOSTS,
     MAX_ATTEMPTS: MAX_ATTEMPTS,
     buildCandidateList: buildCandidateList,

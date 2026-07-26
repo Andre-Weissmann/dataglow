@@ -39,7 +39,11 @@ import { DRILL_ORDERS_TABLE, DRILL_PROMOS_TABLE } from './drill-floor-data.js';
 // analytics-drill product's dataset or answer key.
 export const DRILL_BATTERY_HONESTY_NOTE =
   'Practice drills use original DataGlow data and golden answers. They are not ' +
-  'Maven Analytics Data Drills and do not score against Maven answer keys.';
+  'Maven Analytics Data Drills and do not score against Maven answer keys. ' +
+  'The practice PATTERNS below (first/last-per-group, between-date joins, ' +
+  'top-n, running totals) are common shapes drawn from public data-analytics ' +
+  'education content generally, not from any one vendor\'s proprietary file; ' +
+  'every dataset, question, and golden answer here is DataGlow\'s own.';
 
 // The drill registry. starter* fields are the pre-filled editor content for each
 // language; each starter is a correct-shaped solution so a user can Run

@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6041763,
+  "canvasBytes": 6048193,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -383,14 +383,14 @@
     {
       "source": "js/polyglot/python-power-pack.js",
       "note": "Python starter cells and the bridge truncation notice. Pure ES module, inlined as an IIFE publishing window.DataGlowPythonPowerPack.",
-      "sourceSha256": "2e90f8dff9c3a427afda28df302495438b33a70e46bd11782027151155a9b1b3",
+      "sourceSha256": "40ea01fb9f506ffec1d0b4aee1039b35b80e9a66906331cb3c7ac5ea9e7d3f62",
       "canvasSectionSha256": "db946c48008845159dd3ceca7ed2127ccfc7a4e5960def58bf099314a6247c87",
       "canvasSectionBytes": 10237
     },
     {
       "source": "js/polyglot/r-power-pack.js",
       "note": "R starter cells that degrade honestly when jsonlite or ggplot2 did not install. Pure ES module, inlined as an IIFE publishing window.DataGlowRPowerPack.",
-      "sourceSha256": "63c249b17c44f11be5b18adba1653ac3c48d954f0c40e268f4cc6c3ae46ae3a5",
+      "sourceSha256": "66c7302c9b1a7ace2c61a5a836f74e97aaaa9e143d9ec4d1c23cad1b10e28e28",
       "canvasSectionSha256": "56d30220bc6dcded15be6b8f03ec0a54697a16e149165e45d47899ea4c88fc43",
       "canvasSectionBytes": 8658
     },
@@ -418,7 +418,7 @@
     {
       "source": "js/polyglot/pq-parity-recipes.js",
       "note": "PQ-parity recipes pure registry: 15 DuckDB SQL templates matching Power Query step shapes, never M. Transformed on inline (ESM exports stripped, IIFE wrapped) by inject_bundle14.py.",
-      "sourceSha256": "6b8fa7b5b6358d1bf2ee9e3f2343087d3bfbed02d2581b15f5c6af721069c2d4",
+      "sourceSha256": "95bc5d86d604e1d9c9f5c1d3eb4aa15541e271f768a742b56b9505c88f4c6407",
       "canvasSectionSha256": "d3e50651a158e9f7cc592773d5592e06a5a910a7904854d4a3fbb3a4a4a14496",
       "canvasSectionBytes": 12678
     },
@@ -453,9 +453,9 @@
     {
       "source": "js/sql/duckdb-load-harden.js",
       "note": "Bundle 15: shared DuckDB-WASM CDN candidate list and version pin (jsDelivr, unpkg, esm.sh) read by both js/sql/sql-engine.js and the canvas inline SQL engine loader, so the two surfaces cannot drift onto two different pins. Inlined verbatim by inject_bundle15.py, publishing window.DataGlowDuckDBLoadHarden.",
-      "sourceSha256": "c5dde8d8d10d54feeea4c1e763c8dc30e0a8f0979be20056b166341eaf8308a0",
-      "canvasSectionSha256": "e79a1c19f99abd3d6889b3f222ca8f5f4b102d197d863a3d342e045cfa7a3a46",
-      "canvasSectionBytes": 6279
+      "sourceSha256": "423603a6c9b5332d33bc4c802d88a70b7ea011ed686c97bb751a4fc9f0c1bbcb",
+      "canvasSectionSha256": "be1cde540f26fa823a78f5de93cac2bbcdf4a2cc176116326d55280ea54cb987",
+      "canvasSectionBytes": 8033
     }
   ]
 }

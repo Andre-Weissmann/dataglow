@@ -336,6 +336,44 @@ export const SQL_DEEPEN_SNIPPETS = Object.freeze([
       + 'FROM (SUMMARIZE your_table)\n'
       + 'ORDER BY null_percentage DESC;',
   }),
+  // ---- sqlShowdownPatterns (Bundle 17): original recipes for four archetype
+  // shapes that keep coming up in timed practice-problem formats. None of
+  // the sample data, column names, or query text below is copied from any
+  // third party's dataset or file; the shapes are common SQL interview and
+  // classroom patterns, and the substitute columns are original synthetic
+  // names (order/claim style) matching the rest of this pack.
+  Object.freeze({
+    id: 'first-value-after-filter',
+    topic: 'Windows',
+    title: 'First (or last) row per key, after a filter',
+    why: 'Filter to the rows that qualify, then take the first one per key by a tiebreak column. Filtering after windowing instead of before is the classic way this comes out wrong, because it silently changes which row is "first".',
+    substitute: ['orders', 'customer_id', 'order_date', 'status'],
+    sql: "SELECT *\nFROM (\n  SELECT *,\n         row_number() OVER (PARTITION BY customer_id ORDER BY order_date ASC) AS rn_first,\n         row_number() OVER (PARTITION BY customer_id ORDER BY order_date DESC) AS rn_last\n  FROM orders\n  WHERE status = 'finished'\n)\nWHERE rn_first = 1 OR rn_last = 1;",
+  }),
+  Object.freeze({
+    id: 'dual-aggregate-started-vs-finished',
+    topic: 'Aggregation',
+    title: 'Two counts in one pass: started vs finished',
+    why: 'A single scan that answers "how many started" and "how many actually finished" side by side, using FILTER instead of two separate queries or a self-join.',
+    substitute: ['orders', 'customer_id', 'status'],
+    sql: 'SELECT customer_id,\n       count(*) AS started,\n       count(*) FILTER (WHERE status = \'finished\') AS finished,\n       round(100.0 * count(*) FILTER (WHERE status = \'finished\') / nullif(count(*), 0), 2) AS pct_finished\nFROM orders\nGROUP BY customer_id\nORDER BY started DESC;',
+  }),
+  Object.freeze({
+    id: 'top-n-per-group-showdown',
+    topic: 'Windows',
+    title: 'Top N per group (QUALIFY form)',
+    why: 'Same shape as the base pack top-n recipe, written with QUALIFY and dense_rank so ties share a rank instead of one of them being arbitrarily dropped.',
+    substitute: ['orders', 'customer_id', 'amount'],
+    sql: 'SELECT *\nFROM orders\nQUALIFY dense_rank() OVER (PARTITION BY customer_id ORDER BY amount DESC) <= 3\nORDER BY customer_id, amount DESC;',
+  }),
+  Object.freeze({
+    id: 'running-total-showdown',
+    topic: 'Windows',
+    title: 'Running total per group, ordered within the group',
+    why: 'The running-total shape scoped to PARTITION BY, which is the version people actually need once there is more than one group in the table.',
+    substitute: ['orders', 'customer_id', 'order_date', 'amount'],
+    sql: 'SELECT customer_id,\n       order_date,\n       amount,\n       sum(amount) OVER (\n         PARTITION BY customer_id\n         ORDER BY order_date\n         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n       ) AS running_total\nFROM orders\nORDER BY customer_id, order_date;',
+  }),
 ]);
 
 /** Distinct topics across the deepened set, in first-seen order. */

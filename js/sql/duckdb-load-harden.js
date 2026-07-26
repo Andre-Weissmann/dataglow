@@ -35,8 +35,42 @@ export const DUCKDB_LOAD_HARDEN_VERSION = 1;
 /** Single source of truth for the pinned DuckDB-WASM version. Bump here only. */
 export const DUCKDB_WASM_PIN = '1.29.0';
 
-/** Ordered CDN hosts to try, primary first. Every caller walks this same list. */
+// Self-host relative path: assets/duckdb/ is the real, already-vendored
+// DuckDB-WASM 1.29.0 runtime this repo ships (root index.html's own import
+// map self-hosts apache-arrow/tslib/flatbuffers from the same directory --
+// see index.html). Pointing here instead of a second canvas/vendor/ copy
+// avoids duplicating ~74MB of wasm/worker files a second time just for the
+// canvas surface. A relative path (not origin-absolute) so this works
+// whether the app is served from a domain root or a sub-path, and whether
+// the caller is root index.html (assets/duckdb/ is a direct child) or a
+// flat single-file deploy that has assets/duckdb/ copied next to it.
+export const SELF_HOST_BASE_URL = './assets/duckdb/';
+
+/**
+ * Self-host has no duckdb-esm.js (that filename is a jsDelivr-only rewrite of
+ * duckdb-browser.mjs; the npm package itself never ships it). The self-host
+ * candidate points cdnUrl at the real ESM entry the package ships,
+ * duckdb-browser.mjs, and the adapter's bundle-selection falls back to
+ * baseUrl + duckdb-eh.wasm / duckdb-browser-eh.worker.js when a module has no
+ * getJsDelivrBundles export (see js/sql/sql-engine.js ensureInit).
+ */
+export const SELF_HOST_CANDIDATE = Object.freeze({
+  id: 'self-host',
+  label: 'self-host',
+  cdnUrl: SELF_HOST_BASE_URL + 'duckdb-browser.mjs',
+  baseUrl: SELF_HOST_BASE_URL,
+});
+
+/**
+ * Ordered hosts to try, primary first. Self-host is FIRST: a same-origin
+ * vendored copy loads without a third-party network round trip and keeps
+ * working if a CDN is blocked, rate-limited, or down; jsDelivr/unpkg/esm.sh
+ * remain as fallbacks for a deploy that is missing assets/duckdb/ (or a
+ * dev checkout where it was not fetched). Every caller walks this
+ * same list.
+ */
 export const CANDIDATE_HOSTS = Object.freeze([
+  SELF_HOST_CANDIDATE,
   Object.freeze({
     id: 'jsdelivr',
     label: 'jsDelivr',
@@ -141,6 +175,8 @@ export const DataGlowDuckDBLoadHarden = {
   DUCKDB_LOAD_HARDEN_KIND,
   DUCKDB_LOAD_HARDEN_VERSION,
   DUCKDB_WASM_PIN,
+  SELF_HOST_BASE_URL,
+  SELF_HOST_CANDIDATE,
   CANDIDATE_HOSTS,
   MAX_ATTEMPTS,
   buildCandidateList,
