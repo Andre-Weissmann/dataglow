@@ -40,6 +40,7 @@
 
   var _lastProposal = null;
   var _lastResult = null;
+  var _lastEngineMissing = false;
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -178,6 +179,9 @@
       'word-break:break-all;color:var(--text-faint,var(--text-muted,#9AA1AE))}',
       '#' + PANEL_ID + ' .dg-ph-note{font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted,#9AA1AE));',
       'padding:12px 2px 4px}',
+      '#' + PANEL_ID + ' .dg-ph-engine-missing{margin-top:10px;padding:8px 12px;border-radius:10px;',
+      'background:rgba(154,161,174,.14);border:1px solid rgba(154,161,174,.4);',
+      'color:var(--text-muted,#9AA1AE);font-size:11.5px}',
       '#' + PANEL_ID + ' .dg-ph-confirmed{margin-top:10px;font-size:12px;font-weight:700;color:var(--primary,#20C5B5)}',
       '@media (max-width:700px){',
       '#' + BTN_ID + '{min-height:44px}',
@@ -275,6 +279,15 @@
       html += '<p class="dg-ph-reason">' + esc(_lastResult.verdict.reason) +
         (_lastResult.verdict.blocker ? ' ' + esc(_lastResult.verdict.blocker) : '') + '</p>';
       html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run);
+      /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
+         say WHY this came back non-GREEN when the reason is "no engine",
+         which is a fixable app state, not a claim problem. This note is only
+         shown for the run this Prove click just produced (cleared the next
+         time Prove runs with an engine present), and never overrides the
+         verdict chip or blocker text above; it is purely additive. */
+      if (_lastEngineMissing) {
+        html += '<div class="dg-ph-note dg-ph-engine-missing">The SQL engine was not ready when Prove ran, so this could not reach DuckDB. Open the SQL tab once to start it, then Prove again.</div>';
+      }
     }
 
     if (_lastConfirm) {
@@ -330,7 +343,17 @@
     }
 
     var runQuery = resolveRunQuery();
+    _lastEngineMissing = !runQuery;
     if (!runQuery) {
+      /* GRAY-friendly path: the engine is not reachable yet (SQL tab has not
+         warmed window.engine / window.resolveDrillSqlRunQuery). Still run the
+         full cycle below with a throwing runQuery so runProofCycle's own
+         never-throw discipline turns this into a definite RED/GRAY result
+         and a receipt, exactly like any other run failure -- Prove always
+         completes a cycle, it never just stops silently. The toast fires
+         immediately so the user does not wait on the cycle to learn why,
+         and renderBody() below adds a persistent GRAY note once the cycle
+         result is on screen, since a toast alone can be missed or dismissed. */
       toast('SQL engine not ready in this canvas.', 'error');
     }
 
