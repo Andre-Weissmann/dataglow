@@ -94,11 +94,61 @@ export var SQLEngine = (function () {
 
   // ── DuckDB-WASM wrapper ────────────────────────────────────────────────────
   function createDuckDBAdapter() {
-    var db = null, conn = null, initialised = false, registeredTables = {};
+    var db = null, conn = null, initPromise = null, registeredTables = {};
+
+    // Bundle 18 hotfix 4: an uncaught error inside the DuckDB-WASM worker
+    // thread (e.g. Emscripten's own instantiateAsync/getBinaryPromise wasm
+    // fetch failing) fires the Worker's `error` event, which AsyncDuckDB's
+    // own onError() handler answers by clearing pending requests WITHOUT
+    // rejecting them (see assets/duckdb/duckdb-browser.mjs onError). That
+    // leaves `await db.instantiate(...)` hanging forever: the catch()
+    // hybrid-retry block below never runs, and the CDN wasm request this
+    // hotfix depends on never fires. instantiateWithTimeout races the real
+    // instantiate() call against a manual worker-error listener and a
+    // deadline, so a hang always surfaces as a normal rejection instead of
+    // silently starving every candidate host after this one.
+    function instantiateWithTimeout(dbInstance, worker, mainModuleHref, pthreadWorker, timeoutMs) {
+      return new Promise(function (resolve, reject) {
+        var settled = false;
+        function settleOk(v) { if (!settled) { settled = true; cleanup(); resolve(v); } }
+        function settleErr(e) { if (!settled) { settled = true; cleanup(); reject(e); } }
+        function onWorkerError(ev) {
+          var msg = (ev && (ev.message || (ev.error && ev.error.message))) || 'worker error during DuckDB-WASM instantiate';
+          settleErr(new Error('Failed to fetch: uncaught worker error while instantiating DuckDB-WASM (' + msg + ')'));
+        }
+        function cleanup() {
+          try { worker.removeEventListener('error', onWorkerError); } catch (_e) {}
+          if (timer) clearTimeout(timer);
+        }
+        var timer = setTimeout(function () {
+          settleErr(new Error('Failed to fetch: DuckDB-WASM instantiate timed out after ' + timeoutMs + 'ms with no response from the worker'));
+        }, timeoutMs);
+        try { worker.addEventListener('error', onWorkerError); } catch (_e) {}
+        dbInstance.instantiate(mainModuleHref, pthreadWorker).then(settleOk, settleErr);
+      });
+    }
 
     async function ensureInit() {
-      if (initialised) return;
-      initialised = true;
+      // Bundle 18 hotfix 4: a boolean `initialised` flag flipped to true
+      // BEFORE the first await let a second, concurrent caller return
+      // immediately while the first call was still pending (or hung -- see
+      // instantiateWithTimeout above), reaching `conn.query()` with conn
+      // still null. Sharing one promise across every caller means a
+      // concurrent call always waits for the SAME attempt to actually
+      // settle, success or failure, instead of racing ahead of it.
+      if (initPromise) return initPromise;
+      initPromise = doInit();
+      try {
+        await initPromise;
+      } finally {
+        // Only clear the shared promise on failure, so a later call
+        // retries; a successful init should stay "done" for the life of
+        // the adapter (matches the previous initialised=true semantics).
+        if (!db || !conn) initPromise = null;
+      }
+    }
+
+    async function doInit() {
       // Never a single silent hang: walk every candidate host in the shared
       // pin list (js/sql/duckdb-load-harden.js) before giving up. Self-host
       // (the already-vendored assets/duckdb/, same directory root index.html's
@@ -147,31 +197,47 @@ export var SQLEngine = (function () {
           // Resolving here, against the page, guarantees worker and page agree
           // on the same absolute wasm URL regardless of candidate baseUrl shape.
           var mainModuleHref = isAbsoluteUrl(bundle.mainModule) ? bundle.mainModule : new URL(bundle.mainModule, location.href).href;
+          // Bundle 18 hotfix 4: for the self-host candidate, point mainModule
+          // at the jsDelivr 1.29.0 wasm pin UP FRONT instead of only on a
+          // caught instantiate() retry. mainWorker (workerHref, already
+          // same-origin above) is untouched, so no third-party JS ever runs
+          // -- only the wasm binary itself, the one file self-host cannot
+          // always serve (see BUNDLE18_HOTFIX3_RESULT.md and
+          // BUNDLE18_HOTFIX4_RESULT.md), is requested from a CDN from the
+          // very first attempt. This guarantees a CDN wasm network request
+          // fires unconditionally, instead of depending on an instantiate()
+          // rejection that a hung/uncaught worker error can prevent.
+          if (cand.wasmCdnFirst && LOAD_HARDEN && typeof LOAD_HARDEN.buildSelfHostBundle === 'function') {
+            var variant = /duckdb-mvp\.wasm/i.test(mainModuleHref) ? 'mvp' : 'eh';
+            var cdnFirstBundle = LOAD_HARDEN.buildSelfHostBundle({ mainWorker: workerHref, pthreadWorker: bundle.pthreadWorker }, variant);
+            mainModuleHref = cdnFirstBundle.mainModule;
+          }
           var worker = new Worker(workerHref);
           var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
           db = new mod.AsyncDuckDB(logger, worker);
           try {
-            await db.instantiate(mainModuleHref, bundle.pthreadWorker);
+            await instantiateWithTimeout(db, worker, mainModuleHref, bundle.pthreadWorker, 45000);
           } catch (eInstantiate) {
-            // Hybrid self-host candidate (Bundle 18 hotfix 3): the pplx.app
-            // live proof showed the same-origin mjs + worker scripts load
-            // fine (200), but the same-origin wasm fetch itself can fail
-            // with "Failed to fetch" / net::ERR_FAILED -- curl follows the
-            // platform's redirect to S3, a browser fetch()/WASM streaming
-            // request under this host cannot. Retry the SAME worker/mjs
-            // stack with only mainModule swapped to the CDN pin instead of
-            // abandoning the whole self-host candidate. Only do this for a
-            // wasm-fetch-shaped error, and only when this candidate ships a
-            // wasmFallback (self-host only).
+            // Hybrid self-host candidate (Bundle 18 hotfix 3, extended by
+            // hotfix 4): the pplx.app live proof showed the same-origin mjs +
+            // worker scripts load fine (200), but the same-origin wasm fetch
+            // itself can fail with "Failed to fetch" / net::ERR_FAILED, or
+            // hang the worker outright (now caught by instantiateWithTimeout
+            // above). Retry the SAME worker/mjs stack with mainModule swapped
+            // to the CDN pin instead of abandoning the whole self-host
+            // candidate -- this is now mostly a belt-and-suspenders path
+            // since wasmCdnFirst already made the first attempt CDN-first,
+            // but still recovers a candidate whose bundle selection above
+            // did not have wasmCdnFirst (e.g. a stale LOAD_HARDEN cache).
             var isWasmFail = LOAD_HARDEN && typeof LOAD_HARDEN.isWasmFetchFailure === 'function'
               ? LOAD_HARDEN.isWasmFetchFailure(eInstantiate)
               : /failed to fetch|err_failed|networkerror|http status code is not ok/i.test((eInstantiate && eInstantiate.message) || '');
             var hybridBundle = (isWasmFail && LOAD_HARDEN && typeof LOAD_HARDEN.buildHybridWasmBundle === 'function')
               ? LOAD_HARDEN.buildHybridWasmBundle({ mainModule: mainModuleHref, mainWorker: workerHref, pthreadWorker: bundle.pthreadWorker }, cand)
               : null;
-            if (!hybridBundle) throw eInstantiate;
+            if (!hybridBundle || hybridBundle.mainModule === mainModuleHref) throw eInstantiate;
             try {
-              await db.instantiate(hybridBundle.mainModule, hybridBundle.pthreadWorker);
+              await instantiateWithTimeout(db, worker, hybridBundle.mainModule, hybridBundle.pthreadWorker, 45000);
             } catch (eHybrid) {
               // Hybrid retry also failed: give up on self-host entirely and
               // let the outer loop advance to the next full candidate
@@ -189,7 +255,7 @@ export var SQLEngine = (function () {
       }
       if (lastErr) {
         var e = lastErr;
-        db = null; conn = null; initialised = false;
+        db = null; conn = null;
         throw new Error('DuckDB-WASM failed to load: ' + e.message);
       }
     }
@@ -206,7 +272,7 @@ export var SQLEngine = (function () {
       // if the engine is still not ready after that, fail with a clear
       // banner-friendly message instead of a null read.
       if (!db || !conn) {
-        initialised = false;
+        initPromise = null;
         await ensureInit();
       }
       if (!db || !conn) {
@@ -245,6 +311,20 @@ export var SQLEngine = (function () {
       // Register all datasets
       for (var i = 0; i < datasets.length; i++) {
         await registerDataset(datasets[i]);
+      }
+      // Bundle 18 hotfix 4: table-free queries (no dataset registered, e.g.
+      // `SELECT 1`) skip the registerDataset loop above entirely, which was
+      // the only place that guarded db/conn against being null. Guard here
+      // too, unconditionally, so `conn.query(sql)` below can never throw the
+      // bare "Cannot read properties of null (reading 'query')" the live bug
+      // report showed -- retry ensureInit() once, then fail with the same
+      // clear, actionable message registerDataset already uses.
+      if (!db || !conn) {
+        initPromise = null;
+        await ensureInit();
+      }
+      if (!db || !conn) {
+        throw new Error('DuckDB-WASM engine not ready: no candidate host finished loading. Retry to try the next host.');
       }
       var t0 = Date.now();
       var result = await conn.query(sql);

@@ -92,25 +92,72 @@ export function resolveSelfHostBaseUrl(href) {
  * BUNDLE18_HOTFIX3_RESULT.md). jsDelivr and unpkg serve the identical
  * 1.29.0 wasm bytes directly with CORS, with no redirect in front of them.
  *
- * wasmFallback is the hybrid escape hatch: it lets a caller keep the
- * same-origin mjs + worker scripts (no third-party JS ever runs) while
- * pointing ONLY the mainModule wasm fetch at a CDN pin when the self-host
- * wasm fetch fails. This is intentionally data on the self-host candidate
- * itself, not a new candidate host in CANDIDATE_HOSTS, because it is not an
- * alternative host to try after self-host fails wholesale -- it is a
- * same-pass, same-candidate repair for the one file self-host cannot always
- * serve.
+ * Bundle 18 hotfix 4: hotfix 3's wasmFallback only fired on a caught
+ * instantiate() rejection. Live proof after #611 shipped showed the wasm
+ * fetch failure happens INSIDE the DuckDB-WASM worker (Emscripten's own
+ * instantiateAsync/getBinaryPromise), and when that failure surfaces as an
+ * uncaught worker-thread error rather than a clean postMessage ERROR
+ * response, AsyncDuckDB.onError() clears pending requests without ever
+ * rejecting the instantiate() promise (see duckdb-browser.mjs onError:
+ * "this._pendingRequests.clear()" with no promiseRejecter call). The
+ * caller's instantiate() call hangs forever, the catch(eInstantiate) hybrid
+ * retry never runs, and the CDN wasm request never fires -- exactly the
+ * hybrid_seen=false symptom from the live bug report. See
+ * BUNDLE18_HOTFIX4_RESULT.md for the full trace.
+ *
+ * The fix moves the CDN pin from a retry-only fallback to the PRIMARY
+ * mainModule URL for self-host: wasmCdnFirst carries the jsDelivr 1.29.0
+ * wasm URLs that buildSelfHostBundle() below applies up front, before any
+ * instantiate() call is ever attempted. mainWorker (and mainModule's own
+ * ESM entry, duckdb-browser.mjs) stay same-origin -- only the ~35 to 40MB
+ * wasm binary itself, the one file this host cannot always serve, is
+ * requested from jsDelivr from the very first attempt. This guarantees a
+ * CDN wasm network request fires unconditionally, instead of depending on
+ * an instantiate() rejection that a hung/uncaught worker error can prevent
+ * from ever happening. wasmFallback is kept (aliased to the same URLs) as
+ * a second layer: if a future regression reintroduces a same-origin-wasm
+ * attempt somewhere, the existing retry-on-catch path still recovers.
  */
+const WASM_CDN_FIRST = Object.freeze({
+  mvp: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-mvp.wasm',
+  eh: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-eh.wasm',
+});
+
 export const SELF_HOST_CANDIDATE = Object.freeze({
   id: 'self-host',
   label: 'self-host',
   cdnUrl: SELF_HOST_BASE_URL + 'duckdb-browser.mjs',
   baseUrl: SELF_HOST_BASE_URL,
-  wasmFallback: Object.freeze({
-    mvp: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-mvp.wasm',
-    eh: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-eh.wasm',
-  }),
+  // Applied UP FRONT (see buildSelfHostBundle), not only on retry.
+  wasmCdnFirst: WASM_CDN_FIRST,
+  // Kept for the same-pass, same-candidate repair path (buildHybridWasmBundle)
+  // in case anything still calls it directly against an already-self-host
+  // mainModule bundle.
+  wasmFallback: WASM_CDN_FIRST,
 });
+
+/**
+ * Build the self-host candidate's actual load bundle: same-origin
+ * duckdb-browser.mjs entry point and mainWorker, but mainModule (the wasm
+ * binary) pinned to the CDN-first URL up front. This is what makes a CDN
+ * wasm network request unconditional for self-host, rather than something
+ * that only happens after an instantiate() rejection a hung worker can
+ * prevent (Bundle 18 hotfix 4 -- see SELF_HOST_CANDIDATE doc above).
+ *
+ * @param {{mainWorker:string, pthreadWorker?:string|null}} workerBundle - the
+ *   same-origin mainWorker (and optional pthreadWorker) already resolved by
+ *   the caller from SELF_HOST_CANDIDATE.baseUrl.
+ * @param {'mvp'|'eh'} [variant='eh'] - which wasm variant to pin.
+ * @returns {{mainModule:string, mainWorker:string, pthreadWorker:string|null}}
+ */
+export function buildSelfHostBundle(workerBundle, variant) {
+  const v = variant === 'mvp' ? 'mvp' : 'eh';
+  return {
+    mainModule: WASM_CDN_FIRST[v],
+    mainWorker: (workerBundle && workerBundle.mainWorker) || null,
+    pthreadWorker: (workerBundle && workerBundle.pthreadWorker) || null,
+  };
+}
 
 /**
  * Whether an error thrown while fetching/instantiating a wasm module looks
@@ -197,9 +244,10 @@ function isPlainObject(v) {
 /**
  * The ordered candidate list a load pass should walk. A copy every time, so a
  * caller mutating the array it received cannot corrupt the shared pin list.
- * wasmFallback (self-host only, Bundle 18 hotfix 3) is carried through so a
- * caller can retry just the wasm fetch on a CDN pin without losing the rest
- * of the candidate shape.
+ * wasmFallback (self-host only, Bundle 18 hotfix 3) and wasmCdnFirst
+ * (self-host only, Bundle 18 hotfix 4 -- same URLs, applied up front instead
+ * of only on retry) are both carried through so a caller gets the hybrid
+ * data for free without losing the rest of the candidate shape.
  */
 export function buildCandidateList() {
   return CANDIDATE_HOSTS.map((h) => ({
@@ -208,6 +256,7 @@ export function buildCandidateList() {
     cdnUrl: h.cdnUrl,
     baseUrl: h.baseUrl,
     ...(h.wasmFallback ? { wasmFallback: { mvp: h.wasmFallback.mvp, eh: h.wasmFallback.eh } } : {}),
+    ...(h.wasmCdnFirst ? { wasmCdnFirst: { mvp: h.wasmCdnFirst.mvp, eh: h.wasmCdnFirst.eh } } : {}),
   }));
 }
 
@@ -293,6 +342,7 @@ export const DataGlowDuckDBLoadHarden = {
   nextCandidate,
   isWasmFetchFailure,
   buildHybridWasmBundle,
+  buildSelfHostBundle,
 };
 
 try {

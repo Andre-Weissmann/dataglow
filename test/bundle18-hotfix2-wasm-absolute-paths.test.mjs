@@ -145,7 +145,10 @@ describe('bundle18 hotfix2 B: js/sql/sql-engine.js resolves worker + wasm to abs
 
   it('resolves mainModule (the wasm path) to an absolute URL before instantiate()', () => {
     assert.match(src, /new URL\(bundle\.mainModule,\s*location\.href\)\.href/);
-    assert.match(src, /db\.instantiate\(mainModuleHref,\s*bundle\.pthreadWorker\)/);
+    // Bundle 18 hotfix 4 wrapped the raw db.instantiate() call site in
+    // instantiateWithTimeout(), which still passes mainModuleHref through
+    // as the wasm URL argument (see BUNDLE18_HOTFIX4_RESULT.md).
+    assert.match(src, /instantiateWithTimeout\(db, worker, mainModuleHref,\s*bundle\.pthreadWorker,\s*\d+\)/);
   });
 
   it('does not introduce an em dash in the edited region', () => {
@@ -184,7 +187,10 @@ describe('bundle18 hotfix2 C: canvas/index.html absolute wasm paths (canvas auth
     assert.match(canvas, /function _dgAbsUrl\(u\)/);
     assert.match(canvas, /var workerUrl = _dgAbsUrl\(bundle\.mainWorker\);/);
     assert.match(canvas, /var mainModuleUrl = _dgAbsUrl\(bundle\.mainModule\);/);
-    assert.match(canvas, /await adb\.instantiate\(mainModuleUrl, bundle\.pthreadWorker\);/);
+    // Bundle 18 hotfix 4 wrapped the raw adb.instantiate() call site in
+    // _dgInstantiateWithTimeout(), which still passes mainModuleUrl through
+    // as the wasm URL argument.
+    assert.match(canvas, /_dgInstantiateWithTimeout\(adb, worker, mainModuleUrl, bundle\.pthreadWorker,\s*\d+\);/);
   });
 
   it('no doubled assets/duckdb/assets/duckdb path pattern exists anywhere in canvas/index.html', () => {
