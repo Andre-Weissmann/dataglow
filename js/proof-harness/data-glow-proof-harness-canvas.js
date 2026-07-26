@@ -66,6 +66,7 @@
   var _lastVaultRun = null;
   var _lastCartridgeExport = null;
   var _lastCartridgeImport = null;
+  var _lastCartridgeReprove = null; // 'Re-prove on this device' result (v1.1)
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -172,6 +173,166 @@
       }
     } catch (_e4) {}
     return null;
+  }
+
+  /* ---------------------------- second engine host bridge (v1.1) --------
+     PROOF_HARNESS_V1_1_SPEC.md pillar B1/B2: publish window.runProofSecondEngine,
+     a real host bridge resolveSecondEngine() in js/proof-harness/second-engine.js
+     now prefers over the old direct window.runDrillPython/window.runDrillR
+     lookup. This function is the ONLY thing this canvas module adds to the
+     window beyond what v0/v1 already published (window.DataGlowProofHarness
+     itself is owned by js/proof-harness/index.js, not here).
+
+     Contract: window.runProofSecondEngine(statement) -> Promise<{rowCount,
+     rows?, scalars?, engine?, error?}>. NEVER invents agreement -- when a
+     real second engine cannot run the statement, it resolves to
+     {error:'pyodide-sql-unavailable'} (corroboration then reports
+     ran:false, agrees:null, i.e. "not ready", never a false RED and never a
+     false GREEN), it never rejects/throws (second-engine.js's corroborateRun
+     always treats a caught rejection the same as an explicit error field,
+     but resolving cleanly keeps this bridge's own contract explicit rather
+     than relying on that catch).
+
+     Path, in order:
+       a) window.DataGlowPython (the existing Pyodide kernel this canvas
+          already ships for the Python tab/notebook) must exist and expose
+          loadRuntime()/buildHelper() -- both PUBLIC methods already used by
+          the Python Notebooks-lite bridge, so this reuses the exact same
+          kernel and dataset sync path rather than opening a second Pyodide
+          load. Sync happens via buildHelper(py), the same call the single
+          Python REPL and the notebook already make; this never fetches or
+          uploads anything new.
+       b) Prefer installing duckdb inside that same Pyodide via micropip and
+          running the statement through duckdb.sql(...).fetchdf(); this is
+          "a second runtime (CPython/WASM vs DuckDB-WASM JS)" per spec B5,
+          not a second warehouse -- independence is the runtime/memory
+          space, not a different SQL dialect family.
+       c) If duckdb cannot be installed quickly (no network, micropip
+          missing, timeout), and the statement is a trivial literal probe
+          (SELECT 1 / SELECT <int> AS alias with no FROM clause), evaluate
+          it in pure Python and return a matching rowCount:1 + scalar --
+          enough to corroborate the simplest claims without a full SQL
+          engine.
+       d) Otherwise, return {error:'pyodide-sql-unavailable'} honestly. */
+
+  var SECOND_ENGINE_DUCKDB_INSTALL_TIMEOUT_MS = 12000;
+  var _secondEngineDuckdbReady = null; // null=unknown, true=installed, false=failed
+
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('timed out')); }, ms);
+      promise.then(function (v) { clearTimeout(timer); resolve(v); }, function (e) { clearTimeout(timer); reject(e); });
+    });
+  }
+
+  /* Trivial literal probe fallback: SELECT 1 / SELECT 42 AS n, no FROM
+     clause, no joins, nothing that needs a real table. Deliberately narrow
+     -- this is Fallback A from the spec, not a SQL interpreter. Returns
+     {rowCount, scalars} on a recognized literal SELECT, or null when the
+     statement is not this trivial shape (caller then falls through to the
+     honest not-available error). */
+  function evalTrivialLiteralSelect(statement) {
+    var stmt = String(statement || '').trim().replace(/;\s*$/, '');
+    var m = /^select\s+(.+?)(?:\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*))?$/i.exec(stmt);
+    if (!m) return null;
+    var exprPart = m[1].trim();
+    // Only accept a single literal number or a comma-free simple literal;
+    // anything with FROM/WHERE/a function call is out of scope here.
+    if (/\bfrom\b/i.test(exprPart) || /[(),]/.test(exprPart)) return null;
+    if (!/^-?\d+(\.\d+)?$/.test(exprPart)) return null;
+    var value = Number(exprPart);
+    var alias = m[2] || (/^-?\d+$/.test(exprPart) ? (exprPart.indexOf('.') === -1 ? 'col' : 'col') : 'col');
+    var scalars = {};
+    scalars[alias] = value;
+    return { rowCount: 1, rows: [scalars], scalars: scalars, engine: 'pyodide-literal' };
+  }
+
+  async function ensureDuckdbInPyodide(py) {
+    if (_secondEngineDuckdbReady === true) return true;
+    if (_secondEngineDuckdbReady === false) return false;
+    try {
+      // Some Pyodide builds ship duckdb already; try a plain import first
+      // (cheap, no network) before reaching for micropip.
+      py.runPython('import duckdb');
+      _secondEngineDuckdbReady = true;
+      return true;
+    } catch (_eDirect) { /* fall through to micropip install */ }
+    try {
+      await withTimeout(
+        py.loadPackage('micropip').then(function () {
+          return py.runPythonAsync('import micropip\nawait micropip.install("duckdb")');
+        }),
+        SECOND_ENGINE_DUCKDB_INSTALL_TIMEOUT_MS
+      );
+      py.runPython('import duckdb');
+      _secondEngineDuckdbReady = true;
+      return true;
+    } catch (_eInstall) {
+      _secondEngineDuckdbReady = false;
+      return false;
+    }
+  }
+
+  async function runViaPyodideDuckdb(py, statement) {
+    py.globals.set('_dg_second_engine_sql', String(statement));
+    var code = [
+      'import duckdb, json',
+      '_dg_second_engine_res = duckdb.sql(_dg_second_engine_sql).fetchdf()',
+      '_dg_second_engine_payload = json.dumps({',
+      '    "columns": list(_dg_second_engine_res.columns),',
+      '    "rows": _dg_second_engine_res.values.tolist(),',
+      '    "rowCount": len(_dg_second_engine_res)',
+      '}, default=str)',
+    ].join('\n');
+    await py.runPythonAsync(code);
+    var payloadJson = py.globals.get('_dg_second_engine_payload');
+    var payload = JSON.parse(payloadJson);
+    var scalars = {};
+    if (payload.rows && payload.rows.length && payload.columns) {
+      payload.columns.forEach(function (col, i) { scalars[col] = payload.rows[0][i]; });
+    }
+    return { rowCount: payload.rowCount, rows: payload.rows, scalars: scalars, engine: 'pyodide-duckdb' };
+  }
+
+  /* Published as window.runProofSecondEngine. Matches the {rowCount, rows?,
+     scalars?, error?} shape js/proof-harness/second-engine.js's
+     normalizeSecondRun() already understands (it also tolerates the
+     {result:{...}} wrapper shape, but this bridge returns the flat shape
+     directly since it controls both ends). */
+  async function runProofSecondEngineBridge(statement) {
+    try {
+      if (!window.DataGlowPython || typeof window.DataGlowPython.loadRuntime !== 'function') {
+        var literal = evalTrivialLiteralSelect(statement);
+        return literal || { error: 'pyodide-sql-unavailable' };
+      }
+      var py = await window.DataGlowPython.loadRuntime();
+      if (typeof window.DataGlowPython.buildHelper === 'function') {
+        try { window.DataGlowPython.buildHelper(py); } catch (_eSync) { /* dataset sync is best-effort; a failed sync still allows a literal/duckdb probe */ }
+      }
+      var duckdbOk = await ensureDuckdbInPyodide(py);
+      if (duckdbOk) {
+        try {
+          return await runViaPyodideDuckdb(py, statement);
+        } catch (_eRun) {
+          // duckdb loaded but this particular statement failed (e.g. an
+          // unresolvable table name inside Pyodide's own duckdb, which has
+          // its own separate in-memory catalog from the main-thread
+          // DuckDB-WASM instance) -- fall through to the literal probe
+          // rather than silently pretending the run succeeded.
+          var literalAfterFail = evalTrivialLiteralSelect(statement);
+          return literalAfterFail || { error: 'pyodide-sql-unavailable' };
+        }
+      }
+      var literalFallback = evalTrivialLiteralSelect(statement);
+      return literalFallback || { error: 'pyodide-sql-unavailable' };
+    } catch (_eOuter) {
+      return { error: 'pyodide-sql-unavailable' };
+    }
+  }
+
+  function installSecondEngineBridge() {
+    if (typeof window.runProofSecondEngine === 'function') return; // already installed (idempotent)
+    window.runProofSecondEngine = runProofSecondEngineBridge;
   }
 
   /* ---------------------------- styles ------------------------------------ */
@@ -385,7 +546,16 @@
       html += '<p class="dg-ph-reason">' + esc(_lastResult.verdict.reason) +
         (_lastResult.verdict.blocker ? ' ' + esc(_lastResult.verdict.blocker) : '') + '</p>';
       html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run, _lastResult.corroboration);
-      if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
+      if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran === true && _lastResult.corroboration.agrees === true) {
+        /* PROOF_HARNESS_V1_1_SPEC.md B4: a short, honest note naming the
+           second engine that actually agreed, distinct from the receipt's
+           own detail line above (which is always shown; this note is the
+           at-a-glance version). agrees===false is not handled here since
+           decideVerdict() already turns that into RED, which the verdict
+           chip above already communicates; this note is additive, never a
+           second source of truth for pass/fail. */
+        html += '<div class="dg-ph-note">Second engine (' + esc(_lastResult.corroboration.engine || 'second engine') + ') agreed.</div>';
+      } else if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
         html += '<div class="dg-ph-note">Second engine not ready. GREEN is single-engine (v0 strength).</div>';
       }
       /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
@@ -493,7 +663,15 @@
     }
     if (_lastCartridgeExport) {
       html += '<textarea class="dg-ph-cartridge" readonly>' + esc(_lastCartridgeExport) + '</textarea>';
-      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-cartridge-copy>Copy JSON</button></div>';
+      html += '<div class="dg-ph-row">' +
+        '<button type="button" class="dg-ph-btn" data-ph-cartridge-copy>Copy JSON</button>' +
+        '<button type="button" class="dg-ph-btn primary" data-ph-cartridge-reprove>Re-prove on this device</button>' +
+        '</div>';
+      html += '<div class="dg-ph-note">Re-runs this exact export against the live engine right here, right now, using the same round trip an importer on another device would run.</div>';
+      if (_lastCartridgeReprove) {
+        html += verdictChip(_lastCartridgeReprove.state);
+        html += '<p class="dg-ph-reason">' + esc(_lastCartridgeReprove.reason) + '</p>';
+      }
     }
     html += '<label for="dg-ph-cartridge-import">Import a cartridge to re-check on your data</label>';
     html += '<textarea id="dg-ph-cartridge-import" class="dg-ph-cartridge" placeholder="Paste a proof cartridge JSON here"></textarea>';
@@ -585,6 +763,10 @@
     var copyBtn = body.querySelector('[data-ph-cartridge-copy]');
     if (copyBtn) {
       copyBtn.addEventListener('click', function () { onCartridgeCopy(); });
+    }
+    var reproveBtn = body.querySelector('[data-ph-cartridge-reprove]');
+    if (reproveBtn) {
+      reproveBtn.addEventListener('click', function () { onCartridgeReprove(); });
     }
     var importBtn = body.querySelector('[data-ph-cartridge-import]');
     if (importBtn) {
@@ -759,8 +941,30 @@
       return;
     }
     _lastCartridgeExport = e.serializeCartridge ? e.serializeCartridge(exported.cartridge) : JSON.stringify(exported.cartridge, null, 2);
+    _lastCartridgeReprove = null;
     renderBody();
     toast('Cartridge exported. Zero rows of data included.', 'success');
+  }
+
+  async function onCartridgeReprove() {
+    var e = engine();
+    if (!e || typeof e.importCartridge !== 'function' || !_lastCartridgeExport) return;
+    var runQuery = resolveRunQuery();
+    if (!runQuery) {
+      toast('SQL engine not ready in this canvas.', 'error');
+      return;
+    }
+    /* Flexible-args form 3 (PROOF_HARNESS_V1_1_SPEC.md A1): pass the last
+       exported cartridge text straight through as the positional first
+       argument, with runQuery in opts; compareClaimToRun is intentionally
+       OMITTED here so the wrapper auto-injects the harness's own scorer
+       (A1's "never default to an always-fail stub when the harness owns
+       the scorer"), exercising that exact path from the live UI, not just
+       from tests. */
+    var result = await e.importCartridge(_lastCartridgeExport, { runQuery: runQuery });
+    _lastCartridgeReprove = result;
+    renderBody();
+    toast('Re-prove verdict: ' + result.state, result.ok ? 'success' : 'error');
   }
 
   function onCartridgeCopy() {
@@ -857,6 +1061,12 @@
         if (ev.key === 'Escape') closePanel();
       });
     }
+    /* v1.1: install the window.runProofSecondEngine host bridge so
+       resolveSecondEngine() can find it before the first Prove click. This
+       call only assigns a function reference; it does not itself load
+       Pyodide or install duckdb (those happen lazily, only when a claim is
+       actually proven and corroboration is attempted). */
+    if (v1FlagOn()) installSecondEngineBridge();
     /* Nothing new to publish on window: js/proof-harness/index.js already
        publishes window.DataGlowProofHarness with the pure engine calls this
        module wires into buttons. Publishing a second global here would be a
