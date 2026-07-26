@@ -2,20 +2,32 @@
 ;(function () {
   'use strict';
 
-  /* Proof Harness v0 (VERDICT): the claim bar plus a review inbox that the
+  /* Proof Harness (VERDICT): the claim bar plus a review inbox that the
      MASTER PROMPT doctrine calls for, not a chat panel. Doctrine #8: "There is
-     no chat panel. The surface is a claim bar plus a review inbox." v0's inbox
-     is one card: the current claim's proposal, verdict and receipt.
+     no chat panel. The surface is a claim bar plus a review inbox."
+
+     v0 shipped one card: the current claim's proposal, verdict and receipt,
+     under a single Prove tab implicitly.
+
+     v1 (this file, behind proofHarnessV1) adds a tabbed panel -- Inbox | Prove
+     | Vault | Cartridge -- Inbox is the default tab, matching the spec's
+     review-queue-first posture. The Prove tab is BYTE-FOR-BYTE the v0 body:
+     same ids, same markup, same behavior, so a flag-off session or a session
+     with proofHarnessV1 off still gets exactly v0. Everything else (Inbox
+     rendering, Vault list/run, Cartridge export/import) is additive and only
+     ever mounted when proofHarnessV1 is on.
 
      The pure engine (js/proof-harness/index.js + proposal.js + verdict.js +
-     score-claim.js + receipt.js, published together as window.
-     DataGlowProofHarness) owns typed proposals, the verdict decision, claim
-     scoring and the hash-chained receipt ledger. This module owns only what
-     the engine cannot: the button, the panel, and wiring the panel's Prove
-     button to the SAME live DuckDB engine Drill Floor's SQL Run/Check path
-     already uses (resolveDrillSqlRunQuery / window.engine.runQuery / the
-     DuckDB singleton -- see Bundle 18 hotfix 5, #613). No second wasm load
-     path is created here.
+     score-claim.js + receipt.js + second-engine.js + vault.js + cartridge.js +
+     inbox.js, published together as window.DataGlowProofHarness) owns typed
+     proposals, the verdict decision, claim scoring, the hash-chained receipt
+     ledger, corroboration, the regression vault, cartridges, and the inbox
+     queue state machine. This module owns only what the engine cannot: the
+     button, the panel, tabs, and wiring the Prove tab's Prove button to the
+     SAME live DuckDB engine Drill Floor's SQL Run/Check path already uses
+     (resolveDrillSqlRunQuery / window.engine.runQuery / the DuckDB singleton
+     -- see Bundle 18 hotfix 5, #613). No second wasm load path is created
+     here, in any tab.
 
      DOCTRINE IN THIS FILE:
        1. AI proposes, engines prove, human confirms, in that order. The Prove
@@ -24,12 +36,17 @@
           only ever handed to createTypedProposal() first; the executor
           (runQuery) is only ever called with proposal.statement, which is
           exactly what was typed into the visible, editable field, never a
-          hidden or model-composed string.
+          hidden or model-composed string. The Cartridge tab's import re-run
+          follows the identical discipline: only the cartridge's own recorded
+          statement is ever executed, never anything else.
        3. Never auto-mutate: nothing here writes to a saved session/table.
           Confirm only marks the CURRENT proposal as confirmed in memory,
           bound to its digest.
-       6. Exactly three verdict colors in v0: GREEN / RED / GRAY. No AMBER.
-       8. No chat panel. Claim bar + one card. No free text response area.
+       6. Four verdict colors in v1: GREEN / RED / GRAY / AMBER (stale digest
+          only). v0 had three; AMBER is additive, never a silent reclassify
+          of an existing GREEN/RED/GRAY case.
+       8. No chat panel. Claim bar + tabbed review surface. No free text
+          response area.
 
      No em dash (U+2014) anywhere in this file's visible strings. */
 
@@ -37,10 +54,18 @@
   var PANEL_ID = 'dg-proof-harness-panel';
   var STYLE_ID = 'dg-proof-harness-styles';
   var BODY_ID = 'dg-proof-harness-body';
+  var TABS_ID = 'dg-proof-harness-tabs';
 
   var _lastProposal = null;
   var _lastResult = null;
   var _lastEngineMissing = false;
+  var _lastConfirm = null;
+  var _activeTab = 'inbox'; // inbox | prove | vault | cartridge (v1 default: inbox)
+
+  var _inboxStore = null; // created lazily from js/proof-harness/inbox.js's createInbox()
+  var _lastVaultRun = null;
+  var _lastCartridgeExport = null;
+  var _lastCartridgeImport = null;
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -55,6 +80,22 @@
     try {
       if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
         return window.DataGlowFlags.isEnabled('proofHarness') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  /* v1 umbrella flag: gates ONLY the Inbox/Vault/Cartridge tabs and their
+     controls. With this off (but proofHarness still on), the panel renders
+     exactly the v0 single Prove surface, no tab bar at all -- matching
+     acceptance gate 4 ("Flag off: v1 tabs hidden; v0 prove path still works
+     if proofHarness on"). */
+  function v1FlagOn() {
+    try { if (window.DATAGLOW_PROOF_HARNESS_V1 === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_HARNESS_V1 === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofHarnessV1') !== false;
       }
     } catch (_e) {}
     return true;
@@ -75,10 +116,18 @@
     console.info('[Proof Harness]', msg);
   }
 
+  function inbox() {
+    if (!_inboxStore && engine() && typeof engine().createInbox === 'function') {
+      _inboxStore = engine().createInbox();
+    }
+    return _inboxStore;
+  }
+
   /* ---------------------------- SQL engine resolution --------------------
      Reuses the exact resolver Drill Floor's SQL Run/Check path uses (Bundle
      18 hotfix 5, #613), with the same graduated fallbacks, so there is never
-     a second wasm load path and the warm SQL connection stays shared. */
+     a second wasm load path and the warm SQL connection stays shared. Shared
+     by the Prove tab and the Cartridge tab's import re-run. */
   function resolveRunQuery() {
     if (typeof window.resolveDrillSqlRunQuery === 'function') {
       try {
@@ -145,6 +194,13 @@
       '#' + PANEL_ID + ' .dg-ph-sub{font-size:12px;color:var(--text-muted,#9AA1AE);margin:4px 0 0;line-height:1.55}',
       '#' + PANEL_ID + ' .dg-ph-x{min-height:44px;min-width:44px;border:none;background:transparent;',
       'color:var(--text-muted,#9AA1AE);font-size:22px;cursor:pointer;border-radius:10px;flex:0 0 auto}',
+      '#' + TABS_ID + '{display:flex;gap:4px;padding:0 14px;border-bottom:1px solid var(--border,#282D38);',
+      'flex-wrap:wrap}',
+      '#' + TABS_ID + ' .dg-ph-tab{min-height:40px;padding:0 12px;border:none;background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;',
+      'border-bottom:2px solid transparent}',
+      '#' + TABS_ID + ' .dg-ph-tab.active{color:var(--text,#E8EAED);border-bottom-color:var(--primary,#20C5B5)}',
+      '#' + TABS_ID + ' .dg-ph-tab:hover{color:var(--text,#E8EAED)}',
       '#' + BODY_ID + '{flex:1;overflow-y:auto;padding:14px 18px;-webkit-overflow-scrolling:touch}',
       '#' + PANEL_ID + ' label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.02em;',
       'color:var(--text-muted,#9AA1AE);margin:14px 0 6px;text-transform:uppercase}',
@@ -154,6 +210,7 @@
       'color:var(--text,#E8EAED);font:inherit;font-size:12.5px;padding:9px 10px;resize:vertical}',
       '#' + PANEL_ID + ' textarea.dg-ph-statement{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:76px}',
       '#' + PANEL_ID + ' textarea.dg-ph-claim{min-height:44px}',
+      '#' + PANEL_ID + ' textarea.dg-ph-cartridge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:120px;font-size:11px}',
       '#' + PANEL_ID + ' .dg-ph-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}',
       '#' + PANEL_ID + ' .dg-ph-btn{min-height:38px;padding:0 13px;border-radius:10px;font:inherit;font-size:12.5px;',
       'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
@@ -169,6 +226,8 @@
       'border:1px solid rgba(229,83,75,.4)}',
       '#' + PANEL_ID + ' .dg-ph-chip.GRAY{background:rgba(154,161,174,.14);color:var(--text-muted,#9AA1AE);',
       'border:1px solid rgba(154,161,174,.4)}',
+      '#' + PANEL_ID + ' .dg-ph-chip.AMBER{background:rgba(230,178,44,.14);color:#E6B22C;',
+      'border:1px solid rgba(230,178,44,.4)}',
       '#' + PANEL_ID + ' .dg-ph-reason{font-size:12.5px;line-height:1.55;color:var(--text-secondary,#B4B8C0);margin:8px 0 0}',
       '#' + PANEL_ID + ' .dg-ph-receipt{margin-top:14px;padding:10px 12px;border-radius:10px;',
       'border:1px solid var(--border,#282D38);font-size:12px;line-height:1.7;color:var(--text-secondary,#B4B8C0)}',
@@ -183,6 +242,19 @@
       'background:rgba(154,161,174,.14);border:1px solid rgba(154,161,174,.4);',
       'color:var(--text-muted,#9AA1AE);font-size:11.5px}',
       '#' + PANEL_ID + ' .dg-ph-confirmed{margin-top:10px;font-size:12px;font-weight:700;color:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-item{padding:10px 12px;border-radius:10px;border:1px solid var(--border,#282D38);',
+      'margin-bottom:8px}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-item .dg-ph-inbox-claim{font-size:12.5px;font-weight:700;color:var(--text,#E8EAED);',
+      'margin:0 0 4px}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-item .dg-ph-inbox-status{font-size:11px;font-weight:700;letter-spacing:.02em;',
+      'text-transform:uppercase}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}',
+      '#' + PANEL_ID + ' .dg-ph-empty{font-size:12.5px;color:var(--text-muted,#9AA1AE);padding:16px 4px}',
+      '#' + PANEL_ID + ' .dg-ph-vault-item{padding:8px 10px;border-radius:8px;border:1px solid var(--border,#282D38);',
+      'margin-bottom:6px;font-size:12px;color:var(--text-secondary,#B4B8C0)}',
+      '#' + PANEL_ID + ' .dg-ph-vault-summary{font-size:12.5px;margin-top:10px;font-weight:700}',
+      '#' + PANEL_ID + ' .dg-ph-vault-summary.has-escaped{color:var(--danger,#E5534B)}',
+      '#' + PANEL_ID + ' .dg-ph-vault-summary.all-caught{color:var(--primary,#20C5B5)}',
       '@media (max-width:700px){',
       '#' + BTN_ID + '{min-height:44px}',
       '#' + PANEL_ID + '{width:100%;left:0;border-left:none}',
@@ -206,6 +278,14 @@
     panel.id = PANEL_ID;
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', 'Proof Harness');
+    var tabsHtml = v1FlagOn()
+      ? '<div id="' + TABS_ID + '">' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="inbox">Inbox</button>' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="prove">Prove</button>' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="vault">Vault</button>' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="cartridge">Cartridge</button>' +
+        '</div>'
+      : '';
     panel.innerHTML =
       '<div class="dg-ph-head">' +
         '<div style="min-width:0">' +
@@ -214,38 +294,64 @@
         '</div>' +
         '<button type="button" class="dg-ph-x" data-ph-close aria-label="Close">&#215;</button>' +
       '</div>' +
+      tabsHtml +
       '<div id="' + BODY_ID + '"></div>';
     document.body.appendChild(panel);
     panel.querySelector('[data-ph-close]').addEventListener('click', closePanel);
+    if (v1FlagOn()) {
+      var tabButtons = panel.querySelectorAll('[data-ph-tab]');
+      for (var i = 0; i < tabButtons.length; i++) {
+        tabButtons[i].addEventListener('click', function (ev) {
+          setActiveTab(ev.currentTarget.getAttribute('data-ph-tab'));
+        });
+      }
+    }
     return panel;
   }
 
+  function setActiveTab(tab) {
+    _activeTab = tab;
+    var tabButtons = document.querySelectorAll('#' + TABS_ID + ' [data-ph-tab]');
+    for (var i = 0; i < tabButtons.length; i++) {
+      var isActive = tabButtons[i].getAttribute('data-ph-tab') === tab;
+      tabButtons[i].classList.toggle('active', isActive);
+    }
+    renderBody();
+  }
+
   function verdictChip(state) {
-    var label = state === 'GREEN' ? 'GREEN . proven' : state === 'RED' ? 'RED . refuted' : 'GRAY . not provable';
+    var label = state === 'GREEN' ? 'GREEN . proven'
+      : state === 'RED' ? 'RED . refuted'
+      : state === 'AMBER' ? 'AMBER . stale, re-prove required'
+      : 'GRAY . not provable';
     return '<div class="dg-ph-chip ' + esc(state) + '">' + esc(label) + '</div>';
   }
 
-  function receiptDetails(receipt, proposal, run) {
+  function receiptDetails(receipt, proposal, run, corroboration) {
     if (!receipt) return '';
     var duration = run && typeof run.durationMs === 'number' ? run.durationMs + ' ms' : 'not run';
     var rowCount = run && typeof run.rowCount === 'number' ? String(run.rowCount) : 'n/a';
-    return '<div class="dg-ph-receipt">' +
+    var html = '<div class="dg-ph-receipt">' +
       '<span class="dg-ph-kv"><dt>Row count:</dt><dd>' + esc(rowCount) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Duration:</dt><dd>' + esc(duration) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Engine:</dt><dd>' + esc(proposal.engine) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Statement:</dt><dd class="dg-ph-hash">' + esc(proposal.statement) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Proposal digest:</dt><dd class="dg-ph-hash">' + esc(proposal.digest) + '</dd></span>' +
-      '<span class="dg-ph-kv"><dt>Receipt hash:</dt><dd class="dg-ph-hash">' + esc(receipt.hash) + '</dd></span>' +
-      '</div>';
+      '<span class="dg-ph-kv"><dt>Receipt hash:</dt><dd class="dg-ph-hash">' + esc(receipt.hash) + '</dd></span>';
+    if (corroboration && corroboration.ran === true) {
+      html += '<span class="dg-ph-kv"><dt>Second engine:</dt><dd>' + esc(corroboration.engine) +
+        ', agrees: ' + esc(String(corroboration.agrees)) + '</dd></span>';
+    }
+    html += '</div>';
+    return html;
   }
 
-  function renderBody() {
-    var body = document.getElementById(BODY_ID);
-    if (!body) return;
+  /* ---------------------------- Prove tab (v0 body, unchanged) ----------- */
+
+  function renderProveTab() {
     var e = engine();
     if (!e) {
-      body.innerHTML = '<div class="dg-ph-note">The Proof Harness engine is unavailable, so nothing can be proven here.</div>';
-      return;
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so nothing can be proven here.</div>';
     }
 
     var claimText = _lastProposal && _lastProposal.claimText ? _lastProposal.claimText : '';
@@ -278,7 +384,10 @@
       html += verdictChip(_lastResult.verdict.state);
       html += '<p class="dg-ph-reason">' + esc(_lastResult.verdict.reason) +
         (_lastResult.verdict.blocker ? ' ' + esc(_lastResult.verdict.blocker) : '') + '</p>';
-      html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run);
+      html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run, _lastResult.corroboration);
+      if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
+        html += '<div class="dg-ph-note">Second engine not ready. GREEN is single-engine (v0 strength).</div>';
+      }
       /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
          say WHY this came back non-GREEN when the reason is "no engine",
          which is a fixable app state, not a claim problem. This note is only
@@ -300,13 +409,129 @@
 
     html += '<div class="dg-ph-note">Nothing here uploads. The statement runs on your own device against the same DuckDB engine the SQL tab uses. A false green is treated as a bug, so an unclear result comes back gray with the missing piece named, never a guess.</div>';
 
-    body.innerHTML = html;
-    wireBody(body);
+    return html;
   }
 
-  var _lastConfirm = null;
+  /* ---------------------------- Inbox tab (v1) ---------------------------- */
 
-  function wireBody(body) {
+  function renderInboxTab() {
+    var e = engine();
+    if (!e || typeof e.statusLabel !== 'function') {
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so the inbox cannot be shown.</div>';
+    }
+    var box = inbox();
+    var items = box ? box.list() : [];
+    if (items.length === 0) {
+      return '<div class="dg-ph-empty">Nothing waiting for review yet. Prove a claim on the Prove tab to add it here.</div>';
+    }
+    var html = '';
+    for (var i = items.length - 1; i >= 0; i--) {
+      var item = items[i];
+      var label = e.statusLabel(item.status);
+      html += '<div class="dg-ph-inbox-item">' +
+        '<p class="dg-ph-inbox-claim">' + esc(item.claimText || item.statement || 'Untitled claim') + '</p>' +
+        '<span class="dg-ph-inbox-status">' + esc(label) + '</span>';
+      if (item.status === 'awaiting-confirm') {
+        html += '<div class="dg-ph-inbox-actions">' +
+          '<button type="button" class="dg-ph-btn primary" data-ph-inbox-confirm="' + esc(item.id) + '">Confirm</button>' +
+          '<button type="button" class="dg-ph-btn" data-ph-inbox-reject="' + esc(item.id) + '">Reject</button>' +
+          '</div>';
+      } else if (item.status === 'pending-prove') {
+        html += '<div class="dg-ph-inbox-actions">' +
+          '<button type="button" class="dg-ph-btn primary" data-ph-inbox-open="' + esc(item.id) + '">Open in Prove</button>' +
+          '</div>';
+      } else {
+        html += '<div class="dg-ph-inbox-actions">' +
+          '<button type="button" class="dg-ph-btn" data-ph-inbox-open="' + esc(item.id) + '">Open</button>' +
+          '</div>';
+      }
+      html += '</div>';
+    }
+    return html;
+  }
+
+  /* ---------------------------- Vault tab (v1) ---------------------------- */
+
+  function renderVaultTab() {
+    var e = engine();
+    if (!e || typeof e.getVaultTests !== 'function') {
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so the vault cannot be shown.</div>';
+    }
+    var tests = e.getVaultTests();
+    var html = '<div class="dg-ph-note">Every refuted claim and every rejection is kept here as a durable local test, so a fixed regression can be re-checked and a repeated mistake gets caught again.</div>';
+    if (tests.length === 0) {
+      html += '<div class="dg-ph-empty">The vault is empty. It fills in automatically whenever a claim comes back RED or is rejected.</div>';
+      return html;
+    }
+    for (var i = 0; i < tests.length; i++) {
+      var t = tests[i];
+      html += '<div class="dg-ph-vault-item">' + esc(t.claimText || t.statement) +
+        ' (source: ' + esc(t.source) + ')</div>';
+    }
+    html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-vault-run>Run vault check</button></div>';
+    if (_lastVaultRun) {
+      var cls = _lastVaultRun.escaped > 0 ? 'has-escaped' : 'all-caught';
+      html += '<p class="dg-ph-vault-summary ' + cls + '">' + esc(_lastVaultRun.caught) + ' of ' + esc(_lastVaultRun.total) +
+        ' still caught, ' + esc(_lastVaultRun.escaped) + ' escaped.</p>';
+    }
+    return html;
+  }
+
+  /* ---------------------------- Cartridge tab (v1) ------------------------ */
+
+  function renderCartridgeTab() {
+    var e = engine();
+    if (!e || typeof e.exportCartridge !== 'function') {
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so cartridges cannot be built here.</div>';
+    }
+    var html = '<div class="dg-ph-note">A cartridge carries the proven statement, its expected values, and a verdict, but zero rows of source data, so a proof can travel without the data moving.</div>';
+    html += '<label>Export the current proven claim</label>';
+    if (_lastResult && _lastResult.verdict && _lastResult.verdict.state === 'GREEN') {
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-cartridge-export>Export cartridge</button></div>';
+    } else {
+      html += '<div class="dg-ph-empty">Prove a claim to GREEN on the Prove tab first, then come back here to export it.</div>';
+    }
+    if (_lastCartridgeExport) {
+      html += '<textarea class="dg-ph-cartridge" readonly>' + esc(_lastCartridgeExport) + '</textarea>';
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-cartridge-copy>Copy JSON</button></div>';
+    }
+    html += '<label for="dg-ph-cartridge-import">Import a cartridge to re-check on your data</label>';
+    html += '<textarea id="dg-ph-cartridge-import" class="dg-ph-cartridge" placeholder="Paste a proof cartridge JSON here"></textarea>';
+    html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-cartridge-import>Import and re-check</button></div>';
+    if (_lastCartridgeImport) {
+      html += verdictChip(_lastCartridgeImport.state);
+      html += '<p class="dg-ph-reason">' + esc(_lastCartridgeImport.reason) + '</p>';
+    }
+    return html;
+  }
+
+  /* ---------------------------- render / wire ----------------------------- */
+
+  function renderBody() {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+
+    if (!v1FlagOn()) {
+      body.innerHTML = renderProveTab();
+      wireProveTab(body);
+      return;
+    }
+
+    var html;
+    if (_activeTab === 'prove') { html = renderProveTab(); }
+    else if (_activeTab === 'vault') { html = renderVaultTab(); }
+    else if (_activeTab === 'cartridge') { html = renderCartridgeTab(); }
+    else { html = renderInboxTab(); _activeTab = 'inbox'; }
+
+    body.innerHTML = html;
+
+    if (_activeTab === 'prove') wireProveTab(body);
+    else if (_activeTab === 'vault') wireVaultTab(body);
+    else if (_activeTab === 'cartridge') wireCartridgeTab(body);
+    else wireInboxTab(body);
+  }
+
+  function wireProveTab(body) {
     var useLastSqlBtn = body.querySelector('[data-ph-use-last-sql]');
     if (useLastSqlBtn) {
       useLastSqlBtn.addEventListener('click', function () {
@@ -329,6 +554,45 @@
       confirmBtn.addEventListener('click', function () { onConfirm(); });
     }
   }
+
+  function wireInboxTab(body) {
+    var confirmBtns = body.querySelectorAll('[data-ph-inbox-confirm]');
+    for (var i = 0; i < confirmBtns.length; i++) {
+      confirmBtns[i].addEventListener('click', function (ev) { onInboxConfirm(ev.currentTarget.getAttribute('data-ph-inbox-confirm')); });
+    }
+    var rejectBtns = body.querySelectorAll('[data-ph-inbox-reject]');
+    for (var j = 0; j < rejectBtns.length; j++) {
+      rejectBtns[j].addEventListener('click', function (ev) { onInboxReject(ev.currentTarget.getAttribute('data-ph-inbox-reject')); });
+    }
+    var openBtns = body.querySelectorAll('[data-ph-inbox-open]');
+    for (var k = 0; k < openBtns.length; k++) {
+      openBtns[k].addEventListener('click', function (ev) { onInboxOpen(ev.currentTarget.getAttribute('data-ph-inbox-open')); });
+    }
+  }
+
+  function wireVaultTab(body) {
+    var runBtn = body.querySelector('[data-ph-vault-run]');
+    if (runBtn) {
+      runBtn.addEventListener('click', function () { onVaultRun(); });
+    }
+  }
+
+  function wireCartridgeTab(body) {
+    var exportBtn = body.querySelector('[data-ph-cartridge-export]');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', function () { onCartridgeExport(); });
+    }
+    var copyBtn = body.querySelector('[data-ph-cartridge-copy]');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () { onCartridgeCopy(); });
+    }
+    var importBtn = body.querySelector('[data-ph-cartridge-import]');
+    if (importBtn) {
+      importBtn.addEventListener('click', function () { onCartridgeImport(body); });
+    }
+  }
+
+  /* ---------------------------- Prove actions (v0, unchanged) ------------- */
 
   async function onProve(body) {
     var e = engine();
@@ -375,6 +639,21 @@
     _lastResult = result;
     _lastConfirm = null;
 
+    if (v1FlagOn() && inbox()) {
+      try {
+        var box = inbox();
+        var matchingPending = box.list().filter(function (it) {
+          return it.status === 'pending-prove' && it.statement === result.proposal.statement;
+        })[0];
+        if (matchingPending) {
+          box.recordCycleResult(matchingPending.id, result);
+        } else {
+          var newItem = box.enqueue({ claimText: result.proposal.claimText, statement: result.proposal.statement, expected: result.proposal.expected });
+          box.recordCycleResult(newItem.id, result);
+        }
+      } catch (_e) {}
+    }
+
     if (window.DataGlowTrustLedger && typeof window.DataGlowTrustLedger.record === 'function') {
       try {
         window.DataGlowTrustLedger.record({
@@ -412,6 +691,107 @@
     toast(confirmResult.confirmed ? 'Confirmed and bound to this statement.' : confirmResult.reason, confirmResult.confirmed ? 'success' : 'error');
   }
 
+  /* ---------------------------- Inbox actions (v1) ------------------------ */
+
+  function onInboxConfirm(id) {
+    var box = inbox();
+    if (!box) return;
+    box.confirm(id, { confirmed: true, by: 'local-user', at: new Date().toISOString() });
+    renderBody();
+    toast('Confirmed.', 'success');
+  }
+
+  async function onInboxReject(id) {
+    var e = engine();
+    var box = inbox();
+    if (!box) return;
+    var item = box.get(id);
+    box.reject(id, 'Rejected from the inbox.');
+    if (e && item && typeof e.rejectProposal === 'function') {
+      try {
+        await e.rejectProposal({ claimText: item.claimText, statement: item.statement, expected: item.expected }, { by: 'local-user', reason: 'Rejected from the inbox.' });
+      } catch (_e) {}
+    }
+    renderBody();
+    toast('Rejected and added to the vault.', 'info');
+  }
+
+  function onInboxOpen(id) {
+    var box = inbox();
+    if (!box) return;
+    var item = box.get(id);
+    if (!item) return;
+    _lastProposal = item.proposal || { claimText: item.claimText, statement: item.statement, expected: item.expected, engine: 'duckdb' };
+    _lastResult = item.verdict ? { ok: true, proposal: _lastProposal, run: item.run, verdict: item.verdict, receipt: item.receipt, corroboration: null } : null;
+    _lastConfirm = null;
+    setActiveTab('prove');
+  }
+
+  /* ---------------------------- Vault actions (v1) ------------------------ */
+
+  async function onVaultRun() {
+    var e = engine();
+    if (!e || typeof e.runVaultCheck !== 'function') return;
+    var runQuery = resolveRunQuery();
+    if (!runQuery) {
+      toast('SQL engine not ready in this canvas.', 'error');
+      return;
+    }
+    var result = await e.runVaultCheck(runQuery);
+    _lastVaultRun = result;
+    renderBody();
+    toast(result.escaped > 0 ? (result.escaped + ' regression(s) escaped. Review the vault.') : 'All vault tests still caught.', result.escaped > 0 ? 'error' : 'success');
+  }
+
+  /* ---------------------------- Cartridge actions (v1) -------------------- */
+
+  async function onCartridgeExport() {
+    var e = engine();
+    if (!e || typeof e.exportCartridge !== 'function' || !_lastResult) return;
+    var exported = await e.exportCartridge({
+      proposal: _lastResult.proposal,
+      verdict: _lastResult.verdict,
+      run: _lastResult.run,
+      receipt: _lastResult.receipt,
+    });
+    if (exported.rejected) {
+      toast(exported.reason, 'error');
+      return;
+    }
+    _lastCartridgeExport = e.serializeCartridge ? e.serializeCartridge(exported.cartridge) : JSON.stringify(exported.cartridge, null, 2);
+    renderBody();
+    toast('Cartridge exported. Zero rows of data included.', 'success');
+  }
+
+  function onCartridgeCopy() {
+    if (!_lastCartridgeExport) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(_lastCartridgeExport);
+        toast('Cartridge JSON copied.', 'success');
+        return;
+      }
+    } catch (_e) {}
+    toast('Copy not available here. Select the text manually.', 'info');
+  }
+
+  async function onCartridgeImport(body) {
+    var e = engine();
+    if (!e || typeof e.importCartridge !== 'function') return;
+    var text = (body.querySelector('#dg-ph-cartridge-import') || {}).value || '';
+    var runQuery = resolveRunQuery();
+    var result = await e.importCartridge({
+      cartridgeText: text,
+      runQuery: runQuery || function () { throw new Error('SQL engine not ready in this canvas.'); },
+      compareClaimToRun: e.compareClaimToRun,
+    });
+    _lastCartridgeImport = result;
+    renderBody();
+    toast('Import verdict: ' + result.state, result.ok ? 'success' : 'error');
+  }
+
+  /* ---------------------------- open / close ------------------------------ */
+
   function isOpen() {
     var panel = document.getElementById(PANEL_ID);
     return !!(panel && panel.classList.contains('open'));
@@ -420,7 +800,8 @@
   function openPanel() {
     if (!flagOn()) return false;
     ensurePanel().classList.add('open');
-    renderBody();
+    if (v1FlagOn()) setActiveTab(_activeTab || 'inbox');
+    else renderBody();
     return true;
   }
 

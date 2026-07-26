@@ -154,7 +154,13 @@ function ok(cond, msg) {
   const verdict = decideVerdict({ proposal: null, run: null, expected: null });
   ok(verdict.state === 'GRAY', 'decideVerdict returns GRAY when there is no proposal at all');
   ok(VERDICT_STATES.includes(verdict.state), 'the returned state is one of the closed VERDICT_STATES vocabulary');
-  ok(!VERDICT_STATES.includes('AMBER'), 'v0 VERDICT_STATES does not include AMBER (v1 scope)');
+  // v0 shipped GREEN/RED/GRAY only; v1 (test/proof-harness-v1.test.mjs) adds the
+  // fourth doctrine state, AMBER, for staleness only, via an opt-in `staleness`
+  // input this same decideVerdict() now also accepts. Nothing in this v0 suite
+  // exercises staleness, so every assertion in this file still resolves to
+  // GREEN/RED/GRAY exactly as before -- this line just stops pinning AMBER's
+  // absence now that v1 has intentionally added it to the closed vocabulary.
+  ok(VERDICT_STATES.includes('AMBER'), 'VERDICT_STATES now includes AMBER, added in v1 for staleness only');
 }
 
 // ---------- score-claim: scalarMatches / extract helpers ----------

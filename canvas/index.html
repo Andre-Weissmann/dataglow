@@ -139850,26 +139850,38 @@ const PROOF_HARNESS_SUPPORTED_ENGINES = SUPPORTED_ENGINES;
 
   /* ---- js/proof-harness/verdict.js ---- */
 // ============================================================
-// DATAGLOW - Proof Harness v0 (VERDICT): verdict engine
+// DATAGLOW - Proof Harness verdict engine (v0 GREEN/RED/GRAY + v1 AMBER)
 // ============================================================
 // WHY THIS EXISTS
 // Doctrine invariant #6: "There are exactly four verdicts: GREEN (proven),
 // RED (refuted), GRAY (not provable, blocker named), AMBER (stale, re-prove
-// required). No fifth state." v0 ships three of the four -- AMBER staleness
-// is explicitly v1 (PROOF_HARNESS_V0_SPEC.md: "AMBER staleness graph (v1)").
+// required). No fifth state." v0 shipped three of the four -- AMBER staleness
+// was explicitly deferred to v1 (PROOF_HARNESS_V0_SPEC.md: "AMBER staleness
+// graph (v1)"). PROOF_HARNESS_V1_SPEC.md ships the minimal slice of AMBER:
+// staleness only, when a receipt exists but the proposal's current digest no
+// longer matches the digest that receipt was bound to (the statement or
+// expectation changed after the receipt was written). This is NOT a fifth
+// mystery state layered on top -- it is the fourth state the doctrine always
+// named, added by the one new input (`staleness`) callers can now supply.
+//
 // This module is the pure decision function: given a claim, an engine run
 // result, and (optionally) what was expected, it returns exactly one of
-// GREEN / RED / GRAY plus a machine-checkable reason code and a one-line
-// human reason. It NEVER returns a confidence percentage on the verdict
-// itself (doctrine #6: "No confidence percentages on verdicts").
+// GREEN / RED / GRAY / AMBER plus a machine-checkable reason code and a
+// one-line human reason. It NEVER returns a confidence percentage on the
+// verdict itself (doctrine #6: "No confidence percentages on verdicts").
 //
 // A false GREEN is a release blocker (doctrine #7), so this function is
 // deliberately conservative: any ambiguity about whether the run actually
-// answers the claim resolves to GRAY, never to a guessed GREEN.
+// answers the claim resolves to GRAY, never to a guessed GREEN. Likewise v1's
+// Second Engine Rule (second-engine.js) can only ever pull a candidate GREEN
+// DOWN to RED on disagreement -- it is checked here as `a.corroboration`,
+// and disagreement blocks GREEN unconditionally, before staleness is even
+// considered, because a run that disagrees with a second engine is refuted
+// regardless of whether its receipt is fresh or stale.
 //
 // PURITY: no DOM, no network, no engine call. Pure function of its inputs.
 
-const VERDICT_STATES = Object.freeze(['GREEN', 'RED', 'GRAY']);
+const VERDICT_STATES = Object.freeze(['GREEN', 'RED', 'GRAY', 'AMBER']);
 
 const VERDICT_REASON_CODES = Object.freeze({
   RUN_ERROR: 'run-error',
@@ -139881,6 +139893,8 @@ const VERDICT_REASON_CODES = Object.freeze({
   ROWCOUNT_MISMATCH: 'rowcount-mismatch',
   ROWCOUNT_BAND_MISS: 'rowcount-band-miss',
   MATCH: 'match',
+  CORROBORATION_DISAGREE: 'corroboration-disagree',
+  STALE_DIGEST: 'stale-digest',
 });
 
 function isPlainObject(v) {
@@ -139893,22 +139907,34 @@ function isPlainObject(v) {
  *
  * Decision order (first match wins), each aimed at "refuse to guess":
  *   1. No proposal / no statement           -> GRAY, blocker named
- *   2. No run at all (never executed)       -> GRAY, blocker named
- *   3. Run errored                          -> RED (the run itself refutes
+ *   2. Stale digest (v1 AMBER)               -> AMBER, re-prove required (a
+ *      receipt exists but the proposal's current content no longer matches
+ *      the digest that receipt was bound to; checked early because a stale
+ *      proposal's old run/comparison describe a DIFFERENT statement and must
+ *      not be read as if they still prove the current one)
+ *   3. No run at all (never executed)       -> GRAY, blocker named
+ *   4. Run errored                          -> RED (the run itself refutes
  *      execution: doctrine treats a run that could not complete as refuted,
  *      not as unprovable, because the claim WAS attempted and failed)
- *   4. No expectation to compare against    -> GRAY, blocker named (a run
+ *   5. No expectation to compare against    -> GRAY, blocker named (a run
  *      with nothing to check it against is not proof of anything)
- *   5. Expected scalars/rowCount compared to the run's scalars/rowCount via
- *      score-claim.js's compareClaimToRun -- match => GREEN, mismatch => RED
+ *   6. Expected scalars/rowCount compared to the run's scalars/rowCount via
+ *      score-claim.js's compareClaimToRun -- match => candidate GREEN,
+ *      mismatch => RED
+ *   7. Second Engine Rule (v1): a candidate GREEN is only FINAL once any
+ *      supplied `corroboration` result is checked -- corroboration.agrees
+ *      === false blocks GREEN and forces RED, never silently passing through
  *
  * @param {{claim?: {text?:string, scalars?:object, rowCount?:number}|null,
  *          run?: {status?:'ok'|'error', rowCount?:number|null, scalars?:object,
  *                 error?:string|null, durationMs?:number}|null,
  *          expected?: {scalars?:object, rowCount?:number, rowcountBand?:[number,number]}|null,
  *          proposal?: object|null,
- *          comparison?: {pass:boolean, mismatches?: Array<object>}|null}} args
- * @returns {{state:'GREEN'|'RED'|'GRAY', reasonCode:string, reason:string, blocker:string|null}}
+ *          comparison?: {pass:boolean, mismatches?: Array<object>}|null,
+ *          corroboration?: {engine?:string, agrees?:boolean, tolerance?:number,
+ *                 divergence_class?:string|null, ran?:boolean}|null,
+ *          staleness?: {stale:boolean, reason?:string}|null}} args
+ * @returns {{state:'GREEN'|'RED'|'GRAY'|'AMBER', reasonCode:string, reason:string, blocker:string|null}}
  */
 function decideVerdict(args) {
   const a = isPlainObject(args) ? args : {};
@@ -139922,6 +139948,18 @@ function decideVerdict(args) {
       reasonCode: VERDICT_REASON_CODES.NO_PROPOSAL,
       reason: 'There is no typed proposal to run yet.',
       blocker: 'A proposal with a SQL statement is required before anything can be proven.',
+    };
+  }
+
+  const staleness = isPlainObject(a.staleness) ? a.staleness : null;
+  if (staleness && staleness.stale === true) {
+    return {
+      state: 'AMBER',
+      reasonCode: VERDICT_REASON_CODES.STALE_DIGEST,
+      reason: 'The proposal changed since its receipt was written, so that receipt no longer proves the current statement.',
+      blocker: typeof staleness.reason === 'string' && staleness.reason.trim()
+        ? staleness.reason.trim()
+        : 'Press Prove again to bind a fresh receipt to the current statement.',
     };
   }
 
@@ -139952,15 +139990,41 @@ function decideVerdict(args) {
     };
   }
 
+  const corroboration = isPlainObject(a.corroboration) ? a.corroboration : null;
+
+  // Second Engine Rule (v1): wraps every candidate-GREEN return below. A
+  // supplied corroboration result with agrees === false blocks GREEN
+  // unconditionally and forces RED instead -- disagreement between two
+  // independent engines refutes the claim, it does not merely make it
+  // unprovable (GRAY), because both engines DID run and they disagree, which
+  // is itself a definite, checkable fact. agrees === true or no corroboration
+  // supplied at all (single-engine, v0 strength) both let the candidate
+  // GREEN stand unchanged.
+  function gateGreen(candidate) {
+    if (corroboration && corroboration.agrees === false) {
+      const divergence = typeof corroboration.divergence_class === 'string' && corroboration.divergence_class.trim()
+        ? corroboration.divergence_class.trim()
+        : 'result-mismatch';
+      const engineName = typeof corroboration.engine === 'string' && corroboration.engine.trim() ? corroboration.engine.trim() : 'the second engine';
+      return {
+        state: 'RED',
+        reasonCode: VERDICT_REASON_CODES.CORROBORATION_DISAGREE,
+        reason: `The primary engine and ${engineName} do not agree on this result.`,
+        blocker: `Corroboration disagreement (${divergence}): the second engine did not reproduce the primary engine's result within tolerance.`,
+      };
+    }
+    return candidate;
+  }
+
   const comparison = isPlainObject(a.comparison) ? a.comparison : null;
   if (comparison) {
     if (comparison.pass) {
-      return {
+      return gateGreen({
         state: 'GREEN',
         reasonCode: VERDICT_REASON_CODES.MATCH,
         reason: 'The engine result matches what was expected.',
         blocker: null,
-      };
+      });
     }
     const mismatches = Array.isArray(comparison.mismatches) ? comparison.mismatches : [];
     const first = mismatches[0];
@@ -139978,12 +140042,12 @@ function decideVerdict(args) {
   // (mirrors scoreDrillAnswer's rowCount-first discipline in drill-floor.js).
   if (typeof expected.rowCount === 'number' && typeof run.rowCount === 'number') {
     if (run.rowCount === expected.rowCount) {
-      return {
+      return gateGreen({
         state: 'GREEN',
         reasonCode: VERDICT_REASON_CODES.MATCH,
         reason: `The row count matches the expected ${expected.rowCount}.`,
         blocker: null,
-      };
+      });
     }
     return {
       state: 'RED',
@@ -139996,12 +140060,12 @@ function decideVerdict(args) {
   if (Array.isArray(expected.rowcountBand) && expected.rowcountBand.length === 2 && typeof run.rowCount === 'number') {
     const [lo, hi] = expected.rowcountBand;
     if (run.rowCount >= lo && run.rowCount <= hi) {
-      return {
+      return gateGreen({
         state: 'GREEN',
         reasonCode: VERDICT_REASON_CODES.MATCH,
         reason: `The row count ${run.rowCount} falls within the expected band.`,
         blocker: null,
-      };
+      });
     }
     return {
       state: 'RED',
@@ -140310,9 +140374,784 @@ async function verifyReceiptChain(entries) {
 
 const RECEIPT_TYPE_ID = RECEIPT_TYPE;
 
+  /* ---- js/proof-harness/second-engine.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v1: Second Engine Rule (corroboration)
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V1_SPEC.md, pillar 1: after the primary engine (DuckDB) yields
+// a candidate GREEN, an independent second runner (Pyodide preferred, webR
+// optional) is asked to reproduce the same result. Disagreement BLOCKS GREEN
+// -- doctrine treats two engines disagreeing as a definite, checkable fact
+// (RED), not an absence of proof (GRAY). This module is the pure comparison:
+// it takes whatever the primary run already produced and whatever the
+// injected second runner returned, and decides whether they agree, using the
+// exact same epsilon-and-trim discipline score-claim.js already established
+// (restated here, not imported, for the same inlining reason every other
+// proof-harness module restates its primitives -- see score-claim.js's
+// header).
+//
+// This module NEVER calls a runtime itself. `runProofCycle` (index.js) is the
+// only place that decides WHETHER to run a second engine and WHICH one;
+// corroborateRun() only ever receives already-produced run results (or a
+// rejection) and returns a verdict-ready corroboration record.
+//
+// PURITY: no DOM, no network, no engine call, never throws.
+
+const SECOND_ENGINE_NUMERIC_EPSILON = 1e-6;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Same scalar comparison discipline as score-claim.js's scalarMatches. */
+function valuesAgree(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return a === b;
+    return Math.abs(a - b) <= SECOND_ENGINE_NUMERIC_EPSILON;
+  }
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.trim() === b.trim();
+  }
+  return a === b;
+}
+
+/**
+ * Resolve a callable second-engine runner from whatever the canvas/host has
+ * available, mirroring the graduated-fallback style resolveRunQuery() uses
+ * for the primary DuckDB engine. Returns { name, run } or null when nothing
+ * usable is present -- never throws, and the caller (index.js/canvas) is
+ * expected to treat null as "second engine not ready" (v0 single-engine
+ * strength), never as a corroboration failure.
+ *
+ * Feature-detected in priority order: an explicitly injected runner always
+ * wins; then Pyodide (preferred per spec), then webR (optional).
+ * @param {{runSecondEngine?: Function, secondEngineName?: string}} [opts]
+ */
+function resolveSecondEngine(opts) {
+  const o = isPlainObject(opts) ? opts : {};
+  if (typeof o.runSecondEngine === 'function') {
+    return { name: typeof o.secondEngineName === 'string' && o.secondEngineName.trim() ? o.secondEngineName.trim() : 'second-engine', run: o.runSecondEngine };
+  }
+  try {
+    if (typeof window !== 'undefined') {
+      if (typeof window.runDrillPython === 'function') {
+        return { name: 'pyodide', run: window.runDrillPython };
+      }
+      if (window.DataGlowProofHarness && typeof window.DataGlowProofHarness.resolveSecondEngine === 'function') {
+        const resolved = window.DataGlowProofHarness.resolveSecondEngine();
+        if (resolved && typeof resolved.run === 'function') return resolved;
+      }
+      if (typeof window.runDrillR === 'function') {
+        return { name: 'webr', run: window.runDrillR };
+      }
+    }
+  } catch (_e) { /* never throw resolving an optional runtime */ }
+  return null;
+}
+
+/**
+ * Extract a comparable {rowCount, scalars} shape from a second-engine run
+ * result. Second engines (Pyodide/webR) commonly return {stdout, result,
+ * error} rather than DuckDB's {columns, rows}; this reads a `result` object
+ * or array the same way score-claim.js's extractRowCount does, and any
+ * caller-supplied `scalars` map is passed through unchanged.
+ * @param {*} secondRun
+ */
+function normalizeSecondRun(secondRun) {
+  if (!isPlainObject(secondRun)) return { rowCount: null, scalars: {}, error: null };
+  const payload = secondRun.result !== undefined ? secondRun.result : secondRun;
+  let rowCount = null;
+  if (Array.isArray(payload)) rowCount = payload.length;
+  else if (isPlainObject(payload)) {
+    if (Array.isArray(payload.rows)) rowCount = payload.rows.length;
+    else if (typeof payload.rowCount === 'number') rowCount = payload.rowCount;
+  }
+  if (rowCount === null && typeof secondRun.rowCount === 'number') rowCount = secondRun.rowCount;
+  const scalars = isPlainObject(secondRun.scalars) ? secondRun.scalars : {};
+  const error = typeof secondRun.error === 'string' && secondRun.error.trim() ? secondRun.error.trim() : null;
+  return { rowCount, scalars, error };
+}
+
+/**
+ * Compare the primary engine's run to a second engine's run for corroboration.
+ * Agreement requires: the second engine did not error, its rowCount matches
+ * the primary's rowCount (when both are known), and every named scalar in
+ * `expected.scalars` that the second engine reports agrees with the primary's
+ * value for that same scalar. An unreadable/unavailable second run resolves
+ * to `ran: false, agrees: null` (v0 single-engine strength, NOT a disagree),
+ * so callers can distinguish "no second engine ran" from "second engine ran
+ * and disagreed".
+ *
+ * NEVER throws.
+ * @param {{primaryRun: {rowCount?:number|null, scalars?:object}, secondRun?: *,
+ *          secondEngineName?: string, expected?: {scalars?:object}}} args
+ * @returns {{ran:boolean, engine:string|null, agrees:boolean|null, tolerance:number,
+ *   divergence_class:string|null, details: Array<{field:string, primary:*, second:*}>}}
+ */
+function corroborateRun(args) {
+  const a = isPlainObject(args) ? args : {};
+  const engineName = typeof a.secondEngineName === 'string' && a.secondEngineName.trim() ? a.secondEngineName.trim() : null;
+
+  if (a.secondRun === undefined || a.secondRun === null) {
+    return { ran: false, engine: engineName, agrees: null, tolerance: SECOND_ENGINE_NUMERIC_EPSILON, divergence_class: null, details: [] };
+  }
+
+  const primary = isPlainObject(a.primaryRun) ? a.primaryRun : {};
+  const second = normalizeSecondRun(a.secondRun);
+
+  if (second.error) {
+    return {
+      ran: true,
+      engine: engineName,
+      agrees: false,
+      tolerance: SECOND_ENGINE_NUMERIC_EPSILON,
+      divergence_class: 'second-engine-error',
+      details: [{ field: 'error', primary: null, second: second.error }],
+    };
+  }
+
+  const details = [];
+  let agrees = true;
+
+  const primaryRowCount = typeof primary.rowCount === 'number' ? primary.rowCount : null;
+  if (primaryRowCount !== null && second.rowCount !== null) {
+    const rowsAgree = valuesAgree(primaryRowCount, second.rowCount);
+    details.push({ field: 'rowCount', primary: primaryRowCount, second: second.rowCount });
+    if (!rowsAgree) agrees = false;
+  }
+
+  const expectedScalars = isPlainObject(a.expected) && isPlainObject(a.expected.scalars) ? a.expected.scalars : {};
+  const primaryScalars = isPlainObject(primary.scalars) ? primary.scalars : {};
+  for (const key of Object.keys(expectedScalars)) {
+    if (!Object.prototype.hasOwnProperty.call(second.scalars, key)) continue; // second engine did not report this scalar; nothing to compare
+    const primaryVal = Object.prototype.hasOwnProperty.call(primaryScalars, key) ? primaryScalars[key] : undefined;
+    const secondVal = second.scalars[key];
+    details.push({ field: key, primary: primaryVal, second: secondVal });
+    if (!valuesAgree(primaryVal, secondVal)) agrees = false;
+  }
+
+  return {
+    ran: true,
+    engine: engineName,
+    agrees,
+    tolerance: SECOND_ENGINE_NUMERIC_EPSILON,
+    divergence_class: agrees ? null : 'result-mismatch',
+    details,
+  };
+}
+
+/**
+ * Build the `corroboration` field the receipt predicate expects
+ * (buildReceiptPredicate's `predicate.corroboration`), from a
+ * corroborateRun() result. Returns null when no second engine ran at all
+ * (v0 single-engine strength is not itself a corroboration event worth
+ * recording as a distinct predicate field).
+ * @param {ReturnType<typeof corroborateRun>} corroboration
+ */
+function buildCorroborationField(corroboration) {
+  if (!isPlainObject(corroboration) || corroboration.ran !== true) return null;
+  return {
+    engine: corroboration.engine,
+    agrees: corroboration.agrees,
+    tolerance: corroboration.tolerance,
+    divergence_class: corroboration.divergence_class,
+  };
+}
+
+  /* ---- js/proof-harness/vault.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v1: Regression Vault
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V1_SPEC.md, pillar 2: every RED verdict and every human
+// rejection (a refused confirm, or an explicit Reject action) appends a
+// durable local vault test -- a seeded repeat of a prior RED must fail again
+// (caught), the same "does this regression stay caught" discipline a unit
+// test suite gives a codebase, applied to claims instead of code.
+//
+// A vault test is plain data: { id, claimText, statement, expected,
+// createdAt, source }. `runVault({ runQuery })` re-runs every test through
+// the SAME injected runner discipline every other proof-harness module uses
+// (never talks to DuckDB directly) and reports pass/fail per test -- "pass"
+// here means the vault test's ORIGINAL bad outcome is still reproduced (the
+// regression is still caught), not that the claim is now true. A vault test
+// that suddenly comes back GREEN is the vault's alarm bell: something that
+// used to be wrong is no longer being caught as wrong, which is exactly the
+// silent-regression case this module exists to surface.
+//
+// STORAGE: in-memory always; `localStorage` under key
+// `dataglow.proofHarness.vault.v1` when available (browser only). Never
+// uploads -- this module makes no network call anywhere. A caller (tests, a
+// non-browser host) may inject its own storage object shaped like
+// `localStorage` ({getItem, setItem, removeItem}) via createVault({storage}),
+// so this module needs no `typeof window` branch to stay Node-testable.
+//
+// PURITY: no DOM, no network. `runQuery` is the only injected side effect,
+// exactly like runProofCycle's own injected runner.
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+const VAULT_STORAGE_KEY = 'dataglow.proofHarness.vault.v1';
+
+/** SHA-256 of a string, lowercase hex. Same algorithm as proposal.js/receipt.js. */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function resolveStorage(injected) {
+  if (injected && typeof injected.getItem === 'function' && typeof injected.setItem === 'function') return injected;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+  } catch (_e) { /* localStorage can throw in a locked-down context; fall back to memory-only */ }
+  return null;
+}
+
+function readStored(storage) {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(VAULT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_e) {
+    return []; // malformed/corrupt storage never throws out; starts clean
+  }
+}
+
+function writeStored(storage, tests) {
+  if (!storage) return;
+  try {
+    storage.setItem(VAULT_STORAGE_KEY, JSON.stringify(tests));
+  } catch (_e) { /* storage full/unavailable mid-session: vault stays in-memory-only for this session */ }
+}
+
+/**
+ * Build one vault test record from a prove cycle's inputs. Never throws;
+ * a malformed input still produces a usable record with safe defaults.
+ * @param {{claimText?:string, statement:string, expected?:object,
+ *          source:'red'|'reject'}} input
+ */
+async function buildVaultTest(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const statement = typeof inp.statement === 'string' ? inp.statement : '';
+  const expected = isPlainObject(inp.expected) ? { ...inp.expected } : {};
+  const source = inp.source === 'reject' ? 'reject' : 'red';
+  const createdAt = Number.isFinite(inp.createdAt) ? inp.createdAt : Date.now();
+  const idSeed = JSON.stringify({ statement, expected, source, createdAt, salt: Math.random() });
+  const id = 'vault-' + (await sha256Hex(idSeed)).slice(0, 16);
+  return {
+    id,
+    claimText: typeof inp.claimText === 'string' && inp.claimText.trim() ? inp.claimText.trim() : null,
+    statement,
+    expected,
+    createdAt,
+    source,
+  };
+}
+
+/**
+ * A durable local Regression Vault. In-memory always; persists to the
+ * injected/global localStorage when available. NEVER uploads -- there is no
+ * network call anywhere in this module.
+ * @param {{storage?: {getItem:Function, setItem:Function}}} [opts]
+ */
+function createVault(opts) {
+  const o = isPlainObject(opts) ? opts : {};
+  const storage = resolveStorage(o.storage);
+  let tests = readStored(storage);
+
+  /**
+   * Append a new vault test from a RED verdict or a human rejection. Never
+   * throws. Returns the stored test record.
+   * @param {{claimText?:string, statement:string, expected?:object, source:'red'|'reject'}} input
+   */
+  async function add(input) {
+    const test = await buildVaultTest(input);
+    tests = tests.concat([test]);
+    writeStored(storage, tests);
+    return test;
+  }
+
+  /** Read-only snapshot of every stored vault test, oldest first. */
+  function list() {
+    return tests.slice();
+  }
+
+  /** Number of stored vault tests. */
+  function size() {
+    return tests.length;
+  }
+
+  /** Remove every vault test (explicit reset only; tests / user-initiated clear). */
+  function clear() {
+    tests = [];
+    writeStored(storage, tests);
+  }
+
+  return { add, list, size, clear };
+}
+
+/**
+ * Re-run every vault test through the injected runner and report pass/fail
+ * per test. "Pass" means the regression is STILL caught -- i.e. the run does
+ * NOT now match `expected` (mirrors the original RED/reject), using the same
+ * compareClaimToRun discipline as score-claim.js. A test whose run now
+ * matches `expected` FAILS the vault check: the regression escaped, and that
+ * is reported plainly rather than folded into a generic error.
+ *
+ * A run that throws is treated as still-caught (pass): the original claim is
+ * still not provable/reproducible, consistent with decideVerdict's RED-on-
+ * run-error rule. Never throws itself.
+ *
+ * @param {{runQuery: (sql:string) => Promise<*>, tests?: Array<object>, compareClaimToRun: Function}} args
+ * @returns {Promise<{total:number, caught:number, escaped:number, results: Array<object>}>}
+ */
+async function runVault(args) {
+  const a = isPlainObject(args) ? args : {};
+  const tests = Array.isArray(a.tests) ? a.tests : [];
+  const compare = typeof a.compareClaimToRun === 'function' ? a.compareClaimToRun : null;
+  const results = [];
+
+  for (const test of tests) {
+    if (typeof a.runQuery !== 'function' || typeof test.statement !== 'string' || !test.statement.trim()) {
+      results.push({ id: test.id, caught: true, reason: 'No runner or no statement; treated as still not provable (caught).', run: null });
+      continue;
+    }
+    let run;
+    try {
+      const result = await a.runQuery(test.statement);
+      const rowCount = Array.isArray(result && result.rows) ? result.rows.length
+        : (typeof (result && result.rowCount) === 'number' ? result.rowCount : null);
+      run = { status: 'ok', rowCount, scalars: {}, result, error: null };
+    } catch (err) {
+      results.push({ id: test.id, caught: true, reason: 'The run errored again, same as originally recorded.', run: null });
+      continue;
+    }
+
+    const comparison = compare ? compare(test.expected, run) : { pass: false, mismatches: [] };
+    if (comparison.pass) {
+      // The original problem no longer reproduces: the regression escaped.
+      results.push({ id: test.id, caught: false, reason: 'This vault test now matches the expectation; the regression it caught is no longer being caught.', run });
+    } else {
+      results.push({ id: test.id, caught: true, reason: 'The mismatch that put this in the vault is still present.', run, mismatches: comparison.mismatches });
+    }
+  }
+
+  const caught = results.filter((r) => r.caught).length;
+  return {
+    total: results.length,
+    caught,
+    escaped: results.length - caught,
+    results,
+  };
+}
+
+  /* ---- js/proof-harness/cartridge.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v1: Proof Cartridge (portable proof)
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V1_SPEC.md, pillar 3: a confirmed GREEN receipt should be
+// able to travel -- exported as a portable JSON cartridge someone else can
+// re-run on their own device to check the SAME claim against their OWN data,
+// without ever moving the source rows themselves. A cartridge carries the
+// proposal digest, statement, expected values, verdict, environment, and
+// input schema fingerprints if present, but ZERO ROWS of source data by
+// default -- that is the whole point: "prove it travels, the data does not."
+// A `sha256`-style hash over the payload gives the cartridge a signature-like
+// integrity check (this is a content hash, not a cryptographic signature by
+// a private key; exportCartridge()/importCartridge() are both explicit about
+// that, matching the honest-naming discipline every other provenance module
+// in this codebase follows -- see js/provenance/ai-touch-ledger.js's header).
+//
+// Import re-executes the statement via the caller's injected `runQuery` on
+// the IMPORTER's own data; if the result no longer matches what the
+// cartridge recorded, importCartridge() returns a precise divergence report
+// and REFUSES to call it GREEN -- a cartridge is a claim to re-check, never
+// a certificate to trust blindly.
+//
+// PURITY: no DOM, no network. `runQuery` is the only injected side effect.
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+const CARTRIDGE_TYPE = 'dataglow/proof-cartridge/v1';
+
+/** SHA-256 of a string, lowercase hex. Same algorithm as every other proof-harness module. */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Recursively sort object keys so JSON.stringify output is canonical
+// regardless of insertion order, mirroring receipt.js's sortDeep.
+function sortDeep(value) {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (isPlainObject(value)) {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = sortDeep(value[key]);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Build a portable proof cartridge from a confirmed GREEN prove cycle
+ * result (the same shape runProofCycle() returns). Carries ZERO ROWS of
+ * source data by default -- only the digest, statement, expected values,
+ * verdict, environment, and (if supplied) input schema fingerprints.
+ *
+ * Refuses (returns {rejected:true, reason}) when the supplied result was not
+ * a GREEN verdict: exporting a cartridge is only meaningful for a claim that
+ * was actually proven, matching the spec's "export a portable JSON cartridge
+ * from a confirmed GREEN receipt".
+ *
+ * @param {{proposal: object, verdict: {state:string}, receipt?: object,
+ *          run?: {durationMs?:number, rowCount?:number}, environment?: object,
+ *          schemaFingerprints?: object}} args
+ * @returns {Promise<{rejected:true, reason:string} | {rejected:false, cartridge:object}>}
+ */
+async function exportCartridge(args) {
+  const a = isPlainObject(args) ? args : {};
+  const proposal = a.proposal;
+  const verdict = a.verdict;
+
+  if (!isPlainObject(proposal) || typeof proposal.statement !== 'string' || !proposal.statement.trim()) {
+    return { rejected: true, reason: 'A proposal with a statement is required to export a cartridge.' };
+  }
+  if (!isPlainObject(verdict) || verdict.state !== 'GREEN') {
+    return { rejected: true, reason: 'Only a confirmed GREEN result can be exported as a proof cartridge.' };
+  }
+
+  const payload = {
+    _type: CARTRIDGE_TYPE,
+    proposalDigest: proposal.digest || null,
+    statement: proposal.statement,
+    engine: proposal.engine || 'duckdb',
+    claimText: proposal.claimText || null,
+    expected: isPlainObject(proposal.expected) ? proposal.expected : {},
+    tables: Array.isArray(proposal.tables) ? proposal.tables.slice() : [],
+    verdict: { state: verdict.state, reasonCode: verdict.reasonCode || null },
+    environment: isPlainObject(a.environment) ? a.environment : {},
+    schemaFingerprints: isPlainObject(a.schemaFingerprints) ? a.schemaFingerprints : {},
+    receiptHash: a.receipt && typeof a.receipt.hash === 'string' ? a.receipt.hash : null,
+    rowCountAtExport: a.run && typeof a.run.rowCount === 'number' ? a.run.rowCount : null,
+    rows: [], // deliberately always empty: zero rows of source data by default
+    exportedAt: new Date().toISOString(),
+  };
+
+  const hash = await sha256Hex(JSON.stringify(sortDeep(payload)));
+  return { rejected: false, cartridge: { ...payload, cartridgeHash: `sha256:${hash}` } };
+}
+
+/**
+ * Serialize a cartridge object to a JSON string suitable for a file download
+ * or copy-to-clipboard. Pure formatting only.
+ * @param {object} cartridge
+ */
+function serializeCartridge(cartridge) {
+  return JSON.stringify(cartridge, null, 2);
+}
+
+/**
+ * Parse a cartridge from a JSON string (file contents or pasted text). Never
+ * throws: malformed JSON or a wrong shape returns {rejected:true, reason}.
+ * @param {string} text
+ */
+function parseCartridge(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(text));
+  } catch (_e) {
+    return { rejected: true, reason: 'That is not valid JSON, so it cannot be read as a proof cartridge.' };
+  }
+  if (!isPlainObject(parsed) || parsed._type !== CARTRIDGE_TYPE) {
+    return { rejected: true, reason: `That JSON is not a ${CARTRIDGE_TYPE} cartridge.` };
+  }
+  if (typeof parsed.statement !== 'string' || !parsed.statement.trim()) {
+    return { rejected: true, reason: 'The cartridge is missing its statement.' };
+  }
+  return { rejected: false, cartridge: parsed };
+}
+
+/**
+ * Verify a cartridge's own integrity hash (recompute and compare), catching a
+ * hand-edited or corrupted cartridge before it is ever re-run. This is a
+ * content-hash check, not a cryptographic signature verification -- it
+ * proves the cartridge has not changed since export, not who exported it.
+ * @param {object} cartridge
+ */
+async function verifyCartridgeHash(cartridge) {
+  if (!isPlainObject(cartridge) || typeof cartridge.cartridgeHash !== 'string') {
+    return { valid: false, reason: 'No cartridge hash to verify.' };
+  }
+  const { cartridgeHash, ...rest } = cartridge;
+  const recomputed = await sha256Hex(JSON.stringify(sortDeep(rest)));
+  const expected = `sha256:${recomputed}`;
+  return {
+    valid: expected === cartridgeHash,
+    reason: expected === cartridgeHash ? 'Cartridge hash matches; unedited since export.' : 'Cartridge hash does not match its contents; it may have been edited or corrupted.',
+  };
+}
+
+/**
+ * Import a cartridge: re-execute its statement via the caller's injected
+ * `runQuery` (the importer's own live engine, on the importer's own data),
+ * then compare the fresh result to the cartridge's recorded expectation
+ * using the caller-supplied `compareClaimToRun`. Refuses GREEN on any
+ * mismatch or hash-integrity failure, returning a precise divergence report
+ * naming exactly what did not match -- never a guess, matching every other
+ * proof-harness refuse-to-guess discipline.
+ *
+ * @param {{cartridgeText: string, runQuery: (sql:string) => Promise<*>,
+ *          compareClaimToRun: Function}} args
+ * @returns {Promise<{ok:boolean, state:'GREEN'|'RED'|'GRAY', reason:string,
+ *   divergence: Array<object>, cartridge?: object}>}
+ */
+async function importCartridge(args) {
+  const a = isPlainObject(args) ? args : {};
+  const parsedResult = parseCartridge(a.cartridgeText);
+  if (parsedResult.rejected) {
+    return { ok: false, state: 'GRAY', reason: parsedResult.reason, divergence: [] };
+  }
+  const cartridge = parsedResult.cartridge;
+
+  const integrity = await verifyCartridgeHash(cartridge);
+  if (!integrity.valid) {
+    return { ok: false, state: 'RED', reason: integrity.reason, divergence: [{ field: 'cartridgeHash', expected: cartridge.cartridgeHash, got: null }], cartridge };
+  }
+
+  if (typeof a.runQuery !== 'function') {
+    return { ok: false, state: 'GRAY', reason: 'No engine available to re-run this cartridge on your own data.', divergence: [], cartridge };
+  }
+
+  let run;
+  try {
+    const result = await a.runQuery(cartridge.statement);
+    const rowCount = Array.isArray(result && result.rows) ? result.rows.length
+      : (typeof (result && result.rowCount) === 'number' ? result.rowCount : null);
+    run = { status: 'ok', rowCount, scalars: {}, result, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      state: 'RED',
+      reason: 'The statement could not be re-run on your data.',
+      divergence: [{ field: 'run', expected: 'ok', got: err && err.message ? err.message : String(err) }],
+      cartridge,
+    };
+  }
+
+  const compare = typeof a.compareClaimToRun === 'function' ? a.compareClaimToRun : () => ({ pass: false, mismatches: [{ field: 'result', expected: null, got: null }] });
+  const comparison = compare(cartridge.expected, run);
+
+  if (!comparison.pass) {
+    return {
+      ok: false,
+      state: 'RED',
+      reason: 'Re-running this cartridge on your data does not reproduce what the cartridge recorded.',
+      divergence: comparison.mismatches || [],
+      cartridge,
+    };
+  }
+
+  return { ok: true, state: 'GREEN', reason: 'Re-running this cartridge on your data reproduces what the cartridge recorded.', divergence: [], cartridge };
+}
+
+const PROOF_CARTRIDGE_TYPE = CARTRIDGE_TYPE;
+
+  /* ---- js/proof-harness/inbox.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v1: Proof Inbox (review queue)
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V1_SPEC.md, pillar 4: doctrine #8 says "There is no chat
+// panel. The surface is a claim bar plus a review inbox." v0 shipped one
+// card (the current claim). v1's Inbox is the primary review QUEUE surface
+// inside the VERDICT panel: a list of proposals/results awaiting review --
+// pending prove, proven GREEN awaiting confirm, RED, GRAY, AMBER -- with
+// actions Prove / Confirm / Reject / Open, each reachable in at most two
+// interactions (open the item, press the action), per the spec.
+//
+// This module owns ONLY the queue state machine: pure data in, pure data
+// out, no DOM. The canvas UI module renders whatever this returns and calls
+// back into these functions on button clicks. Every entry here is plain
+// data shaped like what runProofCycle() already returns (proposal, run,
+// verdict, receipt), so the Inbox never invents a second description of a
+// prove cycle's result -- it queues and labels the SAME objects.
+//
+// PURITY: no DOM, no network, no engine call, never throws.
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+const INBOX_ITEM_STATUSES = Object.freeze([
+  'pending-prove',   // queued, not yet run
+  'awaiting-confirm', // proven GREEN, not yet confirmed
+  'red',             // refuted
+  'gray',            // not provable, blocker named
+  'amber',           // stale, re-prove required
+  'confirmed',       // human confirmed
+  'rejected',        // human rejected
+]);
+
+function statusFromVerdictState(state) {
+  if (state === 'GREEN') return 'awaiting-confirm';
+  if (state === 'RED') return 'red';
+  if (state === 'AMBER') return 'amber';
+  return 'gray';
+}
+
+/**
+ * Build one inbox item from a claim/proposal that has not been run yet.
+ * @param {{claimText?:string, statement?:string, expected?:object}} input
+ */
+function buildPendingItem(input) {
+  const inp = isPlainObject(input) ? input : {};
+  return {
+    id: 'inbox-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36),
+    status: 'pending-prove',
+    claimText: typeof inp.claimText === 'string' ? inp.claimText : '',
+    statement: typeof inp.statement === 'string' ? inp.statement : '',
+    expected: isPlainObject(inp.expected) ? inp.expected : {},
+    proposal: null,
+    run: null,
+    verdict: null,
+    receipt: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Build (or update) an inbox item from a completed runProofCycle() result.
+ * Never throws; a malformed result still produces a usable, labeled item.
+ * @param {ReturnType<typeof import('./index.js').runProofCycle> | object} cycleResult
+ * @param {object} [existingItem] item being updated in place (Prove again)
+ */
+function itemFromCycleResult(cycleResult, existingItem) {
+  const r = isPlainObject(cycleResult) ? cycleResult : {};
+  const base = isPlainObject(existingItem) ? existingItem : buildPendingItem({});
+  const verdictState = r.verdict && typeof r.verdict.state === 'string' ? r.verdict.state : null;
+  return {
+    ...base,
+    status: verdictState ? statusFromVerdictState(verdictState) : 'gray',
+    claimText: (r.proposal && r.proposal.claimText) || base.claimText || '',
+    statement: (r.proposal && r.proposal.statement) || base.statement || '',
+    expected: (r.proposal && r.proposal.expected) || base.expected || {},
+    proposal: r.proposal || base.proposal || null,
+    run: r.run || null,
+    verdict: r.verdict || null,
+    receipt: r.receipt || null,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * A review queue: an ordered list of inbox items plus the mutators the
+ * spec's Prove / Confirm / Reject / Open actions need. Newest-first ordering
+ * for display is a canvas rendering choice, not stored here -- this module
+ * keeps insertion order and lets the caller sort.
+ */
+function createInbox() {
+  let items = [];
+
+  /** Add (queue) a new pending item; returns the created item. */
+  function enqueue(input) {
+    const item = buildPendingItem(input);
+    items = items.concat([item]);
+    return item;
+  }
+
+  /** Replace an item's fields after a Prove cycle completes. */
+  function recordCycleResult(id, cycleResult) {
+    let updated = null;
+    items = items.map((it) => {
+      if (it.id !== id) return it;
+      updated = itemFromCycleResult(cycleResult, it);
+      return updated;
+    });
+    return updated;
+  }
+
+  /** Mark an item confirmed (human Confirm action). */
+  function confirm(id, confirmResult) {
+    let updated = null;
+    items = items.map((it) => {
+      if (it.id !== id) return it;
+      updated = { ...it, status: 'confirmed', confirm: confirmResult || null, updatedAt: Date.now() };
+      return updated;
+    });
+    return updated;
+  }
+
+  /** Mark an item rejected (human Reject action). Rejection is itself a
+   *  vault-worthy event per the spec, so the returned item carries enough
+   *  (statement/expected) for a caller to feed vault.js's add(). */
+  function reject(id, reason) {
+    let updated = null;
+    items = items.map((it) => {
+      if (it.id !== id) return it;
+      updated = { ...it, status: 'rejected', rejectReason: typeof reason === 'string' ? reason : null, updatedAt: Date.now() };
+      return updated;
+    });
+    return updated;
+  }
+
+  /** Read-only snapshot of the current queue, oldest first. */
+  function list() {
+    return items.slice();
+  }
+
+  /** Items still needing a human look: not yet confirmed or rejected. */
+  function pendingReview() {
+    return items.filter((it) => it.status !== 'confirmed' && it.status !== 'rejected');
+  }
+
+  function get(id) {
+    return items.find((it) => it.id === id) || null;
+  }
+
+  function size() {
+    return items.length;
+  }
+
+  function clear() {
+    items = [];
+  }
+
+  return { enqueue, recordCycleResult, confirm, reject, list, pendingReview, get, size, clear };
+}
+
+/**
+ * Plain-language, no-em-dash label for an inbox item's status, for the
+ * canvas UI to render directly without inventing its own copy.
+ * @param {string} status one of INBOX_ITEM_STATUSES
+ */
+function statusLabel(status) {
+  switch (status) {
+    case 'pending-prove': return 'Waiting to be proven';
+    case 'awaiting-confirm': return 'Proven, awaiting confirm';
+    case 'red': return 'Refuted';
+    case 'gray': return 'Not provable yet';
+    case 'amber': return 'Stale, re-prove required';
+    case 'confirmed': return 'Confirmed';
+    case 'rejected': return 'Rejected';
+    default: return 'Unknown';
+  }
+}
+
   /* ---- js/proof-harness/index.js ---- */
 // ============================================================
-// DATAGLOW - Proof Harness v0 (VERDICT): orchestration + window export
+// DATAGLOW - Proof Harness orchestration + window export
+// (v0: proposal -> run -> verdict -> receipt -> confirm)
+// (v1: + Second Engine Rule corroboration, AMBER staleness, Regression
+//      Vault auto-capture, Proof Cartridge, Proof Inbox queue)
 // ============================================================
 // WHY THIS EXISTS
 // Composes proposal.js + score-claim.js + verdict.js + receipt.js into the
@@ -140325,34 +141164,92 @@ const RECEIPT_TYPE_ID = RECEIPT_TYPE;
 // invalidates it. That is doctrine #1 in code: "AI proposes. Engines prove.
 // The human confirms. In that order, always."
 //
-// This module owns ONE session-scoped receipt ledger instance (module-level,
-// like js/drill-floor's DRILLS registry) so every Prove click in a session
-// lands on the same hash chain. A fresh ledger is created per module
-// evaluation, matching createTrustLedger()'s per-session lifetime.
+// v1 composes four more pure modules into the SAME cycle, without changing
+// any v0 call's shape or default behavior:
+//   - second-engine.js: if a caller injects `runSecondEngine` (or one is
+//     resolvable via resolveSecondEngine()), corroborateRun() checks it
+//     against the primary run and decideVerdict()'s corroboration gate can
+//     pull a candidate GREEN down to RED on disagreement. No second engine
+//     injected/resolvable => behavior is byte-for-byte v0 (single-engine).
+//   - verdict.js: a `staleness` check (this module computes it from the
+//     proposal's current digest vs. the digest a supplied prior receipt was
+//     bound to) can now return AMBER. No prior receipt supplied => no
+//     staleness check => v0 GREEN/RED/GRAY behavior unchanged.
+//   - vault.js: every RED verdict (and every explicit rejectProposal() call)
+//     is appended to the module-level Regression Vault automatically, so a
+//     seeded repeat of a prior RED is caught again by runVaultCheck().
+//   - inbox.js / cartridge.js: exposed as named exports + on
+//     window.DataGlowProofHarness for the canvas UI to drive; this module
+//     does not itself maintain inbox/vault UI state, only the vault ledger
+//     (module-scoped, same lifetime rule as the receipt ledger) and pure
+//     passthroughs for cartridge export/import.
 //
-// PURITY: this file itself makes no DOM or network call. runProofCycle()
-// accepts an injected `runQuery` async function so it can be exercised with a
-// fake in tests, exactly like drill-floor.js's runDrillSql accepts an
-// injected runtime.
+// This module owns ONE session-scoped receipt ledger instance and ONE
+// session-scoped vault instance (module-level, like js/drill-floor's DRILLS
+// registry) so every Prove/Reject click in a session lands on the same
+// chain/vault. Fresh instances are created per module evaluation, matching
+// createTrustLedger()'s per-session lifetime.
+//
+// PURITY: this file itself makes no DOM call. runProofCycle() accepts an
+// injected `runQuery` (and optional `runSecondEngine`) async function so it
+// can be exercised with a fake in tests, exactly like drill-floor.js's
+// runDrillSql accepts an injected runtime. The vault's storage may reach
+// localStorage (browser only, never uploads) via vault.js's own resolver.
 
 
 const ledger = createReceiptLedger();
+const vault = createVault();
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
 /**
- * Run one full v0 prove cycle: build a typed Proposal, execute it through the
- * injected engine runner, decide a verdict, and append a receipt. Never
- * throws: an engine rejection or an invalid proposal both resolve to a
- * definite result object rather than an exception, matching the never-throw
- * discipline used across drill-floor.js and trust-ledger.js.
+ * Compute a staleness check for AMBER: true when a prior receipt's bound
+ * proposal digest no longer matches the CURRENT proposal's digest. Returns
+ * {stale:false} when no priorReceiptDigest is supplied at all, so a caller
+ * that never uses this v1 feature gets v0 behavior unchanged.
+ * @param {object} proposal freshly built typed proposal (has .digest)
+ * @param {string|null|undefined} priorReceiptDigest the digest a previously
+ *   written receipt for this same claim was bound to, if the caller tracks one
+ */
+function computeStaleness(proposal, priorReceiptDigest) {
+  if (typeof priorReceiptDigest !== 'string' || !priorReceiptDigest.trim()) {
+    return { stale: false };
+  }
+  if (!isPlainObject(proposal) || typeof proposal.digest !== 'string') {
+    return { stale: false };
+  }
+  if (proposal.digest === priorReceiptDigest) {
+    return { stale: false };
+  }
+  return {
+    stale: true,
+    reason: 'This proposal no longer matches the digest its earlier receipt was bound to. Press Prove again to bind a fresh receipt.',
+  };
+}
+
+/**
+ * Run one full prove cycle: build a typed Proposal, execute it through the
+ * injected engine runner, optionally corroborate with a second engine,
+ * decide a verdict (including AMBER staleness when a prior receipt digest is
+ * supplied), append a receipt, and auto-capture a RED verdict into the
+ * Regression Vault. Never throws: an engine rejection or an invalid proposal
+ * both resolve to a definite result object rather than an exception, matching
+ * the never-throw discipline used across drill-floor.js and trust-ledger.js.
+ *
+ * v0 callers that never pass `runSecondEngine`/`secondEngineName`/
+ * `priorReceiptDigest` see byte-for-byte v0 behavior: no corroboration field,
+ * no AMBER, and this function's return shape is a strict superset of v0's
+ * (adds `corroboration`, `staleness`, `vaulted`, all null/false when unused).
  *
  * @param {{claimText?:string, statement:string, engine?:string, expected?:object,
- *          tables?:string[], author?:'ai'|'human', runQuery: (sql:string) => Promise<*>}} args
+ *          tables?:string[], author?:'ai'|'human', runQuery: (sql:string) => Promise<*>,
+ *          runSecondEngine?: (sql:string) => Promise<*>, secondEngineName?: string,
+ *          priorReceiptDigest?: string}} args
  * @returns {Promise<{ok:boolean, proposal:object, run:object|null, verdict:object|null,
- *   comparison:object|null, receipt:object|null, error?:string}>}
+ *   comparison:object|null, receipt:object|null, corroboration:object|null,
+ *   staleness:object|null, vaulted:boolean, error?:string}>}
  */
 async function runProofCycle(args) {
   const a = isPlainObject(args) ? args : {};
@@ -140367,12 +141264,21 @@ async function runProofCycle(args) {
   });
 
   if (proposal.rejected) {
-    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, error: proposal.reason };
+    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, corroboration: null, staleness: null, vaulted: false, error: proposal.reason };
+  }
+
+  const staleness = computeStaleness(proposal, a.priorReceiptDigest);
+
+  if (staleness.stale) {
+    const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected, staleness });
+    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, staleness, vaulted: false };
   }
 
   if (typeof a.runQuery !== 'function') {
-    const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected });
-    return { ok: true, proposal, run: null, verdict, comparison: null, receipt: await recordReceipt({ proposal, run: null, verdict }) };
+    const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected, staleness });
+    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, staleness, vaulted: false };
   }
 
   const startedAt = Date.now();
@@ -140389,20 +141295,61 @@ async function runProofCycle(args) {
   }
 
   const comparison = run.status === 'ok' ? compareClaimToRun(proposal.expected, run) : null;
+
+  // Second Engine Rule (v1): only attempted for a candidate-passing run, and
+  // only when the caller injected a second runner or one is resolvable.
+  // Never runs for a run that already errored or already failed comparison
+  // -- there is no candidate GREEN to corroborate in that case, and running
+  // a second engine anyway would not change a RED into anything else.
+  let corroboration = null;
+  const candidateGreen = run.status === 'ok' && comparison && comparison.pass;
+  if (candidateGreen) {
+    const secondRunner = typeof a.runSecondEngine === 'function'
+      ? { name: a.secondEngineName || 'second-engine', run: a.runSecondEngine }
+      : resolveSecondEngine({});
+    if (secondRunner && typeof secondRunner.run === 'function') {
+      let secondRun;
+      try {
+        secondRun = await secondRunner.run(proposal.statement);
+      } catch (err) {
+        secondRun = { error: err && err.message ? err.message : String(err) };
+      }
+      corroboration = corroborateRun({
+        primaryRun: run,
+        secondRun,
+        secondEngineName: secondRunner.name,
+        expected: proposal.expected,
+      });
+    }
+  }
+
   const verdict = decideVerdict({
     claim: { text: proposal.claimText },
     proposal,
     run,
     expected: proposal.expected,
     comparison,
+    corroboration,
+    staleness,
   });
 
-  const receipt = await recordReceipt({ proposal, run, verdict });
+  const receipt = await recordReceipt({ proposal, run, verdict, corroboration });
 
-  return { ok: true, proposal, run, verdict, comparison, receipt };
+  let vaulted = false;
+  if (verdict.state === 'RED') {
+    await vault.add({
+      claimText: proposal.claimText,
+      statement: proposal.statement,
+      expected: proposal.expected,
+      source: 'red',
+    });
+    vaulted = true;
+  }
+
+  return { ok: true, proposal, run, verdict, comparison, receipt, corroboration, staleness, vaulted };
 }
 
-async function recordReceipt({ proposal, run, verdict }) {
+async function recordReceipt({ proposal, run, verdict, corroboration }) {
   const predicate = buildReceiptPredicate({
     claim: { text: proposal.claimText, predicate_ast: null, metric_ids: [] },
     proposal: {
@@ -140421,7 +141368,8 @@ async function recordReceipt({ proposal, run, verdict }) {
       duration_ms: run.durationMs,
       error: run.error || null,
     } : { status: null, rowcount: null, scalars: {}, column_types: {}, duration_ms: null, error: null },
-    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v0' },
+    corroboration: buildCorroborationField(corroboration),
+    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v1' },
     verdict: { state: verdict.state, reason_code: verdict.reasonCode, blocker: verdict.blocker },
   });
   return ledger.append({ subjectName: proposal.claimText || 'claim', subjectDigest: proposal.digest, predicate });
@@ -140449,6 +141397,32 @@ async function confirmProposal(proposal, opts) {
   };
 }
 
+/**
+ * Human Reject action (v1 Proof Inbox): explicitly reject a proposal/result
+ * that was never confirmed. Every rejection is itself a Regression Vault
+ * event, per the spec ("every RED verdict and every human rejection...
+ * appends a durable local vault test"). Never throws.
+ * @param {{claimText?:string, statement:string, expected?:object}} proposal
+ * @param {{reason?:string, by?:string}} [opts]
+ */
+async function rejectProposal(proposal, opts) {
+  const p = isPlainObject(proposal) ? proposal : {};
+  const o = isPlainObject(opts) ? opts : {};
+  const test = await vault.add({
+    claimText: p.claimText,
+    statement: p.statement,
+    expected: p.expected,
+    source: 'reject',
+  });
+  return {
+    rejected: true,
+    by: o.by || 'local-user',
+    reason: typeof o.reason === 'string' && o.reason.trim() ? o.reason.trim() : 'Rejected by reviewer.',
+    at: new Date().toISOString(),
+    vaultTestId: test.id,
+  };
+}
+
 /** Read-only access to this session's receipt chain. */
 function getReceipts() {
   return ledger.getEntries();
@@ -140464,8 +141438,34 @@ function resetReceipts() {
   ledger.clear();
 }
 
+/** Read-only access to this session's Regression Vault tests. */
+function getVaultTests() {
+  return vault.list();
+}
+
+/** Number of stored vault tests. */
+function getVaultSize() {
+  return vault.size();
+}
+
+/** Explicitly add a vault test (used by the canvas Reject action, and
+ *  available directly for a caller that already has a RED result in hand). */
+async function addVaultTest(input) {
+  return vault.add(input);
+}
+
+/** Re-run every stored vault test against the injected runner. */
+async function runVaultCheck(runQuery) {
+  return runVault({ runQuery, tests: vault.list(), compareClaimToRun });
+}
+
+/** Clear the session Regression Vault (tests / explicit user reset only). */
+function resetVault() {
+  vault.clear();
+}
+
   const DataGlowProofHarness = {
-    version: 1,
+    version: 2,
     runProofCycle: runProofCycle,
     confirmProposal: confirmProposal,
     createTypedProposal: createTypedProposal,
@@ -140473,7 +141473,22 @@ function resetReceipts() {
     compareClaimToRun: compareClaimToRun,
     getReceipts: getReceipts,
     verifyReceipts: verifyReceipts,
-    resetReceipts: resetReceipts
+    resetReceipts: resetReceipts,
+    rejectProposal: rejectProposal,
+    getVaultTests: getVaultTests,
+    getVaultSize: getVaultSize,
+    addVaultTest: addVaultTest,
+    runVaultCheck: runVaultCheck,
+    resetVault: resetVault,
+    exportCartridge: exportCartridge,
+    importCartridge: importCartridge,
+    parseCartridge: parseCartridge,
+    verifyCartridgeHash: verifyCartridgeHash,
+    serializeCartridge: serializeCartridge,
+    createInbox: createInbox,
+    statusLabel: statusLabel,
+    resolveSecondEngine: resolveSecondEngine,
+    VERDICT_STATES: VERDICT_STATES
   };
   window.DataGlowProofHarness = DataGlowProofHarness;
 })();
@@ -140483,20 +141498,32 @@ function resetReceipts() {
 ;(function () {
   'use strict';
 
-  /* Proof Harness v0 (VERDICT): the claim bar plus a review inbox that the
+  /* Proof Harness (VERDICT): the claim bar plus a review inbox that the
      MASTER PROMPT doctrine calls for, not a chat panel. Doctrine #8: "There is
-     no chat panel. The surface is a claim bar plus a review inbox." v0's inbox
-     is one card: the current claim's proposal, verdict and receipt.
+     no chat panel. The surface is a claim bar plus a review inbox."
+
+     v0 shipped one card: the current claim's proposal, verdict and receipt,
+     under a single Prove tab implicitly.
+
+     v1 (this file, behind proofHarnessV1) adds a tabbed panel -- Inbox | Prove
+     | Vault | Cartridge -- Inbox is the default tab, matching the spec's
+     review-queue-first posture. The Prove tab is BYTE-FOR-BYTE the v0 body:
+     same ids, same markup, same behavior, so a flag-off session or a session
+     with proofHarnessV1 off still gets exactly v0. Everything else (Inbox
+     rendering, Vault list/run, Cartridge export/import) is additive and only
+     ever mounted when proofHarnessV1 is on.
 
      The pure engine (js/proof-harness/index.js + proposal.js + verdict.js +
-     score-claim.js + receipt.js, published together as window.
-     DataGlowProofHarness) owns typed proposals, the verdict decision, claim
-     scoring and the hash-chained receipt ledger. This module owns only what
-     the engine cannot: the button, the panel, and wiring the panel's Prove
-     button to the SAME live DuckDB engine Drill Floor's SQL Run/Check path
-     already uses (resolveDrillSqlRunQuery / window.engine.runQuery / the
-     DuckDB singleton -- see Bundle 18 hotfix 5, #613). No second wasm load
-     path is created here.
+     score-claim.js + receipt.js + second-engine.js + vault.js + cartridge.js +
+     inbox.js, published together as window.DataGlowProofHarness) owns typed
+     proposals, the verdict decision, claim scoring, the hash-chained receipt
+     ledger, corroboration, the regression vault, cartridges, and the inbox
+     queue state machine. This module owns only what the engine cannot: the
+     button, the panel, tabs, and wiring the Prove tab's Prove button to the
+     SAME live DuckDB engine Drill Floor's SQL Run/Check path already uses
+     (resolveDrillSqlRunQuery / window.engine.runQuery / the DuckDB singleton
+     -- see Bundle 18 hotfix 5, #613). No second wasm load path is created
+     here, in any tab.
 
      DOCTRINE IN THIS FILE:
        1. AI proposes, engines prove, human confirms, in that order. The Prove
@@ -140505,12 +141532,17 @@ function resetReceipts() {
           only ever handed to createTypedProposal() first; the executor
           (runQuery) is only ever called with proposal.statement, which is
           exactly what was typed into the visible, editable field, never a
-          hidden or model-composed string.
+          hidden or model-composed string. The Cartridge tab's import re-run
+          follows the identical discipline: only the cartridge's own recorded
+          statement is ever executed, never anything else.
        3. Never auto-mutate: nothing here writes to a saved session/table.
           Confirm only marks the CURRENT proposal as confirmed in memory,
           bound to its digest.
-       6. Exactly three verdict colors in v0: GREEN / RED / GRAY. No AMBER.
-       8. No chat panel. Claim bar + one card. No free text response area.
+       6. Four verdict colors in v1: GREEN / RED / GRAY / AMBER (stale digest
+          only). v0 had three; AMBER is additive, never a silent reclassify
+          of an existing GREEN/RED/GRAY case.
+       8. No chat panel. Claim bar + tabbed review surface. No free text
+          response area.
 
      No em dash (U+2014) anywhere in this file's visible strings. */
 
@@ -140518,10 +141550,18 @@ function resetReceipts() {
   var PANEL_ID = 'dg-proof-harness-panel';
   var STYLE_ID = 'dg-proof-harness-styles';
   var BODY_ID = 'dg-proof-harness-body';
+  var TABS_ID = 'dg-proof-harness-tabs';
 
   var _lastProposal = null;
   var _lastResult = null;
   var _lastEngineMissing = false;
+  var _lastConfirm = null;
+  var _activeTab = 'inbox'; // inbox | prove | vault | cartridge (v1 default: inbox)
+
+  var _inboxStore = null; // created lazily from js/proof-harness/inbox.js's createInbox()
+  var _lastVaultRun = null;
+  var _lastCartridgeExport = null;
+  var _lastCartridgeImport = null;
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -140536,6 +141576,22 @@ function resetReceipts() {
     try {
       if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
         return window.DataGlowFlags.isEnabled('proofHarness') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  /* v1 umbrella flag: gates ONLY the Inbox/Vault/Cartridge tabs and their
+     controls. With this off (but proofHarness still on), the panel renders
+     exactly the v0 single Prove surface, no tab bar at all -- matching
+     acceptance gate 4 ("Flag off: v1 tabs hidden; v0 prove path still works
+     if proofHarness on"). */
+  function v1FlagOn() {
+    try { if (window.DATAGLOW_PROOF_HARNESS_V1 === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_HARNESS_V1 === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofHarnessV1') !== false;
       }
     } catch (_e) {}
     return true;
@@ -140556,10 +141612,18 @@ function resetReceipts() {
     console.info('[Proof Harness]', msg);
   }
 
+  function inbox() {
+    if (!_inboxStore && engine() && typeof engine().createInbox === 'function') {
+      _inboxStore = engine().createInbox();
+    }
+    return _inboxStore;
+  }
+
   /* ---------------------------- SQL engine resolution --------------------
      Reuses the exact resolver Drill Floor's SQL Run/Check path uses (Bundle
      18 hotfix 5, #613), with the same graduated fallbacks, so there is never
-     a second wasm load path and the warm SQL connection stays shared. */
+     a second wasm load path and the warm SQL connection stays shared. Shared
+     by the Prove tab and the Cartridge tab's import re-run. */
   function resolveRunQuery() {
     if (typeof window.resolveDrillSqlRunQuery === 'function') {
       try {
@@ -140626,6 +141690,13 @@ function resetReceipts() {
       '#' + PANEL_ID + ' .dg-ph-sub{font-size:12px;color:var(--text-muted,#9AA1AE);margin:4px 0 0;line-height:1.55}',
       '#' + PANEL_ID + ' .dg-ph-x{min-height:44px;min-width:44px;border:none;background:transparent;',
       'color:var(--text-muted,#9AA1AE);font-size:22px;cursor:pointer;border-radius:10px;flex:0 0 auto}',
+      '#' + TABS_ID + '{display:flex;gap:4px;padding:0 14px;border-bottom:1px solid var(--border,#282D38);',
+      'flex-wrap:wrap}',
+      '#' + TABS_ID + ' .dg-ph-tab{min-height:40px;padding:0 12px;border:none;background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;',
+      'border-bottom:2px solid transparent}',
+      '#' + TABS_ID + ' .dg-ph-tab.active{color:var(--text,#E8EAED);border-bottom-color:var(--primary,#20C5B5)}',
+      '#' + TABS_ID + ' .dg-ph-tab:hover{color:var(--text,#E8EAED)}',
       '#' + BODY_ID + '{flex:1;overflow-y:auto;padding:14px 18px;-webkit-overflow-scrolling:touch}',
       '#' + PANEL_ID + ' label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.02em;',
       'color:var(--text-muted,#9AA1AE);margin:14px 0 6px;text-transform:uppercase}',
@@ -140635,6 +141706,7 @@ function resetReceipts() {
       'color:var(--text,#E8EAED);font:inherit;font-size:12.5px;padding:9px 10px;resize:vertical}',
       '#' + PANEL_ID + ' textarea.dg-ph-statement{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:76px}',
       '#' + PANEL_ID + ' textarea.dg-ph-claim{min-height:44px}',
+      '#' + PANEL_ID + ' textarea.dg-ph-cartridge{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:120px;font-size:11px}',
       '#' + PANEL_ID + ' .dg-ph-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}',
       '#' + PANEL_ID + ' .dg-ph-btn{min-height:38px;padding:0 13px;border-radius:10px;font:inherit;font-size:12.5px;',
       'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
@@ -140650,6 +141722,8 @@ function resetReceipts() {
       'border:1px solid rgba(229,83,75,.4)}',
       '#' + PANEL_ID + ' .dg-ph-chip.GRAY{background:rgba(154,161,174,.14);color:var(--text-muted,#9AA1AE);',
       'border:1px solid rgba(154,161,174,.4)}',
+      '#' + PANEL_ID + ' .dg-ph-chip.AMBER{background:rgba(230,178,44,.14);color:#E6B22C;',
+      'border:1px solid rgba(230,178,44,.4)}',
       '#' + PANEL_ID + ' .dg-ph-reason{font-size:12.5px;line-height:1.55;color:var(--text-secondary,#B4B8C0);margin:8px 0 0}',
       '#' + PANEL_ID + ' .dg-ph-receipt{margin-top:14px;padding:10px 12px;border-radius:10px;',
       'border:1px solid var(--border,#282D38);font-size:12px;line-height:1.7;color:var(--text-secondary,#B4B8C0)}',
@@ -140664,6 +141738,19 @@ function resetReceipts() {
       'background:rgba(154,161,174,.14);border:1px solid rgba(154,161,174,.4);',
       'color:var(--text-muted,#9AA1AE);font-size:11.5px}',
       '#' + PANEL_ID + ' .dg-ph-confirmed{margin-top:10px;font-size:12px;font-weight:700;color:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-item{padding:10px 12px;border-radius:10px;border:1px solid var(--border,#282D38);',
+      'margin-bottom:8px}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-item .dg-ph-inbox-claim{font-size:12.5px;font-weight:700;color:var(--text,#E8EAED);',
+      'margin:0 0 4px}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-item .dg-ph-inbox-status{font-size:11px;font-weight:700;letter-spacing:.02em;',
+      'text-transform:uppercase}',
+      '#' + PANEL_ID + ' .dg-ph-inbox-actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}',
+      '#' + PANEL_ID + ' .dg-ph-empty{font-size:12.5px;color:var(--text-muted,#9AA1AE);padding:16px 4px}',
+      '#' + PANEL_ID + ' .dg-ph-vault-item{padding:8px 10px;border-radius:8px;border:1px solid var(--border,#282D38);',
+      'margin-bottom:6px;font-size:12px;color:var(--text-secondary,#B4B8C0)}',
+      '#' + PANEL_ID + ' .dg-ph-vault-summary{font-size:12.5px;margin-top:10px;font-weight:700}',
+      '#' + PANEL_ID + ' .dg-ph-vault-summary.has-escaped{color:var(--danger,#E5534B)}',
+      '#' + PANEL_ID + ' .dg-ph-vault-summary.all-caught{color:var(--primary,#20C5B5)}',
       '@media (max-width:700px){',
       '#' + BTN_ID + '{min-height:44px}',
       '#' + PANEL_ID + '{width:100%;left:0;border-left:none}',
@@ -140687,6 +141774,14 @@ function resetReceipts() {
     panel.id = PANEL_ID;
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', 'Proof Harness');
+    var tabsHtml = v1FlagOn()
+      ? '<div id="' + TABS_ID + '">' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="inbox">Inbox</button>' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="prove">Prove</button>' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="vault">Vault</button>' +
+          '<button type="button" class="dg-ph-tab" data-ph-tab="cartridge">Cartridge</button>' +
+        '</div>'
+      : '';
     panel.innerHTML =
       '<div class="dg-ph-head">' +
         '<div style="min-width:0">' +
@@ -140695,38 +141790,64 @@ function resetReceipts() {
         '</div>' +
         '<button type="button" class="dg-ph-x" data-ph-close aria-label="Close">&#215;</button>' +
       '</div>' +
+      tabsHtml +
       '<div id="' + BODY_ID + '"></div>';
     document.body.appendChild(panel);
     panel.querySelector('[data-ph-close]').addEventListener('click', closePanel);
+    if (v1FlagOn()) {
+      var tabButtons = panel.querySelectorAll('[data-ph-tab]');
+      for (var i = 0; i < tabButtons.length; i++) {
+        tabButtons[i].addEventListener('click', function (ev) {
+          setActiveTab(ev.currentTarget.getAttribute('data-ph-tab'));
+        });
+      }
+    }
     return panel;
   }
 
+  function setActiveTab(tab) {
+    _activeTab = tab;
+    var tabButtons = document.querySelectorAll('#' + TABS_ID + ' [data-ph-tab]');
+    for (var i = 0; i < tabButtons.length; i++) {
+      var isActive = tabButtons[i].getAttribute('data-ph-tab') === tab;
+      tabButtons[i].classList.toggle('active', isActive);
+    }
+    renderBody();
+  }
+
   function verdictChip(state) {
-    var label = state === 'GREEN' ? 'GREEN . proven' : state === 'RED' ? 'RED . refuted' : 'GRAY . not provable';
+    var label = state === 'GREEN' ? 'GREEN . proven'
+      : state === 'RED' ? 'RED . refuted'
+      : state === 'AMBER' ? 'AMBER . stale, re-prove required'
+      : 'GRAY . not provable';
     return '<div class="dg-ph-chip ' + esc(state) + '">' + esc(label) + '</div>';
   }
 
-  function receiptDetails(receipt, proposal, run) {
+  function receiptDetails(receipt, proposal, run, corroboration) {
     if (!receipt) return '';
     var duration = run && typeof run.durationMs === 'number' ? run.durationMs + ' ms' : 'not run';
     var rowCount = run && typeof run.rowCount === 'number' ? String(run.rowCount) : 'n/a';
-    return '<div class="dg-ph-receipt">' +
+    var html = '<div class="dg-ph-receipt">' +
       '<span class="dg-ph-kv"><dt>Row count:</dt><dd>' + esc(rowCount) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Duration:</dt><dd>' + esc(duration) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Engine:</dt><dd>' + esc(proposal.engine) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Statement:</dt><dd class="dg-ph-hash">' + esc(proposal.statement) + '</dd></span>' +
       '<span class="dg-ph-kv"><dt>Proposal digest:</dt><dd class="dg-ph-hash">' + esc(proposal.digest) + '</dd></span>' +
-      '<span class="dg-ph-kv"><dt>Receipt hash:</dt><dd class="dg-ph-hash">' + esc(receipt.hash) + '</dd></span>' +
-      '</div>';
+      '<span class="dg-ph-kv"><dt>Receipt hash:</dt><dd class="dg-ph-hash">' + esc(receipt.hash) + '</dd></span>';
+    if (corroboration && corroboration.ran === true) {
+      html += '<span class="dg-ph-kv"><dt>Second engine:</dt><dd>' + esc(corroboration.engine) +
+        ', agrees: ' + esc(String(corroboration.agrees)) + '</dd></span>';
+    }
+    html += '</div>';
+    return html;
   }
 
-  function renderBody() {
-    var body = document.getElementById(BODY_ID);
-    if (!body) return;
+  /* ---------------------------- Prove tab (v0 body, unchanged) ----------- */
+
+  function renderProveTab() {
     var e = engine();
     if (!e) {
-      body.innerHTML = '<div class="dg-ph-note">The Proof Harness engine is unavailable, so nothing can be proven here.</div>';
-      return;
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so nothing can be proven here.</div>';
     }
 
     var claimText = _lastProposal && _lastProposal.claimText ? _lastProposal.claimText : '';
@@ -140759,7 +141880,10 @@ function resetReceipts() {
       html += verdictChip(_lastResult.verdict.state);
       html += '<p class="dg-ph-reason">' + esc(_lastResult.verdict.reason) +
         (_lastResult.verdict.blocker ? ' ' + esc(_lastResult.verdict.blocker) : '') + '</p>';
-      html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run);
+      html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run, _lastResult.corroboration);
+      if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
+        html += '<div class="dg-ph-note">Second engine not ready. GREEN is single-engine (v0 strength).</div>';
+      }
       /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
          say WHY this came back non-GREEN when the reason is "no engine",
          which is a fixable app state, not a claim problem. This note is only
@@ -140781,13 +141905,129 @@ function resetReceipts() {
 
     html += '<div class="dg-ph-note">Nothing here uploads. The statement runs on your own device against the same DuckDB engine the SQL tab uses. A false green is treated as a bug, so an unclear result comes back gray with the missing piece named, never a guess.</div>';
 
-    body.innerHTML = html;
-    wireBody(body);
+    return html;
   }
 
-  var _lastConfirm = null;
+  /* ---------------------------- Inbox tab (v1) ---------------------------- */
 
-  function wireBody(body) {
+  function renderInboxTab() {
+    var e = engine();
+    if (!e || typeof e.statusLabel !== 'function') {
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so the inbox cannot be shown.</div>';
+    }
+    var box = inbox();
+    var items = box ? box.list() : [];
+    if (items.length === 0) {
+      return '<div class="dg-ph-empty">Nothing waiting for review yet. Prove a claim on the Prove tab to add it here.</div>';
+    }
+    var html = '';
+    for (var i = items.length - 1; i >= 0; i--) {
+      var item = items[i];
+      var label = e.statusLabel(item.status);
+      html += '<div class="dg-ph-inbox-item">' +
+        '<p class="dg-ph-inbox-claim">' + esc(item.claimText || item.statement || 'Untitled claim') + '</p>' +
+        '<span class="dg-ph-inbox-status">' + esc(label) + '</span>';
+      if (item.status === 'awaiting-confirm') {
+        html += '<div class="dg-ph-inbox-actions">' +
+          '<button type="button" class="dg-ph-btn primary" data-ph-inbox-confirm="' + esc(item.id) + '">Confirm</button>' +
+          '<button type="button" class="dg-ph-btn" data-ph-inbox-reject="' + esc(item.id) + '">Reject</button>' +
+          '</div>';
+      } else if (item.status === 'pending-prove') {
+        html += '<div class="dg-ph-inbox-actions">' +
+          '<button type="button" class="dg-ph-btn primary" data-ph-inbox-open="' + esc(item.id) + '">Open in Prove</button>' +
+          '</div>';
+      } else {
+        html += '<div class="dg-ph-inbox-actions">' +
+          '<button type="button" class="dg-ph-btn" data-ph-inbox-open="' + esc(item.id) + '">Open</button>' +
+          '</div>';
+      }
+      html += '</div>';
+    }
+    return html;
+  }
+
+  /* ---------------------------- Vault tab (v1) ---------------------------- */
+
+  function renderVaultTab() {
+    var e = engine();
+    if (!e || typeof e.getVaultTests !== 'function') {
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so the vault cannot be shown.</div>';
+    }
+    var tests = e.getVaultTests();
+    var html = '<div class="dg-ph-note">Every refuted claim and every rejection is kept here as a durable local test, so a fixed regression can be re-checked and a repeated mistake gets caught again.</div>';
+    if (tests.length === 0) {
+      html += '<div class="dg-ph-empty">The vault is empty. It fills in automatically whenever a claim comes back RED or is rejected.</div>';
+      return html;
+    }
+    for (var i = 0; i < tests.length; i++) {
+      var t = tests[i];
+      html += '<div class="dg-ph-vault-item">' + esc(t.claimText || t.statement) +
+        ' (source: ' + esc(t.source) + ')</div>';
+    }
+    html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-vault-run>Run vault check</button></div>';
+    if (_lastVaultRun) {
+      var cls = _lastVaultRun.escaped > 0 ? 'has-escaped' : 'all-caught';
+      html += '<p class="dg-ph-vault-summary ' + cls + '">' + esc(_lastVaultRun.caught) + ' of ' + esc(_lastVaultRun.total) +
+        ' still caught, ' + esc(_lastVaultRun.escaped) + ' escaped.</p>';
+    }
+    return html;
+  }
+
+  /* ---------------------------- Cartridge tab (v1) ------------------------ */
+
+  function renderCartridgeTab() {
+    var e = engine();
+    if (!e || typeof e.exportCartridge !== 'function') {
+      return '<div class="dg-ph-note">The Proof Harness engine is unavailable, so cartridges cannot be built here.</div>';
+    }
+    var html = '<div class="dg-ph-note">A cartridge carries the proven statement, its expected values, and a verdict, but zero rows of source data, so a proof can travel without the data moving.</div>';
+    html += '<label>Export the current proven claim</label>';
+    if (_lastResult && _lastResult.verdict && _lastResult.verdict.state === 'GREEN') {
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-cartridge-export>Export cartridge</button></div>';
+    } else {
+      html += '<div class="dg-ph-empty">Prove a claim to GREEN on the Prove tab first, then come back here to export it.</div>';
+    }
+    if (_lastCartridgeExport) {
+      html += '<textarea class="dg-ph-cartridge" readonly>' + esc(_lastCartridgeExport) + '</textarea>';
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-cartridge-copy>Copy JSON</button></div>';
+    }
+    html += '<label for="dg-ph-cartridge-import">Import a cartridge to re-check on your data</label>';
+    html += '<textarea id="dg-ph-cartridge-import" class="dg-ph-cartridge" placeholder="Paste a proof cartridge JSON here"></textarea>';
+    html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-cartridge-import>Import and re-check</button></div>';
+    if (_lastCartridgeImport) {
+      html += verdictChip(_lastCartridgeImport.state);
+      html += '<p class="dg-ph-reason">' + esc(_lastCartridgeImport.reason) + '</p>';
+    }
+    return html;
+  }
+
+  /* ---------------------------- render / wire ----------------------------- */
+
+  function renderBody() {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+
+    if (!v1FlagOn()) {
+      body.innerHTML = renderProveTab();
+      wireProveTab(body);
+      return;
+    }
+
+    var html;
+    if (_activeTab === 'prove') { html = renderProveTab(); }
+    else if (_activeTab === 'vault') { html = renderVaultTab(); }
+    else if (_activeTab === 'cartridge') { html = renderCartridgeTab(); }
+    else { html = renderInboxTab(); _activeTab = 'inbox'; }
+
+    body.innerHTML = html;
+
+    if (_activeTab === 'prove') wireProveTab(body);
+    else if (_activeTab === 'vault') wireVaultTab(body);
+    else if (_activeTab === 'cartridge') wireCartridgeTab(body);
+    else wireInboxTab(body);
+  }
+
+  function wireProveTab(body) {
     var useLastSqlBtn = body.querySelector('[data-ph-use-last-sql]');
     if (useLastSqlBtn) {
       useLastSqlBtn.addEventListener('click', function () {
@@ -140810,6 +142050,45 @@ function resetReceipts() {
       confirmBtn.addEventListener('click', function () { onConfirm(); });
     }
   }
+
+  function wireInboxTab(body) {
+    var confirmBtns = body.querySelectorAll('[data-ph-inbox-confirm]');
+    for (var i = 0; i < confirmBtns.length; i++) {
+      confirmBtns[i].addEventListener('click', function (ev) { onInboxConfirm(ev.currentTarget.getAttribute('data-ph-inbox-confirm')); });
+    }
+    var rejectBtns = body.querySelectorAll('[data-ph-inbox-reject]');
+    for (var j = 0; j < rejectBtns.length; j++) {
+      rejectBtns[j].addEventListener('click', function (ev) { onInboxReject(ev.currentTarget.getAttribute('data-ph-inbox-reject')); });
+    }
+    var openBtns = body.querySelectorAll('[data-ph-inbox-open]');
+    for (var k = 0; k < openBtns.length; k++) {
+      openBtns[k].addEventListener('click', function (ev) { onInboxOpen(ev.currentTarget.getAttribute('data-ph-inbox-open')); });
+    }
+  }
+
+  function wireVaultTab(body) {
+    var runBtn = body.querySelector('[data-ph-vault-run]');
+    if (runBtn) {
+      runBtn.addEventListener('click', function () { onVaultRun(); });
+    }
+  }
+
+  function wireCartridgeTab(body) {
+    var exportBtn = body.querySelector('[data-ph-cartridge-export]');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', function () { onCartridgeExport(); });
+    }
+    var copyBtn = body.querySelector('[data-ph-cartridge-copy]');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () { onCartridgeCopy(); });
+    }
+    var importBtn = body.querySelector('[data-ph-cartridge-import]');
+    if (importBtn) {
+      importBtn.addEventListener('click', function () { onCartridgeImport(body); });
+    }
+  }
+
+  /* ---------------------------- Prove actions (v0, unchanged) ------------- */
 
   async function onProve(body) {
     var e = engine();
@@ -140856,6 +142135,21 @@ function resetReceipts() {
     _lastResult = result;
     _lastConfirm = null;
 
+    if (v1FlagOn() && inbox()) {
+      try {
+        var box = inbox();
+        var matchingPending = box.list().filter(function (it) {
+          return it.status === 'pending-prove' && it.statement === result.proposal.statement;
+        })[0];
+        if (matchingPending) {
+          box.recordCycleResult(matchingPending.id, result);
+        } else {
+          var newItem = box.enqueue({ claimText: result.proposal.claimText, statement: result.proposal.statement, expected: result.proposal.expected });
+          box.recordCycleResult(newItem.id, result);
+        }
+      } catch (_e) {}
+    }
+
     if (window.DataGlowTrustLedger && typeof window.DataGlowTrustLedger.record === 'function') {
       try {
         window.DataGlowTrustLedger.record({
@@ -140893,6 +142187,107 @@ function resetReceipts() {
     toast(confirmResult.confirmed ? 'Confirmed and bound to this statement.' : confirmResult.reason, confirmResult.confirmed ? 'success' : 'error');
   }
 
+  /* ---------------------------- Inbox actions (v1) ------------------------ */
+
+  function onInboxConfirm(id) {
+    var box = inbox();
+    if (!box) return;
+    box.confirm(id, { confirmed: true, by: 'local-user', at: new Date().toISOString() });
+    renderBody();
+    toast('Confirmed.', 'success');
+  }
+
+  async function onInboxReject(id) {
+    var e = engine();
+    var box = inbox();
+    if (!box) return;
+    var item = box.get(id);
+    box.reject(id, 'Rejected from the inbox.');
+    if (e && item && typeof e.rejectProposal === 'function') {
+      try {
+        await e.rejectProposal({ claimText: item.claimText, statement: item.statement, expected: item.expected }, { by: 'local-user', reason: 'Rejected from the inbox.' });
+      } catch (_e) {}
+    }
+    renderBody();
+    toast('Rejected and added to the vault.', 'info');
+  }
+
+  function onInboxOpen(id) {
+    var box = inbox();
+    if (!box) return;
+    var item = box.get(id);
+    if (!item) return;
+    _lastProposal = item.proposal || { claimText: item.claimText, statement: item.statement, expected: item.expected, engine: 'duckdb' };
+    _lastResult = item.verdict ? { ok: true, proposal: _lastProposal, run: item.run, verdict: item.verdict, receipt: item.receipt, corroboration: null } : null;
+    _lastConfirm = null;
+    setActiveTab('prove');
+  }
+
+  /* ---------------------------- Vault actions (v1) ------------------------ */
+
+  async function onVaultRun() {
+    var e = engine();
+    if (!e || typeof e.runVaultCheck !== 'function') return;
+    var runQuery = resolveRunQuery();
+    if (!runQuery) {
+      toast('SQL engine not ready in this canvas.', 'error');
+      return;
+    }
+    var result = await e.runVaultCheck(runQuery);
+    _lastVaultRun = result;
+    renderBody();
+    toast(result.escaped > 0 ? (result.escaped + ' regression(s) escaped. Review the vault.') : 'All vault tests still caught.', result.escaped > 0 ? 'error' : 'success');
+  }
+
+  /* ---------------------------- Cartridge actions (v1) -------------------- */
+
+  async function onCartridgeExport() {
+    var e = engine();
+    if (!e || typeof e.exportCartridge !== 'function' || !_lastResult) return;
+    var exported = await e.exportCartridge({
+      proposal: _lastResult.proposal,
+      verdict: _lastResult.verdict,
+      run: _lastResult.run,
+      receipt: _lastResult.receipt,
+    });
+    if (exported.rejected) {
+      toast(exported.reason, 'error');
+      return;
+    }
+    _lastCartridgeExport = e.serializeCartridge ? e.serializeCartridge(exported.cartridge) : JSON.stringify(exported.cartridge, null, 2);
+    renderBody();
+    toast('Cartridge exported. Zero rows of data included.', 'success');
+  }
+
+  function onCartridgeCopy() {
+    if (!_lastCartridgeExport) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(_lastCartridgeExport);
+        toast('Cartridge JSON copied.', 'success');
+        return;
+      }
+    } catch (_e) {}
+    toast('Copy not available here. Select the text manually.', 'info');
+  }
+
+  async function onCartridgeImport(body) {
+    var e = engine();
+    if (!e || typeof e.importCartridge !== 'function') return;
+    var text = (body.querySelector('#dg-ph-cartridge-import') || {}).value || '';
+    var runQuery = resolveRunQuery();
+    var result = await e.importCartridge({
+      cartridgeText: text,
+      runQuery: runQuery || function () { throw new Error('SQL engine not ready in this canvas.'); },
+      compareClaimToRun: e.compareClaimToRun,
+    });
+    _lastCartridgeImport = result;
+    renderBody();
+    toast('Import verdict: ' + result.state, result.ok ? 'success' : 'error');
+  }
+
+  /* ---------------------------- open / close ------------------------------ */
+
   function isOpen() {
     var panel = document.getElementById(PANEL_ID);
     return !!(panel && panel.classList.contains('open'));
@@ -140901,7 +142296,8 @@ function resetReceipts() {
   function openPanel() {
     if (!flagOn()) return false;
     ensurePanel().classList.add('open');
-    renderBody();
+    if (v1FlagOn()) setActiveTab(_activeTab || 'inbox');
+    else renderBody();
     return true;
   }
 
@@ -140971,6 +142367,12 @@ function resetReceipts() {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
+
+
+
+
 
 
 window.addEventListener('appinstalled', function() {
