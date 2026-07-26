@@ -118,9 +118,32 @@
     } catch (_e5) {}
   }
 
+  /* Bundle 16: log the accept/reject decision onto the Repair Ledger. This is
+     best-effort and never throws: a build without the ledger UI mounted
+     still gets the receipt line above exactly as before, it just does not
+     also get a ledger row. */
+  function ledgerAppendQuarantine(model, decision, line) {
+    try {
+      var ui = window.DataGlowRepairLedgerUI;
+      if (!ui || typeof ui.appendFromSurface !== 'function') return;
+      var m = model || {};
+      var kept = typeof m.keptRows === 'number' ? m.keptRows : null;
+      var total = typeof m.totalRows === 'number' ? m.totalRows : null;
+      ui.appendFromSurface('quarantine_decision', {
+        engine: 'system',
+        title: 'CSV quarantine: ' + decision,
+        inputTable: m.table || m.fileName || '',
+        summary: line && line.line ? line.line : ('Quarantine decision: ' + decision
+          + (kept !== null && total !== null ? ' (' + kept + ' of ' + total + ' rows kept)' : '')),
+        status: decision === 'abandon' ? 'skipped' : 'applied',
+      });
+    } catch (_e) {}
+  }
+
   function decide(id) {
     var line = receiptLine(state.model, id);
     recordReceipt(line);
+    ledgerAppendQuarantine(state.model, id, line);
     var cb = state.onDecision;
     hide();
     if (typeof cb === 'function') {
@@ -272,6 +295,7 @@
       // clean receipt is still written, because "we checked and it was fine" is
       // a useful thing to have on the record.
       recordReceipt(receiptLine(model, 'keep_good'));
+      ledgerAppendQuarantine(model, 'clean', receiptLine(model, 'keep_good'));
       if (typeof onDecision === 'function') onDecision({ decision: 'clean', receipt: null, quarantine: model });
       return false;
     }

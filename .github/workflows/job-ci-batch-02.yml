@@ -184,3 +184,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:postmortem
+
+  bundle16-ledger-wiring-drill-battery:
+    name: Bundle 16 pure logic (Repair Ledger wiring residuals, RECEIPT drill battery)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure Node: REPAIR_LEDGER_KINDS wiring alignment (load, quarantine_decision,
+      # excel_hell_apply, python_recipe, r_recipe, export), wiringReport() honesty,
+      # and scoreDrillAnswer() against the four-drill original RECEIPT battery's
+      # goldenAnswers, independently reproduced from the deterministic generators.
+      - run: npm run test:bundle16ledgerwiringdrillbattery

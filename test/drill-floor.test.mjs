@@ -124,7 +124,15 @@ function ok(cond, msg) {
 
 // ---------- DRILLS registry + getDrill ----------
 {
-  ok(Array.isArray(DRILLS) && DRILLS.length === 1, 'DRILLS has exactly one Batch-1 entry');
+  // Bundle 16 (behind receiptDrillBattery) expanded the Batch-1 single drill
+  // into a four-drill battery against the SAME original synthetic tables; see
+  // test/bundle16-ledger-wiring-drill-battery.test.mjs for full coverage of
+  // the three added drills, their goldenAnswers, and scoreDrillAnswer. This
+  // file keeps asserting Batch-1's original drill is still present, unchanged
+  // in shape, rather than pinning the registry to a length that was always
+  // meant to grow.
+  ok(Array.isArray(DRILLS) && DRILLS.length >= 1, 'DRILLS has at least the Batch-1 entry');
+  ok(DRILLS.some((dd) => dd.id === 'spot-the-sale'), 'DRILLS still includes the original spot-the-sale drill');
   const d = getDrill('spot-the-sale');
   ok(d && d.id === 'spot-the-sale', 'getDrill finds the spot-the-sale drill');
   ok(typeof d.title === 'string' && typeof d.difficulty === 'string' && typeof d.description === 'string', 'drill has title/difficulty/description');

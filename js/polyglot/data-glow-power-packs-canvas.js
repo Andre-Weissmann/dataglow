@@ -514,10 +514,23 @@
      Bundle 14: best-effort Repair Ledger wiring. Never throws, never blocks
      the surface it is called from; a ledger append that fails is a step this
      panel loses sight of, not a step that fails to happen for the user.
-     Sources fired are recorded on window.DataGlowPowerPacksUI._ledgerFired so
-     wiringReport() can name what has and has not appended this session.
+
+     Bundle 16: this now delegates to the shared, cross-surface
+     DataGlowRepairLedgerUI.appendFromSurface() (js/spine/data-glow-repair-
+     ledger-canvas.js) so fired sources live in ONE place instead of a
+     power-packs-local copy. The local window.DataGlowPowerPacksUI._ledgerFired
+     array is still populated as a fallback for a canvas build that only ever
+     shipped the Bundle 14 shape of this file, and
+     DataGlowRepairLedgerUI.firedSources() reads both.
      --------------------------------------------------------------- */
   function ledgerAppend(input) {
+    try {
+      var sharedUi = window.DataGlowRepairLedgerUI;
+      if (sharedUi && typeof sharedUi.appendFromSurface === 'function' && input && input.kind) {
+        var appended = sharedUi.appendFromSurface(input.kind, input);
+        if (appended) return appended;
+      }
+    } catch (_e0) {}
     try {
       var eng = engine('DataGlowRepairLedger');
       var ui = engine('DataGlowRepairLedgerUI');
@@ -528,7 +541,7 @@
       try {
         var fired = window.DataGlowPowerPacksUI && window.DataGlowPowerPacksUI._ledgerFired;
         if (!Array.isArray(fired)) { fired = []; window.DataGlowPowerPacksUI._ledgerFired = fired; }
-        var src = input && input.kind === 'type_guard' ? 'type_guard' : (input && input.kind === 'summarize_tiles' ? 'summarize_tiles' : (input && input.kind));
+        var src = input && input.kind;
         if (src && fired.indexOf(src) < 0) fired.push(src);
       } catch (_e4) {}
       if (ui && typeof ui.refresh === 'function') { try { ui.refresh(); } catch (_e5) {} }
@@ -738,7 +751,7 @@
     if (arrowOn()) renderArrowStatus(host);
 
     for (var i = 0; i < deep.recipes.length; i++) {
-      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell', 'python');
     }
 
     if (deep.blocked.length) {
@@ -781,7 +794,7 @@
       ? eng.listRecipes(state.topic)
       : pack.recipes;
     for (var i = 0; i < rows.length; i++) {
-      codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell');
+      codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell', 'python');
     }
 
     if (pyDeepOn()) renderPythonDeepen(host);
@@ -821,7 +834,7 @@
     host.appendChild(el('p', { class: 'dg-pk-note' }, deep.honesty));
 
     for (var i = 0; i < deep.recipes.length; i++) {
-      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell', 'r');
     }
 
     if (deep.blocked.length) {
@@ -854,7 +867,7 @@
     host.appendChild(el('h4', {}, 'Starter cells'));
     host.appendChild(el('p', { class: 'dg-pk-note' }, 'The bridge call is ' + pack.bridgeCall + '.'));
     for (var i = 0; i < pack.recipes.length; i++) {
-      codeCard(host, pack.recipes[i].title, pack.recipes[i].answers, pack.recipes[i].code, null, 'Cell');
+      codeCard(host, pack.recipes[i].title, pack.recipes[i].answers, pack.recipes[i].code, null, 'Cell', 'r');
     }
 
     if (pack.unavailable.length) {

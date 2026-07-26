@@ -23024,6 +23024,8 @@ var InstantInsight = (function () {
     communityPack: true,
     microLessons: true,
     drillFloor: true,
+    repairLedgerWiring: true,
+    receiptDrillBattery: true,
     exportEngine: true,
     selfLearningRules: true,
     adaptivePriority: true,
@@ -81461,32 +81463,35 @@ function coverageFor(requiredTypes = []) {
 ;(function(){
   'use strict';
 // ============================================================
-// DATAGLOW — Drill Floor: sample dataset (Batch 1 of N)
+// DATAGLOW - Drill Floor: sample dataset (Batch 1 of N)
 // ============================================================
 // WHAT THIS IS: the deterministic, self-contained practice dataset for the
-// Drill Floor module (Maven Analytics "Data Drill" format), where the SAME real
-// problem is solved side-by-side in SQL, Python, and R. Batch 1 ships one drill,
-// "Spot the Sale" — join a `promos` table to an `orders` table where an order's
-// date falls BETWEEN a promo's start/end date (inclusive) — so the module needs
-// its own bundled data rather than assuming the user has loaded matching tables.
+// Drill Floor module, an original DataGlow practice format where the SAME real
+// problem is solved side-by-side in SQL, Python, and R. Batch 1 shipped one
+// drill, "Spot the Sale", join a `promos` table to an `orders` table where an
+// order's date falls BETWEEN a promo's start/end date (inclusive). Bundle 16
+// adds three more drills against these SAME two tables. Every row here is
+// DataGlow's own generated data (seeded PRNG below); this is not a
+// redistribution of any third-party practice dataset, and none of the drill
+// question text is copied from any external product.
 //
 // Identity split (same convention as js/runtimes-viz/glow-canvas.js): the row
 // generation (generateOrders / generatePromos) and SQL builders (sqlLiteral /
 // buildCreateTableSql) are PURE, deterministic (seeded PRNG), and Node-testable
-// with no DB or DOM dependency. Only loadDrillTables() has a side effect — it
-// runs CREATE OR REPLACE TABLE against the injected engine.runQuery — and it is
+// with no DB or DOM dependency. Only loadDrillTables() has a side effect: it
+// runs CREATE OR REPLACE TABLE against the injected engine.runQuery, and it is
 // kept deliberately thin so the interesting logic stays in the pure layer.
 //
 // The generated tables use dedicated names (drill_orders / drill_promos) so they
 // never collide with or overwrite the user's own loaded dataset tables. Data is
 // read-only practice data; nothing here persists across sessions.
 
-// Dedicated table names — namespaced so they can never clash with a user table.
+// Dedicated table names, namespaced so they can never clash with a user table.
 const DRILL_ORDERS_TABLE = 'drill_orders';
 const DRILL_PROMOS_TABLE = 'drill_promos';
 
 // A tiny deterministic PRNG (mulberry32) so the sample data is byte-identical on
-// every run and every machine — the tests assert on exact row counts and values.
+// every run and every machine; the tests assert on exact row counts and values.
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -81592,7 +81597,7 @@ function sqlLiteral(value) {
 /**
  * Build a single atomic CREATE OR REPLACE TABLE statement for a set of rows.
  * Columns are taken from `columnDefs` (ordered [{name, type}]) and every row is
- * emitted as a VALUES tuple in that column order. Pure — returns SQL text only.
+ * emitted as a VALUES tuple in that column order. Pure; returns SQL text only.
  * @param {string} tableName
  * @param {Array<{name:string,type:string}>} columnDefs
  * @param {Array<object>} rows
@@ -81657,11 +81662,13 @@ async function loadDrillTables({ runQuery }, data = {}) {
     },
   ];
 }
-
   window.DrillFloorData = {
     DRILL_ORDERS_TABLE: typeof DRILL_ORDERS_TABLE !== 'undefined' ? DRILL_ORDERS_TABLE : null,
     DRILL_PROMOS_TABLE: typeof DRILL_PROMOS_TABLE !== 'undefined' ? DRILL_PROMOS_TABLE : null,
-    buildDrillDataset: typeof buildDrillDataset !== 'undefined' ? buildDrillDataset : null,
+    generateOrders: typeof generateOrders !== 'undefined' ? generateOrders : null,
+    generatePromos: typeof generatePromos !== 'undefined' ? generatePromos : null,
+    buildCreateTableSql: typeof buildCreateTableSql !== 'undefined' ? buildCreateTableSql : null,
+    loadDrillTables: typeof loadDrillTables !== 'undefined' ? loadDrillTables : null,
   };
 }());
 /* ---- end drill-floor-data.js ---- */
@@ -81949,16 +81956,27 @@ function suggestLikelyCause(diffSummary) {
   var _dd = window.DrillDiff || {};
   var computeDrillDiff = _dd.computeDrillDiff;
 // ============================================================
-// DATAGLOW — Drill Floor: drill registry + orchestration (Batch 1 of N)
+// DATAGLOW - Drill Floor: drill registry + orchestration (Batch 1, Bundle 16)
 // ============================================================
 // WHAT THIS IS: the definition of the Drill Floor practice problems and the thin
 // orchestration layer that runs a drill's code in each language. The SAME problem
 // is stated once and solved side-by-side in SQL, Python, and R against the drill's
 // bundled tables (js/drill-floor/drill-floor-data.js -> drill_orders/drill_promos).
 //
-// Batch 1 ships exactly ONE drill, "Spot the Sale" (BETWEEN join of orders to an
-// active promo period). The run* functions DELEGATE to the existing runtime
-// bridges (engine.runQuery / runPython / runR) — they reimplement no runtime.
+// Batch 1 shipped exactly ONE drill, "Spot the Sale" (BETWEEN join of orders to an
+// active promo period). Bundle 16 (behind the `receiptDrillBattery` flag) adds
+// THREE more drills against the SAME original, deterministic synthetic tables,
+// a window/rank-within-group drill, a group-by + HAVING drill, and a running-total
+// drill, plus a `goldenAnswers` block on every drill and a pure `scoreDrillAnswer`
+// checker so a run can be marked pass/fail against a KNOWN scalar instead of just
+// being cross-language-compared (that comparison, drill-diff.js, still exists and
+// is unaffected). Every row of every table here is DataGlow's own generated data
+// (js/drill-floor/drill-floor-data.js, seeded PRNG), never a redistributed or
+// cloned third-party dataset, and no question text is copied from any external
+// practice-drill product.
+//
+// The run* functions DELEGATE to the existing runtime bridges (engine.runQuery /
+// runPython / runR); they reimplement no runtime.
 //
 // NEVER-THROW-OUT discipline: each run* catches at THIS orchestration layer and
 // returns a normalized { error } field instead of throwing, so the UI has a
@@ -81966,18 +81984,31 @@ function suggestLikelyCause(diffSummary) {
 // convert that rejection into a returned error). Everything except the run*
 // delegators (which have I/O side effects) is pure and Node-testable.
 //
-// WHAT BATCH 1 DELIBERATELY DOES NOT DO: no cross-language result diffing /
-// comparison engine (that is Batch 2), no additional drills, and no persistence
-// of attempts or progress (a future batch). It ships fully dark behind the
-// `drillFloor` flag (enabled:false); the flag is checked by the CALLER in
-// main.js, never inside this module.
+// Drill Floor ships fully dark behind the `drillFloor` flag; the battery below is
+// additionally gated by `receiptDrillBattery` (both flags are checked by the
+// CALLER in main.js / the canvas UI, never inside this module).
 
 // [stripped import] import { DRILL_ORDERS_TABLE, DRILL_PROMOS_TABLE } from './drill-floor-data.js';
+// Bundle 16: the one honesty line every Drill Floor surface (main.js tab,
+// canvas UI) should show once, verbatim, next to the battery. It exists so
+// nobody mistakes original DataGlow practice drills for a specific external
+// analytics-drill product's dataset or answer key.
+const DRILL_BATTERY_HONESTY_NOTE =
+  'Practice drills use original DataGlow data and golden answers. They are not ' +
+  'Maven Analytics Data Drills and do not score against Maven answer keys.';
 
-// The drill registry. Batch 1 has a single entry; the registry shape is ready to
-// grow. starter* fields are the pre-filled editor content for each language; each
-// starter is a correct-shaped solution so a user can Run immediately and then
-// tinker. expectedApproach documents the intended join for reviewers/future diff.
+// The drill registry. starter* fields are the pre-filled editor content for each
+// language; each starter is a correct-shaped solution so a user can Run
+// immediately and then tinker. expectedApproach documents the intended
+// query shape for reviewers/future diff. goldenAnswers holds the KNOWN scalar(s)
+// each language's starter produces against the deterministic sample data, so a
+// run can be scored pass/fail rather than only cross-language-compared.
+//
+// excelNote is Bundle 16's honest Excel path: none of these drills claim a full
+// Excel engine walkthrough. Each names either a SQL "Excel-outcome equivalent"
+// reshape (what a person would build with Power Query / PivotTables to reach the
+// same numbers) or explicitly says there is no Excel engine in this build and
+// that is not being papered over.
 const DRILLS = [
   {
     id: 'spot-the-sale',
@@ -81994,6 +82025,16 @@ const DRILLS = [
       'Inner join drill_orders to drill_promos on ' +
       'order_date BETWEEN start_date AND end_date; one order may match more than ' +
       'one overlapping promo.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a Power Query merge on ' +
+      '"date within range" (or a helper column with nested IF/AND against each ' +
+      'promo\'s start/end) reaches the same 133 matched rows; this build does not ' +
+      'run that engine, it names the equivalent honestly instead of skipping it.',
+    goldenAnswers: {
+      sql: { rowCount: 133, sumAmount: 36381.6, orderIdChecksum: 20208 },
+      python: { rowCount: 133 },
+      r: { rowCount: 133 },
+    },
     starterSql:
       `SELECT o.order_id,\n` +
       `       o.order_date,\n` +
@@ -82042,6 +82083,158 @@ const DRILLS = [
       `cat('matched rows:', nrow(result), '\\n')\n` +
       `head(result, 20)`,
   },
+  {
+    id: 'top-order-per-channel',
+    title: 'Top Order Per Channel',
+    difficulty: 'Intermediate',
+    description:
+      'For each sales channel (web, store, phone, partner), find the single ' +
+      'highest-amount order. Return one row per channel: the channel, the ' +
+      'winning order_id, and its amount: a window/rank-within-group problem.',
+    ordersTable: DRILL_ORDERS_TABLE,
+    promosTable: DRILL_PROMOS_TABLE,
+    expectedApproach:
+      'Rank orders within each channel by amount descending (ROW_NUMBER/RANK ' +
+      'partitioned by channel, or an equivalent groupby-idxmax/which.max), then ' +
+      'keep only rank 1 per channel. Four channels in the sample data, so the ' +
+      'answer is exactly four rows.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a PivotTable with channel as ' +
+      'rows and MAX(amount) as the value reaches the same four amounts; finding ' +
+      'the matching order_id per channel needs an extra INDEX/MATCH or a helper ' +
+      'column, which this build does not attempt to simulate.',
+    goldenAnswers: {
+      sql: { rowCount: 4, sumOfTopAmounts: 1994.93 },
+      python: { rowCount: 4 },
+      r: { rowCount: 4 },
+    },
+    starterSql:
+      `SELECT channel, order_id, amount\n` +
+      `FROM (\n` +
+      `  SELECT channel, order_id, amount,\n` +
+      `         ROW_NUMBER() OVER (PARTITION BY channel ORDER BY amount DESC, order_id) AS rnk\n` +
+      `  FROM ${DRILL_ORDERS_TABLE}\n` +
+      `) ranked\n` +
+      `WHERE rnk = 1\n` +
+      `ORDER BY channel;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `orders = dataglow.get_df('${DRILL_ORDERS_TABLE}')\n` +
+      `\n` +
+      `idx = orders.groupby('channel')['amount'].idxmax()\n` +
+      `result = orders.loc[idx, ['channel', 'order_id', 'amount']].sort_values('channel')\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result`,
+    starterR:
+      `orders <- dataglow_get_df('${DRILL_ORDERS_TABLE}')\n` +
+      `\n` +
+      `top_by_channel <- do.call(rbind, lapply(split(orders, orders$channel), function(g) {\n` +
+      `  g[which.max(g$amount), c('channel', 'order_id', 'amount')]\n` +
+      `}))\n` +
+      `result <- top_by_channel[order(top_by_channel$channel), ]\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `result`,
+  },
+  {
+    id: 'channels-over-threshold',
+    title: 'Channels Over Threshold',
+    difficulty: 'Intermediate',
+    description:
+      'Total order amount by channel, then keep only the channels whose total ' +
+      'exceeds $19,000: a group-by-then-filter-the-groups (HAVING) problem, ' +
+      'not a row-level WHERE filter.',
+    ordersTable: DRILL_ORDERS_TABLE,
+    promosTable: DRILL_PROMOS_TABLE,
+    expectedApproach:
+      'GROUP BY channel, SUM(amount), then HAVING SUM(amount) > 19000 (or the ' +
+      'equivalent groupby+filter in Python/R). Against the sample data exactly ' +
+      'one channel (store) clears the bar.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a PivotTable summed by channel, ' +
+      'then manually reading off which subtotal exceeds $19,000; Excel has no ' +
+      'native HAVING; this build does not simulate that manual read.',
+    goldenAnswers: {
+      sql: { rowCount: 1, channels: ['store'], totalOfKept: 20545.33 },
+      python: { rowCount: 1 },
+      r: { rowCount: 1 },
+    },
+    starterSql:
+      `SELECT channel, ROUND(SUM(amount), 2) AS total_amount\n` +
+      `FROM ${DRILL_ORDERS_TABLE}\n` +
+      `GROUP BY channel\n` +
+      `HAVING SUM(amount) > 19000\n` +
+      `ORDER BY channel;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `orders = dataglow.get_df('${DRILL_ORDERS_TABLE}')\n` +
+      `\n` +
+      `totals = orders.groupby('channel')['amount'].sum().round(2)\n` +
+      `result = totals[totals > 19000].reset_index(name='total_amount')\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result`,
+    starterR:
+      `orders <- dataglow_get_df('${DRILL_ORDERS_TABLE}')\n` +
+      `\n` +
+      `totals <- aggregate(amount ~ channel, data = orders, FUN = sum)\n` +
+      `totals$amount <- round(totals$amount, 2)\n` +
+      `result <- totals[totals$amount > 19000, ]\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `result`,
+  },
+  {
+    id: 'running-total-by-day',
+    title: 'Running Total By Day',
+    difficulty: 'Advanced',
+    description:
+      'Total order amount per calendar day, then a running (cumulative) total ' +
+      'across days in date order. Report the number of distinct order dates and ' +
+      'the final running-total value (the grand total across the whole year).',
+    ordersTable: DRILL_ORDERS_TABLE,
+    promosTable: DRILL_PROMOS_TABLE,
+    expectedApproach:
+      'GROUP BY order_date, SUM(amount), then a window SUM(...) OVER (ORDER BY ' +
+      'order_date) (or an equivalent cumsum in Python/R) to get the running ' +
+      'total; the last row\'s running total equals the grand total of all orders.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a helper column with a growing ' +
+      'SUM($B$2:B2) formula copied down a date-sorted PivotTable reaches the same ' +
+      'running totals; this build does not simulate dragging that formula.',
+    goldenAnswers: {
+      sql: { rowCount: 205, grandTotal: 76527.14 },
+      python: { rowCount: 205 },
+      r: { rowCount: 205 },
+    },
+    starterSql:
+      `SELECT order_date,\n` +
+      `       ROUND(SUM(amount), 2) AS day_total,\n` +
+      `       ROUND(SUM(SUM(amount)) OVER (ORDER BY order_date), 2) AS running_total\n` +
+      `FROM ${DRILL_ORDERS_TABLE}\n` +
+      `GROUP BY order_date\n` +
+      `ORDER BY order_date;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `orders = dataglow.get_df('${DRILL_ORDERS_TABLE}')\n` +
+      `\n` +
+      `by_day = orders.groupby('order_date')['amount'].sum().round(2).reset_index(name='day_total')\n` +
+      `by_day = by_day.sort_values('order_date')\n` +
+      `by_day['running_total'] = by_day['day_total'].cumsum().round(2)\n` +
+      `result = by_day\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result`,
+    starterR:
+      `orders <- dataglow_get_df('${DRILL_ORDERS_TABLE}')\n` +
+      `\n` +
+      `by_day <- aggregate(amount ~ order_date, data = orders, FUN = sum)\n` +
+      `by_day <- by_day[order(by_day$order_date), ]\n` +
+      `by_day$amount <- round(by_day$amount, 2)\n` +
+      `by_day$running_total <- round(cumsum(by_day$amount), 2)\n` +
+      `result <- by_day\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `result`,
+  },
 ];
 
 /**
@@ -82071,7 +82264,7 @@ function errText(err) {
 
 /**
  * Run SQL against the drill tables, delegating to the injected engine.runQuery.
- * Returns { result, rowCount } on success or { error } on failure — never throws.
+ * Returns { result, rowCount } on success or { error } on failure; never throws.
  * @param {string} sql
  * @param {{runQuery: (sql:string)=>Promise<any>}} deps
  * @returns {Promise<{result?:any, rowCount?:number|null, error?:string}>}
@@ -82119,11 +82312,260 @@ async function runDrillR(code, { runR }) {
   }
 }
 
+// ---------------------------------------------------------------
+// Bundle 16: golden-answer scoring.
+// ---------------------------------------------------------------
+// Best-effort row-count parser shared with drill-diff.js's convention: a
+// Python/R starter prints a line like `matched rows: 133`; SQL's own result
+// carries an explicit rowCount. Kept local (rather than importing drill-diff.js)
+// so this module has zero dependency on the comparison layer.
+function parseMatchedRowsLocal(stdout) {
+  if (typeof stdout !== 'string') return null;
+  const re = /matched rows:\s*(\d+)/gi;
+  let match;
+  let last = null;
+  while ((match = re.exec(stdout)) !== null) last = match[1];
+  return last === null ? null : Number(last);
+}
+
+// Read the one scalar every drill/engine combination in this battery scores
+// on: rowCount. SQL reads it from the structured result; Python/R parse it
+// from the "matched rows: N" line the starters print. Never throws.
+function observedRowCount(engine, result) {
+  if (!result || typeof result !== 'object') return null;
+  if (engine === 'sql') return extractRowCount(result.result !== undefined ? result.result : result);
+  return parseMatchedRowsLocal(result.stdout);
+}
+
+/**
+ * Score a drill run against its goldenAnswers. PURE: reads only from its
+ * inputs, touches no runtime, and NEVER throws; an unknown drill/engine or a
+ * result with nothing readable in it comes back as { pass:false, got:null }
+ * rather than an exception the caller would have to guard against.
+ *
+ * @param {string} drillId          one of DRILLS[].id
+ * @param {'sql'|'python'|'r'} engineName
+ * @param {object} result           that engine's own run* return value
+ *   (runDrillSql -> {result,rowCount,error?}; runDrillPython/runDrillR ->
+ *   {stdout,result,error?})
+ * @returns {{pass:boolean, expected:number|null, got:number|null, drillId:string, engine:string, error?:string}}
+ */
+function scoreDrillAnswer(drillId, engineName, result) {
+  const drill = getDrill(drillId);
+  if (!drill || !drill.goldenAnswers || !drill.goldenAnswers[engineName]) {
+    return { pass: false, expected: null, got: null, drillId: String(drillId), engine: String(engineName), error: 'no golden answer for this drill/engine' };
+  }
+  if (result && typeof result === 'object' && result.error) {
+    return { pass: false, expected: drill.goldenAnswers[engineName].rowCount ?? null, got: null, drillId, engine: engineName, error: String(result.error) };
+  }
+  const expected = typeof drill.goldenAnswers[engineName].rowCount === 'number' ? drill.goldenAnswers[engineName].rowCount : null;
+  const got = observedRowCount(engineName, result);
+  if (expected === null || got === null) {
+    return { pass: false, expected, got, drillId, engine: engineName, error: got === null ? 'no row count could be read from the result' : undefined };
+  }
+  return { pass: got === expected, expected, got, drillId, engine: engineName };
+}
+
+  // Bundle 16: the canvas overlay panel previously had no real mount function
+  // (this evaluated to `typeof mountDrillFloor === 'undefined'`, so opening
+  // the Drill overlay button only ever showed a static placeholder sentence).
+  // mountDrillFloor(opts) builds the SAME drill battery main.js's Drill Floor
+  // TAB shows -- picker, honesty note, excel note, three runnable panes, a
+  // Check-answer button per language scored against goldenAnswers, and a
+  // small RECEIPT line on each check -- into an arbitrary host node so it
+  // works equally as a floating panel here or a tab body in main.js.
+  function mountDrillFloor(opts) {
+    opts = opts || {};
+    var host = opts.host;
+    if (!host || typeof document === 'undefined') return;
+    var onToast = typeof opts.onToast === 'function' ? opts.onToast : function () {};
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    var flags = window.DataGlowFlags || null;
+    var battleOn = true;
+    try {
+      if (flags && typeof flags.isEnabled === 'function') battleOn = flags.isEnabled('receiptDrillBattery');
+    } catch (_e) {}
+
+    var drills = (DRILLS && DRILLS.length) ? DRILLS : [];
+    if (!drills.length) {
+      host.innerHTML = '<p style="padding:20px;color:var(--text-muted,#888);">Drill Floor: no drills registered.</p>';
+      return;
+    }
+    var activeId = drills[0].id;
+
+    function getActive() {
+      var d = null;
+      for (var i = 0; i < drills.length; i++) { if (drills[i].id === activeId) { d = drills[i]; break; } }
+      return d || drills[0];
+    }
+
+    var drillResults = { sql: null, python: null, r: null };
+
+    function render() {
+      var drill = getActive();
+      var picker = (battleOn && drills.length > 1)
+        ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
+          drills.map(function (d) {
+            var active = d.id === drill.id;
+            return '<button type="button" data-drill-id="' + escapeHtml(d.id) + '" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,#ddd);background:' +
+              (active ? 'var(--accent,#3b6ef6)' : 'transparent') + ';color:' + (active ? '#fff' : 'inherit') + ';cursor:pointer;font-size:12px;">' +
+              escapeHtml(d.title) + '</button>';
+          }).join('') + '</div>'
+        : '';
+      var honesty = battleOn
+        ? '<p style="font-size:12px;color:var(--text-muted,#888);margin:4px 0 8px;">' + escapeHtml(DRILL_BATTERY_HONESTY_NOTE) + '</p>'
+        : '';
+      var excelNote = (battleOn && drill.excelNote)
+        ? '<p style="font-size:12px;color:var(--text-muted,#888);margin:0 0 10px;">' + escapeHtml(drill.excelNote) + '</p>'
+        : '';
+
+      function pane(lang, label, taId, btnId, outId) {
+        var code = lang === 'sql' ? drill.starterSql : lang === 'python' ? drill.starterPython : drill.starterR;
+        return '<div style="margin-bottom:14px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+          '<strong style="font-size:13px;">' + escapeHtml(label) + '</strong>' +
+          '<button type="button" id="' + btnId + '" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border,#ddd);background:var(--accent,#3b6ef6);color:#fff;cursor:pointer;font-size:12px;">Run</button>' +
+          '</div>' +
+          '<textarea id="' + taId + '" spellcheck="false" style="width:100%;min-height:110px;font-family:monospace;font-size:12px;box-sizing:border-box;">' + escapeHtml(code) + '</textarea>' +
+          '<div id="' + outId + '" style="min-height:30px;font-size:12px;margin-top:4px;"><span style="color:var(--text-muted,#888);">(not run yet)</span></div>' +
+          (battleOn ? '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+            '<button type="button" id="' + btnId + '-check" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border,#ddd);background:transparent;cursor:pointer;font-size:12px;">Check answer</button>' +
+            '<span id="' + outId + '-check-status" style="font-size:12px;color:var(--text-muted,#888);"></span>' +
+            '</div>' : '') +
+          '</div>';
+      }
+
+      host.innerHTML =
+        '<div style="padding:16px 20px 24px;">' +
+        '<h3 style="margin:0 0 4px;font-size:15px;">' + escapeHtml(drill.title) +
+        ' <span style="font-size:11px;font-weight:normal;color:var(--text-muted,#888);">(' + escapeHtml(drill.difficulty) + ')</span></h3>' +
+        '<p style="font-size:12px;color:var(--text-muted,#888);margin:0 0 8px;">' + escapeHtml(drill.description) + '</p>' +
+        honesty + excelNote + picker +
+        pane('sql', 'SQL', 'dg-drill-sql-in', 'dg-drill-sql-run', 'dg-drill-sql-out') +
+        pane('python', 'Python', 'dg-drill-py-in', 'dg-drill-py-run', 'dg-drill-py-out') +
+        pane('r', 'R', 'dg-drill-r-in', 'dg-drill-r-run', 'dg-drill-r-out') +
+        '<div id="dg-drill-comparison" style="font-size:12px;color:var(--text-muted,#888);"></div>' +
+        '</div>';
+
+      if (picker) {
+        var btns = host.querySelectorAll('[data-drill-id]');
+        for (var bi = 0; bi < btns.length; bi++) {
+          btns[bi].addEventListener('click', (function (btn) {
+            return function () {
+              var id = btn.getAttribute('data-drill-id');
+              if (id && id !== activeId) { activeId = id; drillResults.sql = null; drillResults.python = null; drillResults.r = null; render(); }
+            };
+          })(btns[bi]));
+        }
+      }
+
+      function renderOut(outId, res) {
+        var out = document.getElementById(outId);
+        if (!out) return;
+        var html = '';
+        var rc = (typeof extractRowCount === 'function') ? extractRowCount(res && res.result !== undefined ? res.result : res) : null;
+        if (typeof rc === 'number') html += '<div><strong>' + rc + '</strong> row(s)</div>';
+        if (res && res.stdout) html += '<div>' + escapeHtml(res.stdout) + '</div>';
+        if (res && typeof res.result === 'string' && res.result !== '') html += '<div>' + escapeHtml(res.result) + '</div>';
+        if (res && res.error) html += '<div style="color:#cf222e;">' + escapeHtml(res.error) + '</div>';
+        if (!html) html = '<span style="color:var(--text-muted,#888);">(no output)</span>';
+        out.innerHTML = html;
+      }
+
+      function recordDrillReceipt(score) {
+        try {
+          var engineLabel = score.engine === 'sql' ? 'SQL' : score.engine === 'python' ? 'Python' : score.engine === 'r' ? 'R' : String(score.engine);
+          var verdict = score.pass ? 'PASS' : 'FAIL';
+          var numbers = (score.expected !== null && score.expected !== undefined)
+            ? ('expected ' + score.expected + ', got ' + (score.got === null || score.got === undefined ? 'unknown' : score.got))
+            : (score.error || 'no comparable result');
+          var line = 'Drill "' + score.drillId + '" (' + engineLabel + '): ' + verdict + ' - ' + numbers;
+          var t = window.DataGlowTrustLedger;
+          if (t && typeof t.record === 'function') t.record({ line: line, drillId: score.drillId, engine: score.engine, pass: score.pass });
+          try { console.log('[drill receipt] ' + line); } catch (_e0) {}
+          var ui = window.DataGlowRepairLedgerUI;
+          if (ui && typeof ui.appendFromSurface === 'function') {
+            var kind = score.engine === 'python' ? 'python_recipe' : score.engine === 'r' ? 'r_recipe' : 'sql_recipe_run';
+            ui.appendFromSurface(kind, {
+              engine: score.engine === 'sql' ? 'sql' : score.engine,
+              title: 'Drill check: ' + score.drillId,
+              summary: line,
+              status: score.pass ? 'applied' : 'failed',
+            });
+          }
+        } catch (_e) {}
+      }
+
+      function wireRun(lang, btnId, inId, outId) {
+        var btn = document.getElementById(btnId);
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          var out = document.getElementById(outId);
+          if (out) out.innerHTML = '<span style="color:var(--text-muted,#888);">Running...</span>';
+          var code = document.getElementById(inId).value;
+          var p;
+          if (lang === 'sql') {
+            var runQuery = (window.engine && window.engine.runQuery) || (window.DuckDBEngine && window.DuckDBEngine.runQuery) || null;
+            p = runQuery ? runDrillSql(code, { runQuery: runQuery }) : Promise.resolve({ error: 'SQL engine not ready in this canvas.' });
+          } else if (lang === 'python') {
+            var runPython = window.dgRunPython || (window.pyRuntime && window.pyRuntime.runPython) || null;
+            p = runPython ? runDrillPython(code, { runPython: runPython }) : Promise.resolve({ error: 'Python runtime not ready in this canvas.' });
+          } else {
+            var runR = window.dgRunR || (window.rRuntime && window.rRuntime.runR) || null;
+            p = runR ? runDrillR(code, { runR: runR }) : Promise.resolve({ error: 'R runtime not ready in this canvas.' });
+          }
+          p.then(function (res) {
+            renderOut(outId, res);
+            drillResults[lang] = res;
+          });
+        });
+      }
+      wireRun('sql', 'dg-drill-sql-run', 'dg-drill-sql-in', 'dg-drill-sql-out');
+      wireRun('python', 'dg-drill-py-run', 'dg-drill-py-in', 'dg-drill-py-out');
+      wireRun('r', 'dg-drill-r-run', 'dg-drill-r-in', 'dg-drill-r-out');
+
+      if (battleOn) {
+        function wireCheck(lang, btnId, outId) {
+          var btn = document.getElementById(btnId + '-check');
+          if (!btn) return;
+          btn.addEventListener('click', function () {
+            var statusEl = document.getElementById(outId + '-check-status');
+            var latest = drillResults[lang];
+            if (!latest) {
+              if (statusEl) statusEl.textContent = 'Run this language first.';
+              return;
+            }
+            var score = scoreDrillAnswer(getActive().id, lang, latest);
+            if (statusEl) {
+              statusEl.textContent = score.pass
+                ? ('Pass - ' + score.got + ' row(s), matches the golden answer.')
+                : ('Not yet - expected ' + (score.expected === null ? 'n/a' : score.expected) + ', got ' + (score.got === null ? 'unknown' : score.got) + (score.error ? ' (' + score.error + ')' : ''));
+              statusEl.style.color = score.pass ? '#1a7f37' : '#cf222e';
+            }
+            recordDrillReceipt(score);
+          });
+        }
+        wireCheck('sql', 'dg-drill-sql-run', 'dg-drill-sql-out');
+        wireCheck('python', 'dg-drill-py-run', 'dg-drill-py-out');
+        wireCheck('r', 'dg-drill-r-run', 'dg-drill-r-out');
+      }
+    }
+
+    render();
+    onToast('Drill Floor ready.', 'info');
+  }
   window.DrillFloor = {
     mountDrillFloor: typeof mountDrillFloor !== 'undefined' ? mountDrillFloor : null,
-    buildDrillSession: typeof buildDrillSession !== 'undefined' ? buildDrillSession : null,
+    getDrill: typeof getDrill !== 'undefined' ? getDrill : null,
+    DRILLS: typeof DRILLS !== 'undefined' ? DRILLS : [],
+    scoreDrillAnswer: typeof scoreDrillAnswer !== 'undefined' ? scoreDrillAnswer : null,
+    DRILL_BATTERY_HONESTY_NOTE: typeof DRILL_BATTERY_HONESTY_NOTE !== 'undefined' ? DRILL_BATTERY_HONESTY_NOTE : '',
   };
-
 
   function initUI_dg_ov_drillfloor() {
     var panelId = 'dg-drillfloor-panel';
@@ -106120,6 +106562,30 @@ function refresh(dataset, recipe) {
     ui.openLibrary(activeDataset());
   }
 
+  /* Bundle 16: best-effort, never-throwing Repair Ledger append for an
+     applied (or failed) Excel Hell repair. A build without the ledger UI
+     mounted applies the repair exactly as before; it just does not also get
+     a ledger row. */
+  function ledgerAppendExcelHell(ds, recipe, status, errMessage) {
+    try {
+      var ui = window.DataGlowRepairLedgerUI;
+      if (!ui || typeof ui.appendFromSurface !== 'function') return;
+      var stepCount = recipe && recipe.steps ? recipe.steps.length : 0;
+      var opsList = recipe && recipe.steps
+        ? recipe.steps.map(function (s) { return s.op; }).join(', ')
+        : '';
+      ui.appendFromSurface('excel_hell_apply', {
+        engine: 'excel',
+        title: 'Excel Hell repair: ' + stepCount + ' step' + (stepCount === 1 ? '' : 's'),
+        inputTable: (ds && (ds.table || ds.name)) || '',
+        summary: status === 'applied'
+          ? ('Applied ' + stepCount + ' repair step' + (stepCount === 1 ? '' : 's') + (opsList ? ' (' + opsList + ')' : ''))
+          : ('Repair did not apply' + (errMessage ? ': ' + errMessage : '')),
+        status: status,
+      });
+    } catch (_e) {}
+  }
+
   function doApply() {
     var eng = engine();
     var ds = activeDataset();
@@ -106133,9 +106599,11 @@ function refresh(dataset, recipe) {
       notifyDatasetChanged(ds);
       renderBody();
       toast('Repair applied - ' + recipe.steps.length + ' step' + (recipe.steps.length > 1 ? 's' : ''));
+      ledgerAppendExcelHell(ds, recipe, 'applied');
     } catch (e) {
       console.warn('[Excel Hell Repair] apply failed', e);
       toast('Repair failed', 'error');
+      ledgerAppendExcelHell(ds, recipe, 'failed', e && e.message);
     }
   }
 
@@ -133320,10 +133788,23 @@ function buildRPowerPack(input) {
      Bundle 14: best-effort Repair Ledger wiring. Never throws, never blocks
      the surface it is called from; a ledger append that fails is a step this
      panel loses sight of, not a step that fails to happen for the user.
-     Sources fired are recorded on window.DataGlowPowerPacksUI._ledgerFired so
-     wiringReport() can name what has and has not appended this session.
+
+     Bundle 16: this now delegates to the shared, cross-surface
+     DataGlowRepairLedgerUI.appendFromSurface() (js/spine/data-glow-repair-
+     ledger-canvas.js) so fired sources live in ONE place instead of a
+     power-packs-local copy. The local window.DataGlowPowerPacksUI._ledgerFired
+     array is still populated as a fallback for a canvas build that only ever
+     shipped the Bundle 14 shape of this file, and
+     DataGlowRepairLedgerUI.firedSources() reads both.
      --------------------------------------------------------------- */
   function ledgerAppend(input) {
+    try {
+      var sharedUi = window.DataGlowRepairLedgerUI;
+      if (sharedUi && typeof sharedUi.appendFromSurface === 'function' && input && input.kind) {
+        var appended = sharedUi.appendFromSurface(input.kind, input);
+        if (appended) return appended;
+      }
+    } catch (_e0) {}
     try {
       var eng = engine('DataGlowRepairLedger');
       var ui = engine('DataGlowRepairLedgerUI');
@@ -133334,7 +133815,7 @@ function buildRPowerPack(input) {
       try {
         var fired = window.DataGlowPowerPacksUI && window.DataGlowPowerPacksUI._ledgerFired;
         if (!Array.isArray(fired)) { fired = []; window.DataGlowPowerPacksUI._ledgerFired = fired; }
-        var src = input && input.kind === 'type_guard' ? 'type_guard' : (input && input.kind === 'summarize_tiles' ? 'summarize_tiles' : (input && input.kind));
+        var src = input && input.kind;
         if (src && fired.indexOf(src) < 0) fired.push(src);
       } catch (_e4) {}
       if (ui && typeof ui.refresh === 'function') { try { ui.refresh(); } catch (_e5) {} }
@@ -133544,7 +134025,7 @@ function buildRPowerPack(input) {
     if (arrowOn()) renderArrowStatus(host);
 
     for (var i = 0; i < deep.recipes.length; i++) {
-      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell', 'python');
     }
 
     if (deep.blocked.length) {
@@ -133587,7 +134068,7 @@ function buildRPowerPack(input) {
       ? eng.listRecipes(state.topic)
       : pack.recipes;
     for (var i = 0; i < rows.length; i++) {
-      codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell');
+      codeCard(host, rows[i].title, rows[i].answers, rows[i].code, null, 'Cell', 'python');
     }
 
     if (pyDeepOn()) renderPythonDeepen(host);
@@ -133627,7 +134108,7 @@ function buildRPowerPack(input) {
     host.appendChild(el('p', { class: 'dg-pk-note' }, deep.honesty));
 
     for (var i = 0; i < deep.recipes.length; i++) {
-      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell');
+      codeCard(host, deep.recipes[i].title, deep.recipes[i].answers, deep.recipes[i].code, null, 'Cell', 'r');
     }
 
     if (deep.blocked.length) {
@@ -133660,7 +134141,7 @@ function buildRPowerPack(input) {
     host.appendChild(el('h4', {}, 'Starter cells'));
     host.appendChild(el('p', { class: 'dg-pk-note' }, 'The bridge call is ' + pack.bridgeCall + '.'));
     for (var i = 0; i < pack.recipes.length; i++) {
-      codeCard(host, pack.recipes[i].title, pack.recipes[i].answers, pack.recipes[i].code, null, 'Cell');
+      codeCard(host, pack.recipes[i].title, pack.recipes[i].answers, pack.recipes[i].code, null, 'Cell', 'r');
     }
 
     if (pack.unavailable.length) {
@@ -136313,9 +136794,32 @@ function fetchSidecarStatus(input) {
     } catch (_e5) {}
   }
 
+  /* Bundle 16: log the accept/reject decision onto the Repair Ledger. This is
+     best-effort and never throws: a build without the ledger UI mounted
+     still gets the receipt line above exactly as before, it just does not
+     also get a ledger row. */
+  function ledgerAppendQuarantine(model, decision, line) {
+    try {
+      var ui = window.DataGlowRepairLedgerUI;
+      if (!ui || typeof ui.appendFromSurface !== 'function') return;
+      var m = model || {};
+      var kept = typeof m.keptRows === 'number' ? m.keptRows : null;
+      var total = typeof m.totalRows === 'number' ? m.totalRows : null;
+      ui.appendFromSurface('quarantine_decision', {
+        engine: 'system',
+        title: 'CSV quarantine: ' + decision,
+        inputTable: m.table || m.fileName || '',
+        summary: line && line.line ? line.line : ('Quarantine decision: ' + decision
+          + (kept !== null && total !== null ? ' (' + kept + ' of ' + total + ' rows kept)' : '')),
+        status: decision === 'abandon' ? 'skipped' : 'applied',
+      });
+    } catch (_e) {}
+  }
+
   function decide(id) {
     var line = receiptLine(state.model, id);
     recordReceipt(line);
+    ledgerAppendQuarantine(state.model, id, line);
     var cb = state.onDecision;
     hide();
     if (typeof cb === 'function') {
@@ -136467,6 +136971,7 @@ function fetchSidecarStatus(input) {
       // clean receipt is still written, because "we checked and it was fine" is
       // a useful thing to have on the record.
       recordReceipt(receiptLine(model, 'keep_good'));
+      ledgerAppendQuarantine(model, 'clean', receiptLine(model, 'keep_good'));
       if (typeof onDecision === 'function') onDecision({ decision: 'clean', receipt: null, quarantine: model });
       return false;
     }
@@ -136713,6 +137218,18 @@ function exportLedgerMarkdown(ledger) {
 }
 
 /**
+ * Bundle 16: the known list now IS `REPAIR_LEDGER_KINDS` (the same nine kind
+ * strings `buildStep()` normalizes against), instead of a hand-maintained
+ * second list that had drifted to different names for the same surface
+ * ('csv_quarantine' vs the real kind 'quarantine_decision', 'excel_hell' vs
+ * 'excel_hell_apply', 'sql_recipe' vs 'sql_recipe_run'). A caller cannot fire
+ * a source under a name that is not one of the kinds appendStep() will ever
+ * accept, so "known" and "what can actually appear in the ledger" can no
+ * longer say two different things.
+ */
+const WIRING_REPORT_KNOWN_SOURCES = REPAIR_LEDGER_KINDS;
+
+/**
  * A best-effort record of which upstream surfaces this ledger has ever heard
  * from, so an honest "the following did not wire up" list can be produced
  * instead of a silent gap. Callers pass in which sources fired at least once
@@ -136722,10 +137239,7 @@ function exportLedgerMarkdown(ledger) {
  */
 function wiringReport(input) {
   const inp = isPlainObject(input) ? input : {};
-  const known = Object.freeze([
-    'load', 'csv_quarantine', 'type_guard', 'excel_hell', 'sql_recipe',
-    'python_recipe', 'r_recipe', 'summarize_tiles', 'export',
-  ]);
+  const known = WIRING_REPORT_KNOWN_SOURCES;
   const fired = Array.isArray(inp.firedSources) ? inp.firedSources.filter((s) => typeof s === 'string') : [];
   const unwired = known.filter((k) => fired.indexOf(k) < 0);
   return {
@@ -136762,6 +137276,7 @@ function ledgerSummary(ledger) {
     REPAIR_LEDGER_ENGINES: REPAIR_LEDGER_ENGINES,
     REPAIR_LEDGER_STATUSES: REPAIR_LEDGER_STATUSES,
     RERUNNABLE_KINDS: RERUNNABLE_KINDS,
+    WIRING_REPORT_KNOWN_SOURCES: WIRING_REPORT_KNOWN_SOURCES,
     APPLIED_STEPS_EQUIVALENT: APPLIED_STEPS_EQUIVALENT,
     buildStep: buildStep,
     appendStep: appendStep,
@@ -137333,6 +137848,72 @@ function buildProjectLanes() {
     return state.ledger;
   }
 
+  /* Bundle 16: the single shared place a fired surface is recorded, so
+     wiringReport() has ONE list to read instead of asking each caller (power
+     packs, quarantine, Excel Hell, drill floor...) to keep its own copy in
+     sync. window.DataGlowPowerPacksUI._ledgerFired (Bundle 14) is still read
+     and folded in below for backward compatibility with any build where only
+     that surface fired, but every NEW caller should go through
+     ledgerAppendFromSurface() so this array is the one source of truth. */
+  function firedSources() {
+    if (!Array.isArray(state.ledgerFired)) state.ledgerFired = [];
+    return state.ledgerFired;
+  }
+
+  function markFired(source) {
+    if (typeof source !== 'string' || !source) return;
+    var fired = firedSources();
+    if (fired.indexOf(source) < 0) fired.push(source);
+  }
+
+  /**
+   * Bundle 16 shared helper: append one step to the ledger from ANY surface
+   * (load, quarantine, Excel Hell apply, a Python/R recipe run, an export,
+   * the SQL editor, a drill) with never-throw discipline and one shared
+   * firedSources record. Every call site in this codebase that wires the
+   * Repair Ledger should call this instead of hand-rolling its own try/catch
+   * around DataGlowRepairLedger.appendStep, so a missing engine or a missing
+   * UI mount degrades to "nothing logged" rather than a thrown error the
+   * caller's real feature (a file load, a repair, a recipe run) would have to
+   * survive.
+   *
+   * @param {string} kind  one of REPAIR_LEDGER_KINDS; also the fired-source name
+   * @param {object} [payload]  the rest of buildStep()'s input (title, engine,
+   *   code, status, summary, inputTable, outputTable, recipeId, at)
+   * @returns {object|null} the appended step, or null if nothing was appended
+   */
+  function ledgerAppendFromSurface(kind, payload) {
+    try {
+      var eng = engine('DataGlowRepairLedger');
+      if (!eng || typeof eng.appendStep !== 'function') return null;
+      var arr = ledgerArray();
+      if (!Array.isArray(arr)) return null;
+      var input = Object.assign({}, payload || {}, { kind: kind });
+      var step = eng.appendStep(arr, input);
+      markFired(step.kind);
+      try { refreshChip(); } catch (_e1) {}
+      try { if (state.open) render(); } catch (_e2) {}
+      return step;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /** Every source this session, folding in the Bundle 14 power-packs list so a
+   *  build that still only fires through that path reports accurately. */
+  function allFiredSources() {
+    var out = firedSources().slice();
+    try {
+      var pk = window.DataGlowPowerPacksUI;
+      if (pk && Array.isArray(pk._ledgerFired)) {
+        for (var i = 0; i < pk._ledgerFired.length; i++) {
+          if (out.indexOf(pk._ledgerFired[i]) < 0) out.push(pk._ledgerFired[i]);
+        }
+      }
+    } catch (_e) {}
+    return out;
+  }
+
   function summary() {
     var eng = engine('DataGlowRepairLedger');
     if (!eng || typeof eng.ledgerSummary !== 'function') return null;
@@ -137408,16 +137989,40 @@ function buildProjectLanes() {
     var exportJsonBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Export JSON');
     exportJsonBtn.addEventListener('click', function () {
       var json = eng.exportLedgerJson(state.ledger);
-      if (download('repair-ledger.json', json, 'application/json')) toast('Ledger exported as JSON.');
+      var wroteFile = download('repair-ledger.json', json, 'application/json');
+      if (wroteFile) toast('Ledger exported as JSON.');
       else copy(json, 'Ledger JSON');
+      /* Bundle 16: the export itself becomes a step, appended AFTER the
+         download so it does not count itself in the JSON/Markdown it just
+         wrote. Recorded directly (not via render()) so an export click never
+         recurses into another render() mid-click. */
+      try {
+        markFired('export');
+        eng.appendStep(state.ledger, {
+          kind: 'export', engine: 'system', title: 'Repair Ledger exported as JSON',
+          summary: wroteFile ? 'Downloaded repair-ledger.json' : 'Copied ledger JSON to the clipboard',
+          status: 'applied',
+        });
+        refreshChip();
+      } catch (_eExp) {}
     });
     actions.appendChild(exportJsonBtn);
 
     var exportMdBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Export Markdown');
     exportMdBtn.addEventListener('click', function () {
       var md = eng.exportLedgerMarkdown(state.ledger);
-      if (download('repair-ledger.md', md, 'text/markdown')) toast('Ledger exported as Markdown.');
+      var wroteFile = download('repair-ledger.md', md, 'text/markdown');
+      if (wroteFile) toast('Ledger exported as Markdown.');
       else copy(md, 'Ledger Markdown');
+      try {
+        markFired('export');
+        eng.appendStep(state.ledger, {
+          kind: 'export', engine: 'system', title: 'Repair Ledger exported as Markdown',
+          summary: wroteFile ? 'Downloaded repair-ledger.md' : 'Copied ledger Markdown to the clipboard',
+          status: 'applied',
+        });
+        refreshChip();
+      } catch (_eExp2) {}
     });
     actions.appendChild(exportMdBtn);
 
@@ -137432,12 +138037,7 @@ function buildProjectLanes() {
     panel.appendChild(actions);
 
     if (typeof eng.wiringReport === 'function') {
-      var fired = [];
-      try {
-        var pk = window.DataGlowPowerPacksUI;
-        if (pk && Array.isArray(pk._ledgerFired)) fired = fired.concat(pk._ledgerFired);
-      } catch (_e) {}
-      var report = eng.wiringReport({ firedSources: fired });
+      var report = eng.wiringReport({ firedSources: allFiredSources() });
       panel.appendChild(el('p', { class: 'dg-lg-note' }, report.headline));
     }
 
@@ -137501,6 +138101,37 @@ function buildProjectLanes() {
     if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
   }
 
+  /* Bundle 16: 'load' wiring. Rather than reach into every load path
+     (sample-dataset buttons, dropped CSV/Excel files, the desktop app-shell's
+     runDatasetLoad()), this listens for the ONE event every load path already
+     dispatches when a dataset finishes loading: 'dataglow:dataset-loaded'
+     (canvas), mirrored by a direct call from js/app-shell/main.js's
+     runDatasetLoad() for the non-canvas build, which does not go through
+     this DOM event. Listening instead of hooking each call site means a
+     future load path that also dispatches this event is covered for free. */
+  function onDatasetLoaded(evt) {
+    try {
+      var ds = evt && evt.detail && evt.detail.dataset;
+      if (!ds) return;
+      var table = ds.table || ds.name || '';
+      var rowCount = Array.isArray(ds.rows) ? ds.rows.length : null;
+      ledgerAppendFromSurface('load', {
+        engine: 'system',
+        title: 'Dataset loaded' + (table ? ': ' + table : ''),
+        outputTable: table,
+        summary: table
+          ? ('Loaded ' + table + (rowCount !== null ? ' (' + rowCount + ' rows)' : ''))
+          : 'A dataset finished loading',
+        status: 'applied',
+      });
+    } catch (_e) { /* best-effort; a load must never fail because of this */ }
+  }
+  try {
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('dataglow:dataset-loaded', onDatasetLoaded);
+    }
+  } catch (_eListen) {}
+
   function boot() {
     try {
       if (!ledgerOn()) { unmount(); return; }
@@ -137524,6 +138155,10 @@ function buildProjectLanes() {
     refresh: render,
     ledgerArray: ledgerArray,
     summary: summary,
+    /* Bundle 16: the shared, never-throwing append every surface should use. */
+    appendFromSurface: ledgerAppendFromSurface,
+    firedSources: allFiredSources,
+    _ledgerFired: firedSources(),
   };
 })();
 /* ---- end js/spine/data-glow-repair-ledger-canvas.js ---- */

@@ -1,30 +1,33 @@
 // ============================================================
-// DATAGLOW — Drill Floor: sample dataset (Batch 1 of N)
+// DATAGLOW - Drill Floor: sample dataset (Batch 1 of N)
 // ============================================================
 // WHAT THIS IS: the deterministic, self-contained practice dataset for the
-// Drill Floor module (Maven Analytics "Data Drill" format), where the SAME real
-// problem is solved side-by-side in SQL, Python, and R. Batch 1 ships one drill,
-// "Spot the Sale" — join a `promos` table to an `orders` table where an order's
-// date falls BETWEEN a promo's start/end date (inclusive) — so the module needs
-// its own bundled data rather than assuming the user has loaded matching tables.
+// Drill Floor module, an original DataGlow practice format where the SAME real
+// problem is solved side-by-side in SQL, Python, and R. Batch 1 shipped one
+// drill, "Spot the Sale", join a `promos` table to an `orders` table where an
+// order's date falls BETWEEN a promo's start/end date (inclusive). Bundle 16
+// adds three more drills against these SAME two tables. Every row here is
+// DataGlow's own generated data (seeded PRNG below); this is not a
+// redistribution of any third-party practice dataset, and none of the drill
+// question text is copied from any external product.
 //
 // Identity split (same convention as js/runtimes-viz/glow-canvas.js): the row
 // generation (generateOrders / generatePromos) and SQL builders (sqlLiteral /
 // buildCreateTableSql) are PURE, deterministic (seeded PRNG), and Node-testable
-// with no DB or DOM dependency. Only loadDrillTables() has a side effect — it
-// runs CREATE OR REPLACE TABLE against the injected engine.runQuery — and it is
+// with no DB or DOM dependency. Only loadDrillTables() has a side effect: it
+// runs CREATE OR REPLACE TABLE against the injected engine.runQuery, and it is
 // kept deliberately thin so the interesting logic stays in the pure layer.
 //
 // The generated tables use dedicated names (drill_orders / drill_promos) so they
 // never collide with or overwrite the user's own loaded dataset tables. Data is
 // read-only practice data; nothing here persists across sessions.
 
-// Dedicated table names — namespaced so they can never clash with a user table.
+// Dedicated table names, namespaced so they can never clash with a user table.
 export const DRILL_ORDERS_TABLE = 'drill_orders';
 export const DRILL_PROMOS_TABLE = 'drill_promos';
 
 // A tiny deterministic PRNG (mulberry32) so the sample data is byte-identical on
-// every run and every machine — the tests assert on exact row counts and values.
+// every run and every machine; the tests assert on exact row counts and values.
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -130,7 +133,7 @@ export function sqlLiteral(value) {
 /**
  * Build a single atomic CREATE OR REPLACE TABLE statement for a set of rows.
  * Columns are taken from `columnDefs` (ordered [{name, type}]) and every row is
- * emitted as a VALUES tuple in that column order. Pure — returns SQL text only.
+ * emitted as a VALUES tuple in that column order. Pure; returns SQL text only.
  * @param {string} tableName
  * @param {Array<{name:string,type:string}>} columnDefs
  * @param {Array<object>} rows

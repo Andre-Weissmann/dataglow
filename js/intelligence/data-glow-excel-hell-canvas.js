@@ -323,6 +323,30 @@
     ui.openLibrary(activeDataset());
   }
 
+  /* Bundle 16: best-effort, never-throwing Repair Ledger append for an
+     applied (or failed) Excel Hell repair. A build without the ledger UI
+     mounted applies the repair exactly as before; it just does not also get
+     a ledger row. */
+  function ledgerAppendExcelHell(ds, recipe, status, errMessage) {
+    try {
+      var ui = window.DataGlowRepairLedgerUI;
+      if (!ui || typeof ui.appendFromSurface !== 'function') return;
+      var stepCount = recipe && recipe.steps ? recipe.steps.length : 0;
+      var opsList = recipe && recipe.steps
+        ? recipe.steps.map(function (s) { return s.op; }).join(', ')
+        : '';
+      ui.appendFromSurface('excel_hell_apply', {
+        engine: 'excel',
+        title: 'Excel Hell repair: ' + stepCount + ' step' + (stepCount === 1 ? '' : 's'),
+        inputTable: (ds && (ds.table || ds.name)) || '',
+        summary: status === 'applied'
+          ? ('Applied ' + stepCount + ' repair step' + (stepCount === 1 ? '' : 's') + (opsList ? ' (' + opsList + ')' : ''))
+          : ('Repair did not apply' + (errMessage ? ': ' + errMessage : '')),
+        status: status,
+      });
+    } catch (_e) {}
+  }
+
   function doApply() {
     var eng = engine();
     var ds = activeDataset();
@@ -336,9 +360,11 @@
       notifyDatasetChanged(ds);
       renderBody();
       toast('Repair applied - ' + recipe.steps.length + ' step' + (recipe.steps.length > 1 ? 's' : ''));
+      ledgerAppendExcelHell(ds, recipe, 'applied');
     } catch (e) {
       console.warn('[Excel Hell Repair] apply failed', e);
       toast('Repair failed', 'error');
+      ledgerAppendExcelHell(ds, recipe, 'failed', e && e.message);
     }
   }
 
