@@ -2,6 +2,26 @@
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
+<!-- Bundle 18 hotfix: DuckDB-WASM self-host import map. assets/duckdb/duckdb-browser.mjs
+     (the self-host candidate js/sql/duckdb-load-harden.js tries FIRST) imports the bare
+     specifier "apache-arrow", which in turn needs "tslib" and "flatbuffers" as bare
+     specifiers too. Root index.html declares this exact import map for its own module
+     graph, but canvas/index.html is a standalone single-file document with no script of
+     its own to inherit that from, so the self-host dynamic import() here was resolving
+     "apache-arrow" against nothing, throwing, and falling through to jsDelivr, then
+     unpkg, then esm.sh -- whose cross-origin Worker construction is what raised the
+     'Failed to execute importScripts' error. Must appear before any dynamic import() of
+     assets/duckdb/duckdb-browser.mjs runs, so it is placed immediately after the charset
+     meta tag at the very top of head, before every other inline script in this file. -->
+<script type="importmap">
+{
+  "imports": {
+    "apache-arrow": "./assets/duckdb/vendor/apache-arrow/Arrow.dom.mjs",
+    "tslib": "./assets/duckdb/vendor/tslib/tslib.es6.mjs",
+    "flatbuffers": "./assets/duckdb/vendor/flatbuffers/mjs/flatbuffers.js"
+  }
+}
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1BA1A8">
@@ -24654,7 +24674,12 @@ var InstantInsight = (function () {
     async function svRunQuery() {
       var sql = svInput && svInput.value.trim();
       if (!sql) { if (svStatus) { svStatus.className = ''; svStatus.textContent = 'Enter a query.'; } return; }
-      if (!state.datasets.length) { if (svStatus) { svStatus.className = 'error'; svStatus.textContent = 'No dataset loaded. Drop a file first.'; } return; }
+      // Bundle 18 hotfix: only block when the query actually needs a table (has a
+      // FROM clause) and none is loaded. Table-free queries like SELECT 1 or
+      // SELECT 1+1 need no dataset at all -- DuckDB answers those from an empty
+      // in-memory database, so gating on state.datasets.length here blocked a
+      // query the engine was always able to run.
+      if (!state.datasets.length && /\bFROM\b/i.test(sql)) { if (svStatus) { svStatus.className = 'error'; svStatus.textContent = 'No dataset loaded. Drop a file first.'; } return; }
       if (svStatus) { svStatus.className = ''; svStatus.textContent = 'Running…'; }
       try {
         var engine = await getSVEngine();
@@ -27235,7 +27260,12 @@ var InstantInsight = (function () {
     var sql = $('sql-input') && $('sql-input').value.trim();
     var status = $('sql-status');
     if (!sql) { if (status) status.textContent = 'Enter a query.'; return; }
-    if (!state.datasets.length) { if (status) status.textContent = 'No dataset loaded. Drop a file first.'; return; }
+    // Bundle 18 hotfix: only block when the query actually needs a table (has a
+    // FROM clause) and none is loaded. Table-free queries like SELECT 1 or
+    // SELECT 1+1 need no dataset at all -- DuckDB answers those from an empty
+    // in-memory database, so gating on state.datasets.length here blocked a
+    // query the engine was always able to run.
+    if (!state.datasets.length && /\bFROM\b/i.test(sql)) { if (status) status.textContent = 'No dataset loaded. Drop a file first.'; return; }
     if (status && window.LoadingStates) LoadingStates.setLoading(status, 'Running query…');
     else if (status) { status.className = ''; status.textContent = 'Running…'; }
     /* SecurityAdvisor: scan SQL before execution */
