@@ -414,6 +414,60 @@
     return { rowCount: payload.rowCount, rows: payload.rows, scalars: scalars, engine: 'pyodide-duckdb', tablesRegistered: tablesRegistered };
   }
 
+  /* ---- HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F1: pyodide-pandas narrow COUNT ----
+
+     Live-proven root cause: micropip.install("duckdb") does not reliably
+     succeed inside Pyodide (privacy warn on pypi.org / install path returns
+     false), so ensureDuckdbInPyodide() can honestly resolve to false even
+     though buildHelper(py) already dropped a `dg_csv_<table>` CSV string
+     into the SAME Python globals that pyodide-duckdb would have registered
+     from. When that happens the old bridge fell straight through to the
+     webR path (or the honest unavailable error), even though the exact
+     data needed to answer a narrow `SELECT COUNT(*) FROM <table>` is
+     already sitting in globals as a pandas-readable CSV. This is honest
+     second-engine corroboration on the same CSV sync buildHelper already
+     provides -- CPython/pandas is still a second runtime from DuckDB-WASM,
+     independent per spec B5, even without the duckdb Python package.
+
+     Deliberately narrow like parseCountStarFrom itself: only ever answers
+     `SELECT COUNT(*) [AS alias] FROM <table>` shape, and only when
+     `dg_csv_<table>` actually exists in py.globals -- anything else returns
+     null so the caller can fall through to the next honest step, never a
+     guess. */
+  async function runViaPyodidePandasCount(py, statement) {
+    var parsed = parseCountStarFrom(statement);
+    if (!parsed) return null;
+    var safe = String(parsed.table).replace(/[^a-zA-Z0-9_]/g, '_');
+    var globalKey = 'dg_csv_' + safe;
+    var hasGlobal;
+    try {
+      hasGlobal = py.globals.get(globalKey) !== undefined && py.globals.get(globalKey) !== null;
+    } catch (_eHas) {
+      hasGlobal = false;
+    }
+    if (!hasGlobal) return null;
+    try {
+      py.globals.set('_dg_second_engine_pandas_key', globalKey);
+      var code = [
+        'import pandas as pd, io',
+        '_dg_second_engine_pandas_df = pd.read_csv(io.StringIO(str(globals()[_dg_second_engine_pandas_key])))',
+        '_dg_second_engine_pandas_n = len(_dg_second_engine_pandas_df)',
+      ].join('\n');
+      await py.runPythonAsync(code);
+      var nProxy = py.globals.get('_dg_second_engine_pandas_n');
+      var n = Number(nProxy);
+      if (isNaN(n)) return null;
+      var scalars = {};
+      scalars[parsed.alias] = n;
+      return { rowCount: 1, rows: [scalars], scalars: scalars, engine: 'pyodide-pandas', tablesRegistered: [safe] };
+    } catch (_eRun) {
+      // Best-effort: a CSV that pandas cannot parse (should not happen for
+      // anything buildHelper produced) falls through to the next honest
+      // step rather than fabricating a count.
+      return null;
+    }
+  }
+
   /* ---- v1.2 pillar B: webR best-effort second path ----
 
      Only reached when the Pyodide path could not answer the statement at
@@ -437,6 +491,21 @@
     return { table: m[2], alias: m[1] || 'c' };
   }
 
+  /* HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F2: never invent 0.
+
+     Live-proven root cause: this path used to call `nrow(<table>)` directly
+     and accept whatever came back, including 0 when `<table>` was never
+     bound in the R session at all -- webR's nrow() on an unbound name
+     throws, but some call shapes (an empty/undefined shelter, a prior
+     partial eval) could still resolve to a false Number(0) and were
+     accepted as a REAL zero-row answer. Either way, a MISSING table must
+     never be reported as a present table with n=0 rows: that is the exact
+     false RED this hotfix closes (webr-duckdb returning n=0 for a table
+     that plainly was not there, while primary DuckDB-WASM correctly
+     returned 10). Before accepting ANY R count now, this requires
+     `exists(table, inherits=FALSE) && is.data.frame(get(table))` to be
+     TRUE first; a missing/non-data.frame table returns the honest
+     unavailable error, never 0. */
   async function runViaWebRNarrowCount(statement) {
     if (!window.DataGlowR || typeof window.DataGlowR.init !== 'function') return { error: 'pyodide-sql-unavailable' };
     var parsed = parseCountStarFrom(statement);
@@ -444,11 +513,34 @@
     try {
       var r = await window.DataGlowR.init();
       if (!r || typeof r.evalR !== 'function') return { error: 'pyodide-sql-unavailable' };
-      // duckdb-in-R path first, if the host's webR happens to already have
-      // the duckdb R package available -- best-effort, no install attempt
-      // here (spec B2.1 allows a quick import try; a slow install is not
-      // worth blocking the narrow COUNT fallback that already works
-      // without it).
+      var existsCheckCode = 'exists("' + parsed.table + '", inherits = FALSE) && is.data.frame(get("' + parsed.table + '"))';
+      var existsShelter;
+      try {
+        existsShelter = await r.evalR(existsCheckCode);
+      } catch (_eExists) {
+        // The existence probe itself failing (e.g. R session not actually
+        // ready) is exactly the same as "table not confirmed present" --
+        // never fall through to nrow()/duckdb-in-R on an unproven table.
+        return { error: 'pyodide-sql-unavailable' };
+      }
+      var existsRows = await existsShelter.toArray();
+      var tableConfirmed = !!(existsRows && existsRows.length && (existsRows[0] === true || existsRows[0] === 'TRUE' || existsRows[0] === 1));
+      if (!tableConfirmed) {
+        // Missing/non-data.frame table -- refuse outright. Do not run
+        // duckdb-in-R or nrow() against a name that is not confirmed bound;
+        // an unbound name in webR can otherwise resolve through a stale
+        // partial eval to a false 0 rather than a real error (the live bug
+        // this hotfix fixes), so the confirmed-exists gate comes first and
+        // is the only thing allowed to authorize either path below.
+        return { error: 'pyodide-sql-unavailable' };
+      }
+      // duckdb-in-R path, only now that the table is CONFIRMED to exist as a
+      // real data.frame -- best-effort, no install attempt here (spec B2.1
+      // allows a quick import try; a slow install is not worth blocking the
+      // narrow COUNT fallback that already works without it). Only accepted
+      // if requireNamespace succeeded AND the query returns a finite value;
+      // an empty/NA result from a real bound frame must not become a 0
+      // success either.
       try {
         var dbShelter = await r.evalR(
           'if (requireNamespace("duckdb", quietly = TRUE)) { ' +
@@ -457,18 +549,19 @@
         );
         var dbRows = await dbShelter.toArray();
         var dbVal = dbRows && dbRows.length ? Number(dbRows[0]) : NaN;
-        if (!isNaN(dbVal)) {
+        if (!isNaN(dbVal) && isFinite(dbVal)) {
           var dbScalars = {}; dbScalars[parsed.alias] = dbVal;
           return { rowCount: 1, rows: [dbScalars], scalars: dbScalars, engine: 'webr-duckdb' };
         }
       } catch (_eDbR) { /* duckdb R package not available or query failed; fall through to nrow() */ }
-      // Narrow fallback: the table must already be bound as an R
-      // data.frame by the notebook prelude (e.g. `t <- data.frame(...)`).
-      // Only COUNT(*) is answered this way -- anything else stays refused.
+      // Narrow fallback: the table is already confirmed above to be a real,
+      // bound R data.frame by the notebook prelude (e.g. `t <-
+      // data.frame(...)`). Only COUNT(*) is answered this way -- anything
+      // else stays refused.
       var shelter = await r.evalR('nrow(' + parsed.table + ')');
       var rows = await shelter.toArray();
       var n = rows && rows.length ? Number(rows[0]) : NaN;
-      if (isNaN(n)) return { error: 'pyodide-sql-unavailable' };
+      if (isNaN(n) || !isFinite(n)) return { error: 'pyodide-sql-unavailable' };
       var scalars = {}; scalars[parsed.alias] = n;
       return { rowCount: 1, rows: [scalars], scalars: scalars, engine: 'webr-df' };
     } catch (_eR) {
@@ -481,6 +574,21 @@
      normalizeSecondRun() already understands (it also tolerates the
      {result:{...}} wrapper shape, but this bridge returns the flat shape
      directly since it controls both ends). */
+  /* HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md: bridge priority order, updated.
+
+     Live bug: micropip.install("duckdb") does not reliably succeed inside
+     Pyodide, so pyodide-duckdb legitimately comes back unavailable on a
+     device where dg_csv_<table> IS already present after buildHelper. The
+     old order fell straight from "duckdb unavailable" to webR, which then
+     invented n=0 for a table webR never had -- a false RED against a
+     primary engine that correctly returned real rows. The fix inserts the
+     honest pandas-only COUNT path (F1) between the literal probe and webR,
+     so this priority is now, in order:
+       1. pyodide-duckdb   (if duckdb-in-pyodide ready + register + sql ok)
+       2. pyodide-pandas   (narrow COUNT(*), if dg_csv_<table> exists)
+       3. trivial literal  (SELECT 1 / SELECT <int> AS alias, no FROM)
+       4. hardened webR    (never returns n=0 for a missing table)
+       5. {error:'pyodide-sql-unavailable'} */
   async function runProofSecondEngineBridge(statement) {
     try {
       if (!window.DataGlowPython || typeof window.DataGlowPython.loadRuntime !== 'function') {
@@ -490,7 +598,7 @@
       }
       var py = await window.DataGlowPython.loadRuntime();
       if (typeof window.DataGlowPython.buildHelper === 'function') {
-        try { window.DataGlowPython.buildHelper(py); } catch (_eSync) { /* dataset sync is best-effort; a failed sync still allows a literal/duckdb probe */ }
+        try { window.DataGlowPython.buildHelper(py); } catch (_eSync) { /* dataset sync is best-effort; a failed sync still allows a literal/pandas/duckdb probe */ }
       }
       var duckdbOk = await ensureDuckdbInPyodide(py);
       if (duckdbOk) {
@@ -500,13 +608,21 @@
           // duckdb loaded but this particular statement failed (e.g. a
           // table that has no dg_csv_* source to register, or a dialect
           // feature duckdb-in-pyodide's version does not support) -- fall
-          // through to the literal probe, then webR, rather than silently
-          // pretending the run succeeded.
+          // through to pandas, then the literal probe, then webR, rather
+          // than silently pretending the run succeeded.
+          var pandasAfterFail = await runViaPyodidePandasCount(py, statement);
+          if (pandasAfterFail) return pandasAfterFail;
           var literalAfterFail = evalTrivialLiteralSelect(statement);
           if (literalAfterFail) return literalAfterFail;
           return await runViaWebRNarrowCount(statement);
         }
       }
+      // duckdb-in-pyodide is unavailable (the live micropip-install failure
+      // this hotfix targets) -- try the honest pandas narrow COUNT next,
+      // BEFORE falling through to webR, since the exact CSV buildHelper
+      // already synced is right here in the same Pyodide globals.
+      var pandasResult = await runViaPyodidePandasCount(py, statement);
+      if (pandasResult) return pandasResult;
       var literalFallback = evalTrivialLiteralSelect(statement);
       if (literalFallback) return literalFallback;
       return await runViaWebRNarrowCount(statement);

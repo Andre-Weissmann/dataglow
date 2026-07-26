@@ -238,9 +238,11 @@ if (evalTrivialLiteralSelect) {
   const parseCountSrc = extractFunctionSource(canvasModuleSrc, 'function parseCountStarFrom(statement) {');
   const runViaWebRSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaWebRNarrowCount(statement) {');
   const withTimeoutSrc = extractFunctionSource(canvasModuleSrc, 'function withTimeout(promise, ms) {');
+  const runViaPandasSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodidePandasCount(py, statement) {');
 
-  const allPresent = [bridgeSrc, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc2, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc].every(Boolean);
+  const allPresent = [bridgeSrc, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc2, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc].every(Boolean);
   ok(allPresent, 'all pieces needed to assemble the full second-engine bridge are present verbatim in the shipped source');
+  ok(runViaPandasSrc !== null, 'runViaPyodidePandasCount(py, statement) is present verbatim in the shipped source (HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F1)');
 
   if (allPresent) {
     // Build a fake in-Pyodide "duckdb" + pandas layer entirely in JS to
@@ -260,6 +262,7 @@ if (evalTrivialLiteralSelect) {
       ${registerSrc}
       ${runViaDuckdbSrc2}
       ${parseCountSrc}
+      ${runViaPandasSrc}
       ${runViaWebRSrc}
       ${bridgeSrc}
       return runProofSecondEngineBridge;
@@ -267,7 +270,14 @@ if (evalTrivialLiteralSelect) {
     // eslint-disable-next-line no-new-func
     const buildBridge = new Function(harnessSrc);
 
-    function makeMockPy(csvByTable) {
+    function makeMockPy(csvByTable, opts) {
+      const options = opts || {};
+      // duckdbUnavailable simulates HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md's live
+      // bug: micropip.install("duckdb") never succeeds in this Pyodide, so
+      // ensureDuckdbInPyodide() honestly resolves false and the bridge must
+      // fall through to the pandas-only path instead of jumping straight to
+      // webR/unavailable.
+      const duckdbUnavailable = !!options.duckdbUnavailable;
       const globals = new Map();
       Object.keys(csvByTable).forEach((t) => globals.set('dg_csv_' + t, csvByTable[t]));
       const duckdbTables = {}; // registered tables: name -> parsed rows
@@ -286,11 +296,43 @@ if (evalTrivialLiteralSelect) {
           get(k) { return globals.get(k); },
           keys() { return globals.keys(); },
         },
+        loadPackage(name) {
+          if (duckdbUnavailable) return Promise.resolve(); // micropip "loads" fine; the install call itself fails below
+          return Promise.resolve();
+        },
         runPython(code) {
-          if (code === 'import duckdb') return; // pretend duckdb is always importable in the mock
+          if (code === 'import duckdb') {
+            if (duckdbUnavailable) throw new Error('ModuleNotFoundError: duckdb (mock: never installed)');
+            return; // pretend duckdb is importable in the mock
+          }
           throw new Error('unsupported runPython: ' + code);
         },
         async runPythonAsync(code) {
+          if (/micropip\.install\("duckdb"\)/.test(code)) {
+            // this is ensureDuckdbInPyodide's install attempt -- simulate the
+            // live-proven failure (privacy warn on pypi.org / install path
+            // returns false) when duckdbUnavailable is set, so the caller's
+            // withTimeout(...).catch honestly resolves ready=false rather
+            // than the mock silently pretending the install worked.
+            if (duckdbUnavailable) throw new Error('micropip install failed (mock: pypi.org unreachable)');
+            return;
+          }
+          if (/_dg_second_engine_pandas_n = len/.test(code)) {
+            // this is runViaPyodidePandasCount's output: read the CSV named
+            // by the _dg_second_engine_pandas_key global (set right before
+            // this call) and report its row count -- proves the pandas-only
+            // path answers a narrow COUNT(*) from the SAME dg_csv_* global
+            // the duckdb path would have registered from, without ever
+            // calling duckdb.register/duckdb.sql.
+            const globalKey = globals.get('_dg_second_engine_pandas_key');
+            const csv = globals.get(globalKey);
+            if (csv === undefined || csv === null) {
+              throw new Error('pandas mock: ' + globalKey + ' not found');
+            }
+            const parsed = parseCsv(csv);
+            globals.set('_dg_second_engine_pandas_n', parsed.rows.length);
+            return;
+          }
           if (/^import pandas/.test(code)) {
             // this is buildRegisterPythonSnippet's output; walk the
             // generated "if globals().get(...)" blocks and populate
@@ -389,12 +431,15 @@ if (evalTrivialLiteralSelect) {
       ok(result.error === 'pyodide-sql-unavailable', 'with neither DataGlowPython nor DataGlowR present, a FROM query honestly reports unavailable, never a fabricated result');
     }
 
-    // ---- Test: no window.DataGlowPython but window.DataGlowR answers narrow COUNT(*) via nrow() ----
+    // ---- Test: no window.DataGlowPython but window.DataGlowR answers narrow COUNT(*) via nrow(), now GATED behind a confirmed exists()/is.data.frame() check (HOTFIX F2) ----
     {
       globalThis.__mockWindow = {
         DataGlowR: {
           init: async () => ({
             evalR: async (code) => {
+              if (/^exists\("orders"/.test(code)) {
+                return { toArray: async () => [true] };
+              }
               if (/requireNamespace\("duckdb"/.test(code)) {
                 throw new Error('duckdb R package not installed in this mock');
               }
@@ -408,7 +453,7 @@ if (evalTrivialLiteralSelect) {
       };
       const bridge = buildBridge();
       const result = await bridge('SELECT COUNT(*) FROM orders');
-      ok(!result.error, 'with only window.DataGlowR present, a narrow COUNT(*) FROM t query is answered via the webR nrow() path');
+      ok(!result.error, 'with only window.DataGlowR present and the table CONFIRMED to exist as a data.frame, a narrow COUNT(*) FROM t query is answered via the webR nrow() path');
       ok(result.engine === 'webr-df', 'the webR nrow() fallback result is tagged engine: webr-df');
       ok(result.scalars && result.scalars.c === 5, 'the webR path correctly reports the R data.frame row count under the default alias "c"');
     }
@@ -421,6 +466,143 @@ if (evalTrivialLiteralSelect) {
       const bridge = buildBridge();
       const result = await bridge('SELECT * FROM orders WHERE amount > 100');
       ok(result.error === 'pyodide-sql-unavailable', 'a non-trivial, non-COUNT(*) statement with only webR available is honestly refused, never guessed at via R');
+    }
+
+    // ---------------------------------------------------------------
+    // HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F2 -- THE LIVE BUG, reproduced and fixed:
+    // webR must never invent n=0 for a missing/unbound R table. Mock returns
+    // 0 from nrow() the OLD code would have accepted at face value; the
+    // exists()/is.data.frame() gate must refuse before nrow() is ever called.
+    // ---------------------------------------------------------------
+    {
+      let nrowWasCalled = false;
+      globalThis.__mockWindow = {
+        DataGlowR: {
+          init: async () => ({
+            evalR: async (code) => {
+              if (/^exists\("claims_example"/.test(code)) {
+                // table missing/never bound in this R session -- exists()
+                // correctly reports FALSE (short-circuits before is.data.frame
+                // would even be evaluated in real R, same as here)
+                return { toArray: async () => [false] };
+              }
+              if (code === 'nrow(claims_example)') {
+                // If the bridge ever reaches this call for a table that was
+                // NOT confirmed to exist, it is inventing an answer -- flag it
+                // and return the exact false zero the live bug produced.
+                nrowWasCalled = true;
+                return { toArray: async () => [0] };
+              }
+              throw new Error('unsupported evalR: ' + code);
+            },
+          }),
+        },
+      };
+      const bridge = buildBridge();
+      const result = await bridge('SELECT COUNT(*) AS n FROM claims_example');
+      ok(result.error === 'pyodide-sql-unavailable', 'THE LIVE BUG FIX: a missing R table now returns the honest unavailable error, never a fabricated n=0 (was: {engine:"webr-duckdb", scalars:{n:0}})');
+      ok(!nrowWasCalled, 'nrow() is never called for a table that exists()/is.data.frame() did not confirm -- the gate runs BEFORE nrow(), not after');
+    }
+
+    // ---------------------------------------------------------------
+    // HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F2, duckdb-in-R variant: a
+    // requireNamespace("duckdb") success against an UNCONFIRMED table must
+    // also be refused, never treated as authorization to run duckdb_register
+    // against a name that was never proven to be a bound data.frame.
+    // ---------------------------------------------------------------
+    {
+      let duckdbInRWasCalled = false;
+      globalThis.__mockWindow = {
+        DataGlowR: {
+          init: async () => ({
+            evalR: async (code) => {
+              if (/^exists\("missing_table"/.test(code)) {
+                return { toArray: async () => [false] };
+              }
+              if (/requireNamespace\("duckdb"/.test(code)) {
+                duckdbInRWasCalled = true;
+                return { toArray: async () => [0] };
+              }
+              throw new Error('unsupported evalR: ' + code);
+            },
+          }),
+        },
+      };
+      const bridge = buildBridge();
+      const result = await bridge('SELECT COUNT(*) AS n FROM missing_table');
+      ok(result.error === 'pyodide-sql-unavailable', 'a missing table is refused before even trying the duckdb-in-R path');
+      ok(!duckdbInRWasCalled, 'the duckdb-in-R requireNamespace/duckdb_register path is never attempted against an unconfirmed table');
+    }
+
+    // ---------------------------------------------------------------
+    // HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md F1 -- bridge priority: pyodide-pandas
+    // must be preferred over webR when pyodide-duckdb is unavailable (the
+    // live bug's exact trigger: micropip.install("duckdb") fails, but
+    // dg_csv_claims_example IS present after buildHelper).
+    // ---------------------------------------------------------------
+    {
+      const csv = '"id"\n"1"\n"2"\n"3"\n"4"\n"5"\n"6"\n"7"\n"8"\n"9"\n"10"';
+      const mockPy = makeMockPy({ claims_example: csv }, { duckdbUnavailable: true });
+      let webRWasCalled = false;
+      globalThis.__mockWindow = {
+        DataGlowPython: { loadRuntime: async () => mockPy, buildHelper: () => {} },
+        DataGlowR: {
+          init: async () => {
+            webRWasCalled = true;
+            throw new Error('webR should never be reached: pyodide-pandas should have already answered');
+          },
+        },
+      };
+      const bridge = buildBridge();
+      const result = await bridge('SELECT COUNT(*) AS n FROM claims_example');
+      ok(!result.error, 'THE LIVE FIX: with duckdb-in-pyodide unavailable but dg_csv_claims_example present, the bridge still answers (no false RED)');
+      ok(result.engine === 'pyodide-pandas', 'the bridge prefers the pyodide-pandas path over webR when pyodide-duckdb is unavailable (spec F1 bridge priority)');
+      ok(result.scalars && result.scalars.n === 10, 'SELECT COUNT(*) AS n FROM claims_example against the 10-row CSV returns n=10, matching primary DuckDB-WASM (the exact live-prove recipe in the spec)');
+      ok(!webRWasCalled, 'webR is never reached when the pandas path already answered -- pandas is strictly preferred, not raced');
+    }
+
+    // ---------------------------------------------------------------
+    // Mock: no duckdb, has dg_csv_orders with 3 rows -> COUNT returns engine
+    // pyodide-pandas n=3 (spec Tests section, verbatim scenario).
+    // ---------------------------------------------------------------
+    {
+      const csv = '"id"\n"1"\n"2"\n"3"';
+      const mockPy = makeMockPy({ orders: csv }, { duckdbUnavailable: true });
+      globalThis.__mockWindow = {
+        DataGlowPython: { loadRuntime: async () => mockPy, buildHelper: () => {} },
+      };
+      const bridge = buildBridge();
+      const result = await bridge('SELECT COUNT(*) AS n FROM orders');
+      ok(!result.error, 'no duckdb, dg_csv_orders with 3 rows: the bridge still answers via pandas');
+      ok(result.engine === 'pyodide-pandas', 'engine is tagged pyodide-pandas');
+      ok(result.scalars && result.scalars.n === 3, 'COUNT(*) AS n FROM orders returns n=3 from the pandas path');
+      ok(Array.isArray(result.tablesRegistered) && result.tablesRegistered.includes('orders'), 'the pandas result reports tablesRegistered including "orders"');
+    }
+
+    // ---------------------------------------------------------------
+    // runViaPyodidePandasCount is narrow like parseCountStarFrom: refuses a
+    // non-COUNT(*) statement outright (returns null), never guesses.
+    // ---------------------------------------------------------------
+    {
+      const csv = '"id"\n"1"\n"2"';
+      const mockPy = makeMockPy({ orders: csv }, { duckdbUnavailable: true });
+      globalThis.__mockWindow = { DataGlowPython: { loadRuntime: async () => mockPy, buildHelper: () => {} } };
+      const bridge = buildBridge();
+      const result = await bridge('SELECT * FROM orders');
+      ok(result.error === 'pyodide-sql-unavailable', 'a non-COUNT(*) statement with duckdb unavailable is honestly refused by the pandas path too (falls through to the honest unavailable error, no webR/DataGlowR present here)');
+    }
+
+    // ---------------------------------------------------------------
+    // pyodide-pandas is refused (returns null, falls through) when the
+    // dg_csv_<table> global for the requested table does NOT exist, even
+    // though duckdb is unavailable -- never fabricates a count from nothing.
+    // ---------------------------------------------------------------
+    {
+      const mockPy = makeMockPy({ orders: '"id"\n"1"' }, { duckdbUnavailable: true });
+      globalThis.__mockWindow = { DataGlowPython: { loadRuntime: async () => mockPy, buildHelper: () => {} } };
+      const bridge = buildBridge();
+      const result = await bridge('SELECT COUNT(*) AS n FROM nonexistent_table');
+      ok(result.error === 'pyodide-sql-unavailable', 'with duckdb unavailable AND no matching dg_csv_ global for the requested table, the bridge honestly reports unavailable rather than fabricating a count');
     }
 
     delete globalThis.__mockWindow;
