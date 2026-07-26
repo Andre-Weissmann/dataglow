@@ -84,13 +84,26 @@ export function resolveSecondEngine(opts) {
 export function normalizeSecondRun(secondRun) {
   if (!isPlainObject(secondRun)) return { rowCount: null, scalars: {}, error: null };
   const payload = secondRun.result !== undefined ? secondRun.result : secondRun;
+  // Precedence (explicit numeric rowCount always wins over inferring length
+  // from an array, on either the outer secondRun or the inner payload):
+  //   1. secondRun.rowCount if number
+  //   2. payload.rowCount if number
+  //   3. payload.rows.length if array
+  //   4. payload.length if array
+  // A fake/second engine that returns BOTH {rows:[...]} and an explicit
+  // rowCount (e.g. {rows:[{n:1}], rowCount:50}) must resolve to the explicit
+  // rowCount, not the array length, so a genuine disagreement with the
+  // primary engine is never masked into a false agree.
   let rowCount = null;
-  if (Array.isArray(payload)) rowCount = payload.length;
-  else if (isPlainObject(payload)) {
-    if (Array.isArray(payload.rows)) rowCount = payload.rows.length;
-    else if (typeof payload.rowCount === 'number') rowCount = payload.rowCount;
+  if (typeof secondRun.rowCount === 'number') {
+    rowCount = secondRun.rowCount;
+  } else if (isPlainObject(payload) && typeof payload.rowCount === 'number') {
+    rowCount = payload.rowCount;
+  } else if (isPlainObject(payload) && Array.isArray(payload.rows)) {
+    rowCount = payload.rows.length;
+  } else if (Array.isArray(payload)) {
+    rowCount = payload.length;
   }
-  if (rowCount === null && typeof secondRun.rowCount === 'number') rowCount = secondRun.rowCount;
   const scalars = isPlainObject(secondRun.scalars) ? secondRun.scalars : {};
   const error = typeof secondRun.error === 'string' && secondRun.error.trim() ? secondRun.error.trim() : null;
   return { rowCount, scalars, error };

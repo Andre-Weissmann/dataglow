@@ -125,6 +125,67 @@ function ok(cond, msg) {
   ok(normalizeSecondRun({ result: [1, 2, 3] }).rowCount === 3, 'normalizeSecondRun reads rowCount from a bare array result');
   ok(normalizeSecondRun(null).rowCount === null, 'normalizeSecondRun never throws on null, returns null rowCount');
   ok(normalizeSecondRun({ error: 'boom' }).error === 'boom', 'normalizeSecondRun surfaces a second engine error');
+
+  // Regression: when BOTH an explicit numeric rowCount and a rows array are
+  // present on the same payload, the explicit rowCount must win, never
+  // rows.length. A fake second engine returning {rows:[{n:1}], rowCount:50}
+  // previously extracted 1 (rows.length) instead of 50, masking a real
+  // disagreement with the primary engine as a false agree.
+  ok(normalizeSecondRun({ result: { rows: [{ n: 1 }], rowCount: 50 } }).rowCount === 50,
+    'normalizeSecondRun prefers explicit payload.rowCount over payload.rows.length when both are present');
+  ok(normalizeSecondRun({ rowCount: 7, result: { rows: [1, 2, 3] } }).rowCount === 7,
+    'normalizeSecondRun prefers secondRun.rowCount over a nested rows array when both are present');
+  ok(normalizeSecondRun({ result: [1, 2, 3, 4], rowCount: 4 }).rowCount === 4,
+    'normalizeSecondRun still returns the correct rowCount when a bare-array payload agrees with an explicit rowCount');
+}
+
+// ---------- Regression: BUG 1 -- second engine {rows, rowCount} disagreement must block GREEN ----------
+{
+  // Primary run reports rowCount 1 (a candidate GREEN). The fake second
+  // engine returns BOTH a 1-element rows array and an explicit rowCount of
+  // 50 -- before the fix, rows.length (1) was extracted instead of the
+  // explicit rowCount (50), so corroborateRun wrongly reported agrees:true
+  // and GREEN was never downgraded. After the fix, the explicit rowCount
+  // (50) must be used, producing a genuine disagreement.
+  const proposal = await createTypedProposal({ statement: 'select count(*) as n from t', expected: { rowCount: 1 } });
+  const run = { status: 'ok', rowCount: 1, scalars: {}, error: null };
+  const comparison = compareClaimToRun(proposal.expected, run);
+  ok(comparison.pass === true, 'primary run with rowCount 1 matches the expectation (candidate GREEN)');
+
+  const secondRun = { rows: [{ n: 1 }], rowCount: 50 };
+  const normalized = normalizeSecondRun(secondRun);
+  ok(normalized.rowCount === 50, 'the fake second engine payload normalizes to the explicit rowCount (50), not rows.length (1)');
+
+  const corroboration = corroborateRun({
+    primaryRun: run,
+    secondRun,
+    secondEngineName: 'fake-second-engine',
+    expected: proposal.expected,
+  });
+  ok(corroboration.ran === true, 'corroborateRun ran for the fake second engine payload');
+  ok(corroboration.agrees === false, 'corroborateRun reports agrees:false for primary rowCount 1 vs second rowCount 50');
+
+  const verdict = decideVerdict({ proposal, run, expected: proposal.expected, comparison, corroboration });
+  ok(verdict.state !== 'GREEN', 'a disagreeing second engine payload must not leave the verdict GREEN');
+  ok(verdict.state === 'RED', 'the disagreement resolves to RED');
+  ok(verdict.reasonCode === VERDICT_REASON_CODES.CORROBORATION_DISAGREE, 'the RED carries the corroboration-disagree reason code');
+
+  // Same scenario end-to-end through runProofCycle with an injected second engine.
+  resetReceipts();
+  resetVault();
+  const cycle = await runProofCycle({
+    claimText: 'there is 1 row',
+    statement: 'select count(*) as n from t',
+    expected: { rowCount: 1 },
+    runQuery: async () => ({ columns: [{ name: 'n' }], rows: [{ n: 1 }], rowCount: 1 }),
+    runSecondEngine: async () => ({ rows: [{ n: 1 }], rowCount: 50 }),
+    secondEngineName: 'fake-second-engine',
+  });
+  ok(cycle.corroboration && cycle.corroboration.agrees === false, 'runProofCycle wires the second engine result into a real disagreement');
+  ok(cycle.verdict.state !== 'GREEN', 'runProofCycle does not report GREEN when the second engine disagrees');
+  ok(cycle.verdict.state === 'RED', 'runProofCycle downgrades the candidate GREEN to RED on second-engine disagreement');
+  resetReceipts();
+  resetVault();
 }
 
 // ---------- verdict: AMBER on digest drift ----------
@@ -299,6 +360,22 @@ function ok(cond, msg) {
 
   const verify = await verifyCartridgeHash(exported.cartridge);
   ok(verify.valid === true, 'verifyCartridgeHash confirms an unedited cartridge');
+
+  // ---------- Regression: BUG 2 (cartridge API misuse) -- importCartridge/
+  // parseCartridge must tolerate a caller passing exportCartridge()'s own
+  // {rejected, cartridge} result (or the bare cartridge object) instead of
+  // remembering to unwrap/stringify it first; a live test previously failed
+  // JSON.parse because the wrong object shape was passed as cartridgeText.
+  const wholeExportResult = await exportCartridge({ proposal, verdict, run: { rowCount: 1 }, receipt: { hash: 'abc123' } });
+  const parsedFromExportResult = parseCartridge(wholeExportResult);
+  ok(parsedFromExportResult.rejected === false, 'parseCartridge accepts exportCartridge()\'s whole {rejected, cartridge} result without a caller unwrap');
+  ok(parsedFromExportResult.cartridge._type === PROOF_CARTRIDGE_TYPE, 'the cartridge unwrapped from an export result carries the proof-cartridge type');
+
+  const parsedFromBareObject = parseCartridge(exported.cartridge);
+  ok(parsedFromBareObject.rejected === false, 'parseCartridge also accepts an already-parsed bare cartridge object directly');
+
+  const importFromWholeExportResult = await importCartridge({ cartridgeText: wholeExportResult, runQuery: matchingRunQuery, compareClaimToRun });
+  ok(importFromWholeExportResult.ok === true && importFromWholeExportResult.state === 'GREEN', 'importCartridge succeeds even when handed exportCartridge()\'s whole result instead of a JSON string');
 }
 
 // ---------- Proof Inbox: queue transitions ----------

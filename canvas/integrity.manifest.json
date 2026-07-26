@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6232104,
+  "canvasBytes": 6235203,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -468,8 +468,8 @@
       "source": "js/proof-harness/index.js",
       "note": "Proof Harness v1 (VERDICT Harness) pure engine: proposal.js (typed Proposal + digest), verdict.js (GREEN/RED/GRAY/AMBER decision), score-claim.js (rowCount/scalar comparison, restates drill-floor.js's scoreDrillAnswer discipline), receipt.js (append-only sha256 hash-chained receipt ledger), second-engine.js (Second Engine Rule corroboration), vault.js (Regression Vault), cartridge.js (Proof Cartridge export/import), inbox.js (review queue state machine) and index.js (runProofCycle/confirmProposal/rejectProposal orchestration) are concatenated by inject_proof_harness_v1.py into ONE combined IIFE publishing window.DataGlowProofHarness, since a cross-module ESM import graph does not resolve inside canvas's single inline <script>. sourceSha256 below is computed over js/proof-harness/index.js only; the other eight modules are inlined as part of the same canvas section and are NOT separately tracked, matching how inject_bundle18.py's multi-file combined sections are tracked under one manifest entry.",
       "sourceSha256": "115b7cb2f78924b98a717db91e0627a9331bc2ece8af6ade3edd026235b137ba",
-      "canvasSectionSha256": "637a2c7683b792dc4ef30dd712dccf47eb741dcb02df4fad012fba8d193f90f5",
-      "canvasSectionBytes": 78851
+      "canvasSectionSha256": "cdba816d885363f5971371f7d50e29474189ae87425277c607e25763f229dffe",
+      "canvasSectionBytes": 81947
     },
     {
       "source": "js/proof-harness/data-glow-proof-harness-canvas.js",
