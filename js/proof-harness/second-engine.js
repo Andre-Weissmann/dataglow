@@ -47,8 +47,27 @@ function valuesAgree(a, b) {
  * expected to treat null as "second engine not ready" (v0 single-engine
  * strength), never as a corroboration failure.
  *
- * Feature-detected in priority order: an explicitly injected runner always
- * wins; then Pyodide (preferred per spec), then webR (optional).
+ * PROOF_HARNESS_V1_1_SPEC.md pillar B1 priority order (updated from v1,
+ * which only looked for window.runDrillPython/window.runDrillR directly):
+ *   1. An explicitly injected opts.runSecondEngine always wins.
+ *   2. window.runProofSecondEngine -- the NEW preferred host bridge the
+ *      canvas installs (Pyodide+duckdb preferred, honest not-ready shape
+ *      when unavailable; see the canvas module's installSecondEngineBridge()).
+ *   3. window.DataGlowProofHarness.runSecondEngine, only if it is actually a
+ *      function (a prior harness build may not define one at all; checked
+ *      defensively so a missing method never throws here).
+ *   4. window.runDrillPython, but ONLY if it looks like a proof-shaped
+ *      runner (accepts a SQL string and returns a promise) rather than the
+ *      code-panel's python executor, which takes a Python program, not SQL
+ *      -- calling that blindly with a raw SQL string would throw nonsense
+ *      into a code cell instead of running a query. Since a code-panel
+ *      runner and a proof-shaped runner cannot be told apart just by arity,
+ *      this level is opt-in: only honored when the host has ALSO set the
+ *      `window.runDrillPython.isProofRunner = true` marker, which only the
+ *      canvas's own SQL-shaped installer sets, never the generic code-panel
+ *      Python runner.
+ *   5. window.runDrillR, same caution/marker (`isProofRunner`) as #4.
+ *   6. null -- second engine not ready, v0 single-engine strength.
  * @param {{runSecondEngine?: Function, secondEngineName?: string}} [opts]
  */
 export function resolveSecondEngine(opts) {
@@ -58,14 +77,16 @@ export function resolveSecondEngine(opts) {
   }
   try {
     if (typeof window !== 'undefined') {
-      if (typeof window.runDrillPython === 'function') {
+      if (typeof window.runProofSecondEngine === 'function') {
+        return { name: 'pyodide', run: window.runProofSecondEngine };
+      }
+      if (window.DataGlowProofHarness && typeof window.DataGlowProofHarness.runSecondEngine === 'function') {
+        return { name: 'second-engine', run: window.DataGlowProofHarness.runSecondEngine };
+      }
+      if (typeof window.runDrillPython === 'function' && window.runDrillPython.isProofRunner === true) {
         return { name: 'pyodide', run: window.runDrillPython };
       }
-      if (window.DataGlowProofHarness && typeof window.DataGlowProofHarness.resolveSecondEngine === 'function') {
-        const resolved = window.DataGlowProofHarness.resolveSecondEngine();
-        if (resolved && typeof resolved.run === 'function') return resolved;
-      }
-      if (typeof window.runDrillR === 'function') {
+      if (typeof window.runDrillR === 'function' && window.runDrillR.isProofRunner === true) {
         return { name: 'webr', run: window.runDrillR };
       }
     }

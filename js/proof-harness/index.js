@@ -53,7 +53,7 @@ import { compareClaimToRun } from './score-claim.js';
 import { createReceiptLedger, verifyReceiptChain, buildReceiptPredicate } from './receipt.js';
 import { corroborateRun, resolveSecondEngine, buildCorroborationField } from './second-engine.js';
 import { createVault, runVault, VAULT_STORAGE_KEY } from './vault.js';
-import { exportCartridge, importCartridge, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
+import { exportCartridge as exportCartridgePure, importCartridge as importCartridgePure, normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
 import { createInbox, statusLabel, INBOX_ITEM_STATUSES } from './inbox.js';
 
 const ledger = createReceiptLedger();
@@ -323,6 +323,92 @@ export function resetVault() {
   vault.clear();
 }
 
+// ------------------------------------------------------------------------
+// v1.1: Cartridge wrappers (PROOF_HARNESS_V1_1_SPEC.md pillar A)
+// ------------------------------------------------------------------------
+// cartridge.js stays a zero-dependency pure module (no import of
+// score-claim.js), so it cannot supply its own compareClaimToRun default.
+// This harness-level wrapper is the one place that CAN: it owns
+// compareClaimToRun (imported above), so whenever a caller omits
+// compareClaimToRun this wrapper auto-injects the harness's own scorer
+// instead of falling through to cartridge.js's always-fail stub. A caller
+// that already passes compareClaimToRun (e.g. the canvas Cartridge tab)
+// is unaffected -- their function is used unchanged.
+//
+// Both wrappers accept every call shape cartridge.js's own
+// normalizeImportArgs()/importCartridge() accept (object args bag,
+// exportCartridge()'s whole {rejected:false, cartridge} result passed as
+// cartridgeText, or the positional (cartridgeOrText, opts) convenience
+// form), since window.DataGlowProofHarness.importCartridge is the ONLY
+// importCartridge a live caller (canvas, tests, a future integration) ever
+// sees -- the pure module's own export is not itself reassigned.
+
+/**
+ * DataGlowProofHarness.importCartridge: flexible-argument, auto-scoring
+ * wrapper over cartridge.js's pure importCartridge(). See module header for
+ * the exact call shapes accepted.
+ * @param {object|string} args
+ * @param {object} [opts]
+ */
+export async function importCartridgeWrapped(args, opts) {
+  const normalized = normalizeImportArgs(args, opts);
+  const withScorer = {
+    cartridgeText: normalized.cartridgeText,
+    runQuery: normalized.runQuery,
+    compareClaimToRun: typeof normalized.compareClaimToRun === 'function' ? normalized.compareClaimToRun : compareClaimToRun,
+  };
+  return importCartridgePure(withScorer);
+}
+
+/**
+ * DataGlowProofHarness.exportCartridge: shape-compatible passthrough to
+ * cartridge.js's pure exportCartridge(). Exported under its own name so a
+ * future harness-level concern (e.g. auto-attaching environment metadata)
+ * has a home without touching the pure module directly, matching how
+ * importCartridge already needed one.
+ * @param {object} args
+ */
+export async function exportCartridgeWrapped(args) {
+  return exportCartridgePure(args);
+}
+
+/**
+ * roundTripCartridge: the full export -> import cycle in one call, for
+ * tests and any live caller that wants a single "does this claim survive
+ * being packaged up and re-proven" check without wiring the two halves
+ * itself. Exports a cartridge from {proposal, verdict, receipt, run}, and
+ * if that export succeeds, immediately imports it back against the SAME
+ * `runQuery` (typically the live engine on the SAME device/session, which
+ * is exactly the "re-prove on this device" acceptance gate). Auto-injects
+ * this harness's own compareClaimToRun, same as importCartridgeWrapped.
+ * Never throws: an export refusal is returned as-is (not re-thrown into an
+ * import attempt).
+ * @param {{proposal:object, verdict:object, run?:object, receipt?:object,
+ *          runQuery:(sql:string)=>Promise<*>, environment?:object,
+ *          schemaFingerprints?:object, compareClaimToRun?:Function}} args
+ * @returns {Promise<{exported:object, imported:object|null}>}
+ */
+export async function roundTripCartridge(args) {
+  const a = isPlainObject(args) ? args : {};
+  const exported = await exportCartridgePure({
+    proposal: a.proposal,
+    verdict: a.verdict,
+    run: a.run,
+    receipt: a.receipt,
+    environment: a.environment,
+    schemaFingerprints: a.schemaFingerprints,
+  });
+  if (exported.rejected) {
+    return { exported, imported: null };
+  }
+  const imported = await importCartridgeWrapped({
+    cartridgeText: exported,
+    runQuery: a.runQuery,
+    compareClaimToRun: a.compareClaimToRun,
+  });
+  return { exported, imported };
+}
+
 export {
   createTypedProposal,
   proposalMatchesDigest,
@@ -333,11 +419,11 @@ export { compareClaimToRun, scalarMatches, extractRowCount, extractScalar } from
 export { createReceiptLedger, verifyReceiptChain, buildReceiptPredicate } from './receipt.js';
 export { corroborateRun, resolveSecondEngine, normalizeSecondRun, buildCorroborationField } from './second-engine.js';
 export { createVault, runVault, buildVaultTest, VAULT_STORAGE_KEY } from './vault.js';
-export { exportCartridge, importCartridge, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
+export { normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
 export { createInbox, buildPendingItem, itemFromCycleResult, statusLabel, INBOX_ITEM_STATUSES } from './inbox.js';
 
 const DataGlowProofHarness = {
-  version: 2,
+  version: 3,
   // v0 API (unchanged shape/behavior when v1 features are not used)
   runProofCycle,
   confirmProposal,
@@ -354,8 +440,6 @@ const DataGlowProofHarness = {
   addVaultTest,
   runVaultCheck,
   resetVault,
-  exportCartridge,
-  importCartridge,
   parseCartridge,
   verifyCartridgeHash,
   serializeCartridge,
@@ -363,6 +447,15 @@ const DataGlowProofHarness = {
   statusLabel,
   resolveSecondEngine,
   VERDICT_STATES,
+  // v1.1 additions/wraps (PROOF_HARNESS_V1_1_SPEC.md): importCartridge and
+  // exportCartridge on THIS object are the flexible-argument, auto-scoring
+  // wrappers, not the bare pure-module functions re-exported above under
+  // the same names -- a caller of window.DataGlowProofHarness.importCartridge
+  // gets the auto-inject-compareClaimToRun behavior; a caller that imports
+  // cartridge.js directly still gets the strict pure version.
+  exportCartridge: exportCartridgeWrapped,
+  importCartridge: importCartridgeWrapped,
+  roundTripCartridge,
 };
 
 if (typeof window !== 'undefined') {

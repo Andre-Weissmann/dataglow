@@ -167,6 +167,51 @@ export async function verifyCartridgeHash(cartridge) {
 }
 
 /**
+ * Normalize importCartridge()'s call shape to a single canonical args
+ * object. PROOF_HARNESS_V1_1_SPEC.md pillar A1 requires this pure module to
+ * accept all three of:
+ *   1. `{ cartridgeText, runQuery, compareClaimToRun? }` (v1 shape, unchanged)
+ *   2. The whole `exportCartridge()` result (`{rejected:false, cartridge}`)
+ *      passed AS `cartridgeText` -- parseCartridge() already unwraps that
+ *      object shape, so this is really just "args.cartridgeText happens to
+ *      be an exportCartridge() result object instead of a JSON string",
+ *      which the existing parseCartridge() call handles without any change
+ *      here; kept as an explicit, tested case rather than an accident.
+ *   3. Convenience positional form: `importCartridge(cartridgeOrText, opts)`
+ *      where `cartridgeOrText` is either a JSON string, an already-parsed
+ *      cartridge object, or an `exportCartridge()` result, and `opts` carries
+ *      `{ runQuery, compareClaimToRun? }`.
+ * This function ONLY reshapes arguments; it never decides pass/fail. Never
+ * throws.
+ * @param {object|string} argsOrCartridge
+ * @param {object} [maybeOpts]
+ * @returns {{cartridgeText:*, runQuery:Function|undefined, compareClaimToRun:Function|undefined}}
+ */
+export function normalizeImportArgs(argsOrCartridge, maybeOpts) {
+  // Form 3: positional (cartridgeOrText, opts). Distinguished from form 1/2
+  // (a single plain-object args bag already carrying `cartridgeText`) by
+  // checking whether a SECOND argument was actually supplied, or the first
+  // argument is a bare string/already-parsed cartridge rather than an args
+  // envelope with its own `cartridgeText` key.
+  if (maybeOpts !== undefined || typeof argsOrCartridge === 'string' ||
+      (isPlainObject(argsOrCartridge) && !Object.prototype.hasOwnProperty.call(argsOrCartridge, 'cartridgeText'))) {
+    const o = isPlainObject(maybeOpts) ? maybeOpts : {};
+    return {
+      cartridgeText: argsOrCartridge,
+      runQuery: o.runQuery,
+      compareClaimToRun: o.compareClaimToRun,
+    };
+  }
+  // Form 1/2: single args bag.
+  const a = isPlainObject(argsOrCartridge) ? argsOrCartridge : {};
+  return {
+    cartridgeText: a.cartridgeText,
+    runQuery: a.runQuery,
+    compareClaimToRun: a.compareClaimToRun,
+  };
+}
+
+/**
  * Import a cartridge: re-execute its statement via the caller's injected
  * `runQuery` (the importer's own live engine, on the importer's own data),
  * then compare the fresh result to the cartridge's recorded expectation
@@ -175,16 +220,34 @@ export async function verifyCartridgeHash(cartridge) {
  * naming exactly what did not match -- never a guess, matching every other
  * proof-harness refuse-to-guess discipline.
  *
+ * Accepts THREE call shapes (see normalizeImportArgs()'s doc comment):
+ *   1. `importCartridge({ cartridgeText, runQuery, compareClaimToRun? })`
+ *   2. `importCartridge({ cartridgeText: <exportCartridge() result>, runQuery, ... })`
+ *   3. `importCartridge(cartridgeOrText, { runQuery, compareClaimToRun? })`
+ * This pure module never auto-injects `compareClaimToRun` when omitted --
+ * that auto-inject (never defaulting to an always-fail stub when the
+ * harness owns the scorer) is the WRAPPER's job
+ * (`DataGlowProofHarness.importCartridge` in index.js), since this module
+ * has no import of score-claim.js's `compareClaimToRun` to fall back to
+ * without breaking its own zero-dependency purity. A caller of THIS
+ * function directly (e.g. a test, or a caller that truly wants no
+ * comparison) that omits `compareClaimToRun` gets the existing always-fail
+ * stub below, unchanged from v1.
+ *
  * @param {{cartridgeText: string|object, runQuery: (sql:string) => Promise<*>,
- *          compareClaimToRun: Function}} args cartridgeText is normally a
- *   JSON string, but parseCartridge() also tolerates an object here (e.g.
- *   exportCartridge()'s {rejected, cartridge} result passed straight
- *   through by mistake) -- see parseCartridge()'s doc comment.
+ *          compareClaimToRun?: Function}|string|object} args cartridgeText is
+ *   normally a JSON string, but parseCartridge() also tolerates an object
+ *   here (e.g. exportCartridge()'s {rejected, cartridge} result passed
+ *   straight through by mistake) -- see parseCartridge()'s doc comment. args
+ *   itself may also be the cartridge/text directly (positional form), with
+ *   `opts` as the second parameter.
+ * @param {{runQuery?:Function, compareClaimToRun?:Function}} [opts] only used
+ *   in the positional call form.
  * @returns {Promise<{ok:boolean, state:'GREEN'|'RED'|'GRAY', reason:string,
  *   divergence: Array<object>, cartridge?: object}>}
  */
-export async function importCartridge(args) {
-  const a = isPlainObject(args) ? args : {};
+export async function importCartridge(args, opts) {
+  const a = normalizeImportArgs(args, opts);
   const parsedResult = parseCartridge(a.cartridgeText);
   if (parsedResult.rejected) {
     return { ok: false, state: 'GRAY', reason: parsedResult.reason, divergence: [] };

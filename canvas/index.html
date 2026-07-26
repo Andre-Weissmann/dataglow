@@ -140424,8 +140424,27 @@ function valuesAgree(a, b) {
  * expected to treat null as "second engine not ready" (v0 single-engine
  * strength), never as a corroboration failure.
  *
- * Feature-detected in priority order: an explicitly injected runner always
- * wins; then Pyodide (preferred per spec), then webR (optional).
+ * PROOF_HARNESS_V1_1_SPEC.md pillar B1 priority order (updated from v1,
+ * which only looked for window.runDrillPython/window.runDrillR directly):
+ *   1. An explicitly injected opts.runSecondEngine always wins.
+ *   2. window.runProofSecondEngine -- the NEW preferred host bridge the
+ *      canvas installs (Pyodide+duckdb preferred, honest not-ready shape
+ *      when unavailable; see the canvas module's installSecondEngineBridge()).
+ *   3. window.DataGlowProofHarness.runSecondEngine, only if it is actually a
+ *      function (a prior harness build may not define one at all; checked
+ *      defensively so a missing method never throws here).
+ *   4. window.runDrillPython, but ONLY if it looks like a proof-shaped
+ *      runner (accepts a SQL string and returns a promise) rather than the
+ *      code-panel's python executor, which takes a Python program, not SQL
+ *      -- calling that blindly with a raw SQL string would throw nonsense
+ *      into a code cell instead of running a query. Since a code-panel
+ *      runner and a proof-shaped runner cannot be told apart just by arity,
+ *      this level is opt-in: only honored when the host has ALSO set the
+ *      `window.runDrillPython.isProofRunner = true` marker, which only the
+ *      canvas's own SQL-shaped installer sets, never the generic code-panel
+ *      Python runner.
+ *   5. window.runDrillR, same caution/marker (`isProofRunner`) as #4.
+ *   6. null -- second engine not ready, v0 single-engine strength.
  * @param {{runSecondEngine?: Function, secondEngineName?: string}} [opts]
  */
 function resolveSecondEngine(opts) {
@@ -140435,14 +140454,16 @@ function resolveSecondEngine(opts) {
   }
   try {
     if (typeof window !== 'undefined') {
-      if (typeof window.runDrillPython === 'function') {
+      if (typeof window.runProofSecondEngine === 'function') {
+        return { name: 'pyodide', run: window.runProofSecondEngine };
+      }
+      if (window.DataGlowProofHarness && typeof window.DataGlowProofHarness.runSecondEngine === 'function') {
+        return { name: 'second-engine', run: window.DataGlowProofHarness.runSecondEngine };
+      }
+      if (typeof window.runDrillPython === 'function' && window.runDrillPython.isProofRunner === true) {
         return { name: 'pyodide', run: window.runDrillPython };
       }
-      if (window.DataGlowProofHarness && typeof window.DataGlowProofHarness.resolveSecondEngine === 'function') {
-        const resolved = window.DataGlowProofHarness.resolveSecondEngine();
-        if (resolved && typeof resolved.run === 'function') return resolved;
-      }
-      if (typeof window.runDrillR === 'function') {
+      if (typeof window.runDrillR === 'function' && window.runDrillR.isProofRunner === true) {
         return { name: 'webr', run: window.runDrillR };
       }
     }
@@ -140933,6 +140954,51 @@ async function verifyCartridgeHash(cartridge) {
 }
 
 /**
+ * Normalize importCartridge()'s call shape to a single canonical args
+ * object. PROOF_HARNESS_V1_1_SPEC.md pillar A1 requires this pure module to
+ * accept all three of:
+ *   1. `{ cartridgeText, runQuery, compareClaimToRun? }` (v1 shape, unchanged)
+ *   2. The whole `exportCartridge()` result (`{rejected:false, cartridge}`)
+ *      passed AS `cartridgeText` -- parseCartridge() already unwraps that
+ *      object shape, so this is really just "args.cartridgeText happens to
+ *      be an exportCartridge() result object instead of a JSON string",
+ *      which the existing parseCartridge() call handles without any change
+ *      here; kept as an explicit, tested case rather than an accident.
+ *   3. Convenience positional form: `importCartridge(cartridgeOrText, opts)`
+ *      where `cartridgeOrText` is either a JSON string, an already-parsed
+ *      cartridge object, or an `exportCartridge()` result, and `opts` carries
+ *      `{ runQuery, compareClaimToRun? }`.
+ * This function ONLY reshapes arguments; it never decides pass/fail. Never
+ * throws.
+ * @param {object|string} argsOrCartridge
+ * @param {object} [maybeOpts]
+ * @returns {{cartridgeText:*, runQuery:Function|undefined, compareClaimToRun:Function|undefined}}
+ */
+function normalizeImportArgs(argsOrCartridge, maybeOpts) {
+  // Form 3: positional (cartridgeOrText, opts). Distinguished from form 1/2
+  // (a single plain-object args bag already carrying `cartridgeText`) by
+  // checking whether a SECOND argument was actually supplied, or the first
+  // argument is a bare string/already-parsed cartridge rather than an args
+  // envelope with its own `cartridgeText` key.
+  if (maybeOpts !== undefined || typeof argsOrCartridge === 'string' ||
+      (isPlainObject(argsOrCartridge) && !Object.prototype.hasOwnProperty.call(argsOrCartridge, 'cartridgeText'))) {
+    const o = isPlainObject(maybeOpts) ? maybeOpts : {};
+    return {
+      cartridgeText: argsOrCartridge,
+      runQuery: o.runQuery,
+      compareClaimToRun: o.compareClaimToRun,
+    };
+  }
+  // Form 1/2: single args bag.
+  const a = isPlainObject(argsOrCartridge) ? argsOrCartridge : {};
+  return {
+    cartridgeText: a.cartridgeText,
+    runQuery: a.runQuery,
+    compareClaimToRun: a.compareClaimToRun,
+  };
+}
+
+/**
  * Import a cartridge: re-execute its statement via the caller's injected
  * `runQuery` (the importer's own live engine, on the importer's own data),
  * then compare the fresh result to the cartridge's recorded expectation
@@ -140941,16 +141007,34 @@ async function verifyCartridgeHash(cartridge) {
  * naming exactly what did not match -- never a guess, matching every other
  * proof-harness refuse-to-guess discipline.
  *
+ * Accepts THREE call shapes (see normalizeImportArgs()'s doc comment):
+ *   1. `importCartridge({ cartridgeText, runQuery, compareClaimToRun? })`
+ *   2. `importCartridge({ cartridgeText: <exportCartridge() result>, runQuery, ... })`
+ *   3. `importCartridge(cartridgeOrText, { runQuery, compareClaimToRun? })`
+ * This pure module never auto-injects `compareClaimToRun` when omitted --
+ * that auto-inject (never defaulting to an always-fail stub when the
+ * harness owns the scorer) is the WRAPPER's job
+ * (`DataGlowProofHarness.importCartridge` in index.js), since this module
+ * has no import of score-claim.js's `compareClaimToRun` to fall back to
+ * without breaking its own zero-dependency purity. A caller of THIS
+ * function directly (e.g. a test, or a caller that truly wants no
+ * comparison) that omits `compareClaimToRun` gets the existing always-fail
+ * stub below, unchanged from v1.
+ *
  * @param {{cartridgeText: string|object, runQuery: (sql:string) => Promise<*>,
- *          compareClaimToRun: Function}} args cartridgeText is normally a
- *   JSON string, but parseCartridge() also tolerates an object here (e.g.
- *   exportCartridge()'s {rejected, cartridge} result passed straight
- *   through by mistake) -- see parseCartridge()'s doc comment.
+ *          compareClaimToRun?: Function}|string|object} args cartridgeText is
+ *   normally a JSON string, but parseCartridge() also tolerates an object
+ *   here (e.g. exportCartridge()'s {rejected, cartridge} result passed
+ *   straight through by mistake) -- see parseCartridge()'s doc comment. args
+ *   itself may also be the cartridge/text directly (positional form), with
+ *   `opts` as the second parameter.
+ * @param {{runQuery?:Function, compareClaimToRun?:Function}} [opts] only used
+ *   in the positional call form.
  * @returns {Promise<{ok:boolean, state:'GREEN'|'RED'|'GRAY', reason:string,
  *   divergence: Array<object>, cartridge?: object}>}
  */
-async function importCartridge(args) {
-  const a = isPlainObject(args) ? args : {};
+async function importCartridge(args, opts) {
+  const a = normalizeImportArgs(args, opts);
   const parsedResult = parseCartridge(a.cartridgeText);
   if (parsedResult.rejected) {
     return { ok: false, state: 'GRAY', reason: parsedResult.reason, divergence: [] };
@@ -141517,8 +141601,94 @@ function resetVault() {
   vault.clear();
 }
 
+// ------------------------------------------------------------------------
+// v1.1: Cartridge wrappers (PROOF_HARNESS_V1_1_SPEC.md pillar A)
+// ------------------------------------------------------------------------
+// cartridge.js stays a zero-dependency pure module (no import of
+// score-claim.js), so it cannot supply its own compareClaimToRun default.
+// This harness-level wrapper is the one place that CAN: it owns
+// compareClaimToRun (imported above), so whenever a caller omits
+// compareClaimToRun this wrapper auto-injects the harness's own scorer
+// instead of falling through to cartridge.js's always-fail stub. A caller
+// that already passes compareClaimToRun (e.g. the canvas Cartridge tab)
+// is unaffected -- their function is used unchanged.
+//
+// Both wrappers accept every call shape cartridge.js's own
+// normalizeImportArgs()/importCartridge() accept (object args bag,
+// exportCartridge()'s whole {rejected:false, cartridge} result passed as
+// cartridgeText, or the positional (cartridgeOrText, opts) convenience
+// form), since window.DataGlowProofHarness.importCartridge is the ONLY
+// importCartridge a live caller (canvas, tests, a future integration) ever
+// sees -- the pure module's own export is not itself reassigned.
+
+/**
+ * DataGlowProofHarness.importCartridge: flexible-argument, auto-scoring
+ * wrapper over cartridge.js's pure importCartridge(). See module header for
+ * the exact call shapes accepted.
+ * @param {object|string} args
+ * @param {object} [opts]
+ */
+async function importCartridgeWrapped(args, opts) {
+  const normalized = normalizeImportArgs(args, opts);
+  const withScorer = {
+    cartridgeText: normalized.cartridgeText,
+    runQuery: normalized.runQuery,
+    compareClaimToRun: typeof normalized.compareClaimToRun === 'function' ? normalized.compareClaimToRun : compareClaimToRun,
+  };
+  return importCartridgePure(withScorer);
+}
+
+/**
+ * DataGlowProofHarness.exportCartridge: shape-compatible passthrough to
+ * cartridge.js's pure exportCartridge(). Exported under its own name so a
+ * future harness-level concern (e.g. auto-attaching environment metadata)
+ * has a home without touching the pure module directly, matching how
+ * importCartridge already needed one.
+ * @param {object} args
+ */
+async function exportCartridgeWrapped(args) {
+  return exportCartridgePure(args);
+}
+
+/**
+ * roundTripCartridge: the full export -> import cycle in one call, for
+ * tests and any live caller that wants a single "does this claim survive
+ * being packaged up and re-proven" check without wiring the two halves
+ * itself. Exports a cartridge from {proposal, verdict, receipt, run}, and
+ * if that export succeeds, immediately imports it back against the SAME
+ * `runQuery` (typically the live engine on the SAME device/session, which
+ * is exactly the "re-prove on this device" acceptance gate). Auto-injects
+ * this harness's own compareClaimToRun, same as importCartridgeWrapped.
+ * Never throws: an export refusal is returned as-is (not re-thrown into an
+ * import attempt).
+ * @param {{proposal:object, verdict:object, run?:object, receipt?:object,
+ *          runQuery:(sql:string)=>Promise<*>, environment?:object,
+ *          schemaFingerprints?:object, compareClaimToRun?:Function}} args
+ * @returns {Promise<{exported:object, imported:object|null}>}
+ */
+async function roundTripCartridge(args) {
+  const a = isPlainObject(args) ? args : {};
+  const exported = await exportCartridgePure({
+    proposal: a.proposal,
+    verdict: a.verdict,
+    run: a.run,
+    receipt: a.receipt,
+    environment: a.environment,
+    schemaFingerprints: a.schemaFingerprints,
+  });
+  if (exported.rejected) {
+    return { exported, imported: null };
+  }
+  const imported = await importCartridgeWrapped({
+    cartridgeText: exported,
+    runQuery: a.runQuery,
+    compareClaimToRun: a.compareClaimToRun,
+  });
+  return { exported, imported };
+}
+
   const DataGlowProofHarness = {
-    version: 2,
+    version: 3,
     runProofCycle: runProofCycle,
     confirmProposal: confirmProposal,
     createTypedProposal: createTypedProposal,
@@ -141533,15 +141703,16 @@ function resetVault() {
     addVaultTest: addVaultTest,
     runVaultCheck: runVaultCheck,
     resetVault: resetVault,
-    exportCartridge: exportCartridge,
-    importCartridge: importCartridge,
     parseCartridge: parseCartridge,
     verifyCartridgeHash: verifyCartridgeHash,
     serializeCartridge: serializeCartridge,
     createInbox: createInbox,
     statusLabel: statusLabel,
     resolveSecondEngine: resolveSecondEngine,
-    VERDICT_STATES: VERDICT_STATES
+    VERDICT_STATES: VERDICT_STATES,
+    exportCartridge: exportCartridgeWrapped,
+    importCartridge: importCartridgeWrapped,
+    roundTripCartridge: roundTripCartridge
   };
   window.DataGlowProofHarness = DataGlowProofHarness;
 })();
@@ -141615,6 +141786,7 @@ function resetVault() {
   var _lastVaultRun = null;
   var _lastCartridgeExport = null;
   var _lastCartridgeImport = null;
+  var _lastCartridgeReprove = null; // 'Re-prove on this device' result (v1.1)
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -141721,6 +141893,166 @@ function resetVault() {
       }
     } catch (_e4) {}
     return null;
+  }
+
+  /* ---------------------------- second engine host bridge (v1.1) --------
+     PROOF_HARNESS_V1_1_SPEC.md pillar B1/B2: publish window.runProofSecondEngine,
+     a real host bridge resolveSecondEngine() in js/proof-harness/second-engine.js
+     now prefers over the old direct window.runDrillPython/window.runDrillR
+     lookup. This function is the ONLY thing this canvas module adds to the
+     window beyond what v0/v1 already published (window.DataGlowProofHarness
+     itself is owned by js/proof-harness/index.js, not here).
+
+     Contract: window.runProofSecondEngine(statement) -> Promise<{rowCount,
+     rows?, scalars?, engine?, error?}>. NEVER invents agreement -- when a
+     real second engine cannot run the statement, it resolves to
+     {error:'pyodide-sql-unavailable'} (corroboration then reports
+     ran:false, agrees:null, i.e. "not ready", never a false RED and never a
+     false GREEN), it never rejects/throws (second-engine.js's corroborateRun
+     always treats a caught rejection the same as an explicit error field,
+     but resolving cleanly keeps this bridge's own contract explicit rather
+     than relying on that catch).
+
+     Path, in order:
+       a) window.DataGlowPython (the existing Pyodide kernel this canvas
+          already ships for the Python tab/notebook) must exist and expose
+          loadRuntime()/buildHelper() -- both PUBLIC methods already used by
+          the Python Notebooks-lite bridge, so this reuses the exact same
+          kernel and dataset sync path rather than opening a second Pyodide
+          load. Sync happens via buildHelper(py), the same call the single
+          Python REPL and the notebook already make; this never fetches or
+          uploads anything new.
+       b) Prefer installing duckdb inside that same Pyodide via micropip and
+          running the statement through duckdb.sql(...).fetchdf(); this is
+          "a second runtime (CPython/WASM vs DuckDB-WASM JS)" per spec B5,
+          not a second warehouse -- independence is the runtime/memory
+          space, not a different SQL dialect family.
+       c) If duckdb cannot be installed quickly (no network, micropip
+          missing, timeout), and the statement is a trivial literal probe
+          (SELECT 1 / SELECT <int> AS alias with no FROM clause), evaluate
+          it in pure Python and return a matching rowCount:1 + scalar --
+          enough to corroborate the simplest claims without a full SQL
+          engine.
+       d) Otherwise, return {error:'pyodide-sql-unavailable'} honestly. */
+
+  var SECOND_ENGINE_DUCKDB_INSTALL_TIMEOUT_MS = 12000;
+  var _secondEngineDuckdbReady = null; // null=unknown, true=installed, false=failed
+
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('timed out')); }, ms);
+      promise.then(function (v) { clearTimeout(timer); resolve(v); }, function (e) { clearTimeout(timer); reject(e); });
+    });
+  }
+
+  /* Trivial literal probe fallback: SELECT 1 / SELECT 42 AS n, no FROM
+     clause, no joins, nothing that needs a real table. Deliberately narrow
+     -- this is Fallback A from the spec, not a SQL interpreter. Returns
+     {rowCount, scalars} on a recognized literal SELECT, or null when the
+     statement is not this trivial shape (caller then falls through to the
+     honest not-available error). */
+  function evalTrivialLiteralSelect(statement) {
+    var stmt = String(statement || '').trim().replace(/;\s*$/, '');
+    var m = /^select\s+(.+?)(?:\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*))?$/i.exec(stmt);
+    if (!m) return null;
+    var exprPart = m[1].trim();
+    // Only accept a single literal number or a comma-free simple literal;
+    // anything with FROM/WHERE/a function call is out of scope here.
+    if (/\bfrom\b/i.test(exprPart) || /[(),]/.test(exprPart)) return null;
+    if (!/^-?\d+(\.\d+)?$/.test(exprPart)) return null;
+    var value = Number(exprPart);
+    var alias = m[2] || (/^-?\d+$/.test(exprPart) ? (exprPart.indexOf('.') === -1 ? 'col' : 'col') : 'col');
+    var scalars = {};
+    scalars[alias] = value;
+    return { rowCount: 1, rows: [scalars], scalars: scalars, engine: 'pyodide-literal' };
+  }
+
+  async function ensureDuckdbInPyodide(py) {
+    if (_secondEngineDuckdbReady === true) return true;
+    if (_secondEngineDuckdbReady === false) return false;
+    try {
+      // Some Pyodide builds ship duckdb already; try a plain import first
+      // (cheap, no network) before reaching for micropip.
+      py.runPython('import duckdb');
+      _secondEngineDuckdbReady = true;
+      return true;
+    } catch (_eDirect) { /* fall through to micropip install */ }
+    try {
+      await withTimeout(
+        py.loadPackage('micropip').then(function () {
+          return py.runPythonAsync('import micropip\nawait micropip.install("duckdb")');
+        }),
+        SECOND_ENGINE_DUCKDB_INSTALL_TIMEOUT_MS
+      );
+      py.runPython('import duckdb');
+      _secondEngineDuckdbReady = true;
+      return true;
+    } catch (_eInstall) {
+      _secondEngineDuckdbReady = false;
+      return false;
+    }
+  }
+
+  async function runViaPyodideDuckdb(py, statement) {
+    py.globals.set('_dg_second_engine_sql', String(statement));
+    var code = [
+      'import duckdb, json',
+      '_dg_second_engine_res = duckdb.sql(_dg_second_engine_sql).fetchdf()',
+      '_dg_second_engine_payload = json.dumps({',
+      '    "columns": list(_dg_second_engine_res.columns),',
+      '    "rows": _dg_second_engine_res.values.tolist(),',
+      '    "rowCount": len(_dg_second_engine_res)',
+      '}, default=str)',
+    ].join('\n');
+    await py.runPythonAsync(code);
+    var payloadJson = py.globals.get('_dg_second_engine_payload');
+    var payload = JSON.parse(payloadJson);
+    var scalars = {};
+    if (payload.rows && payload.rows.length && payload.columns) {
+      payload.columns.forEach(function (col, i) { scalars[col] = payload.rows[0][i]; });
+    }
+    return { rowCount: payload.rowCount, rows: payload.rows, scalars: scalars, engine: 'pyodide-duckdb' };
+  }
+
+  /* Published as window.runProofSecondEngine. Matches the {rowCount, rows?,
+     scalars?, error?} shape js/proof-harness/second-engine.js's
+     normalizeSecondRun() already understands (it also tolerates the
+     {result:{...}} wrapper shape, but this bridge returns the flat shape
+     directly since it controls both ends). */
+  async function runProofSecondEngineBridge(statement) {
+    try {
+      if (!window.DataGlowPython || typeof window.DataGlowPython.loadRuntime !== 'function') {
+        var literal = evalTrivialLiteralSelect(statement);
+        return literal || { error: 'pyodide-sql-unavailable' };
+      }
+      var py = await window.DataGlowPython.loadRuntime();
+      if (typeof window.DataGlowPython.buildHelper === 'function') {
+        try { window.DataGlowPython.buildHelper(py); } catch (_eSync) { /* dataset sync is best-effort; a failed sync still allows a literal/duckdb probe */ }
+      }
+      var duckdbOk = await ensureDuckdbInPyodide(py);
+      if (duckdbOk) {
+        try {
+          return await runViaPyodideDuckdb(py, statement);
+        } catch (_eRun) {
+          // duckdb loaded but this particular statement failed (e.g. an
+          // unresolvable table name inside Pyodide's own duckdb, which has
+          // its own separate in-memory catalog from the main-thread
+          // DuckDB-WASM instance) -- fall through to the literal probe
+          // rather than silently pretending the run succeeded.
+          var literalAfterFail = evalTrivialLiteralSelect(statement);
+          return literalAfterFail || { error: 'pyodide-sql-unavailable' };
+        }
+      }
+      var literalFallback = evalTrivialLiteralSelect(statement);
+      return literalFallback || { error: 'pyodide-sql-unavailable' };
+    } catch (_eOuter) {
+      return { error: 'pyodide-sql-unavailable' };
+    }
+  }
+
+  function installSecondEngineBridge() {
+    if (typeof window.runProofSecondEngine === 'function') return; // already installed (idempotent)
+    window.runProofSecondEngine = runProofSecondEngineBridge;
   }
 
   /* ---------------------------- styles ------------------------------------ */
@@ -141934,7 +142266,16 @@ function resetVault() {
       html += '<p class="dg-ph-reason">' + esc(_lastResult.verdict.reason) +
         (_lastResult.verdict.blocker ? ' ' + esc(_lastResult.verdict.blocker) : '') + '</p>';
       html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run, _lastResult.corroboration);
-      if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
+      if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran === true && _lastResult.corroboration.agrees === true) {
+        /* PROOF_HARNESS_V1_1_SPEC.md B4: a short, honest note naming the
+           second engine that actually agreed, distinct from the receipt's
+           own detail line above (which is always shown; this note is the
+           at-a-glance version). agrees===false is not handled here since
+           decideVerdict() already turns that into RED, which the verdict
+           chip above already communicates; this note is additive, never a
+           second source of truth for pass/fail. */
+        html += '<div class="dg-ph-note">Second engine (' + esc(_lastResult.corroboration.engine || 'second engine') + ') agreed.</div>';
+      } else if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
         html += '<div class="dg-ph-note">Second engine not ready. GREEN is single-engine (v0 strength).</div>';
       }
       /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
@@ -142042,7 +142383,15 @@ function resetVault() {
     }
     if (_lastCartridgeExport) {
       html += '<textarea class="dg-ph-cartridge" readonly>' + esc(_lastCartridgeExport) + '</textarea>';
-      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-cartridge-copy>Copy JSON</button></div>';
+      html += '<div class="dg-ph-row">' +
+        '<button type="button" class="dg-ph-btn" data-ph-cartridge-copy>Copy JSON</button>' +
+        '<button type="button" class="dg-ph-btn primary" data-ph-cartridge-reprove>Re-prove on this device</button>' +
+        '</div>';
+      html += '<div class="dg-ph-note">Re-runs this exact export against the live engine right here, right now, using the same round trip an importer on another device would run.</div>';
+      if (_lastCartridgeReprove) {
+        html += verdictChip(_lastCartridgeReprove.state);
+        html += '<p class="dg-ph-reason">' + esc(_lastCartridgeReprove.reason) + '</p>';
+      }
     }
     html += '<label for="dg-ph-cartridge-import">Import a cartridge to re-check on your data</label>';
     html += '<textarea id="dg-ph-cartridge-import" class="dg-ph-cartridge" placeholder="Paste a proof cartridge JSON here"></textarea>';
@@ -142134,6 +142483,10 @@ function resetVault() {
     var copyBtn = body.querySelector('[data-ph-cartridge-copy]');
     if (copyBtn) {
       copyBtn.addEventListener('click', function () { onCartridgeCopy(); });
+    }
+    var reproveBtn = body.querySelector('[data-ph-cartridge-reprove]');
+    if (reproveBtn) {
+      reproveBtn.addEventListener('click', function () { onCartridgeReprove(); });
     }
     var importBtn = body.querySelector('[data-ph-cartridge-import]');
     if (importBtn) {
@@ -142308,8 +142661,30 @@ function resetVault() {
       return;
     }
     _lastCartridgeExport = e.serializeCartridge ? e.serializeCartridge(exported.cartridge) : JSON.stringify(exported.cartridge, null, 2);
+    _lastCartridgeReprove = null;
     renderBody();
     toast('Cartridge exported. Zero rows of data included.', 'success');
+  }
+
+  async function onCartridgeReprove() {
+    var e = engine();
+    if (!e || typeof e.importCartridge !== 'function' || !_lastCartridgeExport) return;
+    var runQuery = resolveRunQuery();
+    if (!runQuery) {
+      toast('SQL engine not ready in this canvas.', 'error');
+      return;
+    }
+    /* Flexible-args form 3 (PROOF_HARNESS_V1_1_SPEC.md A1): pass the last
+       exported cartridge text straight through as the positional first
+       argument, with runQuery in opts; compareClaimToRun is intentionally
+       OMITTED here so the wrapper auto-injects the harness's own scorer
+       (A1's "never default to an always-fail stub when the harness owns
+       the scorer"), exercising that exact path from the live UI, not just
+       from tests. */
+    var result = await e.importCartridge(_lastCartridgeExport, { runQuery: runQuery });
+    _lastCartridgeReprove = result;
+    renderBody();
+    toast('Re-prove verdict: ' + result.state, result.ok ? 'success' : 'error');
   }
 
   function onCartridgeCopy() {
@@ -142406,6 +142781,12 @@ function resetVault() {
         if (ev.key === 'Escape') closePanel();
       });
     }
+    /* v1.1: install the window.runProofSecondEngine host bridge so
+       resolveSecondEngine() can find it before the first Prove click. This
+       call only assigns a function reference; it does not itself load
+       Pyodide or install duckdb (those happen lazily, only when a claim is
+       actually proven and corroboration is attempted). */
+    if (v1FlagOn()) installSecondEngineBridge();
     /* Nothing new to publish on window: js/proof-harness/index.js already
        publishes window.DataGlowProofHarness with the pure engine calls this
        module wires into buttons. Publishing a second global here would be a
@@ -142420,6 +142801,9 @@ function resetVault() {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
+
 
 
 
