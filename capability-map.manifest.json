@@ -7342,6 +7342,67 @@
         "airGapMode"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "proof-harness-v0-verdict",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Proof Harness v0 (VERDICT): typed proposal, GREEN/RED/GRAY verdict engine, hash-chained receipt ledger, claim bar canvas panel",
+      "files": [
+        "js/proof-harness/proposal.js",
+        "js/proof-harness/verdict.js",
+        "js/proof-harness/score-claim.js",
+        "js/proof-harness/receipt.js",
+        "js/proof-harness/index.js",
+        "js/proof-harness/data-glow-proof-harness-canvas.js",
+        "test/proof-harness-v0.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/proof-harness/proposal.js",
+          "name": "createTypedProposal"
+        },
+        {
+          "file": "js/proof-harness/proposal.js",
+          "name": "digestProposal"
+        },
+        {
+          "file": "js/proof-harness/verdict.js",
+          "name": "decideVerdict"
+        },
+        {
+          "file": "js/proof-harness/verdict.js",
+          "name": "VERDICT_STATES"
+        },
+        {
+          "file": "js/proof-harness/score-claim.js",
+          "name": "compareClaimToRun"
+        },
+        {
+          "file": "js/proof-harness/receipt.js",
+          "name": "createReceiptLedger"
+        },
+        {
+          "file": "js/proof-harness/receipt.js",
+          "name": "verifyReceiptChain"
+        },
+        {
+          "file": "js/proof-harness/index.js",
+          "name": "runProofCycle"
+        },
+        {
+          "file": "js/proof-harness/index.js",
+          "name": "confirmProposal"
+        }
+      ],
+      "notes": "The MASTER PROMPT doctrine's first slice: 'AI proposes. Engines prove. The human confirms.' js/proof-harness/proposal.js is the ONLY door into execution: createTypedProposal({statement, engine, expected, tables, author, claimText}) validates the shape and returns a frozen proposal carrying a sha256 digest over its executable content (statement/engine/expected/tables; author is excluded from the digest on purpose, since the same statement proposed by AI or by a human is still the same thing to prove). There is no sibling call that lets a raw model string reach an executor. js/proof-harness/verdict.js's decideVerdict() returns exactly one of GREEN (proven), RED (refuted) or GRAY (not provable, blocker named); v0 does not implement AMBER staleness (that is v1) and never attaches a confidence percentage to the verdict itself. js/proof-harness/score-claim.js restates drill-floor.js's scoreDrillAnswer/scalarMatches epsilon-and-trim comparison discipline (rowCount plus named scalars) rather than inventing a new one. js/proof-harness/receipt.js is an append-only, SHA-256 hash-chained ledger of receipts shaped like the MASTER PROMPT's in-toto/SLSA-flavored predicate, composing the same chain discipline js/provenance/trust-ledger.js already shipped: append() is the only mutator and verifyReceiptChain() re-derives every hash to catch tampering. js/proof-harness/index.js wires all four into runProofCycle() (proposal -> injected engine run -> verdict -> receipt) and confirmProposal() (digest-bound: a statement edit after confirm was requested invalidates it), and publishes window.DataGlowProofHarness. js/proof-harness/data-glow-proof-harness-canvas.js mounts a compact VERDICT panel behind the proofHarness flag: a claim bar, an editable proposal statement field, a Prove button that resolves the SAME live DuckDB engine Drill Floor's SQL Run/Check path uses (resolveDrillSqlRunQuery / window.engine.runQuery / the DuckDB singleton, no second wasm load path), a GREEN/RED/GRAY verdict chip with a one-line reason, an expandable receipt (rowCount, duration, digest, statement), and a digest-bound Confirm button. No chat panel; no em dash in any visible text. Desktop is included because the Tauri v1 shell is a browser tab in a native window and nothing here depends on a browser-only or Tauri-only API.",
+      "relatedFlags": [
+        "proofHarness"
+      ],
+      "status": "shipped"
     }
   ]
 }
