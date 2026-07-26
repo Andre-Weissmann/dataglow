@@ -109,14 +109,23 @@ function ok(cond, msg) {
   const fakeRunQuery = (sql) => { calls.push(sql); return Promise.resolve({ rowCount: 0, rows: [] }); };
   const orders = generateOrders(3);
   const promos = generatePromos(2);
+  // Bundle 18 (archetypeDrillsExpand) made loadDrillTables additively load
+  // four more archetype-drill tables (price history, sales, activity days,
+  // basket lines) alongside orders/promos on every call, always, so callers
+  // that only need the original two are simply handed extra tables too
+  // rather than an opt-out. This test still supplies only { orders, promos }
+  // to keep asserting THOSE two calls/descriptors are first and unchanged in
+  // shape; the other four calls/descriptors are asserted for count only,
+  // with their own exact-SQL/shape coverage living in
+  // test/bundle18-archetype-drills-r-airgap.test.mjs.
   const descriptors = await loadDrillTables({ runQuery: fakeRunQuery }, { orders, promos });
 
-  ok(calls.length === 2, 'loadDrillTables issues exactly two runQuery calls (one per table)');
+  ok(calls.length === 6, 'loadDrillTables issues six runQuery calls (one per table, Bundle 18 added four)');
   ok(calls[0] === buildCreateTableSql(DRILL_ORDERS_TABLE, ORDERS_COLUMNS, orders), 'first call is the exact orders CREATE TABLE SQL');
   ok(calls[1] === buildCreateTableSql(DRILL_PROMOS_TABLE, PROMOS_COLUMNS, promos), 'second call is the exact promos CREATE TABLE SQL');
   ok(calls[0].includes('"drill_orders"') && calls[1].includes('"drill_promos"'), 'load uses the namespaced drill_ table names');
 
-  ok(descriptors.length === 2, 'loadDrillTables returns two dataset descriptors');
+  ok(descriptors.length === 6, 'loadDrillTables returns six dataset descriptors (Bundle 18 added four)');
   ok(descriptors[0].table === DRILL_ORDERS_TABLE && descriptors[0].rowCount === 3, 'orders descriptor has correct table + rowCount');
   ok(descriptors[1].table === DRILL_PROMOS_TABLE && descriptors[1].rowCount === 2, 'promos descriptor has correct table + rowCount');
   ok(JSON.stringify(descriptors[0].cols) === JSON.stringify(ORDERS_COLUMNS.map((c) => c.name)), 'orders descriptor lists the column names');

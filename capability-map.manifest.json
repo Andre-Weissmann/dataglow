@@ -7309,6 +7309,39 @@
         "duckdbLoadHarden"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "r-air-gap-prebundle",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Runtimes and polyglot",
+      "name": "R Air-Gap prebundle manifest: honest intent-vs-reality status for a target list of R packages, never a false offline claim",
+      "files": [
+        "js/polyglot/r-air-gap-prebundle.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/polyglot/r-air-gap-prebundle.js",
+          "name": "resolvePackageLoad"
+        },
+        {
+          "file": "js/polyglot/r-air-gap-prebundle.js",
+          "name": "prebundleStatusCopy"
+        },
+        {
+          "file": "js/polyglot/r-air-gap-prebundle.js",
+          "name": "summarizePrebundleAvailability"
+        }
+      ],
+      "notes": "r-deepen.js (Bundle 17) fixed Air-Gap mode not blocking the two-package WebR startup fetch (jsonlite, ggplot2); this is the manifest of INTENT versus REALITY for a target list of six R packages (dplyr, tidyr, ggplot2, jsonlite, readr, broom) this product would like to ship prebundled for Air-Gap R sessions. Each entry declares an honest availability of bundled, network-only or unavailable; as of this bundle every entry is network-only or unavailable, none are bundled, because no local/static R package asset is checked into the repo yet. prebundleStatusCopy never returns an 'Available offline' claim for anything except a bundled entry. resolvePackageLoad prefers a local asset the moment one becomes bundled, with no call-site change, otherwise defers entirely to the caller-supplied network decision (r-deepen.js's packageInstallDecision), so this module duplicates no Air-Gap logic of its own. Pure and cross-platform: no DOM, no Node-only API, no Tauri-only API, imported by the same path from the browser bundle, the Tauri desktop shell, and a mobile PWA build.",
+      "relatedFlags": [
+        "rAirGapPrebundle",
+        "airGapMode"
+      ],
+      "status": "shipped"
     }
   ]
 }

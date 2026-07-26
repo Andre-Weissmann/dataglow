@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6048193,
+  "canvasBytes": 6082846,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -456,6 +456,13 @@
       "sourceSha256": "423603a6c9b5332d33bc4c802d88a70b7ea011ed686c97bb751a4fc9f0c1bbcb",
       "canvasSectionSha256": "be1cde540f26fa823a78f5de93cac2bbcdf4a2cc176116326d55280ea54cb987",
       "canvasSectionBytes": 8033
+    },
+    {
+      "source": "js/polyglot/r-air-gap-prebundle.js",
+      "note": "Bundle 18: R Air-Gap prebundle manifest + honest loader (dplyr/tidyr/ggplot2/jsonlite/readr/broom availability, gated by rAirGapPrebundle flag). New tracked engine, inlined by inject_bundle18.py directly before js/polyglot/r-power-pack.js.",
+      "sourceSha256": "64a8e7c094de5b815020b1d716116c7953e5991f69468d816087753ec6581243",
+      "canvasSectionSha256": "5c77f5d71b364233cfaf024018b9e16a4cd2e32cf45ddef0fb68805012bd52cf",
+      "canvasSectionBytes": 9730
     }
   ]
 }

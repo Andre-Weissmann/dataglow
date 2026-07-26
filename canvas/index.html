@@ -23070,6 +23070,8 @@ var InstantInsight = (function () {
     communityPack: true,
     microLessons: true,
     drillFloor: true,
+    archetypeDrillsExpand: true,
+    rAirGapPrebundle: true,
     repairLedgerWiring: true,
     receiptDrillBattery: true,
     exportEngine: true,
@@ -81536,6 +81538,15 @@ function coverageFor(requiredTypes = []) {
 const DRILL_ORDERS_TABLE = 'drill_orders';
 const DRILL_PROMOS_TABLE = 'drill_promos';
 
+// Bundle 18 (archetypeDrillsExpand): three more dedicated tables for the three
+// original archetype drills below (SCD/as-of, gaps-and-islands streaks, basket
+// co-occurrence). Same rules as the pair above: DataGlow's own generated rows,
+// namespaced names, nothing here is a redistribution of any third-party dataset.
+const DRILL_PRICE_HISTORY_TABLE = 'drill_price_history';
+const DRILL_SALES_TABLE = 'drill_sales';
+const DRILL_ACTIVITY_DAYS_TABLE = 'drill_activity_days';
+const DRILL_BASKET_LINES_TABLE = 'drill_basket_lines';
+
 // A tiny deterministic PRNG (mulberry32) so the sample data is byte-identical on
 // every run and every machine; the tests assert on exact row counts and values.
 function mulberry32(seed) {
@@ -81661,6 +81672,155 @@ function buildCreateTableSql(tableName, columnDefs, rows) {
   );
 }
 
+// ------------------------------------------------------------------
+// Bundle 18 (archetypeDrillsExpand): three original archetype drills.
+// ------------------------------------------------------------------
+// Same identity split as above: every generator below is PURE and
+// deterministic (seeded mulberry32), Node-testable with no DB/DOM. Only the
+// loadDrillTables() extension at the bottom has a side effect.
+
+// ---- Drill 1 data: scd-as-of (price history + sales) ----------------------
+const PRICE_HISTORY_START = '2024-01-01';
+
+/**
+ * Deterministic SCD Type-2-style price history: several non-overlapping
+ * [valid_from, valid_to] segments per product, prices stepping up or down
+ * between segments. Pure: same seed + productCount always yields the
+ * identical array.
+ * @param {number} [productCount=6]
+ * @param {number} [seed=5151]
+ * @returns {Array<object>} { history_id, product_id, price, valid_from, valid_to }
+ */
+function generatePriceHistory(productCount = 6, seed = 5151) {
+  const rand = mulberry32(seed);
+  const rows = [];
+  let historyId = 1;
+  for (let p = 1; p <= productCount; p++) {
+    let cursor = 0;
+    const segments = 3 + Math.floor(rand() * 3); // 3..5 segments per product
+    let price = 10 + Math.floor(rand() * 40); // starting price 10..49
+    for (let s = 0; s < segments; s++) {
+      const length = 20 + Math.floor(rand() * 60); // 20..79 day validity window
+      const valid_from = addDays(PRICE_HISTORY_START, cursor);
+      const valid_to = addDays(PRICE_HISTORY_START, cursor + length - 1);
+      rows.push({ history_id: historyId++, product_id: p, price, valid_from, valid_to });
+      const delta = (rand() < 0.5 ? -1 : 1) * (1 + Math.floor(rand() * 8));
+      price = Math.max(1, price + delta);
+      cursor += length;
+    }
+  }
+  return rows;
+}
+
+/**
+ * Deterministic sample sales, some of which deliberately fall a little
+ * before the first price segment or after the last (so the as-of join has
+ * genuine unmatched rows rather than a trivially-total match). Pure: same
+ * priceHistory + seed + count always yields the identical array.
+ * @param {Array<object>} priceHistory from generatePriceHistory()
+ * @param {number} [count=400]
+ * @param {number} [seed=9191]
+ * @returns {Array<object>} { sale_id, product_id, sale_date, units }
+ */
+function generateSales(priceHistory, count = 400, seed = 9191) {
+  const rand = mulberry32(seed);
+  const productIds = [...new Set(priceHistory.map((r) => r.product_id))];
+  const minDate = priceHistory.reduce((m, r) => (r.valid_from < m ? r.valid_from : m), priceHistory[0].valid_from);
+  const maxDate = priceHistory.reduce((m, r) => (r.valid_to > m ? r.valid_to : m), priceHistory[0].valid_to);
+  const spanDays = Math.round((new Date(maxDate + 'T00:00:00Z') - new Date(minDate + 'T00:00:00Z')) / 86400000);
+  const sales = [];
+  for (let i = 0; i < count; i++) {
+    const product_id = productIds[Math.floor(rand() * productIds.length)];
+    // +-10 day slop beyond the covered range so some sales are unmatched.
+    const dayOffset = Math.floor(rand() * (spanDays + 21)) - 10;
+    const sale_date = addDays(minDate, dayOffset);
+    const units = 1 + Math.floor(rand() * 20);
+    sales.push({ sale_id: 1 + i, product_id, sale_date, units });
+  }
+  return sales;
+}
+
+// ---- Drill 2 data: streak-islands (daily activity log) --------------------
+const ACTIVITY_DAYS_START = '2024-01-01';
+const ACTIVITY_WINDOW_DAYS = 150;
+const ACTIVITY_MAX_RUN_LEN = 9;
+
+/**
+ * Deterministic daily activity log: for each user, a sequence of
+ * consecutive-day "runs" separated by 1-5 day gaps across a 150-day window.
+ * Pure: same seed + userCount always yields the identical array.
+ * @param {number} [userCount=6]
+ * @param {number} [seed=7171]
+ * @returns {Array<object>} { user_id, activity_date }
+ */
+function generateActivityDays(userCount = 6, seed = 7171) {
+  const rand = mulberry32(seed);
+  const rows = [];
+  for (let u = 1; u <= userCount; u++) {
+    let cursor = 0;
+    while (cursor < ACTIVITY_WINDOW_DAYS) {
+      const gap = 1 + Math.floor(rand() * 5);
+      cursor += gap;
+      if (cursor >= ACTIVITY_WINDOW_DAYS) break;
+      const runLen = 1 + Math.floor(rand() * ACTIVITY_MAX_RUN_LEN);
+      for (let d = 0; d < runLen && cursor < ACTIVITY_WINDOW_DAYS; d++, cursor++) {
+        rows.push({ user_id: u, activity_date: addDays(ACTIVITY_DAYS_START, cursor) });
+      }
+      cursor += 1; // at least a 1-day gap before the next run
+    }
+  }
+  return rows;
+}
+
+// ---- Drill 3 data: basket-pairs (order line items) -------------------------
+const BASKET_SKUS = ['SKU-A', 'SKU-B', 'SKU-C', 'SKU-D', 'SKU-E', 'SKU-F', 'SKU-G', 'SKU-H'];
+
+/**
+ * Deterministic order line items: each order gets 2-5 DISTINCT SKUs (no
+ * duplicate lines within an order), drawn from a fixed 8-SKU catalog so
+ * co-occurrence pairs are meaningful. Pure: same seed + orderCount always
+ * yields the identical array.
+ * @param {number} [orderCount=250]
+ * @param {number} [seed=3131]
+ * @returns {Array<object>} { order_id, sku }
+ */
+function generateBasketLines(orderCount = 250, seed = 3131) {
+  const rand = mulberry32(seed);
+  const rows = [];
+  for (let o = 1; o <= orderCount; o++) {
+    const lineCount = 2 + Math.floor(rand() * 4); // 2..5 distinct lines per order
+    const chosen = new Set();
+    while (chosen.size < lineCount) {
+      chosen.add(BASKET_SKUS[Math.floor(rand() * BASKET_SKUS.length)]);
+    }
+    for (const sku of chosen) rows.push({ order_id: o, sku });
+  }
+  return rows;
+}
+
+// Column definitions for the three Bundle 18 drill tables (typed for DuckDB).
+const PRICE_HISTORY_COLUMNS = [
+  { name: 'history_id', type: 'INTEGER' },
+  { name: 'product_id', type: 'INTEGER' },
+  { name: 'price', type: 'DOUBLE' },
+  { name: 'valid_from', type: 'DATE' },
+  { name: 'valid_to', type: 'DATE' },
+];
+const SALES_COLUMNS = [
+  { name: 'sale_id', type: 'INTEGER' },
+  { name: 'product_id', type: 'INTEGER' },
+  { name: 'sale_date', type: 'DATE' },
+  { name: 'units', type: 'INTEGER' },
+];
+const ACTIVITY_DAYS_COLUMNS = [
+  { name: 'user_id', type: 'INTEGER' },
+  { name: 'activity_date', type: 'DATE' },
+];
+const BASKET_LINES_COLUMNS = [
+  { name: 'order_id', type: 'INTEGER' },
+  { name: 'sku', type: 'VARCHAR' },
+];
+
 // Column definitions for the two drill tables (typed for DuckDB).
 const ORDERS_COLUMNS = [
   { name: 'order_id', type: 'INTEGER' },
@@ -81693,6 +81853,20 @@ async function loadDrillTables({ runQuery }, data = {}) {
   const promos = data.promos || generatePromos();
   await runQuery(buildCreateTableSql(DRILL_ORDERS_TABLE, ORDERS_COLUMNS, orders));
   await runQuery(buildCreateTableSql(DRILL_PROMOS_TABLE, PROMOS_COLUMNS, promos));
+
+  // Bundle 18 (archetypeDrillsExpand): the three new archetype drill tables,
+  // loaded the same way, additively. Callers that only need the original two
+  // (Batch 1 / Bundle 16 drills) are unaffected: these four extra tables are
+  // simply also present afterward.
+  const priceHistory = data.priceHistory || generatePriceHistory();
+  const sales = data.sales || generateSales(priceHistory);
+  const activityDays = data.activityDays || generateActivityDays();
+  const basketLines = data.basketLines || generateBasketLines();
+  await runQuery(buildCreateTableSql(DRILL_PRICE_HISTORY_TABLE, PRICE_HISTORY_COLUMNS, priceHistory));
+  await runQuery(buildCreateTableSql(DRILL_SALES_TABLE, SALES_COLUMNS, sales));
+  await runQuery(buildCreateTableSql(DRILL_ACTIVITY_DAYS_TABLE, ACTIVITY_DAYS_COLUMNS, activityDays));
+  await runQuery(buildCreateTableSql(DRILL_BASKET_LINES_TABLE, BASKET_LINES_COLUMNS, basketLines));
+
   return [
     {
       name: DRILL_ORDERS_TABLE,
@@ -81706,13 +81880,45 @@ async function loadDrillTables({ runQuery }, data = {}) {
       rowCount: promos.length,
       cols: PROMOS_COLUMNS.map((c) => c.name),
     },
+    {
+      name: DRILL_PRICE_HISTORY_TABLE,
+      table: DRILL_PRICE_HISTORY_TABLE,
+      rowCount: priceHistory.length,
+      cols: PRICE_HISTORY_COLUMNS.map((c) => c.name),
+    },
+    {
+      name: DRILL_SALES_TABLE,
+      table: DRILL_SALES_TABLE,
+      rowCount: sales.length,
+      cols: SALES_COLUMNS.map((c) => c.name),
+    },
+    {
+      name: DRILL_ACTIVITY_DAYS_TABLE,
+      table: DRILL_ACTIVITY_DAYS_TABLE,
+      rowCount: activityDays.length,
+      cols: ACTIVITY_DAYS_COLUMNS.map((c) => c.name),
+    },
+    {
+      name: DRILL_BASKET_LINES_TABLE,
+      table: DRILL_BASKET_LINES_TABLE,
+      rowCount: basketLines.length,
+      cols: BASKET_LINES_COLUMNS.map((c) => c.name),
+    },
   ];
 }
   window.DrillFloorData = {
     DRILL_ORDERS_TABLE: typeof DRILL_ORDERS_TABLE !== 'undefined' ? DRILL_ORDERS_TABLE : null,
     DRILL_PROMOS_TABLE: typeof DRILL_PROMOS_TABLE !== 'undefined' ? DRILL_PROMOS_TABLE : null,
+    DRILL_PRICE_HISTORY_TABLE: typeof DRILL_PRICE_HISTORY_TABLE !== 'undefined' ? DRILL_PRICE_HISTORY_TABLE : null,
+    DRILL_SALES_TABLE: typeof DRILL_SALES_TABLE !== 'undefined' ? DRILL_SALES_TABLE : null,
+    DRILL_ACTIVITY_DAYS_TABLE: typeof DRILL_ACTIVITY_DAYS_TABLE !== 'undefined' ? DRILL_ACTIVITY_DAYS_TABLE : null,
+    DRILL_BASKET_LINES_TABLE: typeof DRILL_BASKET_LINES_TABLE !== 'undefined' ? DRILL_BASKET_LINES_TABLE : null,
     generateOrders: typeof generateOrders !== 'undefined' ? generateOrders : null,
     generatePromos: typeof generatePromos !== 'undefined' ? generatePromos : null,
+    generatePriceHistory: typeof generatePriceHistory !== 'undefined' ? generatePriceHistory : null,
+    generateSales: typeof generateSales !== 'undefined' ? generateSales : null,
+    generateActivityDays: typeof generateActivityDays !== 'undefined' ? generateActivityDays : null,
+    generateBasketLines: typeof generateBasketLines !== 'undefined' ? generateBasketLines : null,
     buildCreateTableSql: typeof buildCreateTableSql !== 'undefined' ? buildCreateTableSql : null,
     loadDrillTables: typeof loadDrillTables !== 'undefined' ? loadDrillTables : null,
   };
@@ -81999,6 +82205,10 @@ function suggestLikelyCause(diffSummary) {
   var _dfd = window.DrillFloorData || {};
   var DRILL_ORDERS_TABLE = _dfd.DRILL_ORDERS_TABLE;
   var DRILL_PROMOS_TABLE = _dfd.DRILL_PROMOS_TABLE;
+  var DRILL_PRICE_HISTORY_TABLE = _dfd.DRILL_PRICE_HISTORY_TABLE;
+  var DRILL_SALES_TABLE = _dfd.DRILL_SALES_TABLE;
+  var DRILL_ACTIVITY_DAYS_TABLE = _dfd.DRILL_ACTIVITY_DAYS_TABLE;
+  var DRILL_BASKET_LINES_TABLE = _dfd.DRILL_BASKET_LINES_TABLE;
   var _dd = window.DrillDiff || {};
   var computeDrillDiff = _dd.computeDrillDiff;
 // ============================================================
@@ -82034,14 +82244,25 @@ function suggestLikelyCause(diffSummary) {
 // additionally gated by `receiptDrillBattery` (both flags are checked by the
 // CALLER in main.js / the canvas UI, never inside this module).
 
-// [stripped import] import { DRILL_ORDERS_TABLE, DRILL_PROMOS_TABLE } from './drill-floor-data.js';
+// [stripped import] import {
+// [stripped import]   DRILL_ORDERS_TABLE,
+// [stripped import]   DRILL_PROMOS_TABLE,
+// [stripped import]   DRILL_PRICE_HISTORY_TABLE,
+// [stripped import]   DRILL_SALES_TABLE,
+// [stripped import]   DRILL_ACTIVITY_DAYS_TABLE,
+// [stripped import]   DRILL_BASKET_LINES_TABLE,
+// [stripped import] } from './drill-floor-data.js';
 // Bundle 16: the one honesty line every Drill Floor surface (main.js tab,
 // canvas UI) should show once, verbatim, next to the battery. It exists so
 // nobody mistakes original DataGlow practice drills for a specific external
 // analytics-drill product's dataset or answer key.
 const DRILL_BATTERY_HONESTY_NOTE =
   'Practice drills use original DataGlow data and golden answers. They are not ' +
-  'Maven Analytics Data Drills and do not score against Maven answer keys.';
+  'Maven Analytics Data Drills and do not score against Maven answer keys. ' +
+  'The practice PATTERNS below (first/last-per-group, between-date joins, ' +
+  'top-n, running totals) are common shapes drawn from public data-analytics ' +
+  'education content generally, not from any one vendor\'s proprietary file; ' +
+  'every dataset, question, and golden answer here is DataGlow\'s own.';
 
 // The drill registry. starter* fields are the pre-filled editor content for each
 // language; each starter is a correct-shaped solution so a user can Run
@@ -82281,6 +82502,254 @@ const DRILLS = [
       `cat('matched rows:', nrow(result), '\\n')\n` +
       `result`,
   },
+  {
+    id: 'scd-as-of',
+    title: 'Price As Of Sale Date',
+    difficulty: 'Advanced',
+    description:
+      'Product price history is tracked SCD Type 2 style: each row is a price ' +
+      'valid over an inclusive [valid_from, valid_to] date range. For each sale, ' +
+      'find the price that was active on that sale\'s date (an as-of / SCD lookup ' +
+      'join), then compute total revenue = SUM(units * price) across matched ' +
+      'sales. A sale outside every price range for its product does not match ' +
+      'and is excluded, not treated as revenue-zero.',
+    ordersTable: DRILL_PRICE_HISTORY_TABLE,
+    promosTable: DRILL_SALES_TABLE,
+    expectedApproach:
+      'Join drill_sales to drill_price_history on matching product_id where ' +
+      'sale_date BETWEEN valid_from AND valid_to (inclusive both ends); sum ' +
+      'units * price over the matched rows.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a Power Query merge on ' +
+      '"date within range" per product (or nested IF/AND helper columns ' +
+      'against each price segment) reaches the same 314 matched rows; this ' +
+      'build does not run that engine, it names the equivalent honestly ' +
+      'instead of skipping it.',
+    goldenAnswers: {
+      sql: { rowCount: 314, totalRevenue: 101018, productCount: 6 },
+      python: { rowCount: 314 },
+      r: { rowCount: 314 },
+    },
+    starterSql:
+      `SELECT s.sale_id,\n` +
+      `       s.product_id,\n` +
+      `       s.sale_date,\n` +
+      `       s.units,\n` +
+      `       h.price,\n` +
+      `       s.units * h.price AS revenue\n` +
+      `FROM ${DRILL_SALES_TABLE} s\n` +
+      `JOIN ${DRILL_PRICE_HISTORY_TABLE} h\n` +
+      `  ON s.product_id = h.product_id\n` +
+      ` AND s.sale_date BETWEEN h.valid_from AND h.valid_to\n` +
+      `ORDER BY s.sale_id;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `sales = dataglow.get_df('${DRILL_SALES_TABLE}')\n` +
+      `history = dataglow.get_df('${DRILL_PRICE_HISTORY_TABLE}')\n` +
+      `\n` +
+      `sales['sale_date'] = pd.to_datetime(sales['sale_date'])\n` +
+      `history['valid_from'] = pd.to_datetime(history['valid_from'])\n` +
+      `history['valid_to'] = pd.to_datetime(history['valid_to'])\n` +
+      `\n` +
+      `joined = sales.merge(history, on='product_id', how='inner')\n` +
+      `matched = joined[\n` +
+      `    (joined['sale_date'] >= joined['valid_from']) &\n` +
+      `    (joined['sale_date'] <= joined['valid_to'])\n` +
+      `]\n` +
+      `result = matched[['sale_id', 'product_id', 'sale_date', 'units', 'price']].copy()\n` +
+      `result['revenue'] = result['units'] * result['price']\n` +
+      `result = result.sort_values('sale_id')\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result.head(20)`,
+    starterR:
+      `sales <- dataglow_get_df('${DRILL_SALES_TABLE}')\n` +
+      `history <- dataglow_get_df('${DRILL_PRICE_HISTORY_TABLE}')\n` +
+      `\n` +
+      `sales$sale_date <- as.Date(sales$sale_date)\n` +
+      `history$valid_from <- as.Date(history$valid_from)\n` +
+      `history$valid_to   <- as.Date(history$valid_to)\n` +
+      `\n` +
+      `joined <- merge(sales, history, by = 'product_id')\n` +
+      `matched <- joined[joined$sale_date >= joined$valid_from &\n` +
+      `                  joined$sale_date <= joined$valid_to, ]\n` +
+      `matched$revenue <- matched$units * matched$price\n` +
+      `result <- matched[order(matched$sale_id),\n` +
+      `                  c('sale_id', 'product_id', 'sale_date', 'units', 'price', 'revenue')]\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `head(result, 20)`,
+  },
+  {
+    id: 'streak-islands',
+    title: 'Longest Activity Streak',
+    difficulty: 'Advanced',
+    description:
+      'A daily activity log records one row per (user, day) they were active. ' +
+      'Find the longest run of CONSECUTIVE calendar days any single user was ' +
+      'active (a gaps-and-islands / island-grouping problem), and report the ' +
+      'user_id holding that maximum streak. Ties break to the LOWEST user_id.',
+    ordersTable: DRILL_ACTIVITY_DAYS_TABLE,
+    promosTable: DRILL_ACTIVITY_DAYS_TABLE,
+    expectedApproach:
+      'Per user, sort distinct activity_date ascending; a new island starts ' +
+      'whenever the gap to the previous date is not exactly 1 day (the ' +
+      '"date minus ROW_NUMBER()" island-id trick works well in SQL); take the ' +
+      'longest island length per user, then the max across users with a ' +
+      'lowest-user_id tie-break.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a helper column flagging a ' +
+      'new streak whenever a sorted date is not exactly one day after the row ' +
+      'above, then a PivotTable MAX of streak length per user, reaches the ' +
+      'same 9-day answer; this build does not simulate dragging that formula.',
+    goldenAnswers: {
+      sql: { rowCount: 474, maxStreak: 9, userId: 1, islandCount: 106 },
+      python: { rowCount: 474 },
+      r: { rowCount: 474 },
+    },
+    starterSql:
+      `WITH ranked AS (\n` +
+      `  SELECT user_id, activity_date,\n` +
+      `         activity_date - (ROW_NUMBER() OVER (\n` +
+      `           PARTITION BY user_id ORDER BY activity_date\n` +
+      `         )) * INTERVAL 1 DAY AS island_key\n` +
+      `  FROM ${DRILL_ACTIVITY_DAYS_TABLE}\n` +
+      `),\n` +
+      `islands AS (\n` +
+      `  SELECT user_id, island_key, COUNT(*) AS streak_len\n` +
+      `  FROM ranked\n` +
+      `  GROUP BY user_id, island_key\n` +
+      `),\n` +
+      `per_user_best AS (\n` +
+      `  SELECT user_id, MAX(streak_len) AS best_streak\n` +
+      `  FROM islands\n` +
+      `  GROUP BY user_id\n` +
+      `)\n` +
+      `SELECT user_id, best_streak AS max_streak\n` +
+      `FROM per_user_best\n` +
+      `ORDER BY best_streak DESC, user_id ASC\n` +
+      `LIMIT 1;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `activity = dataglow.get_df('${DRILL_ACTIVITY_DAYS_TABLE}')\n` +
+      `activity['activity_date'] = pd.to_datetime(activity['activity_date'])\n` +
+      `\n` +
+      `best_by_user = {}\n` +
+      `for user_id, g in activity.groupby('user_id'):\n` +
+      `    dates = sorted(g['activity_date'].unique())\n` +
+      `    best = cur = 1 if dates else 0\n` +
+      `    for i in range(1, len(dates)):\n` +
+      `        gap = (dates[i] - dates[i - 1]).days\n` +
+      `        cur = cur + 1 if gap == 1 else 1\n` +
+      `        best = max(best, cur)\n` +
+      `    best_by_user[user_id] = best\n` +
+      `\n` +
+      `max_streak = max(best_by_user.values())\n` +
+      `winner = min(uid for uid, v in best_by_user.items() if v == max_streak)\n` +
+      `result = pd.DataFrame([{'user_id': winner, 'max_streak': max_streak}])\n` +
+      `print(f"matched rows: {len(activity)}")\n` +
+      `result`,
+    starterR:
+      `activity <- dataglow_get_df('${DRILL_ACTIVITY_DAYS_TABLE}')\n` +
+      `activity$activity_date <- as.Date(activity$activity_date)\n` +
+      `\n` +
+      `best_by_user <- sapply(split(activity$activity_date, activity$user_id), function(dates) {\n` +
+      `  dates <- sort(unique(dates))\n` +
+      `  if (length(dates) == 0) return(0L)\n` +
+      `  best <- cur <- 1L\n` +
+      `  for (i in seq(2, length(dates))) {\n` +
+      `    gap <- as.numeric(dates[i] - dates[i - 1])\n` +
+      `    cur <- if (gap == 1) cur + 1L else 1L\n` +
+      `    best <- max(best, cur)\n` +
+      `  }\n` +
+      `  best\n` +
+      `})\n` +
+      `\n` +
+      `max_streak <- max(best_by_user)\n` +
+      `winner <- min(as.integer(names(best_by_user)[best_by_user == max_streak]))\n` +
+      `result <- data.frame(user_id = winner, max_streak = max_streak)\n` +
+      `cat('matched rows:', nrow(activity), '\\n')\n` +
+      `result`,
+  },
+  {
+    id: 'basket-pairs',
+    title: 'Most Common SKU Pair',
+    difficulty: 'Intermediate',
+    description:
+      'Order line items list which SKUs were in each order. Find the unordered ' +
+      'pair of distinct SKUs that co-occur in the most orders (a market-basket ' +
+      'co-occurrence problem), and report the pair (lexicographically ordered ' +
+      'left/right) and how many orders contain both.',
+    ordersTable: DRILL_BASKET_LINES_TABLE,
+    promosTable: DRILL_BASKET_LINES_TABLE,
+    expectedApproach:
+      'Self-join drill_basket_lines to itself on order_id where the left SKU is ' +
+      'lexicographically less than the right SKU (this both de-duplicates the ' +
+      'pair and enforces a canonical left/right order), then GROUP BY the pair ' +
+      'and take the highest COUNT(DISTINCT order_id).',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a Power Query self-merge on ' +
+      'order_id (with a helper column to keep only left < right) followed by a ' +
+      'PivotTable count reaches the same top pair; this build does not run ' +
+      'that engine, it names the equivalent honestly instead of skipping it.',
+    goldenAnswers: {
+      sql: { rowCount: 1, pairLeft: 'SKU-C', pairRight: 'SKU-F', orderCount: 63 },
+      python: { rowCount: 1 },
+      r: { rowCount: 1 },
+    },
+    starterSql:
+      `SELECT a.sku AS pair_left,\n` +
+      `       b.sku AS pair_right,\n` +
+      `       COUNT(DISTINCT a.order_id) AS order_count\n` +
+      `FROM ${DRILL_BASKET_LINES_TABLE} a\n` +
+      `JOIN ${DRILL_BASKET_LINES_TABLE} b\n` +
+      `  ON a.order_id = b.order_id\n` +
+      ` AND a.sku < b.sku\n` +
+      `GROUP BY a.sku, b.sku\n` +
+      `ORDER BY order_count DESC, pair_left, pair_right\n` +
+      `LIMIT 1;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `from itertools import combinations\n` +
+      `from collections import Counter\n` +
+      `\n` +
+      `lines = dataglow.get_df('${DRILL_BASKET_LINES_TABLE}')\n` +
+      `\n` +
+      `pair_counts = Counter()\n` +
+      `for order_id, g in lines.groupby('order_id'):\n` +
+      `    skus = sorted(set(g['sku']))\n` +
+      `    for left, right in combinations(skus, 2):\n` +
+      `        pair_counts[(left, right)] += 1\n` +
+      `\n` +
+      `(pair_left, pair_right), order_count = max(\n` +
+      `    sorted(pair_counts.items()), key=lambda kv: kv[1]\n` +
+      `)\n` +
+      `result = pd.DataFrame([{'pair_left': pair_left, 'pair_right': pair_right, 'order_count': order_count}])\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result`,
+    starterR:
+      `lines <- dataglow_get_df('${DRILL_BASKET_LINES_TABLE}')\n` +
+      `\n` +
+      `pair_counts <- list()\n` +
+      `for (skus in split(lines$sku, lines$order_id)) {\n` +
+      `  skus <- sort(unique(skus))\n` +
+      `  if (length(skus) >= 2) {\n` +
+      `    combos <- combn(skus, 2, simplify = FALSE)\n` +
+      `    for (pair in combos) {\n` +
+      `      key <- paste(pair[1], pair[2], sep = '|')\n` +
+      `      pair_counts[[key]] <- (if (is.null(pair_counts[[key]])) 0 else pair_counts[[key]]) + 1\n` +
+      `    }\n` +
+      `  }\n` +
+      `}\n` +
+      `\n` +
+      `keys <- names(pair_counts)\n` +
+      `counts <- unlist(pair_counts)\n` +
+      `best_key <- keys[order(-counts, keys)][1]\n` +
+      `parts <- strsplit(best_key, '\\\\|')[[1]]\n` +
+      `result <- data.frame(pair_left = parts[1], pair_right = parts[2], order_count = pair_counts[[best_key]])\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `result`,
+  },
 ];
 
 /**
@@ -82412,6 +82881,74 @@ function scoreDrillAnswer(drillId, engineName, result) {
   return { pass: got === expected, expected, got, drillId, engine: engineName };
 }
 
+// ---------------------------------------------------------------
+// Bundle 18 (archetypeDrillsExpand): extra-scalar golden checking.
+// ---------------------------------------------------------------
+// scoreDrillAnswer above (Bundle 16) scores every drill on the ONE scalar
+// that is comparable across all three languages: rowCount (SQL reads it off
+// the structured result; Python/R parse the "matched rows: N" line their
+// starters print). The three archetype drills ALSO carry richer SQL-only
+// goldens (SCD's totalRevenue/productCount, streak-islands' maxStreak/userId/
+// islandCount, basket-pairs' pairLeft/pairRight/orderCount) for a caller
+// (tests, or a future SQL-only detail view) that wants to check those too,
+// against a caller-supplied observed value rather than by guessing a column
+// name out of a raw DuckDB row shape (which is exactly what a fragile,
+// column-name-guessing extractor would do). NUMERIC_EPSILON matches the
+// float-compare discipline already used for the existing drills' sumAmount /
+// totalOfKept / grandTotal goldens in test/bundle16-ledger-wiring-drill-battery.test.mjs.
+const NUMERIC_EPSILON = 1e-6;
+
+/**
+ * Compare one golden scalar to an observed value. Numbers use an absolute
+ * epsilon (matching the existing drill battery's float-compare pattern);
+ * strings compare exact, case-sensitive, after trim; everything else is
+ * strict equality. Never throws.
+ * @param {*} expected
+ * @param {*} observed
+ * @returns {boolean}
+ */
+function scalarMatches(expected, observed) {
+  if (typeof expected === 'number' && typeof observed === 'number') {
+    if (!Number.isFinite(expected) || !Number.isFinite(observed)) return expected === observed;
+    return Math.abs(expected - observed) <= NUMERIC_EPSILON;
+  }
+  if (typeof expected === 'string' && typeof observed === 'string') {
+    return expected.trim() === observed.trim();
+  }
+  return expected === observed;
+}
+
+/**
+ * Score a SQL drill run's EXTRA golden scalars (everything in
+ * goldenAnswers.sql besides rowCount) against a caller-supplied map of
+ * observed values, e.g. `{ totalRevenue: 101018 }` computed by the caller
+ * from its own query result. PURE, never throws. Returns pass:true with an
+ * empty `fields` map for a drill/engine with no extra goldens to check
+ * (nothing to fail on), and pass:false per-field for anything the caller
+ * did not supply an observed value for.
+ * @param {string} drillId
+ * @param {{[key:string]: *}} observed
+ * @returns {{pass:boolean, drillId:string, fields: {[key:string]: {expected:*, got:*, pass:boolean}}}}
+ */
+function scoreDrillExtras(drillId, observed) {
+  const drill = getDrill(drillId);
+  const fields = {};
+  if (!drill || !drill.goldenAnswers || !drill.goldenAnswers.sql) {
+    return { pass: false, drillId: String(drillId), fields };
+  }
+  const golden = drill.goldenAnswers.sql;
+  const obs = observed && typeof observed === 'object' ? observed : {};
+  const extraKeys = Object.keys(golden).filter((k) => k !== 'rowCount');
+  let allPass = true;
+  for (const key of extraKeys) {
+    const expectedVal = golden[key];
+    const observedVal = obs[key];
+    const fieldPass = scalarMatches(expectedVal, observedVal);
+    fields[key] = { expected: expectedVal, got: observedVal, pass: fieldPass };
+    if (!fieldPass) allPass = false;
+  }
+  return { pass: allPass, drillId, fields };
+}
   // Bundle 16: the canvas overlay panel previously had no real mount function
   // (this evaluated to `typeof mountDrillFloor === 'undefined'`, so opening
   // the Drill overlay button only ever showed a static placeholder sentence).
@@ -82610,6 +83147,8 @@ function scoreDrillAnswer(drillId, engineName, result) {
     getDrill: typeof getDrill !== 'undefined' ? getDrill : null,
     DRILLS: typeof DRILLS !== 'undefined' ? DRILLS : [],
     scoreDrillAnswer: typeof scoreDrillAnswer !== 'undefined' ? scoreDrillAnswer : null,
+    scoreDrillExtras: typeof scoreDrillExtras !== 'undefined' ? scoreDrillExtras : null,
+    scalarMatches: typeof scalarMatches !== 'undefined' ? scalarMatches : null,
     DRILL_BATTERY_HONESTY_NOTE: typeof DRILL_BATTERY_HONESTY_NOTE !== 'undefined' ? DRILL_BATTERY_HONESTY_NOTE : '',
   };
 
@@ -132669,6 +133208,239 @@ function buildPythonPowerPack(input) {
   };
 })();
 /* ---- end js/polyglot/python-power-pack.js ---- */
+/* ---- from js/polyglot/r-air-gap-prebundle.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - R Air-Gap prebundle: what is actually offline, named honestly
+// ============================================================
+//
+// r-deepen.js (Bundle 17) fixed the bug where Air-Gap mode did not stop the
+// two-package startup fetch, and it named jsonlite and ggplot2 as the
+// packages the runtime tries, both over the network, every session. That is
+// correct: as of that build, nothing R-side is actually prebundled. A person
+// reading "Available offline" next to a package this build cannot vouch for
+// would be reading a claim this file exists specifically to prevent.
+//
+// This module is the manifest of INTENT and REALITY for a target package
+// list this product would like to ship prebundled: dplyr, tidyr, ggplot2,
+// jsonlite, readr, broom. For each one it declares an honest `availability`:
+//
+//   'bundled'      - shipped as a local/static asset this build loads with
+//                    no network request, in Air-Gap mode or otherwise.
+//   'network-only' - works, but only by fetching from the WebR repository;
+//                    this is blocked by Air-Gap mode (see r-deepen.js).
+//   'unavailable'  - not known to be installable in this WebR build at all.
+//
+// AS OF THIS BUNDLE, EVERY ENTRY IS 'network-only' OR 'unavailable' except
+// none are 'bundled' yet: there is no local/static R package asset checked
+// into this repository. That is the honest current state, not a placeholder
+// to be quietly upgraded later without re-checking it against what actually
+// loads. The loader below still prefers a local/static asset over the
+// network for any package that DOES become bundled, without a code change
+// at the call site, so bundling one is additive.
+//
+// Gated by the `rAirGapPrebundle` flag (checked by the CALLER, never in
+// here). Flag OFF: the caller does not import or render anything from this
+// module, and prior R Air-Gap behavior (r-deepen.js's packageInstallDecision
+// blocking every network install in Air-Gap mode) is completely unchanged.
+//
+// Cross-platform: this module touches no DOM, no Node-only API, and no
+// Tauri-only API. It is imported by the same path from the browser bundle,
+// a Tauri desktop shell, and a mobile PWA build, and every exported
+// function is pure and Node-testable.
+
+const R_AIRGAP_PREBUNDLE_KIND = 'dataglow-r-airgap-prebundle';
+const R_AIRGAP_PREBUNDLE_VERSION = 1;
+
+/**
+ * The manifest: target packages this product would like to ship prebundled
+ * for Air-Gap R sessions, with an HONEST current availability per package.
+ * `version` is the package version this manifest was checked against (not a
+ * promise of what a live WebR repository currently serves); `assetPath` is
+ * where a 'bundled' package's local/static asset would live once one exists
+ * (null until then, deliberately, rather than a path nothing serves).
+ */
+const R_AIRGAP_PREBUNDLE = Object.freeze([
+  Object.freeze({
+    name: 'jsonlite',
+    version: '1.8.8',
+    availability: 'network-only',
+    assetPath: null,
+    note: 'One of the two packages the runtime already fetches at startup (see r-power-pack.js / r-deepen.js). Works today with network access; Air-Gap mode blocks the fetch, same as every other package here.',
+  }),
+  Object.freeze({
+    name: 'ggplot2',
+    version: '3.5.1',
+    availability: 'network-only',
+    assetPath: null,
+    note: 'The other startup-fetched package. Same story as jsonlite: works with network access, blocked by Air-Gap mode.',
+  }),
+  Object.freeze({
+    name: 'dplyr',
+    version: '1.1.4',
+    availability: 'network-only',
+    assetPath: null,
+    note: 'Not fetched at startup. Installable on request if the WebR repository carries it and the session has network access; every dplyr recipe has a base R alternative (r-deepen.js) for when it does not.',
+  }),
+  Object.freeze({
+    name: 'tidyr',
+    version: '1.3.1',
+    availability: 'network-only',
+    assetPath: null,
+    note: 'Same as dplyr: on-request network install, not prebundled.',
+  }),
+  Object.freeze({
+    name: 'readr',
+    version: '2.1.5',
+    availability: 'unavailable',
+    assetPath: null,
+    note: 'Not confirmed installable in this WebR build. Listed as a target rather than silently dropped, so the gap is visible instead of hidden.',
+  }),
+  Object.freeze({
+    name: 'broom',
+    version: '1.0.5',
+    availability: 'unavailable',
+    assetPath: null,
+    note: 'Same as readr: a target package this build does not yet confirm works in WebR at all, prebundled or not.',
+  }),
+]);
+
+/**
+ * Copy for a package's row in an "Available offline" vs "Needs network /
+ * not prebundled" list. NEVER returns an offline claim for anything except
+ * `availability: 'bundled'`, because that claim is the one thing this whole
+ * module exists to keep honest.
+ * @param {{name:string, availability:string}} entry one row of R_AIRGAP_PREBUNDLE
+ * @returns {{label:string, offline:boolean, detail:string}}
+ */
+function prebundleStatusCopy(entry) {
+  const e = entry && typeof entry === 'object' ? entry : {};
+  const name = typeof e.name === 'string' ? e.name : 'this package';
+  if (e.availability === 'bundled') {
+    return {
+      label: 'Available offline',
+      offline: true,
+      detail: name + ' is a local asset this build loads with no network request, including in Air-Gap mode.',
+    };
+  }
+  if (e.availability === 'network-only') {
+    return {
+      label: 'Needs network / not prebundled',
+      offline: false,
+      detail: name + ' works with network access but is fetched from the WebR repository, not prebundled. Air-Gap mode blocks that fetch.',
+    };
+  }
+  return {
+    label: 'Needs network / not prebundled',
+    offline: false,
+    detail: name + ' is not confirmed installable in this WebR build at all, prebundled or otherwise.',
+  };
+}
+
+/**
+ * Decide how to load one package: prefer a local/static asset if the
+ * manifest says one is bundled, otherwise fall back to the existing
+ * network-install decision (r-deepen.js's packageInstallDecision, passed in
+ * by the caller so this module has no dependency on it and no duplicate
+ * air-gap logic). PURE: takes the network decision as input rather than
+ * computing it, so this function has nothing to get out of sync.
+ *
+ * @param {string} packageName
+ * @param {{allowed:boolean, blockedBy:string, reason:string}} networkDecision
+ *   the same shape `packageInstallDecision()` in r-deepen.js returns
+ * @returns {{kind:string, package:string, source:'local'|'network'|'none', allowed:boolean, reason:string}}
+ */
+function resolvePackageLoad(packageName, networkDecision) {
+  const entry = R_AIRGAP_PREBUNDLE.find((p) => p.name === packageName) || null;
+  const nd = networkDecision && typeof networkDecision === 'object' ? networkDecision : { allowed: false, reason: 'no network decision supplied' };
+
+  if (entry && entry.availability === 'bundled' && entry.assetPath) {
+    return {
+      kind: R_AIRGAP_PREBUNDLE_KIND,
+      package: packageName,
+      source: 'local',
+      allowed: true,
+      reason: 'Loaded from ' + entry.assetPath + '. No network request, works in Air-Gap mode.',
+    };
+  }
+  if (!entry) {
+    return {
+      kind: R_AIRGAP_PREBUNDLE_KIND,
+      package: packageName,
+      source: 'none',
+      allowed: false,
+      reason: packageName + ' is not on the target prebundle list. Falling back to the network-install decision.',
+    };
+  }
+  if (entry.availability === 'unavailable') {
+    return {
+      kind: R_AIRGAP_PREBUNDLE_KIND,
+      package: packageName,
+      source: 'none',
+      allowed: false,
+      reason: entry.note,
+    };
+  }
+  // network-only: defer entirely to the caller-supplied network decision.
+  return {
+    kind: R_AIRGAP_PREBUNDLE_KIND,
+    package: packageName,
+    source: nd.allowed ? 'network' : 'none',
+    allowed: nd.allowed === true,
+    reason: nd.reason || entry.note,
+  };
+}
+
+/**
+ * The manifest rows a UI would render for the target package list, each
+ * annotated with `statusCopy` from prebundleStatusCopy() above. Pure, no
+ * side effects, safe to call every render.
+ * @returns {Array<object>}
+ */
+function listPrebundleManifest() {
+  return R_AIRGAP_PREBUNDLE.map((entry) => ({
+    ...entry,
+    statusCopy: prebundleStatusCopy(entry),
+  }));
+}
+
+/**
+ * Smoke-testable summary: how many of the target packages are honestly
+ * offline-available right now, versus needing network. Used by the test
+ * suite and by a UI header line ("0 of 6 available offline" etc.) rather
+ * than each caller recomputing the same count.
+ * @returns {{total:number, bundledCount:number, networkOnlyCount:number, unavailableCount:number, bundledNames:Array<string>}}
+ */
+function summarizePrebundleAvailability() {
+  const bundledNames = [];
+  let networkOnlyCount = 0;
+  let unavailableCount = 0;
+  for (const entry of R_AIRGAP_PREBUNDLE) {
+    if (entry.availability === 'bundled') bundledNames.push(entry.name);
+    else if (entry.availability === 'network-only') networkOnlyCount += 1;
+    else unavailableCount += 1;
+  }
+  return {
+    total: R_AIRGAP_PREBUNDLE.length,
+    bundledCount: bundledNames.length,
+    networkOnlyCount,
+    unavailableCount,
+    bundledNames,
+  };
+}
+  window.DataGlowRAirGapPrebundle = {
+    R_AIRGAP_PREBUNDLE_KIND: R_AIRGAP_PREBUNDLE_KIND,
+    R_AIRGAP_PREBUNDLE_VERSION: R_AIRGAP_PREBUNDLE_VERSION,
+    R_AIRGAP_PREBUNDLE: R_AIRGAP_PREBUNDLE,
+    prebundleStatusCopy: prebundleStatusCopy,
+    resolvePackageLoad: resolvePackageLoad,
+    listPrebundleManifest: listPrebundleManifest,
+    summarizePrebundleAvailability: summarizePrebundleAvailability,
+  };
+})();
+/* ---- end js/polyglot/r-air-gap-prebundle.js ---- */
+
 /* ---- from js/polyglot/r-power-pack.js ---- */
 ;(function () {
   'use strict';
