@@ -203,3 +203,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:portablereceipt
+
+  bundle15-load-harden-ledger-spine:
+    name: Bundle 15 pure logic (DuckDB load harden, ledger spine, replay, dojo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:bundle15loadhardenledgerspine

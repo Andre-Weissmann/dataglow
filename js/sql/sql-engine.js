@@ -1,13 +1,13 @@
 /**
- * sql-engine.js — DataGlow Real SQL Engine (PR AO)
+ * sql-engine.js - DataGlow Real SQL Engine (PR AO)
  *
  * Powers the SQL Mode overlay with real DuckDB-WASM execution,
  * smart autocomplete, query history, schema sidebar, and explain output.
  *
  * Public API:
- *   SQLEngine.init(containerEl, getDatasets, opts) → instance
- *   instance.loadDataset(dataset)   — registers dataset as DuckDB table
- *   instance.runQuery(sql)          → Promise<{columns, rows, durationMs}>
+ *   SQLEngine.init(containerEl, getDatasets, opts) -> instance
+ *   instance.loadDataset(dataset)   - registers dataset as DuckDB table
+ *   instance.runQuery(sql)          -> Promise<{columns, rows, durationMs}>
  *   instance.destroy()
  *
  * Smart features:
@@ -24,8 +24,14 @@
 export var SQLEngine = (function () {
   'use strict';
 
-  // DuckDB-WASM CDN (ESM bundle — loads via dynamic import in init)
-  var DUCKDB_CDN = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
+  // DuckDB-WASM CDN candidates. Pin and host order live in one shared module,
+  // js/sql/duckdb-load-harden.js, so this editor and the canvas inlined
+  // loader cannot drift onto two different version pins. Falls back to a
+  // single jsDelivr URL only if that module failed to load for some reason.
+  var LOAD_HARDEN = (typeof window !== 'undefined' && window.DataGlowDuckDBLoadHarden) || null;
+  var DUCKDB_CDN = (LOAD_HARDEN && LOAD_HARDEN.CANDIDATE_HOSTS && LOAD_HARDEN.CANDIDATE_HOSTS[0])
+    ? LOAD_HARDEN.CANDIDATE_HOSTS[0].cdnUrl
+    : 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
 
   var SQL_KEYWORDS = [
     'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET',
@@ -73,7 +79,7 @@ export var SQLEngine = (function () {
       suggestions.push('LIMIT 0 returns no rows by design. Increase your LIMIT value.');
     }
     if (dataset && dataset.rows && dataset.rows.length > 0) {
-      suggestions.push('The table has ' + dataset.rows.length.toLocaleString() + ' rows — try SELECT * FROM "' + safeTableName(dataset.name) + '" LIMIT 5 to verify access.');
+      suggestions.push('The table has ' + dataset.rows.length.toLocaleString() + ' rows - try SELECT * FROM "' + safeTableName(dataset.name) + '" LIMIT 5 to verify access.');
     }
     return suggestions.length ? suggestions[0] : null;
   }
@@ -93,21 +99,37 @@ export var SQLEngine = (function () {
     async function ensureInit() {
       if (initialised) return;
       initialised = true;
-      try {
-        // Dynamic import of DuckDB-WASM ESM bundle
-        var mod = await import(DUCKDB_CDN);
-        var JSDELIVR_BUNDLES = mod.getJsDelivrBundles ? mod.getJsDelivrBundles() : mod.selectBundle ? mod.selectBundle(mod.getJsDelivrBundles()) : null;
-        var bundle = JSDELIVR_BUNDLES || {
-          mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-eh.wasm',
-          mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-eh.worker.js'
-        };
-        if (mod.selectBundle) bundle = mod.selectBundle(mod.getJsDelivrBundles());
-        var worker = new Worker(bundle.mainWorker);
-        var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
-        db = new mod.AsyncDuckDB(logger, worker);
-        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-        conn = await db.connect();
-      } catch (e) {
+      // Never a single silent hang: walk every candidate host in the shared
+      // pin list (js/sql/duckdb-load-harden.js) before giving up. A candidate
+      // list of one (the fallback default above) still walks correctly here.
+      var candidates = (LOAD_HARDEN && typeof LOAD_HARDEN.buildCandidateList === 'function')
+        ? LOAD_HARDEN.buildCandidateList()
+        : [{ id: 'jsdelivr', cdnUrl: DUCKDB_CDN, baseUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/' }];
+      var lastErr = null;
+      for (var i = 0; i < candidates.length; i++) {
+        var cand = candidates[i];
+        try {
+          var mod = await import(cand.cdnUrl);
+          var JSDELIVR_BUNDLES = mod.getJsDelivrBundles ? mod.getJsDelivrBundles() : mod.selectBundle ? mod.selectBundle(mod.getJsDelivrBundles()) : null;
+          var bundle = JSDELIVR_BUNDLES || {
+            mainModule: cand.baseUrl + 'duckdb-eh.wasm',
+            mainWorker: cand.baseUrl + 'duckdb-browser-eh.worker.js'
+          };
+          if (mod.selectBundle) bundle = mod.selectBundle(mod.getJsDelivrBundles());
+          var worker = new Worker(bundle.mainWorker);
+          var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
+          db = new mod.AsyncDuckDB(logger, worker);
+          await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+          conn = await db.connect();
+          lastErr = null;
+          break;
+        } catch (eCand) {
+          lastErr = eCand;
+          db = null; conn = null;
+        }
+      }
+      if (lastErr) {
+        var e = lastErr;
         db = null; conn = null; initialised = false;
         throw new Error('DuckDB-WASM failed to load: ' + e.message);
       }

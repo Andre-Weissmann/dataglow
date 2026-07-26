@@ -19264,15 +19264,15 @@ var CanvasGrid = (function () {
 
   /* ---- from js/sql/sql-engine.js ---- */
 /**
- * sql-engine.js — DataGlow Real SQL Engine (PR AO)
+ * sql-engine.js - DataGlow Real SQL Engine (PR AO)
  *
  * Powers the SQL Mode overlay with real DuckDB-WASM execution,
  * smart autocomplete, query history, schema sidebar, and explain output.
  *
  * Public API:
- *   SQLEngine.init(containerEl, getDatasets, opts) → instance
- *   instance.loadDataset(dataset)   — registers dataset as DuckDB table
- *   instance.runQuery(sql)          → Promise<{columns, rows, durationMs}>
+ *   SQLEngine.init(containerEl, getDatasets, opts) -> instance
+ *   instance.loadDataset(dataset)   - registers dataset as DuckDB table
+ *   instance.runQuery(sql)          -> Promise<{columns, rows, durationMs}>
  *   instance.destroy()
  *
  * Smart features:
@@ -19291,11 +19291,40 @@ var SQLEngine = (function () {
 
   // DuckDB-WASM CDN (ESM bundle  -  loads via dynamic import in init)
   // Primary: jsDelivr. Fallback: unpkg. Banner shows load/error state on all platforms.
+  /* duckdbLoadHarden (Bundle 15): candidate host list and version pin come
+     from window.DataGlowDuckDBLoadHarden (js/sql/duckdb-load-harden.js),
+     the one module the SQL Editor's engine and this canvas loader both
+     read, so the two surfaces cannot drift onto two different pins. These
+     three constants stay as a safety-net fallback only for the unlikely
+     case that module failed to load. */
+  function _dgLoadHardenOn() {
+    try { if (window.DATAGLOW_DUCKDB_LOAD_HARDEN === false) return false; } catch (_lhe0) {}
+    try { if (window.DATAGLOW_DUCKDB_LOAD_HARDEN === true) return true; } catch (_lhe1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('duckdbLoadHarden') !== false;
+      }
+    } catch (_lhe2) {}
+    return true;
+  }
   var DUCKDB_CDN_PRIMARY = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
   var DUCKDB_CDN_FALLBACK = 'https://unpkg.com/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
   var DUCKDB_CDN = DUCKDB_CDN_PRIMARY;
   var DUCKDB_BASE_PRIMARY = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/';
   var DUCKDB_BASE_FALLBACK = 'https://unpkg.com/@duckdb/duckdb-wasm@1.29.0/dist/';
+  function _dgDuckCandidates() {
+    try {
+      if (_dgLoadHardenOn() && window.DataGlowDuckDBLoadHarden &&
+          typeof window.DataGlowDuckDBLoadHarden.buildCandidateList === 'function') {
+        var list = window.DataGlowDuckDBLoadHarden.buildCandidateList();
+        if (list && list.length) return list;
+      }
+    } catch (_lhe3) {}
+    return [
+      { id: 'jsdelivr', label: 'jsDelivr', cdnUrl: DUCKDB_CDN_PRIMARY, baseUrl: DUCKDB_BASE_PRIMARY },
+      { id: 'unpkg', label: 'unpkg', cdnUrl: DUCKDB_CDN_FALLBACK, baseUrl: DUCKDB_BASE_FALLBACK }
+    ];
+  }
 
   function _dgShowSqlEngineBanner(state, msg) {
     /* state: 'loading' | 'ok' | 'error' */
@@ -19449,21 +19478,31 @@ var SQLEngine = (function () {
           var c = await adb.connect();
           return { db: adb, conn: c };
         }
+        /* duckdbLoadHarden: walk every candidate in the shared pin list (up
+           to three: jsDelivr, unpkg, esm.sh) rather than stopping after one
+           fallback, so a demo never silently hangs on a bad second host. */
+        var candidates = _dgDuckCandidates();
+        var attempts = [];
         var loaded = null;
         var lastErr = null;
-        try {
-          DUCKDB_CDN = DUCKDB_CDN_PRIMARY;
-          loaded = await _loadDuckFrom(DUCKDB_CDN_PRIMARY, DUCKDB_BASE_PRIMARY);
-        } catch (ePrimary) {
-          lastErr = ePrimary;
-          console.warn('[DataGlow] DuckDB jsDelivr failed, trying unpkg:', ePrimary && ePrimary.message);
+        for (var _ci = 0; _ci < candidates.length; _ci++) {
+          var _cand = candidates[_ci];
           try {
-            DUCKDB_CDN = DUCKDB_CDN_FALLBACK;
-            loaded = await _loadDuckFrom(DUCKDB_CDN_FALLBACK, DUCKDB_BASE_FALLBACK);
-          } catch (eFallback) {
-            lastErr = eFallback;
+            DUCKDB_CDN = _cand.cdnUrl;
+            loaded = await _loadDuckFrom(_cand.cdnUrl, _cand.baseUrl);
+            attempts.push({ host: _cand.label || _cand.id, ok: true });
+            break;
+          } catch (eCand) {
+            lastErr = eCand;
+            attempts.push({ host: _cand.label || _cand.id, ok: false, error: eCand && eCand.message });
+            console.warn('[DataGlow] DuckDB load failed from ' + (_cand.label || _cand.id) + ', trying next candidate:', eCand && eCand.message);
           }
         }
+        try {
+          if (window.DataGlowDuckDBLoadHarden && typeof window.DataGlowDuckDBLoadHarden.summarizeAttempts === 'function') {
+            window._dgDuckDBLastSummary = window.DataGlowDuckDBLoadHarden.summarizeAttempts(attempts);
+          }
+        } catch (_sumErr) {}
         if (!loaded) {
           throw lastErr || new Error('DuckDB-WASM failed on all CDNs');
         }
@@ -19476,6 +19515,9 @@ var SQLEngine = (function () {
         db = null; conn = null; initialised = false;
         var emsg = (e && e.message) ? e.message : String(e);
         _dgShowSqlEngineBanner('error', 'SQL engine failed to load: ' + emsg);
+        /* Retry always starts a fresh pass over the whole candidate list
+           (not just the host that just failed), since a transient failure
+           on host 1 should not permanently skip it on the next attempt. */
         window._dgDuckDBRetry = function () {
           initialised = false;
           ensureInit().catch(function () {});
@@ -29560,6 +29602,10 @@ var InstantInsight = (function () {
 /* ---- #43 Window Function Dojo ---- */
   (function () {
     'use strict';
+    /* sqlDojoSafe (Bundle 15): the whole module runs inside one try/catch so a
+       DOM shape this file does not control (missing panel, missing table)
+       can never crash script execution for everything wired after it. */
+    try {
 
     var FN_DEFS = {
       rank:   { label:'Rank',         needsValue:false, needsPartition:true,  needsOrder:true,  desc:'Rank each row within a partition, giving the same rank to ties.' },
@@ -29635,10 +29681,16 @@ var InstantInsight = (function () {
     }
 
     function populateDropdowns() {
-      var ds = window.getActiveDataset && window.getActiveDataset();
-      var allCols = ds ? ds.columns.map(function(c){return c.name;}) : [];
-      var numCols = ds ? ds.columns.filter(function(c){return c.type==='FLOAT'||c.type==='INT';}).map(function(c){return c.name;}) : [];
-      var catCols = ds ? ds.columns.filter(function(c){return c.type==='STR'||c.type==='DATE';}).map(function(c){return c.name;}) : [];
+      /* sqlDojoSafe (Bundle 15): guard every step. A dataset with no
+         `columns` array (a shape this module does not control) must not
+         throw here; it should render the Dojo with empty dropdowns instead
+         of crashing the click that opened it. */
+      var ds = null;
+      try { ds = window.getActiveDataset && window.getActiveDataset(); } catch (dsErr) { ds = null; }
+      var hasCols = !!(ds && Array.isArray(ds.columns));
+      var allCols = hasCols ? ds.columns.map(function(c){return c.name;}) : [];
+      var numCols = hasCols ? ds.columns.filter(function(c){return c.type==='FLOAT'||c.type==='INT';}).map(function(c){return c.name;}) : [];
+      var catCols = hasCols ? ds.columns.filter(function(c){return c.type==='STR'||c.type==='DATE';}).map(function(c){return c.name;}) : [];
 
       function opts(cols, withNone) {
         var base = withNone ? '<option value="">(none)</option>' : '<option value="">(select)</option>';
@@ -29678,9 +29730,23 @@ var InstantInsight = (function () {
     var dojoPanel     = document.getElementById('dojo-panel');
 
     if (dojoBtn) dojoBtn.addEventListener('click', function() {
-      dojoBtn.classList.add('active'); dojoEditorBtn && dojoEditorBtn.classList.remove('active');
-      dojoPanel && dojoPanel.classList.add('open');
-      populateDropdowns();
+      try {
+        dojoBtn.classList.add('active'); dojoEditorBtn && dojoEditorBtn.classList.remove('active');
+        dojoPanel && dojoPanel.classList.add('open');
+      } catch (openErr) {
+        window.showToast && window.showToast('Could not open the Dojo panel.', 'error');
+        return;
+      }
+      /* sqlDojoSafe: defer the dropdown populate (dataset scan) off this
+         click's own frame so opening the tab never blocks the main thread
+         even on a wide table, and one bad frame cannot crash the click
+         handler itself. */
+      setTimeout(function () {
+        try { populateDropdowns(); } catch (popErr) {
+          console.warn('[DataGlow] Dojo populateDropdowns failed', popErr);
+          window.showToast && window.showToast('Dojo could not read the current table; generated SQL may need columns typed by hand.', 'info');
+        }
+      }, 0);
     });
     if (dojoEditorBtn) dojoEditorBtn.addEventListener('click', function() {
       dojoEditorBtn.classList.add('active'); dojoBtn && dojoBtn.classList.remove('active');
@@ -29707,9 +29773,45 @@ var InstantInsight = (function () {
       if (el) el.addEventListener('change', updatePreview);
     });
 
+    /* sqlDojoSafe: the engine may not be mounted at all (module blocked,
+       CDN load still in progress or failed). The Dojo must still show its
+       generated SQL either way; only the Run action itself is gated, with a
+       clear reason rather than a click that silently does nothing. */
+    function sqlDojoSafeOn() {
+      try { if (window.DATAGLOW_SQL_DOJO_SAFE === false) return false; } catch (_fe0) {}
+      try { if (window.DATAGLOW_SQL_DOJO_SAFE === true) return true; } catch (_fe1) {}
+      try {
+        if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+          return window.DataGlowFlags.isEnabled('sqlDojoSafe') !== false;
+        }
+      } catch (_fe2) {}
+      return true;
+    }
+
+    function dojoEngineMissing() {
+      try { return !(window.SQLEngine || window.duckdbConn || window.db); } catch (engErr) { return true; }
+    }
+
+    function refreshRunButtonState() {
+      var runBtnEl = document.getElementById('dojo-run-btn');
+      if (!runBtnEl) return;
+      if (!sqlDojoSafeOn()) { runBtnEl.disabled = false; runBtnEl.title = ''; return; }
+      if (dojoEngineMissing()) {
+        runBtnEl.disabled = true;
+        runBtnEl.title = 'SQL engine is not ready yet. The generated SQL above is still yours to copy.';
+      } else {
+        runBtnEl.disabled = false;
+        runBtnEl.title = '';
+      }
+    }
+
     // Run button - copy SQL into editor and run
     var runBtn = document.getElementById('dojo-run-btn');
     if (runBtn) runBtn.addEventListener('click', function() {
+      if (sqlDojoSafeOn() && dojoEngineMissing()) {
+        window.showToast && window.showToast('SQL engine is not ready yet. Copy the generated SQL and run it once the engine loads.', 'info');
+        return;
+      }
       var preview = document.getElementById('dojo-preview');
       if (!preview) return;
       var sql = preview.textContent;
@@ -29731,6 +29833,9 @@ var InstantInsight = (function () {
         else window.showToast && window.showToast('SQL copied to editor - click Run to execute.', 'info');
       }, 100);
     });
+    refreshRunButtonState();
+    document.addEventListener('dataglow:sql-engine-ready', refreshRunButtonState);
+    setInterval(refreshRunButtonState, 4000);
 
     // Auto-populate when dataset loads
     document.addEventListener('dataglow:dataset-loaded', function() {
@@ -29738,6 +29843,10 @@ var InstantInsight = (function () {
     });
 
     updateControlVisibility();
+    } catch (dojoModuleErr) {
+      console.warn('[DataGlow] SQL Dojo module failed to initialize', dojoModuleErr);
+      window.showToast && window.showToast('SQL Dojo could not start.', 'error');
+    }
   })();
 
 /* ---- #38 PWA ---- */
@@ -35578,18 +35687,41 @@ var InstantInsight = (function () {
       'sidebar-story-btn': 'story-trigger-btn',
     };
 
-    /* Window Dojo sidebar button */
+    /* Window Dojo sidebar button (sqlDojoSafe, Bundle 15): guarded against
+       double-init (data-dg-wired marker), a missing sql-view pill or dojo
+       tab (no-op toast instead of a thrown error breaking every button
+       wired after this one in the same setup pass), and any exception in
+       the proxy click chain itself. */
     var dojoSidebarBtn = document.getElementById('sidebar-dojo-btn');
-    if (dojoSidebarBtn) {
+    if (dojoSidebarBtn && dojoSidebarBtn.getAttribute('data-dg-wired') !== '1') {
+      dojoSidebarBtn.setAttribute('data-dg-wired', '1');
       dojoSidebarBtn.addEventListener('click', function () {
-        var sqlPill = document.querySelector('[data-panel="sql-view"]');
-        if (sqlPill) sqlPill.click();
-        setTimeout(function () {
-          var dojoBtn = document.getElementById('dojo-btn');
-          if (dojoBtn) dojoBtn.click();
-          document.querySelectorAll('.sidebar-nav-item').forEach(function (b) { b.classList.remove('active'); });
-          dojoSidebarBtn.classList.add('active');
-        }, 80);
+        try {
+          var sqlPill = document.querySelector('[data-panel="sql-view"]');
+          if (!sqlPill) {
+            window.showToast && window.showToast('SQL editor is not available right now.', 'error');
+            return;
+          }
+          sqlPill.click();
+          setTimeout(function () {
+            try {
+              var dojoBtn = document.getElementById('dojo-btn');
+              if (!dojoBtn) {
+                window.showToast && window.showToast('SQL Dojo is not available right now.', 'error');
+                return;
+              }
+              dojoBtn.click();
+              document.querySelectorAll('.sidebar-nav-item').forEach(function (b) { b.classList.remove('active'); });
+              dojoSidebarBtn.classList.add('active');
+            } catch (innerErr) {
+              console.warn('[DataGlow] SQL Dojo open failed', innerErr);
+              window.showToast && window.showToast('Could not open SQL Dojo.', 'error');
+            }
+          }, 80);
+        } catch (outerErr) {
+          console.warn('[DataGlow] SQL Dojo sidebar click failed', outerErr);
+          window.showToast && window.showToast('Could not open SQL Dojo.', 'error');
+        }
       });
     }
 
@@ -132264,6 +132396,7 @@ function buildRPowerPack(input) {
   var CHIP_ID = 'dg-spine-chip';
   var STYLE_ID = 'dg-spine-styles';
   var SEEN_KEY = 'dataglow.receiptSpine.dismissed';
+  var LEDGER_CHIP_ID = 'dg-spine-ledger-chip';
 
   var state = { open: true, expandedId: '' };
 
@@ -132279,6 +132412,12 @@ function buildRPowerPack(input) {
   }
 
   function spineOn() { return flag('DATAGLOW_RECEIPT_SPINE', 'receiptSpine'); }
+
+  /* Bundle 15: the Repair Ledger chip mounted on this rail rather than a 25th
+     top-nav item. Off by default gate is its own flag, repairLedgerSpine, so
+     a build can run the rail without the chip and the chip never appears
+     when the underlying Repair Ledger itself is off. */
+  function ledgerSpineOn() { return flag('DATAGLOW_REPAIR_LEDGER_SPINE', 'repairLedgerSpine'); }
 
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
@@ -132421,6 +132560,9 @@ function buildRPowerPack(input) {
     if (intent === 'open-compound') {
       return panel('DataGlowRepairRecipeLibraryUI', 'open') || panel('DataGlowLocalAiUI', 'open');
     }
+    if (intent === 'open-ledger') {
+      return panel('DataGlowRepairLedgerUI', 'open');
+    }
     return null;
   }
 
@@ -132451,7 +132593,10 @@ function buildRPowerPack(input) {
       + '#' + CHIP_ID + '{position:fixed;bottom:18px;left:210px;z-index:2147482900;'
       + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}';
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}'
+      + '.dg-sp-ledger-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
+      + 'font-weight:600}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
@@ -132505,6 +132650,23 @@ function buildRPowerPack(input) {
     var top = el('div', { class: 'dg-sp-top' });
     top.appendChild(el('span', { class: 'dg-sp-title' }, model.title));
     top.appendChild(el('span', { class: 'dg-sp-head' }, model.headline));
+    /* Bundle 15: Repair Ledger chip lives in the rail's Prove/Ship area, next
+       to Hide, so the ledger is findable from the same strip that already
+       names the path rather than a new top-nav item. Only rendered when both
+       this flag and the ledger panel itself are mounted. */
+    if (ledgerSpineOn()) {
+      var ledgerGo = resolveTarget('open-ledger');
+      if (ledgerGo) {
+        var ledgerBtn = el('button', {
+          id: LEDGER_CHIP_ID,
+          class: 'dg-sp-ledger-btn',
+          type: 'button',
+          title: 'Applied steps: every repair step logged this session',
+        }, 'Repair Ledger');
+        ledgerBtn.addEventListener('click', function () { ledgerGo(); });
+        top.appendChild(ledgerBtn);
+      }
+    }
     var hide = el('button', { class: 'dg-sp-btn' }, 'Hide');
     hide.addEventListener('click', function () { dismiss(); });
     top.appendChild(hide);
@@ -132541,15 +132703,42 @@ function buildRPowerPack(input) {
 
   function refreshChip() {
     var chip = document.getElementById(CHIP_ID);
-    if (!chip) return;
-    var model = spine();
-    var eng = engine('DataGlowReceiptSpine');
-    var label = 'Start here';
-    if (eng && typeof eng.spineChipLabel === 'function') {
-      try { label = eng.spineChipLabel(model); } catch (_e) {}
+    if (chip) {
+      var model = spine();
+      var eng = engine('DataGlowReceiptSpine');
+      var label = 'Start here';
+      if (eng && typeof eng.spineChipLabel === 'function') {
+        try { label = eng.spineChipLabel(model); } catch (_e) {}
+      }
+      chip.textContent = label;
+      chip.style.display = state.open ? 'none' : 'inline-block';
     }
-    chip.textContent = label;
-    chip.style.display = state.open ? 'none' : 'inline-block';
+
+    /* The Repair Ledger chip stays findable even when the rail itself is
+       collapsed: it is not part of what "Hide" hides, because it answers a
+       different question (what has this session done so far) than the rail
+       does (where am I in the path). */
+    var ledgerChip = document.getElementById(LEDGER_CHIP_ID);
+    if (!ledgerChip && ledgerSpineOn() && !state.open) {
+      var ledgerGo2 = resolveTarget('open-ledger');
+      if (ledgerGo2 && document.body) {
+        var collapsedLedgerBtn = el('button', {
+          id: LEDGER_CHIP_ID,
+          class: 'dg-sp-ledger-btn',
+          type: 'button',
+          style: 'position:fixed;bottom:18px;left:340px;z-index:2147482900;box-shadow:0 2px 8px rgba(0,0,0,.14)',
+          title: 'Applied steps: every repair step logged this session',
+        }, 'Repair Ledger');
+        collapsedLedgerBtn.addEventListener('click', function () { ledgerGo2(); });
+        document.body.appendChild(collapsedLedgerBtn);
+      }
+    } else if (ledgerChip && state.open) {
+      /* Rail is open and renders its own copy inside the top row; drop the
+         floating collapsed one so there are never two at once. */
+      if (ledgerChip.parentNode === document.body) {
+        ledgerChip.parentNode.removeChild(ledgerChip);
+      }
+    }
   }
 
   function open() {
@@ -136997,8 +137186,70 @@ function buildProjectLanes() {
 
   function ledgerOn() { return flag('DATAGLOW_REPAIR_LEDGER', 'repairLedger'); }
 
+  /* Bundle 15: thin Replay. "Thin" on purpose - it inserts the exact SQL
+     text `rerunPlan()` already hands back into the real SQL editor and runs
+     it through the real Run button, the same path a person copying and
+     pasting would use. It never touches a database directly, never runs
+     without a human confirming the specific step first, and never claims to
+     replay a full Excel/Python DAG - only the SQL steps this session already
+     marked canRerun. */
+  function replayOn() { return flag('DATAGLOW_REPLAY_RECEIPT_THIN', 'replayReceiptThin'); }
+
+  function sqlEngineMissing() {
+    try { return !(window.SQLEngine || window.duckdbConn || window.db); } catch (_e) { return true; }
+  }
+
+  /** Insert SQL into the real editor and click the real Run button. Returns
+   *  true if it found both; false (with a toast) if it could not. */
+  function runSqlInEditor(sql) {
+    try {
+      var sqlEditor = document.getElementById('sql-view-input');
+      var sqlPill = document.querySelector('[data-panel="sql-view"]');
+      if (!sqlEditor) { toast('SQL editor is not available right now.'); return false; }
+      sqlEditor.value = sql;
+      sqlEditor.dispatchEvent(new Event('input', { bubbles: true }));
+      if (sqlPill) sqlPill.click();
+      setTimeout(function () {
+        var runSqlBtn = document.getElementById('sql-view-run');
+        if (runSqlBtn) runSqlBtn.click();
+        else toast('SQL copied to editor - click Run to execute.');
+      }, 100);
+      return true;
+    } catch (_e) {
+      toast('Could not run this step. The SQL is still on your clipboard if you copied it.');
+      return false;
+    }
+  }
+
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  /** Replay every canRerun SQL step in ledger order. One confirm names every
+   *  step up front (their titles, in the order they will run), then each
+   *  runs in sequence with a short pause between so an engine that only
+   *  accepts one statement at a time is not overrun. Honest about the
+   *  engine: if it never shows up, later steps still queue but each one
+   *  reports it could not run rather than hanging. */
+  function replayAllSqlSteps(steps) {
+    var eng = engine('DataGlowRepairLedger');
+    if (!eng) { toast('The ledger engine is not mounted in this build.'); return; }
+    if (!steps || !steps.length) { toast('No rerunnable SQL steps to replay.'); return; }
+    var names = steps.map(function (s, i) { return (i + 1) + '. ' + s.title; }).join('\n');
+    var confirmed = window.confirm('Replay ' + steps.length + ' SQL step(s) in order?\n\n' + names);
+    if (!confirmed) { toast('Not run. Nothing changed.'); return; }
+
+    var i = 0;
+    function runNext() {
+      if (i >= steps.length) { toast('Replay finished: ' + steps.length + ' step(s) sent to the editor.'); return; }
+      var plan = eng.rerunPlan(steps[i]);
+      i += 1;
+      if (!plan.ok) { toast('Step skipped: ' + plan.reason); setTimeout(runNext, 150); return; }
+      if (sqlEngineMissing()) { toast('SQL engine is not ready yet; stopping replay at step ' + i + ' of ' + steps.length + '.'); return; }
+      runSqlInEditor(plan.code);
+      setTimeout(runNext, 600);
+    }
+    runNext();
   }
 
   function el(tag, attrs, text) {
@@ -137112,6 +137363,21 @@ function buildProjectLanes() {
         else toast(plan.reason);
       });
       actions.appendChild(rerunBtn);
+
+      if (replayOn()) {
+        var runAgainBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Run again');
+        runAgainBtn.addEventListener('click', function () {
+          var plan2 = eng.rerunPlan(step);
+          if (!plan2.ok) { toast(plan2.reason); return; }
+          if (sqlEngineMissing()) { toast('SQL engine is not ready yet. Copy the SQL above and run it once the engine loads.'); return; }
+          /* Human confirm before anything runs again - this is the one line
+             standing between "Run again" and an auto-mutating replay. */
+          var confirmed = window.confirm('Run this SQL step again?\n\n' + plan2.code);
+          if (!confirmed) { toast('Not run. Nothing changed.'); return; }
+          runSqlInEditor(plan2.code);
+        });
+        actions.appendChild(runAgainBtn);
+      }
     }
     if (actions.childNodes.length) row.appendChild(actions);
     host.appendChild(row);
@@ -137154,6 +137420,15 @@ function buildProjectLanes() {
       else copy(md, 'Ledger Markdown');
     });
     actions.appendChild(exportMdBtn);
+
+    if (replayOn() && typeof eng.canRerun === 'function' && typeof eng.listSteps === 'function') {
+      var rerunnable = eng.listSteps(state.ledger).filter(function (s) { return eng.canRerun(s); });
+      if (rerunnable.length > 1) {
+        var replayAllBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Replay all SQL steps in order (' + rerunnable.length + ')');
+        replayAllBtn.addEventListener('click', function () { replayAllSqlSteps(rerunnable); });
+        actions.appendChild(replayAllBtn);
+      }
+    }
     panel.appendChild(actions);
 
     if (typeof eng.wiringReport === 'function') {
@@ -137252,6 +137527,162 @@ function buildProjectLanes() {
   };
 })();
 /* ---- end js/spine/data-glow-repair-ledger-canvas.js ---- */
+
+/* ---- from js/sql/duckdb-load-harden.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - DuckDB-WASM load harden: one pin list, one candidate order
+// ============================================================
+//
+// Both the SQL Editor's engine (js/sql/sql-engine.js) and the canvas-inlined
+// loader built the same jsDelivr-then-unpkg fallback by hand, each with its
+// own copy of the version string. Two copies of a version pin drift the first
+// time one of them is bumped and the other is not, and a silent drift here
+// means a demo works from one code path and hangs from the other. This
+// module is the one place the version and the candidate host order live.
+//
+// WHY THIS NEVER FETCHES ANYTHING ITSELF.
+// Pure data plus pure helpers. `buildCandidateList()` returns the ordered
+// list of { host, cdnUrl, baseUrl } this session should try; the caller
+// (the DuckDB adapter, in a browser) does the actual dynamic import and
+// reports back success or failure per host. That keeps this file testable
+// under plain Node with no network and no DOM.
+//
+// WHY THE ORDER IS A LIST, NOT A PRIMARY/FALLBACK PAIR.
+// A two-name pair means adding a third CDN (esm.sh, a self-hosted mirror)
+// is a structural change everywhere it is used. A list means adding one is
+// an edit to CANDIDATE_HOSTS in this one file, and every caller that walks
+// the list already handles it.
+//
+// WHY THERE IS A HARD CEILING ON RETRY.
+// A candidate list with no ceiling can be walked forever by code that keeps
+// re-appending it to itself, and a page that silently hangs while it does
+// that is worse than one that tells you every CDN failed. `MAX_ATTEMPTS`
+// bounds one load pass to the length of the candidate list; retrying means
+// starting a new pass on purpose, not looping inside one.
+
+const DUCKDB_LOAD_HARDEN_KIND = 'dataglow-duckdb-load-harden';
+const DUCKDB_LOAD_HARDEN_VERSION = 1;
+
+/** Single source of truth for the pinned DuckDB-WASM version. Bump here only. */
+const DUCKDB_WASM_PIN = '1.29.0';
+
+/** Ordered CDN hosts to try, primary first. Every caller walks this same list. */
+const CANDIDATE_HOSTS = Object.freeze([
+  Object.freeze({
+    id: 'jsdelivr',
+    label: 'jsDelivr',
+    cdnUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-esm.js',
+    baseUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/',
+  }),
+  Object.freeze({
+    id: 'unpkg',
+    label: 'unpkg',
+    cdnUrl: 'https://unpkg.com/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-esm.js',
+    baseUrl: 'https://unpkg.com/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/',
+  }),
+  Object.freeze({
+    id: 'esm.sh',
+    label: 'esm.sh',
+    cdnUrl: 'https://esm.sh/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN,
+    baseUrl: 'https://esm.sh/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/',
+  }),
+]);
+
+const MAX_ATTEMPTS = CANDIDATE_HOSTS.length;
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * The ordered candidate list a load pass should walk. A copy every time, so a
+ * caller mutating the array it received cannot corrupt the shared pin list.
+ */
+function buildCandidateList() {
+  return CANDIDATE_HOSTS.map((h) => ({ id: h.id, label: h.label, cdnUrl: h.cdnUrl, baseUrl: h.baseUrl }));
+}
+
+/** Rewrite a jsDelivr-shaped bundle URL onto a different candidate's base. */
+function rewriteBundleUrl(url, fromBaseUrl, toBaseUrl) {
+  const u = typeof url === 'string' ? url : '';
+  if (!u || !fromBaseUrl || !toBaseUrl) return u;
+  if (u.indexOf(fromBaseUrl) !== 0) return u;
+  return toBaseUrl + u.slice(fromBaseUrl.length);
+}
+
+/**
+ * Given a list of attempt results (in order tried), decide what the banner
+ * should say. Never silent: every state names which host, if any, is live.
+ *
+ * @param {{host:string, ok:boolean, error?:string}[]} attempts
+ * @returns {{state:'loading'|'ok'|'error', succeededHost:string|null,
+ *   failedHosts:string[], message:string}}
+ */
+function summarizeAttempts(attempts) {
+  const list = Array.isArray(attempts) ? attempts : [];
+  const failedHosts = list.filter((a) => isPlainObject(a) && a.ok !== true).map((a) => a.host);
+  const succeeded = list.filter((a) => isPlainObject(a) && a.ok === true)[0];
+
+  if (succeeded) {
+    const viaFallback = failedHosts.length > 0;
+    return {
+      state: 'ok',
+      succeededHost: succeeded.host,
+      failedHosts,
+      message: viaFallback
+        ? 'SQL engine loaded from ' + succeeded.host + ' after ' + failedHosts.join(', ') + ' failed.'
+        : 'SQL engine loaded from ' + succeeded.host + '.',
+    };
+  }
+
+  if (list.length === 0) {
+    return { state: 'loading', succeededHost: null, failedHosts: [], message: 'SQL engine initializing.' };
+  }
+
+  return {
+    state: 'error',
+    succeededHost: null,
+    failedHosts,
+    message: 'SQL engine failed to load from all CDNs tried: ' + failedHosts.join(', ') + '.',
+  };
+}
+
+/**
+ * Whether a fresh load pass should be attempted: true unless every candidate
+ * in the list has already been tried and failed in this pass.
+ */
+function shouldTryNextCandidate(attempts) {
+  const list = Array.isArray(attempts) ? attempts : [];
+  if (list.some((a) => isPlainObject(a) && a.ok === true)) return false;
+  return list.length < MAX_ATTEMPTS;
+}
+
+/** The next untried candidate for this pass, or null when the list is exhausted. */
+function nextCandidate(attempts) {
+  const list = Array.isArray(attempts) ? attempts : [];
+  const tried = new Set(list.map((a) => (isPlainObject(a) ? a.host : null)));
+  const all = buildCandidateList();
+  for (let i = 0; i < all.length; i++) {
+    if (!tried.has(all[i].id)) return all[i];
+  }
+  return null;
+}
+  window.DataGlowDuckDBLoadHarden = {
+    DUCKDB_LOAD_HARDEN_KIND: DUCKDB_LOAD_HARDEN_KIND,
+    DUCKDB_LOAD_HARDEN_VERSION: DUCKDB_LOAD_HARDEN_VERSION,
+    DUCKDB_WASM_PIN: DUCKDB_WASM_PIN,
+    CANDIDATE_HOSTS: CANDIDATE_HOSTS,
+    MAX_ATTEMPTS: MAX_ATTEMPTS,
+    buildCandidateList: buildCandidateList,
+    rewriteBundleUrl: rewriteBundleUrl,
+    summarizeAttempts: summarizeAttempts,
+    shouldTryNextCandidate: shouldTryNextCandidate,
+    nextCandidate: nextCandidate,
+  };
+})();
+/* ---- end js/sql/duckdb-load-harden.js ---- */
 
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;

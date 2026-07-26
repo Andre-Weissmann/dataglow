@@ -7281,6 +7281,34 @@
         "polyglotProjectLanes"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "duckdb-load-harden",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Query & analysis",
+      "name": "DuckDB-WASM multi-CDN load harden (shared CDN candidate list and version pin)",
+      "files": [
+        "js/sql/duckdb-load-harden.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/sql/duckdb-load-harden.js",
+          "name": "buildCandidateList"
+        },
+        {
+          "file": "js/sql/duckdb-load-harden.js",
+          "name": "summarizeAttempts"
+        }
+      ],
+      "notes": "Bundle 15: centralizes the DuckDB-WASM CDN candidate list (jsDelivr primary, unpkg fallback, esm.sh third) and the single version pin that both js/sql/sql-engine.js and the canvas inline SQL engine loader read, so the two surfaces cannot drift onto two different pins. On load failure, ensureInit() and the canvas loader walk the full candidate list instead of hard-failing after the primary host; Retry re-tries the full list. Never hangs silently; the existing _dgShowSqlEngineBanner surfaces which host loaded or failed.",
+      "relatedFlags": [
+        "duckdbLoadHarden"
+      ],
+      "status": "shipped"
     }
   ]
 }

@@ -119,6 +119,19 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:bundle14canvas
+      # Bundle 15: RECEIPT spine Repair Ledger chip mount/unmount by its own
+      # flag, the thin-replay human-confirm gate on "Run again" (declines do
+      # not touch the SQL editor, accepts insert the exact rerunnable SQL),
+      # and SQL Dojo safe-open (no throw against a bare-bones DOM stub, Run
+      # disabled with a plain message when no SQL engine is mounted). The
+      # pure engines (load-harden candidate list, ledger canRerun/rerunPlan
+      # gating, flag-helper shape) are unit tested in
+      # test:bundle15loadhardenledgerspine (job-ci-batch-03.yml), no browser
+      # needed there.
+      - name: Run Bundle 15 canvas UI test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:bundle15canvas
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
