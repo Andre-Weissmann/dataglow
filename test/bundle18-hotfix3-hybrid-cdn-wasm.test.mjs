@@ -158,27 +158,34 @@ describe('bundle18 hotfix3 A: shared hybrid wasm fallback (js/sql/duckdb-load-ha
 describe('bundle18 hotfix3 B: js/sql/sql-engine.js hybrid retry + fallback advance', () => {
   const src = readRepoFile(join('js', 'sql', 'sql-engine.js'));
 
-  it('wraps db.instantiate() and retries with a hybrid bundle on a wasm fetch failure', () => {
+  it('wraps db.instantiate() (via the hotfix4 timeout-guarded helper) and retries with a hybrid bundle on a wasm fetch failure', () => {
+    // Bundle 18 hotfix 4 renamed the raw `await db.instantiate(...)` call
+    // site to `instantiateWithTimeout(...)`, which still calls
+    // db.instantiate() internally but also guards against an uncaught
+    // worker-thread error hanging the promise forever (see
+    // BUNDLE18_HOTFIX4_RESULT.md). The hybrid-retry wiring itself is
+    // unchanged: still triggered by the same isWasmFetchFailure/
+    // buildHybridWasmBundle pair from js/sql/duckdb-load-harden.js.
     assert.match(src, /catch \(eInstantiate\)/);
     assert.match(src, /LOAD_HARDEN\.isWasmFetchFailure\(eInstantiate\)/);
     assert.match(src, /LOAD_HARDEN\.buildHybridWasmBundle\(/);
-    assert.match(src, /await db\.instantiate\(hybridBundle\.mainModule, hybridBundle\.pthreadWorker\);/);
+    assert.match(src, /await instantiateWithTimeout\(db, worker, hybridBundle\.mainModule, hybridBundle\.pthreadWorker, \d+\);/);
   });
 
   it('rethrows unchanged when there is no hybrid bundle available, so the outer candidate loop can advance', () => {
-    assert.match(src, /if \(!hybridBundle\) throw eInstantiate;/);
+    assert.match(src, /if \(!hybridBundle \|\| hybridBundle\.mainModule === mainModuleHref\) throw eInstantiate;/);
   });
 
   it('a failed hybrid retry also rethrows, so self-host cannot get stuck half-instantiated', () => {
     assert.match(src, /catch \(eHybrid\)/);
   });
 
-  it('never reaches a bare null db.query(): registerDataset throws a clear message when every candidate failed', () => {
+  it('never reaches a bare null db.query(): registerDataset and query() throw a clear message when every candidate failed', () => {
     assert.match(src, /DuckDB-WASM engine not ready: no candidate host finished loading/);
   });
 
   it('does not introduce an em dash in the edited region', () => {
-    const idx = src.indexOf('Hybrid self-host candidate (Bundle 18 hotfix 3)');
+    const idx = src.indexOf('Hybrid self-host candidate (Bundle 18 hotfix 3, extended by');
     assert.notEqual(idx, -1);
     const region = src.slice(idx - 200, idx + 1800);
     assert.doesNotMatch(region, new RegExp(EM_DASH));
@@ -199,11 +206,11 @@ describe('bundle18 hotfix3 C: js/app-shell/duckdb-engine.js hybrid retry (root i
     assert.match(src, /buildHybridWasmBundle/);
   });
 
-  it('wraps db.instantiate() with a try/catch that retries via buildHybridWasmBundle', () => {
+  it('wraps db.instantiate() (via the hotfix4 timeout-guarded helper) with a try/catch that retries via buildHybridWasmBundle', () => {
     assert.match(src, /catch \(instantiateErr\)/);
     assert.match(src, /isWasmFetchFailure\(instantiateErr\)/);
     assert.match(src, /buildHybridWasmBundle\(bundle, SELF_HOST_CANDIDATE\)/);
-    assert.match(src, /await db\.instantiate\(hybridBundle\.mainModule, hybridBundle\.pthreadWorker\);/);
+    assert.match(src, /await instantiateWithTimeout\(db, worker, hybridBundle\.mainModule, hybridBundle\.pthreadWorker, \d+\);/);
   });
 
   it('rethrows the original error (not the hybrid attempt) when isWasmFetchFailure is false', () => {
@@ -215,9 +222,10 @@ describe('bundle18 hotfix3 C: js/app-shell/duckdb-engine.js hybrid retry (root i
   });
 
   it('does not introduce an em dash in the edited region', () => {
-    const idx = src.indexOf('Hybrid self-host candidate (Bundle 18 hotfix 3)');
+    const idx = src.indexOf('Hybrid self-host candidate (Bundle 18 hotfix 3, extended by');
     assert.notEqual(idx, -1);
-    const endIdx = src.indexOf('await db.instantiate(hybridBundle.mainModule, hybridBundle.pthreadWorker);', idx);
+    const endIdx = src.indexOf('await instantiateWithTimeout(db, worker, hybridBundle.mainModule, hybridBundle.pthreadWorker,', idx);
+    assert.notEqual(endIdx, -1);
     const region = src.slice(idx, endIdx + 80);
     assert.doesNotMatch(region, new RegExp(EM_DASH));
   });
@@ -231,7 +239,7 @@ describe('bundle18 hotfix3 C: js/app-shell/duckdb-engine.js hybrid retry (root i
 describe('bundle18 hotfix3 D: canvas/index.html hybrid retry (canvas authoritative)', () => {
   const canvas = readRepoFile(join('canvas', 'index.html'));
 
-  it('the tracked duckdb-load-harden.js splice carries the wasmFallback and helpers', () => {
+  it('the tracked duckdb-load-harden.js splice carries the wasmFallback, wasmCdnFirst, and helpers', () => {
     const startMarker = '/* ---- from js/sql/duckdb-load-harden.js ---- */';
     const endMarker = '/* ---- end js/sql/duckdb-load-harden.js ---- */';
     const s = canvas.indexOf(startMarker);
@@ -239,26 +247,43 @@ describe('bundle18 hotfix3 D: canvas/index.html hybrid retry (canvas authoritati
     assert.notEqual(s, -1, 'from marker missing');
     assert.notEqual(e, -1, 'end marker missing');
     const span = canvas.slice(s, e);
-    assert.match(span, /wasmFallback: Object\.freeze\(\{/);
+    assert.match(span, /wasmFallback: WASM_CDN_FIRST,/);
+    assert.match(span, /wasmCdnFirst: WASM_CDN_FIRST,/);
     assert.match(span, /function isWasmFetchFailure\(/);
     assert.match(span, /function buildHybridWasmBundle\(/);
+    assert.match(span, /function buildSelfHostBundle\(/);
   });
 
-  it('_loadDuckFrom accepts the candidate and retries the same worker with a hybrid CDN wasm URL on fetch failure', () => {
+  it('_loadDuckFrom applies the CDN-first wasm URL up front for self-host, and still retries via hybrid on fetch failure', () => {
+    // Bundle 18 hotfix 4: preferred fix. mainModuleUrl is pointed at the
+    // jsDelivr pin BEFORE the first instantiate() attempt for any candidate
+    // carrying wasmCdnFirst (self-host), not only after a caught rejection.
     assert.match(canvas, /async function _loadDuckFrom\(cdnUrl, baseUrl, candidate\) \{/);
+    assert.match(canvas, /candidate\.wasmCdnFirst && lhFront && typeof lhFront\.buildSelfHostBundle === 'function'/);
     assert.match(canvas, /lh\.isWasmFetchFailure\(eInstantiate\)/);
     assert.match(canvas, /lh\.buildHybridWasmBundle\(/);
-    assert.match(canvas, /await adb\.instantiate\(hybridBundle\.mainModule, hybridBundle\.pthreadWorker\);/);
+    assert.match(canvas, /await _dgInstantiateWithTimeout\(adb, worker, hybridBundle\.mainModule, hybridBundle\.pthreadWorker, \d+\);/);
+  });
+
+  it('instantiate() is always raced against a worker error-event listener and a deadline, so it can never hang silently', () => {
+    // Bundle 18 hotfix 4 root cause: an uncaught worker `error` event left
+    // adb.instantiate() pending forever because AsyncDuckDB.onError() clears
+    // pending requests without rejecting them. _dgInstantiateWithTimeout
+    // guarantees a rejection either way.
+    assert.match(canvas, /function _dgInstantiateWithTimeout\(adb, worker, mainModuleUrl, pthreadWorker, timeoutMs\)/);
+    assert.match(canvas, /worker\.addEventListener\('error', onWorkerError\)/);
+    assert.match(canvas, /setTimeout\(function \(\) \{[\s\S]{0,200}?instantiate timed out after/);
   });
 
   it('the candidate loop call site passes the full candidate object through', () => {
     assert.match(canvas, /loaded = await _loadDuckFrom\(_cand\.cdnUrl, _cand\.baseUrl, _cand\);/);
   });
 
-  it('the hardcoded fallback candidate list also carries a wasmFallback for self-host', () => {
+  it('the hardcoded fallback candidate list also carries a wasmCdnFirst (and wasmFallback) for self-host', () => {
     const idx = canvas.indexOf('function _dgDuckCandidates()');
     assert.notEqual(idx, -1);
-    const region = canvas.slice(idx, idx + 900);
+    const region = canvas.slice(idx, idx + 1200);
+    assert.match(region, /wasmCdnFirst: \{ mvp: DUCKDB_BASE_PRIMARY \+ 'duckdb-mvp\.wasm', eh: DUCKDB_BASE_PRIMARY \+ 'duckdb-eh\.wasm' \}/);
     assert.match(region, /wasmFallback: \{ mvp: DUCKDB_BASE_PRIMARY \+ 'duckdb-mvp\.wasm', eh: DUCKDB_BASE_PRIMARY \+ 'duckdb-eh\.wasm' \}/);
   });
 
@@ -280,7 +305,7 @@ describe('bundle18 hotfix3 D: canvas/index.html hybrid retry (canvas authoritati
   });
 
   it('does not introduce an em dash in the edited canvas regions', () => {
-    const idx = canvas.indexOf('Hybrid self-host candidate (Bundle 18 hotfix 3)');
+    const idx = canvas.indexOf('Hybrid self-host candidate (Bundle 18 hotfix 3, extended by');
     assert.notEqual(idx, -1);
     const region = canvas.slice(idx - 200, idx + 2200);
     assert.doesNotMatch(region, new RegExp(EM_DASH));
