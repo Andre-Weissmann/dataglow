@@ -108,7 +108,9 @@ if (buildSqliteRegisterAndQuerySnippet) {
   ok(/_dg_sqlite_conn\.close\(\)/.test(snippet), 'the sqlite connection is closed in a finally block regardless of success/failure');
 
   const emptySnippet = buildSqliteRegisterAndQuerySnippet('SELECT 1', []);
-  ok(typeof emptySnippet === 'string' && /import\s+.*sqlite3/.test(emptySnippet) && !/\.to_sql\(/.test(emptySnippet), 'an empty table list still produces valid Python (imports + connect only, no registration calls)');
+  ok(typeof emptySnippet === 'string' && /import\s+.*sqlite3/.test(emptySnippet), 'an empty table list still produces valid Python (imports + connect, HOTFIX_SQLITE_PROXY_MESH_SPEC.md #2: now also a Python-side dg_csv_* discovery loop instead of zero registration calls)');
+  ok(/list\(globals\(\)\)/.test(emptySnippet), 'HOTFIX_SQLITE_PROXY_MESH_SPEC.md #2: an empty JS-side table list falls back to discovering dg_csv_* tables directly inside Python via list(globals())');
+  ok(/\.to_sql\(/.test(emptySnippet), 'the Python-side discovery fallback still calls to_sql (any dg_csv_* found live at runtime are registered, just not known ahead of time by the JS caller)');
 
   const sqlInjectionAttempt = buildSqliteRegisterAndQuerySnippet('SELECT 1', ['orders"; import os #']);
   ok(!/import os/.test(sqlInjectionAttempt.split('\n').slice(1).join('\n')) || sqlInjectionAttempt.includes('orders___import_os__'), 'a table name with unsafe characters is sanitized before being embedded, not interpolated raw into a to_sql() call target');
@@ -174,9 +176,11 @@ if (buildSqliteRegisterAndQuerySnippet) {
   const runViaPandasSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodidePandasCount(py, statement) {');
   const buildSqliteSnippetSrc = extractFunctionSource(canvasModuleSrc, 'function buildSqliteRegisterAndQuerySnippet(statement, tableNames) {');
   const runViaSqliteSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodideSqlite(py, statement) {');
+  const pyToJsSrc = extractFunctionSource(canvasModuleSrc, 'function pyToJs(v) {');
+  const isRealPyodideErrorValueSrc = extractFunctionSource(canvasModuleSrc, 'function isRealPyodideErrorValue(v) {');
   const bridgeSrc2 = bridgeSrc;
 
-  const allPresent = [bridgeSrc2, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc, buildSqliteSnippetSrc, runViaSqliteSrc].every(Boolean);
+  const allPresent = [bridgeSrc2, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc, buildSqliteSnippetSrc, runViaSqliteSrc, pyToJsSrc, isRealPyodideErrorValueSrc].every(Boolean);
   ok(allPresent, 'all pieces needed to assemble the full second-engine bridge (including the new pyodide-sqlite path) are present verbatim in the shipped source');
 
   if (allPresent) {
@@ -195,6 +199,8 @@ if (buildSqliteRegisterAndQuerySnippet) {
       ${runViaDuckdbSrc}
       ${parseCountSrc}
       ${runViaPandasSrc}
+      ${pyToJsSrc}
+      ${isRealPyodideErrorValueSrc}
       ${buildSqliteSnippetSrc}
       ${runViaSqliteSrc}
       ${runViaWebRSrc}
@@ -328,6 +334,24 @@ if (buildSqliteRegisterAndQuerySnippet) {
               const tableName = rm[2];
               const csv = globals.get(globalKey);
               if (csv !== undefined) { sqliteTables[tableName] = parseCsv(csv); registered.push(tableName); }
+            }
+            // HOTFIX_SQLITE_PROXY_MESH_SPEC.md #2: when the JS-side tableNames
+            // list was empty, buildSqliteRegisterAndQuerySnippet instead emits
+            // a Python-side `list(globals())` discovery loop (no literal
+            // per-table lines for the regex above to match at all) -- mirror
+            // that here by discovering every dg_csv_* global directly from the
+            // mock's own globals map, exactly like the real snippet's runtime
+            // `list(globals())` walk would.
+            if (/_dg_discovered_csv_names/.test(code) && registered.length === 0) {
+              for (const key of globals.keys()) {
+                const m = /^dg_csv_(.+)$/.exec(key);
+                if (!m) continue;
+                const csv = globals.get(key);
+                if (csv === undefined || csv === null) continue;
+                const tableName = m[1].replace(/[^a-zA-Z0-9_]/g, '_');
+                sqliteTables[tableName] = parseCsv(csv);
+                registered.push(tableName);
+              }
             }
             const sqlMatch = /pd\.read_sql_query\((".*?"|'.*?'|`[\s\S]*?`),\s*_dg_sqlite_conn\)/.exec(code) || /_dg_sqlite_res = pd\.read_sql_query\(([\s\S]*?), _dg_sqlite_conn\)/.exec(code);
             let sqlText = null;
