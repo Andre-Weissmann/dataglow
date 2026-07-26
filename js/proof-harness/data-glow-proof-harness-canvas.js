@@ -67,6 +67,9 @@
   var _lastCartridgeExport = null;
   var _lastCartridgeImport = null;
   var _lastCartridgeReprove = null; // 'Re-prove on this device' result (v1.1)
+  var _lastExcelClaimResult = null; // {rejected, reason} | {rejected:false, statement} (v2)
+  var _lastMeshExport = null; // serialized mesh attestation JSON text (v2)
+  var _lastMeshCompare = null; // {agree, divergences[]} (v2)
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -97,6 +100,28 @@
     try {
       if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
         return window.DataGlowFlags.isEnabled('proofHarnessV1') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  /* v2 umbrella flag: gates ONLY the Excel-style claim fill control + the
+     adversary pass/fail note on the Prove tab, and the mesh attestation
+     export/compare controls on the Cartridge tab. With this off (but
+     proofHarness/proofHarnessV1 still on), the panel renders exactly the
+     v1 surface -- no Excel fill control, no adversary note, no mesh
+     controls -- matching acceptance gate 9 ("Flag off / skip path does
+     not break v1 tests"). The pure v2 modules (adversary.js, excel-
+     claim.js, mesh-attestation.js) are still evaluable via
+     window.DataGlowProofHarness regardless of this flag, since they make
+     no DOM change on their own; only this canvas module's UI mounting is
+     gated. */
+  function v2FlagOn() {
+    try { if (window.DATAGLOW_PROOF_HARNESS_V2 === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_HARNESS_V2 === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofHarnessV2') !== false;
       }
     } catch (_e) {}
     return true;
@@ -1016,6 +1041,26 @@
       html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-use-last-sql>Use last SQL result</button></div>';
     }
 
+    if (v2FlagOn() && e && typeof e.excelClaimTextToSql === 'function') {
+      /* PROOF_HARNESS_V2_SPEC.md B2: the claim field may already carry a
+         pasted Excel-style formula (e.g. =SUM(claim_amount)); this control
+         reads whatever is currently in the claim box, parses it with the
+         SAME excel-claim.js the pure engine exports, and on a successful
+         parse fills the statement box below from the parser's own SQL,
+         never a model-composed guess. A failed parse fills nothing and
+         shows the honest rejection reason instead. */
+      html += '<label for="dg-ph-excel-table">Table for Excel-style claims (optional if named in the formula)</label>' +
+        '<input type="text" id="dg-ph-excel-table" placeholder="e.g. claims_example">';
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-excel-fill>Use Excel-style claim</button></div>';
+      if (_lastExcelClaimResult) {
+        if (_lastExcelClaimResult.rejected) {
+          html += '<div class="dg-ph-note">Excel-style claim not recognized: ' + esc(_lastExcelClaimResult.reason) + '</div>';
+        } else {
+          html += '<div class="dg-ph-note">Excel-style claim filled: ' + esc(_lastExcelClaimResult.statement) + '</div>';
+        }
+      }
+    }
+
     html += '<label for="dg-ph-statement">Proposal statement (editable SQL)</label>' +
       '<textarea id="dg-ph-statement" class="dg-ph-statement" placeholder="select count(*) as n from your_table">' + esc(statementText) + '</textarea>';
 
@@ -1044,6 +1089,22 @@
         html += '<div class="dg-ph-note">Second engine (' + esc(_lastResult.corroboration.engine || 'second engine') + ') agreed.</div>';
       } else if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
         html += '<div class="dg-ph-note">Second engine not ready. GREEN is single-engine (v0 strength).</div>';
+      }
+      if (v2FlagOn() && _lastResult.adversarial) {
+        /* PROOF_HARNESS_V2_SPEC.md A3: a short, honest note when the
+           adversary pack ran and passed. A failed pack is not restated
+           here since the verdict chip above is already RED with reason
+           code adversary-fail in that case; this note is additive, never
+           a second source of truth for pass/fail (same discipline as the
+           v1.1 second-engine note above). */
+        if (_lastResult.adversarial.ran === true && _lastResult.adversarial.failCount === 0) {
+          html += '<div class="dg-ph-note">Adversary pack passed (' + esc(_lastResult.adversarial.passCount) + ' attacks).</div>';
+        } else if (_lastResult.adversarial.ran === true && _lastResult.adversarial.skipped !== true) {
+          html += '<div class="dg-ph-note">Adversary pack: ' + esc(_lastResult.adversarial.failCount) + ' of ' +
+            esc(_lastResult.adversarial.failCount + _lastResult.adversarial.passCount) + ' attack(s) disagreed.</div>';
+        } else if (_lastResult.adversarial.skipped === true) {
+          html += '<div class="dg-ph-note">Adversary pack skipped: ' + esc(_lastResult.adversarial.reason || 'this statement shape is not rewriteable yet.') + '</div>';
+        }
       }
       /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
          say WHY this came back non-GREEN when the reason is "no engine",
@@ -1167,6 +1228,38 @@
       html += verdictChip(_lastCartridgeImport.state);
       html += '<p class="dg-ph-reason">' + esc(_lastCartridgeImport.reason) + '</p>';
     }
+
+    if (v2FlagOn() && typeof e.exportMeshAttestation === 'function') {
+      /* PROOF_HARNESS_V2_SPEC.md C2: a mesh attestation carries digests,
+         a schema fingerprint, and the verdict, but never a row/sample/cell
+         value beyond the already-proven aggregate scalars -- two devices
+         can agree or diverge on a claim without either one ever sending
+         the other its data, reusing the same zero-rows posture as the
+         cartridge above. */
+      html += '<label>Export a mesh attestation (from the last GREEN)</label>';
+      if (_lastResult && _lastResult.verdict && _lastResult.verdict.state === 'GREEN') {
+        html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-mesh-export>Export mesh attestation</button></div>';
+      } else {
+        html += '<div class="dg-ph-empty">Prove a claim to GREEN on the Prove tab first, then come back here to export an attestation.</div>';
+      }
+      if (_lastMeshExport) {
+        html += '<textarea class="dg-ph-cartridge" readonly>' + esc(_lastMeshExport) + '</textarea>';
+      }
+      html += '<label for="dg-ph-mesh-compare">Paste another attestation to compare</label>';
+      html += '<textarea id="dg-ph-mesh-compare" class="dg-ph-cartridge" placeholder="Paste a proof mesh attestation JSON here"></textarea>';
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-mesh-compare>Compare attestation</button></div>';
+      if (_lastMeshCompare) {
+        if (_lastMeshCompare.rejected) {
+          html += '<p class="dg-ph-reason">' + esc(_lastMeshCompare.reason) + '</p>';
+        } else {
+          html += '<p class="dg-ph-reason">' + (_lastMeshCompare.agree ? 'Agree.' : 'Diverge.') +
+            (_lastMeshCompare.divergences && _lastMeshCompare.divergences.length
+              ? ' Divergent field(s): ' + esc(_lastMeshCompare.divergences.map(function (d) { return d.field; }).join(', ')) + '.'
+              : '') + '</p>';
+        }
+      }
+    }
+
     return html;
   }
 
@@ -1207,6 +1300,11 @@
           toast('Statement loaded from the SQL editor.', 'info');
         }
       });
+    }
+
+    var excelFillBtn = body.querySelector('[data-ph-excel-fill]');
+    if (excelFillBtn) {
+      excelFillBtn.addEventListener('click', function () { onExcelClaimFill(body); });
     }
 
     var proveBtn = body.querySelector('[data-ph-prove]');
@@ -1258,6 +1356,14 @@
     var importBtn = body.querySelector('[data-ph-cartridge-import]');
     if (importBtn) {
       importBtn.addEventListener('click', function () { onCartridgeImport(body); });
+    }
+    var meshExportBtn = body.querySelector('[data-ph-mesh-export]');
+    if (meshExportBtn) {
+      meshExportBtn.addEventListener('click', function () { onMeshExport(); });
+    }
+    var meshCompareBtn = body.querySelector('[data-ph-mesh-compare]');
+    if (meshCompareBtn) {
+      meshCompareBtn.addEventListener('click', function () { onMeshCompare(body); });
     }
   }
 
@@ -1346,6 +1452,31 @@
 
     renderBody();
     toast('Verdict: ' + result.verdict.state, result.verdict.state === 'GREEN' ? 'success' : (result.verdict.state === 'RED' ? 'error' : 'info'));
+  }
+
+  /* ---------------------------- Excel claim fill action (v2) ------------- */
+
+  function onExcelClaimFill(body) {
+    var e = engine();
+    if (!e || typeof e.excelClaimTextToSql !== 'function') return;
+    var claimBox = body.querySelector('#dg-ph-claim');
+    var tableBox = body.querySelector('#dg-ph-excel-table');
+    var stmtBox = body.querySelector('#dg-ph-statement');
+    var claimText = (claimBox && claimBox.value) || '';
+    var defaultTable = (tableBox && tableBox.value && tableBox.value.trim()) || undefined;
+    var result = e.excelClaimTextToSql(claimText, defaultTable);
+    _lastExcelClaimResult = result;
+    if (!result.rejected && stmtBox) {
+      /* Fills the EDITABLE statement box from the parser's own SQL, never a
+         hidden or model-composed string -- the Prove button below still
+         only ever executes proposal.statement, which is exactly what is
+         now visible here, matching doctrine #2 for the normal Prove path. */
+      stmtBox.value = result.statement;
+      toast('Excel-style claim parsed and filled into the statement.', 'success');
+    } else if (result.rejected) {
+      toast('Excel-style claim not recognized: ' + result.reason, 'error');
+    }
+    renderBody();
   }
 
   async function onConfirm() {
@@ -1479,6 +1610,65 @@
     _lastCartridgeImport = result;
     renderBody();
     toast('Import verdict: ' + result.state, result.ok ? 'success' : 'error');
+  }
+
+  /* ---------------------------- Mesh attestation actions (v2) ------------ */
+
+  async function onMeshExport() {
+    var e = engine();
+    if (!e || typeof e.exportMeshAttestation !== 'function' || !_lastResult) return;
+    /* Deliberately rebuild a row-free run summary here rather than passing
+       _lastResult.run through as-is: the live DuckDB run's own .result
+       carries the actual proven rows (needed by the Prove tab/receipt to
+       show a row count), and mesh-attestation.js's forbidden-key scan
+       correctly refuses ANY payload carrying a rows field, anywhere, so a
+       raw pass-through would always be rejected here. Only rowCount and
+       the already-proven scalar values -- never .result / .rows itself --
+       cross into the attestation, matching the module's own contract. */
+    var safeRun = _lastResult.run ? { status: _lastResult.run.status, rowCount: _lastResult.run.rowCount, scalars: _lastResult.run.scalars || {}, error: _lastResult.run.error || null } : null;
+    var exported = await e.exportMeshAttestation({
+      proposal: _lastResult.proposal,
+      verdict: _lastResult.verdict,
+      run: safeRun,
+      receipt: _lastResult.receipt,
+    });
+    if (exported.rejected) {
+      toast(exported.reason, 'error');
+      return;
+    }
+    _lastMeshExport = JSON.stringify(exported.attestation, null, 2);
+    _lastMeshCompare = null;
+    renderBody();
+    toast('Mesh attestation exported. Zero rows of data included.', 'success');
+  }
+
+  function onMeshCompare(body) {
+    var e = engine();
+    if (!e || typeof e.importMeshAttestation !== 'function' || typeof e.compareMeshAttestations !== 'function') return;
+    var text = (body.querySelector('#dg-ph-mesh-compare') || {}).value || '';
+    var otherImported = e.importMeshAttestation(text);
+    if (otherImported.rejected) {
+      _lastMeshCompare = { rejected: true, reason: otherImported.reason };
+      renderBody();
+      toast('Attestation not recognized: ' + otherImported.reason, 'error');
+      return;
+    }
+    if (!_lastMeshExport) {
+      _lastMeshCompare = { rejected: true, reason: 'Export a mesh attestation from this device first, then compare.' };
+      renderBody();
+      toast('Export a mesh attestation from this device first.', 'error');
+      return;
+    }
+    var mineImported = e.importMeshAttestation(_lastMeshExport);
+    if (mineImported.rejected) {
+      _lastMeshCompare = { rejected: true, reason: mineImported.reason };
+      renderBody();
+      return;
+    }
+    var comparison = e.compareMeshAttestations(mineImported.attestation, otherImported.attestation);
+    _lastMeshCompare = comparison;
+    renderBody();
+    toast(comparison.agree ? 'Attestations agree.' : 'Attestations diverge.', comparison.agree ? 'success' : 'error');
   }
 
   /* ---------------------------- open / close ------------------------------ */
