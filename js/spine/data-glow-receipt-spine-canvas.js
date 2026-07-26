@@ -31,6 +31,7 @@
   var CHIP_ID = 'dg-spine-chip';
   var STYLE_ID = 'dg-spine-styles';
   var SEEN_KEY = 'dataglow.receiptSpine.dismissed';
+  var LEDGER_CHIP_ID = 'dg-spine-ledger-chip';
 
   var state = { open: true, expandedId: '' };
 
@@ -46,6 +47,12 @@
   }
 
   function spineOn() { return flag('DATAGLOW_RECEIPT_SPINE', 'receiptSpine'); }
+
+  /* Bundle 15: the Repair Ledger chip mounted on this rail rather than a 25th
+     top-nav item. Off by default gate is its own flag, repairLedgerSpine, so
+     a build can run the rail without the chip and the chip never appears
+     when the underlying Repair Ledger itself is off. */
+  function ledgerSpineOn() { return flag('DATAGLOW_REPAIR_LEDGER_SPINE', 'repairLedgerSpine'); }
 
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
@@ -188,6 +195,9 @@
     if (intent === 'open-compound') {
       return panel('DataGlowRepairRecipeLibraryUI', 'open') || panel('DataGlowLocalAiUI', 'open');
     }
+    if (intent === 'open-ledger') {
+      return panel('DataGlowRepairLedgerUI', 'open');
+    }
     return null;
   }
 
@@ -218,7 +228,10 @@
       + '#' + CHIP_ID + '{position:fixed;bottom:18px;left:210px;z-index:2147482900;'
       + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}';
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}'
+      + '.dg-sp-ledger-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
+      + 'font-weight:600}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
@@ -272,6 +285,23 @@
     var top = el('div', { class: 'dg-sp-top' });
     top.appendChild(el('span', { class: 'dg-sp-title' }, model.title));
     top.appendChild(el('span', { class: 'dg-sp-head' }, model.headline));
+    /* Bundle 15: Repair Ledger chip lives in the rail's Prove/Ship area, next
+       to Hide, so the ledger is findable from the same strip that already
+       names the path rather than a new top-nav item. Only rendered when both
+       this flag and the ledger panel itself are mounted. */
+    if (ledgerSpineOn()) {
+      var ledgerGo = resolveTarget('open-ledger');
+      if (ledgerGo) {
+        var ledgerBtn = el('button', {
+          id: LEDGER_CHIP_ID,
+          class: 'dg-sp-ledger-btn',
+          type: 'button',
+          title: 'Applied steps: every repair step logged this session',
+        }, 'Repair Ledger');
+        ledgerBtn.addEventListener('click', function () { ledgerGo(); });
+        top.appendChild(ledgerBtn);
+      }
+    }
     var hide = el('button', { class: 'dg-sp-btn' }, 'Hide');
     hide.addEventListener('click', function () { dismiss(); });
     top.appendChild(hide);
@@ -308,15 +338,42 @@
 
   function refreshChip() {
     var chip = document.getElementById(CHIP_ID);
-    if (!chip) return;
-    var model = spine();
-    var eng = engine('DataGlowReceiptSpine');
-    var label = 'Start here';
-    if (eng && typeof eng.spineChipLabel === 'function') {
-      try { label = eng.spineChipLabel(model); } catch (_e) {}
+    if (chip) {
+      var model = spine();
+      var eng = engine('DataGlowReceiptSpine');
+      var label = 'Start here';
+      if (eng && typeof eng.spineChipLabel === 'function') {
+        try { label = eng.spineChipLabel(model); } catch (_e) {}
+      }
+      chip.textContent = label;
+      chip.style.display = state.open ? 'none' : 'inline-block';
     }
-    chip.textContent = label;
-    chip.style.display = state.open ? 'none' : 'inline-block';
+
+    /* The Repair Ledger chip stays findable even when the rail itself is
+       collapsed: it is not part of what "Hide" hides, because it answers a
+       different question (what has this session done so far) than the rail
+       does (where am I in the path). */
+    var ledgerChip = document.getElementById(LEDGER_CHIP_ID);
+    if (!ledgerChip && ledgerSpineOn() && !state.open) {
+      var ledgerGo2 = resolveTarget('open-ledger');
+      if (ledgerGo2 && document.body) {
+        var collapsedLedgerBtn = el('button', {
+          id: LEDGER_CHIP_ID,
+          class: 'dg-sp-ledger-btn',
+          type: 'button',
+          style: 'position:fixed;bottom:18px;left:340px;z-index:2147482900;box-shadow:0 2px 8px rgba(0,0,0,.14)',
+          title: 'Applied steps: every repair step logged this session',
+        }, 'Repair Ledger');
+        collapsedLedgerBtn.addEventListener('click', function () { ledgerGo2(); });
+        document.body.appendChild(collapsedLedgerBtn);
+      }
+    } else if (ledgerChip && state.open) {
+      /* Rail is open and renders its own copy inside the top row; drop the
+         floating collapsed one so there are never two at once. */
+      if (ledgerChip.parentNode === document.body) {
+        ledgerChip.parentNode.removeChild(ledgerChip);
+      }
+    }
   }
 
   function open() {

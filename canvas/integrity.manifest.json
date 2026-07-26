@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 5989149,
+  "canvasBytes": 6009561,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -397,9 +397,9 @@
     {
       "source": "js/spine/data-glow-receipt-spine-canvas.js",
       "note": "The start-here rail. Already an IIFE, inlined verbatim, publishing window.DataGlowReceiptSpineUI.",
-      "sourceSha256": "658f54d9e31c5a9a96f57d1885e6e790b4afdc078d7a3f79c7ad3f01628efbfd",
-      "canvasSectionSha256": "b92eb8e119d9dd95124d6c836bb5bdabf31f4dad3b80b45d0ff8c634b29b1a98",
-      "canvasSectionBytes": 14142
+      "sourceSha256": "69474fc7f54223dd9fa0066872c20e0b7874690da48bed1af2fdf83c9b3acb49",
+      "canvasSectionSha256": "bef5a2bf6bf0d3b7dba81324d2801adc1002e2bb5b1f2d1aa3d931ca1948e30e",
+      "canvasSectionBytes": 16966
     },
     {
       "source": "js/polyglot/data-glow-power-packs-canvas.js",
@@ -446,9 +446,16 @@
     {
       "source": "js/spine/data-glow-repair-ledger-canvas.js",
       "note": "Repair Ledger canvas UI panel: export JSON/Markdown, copy step code, re-run plan for pure SQL inserts, wiring report. Already an IIFE, inlined verbatim by inject_bundle14.py, publishing window.DataGlowRepairLedgerUI.",
-      "sourceSha256": "85fa5337a5f091bfd7a65331f29be16134558e83dafb8bd4e08153b0a21a26e1",
-      "canvasSectionSha256": "44bdbde9abdc017eedf8786744e392466985fae7d42f3352f4020844c7980b93",
-      "canvasSectionBytes": 12341
+      "sourceSha256": "8e43ea2845f121732cc2ef24707fcd07f06d96c3ab4becb137447d33de553d1b",
+      "canvasSectionSha256": "fb8009d543198610a6d2b8f9b9da5b288734b96147d1ab27fb97e7c9169bf8f7",
+      "canvasSectionBytes": 16828
+    },
+    {
+      "source": "js/sql/duckdb-load-harden.js",
+      "note": "Bundle 15: shared DuckDB-WASM CDN candidate list and version pin (jsDelivr, unpkg, esm.sh) read by both js/sql/sql-engine.js and the canvas inline SQL engine loader, so the two surfaces cannot drift onto two different pins. Inlined verbatim by inject_bundle15.py, publishing window.DataGlowDuckDBLoadHarden.",
+      "sourceSha256": "c5dde8d8d10d54feeea4c1e763c8dc30e0a8f0979be20056b166341eaf8308a0",
+      "canvasSectionSha256": "e79a1c19f99abd3d6889b3f222ca8f5f4b102d197d863a3d342e045cfa7a3a46",
+      "canvasSectionBytes": 6279
     }
   ]
 }

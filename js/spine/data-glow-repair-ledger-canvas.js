@@ -52,8 +52,70 @@
 
   function ledgerOn() { return flag('DATAGLOW_REPAIR_LEDGER', 'repairLedger'); }
 
+  /* Bundle 15: thin Replay. "Thin" on purpose - it inserts the exact SQL
+     text `rerunPlan()` already hands back into the real SQL editor and runs
+     it through the real Run button, the same path a person copying and
+     pasting would use. It never touches a database directly, never runs
+     without a human confirming the specific step first, and never claims to
+     replay a full Excel/Python DAG - only the SQL steps this session already
+     marked canRerun. */
+  function replayOn() { return flag('DATAGLOW_REPLAY_RECEIPT_THIN', 'replayReceiptThin'); }
+
+  function sqlEngineMissing() {
+    try { return !(window.SQLEngine || window.duckdbConn || window.db); } catch (_e) { return true; }
+  }
+
+  /** Insert SQL into the real editor and click the real Run button. Returns
+   *  true if it found both; false (with a toast) if it could not. */
+  function runSqlInEditor(sql) {
+    try {
+      var sqlEditor = document.getElementById('sql-view-input');
+      var sqlPill = document.querySelector('[data-panel="sql-view"]');
+      if (!sqlEditor) { toast('SQL editor is not available right now.'); return false; }
+      sqlEditor.value = sql;
+      sqlEditor.dispatchEvent(new Event('input', { bubbles: true }));
+      if (sqlPill) sqlPill.click();
+      setTimeout(function () {
+        var runSqlBtn = document.getElementById('sql-view-run');
+        if (runSqlBtn) runSqlBtn.click();
+        else toast('SQL copied to editor - click Run to execute.');
+      }, 100);
+      return true;
+    } catch (_e) {
+      toast('Could not run this step. The SQL is still on your clipboard if you copied it.');
+      return false;
+    }
+  }
+
   function engine(name) {
     try { return window[name] || null; } catch (_e) { return null; }
+  }
+
+  /** Replay every canRerun SQL step in ledger order. One confirm names every
+   *  step up front (their titles, in the order they will run), then each
+   *  runs in sequence with a short pause between so an engine that only
+   *  accepts one statement at a time is not overrun. Honest about the
+   *  engine: if it never shows up, later steps still queue but each one
+   *  reports it could not run rather than hanging. */
+  function replayAllSqlSteps(steps) {
+    var eng = engine('DataGlowRepairLedger');
+    if (!eng) { toast('The ledger engine is not mounted in this build.'); return; }
+    if (!steps || !steps.length) { toast('No rerunnable SQL steps to replay.'); return; }
+    var names = steps.map(function (s, i) { return (i + 1) + '. ' + s.title; }).join('\n');
+    var confirmed = window.confirm('Replay ' + steps.length + ' SQL step(s) in order?\n\n' + names);
+    if (!confirmed) { toast('Not run. Nothing changed.'); return; }
+
+    var i = 0;
+    function runNext() {
+      if (i >= steps.length) { toast('Replay finished: ' + steps.length + ' step(s) sent to the editor.'); return; }
+      var plan = eng.rerunPlan(steps[i]);
+      i += 1;
+      if (!plan.ok) { toast('Step skipped: ' + plan.reason); setTimeout(runNext, 150); return; }
+      if (sqlEngineMissing()) { toast('SQL engine is not ready yet; stopping replay at step ' + i + ' of ' + steps.length + '.'); return; }
+      runSqlInEditor(plan.code);
+      setTimeout(runNext, 600);
+    }
+    runNext();
   }
 
   function el(tag, attrs, text) {
@@ -167,6 +229,21 @@
         else toast(plan.reason);
       });
       actions.appendChild(rerunBtn);
+
+      if (replayOn()) {
+        var runAgainBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Run again');
+        runAgainBtn.addEventListener('click', function () {
+          var plan2 = eng.rerunPlan(step);
+          if (!plan2.ok) { toast(plan2.reason); return; }
+          if (sqlEngineMissing()) { toast('SQL engine is not ready yet. Copy the SQL above and run it once the engine loads.'); return; }
+          /* Human confirm before anything runs again - this is the one line
+             standing between "Run again" and an auto-mutating replay. */
+          var confirmed = window.confirm('Run this SQL step again?\n\n' + plan2.code);
+          if (!confirmed) { toast('Not run. Nothing changed.'); return; }
+          runSqlInEditor(plan2.code);
+        });
+        actions.appendChild(runAgainBtn);
+      }
     }
     if (actions.childNodes.length) row.appendChild(actions);
     host.appendChild(row);
@@ -209,6 +286,15 @@
       else copy(md, 'Ledger Markdown');
     });
     actions.appendChild(exportMdBtn);
+
+    if (replayOn() && typeof eng.canRerun === 'function' && typeof eng.listSteps === 'function') {
+      var rerunnable = eng.listSteps(state.ledger).filter(function (s) { return eng.canRerun(s); });
+      if (rerunnable.length > 1) {
+        var replayAllBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Replay all SQL steps in order (' + rerunnable.length + ')');
+        replayAllBtn.addEventListener('click', function () { replayAllSqlSteps(rerunnable); });
+        actions.appendChild(replayAllBtn);
+      }
+    }
     panel.appendChild(actions);
 
     if (typeof eng.wiringReport === 'function') {
