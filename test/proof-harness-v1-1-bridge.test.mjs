@@ -112,9 +112,23 @@ if (evalTrivialLiteralSelect) {
     const bridgeEndIdx = canvasModuleSrc.indexOf(bridgeEndMarker, bridgeStart);
     ok(bridgeEndIdx !== -1 && bridgeEndIdx > bridgeStart, 'installSecondEngineBridge() follows runProofSecondEngineBridge() in source order (both present)');
     const bridgeSrc = canvasModuleSrc.slice(bridgeStart, bridgeEndIdx);
-    const errorOccurrences = (bridgeSrc.match(/pyodide-sql-unavailable/g) || []).length;
-    ok(errorOccurrences >= 3, 'runProofSecondEngineBridge has an honest not-available fallback on every branch (no-DataGlowPython, duckdb-run-failed, duckdb-unavailable), not just a single catch-all');
-    ok(!/return\s*\{\s*rowCount:\s*\d/.test(bridgeSrc), 'runProofSecondEngineBridge never returns a hardcoded/fabricated rowCount literal from its own body (all real rowCounts come from evalTrivialLiteralSelect or the live duckdb run)');
+    // v1.2 (PROOF_HARNESS_V1_2_SPEC.md) factored the webR best-effort
+    // fallback out into its own runViaWebRNarrowCount() helper (ship item
+    // #2: "Factor pure helpers where possible"), so branches that used to
+    // inline `{error:'pyodide-sql-unavailable'}` directly in the bridge
+    // body now delegate to that helper, which itself always terminates
+    // honestly (never fabricates a rowCount). The contract this test
+    // guards -- every branch that cannot actually answer resolves honestly,
+    // never a fabricated rowCount -- is unchanged; only WHERE the literal
+    // error string lives moved. So this checks both runProofSecondEngineBridge
+    // AND its webR delegate together, plus the bridge's own catch-all.
+    const webrFnStart = canvasModuleSrc.indexOf('async function runViaWebRNarrowCount(statement) {');
+    const webrFnEnd = webrFnStart === -1 ? -1 : canvasModuleSrc.indexOf(bridgeEndMarker, webrFnStart);
+    const webrSrc = webrFnStart !== -1 && webrFnEnd !== -1 ? canvasModuleSrc.slice(webrFnStart, webrFnEnd) : '';
+    const combinedSrc = bridgeSrc + webrSrc;
+    const errorOccurrences = (combinedSrc.match(/pyodide-sql-unavailable/g) || []).length;
+    ok(errorOccurrences >= 3, 'runProofSecondEngineBridge (together with the runViaWebRNarrowCount delegate it falls through to) has an honest not-available fallback on every branch (no-DataGlowPython, duckdb-run-failed, duckdb-unavailable, webR-unavailable), not just a single catch-all');
+    ok(!/return\s*\{\s*rowCount:\s*\d/.test(bridgeSrc), 'runProofSecondEngineBridge never returns a hardcoded/fabricated rowCount literal from its own body (all real rowCounts come from evalTrivialLiteralSelect, the live duckdb run, or the webR delegate)');
   }
   ok(canvasModuleSrc.includes('window.runProofSecondEngine = runProofSecondEngineBridge'), 'installSecondEngineBridge publishes the bridge as window.runProofSecondEngine, matching resolveSecondEngine\'s expected global');
   ok(canvasModuleSrc.includes("if (typeof window.runProofSecondEngine === 'function') return;"), 'installSecondEngineBridge is idempotent -- it never overwrites an already-installed bridge');
