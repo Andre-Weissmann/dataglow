@@ -113,8 +113,8 @@ Full proof-harness suite, all green:
 ## Delivery
 - Branch: `fix/mesh-receipt-strip`
 - Base: `main` @ `aab0350c155146d5516621c36c00ab1b3fd33b4f`
-- Commit SHA: see PR (below); same SHA is HEAD of the branch pushed.
-- PR (OPEN, **not merged**): see final task output for the URL.
+- Commit SHA: `7c2535c3d270fc4f50e78880fef9e960c14e097e`
+- PR (OPEN, **not merged**): https://github.com/Andre-Weissmann/dataglow/pull/628
 
 Files changed: `js/proof-harness/data-glow-proof-harness-canvas.js`,
 `canvas/index.html`, `canvas/integrity.manifest.json`,
