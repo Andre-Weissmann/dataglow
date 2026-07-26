@@ -1811,6 +1811,29 @@
      attestation inside this function before `_lastMeshExport` is set and
      `renderBody()` runs. Confirmed correct as-is; documented per spec so a
      future edit does not accidentally drop the `await` on the line below. */
+  /* HOTFIX_MESH_RECEIPT_STRIP_SPEC.md: strip any nested row-bearing field
+     out of every argument BEFORE it reaches exportMeshAttestation, rather
+     than relying solely on that module's own forbidden-key scan to bail
+     us out. This mirrors the module's own FORBIDDEN_KEYS list so a canvas
+     call site can never regress into forwarding a live, unbounded object
+     (ledger entry, claim payload, debug environment) wholesale again. */
+  function meshContainsForbiddenKey(value) {
+    var forbidden = ['rows', 'samples', 'csv', 'cells', 'sheetData'];
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        if (meshContainsForbiddenKey(value[i])) return true;
+      }
+      return false;
+    }
+    if (value !== null && typeof value === 'object') {
+      var keys = Object.keys(value);
+      for (var j = 0; j < keys.length; j++) {
+        if (forbidden.indexOf(keys[j]) !== -1) return true;
+        if (meshContainsForbiddenKey(value[keys[j]])) return true;
+      }
+    }
+    return false;
+  }
   async function onMeshExport() {
     var e = engine();
     if (!e || typeof e.exportMeshAttestation !== 'function' || !_lastResult) return;
@@ -1823,11 +1846,38 @@
        the already-proven scalar values -- never .result / .rows itself --
        cross into the attestation, matching the module's own contract. */
     var safeRun = _lastResult.run ? { status: _lastResult.run.status, rowCount: _lastResult.run.rowCount, scalars: _lastResult.run.scalars || {}, error: _lastResult.run.error || null } : null;
+    /* HOTFIX_MESH_RECEIPT_STRIP_SPEC.md: _lastResult.receipt is the FULL
+       receipt ledger entry ({index, prevHash, hash, ts, record:
+       {predicate: {inputs, run, corroboration, adversarial, ...}}}) --
+       not a {hash} shape. exportMeshAttestation only ever reads
+       receipt.hash; the rest (especially predicate.inputs, a free-form
+       per-input descriptor array) can carry a nested rows/samples field
+       that trips the forbidden-key scan and rejects every export. Reduce
+       to hash-only before it ever reaches the module. */
+    var safeReceipt = (_lastResult.receipt && typeof _lastResult.receipt.hash === 'string')
+      ? { hash: _lastResult.receipt.hash }
+      : null;
+    /* Proposal has no known rows-shaped field today, but `expected` is a
+       caller-supplied free-form object with no field allowlist (e.g. an
+       Excel-claim round-trip). Strip it defensively rather than trust
+       that it will never carry one. */
+    var srcProposal = _lastResult.proposal;
+    var safeProposal = srcProposal ? {
+      statement: srcProposal.statement,
+      engine: srcProposal.engine,
+      expected: (srcProposal.expected && !meshContainsForbiddenKey(srcProposal.expected)) ? srcProposal.expected : {},
+      tables: Array.isArray(srcProposal.tables) ? srcProposal.tables : [],
+      claimText: srcProposal.claimText,
+      author: srcProposal.author,
+      modelId: srcProposal.modelId,
+      digest: srcProposal.digest,
+    } : null;
     var exported = await e.exportMeshAttestation({
-      proposal: _lastResult.proposal,
+      proposal: safeProposal,
       verdict: _lastResult.verdict,
       run: safeRun,
-      receipt: _lastResult.receipt,
+      receipt: safeReceipt,
+      environment: {},
     });
     if (exported.rejected) {
       toast(exported.reason, 'error');
