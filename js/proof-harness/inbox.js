@@ -90,6 +90,23 @@ export function itemFromCycleResult(cycleResult, existingItem) {
  * spec's Prove / Confirm / Reject / Open actions need. Newest-first ordering
  * for display is a canvas rendering choice, not stored here -- this module
  * keeps insertion order and lets the caller sort.
+ *
+ * HOTFIX NOTE (createInbox is factory-only, by design, not a bug): this
+ * module deliberately exposes NO module-level singleton (no getInbox() /
+ * listInbox() / getInboxItems() on window.DataGlowProofHarness). Unlike the
+ * receipt ledger and vault, which are session-scoped singletons owned by
+ * index.js (so every caller shares one chain), the review inbox is UI-owned
+ * state: the canvas (data-glow-proof-harness-canvas.js) is the only caller,
+ * and it already does the right thing -- it lazily creates exactly ONE
+ * inbox instance via `engine().createInbox()` on first use and holds it in
+ * its own module-level `_inboxStore` variable (see `function inbox()` in
+ * the canvas module), reusing that same instance for every render/action
+ * for the life of the page. A second window-level singleton here would just
+ * be a second, redundant place the same list could drift out of sync with
+ * the canvas's copy. Any OTHER caller that wants its own queue (e.g. a
+ * future desktop shell surface) can and should call createInbox() itself
+ * and hold onto the returned handle the same way the canvas does -- that is
+ * what "factory-only" means here, not a missing accessor.
  */
 export function createInbox() {
   let items = [];

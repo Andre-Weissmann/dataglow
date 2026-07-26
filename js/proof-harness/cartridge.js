@@ -106,16 +106,36 @@ export function serializeCartridge(cartridge) {
 }
 
 /**
- * Parse a cartridge from a JSON string (file contents or pasted text). Never
- * throws: malformed JSON or a wrong shape returns {rejected:true, reason}.
- * @param {string} text
+ * Parse a cartridge from a JSON string (file contents or pasted text). Also
+ * tolerates a caller mistakenly passing an object instead of a string --
+ * most commonly exportCartridge()'s own return value ({rejected, cartridge})
+ * passed straight through without unwrapping `.cartridge`, or the cartridge
+ * object itself (already parsed) -- both are unwrapped/accepted directly
+ * rather than failing a JSON.parse on a non-string. Never throws: malformed
+ * JSON or a wrong shape returns {rejected:true, reason}.
+ * @param {string|object} text a JSON string, an already-parsed cartridge
+ *   object, or an exportCartridge() result ({rejected:false, cartridge}) to
+ *   unwrap
  */
 export function parseCartridge(text) {
   let parsed;
-  try {
-    parsed = JSON.parse(String(text));
-  } catch (_e) {
-    return { rejected: true, reason: 'That is not valid JSON, so it cannot be read as a proof cartridge.' };
+  if (isPlainObject(text)) {
+    // Caller passed an object rather than a JSON string. Accept the two
+    // shapes that are actually useful here instead of forcing every caller
+    // to remember to unwrap/stringify first:
+    //   1. exportCartridge()'s own {rejected:false, cartridge:{...}} result
+    //   2. an already-parsed cartridge object ({_type: CARTRIDGE_TYPE, ...})
+    if (isPlainObject(text.cartridge) && text.cartridge._type === CARTRIDGE_TYPE) {
+      parsed = text.cartridge;
+    } else {
+      parsed = text;
+    }
+  } else {
+    try {
+      parsed = JSON.parse(String(text));
+    } catch (_e) {
+      return { rejected: true, reason: 'That is not valid JSON, so it cannot be read as a proof cartridge.' };
+    }
   }
   if (!isPlainObject(parsed) || parsed._type !== CARTRIDGE_TYPE) {
     return { rejected: true, reason: `That JSON is not a ${CARTRIDGE_TYPE} cartridge.` };
@@ -155,8 +175,11 @@ export async function verifyCartridgeHash(cartridge) {
  * naming exactly what did not match -- never a guess, matching every other
  * proof-harness refuse-to-guess discipline.
  *
- * @param {{cartridgeText: string, runQuery: (sql:string) => Promise<*>,
- *          compareClaimToRun: Function}} args
+ * @param {{cartridgeText: string|object, runQuery: (sql:string) => Promise<*>,
+ *          compareClaimToRun: Function}} args cartridgeText is normally a
+ *   JSON string, but parseCartridge() also tolerates an object here (e.g.
+ *   exportCartridge()'s {rejected, cartridge} result passed straight
+ *   through by mistake) -- see parseCartridge()'s doc comment.
  * @returns {Promise<{ok:boolean, state:'GREEN'|'RED'|'GRAY', reason:string,
  *   divergence: Array<object>, cartridge?: object}>}
  */

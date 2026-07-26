@@ -140461,13 +140461,26 @@ function resolveSecondEngine(opts) {
 function normalizeSecondRun(secondRun) {
   if (!isPlainObject(secondRun)) return { rowCount: null, scalars: {}, error: null };
   const payload = secondRun.result !== undefined ? secondRun.result : secondRun;
+  // Precedence (explicit numeric rowCount always wins over inferring length
+  // from an array, on either the outer secondRun or the inner payload):
+  //   1. secondRun.rowCount if number
+  //   2. payload.rowCount if number
+  //   3. payload.rows.length if array
+  //   4. payload.length if array
+  // A fake/second engine that returns BOTH {rows:[...]} and an explicit
+  // rowCount (e.g. {rows:[{n:1}], rowCount:50}) must resolve to the explicit
+  // rowCount, not the array length, so a genuine disagreement with the
+  // primary engine is never masked into a false agree.
   let rowCount = null;
-  if (Array.isArray(payload)) rowCount = payload.length;
-  else if (isPlainObject(payload)) {
-    if (Array.isArray(payload.rows)) rowCount = payload.rows.length;
-    else if (typeof payload.rowCount === 'number') rowCount = payload.rowCount;
+  if (typeof secondRun.rowCount === 'number') {
+    rowCount = secondRun.rowCount;
+  } else if (isPlainObject(payload) && typeof payload.rowCount === 'number') {
+    rowCount = payload.rowCount;
+  } else if (isPlainObject(payload) && Array.isArray(payload.rows)) {
+    rowCount = payload.rows.length;
+  } else if (Array.isArray(payload)) {
+    rowCount = payload.length;
   }
-  if (rowCount === null && typeof secondRun.rowCount === 'number') rowCount = secondRun.rowCount;
   const scalars = isPlainObject(secondRun.scalars) ? secondRun.scalars : {};
   const error = typeof secondRun.error === 'string' && secondRun.error.trim() ? secondRun.error.trim() : null;
   return { rowCount, scalars, error };
@@ -140859,16 +140872,36 @@ function serializeCartridge(cartridge) {
 }
 
 /**
- * Parse a cartridge from a JSON string (file contents or pasted text). Never
- * throws: malformed JSON or a wrong shape returns {rejected:true, reason}.
- * @param {string} text
+ * Parse a cartridge from a JSON string (file contents or pasted text). Also
+ * tolerates a caller mistakenly passing an object instead of a string --
+ * most commonly exportCartridge()'s own return value ({rejected, cartridge})
+ * passed straight through without unwrapping `.cartridge`, or the cartridge
+ * object itself (already parsed) -- both are unwrapped/accepted directly
+ * rather than failing a JSON.parse on a non-string. Never throws: malformed
+ * JSON or a wrong shape returns {rejected:true, reason}.
+ * @param {string|object} text a JSON string, an already-parsed cartridge
+ *   object, or an exportCartridge() result ({rejected:false, cartridge}) to
+ *   unwrap
  */
 function parseCartridge(text) {
   let parsed;
-  try {
-    parsed = JSON.parse(String(text));
-  } catch (_e) {
-    return { rejected: true, reason: 'That is not valid JSON, so it cannot be read as a proof cartridge.' };
+  if (isPlainObject(text)) {
+    // Caller passed an object rather than a JSON string. Accept the two
+    // shapes that are actually useful here instead of forcing every caller
+    // to remember to unwrap/stringify first:
+    //   1. exportCartridge()'s own {rejected:false, cartridge:{...}} result
+    //   2. an already-parsed cartridge object ({_type: CARTRIDGE_TYPE, ...})
+    if (isPlainObject(text.cartridge) && text.cartridge._type === CARTRIDGE_TYPE) {
+      parsed = text.cartridge;
+    } else {
+      parsed = text;
+    }
+  } else {
+    try {
+      parsed = JSON.parse(String(text));
+    } catch (_e) {
+      return { rejected: true, reason: 'That is not valid JSON, so it cannot be read as a proof cartridge.' };
+    }
   }
   if (!isPlainObject(parsed) || parsed._type !== CARTRIDGE_TYPE) {
     return { rejected: true, reason: `That JSON is not a ${CARTRIDGE_TYPE} cartridge.` };
@@ -140908,8 +140941,11 @@ async function verifyCartridgeHash(cartridge) {
  * naming exactly what did not match -- never a guess, matching every other
  * proof-harness refuse-to-guess discipline.
  *
- * @param {{cartridgeText: string, runQuery: (sql:string) => Promise<*>,
- *          compareClaimToRun: Function}} args
+ * @param {{cartridgeText: string|object, runQuery: (sql:string) => Promise<*>,
+ *          compareClaimToRun: Function}} args cartridgeText is normally a
+ *   JSON string, but parseCartridge() also tolerates an object here (e.g.
+ *   exportCartridge()'s {rejected, cartridge} result passed straight
+ *   through by mistake) -- see parseCartridge()'s doc comment.
  * @returns {Promise<{ok:boolean, state:'GREEN'|'RED'|'GRAY', reason:string,
  *   divergence: Array<object>, cartridge?: object}>}
  */
@@ -141057,6 +141093,23 @@ function itemFromCycleResult(cycleResult, existingItem) {
  * spec's Prove / Confirm / Reject / Open actions need. Newest-first ordering
  * for display is a canvas rendering choice, not stored here -- this module
  * keeps insertion order and lets the caller sort.
+ *
+ * HOTFIX NOTE (createInbox is factory-only, by design, not a bug): this
+ * module deliberately exposes NO module-level singleton (no getInbox() /
+ * listInbox() / getInboxItems() on window.DataGlowProofHarness). Unlike the
+ * receipt ledger and vault, which are session-scoped singletons owned by
+ * index.js (so every caller shares one chain), the review inbox is UI-owned
+ * state: the canvas (data-glow-proof-harness-canvas.js) is the only caller,
+ * and it already does the right thing -- it lazily creates exactly ONE
+ * inbox instance via `engine().createInbox()` on first use and holds it in
+ * its own module-level `_inboxStore` variable (see `function inbox()` in
+ * the canvas module), reusing that same instance for every render/action
+ * for the life of the page. A second window-level singleton here would just
+ * be a second, redundant place the same list could drift out of sync with
+ * the canvas's copy. Any OTHER caller that wants its own queue (e.g. a
+ * future desktop shell surface) can and should call createInbox() itself
+ * and hold onto the returned handle the same way the canvas does -- that is
+ * what "factory-only" means here, not a missing accessor.
  */
 function createInbox() {
   let items = [];
@@ -142367,6 +142420,9 @@ function resetVault() {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
+
 
 
 
