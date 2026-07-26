@@ -31,7 +31,14 @@
 // additionally gated by `receiptDrillBattery` (both flags are checked by the
 // CALLER in main.js / the canvas UI, never inside this module).
 
-import { DRILL_ORDERS_TABLE, DRILL_PROMOS_TABLE } from './drill-floor-data.js';
+import {
+  DRILL_ORDERS_TABLE,
+  DRILL_PROMOS_TABLE,
+  DRILL_PRICE_HISTORY_TABLE,
+  DRILL_SALES_TABLE,
+  DRILL_ACTIVITY_DAYS_TABLE,
+  DRILL_BASKET_LINES_TABLE,
+} from './drill-floor-data.js';
 
 // Bundle 16: the one honesty line every Drill Floor surface (main.js tab,
 // canvas UI) should show once, verbatim, next to the battery. It exists so
@@ -283,6 +290,254 @@ export const DRILLS = [
       `cat('matched rows:', nrow(result), '\\n')\n` +
       `result`,
   },
+  {
+    id: 'scd-as-of',
+    title: 'Price As Of Sale Date',
+    difficulty: 'Advanced',
+    description:
+      'Product price history is tracked SCD Type 2 style: each row is a price ' +
+      'valid over an inclusive [valid_from, valid_to] date range. For each sale, ' +
+      'find the price that was active on that sale\'s date (an as-of / SCD lookup ' +
+      'join), then compute total revenue = SUM(units * price) across matched ' +
+      'sales. A sale outside every price range for its product does not match ' +
+      'and is excluded, not treated as revenue-zero.',
+    ordersTable: DRILL_PRICE_HISTORY_TABLE,
+    promosTable: DRILL_SALES_TABLE,
+    expectedApproach:
+      'Join drill_sales to drill_price_history on matching product_id where ' +
+      'sale_date BETWEEN valid_from AND valid_to (inclusive both ends); sum ' +
+      'units * price over the matched rows.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a Power Query merge on ' +
+      '"date within range" per product (or nested IF/AND helper columns ' +
+      'against each price segment) reaches the same 314 matched rows; this ' +
+      'build does not run that engine, it names the equivalent honestly ' +
+      'instead of skipping it.',
+    goldenAnswers: {
+      sql: { rowCount: 314, totalRevenue: 101018, productCount: 6 },
+      python: { rowCount: 314 },
+      r: { rowCount: 314 },
+    },
+    starterSql:
+      `SELECT s.sale_id,\n` +
+      `       s.product_id,\n` +
+      `       s.sale_date,\n` +
+      `       s.units,\n` +
+      `       h.price,\n` +
+      `       s.units * h.price AS revenue\n` +
+      `FROM ${DRILL_SALES_TABLE} s\n` +
+      `JOIN ${DRILL_PRICE_HISTORY_TABLE} h\n` +
+      `  ON s.product_id = h.product_id\n` +
+      ` AND s.sale_date BETWEEN h.valid_from AND h.valid_to\n` +
+      `ORDER BY s.sale_id;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `sales = dataglow.get_df('${DRILL_SALES_TABLE}')\n` +
+      `history = dataglow.get_df('${DRILL_PRICE_HISTORY_TABLE}')\n` +
+      `\n` +
+      `sales['sale_date'] = pd.to_datetime(sales['sale_date'])\n` +
+      `history['valid_from'] = pd.to_datetime(history['valid_from'])\n` +
+      `history['valid_to'] = pd.to_datetime(history['valid_to'])\n` +
+      `\n` +
+      `joined = sales.merge(history, on='product_id', how='inner')\n` +
+      `matched = joined[\n` +
+      `    (joined['sale_date'] >= joined['valid_from']) &\n` +
+      `    (joined['sale_date'] <= joined['valid_to'])\n` +
+      `]\n` +
+      `result = matched[['sale_id', 'product_id', 'sale_date', 'units', 'price']].copy()\n` +
+      `result['revenue'] = result['units'] * result['price']\n` +
+      `result = result.sort_values('sale_id')\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result.head(20)`,
+    starterR:
+      `sales <- dataglow_get_df('${DRILL_SALES_TABLE}')\n` +
+      `history <- dataglow_get_df('${DRILL_PRICE_HISTORY_TABLE}')\n` +
+      `\n` +
+      `sales$sale_date <- as.Date(sales$sale_date)\n` +
+      `history$valid_from <- as.Date(history$valid_from)\n` +
+      `history$valid_to   <- as.Date(history$valid_to)\n` +
+      `\n` +
+      `joined <- merge(sales, history, by = 'product_id')\n` +
+      `matched <- joined[joined$sale_date >= joined$valid_from &\n` +
+      `                  joined$sale_date <= joined$valid_to, ]\n` +
+      `matched$revenue <- matched$units * matched$price\n` +
+      `result <- matched[order(matched$sale_id),\n` +
+      `                  c('sale_id', 'product_id', 'sale_date', 'units', 'price', 'revenue')]\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `head(result, 20)`,
+  },
+  {
+    id: 'streak-islands',
+    title: 'Longest Activity Streak',
+    difficulty: 'Advanced',
+    description:
+      'A daily activity log records one row per (user, day) they were active. ' +
+      'Find the longest run of CONSECUTIVE calendar days any single user was ' +
+      'active (a gaps-and-islands / island-grouping problem), and report the ' +
+      'user_id holding that maximum streak. Ties break to the LOWEST user_id.',
+    ordersTable: DRILL_ACTIVITY_DAYS_TABLE,
+    promosTable: DRILL_ACTIVITY_DAYS_TABLE,
+    expectedApproach:
+      'Per user, sort distinct activity_date ascending; a new island starts ' +
+      'whenever the gap to the previous date is not exactly 1 day (the ' +
+      '"date minus ROW_NUMBER()" island-id trick works well in SQL); take the ' +
+      'longest island length per user, then the max across users with a ' +
+      'lowest-user_id tie-break.',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a helper column flagging a ' +
+      'new streak whenever a sorted date is not exactly one day after the row ' +
+      'above, then a PivotTable MAX of streak length per user, reaches the ' +
+      'same 9-day answer; this build does not simulate dragging that formula.',
+    goldenAnswers: {
+      sql: { rowCount: 474, maxStreak: 9, userId: 1, islandCount: 106 },
+      python: { rowCount: 474 },
+      r: { rowCount: 474 },
+    },
+    starterSql:
+      `WITH ranked AS (\n` +
+      `  SELECT user_id, activity_date,\n` +
+      `         activity_date - (ROW_NUMBER() OVER (\n` +
+      `           PARTITION BY user_id ORDER BY activity_date\n` +
+      `         )) * INTERVAL 1 DAY AS island_key\n` +
+      `  FROM ${DRILL_ACTIVITY_DAYS_TABLE}\n` +
+      `),\n` +
+      `islands AS (\n` +
+      `  SELECT user_id, island_key, COUNT(*) AS streak_len\n` +
+      `  FROM ranked\n` +
+      `  GROUP BY user_id, island_key\n` +
+      `),\n` +
+      `per_user_best AS (\n` +
+      `  SELECT user_id, MAX(streak_len) AS best_streak\n` +
+      `  FROM islands\n` +
+      `  GROUP BY user_id\n` +
+      `)\n` +
+      `SELECT user_id, best_streak AS max_streak\n` +
+      `FROM per_user_best\n` +
+      `ORDER BY best_streak DESC, user_id ASC\n` +
+      `LIMIT 1;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `\n` +
+      `activity = dataglow.get_df('${DRILL_ACTIVITY_DAYS_TABLE}')\n` +
+      `activity['activity_date'] = pd.to_datetime(activity['activity_date'])\n` +
+      `\n` +
+      `best_by_user = {}\n` +
+      `for user_id, g in activity.groupby('user_id'):\n` +
+      `    dates = sorted(g['activity_date'].unique())\n` +
+      `    best = cur = 1 if dates else 0\n` +
+      `    for i in range(1, len(dates)):\n` +
+      `        gap = (dates[i] - dates[i - 1]).days\n` +
+      `        cur = cur + 1 if gap == 1 else 1\n` +
+      `        best = max(best, cur)\n` +
+      `    best_by_user[user_id] = best\n` +
+      `\n` +
+      `max_streak = max(best_by_user.values())\n` +
+      `winner = min(uid for uid, v in best_by_user.items() if v == max_streak)\n` +
+      `result = pd.DataFrame([{'user_id': winner, 'max_streak': max_streak}])\n` +
+      `print(f"matched rows: {len(activity)}")\n` +
+      `result`,
+    starterR:
+      `activity <- dataglow_get_df('${DRILL_ACTIVITY_DAYS_TABLE}')\n` +
+      `activity$activity_date <- as.Date(activity$activity_date)\n` +
+      `\n` +
+      `best_by_user <- sapply(split(activity$activity_date, activity$user_id), function(dates) {\n` +
+      `  dates <- sort(unique(dates))\n` +
+      `  if (length(dates) == 0) return(0L)\n` +
+      `  best <- cur <- 1L\n` +
+      `  for (i in seq(2, length(dates))) {\n` +
+      `    gap <- as.numeric(dates[i] - dates[i - 1])\n` +
+      `    cur <- if (gap == 1) cur + 1L else 1L\n` +
+      `    best <- max(best, cur)\n` +
+      `  }\n` +
+      `  best\n` +
+      `})\n` +
+      `\n` +
+      `max_streak <- max(best_by_user)\n` +
+      `winner <- min(as.integer(names(best_by_user)[best_by_user == max_streak]))\n` +
+      `result <- data.frame(user_id = winner, max_streak = max_streak)\n` +
+      `cat('matched rows:', nrow(activity), '\\n')\n` +
+      `result`,
+  },
+  {
+    id: 'basket-pairs',
+    title: 'Most Common SKU Pair',
+    difficulty: 'Intermediate',
+    description:
+      'Order line items list which SKUs were in each order. Find the unordered ' +
+      'pair of distinct SKUs that co-occur in the most orders (a market-basket ' +
+      'co-occurrence problem), and report the pair (lexicographically ordered ' +
+      'left/right) and how many orders contain both.',
+    ordersTable: DRILL_BASKET_LINES_TABLE,
+    promosTable: DRILL_BASKET_LINES_TABLE,
+    expectedApproach:
+      'Self-join drill_basket_lines to itself on order_id where the left SKU is ' +
+      'lexicographically less than the right SKU (this both de-duplicates the ' +
+      'pair and enforces a canonical left/right order), then GROUP BY the pair ' +
+      'and take the highest COUNT(DISTINCT order_id).',
+    excelNote:
+      'Not full Excel. Excel-outcome equivalent: a Power Query self-merge on ' +
+      'order_id (with a helper column to keep only left < right) followed by a ' +
+      'PivotTable count reaches the same top pair; this build does not run ' +
+      'that engine, it names the equivalent honestly instead of skipping it.',
+    goldenAnswers: {
+      sql: { rowCount: 1, pairLeft: 'SKU-C', pairRight: 'SKU-F', orderCount: 63 },
+      python: { rowCount: 1 },
+      r: { rowCount: 1 },
+    },
+    starterSql:
+      `SELECT a.sku AS pair_left,\n` +
+      `       b.sku AS pair_right,\n` +
+      `       COUNT(DISTINCT a.order_id) AS order_count\n` +
+      `FROM ${DRILL_BASKET_LINES_TABLE} a\n` +
+      `JOIN ${DRILL_BASKET_LINES_TABLE} b\n` +
+      `  ON a.order_id = b.order_id\n` +
+      ` AND a.sku < b.sku\n` +
+      `GROUP BY a.sku, b.sku\n` +
+      `ORDER BY order_count DESC, pair_left, pair_right\n` +
+      `LIMIT 1;`,
+    starterPython:
+      `import pandas as pd\n` +
+      `from itertools import combinations\n` +
+      `from collections import Counter\n` +
+      `\n` +
+      `lines = dataglow.get_df('${DRILL_BASKET_LINES_TABLE}')\n` +
+      `\n` +
+      `pair_counts = Counter()\n` +
+      `for order_id, g in lines.groupby('order_id'):\n` +
+      `    skus = sorted(set(g['sku']))\n` +
+      `    for left, right in combinations(skus, 2):\n` +
+      `        pair_counts[(left, right)] += 1\n` +
+      `\n` +
+      `(pair_left, pair_right), order_count = max(\n` +
+      `    sorted(pair_counts.items()), key=lambda kv: kv[1]\n` +
+      `)\n` +
+      `result = pd.DataFrame([{'pair_left': pair_left, 'pair_right': pair_right, 'order_count': order_count}])\n` +
+      `print(f"matched rows: {len(result)}")\n` +
+      `result`,
+    starterR:
+      `lines <- dataglow_get_df('${DRILL_BASKET_LINES_TABLE}')\n` +
+      `\n` +
+      `pair_counts <- list()\n` +
+      `for (skus in split(lines$sku, lines$order_id)) {\n` +
+      `  skus <- sort(unique(skus))\n` +
+      `  if (length(skus) >= 2) {\n` +
+      `    combos <- combn(skus, 2, simplify = FALSE)\n` +
+      `    for (pair in combos) {\n` +
+      `      key <- paste(pair[1], pair[2], sep = '|')\n` +
+      `      pair_counts[[key]] <- (if (is.null(pair_counts[[key]])) 0 else pair_counts[[key]]) + 1\n` +
+      `    }\n` +
+      `  }\n` +
+      `}\n` +
+      `\n` +
+      `keys <- names(pair_counts)\n` +
+      `counts <- unlist(pair_counts)\n` +
+      `best_key <- keys[order(-counts, keys)][1]\n` +
+      `parts <- strsplit(best_key, '\\\\|')[[1]]\n` +
+      `result <- data.frame(pair_left = parts[1], pair_right = parts[2], order_count = pair_counts[[best_key]])\n` +
+      `cat('matched rows:', nrow(result), '\\n')\n` +
+      `result`,
+  },
 ];
 
 /**
@@ -412,4 +667,73 @@ export function scoreDrillAnswer(drillId, engineName, result) {
     return { pass: false, expected, got, drillId, engine: engineName, error: got === null ? 'no row count could be read from the result' : undefined };
   }
   return { pass: got === expected, expected, got, drillId, engine: engineName };
+}
+
+// ---------------------------------------------------------------
+// Bundle 18 (archetypeDrillsExpand): extra-scalar golden checking.
+// ---------------------------------------------------------------
+// scoreDrillAnswer above (Bundle 16) scores every drill on the ONE scalar
+// that is comparable across all three languages: rowCount (SQL reads it off
+// the structured result; Python/R parse the "matched rows: N" line their
+// starters print). The three archetype drills ALSO carry richer SQL-only
+// goldens (SCD's totalRevenue/productCount, streak-islands' maxStreak/userId/
+// islandCount, basket-pairs' pairLeft/pairRight/orderCount) for a caller
+// (tests, or a future SQL-only detail view) that wants to check those too,
+// against a caller-supplied observed value rather than by guessing a column
+// name out of a raw DuckDB row shape (which is exactly what a fragile,
+// column-name-guessing extractor would do). NUMERIC_EPSILON matches the
+// float-compare discipline already used for the existing drills' sumAmount /
+// totalOfKept / grandTotal goldens in test/bundle16-ledger-wiring-drill-battery.test.mjs.
+const NUMERIC_EPSILON = 1e-6;
+
+/**
+ * Compare one golden scalar to an observed value. Numbers use an absolute
+ * epsilon (matching the existing drill battery's float-compare pattern);
+ * strings compare exact, case-sensitive, after trim; everything else is
+ * strict equality. Never throws.
+ * @param {*} expected
+ * @param {*} observed
+ * @returns {boolean}
+ */
+export function scalarMatches(expected, observed) {
+  if (typeof expected === 'number' && typeof observed === 'number') {
+    if (!Number.isFinite(expected) || !Number.isFinite(observed)) return expected === observed;
+    return Math.abs(expected - observed) <= NUMERIC_EPSILON;
+  }
+  if (typeof expected === 'string' && typeof observed === 'string') {
+    return expected.trim() === observed.trim();
+  }
+  return expected === observed;
+}
+
+/**
+ * Score a SQL drill run's EXTRA golden scalars (everything in
+ * goldenAnswers.sql besides rowCount) against a caller-supplied map of
+ * observed values, e.g. `{ totalRevenue: 101018 }` computed by the caller
+ * from its own query result. PURE, never throws. Returns pass:true with an
+ * empty `fields` map for a drill/engine with no extra goldens to check
+ * (nothing to fail on), and pass:false per-field for anything the caller
+ * did not supply an observed value for.
+ * @param {string} drillId
+ * @param {{[key:string]: *}} observed
+ * @returns {{pass:boolean, drillId:string, fields: {[key:string]: {expected:*, got:*, pass:boolean}}}}
+ */
+export function scoreDrillExtras(drillId, observed) {
+  const drill = getDrill(drillId);
+  const fields = {};
+  if (!drill || !drill.goldenAnswers || !drill.goldenAnswers.sql) {
+    return { pass: false, drillId: String(drillId), fields };
+  }
+  const golden = drill.goldenAnswers.sql;
+  const obs = observed && typeof observed === 'object' ? observed : {};
+  const extraKeys = Object.keys(golden).filter((k) => k !== 'rowCount');
+  let allPass = true;
+  for (const key of extraKeys) {
+    const expectedVal = golden[key];
+    const observedVal = obs[key];
+    const fieldPass = scalarMatches(expectedVal, observedVal);
+    fields[key] = { expected: expectedVal, got: observedVal, pass: fieldPass };
+    if (!fieldPass) allPass = false;
+  }
+  return { pass: allPass, drillId, fields };
 }

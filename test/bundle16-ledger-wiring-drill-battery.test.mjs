@@ -306,11 +306,16 @@ describe('drill-floor-data: deterministic, original, DataGlow-owned sample table
   });
 });
 
-describe('drill-floor: DRILLS registry shape (four drills, each fully specified)', () => {
-  it('has exactly four drills with the expected ids', () => {
-    assert.equal(DRILLS.length, 4);
+describe('drill-floor: DRILLS registry shape (seven drills, each fully specified)', () => {
+  it('has exactly seven drills with the expected ids (Bundle 18 added the last three)', () => {
+    // Bundle 18 (archetypeDrillsExpand) additively appended scd-as-of,
+    // streak-islands, and basket-pairs after this bundle's original four;
+    // see test/bundle18-archetype-drills-r-airgap.test.mjs for their own
+    // starter/golden/scoring coverage.
+    assert.equal(DRILLS.length, 7);
     assert.deepEqual(DRILLS.map((d) => d.id), [
       'spot-the-sale', 'top-order-per-channel', 'channels-over-threshold', 'running-total-by-day',
+      'scd-as-of', 'streak-islands', 'basket-pairs',
     ]);
   });
 
