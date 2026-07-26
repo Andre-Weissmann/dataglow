@@ -178,10 +178,14 @@ if (buildSqliteRegisterAndQuerySnippet) {
   const runViaSqliteSrc = extractFunctionSource(canvasModuleSrc, 'async function runViaPyodideSqlite(py, statement) {');
   const pyToJsSrc = extractFunctionSource(canvasModuleSrc, 'function pyToJs(v) {');
   const isRealPyodideErrorValueSrc = extractFunctionSource(canvasModuleSrc, 'function isRealPyodideErrorValue(v) {');
+  // HOTFIX_PYODIDE_LOAD_SQLITE3_SPEC.md: runViaPyodideSqlite now calls
+  // ensureSqlite3InPyodide(py) first -- must be in the harness or the call
+  // throws ReferenceError inside runViaPyodideSqlite's own try/catch.
+  const ensureSqlite3Src = extractFunctionSource(canvasModuleSrc, 'function ensureSqlite3InPyodide(py) {');
   const bridgeSrc2 = bridgeSrc;
 
-  const allPresent = [bridgeSrc2, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc, buildSqliteSnippetSrc, runViaSqliteSrc, pyToJsSrc, isRealPyodideErrorValueSrc].every(Boolean);
-  ok(allPresent, 'all pieces needed to assemble the full second-engine bridge (including the new pyodide-sqlite path) are present verbatim in the shipped source');
+  const allPresent = [bridgeSrc2, ensureDuckdbSrc, registerSrc, listCsvSrc, buildSnippetSrc, runViaDuckdbSrc, evalTrivialSrc, parseCountSrc, runViaWebRSrc, withTimeoutSrc, runViaPandasSrc, buildSqliteSnippetSrc, runViaSqliteSrc, pyToJsSrc, isRealPyodideErrorValueSrc, ensureSqlite3Src].every(Boolean);
+  ok(allPresent, 'all pieces needed to assemble the full second-engine bridge (including the new pyodide-sqlite path and the sqlite3-load guard) are present verbatim in the shipped source');
 
   if (allPresent) {
     const harnessSrc = `
@@ -189,10 +193,13 @@ if (buildSqliteRegisterAndQuerySnippet) {
       var window = globalThis.__mockWindow;
       var SECOND_ENGINE_DUCKDB_INSTALL_TIMEOUT_MS = 12000;
       var _secondEngineDuckdbReady = null;
+      var SQLITE3_LOAD_TIMEOUT_MS = 150;
+      var _sqlite3ReadyPromise = null;
       ${dgCsvGlobalReSrc}
       ${withTimeoutSrc}
       ${evalTrivialSrc}
       ${ensureDuckdbSrc}
+      ${ensureSqlite3Src}
       ${listCsvSrc}
       ${buildSnippetSrc}
       ${registerSrc}
@@ -268,11 +275,22 @@ if (buildSqliteRegisterAndQuerySnippet) {
           get(k) { return globals.get(k); },
           keys() { return globals.keys(); },
         },
-        loadPackage() { return Promise.resolve(); },
+        loadPackage(pkg) {
+          // HOTFIX_PYODIDE_LOAD_SQLITE3_SPEC.md: ensureSqlite3InPyodide calls
+          // loadPackage('sqlite3') -- this mock always resolves (sqlite3 is
+          // always available once "loaded", mirroring every real Pyodide
+          // build; this file's tests are about SQL dialect behavior, not
+          // about a sqlite3-load failure, which is covered by
+          // test/hotfix-pyodide-load-sqlite3.test.mjs instead).
+          return Promise.resolve();
+        },
         runPython(code) {
           if (code === 'import duckdb') {
             if (duckdbUnavailable) throw new Error('ModuleNotFoundError: duckdb (mock: never installed -- structural, per hotfix spec)');
             return;
+          }
+          if (code === 'import sqlite3') {
+            return; // always available once loadPackage('sqlite3') resolves
           }
           throw new Error('unsupported runPython: ' + code);
         },
