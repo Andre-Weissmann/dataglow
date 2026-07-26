@@ -13,6 +13,11 @@ import {
   isCrossOriginIsolated,
   queryBatch,
 } from './duckdb-config.js';
+import {
+  SELF_HOST_CANDIDATE,
+  isWasmFetchFailure,
+  buildHybridWasmBundle,
+} from '../sql/duckdb-load-harden.js';
 
 // Self-hosted DuckDB-WASM assets (vendored under assets/duckdb/). Resolved
 // relative to this module so it works no matter what path the app is served
@@ -48,7 +53,28 @@ export function initDuckDB() {
     const worker = new Worker(workerUrl);
     const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
     const db = new duckdb.AsyncDuckDB(logger, worker);
-    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    try {
+      await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    } catch (instantiateErr) {
+      // Hybrid self-host candidate (Bundle 18 hotfix 3): keep the
+      // same-origin duckdb-browser.mjs + worker scripts (already proven to
+      // load with a 200 -- see BUNDLE18_HOTFIX3_RESULT.md) and retry ONLY
+      // the wasm fetch against the jsDelivr 1.29.0 pin when the self-host
+      // wasm request fails with a fetch-shaped error (curl can follow the
+      // platform's redirect to S3; a browser fetch()/WASM streaming request
+      // under this host cannot). If the wasm itself is fine and this is a
+      // genuine compile/logic error, rethrow unchanged.
+      if (!isWasmFetchFailure(instantiateErr)) {
+        URL.revokeObjectURL(workerUrl);
+        throw instantiateErr;
+      }
+      const hybridBundle = buildHybridWasmBundle(bundle, SELF_HOST_CANDIDATE);
+      if (!hybridBundle) {
+        URL.revokeObjectURL(workerUrl);
+        throw instantiateErr;
+      }
+      await db.instantiate(hybridBundle.mainModule, hybridBundle.pthreadWorker);
+    }
     URL.revokeObjectURL(workerUrl);
 
     const conn = await db.connect();
