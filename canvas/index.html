@@ -139682,6 +139682,1255 @@ function nextCandidate(attempts) {
 })();
 /* ---- end js/sql/duckdb-load-harden.js ---- */
 
+/* ---- from js/proof-harness/index.js ---- */
+;(function () {
+  'use strict';
+  /* ---- js/proof-harness/proposal.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v0 (VERDICT): typed Proposal
+// ============================================================
+// WHY THIS EXISTS
+// The MASTER PROMPT doctrine is explicit: "No execution path may accept a
+// free-form model string. Every execution begins as a typed Proposal object.
+// Reject any design that pastes model text into an executor." This module is
+// that gate. It is the ONLY way a SQL statement is allowed to become
+// something a runner will execute in the Proof Harness: createTypedProposal()
+// validates the shape, computes a content digest that binds the statement
+// (plus its engine/expected/tables) to a fixed value, and returns a frozen
+// Proposal. There is no sibling function that lets a caller skip validation
+// and hand a raw string straight to an executor -- runProposal()-style
+// callers in the canvas UI only ever accept a Proposal object, never a
+// string, so "reject free-form execution" is enforced by there being no other
+// door in, not by a runtime check alone.
+//
+// PURITY: no DOM, no network, no engine call. sha256Hex mirrors the same
+// restated-per-module discipline as js/provenance/trust-ledger.js (see that
+// file's header for why: this module is also inlined into canvas/index.html's
+// single inline <script>, where ESM imports do not resolve).
+//
+// DIGEST: sha256 over a canonical JSON of the fields that define what will be
+// run (engine, statement, expected, tables, claimText). `author` is carried on
+// the Proposal but deliberately EXCLUDED from the digest: the same statement
+// proposed by "ai" or by "human" is still the same proposal to prove or
+// refute, and confirm-gate invalidation must fire only when the executable
+// content changes, not when authorship metadata is edited.
+
+const SUPPORTED_ENGINES = Object.freeze(['duckdb', 'pyodide', 'webr']);
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** SHA-256 of a string, lowercase hex. Same algorithm as trust-ledger.js. */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Validate a raw proposal input before it is allowed to become a Proposal.
+ * Never throws: returns { valid, reason }.
+ * @param {object} input
+ */
+function validateProposalInput(input) {
+  if (!isPlainObject(input)) {
+    return { valid: false, reason: 'proposal input must be a plain object' };
+  }
+  if (typeof input.statement !== 'string' || !input.statement.trim()) {
+    return { valid: false, reason: 'proposal.statement is required and must be a non-empty SQL string' };
+  }
+  const engine = typeof input.engine === 'string' ? input.engine : 'duckdb';
+  if (!SUPPORTED_ENGINES.includes(engine)) {
+    return { valid: false, reason: `proposal.engine must be one of: ${SUPPORTED_ENGINES.join(', ')}` };
+  }
+  if (input.expected !== undefined && !isPlainObject(input.expected)) {
+    return { valid: false, reason: 'proposal.expected must be a plain object when provided' };
+  }
+  if (input.tables !== undefined && !Array.isArray(input.tables)) {
+    return { valid: false, reason: 'proposal.tables must be an array of table names when provided' };
+  }
+  return { valid: true, reason: null };
+}
+
+// Deterministic serialization of exactly the fields the digest commits to, so
+// the same proposal always hashes identically regardless of key order.
+function canonicalProposalPayload(p) {
+  const fields = {
+    claimText: p.claimText ?? null,
+    engine: p.engine,
+    expected: p.expected ?? null,
+    statement: p.statement,
+    tables: Array.isArray(p.tables) ? p.tables.slice().sort() : [],
+  };
+  return JSON.stringify(fields);
+}
+
+/**
+ * Build a typed Proposal. THIS IS THE ONLY LEGAL WAY IN: an executor must
+ * never accept a bare SQL string, only the object this returns. Rejects
+ * malformed input with { rejected: true, reason } rather than throwing, so a
+ * caller can show a remediation message instead of crashing.
+ *
+ * @param {{statement:string, engine?:'duckdb'|'pyodide'|'webr', expected?:object,
+ *          tables?:string[], author?:'ai'|'human', claimText?:string, modelId?:string}} input
+ * @returns {Promise<{rejected:true, reason:string} | {rejected:false, statement:string,
+ *   engine:string, expected:object, tables:string[], author:string, claimText:string|null,
+ *   modelId:string|null, digest:string, createdAt:number}>}
+ */
+async function createTypedProposal(input) {
+  const { valid, reason } = validateProposalInput(input);
+  if (!valid) {
+    return { rejected: true, reason };
+  }
+  const proposal = {
+    statement: input.statement.trim(),
+    engine: typeof input.engine === 'string' ? input.engine : 'duckdb',
+    expected: isPlainObject(input.expected) ? { ...input.expected } : {},
+    tables: Array.isArray(input.tables) ? input.tables.slice() : [],
+    author: input.author === 'human' ? 'human' : (input.author === 'ai' ? 'ai' : 'human'),
+    claimText: typeof input.claimText === 'string' && input.claimText.trim() ? input.claimText.trim() : null,
+    modelId: typeof input.modelId === 'string' && input.modelId.trim() ? input.modelId.trim() : null,
+    createdAt: Number.isFinite(input.createdAt) ? input.createdAt : Date.now(),
+  };
+  const digest = await sha256Hex(canonicalProposalPayload(proposal));
+  return { rejected: false, ...proposal, digest: `sha256:${digest}` };
+}
+
+/**
+ * Recompute a proposal's digest from its current field values, for comparing
+ * against a previously stored digest (confirm-gate invalidation). Returns the
+ * SAME digest string shape ("sha256:<hex>") createTypedProposal() produces.
+ * @param {object} proposal a proposal object (rejected proposals have no digest)
+ */
+async function digestProposal(proposal) {
+  if (!isPlainObject(proposal)) return null;
+  const digest = await sha256Hex(canonicalProposalPayload({
+    claimText: proposal.claimText ?? null,
+    engine: proposal.engine,
+    expected: proposal.expected ?? {},
+    statement: proposal.statement,
+    tables: proposal.tables ?? [],
+  }));
+  return `sha256:${digest}`;
+}
+
+/**
+ * Whether a proposal's current fields still match its own recorded digest.
+ * Used by the confirm gate to detect a byte-level edit after confirm was
+ * bound: if the statement (or engine/expected/tables) changed since the
+ * digest was computed, this returns false and the confirm must be redone.
+ * @param {object} proposal
+ */
+async function proposalMatchesDigest(proposal) {
+  if (!isPlainObject(proposal) || typeof proposal.digest !== 'string') return false;
+  const recomputed = await digestProposal(proposal);
+  return recomputed === proposal.digest;
+}
+
+const PROOF_HARNESS_SUPPORTED_ENGINES = SUPPORTED_ENGINES;
+
+  /* ---- js/proof-harness/verdict.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v0 (VERDICT): verdict engine
+// ============================================================
+// WHY THIS EXISTS
+// Doctrine invariant #6: "There are exactly four verdicts: GREEN (proven),
+// RED (refuted), GRAY (not provable, blocker named), AMBER (stale, re-prove
+// required). No fifth state." v0 ships three of the four -- AMBER staleness
+// is explicitly v1 (PROOF_HARNESS_V0_SPEC.md: "AMBER staleness graph (v1)").
+// This module is the pure decision function: given a claim, an engine run
+// result, and (optionally) what was expected, it returns exactly one of
+// GREEN / RED / GRAY plus a machine-checkable reason code and a one-line
+// human reason. It NEVER returns a confidence percentage on the verdict
+// itself (doctrine #6: "No confidence percentages on verdicts").
+//
+// A false GREEN is a release blocker (doctrine #7), so this function is
+// deliberately conservative: any ambiguity about whether the run actually
+// answers the claim resolves to GRAY, never to a guessed GREEN.
+//
+// PURITY: no DOM, no network, no engine call. Pure function of its inputs.
+
+const VERDICT_STATES = Object.freeze(['GREEN', 'RED', 'GRAY']);
+
+const VERDICT_REASON_CODES = Object.freeze({
+  RUN_ERROR: 'run-error',
+  NO_PROPOSAL: 'no-proposal',
+  NO_RUN: 'no-run',
+  EMPTY_STATEMENT: 'empty-statement',
+  NO_EXPECTATION: 'no-expectation',
+  SCALAR_MISMATCH: 'scalar-mismatch',
+  ROWCOUNT_MISMATCH: 'rowcount-mismatch',
+  ROWCOUNT_BAND_MISS: 'rowcount-band-miss',
+  MATCH: 'match',
+});
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Decide the verdict for a claim given the engine run that was produced to
+ * prove or refute it, and (optionally) what was expected.
+ *
+ * Decision order (first match wins), each aimed at "refuse to guess":
+ *   1. No proposal / no statement           -> GRAY, blocker named
+ *   2. No run at all (never executed)       -> GRAY, blocker named
+ *   3. Run errored                          -> RED (the run itself refutes
+ *      execution: doctrine treats a run that could not complete as refuted,
+ *      not as unprovable, because the claim WAS attempted and failed)
+ *   4. No expectation to compare against    -> GRAY, blocker named (a run
+ *      with nothing to check it against is not proof of anything)
+ *   5. Expected scalars/rowCount compared to the run's scalars/rowCount via
+ *      score-claim.js's compareClaimToRun -- match => GREEN, mismatch => RED
+ *
+ * @param {{claim?: {text?:string, scalars?:object, rowCount?:number}|null,
+ *          run?: {status?:'ok'|'error', rowCount?:number|null, scalars?:object,
+ *                 error?:string|null, durationMs?:number}|null,
+ *          expected?: {scalars?:object, rowCount?:number, rowcountBand?:[number,number]}|null,
+ *          proposal?: object|null,
+ *          comparison?: {pass:boolean, mismatches?: Array<object>}|null}} args
+ * @returns {{state:'GREEN'|'RED'|'GRAY', reasonCode:string, reason:string, blocker:string|null}}
+ */
+function decideVerdict(args) {
+  const a = isPlainObject(args) ? args : {};
+  const proposal = a.proposal;
+  const run = a.run;
+  const expected = isPlainObject(a.expected) ? a.expected : null;
+
+  if (!isPlainObject(proposal) || typeof proposal.statement !== 'string' || !proposal.statement.trim()) {
+    return {
+      state: 'GRAY',
+      reasonCode: VERDICT_REASON_CODES.NO_PROPOSAL,
+      reason: 'There is no typed proposal to run yet.',
+      blocker: 'A proposal with a SQL statement is required before anything can be proven.',
+    };
+  }
+
+  if (!isPlainObject(run)) {
+    return {
+      state: 'GRAY',
+      reasonCode: VERDICT_REASON_CODES.NO_RUN,
+      reason: 'This proposal has not been run yet.',
+      blocker: 'Press Prove to run the statement against the live engine before a verdict can be reached.',
+    };
+  }
+
+  if (run.status === 'error' || (typeof run.error === 'string' && run.error.trim())) {
+    return {
+      state: 'RED',
+      reasonCode: VERDICT_REASON_CODES.RUN_ERROR,
+      reason: 'The engine could not execute this statement.',
+      blocker: typeof run.error === 'string' && run.error.trim() ? run.error.trim() : 'The engine returned an error.',
+    };
+  }
+
+  if (!expected || (expected.scalars === undefined && expected.rowCount === undefined && expected.rowcountBand === undefined)) {
+    return {
+      state: 'GRAY',
+      reasonCode: VERDICT_REASON_CODES.NO_EXPECTATION,
+      reason: 'The run succeeded but nothing was specified to check it against.',
+      blocker: 'Add an expected row count or scalar value to the proposal so the result can be judged.',
+    };
+  }
+
+  const comparison = isPlainObject(a.comparison) ? a.comparison : null;
+  if (comparison) {
+    if (comparison.pass) {
+      return {
+        state: 'GREEN',
+        reasonCode: VERDICT_REASON_CODES.MATCH,
+        reason: 'The engine result matches what was expected.',
+        blocker: null,
+      };
+    }
+    const mismatches = Array.isArray(comparison.mismatches) ? comparison.mismatches : [];
+    const first = mismatches[0];
+    const label = first && first.field ? String(first.field) : 'result';
+    return {
+      state: 'RED',
+      reasonCode: mismatches.some((m) => m.field === 'rowCount') ? VERDICT_REASON_CODES.ROWCOUNT_MISMATCH : VERDICT_REASON_CODES.SCALAR_MISMATCH,
+      reason: `The engine result does not match the expected ${label}.`,
+      blocker: mismatches.map((m) => `${m.field}: expected ${JSON.stringify(m.expected)}, got ${JSON.stringify(m.got)}`).join('; ') || 'The result did not match the expectation.',
+    };
+  }
+
+  // No comparison object supplied: fall back to a direct rowCount check when
+  // both sides have one, since that is the one scalar comparable everywhere
+  // (mirrors scoreDrillAnswer's rowCount-first discipline in drill-floor.js).
+  if (typeof expected.rowCount === 'number' && typeof run.rowCount === 'number') {
+    if (run.rowCount === expected.rowCount) {
+      return {
+        state: 'GREEN',
+        reasonCode: VERDICT_REASON_CODES.MATCH,
+        reason: `The row count matches the expected ${expected.rowCount}.`,
+        blocker: null,
+      };
+    }
+    return {
+      state: 'RED',
+      reasonCode: VERDICT_REASON_CODES.ROWCOUNT_MISMATCH,
+      reason: 'The row count does not match what was expected.',
+      blocker: `Expected rowCount ${expected.rowCount}, got ${run.rowCount}.`,
+    };
+  }
+
+  if (Array.isArray(expected.rowcountBand) && expected.rowcountBand.length === 2 && typeof run.rowCount === 'number') {
+    const [lo, hi] = expected.rowcountBand;
+    if (run.rowCount >= lo && run.rowCount <= hi) {
+      return {
+        state: 'GREEN',
+        reasonCode: VERDICT_REASON_CODES.MATCH,
+        reason: `The row count ${run.rowCount} falls within the expected band.`,
+        blocker: null,
+      };
+    }
+    return {
+      state: 'RED',
+      reasonCode: VERDICT_REASON_CODES.ROWCOUNT_BAND_MISS,
+      reason: 'The row count falls outside the expected band.',
+      blocker: `Expected rowCount in [${lo}, ${hi}], got ${run.rowCount}.`,
+    };
+  }
+
+  return {
+    state: 'GRAY',
+    reasonCode: VERDICT_REASON_CODES.NO_EXPECTATION,
+    reason: 'Nothing comparable was found between the expectation and the run.',
+    blocker: 'Provide an expected rowCount, rowcountBand, or scalar map that matches a value the run produced.',
+  };
+}
+
+  /* ---- js/proof-harness/score-claim.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v0 (VERDICT): claim scoring
+// ============================================================
+// WHY THIS EXISTS
+// Reuses the exact comparison discipline js/drill-floor/drill-floor.js already
+// shipped and tested for scoreDrillAnswer/scoreDrillExtras/scalarMatches:
+// numbers compare with an absolute epsilon, strings compare trimmed/exact,
+// everything else strict-equals. That pattern is restated here (not imported)
+// for the same reason js/provenance/trust-ledger.js restates sha256Hex: this
+// module is also inlined into canvas/index.html's single inline <script>,
+// where cross-module ESM imports do not resolve. test/proof-harness-v0.test.mjs
+// pins this copy's behavior directly rather than re-deriving drill-floor's.
+//
+// PURITY: no DOM, no network, no engine. Pure function of its inputs, never
+// throws -- an unreadable run or a malformed expectation comes back as a
+// failed comparison with a field-level explanation, not an exception.
+
+const NUMERIC_EPSILON = 1e-6;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Compare one expected scalar to an observed value. Numbers use an absolute
+ * epsilon; strings compare exact, case-sensitive, after trim; everything else
+ * is strict equality. Never throws. Mirrors drill-floor.js's scalarMatches.
+ * @param {*} expected
+ * @param {*} observed
+ * @returns {boolean}
+ */
+function scalarMatches(expected, observed) {
+  if (typeof expected === 'number' && typeof observed === 'number') {
+    if (!Number.isFinite(expected) || !Number.isFinite(observed)) return expected === observed;
+    return Math.abs(expected - observed) <= NUMERIC_EPSILON;
+  }
+  if (typeof expected === 'string' && typeof observed === 'string') {
+    return expected.trim() === observed.trim();
+  }
+  return expected === observed;
+}
+
+/**
+ * Extract a row count from a DuckDB-shaped run result. Accepts either the
+ * canvas SQL runner's { columns, rows } shape or a bare array of rows. Never
+ * throws; returns null when nothing readable is present.
+ * @param {*} result
+ */
+function extractRowCount(result) {
+  if (Array.isArray(result)) return result.length;
+  if (isPlainObject(result)) {
+    if (Array.isArray(result.rows)) return result.rows.length;
+    if (typeof result.rowCount === 'number') return result.rowCount;
+  }
+  return null;
+}
+
+/**
+ * Pull a named scalar out of the first row of a DuckDB-shaped run result.
+ * Never throws; returns undefined when the column or the row is missing.
+ * @param {*} result
+ * @param {string} column
+ */
+function extractScalar(result, column) {
+  if (!isPlainObject(result) || !Array.isArray(result.rows) || result.rows.length === 0) return undefined;
+  const row = result.rows[0];
+  if (Array.isArray(row)) {
+    if (!Array.isArray(result.columns)) return undefined;
+    const idx = result.columns.findIndex((c) => (typeof c === 'string' ? c : c && c.name) === column);
+    return idx === -1 ? undefined : row[idx];
+  }
+  if (isPlainObject(row)) return row[column];
+  return undefined;
+}
+
+/**
+ * Compare a claim's expected scalars/rowCount to an engine run, reusing the
+ * scoreDrillAnswer/scoreDrillExtras pattern: rowCount is the one scalar
+ * comparable across every shape, and any additional named scalars in
+ * `expected.scalars` are checked against either the run's own `run.scalars`
+ * map (already-computed, e.g. supplied by a caller) or extracted from
+ * `run.result` by column name.
+ *
+ * NEVER throws. Always returns a definite pass/fail per field rather than
+ * silently skipping an unreadable one, because a false GREEN is a release
+ * blocker (MASTER PROMPT doctrine #7) and a silently-skipped mismatch would
+ * be exactly that.
+ *
+ * @param {{rowCount?:number, rowcountBand?:[number,number], scalars?:object}} expected
+ * @param {{rowCount?:number|null, scalars?:object, result?:*}} run
+ * @returns {{pass:boolean, mismatches: Array<{field:string, expected:*, got:*}>}}
+ */
+function compareClaimToRun(expected, run) {
+  const mismatches = [];
+  const exp = isPlainObject(expected) ? expected : {};
+  const r = isPlainObject(run) ? run : {};
+
+  const observedRowCount = typeof r.rowCount === 'number' ? r.rowCount : extractRowCount(r.result);
+
+  if (typeof exp.rowCount === 'number') {
+    if (observedRowCount === null || observedRowCount === undefined || !scalarMatches(exp.rowCount, observedRowCount)) {
+      mismatches.push({ field: 'rowCount', expected: exp.rowCount, got: observedRowCount ?? null });
+    }
+  } else if (Array.isArray(exp.rowcountBand) && exp.rowcountBand.length === 2) {
+    const [lo, hi] = exp.rowcountBand;
+    if (observedRowCount === null || observedRowCount === undefined || observedRowCount < lo || observedRowCount > hi) {
+      mismatches.push({ field: 'rowCount', expected: `[${lo}, ${hi}]`, got: observedRowCount ?? null });
+    }
+  }
+
+  const expectedScalars = isPlainObject(exp.scalars) ? exp.scalars : {};
+  const observedScalars = isPlainObject(r.scalars) ? r.scalars : {};
+  for (const key of Object.keys(expectedScalars)) {
+    const expectedVal = expectedScalars[key];
+    const observedVal = Object.prototype.hasOwnProperty.call(observedScalars, key)
+      ? observedScalars[key]
+      : extractScalar(r.result, key);
+    if (!scalarMatches(expectedVal, observedVal)) {
+      mismatches.push({ field: key, expected: expectedVal, got: observedVal === undefined ? null : observedVal });
+    }
+  }
+
+  return { pass: mismatches.length === 0, mismatches };
+}
+
+  /* ---- js/proof-harness/receipt.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v0 (VERDICT): receipt ledger
+// ============================================================
+// WHY THIS EXISTS
+// Doctrine invariant #5: "The RECEIPT ledger is the spine. If an action
+// cannot be expressed as an append-only receipt, it is not a feature; it is a
+// leak." This module is that spine for v0: an append-only, SHA-256
+// hash-chained log of receipt records shaped like the MASTER PROMPT's
+// in-toto/SLSA-flavored predicate (see MASTER_PROMPT_DataGlow_VERDICT_Proof_
+// Harness_July_2026.md, "DATA MODEL"). It composes the SAME hash-chain
+// discipline already shipped in js/provenance/trust-ledger.js
+// (createTrustLedger/record/verify) rather than inventing a second scheme:
+// canonical JSON over the fields the hash commits to, each entry carrying the
+// previous entry's hash, GENESIS_PARENT for the first record.
+//
+// NEVER REWRITE. append() is the only mutator. There is no update/delete.
+// "Corrections are new records referencing the old digest" (doctrine): a
+// caller that needs to correct a prior receipt appends a NEW one whose
+// predicate can reference the old record's digest; this module does not do
+// that referencing for the caller, it only guarantees the old record itself
+// can never be edited or removed.
+//
+// PURITY: no DOM, no network, no engine. crypto.subtle only (Node test-runner
+// and every real browser both provide it), so this behaves identically
+// everywhere, matching every other ledger in this codebase.
+
+const RECEIPT_TYPE = 'dataglow/receipt/v1';
+
+// Mirrors GENESIS_PARENT in js/provenance/trust-ledger.js and provenance.js so
+// every hash-chained ledger in this codebase anchors identically.
+const GENESIS_PARENT = '0'.repeat(64);
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** SHA-256 of a string, lowercase hex. Same algorithm as trust-ledger.js. */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Deterministic serialization of exactly the fields a receipt's hash commits
+// to: the full predicate content plus the chain link (prevHash). Sorted keys
+// throughout so the same content always hashes identically.
+function canonicalReceiptPayload(prevHash, predicate) {
+  return JSON.stringify({ predicate: sortDeep(predicate), prevHash });
+}
+
+// Recursively sort object keys so JSON.stringify output is canonical
+// regardless of insertion order, matching stableDetail()'s intent in
+// trust-ledger.js but applied to the whole predicate tree (the receipt
+// predicate is deeper/nested, unlike a trust event's flat detail map).
+function sortDeep(value) {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (isPlainObject(value)) {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = sortDeep(value[key]);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Build the predicate body (everything under receipt.predicate) from the
+ * pieces a Prove cycle produces. Fields not supplied default to v0-appropriate
+ * empty/null values so the shape always matches the MASTER PROMPT's DATA
+ * MODEL even when v1-only sections (corroboration, invariants, adversarial)
+ * are not populated yet.
+ * @param {object} parts
+ */
+function buildReceiptPredicate(parts) {
+  const p = isPlainObject(parts) ? parts : {};
+  return {
+    claim: isPlainObject(p.claim) ? p.claim : { text: null, predicate_ast: null, metric_ids: [] },
+    proposal: isPlainObject(p.proposal) ? p.proposal : null,
+    inputs: Array.isArray(p.inputs) ? p.inputs : [],
+    run: isPlainObject(p.run) ? p.run : { status: null, rowcount: null, scalars: {}, column_types: {}, duration_ms: null, error: null },
+    corroboration: isPlainObject(p.corroboration) ? p.corroboration : null,
+    invariants: Array.isArray(p.invariants) ? p.invariants : [],
+    adversarial: Array.isArray(p.adversarial) ? p.adversarial : [],
+    environment: isPlainObject(p.environment) ? p.environment : {},
+    verdict: isPlainObject(p.verdict) ? p.verdict : { state: null, reason_code: null, blocker: null },
+    confirm: isPlainObject(p.confirm) ? p.confirm : null,
+  };
+}
+
+/**
+ * An append-only, hash-chained receipt ledger. Plain data and closures, same
+ * shape as createTrustLedger() in js/provenance/trust-ledger.js. NEVER
+ * rewrites or removes a record: append() is the only mutator exposed.
+ */
+function createReceiptLedger() {
+  const chain = [];
+
+  /**
+   * Append one receipt record. Never throws: a malformed predicate still
+   * produces a record (defaults fill the gaps via buildReceiptPredicate), so
+   * appending itself cannot fail and break the chain's monotonic index.
+   * @param {{subjectName?:string, subjectDigest?:string, predicate:object}} input
+   */
+  async function append(input) {
+    const inp = isPlainObject(input) ? input : {};
+    const predicate = buildReceiptPredicate(inp.predicate);
+    const prevHash = chain.length ? chain[chain.length - 1].hash : GENESIS_PARENT;
+    const record = {
+      _type: RECEIPT_TYPE,
+      subject: [{
+        name: typeof inp.subjectName === 'string' && inp.subjectName.trim() ? inp.subjectName.trim() : `claim-${chain.length}`,
+        digest: { sha256: typeof inp.subjectDigest === 'string' ? inp.subjectDigest.replace(/^sha256:/, '') : null },
+      }],
+      predicate,
+    };
+    const index = chain.length;
+    const hash = await sha256Hex(canonicalReceiptPayload(prevHash, predicate));
+    const entry = { index, prevHash, hash, ts: Date.now(), record };
+    chain.push(entry);
+    return entry;
+  }
+
+  return {
+    append,
+    getEntries: () => chain.slice(),
+    get size() { return chain.length; },
+    // Deliberately NO update/remove/clear-by-index. clear() exists only for
+    // starting a brand new session ledger (tests / explicit user "reset"),
+    // never for editing history mid-chain.
+    clear: () => { chain.length = 0; },
+  };
+}
+
+/**
+ * Re-derive every entry's hash from its recorded predicate + prevHash link and
+ * confirm it still matches. Any edit, reorder, or deletion breaks the chain at
+ * the first altered link. Mirrors verifyTrustLedger()'s discipline.
+ * @param {Array<{index:number, prevHash:string, hash:string, record:object}>} entries
+ */
+async function verifyReceiptChain(entries) {
+  if (!Array.isArray(entries)) {
+    return { valid: false, brokenAt: -1, reason: 'entries must be an array' };
+  }
+  if (entries.length === 0) {
+    return { valid: true, brokenAt: -1, reason: 'No receipts recorded yet.' };
+  }
+  let prevHash = GENESIS_PARENT;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!isPlainObject(e) || !isPlainObject(e.record) || !isPlainObject(e.record.predicate)) {
+      return { valid: false, brokenAt: i, reason: `Record at index ${i} is missing or malformed.` };
+    }
+    if (e.prevHash !== prevHash) {
+      return { valid: false, brokenAt: i, reason: `Record at index ${i} does not chain from the previous record's hash.` };
+    }
+    const expectedHash = await sha256Hex(canonicalReceiptPayload(prevHash, e.record.predicate));
+    if (expectedHash !== e.hash) {
+      return { valid: false, brokenAt: i, reason: `Record at index ${i} has been altered since it was written.` };
+    }
+    prevHash = e.hash;
+  }
+  return { valid: true, brokenAt: -1, reason: `All ${entries.length} receipt(s) verified intact.` };
+}
+
+const RECEIPT_TYPE_ID = RECEIPT_TYPE;
+
+  /* ---- js/proof-harness/index.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v0 (VERDICT): orchestration + window export
+// ============================================================
+// WHY THIS EXISTS
+// Composes proposal.js + score-claim.js + verdict.js + receipt.js into the
+// one v0 prove cycle: AI proposes (createTypedProposal) -> engine proves (a
+// caller-supplied runQuery, e.g. resolveDrillSqlRunQuery / window.engine.
+// runQuery / the DuckDB singleton -- this module never talks to DuckDB
+// directly, so it stays pure and Node-testable) -> verdict is decided
+// (decideVerdict) -> a receipt is appended (createReceiptLedger) -> the human
+// confirms (confirmReceipt), digest-bound so a statement edit after confirm
+// invalidates it. That is doctrine #1 in code: "AI proposes. Engines prove.
+// The human confirms. In that order, always."
+//
+// This module owns ONE session-scoped receipt ledger instance (module-level,
+// like js/drill-floor's DRILLS registry) so every Prove click in a session
+// lands on the same hash chain. A fresh ledger is created per module
+// evaluation, matching createTrustLedger()'s per-session lifetime.
+//
+// PURITY: this file itself makes no DOM or network call. runProofCycle()
+// accepts an injected `runQuery` async function so it can be exercised with a
+// fake in tests, exactly like drill-floor.js's runDrillSql accepts an
+// injected runtime.
+
+
+const ledger = createReceiptLedger();
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Run one full v0 prove cycle: build a typed Proposal, execute it through the
+ * injected engine runner, decide a verdict, and append a receipt. Never
+ * throws: an engine rejection or an invalid proposal both resolve to a
+ * definite result object rather than an exception, matching the never-throw
+ * discipline used across drill-floor.js and trust-ledger.js.
+ *
+ * @param {{claimText?:string, statement:string, engine?:string, expected?:object,
+ *          tables?:string[], author?:'ai'|'human', runQuery: (sql:string) => Promise<*>}} args
+ * @returns {Promise<{ok:boolean, proposal:object, run:object|null, verdict:object|null,
+ *   comparison:object|null, receipt:object|null, error?:string}>}
+ */
+async function runProofCycle(args) {
+  const a = isPlainObject(args) ? args : {};
+  const proposal = await createTypedProposal({
+    statement: a.statement,
+    engine: a.engine,
+    expected: a.expected,
+    tables: a.tables,
+    author: a.author,
+    claimText: a.claimText,
+    modelId: a.modelId,
+  });
+
+  if (proposal.rejected) {
+    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, error: proposal.reason };
+  }
+
+  if (typeof a.runQuery !== 'function') {
+    const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt: await recordReceipt({ proposal, run: null, verdict }) };
+  }
+
+  const startedAt = Date.now();
+  let run;
+  try {
+    const result = await a.runQuery(proposal.statement);
+    const durationMs = Date.now() - startedAt;
+    const rowCount = Array.isArray(result && result.rows) ? result.rows.length
+      : (typeof (result && result.rowCount) === 'number' ? result.rowCount : null);
+    run = { status: 'ok', rowCount, scalars: {}, result, durationMs, error: null };
+  } catch (err) {
+    const durationMs = Date.now() - startedAt;
+    run = { status: 'error', rowCount: null, scalars: {}, result: null, durationMs, error: err && err.message ? err.message : String(err) };
+  }
+
+  const comparison = run.status === 'ok' ? compareClaimToRun(proposal.expected, run) : null;
+  const verdict = decideVerdict({
+    claim: { text: proposal.claimText },
+    proposal,
+    run,
+    expected: proposal.expected,
+    comparison,
+  });
+
+  const receipt = await recordReceipt({ proposal, run, verdict });
+
+  return { ok: true, proposal, run, verdict, comparison, receipt };
+}
+
+async function recordReceipt({ proposal, run, verdict }) {
+  const predicate = buildReceiptPredicate({
+    claim: { text: proposal.claimText, predicate_ast: null, metric_ids: [] },
+    proposal: {
+      engine: proposal.engine,
+      statement: proposal.statement,
+      expected: proposal.expected,
+      author: proposal.author,
+      model_id: proposal.modelId,
+      digest: proposal.digest,
+    },
+    run: run ? {
+      status: run.status,
+      rowcount: run.rowCount,
+      scalars: run.scalars || {},
+      column_types: {},
+      duration_ms: run.durationMs,
+      error: run.error || null,
+    } : { status: null, rowcount: null, scalars: {}, column_types: {}, duration_ms: null, error: null },
+    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v0' },
+    verdict: { state: verdict.state, reason_code: verdict.reasonCode, blocker: verdict.blocker },
+  });
+  return ledger.append({ subjectName: proposal.claimText || 'claim', subjectDigest: proposal.digest, predicate });
+}
+
+/**
+ * Bind a human confirm to a proposal's CURRENT digest. Fails (returns
+ * {confirmed:false}) if the proposal's fields no longer match the digest it
+ * carries -- i.e. the statement (or engine/expected/tables) was edited after
+ * this confirm was requested, so the confirm must be redone against the new
+ * content. This is the "digest-bound; byte-change invalidates" requirement.
+ * @param {object} proposal
+ * @param {{by?:string}} opts
+ */
+async function confirmProposal(proposal, opts) {
+  const stillMatches = await proposalMatchesDigest(proposal);
+  if (!stillMatches) {
+    return { confirmed: false, reason: 'The statement changed since this proposal was digested. Re-run Prove before confirming.' };
+  }
+  return {
+    confirmed: true,
+    by: (opts && opts.by) || 'local-user',
+    at: new Date().toISOString(),
+    boundDigest: proposal.digest,
+  };
+}
+
+/** Read-only access to this session's receipt chain. */
+function getReceipts() {
+  return ledger.getEntries();
+}
+
+/** Verify the session receipt chain has not been tampered with. */
+function verifyReceipts() {
+  return verifyReceiptChain(ledger.getEntries());
+}
+
+/** Clear the session receipt chain (tests / explicit reset only). */
+function resetReceipts() {
+  ledger.clear();
+}
+
+  const DataGlowProofHarness = {
+    version: 1,
+    runProofCycle: runProofCycle,
+    confirmProposal: confirmProposal,
+    createTypedProposal: createTypedProposal,
+    decideVerdict: decideVerdict,
+    compareClaimToRun: compareClaimToRun,
+    getReceipts: getReceipts,
+    verifyReceipts: verifyReceipts,
+    resetReceipts: resetReceipts
+  };
+  window.DataGlowProofHarness = DataGlowProofHarness;
+})();
+/* ---- end js/proof-harness/index.js ---- */
+
+/* ---- from js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* Proof Harness v0 (VERDICT): the claim bar plus a review inbox that the
+     MASTER PROMPT doctrine calls for, not a chat panel. Doctrine #8: "There is
+     no chat panel. The surface is a claim bar plus a review inbox." v0's inbox
+     is one card: the current claim's proposal, verdict and receipt.
+
+     The pure engine (js/proof-harness/index.js + proposal.js + verdict.js +
+     score-claim.js + receipt.js, published together as window.
+     DataGlowProofHarness) owns typed proposals, the verdict decision, claim
+     scoring and the hash-chained receipt ledger. This module owns only what
+     the engine cannot: the button, the panel, and wiring the panel's Prove
+     button to the SAME live DuckDB engine Drill Floor's SQL Run/Check path
+     already uses (resolveDrillSqlRunQuery / window.engine.runQuery / the
+     DuckDB singleton -- see Bundle 18 hotfix 5, #613). No second wasm load
+     path is created here.
+
+     DOCTRINE IN THIS FILE:
+       1. AI proposes, engines prove, human confirms, in that order. The Prove
+          button always runs BEFORE the Confirm button is enabled.
+       2. No free-form execution: the SQL statement the Prove button runs is
+          only ever handed to createTypedProposal() first; the executor
+          (runQuery) is only ever called with proposal.statement, which is
+          exactly what was typed into the visible, editable field, never a
+          hidden or model-composed string.
+       3. Never auto-mutate: nothing here writes to a saved session/table.
+          Confirm only marks the CURRENT proposal as confirmed in memory,
+          bound to its digest.
+       6. Exactly three verdict colors in v0: GREEN / RED / GRAY. No AMBER.
+       8. No chat panel. Claim bar + one card. No free text response area.
+
+     No em dash (U+2014) anywhere in this file's visible strings. */
+
+  var BTN_ID = 'dg-proof-harness-btn';
+  var PANEL_ID = 'dg-proof-harness-panel';
+  var STYLE_ID = 'dg-proof-harness-styles';
+  var BODY_ID = 'dg-proof-harness-body';
+
+  var _lastProposal = null;
+  var _lastResult = null;
+
+  function engine() { return window.DataGlowProofHarness || null; }
+
+  /* Same optional-provider read as Trust Ledger / Air-Gap / Shield Packs: a
+     flags provider is honored when present, and its absence means on, since
+     canvas registers no provider today. window.DATAGLOW_PROOF_HARNESS is the
+     explicit local override in either direction, matching window.
+     DATAGLOW_TRUST_LEDGER's pattern. */
+  function flagOn() {
+    try { if (window.DATAGLOW_PROOF_HARNESS === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_HARNESS === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofHarness') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Proof Harness]', msg);
+  }
+
+  /* ---------------------------- SQL engine resolution --------------------
+     Reuses the exact resolver Drill Floor's SQL Run/Check path uses (Bundle
+     18 hotfix 5, #613), with the same graduated fallbacks, so there is never
+     a second wasm load path and the warm SQL connection stays shared. */
+  function resolveRunQuery() {
+    if (typeof window.resolveDrillSqlRunQuery === 'function') {
+      try {
+        var q = window.resolveDrillSqlRunQuery();
+        if (q) return q;
+      } catch (_e0) {}
+    }
+    try {
+      if (window.engine && typeof window.engine.runQuery === 'function') {
+        return function (sql) { return window.engine.runQuery(sql, []); };
+      }
+    } catch (_e1) {}
+    try {
+      if (window.DuckDBEngine && typeof window.DuckDBEngine.runQuery === 'function') {
+        return function (sql) { return window.DuckDBEngine.runQuery(sql, []); };
+      }
+    } catch (_e2) {}
+    try {
+      if (window._sqlEngineSingleton && typeof window._sqlEngineSingleton.runQuery === 'function') {
+        return function (sql) { return window._sqlEngineSingleton.runQuery(sql, []); };
+      }
+    } catch (_e3) {}
+    if (typeof window._dgGetSQLEngine === 'function') {
+      return async function (sql) {
+        var eng = await window._dgGetSQLEngine();
+        if (!eng || typeof eng.runQuery !== 'function') {
+          throw new Error('SQL engine not ready in this canvas.');
+        }
+        return eng.runQuery(sql, []);
+      };
+    }
+    try {
+      if (window.SQLEngine && typeof window.SQLEngine.init === 'function') {
+        return async function (sql) {
+          if (!window._sqlEngineSingleton) {
+            window._sqlEngineSingleton = window.SQLEngine.init({});
+            window.DuckDBEngine = window._sqlEngineSingleton;
+            window.engine = window._sqlEngineSingleton;
+          }
+          return window._sqlEngineSingleton.runQuery(sql, []);
+        };
+      }
+    } catch (_e4) {}
+    return null;
+  }
+
+  /* ---------------------------- styles ------------------------------------ */
+
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var css = [
+      '#' + BTN_ID + '{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 12px;',
+      'border-radius:10px;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}',
+      '#' + BTN_ID + ':hover{color:var(--text,#E8EAED)}',
+      '#' + BTN_ID + ' .dg-ph-dot{width:7px;height:7px;border-radius:50%;background:var(--primary,#20C5B5)}',
+      '#' + PANEL_ID + '{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:12095;',
+      'display:none;flex-direction:column;background:var(--surface,#151820);',
+      'border-left:1px solid var(--border,#282D38);box-shadow:-18px 0 48px rgba(0,0,0,.45)}',
+      '#' + PANEL_ID + '.open{display:flex}',
+      '#' + PANEL_ID + ' .dg-ph-head{display:flex;align-items:flex-start;justify-content:space-between;',
+      'gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--border,#282D38)}',
+      '#' + PANEL_ID + ' .dg-ph-title{font-size:16px;font-weight:800;margin:0}',
+      '#' + PANEL_ID + ' .dg-ph-sub{font-size:12px;color:var(--text-muted,#9AA1AE);margin:4px 0 0;line-height:1.55}',
+      '#' + PANEL_ID + ' .dg-ph-x{min-height:44px;min-width:44px;border:none;background:transparent;',
+      'color:var(--text-muted,#9AA1AE);font-size:22px;cursor:pointer;border-radius:10px;flex:0 0 auto}',
+      '#' + BODY_ID + '{flex:1;overflow-y:auto;padding:14px 18px;-webkit-overflow-scrolling:touch}',
+      '#' + PANEL_ID + ' label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.02em;',
+      'color:var(--text-muted,#9AA1AE);margin:14px 0 6px;text-transform:uppercase}',
+      '#' + PANEL_ID + ' label:first-child{margin-top:0}',
+      '#' + PANEL_ID + ' textarea, #' + PANEL_ID + ' input[type=text]{width:100%;box-sizing:border-box;',
+      'background:var(--bg,#0E1117);border:1px solid var(--border,#282D38);border-radius:10px;',
+      'color:var(--text,#E8EAED);font:inherit;font-size:12.5px;padding:9px 10px;resize:vertical}',
+      '#' + PANEL_ID + ' textarea.dg-ph-statement{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:76px}',
+      '#' + PANEL_ID + ' textarea.dg-ph-claim{min-height:44px}',
+      '#' + PANEL_ID + ' .dg-ph-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}',
+      '#' + PANEL_ID + ' .dg-ph-btn{min-height:38px;padding:0 13px;border-radius:10px;font:inherit;font-size:12.5px;',
+      'font-weight:700;cursor:pointer;border:1px solid var(--border,#282D38);background:transparent;',
+      'color:var(--text-muted,#9AA1AE)}',
+      '#' + PANEL_ID + ' .dg-ph-btn.primary{background:var(--primary,#20C5B5);color:#04201C;border-color:transparent}',
+      '#' + PANEL_ID + ' .dg-ph-btn.primary:disabled{opacity:.45;cursor:not-allowed}',
+      '#' + PANEL_ID + ' .dg-ph-btn:hover:not(:disabled){opacity:.9}',
+      '#' + PANEL_ID + ' .dg-ph-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;',
+      'border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.02em;margin-top:14px}',
+      '#' + PANEL_ID + ' .dg-ph-chip.GREEN{background:rgba(32,197,181,.14);color:var(--primary,#20C5B5);',
+      'border:1px solid rgba(32,197,181,.4)}',
+      '#' + PANEL_ID + ' .dg-ph-chip.RED{background:rgba(229,83,75,.14);color:var(--danger,#E5534B);',
+      'border:1px solid rgba(229,83,75,.4)}',
+      '#' + PANEL_ID + ' .dg-ph-chip.GRAY{background:rgba(154,161,174,.14);color:var(--text-muted,#9AA1AE);',
+      'border:1px solid rgba(154,161,174,.4)}',
+      '#' + PANEL_ID + ' .dg-ph-reason{font-size:12.5px;line-height:1.55;color:var(--text-secondary,#B4B8C0);margin:8px 0 0}',
+      '#' + PANEL_ID + ' .dg-ph-receipt{margin-top:14px;padding:10px 12px;border-radius:10px;',
+      'border:1px solid var(--border,#282D38);font-size:12px;line-height:1.7;color:var(--text-secondary,#B4B8C0)}',
+      '#' + PANEL_ID + ' .dg-ph-receipt dt{color:var(--text-muted,#9AA1AE);display:inline}',
+      '#' + PANEL_ID + ' .dg-ph-receipt dd{display:inline;margin:0 0 0 6px}',
+      '#' + PANEL_ID + ' .dg-ph-receipt .dg-ph-kv{display:block}',
+      '#' + PANEL_ID + ' .dg-ph-hash{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;',
+      'word-break:break-all;color:var(--text-faint,var(--text-muted,#9AA1AE))}',
+      '#' + PANEL_ID + ' .dg-ph-note{font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted,#9AA1AE));',
+      'padding:12px 2px 4px}',
+      '#' + PANEL_ID + ' .dg-ph-confirmed{margin-top:10px;font-size:12px;font-weight:700;color:var(--primary,#20C5B5)}',
+      '@media (max-width:700px){',
+      '#' + BTN_ID + '{min-height:44px}',
+      '#' + PANEL_ID + '{width:100%;left:0;border-left:none}',
+      '#' + PANEL_ID + ' .dg-ph-head{position:sticky;top:0;z-index:2;background:var(--surface,#151820)}',
+      '#' + BODY_ID + '{padding:12px 14px}',
+      '}'
+    ].join('');
+    var el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  /* ---------------------------- panel ------------------------------------ */
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    ensureStyles();
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Proof Harness');
+    panel.innerHTML =
+      '<div class="dg-ph-head">' +
+        '<div style="min-width:0">' +
+          '<p class="dg-ph-title">VERDICT</p>' +
+          '<p class="dg-ph-sub">Paste a claim, prove it on this device, get a receipt you can re-run.</p>' +
+        '</div>' +
+        '<button type="button" class="dg-ph-x" data-ph-close aria-label="Close">&#215;</button>' +
+      '</div>' +
+      '<div id="' + BODY_ID + '"></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-ph-close]').addEventListener('click', closePanel);
+    return panel;
+  }
+
+  function verdictChip(state) {
+    var label = state === 'GREEN' ? 'GREEN . proven' : state === 'RED' ? 'RED . refuted' : 'GRAY . not provable';
+    return '<div class="dg-ph-chip ' + esc(state) + '">' + esc(label) + '</div>';
+  }
+
+  function receiptDetails(receipt, proposal, run) {
+    if (!receipt) return '';
+    var duration = run && typeof run.durationMs === 'number' ? run.durationMs + ' ms' : 'not run';
+    var rowCount = run && typeof run.rowCount === 'number' ? String(run.rowCount) : 'n/a';
+    return '<div class="dg-ph-receipt">' +
+      '<span class="dg-ph-kv"><dt>Row count:</dt><dd>' + esc(rowCount) + '</dd></span>' +
+      '<span class="dg-ph-kv"><dt>Duration:</dt><dd>' + esc(duration) + '</dd></span>' +
+      '<span class="dg-ph-kv"><dt>Engine:</dt><dd>' + esc(proposal.engine) + '</dd></span>' +
+      '<span class="dg-ph-kv"><dt>Statement:</dt><dd class="dg-ph-hash">' + esc(proposal.statement) + '</dd></span>' +
+      '<span class="dg-ph-kv"><dt>Proposal digest:</dt><dd class="dg-ph-hash">' + esc(proposal.digest) + '</dd></span>' +
+      '<span class="dg-ph-kv"><dt>Receipt hash:</dt><dd class="dg-ph-hash">' + esc(receipt.hash) + '</dd></span>' +
+      '</div>';
+  }
+
+  function renderBody() {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+    var e = engine();
+    if (!e) {
+      body.innerHTML = '<div class="dg-ph-note">The Proof Harness engine is unavailable, so nothing can be proven here.</div>';
+      return;
+    }
+
+    var claimText = _lastProposal && _lastProposal.claimText ? _lastProposal.claimText : '';
+    var statementText = _lastProposal ? _lastProposal.statement : '';
+    var canUseLastSql = (function () {
+      var input = document.getElementById('sql-input');
+      return !!(input && input.value && input.value.trim());
+    })();
+
+    var html = '';
+    html += '<label for="dg-ph-claim">Claim</label>' +
+      '<textarea id="dg-ph-claim" class="dg-ph-claim" placeholder="Paste the number or sentence you want proven, e.g. total revenue is 101018">' + esc(claimText) + '</textarea>';
+    if (canUseLastSql) {
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-use-last-sql>Use last SQL result</button></div>';
+    }
+
+    html += '<label for="dg-ph-statement">Proposal statement (editable SQL)</label>' +
+      '<textarea id="dg-ph-statement" class="dg-ph-statement" placeholder="select count(*) as n from your_table">' + esc(statementText) + '</textarea>';
+
+    html += '<label for="dg-ph-expected-rowcount">Expected row count (optional)</label>' +
+      '<input type="text" id="dg-ph-expected-rowcount" placeholder="e.g. 42" value="' +
+      esc(_lastProposal && _lastProposal.expected && _lastProposal.expected.rowCount !== undefined ? _lastProposal.expected.rowCount : '') + '">';
+
+    html += '<div class="dg-ph-row">' +
+      '<button type="button" class="dg-ph-btn primary" data-ph-prove>Prove</button>' +
+      '<button type="button" class="dg-ph-btn primary" data-ph-confirm' + (_lastResult && _lastResult.verdict ? '' : ' disabled') + '>Confirm</button>' +
+      '</div>';
+
+    if (_lastResult && _lastResult.verdict) {
+      html += verdictChip(_lastResult.verdict.state);
+      html += '<p class="dg-ph-reason">' + esc(_lastResult.verdict.reason) +
+        (_lastResult.verdict.blocker ? ' ' + esc(_lastResult.verdict.blocker) : '') + '</p>';
+      html += receiptDetails(_lastResult.receipt, _lastResult.proposal, _lastResult.run);
+    }
+
+    if (_lastConfirm) {
+      if (_lastConfirm.confirmed) {
+        html += '<p class="dg-ph-confirmed">Confirmed by ' + esc(_lastConfirm.by) + ' at ' + esc(_lastConfirm.at) + '. Bound to this exact statement.</p>';
+      } else {
+        html += '<p class="dg-ph-reason">' + esc(_lastConfirm.reason) + '</p>';
+      }
+    }
+
+    html += '<div class="dg-ph-note">Nothing here uploads. The statement runs on your own device against the same DuckDB engine the SQL tab uses. A false green is treated as a bug, so an unclear result comes back gray with the missing piece named, never a guess.</div>';
+
+    body.innerHTML = html;
+    wireBody(body);
+  }
+
+  var _lastConfirm = null;
+
+  function wireBody(body) {
+    var useLastSqlBtn = body.querySelector('[data-ph-use-last-sql]');
+    if (useLastSqlBtn) {
+      useLastSqlBtn.addEventListener('click', function () {
+        var input = document.getElementById('sql-input');
+        var stmt = body.querySelector('#dg-ph-statement');
+        if (input && stmt) {
+          stmt.value = input.value;
+          toast('Statement loaded from the SQL editor.', 'info');
+        }
+      });
+    }
+
+    var proveBtn = body.querySelector('[data-ph-prove]');
+    if (proveBtn) {
+      proveBtn.addEventListener('click', function () { onProve(body); });
+    }
+
+    var confirmBtn = body.querySelector('[data-ph-confirm]');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', function () { onConfirm(); });
+    }
+  }
+
+  async function onProve(body) {
+    var e = engine();
+    if (!e) { toast('Proof Harness engine unavailable.', 'error'); return; }
+
+    var claimText = (body.querySelector('#dg-ph-claim') || {}).value || '';
+    var statement = (body.querySelector('#dg-ph-statement') || {}).value || '';
+    var expectedRowCountRaw = (body.querySelector('#dg-ph-expected-rowcount') || {}).value || '';
+    var expected = {};
+    if (expectedRowCountRaw.trim() !== '' && !isNaN(Number(expectedRowCountRaw))) {
+      expected.rowCount = Number(expectedRowCountRaw);
+    }
+
+    var runQuery = resolveRunQuery();
+    if (!runQuery) {
+      toast('SQL engine not ready in this canvas.', 'error');
+    }
+
+    var result = await e.runProofCycle({
+      claimText: claimText,
+      statement: statement,
+      engine: 'duckdb',
+      expected: expected,
+      author: 'human',
+      runQuery: runQuery || function () { throw new Error('SQL engine not ready in this canvas.'); },
+    });
+
+    if (!result.ok) {
+      toast(result.error || 'The proposal could not be built.', 'error');
+      return;
+    }
+
+    _lastProposal = result.proposal;
+    _lastResult = result;
+    _lastConfirm = null;
+
+    if (window.DataGlowTrustLedger && typeof window.DataGlowTrustLedger.record === 'function') {
+      try {
+        window.DataGlowTrustLedger.record({
+          kind: 'gate-verdict',
+          subject: 'Proof Harness',
+          summary: 'A claim was proven with verdict ' + result.verdict.state + '.',
+          outcome: result.verdict.state === 'GREEN' ? 'clear' : (result.verdict.state === 'RED' ? 'blocked' : 'caution'),
+          actor: 'you',
+          detail: { state: result.verdict.state, reasonCode: result.verdict.reasonCode, digest: result.proposal.digest },
+        });
+      } catch (_e) {}
+    } else if (typeof window.ledgerAppendFromSurface === 'function') {
+      try {
+        window.ledgerAppendFromSurface('proof-harness-verdict', {
+          state: result.verdict.state,
+          reasonCode: result.verdict.reasonCode,
+          digest: result.proposal.digest,
+        });
+      } catch (_e) {}
+    }
+
+    renderBody();
+    toast('Verdict: ' + result.verdict.state, result.verdict.state === 'GREEN' ? 'success' : (result.verdict.state === 'RED' ? 'error' : 'info'));
+  }
+
+  async function onConfirm() {
+    var e = engine();
+    if (!e || !_lastResult || !_lastResult.proposal) return;
+    var body = document.getElementById(BODY_ID);
+    var currentStatement = (body && body.querySelector('#dg-ph-statement') || {}).value || '';
+    var proposalToCheck = Object.assign({}, _lastResult.proposal, { statement: currentStatement.trim() });
+    var confirmResult = await e.confirmProposal(proposalToCheck, { by: 'local-user' });
+    _lastConfirm = confirmResult;
+    renderBody();
+    toast(confirmResult.confirmed ? 'Confirmed and bound to this statement.' : confirmResult.reason, confirmResult.confirmed ? 'success' : 'error');
+  }
+
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    if (!flagOn()) return false;
+    ensurePanel().classList.add('open');
+    renderBody();
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  /* ---------------------------- mounting --------------------------------- */
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open the Proof Harness');
+    btn.title = 'VERDICT: prove a claim locally and get a receipt';
+    btn.innerHTML = '<span class="dg-ph-dot" aria-hidden="true"></span><span>VERDICT</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    /* Next to Trust, so the whole "prove it, then trust it" posture reads as
+       one row of buttons. Falls back the same way Trust Ledger's own button
+       does when neither anchor exists. */
+    var anchor = document.getElementById('dg-trust-ledger-btn') || document.getElementById('dg-air-gap-btn') || document.getElementById('dg-shield-packs-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '400px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '400px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+    /* Nothing new to publish on window: js/proof-harness/index.js already
+       publishes window.DataGlowProofHarness with the pure engine calls this
+       module wires into buttons. Publishing a second global here would be a
+       second source of truth for exactly the thing doctrine #5 says must not
+       fork. */
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 860); });
+  } else {
+    setTimeout(boot, 860);
+  }
+})();
+/* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
 window.addEventListener('appinstalled', function() {
     _deferredPrompt = null;
     var bar = document.getElementById('dg-pwa-install-bar');
