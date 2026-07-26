@@ -140850,7 +140850,7 @@ function sortDeep(value) {
  *          schemaFingerprints?: object}} args
  * @returns {Promise<{rejected:true, reason:string} | {rejected:false, cartridge:object}>}
  */
-async function exportCartridge(args) {
+async function exportCartridgeCore(args) {
   const a = isPlainObject(args) ? args : {};
   const proposal = a.proposal;
   const verdict = a.verdict;
@@ -140881,6 +140881,22 @@ async function exportCartridge(args) {
 
   const hash = await sha256Hex(JSON.stringify(sortDeep(payload)));
   return { rejected: false, cartridge: { ...payload, cartridgeHash: `sha256:${hash}` } };
+}
+
+/**
+ * Public exportCartridge(): thin wrapper over exportCartridgeCore(). Kept as
+ * its own named export (rather than just an alias) so a caller that imports
+ * cartridge.js directly -- e.g. an existing test -- keeps working under the
+ * `exportCartridge` name unchanged, while index.js/the canvas inject import
+ * and call `exportCartridgeCore` directly instead of binding a `Pure` alias
+ * that the inject script's import-stripping would otherwise leave undefined.
+ * @param {{proposal: object, verdict: {state:string}, receipt?: object,
+ *          run?: {durationMs?:number, rowCount?:number}, environment?: object,
+ *          schemaFingerprints?: object}} args
+ * @returns {Promise<{rejected:true, reason:string} | {rejected:false, cartridge:object}>}
+ */
+async function exportCartridge(args) {
+  return exportCartridgeCore(args);
 }
 
 /**
@@ -141033,7 +141049,7 @@ function normalizeImportArgs(argsOrCartridge, maybeOpts) {
  * @returns {Promise<{ok:boolean, state:'GREEN'|'RED'|'GRAY', reason:string,
  *   divergence: Array<object>, cartridge?: object}>}
  */
-async function importCartridge(args, opts) {
+async function importCartridgeCore(args, opts) {
   const a = normalizeImportArgs(args, opts);
   const parsedResult = parseCartridge(a.cartridgeText);
   if (parsedResult.rejected) {
@@ -141080,6 +141096,21 @@ async function importCartridge(args, opts) {
   }
 
   return { ok: true, state: 'GREEN', reason: 'Re-running this cartridge on your data reproduces what the cartridge recorded.', divergence: [], cartridge };
+}
+
+/**
+ * Public importCartridge(): thin wrapper over importCartridgeCore(). Kept as
+ * its own named export (rather than just an alias) so a caller that imports
+ * cartridge.js directly -- e.g. an existing test -- keeps working under the
+ * `importCartridge` name unchanged, while index.js/the canvas inject import
+ * and call `importCartridgeCore` directly instead of binding a `Pure` alias
+ * that the inject script's import-stripping would otherwise leave undefined.
+ * @param {{cartridgeText: string|object, runQuery: (sql:string) => Promise<*>,
+ *          compareClaimToRun?: Function}|string|object} args
+ * @param {{runQuery?:Function, compareClaimToRun?:Function}} [opts]
+ */
+async function importCartridge(args, opts) {
+  return importCartridgeCore(args, opts);
 }
 
 const PROOF_CARTRIDGE_TYPE = CARTRIDGE_TYPE;
@@ -141635,7 +141666,7 @@ async function importCartridgeWrapped(args, opts) {
     runQuery: normalized.runQuery,
     compareClaimToRun: typeof normalized.compareClaimToRun === 'function' ? normalized.compareClaimToRun : compareClaimToRun,
   };
-  return importCartridgePure(withScorer);
+  return importCartridgeCore(withScorer);
 }
 
 /**
@@ -141647,7 +141678,7 @@ async function importCartridgeWrapped(args, opts) {
  * @param {object} args
  */
 async function exportCartridgeWrapped(args) {
-  return exportCartridgePure(args);
+  return exportCartridgeCore(args);
 }
 
 /**
@@ -141668,7 +141699,7 @@ async function exportCartridgeWrapped(args) {
  */
 async function roundTripCartridge(args) {
   const a = isPlainObject(args) ? args : {};
-  const exported = await exportCartridgePure({
+  const exported = await exportCartridgeCore({
     proposal: a.proposal,
     verdict: a.verdict,
     run: a.run,
@@ -142801,6 +142832,9 @@ async function roundTripCartridge(args) {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
+
 
 
 
