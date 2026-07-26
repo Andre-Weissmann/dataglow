@@ -171,9 +171,8 @@ publish OK (`canvas/index.html` at the recorded 6,355,122 bytes).
 ## Delivery
 - Branch: `fix/sqlite-proxy-mesh-export`
 - Base: `main` @ `b9add21` (Proof Harness v2.0 foundation, #625)
-- Commit SHA: see PR / `git log -1` on the branch (recorded below once
-  committed)
-- PR (OPEN, **not merged**): recorded below once opened
+- Commit SHA: `51a6ab93e00fca2259ed8f8a31edc806ba2e60aa`
+- PR (OPEN, **not merged**): https://github.com/Andre-Weissmann/dataglow/pull/626
 
 Files changed: `js/proof-harness/data-glow-proof-harness-canvas.js`,
 `test/hotfix-second-engine-sqlite-sql.test.mjs`,
