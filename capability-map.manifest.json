@@ -7478,6 +7478,91 @@
           "proofHarnessV1"
         ],
         "status": "shipped"
+      },
+      {
+        "id": "proof-harness-v2-adversary-excel-mesh",
+        "platforms": [
+          "browser",
+          "desktop"
+        ],
+        "area": "Provenance, audit & trust",
+        "name": "Proof Harness v2.0 foundation: adversary pack, Excel claim path, Proof Mesh attestation",
+        "files": [
+          "js/proof-harness/adversary.js",
+          "js/proof-harness/excel-claim.js",
+          "js/proof-harness/mesh-attestation.js",
+          "js/proof-harness/data-glow-proof-harness-canvas.js",
+          "test/proof-harness-v2-adversary-excel-mesh.test.mjs"
+        ],
+        "symbols": [
+          {
+            "file": "js/proof-harness/adversary.js",
+            "name": "buildMetamorphicRewrites"
+          },
+          {
+            "file": "js/proof-harness/adversary.js",
+            "name": "buildBoundaryProbes"
+          },
+          {
+            "file": "js/proof-harness/adversary.js",
+            "name": "runAdversaryPack"
+          },
+          {
+            "file": "js/proof-harness/adversary.js",
+            "name": "ADVERSARY_MIN_REWRITES"
+          },
+          {
+            "file": "js/proof-harness/excel-claim.js",
+            "name": "parseExcelAggregateClaim"
+          },
+          {
+            "file": "js/proof-harness/excel-claim.js",
+            "name": "excelClaimToSql"
+          },
+          {
+            "file": "js/proof-harness/excel-claim.js",
+            "name": "excelClaimTextToSql"
+          },
+          {
+            "file": "js/proof-harness/excel-claim.js",
+            "name": "EXCEL_CLAIM_SUPPORTED_FUNCTIONS"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "buildSchemaFingerprint"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "exportMeshAttestation"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "importMeshAttestation"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "verifyMeshAttestationHash"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "compareMeshAttestations"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "PROOF_MESH_ATTESTATION_TYPE"
+          },
+          {
+            "file": "js/proof-harness/mesh-attestation.js",
+            "name": "MESH_ATTESTATION_FORBIDDEN_KEYS"
+          }
+        ],
+        "notes": "The foundation slice of PROOF_HARNESS_V2_SPEC.md, composing v0/v1 rather than replacing them: js/proof-harness/adversary.js is the Adversary pack (pillar A) -- buildMetamorphicRewrites() recognizes a simple `SELECT ... FROM t [WHERE ...] [GROUP BY ...]` shape and returns at least 5 semantically-equivalent SQL rewrites (whitespace/case normalize, redundant WHERE 1=1/AND 1=1, an outer SELECT * FROM (...) wrapper, column-list reorder or a second tautology fallback, an ORDER BY injection, and a NOT NOT double-negate), honestly returning [] when the statement is not that shape rather than inventing a pass; buildBoundaryProbes() adds an empty-table (WHERE 1=0) probe plus a null-safe COUNT(1) variant when COUNT(*) appears. runAdversaryPack() executes every rewrite and probe through the caller's injected runQuery, compares each result to the primary run with the same BigInt-coerced epsilon-and-trim discipline second-engine.js's corroborateRun already established, and only ever reports strengthensGreen:true when it actually ran, zero attacks failed, and at least ADVERSARY_MIN_REWRITES (5) passed -- a false GREEN is a release blocker, so a broken rewrite counts as a failed attack, never a silently dropped one. js/proof-harness/excel-claim.js is the Excel claim path (pillar B): parseExcelAggregateClaim() recognizes exactly SUM(col), COUNT(col) (including COUNT(*)), AVERAGE(col)/AVG(col), with an optional trailing on/from <table> clause, and REJECTS with a specific reason (never a guess) any 3D sheet reference, cell range, VBA/macro text, nested function, or unrecognized aggregate name; excelClaimToSql() maps a parsed claim to a quoted DuckDB SELECT statement (quoteIdent discipline restated from js/polyglot/sql-deepen.js) so it can enter the SAME prove cycle as a hand-written SQL claim, never a bespoke Excel-only verdict path; excelClaimTextToSql() is the one-shot convenience. js/proof-harness/mesh-attestation.js is the Proof Mesh attestation (pillar C): exportMeshAttestation() builds a row-free dataglow/proof-mesh-attestation/v1 document (proposal digest, statement text, expected, verdict state/reasonCode, receipt hash, environment, schemaFingerprint, inputDigest, and a content attestationHash), refusing outright if any forbidden row-bearing key (rows/samples/csv/cells/sheetData) is found anywhere in the input tree; importMeshAttestation() and verifyMeshAttestationHash() re-parse and re-hash to catch a tampered or hand-edited attestation; compareMeshAttestations() lets two attestations agree purely on proposalDigest (or statement+expected) plus verdict.state equality, with schemaFingerprint/inputDigest divergence surfaced additionally but never gating agreement on its own -- no source rows ever need to cross the wire to compare proofs. js/proof-harness/data-glow-proof-harness-canvas.js adds an Excel-fill control on the Prove tab (using excel-claim.js's pure engine), an adversary pass/fail note, and mesh attestation export/compare controls, all behind the new proofHarnessV2 flag (umbrella on top of proofHarness/proofHarnessV1); with the flag off, the v1 surface renders byte-for-byte unchanged. All three v2.0 pure modules are independently evaluable and importable even with proofHarnessV2 off. No em dash in any visible text; no merge or publish performed by this change.",
+        "relatedFlags": [
+          "proofHarness",
+          "proofHarnessV1",
+          "proofHarnessV2"
+        ],
+        "status": "shipped"
       }
   ]
 }
