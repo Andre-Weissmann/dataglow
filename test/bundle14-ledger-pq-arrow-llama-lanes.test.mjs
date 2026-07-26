@@ -216,16 +216,23 @@ describe('repair-ledger: export', () => {
 });
 
 describe('repair-ledger: wiring report names the gap', () => {
+  // Bundle 16 aligned WIRING_REPORT_KNOWN_SOURCES with the REAL
+  // REPAIR_LEDGER_KINDS list (it IS that array now, not a second
+  // hand-maintained list of aliases): 'csv_quarantine' -> 'quarantine_decision',
+  // 'excel_hell' -> 'excel_hell_apply', 'sql_recipe' -> 'sql_recipe_run'. See
+  // test/bundle16-ledger-wiring-drill-battery.test.mjs for the full Bundle 16
+  // wiring-residuals coverage; these two cases are updated in place here so
+  // this suite keeps testing the real kind names instead of retired aliases.
   it('lists every known source not yet fired', () => {
     const report = wiringReport({ firedSources: ['type_guard', 'summarize_tiles'] });
-    assert.ok(report.unwired.includes('csv_quarantine'));
-    assert.ok(report.unwired.includes('excel_hell'));
+    assert.ok(report.unwired.includes('quarantine_decision'));
+    assert.ok(report.unwired.includes('excel_hell_apply'));
     assert.equal(report.fired.length, 2);
     assert.match(report.headline, /2 of/);
   });
 
   it('says every surface fired when the full known list is present', () => {
-    const known = ['load', 'csv_quarantine', 'type_guard', 'excel_hell', 'sql_recipe', 'python_recipe', 'r_recipe', 'summarize_tiles', 'export'];
+    const known = ['load', 'quarantine_decision', 'type_guard', 'excel_hell_apply', 'sql_recipe_run', 'python_recipe', 'r_recipe', 'summarize_tiles', 'export'];
     const report = wiringReport({ firedSources: known });
     assert.equal(report.unwired.length, 0);
     assert.match(report.headline, /Every known surface/);

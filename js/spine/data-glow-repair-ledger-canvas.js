@@ -199,6 +199,72 @@
     return state.ledger;
   }
 
+  /* Bundle 16: the single shared place a fired surface is recorded, so
+     wiringReport() has ONE list to read instead of asking each caller (power
+     packs, quarantine, Excel Hell, drill floor...) to keep its own copy in
+     sync. window.DataGlowPowerPacksUI._ledgerFired (Bundle 14) is still read
+     and folded in below for backward compatibility with any build where only
+     that surface fired, but every NEW caller should go through
+     ledgerAppendFromSurface() so this array is the one source of truth. */
+  function firedSources() {
+    if (!Array.isArray(state.ledgerFired)) state.ledgerFired = [];
+    return state.ledgerFired;
+  }
+
+  function markFired(source) {
+    if (typeof source !== 'string' || !source) return;
+    var fired = firedSources();
+    if (fired.indexOf(source) < 0) fired.push(source);
+  }
+
+  /**
+   * Bundle 16 shared helper: append one step to the ledger from ANY surface
+   * (load, quarantine, Excel Hell apply, a Python/R recipe run, an export,
+   * the SQL editor, a drill) with never-throw discipline and one shared
+   * firedSources record. Every call site in this codebase that wires the
+   * Repair Ledger should call this instead of hand-rolling its own try/catch
+   * around DataGlowRepairLedger.appendStep, so a missing engine or a missing
+   * UI mount degrades to "nothing logged" rather than a thrown error the
+   * caller's real feature (a file load, a repair, a recipe run) would have to
+   * survive.
+   *
+   * @param {string} kind  one of REPAIR_LEDGER_KINDS; also the fired-source name
+   * @param {object} [payload]  the rest of buildStep()'s input (title, engine,
+   *   code, status, summary, inputTable, outputTable, recipeId, at)
+   * @returns {object|null} the appended step, or null if nothing was appended
+   */
+  function ledgerAppendFromSurface(kind, payload) {
+    try {
+      var eng = engine('DataGlowRepairLedger');
+      if (!eng || typeof eng.appendStep !== 'function') return null;
+      var arr = ledgerArray();
+      if (!Array.isArray(arr)) return null;
+      var input = Object.assign({}, payload || {}, { kind: kind });
+      var step = eng.appendStep(arr, input);
+      markFired(step.kind);
+      try { refreshChip(); } catch (_e1) {}
+      try { if (state.open) render(); } catch (_e2) {}
+      return step;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /** Every source this session, folding in the Bundle 14 power-packs list so a
+   *  build that still only fires through that path reports accurately. */
+  function allFiredSources() {
+    var out = firedSources().slice();
+    try {
+      var pk = window.DataGlowPowerPacksUI;
+      if (pk && Array.isArray(pk._ledgerFired)) {
+        for (var i = 0; i < pk._ledgerFired.length; i++) {
+          if (out.indexOf(pk._ledgerFired[i]) < 0) out.push(pk._ledgerFired[i]);
+        }
+      }
+    } catch (_e) {}
+    return out;
+  }
+
   function summary() {
     var eng = engine('DataGlowRepairLedger');
     if (!eng || typeof eng.ledgerSummary !== 'function') return null;
@@ -274,16 +340,40 @@
     var exportJsonBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Export JSON');
     exportJsonBtn.addEventListener('click', function () {
       var json = eng.exportLedgerJson(state.ledger);
-      if (download('repair-ledger.json', json, 'application/json')) toast('Ledger exported as JSON.');
+      var wroteFile = download('repair-ledger.json', json, 'application/json');
+      if (wroteFile) toast('Ledger exported as JSON.');
       else copy(json, 'Ledger JSON');
+      /* Bundle 16: the export itself becomes a step, appended AFTER the
+         download so it does not count itself in the JSON/Markdown it just
+         wrote. Recorded directly (not via render()) so an export click never
+         recurses into another render() mid-click. */
+      try {
+        markFired('export');
+        eng.appendStep(state.ledger, {
+          kind: 'export', engine: 'system', title: 'Repair Ledger exported as JSON',
+          summary: wroteFile ? 'Downloaded repair-ledger.json' : 'Copied ledger JSON to the clipboard',
+          status: 'applied',
+        });
+        refreshChip();
+      } catch (_eExp) {}
     });
     actions.appendChild(exportJsonBtn);
 
     var exportMdBtn = el('button', { class: 'dg-lg-btn', type: 'button' }, 'Export Markdown');
     exportMdBtn.addEventListener('click', function () {
       var md = eng.exportLedgerMarkdown(state.ledger);
-      if (download('repair-ledger.md', md, 'text/markdown')) toast('Ledger exported as Markdown.');
+      var wroteFile = download('repair-ledger.md', md, 'text/markdown');
+      if (wroteFile) toast('Ledger exported as Markdown.');
       else copy(md, 'Ledger Markdown');
+      try {
+        markFired('export');
+        eng.appendStep(state.ledger, {
+          kind: 'export', engine: 'system', title: 'Repair Ledger exported as Markdown',
+          summary: wroteFile ? 'Downloaded repair-ledger.md' : 'Copied ledger Markdown to the clipboard',
+          status: 'applied',
+        });
+        refreshChip();
+      } catch (_eExp2) {}
     });
     actions.appendChild(exportMdBtn);
 
@@ -298,12 +388,7 @@
     panel.appendChild(actions);
 
     if (typeof eng.wiringReport === 'function') {
-      var fired = [];
-      try {
-        var pk = window.DataGlowPowerPacksUI;
-        if (pk && Array.isArray(pk._ledgerFired)) fired = fired.concat(pk._ledgerFired);
-      } catch (_e) {}
-      var report = eng.wiringReport({ firedSources: fired });
+      var report = eng.wiringReport({ firedSources: allFiredSources() });
       panel.appendChild(el('p', { class: 'dg-lg-note' }, report.headline));
     }
 
@@ -367,6 +452,37 @@
     if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
   }
 
+  /* Bundle 16: 'load' wiring. Rather than reach into every load path
+     (sample-dataset buttons, dropped CSV/Excel files, the desktop app-shell's
+     runDatasetLoad()), this listens for the ONE event every load path already
+     dispatches when a dataset finishes loading: 'dataglow:dataset-loaded'
+     (canvas), mirrored by a direct call from js/app-shell/main.js's
+     runDatasetLoad() for the non-canvas build, which does not go through
+     this DOM event. Listening instead of hooking each call site means a
+     future load path that also dispatches this event is covered for free. */
+  function onDatasetLoaded(evt) {
+    try {
+      var ds = evt && evt.detail && evt.detail.dataset;
+      if (!ds) return;
+      var table = ds.table || ds.name || '';
+      var rowCount = Array.isArray(ds.rows) ? ds.rows.length : null;
+      ledgerAppendFromSurface('load', {
+        engine: 'system',
+        title: 'Dataset loaded' + (table ? ': ' + table : ''),
+        outputTable: table,
+        summary: table
+          ? ('Loaded ' + table + (rowCount !== null ? ' (' + rowCount + ' rows)' : ''))
+          : 'A dataset finished loading',
+        status: 'applied',
+      });
+    } catch (_e) { /* best-effort; a load must never fail because of this */ }
+  }
+  try {
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('dataglow:dataset-loaded', onDatasetLoaded);
+    }
+  } catch (_eListen) {}
+
   function boot() {
     try {
       if (!ledgerOn()) { unmount(); return; }
@@ -390,6 +506,10 @@
     refresh: render,
     ledgerArray: ledgerArray,
     summary: summary,
+    /* Bundle 16: the shared, never-throwing append every surface should use. */
+    appendFromSurface: ledgerAppendFromSurface,
+    firedSources: allFiredSources,
+    _ledgerFired: firedSources(),
   };
 })();
 /* ---- end js/spine/data-glow-repair-ledger-canvas.js ---- */

@@ -1100,12 +1100,40 @@ async function runDatasetLoad(action) {
   clearEngineError();
   try {
     await action();
+    ledgerAppendLoad();
   } catch (err) {
     console.error('DATAGLOW dataset load failed:', err);
     showEngineError(err, () => runDatasetLoad(action));
   } finally {
     datasetLoadInFlight = false;
   }
+}
+
+// Bundle 16: best-effort, never-throwing Repair Ledger append for a dataset
+// that just finished loading (a sample dataset button OR a dropped CSV/Excel
+// file both funnel through runDatasetLoad, so one hook here covers both).
+// Reads the freshly loaded active dataset's name/table for the ledger row;
+// if none is found (load produced nothing, or the ledger UI is not mounted)
+// this quietly does nothing rather than surfacing an error over a load the
+// user experienced as successful.
+function ledgerAppendLoad() {
+  try {
+    const ui = window.DataGlowRepairLedgerUI;
+    if (!ui || typeof ui.appendFromSurface !== 'function') return;
+    const ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
+    if (!ds) return;
+    const table = ds.table || ds.name || '';
+    const rowCount = Array.isArray(ds.rows) ? ds.rows.length : (typeof ds.rowCount === 'number' ? ds.rowCount : null);
+    ui.appendFromSurface('load', {
+      engine: 'system',
+      title: 'Dataset loaded' + (table ? ': ' + table : ''),
+      outputTable: table,
+      summary: table
+        ? ('Loaded ' + table + (rowCount !== null ? ' (' + rowCount + ' rows)' : ''))
+        : 'A dataset finished loading',
+      status: 'applied',
+    });
+  } catch (_e) { /* best-effort; a load must never fail because of this */ }
 }
 
 // ============================================================
@@ -8415,13 +8443,64 @@ function renderCouncilTab() {
 // numbers plus an optional caveat-flagged likely-cause hint.
 
 let drillFloorLoaded = false;
-const DRILL_FLOOR_ACTIVE_ID = 'spot-the-sale';
+// Bundle 16: which drill is on screen persists across tab re-renders (module-
+// level, like drillFloorLoaded) so switching drills doesn't require re-picking
+// on every render. Defaults to the original Batch 1 drill.
+let drillFloorActiveId = 'spot-the-sale';
+
+// Bundle 16: best-effort, never-throwing RECEIPT-line export for one drill
+// check-answer result. Mirrors the shape other receipt lines in this codebase
+// use (a short human sentence), sent to the same sinks csv-quarantine's
+// receiptLine consumers use when present, and always at least logged to the
+// console so the line exists even in a build with neither sink mounted.
+function drillReceiptLine(scoreResult) {
+  if (!scoreResult) return null;
+  const engineLabel = scoreResult.engine === 'sql' ? 'SQL' : scoreResult.engine === 'python' ? 'Python' : scoreResult.engine === 'r' ? 'R' : String(scoreResult.engine);
+  const verdict = scoreResult.pass ? 'PASS' : 'FAIL';
+  const numbers = scoreResult.expected !== null && scoreResult.expected !== undefined
+    ? `expected ${scoreResult.expected}, got ${scoreResult.got === null || scoreResult.got === undefined ? 'unknown' : scoreResult.got}`
+    : (scoreResult.error || 'no comparable result');
+  return {
+    line: `Drill "${scoreResult.drillId}" (${engineLabel}): ${verdict} - ${numbers}`,
+    drillId: scoreResult.drillId,
+    engine: scoreResult.engine,
+    pass: scoreResult.pass,
+    expected: scoreResult.expected,
+    got: scoreResult.got,
+  };
+}
+
+function recordDrillReceipt(scoreResult) {
+  const line = drillReceiptLine(scoreResult);
+  if (!line) return;
+  try {
+    const t = window.DataGlowTrustLedger;
+    if (t && typeof t.record === 'function') t.record(line);
+  } catch (_e) {}
+  try { console.log('[drill receipt] ' + line.line); } catch (_e2) {}
+  // Bundle 16: a passing/failing drill run is itself worth a Repair Ledger
+  // row when the battery flag is on, via the SAME shared, never-throwing
+  // append every other surface uses.
+  try {
+    const ui = window.DataGlowRepairLedgerUI;
+    if (isEnabled('receiptDrillBattery') && ui && typeof ui.appendFromSurface === 'function') {
+      const kind = scoreResult.engine === 'python' ? 'python_recipe' : scoreResult.engine === 'r' ? 'r_recipe' : 'sql_recipe_run';
+      ui.appendFromSurface(kind, {
+        engine: scoreResult.engine === 'sql' ? 'sql' : scoreResult.engine,
+        title: 'Drill check: ' + scoreResult.drillId,
+        summary: line.line,
+        status: scoreResult.pass ? 'applied' : 'failed',
+      });
+    }
+  } catch (_e3) {}
+}
 
 async function renderDrillFloorTab() {
   const host = document.getElementById('drill-floor-body');
   if (!host) return;
   if (!isEnabled('drillFloor')) { host.innerHTML = ''; drillFloorLoaded = false; return; }
-  const drill = drillFloor.getDrill(DRILL_FLOOR_ACTIVE_ID);
+  const battleOn = isEnabled('receiptDrillBattery');
+  const drill = drillFloor.getDrill(drillFloorActiveId) || drillFloor.DRILLS[0];
   if (!drill) { host.innerHTML = '<p class="empty-state">No drill available.</p>'; return; }
 
   const pane = (lang, label, textId, btnId, outId, code) => `
@@ -8434,22 +8513,64 @@ async function renderDrillFloorTab() {
       <div class="console-log" id="${outId}" data-testid="${outId}" style="min-height:48px;"><span style="color:var(--color-text-faint);">(not run yet)</span></div>
     </div>`;
 
+  // Bundle 16: a drill picker (battery flag on, more than one drill) plus a
+  // per-language "Check answer" affordance and a small honesty note. All net
+  // new markup; the original single-drill shell (still what renders when the
+  // battery flag is off, or only one drill exists) is unchanged below it.
+  const picker = (battleOn && drillFloor.DRILLS.length > 1)
+    ? `<div class="drill-picker" data-testid="drill-picker" style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+        ${drillFloor.DRILLS.map((d) => `<button type="button" class="btn ${d.id === drill.id ? 'btn-primary' : 'btn-secondary'}" data-drill-id="${escapeHtml(d.id)}" data-testid="drill-pick-${escapeHtml(d.id)}">${escapeHtml(d.title)}</button>`).join('')}
+      </div>`
+    : '';
+  const honestyNote = battleOn
+    ? `<p class="drill-honesty-note" data-testid="drill-honesty-note" style="color:var(--color-text-muted); font-size:var(--text-sm); margin:0;">${escapeHtml(drillFloor.DRILL_BATTERY_HONESTY_NOTE)}</p>`
+    : '';
+  const excelNoteHtml = (battleOn && drill.excelNote)
+    ? `<p class="drill-excel-note" data-testid="drill-excel-note" style="color:var(--color-text-muted); font-size:var(--text-sm); margin:0;">${escapeHtml(drill.excelNote)}</p>`
+    : '';
+  const checkRow = (lang, btnId, statusId) => battleOn
+    ? `<div style="display:flex; align-items:center; gap:var(--space-2);">
+        <button type="button" class="btn btn-secondary" id="${btnId}" data-testid="${btnId}">Check answer</button>
+        <span id="${statusId}" data-testid="${statusId}" style="font-size:var(--text-sm); color:var(--color-text-muted);"></span>
+      </div>`
+    : '';
+
   host.innerHTML = `
     <div class="drill-floor" data-testid="drill-floor" style="display:flex; flex-direction:column; gap:var(--space-4);">
-      <header>
+      <header style="display:flex; flex-direction:column; gap:var(--space-2);">
+        ${picker}
         <div style="display:flex; align-items:center; gap:var(--space-2);">
           <h2 style="margin:0;" data-testid="drill-title">${escapeHtml(drill.title)}</h2>
           <span class="badge" data-testid="drill-difficulty">${escapeHtml(drill.difficulty)}</span>
         </div>
         <p data-testid="drill-description" style="color:var(--color-text-muted); margin-top:var(--space-2);">${escapeHtml(drill.description)}</p>
+        ${honestyNote}
+        ${excelNoteHtml}
       </header>
       <div class="drill-grid" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:var(--space-4);">
         ${pane('sql', 'SQL', 'drill-sql-input', 'btn-drill-sql-run', 'drill-sql-output', drill.starterSql)}
         ${pane('python', 'Python', 'drill-py-input', 'btn-drill-py-run', 'drill-py-output', drill.starterPython)}
         ${pane('r', 'R', 'drill-r-input', 'btn-drill-r-run', 'drill-r-output', drill.starterR)}
       </div>
+      <div class="drill-check-row" data-testid="drill-check-row" style="display:flex; gap:var(--space-4); flex-wrap:wrap;">
+        ${checkRow('sql', 'btn-drill-sql-check', 'drill-sql-check-status')}
+        ${checkRow('python', 'btn-drill-py-check', 'drill-py-check-status')}
+        ${checkRow('r', 'btn-drill-r-check', 'drill-r-check-status')}
+      </div>
       <div class="drill-comparison card" id="drill-comparison" data-testid="drill-comparison" style="padding:var(--space-3);"></div>
     </div>`;
+
+  if (picker) {
+    host.querySelectorAll('[data-drill-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-drill-id');
+        if (id && id !== drillFloorActiveId) {
+          drillFloorActiveId = id;
+          renderDrillFloorTab();
+        }
+      });
+    });
+  }
 
   // Load the drill's sample tables once per session. This runs CREATE OR REPLACE
   // TABLE for drill_orders / drill_promos (dedicated names -- they never touch the
@@ -8566,6 +8687,36 @@ async function renderDrillFloorTab() {
     drillResults.r = res;
     updateComparison();
   });
+
+  // Bundle 16: "Check answer" buttons score the LAST run result for that
+  // language against the drill's goldenAnswers (drill-floor.js's pure,
+  // never-throwing scoreDrillAnswer). If the language has not been run yet,
+  // this reports that plainly instead of guessing.
+  if (battleOn) {
+    const wireCheck = (lang, btnId, statusId) => {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const statusEl = document.getElementById(statusId);
+        const latest = drillResults[lang];
+        if (!latest) {
+          if (statusEl) statusEl.textContent = 'Run this language first.';
+          return;
+        }
+        const score = drillFloor.scoreDrillAnswer(drill.id, lang, latest);
+        if (statusEl) {
+          statusEl.textContent = score.pass
+            ? `Pass - ${score.got} row(s), matches the golden answer.`
+            : `Not yet - expected ${score.expected === null ? 'n/a' : score.expected}, got ${score.got === null ? 'unknown' : score.got}.${score.error ? ' (' + score.error + ')' : ''}`;
+          statusEl.style.color = score.pass ? 'var(--color-success, #1a7f37)' : 'var(--color-danger, #cf222e)';
+        }
+        recordDrillReceipt(score);
+      });
+    };
+    wireCheck('sql', 'btn-drill-sql-check', 'drill-sql-check-status');
+    wireCheck('python', 'btn-drill-py-check', 'drill-py-check-status');
+    wireCheck('r', 'btn-drill-r-check', 'drill-r-check-status');
+  }
 }
 
 

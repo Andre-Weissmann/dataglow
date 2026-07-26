@@ -212,6 +212,7 @@
     "test:bundle14canvas": "node test/bundle14-canvas-ui.test.mjs",
     "test:bundle15loadhardenledgerspine": "node --test test/bundle15-duckdb-harden-ledger-spine-replay-dojo.test.mjs",
     "test:bundle15canvas": "node test/bundle15-canvas-ui.test.mjs",
+    "test:bundle16ledgerwiringdrillbattery": "node --test test/bundle16-ledger-wiring-drill-battery.test.mjs",
     "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs",
     "check:capability-map": "node scripts/check-capability-map.mjs",
     "new-module": "node scripts/new-module.mjs"

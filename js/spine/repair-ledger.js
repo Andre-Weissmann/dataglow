@@ -218,6 +218,18 @@ export function exportLedgerMarkdown(ledger) {
 }
 
 /**
+ * Bundle 16: the known list now IS `REPAIR_LEDGER_KINDS` (the same nine kind
+ * strings `buildStep()` normalizes against), instead of a hand-maintained
+ * second list that had drifted to different names for the same surface
+ * ('csv_quarantine' vs the real kind 'quarantine_decision', 'excel_hell' vs
+ * 'excel_hell_apply', 'sql_recipe' vs 'sql_recipe_run'). A caller cannot fire
+ * a source under a name that is not one of the kinds appendStep() will ever
+ * accept, so "known" and "what can actually appear in the ledger" can no
+ * longer say two different things.
+ */
+export const WIRING_REPORT_KNOWN_SOURCES = REPAIR_LEDGER_KINDS;
+
+/**
  * A best-effort record of which upstream surfaces this ledger has ever heard
  * from, so an honest "the following did not wire up" list can be produced
  * instead of a silent gap. Callers pass in which sources fired at least once
@@ -227,10 +239,7 @@ export function exportLedgerMarkdown(ledger) {
  */
 export function wiringReport(input) {
   const inp = isPlainObject(input) ? input : {};
-  const known = Object.freeze([
-    'load', 'csv_quarantine', 'type_guard', 'excel_hell', 'sql_recipe',
-    'python_recipe', 'r_recipe', 'summarize_tiles', 'export',
-  ]);
+  const known = WIRING_REPORT_KNOWN_SOURCES;
   const fired = Array.isArray(inp.firedSources) ? inp.firedSources.filter((s) => typeof s === 'string') : [];
   const unwired = known.filter((k) => fired.indexOf(k) < 0);
   return {
@@ -268,6 +277,7 @@ export const DataGlowRepairLedger = {
   REPAIR_LEDGER_ENGINES,
   REPAIR_LEDGER_STATUSES,
   RERUNNABLE_KINDS,
+  WIRING_REPORT_KNOWN_SOURCES,
   APPLIED_STEPS_EQUIVALENT,
   buildStep,
   appendStep,
