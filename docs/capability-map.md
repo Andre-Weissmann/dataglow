@@ -832,6 +832,24 @@ Bundle 14 adds the Applied Steps list DataGlow never had, a full DuckDB-SQL answ
 
 **Polyglot project lanes** (`js/polyglot/project-lanes.js`, `window.DataGlowProjectLanes`, flag `polyglotProjectLanes`; rendered as a fifth "Project fit" tab in `js/polyglot/data-glow-power-packs-canvas.js`). Four short cards, one per runtime (SQL, Python, Excel, R), each naming a concrete hand-off target and at least one real limit rather than a marketing claim that any lane can do any project. SQL and Python are marked capable of carrying a whole project end to end; Excel and R are not, and `buildProjectLanes()` asserts in its own model that it never claims "any project" for a lane that cannot back it up.
 
+### Proof Harness v0 (VERDICT): typed proposal, verdict engine, receipt ledger, canvas panel
+
+The first slice of the MASTER PROMPT doctrine: "AI proposes. Engines prove. The human confirms." Flag `proofHarness`.
+
+**Typed proposal, the only door into execution** (`js/proof-harness/proposal.js`, `window.DataGlowProofHarness`). `createTypedProposal({statement, engine, expected, tables, author, claimText})` validates the shape and returns a frozen proposal carrying a `sha256:`-prefixed digest over its executable content (`statement`/`engine`/`expected`/`tables`; `author` is deliberately excluded from the digest, since the same statement proposed by AI or by a human is still the same thing to prove). There is no sibling call that lets a raw model string reach an executor directly; a malformed or free-form input is rejected with `{rejected: true, reason}` rather than coerced into something runnable.
+
+**GREEN / RED / GRAY verdict engine** (`js/proof-harness/verdict.js`). `decideVerdict()` returns exactly one of `GREEN` (proven), `RED` (refuted), or `GRAY` (not provable, blocker named). v0 does not implement `AMBER` staleness (that is v1 scope), and the verdict itself never carries a confidence percentage, only a `reasonCode` and a one-line reason or blocker.
+
+**Claim scoring restates Drill Floor's discipline, does not reinvent it** (`js/proof-harness/score-claim.js`). `compareClaimToRun()` checks `rowCount`/`rowcountBand` and named scalars using the exact epsilon-and-trim comparison `js/drill-floor/drill-floor.js`'s `scoreDrillAnswer`/`scalarMatches` already established, so a claim is scored the same way a drill answer is.
+
+**Hash-chained receipt ledger** (`js/proof-harness/receipt.js`). `createReceiptLedger()` is an append-only, SHA-256 hash-chained ledger of receipts shaped like the MASTER PROMPT's in-toto/SLSA-flavored predicate (`subject`, `predicate.{claim,proposal,inputs,run,verdict,confirm}`), composing the same genesis-anchor and canonical-JSON chain discipline `js/provenance/trust-ledger.js` already shipped rather than adding a second crypto stack. `append()` is the only mutator, there is no update or delete, and `verifyReceiptChain()` re-derives every hash and names the first broken link.
+
+**Proof cycle wiring** (`js/proof-harness/index.js`, publishes `window.DataGlowProofHarness`). `runProofCycle()` chains proposal, an injected engine run, verdict, and receipt in one call; `confirmProposal()` is digest-bound, so editing the statement after Prove was last run invalidates the pending confirm and requires a fresh Prove. Re-exports the proposal/verdict/score/receipt building blocks so a single import surfaces the whole engine.
+
+**VERDICT panel** (`js/proof-harness/data-glow-proof-harness-canvas.js`). A claim bar plus a one-card review inbox, not a chat panel, per doctrine: an editable claim/statement field, a Prove button that resolves the SAME live DuckDB engine Drill Floor's SQL Run/Check path already uses (`resolveDrillSqlRunQuery` / `window.engine.runQuery` / the DuckDB singleton, see Bundle 18 hotfix 5, #613, no second wasm load path), a GREEN/RED/GRAY verdict chip with a one-line reason, an expandable receipt (row count, duration, digest, statement), and a digest-bound Confirm button that is only ever enabled after a Prove has run. When present, `window.DataGlowTrustLedger.record()` also receives a row for each prove cycle, composing the existing Trust Ledger rather than opening a second one. No em dash in any visible text.
+
+`test/proof-harness-v0.test.mjs` covers proposal digest stability and free-form-input rejection, all three verdict outcomes plus the closed `VERDICT_STATES` vocabulary excluding `AMBER` in v0, the score-claim comparison helpers, receipt append-only growth and tamper detection, confirm digest-binding across an edit, and an end-to-end `runProofCycle()` for both a successful and a throwing injected engine call.
+
 ## Registry and scaffold tooling
 
 ### Capability registry as data
