@@ -44,6 +44,7 @@ export const VERDICT_REASON_CODES = Object.freeze({
   MATCH: 'match',
   CORROBORATION_DISAGREE: 'corroboration-disagree',
   STALE_DIGEST: 'stale-digest',
+  ADVERSARY_FAIL: 'adversary-fail',
 });
 
 function isPlainObject(v) {
@@ -73,6 +74,16 @@ function isPlainObject(v) {
  *   7. Second Engine Rule (v1): a candidate GREEN is only FINAL once any
  *      supplied `corroboration` result is checked -- corroboration.agrees
  *      === false blocks GREEN and forces RED, never silently passing through
+ *   8. Adversary Pack (v2 foundation): a candidate GREEN that survives
+ *      corroboration is checked once more against any supplied
+ *      `adversarial` report -- `adversarial.ran === true` with
+ *      `failCount > 0` blocks GREEN and forces RED (ADVERSARY_FAIL), the
+ *      same "only ever pulls a candidate GREEN DOWN, never invents one"
+ *      shape as the Second Engine Rule. A skipped pack (`ran` falsy, not a
+ *      rewriteable statement shape, or no engine to attack with) never
+ *      blocks GREEN -- absence of an attack is not evidence against the
+ *      claim, so the honest report says so via `skipped`/`reason` rather
+ *      than forcing anything.
  *
  * @param {{claim?: {text?:string, scalars?:object, rowCount?:number}|null,
  *          run?: {status?:'ok'|'error', rowCount?:number|null, scalars?:object,
@@ -82,7 +93,9 @@ function isPlainObject(v) {
  *          comparison?: {pass:boolean, mismatches?: Array<object>}|null,
  *          corroboration?: {engine?:string, agrees?:boolean, tolerance?:number,
  *                 divergence_class?:string|null, ran?:boolean}|null,
- *          staleness?: {stale:boolean, reason?:string}|null}} args
+ *          staleness?: {stale:boolean, reason?:string}|null,
+ *          adversarial?: {ran?:boolean, skipped?:boolean, failCount?:number,
+ *                 passCount?:number}|null}} args
  * @returns {{state:'GREEN'|'RED'|'GRAY'|'AMBER', reasonCode:string, reason:string, blocker:string|null}}
  */
 export function decideVerdict(args) {
@@ -140,6 +153,7 @@ export function decideVerdict(args) {
   }
 
   const corroboration = isPlainObject(a.corroboration) ? a.corroboration : null;
+  const adversarial = isPlainObject(a.adversarial) ? a.adversarial : null;
 
   // Second Engine Rule (v1): wraps every candidate-GREEN return below. A
   // supplied corroboration result with agrees === false blocks GREEN
@@ -149,6 +163,14 @@ export function decideVerdict(args) {
   // is itself a definite, checkable fact. agrees === true or no corroboration
   // supplied at all (single-engine, v0 strength) both let the candidate
   // GREEN stand unchanged.
+  //
+  // Adversary Pack (v2 foundation): checked AFTER corroboration, same
+  // "only ever pulls GREEN down" shape. `adversarial.ran === true` with at
+  // least one failed attack forces RED (ADVERSARY_FAIL) -- a candidate that
+  // could not survive a cheap metamorphic rewrite or boundary probe of
+  // itself was never actually proven, corroboration agreement notwithstanding.
+  // A skipped pack (`ran` falsy) is honestly not evidence either way and
+  // never blocks GREEN.
   function gateGreen(candidate) {
     if (corroboration && corroboration.agrees === false) {
       const divergence = typeof corroboration.divergence_class === 'string' && corroboration.divergence_class.trim()
@@ -160,6 +182,14 @@ export function decideVerdict(args) {
         reasonCode: VERDICT_REASON_CODES.CORROBORATION_DISAGREE,
         reason: `The primary engine and ${engineName} do not agree on this result.`,
         blocker: `Corroboration disagreement (${divergence}): the second engine did not reproduce the primary engine's result within tolerance.`,
+      };
+    }
+    if (adversarial && adversarial.ran === true && typeof adversarial.failCount === 'number' && adversarial.failCount > 0) {
+      return {
+        state: 'RED',
+        reasonCode: VERDICT_REASON_CODES.ADVERSARY_FAIL,
+        reason: 'A cheap adversarial rewrite or boundary probe of this statement did not agree with the primary result.',
+        blocker: `Adversary pack: ${adversarial.failCount} of ${adversarial.failCount + (adversarial.passCount || 0)} attack(s) disagreed with the primary run.`,
       };
     }
     return candidate;

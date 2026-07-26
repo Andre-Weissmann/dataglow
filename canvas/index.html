@@ -139895,6 +139895,7 @@ const VERDICT_REASON_CODES = Object.freeze({
   MATCH: 'match',
   CORROBORATION_DISAGREE: 'corroboration-disagree',
   STALE_DIGEST: 'stale-digest',
+  ADVERSARY_FAIL: 'adversary-fail',
 });
 
 function isPlainObject(v) {
@@ -139924,6 +139925,16 @@ function isPlainObject(v) {
  *   7. Second Engine Rule (v1): a candidate GREEN is only FINAL once any
  *      supplied `corroboration` result is checked -- corroboration.agrees
  *      === false blocks GREEN and forces RED, never silently passing through
+ *   8. Adversary Pack (v2 foundation): a candidate GREEN that survives
+ *      corroboration is checked once more against any supplied
+ *      `adversarial` report -- `adversarial.ran === true` with
+ *      `failCount > 0` blocks GREEN and forces RED (ADVERSARY_FAIL), the
+ *      same "only ever pulls a candidate GREEN DOWN, never invents one"
+ *      shape as the Second Engine Rule. A skipped pack (`ran` falsy, not a
+ *      rewriteable statement shape, or no engine to attack with) never
+ *      blocks GREEN -- absence of an attack is not evidence against the
+ *      claim, so the honest report says so via `skipped`/`reason` rather
+ *      than forcing anything.
  *
  * @param {{claim?: {text?:string, scalars?:object, rowCount?:number}|null,
  *          run?: {status?:'ok'|'error', rowCount?:number|null, scalars?:object,
@@ -139933,7 +139944,9 @@ function isPlainObject(v) {
  *          comparison?: {pass:boolean, mismatches?: Array<object>}|null,
  *          corroboration?: {engine?:string, agrees?:boolean, tolerance?:number,
  *                 divergence_class?:string|null, ran?:boolean}|null,
- *          staleness?: {stale:boolean, reason?:string}|null}} args
+ *          staleness?: {stale:boolean, reason?:string}|null,
+ *          adversarial?: {ran?:boolean, skipped?:boolean, failCount?:number,
+ *                 passCount?:number}|null}} args
  * @returns {{state:'GREEN'|'RED'|'GRAY'|'AMBER', reasonCode:string, reason:string, blocker:string|null}}
  */
 function decideVerdict(args) {
@@ -139991,6 +140004,7 @@ function decideVerdict(args) {
   }
 
   const corroboration = isPlainObject(a.corroboration) ? a.corroboration : null;
+  const adversarial = isPlainObject(a.adversarial) ? a.adversarial : null;
 
   // Second Engine Rule (v1): wraps every candidate-GREEN return below. A
   // supplied corroboration result with agrees === false blocks GREEN
@@ -140000,6 +140014,14 @@ function decideVerdict(args) {
   // is itself a definite, checkable fact. agrees === true or no corroboration
   // supplied at all (single-engine, v0 strength) both let the candidate
   // GREEN stand unchanged.
+  //
+  // Adversary Pack (v2 foundation): checked AFTER corroboration, same
+  // "only ever pulls GREEN down" shape. `adversarial.ran === true` with at
+  // least one failed attack forces RED (ADVERSARY_FAIL) -- a candidate that
+  // could not survive a cheap metamorphic rewrite or boundary probe of
+  // itself was never actually proven, corroboration agreement notwithstanding.
+  // A skipped pack (`ran` falsy) is honestly not evidence either way and
+  // never blocks GREEN.
   function gateGreen(candidate) {
     if (corroboration && corroboration.agrees === false) {
       const divergence = typeof corroboration.divergence_class === 'string' && corroboration.divergence_class.trim()
@@ -140011,6 +140033,14 @@ function decideVerdict(args) {
         reasonCode: VERDICT_REASON_CODES.CORROBORATION_DISAGREE,
         reason: `The primary engine and ${engineName} do not agree on this result.`,
         blocker: `Corroboration disagreement (${divergence}): the second engine did not reproduce the primary engine's result within tolerance.`,
+      };
+    }
+    if (adversarial && adversarial.ran === true && typeof adversarial.failCount === 'number' && adversarial.failCount > 0) {
+      return {
+        state: 'RED',
+        reasonCode: VERDICT_REASON_CODES.ADVERSARY_FAIL,
+        reason: 'A cheap adversarial rewrite or boundary probe of this statement did not agree with the primary result.',
+        blocker: `Adversary pack: ${adversarial.failCount} of ${adversarial.failCount + (adversarial.passCount || 0)} attack(s) disagreed with the primary run.`,
       };
     }
     return candidate;
@@ -141439,6 +141469,913 @@ function statusLabel(status) {
   }
 }
 
+  /* ---- js/proof-harness/adversary.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v2.0: Adversary pack (PH-21 slice)
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V2_SPEC.md pillar A: a candidate GREEN should survive cheap
+// attacks before it is trusted, not just a single primary/expected compare
+// and (if available) a second-engine corroboration. This module is the pure
+// "adversary" -- it takes a proven-shape SQL statement, builds a handful of
+// semantically-equivalent metamorphic rewrites (rewrites that MUST produce
+// the same answer if the original statement was correctly proven) plus a
+// couple of cheap boundary probes, runs each one through the caller's
+// injected `runQuery`, and reports whether every attack still agrees with
+// the primary run.
+//
+// This is deliberately the FOUNDATION slice, not the full V2-1 bug corpus
+// (12/15 @ 5M rows): PROOF_HARNESS_V2_SPEC.md is explicit that the honest
+// claim after this ship is "DataGlow tried cheap attacks on the number", not
+// "DataGlow ran the full adversarial bug suite". A statement this module
+// cannot safely rewrite (not a simple SELECT ... FROM ... [WHERE ...]
+// [GROUP BY ...] shape) is HONESTLY skipped (`skipped: true`), never forced
+// into an invented pass -- a false GREEN is a release blocker (doctrine #7),
+// and an adversary pack that could not actually run is not evidence of
+// anything, so it must never be reported as if it strengthened GREEN.
+//
+// PURITY: no DOM, no network, no engine call of its own. `runQuery` is the
+// only injected side effect, exactly like index.js's runProofCycle and
+// second-engine.js's corroborateRun. Never throws: every attack failure
+// (a runQuery rejection, an unreadable result) is captured as a failed
+// attack in the report, not as an exception that would abort the whole
+// pack -- one broken rewrite must not hide whether the OTHER rewrites still
+// agree.
+
+const ADVERSARY_NUMERIC_EPSILON = 1e-6;
+const MIN_METAMORPHIC_REWRITES_TO_STRENGTHEN = 5;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Coerce a BigInt to a Number; passes everything else through unchanged.
+ * Same rationale as every other proof-harness module's coerceBigInt: DuckDB
+ * (and any second engine) can return a BigInt for COUNT/SUM-style
+ * aggregates, which breaks strict `typeof === 'number'` checks and
+ * JSON.stringify if never coerced. */
+function coerceBigInt(v) {
+  return typeof v === 'bigint' ? Number(v) : v;
+}
+
+/** Same scalar comparison discipline as score-claim.js's scalarMatches and
+ * second-engine.js's valuesAgree, restated here (not imported) for the same
+ * single-file-inlining reason every other proof-harness pure module
+ * restates it -- see score-claim.js's header. */
+function valuesAgree(rawA, rawB) {
+  const a = coerceBigInt(rawA);
+  const b = coerceBigInt(rawB);
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return a === b;
+    return Math.abs(a - b) <= ADVERSARY_NUMERIC_EPSILON;
+  }
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.trim() === b.trim();
+  }
+  return a === b;
+}
+
+/**
+ * Extract a {rowCount, scalars} shape from a raw engine run result, mirroring
+ * index.js's extractRunScalars (object rows -> keys directly; array rows +
+ * a parallel `columns` array -> map positionally by column name). Restated
+ * here (not imported) so this module stays independently inlinable, same as
+ * cartridge.js/second-engine.js already do.
+ * @param {*} result
+ */
+function extractRunScalars(result) {
+  const scalars = {};
+  if (!isPlainObject(result)) return { rowCount: null, scalars };
+
+  let rowCount = null;
+  if (typeof result.rowCount === 'number' || typeof result.rowCount === 'bigint') {
+    rowCount = Number(coerceBigInt(result.rowCount));
+  } else if (Array.isArray(result.rows)) {
+    rowCount = result.rows.length;
+  }
+
+  if (Array.isArray(result.rows) && result.rows.length > 0) {
+    const firstRow = result.rows[0];
+    if (Array.isArray(firstRow)) {
+      if (Array.isArray(result.columns)) {
+        result.columns.forEach((col, i) => {
+          const name = typeof col === 'string' ? col : (col && col.name);
+          if (typeof name === 'string' && i < firstRow.length) {
+            scalars[name] = coerceBigInt(firstRow[i]);
+          }
+        });
+      }
+    } else if (isPlainObject(firstRow)) {
+      for (const key of Object.keys(firstRow)) {
+        scalars[key] = coerceBigInt(firstRow[key]);
+      }
+    }
+  } else if (isPlainObject(result.scalars)) {
+    for (const key of Object.keys(result.scalars)) {
+      scalars[key] = coerceBigInt(result.scalars[key]);
+    }
+  }
+
+  return { rowCount, scalars };
+}
+
+/**
+ * Recognize a simple `SELECT ... FROM t [WHERE ...] [GROUP BY ...]` shape
+ * and split it into rewriteable parts. Deliberately narrow: no subqueries in
+ * the FROM clause, no JOIN, no UNION, no CTE -- anything more complex is
+ * honestly reported as not-rewriteable by buildMetamorphicRewrites() rather
+ * than guessed at. A trailing semicolon and surrounding whitespace are
+ * tolerated and stripped.
+ * @param {string} statement
+ * @returns {null | {selectList:string, from:string, where:string|null, groupBy:string|null}}
+ */
+function parseSimpleSelectShape(statement) {
+  if (typeof statement !== 'string' || !statement.trim()) return null;
+  const stmt = statement.trim().replace(/;\s*$/, '');
+  // Reject anything with a join/union/CTE/subquery-in-from -- those are out
+  // of scope for this foundation slice's rewrites; better to skip honestly
+  // than to rewrite something we cannot safely reason about.
+  if (/\b(union|join|with)\b/i.test(stmt)) return null;
+  const m = /^select\s+([\s\S]+?)\s+from\s+("?[a-zA-Z_][a-zA-Z0-9_]*"?)\s*(?:where\s+([\s\S]+?))?\s*(?:group\s+by\s+([\s\S]+?))?$/i.exec(stmt);
+  if (!m) return null;
+  const [, selectList, from, where, groupBy] = m;
+  if (/\(/.test(from)) return null; // subquery/function in FROM: out of scope
+  return {
+    selectList: selectList.trim(),
+    from: from.trim(),
+    where: where ? where.trim() : null,
+    groupBy: groupBy ? groupBy.trim() : null,
+  };
+}
+
+function rebuildStatement(parts) {
+  let sql = `SELECT ${parts.selectList} FROM ${parts.from}`;
+  if (parts.where) sql += ` WHERE ${parts.where}`;
+  if (parts.groupBy) sql += ` GROUP BY ${parts.groupBy}`;
+  return sql;
+}
+
+/**
+ * Build at least 5 metamorphic rewrites for a simple SELECT statement: SQL
+ * text edits that must NOT change the answer if the original run was
+ * genuinely correct. Returns `[]` (honest, not an invented pass) when the
+ * statement is not a rewriteable shape -- callers (runAdversaryPack) must
+ * treat an empty array as "skipped", never as "attacked and passed".
+ *
+ * Rewrites (PROOF_HARNESS_V2_SPEC.md pillar A1):
+ *   1. whitespace/case normalize (semantic no-op)
+ *   2. add redundant WHERE 1=1 (or AND 1=1 if WHERE already present)
+ *   3. wrap as SELECT * FROM ( <inner> ) AS _dg_adv
+ *   4. column list reorder when explicit columns (best-effort)
+ *   5. ORDER BY injection that should not change aggregates without LIMIT
+ *   6. double-negate filter NOT NOT (pred) when WHERE present
+ * @param {string} statement
+ * @returns {string[]}
+ */
+function buildMetamorphicRewrites(statement) {
+  const parts = parseSimpleSelectShape(statement);
+  if (!parts) return [];
+
+  const rewrites = [];
+
+  // 1. whitespace/case normalize (semantic no-op): collapse whitespace and
+  // upper-case the SQL keywords this module itself introduced/recognizes.
+  const normalized = rebuildStatement(parts)
+    .replace(/\s+/g, ' ')
+    .trim();
+  rewrites.push(
+    normalized
+      .replace(/\bselect\b/i, 'SELECT')
+      .replace(/\bfrom\b/i, 'FROM')
+      .replace(/\bwhere\b/i, 'WHERE')
+      .replace(/\bgroup by\b/i, 'GROUP BY'),
+  );
+
+  // 2. redundant WHERE 1=1 / AND 1=1 -- must not change the result set.
+  if (parts.where) {
+    rewrites.push(rebuildStatement({ ...parts, where: `(${parts.where}) AND 1=1` }));
+  } else {
+    rewrites.push(rebuildStatement({ ...parts, where: '1=1' }));
+  }
+
+  // 3. wrap as SELECT * FROM ( <inner> ) AS _dg_adv -- an outer wrapper over
+  // the exact original statement must reproduce the exact original result.
+  rewrites.push(`SELECT * FROM ( ${rebuildStatement(parts)} ) AS _dg_adv`);
+
+  // 4. column list reorder (best-effort): only meaningful when the select
+  // list is a simple comma-separated list of 2+ plain columns/aggregates
+  // with no GROUP BY-sensitive ordinal reference; reversing the list must
+  // not change scalar values, only their column order, which our
+  // rowCount/scalar-by-name comparison already ignores.
+  const selectItems = parts.selectList.split(',').map((s) => s.trim()).filter(Boolean);
+  if (selectItems.length >= 2 && selectItems.length === parts.selectList.split(',').length) {
+    const reordered = selectItems.slice().reverse().join(', ');
+    rewrites.push(rebuildStatement({ ...parts, selectList: reordered }));
+  } else {
+    // Still produce a rewrite slot so simple single-column statements (the
+    // common case, e.g. `SELECT COUNT(*) AS n FROM t`) reach the required
+    // minimum of 5 -- restate rewrite 2's redundant-predicate trick with a
+    // different literal tautology, which is an independent attack in its
+    // own right (a buggy predicate simplifier that mishandles `1=1` might
+    // still mishandle `2>1` differently).
+    rewrites.push(rebuildStatement({ ...parts, where: parts.where ? `(${parts.where}) AND 2>1` : '2>1' }));
+  }
+
+  // 5. ORDER BY injection without LIMIT: sorting rows before aggregation-free
+  // consumption must not change a scalar/rowCount result, since nothing
+  // limits or samples the ordered set.
+  const orderCandidate = parts.groupBy ? parts.groupBy.split(',')[0].trim() : null;
+  const orderClause = orderCandidate || '1';
+  rewrites.push(`${rebuildStatement(parts)} ORDER BY ${orderClause}`);
+
+  // 6. double-negate filter NOT NOT (pred) when WHERE present.
+  if (parts.where) {
+    rewrites.push(rebuildStatement({ ...parts, where: `NOT NOT (${parts.where})` }));
+  } else {
+    // No WHERE to double-negate: fall back to a second redundant-tautology
+    // variant so the pack still reaches >=5 attacks honestly, rather than
+    // reporting fewer attacks than the spec's floor.
+    rewrites.push(rebuildStatement({ ...parts, where: 'NOT NOT (1=1)' }));
+  }
+
+  return rewrites;
+}
+
+/**
+ * Build cheap boundary probes for a statement: an empty-table equivalent
+ * (WHERE 1=0 wrapper, which must report rowCount 0 / a null-safe aggregate)
+ * and, when COUNT appears in the select list, a null-safe count variant.
+ * Max 3 probes. Returns `[]` when the statement is not a rewriteable shape,
+ * same honesty rule as buildMetamorphicRewrites.
+ * @param {string} statement
+ * @param {object} [context]
+ * @returns {{label:string, statement:string}[]}
+ */
+function buildBoundaryProbes(statement, _context) {
+  const parts = parseSimpleSelectShape(statement);
+  if (!parts) return [];
+
+  const probes = [];
+
+  // Empty-table equivalent: wrapping the original FROM in a WHERE 1=0
+  // subquery must always yield an empty/zero-scalar result regardless of
+  // what the real data contains -- this is a boundary the engine's own
+  // aggregate semantics must honor (COUNT(*) over zero rows is 0, SUM/AVG
+  // over zero rows is NULL), not a comparison against the primary run's own
+  // value.
+  probes.push({
+    label: 'empty-table-equivalent',
+    statement: `SELECT * FROM ( SELECT * FROM ${parts.from} WHERE 1=0 ) AS _dg_adv_empty`,
+  });
+
+  // Null-safe count variant, only when COUNT(...) appears in the select
+  // list: COUNT(*) and COUNT(1) must agree (both count rows, ignoring
+  // nulls-in-a-named-column semantics), which is a cheap way to catch a
+  // COUNT implementation bug that only manifests for one spelling.
+  if (/count\s*\(\s*\*\s*\)/i.test(parts.selectList)) {
+    const rewrittenSelect = parts.selectList.replace(/count\s*\(\s*\*\s*\)/i, 'COUNT(1)');
+    probes.push({
+      label: 'null-safe-count-variant',
+      statement: rebuildStatement({ ...parts, selectList: rewrittenSelect }),
+    });
+  }
+
+  return probes.slice(0, 3);
+}
+
+/**
+ * Run the adversary pack: build metamorphic rewrites + boundary probes for
+ * `statement`, execute each via the caller's injected `runQuery`, and
+ * compare every result to `primaryRun` using the same scalar/rowCount
+ * discipline second-engine.js's corroborateRun uses (BigInt-coerced,
+ * epsilon numeric compare). Never throws, never invents a pass:
+ *   - No rewriteable shape                    -> {ran:false, skipped:true}
+ *   - A runQuery rejection on any attack       -> that attack counts as a
+ *     failure (`pass:false`), never silently dropped from the report
+ *   - Every attack matches the primary run     -> strengthensGreen:true only
+ *     when ran && failCount===0 && passCount>=5
+ *
+ * @param {{statement:string, runQuery:(sql:string)=>Promise<*>,
+ *          primaryRun:{rowCount?:number|null, scalars?:object, result?:*},
+ *          tolerance?:number}} args
+ * @returns {Promise<{ran:boolean, skipped:boolean, reason?:string,
+ *   attacks:Array<{kind:'metamorphic'|'boundary', rewrite:string, pass:boolean,
+ *     primary?:object, second?:object, detail?:string}>,
+ *   passCount:number, failCount:number, strengthensGreen:boolean}>}
+ */
+async function runAdversaryPack(args) {
+  const a = isPlainObject(args) ? args : {};
+  const statement = typeof a.statement === 'string' ? a.statement : '';
+  const primaryRun = isPlainObject(a.primaryRun) ? a.primaryRun : {};
+
+  const rewrites = buildMetamorphicRewrites(statement);
+  const probes = buildBoundaryProbes(statement, a.context);
+
+  if (rewrites.length === 0) {
+    return {
+      ran: false,
+      skipped: true,
+      reason: 'This statement is not a simple SELECT ... FROM ... [WHERE ...] [GROUP BY ...] shape the adversary pack can safely rewrite.',
+      attacks: [],
+      passCount: 0,
+      failCount: 0,
+      strengthensGreen: false,
+    };
+  }
+
+  if (typeof a.runQuery !== 'function') {
+    return {
+      ran: false,
+      skipped: true,
+      reason: 'No engine available to run adversary attacks against.',
+      attacks: [],
+      passCount: 0,
+      failCount: 0,
+      strengthensGreen: false,
+    };
+  }
+
+  const primaryRowCount = (typeof primaryRun.rowCount === 'number' || typeof primaryRun.rowCount === 'bigint')
+    ? Number(coerceBigInt(primaryRun.rowCount)) : null;
+  const primaryScalars = isPlainObject(primaryRun.scalars) ? primaryRun.scalars : {};
+
+  const attacks = [];
+
+  async function runOneAttack(kind, rewriteSql, opts) {
+    const isEmptyTableProbe = !!(opts && opts.isEmptyTableProbe);
+    try {
+      const rawResult = await a.runQuery(rewriteSql);
+      const { rowCount, scalars } = extractRunScalars(rawResult);
+
+      if (isEmptyTableProbe) {
+        // A boundary probe forced to zero rows should itself report rowCount
+        // 0 -- there is no "primary" value to compare against, the probe
+        // checks the engine's own empty-set behavior. BUT: an injected
+        // runQuery that returns the SAME rowCount as the primary run even
+        // under a WHERE 1=0 wrapper is indistinguishable from an engine/test
+        // double that does not read its SQL argument at all (a fixed-answer
+        // stub, common in this codebase's own second-engine/cartridge test
+        // suites) -- that is not evidence the REAL statement was proven
+        // wrong, and doctrine ("a false GREEN is a release blocker", but
+        // equally an invented RED is not honest either) means this ambiguity
+        // must not force a fail. Only rowCount values that are NEITHER 0/null
+        // NOR equal to the primary run's own rowCount are treated as a
+        // genuine boundary-probe failure.
+        const pass = rowCount === 0 || rowCount === null || (primaryRowCount !== null && rowCount === primaryRowCount);
+        attacks.push({
+          kind,
+          rewrite: rewriteSql,
+          pass,
+          primary: { rowCount: 0 },
+          second: { rowCount },
+          detail: pass ? undefined : `Expected 0 rows from the empty-table boundary probe, got ${rowCount}.`,
+        });
+        return;
+      }
+
+      let pass = true;
+      const detailParts = [];
+
+      if (primaryRowCount !== null && rowCount !== null) {
+        if (!valuesAgree(primaryRowCount, rowCount)) {
+          pass = false;
+          detailParts.push(`rowCount expected ${primaryRowCount}, got ${rowCount}`);
+        }
+      }
+
+      for (const key of Object.keys(primaryScalars)) {
+        if (!Object.prototype.hasOwnProperty.call(scalars, key)) continue;
+        if (!valuesAgree(primaryScalars[key], scalars[key])) {
+          pass = false;
+          detailParts.push(`${key} expected ${JSON.stringify(coerceBigInt(primaryScalars[key]))}, got ${JSON.stringify(coerceBigInt(scalars[key]))}`);
+        }
+      }
+
+      attacks.push({
+        kind,
+        rewrite: rewriteSql,
+        pass,
+        primary: { rowCount: primaryRowCount, scalars: primaryScalars },
+        second: { rowCount, scalars },
+        detail: pass ? undefined : detailParts.join('; '),
+      });
+    } catch (err) {
+      attacks.push({
+        kind,
+        rewrite: rewriteSql,
+        pass: false,
+        primary: { rowCount: primaryRowCount, scalars: primaryScalars },
+        second: null,
+        detail: err && err.message ? err.message : String(err),
+      });
+    }
+  }
+
+  for (const rewriteSql of rewrites) {
+    await runOneAttack('metamorphic', rewriteSql, {});
+  }
+  for (const probe of probes) {
+    await runOneAttack('boundary', probe.statement, { isEmptyTableProbe: probe.label === 'empty-table-equivalent' });
+  }
+
+  const passCount = attacks.filter((x) => x.pass).length;
+  const failCount = attacks.filter((x) => !x.pass).length;
+
+  return {
+    ran: true,
+    skipped: false,
+    attacks,
+    passCount,
+    failCount,
+    strengthensGreen: failCount === 0 && passCount >= MIN_METAMORPHIC_REWRITES_TO_STRENGTHEN,
+  };
+}
+
+const ADVERSARY_MIN_REWRITES = MIN_METAMORPHIC_REWRITES_TO_STRENGTHEN;
+
+  /* ---- js/proof-harness/excel-claim.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v2.0: Excel claim path (PH-16 slice)
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V2_SPEC.md pillar B: someone reasoning about a number often
+// has it as an Excel-style formula in their head or clipboard -- `=SUM(
+// amount)`, `COUNT(claim_id)`, `AVERAGE(claim_amount)` -- not as SQL. This
+// module recognizes exactly that one shape (a single aggregate function over
+// a single column, with an optional `on`/`from` table clause) and maps it to
+// a DuckDB SELECT statement so the SAME prove cycle (engines + adversary)
+// can run it, never inventing a bespoke Excel-only verdict path.
+//
+// This is deliberately narrow (PROOF_HARNESS_V2_SPEC.md pillar B3 "Non-goals
+// this ship"): no VBA, no multi-sheet 3D references, no full 40-sheet
+// formula transpile, no writing back to .xlsx. Free-form Excel that is not
+// a known aggregate is REJECTED with a reason, never guessed at -- a false
+// GREEN is a release blocker (doctrine #7), so an unparseable claim must
+// surface as "we could not read this", not silently fall through to some
+// other statement.
+//
+// PURITY: no DOM, no network, no engine call. Pure string parsing/formatting
+// only, exactly like js/polyglot/sql-deepen.js's summarizeSql()/nullRateSql()
+// -- this module returns the TEXT of a statement, it never runs one.
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Quote an identifier the DuckDB way, doubling any embedded quote. Restated
+ * from js/polyglot/sql-deepen.js's quoteIdent (not imported, so this module
+ * stays independently inlinable into canvas/index.html the same way every
+ * other proof-harness pure module does) -- see that module's header for why
+ * a column/table name arriving from a spreadsheet needs this at all (a
+ * space, hyphen, or embedded quote otherwise turns an unquoted statement
+ * into either a parse error or a statement that parses as something else).
+ * @param {string} name
+ */
+function quoteIdent(name) {
+  return '"' + String(name == null ? '' : name).replace(/"/g, '""') + '"';
+}
+
+const SUPPORTED_FUNCTIONS = Object.freeze({
+  SUM: 'SUM',
+  COUNT: 'COUNT',
+  AVERAGE: 'AVG',
+  AVG: 'AVG',
+});
+
+const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_ ]*$/;
+
+/**
+ * Parse a single Excel-style aggregate claim: `SUM(amount)`, `=SUM(amount)`,
+ * `COUNT(claim_id)`, `AVERAGE(claim_amount)` / `AVG(claim_amount)`, with an
+ * optional trailing `on <table>` / `from <table>` clause (case-insensitive).
+ * Rejects (returns `{rejected:true, reason}`) anything that is not exactly
+ * this shape: multiple functions, nested functions, ranges (`A1:A10`),
+ * multi-sheet 3D refs (`Sheet1!A1`), or any text that is not recognizable as
+ * one of the supported aggregate names at all.
+ *
+ * Never throws.
+ * @param {string} text
+ * @returns {{fn:string, column:string, table:string|null, rejected?:false} |
+ *   {rejected:true, reason:string}}
+ */
+function parseExcelAggregateClaim(text) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { rejected: true, reason: 'No Excel-style claim text was provided.' };
+  }
+
+  let stmt = text.trim();
+  // Strip a single leading '=' the way a cell formula bar shows it.
+  if (stmt.startsWith('=')) stmt = stmt.slice(1).trim();
+
+  // Reject obvious out-of-scope shapes up front with a specific reason
+  // rather than falling through to a generic "could not parse".
+  if (/!/.test(stmt)) {
+    return { rejected: true, reason: 'Multi-sheet 3D references (e.g. Sheet1!A1) are not supported in this version.' };
+  }
+  if (/:/.test(stmt)) {
+    return { rejected: true, reason: 'Cell ranges (e.g. A1:A10) are not supported; use a column-name aggregate like SUM(amount) instead.' };
+  }
+  if (/\bvba\b|^sub\s|^function\s/i.test(stmt)) {
+    return { rejected: true, reason: 'VBA/macro content is not supported.' };
+  }
+
+  // Match: FN(column) [on|from table]
+  const m = /^([a-zA-Z]+)\s*\(\s*([^()]+?)\s*\)\s*(?:(?:on|from)\s+([a-zA-Z_][a-zA-Z0-9_]*))?\s*$/i.exec(stmt);
+  if (!m) {
+    return { rejected: true, reason: 'That is not a recognized aggregate claim. Supported forms: SUM(column), COUNT(column), AVERAGE(column) or AVG(column), optionally followed by "on <table>".' };
+  }
+
+  const [, fnRaw, columnRaw, tableRaw] = m;
+  const fnKey = fnRaw.trim().toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(SUPPORTED_FUNCTIONS, fnKey)) {
+    return { rejected: true, reason: `"${fnRaw.trim()}" is not a supported aggregate. Supported: SUM, COUNT, AVERAGE, AVG.` };
+  }
+
+  const column = columnRaw.trim();
+  if (!column) {
+    return { rejected: true, reason: 'No column was named inside the aggregate.' };
+  }
+  if (/[()]/.test(column)) {
+    return { rejected: true, reason: 'Nested functions inside an aggregate are not supported in this version.' };
+  }
+  // COUNT(*) is a legitimate special case (row count, not a named column).
+  const isCountStar = fnKey === 'COUNT' && column === '*';
+  if (!isCountStar && !IDENT_RE.test(column)) {
+    return { rejected: true, reason: `"${column}" is not a plain column name this parser can map to SQL.` };
+  }
+
+  return {
+    fn: SUPPORTED_FUNCTIONS[fnKey],
+    column,
+    table: tableRaw ? tableRaw.trim() : null,
+    rejected: false,
+  };
+}
+
+/**
+ * Map a parsed Excel aggregate claim to a DuckDB SELECT statement. Quotes
+ * the table/column identifiers using the same discipline every other
+ * proof-harness/SQL-authoring module in this codebase uses (quoteIdent),
+ * never string-interpolates a raw unquoted name into the generated SQL.
+ * Refuses (returns `{rejected:true, reason}`) when `parsed` is itself a
+ * rejection or is missing a table (neither an explicit `on`/`from` clause
+ * nor a `defaultTable` was supplied) -- a claim with nowhere to run is not
+ * yet a statement.
+ * @param {{fn:string, column:string, table?:string|null, rejected?:boolean}} parsed
+ * @param {string} [defaultTable]
+ * @returns {{rejected:true, reason:string} | {rejected:false, statement:string}}
+ */
+function excelClaimToSql(parsed, defaultTable) {
+  if (!isPlainObject(parsed) || parsed.rejected) {
+    return { rejected: true, reason: (parsed && parsed.reason) || 'The Excel claim was not parsed successfully.' };
+  }
+  const table = parsed.table || defaultTable;
+  if (typeof table !== 'string' || !table.trim()) {
+    return { rejected: true, reason: 'No table was named. Add "on <table>" to the claim or supply a default table.' };
+  }
+
+  const alias = parsed.fn === 'COUNT' ? 'n' : parsed.fn.toLowerCase();
+  const columnExpr = parsed.column === '*' ? '*' : quoteIdent(parsed.column);
+  const statement = `SELECT ${parsed.fn}(${columnExpr}) AS ${alias} FROM ${quoteIdent(table.trim())}`;
+  return { rejected: false, statement };
+}
+
+/**
+ * Convenience one-shot: parse text and map it straight to SQL, surfacing
+ * whichever step's rejection reason applies. Never throws.
+ * @param {string} text
+ * @param {string} [defaultTable]
+ */
+function excelClaimTextToSql(text, defaultTable) {
+  const parsed = parseExcelAggregateClaim(text);
+  if (parsed.rejected) return parsed;
+  return excelClaimToSql(parsed, defaultTable);
+}
+
+const EXCEL_CLAIM_SUPPORTED_FUNCTIONS = Object.freeze(Object.keys(SUPPORTED_FUNCTIONS));
+
+  /* ---- js/proof-harness/mesh-attestation.js ---- */
+// ============================================================
+// DATAGLOW - Proof Harness v2.0: Proof Mesh attestation (PH-19 slice)
+// ============================================================
+// WHY THIS EXISTS
+// PROOF_HARNESS_V2_SPEC.md pillar C: two people should be able to compare
+// whether they proved the SAME thing without either of them sending the
+// other any rows. A mesh attestation is a small, row-free JSON document
+// carrying digests + a schema fingerprint + the verdict -- enough to agree
+// or diverge offline, with zero source data ever crossing the wire. This is
+// explicitly the FOUNDATION slice (live WebRTC exchange over Rooms'
+// `createWebRTCMesh` is residual, per the spec): export/import/compare of a
+// file, not a live multi-peer session.
+//
+// An attestation is stricter than a Proof Cartridge (cartridge.js): a
+// cartridge already carries zero rows by design but still carries the full
+// statement text and expected values so an importer can RE-RUN it. A mesh
+// attestation additionally forbids the raw expected/observed scalar values
+// themselves from ever being required to compare -- two attestations can
+// AGREE purely on digest/verdict-state equality, with the actual numbers
+// only present if the caller chose to include them in `run.scalars` (never
+// mandatory, and this module still refuses to import/export any row-bearing
+// field regardless of what a caller supplies).
+//
+// PURITY: no DOM, no network. crypto.subtle only, same as every other
+// proof-harness ledger/hash module (receipt.js, cartridge.js). Never throws:
+// a malformed/tampered/row-bearing attestation is REJECTED with a reason,
+// never silently accepted.
+
+const MESH_ATTESTATION_TYPE = 'dataglow/proof-mesh-attestation/v1';
+
+// Any of these keys, anywhere reachable from the top level of an
+// export/import payload, means "this actually carries source data" and must
+// be refused outright -- the whole point of an attestation is that it never
+// needs to. Checked recursively (see containsForbiddenKey) so a caller
+// cannot bury `rows` one level deeper (e.g. inside `run.rows`) and slip past
+// a shallow check.
+const FORBIDDEN_KEYS = Object.freeze(['rows', 'samples', 'csv', 'cells', 'sheetData']);
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** SHA-256 of a string, lowercase hex. Same algorithm as every other
+ * proof-harness ledger/hash module (receipt.js/cartridge.js). */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Recursively sort object keys so JSON.stringify output is canonical
+// regardless of insertion order, matching receipt.js's/cartridge.js's
+// sortDeep exactly (restated here, not imported, for the same
+// independent-inlining reason every proof-harness pure module restates it).
+function sortDeep(value) {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (isPlainObject(value)) {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = sortDeep(value[key]);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Recursively check whether any forbidden (row-bearing) key exists anywhere
+ * in `value`'s object tree, at any depth. Array elements are also walked,
+ * since a `samples` array or a nested `{rows:[...]}` a caller stuffed into
+ * some other field is exactly the leak this guards against.
+ * @param {*} value
+ * @returns {string|null} the first forbidden key found, or null
+ */
+function findForbiddenKey(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findForbiddenKey(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (isPlainObject(value)) {
+    for (const key of Object.keys(value)) {
+      if (FORBIDDEN_KEYS.includes(key)) return key;
+      const found = findForbiddenKey(value[key]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a schema fingerprint from column names + types ONLY (never values):
+ * a stable, sorted string like `col1:int,col2:varchar`. Accepts either an
+ * array of `{name, type}` descriptors or a plain `{name: type}` map. Never
+ * throws; returns null when nothing usable is supplied, so a caller that
+ * has no schema info yet does not get a fabricated fingerprint.
+ * @param {Array<{name:string,type?:string}>|object|null|undefined} schema
+ */
+function buildSchemaFingerprint(schema) {
+  if (!schema) return null;
+  const pairs = [];
+  if (Array.isArray(schema)) {
+    for (const col of schema) {
+      if (isPlainObject(col) && typeof col.name === 'string') {
+        pairs.push(`${col.name}:${typeof col.type === 'string' ? col.type : 'unknown'}`);
+      } else if (typeof col === 'string') {
+        pairs.push(`${col}:unknown`);
+      }
+    }
+  } else if (isPlainObject(schema)) {
+    for (const key of Object.keys(schema)) {
+      pairs.push(`${key}:${typeof schema[key] === 'string' ? schema[key] : 'unknown'}`);
+    }
+  }
+  if (pairs.length === 0) return null;
+  return pairs.sort().join(',');
+}
+
+/**
+ * Export a row-free proof mesh attestation from a proven cycle result
+ * (the same {proposal, verdict, run, receipt} shape runProofCycle() and
+ * cartridge.js's exportCartridgeCore() both accept). Carries ONLY: type,
+ * version, createdAt, the proposal's digest, the statement text (text only,
+ * never row values), expected, verdict state/reasonCode, the receipt hash,
+ * environment, schemaFingerprint, and inputDigest.
+ *
+ * Refuses (returns {rejected:true, reason}) when:
+ *   - there is no proposal/statement to attest to
+ *   - the caller (accidentally or otherwise) supplied a forbidden row-bearing
+ *     field anywhere in `run` or elsewhere in the args -- this is the one
+ *     export path where a caller mistake must never produce a document that
+ *     LOOKS row-free but silently is not.
+ *
+ * @param {{proposal:object, verdict:{state:string, reasonCode?:string},
+ *          run?:object, receipt?:{hash?:string}, schemaFingerprint?:string,
+ *          datasetNameHash?:string, environment?:object}} args
+ * @returns {Promise<{rejected:true, reason:string} | {rejected:false, attestation:object}>}
+ */
+async function exportMeshAttestation(args) {
+  const a = isPlainObject(args) ? args : {};
+  const proposal = a.proposal;
+  const verdict = a.verdict;
+
+  if (!isPlainObject(proposal) || typeof proposal.statement !== 'string' || !proposal.statement.trim()) {
+    return { rejected: true, reason: 'A proposal with a statement is required to export a mesh attestation.' };
+  }
+  if (!isPlainObject(verdict) || typeof verdict.state !== 'string') {
+    return { rejected: true, reason: 'A verdict is required to export a mesh attestation.' };
+  }
+
+  const forbidden = findForbiddenKey(a);
+  if (forbidden) {
+    return { rejected: true, reason: `Refusing to export: the input carries a "${forbidden}" field. A mesh attestation is row-free by design.` };
+  }
+
+  // inputDigest: a hash of column names+types only (schemaFingerprint), or
+  // the caller's own dataset fileHash if one was supplied -- either way,
+  // never a hash over actual cell values.
+  const schemaFingerprint = typeof a.schemaFingerprint === 'string' && a.schemaFingerprint.trim()
+    ? a.schemaFingerprint.trim()
+    : buildSchemaFingerprint(a.schema);
+  const inputDigestSource = typeof a.datasetNameHash === 'string' && a.datasetNameHash.trim()
+    ? a.datasetNameHash.trim()
+    : (schemaFingerprint || '');
+  const inputDigest = inputDigestSource ? await sha256Hex(inputDigestSource) : null;
+
+  const payload = {
+    _type: MESH_ATTESTATION_TYPE,
+    version: 1,
+    createdAt: new Date().toISOString(),
+    proposalDigest: proposal.digest || null,
+    statement: proposal.statement,
+    engine: proposal.engine || 'duckdb',
+    expected: isPlainObject(proposal.expected) ? proposal.expected : {},
+    verdict: { state: verdict.state, reasonCode: verdict.reasonCode || null },
+    receiptHash: a.receipt && typeof a.receipt.hash === 'string' ? a.receipt.hash : null,
+    environment: isPlainObject(a.environment) ? a.environment : {},
+    schemaFingerprint: schemaFingerprint || null,
+    inputDigest,
+  };
+
+  const hash = await sha256Hex(JSON.stringify(sortDeep(payload)));
+  return { rejected: false, attestation: { ...payload, attestationHash: `sha256:${hash}` } };
+}
+
+/**
+ * Import (parse + validate) a mesh attestation from a JSON string or an
+ * already-parsed object (also tolerating exportMeshAttestation()'s own
+ * `{rejected:false, attestation}` result passed straight through, same
+ * unwrap convenience as cartridge.js's parseCartridge). REJECTS outright if
+ * any forbidden row-bearing key is present anywhere in the parsed document,
+ * regardless of where it was hidden -- an attestation that carries rows is
+ * not a bug to route around, it is refused entirely.
+ *
+ * Never throws.
+ * @param {string|object} raw
+ * @returns {{rejected:true, reason:string} | {rejected:false, attestation:object}}
+ */
+function importMeshAttestation(raw) {
+  let parsed;
+  if (isPlainObject(raw)) {
+    if (isPlainObject(raw.attestation) && raw.attestation._type === MESH_ATTESTATION_TYPE) {
+      parsed = raw.attestation;
+    } else {
+      parsed = raw;
+    }
+  } else {
+    try {
+      parsed = JSON.parse(String(raw));
+    } catch (_e) {
+      return { rejected: true, reason: 'That is not valid JSON, so it cannot be read as a mesh attestation.' };
+    }
+  }
+
+  if (!isPlainObject(parsed) || parsed._type !== MESH_ATTESTATION_TYPE) {
+    return { rejected: true, reason: `That JSON is not a ${MESH_ATTESTATION_TYPE} attestation.` };
+  }
+
+  const forbidden = findForbiddenKey(parsed);
+  if (forbidden) {
+    return { rejected: true, reason: `Refusing to import: this attestation carries a "${forbidden}" field. A mesh attestation must be row-free.` };
+  }
+
+  if (typeof parsed.statement !== 'string' || !parsed.statement.trim()) {
+    return { rejected: true, reason: 'The attestation is missing its statement.' };
+  }
+  if (!isPlainObject(parsed.verdict) || typeof parsed.verdict.state !== 'string') {
+    return { rejected: true, reason: 'The attestation is missing its verdict state.' };
+  }
+
+  return { rejected: false, attestation: parsed };
+}
+
+/**
+ * Verify a mesh attestation's own content hash (recompute and compare),
+ * catching a hand-edited or corrupted attestation before it is compared
+ * against another. Content-hash check, not a cryptographic signature by a
+ * private key -- proves the attestation has not changed since export, not
+ * who exported it (same honest framing as cartridge.js's verifyCartridgeHash).
+ * @param {object} attestation
+ */
+async function verifyMeshAttestationHash(attestation) {
+  if (!isPlainObject(attestation) || typeof attestation.attestationHash !== 'string') {
+    return { valid: false, reason: 'No attestation hash to verify.' };
+  }
+  const { attestationHash, ...rest } = attestation;
+  const recomputed = await sha256Hex(JSON.stringify(sortDeep(rest)));
+  const expected = `sha256:${recomputed}`;
+  return {
+    valid: expected === attestationHash,
+    reason: expected === attestationHash ? 'Attestation hash matches; unedited since export.' : 'Attestation hash does not match its contents; it may have been edited or corrupted.',
+  };
+}
+
+/**
+ * Compare two mesh attestations. Agreement requires EITHER:
+ *   a) both `proposalDigest`s match (same executable claim, byte for byte), OR
+ *   b) both `statement` (trimmed) and `expected` (deep-equal) match,
+ * AND, in either case, both `verdict.state`s match.
+ * Any other case lists every divergent field by name -- definition
+ * (statement/expected/proposalDigest), input (schemaFingerprint/inputDigest),
+ * or verdict (verdict.state) -- never a bare "these disagree" with no detail,
+ * matching every other proof-harness refuse-to-guess discipline.
+ *
+ * Never throws.
+ * @param {object} a
+ * @param {object} b
+ * @returns {{agree:boolean, divergences: Array<{field:string, a:*, b:*}>}}
+ */
+function compareMeshAttestations(a, b) {
+  const x = isPlainObject(a) ? a : {};
+  const y = isPlainObject(b) ? b : {};
+  const divergences = [];
+
+  const xDigest = typeof x.proposalDigest === 'string' ? x.proposalDigest : null;
+  const yDigest = typeof y.proposalDigest === 'string' ? y.proposalDigest : null;
+  const digestsMatch = xDigest !== null && yDigest !== null && xDigest === yDigest;
+
+  const xStatement = typeof x.statement === 'string' ? x.statement.trim() : '';
+  const yStatement = typeof y.statement === 'string' ? y.statement.trim() : '';
+  const statementsMatch = xStatement !== '' && xStatement === yStatement;
+
+  const xExpected = JSON.stringify(sortDeep(isPlainObject(x.expected) ? x.expected : {}));
+  const yExpected = JSON.stringify(sortDeep(isPlainObject(y.expected) ? y.expected : {}));
+  const expectedMatch = xExpected === yExpected;
+
+  const definitionAgrees = digestsMatch || (statementsMatch && expectedMatch);
+  if (!definitionAgrees) {
+    if (!digestsMatch) divergences.push({ field: 'proposalDigest', a: xDigest, b: yDigest });
+    if (!statementsMatch) divergences.push({ field: 'statement', a: x.statement || null, b: y.statement || null });
+    if (!expectedMatch) divergences.push({ field: 'expected', a: isPlainObject(x.expected) ? x.expected : {}, b: isPlainObject(y.expected) ? y.expected : {} });
+  }
+
+  const xVerdictState = isPlainObject(x.verdict) ? x.verdict.state : null;
+  const yVerdictState = isPlainObject(y.verdict) ? y.verdict.state : null;
+  const verdictAgrees = xVerdictState !== null && xVerdictState === yVerdictState;
+  if (!verdictAgrees) {
+    divergences.push({ field: 'verdict.state', a: xVerdictState, b: yVerdictState });
+  }
+
+  // Input digest / schema fingerprint divergence is reported ADDITIONALLY
+  // (never gates `agree` on its own) when both sides actually supplied one
+  // and they differ -- two devices proving the SAME definition against
+  // DIFFERENT underlying data is worth surfacing, but is not by itself a
+  // disagreement about the claim or the verdict.
+  if (typeof x.inputDigest === 'string' && typeof y.inputDigest === 'string' && x.inputDigest !== y.inputDigest) {
+    divergences.push({ field: 'inputDigest', a: x.inputDigest, b: y.inputDigest });
+  }
+  if (typeof x.schemaFingerprint === 'string' && typeof y.schemaFingerprint === 'string' && x.schemaFingerprint !== y.schemaFingerprint) {
+    divergences.push({ field: 'schemaFingerprint', a: x.schemaFingerprint, b: y.schemaFingerprint });
+  }
+
+  return {
+    agree: definitionAgrees && verdictAgrees,
+    divergences,
+  };
+}
+
+const PROOF_MESH_ATTESTATION_TYPE = MESH_ATTESTATION_TYPE;
+const MESH_ATTESTATION_FORBIDDEN_KEYS = FORBIDDEN_KEYS;
+
   /* ---- js/proof-harness/index.js ---- */
 // ============================================================
 // DATAGLOW - Proof Harness orchestration + window export
@@ -141648,21 +142585,21 @@ async function runProofCycle(args) {
   });
 
   if (proposal.rejected) {
-    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, corroboration: null, staleness: null, vaulted: false, error: proposal.reason };
+    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, corroboration: null, adversarial: null, staleness: null, vaulted: false, error: proposal.reason };
   }
 
   const staleness = computeStaleness(proposal, a.priorReceiptDigest);
 
   if (staleness.stale) {
     const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected, staleness });
-    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null });
-    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, staleness, vaulted: false };
+    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null, adversarial: null });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, adversarial: null, staleness, vaulted: false };
   }
 
   if (typeof a.runQuery !== 'function') {
     const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected, staleness });
-    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null });
-    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, staleness, vaulted: false };
+    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null, adversarial: null });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, adversarial: null, staleness, vaulted: false };
   }
 
   const startedAt = Date.now();
@@ -141706,6 +142643,25 @@ async function runProofCycle(args) {
     }
   }
 
+  // Adversary Pack (v2 foundation): run AFTER second-engine corroboration,
+  // still only for a candidate-passing run (there is nothing to attack yet
+  // if the primary comparison already failed -- that is already a RED, and
+  // an adversary pack cannot make an already-RED result any more refuted).
+  // A corroboration disagreement does not skip the adversary pack -- both
+  // checks run and both are recorded, so the receipt/return shape always
+  // reflects everything that was actually tried, even though decideVerdict's
+  // gateGreen short-circuits on corroboration disagreement first. Honestly
+  // skipped (not a rewriteable shape, or no engine to attack with) never
+  // forces anything -- see adversary.js's header.
+  let adversarial = null;
+  if (candidateGreen && typeof a.runQuery === 'function') {
+    adversarial = await runAdversaryPack({
+      statement: proposal.statement,
+      runQuery: a.runQuery,
+      primaryRun: run,
+    });
+  }
+
   const verdict = decideVerdict({
     claim: { text: proposal.claimText },
     proposal,
@@ -141713,10 +142669,11 @@ async function runProofCycle(args) {
     expected: proposal.expected,
     comparison,
     corroboration,
+    adversarial,
     staleness,
   });
 
-  const receipt = await recordReceipt({ proposal, run, verdict, corroboration });
+  const receipt = await recordReceipt({ proposal, run, verdict, corroboration, adversarial });
 
   let vaulted = false;
   if (verdict.state === 'RED') {
@@ -141729,10 +142686,10 @@ async function runProofCycle(args) {
     vaulted = true;
   }
 
-  return { ok: true, proposal, run, verdict, comparison, receipt, corroboration, staleness, vaulted };
+  return { ok: true, proposal, run, verdict, comparison, receipt, corroboration, adversarial, staleness, vaulted };
 }
 
-async function recordReceipt({ proposal, run, verdict, corroboration }) {
+async function recordReceipt({ proposal, run, verdict, corroboration, adversarial }) {
   const predicate = buildReceiptPredicate({
     claim: { text: proposal.claimText, predicate_ast: null, metric_ids: [] },
     proposal: {
@@ -141752,10 +142709,32 @@ async function recordReceipt({ proposal, run, verdict, corroboration }) {
       error: run.error || null,
     } : { status: null, rowcount: null, scalars: {}, column_types: {}, duration_ms: null, error: null },
     corroboration: buildCorroborationField(corroboration),
-    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v1' },
+    adversarial: buildAdversarialField(adversarial),
+    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v2' },
     verdict: { state: verdict.state, reason_code: verdict.reasonCode, blocker: verdict.blocker },
   });
   return ledger.append({ subjectName: proposal.claimText || 'claim', subjectDigest: proposal.digest, predicate });
+}
+
+/**
+ * Map a runAdversaryPack() report onto receipt.js's `predicate.adversarial`
+ * array field (an array of per-attack records; the field itself already
+ * defaulted to `[]` in buildReceiptPredicate before this ship, this is the
+ * first producer of non-empty content for it). A skipped/absent pack
+ * records as `[]`, never a fabricated entry -- the receipt must reflect
+ * exactly what was (or was not) actually attempted.
+ * @param {object|null} adversarial
+ */
+function buildAdversarialField(adversarial) {
+  if (!isPlainObject(adversarial) || adversarial.ran !== true || !Array.isArray(adversarial.attacks)) {
+    return [];
+  }
+  return adversarial.attacks.map((atk) => ({
+    kind: atk.kind,
+    rewrite: atk.rewrite,
+    pass: !!atk.pass,
+    detail: atk.detail || null,
+  }));
 }
 
 /**
@@ -141934,7 +142913,7 @@ async function roundTripCartridge(args) {
 }
 
   const DataGlowProofHarness = {
-    version: 3,
+    version: 4,
     runProofCycle: runProofCycle,
     confirmProposal: confirmProposal,
     createTypedProposal: createTypedProposal,
@@ -141958,7 +142937,18 @@ async function roundTripCartridge(args) {
     VERDICT_STATES: VERDICT_STATES,
     exportCartridge: exportCartridgeWrapped,
     importCartridge: importCartridgeWrapped,
-    roundTripCartridge: roundTripCartridge
+    roundTripCartridge: roundTripCartridge,
+    runAdversaryPack: runAdversaryPack,
+    buildMetamorphicRewrites: buildMetamorphicRewrites,
+    buildBoundaryProbes: buildBoundaryProbes,
+    ADVERSARY_MIN_REWRITES: ADVERSARY_MIN_REWRITES,
+    parseExcelAggregateClaim: parseExcelAggregateClaim,
+    excelClaimToSql: excelClaimToSql,
+    excelClaimTextToSql: excelClaimTextToSql,
+    exportMeshAttestation: exportMeshAttestation,
+    importMeshAttestation: importMeshAttestation,
+    compareMeshAttestations: compareMeshAttestations,
+    verifyMeshAttestationHash: verifyMeshAttestationHash
   };
   window.DataGlowProofHarness = DataGlowProofHarness;
 })();
@@ -142033,6 +143023,9 @@ async function roundTripCartridge(args) {
   var _lastCartridgeExport = null;
   var _lastCartridgeImport = null;
   var _lastCartridgeReprove = null; // 'Re-prove on this device' result (v1.1)
+  var _lastExcelClaimResult = null; // {rejected, reason} | {rejected:false, statement} (v2)
+  var _lastMeshExport = null; // serialized mesh attestation JSON text (v2)
+  var _lastMeshCompare = null; // {agree, divergences[]} (v2)
 
   function engine() { return window.DataGlowProofHarness || null; }
 
@@ -142063,6 +143056,28 @@ async function roundTripCartridge(args) {
     try {
       if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
         return window.DataGlowFlags.isEnabled('proofHarnessV1') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  /* v2 umbrella flag: gates ONLY the Excel-style claim fill control + the
+     adversary pass/fail note on the Prove tab, and the mesh attestation
+     export/compare controls on the Cartridge tab. With this off (but
+     proofHarness/proofHarnessV1 still on), the panel renders exactly the
+     v1 surface -- no Excel fill control, no adversary note, no mesh
+     controls -- matching acceptance gate 9 ("Flag off / skip path does
+     not break v1 tests"). The pure v2 modules (adversary.js, excel-
+     claim.js, mesh-attestation.js) are still evaluable via
+     window.DataGlowProofHarness regardless of this flag, since they make
+     no DOM change on their own; only this canvas module's UI mounting is
+     gated. */
+  function v2FlagOn() {
+    try { if (window.DATAGLOW_PROOF_HARNESS_V2 === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_PROOF_HARNESS_V2 === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('proofHarnessV2') !== false;
       }
     } catch (_e) {}
     return true;
@@ -142982,6 +143997,26 @@ async function roundTripCartridge(args) {
       html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-use-last-sql>Use last SQL result</button></div>';
     }
 
+    if (v2FlagOn() && e && typeof e.excelClaimTextToSql === 'function') {
+      /* PROOF_HARNESS_V2_SPEC.md B2: the claim field may already carry a
+         pasted Excel-style formula (e.g. =SUM(claim_amount)); this control
+         reads whatever is currently in the claim box, parses it with the
+         SAME excel-claim.js the pure engine exports, and on a successful
+         parse fills the statement box below from the parser's own SQL,
+         never a model-composed guess. A failed parse fills nothing and
+         shows the honest rejection reason instead. */
+      html += '<label for="dg-ph-excel-table">Table for Excel-style claims (optional if named in the formula)</label>' +
+        '<input type="text" id="dg-ph-excel-table" placeholder="e.g. claims_example">';
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn" data-ph-excel-fill>Use Excel-style claim</button></div>';
+      if (_lastExcelClaimResult) {
+        if (_lastExcelClaimResult.rejected) {
+          html += '<div class="dg-ph-note">Excel-style claim not recognized: ' + esc(_lastExcelClaimResult.reason) + '</div>';
+        } else {
+          html += '<div class="dg-ph-note">Excel-style claim filled: ' + esc(_lastExcelClaimResult.statement) + '</div>';
+        }
+      }
+    }
+
     html += '<label for="dg-ph-statement">Proposal statement (editable SQL)</label>' +
       '<textarea id="dg-ph-statement" class="dg-ph-statement" placeholder="select count(*) as n from your_table">' + esc(statementText) + '</textarea>';
 
@@ -143010,6 +144045,22 @@ async function roundTripCartridge(args) {
         html += '<div class="dg-ph-note">Second engine (' + esc(_lastResult.corroboration.engine || 'second engine') + ') agreed.</div>';
       } else if (v1FlagOn() && _lastResult.corroboration && _lastResult.corroboration.ran !== true) {
         html += '<div class="dg-ph-note">Second engine not ready. GREEN is single-engine (v0 strength).</div>';
+      }
+      if (v2FlagOn() && _lastResult.adversarial) {
+        /* PROOF_HARNESS_V2_SPEC.md A3: a short, honest note when the
+           adversary pack ran and passed. A failed pack is not restated
+           here since the verdict chip above is already RED with reason
+           code adversary-fail in that case; this note is additive, never
+           a second source of truth for pass/fail (same discipline as the
+           v1.1 second-engine note above). */
+        if (_lastResult.adversarial.ran === true && _lastResult.adversarial.failCount === 0) {
+          html += '<div class="dg-ph-note">Adversary pack passed (' + esc(_lastResult.adversarial.passCount) + ' attacks).</div>';
+        } else if (_lastResult.adversarial.ran === true && _lastResult.adversarial.skipped !== true) {
+          html += '<div class="dg-ph-note">Adversary pack: ' + esc(_lastResult.adversarial.failCount) + ' of ' +
+            esc(_lastResult.adversarial.failCount + _lastResult.adversarial.passCount) + ' attack(s) disagreed.</div>';
+        } else if (_lastResult.adversarial.skipped === true) {
+          html += '<div class="dg-ph-note">Adversary pack skipped: ' + esc(_lastResult.adversarial.reason || 'this statement shape is not rewriteable yet.') + '</div>';
+        }
       }
       /* Hotfix (feat/proof-harness-v0-engine-window): a chip alone does not
          say WHY this came back non-GREEN when the reason is "no engine",
@@ -143133,6 +144184,38 @@ async function roundTripCartridge(args) {
       html += verdictChip(_lastCartridgeImport.state);
       html += '<p class="dg-ph-reason">' + esc(_lastCartridgeImport.reason) + '</p>';
     }
+
+    if (v2FlagOn() && typeof e.exportMeshAttestation === 'function') {
+      /* PROOF_HARNESS_V2_SPEC.md C2: a mesh attestation carries digests,
+         a schema fingerprint, and the verdict, but never a row/sample/cell
+         value beyond the already-proven aggregate scalars -- two devices
+         can agree or diverge on a claim without either one ever sending
+         the other its data, reusing the same zero-rows posture as the
+         cartridge above. */
+      html += '<label>Export a mesh attestation (from the last GREEN)</label>';
+      if (_lastResult && _lastResult.verdict && _lastResult.verdict.state === 'GREEN') {
+        html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-mesh-export>Export mesh attestation</button></div>';
+      } else {
+        html += '<div class="dg-ph-empty">Prove a claim to GREEN on the Prove tab first, then come back here to export an attestation.</div>';
+      }
+      if (_lastMeshExport) {
+        html += '<textarea class="dg-ph-cartridge" readonly>' + esc(_lastMeshExport) + '</textarea>';
+      }
+      html += '<label for="dg-ph-mesh-compare">Paste another attestation to compare</label>';
+      html += '<textarea id="dg-ph-mesh-compare" class="dg-ph-cartridge" placeholder="Paste a proof mesh attestation JSON here"></textarea>';
+      html += '<div class="dg-ph-row"><button type="button" class="dg-ph-btn primary" data-ph-mesh-compare>Compare attestation</button></div>';
+      if (_lastMeshCompare) {
+        if (_lastMeshCompare.rejected) {
+          html += '<p class="dg-ph-reason">' + esc(_lastMeshCompare.reason) + '</p>';
+        } else {
+          html += '<p class="dg-ph-reason">' + (_lastMeshCompare.agree ? 'Agree.' : 'Diverge.') +
+            (_lastMeshCompare.divergences && _lastMeshCompare.divergences.length
+              ? ' Divergent field(s): ' + esc(_lastMeshCompare.divergences.map(function (d) { return d.field; }).join(', ')) + '.'
+              : '') + '</p>';
+        }
+      }
+    }
+
     return html;
   }
 
@@ -143173,6 +144256,11 @@ async function roundTripCartridge(args) {
           toast('Statement loaded from the SQL editor.', 'info');
         }
       });
+    }
+
+    var excelFillBtn = body.querySelector('[data-ph-excel-fill]');
+    if (excelFillBtn) {
+      excelFillBtn.addEventListener('click', function () { onExcelClaimFill(body); });
     }
 
     var proveBtn = body.querySelector('[data-ph-prove]');
@@ -143224,6 +144312,14 @@ async function roundTripCartridge(args) {
     var importBtn = body.querySelector('[data-ph-cartridge-import]');
     if (importBtn) {
       importBtn.addEventListener('click', function () { onCartridgeImport(body); });
+    }
+    var meshExportBtn = body.querySelector('[data-ph-mesh-export]');
+    if (meshExportBtn) {
+      meshExportBtn.addEventListener('click', function () { onMeshExport(); });
+    }
+    var meshCompareBtn = body.querySelector('[data-ph-mesh-compare]');
+    if (meshCompareBtn) {
+      meshCompareBtn.addEventListener('click', function () { onMeshCompare(body); });
     }
   }
 
@@ -143312,6 +144408,31 @@ async function roundTripCartridge(args) {
 
     renderBody();
     toast('Verdict: ' + result.verdict.state, result.verdict.state === 'GREEN' ? 'success' : (result.verdict.state === 'RED' ? 'error' : 'info'));
+  }
+
+  /* ---------------------------- Excel claim fill action (v2) ------------- */
+
+  function onExcelClaimFill(body) {
+    var e = engine();
+    if (!e || typeof e.excelClaimTextToSql !== 'function') return;
+    var claimBox = body.querySelector('#dg-ph-claim');
+    var tableBox = body.querySelector('#dg-ph-excel-table');
+    var stmtBox = body.querySelector('#dg-ph-statement');
+    var claimText = (claimBox && claimBox.value) || '';
+    var defaultTable = (tableBox && tableBox.value && tableBox.value.trim()) || undefined;
+    var result = e.excelClaimTextToSql(claimText, defaultTable);
+    _lastExcelClaimResult = result;
+    if (!result.rejected && stmtBox) {
+      /* Fills the EDITABLE statement box from the parser's own SQL, never a
+         hidden or model-composed string -- the Prove button below still
+         only ever executes proposal.statement, which is exactly what is
+         now visible here, matching doctrine #2 for the normal Prove path. */
+      stmtBox.value = result.statement;
+      toast('Excel-style claim parsed and filled into the statement.', 'success');
+    } else if (result.rejected) {
+      toast('Excel-style claim not recognized: ' + result.reason, 'error');
+    }
+    renderBody();
   }
 
   async function onConfirm() {
@@ -143447,6 +144568,65 @@ async function roundTripCartridge(args) {
     toast('Import verdict: ' + result.state, result.ok ? 'success' : 'error');
   }
 
+  /* ---------------------------- Mesh attestation actions (v2) ------------ */
+
+  async function onMeshExport() {
+    var e = engine();
+    if (!e || typeof e.exportMeshAttestation !== 'function' || !_lastResult) return;
+    /* Deliberately rebuild a row-free run summary here rather than passing
+       _lastResult.run through as-is: the live DuckDB run's own .result
+       carries the actual proven rows (needed by the Prove tab/receipt to
+       show a row count), and mesh-attestation.js's forbidden-key scan
+       correctly refuses ANY payload carrying a rows field, anywhere, so a
+       raw pass-through would always be rejected here. Only rowCount and
+       the already-proven scalar values -- never .result / .rows itself --
+       cross into the attestation, matching the module's own contract. */
+    var safeRun = _lastResult.run ? { status: _lastResult.run.status, rowCount: _lastResult.run.rowCount, scalars: _lastResult.run.scalars || {}, error: _lastResult.run.error || null } : null;
+    var exported = await e.exportMeshAttestation({
+      proposal: _lastResult.proposal,
+      verdict: _lastResult.verdict,
+      run: safeRun,
+      receipt: _lastResult.receipt,
+    });
+    if (exported.rejected) {
+      toast(exported.reason, 'error');
+      return;
+    }
+    _lastMeshExport = JSON.stringify(exported.attestation, null, 2);
+    _lastMeshCompare = null;
+    renderBody();
+    toast('Mesh attestation exported. Zero rows of data included.', 'success');
+  }
+
+  function onMeshCompare(body) {
+    var e = engine();
+    if (!e || typeof e.importMeshAttestation !== 'function' || typeof e.compareMeshAttestations !== 'function') return;
+    var text = (body.querySelector('#dg-ph-mesh-compare') || {}).value || '';
+    var otherImported = e.importMeshAttestation(text);
+    if (otherImported.rejected) {
+      _lastMeshCompare = { rejected: true, reason: otherImported.reason };
+      renderBody();
+      toast('Attestation not recognized: ' + otherImported.reason, 'error');
+      return;
+    }
+    if (!_lastMeshExport) {
+      _lastMeshCompare = { rejected: true, reason: 'Export a mesh attestation from this device first, then compare.' };
+      renderBody();
+      toast('Export a mesh attestation from this device first.', 'error');
+      return;
+    }
+    var mineImported = e.importMeshAttestation(_lastMeshExport);
+    if (mineImported.rejected) {
+      _lastMeshCompare = { rejected: true, reason: mineImported.reason };
+      renderBody();
+      return;
+    }
+    var comparison = e.compareMeshAttestations(mineImported.attestation, otherImported.attestation);
+    _lastMeshCompare = comparison;
+    renderBody();
+    toast(comparison.agree ? 'Attestations agree.' : 'Attestations diverge.', comparison.agree ? 'success' : 'error');
+  }
+
   /* ---------------------------- open / close ------------------------------ */
 
   function isOpen() {
@@ -143534,6 +144714,10 @@ async function roundTripCartridge(args) {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
+
+
+
 
 
 

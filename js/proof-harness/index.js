@@ -69,6 +69,9 @@ import { corroborateRun, resolveSecondEngine, buildCorroborationField } from './
 import { createVault, runVault, VAULT_STORAGE_KEY } from './vault.js';
 import { exportCartridgeCore, importCartridgeCore, normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
 import { createInbox, statusLabel, INBOX_ITEM_STATUSES } from './inbox.js';
+import { runAdversaryPack, buildMetamorphicRewrites, buildBoundaryProbes, ADVERSARY_MIN_REWRITES } from './adversary.js';
+import { parseExcelAggregateClaim, excelClaimToSql, excelClaimTextToSql, EXCEL_CLAIM_SUPPORTED_FUNCTIONS } from './excel-claim.js';
+import { exportMeshAttestation, importMeshAttestation, compareMeshAttestations, verifyMeshAttestationHash, buildSchemaFingerprint, PROOF_MESH_ATTESTATION_TYPE } from './mesh-attestation.js';
 
 const ledger = createReceiptLedger();
 const vault = createVault();
@@ -214,21 +217,21 @@ export async function runProofCycle(args) {
   });
 
   if (proposal.rejected) {
-    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, corroboration: null, staleness: null, vaulted: false, error: proposal.reason };
+    return { ok: false, proposal, run: null, verdict: null, comparison: null, receipt: null, corroboration: null, adversarial: null, staleness: null, vaulted: false, error: proposal.reason };
   }
 
   const staleness = computeStaleness(proposal, a.priorReceiptDigest);
 
   if (staleness.stale) {
     const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected, staleness });
-    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null });
-    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, staleness, vaulted: false };
+    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null, adversarial: null });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, adversarial: null, staleness, vaulted: false };
   }
 
   if (typeof a.runQuery !== 'function') {
     const verdict = decideVerdict({ claim: { text: proposal.claimText }, proposal, run: null, expected: proposal.expected, staleness });
-    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null });
-    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, staleness, vaulted: false };
+    const receipt = await recordReceipt({ proposal, run: null, verdict, corroboration: null, adversarial: null });
+    return { ok: true, proposal, run: null, verdict, comparison: null, receipt, corroboration: null, adversarial: null, staleness, vaulted: false };
   }
 
   const startedAt = Date.now();
@@ -272,6 +275,25 @@ export async function runProofCycle(args) {
     }
   }
 
+  // Adversary Pack (v2 foundation): run AFTER second-engine corroboration,
+  // still only for a candidate-passing run (there is nothing to attack yet
+  // if the primary comparison already failed -- that is already a RED, and
+  // an adversary pack cannot make an already-RED result any more refuted).
+  // A corroboration disagreement does not skip the adversary pack -- both
+  // checks run and both are recorded, so the receipt/return shape always
+  // reflects everything that was actually tried, even though decideVerdict's
+  // gateGreen short-circuits on corroboration disagreement first. Honestly
+  // skipped (not a rewriteable shape, or no engine to attack with) never
+  // forces anything -- see adversary.js's header.
+  let adversarial = null;
+  if (candidateGreen && typeof a.runQuery === 'function') {
+    adversarial = await runAdversaryPack({
+      statement: proposal.statement,
+      runQuery: a.runQuery,
+      primaryRun: run,
+    });
+  }
+
   const verdict = decideVerdict({
     claim: { text: proposal.claimText },
     proposal,
@@ -279,10 +301,11 @@ export async function runProofCycle(args) {
     expected: proposal.expected,
     comparison,
     corroboration,
+    adversarial,
     staleness,
   });
 
-  const receipt = await recordReceipt({ proposal, run, verdict, corroboration });
+  const receipt = await recordReceipt({ proposal, run, verdict, corroboration, adversarial });
 
   let vaulted = false;
   if (verdict.state === 'RED') {
@@ -295,10 +318,10 @@ export async function runProofCycle(args) {
     vaulted = true;
   }
 
-  return { ok: true, proposal, run, verdict, comparison, receipt, corroboration, staleness, vaulted };
+  return { ok: true, proposal, run, verdict, comparison, receipt, corroboration, adversarial, staleness, vaulted };
 }
 
-async function recordReceipt({ proposal, run, verdict, corroboration }) {
+async function recordReceipt({ proposal, run, verdict, corroboration, adversarial }) {
   const predicate = buildReceiptPredicate({
     claim: { text: proposal.claimText, predicate_ast: null, metric_ids: [] },
     proposal: {
@@ -318,10 +341,32 @@ async function recordReceipt({ proposal, run, verdict, corroboration }) {
       error: run.error || null,
     } : { status: null, rowcount: null, scalars: {}, column_types: {}, duration_ms: null, error: null },
     corroboration: buildCorroborationField(corroboration),
-    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v1' },
+    adversarial: buildAdversarialField(adversarial),
+    environment: { engine_build: proposal.engine, app_version: 'proof-harness-v2' },
     verdict: { state: verdict.state, reason_code: verdict.reasonCode, blocker: verdict.blocker },
   });
   return ledger.append({ subjectName: proposal.claimText || 'claim', subjectDigest: proposal.digest, predicate });
+}
+
+/**
+ * Map a runAdversaryPack() report onto receipt.js's `predicate.adversarial`
+ * array field (an array of per-attack records; the field itself already
+ * defaulted to `[]` in buildReceiptPredicate before this ship, this is the
+ * first producer of non-empty content for it). A skipped/absent pack
+ * records as `[]`, never a fabricated entry -- the receipt must reflect
+ * exactly what was (or was not) actually attempted.
+ * @param {object|null} adversarial
+ */
+function buildAdversarialField(adversarial) {
+  if (!isPlainObject(adversarial) || adversarial.ran !== true || !Array.isArray(adversarial.attacks)) {
+    return [];
+  }
+  return adversarial.attacks.map((atk) => ({
+    kind: atk.kind,
+    rewrite: atk.rewrite,
+    pass: !!atk.pass,
+    detail: atk.detail || null,
+  }));
 }
 
 /**
@@ -512,9 +557,12 @@ export { createVault, runVault, buildVaultTest, VAULT_STORAGE_KEY } from './vaul
 export { normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
 export { createInbox, buildPendingItem, itemFromCycleResult, statusLabel, INBOX_ITEM_STATUSES } from './inbox.js';
 export { extractRunScalars, coerceBigInt };
+export { runAdversaryPack, buildMetamorphicRewrites, buildBoundaryProbes, ADVERSARY_MIN_REWRITES } from './adversary.js';
+export { parseExcelAggregateClaim, excelClaimToSql, excelClaimTextToSql, EXCEL_CLAIM_SUPPORTED_FUNCTIONS } from './excel-claim.js';
+export { exportMeshAttestation, importMeshAttestation, compareMeshAttestations, verifyMeshAttestationHash, buildSchemaFingerprint, PROOF_MESH_ATTESTATION_TYPE } from './mesh-attestation.js';
 
 const DataGlowProofHarness = {
-  version: 3,
+  version: 4,
   // v0 API (unchanged shape/behavior when v1 features are not used)
   runProofCycle,
   confirmProposal,
@@ -547,6 +595,22 @@ const DataGlowProofHarness = {
   exportCartridge: exportCartridgeWrapped,
   importCartridge: importCartridgeWrapped,
   roundTripCartridge,
+  // v2 additions (PROOF_HARNESS_V2_SPEC.md foundation): adversary pack,
+  // Excel-style aggregate claim parsing, and row-free Proof Mesh
+  // attestation export/import/compare. All three are pure passthroughs to
+  // their respective modules -- runProofCycle above already wires
+  // runAdversaryPack into every prove cycle automatically, these direct
+  // exports are for a caller (canvas UI, tests) that wants to run any one
+  // of them standalone (e.g. previewing an Excel claim's SQL before Prove
+  // is pressed, or comparing two attestations offline with no cycle at all).
+  runAdversaryPack,
+  parseExcelAggregateClaim,
+  excelClaimToSql,
+  excelClaimTextToSql,
+  exportMeshAttestation,
+  importMeshAttestation,
+  compareMeshAttestations,
+  verifyMeshAttestationHash,
 };
 
 if (typeof window !== 'undefined') {
