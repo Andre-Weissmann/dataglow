@@ -142434,6 +142434,166 @@ async function roundTripCartridge(args) {
     }
   }
 
+  /* ---- HOTFIX_SECOND_ENGINE_SQLITE_SQL_SPEC.md: pyodide-sqlite full SQL ----
+
+     WHY THIS EXISTS: micropip.install("duckdb") cannot ever succeed inside
+     browser Pyodide -- PyPI only ships NATIVE wheels (manylinux/macosx/win)
+     for the duckdb package; there is no pure-Python/wasm duckdb wheel in
+     the Pyodide lockfile at all, so ensureDuckdbInPyodide()'s micropip
+     fallback is not a flaky/slow install, it is an install that can never
+     succeed on this platform (the plain `import duckdb` pre-check above
+     still wins first on any Pyodide build that DOES ship duckdb, e.g. a
+     future lockfile that adds a wasm build -- this hotfix does not touch
+     that check). The previous safety net (runViaPyodidePandasCount) only
+     ever answers a narrow `SELECT COUNT(*) FROM t`, so any other
+     corroboration statement (`SUM`, `GROUP BY`, `JOIN`, `WHERE`, ...) fell
+     straight through to webR's equally-narrow COUNT(*)-only path, or the
+     honest unavailable error -- real second-engine SQL corroboration was
+     never actually possible for anything but a bare row count.
+
+     Python's stdlib `sqlite3` module ships with EVERY CPython build,
+     including Pyodide's -- no network, no micropip, nothing to install.
+     This path: for every `dg_csv_<table>` global already dropped into
+     Pyodide's namespace by buildHelper(py) (the exact same sync the
+     duckdb/pandas paths above already read from), read it with
+     `pd.read_csv` and load it into a fresh `sqlite3.connect(':memory:')`
+     via `df.to_sql(table, conn, index=False, if_exists='replace')`, then
+     run the proof `statement` against that same connection with
+     `pandas.read_sql_query`. This answers arbitrary SQL (aggregates,
+     GROUP BY, JOIN, WHERE, ORDER BY, ...) -- not just COUNT(*) -- while
+     staying 100% inside what stdlib CPython + pandas (both already
+     required for every path above) can do offline.
+
+     HONESTY (spec "Honesty" section): the result is tagged engine:
+     'pyodide-sqlite', never 'pyodide-duckdb' -- this is SQLite's SQL
+     dialect in Python, not a second DuckDB, and some DuckDB-only syntax
+     (QUALIFY, certain list comprehensions, DuckDB-specific functions) will
+     legitimately fail here even when it would succeed against the primary
+     DuckDB-WASM engine. A dialect failure returns null (never a fabricated
+     row), so the caller falls through to the pandas-COUNT/literal/webR
+     safety net below exactly like a duckdb-in-pyodide failure already
+     does -- this is an ADDITIONAL rung, not a replacement for the existing
+     fallback chain. */
+
+  /* Pure helper (spec "Pure helpers" section, ship item):
+     buildSqliteRegisterAndQuerySnippet(statement, tableNames) -> Python
+     source string. Given the proof `statement` and the list of table names
+     already known to have a `dg_csv_<name>` global in scope (the same
+     names listCsvGlobalTableNames(...) already extracts for the duckdb
+     path), generates the Python that:
+       1. opens a fresh in-memory sqlite3 connection (fresh EVERY call, no
+          cross-call caching, mirroring the duckdb path's "always
+          re-register" discipline from HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md
+          spec A3 -- a dataset swap must never corroborate against stale
+          sqlite tables either);
+       2. reads each dg_csv_<table> global via pandas.read_csv and loads it
+          with df.to_sql(table, conn, index=False, if_exists='replace');
+       3. runs the caller's `statement` via pandas.read_sql_query against
+          that same connection and serializes {columns, rows, rowCount} as
+          JSON, `default=str` so any non-JSON-native value (Timestamp,
+          Decimal, numpy scalar) degrades to a string instead of throwing;
+       4. on any exception (bad CSV, dialect-incompatible SQL, syntax
+          error, missing table) sets _dg_second_engine_sqlite_error to the
+          exception text instead of letting the exception propagate past
+          runPythonAsync, so the caller (runViaPyodideSqlite) can read one
+          flag either way rather than needing a try/except around the
+          Pyodide call boundary itself.
+     Kept pure/string-only (no py handle), exactly like
+     buildRegisterPythonSnippet, so it is unit-testable without a real
+     Pyodide runtime. */
+  function buildSqliteRegisterAndQuerySnippet(statement, tableNames) {
+    var names = Array.isArray(tableNames) ? tableNames : [];
+    var lines = [
+      'import pandas as pd, io, sqlite3, json',
+      '_dg_second_engine_sqlite_tables_registered = []',
+      '_dg_second_engine_sqlite_error = None',
+      '_dg_second_engine_sqlite_payload = None',
+      '_dg_sqlite_conn = sqlite3.connect(":memory:")',
+      'try:',
+    ];
+    var body = [];
+    names.forEach(function (name) {
+      var safe = String(name).replace(/[^a-zA-Z0-9_]/g, '_');
+      var globalKey = 'dg_csv_' + safe;
+      body.push('    if globals().get(' + JSON.stringify(globalKey) + ') is not None:');
+      body.push('        _dg_df = pd.read_csv(io.StringIO(str(globals()[' + JSON.stringify(globalKey) + '])))');
+      body.push('        _dg_df.to_sql(' + JSON.stringify(safe) + ', _dg_sqlite_conn, index=False, if_exists="replace")');
+      body.push('        _dg_second_engine_sqlite_tables_registered.append(' + JSON.stringify(safe) + ')');
+    });
+    body.push('    _dg_sqlite_res = pd.read_sql_query(' + JSON.stringify(String(statement)) + ', _dg_sqlite_conn)');
+    body.push('    _dg_second_engine_sqlite_payload = json.dumps({');
+    body.push('        "columns": list(_dg_sqlite_res.columns),');
+    body.push('        "rows": _dg_sqlite_res.values.tolist(),');
+    body.push('        "rowCount": len(_dg_sqlite_res)');
+    body.push('    }, default=str)');
+    lines = lines.concat(body);
+    lines.push('except Exception as _dg_sqlite_exc:');
+    lines.push('    _dg_second_engine_sqlite_error = str(_dg_sqlite_exc)');
+    lines.push('finally:');
+    lines.push('    _dg_sqlite_conn.close()');
+    return lines.join('\n');
+  }
+
+  /* Registers every dg_csv_* global as a sqlite3 table (via pandas
+     read_csv + to_sql) on a FRESH `sqlite3.connect(":memory:")`, then runs
+     `statement` against it and returns the full {rowCount, rows, scalars,
+     engine, tablesRegistered} shape -- the same result contract
+     runViaPyodideDuckdb already returns, so corroborateRun() (which reads
+     rowCount/scalars generically) needs no changes to consume either
+     engine.
+     Returns null (never throws) when: there are no dg_csv_* tables to
+     register AND the statement is not something sqlite could still
+     legitimately answer with zero tables (e.g. a trivial literal, which
+     the caller handles separately) -- the important behavior per spec
+     "Dialect honesty" is that a genuine SQL failure inside sqlite
+     surfaces as an error the caller can act on, so this only resolves to
+     null when there is nothing at all to run (no _dg_csv_ tables in
+     scope), letting the caller fall through the same way an empty-catalog
+     duckdb.sql call would. A real dialect/runtime failure from sqlite
+     itself is returned as {error: <message>} so the caller's honest
+     fall-through logic (identical shape to a duckdb.sql() throw) still
+     applies uniformly across both engines. */
+  async function runViaPyodideSqlite(py, statement) {
+    var tableNames;
+    try {
+      tableNames = listCsvGlobalTableNames(py.globals);
+    } catch (_eList) {
+      tableNames = [];
+    }
+    try {
+      var snippet = buildSqliteRegisterAndQuerySnippet(statement, tableNames);
+      await py.runPythonAsync(snippet);
+      var errProxy = py.globals.get('_dg_second_engine_sqlite_error');
+      if (errProxy !== undefined && errProxy !== null) {
+        return { error: String(errProxy) };
+      }
+      var payloadJson = py.globals.get('_dg_second_engine_sqlite_payload');
+      if (payloadJson === undefined || payloadJson === null) return null;
+      var payload = JSON.parse(payloadJson);
+      var scalars = {};
+      if (payload.rows && payload.rows.length && payload.columns) {
+        payload.columns.forEach(function (col, i) { scalars[col] = payload.rows[0][i]; });
+      }
+      var registeredProxy = py.globals.get('_dg_second_engine_sqlite_tables_registered');
+      var registered = (registeredProxy && typeof registeredProxy.toJs === 'function')
+        ? registeredProxy.toJs()
+        : registeredProxy;
+      return {
+        rowCount: payload.rowCount,
+        rows: payload.rows,
+        scalars: scalars,
+        engine: 'pyodide-sqlite',
+        tablesRegistered: Array.isArray(registered) ? registered : tableNames,
+      };
+    } catch (_eRun) {
+      // Registration/query Python itself failed to even run (should be
+      // rare -- buildSqliteRegisterAndQuerySnippet's own try/except/finally
+      // is meant to catch dialect errors before this point) -- fall
+      // through honestly rather than fabricate a result.
+      return null;
+    }
+  }
+
   /* ---- v1.2 pillar B: webR best-effort second path ----
 
      Only reached when the Pyodide path could not answer the statement at
@@ -142540,21 +142700,34 @@ async function roundTripCartridge(args) {
      normalizeSecondRun() already understands (it also tolerates the
      {result:{...}} wrapper shape, but this bridge returns the flat shape
      directly since it controls both ends). */
-  /* HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md: bridge priority order, updated.
+  /* HOTFIX_SECOND_ENGINE_SQLITE_SQL_SPEC.md: bridge priority order, updated
+     again.
 
-     Live bug: micropip.install("duckdb") does not reliably succeed inside
-     Pyodide, so pyodide-duckdb legitimately comes back unavailable on a
-     device where dg_csv_<table> IS already present after buildHelper. The
-     old order fell straight from "duckdb unavailable" to webR, which then
-     invented n=0 for a table webR never had -- a false RED against a
-     primary engine that correctly returned real rows. The fix inserts the
-     honest pandas-only COUNT path (F1) between the literal probe and webR,
-     so this priority is now, in order:
-       1. pyodide-duckdb   (if duckdb-in-pyodide ready + register + sql ok)
-       2. pyodide-pandas   (narrow COUNT(*), if dg_csv_<table> exists)
-       3. trivial literal  (SELECT 1 / SELECT <int> AS alias, no FROM)
-       4. hardened webR    (never returns n=0 for a missing table)
-       5. {error:'pyodide-sql-unavailable'} */
+     Root cause this hotfix closes: micropip.install("duckdb") can NEVER
+     succeed inside Pyodide -- PyPI ships only native wheels for the duckdb
+     package, and there is no such wheel in the Pyodide lockfile at all
+     (HOTFIX_PH_V1_2_TABLE_DEPTH_SPEC.md treated this as a flaky/best-effort
+     install; it is actually a structural impossibility on this platform).
+     So on essentially every real device, ensureDuckdbInPyodide() honestly
+     resolves false, and until now the bridge's only real-table fallback
+     was runViaPyodidePandasCount -- COUNT(*) only. Any other statement
+     (SUM, GROUP BY, JOIN, WHERE, ...) had no full-SQL path at all and fell
+     straight to webR's equally-narrow COUNT(*)-only fallback or the
+     honest unavailable error. This hotfix inserts the new pyodide-sqlite
+     full-SQL path (stdlib sqlite3, always present, no install) between
+     duckdb and pandas, so the priority is now, in order:
+       1. pyodide-duckdb   (if duckdb-in-pyodide ready + register + sql ok;
+                            rare in practice, kept for any future Pyodide
+                            lockfile that does ship it)
+       2. pyodide-sqlite   (NEW -- full arbitrary SQL via stdlib sqlite3,
+                            registers every dg_csv_* table, default path
+                            for real corroboration on essentially every
+                            device)
+       3. pyodide-pandas   (narrow COUNT(*) only, if the sqlite path threw
+                            or found no dg_csv_<table> at all)
+       4. trivial literal  (SELECT 1 / SELECT <int> AS alias, no FROM)
+       5. hardened webR    (never returns n=0 for a missing table)
+       6. {error:'pyodide-sql-unavailable'} */
   async function runProofSecondEngineBridge(statement) {
     try {
       if (!window.DataGlowPython || typeof window.DataGlowPython.loadRuntime !== 'function') {
@@ -142564,7 +142737,7 @@ async function roundTripCartridge(args) {
       }
       var py = await window.DataGlowPython.loadRuntime();
       if (typeof window.DataGlowPython.buildHelper === 'function') {
-        try { window.DataGlowPython.buildHelper(py); } catch (_eSync) { /* dataset sync is best-effort; a failed sync still allows a literal/pandas/duckdb probe */ }
+        try { window.DataGlowPython.buildHelper(py); } catch (_eSync) { /* dataset sync is best-effort; a failed sync still allows a literal/sqlite/pandas/duckdb probe */ }
       }
       var duckdbOk = await ensureDuckdbInPyodide(py);
       if (duckdbOk) {
@@ -142574,23 +142747,36 @@ async function roundTripCartridge(args) {
           // duckdb loaded but this particular statement failed (e.g. a
           // table that has no dg_csv_* source to register, or a dialect
           // feature duckdb-in-pyodide's version does not support) -- fall
-          // through to pandas, then the literal probe, then webR, rather
-          // than silently pretending the run succeeded.
+          // through to sqlite, then pandas, then the literal probe, then
+          // webR, rather than silently pretending the run succeeded.
+          var sqliteAfterDuckdbFail = await runViaPyodideSqlite(py, statement);
+          if (sqliteAfterDuckdbFail && !sqliteAfterDuckdbFail.error) return sqliteAfterDuckdbFail;
           var pandasAfterFail = await runViaPyodidePandasCount(py, statement);
           if (pandasAfterFail) return pandasAfterFail;
           var literalAfterFail = evalTrivialLiteralSelect(statement);
           if (literalAfterFail) return literalAfterFail;
+          if (sqliteAfterDuckdbFail && sqliteAfterDuckdbFail.error) return sqliteAfterDuckdbFail;
           return await runViaWebRNarrowCount(statement);
         }
       }
-      // duckdb-in-pyodide is unavailable (the live micropip-install failure
-      // this hotfix targets) -- try the honest pandas narrow COUNT next,
-      // BEFORE falling through to webR, since the exact CSV buildHelper
-      // already synced is right here in the same Pyodide globals.
+      // duckdb-in-pyodide is unavailable (the structural micropip-install
+      // impossibility this hotfix documents) -- try the new pyodide-sqlite
+      // full-SQL path next, BEFORE falling through to the narrow pandas
+      // COUNT-only path, since sqlite can answer the same COUNT(*) AND
+      // everything else (SUM, GROUP BY, JOIN, WHERE, ...) pandas cannot.
+      var sqliteResult = await runViaPyodideSqlite(py, statement);
+      if (sqliteResult && !sqliteResult.error) return sqliteResult;
+      // sqlite genuinely ran and failed (a real dialect/runtime error, per
+      // spec "Dialect honesty") OR found no dg_csv_* tables to register at
+      // all (null) -- either way, fall through to the narrow pandas COUNT
+      // path next; if pandas also cannot answer, surface the sqlite error
+      // (if any) rather than a generic unavailable, so the UI can show the
+      // real dialect failure per spec "UI may show engine name".
       var pandasResult = await runViaPyodidePandasCount(py, statement);
       if (pandasResult) return pandasResult;
       var literalFallback = evalTrivialLiteralSelect(statement);
       if (literalFallback) return literalFallback;
+      if (sqliteResult && sqliteResult.error) return sqliteResult;
       return await runViaWebRNarrowCount(statement);
     } catch (_eOuter) {
       return { error: 'pyodide-sql-unavailable' };
@@ -143348,6 +143534,7 @@ async function roundTripCartridge(args) {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+
 
 
 
