@@ -150,7 +150,35 @@ export var SQLEngine = (function () {
           var worker = new Worker(workerHref);
           var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
           db = new mod.AsyncDuckDB(logger, worker);
-          await db.instantiate(mainModuleHref, bundle.pthreadWorker);
+          try {
+            await db.instantiate(mainModuleHref, bundle.pthreadWorker);
+          } catch (eInstantiate) {
+            // Hybrid self-host candidate (Bundle 18 hotfix 3): the pplx.app
+            // live proof showed the same-origin mjs + worker scripts load
+            // fine (200), but the same-origin wasm fetch itself can fail
+            // with "Failed to fetch" / net::ERR_FAILED -- curl follows the
+            // platform's redirect to S3, a browser fetch()/WASM streaming
+            // request under this host cannot. Retry the SAME worker/mjs
+            // stack with only mainModule swapped to the CDN pin instead of
+            // abandoning the whole self-host candidate. Only do this for a
+            // wasm-fetch-shaped error, and only when this candidate ships a
+            // wasmFallback (self-host only).
+            var isWasmFail = LOAD_HARDEN && typeof LOAD_HARDEN.isWasmFetchFailure === 'function'
+              ? LOAD_HARDEN.isWasmFetchFailure(eInstantiate)
+              : /failed to fetch|err_failed|networkerror|http status code is not ok/i.test((eInstantiate && eInstantiate.message) || '');
+            var hybridBundle = (isWasmFail && LOAD_HARDEN && typeof LOAD_HARDEN.buildHybridWasmBundle === 'function')
+              ? LOAD_HARDEN.buildHybridWasmBundle({ mainModule: mainModuleHref, mainWorker: workerHref, pthreadWorker: bundle.pthreadWorker }, cand)
+              : null;
+            if (!hybridBundle) throw eInstantiate;
+            try {
+              await db.instantiate(hybridBundle.mainModule, hybridBundle.pthreadWorker);
+            } catch (eHybrid) {
+              // Hybrid retry also failed: give up on self-host entirely and
+              // let the outer loop advance to the next full candidate
+              // (jsDelivr) instead of getting stuck on a half-instantiated db.
+              throw eHybrid;
+            }
+          }
           conn = await db.connect();
           lastErr = null;
           break;

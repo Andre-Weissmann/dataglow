@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6087486,
+  "canvasBytes": 6093525,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -453,9 +453,9 @@
     {
       "source": "js/sql/duckdb-load-harden.js",
       "note": "Bundle 15: shared DuckDB-WASM CDN candidate list and version pin (jsDelivr, unpkg, esm.sh) read by both js/sql/sql-engine.js and the canvas inline SQL engine loader, so the two surfaces cannot drift onto two different pins. Inlined verbatim by inject_bundle15.py, publishing window.DataGlowDuckDBLoadHarden.",
-      "sourceSha256": "11c03e24dc36b2009a10abceadaf74963312442860e7999abde40c23c1579318",
-      "canvasSectionSha256": "198f8b744fc9dd2e6f9586091b6c9452eb1cef34a35c7de3d9931dbb833be5d9",
-      "canvasSectionBytes": 9632
+      "sourceSha256": "71a2b7ce8a9030b95b4ace28811d8900118eda6692df9e2f00602bfcc7b1c9cb",
+      "canvasSectionSha256": "a46730288bd33f7f9da428b8e74c2d9bf6463dc346172c62fbb0e9a171279e9b",
+      "canvasSectionBytes": 13503
     },
     {
       "source": "js/polyglot/r-air-gap-prebundle.js",

@@ -81,13 +81,82 @@ export function resolveSelfHostBaseUrl(href) {
  * duckdb-browser.mjs, and the adapter's bundle-selection falls back to
  * baseUrl + duckdb-eh.wasm / duckdb-browser-eh.worker.js when a module has no
  * getJsDelivrBundles export (see js/sql/sql-engine.js ensureInit).
+ *
+ * Bundle 18 hotfix 3: pplx.app live proof showed the same-origin
+ * duckdb-browser.mjs, apache-arrow, and both worker scripts all load with a
+ * clean 200 -- but /assets/duckdb/duckdb-eh.wasm (35MB) fails in the
+ * browser with net::ERR_FAILED / TypeError: Failed to fetch. curl against
+ * that same path from a server succeeds because it follows the platform's
+ * 302 redirect to S3; a browser fetch()/WebAssembly streaming request under
+ * this host cannot follow that redirect the same way (see
+ * BUNDLE18_HOTFIX3_RESULT.md). jsDelivr and unpkg serve the identical
+ * 1.29.0 wasm bytes directly with CORS, with no redirect in front of them.
+ *
+ * wasmFallback is the hybrid escape hatch: it lets a caller keep the
+ * same-origin mjs + worker scripts (no third-party JS ever runs) while
+ * pointing ONLY the mainModule wasm fetch at a CDN pin when the self-host
+ * wasm fetch fails. This is intentionally data on the self-host candidate
+ * itself, not a new candidate host in CANDIDATE_HOSTS, because it is not an
+ * alternative host to try after self-host fails wholesale -- it is a
+ * same-pass, same-candidate repair for the one file self-host cannot always
+ * serve.
  */
 export const SELF_HOST_CANDIDATE = Object.freeze({
   id: 'self-host',
   label: 'self-host',
   cdnUrl: SELF_HOST_BASE_URL + 'duckdb-browser.mjs',
   baseUrl: SELF_HOST_BASE_URL,
+  wasmFallback: Object.freeze({
+    mvp: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-mvp.wasm',
+    eh: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-eh.wasm',
+  }),
 });
+
+/**
+ * Whether an error thrown while fetching/instantiating a wasm module looks
+ * like the unfetchable-redirect failure this hotfix targets, rather than a
+ * genuine compile/logic error worth surfacing as-is. Matches both the raw
+ * browser fetch failure (TypeError: Failed to fetch) and the
+ * WebAssembly.compile error text Chromium/Firefox raise when the underlying
+ * network request never completed.
+ *
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isWasmFetchFailure(err) {
+  const msg = (err && typeof err === 'object' && 'message' in err) ? String(err.message) : String(err || '');
+  return /failed to fetch/i.test(msg) ||
+    /err_failed/i.test(msg) ||
+    /networkerror/i.test(msg) ||
+    /http status code is not ok/i.test(msg) ||
+    /failed to (fetch|load) (dynamically imported|wasm)/i.test(msg);
+}
+
+/**
+ * Given a bundle (mainModule/mainWorker pair) built from a candidate that
+ * carries a wasmFallback, return the same bundle with mainModule swapped to
+ * the CDN pin. Keeps mainWorker (and therefore the whole worker/mjs stack)
+ * same-origin -- only the wasm binary URL changes. Returns null when the
+ * candidate has no wasmFallback or the bundle has no matching key, so a
+ * caller can tell "no hybrid retry available" from "already the fallback".
+ *
+ * @param {{mainModule:string, mainWorker:string, pthreadWorker?:string|null}} bundle
+ * @param {{wasmFallback?: {mvp?:string, eh?:string}}} candidate
+ * @returns {null|{mainModule:string, mainWorker:string, pthreadWorker:string|null}}
+ */
+export function buildHybridWasmBundle(bundle, candidate) {
+  const fallback = candidate && candidate.wasmFallback;
+  if (!bundle || !fallback) return null;
+  const isEh = /duckdb-eh\.wasm/i.test(String(bundle.mainModule || ''));
+  const isMvp = /duckdb-mvp\.wasm/i.test(String(bundle.mainModule || ''));
+  const cdnWasm = isEh ? fallback.eh : (isMvp ? fallback.mvp : null);
+  if (!cdnWasm) return null;
+  return {
+    mainModule: cdnWasm,
+    mainWorker: bundle.mainWorker,
+    pthreadWorker: bundle.pthreadWorker || null,
+  };
+}
 
 /**
  * Ordered hosts to try, primary first. Self-host is FIRST: a same-origin
@@ -128,9 +197,18 @@ function isPlainObject(v) {
 /**
  * The ordered candidate list a load pass should walk. A copy every time, so a
  * caller mutating the array it received cannot corrupt the shared pin list.
+ * wasmFallback (self-host only, Bundle 18 hotfix 3) is carried through so a
+ * caller can retry just the wasm fetch on a CDN pin without losing the rest
+ * of the candidate shape.
  */
 export function buildCandidateList() {
-  return CANDIDATE_HOSTS.map((h) => ({ id: h.id, label: h.label, cdnUrl: h.cdnUrl, baseUrl: h.baseUrl }));
+  return CANDIDATE_HOSTS.map((h) => ({
+    id: h.id,
+    label: h.label,
+    cdnUrl: h.cdnUrl,
+    baseUrl: h.baseUrl,
+    ...(h.wasmFallback ? { wasmFallback: { mvp: h.wasmFallback.mvp, eh: h.wasmFallback.eh } } : {}),
+  }));
 }
 
 /** Rewrite a jsDelivr-shaped bundle URL onto a different candidate's base. */
@@ -213,6 +291,8 @@ export const DataGlowDuckDBLoadHarden = {
   summarizeAttempts,
   shouldTryNextCandidate,
   nextCandidate,
+  isWasmFetchFailure,
+  buildHybridWasmBundle,
 };
 
 try {
