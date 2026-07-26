@@ -7403,6 +7403,81 @@
         "proofHarness"
       ],
       "status": "shipped"
-    }
+    },
+      {
+        "id": "proof-harness-v1-harness",
+        "platforms": [
+          "browser",
+          "desktop"
+        ],
+        "area": "Provenance, audit & trust",
+        "name": "Proof Harness v1: Second Engine Rule corroboration, Regression Vault, Proof Cartridge, review Inbox, AMBER staleness",
+        "files": [
+          "js/proof-harness/second-engine.js",
+          "js/proof-harness/vault.js",
+          "js/proof-harness/cartridge.js",
+          "js/proof-harness/inbox.js",
+          "js/proof-harness/verdict.js",
+          "js/proof-harness/index.js",
+          "js/proof-harness/data-glow-proof-harness-canvas.js",
+          "test/proof-harness-v1.test.mjs"
+        ],
+        "symbols": [
+          {
+            "file": "js/proof-harness/second-engine.js",
+            "name": "corroborateRun"
+          },
+          {
+            "file": "js/proof-harness/second-engine.js",
+            "name": "resolveSecondEngine"
+          },
+          {
+            "file": "js/proof-harness/vault.js",
+            "name": "createVault"
+          },
+          {
+            "file": "js/proof-harness/vault.js",
+            "name": "runVault"
+          },
+          {
+            "file": "js/proof-harness/vault.js",
+            "name": "VAULT_STORAGE_KEY"
+          },
+          {
+            "file": "js/proof-harness/cartridge.js",
+            "name": "exportCartridge"
+          },
+          {
+            "file": "js/proof-harness/cartridge.js",
+            "name": "importCartridge"
+          },
+          {
+            "file": "js/proof-harness/cartridge.js",
+            "name": "PROOF_CARTRIDGE_TYPE"
+          },
+          {
+            "file": "js/proof-harness/inbox.js",
+            "name": "createInbox"
+          },
+          {
+            "file": "js/proof-harness/inbox.js",
+            "name": "INBOX_ITEM_STATUSES"
+          },
+          {
+            "file": "js/proof-harness/verdict.js",
+            "name": "VERDICT_STATES"
+          },
+          {
+            "file": "js/proof-harness/index.js",
+            "name": "rejectProposal"
+          }
+        ],
+        "notes": "The second slice of the MASTER PROMPT doctrine, \"AI proposes, engines prove, human confirms. Draft elsewhere. Prove here,\" composing v0 (proof-harness-v0-verdict) rather than replacing it: window.DataGlowProofHarness stays version 2 with every v0 method still present and behaviorally unchanged for a caller that never passes the new optional args. js/proof-harness/second-engine.js is the Second Engine Rule: corroborateRun() takes the same proposal plus a second, independently resolved run (a different engine binding, never a re-run of the identical call) and compares scalars with the same epsilon-and-trim discipline score-claim.js already established; runProofCycle() now threads an optional corroboration through, and verdict.js's gateGreen() blocks a GREEN verdict outright when the two engines disagree, downgrading to RED with reason code corroboration-disagree rather than ever surfacing a silently unconfirmed GREEN. js/proof-harness/vault.js is the Regression Vault: every RED verdict and every rejectProposal() call is auto-appended as a frozen vault test (expected shape plus the failing run captured verbatim), persisted to localStorage under dataglow.proofHarness.vault.v1, and runVault() replays every stored test against a caller-supplied engine so a fixed claim cannot quietly regress back to the same wrong number. js/proof-harness/cartridge.js is the Proof Cartridge: exportCartridge() serializes a proposal, its verdict, and its receipt chain into a single dataglow/proof-cartridge/v1 JSON document that always zeroes out rows (a cartridge is proof of a claim, never a copy of the underlying data), hashed as sha256:<hex> over the canonicalized payload; importCartridge() re-verifies that hash and refuses a tampered or hand-edited cartridge rather than trusting the embedded verdict blindly. js/proof-harness/inbox.js is the review queue behind the new default Inbox tab: a small state machine over pending-prove, awaiting-confirm, red, gray, amber, confirmed, and rejected, so a claim that has not yet been proven, and a claim that was proven but not yet confirmed by a human, are never rendered as the same thing. js/proof-harness/verdict.js adds AMBER for a stale digest: computeStaleness() in index.js compares a proposal's live digest against the digest an earlier receipt was bound to, and a mismatch downgrades what would otherwise be treated as already-proven to AMBER with reason code stale-digest, never a leftover GREEN. js/proof-harness/data-glow-proof-harness-canvas.js adds a tab bar (Inbox default, Prove, Vault, Cartridge) behind the proofHarnessV1 flag; with the flag off, only the unchanged v0 Prove surface renders, byte-for-byte. No em dash in any visible text; no merge or publish performed by this change.",
+        "relatedFlags": [
+          "proofHarness",
+          "proofHarnessV1"
+        ],
+        "status": "shipped"
+      }
   ]
 }

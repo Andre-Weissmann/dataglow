@@ -1,24 +1,36 @@
 // ============================================================
-// DATAGLOW - Proof Harness v0 (VERDICT): verdict engine
+// DATAGLOW - Proof Harness verdict engine (v0 GREEN/RED/GRAY + v1 AMBER)
 // ============================================================
 // WHY THIS EXISTS
 // Doctrine invariant #6: "There are exactly four verdicts: GREEN (proven),
 // RED (refuted), GRAY (not provable, blocker named), AMBER (stale, re-prove
-// required). No fifth state." v0 ships three of the four -- AMBER staleness
-// is explicitly v1 (PROOF_HARNESS_V0_SPEC.md: "AMBER staleness graph (v1)").
+// required). No fifth state." v0 shipped three of the four -- AMBER staleness
+// was explicitly deferred to v1 (PROOF_HARNESS_V0_SPEC.md: "AMBER staleness
+// graph (v1)"). PROOF_HARNESS_V1_SPEC.md ships the minimal slice of AMBER:
+// staleness only, when a receipt exists but the proposal's current digest no
+// longer matches the digest that receipt was bound to (the statement or
+// expectation changed after the receipt was written). This is NOT a fifth
+// mystery state layered on top -- it is the fourth state the doctrine always
+// named, added by the one new input (`staleness`) callers can now supply.
+//
 // This module is the pure decision function: given a claim, an engine run
 // result, and (optionally) what was expected, it returns exactly one of
-// GREEN / RED / GRAY plus a machine-checkable reason code and a one-line
-// human reason. It NEVER returns a confidence percentage on the verdict
-// itself (doctrine #6: "No confidence percentages on verdicts").
+// GREEN / RED / GRAY / AMBER plus a machine-checkable reason code and a
+// one-line human reason. It NEVER returns a confidence percentage on the
+// verdict itself (doctrine #6: "No confidence percentages on verdicts").
 //
 // A false GREEN is a release blocker (doctrine #7), so this function is
 // deliberately conservative: any ambiguity about whether the run actually
-// answers the claim resolves to GRAY, never to a guessed GREEN.
+// answers the claim resolves to GRAY, never to a guessed GREEN. Likewise v1's
+// Second Engine Rule (second-engine.js) can only ever pull a candidate GREEN
+// DOWN to RED on disagreement -- it is checked here as `a.corroboration`,
+// and disagreement blocks GREEN unconditionally, before staleness is even
+// considered, because a run that disagrees with a second engine is refuted
+// regardless of whether its receipt is fresh or stale.
 //
 // PURITY: no DOM, no network, no engine call. Pure function of its inputs.
 
-export const VERDICT_STATES = Object.freeze(['GREEN', 'RED', 'GRAY']);
+export const VERDICT_STATES = Object.freeze(['GREEN', 'RED', 'GRAY', 'AMBER']);
 
 export const VERDICT_REASON_CODES = Object.freeze({
   RUN_ERROR: 'run-error',
@@ -30,6 +42,8 @@ export const VERDICT_REASON_CODES = Object.freeze({
   ROWCOUNT_MISMATCH: 'rowcount-mismatch',
   ROWCOUNT_BAND_MISS: 'rowcount-band-miss',
   MATCH: 'match',
+  CORROBORATION_DISAGREE: 'corroboration-disagree',
+  STALE_DIGEST: 'stale-digest',
 });
 
 function isPlainObject(v) {
@@ -42,22 +56,34 @@ function isPlainObject(v) {
  *
  * Decision order (first match wins), each aimed at "refuse to guess":
  *   1. No proposal / no statement           -> GRAY, blocker named
- *   2. No run at all (never executed)       -> GRAY, blocker named
- *   3. Run errored                          -> RED (the run itself refutes
+ *   2. Stale digest (v1 AMBER)               -> AMBER, re-prove required (a
+ *      receipt exists but the proposal's current content no longer matches
+ *      the digest that receipt was bound to; checked early because a stale
+ *      proposal's old run/comparison describe a DIFFERENT statement and must
+ *      not be read as if they still prove the current one)
+ *   3. No run at all (never executed)       -> GRAY, blocker named
+ *   4. Run errored                          -> RED (the run itself refutes
  *      execution: doctrine treats a run that could not complete as refuted,
  *      not as unprovable, because the claim WAS attempted and failed)
- *   4. No expectation to compare against    -> GRAY, blocker named (a run
+ *   5. No expectation to compare against    -> GRAY, blocker named (a run
  *      with nothing to check it against is not proof of anything)
- *   5. Expected scalars/rowCount compared to the run's scalars/rowCount via
- *      score-claim.js's compareClaimToRun -- match => GREEN, mismatch => RED
+ *   6. Expected scalars/rowCount compared to the run's scalars/rowCount via
+ *      score-claim.js's compareClaimToRun -- match => candidate GREEN,
+ *      mismatch => RED
+ *   7. Second Engine Rule (v1): a candidate GREEN is only FINAL once any
+ *      supplied `corroboration` result is checked -- corroboration.agrees
+ *      === false blocks GREEN and forces RED, never silently passing through
  *
  * @param {{claim?: {text?:string, scalars?:object, rowCount?:number}|null,
  *          run?: {status?:'ok'|'error', rowCount?:number|null, scalars?:object,
  *                 error?:string|null, durationMs?:number}|null,
  *          expected?: {scalars?:object, rowCount?:number, rowcountBand?:[number,number]}|null,
  *          proposal?: object|null,
- *          comparison?: {pass:boolean, mismatches?: Array<object>}|null}} args
- * @returns {{state:'GREEN'|'RED'|'GRAY', reasonCode:string, reason:string, blocker:string|null}}
+ *          comparison?: {pass:boolean, mismatches?: Array<object>}|null,
+ *          corroboration?: {engine?:string, agrees?:boolean, tolerance?:number,
+ *                 divergence_class?:string|null, ran?:boolean}|null,
+ *          staleness?: {stale:boolean, reason?:string}|null}} args
+ * @returns {{state:'GREEN'|'RED'|'GRAY'|'AMBER', reasonCode:string, reason:string, blocker:string|null}}
  */
 export function decideVerdict(args) {
   const a = isPlainObject(args) ? args : {};
@@ -71,6 +97,18 @@ export function decideVerdict(args) {
       reasonCode: VERDICT_REASON_CODES.NO_PROPOSAL,
       reason: 'There is no typed proposal to run yet.',
       blocker: 'A proposal with a SQL statement is required before anything can be proven.',
+    };
+  }
+
+  const staleness = isPlainObject(a.staleness) ? a.staleness : null;
+  if (staleness && staleness.stale === true) {
+    return {
+      state: 'AMBER',
+      reasonCode: VERDICT_REASON_CODES.STALE_DIGEST,
+      reason: 'The proposal changed since its receipt was written, so that receipt no longer proves the current statement.',
+      blocker: typeof staleness.reason === 'string' && staleness.reason.trim()
+        ? staleness.reason.trim()
+        : 'Press Prove again to bind a fresh receipt to the current statement.',
     };
   }
 
@@ -101,15 +139,41 @@ export function decideVerdict(args) {
     };
   }
 
+  const corroboration = isPlainObject(a.corroboration) ? a.corroboration : null;
+
+  // Second Engine Rule (v1): wraps every candidate-GREEN return below. A
+  // supplied corroboration result with agrees === false blocks GREEN
+  // unconditionally and forces RED instead -- disagreement between two
+  // independent engines refutes the claim, it does not merely make it
+  // unprovable (GRAY), because both engines DID run and they disagree, which
+  // is itself a definite, checkable fact. agrees === true or no corroboration
+  // supplied at all (single-engine, v0 strength) both let the candidate
+  // GREEN stand unchanged.
+  function gateGreen(candidate) {
+    if (corroboration && corroboration.agrees === false) {
+      const divergence = typeof corroboration.divergence_class === 'string' && corroboration.divergence_class.trim()
+        ? corroboration.divergence_class.trim()
+        : 'result-mismatch';
+      const engineName = typeof corroboration.engine === 'string' && corroboration.engine.trim() ? corroboration.engine.trim() : 'the second engine';
+      return {
+        state: 'RED',
+        reasonCode: VERDICT_REASON_CODES.CORROBORATION_DISAGREE,
+        reason: `The primary engine and ${engineName} do not agree on this result.`,
+        blocker: `Corroboration disagreement (${divergence}): the second engine did not reproduce the primary engine's result within tolerance.`,
+      };
+    }
+    return candidate;
+  }
+
   const comparison = isPlainObject(a.comparison) ? a.comparison : null;
   if (comparison) {
     if (comparison.pass) {
-      return {
+      return gateGreen({
         state: 'GREEN',
         reasonCode: VERDICT_REASON_CODES.MATCH,
         reason: 'The engine result matches what was expected.',
         blocker: null,
-      };
+      });
     }
     const mismatches = Array.isArray(comparison.mismatches) ? comparison.mismatches : [];
     const first = mismatches[0];
@@ -127,12 +191,12 @@ export function decideVerdict(args) {
   // (mirrors scoreDrillAnswer's rowCount-first discipline in drill-floor.js).
   if (typeof expected.rowCount === 'number' && typeof run.rowCount === 'number') {
     if (run.rowCount === expected.rowCount) {
-      return {
+      return gateGreen({
         state: 'GREEN',
         reasonCode: VERDICT_REASON_CODES.MATCH,
         reason: `The row count matches the expected ${expected.rowCount}.`,
         blocker: null,
-      };
+      });
     }
     return {
       state: 'RED',
@@ -145,12 +209,12 @@ export function decideVerdict(args) {
   if (Array.isArray(expected.rowcountBand) && expected.rowcountBand.length === 2 && typeof run.rowCount === 'number') {
     const [lo, hi] = expected.rowcountBand;
     if (run.rowCount >= lo && run.rowCount <= hi) {
-      return {
+      return gateGreen({
         state: 'GREEN',
         reasonCode: VERDICT_REASON_CODES.MATCH,
         reason: `The row count ${run.rowCount} falls within the expected band.`,
         blocker: null,
-      };
+      });
     }
     return {
       state: 'RED',
