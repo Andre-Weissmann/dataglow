@@ -53,7 +53,7 @@ import { compareClaimToRun } from './score-claim.js';
 import { createReceiptLedger, verifyReceiptChain, buildReceiptPredicate } from './receipt.js';
 import { corroborateRun, resolveSecondEngine, buildCorroborationField } from './second-engine.js';
 import { createVault, runVault, VAULT_STORAGE_KEY } from './vault.js';
-import { exportCartridge as exportCartridgePure, importCartridge as importCartridgePure, normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
+import { exportCartridgeCore, importCartridgeCore, normalizeImportArgs, parseCartridge, verifyCartridgeHash, serializeCartridge, PROOF_CARTRIDGE_TYPE } from './cartridge.js';
 import { createInbox, statusLabel, INBOX_ITEM_STATUSES } from './inbox.js';
 
 const ledger = createReceiptLedger();
@@ -357,7 +357,7 @@ export async function importCartridgeWrapped(args, opts) {
     runQuery: normalized.runQuery,
     compareClaimToRun: typeof normalized.compareClaimToRun === 'function' ? normalized.compareClaimToRun : compareClaimToRun,
   };
-  return importCartridgePure(withScorer);
+  return importCartridgeCore(withScorer);
 }
 
 /**
@@ -369,7 +369,7 @@ export async function importCartridgeWrapped(args, opts) {
  * @param {object} args
  */
 export async function exportCartridgeWrapped(args) {
-  return exportCartridgePure(args);
+  return exportCartridgeCore(args);
 }
 
 /**
@@ -390,7 +390,7 @@ export async function exportCartridgeWrapped(args) {
  */
 export async function roundTripCartridge(args) {
   const a = isPlainObject(args) ? args : {};
-  const exported = await exportCartridgePure({
+  const exported = await exportCartridgeCore({
     proposal: a.proposal,
     verdict: a.verdict,
     run: a.run,
