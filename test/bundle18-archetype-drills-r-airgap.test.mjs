@@ -100,7 +100,13 @@ function referenceStreakGolden(activityDays) {
     }
     islandCount += islands;
   }
-  return { maxStreak, userId, islandCount, rowCount: activityDays.length };
+  // rowCount: activity table size, matching the Python/R starters' own
+  // "matched rows: N" stdout line (both print len(activity)/nrow(activity)).
+  // sqlRowCount: the SQL starter's own RESULT SHAPE -- it ends in LIMIT 1 and
+  // returns exactly the one (user_id, max_streak) winner row, so the SQL
+  // golden's rowCount must be 1, not the activity table size. See
+  // BUNDLE18_HOTFIX6_SPEC.md.
+  return { maxStreak, userId, islandCount, rowCount: activityDays.length, sqlRowCount: 1 };
 }
 
 function referenceBasketGolden(basketLines) {
@@ -192,7 +198,10 @@ describe('bundle18 A: three new archetype drills registered with starters + gold
     const activityDays = dataMod.generateActivityDays();
     const ref = referenceStreakGolden(activityDays);
     const drill = floorMod.getDrill('streak-islands');
-    assert.equal(drill.goldenAnswers.sql.rowCount, ref.rowCount);
+    // SQL's golden rowCount is the starter's own result shape (LIMIT 1
+    // winner row), independently re-derived as sqlRowCount above; it is NOT
+    // the activity table size (that is Python/R's rowCount, checked below).
+    assert.equal(drill.goldenAnswers.sql.rowCount, ref.sqlRowCount);
     assert.equal(drill.goldenAnswers.sql.maxStreak, ref.maxStreak);
     assert.equal(drill.goldenAnswers.sql.userId, ref.userId);
     if (typeof drill.goldenAnswers.sql.islandCount === 'number') {
@@ -268,6 +277,19 @@ describe('bundle18 B: scoreDrillAnswer and the new extra-scalar scoring helpers'
       const rScore = mod.scoreDrillAnswer(id, 'r', { stdout: `matched rows: ${drill.goldenAnswers.r.rowCount}\n` });
       assert.equal(rScore.pass, true, `${id} r score should pass`);
     }
+  });
+
+  it('streak-islands sql Check answer PASSes on the LIMIT-1 winner row shape (rowCount 1) and FAILs on the old table-size golden (474)', async () => {
+    const mod = await import(join(REPO_ROOT, 'js', 'drill-floor', 'drill-floor.js'));
+    const passResult = mod.scoreDrillAnswer('streak-islands', 'sql', { result: { rowCount: 1 } });
+    assert.equal(passResult.pass, true, 'streak-islands sql should PASS on rowCount 1 (the LIMIT 1 winner row)');
+    assert.equal(passResult.expected, 1);
+    assert.equal(passResult.got, 1);
+
+    const failResult = mod.scoreDrillAnswer('streak-islands', 'sql', { result: { rowCount: 474 } });
+    assert.equal(failResult.pass, false, 'streak-islands sql should FAIL on rowCount 474 (the activity table size, not the SQL result shape)');
+    assert.equal(failResult.expected, 1);
+    assert.equal(failResult.got, 474);
   });
 
   it('scoreDrillAnswer FAILs on a wrong rowCount and never throws on a garbage result', async () => {

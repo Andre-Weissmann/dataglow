@@ -82788,8 +82788,11 @@ const DRILLS = [
       'new streak whenever a sorted date is not exactly one day after the row ' +
       'above, then a PivotTable MAX of streak length per user, reaches the ' +
       'same 9-day answer; this build does not simulate dragging that formula.',
+    // SQL rowCount is the starter's own RESULT SHAPE (LIMIT 1 winner row),
+    // not the underlying activity table size; Python/R rowCount below is the
+    // activity table size printed by their starters' "matched rows: N" line.
     goldenAnswers: {
-      sql: { rowCount: 474, maxStreak: 9, userId: 1, islandCount: 106 },
+      sql: { rowCount: 1, maxStreak: 9, userId: 1, islandCount: 106 },
       python: { rowCount: 474 },
       r: { rowCount: 474 },
     },
@@ -83426,9 +83429,28 @@ function ensureDrillTablesLoaded(runQuery) {
             }
             var score = scoreDrillAnswer(getActive().id, lang, latest);
             if (statusEl) {
-              statusEl.textContent = score.pass
+              var statusText = score.pass
                 ? ('Pass - ' + score.got + ' row(s), matches the golden answer.')
                 : ('Not yet - expected ' + (score.expected === null ? 'n/a' : score.expected) + ', got ' + (score.got === null ? 'unknown' : score.got) + (score.error ? ' (' + score.error + ')' : ''));
+              // Hotfix 6 optional polish: when SQL Check passes and the last SQL
+              // result's first row has columns that map to this drill's extra
+              // goldens (e.g. streak-islands' max_streak/user_id), surface those
+              // extras alongside the pass status. Never blocks or changes the
+              // pass/fail verdict above; scoreDrillExtras/scalarMatches are pure
+              // and this is read-only best-effort UI sugar.
+              if (lang === 'sql' && score.pass && latest && latest.result && Array.isArray(latest.result.rows) && latest.result.rows.length > 0 && typeof scoreDrillExtras === 'function') {
+                var firstRow = latest.result.rows[0];
+                var extrasScore = scoreDrillExtras(getActive().id, firstRow);
+                var extraKeys = Object.keys(extrasScore.fields || {});
+                if (extraKeys.length > 0) {
+                  var extrasText = extraKeys.map(function (k) {
+                    var f = extrasScore.fields[k];
+                    return k + '=' + (f.got === undefined ? 'n/a' : f.got) + (f.pass ? '' : ' (expected ' + f.expected + ')');
+                  }).join(', ');
+                  statusText += ' [' + extrasText + ']';
+                }
+              }
+              statusEl.textContent = statusText;
               statusEl.style.color = score.pass ? '#1a7f37' : '#cf222e';
             }
             recordDrillReceipt(score);
