@@ -27,8 +27,22 @@ function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-/** Same scalar comparison discipline as score-claim.js's scalarMatches. */
-function valuesAgree(a, b) {
+/** Coerce a BigInt to a Number; passes everything else through unchanged.
+ * DuckDB-WASM returns BigInt for COUNT/SUM-style aggregates on EITHER side
+ * of a corroboration compare (primary or second engine), which fails the
+ * `typeof a === 'number'` check below outright and falls through to `a ===
+ * b` strict equality -- where a BigInt 10n !== Number 10, producing a false
+ * disagree even when the two engines actually agree. See index.js's HOTFIX
+ * comment (post-#622) for the full root cause. */
+function coerceBigInt(v) {
+  return typeof v === 'bigint' ? Number(v) : v;
+}
+
+/** Same scalar comparison discipline as score-claim.js's scalarMatches,
+ * with BigInt coerced on both sides first. */
+function valuesAgree(rawA, rawB) {
+  const a = coerceBigInt(rawA);
+  const b = coerceBigInt(rawB);
   if (typeof a === 'number' && typeof b === 'number') {
     if (!Number.isFinite(a) || !Number.isFinite(b)) return a === b;
     return Math.abs(a - b) <= SECOND_ENGINE_NUMERIC_EPSILON;
@@ -37,6 +51,32 @@ function valuesAgree(a, b) {
     return a.trim() === b.trim();
   }
   return a === b;
+}
+
+/**
+ * Read a named scalar out of the first row of a raw run `result`, the same
+ * object/array-row discipline index.js's extractRunScalars and
+ * score-claim.js's extractScalar both use, coercing BigInt on the way out.
+ * This is the defense-in-depth fallback corroborateRun() uses when
+ * `primaryRun.scalars` came back empty (e.g. an older/uninstrumented
+ * primary run, or a host that still hands back only `{result}`) so a
+ * genuinely-registered scalar in the raw result is never treated as
+ * "missing" just because nothing upstream extracted it first.
+ * @param {*} result
+ * @param {string} column
+ */
+function extractScalarFromResult(result, column) {
+  if (!isPlainObject(result) || !Array.isArray(result.rows) || result.rows.length === 0) return undefined;
+  const row = result.rows[0];
+  if (Array.isArray(row)) {
+    if (!Array.isArray(result.columns)) return undefined;
+    const idx = result.columns.findIndex((c) => (typeof c === 'string' ? c : c && c.name) === column);
+    return idx === -1 ? undefined : coerceBigInt(row[idx]);
+  }
+  if (isPlainObject(row) && Object.prototype.hasOwnProperty.call(row, column)) {
+    return coerceBigInt(row[column]);
+  }
+  return undefined;
 }
 
 /**
@@ -116,16 +156,23 @@ export function normalizeSecondRun(secondRun) {
   // rowCount, not the array length, so a genuine disagreement with the
   // primary engine is never masked into a false agree.
   let rowCount = null;
-  if (typeof secondRun.rowCount === 'number') {
-    rowCount = secondRun.rowCount;
-  } else if (isPlainObject(payload) && typeof payload.rowCount === 'number') {
-    rowCount = payload.rowCount;
+  if (typeof secondRun.rowCount === 'number' || typeof secondRun.rowCount === 'bigint') {
+    rowCount = Number(coerceBigInt(secondRun.rowCount));
+  } else if (isPlainObject(payload) && (typeof payload.rowCount === 'number' || typeof payload.rowCount === 'bigint')) {
+    rowCount = Number(coerceBigInt(payload.rowCount));
   } else if (isPlainObject(payload) && Array.isArray(payload.rows)) {
     rowCount = payload.rows.length;
   } else if (Array.isArray(payload)) {
     rowCount = payload.length;
   }
-  const scalars = isPlainObject(secondRun.scalars) ? secondRun.scalars : {};
+  // Coerce BigInt in every reported scalar too -- a second engine (e.g. the
+  // canvas's pyodide-duckdb bridge) can hand back a BigInt COUNT the exact
+  // same way the primary DuckDB-WASM engine does.
+  const rawScalars = isPlainObject(secondRun.scalars) ? secondRun.scalars : {};
+  const scalars = {};
+  for (const key of Object.keys(rawScalars)) {
+    scalars[key] = coerceBigInt(rawScalars[key]);
+  }
   const error = typeof secondRun.error === 'string' && secondRun.error.trim() ? secondRun.error.trim() : null;
   return { rowCount, scalars, error };
 }
@@ -171,7 +218,8 @@ export function corroborateRun(args) {
   const details = [];
   let agrees = true;
 
-  const primaryRowCount = typeof primary.rowCount === 'number' ? primary.rowCount : null;
+  const primaryRowCount = (typeof primary.rowCount === 'number' || typeof primary.rowCount === 'bigint')
+    ? Number(coerceBigInt(primary.rowCount)) : null;
   if (primaryRowCount !== null && second.rowCount !== null) {
     const rowsAgree = valuesAgree(primaryRowCount, second.rowCount);
     details.push({ field: 'rowCount', primary: primaryRowCount, second: second.rowCount });
@@ -182,7 +230,16 @@ export function corroborateRun(args) {
   const primaryScalars = isPlainObject(primary.scalars) ? primary.scalars : {};
   for (const key of Object.keys(expectedScalars)) {
     if (!Object.prototype.hasOwnProperty.call(second.scalars, key)) continue; // second engine did not report this scalar; nothing to compare
-    const primaryVal = Object.prototype.hasOwnProperty.call(primaryScalars, key) ? primaryScalars[key] : undefined;
+    // Defense in depth: if the primary run's own `scalars` map came back
+    // empty (e.g. an older/uninstrumented primary path never populated it --
+    // this is exactly the bug this hotfix fixes upstream in index.js), fall
+    // back to reading the same named column straight out of the primary's
+    // raw `result` before concluding the primary never reported this scalar
+    // at all. A key that legitimately IS present on primaryScalars always
+    // wins over this fallback.
+    const primaryVal = Object.prototype.hasOwnProperty.call(primaryScalars, key)
+      ? coerceBigInt(primaryScalars[key])
+      : extractScalarFromResult(primary.result, key);
     const secondVal = second.scalars[key];
     details.push({ field: key, primary: primaryVal, second: secondVal });
     if (!valuesAgree(primaryVal, secondVal)) agrees = false;

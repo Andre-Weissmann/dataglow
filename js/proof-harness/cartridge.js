@@ -27,6 +27,59 @@ function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+/** Coerce a BigInt to a Number; passes everything else through unchanged.
+ * Same rationale as index.js's coerceBigInt (DuckDB-WASM COUNT/SUM-style
+ * aggregates come back as BigInt): importCartridgeCore re-runs the
+ * cartridge's statement on the IMPORTER's own live engine, so its `run`
+ * needs the same coercion index.js's primary run path gets, or a re-run
+ * COUNT(*) would fail comparison / JSON serialization the same way the
+ * original bug did. */
+function coerceBigInt(v) {
+  return typeof v === 'bigint' ? Number(v) : v;
+}
+
+/** Extract {rowCount, scalars} from a re-run result the same way
+ * index.js's extractRunScalars does (object rows -> keys; array rows +
+ * `columns` -> map by name), coercing BigInt throughout. Kept as its own
+ * copy (not imported) so cartridge.js stays the zero-dependency pure
+ * module its header promises -- see index.js's HOTFIX comment for why this
+ * exists. */
+function extractRunScalars(result) {
+  const scalars = {};
+  if (!isPlainObject(result)) return { rowCount: null, scalars };
+
+  let rowCount = null;
+  if (typeof result.rowCount === 'number' || typeof result.rowCount === 'bigint') {
+    rowCount = Number(coerceBigInt(result.rowCount));
+  } else if (Array.isArray(result.rows)) {
+    rowCount = result.rows.length;
+  }
+
+  if (Array.isArray(result.rows) && result.rows.length > 0) {
+    const firstRow = result.rows[0];
+    if (Array.isArray(firstRow)) {
+      if (Array.isArray(result.columns)) {
+        result.columns.forEach((col, i) => {
+          const name = typeof col === 'string' ? col : (col && col.name);
+          if (typeof name === 'string' && i < firstRow.length) {
+            scalars[name] = coerceBigInt(firstRow[i]);
+          }
+        });
+      }
+    } else if (isPlainObject(firstRow)) {
+      for (const key of Object.keys(firstRow)) {
+        scalars[key] = coerceBigInt(firstRow[key]);
+      }
+    }
+  } else if (isPlainObject(result.scalars)) {
+    for (const key of Object.keys(result.scalars)) {
+      scalars[key] = coerceBigInt(result.scalars[key]);
+    }
+  }
+
+  return { rowCount, scalars };
+}
+
 const CARTRIDGE_TYPE = 'dataglow/proof-cartridge/v1';
 
 /** SHA-256 of a string, lowercase hex. Same algorithm as every other proof-harness module. */
@@ -282,9 +335,8 @@ export async function importCartridgeCore(args, opts) {
   let run;
   try {
     const result = await a.runQuery(cartridge.statement);
-    const rowCount = Array.isArray(result && result.rows) ? result.rows.length
-      : (typeof (result && result.rowCount) === 'number' ? result.rowCount : null);
-    run = { status: 'ok', rowCount, scalars: {}, result, error: null };
+    const { rowCount, scalars } = extractRunScalars(result);
+    run = { status: 'ok', rowCount, scalars, result, error: null };
   } catch (err) {
     return {
       ok: false,
