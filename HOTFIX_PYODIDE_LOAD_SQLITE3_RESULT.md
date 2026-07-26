@@ -199,5 +199,5 @@ re-injection, all green:
 
 Branch: `fix/pyodide-load-sqlite3` — **do not merge** until confirmed.
 
-PR: (recorded below once opened)
-Commit SHA: (recorded below once pushed)
+PR: https://github.com/Andre-Weissmann/dataglow/pull/627
+Commit SHA: `ead57dee7274e9cebaa048cf8e17634614199a59`
