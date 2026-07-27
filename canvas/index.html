@@ -148366,6 +148366,1304 @@ function exportKeepersJson(keepers, profileStrip) {
   }
 })();
 /* ---- end js/question-scout/data-glow-question-scout-canvas.js ---- */
+/* ---- from js/capture/capture.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - R3 Screenshot / proof capture (pure engine)
+// ============================================================
+// WHY THIS EXISTS
+// R3_R4_CAPTURE_SHIP_SPEC.md, "R3 Screenshot / proof capture": a local-only
+// "Capture step" action that records a PNG of the current canvas state,
+// named with the step and a timestamp, for a fixed set of project-run steps
+// (home, loaded, validate, scout, prove, narrative, export). No network
+// upload, ever: this module never constructs a URL, never calls fetch, and
+// never touches anything outside window.indexedDB / a same-page download.
+//
+// PURITY BOUNDARY
+// This file holds the parts that can be tested with plain Node: the fixed
+// step list, filename building, the capture record shape, and the in-memory
+// list a canvas UI renders from. It does NOT touch html2canvas, the DOM
+// canvas element, or IndexedDB directly -- those calls are asynchronous
+// browser APIs the canvas UI module (data-glow-capture-canvas.js) drives,
+// passing this module's pure helpers the plumbing (blob, size, mimeType)
+// once a capture actually happens. That split mirrors every other engine in
+// this codebase (question-scout.js / proof-harness/*.js): pure logic here,
+// DOM/IO in the *-canvas.js sibling.
+//
+// NEVER: no fetch(), no XMLHttpRequest, no WebSocket, no navigator.sendBeacon
+// anywhere in this file. "No network upload" is a hard SPEC requirement.
+
+const CAPTURE_VERSION = 1;
+
+/**
+ * The fixed set of project-run steps a capture can be labeled with, in the
+ * SPEC's order. A canvas UI offers exactly these as a picker; capture() also
+ * accepts a free-form label so an ad hoc capture is still recorded honestly
+ * (tagged as "custom") rather than forced into a wrong bucket.
+ */
+const CAPTURE_STEPS = Object.freeze([
+  'home',
+  'loaded',
+  'validate',
+  'scout',
+  'prove',
+  'narrative',
+  'export',
+]);
+
+const CUSTOM_STEP = 'custom';
+
+/** IndexedDB database/store names, versioned so a future shape change can migrate cleanly. */
+const CAPTURE_DB_NAME = 'dataglow-capture-v1';
+const CAPTURE_STORE_NAME = 'captures';
+const CAPTURE_DB_VERSION = 1;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Two-digit zero pad, used only for the local-time filename stamp below. */
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * A filesystem-safe, sortable timestamp for filenames: YYYYMMDD-HHMMSS in
+ * local time (matches how a person reading a folder listing expects capture
+ * order to read top-to-bottom). Pure function of the Date passed in, so it
+ * is fully deterministic under test.
+ * @param {Date} [date]
+ */
+function timestampStamp(date) {
+  const d = date instanceof Date && !isNaN(d_getTimeSafe(date)) ? date : new Date();
+  return (
+    d.getFullYear() +
+    pad2(d.getMonth() + 1) +
+    pad2(d.getDate()) +
+    '-' +
+    pad2(d.getHours()) +
+    pad2(d.getMinutes()) +
+    pad2(d.getSeconds())
+  );
+}
+function d_getTimeSafe(d) {
+  try { return d.getTime(); } catch (_e) { return NaN; }
+}
+
+/**
+ * Normalize a requested step label to one of CAPTURE_STEPS, or CUSTOM_STEP
+ * for anything else. Never throws on bad input (missing/blank/wrong type all
+ * fall through to 'custom' with the raw text preserved as customLabel).
+ * @param {string} rawStep
+ */
+function normalizeStep(rawStep) {
+  const s = typeof rawStep === 'string' ? rawStep.trim().toLowerCase() : '';
+  if (CAPTURE_STEPS.includes(s)) return { step: s, customLabel: null };
+  return { step: CUSTOM_STEP, customLabel: typeof rawStep === 'string' && rawStep.trim() ? rawStep.trim() : null };
+}
+
+/**
+ * Build the download/IndexedDB filename for a capture: "<step>_<stamp>.png",
+ * or "custom-<label>_<stamp>.png" when the step is not one of the fixed
+ * seven. Sanitizes the custom label to a safe filename fragment (letters,
+ * digits, dash, underscore only) so a pasted label can never break the file
+ * system or inject a path segment.
+ * @param {string} rawStep
+ * @param {Date} [date]
+ */
+function buildCaptureFilename(rawStep, date) {
+  const { step, customLabel } = normalizeStep(rawStep);
+  const stamp = timestampStamp(date);
+  if (step === CUSTOM_STEP) {
+    const safe = (customLabel || 'step').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'step';
+    return `dataglow-capture_custom-${safe}_${stamp}.png`;
+  }
+  return `dataglow-capture_${step}_${stamp}.png`;
+}
+
+/**
+ * Build one capture record (the pure metadata half; blob/size/mimeType are
+ * supplied by the canvas UI once it actually has PNG bytes from html2canvas,
+ * a native capture API, or the canvas-draw fallback). Never touches the
+ * network: only fields present are text/number metadata and a Blob-like
+ * value the caller already produced locally.
+ * @param {{step:string, blob?:any, width?:number, height?:number, method?:string, date?:Date}} input
+ */
+function buildCaptureRecord(input) {
+  const inp = isPlainObject(input) ? input : {};
+  const { step, customLabel } = normalizeStep(inp.step);
+  const date = inp.date instanceof Date ? inp.date : new Date();
+  const method = ['html2canvas', 'native', 'canvas-fallback'].includes(inp.method) ? inp.method : 'canvas-fallback';
+  return {
+    kind: 'dataglow-capture-record',
+    version: CAPTURE_VERSION,
+    id: `cap-${date.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    step,
+    customLabel,
+    label: step === CUSTOM_STEP ? (customLabel || 'custom') : step,
+    filename: buildCaptureFilename(step === CUSTOM_STEP ? (customLabel || 'custom') : step, date),
+    capturedAt: date.toISOString(),
+    method,
+    width: typeof inp.width === 'number' ? inp.width : null,
+    height: typeof inp.height === 'number' ? inp.height : null,
+    mimeType: 'image/png',
+    byteSize: typeof inp.byteSize === 'number' ? inp.byteSize : null,
+    // The blob itself is intentionally NOT copied into this plain record by
+    // default (keeps this function safely serializable for tests); callers
+    // that need the actual Blob carry it alongside the record by id.
+  };
+}
+
+/**
+ * In-memory list model for a session's captures: append-only from the UI's
+ * point of view (removeCapture is the only way to shrink it, mirroring
+ * Question Scout's keepers tray rather than the receipt ledger's hard
+ * never-remove rule, since a mis-clicked screenshot is not a proof artifact).
+ * @param {Array<object>} list
+ * @param {object} record
+ */
+function addCapture(list, record) {
+  const base = Array.isArray(list) ? list.slice() : [];
+  if (!isPlainObject(record) || record.kind !== 'dataglow-capture-record') return base;
+  base.push(record);
+  return base;
+}
+
+/**
+ * Remove a capture by id. Returns a new array; never throws on an id that is
+ * not present.
+ * @param {Array<object>} list
+ * @param {string} id
+ */
+function removeCapture(list, id) {
+  const base = Array.isArray(list) ? list : [];
+  return base.filter((c) => c && c.id !== id);
+}
+
+/**
+ * Which of the seven fixed steps have at least one capture recorded, in
+ * SPEC order, plus which are still missing. Pure summary the canvas UI (or
+ * the ship pack) can render as a checklist without re-deriving the logic.
+ * @param {Array<object>} list
+ */
+function captureStepCoverage(list) {
+  const base = Array.isArray(list) ? list : [];
+  const have = new Set(base.filter((c) => c && CAPTURE_STEPS.includes(c.step)).map((c) => c.step));
+  return {
+    kind: 'dataglow-capture-step-coverage',
+    steps: CAPTURE_STEPS.map((s) => ({ step: s, captured: have.has(s) })),
+    coveredCount: have.size,
+    totalSteps: CAPTURE_STEPS.length,
+    customCount: base.filter((c) => c && c.step === CUSTOM_STEP).length,
+  };
+}
+
+/**
+ * Build the manifest entry list the Ship Pack's screenshots/ folder uses:
+ * one row per capture, filename + step + capturedAt only (no blob), so
+ * ship-pack.js can build a manifest.json alongside the actual PNG files
+ * without importing this module's DOM-adjacent concerns.
+ * @param {Array<object>} list
+ */
+function buildScreenshotManifest(list) {
+  const base = Array.isArray(list) ? list : [];
+  return base
+    .filter((c) => isPlainObject(c) && c.kind === 'dataglow-capture-record')
+    .map((c) => ({
+      filename: c.filename,
+      step: c.step,
+      customLabel: c.customLabel || null,
+      capturedAt: c.capturedAt,
+      method: c.method,
+      width: c.width,
+      height: c.height,
+      byteSize: c.byteSize,
+    }));
+}
+
+// ------------------------------------------------------------
+// Public namespace export (mirrors js/question-scout/question-scout.js's
+// window.DataGlowQuestionScout pattern)
+// ------------------------------------------------------------
+  window.DataGlowCapture = {
+    CAPTURE_VERSION: CAPTURE_VERSION,
+    CAPTURE_STEPS: CAPTURE_STEPS,
+    CUSTOM_STEP: CUSTOM_STEP,
+    CAPTURE_DB_NAME: CAPTURE_DB_NAME,
+    CAPTURE_STORE_NAME: CAPTURE_STORE_NAME,
+    CAPTURE_DB_VERSION: CAPTURE_DB_VERSION,
+    timestampStamp: timestampStamp,
+    normalizeStep: normalizeStep,
+    buildCaptureFilename: buildCaptureFilename,
+    buildCaptureRecord: buildCaptureRecord,
+    addCapture: addCapture,
+    removeCapture: removeCapture,
+    captureStepCoverage: captureStepCoverage,
+    buildScreenshotManifest: buildScreenshotManifest,
+  };
+  try { if (typeof module !== 'undefined') {} } catch (_e) {}
+})();
+/* ---- end js/capture/capture.js ---- */
+/* ---- from js/ship-pack/ship-pack.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW - R4 Ship pack (pure engine)
+// ============================================================
+// WHY THIS EXISTS
+// R3_R4_CAPTURE_SHIP_SPEC.md, "R4 Ship pack": an "Export ship pack" action
+// that assembles a portable bundle for a portfolio/handoff: keepers.json
+// (from Scout, if present), claims.json (proven claims + SQL + engine ids),
+// validation_summary.json, an honest_claims.md template, and screenshots/
+// if any were captured with R3. Everything here is pure data shaping: given
+// already-computed inputs (Scout's keepers export, Proof Harness receipts,
+// a validation summary array, R3's screenshot manifest), build the file set
+// a canvas UI can zip or multi-download. No network, no DOM, no crypto here
+// (receipts/keepers already carry their own hashes from their own modules;
+// this module never re-derives or invents one).
+//
+// HONESTY BOUNDARY (SPEC: "no pure-local overclaim")
+// honest_claims.md is a TEMPLATE, not a marketing document: every claim line
+// it emits is sourced directly from a proof-harness receipt with a GREEN
+// verdict, carrying that receipt's own SQL statement and engine id(s), and
+// every section explicitly separates PROVEN (has a GREEN receipt) from
+// UNVERIFIED (a Scout keeper with no matching receipt yet) so a reader can
+// never mistake a brainstormed question for a checked number. A dataset that
+// was only ever explored locally, with zero GREEN receipts, produces a
+// template that says exactly that instead of inventing scale/impact language.
+
+const SHIP_PACK_VERSION = 1;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * keepers.json builder. Scout's own buildKeepersExport() already produces
+ * the right shape (js/question-scout/question-scout.js); this just guards
+ * against Scout being entirely absent (no keepers proposed this session) so
+ * the ship pack never crashes when a user goes straight from Validate to
+ * Export without touching Scout.
+ * @param {object|null} keepersExport Result of Scout's buildKeepersExport(), or null/undefined.
+ */
+function buildKeepersFile(keepersExport) {
+  if (isPlainObject(keepersExport) && keepersExport.kind === 'dataglow-question-scout-keepers-export') {
+    return keepersExport;
+  }
+  return {
+    kind: 'dataglow-question-scout-keepers-export',
+    version: null,
+    exportedAt: new Date().toISOString(),
+    keepers: [],
+    note: 'No Scout keepers were proposed or kept this session.',
+  };
+}
+
+/**
+ * Extract a proof-harness receipt ledger entry down to the fields the SPEC
+ * asks claims.json to carry: the claim text, the SQL/statement actually run,
+ * the verdict, and every engine id involved (primary run plus any
+ * corroborating second engine). Tolerant of a receipt missing any of these
+ * sub-objects (buildReceiptPredicate() already defaults them), so a v0-only
+ * receipt with no corroboration section still yields a valid, honest row.
+ * @param {object} entry One entry from createReceiptLedger().getEntries().
+ */
+function claimFromReceiptEntry(entry) {
+  const rec = isPlainObject(entry) && isPlainObject(entry.record) ? entry.record : {};
+  const predicate = isPlainObject(rec.predicate) ? rec.predicate : {};
+  const claim = isPlainObject(predicate.claim) ? predicate.claim : {};
+  const run = isPlainObject(predicate.run) ? predicate.run : {};
+  const verdict = isPlainObject(predicate.verdict) ? predicate.verdict : {};
+  const corroboration = isPlainObject(predicate.corroboration) ? predicate.corroboration : null;
+
+  const engineIds = [];
+  if (run.engine) engineIds.push(run.engine);
+  if (corroboration && corroboration.engine) engineIds.push(corroboration.engine);
+  if (corroboration && Array.isArray(corroboration.engines)) {
+    for (const e of corroboration.engines) if (e && !engineIds.includes(e)) engineIds.push(e);
+  }
+
+  return {
+    receiptIndex: typeof entry.index === 'number' ? entry.index : null,
+    receiptHash: typeof entry.hash === 'string' ? entry.hash : null,
+    claimText: typeof claim.text === 'string' ? claim.text : null,
+    sql: typeof claim.predicate_ast === 'string' ? claim.predicate_ast : (typeof run.statement === 'string' ? run.statement : null),
+    engineIds,
+    verdictState: typeof verdict.state === 'string' ? verdict.state : null,
+    reasonCode: typeof verdict.reason_code === 'string' ? verdict.reason_code : null,
+    rowcount: run.rowcount != null ? run.rowcount : null,
+    scalars: isPlainObject(run.scalars) ? run.scalars : {},
+    corroborated: !!corroboration,
+    capturedAt: typeof entry.ts === 'number' ? new Date(entry.ts).toISOString() : null,
+  };
+}
+
+/**
+ * claims.json builder: every proof-harness receipt, reduced to the SPEC's
+ * "proven claims + SQL + engine ids" shape via claimFromReceiptEntry(), plus
+ * a summary count split by verdict state so a reader does not have to count
+ * rows by hand. An empty or missing ledger produces an honest empty file,
+ * never a fabricated example claim.
+ * @param {Array<object>|null} receiptEntries getReceipts()/ledger.getEntries() result, or null.
+ */
+function buildClaimsFile(receiptEntries) {
+  const entries = Array.isArray(receiptEntries) ? receiptEntries : [];
+  const claims = entries.map(claimFromReceiptEntry);
+  const greenCount = claims.filter((c) => c.verdictState === 'GREEN').length;
+  const amberCount = claims.filter((c) => c.verdictState === 'AMBER').length;
+  const redCount = claims.filter((c) => c.verdictState === 'RED').length;
+  return {
+    kind: 'dataglow-ship-pack-claims',
+    version: SHIP_PACK_VERSION,
+    exportedAt: new Date().toISOString(),
+    totalClaims: claims.length,
+    verdictCounts: { GREEN: greenCount, AMBER: amberCount, RED: redCount, other: claims.length - greenCount - amberCount - redCount },
+    claims,
+  };
+}
+
+/**
+ * validation_summary.json builder. Accepts the same per-layer shape
+ * export-report.js's buildDatasetView() already produces
+ * ({layer, name, status, summary}), so no second validation-summarizing code
+ * path is invented here. Missing/absent validation input yields an honest
+ * "not available" file rather than a fabricated all-pass summary.
+ * @param {Array<{layer?:string, name?:string, status?:string, summary?:string}>|null} validationLayers
+ */
+function buildValidationSummaryFile(validationLayers) {
+  const layers = Array.isArray(validationLayers) ? validationLayers : [];
+  const passed = layers.filter((l) => l && String(l.status).toUpperCase() === 'PASS').length;
+  const warned = layers.filter((l) => l && String(l.status).toUpperCase() === 'WARN').length;
+  const failed = layers.filter((l) => l && String(l.status).toUpperCase() === 'FAIL').length;
+  return {
+    kind: 'dataglow-ship-pack-validation-summary',
+    version: SHIP_PACK_VERSION,
+    exportedAt: new Date().toISOString(),
+    available: layers.length > 0,
+    layerCount: layers.length,
+    counts: { pass: passed, warn: warned, fail: failed, other: layers.length - passed - warned - failed },
+    layers: layers.map((l) => ({
+      layer: (l && (l.layer || l.name)) || 'unknown',
+      status: (l && l.status) || 'UNKNOWN',
+      summary: (l && l.summary) || '',
+    })),
+  };
+}
+
+/**
+ * Render one claims.json row as a single honest_claims.md line: PROVEN rows
+ * (GREEN verdict) get the claim text, the SQL, and engine ids; anything else
+ * is never mentioned in the PROVEN section at all (see buildHonestClaimsMd).
+ */
+function renderProvenLine(c) {
+  const engines = c.engineIds.length ? c.engineIds.join(', ') : 'unknown engine';
+  const corro = c.corroborated ? ' (second-engine corroborated)' : '';
+  return (
+    `- **${c.claimText || '(untitled claim)'}**${corro}\n` +
+    `  - Engine(s): ${engines}\n` +
+    `  - SQL: \`${c.sql || 'n/a'}\`\n` +
+    `  - Receipt: \`${c.receiptHash || 'n/a'}\`\n`
+  );
+}
+
+/**
+ * Render one Scout keeper as an honest_claims.md UNVERIFIED line: the
+ * question text and why it matters only, explicitly labeled as not yet
+ * proven, and never carrying a number as if it were checked.
+ */
+function renderUnverifiedLine(k) {
+  return `- ${k.text || '(untitled question)'} _(not yet proven; no receipt)_\n`;
+}
+
+/**
+ * honest_claims.md template builder. This is the SPEC's "no pure-local
+ * overclaim" guarantee made concrete: PROVEN and UNVERIFIED are separate
+ * sections, a claim only ever appears in PROVEN when a matching GREEN
+ * receipt exists, and a dataset with zero GREEN receipts gets an explicit
+ * "Nothing in this pack is proven yet" line instead of silence (silence
+ * reads as "trust me", which is the exact overclaim this file exists to
+ * prevent).
+ * @param {{claimsFile:object, keepersFile:object, validationFile:object}} args
+ */
+function buildHonestClaimsMarkdown(args) {
+  const a = isPlainObject(args) ? args : {};
+  const claimsFile = isPlainObject(a.claimsFile) ? a.claimsFile : buildClaimsFile(null);
+  const keepersFile = isPlainObject(a.keepersFile) ? a.keepersFile : buildKeepersFile(null);
+  const validationFile = isPlainObject(a.validationFile) ? a.validationFile : buildValidationSummaryFile(null);
+
+  const proven = (claimsFile.claims || []).filter((c) => c.verdictState === 'GREEN');
+  const provenReceiptTexts = new Set(proven.map((c) => (c.claimText || '').trim().toLowerCase()).filter(Boolean));
+  const keepers = keepersFile.keepers || [];
+  const unverifiedKeepers = keepers.filter((k) => !provenReceiptTexts.has((k.text || '').trim().toLowerCase()));
+
+  const lines = [];
+  lines.push('# Honest claims');
+  lines.push('');
+  lines.push('This file is generated by DataGlow\u2019s Ship pack (R4). It separates what was');
+  lines.push('actually proven on this machine from what was only proposed. Nothing in the');
+  lines.push('PROVEN section below was hand-typed after the fact; every line is sourced');
+  lines.push('directly from a Proof Harness receipt with a GREEN verdict.');
+  lines.push('');
+  lines.push('## PROVEN (has a GREEN receipt)');
+  lines.push('');
+  if (proven.length === 0) {
+    lines.push('Nothing in this pack is proven yet. Run Prove on a claim to add one.');
+  } else {
+    for (const c of proven) lines.push(renderProvenLine(c).trimEnd());
+  }
+  lines.push('');
+  lines.push('## UNVERIFIED (proposed by Scout, not yet run through Prove)');
+  lines.push('');
+  if (unverifiedKeepers.length === 0) {
+    lines.push('No outstanding unverified keepers.');
+  } else {
+    for (const k of unverifiedKeepers) lines.push(renderUnverifiedLine(k).trimEnd());
+  }
+  lines.push('');
+  lines.push('## Validation status');
+  lines.push('');
+  if (!validationFile.available) {
+    lines.push('Validation summary not available (run the Validate tab to include one).');
+  } else {
+    lines.push(`${validationFile.layerCount} layer(s) checked: ${validationFile.counts.pass} pass, ${validationFile.counts.warn} warn, ${validationFile.counts.fail} fail.`);
+  }
+  lines.push('');
+  lines.push('---');
+  lines.push('Generated locally by DataGlow. Your data never left this device.');
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Build the full ship pack: a plain object map of relative file path to
+ * either a JSON-serializable value (for the *.json files) or a string (for
+ * honest_claims.md), plus a manifest for the screenshots/ folder if any
+ * captures were supplied. The canvas UI turns this into an actual ZIP (or a
+ * sequence of downloads if a ZIP library is unavailable) -- this function
+ * never touches Blob/File/IndexedDB itself so it stays trivially testable.
+ * @param {{keepersExport?:object, receiptEntries?:Array, validationLayers?:Array, screenshotManifest?:Array, datasetName?:string}} args
+ */
+function buildShipPack(args) {
+  const a = isPlainObject(args) ? args : {};
+  const keepersFile = buildKeepersFile(a.keepersExport);
+  const claimsFile = buildClaimsFile(a.receiptEntries);
+  const validationFile = buildValidationSummaryFile(a.validationLayers);
+  const honestClaimsMd = buildHonestClaimsMarkdown({ claimsFile, keepersFile, validationFile });
+  const screenshots = Array.isArray(a.screenshotManifest) ? a.screenshotManifest : [];
+
+  const files = {
+    'keepers.json': keepersFile,
+    'claims.json': claimsFile,
+    'validation_summary.json': validationFile,
+    'honest_claims.md': honestClaimsMd,
+  };
+  if (screenshots.length > 0) {
+    files['screenshots/manifest.json'] = {
+      kind: 'dataglow-ship-pack-screenshots-manifest',
+      version: SHIP_PACK_VERSION,
+      count: screenshots.length,
+      screenshots,
+    };
+  }
+
+  return {
+    kind: 'dataglow-ship-pack',
+    version: SHIP_PACK_VERSION,
+    exportedAt: new Date().toISOString(),
+    datasetName: typeof a.datasetName === 'string' && a.datasetName.trim() ? a.datasetName.trim() : null,
+    fileNames: Object.keys(files),
+    files,
+  };
+}
+
+/**
+ * Serialize buildShipPack()'s output into a flat list of
+ * {path, contents, mimeType} entries ready to hand to a ZIP writer or a
+ * sequence of anchor-download clicks: JSON files are pretty-printed with a
+ * trailing newline, honest_claims.md is written verbatim as text/markdown.
+ * @param {object} shipPack Result of buildShipPack().
+ */
+function serializeShipPackFiles(shipPack) {
+  const pack = isPlainObject(shipPack) ? shipPack : buildShipPack({});
+  const files = isPlainObject(pack.files) ? pack.files : {};
+  return Object.keys(files).map((path) => {
+    const value = files[path];
+    if (path.endsWith('.md')) {
+      return { path, contents: String(value), mimeType: 'text/markdown' };
+    }
+    return { path, contents: JSON.stringify(value, null, 2) + '\n', mimeType: 'application/json' };
+  });
+}
+
+// ------------------------------------------------------------
+// Public namespace export. window.DataGlowShipPack.export() (the SPEC's
+// exact requested API) is the DOM-facing wrapper the canvas UI module
+// installs; this pure module exposes buildShipPack()/serializeShipPackFiles()
+// as the data half of that call so window.DataGlowShipPack.export() has no
+// logic of its own beyond gathering live inputs and triggering the download.
+// ------------------------------------------------------------
+  window.DataGlowShipPackEngine = {
+    SHIP_PACK_VERSION: SHIP_PACK_VERSION,
+    buildKeepersFile: buildKeepersFile,
+    claimFromReceiptEntry: claimFromReceiptEntry,
+    buildClaimsFile: buildClaimsFile,
+    buildValidationSummaryFile: buildValidationSummaryFile,
+    buildHonestClaimsMarkdown: buildHonestClaimsMarkdown,
+    buildShipPack: buildShipPack,
+    serializeShipPackFiles: serializeShipPackFiles,
+  };
+  try { if (typeof module !== 'undefined') {} } catch (_e) {}
+})();
+/* ---- end js/ship-pack/ship-pack.js ---- */
+/* ---- from js/capture/data-glow-capture-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* ============================================================
+     DATAGLOW - R3 Screenshot / proof capture canvas UI
+     ============================================================
+     Implements R3_R4_CAPTURE_SHIP_SPEC.md's "R3 Screenshot / proof capture":
+     a "Capture step" button (local only) that saves a PNG of the current
+     canvas view, named with a fixed step label + timestamp, for the seven
+     project-run steps (home, loaded, validate, scout, prove, narrative, and
+     export screen). Captures use html2canvas if the page happens to have it loaded, a
+     native capture API (getDisplayMedia-based) if the browser offers one AND
+     the user explicitly grants it, or a canvas-draw fallback (renders a
+     lightweight text/DOM snapshot to an actual <canvas> element and reads
+     that back as a PNG blob) so the button always produces something. Saves
+     to IndexedDB by default; a per-capture "Download" also triggers a plain
+     anchor download. NEVER makes a network request: no fetch/XHR/WebSocket/
+     sendBeacon anywhere in this file.
+
+     The pure engine (js/capture/capture.js, published as
+     window.DataGlowCapture) owns the fixed step list, filename building, the
+     capture record shape, and the in-memory list model. This module owns
+     only DOM/IO: the button, the panel, actually drawing/reading pixels,
+     IndexedDB persistence, and the download link.
+
+     No em dash (U+2014) anywhere in this file's visible strings. */
+
+  var BTN_ID = 'dg-capture-btn';
+  var PANEL_ID = 'dg-capture-panel';
+  var STYLE_ID = 'dg-capture-styles';
+  var BODY_ID = 'dg-capture-body';
+
+  var _captures = [];      // in-memory list mirrors what IndexedDB holds this session
+  var _blobsById = {};     // id -> Blob, kept in memory so Download/ship-pack can read pixels back
+  var _pendingStep = 'home';
+  var _dbPromise = null;
+
+  function engine() { return window.DataGlowCapture || null; }
+
+  function flagOn() {
+    try { if (window.DATAGLOW_CAPTURE === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_CAPTURE === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('captureShipPack') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Capture]', msg);
+  }
+
+  /* ---------------------------- IndexedDB ---------------------------------
+     Best-effort persistence only: a capture still lives in the in-memory
+     _captures/_blobsById maps for the rest of the session even if
+     IndexedDB is unavailable (private browsing, disabled storage, an older
+     WebView) or a write fails, so the button never appears broken. */
+  function openDb() {
+    if (_dbPromise) return _dbPromise;
+    var e = engine();
+    _dbPromise = new Promise(function (resolve) {
+      try {
+        if (!('indexedDB' in window) || !e) { resolve(null); return; }
+        var req = window.indexedDB.open(e.CAPTURE_DB_NAME, e.CAPTURE_DB_VERSION);
+        req.onupgradeneeded = function () {
+          var db = req.result;
+          if (!db.objectStoreNames.contains(e.CAPTURE_STORE_NAME)) {
+            db.createObjectStore(e.CAPTURE_STORE_NAME, { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { resolve(null); };
+      } catch (_err) {
+        resolve(null);
+      }
+    });
+    return _dbPromise;
+  }
+
+  function idbPut(record, blob) {
+    var e = engine();
+    openDb().then(function (db) {
+      if (!db || !e) return;
+      try {
+        var tx = db.transaction(e.CAPTURE_STORE_NAME, 'readwrite');
+        tx.objectStore(e.CAPTURE_STORE_NAME).put({ id: record.id, record: record, blob: blob });
+      } catch (_err) { /* best effort only */ }
+    });
+  }
+
+  /* ---------------------------- capture strategies ------------------------
+     Tries, in order: (1) html2canvas if the page loaded it globally,
+     (2) a native screen-capture API only if already granted/active in this
+     session (never prompts on its own, since a permission prompt on every
+     click would be hostile), (3) a canvas-draw fallback that renders a
+     simple labeled snapshot card so the button always succeeds. */
+  function captureViaHtml2Canvas(target) {
+    if (typeof window.html2canvas !== 'function') return null;
+    return window.html2canvas(target || document.body).then(function (canvasEl) {
+      return new Promise(function (resolve) {
+        canvasEl.toBlob(function (blob) { resolve({ blob: blob, width: canvasEl.width, height: canvasEl.height, method: 'html2canvas' }); }, 'image/png');
+      });
+    });
+  }
+
+  function captureViaNativeStream() {
+    try {
+      if (!window._dgActiveCaptureStream || typeof window._dgActiveCaptureStream !== 'object') return null;
+      var stream = window._dgActiveCaptureStream;
+      var track = stream.getVideoTracks && stream.getVideoTracks()[0];
+      if (!track || typeof window.ImageCapture !== 'function') return null;
+      var cap = new window.ImageCapture(track);
+      return cap.grabFrame().then(function (bitmap) {
+        var c = document.createElement('canvas');
+        c.width = bitmap.width; c.height = bitmap.height;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        return new Promise(function (resolve) {
+          c.toBlob(function (blob) { resolve({ blob: blob, width: c.width, height: c.height, method: 'native' }); }, 'image/png');
+        });
+      });
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /* Always succeeds: draws a small labeled card (step name, timestamp, page
+     title, viewport size) onto a real <canvas> element and reads it back as
+     a PNG blob. This is an honest proof-of-step artifact, not a pixel-exact
+     screenshot, and the record's `method` field says so plainly. */
+  function captureViaCanvasFallback(step) {
+    var w = 960, h = 540;
+    var c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = '#0f1720';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(8, 8, w - 16, h - 16);
+    ctx.fillStyle = '#e5e7eb';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('DataGlow capture', 40, 90);
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = '#93c5fd';
+    ctx.fillText('Step: ' + step, 40, 150);
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '18px sans-serif';
+    ctx.fillText('Captured: ' + new Date().toString(), 40, 190);
+    ctx.fillText('Page: ' + (document.title || 'DataGlow'), 40, 220);
+    ctx.fillText('Viewport: ' + window.innerWidth + ' x ' + window.innerHeight, 40, 250);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('Canvas-draw fallback: no html2canvas/native capture available in this session.', 40, h - 30);
+    return new Promise(function (resolve) {
+      c.toBlob(function (blob) { resolve({ blob: blob, width: w, height: h, method: 'canvas-fallback' }); }, 'image/png');
+    });
+  }
+
+  function runCapture(step) {
+    var attempt = captureViaHtml2Canvas() || captureViaNativeStream();
+    var p = attempt ? attempt.catch(function () { return captureViaCanvasFallback(step); }) : captureViaCanvasFallback(step);
+    return Promise.resolve(p).then(function (result) {
+      return result || captureViaCanvasFallback(step);
+    });
+  }
+
+  function doCapture(rawStep) {
+    var e = engine();
+    if (!e) { toast('Capture engine not available.', 'error'); return; }
+    runCapture(rawStep).then(function (result) {
+      var record = e.buildCaptureRecord({
+        step: rawStep,
+        method: result.method,
+        width: result.width,
+        height: result.height,
+        byteSize: result.blob ? result.blob.size : null,
+      });
+      _captures = e.addCapture(_captures, record);
+      _blobsById[record.id] = result.blob;
+      idbPut(record, result.blob);
+      toast('Captured: ' + record.label + ' (' + record.method + ')', 'success');
+      renderBody();
+    }).catch(function () {
+      toast('Capture failed. Nothing was uploaded; try again.', 'error');
+    });
+  }
+
+  function downloadCapture(id) {
+    var blob = _blobsById[id];
+    var record = _captures.find(function (c) { return c.id === id; });
+    if (!blob || !record) { toast('That capture is no longer available in memory.', 'error'); return; }
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = record.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  function removeCaptureAction(id) {
+    var e = engine();
+    if (!e) return;
+    _captures = e.removeCapture(_captures, id);
+    delete _blobsById[id];
+    renderBody();
+  }
+
+  /* Exposed read-only accessor so the Ship Pack module can pull screenshot
+     bytes without this file and ship-pack-canvas.js needing to know about
+     each other's internals beyond this one function. */
+  function getCapturesForShipPack() {
+    return _captures.map(function (c) {
+      return { record: c, blob: _blobsById[c.id] || null };
+    });
+  }
+
+  /* ---------------------------- styles ------------------------------------ */
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = [
+      '#' + BTN_ID + '{position:fixed;bottom:16px;right:600px;z-index:12000;',
+      'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:999px;',
+      'padding:8px 14px;font:600 13px sans-serif;cursor:pointer;display:flex;align-items:center;gap:6px;}',
+      '#' + BTN_ID + ':hover{background:#1f2937;}',
+      '#' + PANEL_ID + '{position:fixed;top:0;right:-380px;width:360px;height:100%;background:#0f1720;',
+      'color:#e5e7eb;border-left:1px solid #374151;z-index:12001;transition:right .2s ease;',
+      'display:flex;flex-direction:column;font:13px sans-serif;overflow:hidden;}',
+      '#' + PANEL_ID + '.open{right:0;}',
+      '#' + PANEL_ID + ' .dg-cap-head{padding:14px;border-bottom:1px solid #374151;display:flex;justify-content:space-between;align-items:center;}',
+      '#' + PANEL_ID + ' .dg-cap-head h3{margin:0;font-size:15px;}',
+      '#' + BODY_ID + '{overflow-y:auto;padding:12px;flex:1;}',
+      '.dg-cap-steps{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}',
+      '.dg-cap-step-btn{background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:5px 8px;font-size:12px;cursor:pointer;}',
+      '.dg-cap-step-btn.active{background:#2563eb;border-color:#2563eb;}',
+      '.dg-cap-step-btn.done{border-color:#22c55e;}',
+      '.dg-cap-go{width:100%;background:#2563eb;color:#fff;border:none;border-radius:6px;padding:10px;font-weight:600;cursor:pointer;margin-bottom:12px;}',
+      '.dg-cap-item{border:1px solid #374151;border-radius:8px;padding:8px;margin-bottom:8px;}',
+      '.dg-cap-item .dg-cap-row{display:flex;justify-content:space-between;align-items:center;gap:6px;}',
+      '.dg-cap-item .dg-cap-name{font-weight:600;}',
+      '.dg-cap-item .dg-cap-meta{color:#9ca3af;font-size:11px;margin-top:2px;}',
+      '.dg-cap-item button{background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;}',
+      '.dg-cap-empty{color:#9ca3af;font-size:12px;padding:12px 0;}',
+      '.dg-cap-note{color:#9ca3af;font-size:11px;line-height:1.5;margin-top:6px;padding-top:10px;border-top:1px solid #374151;}',
+    ].join('');
+    document.head.appendChild(style);
+  }
+
+  /* ---------------------------- rendering ---------------------------------- */
+  function renderBody() {
+    var e = engine();
+    var body = document.getElementById(BODY_ID);
+    if (!body || !e) return;
+    var coverage = e.captureStepCoverage(_captures);
+    var coverageMap = {};
+    coverage.steps.forEach(function (s) { coverageMap[s.step] = s.captured; });
+
+    var stepsHtml = e.CAPTURE_STEPS.map(function (s) {
+      var cls = 'dg-cap-step-btn' + (s === _pendingStep ? ' active' : '') + (coverageMap[s] ? ' done' : '');
+      return '<button type="button" class="' + cls + '" data-cap-step="' + esc(s) + '">' + esc(s) + (coverageMap[s] ? ' \u2713' : '') + '</button>';
+    }).join('');
+
+    var listHtml = _captures.length === 0
+      ? '<div class="dg-cap-empty">No captures yet this session. Pick a step above and click Capture step.</div>'
+      : _captures.slice().reverse().map(function (c) {
+          return '<div class="dg-cap-item" data-cap-id="' + esc(c.id) + '">' +
+            '<div class="dg-cap-row"><span class="dg-cap-name">' + esc(c.label) + '</span>' +
+            '<span><button type="button" data-cap-download="' + esc(c.id) + '">Download</button> ' +
+            '<button type="button" data-cap-remove="' + esc(c.id) + '">Remove</button></span></div>' +
+            '<div class="dg-cap-meta">' + esc(c.filename) + ' \u00b7 ' + esc(c.method) + (c.byteSize ? ' \u00b7 ' + Math.round(c.byteSize / 1024) + ' KB' : '') + '</div>' +
+            '</div>';
+        }).join('');
+
+    body.innerHTML =
+      '<div class="dg-cap-steps">' + stepsHtml + '</div>' +
+      '<button type="button" class="dg-cap-go" data-cap-go>Capture step</button>' +
+      listHtml +
+      '<div class="dg-cap-note">Local only. Saved to this browser (IndexedDB) and available for download. Nothing here is uploaded to a network.</div>';
+
+    body.querySelectorAll('[data-cap-step]').forEach(function (btn) {
+      btn.addEventListener('click', function () { _pendingStep = btn.getAttribute('data-cap-step'); renderBody(); });
+    });
+    var goBtn = body.querySelector('[data-cap-go]');
+    if (goBtn) goBtn.addEventListener('click', function () { doCapture(_pendingStep); });
+    body.querySelectorAll('[data-cap-download]').forEach(function (btn) {
+      btn.addEventListener('click', function () { downloadCapture(btn.getAttribute('data-cap-download')); });
+    });
+    body.querySelectorAll('[data-cap-remove]').forEach(function (btn) {
+      btn.addEventListener('click', function () { removeCaptureAction(btn.getAttribute('data-cap-remove')); });
+    });
+  }
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    ensureStyles();
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.innerHTML =
+      '<div class="dg-cap-head"><h3>Capture step</h3><button type="button" data-cap-close aria-label="Close">\u00d7</button></div>' +
+      '<div id="' + BODY_ID + '"></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-cap-close]').addEventListener('click', closePanel);
+    renderBody();
+    return panel;
+  }
+
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    if (!flagOn()) return false;
+    ensurePanel().classList.add('open');
+    renderBody();
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open capture step panel');
+    btn.title = 'Capture a screenshot of the current step, saved locally';
+    btn.innerHTML = '<span>Capture step</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    var anchor = document.getElementById('dg-question-scout-btn') || document.getElementById('dg-ph-btn') || document.getElementById('dg-trust-ledger-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '600px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '600px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+    window.DataGlowCaptureCanvas = {
+      isOpen: isOpen,
+      openPanel: openPanel,
+      closePanel: closePanel,
+      capture: doCapture,
+      getCapturesForShipPack: getCapturesForShipPack,
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+/* ---- end js/capture/data-glow-capture-canvas.js ---- */
+/* ---- from js/ship-pack/data-glow-ship-pack-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* ============================================================
+     DATAGLOW - R4 Ship pack canvas UI
+     ============================================================
+     Implements R3_R4_CAPTURE_SHIP_SPEC.md's "R4 Ship pack": an
+     "Export ship pack" button that gathers keepers.json (from Scout, if
+     present), claims.json (proven claims + SQL + engine ids, from Proof
+     Harness receipts), validation_summary.json, an honest_claims.md
+     template, and screenshots/ (from R3 captures, if any), then downloads
+     them as a single ZIP when JSZip happens to be available on the page, or
+     as a sequence of individual file downloads otherwise ("ZIP or
+     multi-download bundle" per SPEC). Exposes window.DataGlowShipPack.export()
+     as the SPEC's exact requested public API.
+
+     The pure engine (js/ship-pack/ship-pack.js, published as
+     window.DataGlowShipPackEngine) owns all data shaping: this module only
+     discovers live inputs (best-effort, never throws), calls the engine, and
+     turns the result into actual downloaded files. No network request is
+     ever made by this file.
+
+     No em dash (U+2014) anywhere in this file's visible strings. */
+
+  var BTN_ID = 'dg-ship-pack-btn';
+  var PANEL_ID = 'dg-ship-pack-panel';
+  var STYLE_ID = 'dg-ship-pack-styles';
+  var BODY_ID = 'dg-ship-pack-body';
+
+  var _lastPack = null;
+  var _busy = false;
+
+  function engine() { return window.DataGlowShipPackEngine || null; }
+
+  function flagOn() {
+    try { if (window.DATAGLOW_SHIP_PACK === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_SHIP_PACK === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('captureShipPack') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Ship pack]', msg);
+  }
+
+  /* ---------------------------- input discovery ----------------------------
+     Every lookup here is best-effort and wrapped so a missing/absent module
+     never blocks the export: an honest empty section beats a crash. Mirrors
+     Question Scout's own discoverTables() convention. */
+  function discoverKeepersExport() {
+    try {
+      var qsCanvas = window.DataGlowQuestionScoutCanvas;
+      var qsEngine = window.DataGlowQuestionScout;
+      if (qsCanvas && typeof qsCanvas.getKeepers === 'function' && qsEngine && typeof qsEngine.buildKeepersExport === 'function') {
+        var keepers = qsCanvas.getKeepers();
+        var strip = (typeof qsCanvas.getProfileStrip === 'function') ? qsCanvas.getProfileStrip() : null;
+        return qsEngine.buildKeepersExport(keepers, strip);
+      }
+    } catch (_e) {}
+    return null;
+  }
+
+  function discoverReceiptEntries() {
+    try {
+      if (window.DataGlowProofHarness && typeof window.DataGlowProofHarness.getReceipts === 'function') {
+        var entries = window.DataGlowProofHarness.getReceipts();
+        if (Array.isArray(entries)) return entries;
+      }
+    } catch (_e) {}
+    return [];
+  }
+
+  function discoverValidationLayers() {
+    try {
+      if (typeof window.dgGetValidationSummary === 'function') {
+        var v = window.dgGetValidationSummary();
+        if (Array.isArray(v)) return v;
+      }
+    } catch (_e0) {}
+    try {
+      if (Array.isArray(window._dgValidationLayers)) return window._dgValidationLayers;
+    } catch (_e1) {}
+    try {
+      if (window.DataGlowState && Array.isArray(window.DataGlowState.validation)) return window.DataGlowState.validation;
+    } catch (_e2) {}
+    return [];
+  }
+
+  function discoverCaptures() {
+    try {
+      if (window.DataGlowCaptureCanvas && typeof window.DataGlowCaptureCanvas.getCapturesForShipPack === 'function') {
+        var items = window.DataGlowCaptureCanvas.getCapturesForShipPack();
+        if (Array.isArray(items)) return items;
+      }
+    } catch (_e) {}
+    return [];
+  }
+
+  function discoverDatasetName() {
+    try {
+      if (window.dataset && typeof window.dataset.name === 'string') return window.dataset.name;
+    } catch (_e0) {}
+    try {
+      if (window.DataGlowState && typeof window.DataGlowState.datasetName === 'string') return window.DataGlowState.datasetName;
+    } catch (_e1) {}
+    return null;
+  }
+
+  /* ---------------------------- build + download --------------------------- */
+  function gatherAndBuild() {
+    var e = engine();
+    if (!e) return null;
+    var captureItems = discoverCaptures();
+    var capEngine = window.DataGlowCapture;
+    var screenshotManifest = (capEngine && typeof capEngine.buildScreenshotManifest === 'function')
+      ? capEngine.buildScreenshotManifest(captureItems.map(function (it) { return it.record; }))
+      : [];
+    var pack = e.buildShipPack({
+      keepersExport: discoverKeepersExport(),
+      receiptEntries: discoverReceiptEntries(),
+      validationLayers: discoverValidationLayers(),
+      screenshotManifest: screenshotManifest,
+      datasetName: discoverDatasetName(),
+    });
+    return { pack: pack, captureItems: captureItems };
+  }
+
+  function triggerDownload(filename, contents, mimeType) {
+    var blob = (contents instanceof Blob) ? contents : new Blob([contents], { type: mimeType || 'application/octet-stream' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  function safePathToFilename(path) {
+    return path.replace(/\//g, '__');
+  }
+
+  function downloadAsZipOrFiles(pack, captureItems) {
+    var e = engine();
+    var files = e.serializeShipPackFiles(pack);
+    var haveJSZip = typeof window.JSZip === 'function';
+
+    if (haveJSZip) {
+      var zip = new window.JSZip();
+      files.forEach(function (f) { zip.file(f.path, f.contents); });
+      captureItems.forEach(function (item) {
+        if (item.blob) zip.file('screenshots/' + item.record.filename, item.blob);
+      });
+      return zip.generateAsync({ type: 'blob' }).then(function (blob) {
+        triggerDownload('dataglow-ship-pack.zip', blob, 'application/zip');
+        return { mode: 'zip', fileCount: files.length + captureItems.length };
+      });
+    }
+
+    /* Multi-download fallback: one file per download, prefixed so a folder
+       listing groups them together and screenshots keep their own names. */
+    files.forEach(function (f) {
+      triggerDownload('dataglow-ship-pack_' + safePathToFilename(f.path), f.contents, f.mimeType);
+    });
+    captureItems.forEach(function (item) {
+      if (item.blob) triggerDownload('dataglow-ship-pack_screenshots__' + item.record.filename, item.blob, 'image/png');
+    });
+    return Promise.resolve({ mode: 'multi-download', fileCount: files.length + captureItems.length });
+  }
+
+  function runExport() {
+    if (_busy) return Promise.resolve(null);
+    _busy = true;
+    var result = gatherAndBuild();
+    if (!result) {
+      _busy = false;
+      toast('Ship pack engine not available.', 'error');
+      return Promise.resolve(null);
+    }
+    _lastPack = result.pack;
+    renderBody();
+    return downloadAsZipOrFiles(result.pack, result.captureItems).then(function (info) {
+      _busy = false;
+      toast('Ship pack exported (' + info.mode + ', ' + info.fileCount + ' file(s)).', 'success');
+      renderBody();
+      return result.pack;
+    }).catch(function () {
+      _busy = false;
+      toast('Ship pack export failed. Nothing was uploaded; try again.', 'error');
+      return null;
+    });
+  }
+
+  /* ---------------------------- styles ------------------------------------ */
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = [
+      '#' + BTN_ID + '{position:fixed;bottom:16px;right:760px;z-index:12000;',
+      'background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:999px;',
+      'padding:8px 14px;font:600 13px sans-serif;cursor:pointer;}',
+      '#' + BTN_ID + ':hover{background:#1f2937;}',
+      '#' + PANEL_ID + '{position:fixed;top:0;right:-380px;width:360px;height:100%;background:#0f1720;',
+      'color:#e5e7eb;border-left:1px solid #374151;z-index:12001;transition:right .2s ease;',
+      'display:flex;flex-direction:column;font:13px sans-serif;overflow:hidden;}',
+      '#' + PANEL_ID + '.open{right:0;}',
+      '#' + PANEL_ID + ' .dg-sp-head{padding:14px;border-bottom:1px solid #374151;display:flex;justify-content:space-between;align-items:center;}',
+      '#' + PANEL_ID + ' .dg-sp-head h3{margin:0;font-size:15px;}',
+      '#' + BODY_ID + '{overflow-y:auto;padding:12px;flex:1;}',
+      '.dg-sp-go{width:100%;background:#2563eb;color:#fff;border:none;border-radius:6px;padding:10px;font-weight:600;cursor:pointer;margin-bottom:12px;}',
+      '.dg-sp-go[disabled]{opacity:.6;cursor:default;}',
+      '.dg-sp-file{border:1px solid #374151;border-radius:8px;padding:8px;margin-bottom:8px;font-size:12px;}',
+      '.dg-sp-file .dg-sp-name{font-weight:600;}',
+      '.dg-sp-empty{color:#9ca3af;font-size:12px;padding:12px 0;}',
+      '.dg-sp-note{color:#9ca3af;font-size:11px;line-height:1.5;margin-top:6px;padding-top:10px;border-top:1px solid #374151;}',
+    ].join('');
+    document.head.appendChild(style);
+  }
+
+  /* ---------------------------- rendering ---------------------------------- */
+  function renderBody() {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+    var summary = '<div class="dg-sp-empty">Nothing exported yet this session. Click Export ship pack below.</div>';
+    if (_lastPack) {
+      summary = (_lastPack.fileNames || []).map(function (name) {
+        return '<div class="dg-sp-file"><span class="dg-sp-name">' + esc(name) + '</span></div>';
+      }).join('');
+    }
+    body.innerHTML =
+      '<button type="button" class="dg-sp-go" data-sp-go' + (_busy ? ' disabled' : '') + '>' + (_busy ? 'Exporting...' : 'Export ship pack') + '</button>' +
+      summary +
+      '<div class="dg-sp-note">Bundles keepers.json, claims.json, validation_summary.json, honest_claims.md, and any captured screenshots into a ZIP (or separate downloads if a ZIP library is not present). Local only, nothing is uploaded.</div>';
+    var goBtn = body.querySelector('[data-sp-go]');
+    if (goBtn) goBtn.addEventListener('click', runExport);
+  }
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    ensureStyles();
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.innerHTML =
+      '<div class="dg-sp-head"><h3>Ship pack</h3><button type="button" data-sp-close aria-label="Close">\u00d7</button></div>' +
+      '<div id="' + BODY_ID + '"></div>';
+    document.body.appendChild(panel);
+    panel.querySelector('[data-sp-close]').addEventListener('click', closePanel);
+    renderBody();
+    return panel;
+  }
+
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    if (!flagOn()) return false;
+    ensurePanel().classList.add('open');
+    renderBody();
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open ship pack panel');
+    btn.title = 'Export a portable ship pack: keepers, proven claims, validation summary, honest claims, screenshots';
+    btn.innerHTML = '<span>Export ship pack</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    var anchor = document.getElementById('dg-capture-btn') || document.getElementById('dg-question-scout-btn') || document.getElementById('dg-ph-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '760px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '760px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  function boot() {
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+    }
+    /* SPEC's exact requested public API: window.DataGlowShipPack.export() */
+    window.DataGlowShipPack = {
+      export: runExport,
+      buildPreview: function () { var r = gatherAndBuild(); return r ? r.pack : null; },
+      getLastPack: function () { return _lastPack; },
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+/* ---- end js/ship-pack/data-glow-ship-pack-canvas.js ---- */
+
+
+
+
 
 
 

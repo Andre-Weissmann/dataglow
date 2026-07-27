@@ -7710,6 +7710,77 @@
       "relatedFlags": [
         "projectRun"
       ]
+    },
+    {
+      "id": "capture-ship-pack",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Export & proof packaging",
+      "name": "R3 Capture + R4 Ship Pack (R3_R4_CAPTURE_SHIP_SPEC.md): local step screenshots and an honest, no-overclaim export bundle",
+      "files": [
+        "js/capture/capture.js",
+        "js/capture/data-glow-capture-canvas.js",
+        "js/ship-pack/ship-pack.js",
+        "js/ship-pack/data-glow-ship-pack-canvas.js",
+        "test/r3-r4-capture-ship-pack.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/capture/capture.js",
+          "name": "CAPTURE_VERSION"
+        },
+        {
+          "file": "js/capture/capture.js",
+          "name": "CAPTURE_STEPS"
+        },
+        {
+          "file": "js/capture/capture.js",
+          "name": "CUSTOM_STEP"
+        },
+        {
+          "file": "js/capture/capture.js",
+          "name": "CAPTURE_DB_NAME"
+        },
+        {
+          "file": "js/capture/capture.js",
+          "name": "CAPTURE_STORE_NAME"
+        },
+        {
+          "file": "js/capture/capture.js",
+          "name": "CAPTURE_DB_VERSION"
+        },
+        {
+          "file": "js/ship-pack/ship-pack.js",
+          "name": "SHIP_PACK_VERSION"
+        },
+        {
+          "file": "js/ship-pack/ship-pack.js",
+          "name": "buildKeepersFile"
+        },
+        {
+          "file": "js/ship-pack/ship-pack.js",
+          "name": "claimFromReceiptEntry"
+        },
+        {
+          "file": "js/ship-pack/ship-pack.js",
+          "name": "buildClaimsFile"
+        },
+        {
+          "file": "js/ship-pack/ship-pack.js",
+          "name": "buildValidationSummaryFile"
+        },
+        {
+          "file": "js/ship-pack/ship-pack.js",
+          "name": "buildHonestClaimsMarkdown"
+        }
+      ],
+      "flag": "captureShipPack",
+      "status": "shipped",
+      "relatedFlags": [
+        "captureShipPack"
+      ]
     }
   ]
 }

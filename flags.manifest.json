@@ -999,6 +999,12 @@
       "addedInPR": "feature/r1-project-run",
       "description": "R1 Project Run orchestration: in-app seven-step spine (Ingest, Purpose, Validate, Scout, Prove, Narrate, Export) with checklist status todo/doing/done/blocked, auto-advance from observed facts, per-dataset localStorage persistence via hashed dataset name, and UI entry from the Projects tab (openProjects) plus a floating reopen chip. Pure engine js/spine/project-run.js (window.DataGlowProjectRun) plus canvas UI js/spine/data-glow-project-run-canvas.js. Does not replace Scout, VERDICT, or external chat. No em dash in visible UI.",
       "flagOffBehavior": "With projectRun off, the Project Run drawer and floating chip are never mounted; openProjects falls back to prior no-op or a calm message; no other surface changes."
+    },
+    "captureShipPack": {
+      "enabled": true,
+      "addedInPR": "feature/r3-r4-capture-ship",
+      "description": "R3 Capture + R4 Ship Pack: local step screenshots (Capture step) and honest export ship pack (keepers.json, claims.json, validation_summary.json, honest_claims.md). Zero network uploads. window.DataGlowShipPack.export().",
+      "flagOffBehavior": "Capture and Export ship pack controls are not mounted; no other surfaces change."
     }
   }
 }
