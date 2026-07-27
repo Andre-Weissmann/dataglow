@@ -156,6 +156,24 @@
     --dg-shadow-soft-sm: 0 1px 2px rgba(28, 26, 20, 0.06);
     --dg-shadow-soft-md: 0 8px 24px rgba(28, 26, 20, 0.10);
     --dg-shadow-soft-lg: 0 16px 40px rgba(28, 26, 20, 0.14);
+    /* A48 HIG cross-platform (SPEC: A48_APPLE_HIG_CROSS_PLATFORM_SPEC.md).
+       Apple HIG is the craft bar on EVERY platform (Windows/Android included),
+       not an iOS-only affordance -- env(safe-area-inset-*) is a no-op (0px)
+       on platforms without a notch/home-indicator, so this is free everywhere.
+       --dg-touch-min mirrors --dg-control-h in value (2.75rem/~44px) but is a
+       distinct semantic token: --dg-control-h sizes a control's own box
+       (buttons/inputs), --dg-touch-min is the WCAG 2.5.5 hit-target floor this
+       slice enforces on primary nav + primary CTAs + coarse-pointer targets,
+       so the two can be tuned independently later without renaming call sites. */
+    --dg-safe-top: env(safe-area-inset-top, 0px);
+    --dg-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --dg-safe-left: env(safe-area-inset-left, 0px);
+    --dg-safe-right: env(safe-area-inset-right, 0px);
+    --dg-touch-min: 2.75rem;
+    /* Hairline separators: 1px everywhere by default; browsers that support
+       sub-pixel device-pixel-ratio queries get a crisper 0.5px rule further
+       down (progressive enhancement, not a platform fork). */
+    --dg-hairline: 1px;
     --row-warning-bg: rgba(150, 66, 25, 0.08);
     --row-error-bg: rgba(161, 44, 123, 0.08);
     --grid-row-bg: #ffffff;
@@ -391,6 +409,154 @@
     }
   }
 
+  /* ---- A48 HIG cross-platform (SPEC: A48_APPLE_HIG_CROSS_PLATFORM_SPEC.md) ----
+     Apple HIG is the craft bar on every platform DataGlow ships to, including
+     Windows and Android -- not an iOS-only costume. Builds on the #630 rem
+     token ladder (--dg-space-*/--dg-radius-*/--dg-control-h/--dg-shadow-soft-*)
+     without re-deriving a parallel system. */
+
+  /* Safe-area insets: env() resolves to 0px on platforms without a notch or
+     home-indicator (Windows, Android, most desktop browsers), so applying
+     these tokens everywhere is safe and costs nothing outside a real notch.
+     #top-nav / body / #status-bar / #dg-bottom-nav already carry a literal
+     env(safe-area-inset-*) treatment from PR #557 and the mobile bottom-nav
+     block above -- not duplicated here. The --dg-safe-* tokens are the SPEC's
+     named rem-ladder-consistent surface for any NEW chrome (e.g. the command
+     surface) to opt into the same contract without re-deriving env() calls. */
+  #dg-command-bar,
+  .dg-command-surface {
+    padding-top: max(var(--dg-space-2), var(--dg-safe-top));
+    padding-bottom: max(var(--dg-space-2), var(--dg-safe-bottom));
+    padding-left: max(var(--dg-space-2), var(--dg-safe-left));
+    padding-right: max(var(--dg-space-2), var(--dg-safe-right));
+  }
+
+  /* Hairline separators: crisper 0.5px on displays that can render it
+     (progressive enhancement via a resolution media query, not a platform
+     fork -- Windows/Android/macOS/Linux all qualify equally on a 2x+ panel). */
+  .top-nav, #top-nav, header.top-nav,
+  .sidebar, #sidebar, nav.sidebar,
+  .panel, .analyze-panel, .content-panel {
+    border-color: var(--chrome-border);
+  }
+  @media (min-resolution: 2dppx) {
+    :root { --dg-hairline: 0.5px; }
+  }
+
+  /* Semantic label styles (HIG type roles), built on the existing rem type
+     ladder from A48 typography/readability (--dg-text-*). Utility classes so
+     any surface can opt in without a markup rewrite. */
+  .dg-label-title    { font-size: var(--dg-text-2xl); font-weight: 700; line-height: 1.25; color: var(--text); }
+  .dg-label-headline { font-size: var(--dg-text-xl);  font-weight: 600; line-height: 1.3;  color: var(--text); }
+  .dg-label-body     { font-size: var(--dg-text-md);  font-weight: 400; line-height: 1.5;  color: var(--text); }
+  .dg-label-callout   { font-size: var(--dg-text-sm); font-weight: 500; line-height: 1.4;  color: var(--text-secondary); }
+  .dg-label-caption  { font-size: var(--dg-text-xs);  font-weight: 400; line-height: 1.4;  color: var(--text-muted); }
+  .dg-label-footnote { font-size: var(--dg-text-xs);  font-weight: 400; line-height: 1.4;  color: var(--text-faint); }
+
+  /* Touch-min: a dedicated ~44px/2.75rem hit-target floor for primary nav and
+     primary CTAs (distinct token from --dg-control-h; see :root comment).
+     #dg-bottom-nav's .dg-tab already ships its own 56px min-height (well
+     above this floor) -- deliberately NOT re-targeted here, since a
+     higher-specificity `#dg-bottom-nav .dg-tab { min-height: var(--dg-touch-min) }`
+     rule would win the cascade and shrink it from 56px down to 44px, a
+     regression rather than a floor. */
+  .pivot-run-btn,
+  button.primary,
+  .btn-primary,
+  #run-sql-btn,
+  .run-btn,
+  .top-nav a,
+  .top-nav button,
+  #top-nav a,
+  #top-nav button,
+  .sidebar a,
+  .sidebar button {
+    min-height: var(--dg-touch-min);
+  }
+
+  /* Coarse-pointer hit targets: bump any remaining interactive control up to
+     the same floor specifically for touch input, without inflating precision
+     mouse/trackpad UIs on Windows/macOS/Linux desktop. */
+  @media (pointer: coarse) {
+    button, [role="button"], a.btn, .btn,
+    input, select, textarea,
+    .tab-btn, .analyze-pill, .chip, .pivot-chip {
+      min-height: var(--dg-touch-min);
+    }
+  }
+
+  /* Calm forms: label above field, caption-size helper text, error copy that
+     reads as a message rather than an alarm. Role tokens only, so both
+     themes stay correct automatically. */
+  .dg-field { display: flex; flex-direction: column; gap: var(--dg-space-1); margin-bottom: var(--dg-space-4); }
+  .dg-field-label { font-size: var(--dg-text-sm); font-weight: 500; color: var(--text); }
+  .dg-field-help { font-size: var(--dg-text-xs); color: var(--text-muted); }
+  .dg-field-error { font-size: var(--dg-text-xs); color: var(--error); }
+  .dg-field input,
+  .dg-field select,
+  .dg-field textarea {
+    min-height: var(--dg-touch-min);
+    border-radius: var(--dg-radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    padding: var(--dg-space-2) var(--dg-space-3);
+  }
+  .dg-field input:focus-visible,
+  .dg-field select:focus-visible,
+  .dg-field textarea:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+  .dg-field.has-error input,
+  .dg-field.has-error select,
+  .dg-field.has-error textarea {
+    border-color: var(--error);
+  }
+  @media (pointer: coarse) {
+    .dg-field input,
+    .dg-field select,
+    .dg-field textarea {
+      min-height: var(--dg-touch-min);
+      font-size: var(--dg-text-md);
+    }
+  }
+
+  /* Calm empty / loading states: short, actionable, never a full-app blocker
+     when a partial/inline treatment will do. */
+  .dg-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: var(--dg-space-2);
+    padding: var(--dg-space-8) var(--dg-space-4);
+    color: var(--text-muted);
+  }
+  .dg-empty-state-title { font-size: var(--dg-text-md); font-weight: 600; color: var(--text); }
+  .dg-empty-state-body { font-size: var(--dg-text-sm); color: var(--text-muted); max-width: 42ch; }
+  .dg-loading-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dg-space-2);
+    font-size: var(--dg-text-sm);
+    color: var(--text-muted);
+    padding: var(--dg-space-2) var(--dg-space-3);
+  }
+  .dg-loading-spinner {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    animation: dg-spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes dg-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .dg-loading-spinner { animation: none; opacity: 0.6; }
+  }
 
   body {
     background: var(--bg);

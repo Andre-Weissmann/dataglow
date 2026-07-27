@@ -241,3 +241,16 @@ jobs:
       - run: npm ci
       - run: npm run test:jobspolisha48
       - run: npm run check:canvas-integrity
+
+  hig-cross-platform-a48:
+    name: A48 HIG cross-platform (safe-area, touch-min, coarse-pointer, semantic labels, calm forms/empty/loading, no iOS-only cosplay)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:higcrossplatform
+      - run: npm run check:canvas-integrity

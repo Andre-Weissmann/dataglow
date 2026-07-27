@@ -16,6 +16,11 @@
   justify-content: space-between;
   height: 56px;
   padding: 0 var(--space-4);
+  /* A48 HIG cross-platform: safe-area top inset so the topbar clears a
+     notch/Dynamic Island when this shell runs as an installed PWA; env()
+     resolves to 0px on Windows/Android/desktop, so this is a no-op there. */
+  padding-top: var(--safe-top, 0px);
+  height: calc(56px + var(--safe-top, 0px));
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   flex-shrink: 0;
@@ -408,7 +413,16 @@
 }
 
 /* ---- Toast ---- */
-.toast-container { position: fixed; bottom: var(--space-5); right: var(--space-5); z-index: 200; display: flex; flex-direction: column; gap: var(--space-2); }
+/* A48 HIG cross-platform: safe-area bottom/right insets so a toast never
+   sits under a home-indicator/rounded-corner on an installed PWA; env() is
+   0px on Windows/Android/desktop so the fixed --space-5 offset is unchanged
+   there. */
+.toast-container {
+  position: fixed;
+  bottom: calc(var(--space-5) + var(--safe-bottom, 0px));
+  right: calc(var(--space-5) + var(--safe-right, 0px));
+  z-index: 200; display: flex; flex-direction: column; gap: var(--space-2);
+}
 .toast {
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius-md); box-shadow: var(--shadow-md);

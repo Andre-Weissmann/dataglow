@@ -130,6 +130,7 @@
     "test:glowcanvas": "node test/glow-canvas.test.mjs",
     "test:typographyreadability": "node test/typography-readability.test.mjs",
     "test:jobspolisha48": "node test/jobs-polish-a48.test.mjs",
+    "test:higcrossplatform": "node test/a48-hig-cross-platform.test.mjs",
     "test:drillfloor": "node test/drill-floor.test.mjs",
     "test:drilldiff": "node test/drill-diff.test.mjs",
     "test:pivot": "node --import ./test/duckdb-loader-hook.mjs test/pivot-builder.test.mjs",
