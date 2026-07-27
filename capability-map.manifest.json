@@ -7686,11 +7686,23 @@
       "symbols": [
         {
           "file": "js/spine/project-run.js",
-          "name": "DataGlowProjectRun"
+          "name": "buildProjectRun"
         },
         {
-          "file": "js/spine/data-glow-project-run-canvas.js",
-          "name": "DataGlowProjectRunUI"
+          "file": "js/spine/project-run.js",
+          "name": "PROJECT_RUN_STEPS"
+        },
+        {
+          "file": "js/spine/project-run.js",
+          "name": "hashDatasetKey"
+        },
+        {
+          "file": "js/spine/project-run.js",
+          "name": "storageKeyForDataset"
+        },
+        {
+          "file": "js/spine/project-run.js",
+          "name": "nextStep"
         }
       ],
       "flag": "projectRun",
