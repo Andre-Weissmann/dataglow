@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6362766,
+  "canvasBytes": 6367239,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -75,9 +75,9 @@
     {
       "source": "js/provenance/data-glow-trust-ledger-canvas.js",
       "note": "Trust Ledger canvas UI (Trust button beside Air-Gap, panel, verify, local exports). Inlined verbatim by inject_bundle4.py.",
-      "sourceSha256": "4d5c98fe3fb363c4162fd0693e4dac7be2c2a06d5ef84d470755a6173688e140",
-      "canvasSectionSha256": "ff5cb257ba5ea0e06c06d9be64da0f6e1d0af701067208ac95a4773d97162c39",
-      "canvasSectionBytes": 20244
+      "sourceSha256": "de7d8eeae9b97d17c20223e7266b4c853f3c06e74ee1116bfb2dacca41b2aedf",
+      "canvasSectionSha256": "a51ffcdc9670d4b4a9e2c598b1f8cccbedb77a7e08d60f47770366c8906c4917",
+      "canvasSectionBytes": 20266
     },
     {
       "source": "js/explain/explain-engine.js",
@@ -96,16 +96,16 @@
     {
       "source": "js/glassbox/data-glow-glass-box-canvas.js",
       "note": "GlassBox canvas UI (A15). Inlined verbatim by inject_bundle5.py. Mounts the block under the three real result surfaces, so a DOM id change here must reach the canvas.",
-      "sourceSha256": "c2662c8591d3f4776f755c5832a6becd864667b5b7c22c29d4bc699c32e92c97",
-      "canvasSectionSha256": "ccf5c41110721098f93dc779da2184a851f0030a2c3488a8ee39812547a94ea7",
-      "canvasSectionBytes": 18857
+      "sourceSha256": "71145a35491f24ff032217414b867bb33b13a638bf9e513f14036136f3abf724",
+      "canvasSectionSha256": "5f2bbbb34372374a0413414a3ba06fc29e65f71bac215840829cbfac3e892e9e",
+      "canvasSectionBytes": 18881
     },
     {
       "source": "js/explain/data-glow-explain-canvas.js",
       "note": "Explain canvas UI (A13). Inlined verbatim by inject_bundle5.py. Reads the same gates GlassBox reads, so the two panels cannot disagree; tracked so that reading cannot drift between desktop and web.",
-      "sourceSha256": "6ac26c12b9a88ebefedada7d20e5b48732a74fe34e3b91bc6748b7980b4b7634",
-      "canvasSectionSha256": "49328f4957ef14b0b42d7860cfb80160fa31daec6b99cc8a9ca941322e1ac6d9",
-      "canvasSectionBytes": 20909
+      "sourceSha256": "39493503c4eb6f3124fc0e9a2dfb0b992bafaccbd2dcb5e5740d844913075bb5",
+      "canvasSectionSha256": "8a6e2943acc07163263e43bd5a544ce866892e8019abfed6933b10942149f235",
+      "canvasSectionBytes": 20920
     },
     {
       "source": "js/transforms/transform-core.js",
@@ -187,9 +187,9 @@
     {
       "source": "js/transforms/data-glow-transforms-canvas.js",
       "note": "Canvas UI for all sixteen transforms (A18/A19/A20/A24 in the Time and joins group, A16/A17/A25/A26/A27/A29 plus the value standardizer in Shape and clean, A21/A22/A23/A28/A30 in Advanced). Renamed from data-glow-time-joins-canvas.js in Bundle 7. Already an IIFE, inlined verbatim.",
-      "sourceSha256": "3c5752b60e8a51634aed3f054fedd4020a8513cad52b62bd3c9df44e0dc33e0e",
-      "canvasSectionSha256": "7b42ec468b0b24a0fa2ce1f0855bfb8f83a7e384902c20f2b5d9395a0eed04ad",
-      "canvasSectionBytes": 74181
+      "sourceSha256": "d783774b2294298d2f9709bc5d2d14251d23b6a815c63f727d5de9d678c3e32a",
+      "canvasSectionSha256": "e51510a8d777f5d4db2e2c6ec15319128f37a8b92033824a6c50332fe267a0bb",
+      "canvasSectionBytes": 74207
     },
     {
       "source": "js/transforms/consecutive-run.js",
@@ -264,9 +264,9 @@
     {
       "source": "js/proofboard/data-glow-proof-board-canvas.js",
       "note": "Proof Board canvas surface: the button, the tile grid, show the work, verify, the confirm-gated Glowbook export and the dismissible coach strip.",
-      "sourceSha256": "2f6a49428a905f15c0a733eb3be1a4a2ac2c909751fbf53ecfad1d981e7adfdb",
-      "canvasSectionSha256": "7228cd7abecc914898abc5612617b21a4e80eb2ae8662858c16e586608bef352",
-      "canvasSectionBytes": 33215
+      "sourceSha256": "5525f18e50246b46855ece0a219769af29708bc3895218d931db762beb0de113",
+      "canvasSectionSha256": "b776214422da4abd307ff818a80c071472ea7ff4e31a155a32816316f25bae4a",
+      "canvasSectionBytes": 33237
     },
     {
       "source": "js/ai/prove-gate.js",
@@ -474,9 +474,9 @@
     {
       "source": "js/proof-harness/data-glow-proof-harness-canvas.js",
       "note": "Proof Harness v1 (VERDICT Harness) canvas UI: tabbed panel (Inbox default, Prove, Vault, Cartridge) behind the proofHarnessV1 umbrella flag, with the Prove tab kept byte-for-byte the v0 body (claim bar, editable proposal statement field, Prove button wired to resolveDrillSqlRunQuery / window.engine.runQuery / the DuckDB singleton, same live engine as Drill Floor's SQL Run/Check path, #613), GREEN/RED/GRAY/AMBER verdict chip, expandable receipt, and digest-bound Confirm button. Mounted behind the proofHarness flag; with proofHarnessV1 off the tab bar is not rendered and only the v0 Prove surface shows. Inlined verbatim by inject_proof_harness_v1.py right after the combined engine IIFE.",
-      "sourceSha256": "c1e2408cd688fd98598b891be2f37696bba2f71ec0290a6331d69ad08b88e2ec",
-      "canvasSectionSha256": "20f3554dab1dd9b86d854cdac88553c7768ed274a5422f5ebe390507d8b98e83",
-      "canvasSectionBytes": 104358
+      "sourceSha256": "f9de3a22a0509662e6c49fac5d5205fb923b643476dddabf63f1daa5497a5531",
+      "canvasSectionSha256": "d94966a39ef57e0d8b2dcc8a6a0bdd7a36afd5351954ce0dbd2b599ee9a76b8c",
+      "canvasSectionBytes": 104369
     }
   ]
 }

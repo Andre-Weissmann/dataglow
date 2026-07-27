@@ -96,8 +96,11 @@
   --text-xl: clamp(1.25rem, 1.1rem + 0.75vw, 1.75rem);
 
   --font-display: 'Poppins', 'Montserrat', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  /* A48 typography/readability: cross-platform fallback chain so text still
+     looks intentional if the self-hosted Inter woff2 fails to load (offline,
+     blocked asset, Tauri desktop, mobile PWA). */
+  --font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* ---- Spacing ---- */
   --space-1: 0.25rem;
@@ -151,7 +154,12 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* A48 typography/readability contract (SPEC: A48_TYPOGRAPHY_READABILITY_SPEC.md).
+   html stays at the browser default (typically 16px) so 1rem == 16px and the
+   user's browser/OS text-size preference and zoom both keep working. Do not
+   reintroduce a sub-16px root font-size. */
 html {
+  font-size: 100%;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   scroll-behavior: smooth;
@@ -159,8 +167,10 @@ html {
 
 body {
   min-height: 100dvh;
-  line-height: 1.55;
+  line-height: 1.5;
   font-family: var(--font-body);
+  /* --text-base already clamps around 1rem (16px); body text must not regress
+     below that default. */
   font-size: var(--text-base);
   color: var(--color-text);
   background-color: var(--color-bg);

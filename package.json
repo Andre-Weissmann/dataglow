@@ -128,6 +128,7 @@
     "test:truststrip": "node test/trust-strip-proof-drawer.test.mjs",
     "test:objectspace": "node test/object-space.test.mjs",
     "test:glowcanvas": "node test/glow-canvas.test.mjs",
+    "test:typographyreadability": "node test/typography-readability.test.mjs",
     "test:drillfloor": "node test/drill-floor.test.mjs",
     "test:drilldiff": "node test/drill-diff.test.mjs",
     "test:pivot": "node --import ./test/duckdb-loader-hook.mjs test/pivot-builder.test.mjs",

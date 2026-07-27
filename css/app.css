@@ -83,7 +83,9 @@
 .tab-group { display: flex; flex-direction: column; padding: 0 var(--space-2); border-right: 1px solid var(--color-border); }
 .tab-group:last-child { border-right: none; }
 .tab-group-label {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  /* A48 typography/readability: was a hardcoded 10px meta label; raised to the
+     0.75rem (12px) badge/meta floor via the shared --text-xs token. */
+  font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--color-text-faint); padding: 2px var(--space-2) 4px;
 }
 .tab-group.tab-group-active .tab-group-label { color: var(--color-primary); }
