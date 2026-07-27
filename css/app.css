@@ -70,8 +70,12 @@
   user-select: none;
 }
 .tab:hover { color: var(--color-text); background: var(--color-surface-2); }
-.tab.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+/* A48 Jobs polish: active tab reads clearly stronger (bold weight added, not
+   just a color+underline swap) than the quieter default-weight inactive
+   tabs, per the "active state stronger, inactive quieter" pillar. */
+.tab.active { color: var(--color-primary); border-bottom-color: var(--color-primary); font-weight: 600; }
 .tab.dragging { opacity: 0.4; }
+.tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; border-radius: var(--radius-sm); }
 .tab .tab-icon { width: 15px; height: 15px; flex-shrink: 0; }
 .tab .tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-grade-c); margin-left: 2px; }
 
