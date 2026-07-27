@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6380100,
+  "canvasBytes": 6437100,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -477,6 +477,20 @@
       "sourceSha256": "f9de3a22a0509662e6c49fac5d5205fb923b643476dddabf63f1daa5497a5531",
       "canvasSectionSha256": "d94966a39ef57e0d8b2dcc8a6a0bdd7a36afd5351954ce0dbd2b599ee9a76b8c",
       "canvasSectionBytes": 104369
+    },
+    {
+      "source": "js/question-scout/question-scout.js",
+      "note": "A49 Question Scout pure engine: buildProfileStrip() (deterministic profile summary from loaded tables, no LLM), scoreCandidate()/rankCandidates() (the SPEC's four-hit deterministic keeper filter with viz-vanity and unknown-column penalties, 0-100 score), templateCandidatesFromProfile() (five model-free fallback templates -- grain check, null rate per high-null column, top-N frequency, min/max/avg, distinct id count -- each labeled template/no-model), buildScoutPrompt()/parseModelCandidates() (pure prompt construction + tolerant JSON parsing for the local model path), buildProvePrefill() (maps a keeper to the Proof Harness's claimText/statement fields only, never executes SQL), buildBrowseGrounding()/annotateUnverifiedNumbers() (profile-only grounding + unverified-number flagging for Browse mode), addKeeper()/removeKeeper() (max-5 keepers tray). Published as window.DataGlowQuestionScout by inject_a49_question_scout.py.",
+      "sourceSha256": "1a320d71452e7fb4388647b0b75ec179e91268b5865ea97bb8ef4876fc1a703e",
+      "canvasSectionSha256": "f21a199f17fa0483e5344d3d82ec5a2ddd0a4c02554ec7a414b9829df974a231",
+      "canvasSectionBytes": 24818
+    },
+    {
+      "source": "js/question-scout/data-glow-question-scout-canvas.js",
+      "note": "A49 Question Scout canvas UI: slide-in panel with the honest cheating-boundary banner, the profile strip, a Propose button that tries the already-inlined local AI bridge (window.OnDeviceLLM from js/narrative/ondevice-llm.js, reusing its loadModel()/isModelLoaded() -- no second model path, no forced download) and falls back to the pure engine's deterministic templates immediately when the model is cold/absent, a ranked candidate list with Keep/Edit/Reject, the keepers tray (max 5), a Send to Prove action per keeper that prefills the Proof Harness's #dg-ph-claim/#dg-ph-statement fields (or dispatches a dataglow:proof-harness-prefill CustomEvent as a fallback) without ever running SQL itself, and a profile-grounded Browse mode chat whose numeric assertions are flagged 'unverified - run Prove'. Mounted behind the questionScout flag; inlined verbatim by inject_a49_question_scout.py right after the Proof Harness canvas module.",
+      "sourceSha256": "581a3c1239fa3f6bfb6eebb996787fa32f4a650b5707c226c80e545648e4cf4c",
+      "canvasSectionSha256": "941128baf8eb9a31a4241261d76862365d6d64c4791cd4d4b3b0450cfd108bec",
+      "canvasSectionBytes": 32176
     }
   ]
 }

@@ -145251,6 +145251,1224 @@ async function roundTripCartridge(args) {
   }
 })();
 /* ---- end js/proof-harness/data-glow-proof-harness-canvas.js ---- */
+/* ---- from js/question-scout/question-scout.js ---- */
+;(function () {
+  'use strict';
+// ============================================================
+// DATAGLOW — Question Scout (A49): pure engine
+// ============================================================
+// Implements A49_QUESTION_SCOUT_SPEC.md's doctrine in a browser-free, model-
+// free module: AI PROPOSES, human CHOOSES, engines PROVE, human CONFIRMS.
+// This file only ever proposes and scores. It never runs a query, never
+// marks anything proven, and never mutates data. Every function here is
+// pure — same input, same output, testable from plain Node with no GPU,
+// no WebLLM download, and no DOM.
+//
+// Three jobs, matching the SPEC:
+//   1. buildProfileStrip(tables)         — deterministic profile summary
+//   2. deterministic keeper filter        — scoreCandidate() / rankCandidates()
+//   3. templateCandidatesFromProfile()    — model-free fallback proposals
+//
+// A fourth job (buildScoutPrompt) exists only to hand the local WebLLM bridge
+// (js/narrative/ondevice-llm.js's sibling pattern) a grounded prompt when the
+// model IS available; this module never calls the model itself, so it stays
+// testable without a browser.
+// ============================================================
+
+const QUESTION_SCOUT_VERSION = 1;
+
+// Cap enforced everywhere the SPEC calls for "10-15 candidates" / "max 5
+// keepers", so a caller cannot accidentally blow past the UX contract.
+const MAX_CANDIDATES = 15;
+const MIN_CANDIDATES_TARGET = 10;
+const MAX_KEEPERS = 5;
+
+const METRIC_TYPES = Object.freeze(['count', 'rate', 'share', 'delta', 'sum', 'avg']);
+
+// The honest banner text the SPEC requires verbatim (product copy, locked).
+const CHEATING_BOUNDARY_BANNER =
+  'Scout proposes questions. You pick keepers. Engines prove numbers. That is professional analyst work — same as a senior using a colleague to brainstorm, then checking the warehouse.';
+
+// ------------------------------------------------------------
+// 1. Profile strip (deterministic, no LLM required)
+// ------------------------------------------------------------
+// `tables` accepts either DataGlow's { columns, rows } dataset shape, or an
+// already-computed profile shape ({ name, rowCount, columns: [{name,type,
+// nullPct, topValues}] }), so this can sit on top of column-profiler-local.js
+// output OR a lightweight mock (tests, cold app state before any engine has
+// profiled anything).
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function normalizeColumn(col, idx) {
+  if (col == null) return { name: `col${idx}`, type: 'STR', nullPct: null, topValues: [] };
+  if (typeof col === 'string') return { name: col, type: 'STR', nullPct: null, topValues: [] };
+  const nullPct = typeof col.nullPct === 'number'
+    ? col.nullPct
+    : (typeof col.nullRate === 'number' ? Math.round(col.nullRate * 1000) / 10 : null);
+  return {
+    name: col.name || col.field || `col${idx}`,
+    type: col.type || 'STR',
+    nullPct,
+    cardinality: typeof col.cardinality === 'number' ? col.cardinality : null,
+    topValues: Array.isArray(col.topValues) ? col.topValues.slice(0, 5) : [],
+    min: col.min ?? null,
+    max: col.max ?? null,
+  };
+}
+
+// Normalize one table-ish input into { name, rowCount, columns[] }.
+function normalizeTable(t, idx) {
+  if (!isPlainObject(t)) return { name: `table${idx}`, rowCount: null, columns: [] };
+  const name = t.name || t.tableName || `table${idx}`;
+  const rowCount = typeof t.rowCount === 'number'
+    ? t.rowCount
+    : (Array.isArray(t.rows) ? t.rows.length : null);
+  let columns = [];
+  if (Array.isArray(t.columns) && t.columns.length && isPlainObject(t.columns[0]) && (t.columns[0].name || t.columns[0].type)) {
+    columns = t.columns.map(normalizeColumn);
+  } else if (Array.isArray(t.columns)) {
+    columns = t.columns.map(normalizeColumn);
+  } else if (Array.isArray(t.profiles)) {
+    // column-profiler-local.js's profileAllLocal() output shape.
+    columns = t.profiles.map((p, i) => normalizeColumn({
+      name: p.name, type: p.type, nullPct: (p.nullRate || 0) * 100,
+      cardinality: p.cardinality, topValues: p.topValues, min: p.min, max: p.max,
+    }, i));
+  }
+  return { name, rowCount, columns };
+}
+
+/**
+ * Build the deterministic profile strip shown at the top of the Scout panel.
+ * Never touches an LLM. Safe to call with zero tables (returns an empty
+ * strip, not an error) so a cold app state renders instead of throwing.
+ */
+function buildProfileStrip(tables) {
+  const list = Array.isArray(tables) ? tables : (tables ? [tables] : []);
+  const normalized = list.map(normalizeTable);
+  const totalColumns = normalized.reduce((sum, t) => sum + t.columns.length, 0);
+  const highNullColumns = [];
+  const topCategoricalByTable = {};
+  const numericColumns = [];
+  const idLikeColumns = [];
+
+  for (const t of normalized) {
+    for (const c of t.columns) {
+      if (typeof c.nullPct === 'number' && c.nullPct >= 10) {
+        highNullColumns.push({ table: t.name, column: c.name, nullPct: c.nullPct });
+      }
+      if (/(_id$|^id$|identifier|key$|uuid|guid)/i.test(c.name)) {
+        idLikeColumns.push({ table: t.name, column: c.name });
+      }
+      if (c.topValues && c.topValues.length && !topCategoricalByTable[t.name]) {
+        topCategoricalByTable[t.name] = { column: c.name, topValues: c.topValues };
+      }
+      if (typeof c.min === 'number' && typeof c.max === 'number') {
+        numericColumns.push({ table: t.name, column: c.name, min: c.min, max: c.max });
+      }
+    }
+  }
+
+  return {
+    kind: 'dataglow-question-scout-profile-strip',
+    version: QUESTION_SCOUT_VERSION,
+    tableCount: normalized.length,
+    tables: normalized.map(t => ({
+      name: t.name,
+      rowCount: t.rowCount,
+      columnCount: t.columns.length,
+      columns: t.columns.map(c => ({ name: c.name, type: c.type, nullPct: c.nullPct })),
+    })),
+    totalColumns,
+    highNullColumns,
+    topCategoricalByTable,
+    numericColumns,
+    idLikeColumns,
+    isEmpty: normalized.length === 0 || totalColumns === 0,
+  };
+}
+
+// ------------------------------------------------------------
+// 2. Deterministic keeper filter (must run even if the LLM fails)
+// ------------------------------------------------------------
+// Score +1 each (per SPEC):
+//   - mentions a business actor/decision OR generic ops language
+//   - references real column/table names from profile
+//   - metric type is count/rate/share/delta/sum/avg
+//   - draft SQL is SELECT (not DDL/DML)
+// Penalties:
+//   - pure viz vanity ("make a pretty chart") without metric
+//   - questions that need columns not in profile
+//
+// Score is then rescaled to 0-100 so the UI can show "keeper score 0-100"
+// per the SPEC, while the underlying rule hits stay individually inspectable
+// for tests (`scoreCandidate(...).hits`).
+
+const BUSINESS_ACTOR_RE = /(payer|provider|plan|dispute|quality|cost|backlog|win rate|revenue|customer|patient|claim|denial|margin|churn|conversion|sla|utilization|throughput|budget|vendor|supplier|risk|compliance|fraud|readmission)/i;
+const GENERIC_OPS_RE = /(count|total|average|trend|growth|rate|share|volume|efficiency|performance|capacity|delay|turnaround|error rate|defect|uptime|downtime)/i;
+const VIZ_VANITY_RE = /(pretty|make a chart|nice graph|cool visualization|fancy dashboard|make it colorful)/i;
+const DDL_DML_RE = /^\s*(insert|update|delete|drop|alter|create|truncate|merge|grant|revoke)\b/i;
+const SELECT_RE = /^\s*(with\b[\s\S]*?)?select\b/i;
+
+function extractIdentifiers(str) {
+  if (!str) return [];
+  return String(str).match(/[a-zA-Z_][a-zA-Z0-9_]*/g) || [];
+}
+
+function knownIdentifiers(profileStrip) {
+  const known = new Set();
+  if (!profileStrip) return known;
+  for (const t of profileStrip.tables || []) {
+    known.add(String(t.name).toLowerCase());
+    for (const c of t.columns || []) known.add(String(c.name).toLowerCase());
+  }
+  return known;
+}
+
+/**
+ * Score one candidate question against the deterministic filter. Returns
+ * { score (0-100), hits[], penalties[], metricTypeOk, isSelect } so tests and
+ * the UI can both inspect exactly why a candidate ranked where it did.
+ *
+ * `candidate` shape: { text, why, metricType, sql }
+ * `profileStrip` is the output of buildProfileStrip() (used to check real
+ * column/table references and to penalize columns that don't exist).
+ */
+function scoreCandidate(candidate, profileStrip) {
+  const hits = [];
+  const penalties = [];
+  const text = String((candidate && candidate.text) || '');
+  const why = String((candidate && candidate.why) || '');
+  const metricType = String((candidate && candidate.metricType) || '').toLowerCase();
+  const sql = String((candidate && candidate.sql) || '');
+  const known = knownIdentifiers(profileStrip);
+
+  const combinedProse = `${text} ${why}`;
+  if (BUSINESS_ACTOR_RE.test(combinedProse) || GENERIC_OPS_RE.test(combinedProse)) {
+    hits.push('business_actor_or_ops_language');
+  }
+
+  const idsMentioned = new Set([...extractIdentifiers(text), ...extractIdentifiers(sql)].map(s => s.toLowerCase()));
+  let referencesRealColumn = false;
+  let referencesUnknownColumn = false;
+  if (known.size > 0) {
+    for (const id of idsMentioned) {
+      if (SELECT_RE.test(id) || /^(select|from|where|group|order|by|as|and|or|on|join|left|right|inner|outer|count|sum|avg|min|max|distinct|the|a|an|is|are|of|to|for|in)$/i.test(id)) continue;
+      if (known.has(id)) referencesRealColumn = true;
+    }
+  }
+  if (referencesRealColumn) hits.push('references_real_column_or_table');
+
+  const metricTypeOk = METRIC_TYPES.includes(metricType);
+  if (metricTypeOk) hits.push('checkable_metric_type');
+
+  const isSelect = SELECT_RE.test(sql) && !DDL_DML_RE.test(sql);
+  const hasSql = sql.trim().length > 0;
+  if (hasSql && isSelect) hits.push('sql_is_select');
+  if (hasSql && !isSelect) penalties.push('sql_is_not_select');
+
+  if (VIZ_VANITY_RE.test(combinedProse) && !metricTypeOk) {
+    penalties.push('viz_vanity_without_metric');
+  }
+
+  // Needs-columns-not-in-profile penalty: only meaningful once we actually
+  // know the profile's identifiers; an empty profile (cold state / mock)
+  // never triggers this penalty, since there's nothing to check against.
+  if (known.size > 0 && sql.trim()) {
+    const sqlIds = extractIdentifiers(sql).map(s => s.toLowerCase());
+    const sqlKeyword = /^(select|from|where|group|by|order|as|and|or|on|join|left|right|inner|outer|count|sum|avg|min|max|distinct|having|limit|desc|asc|null|is|not|like|between|case|when|then|else|end)$/i;
+    const candidateCols = sqlIds.filter(id => !sqlKeyword.test(id) && !/^\d+$/.test(id));
+    if (candidateCols.length > 0 && candidateCols.every(id => !known.has(id))) {
+      referencesUnknownColumn = true;
+      penalties.push('needs_columns_not_in_profile');
+    }
+  }
+
+  // Raw rule score: +1 per hit, -1 per penalty, floor at 0.
+  const raw = Math.max(0, hits.length - penalties.length);
+  const maxRaw = 4; // four possible +1 hits per the SPEC
+  const score = Math.round((raw / maxRaw) * 100);
+
+  return {
+    score,
+    hits,
+    penalties,
+    metricTypeOk,
+    isSelect: hasSql ? isSelect : null,
+    referencesRealColumn,
+    referencesUnknownColumn,
+  };
+}
+
+/**
+ * Rank a list of candidates by deterministic score (desc), stable tie-break
+ * by original index so output is reproducible. Attaches `.score`/`.scoreDetail`
+ * to each returned candidate without mutating the input array's objects.
+ */
+function rankCandidates(candidates, profileStrip) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const scored = list.map((c, i) => {
+    const detail = scoreCandidate(c, profileStrip);
+    return { ...c, score: detail.score, scoreDetail: detail, _origIndex: i };
+  });
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a._origIndex - b._origIndex;
+  });
+  return scored.map(({ _origIndex, ...rest }) => rest);
+}
+
+// ------------------------------------------------------------
+// 3. Deterministic fallback templates (no model required)
+// ------------------------------------------------------------
+// SPEC: COUNT(*) grain check; null rate on each high-null column; top-N
+// frequency on top categorical column; min/max/avg on first numeric column;
+// distinct count on id-like column. Every one is labeled "template (no
+// model)" so the honesty rule holds even when nothing generative ran.
+
+function quoteIdent(name) {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) ? name : `"${String(name).replace(/"/g, '""')}"`;
+}
+
+function templateCandidatesFromProfile(profileStrip) {
+  const out = [];
+  const strip = profileStrip || buildProfileStrip([]);
+  if (strip.isEmpty) return out;
+
+  for (const t of strip.tables) {
+    const table = quoteIdent(t.name);
+
+    // 1. Grain check.
+    out.push({
+      id: `tmpl_grain_${t.name}`,
+      text: `How many rows are in ${t.name}, and is that the expected grain?`,
+      why: 'Grain checks are the first thing a business owner should confirm before trusting any other number.',
+      metricType: 'count',
+      sql: `SELECT COUNT(*) AS row_count FROM ${table};`,
+      source: 'template',
+      modelUsed: false,
+    });
+
+    // 2. Null rate on each high-null column (scoped to this table).
+    for (const hn of strip.highNullColumns.filter(h => h.table === t.name)) {
+      out.push({
+        id: `tmpl_nullrate_${t.name}_${hn.column}`,
+        text: `What share of ${hn.column} in ${t.name} is missing, and does that affect downstream decisions?`,
+        why: 'High null rates on a decision-relevant column are a data-quality risk before they are anything else.',
+        metricType: 'rate',
+        sql: `SELECT SUM(CASE WHEN ${quoteIdent(hn.column)} IS NULL THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS null_rate FROM ${table};`,
+        source: 'template',
+        modelUsed: false,
+      });
+    }
+
+    // 3. Top-N frequency on the top categorical column.
+    const topCat = strip.topCategoricalByTable[t.name];
+    if (topCat) {
+      out.push({
+        id: `tmpl_topn_${t.name}_${topCat.column}`,
+        text: `What are the most common values of ${topCat.column} in ${t.name}, and does that distribution match business expectations?`,
+        why: 'Category concentration often reveals where volume or risk is concentrated for the business owner.',
+        metricType: 'share',
+        sql: `SELECT ${quoteIdent(topCat.column)}, COUNT(*) AS n FROM ${table} GROUP BY ${quoteIdent(topCat.column)} ORDER BY n DESC LIMIT 10;`,
+        source: 'template',
+        modelUsed: false,
+      });
+    }
+
+    // 4. Min/max/avg on the first numeric column.
+    const firstNumeric = strip.numericColumns.find(n => n.table === t.name);
+    if (firstNumeric) {
+      out.push({
+        id: `tmpl_minmaxavg_${t.name}_${firstNumeric.column}`,
+        text: `What is the range and average of ${firstNumeric.column} in ${t.name}?`,
+        why: 'Range/average is the cheapest sanity check on a numeric column before it enters any report.',
+        metricType: 'avg',
+        sql: `SELECT MIN(${quoteIdent(firstNumeric.column)}) AS min_v, MAX(${quoteIdent(firstNumeric.column)}) AS max_v, AVG(${quoteIdent(firstNumeric.column)}) AS avg_v FROM ${table};`,
+        source: 'template',
+        modelUsed: false,
+      });
+    }
+
+    // 5. Distinct count on an id-like column.
+    const idCol = strip.idLikeColumns.find(i => i.table === t.name);
+    if (idCol) {
+      out.push({
+        id: `tmpl_distinct_${t.name}_${idCol.column}`,
+        text: `How many distinct ${idCol.column} values are in ${t.name}, and does that match the expected entity count?`,
+        why: 'A distinct-count mismatch against the expected entity count is often the first sign of a join or dedup problem.',
+        metricType: 'count',
+        sql: `SELECT COUNT(DISTINCT ${quoteIdent(idCol.column)}) AS distinct_n FROM ${table};`,
+        source: 'template',
+        modelUsed: false,
+      });
+    }
+  }
+
+  return out.slice(0, MAX_CANDIDATES);
+}
+
+// ------------------------------------------------------------
+// 4. Prompt construction for the local WebLLM bridge (browser-free, pure)
+// ------------------------------------------------------------
+// This module never loads or calls the model. It only builds the prompt so
+// a caller (canvas UI module) can hand it to the existing local AI bridge
+// (js/narrative/ondevice-llm.js pattern: loadModel()/engine.chat.completions)
+// when that model is warm. Kept here so the prompt text itself is unit-
+// testable without any browser/WebGPU dependency.
+
+const SCOUT_SYSTEM_PROMPT = [
+  'You are DATAGLOW\'s Question Scout, an on-device analyst assistant that runs entirely in the user\'s browser.',
+  'You PROPOSE candidate analysis questions from a data profile. You never claim a number is true — engines prove numbers, not you.',
+  'Every question must be answerable from the columns/tables listed in the profile, must name a business owner or decision it serves',
+  '(payer, provider, plan, cost, quality, backlog, win rate, or the equivalent operational language for non-healthcare data),',
+  'and must map to a checkable metric type: count, rate, share, delta, sum, or avg.',
+  'For each question, also propose a short SELECT-only draft SQL statement (never INSERT/UPDATE/DELETE/DROP/ALTER).',
+  'Never propose a purely cosmetic/visualization request with no metric behind it. Output structured candidates only, no prose commentary.',
+].join(' ');
+
+/**
+ * Build the { system, user, messages } prompt for the local model to propose
+ * candidates from a profile strip. Pure/deterministic string construction —
+ * no network, no model call. Caller passes `messages` to the bridge's
+ * chat.completions.create() exactly like ondevice-llm.js's other prompts do.
+ */
+function buildScoutPrompt(profileStrip) {
+  const strip = profileStrip || buildProfileStrip([]);
+  const lines = [];
+  lines.push('## Data profile (this is ALL the data you may reference — never invent a column or table not listed here)');
+  for (const t of strip.tables) {
+    lines.push(`- Table ${t.name} (${t.rowCount == null ? 'row count unknown' : `${t.rowCount} rows`}):`);
+    for (const c of t.columns) {
+      const nullNote = typeof c.nullPct === 'number' ? `, ${c.nullPct}% null` : '';
+      lines.push(`  - ${c.name} (${c.type}${nullNote})`);
+    }
+  }
+  lines.push('');
+  lines.push('## Task');
+  lines.push(`Propose ${MIN_CANDIDATES_TARGET}-${MAX_CANDIDATES} candidate analysis questions as a JSON array. Each item: {"text","why","metricType","sql"}.`);
+  lines.push('metricType must be one of: count, rate, share, delta, sum, avg. sql must be a SELECT-only statement using only the columns/tables above.');
+
+  const user = lines.join('\n');
+  return {
+    system: SCOUT_SYSTEM_PROMPT,
+    user,
+    messages: [
+      { role: 'system', content: SCOUT_SYSTEM_PROMPT },
+      { role: 'user', content: user },
+    ],
+  };
+}
+
+/**
+ * Parse a model's raw text response into candidate objects. Tolerant of a
+ * fenced ```json block or bare JSON array; never throws — returns [] on any
+ * parse failure so a malformed/truncated generation degrades to "no model
+ * candidates" rather than crashing the panel (the deterministic templates
+ * still cover the user in that case).
+ */
+function parseModelCandidates(rawText) {
+  if (typeof rawText !== 'string' || !rawText.trim()) return [];
+  const fenced = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const jsonText = fenced ? fenced[1] : rawText;
+  const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+  const candidate = arrayMatch ? arrayMatch[0] : jsonText;
+  try {
+    const parsed = JSON.parse(candidate);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(isPlainObject)
+      .map((c, i) => ({
+        id: `model_${i}_${hashText(String(c.text || i))}`,
+        text: String(c.text || '').trim(),
+        why: String(c.why || '').trim(),
+        metricType: String(c.metricType || '').trim().toLowerCase(),
+        sql: String(c.sql || '').trim(),
+        source: 'model',
+        modelUsed: true,
+      }))
+      .filter(c => c.text.length > 0)
+      .slice(0, MAX_CANDIDATES);
+  } catch (_e) {
+    return [];
+  }
+}
+
+function hashText(str) {
+  let h = 5381;
+  const s = String(str);
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  return (h >>> 0).toString(36).padStart(6, '0');
+}
+
+// ------------------------------------------------------------
+// 5. Send-to-Prove prefill (statement + claim label only — never proves)
+// ------------------------------------------------------------
+// Turns a kept candidate into the exact shape the Proof Harness Prove tab's
+// two editable fields expect: `claimText` (#dg-ph-claim) and `statement`
+// (#dg-ph-statement). This function does not run SQL, does not open any
+// panel, and does not mark anything proven — it only maps fields 1:1 so the
+// human still edits/confirms in the Prove tab before anything runs there.
+function buildProvePrefill(keeper) {
+  if (!isPlainObject(keeper)) return null;
+  const claimText = String(keeper.text || '').trim();
+  const statement = String(keeper.sql || '').trim().replace(/;\s*$/, '');
+  return {
+    kind: 'dataglow-question-scout-prove-prefill',
+    version: QUESTION_SCOUT_VERSION,
+    claimText,
+    statement,
+    sourceCandidateId: keeper.id || null,
+    metricType: keeper.metricType || null,
+  };
+}
+
+// ------------------------------------------------------------
+// 6. Browse-mode grounding (free-ask chat, profile-only, no raw dump)
+// ------------------------------------------------------------
+// Builds a compact, profile-only grounding string for the "Browse mode" free
+// -ask chat the SPEC calls for. Never includes raw row data (even if present
+// on the input) — only the same profile-strip summary shown in the panel, so
+// a huge table never gets dumped into a prompt. Any answer asserting a
+// number must be flagged unverified by the caller (see ANSWER_UNVERIFIED_NOTE).
+const ANSWER_UNVERIFIED_NOTE = 'unverified — run Prove';
+
+function buildBrowseGrounding(profileStrip) {
+  const strip = profileStrip || buildProfileStrip([]);
+  const lines = [];
+  lines.push('Profile summary (no raw rows included):');
+  for (const t of strip.tables) {
+    lines.push(`- ${t.name}: ${t.columnCount} columns${t.rowCount != null ? `, ${t.rowCount} rows` : ''}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Post-process a browse-mode answer so any sentence that asserts a number is
+ * honestly flagged. Pure string heuristic: pure digits with no accompanying
+ * unverified/prove marker get the note appended. Deliberately conservative
+ * (over-flagging is safe; silently asserting a number is not).
+ */
+function annotateUnverifiedNumbers(answerText) {
+  const text = String(answerText || '');
+  if (!text.trim()) return text;
+  const hasNumber = /\d/.test(text);
+  const alreadyFlagged = new RegExp(ANSWER_UNVERIFIED_NOTE, 'i').test(text);
+  if (hasNumber && !alreadyFlagged) {
+    return `${text.trim()} (${ANSWER_UNVERIFIED_NOTE})`;
+  }
+  return text;
+}
+
+// ------------------------------------------------------------
+// 7. Keepers tray (max 5, per SPEC)
+// ------------------------------------------------------------
+function addKeeper(keepers, candidate) {
+  const list = Array.isArray(keepers) ? keepers.slice() : [];
+  if (!candidate || !candidate.id) return list;
+  if (list.some(k => k.id === candidate.id)) return list; // no dup
+  if (list.length >= MAX_KEEPERS) return list; // tray full, human must remove one first
+  list.push(candidate);
+  return list;
+}
+
+function removeKeeper(keepers, candidateId) {
+  const list = Array.isArray(keepers) ? keepers.slice() : [];
+  return list.filter(k => k.id !== candidateId);
+}
+
+// ------------------------------------------------------------
+// Public namespace export (mirrors js/ai/local-ai-status.js's window.* pattern)
+// ------------------------------------------------------------
+  window.DataGlowQuestionScout = {
+    QUESTION_SCOUT_VERSION: QUESTION_SCOUT_VERSION,
+    MAX_CANDIDATES: MAX_CANDIDATES,
+    MIN_CANDIDATES_TARGET: MIN_CANDIDATES_TARGET,
+    MAX_KEEPERS: MAX_KEEPERS,
+    METRIC_TYPES: METRIC_TYPES,
+    CHEATING_BOUNDARY_BANNER: CHEATING_BOUNDARY_BANNER,
+    ANSWER_UNVERIFIED_NOTE: ANSWER_UNVERIFIED_NOTE,
+    buildProfileStrip: buildProfileStrip,
+    scoreCandidate: scoreCandidate,
+    rankCandidates: rankCandidates,
+    templateCandidatesFromProfile: templateCandidatesFromProfile,
+    buildScoutPrompt: buildScoutPrompt,
+    parseModelCandidates: parseModelCandidates,
+    buildProvePrefill: buildProvePrefill,
+    buildBrowseGrounding: buildBrowseGrounding,
+    annotateUnverifiedNumbers: annotateUnverifiedNumbers,
+    addKeeper: addKeeper,
+    removeKeeper: removeKeeper,
+  };
+  try { if (typeof module !== 'undefined') {} } catch (_e) {}
+})();
+/* ---- end js/question-scout/question-scout.js ---- */
+
+/* ---- from js/question-scout/data-glow-question-scout-canvas.js ---- */
+;(function () {
+  'use strict';
+
+  /* ============================================================
+     DATAGLOW - Question Scout (A49) canvas UI
+     ============================================================
+     Implements A49_QUESTION_SCOUT_SPEC.md's panel: profile strip, Propose
+     (local model when warm, deterministic templates when cold), a candidate
+     list with Keep/Edit/Reject, a keepers tray (max 5), Send to Prove
+     prefill, an honest professional-vs-cheating banner, and a profile-only
+     Browse mode chat.
+
+     DOCTRINE (restated from the SPEC, enforced by this file):
+       1. AI proposes. Human chooses. Engines prove. Human confirms before
+          portfolio/post. This panel NEVER calls a SQL engine and NEVER marks
+          anything proven -- "Send to Prove" only prefills the Proof Harness's
+          own editable fields; the human still clicks Prove there.
+       2. Never auto-mutate data. Keep/Edit/Reject only change in-memory
+          panel state.
+       3. Never invent numeric findings. Browse mode answers that assert a
+          number are flagged "unverified - run Prove" (see
+          js/question-scout/question-scout.js's annotateUnverifiedNumbers).
+       4. Local-first: the profile summary handed to the model/prompt never
+          includes raw row data, only the same profile-strip shown on screen.
+
+     The pure engine (js/question-scout/question-scout.js, published as
+     window.DataGlowQuestionScout) owns profiling, deterministic scoring,
+     template fallback, prompt construction, and prefill mapping. This module
+     owns only what the engine cannot: the button, the panel, rendering, and
+     wiring "Propose" to the existing local AI bridge
+     (js/narrative/ondevice-llm.js's loadModel()/isModelLoaded() pattern)
+     when it is warm, falling back to the deterministic templates
+     immediately (no blocking on a cold/absent model) otherwise.
+
+     No em dash (U+2014) anywhere in this file's visible strings. */
+
+  var BTN_ID = 'dg-question-scout-btn';
+  var PANEL_ID = 'dg-question-scout-panel';
+  var STYLE_ID = 'dg-question-scout-styles';
+  var BODY_ID = 'dg-question-scout-body';
+
+  var _candidates = [];   // current ranked candidate list (post deterministic filter)
+  var _keepers = [];      // accepted keepers (max 5, enforced by engine.addKeeper)
+  var _rejected = {};     // id -> true, hidden from the active list
+  var _editingId = null;  // candidate id currently in edit mode
+  var _lastProposeMode = null; // 'model' | 'template' | null (nothing proposed yet)
+  var _browseHistory = []; // [{role:'user'|'assistant', text}]
+  var _browseBusy = false;
+
+  function engine() { return window.DataGlowQuestionScout || null; }
+
+  /* Optional-provider flag read, same pattern as Proof Harness / Trust
+     Ledger / Air-Gap: a flags provider is honored when present, its absence
+     means on, and an explicit window override always wins in either
+     direction. */
+  function flagOn() {
+    try { if (window.DATAGLOW_QUESTION_SCOUT === false) return false; } catch (_e0) {}
+    try { if (window.DATAGLOW_QUESTION_SCOUT === true) return true; } catch (_e1) {}
+    try {
+      if (window.DataGlowFlags && typeof window.DataGlowFlags.isEnabled === 'function') {
+        return window.DataGlowFlags.isEnabled('questionScout') !== false;
+      }
+    } catch (_e) {}
+    return true;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, kind) {
+    if (typeof window.showToast === 'function') {
+      try { window.showToast(msg, kind || 'info'); return; } catch (_e) {}
+    }
+    console.info('[Question Scout]', msg);
+  }
+
+  /* ---------------------------- table discovery ---------------------------
+     Best-effort: looks for a few shapes DataGlow has used elsewhere in this
+     canvas for "the currently loaded tables" without inventing a new global
+     contract. Always falls back to an empty list (never throws), which the
+     engine's buildProfileStrip() renders as an honest empty/cold state. */
+  function discoverTables() {
+    try {
+      if (typeof window.dgGetLoadedTables === 'function') {
+        var t = window.dgGetLoadedTables();
+        if (Array.isArray(t)) return t;
+      }
+    } catch (_e0) {}
+    try {
+      if (window.DataGlowTables && Array.isArray(window.DataGlowTables.list)) {
+        return window.DataGlowTables.list;
+      }
+    } catch (_e1) {}
+    try {
+      if (Array.isArray(window._dgLoadedTables)) return window._dgLoadedTables;
+    } catch (_e2) {}
+    try {
+      if (window.dataset && (Array.isArray(window.dataset.columns) || Array.isArray(window.dataset.rows))) {
+        return [window.dataset];
+      }
+    } catch (_e3) {}
+    return [];
+  }
+
+  /* ---------------------------- local AI bridge ---------------------------
+     Wires to the EXISTING local AI bridge this canvas already ships:
+     js/narrative/ondevice-llm.js is inlined earlier in this same file and
+     publishes window.OnDeviceLLM (isModelLoaded/isModelLoading/loadModel/
+     MODEL_ID/MODEL_LABEL -- see the "from js/narrative/ondevice-llm.js"
+     canvas section). Scout reuses that SAME bridge rather than standing up
+     a second model-loading path: `window.OnDeviceLLM.loadModel()` resolves
+     to the live MLC engine handle exactly like Story's synthesizeFindings()
+     obtains it, and this module only ever calls chat.completions.create()
+     on that handle -- no separate WebLLM import, no separate model choice.
+     If window.OnDeviceLLM is absent (older build) Propose falls straight to
+     the deterministic templates with no error surfaced, since a cold/absent
+     model is an expected, honest state, not a bug. This module NEVER
+     triggers a model DOWNLOAD on its own; it only uses the model if
+     isModelLoaded() is ALREADY true, matching the SPEC's "do not block
+     Scout on big models". */
+  function localLlmBridge() {
+    try {
+      var b = window.OnDeviceLLM;
+      if (b && typeof b.isModelLoaded === 'function') return b;
+    } catch (_e) {}
+    return null;
+  }
+
+  function modelIsWarm() {
+    var b = localLlmBridge();
+    try { return !!(b && b.isModelLoaded()); } catch (_e) { return false; }
+  }
+
+  /* Runs the model with the engine's pure prompt builder. Returns a Promise
+     resolving to parsed candidates (never rejects -- any model error
+     degrades to null so the caller falls back to templates). */
+  function proposeViaModel(profileStrip) {
+    var e = engine();
+    var bridge = localLlmBridge();
+    if (!e || !bridge || !modelIsWarm()) return Promise.resolve(null);
+    try {
+      var prompt = e.buildScoutPrompt(profileStrip);
+      // loadModel() resolves immediately (no re-download) once modelIsWarm()
+      // is true -- it returns the SAME cached engine promise ondevice-llm.js
+      // already holds, per that module's `if (enginePromise) return
+      // enginePromise;` guard.
+      return bridge.loadModel().then(function (mlcEngine) {
+        return mlcEngine.chat.completions.create({
+          messages: prompt.messages, temperature: 0.4, max_tokens: 900, stream: false,
+        });
+      }).then(function (res) {
+        var text = res && res.choices && res.choices[0] && res.choices[0].message && res.choices[0].message.content;
+        return e.parseModelCandidates(text || '');
+      }).catch(function () { return null; });
+    } catch (_e) {}
+    return Promise.resolve(null);
+  }
+
+  /* Single free-form completion against the same warm bridge, used by Browse
+     mode. Returns a Promise<string|null>; never rejects. */
+  function chatOnceViaBridge(messages) {
+    var bridge = localLlmBridge();
+    if (!bridge || !modelIsWarm()) return Promise.resolve(null);
+    try {
+      return bridge.loadModel().then(function (mlcEngine) {
+        return mlcEngine.chat.completions.create({ messages: messages, temperature: 0.4, max_tokens: 400, stream: false });
+      }).then(function (res) {
+        return (res && res.choices && res.choices[0] && res.choices[0].message && res.choices[0].message.content) || null;
+      }).catch(function () { return null; });
+    } catch (_e) { return Promise.resolve(null); }
+  }
+
+  /* ---------------------------- Propose flow ------------------------------
+     1. Always compute the deterministic profile strip.
+     2. Try the model ONLY if it is already warm (no download triggered here).
+     3. If the model returns nothing usable, fall back to deterministic
+        templates -- Scout must work with the model offline (SPEC acceptance
+        #6). Every candidate is scored by the deterministic filter either
+        way, so a model candidate can never bypass the rule-based ranking. */
+  function propose() {
+    var e = engine();
+    if (!e) { toast('Question Scout engine unavailable.', 'error'); return; }
+    var tables = discoverTables();
+    var profileStrip = e.buildProfileStrip(tables);
+    renderBody(profileStrip, true /* proposing */);
+
+    proposeViaModel(profileStrip).then(function (modelCandidates) {
+      var templateCandidates = e.templateCandidatesFromProfile(profileStrip);
+      var usedModel = Array.isArray(modelCandidates) && modelCandidates.length > 0;
+      var pool = usedModel ? modelCandidates.concat(templateCandidates) : templateCandidates;
+      var ranked = e.rankCandidates(pool, profileStrip).slice(0, e.MAX_CANDIDATES);
+      _candidates = ranked;
+      _rejected = {};
+      _lastProposeMode = usedModel ? 'model' : 'template';
+      renderBody(profileStrip, false);
+      toast(usedModel
+        ? 'Question Scout proposed candidates using the on-device model.'
+        : 'On-device model is cold/unavailable -- showing template candidates (no model).', 'info');
+    });
+  }
+
+  /* ---------------------------- Keep / Edit / Reject ----------------------- */
+  function keepCandidate(id) {
+    var e = engine();
+    if (!e) return;
+    var c = _candidates.find(function (x) { return x.id === id; });
+    if (!c) return;
+    if (_keepers.length >= e.MAX_KEEPERS && !_keepers.some(function (k) { return k.id === id; })) {
+      toast('Keepers tray is full (max ' + e.MAX_KEEPERS + '). Remove one first.', 'warning');
+      return;
+    }
+    _keepers = e.addKeeper(_keepers, c);
+    renderBody(null, false);
+  }
+
+  function removeKeeperFromTray(id) {
+    var e = engine();
+    if (!e) return;
+    _keepers = e.removeKeeper(_keepers, id);
+    renderBody(null, false);
+  }
+
+  function rejectCandidate(id) {
+    _rejected[id] = true;
+    _keepers = _keepers.filter(function (k) { return k.id !== id; });
+    renderBody(null, false);
+  }
+
+  function startEdit(id) {
+    _editingId = id;
+    renderBody(null, false);
+  }
+
+  function saveEdit(id, newText, newSql) {
+    var idx = _candidates.findIndex(function (x) { return x.id === id; });
+    if (idx === -1) return;
+    var e = engine();
+    var updated = Object.assign({}, _candidates[idx], { text: newText, sql: newSql, edited: true });
+    if (e) {
+      var strip = e.buildProfileStrip(discoverTables());
+      var detail = e.scoreCandidate(updated, strip);
+      updated.score = detail.score;
+      updated.scoreDetail = detail;
+    }
+    _candidates[idx] = updated;
+    // If this candidate was already a keeper, keep the tray copy in sync.
+    var kIdx = _keepers.findIndex(function (k) { return k.id === id; });
+    if (kIdx !== -1) _keepers[kIdx] = updated;
+    _editingId = null;
+    renderBody(null, false);
+  }
+
+  /* ---------------------------- Send to Prove ------------------------------
+     Never runs SQL itself. Prefers a real Proof Harness prefill hook if the
+     Proof Harness canvas module (js/proof-harness/data-glow-proof-harness-
+     canvas.js) has published one; otherwise falls back to dispatching a
+     CustomEvent + copying the statement into a visible field so the human
+     can still act on it, matching SPEC acceptance #4 ("prefills SQL/claim
+     when Prove API exists; else copies statement to a visible field /
+     dispatches existing event"). */
+  function sendToProve(id) {
+    var e = engine();
+    var c = _keepers.find(function (k) { return k.id === id; }) || _candidates.find(function (x) { return x.id === id; });
+    if (!e || !c) return;
+    var prefill = e.buildProvePrefill(c);
+    if (!prefill) return;
+
+    var handled = false;
+    try {
+      if (typeof window.dgOpenProofHarnessWithPrefill === 'function') {
+        window.dgOpenProofHarnessWithPrefill(prefill.claimText, prefill.statement);
+        handled = true;
+      }
+    } catch (_e0) {}
+
+    if (!handled) {
+      try {
+        var btn = document.getElementById('dg-proof-harness-btn');
+        var panel = document.getElementById('dg-proof-harness-panel');
+        if (btn && panel && !panel.classList.contains('open')) btn.click();
+        setTimeout(function () {
+          var claimBox = document.getElementById('dg-ph-claim');
+          var stmtBox = document.getElementById('dg-ph-statement');
+          if (claimBox) { claimBox.value = prefill.claimText; claimBox.dispatchEvent(new Event('input', { bubbles: true })); }
+          if (stmtBox) { stmtBox.value = prefill.statement; stmtBox.dispatchEvent(new Event('input', { bubbles: true })); }
+          if (claimBox || stmtBox) handled = true;
+        }, 30);
+      } catch (_e1) {}
+    }
+
+    /* Always dispatch the event too, so any other listener (or a future
+       Proof Harness build without the two globals above) can still pick this
+       up -- an additive fallback, never the only path when the direct DOM
+       hooks exist. */
+    try {
+      document.dispatchEvent(new CustomEvent('dataglow:proof-harness-prefill', { detail: prefill }));
+    } catch (_e2) {}
+
+    toast('Sent to Prove: statement prefilled, nothing has been run yet.', 'info');
+    renderBody(null, false);
+  }
+
+  /* ---------------------------- Browse mode (grounded chat) ---------------- */
+  function browseAsk(question) {
+    var e = engine();
+    if (!e || !question || !question.trim()) return;
+    _browseHistory.push({ role: 'user', text: question.trim() });
+    _browseBusy = true;
+    renderBody(null, false);
+
+    var strip = e.buildProfileStrip(discoverTables());
+    var grounding = e.buildBrowseGrounding(strip);
+
+    var respond = function (rawAnswer) {
+      var answer = e.annotateUnverifiedNumbers(rawAnswer || 'I do not have enough profile information to answer that yet.');
+      _browseHistory.push({ role: 'assistant', text: answer });
+      _browseBusy = false;
+      renderBody(null, false);
+    };
+
+    if (modelIsWarm()) {
+      var messages = [
+        { role: 'system', content: 'Answer using ONLY the profile summary below. Never invent numbers. Ground every answer in the listed columns/tables. This module never proves numbers; the human must run Prove for anything numeric.' },
+        { role: 'user', content: grounding + '\n\nQuestion: ' + question },
+      ];
+      chatOnceViaBridge(messages).then(respond);
+    } else {
+      // Deterministic fallback: honest, no-model browse response.
+      respond('On-device model is not warm, so this is a rule-based response: ' + grounding + '. Ask Propose for candidate questions, or load the model for freer browsing.');
+    }
+  }
+
+  /* ---------------------------- rendering ---------------------------------- */
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    var style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = [
+      '#' + PANEL_ID + '{position:fixed;top:0;right:-460px;width:440px;max-width:92vw;height:100%;',
+      'background:var(--surface,#fff);color:var(--text,#111);border-left:1px solid var(--border,#ddd);',
+      'box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:12500;transition:right .22s ease;overflow-y:auto;font-size:13px}',
+      '#' + PANEL_ID + '.open{right:0}',
+      '#' + PANEL_ID + ' .dg-qs-header{position:sticky;top:0;background:var(--surface,#fff);padding:14px 16px;border-bottom:1px solid var(--border,#ddd);display:flex;justify-content:space-between;align-items:center;z-index:1}',
+      '#' + PANEL_ID + ' .dg-qs-header h3{margin:0;font-size:15px}',
+      '#' + PANEL_ID + ' .dg-qs-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--text,#111)}',
+      '#' + PANEL_ID + ' .dg-qs-body{padding:14px 16px}',
+      '#' + PANEL_ID + ' .dg-qs-banner{background:var(--surface-2,#f4f4f5);border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.5}',
+      '#' + PANEL_ID + ' .dg-qs-profile{border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px}',
+      '#' + PANEL_ID + ' .dg-qs-profile table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:6px}',
+      '#' + PANEL_ID + ' .dg-qs-profile td{padding:2px 4px;border-bottom:1px solid var(--border,#eee)}',
+      '#' + PANEL_ID + ' .dg-qs-propose-btn{width:100%;padding:9px;border-radius:8px;border:1px solid var(--primary,#2563eb);background:var(--primary,#2563eb);color:#fff;font-weight:600;cursor:pointer;margin-bottom:12px}',
+      '#' + PANEL_ID + ' .dg-qs-mode-tag{display:inline-block;font-size:var(--dg-text-xs,0.75rem);padding:1px 6px;border-radius:999px;margin-left:6px;background:var(--surface-2,#eee)}',
+      '#' + PANEL_ID + ' .dg-qs-mode-tag.model{background:#dcfce7;color:#166534}',
+      '#' + PANEL_ID + ' .dg-qs-mode-tag.template{background:#fef3c7;color:#92400e}',
+      '#' + PANEL_ID + ' .dg-qs-candidate{border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:10px}',
+      '#' + PANEL_ID + ' .dg-qs-candidate .dg-qs-score{float:right;font-weight:700;font-size:11px}',
+      '#' + PANEL_ID + ' .dg-qs-candidate .dg-qs-why{color:var(--text-muted,#666);font-size:11.5px;margin:4px 0}',
+      '#' + PANEL_ID + ' .dg-qs-candidate .dg-qs-sql{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:var(--surface-2,#f4f4f5);border-radius:6px;padding:6px 8px;white-space:pre-wrap;word-break:break-word;margin:6px 0}',
+      '#' + PANEL_ID + ' .dg-qs-candidate textarea{width:100%;box-sizing:border-box;font-size:12px;margin:4px 0;border-radius:6px;border:1px solid var(--border,#ddd);padding:6px}',
+      '#' + PANEL_ID + ' .dg-qs-actions{display:flex;gap:6px;margin-top:6px}',
+      '#' + PANEL_ID + ' .dg-qs-actions button{flex:1;padding:6px 4px;border-radius:6px;border:1px solid var(--border,#ddd);background:var(--surface,#fff);cursor:pointer;font-size:11.5px}',
+      '#' + PANEL_ID + ' .dg-qs-actions button.dg-qs-keep{border-color:#16a34a;color:#16a34a}',
+      '#' + PANEL_ID + ' .dg-qs-actions button.dg-qs-reject{border-color:#dc2626;color:#dc2626}',
+      '#' + PANEL_ID + ' .dg-qs-tray{border:2px dashed var(--primary,#2563eb);border-radius:8px;padding:10px 12px;margin-bottom:14px}',
+      '#' + PANEL_ID + ' .dg-qs-tray h4{margin:0 0 6px;font-size:12.5px}',
+      '#' + PANEL_ID + ' .dg-qs-keeper-row{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border,#eee);font-size:12px}',
+      '#' + PANEL_ID + ' .dg-qs-keeper-row button{font-size:var(--dg-text-xs,0.75rem);padding:3px 6px;border-radius:6px;border:1px solid var(--border,#ddd);background:var(--surface,#fff);cursor:pointer}',
+      '#' + PANEL_ID + ' .dg-qs-browse{border-top:1px solid var(--border,#ddd);padding-top:12px;margin-top:12px}',
+      '#' + PANEL_ID + ' .dg-qs-browse-msg{margin-bottom:8px;font-size:12px}',
+      '#' + PANEL_ID + ' .dg-qs-browse-msg.assistant{color:var(--text,#111)}',
+      '#' + PANEL_ID + ' .dg-qs-browse-msg.user{color:var(--text-muted,#666);font-weight:600}',
+      '#' + PANEL_ID + ' .dg-qs-browse-input{display:flex;gap:6px;margin-top:8px}',
+      '#' + PANEL_ID + ' .dg-qs-browse-input input{flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#ddd)}',
+      '#' + PANEL_ID + ' .dg-qs-note{color:var(--text-muted,#666);font-size:11px;margin-top:4px}',
+      '#' + BTN_ID + '{cursor:pointer}',
+    ].join('');
+    document.head.appendChild(style);
+  }
+
+  function renderProfileStrip(strip) {
+    if (!strip) return '';
+    if (strip.isEmpty) {
+      return '<div class="dg-qs-profile">No tables loaded yet. Load data, then click Propose.</div>';
+    }
+    var rows = '';
+    strip.tables.forEach(function (t) {
+      rows += '<tr><td>' + esc(t.name) + '</td><td>' + (t.rowCount == null ? '?' : t.rowCount) + ' rows</td><td>' + t.columnCount + ' cols</td></tr>';
+    });
+    return '<div class="dg-qs-profile"><strong>Profile</strong> (deterministic, no model needed)' +
+      '<table>' + rows + '</table></div>';
+  }
+
+  function renderCandidate(c) {
+    var isKeeper = _keepers.some(function (k) { return k.id === c.id; });
+    var modeTag = c.source === 'model'
+      ? '<span class="dg-qs-mode-tag model">model</span>'
+      : '<span class="dg-qs-mode-tag template">template (no model)</span>';
+
+    if (_editingId === c.id) {
+      return '<div class="dg-qs-candidate" data-id="' + esc(c.id) + '">' +
+        '<span class="dg-qs-score">' + c.score + '/100</span>' +
+        '<div>' + modeTag + '</div>' +
+        '<textarea class="dg-qs-edit-text" rows="2">' + esc(c.text) + '</textarea>' +
+        '<textarea class="dg-qs-edit-sql" rows="2">' + esc(c.sql || '') + '</textarea>' +
+        '<div class="dg-qs-actions">' +
+        '<button type="button" class="dg-qs-save" data-id="' + esc(c.id) + '">Save</button>' +
+        '<button type="button" class="dg-qs-cancel-edit" data-id="' + esc(c.id) + '">Cancel</button>' +
+        '</div></div>';
+    }
+
+    return '<div class="dg-qs-candidate" data-id="' + esc(c.id) + '">' +
+      '<span class="dg-qs-score">' + c.score + '/100</span>' +
+      '<div>' + modeTag + (c.edited ? '<span class="dg-qs-mode-tag">edited</span>' : '') + (isKeeper ? '<span class="dg-qs-mode-tag model">kept</span>' : '') + '</div>' +
+      '<div>' + esc(c.text) + '</div>' +
+      (c.why ? '<div class="dg-qs-why">' + esc(c.why) + '</div>' : '') +
+      '<div class="dg-qs-note">Metric: ' + esc(c.metricType || 'unknown') + '</div>' +
+      (c.sql ? '<div class="dg-qs-sql">' + esc(c.sql) + '</div>' : '') +
+      '<div class="dg-qs-actions">' +
+      '<button type="button" class="dg-qs-keep" data-id="' + esc(c.id) + '"' + (isKeeper ? ' disabled' : '') + '>Keep</button>' +
+      '<button type="button" class="dg-qs-edit" data-id="' + esc(c.id) + '">Edit</button>' +
+      '<button type="button" class="dg-qs-reject" data-id="' + esc(c.id) + '">Reject</button>' +
+      '</div></div>';
+  }
+
+  function renderKeepersTray() {
+    var e = engine();
+    var max = e ? e.MAX_KEEPERS : 5;
+    var rows = _keepers.map(function (k) {
+      return '<div class="dg-qs-keeper-row"><span>' + esc(k.text) + '</span>' +
+        '<span>' +
+        '<button type="button" class="dg-qs-send-prove" data-id="' + esc(k.id) + '">Send to Prove</button> ' +
+        '<button type="button" class="dg-qs-remove-keeper" data-id="' + esc(k.id) + '">Remove</button>' +
+        '</span></div>';
+    }).join('');
+    return '<div class="dg-qs-tray"><h4>Keepers (' + _keepers.length + '/' + max + ')</h4>' +
+      (rows || '<div class="dg-qs-note">No keepers yet. Keep a candidate below.</div>') + '</div>';
+  }
+
+  function renderBrowse() {
+    var msgs = _browseHistory.map(function (m) {
+      return '<div class="dg-qs-browse-msg ' + m.role + '">' + (m.role === 'user' ? 'You: ' : 'Scout: ') + esc(m.text) + '</div>';
+    }).join('');
+    return '<div class="dg-qs-browse">' +
+      '<h4 style="margin:0 0 6px;font-size:12.5px">Browse mode (grounded on profile only)</h4>' +
+      msgs +
+      (_browseBusy ? '<div class="dg-qs-note">Thinking...</div>' : '') +
+      '<div class="dg-qs-browse-input">' +
+      '<input type="text" id="dg-qs-browse-input" placeholder="Ask about this data (profile-grounded)">' +
+      '<button type="button" id="dg-qs-browse-send">Ask</button>' +
+      '</div></div>';
+  }
+
+  function renderBody(profileStripArg, proposing) {
+    var body = document.getElementById(BODY_ID);
+    if (!body) return;
+    var e = engine();
+    var strip = profileStripArg || (e ? e.buildProfileStrip(discoverTables()) : { isEmpty: true, tables: [] });
+    var banner = e ? e.CHEATING_BOUNDARY_BANNER : '';
+
+    var html = '';
+    html += '<div class="dg-qs-banner">' + esc(banner) + '</div>';
+    html += renderProfileStrip(strip);
+    html += '<button type="button" class="dg-qs-propose-btn" id="dg-qs-propose-btn"' + (proposing ? ' disabled' : '') + '>' +
+      (proposing ? 'Proposing...' : 'Propose keepers from this data') + '</button>';
+
+    if (_lastProposeMode) {
+      html += '<div class="dg-qs-note">Last proposal used: ' +
+        (_lastProposeMode === 'model' ? 'on-device model' : 'deterministic templates (no model)') + '</div>';
+    }
+
+    html += renderKeepersTray();
+
+    var visible = _candidates.filter(function (c) { return !_rejected[c.id]; });
+    if (visible.length === 0 && !proposing) {
+      html += '<div class="dg-qs-note">No candidates yet. Click Propose.</div>';
+    } else {
+      html += visible.map(renderCandidate).join('');
+    }
+
+    html += renderBrowse();
+
+    body.innerHTML = html;
+    wireBodyEvents(body);
+  }
+
+  function wireBodyEvents(body) {
+    var proposeBtn = body.querySelector('#dg-qs-propose-btn');
+    if (proposeBtn) proposeBtn.addEventListener('click', propose);
+
+    body.querySelectorAll('.dg-qs-keep').forEach(function (btn) {
+      btn.addEventListener('click', function () { keepCandidate(btn.getAttribute('data-id')); });
+    });
+    body.querySelectorAll('.dg-qs-reject').forEach(function (btn) {
+      btn.addEventListener('click', function () { rejectCandidate(btn.getAttribute('data-id')); });
+    });
+    body.querySelectorAll('.dg-qs-edit').forEach(function (btn) {
+      btn.addEventListener('click', function () { startEdit(btn.getAttribute('data-id')); });
+    });
+    body.querySelectorAll('.dg-qs-cancel-edit').forEach(function (btn) {
+      btn.addEventListener('click', function () { _editingId = null; renderBody(null, false); });
+    });
+    body.querySelectorAll('.dg-qs-save').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-id');
+        var card = body.querySelector('.dg-qs-candidate[data-id="' + id + '"]');
+        var text = card.querySelector('.dg-qs-edit-text').value;
+        var sql = card.querySelector('.dg-qs-edit-sql').value;
+        saveEdit(id, text, sql);
+      });
+    });
+    body.querySelectorAll('.dg-qs-remove-keeper').forEach(function (btn) {
+      btn.addEventListener('click', function () { removeKeeperFromTray(btn.getAttribute('data-id')); });
+    });
+    body.querySelectorAll('.dg-qs-send-prove').forEach(function (btn) {
+      btn.addEventListener('click', function () { sendToProve(btn.getAttribute('data-id')); });
+    });
+
+    var browseSend = body.querySelector('#dg-qs-browse-send');
+    var browseInput = body.querySelector('#dg-qs-browse-input');
+    if (browseSend && browseInput) {
+      var submit = function () {
+        var v = browseInput.value;
+        browseInput.value = '';
+        browseAsk(v);
+      };
+      browseSend.addEventListener('click', submit);
+      browseInput.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') submit();
+      });
+    }
+  }
+
+  function ensurePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    ensureStyles();
+    panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Question Scout');
+    panel.innerHTML =
+      '<div class="dg-qs-header"><h3>Question Scout</h3>' +
+      '<button type="button" class="dg-qs-close" id="dg-question-scout-close" aria-label="Close">\u00d7</button></div>' +
+      '<div class="dg-qs-body" id="' + BODY_ID + '"></div>';
+    document.body.appendChild(panel);
+    var closeBtn = panel.querySelector('#dg-question-scout-close');
+    if (closeBtn) closeBtn.addEventListener('click', closePanel);
+    return panel;
+  }
+
+  /* ---------------------------- open / close ------------------------------ */
+  function isOpen() {
+    var panel = document.getElementById(PANEL_ID);
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openPanel() {
+    if (!flagOn()) return false;
+    ensurePanel().classList.add('open');
+    renderBody(null, false);
+    return true;
+  }
+
+  function closePanel() {
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.classList.remove('open');
+  }
+
+  /* ---------------------------- mounting --------------------------------- */
+  function injectButton() {
+    if (document.getElementById(BTN_ID)) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.id = BTN_ID;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open Question Scout');
+    btn.title = 'Question Scout: propose candidate questions from this data';
+    btn.innerHTML = '<span>Question Scout</span>';
+    btn.addEventListener('click', function () {
+      if (isOpen()) closePanel(); else openPanel();
+    });
+    /* Next to the Proof Harness button, so "propose, then prove" reads as one
+       row -- same anchoring convention Proof Harness itself used against
+       Trust Ledger / Air-Gap / Shield Packs. */
+    var anchor = document.getElementById('dg-proof-harness-btn') || document.getElementById('dg-trust-ledger-btn') || document.getElementById('dg-air-gap-btn');
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+      if (anchor.style.position === 'fixed') {
+        btn.style.position = 'fixed';
+        btn.style.bottom = '16px';
+        btn.style.right = '540px';
+        btn.style.zIndex = '12000';
+      }
+      return;
+    }
+    var toolbar = document.querySelector('#nav-right, .dg-toolbar, #dg-top-bar, .top-bar, header');
+    if (!toolbar) {
+      toolbar = document.body;
+      btn.style.position = 'fixed';
+      btn.style.bottom = '16px';
+      btn.style.right = '540px';
+      btn.style.zIndex = '12000';
+    }
+    toolbar.appendChild(btn);
+  }
+
+  /* ---------------------------- ask-bar surfacing --------------------------
+     SPEC: "Also surface from empty ask bar when tables exist: 'Propose
+     keepers from this data'." Best-effort: looks for a known ask-bar input
+     id/class used elsewhere in canvas; a no-op (not an error) if none of
+     these exist in a given build. */
+  function surfaceFromAskBar() {
+    try {
+      var askBar = document.querySelector('#ask-bar, .ask-bar, #dg-ask-input, [data-role="ask-bar"]');
+      if (!askBar || askBar._dgQuestionScoutHinted) return;
+      var tables = discoverTables();
+      if (!tables || tables.length === 0) return;
+      askBar._dgQuestionScoutHinted = true;
+      askBar.setAttribute('placeholder', 'Propose keepers from this data (Question Scout), or ask a question...');
+    } catch (_e) {}
+  }
+
+  function boot() {
+    if (flagOn()) {
+      injectButton();
+      ensurePanel();
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closePanel();
+      });
+      surfaceFromAskBar();
+    }
+  }
+
+  /* Published for tests and for other modules (e.g. a future "Analyze" tab
+     entry point) to open Scout programmatically, matching the SPEC's
+     "Entry: After data load (or from Analyze / Ask bar): button Question
+     Scout". Also published so Proof Harness or any other module could, in
+     principle, call back into Scout without a circular require. */
+  window.DataGlowQuestionScoutCanvas = {
+    openPanel: openPanel,
+    closePanel: closePanel,
+    isOpen: isOpen,
+    propose: propose,
+    getCandidates: function () { return _candidates.slice(); },
+    getKeepers: function () { return _keepers.slice(); },
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 900); });
+  } else {
+    setTimeout(boot, 900);
+  }
+})();
+/* ---- end js/question-scout/data-glow-question-scout-canvas.js ---- */
+
+
+
 
 
 
