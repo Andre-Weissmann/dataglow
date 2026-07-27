@@ -6367,9 +6367,9 @@
       ],
       "notes": "The loop is analyze locally, prove on the Proof Board, publish, then post, and the last step is where analysts normally lose the proof: a number that survived a query engine, a validation gate and a receipt chain gets retyped by hand into a social post and becomes a number with nothing behind it. So the draft here is not written and then checked. It is assembled from tiles, which means every number in it came out of an engine by construction, and then it is checked anyway through the prove gate, because assembly can still go wrong and a post is not something you can recall. NEVER_AUTO_POST is a constant rather than a setting: DataGlow has no server and no outbound network so an OAuth posting integration would need both, and beyond that a tool that can post on your behalf is a tool that can post something you did not read. The output is text on a clipboard and the last action is always a human pasting it. The transparency line is computed from the badges actually present rather than written as a fixed string, because Numbers engine-checked is a claim about the work and it is false if any tile in the post is carrying the not checked badge, which is exactly the case where the reader most needs to know. A tile with no value is not a weaker bullet, it is not a bullet at all, and a blocked tile is excluded with its reason shown so the user can see why a number visible on the board is missing from the draft. Copy draft needs both a passing gate and a ticked review box.",
       "relatedFlags": [
-        "proofToPost",
         "aiProveGate",
-        "proofBoard"
+        "proofBoard",
+        "proofToPost"
       ],
       "status": "shipped"
     },
@@ -7338,8 +7338,8 @@
       ],
       "notes": "r-deepen.js (Bundle 17) fixed Air-Gap mode not blocking the two-package WebR startup fetch (jsonlite, ggplot2); this is the manifest of INTENT versus REALITY for a target list of six R packages (dplyr, tidyr, ggplot2, jsonlite, readr, broom) this product would like to ship prebundled for Air-Gap R sessions. Each entry declares an honest availability of bundled, network-only or unavailable; as of this bundle every entry is network-only or unavailable, none are bundled, because no local/static R package asset is checked into the repo yet. prebundleStatusCopy never returns an 'Available offline' claim for anything except a bundled entry. resolvePackageLoad prefers a local asset the moment one becomes bundled, with no call-site change, otherwise defers entirely to the caller-supplied network decision (r-deepen.js's packageInstallDecision), so this module duplicates no Air-Gap logic of its own. Pure and cross-platform: no DOM, no Node-only API, no Tauri-only API, imported by the same path from the browser bundle, the Tauri desktop shell, and a mobile PWA build.",
       "relatedFlags": [
-        "rAirGapPrebundle",
-        "airGapMode"
+        "airGapMode",
+        "rAirGapPrebundle"
       ],
       "status": "shipped"
     },
@@ -7694,7 +7694,10 @@
         }
       ],
       "flag": "projectRun",
-      "status": "shipped"
+      "status": "shipped",
+      "relatedFlags": [
+        "projectRun"
+      ]
     }
   ]
 }
