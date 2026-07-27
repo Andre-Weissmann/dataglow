@@ -1012,6 +1012,18 @@
     gap: 2px;
   }
 
+  /* A50 Jobs calm polish: toolbar-overflow guardrail. Top-nav labels
+     (Data/Analyze/Output, Share, Export, More) must never clip mid-letter
+     at any width -- wrap or reveal the More overflow menu instead. This
+     is additive insurance on top of the existing narrow-viewport rule
+     that fully hides #publish-btn/#export-btn/#profile-btn under 700px
+     (they remain reachable via #nav-overflow-btn / the mobile tab bar). */
+  .nav-btn, #publish-btn, #export-btn, #nav-overflow-btn {
+    text-overflow: clip;
+    overflow: visible;
+    min-width: max-content;
+  }
+
   /* ── 3-Tab Architecture (Steve Jobs) ─────────────────────────────────── */
   /* Data/Analyze/Share are the only top-level views */
   #data-view, #analyze-view, #share-view {
@@ -9564,9 +9576,63 @@ body.has-data #dg-flow-steps {
   .dg-cta-primary { font-size: 16px; padding: 16px 24px; }
 }
 
+/* A50 Jobs calm polish: 16px min body text on mobile for the calm-journey
+   surfaces this SPEC touches (purpose contract, Scout panel, spotlight).
+   Scoped, not a blanket rewrite of every dense grid/code-editor surface
+   (those intentionally stay smaller/monospace for data density -- out of
+   scope per SPEC "not a total rewrite"). Also prevents iOS input zoom on
+   the purpose-contract note field, consistent with the existing
+   input/textarea 16px rule elsewhere in this file. */
+@media (max-width: 700px) {
+  #dg-purpose-contract-panel p,
+  #dg-purpose-contract-panel .dg-pc-purpose-btn span,
+  #dg-purpose-contract-panel textarea,
+  #dg-question-scout-panel .dg-qs-model-status span,
+  .spotlight-sub {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+}
+
 /* Hide CTAs once data is loaded */
 body.has-data #dg-landing-ctas { display: none; }
 body.has-data #drop-zone-hint { display: none; }
+
+/* A50 Jobs calm polish: one primary CTA path on first impression.
+   Demote the floating advanced-tools row (Trust Ledger / Air-Gap /
+   Shield Packs / Proof Harness / Question Scout -- mounted dynamically
+   as fixed-position buttons, see js/*-canvas.js mount functions) until
+   a dataset is loaded, so the empty state reads as "drop a file" rather
+   than toolkit chrome. Calm fade, not a hard disable -- still keyboard
+   reachable, never display:none (no focus trap, no layout jump when
+   has-data flips). Buttons opt back to full visibility the moment
+   body.has-data is set (same signal that hides #dg-landing-ctas). */
+body:not(.has-data) #dg-trust-ledger-btn,
+body:not(.has-data) #dg-air-gap-btn,
+body:not(.has-data) #dg-shield-packs-btn,
+body:not(.has-data) #dg-proof-harness-btn,
+body:not(.has-data) #dg-question-scout-btn {
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+body.has-data #dg-trust-ledger-btn,
+body.has-data #dg-air-gap-btn,
+body.has-data #dg-shield-packs-btn,
+body.has-data #dg-proof-harness-btn,
+body.has-data #dg-question-scout-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  body:not(.has-data) #dg-trust-ledger-btn,
+  body:not(.has-data) #dg-air-gap-btn,
+  body:not(.has-data) #dg-shield-packs-btn,
+  body:not(.has-data) #dg-proof-harness-btn,
+  body:not(.has-data) #dg-question-scout-btn {
+    transition: none;
+  }
+}
 
 /* ================================================================
    Welcome brief overlay CSS override -- killed in PR #529
@@ -30924,9 +30990,23 @@ var InstantInsight = (function () {
     }
 
     // Wire action buttons
+    // A50 Jobs calm polish: the spotlight now offers 3 actions max
+    // (Clean/Validate, Ask (Scout), Prove (VERDICT)). Clean/Validate keeps
+    // the original data-goto -> panel-switch behavior; Scout/Prove open
+    // their existing floating-button panels (data-action) instead of
+    // introducing new panels, so this stays additive/wiring-only.
     document.querySelectorAll('.spotlight-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
         hideSpotlight();
+        var action = btn.dataset.action;
+        if (action === 'open-scout') {
+          var scoutBtn = document.getElementById('dg-question-scout-btn');
+          if (scoutBtn) { scoutBtn.click(); return; }
+        }
+        if (action === 'open-verdict') {
+          var proveBtn = document.getElementById('dg-proof-harness-btn');
+          if (proveBtn) { proveBtn.click(); return; }
+        }
         var target = btn.dataset.goto;
         if (target) gotoAnalyzePanel(target);
       });
@@ -34180,7 +34260,15 @@ var InstantInsight = (function () {
   }
 
   function init() {
-    window._dgSpotlight = function () {};
+    /* A50 Jobs calm polish: this used to unconditionally clobber
+       window._dgSpotlight with a no-op to avoid double-showing both
+       Mission Brief and the spotlight. Mission Brief itself was already
+       disabled in showMissionBrief() above ("QW1: Mission Brief removed"),
+       but this override was left behind and was silently killing the
+       post-load spotlight (SPEC requirement #3) on every load ever since --
+       the exact "toolkit chrome instead of a calm journey" symptom this
+       SPEC exists to fix. Removed; nothing else in this module reads or
+       depends on _dgSpotlight being a no-op. */
     var acceptBtn = $('mb-accept-btn');
     if (acceptBtn) acceptBtn.addEventListener('click', acceptMission);
 
@@ -89669,9 +89757,11 @@ function filterCommands(commands, query, limit) {
       '    PURPOSE CONTRACT',
       '  </span>',
       '</div>',
+      /* A50 Jobs calm polish: shorter copy (one sentence, not two), same
+         meaning. Full legal framing lives in TRUST.md / the signed contract
+         record itself, not the first thing a user reads in this modal. */
       '<p style="color:#797876;font-size:12px;margin:0 0 20px;line-height:1.6;">',
-      '  Declare why you are using this dataset. Your declaration becomes a signed',
-      '  contract that governs how the data may be used and for how long.',
+      '  Why are you using this dataset? Your answer becomes a signed, time-limited contract.',
       '</p>',
 
       '<div id="dg-pc-dataset-name" style="',
@@ -89684,16 +89774,23 @@ function filterCommands(commands, query, limit) {
       '    SELECT PURPOSE',
       '  </div>',
       '  <div id="dg-pc-purpose-grid" style="display:grid;gap:8px;">',
+      /* A50 Jobs calm polish: single obvious default. 'analysis' (Analysis
+         & Reporting) gets a quiet 'Recommended' badge and starts visually
+         pre-selected (see the post-render selectDefault() call below) so
+         the calm path is "confirm the default" not "pick from 5 options
+         cold" -- still fully overridable, no restriction removed. */
       PURPOSES.map(function (p) {
+        var isDefault = p.id === 'analysis';
         return [
-          '<button data-purpose="' + p.id + '" class="dg-pc-purpose-btn" style="',
+          '<button data-purpose="' + p.id + '" class="dg-pc-purpose-btn' + (isDefault ? ' dg-pc-default' : '') + '" style="',
           '  background:#0D0E10;border:1px solid #252930;border-radius:10px;',
           '  padding:12px 14px;text-align:left;cursor:pointer;transition:all 0.15s;',
           '  display:flex;flex-direction:column;gap:4px;">',
           '  <div style="display:flex;align-items:center;gap:8px;">',
           '    <div style="width:8px;height:8px;border-radius:50%;background:' + p.color + ';flex-shrink:0;"></div>',
           '    <span style="color:#CDCCCA;font-size:12px;font-weight:600;">' + p.label + '</span>',
-          '    <span style="color:#5A5957;font-size:var(--dg-text-xs);margin-left:auto;">' + _formatExpiry(p.expiry_ms) + '</span>',
+          (isDefault ? '    <span style="color:#4F98A3;font-size:var(--dg-text-xs);font-weight:700;margin-left:auto;">RECOMMENDED</span>' :
+            '    <span style="color:#5A5957;font-size:var(--dg-text-xs);margin-left:auto;">' + _formatExpiry(p.expiry_ms) + '</span>'),
           '  </div>',
           '  <div style="color:#797876;font-size:11px;padding-left:16px;">' + p.desc + '</div>',
           '</button>',
@@ -89738,32 +89835,42 @@ function filterCommands(commands, query, limit) {
     /* wire events */
     var selectedPurpose = null;
 
-    panel.querySelectorAll('.dg-pc-purpose-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        panel.querySelectorAll('.dg-pc-purpose-btn').forEach(function (b) {
-          b.style.borderColor = '#252930';
-          b.style.background = '#0D0E10';
-        });
-        selectedPurpose = btn.dataset.purpose;
-        var p = _purposeById(selectedPurpose);
-        btn.style.borderColor = p.color;
-        btn.style.background = 'rgba(32,197,181,0.06)';
-        var signBtn = document.getElementById('dg-pc-sign-btn');
-        if (signBtn) {
-          signBtn.disabled = false;
-          signBtn.style.opacity = '1';
-          signBtn.style.cursor = 'pointer';
-        }
-        var status = document.getElementById('dg-pc-status');
-        if (status) {
-          var restrictions = p.restrictions.length
-            ? p.restrictions.map(function (r) { return r.replace(/_/g, ' '); }).join(', ')
-            : 'none';
-          status.textContent = 'Expiry: ' + _formatExpiry(p.expiry_ms) + '  |  Restrictions: ' + restrictions;
-          status.style.color = p.color;
-        }
+    /* A50 Jobs calm polish: extracted from the click listener so the
+       'analysis' default button can be visually pre-selected on open
+       (single obvious default, SPEC requirement #5) using the exact same
+       code path a real click uses -- no duplicated selection logic, and
+       signing still requires an explicit Sign Contract click either way. */
+    function selectPurposeBtn(btn) {
+      panel.querySelectorAll('.dg-pc-purpose-btn').forEach(function (b) {
+        b.style.borderColor = '#252930';
+        b.style.background = '#0D0E10';
       });
+      selectedPurpose = btn.dataset.purpose;
+      var p = _purposeById(selectedPurpose);
+      btn.style.borderColor = p.color;
+      btn.style.background = 'rgba(32,197,181,0.06)';
+      var signBtn = document.getElementById('dg-pc-sign-btn');
+      if (signBtn) {
+        signBtn.disabled = false;
+        signBtn.style.opacity = '1';
+        signBtn.style.cursor = 'pointer';
+      }
+      var status = document.getElementById('dg-pc-status');
+      if (status) {
+        var restrictions = p.restrictions.length
+          ? p.restrictions.map(function (r) { return r.replace(/_/g, ' '); }).join(', ')
+          : 'none';
+        status.textContent = 'Expiry: ' + _formatExpiry(p.expiry_ms) + '  |  Restrictions: ' + restrictions;
+        status.style.color = p.color;
+      }
+    }
+
+    panel.querySelectorAll('.dg-pc-purpose-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { selectPurposeBtn(btn); });
     });
+
+    var defaultBtn = panel.querySelector('.dg-pc-purpose-btn.dg-pc-default');
+    if (defaultBtn) selectPurposeBtn(defaultBtn);
 
     document.getElementById('dg-pc-sign-btn').addEventListener('click', function () {
       if (!selectedPurpose || !_currentDatasetId) return;
@@ -99403,31 +99510,32 @@ var PortfolioExport = (function () {
   <button class="pwa-dismiss-btn" id="pwa-dismiss-btn" title="Dismiss">x</button>
 </div>
 - UX: Post-load Action Spotlight -->
+<!-- A50 Jobs calm polish: post-load spotlight capped at 3 actions
+     (Clean/Validate, Ask (Scout), Prove (VERDICT)) per the SPEC's
+     customer-journey steps 3-5. Previously 4 generic view shortcuts
+     (Visualize/SQL/Findings/Statistics); those views remain reachable
+     from the sidebar, this overlay now only spotlights the calm
+     journey's three named steps. -->
 <div id="action-spotlight">
   <div class="spotlight-card">
     <div class="spotlight-headline" id="spotlight-headline">Ready.</div>
     <div class="spotlight-badge"><span>&#10003;</span><span id="spotlight-name">Dataset loaded</span></div>
-    <div class="spotlight-sub">What do you want to do with it?</div>
+    <div class="spotlight-sub">Three ways to start.</div>
     <div class="spotlight-grid">
-      <button class="spotlight-btn" data-goto="charts-view">
-        <span class="spotlight-btn-icon">&#x1F4CA;</span>
-        <div><div class="spotlight-btn-label">Visualize</div>
-        <div class="spotlight-btn-desc">Auto-generate charts. See patterns instantly.</div></div>
+      <button class="spotlight-btn" data-goto="review-view">
+        <span class="spotlight-btn-icon">&#x2705;</span>
+        <div><div class="spotlight-btn-label">Clean &amp; Validate</div>
+        <div class="spotlight-btn-desc">Check data health and fix issues first.</div></div>
       </button>
-      <button class="spotlight-btn" data-goto="sql-view">
-        <span class="spotlight-btn-icon">&#x1F9EE;</span>
-        <div><div class="spotlight-btn-label">Query with SQL</div>
-        <div class="spotlight-btn-desc">Write SQL in your browser. No server needed.</div></div>
+      <button class="spotlight-btn" id="spotlight-ask-scout-btn" data-action="open-scout">
+        <span class="spotlight-btn-icon">&#x1F4AC;</span>
+        <div><div class="spotlight-btn-label">Ask (Scout)</div>
+        <div class="spotlight-btn-desc">Get proposed questions worth asking.</div></div>
       </button>
-      <button class="spotlight-btn" data-goto="dashboard-view">
-        <span class="spotlight-btn-icon">&#x26A1;</span>
-        <div><div class="spotlight-btn-label">See Findings</div>
-        <div class="spotlight-btn-desc">Quality score, KPIs, and AI-detected issues.</div></div>
-      </button>
-      <button class="spotlight-btn" data-goto="stats-view">
-        <span class="spotlight-btn-icon">&#x1F9EA;</span>
-        <div><div class="spotlight-btn-label">Run Statistics</div>
-        <div class="spotlight-btn-desc">Correlation, regression, hypothesis testing.</div></div>
+      <button class="spotlight-btn" id="spotlight-prove-btn" data-action="open-verdict">
+        <span class="spotlight-btn-icon">&#x1F6E1;</span>
+        <div><div class="spotlight-btn-label">Prove (VERDICT)</div>
+        <div class="spotlight-btn-desc">Turn a claim into a signed, checkable answer.</div></div>
       </button>
     </div>
     <button class="spotlight-skip" id="spotlight-skip">I will explore on my own</button>
@@ -146346,6 +146454,8 @@ function exportKeepersJson(keepers, profileStrip) {
 /* ---- end js/question-scout/question-scout.js ---- */
 
 
+
+
 /* ---- from js/question-scout/data-glow-question-scout-canvas.js ---- */
 ;(function () {
   'use strict';
@@ -146764,6 +146874,15 @@ function exportKeepersJson(keepers, profileStrip) {
       '#' + PANEL_ID + ' .dg-qs-join-row{font-size:12px;padding:3px 0}',
       '#' + PANEL_ID + ' .dg-qs-quality-meter{font-size:11.5px;color:var(--text-muted,#666);margin-bottom:6px;padding:4px 8px;border-radius:6px;background:var(--surface-2,#f4f4f5)}',
       '#' + PANEL_ID + ' .dg-qs-export-btn{width:100%;padding:8px;margin-bottom:14px;border-radius:6px;border:1px solid var(--primary,#2563eb);color:var(--primary,#2563eb);background:var(--surface,#fff);cursor:pointer;font-size:12px}',
+      /* A50 Jobs calm polish: cold-start status row. Calm (not alarming) --
+         a quiet dot + short sentence + one clear action, not a red banner
+         or a spinner that implies something is broken. 8pt-rhythm padding
+         (4px increments) consistent with the token ladder elsewhere. */
+      '#' + PANEL_ID + ' .dg-qs-model-status{display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:12px;border-radius:8px;background:var(--surface-2,#f4f4f5);color:var(--text-muted,#666);font-size:12px;line-height:1.4}',
+      '#' + PANEL_ID + ' .dg-qs-model-status-dot{width:8px;height:8px;border-radius:50%;background:var(--primary,#2563eb);flex-shrink:0;opacity:0.6}',
+      '#' + PANEL_ID + ' .dg-qs-model-status span{flex:1}',
+      '#' + PANEL_ID + ' .dg-qs-use-templates-btn{flex-shrink:0;padding:6px 10px;border-radius:6px;border:1px solid var(--primary,#2563eb);background:var(--primary,#2563eb);color:#fff;font-weight:600;font-size:11.5px;cursor:pointer;min-height:2.75rem}',
+      '@media (pointer: coarse){#' + PANEL_ID + ' .dg-qs-use-templates-btn{min-height:var(--dg-touch-min,2.75rem)}}',
       '#' + BTN_ID + '{cursor:pointer}',
     ].join('');
     document.head.appendChild(style);
@@ -146892,6 +147011,24 @@ function exportKeepersJson(keepers, profileStrip) {
     return '<button type="button" class="dg-qs-export-btn" id="dg-qs-export-keepers">Export keepers JSON</button>';
   }
 
+  /* A50 Jobs calm polish: cold-start status (SPEC "Scout cold-start").
+     propose()/proposeViaModel() already degrade to templates immediately
+     with no download and no blank hang -- this only makes that behavior
+     VISIBLE before the user clicks Propose, instead of only reporting it
+     after the fact in the post-propose toast. Calm progress copy, plus an
+     explicit "Use templates now" primary action so the panel never reads
+     as stuck waiting on a model. Self-silencing: renders nothing once the
+     model is warm or a proposal has already run. */
+  function renderModelStatus(proposing) {
+    if (proposing || _lastProposeMode) return '';
+    if (modelIsWarm()) return '';
+    return '<div class="dg-qs-model-status">' +
+      '<span class="dg-qs-model-status-dot" aria-hidden="true"></span>' +
+      '<span>On-device model is not loaded yet. You can start now with template questions, no waiting.</span>' +
+      '<button type="button" class="dg-qs-use-templates-btn" id="dg-qs-use-templates-btn">Use templates now</button>' +
+      '</div>';
+  }
+
   function renderBody(profileStripArg, proposing) {
     var body = document.getElementById(BODY_ID);
     if (!body) return;
@@ -146904,6 +147041,7 @@ function exportKeepersJson(keepers, profileStrip) {
     html += renderProfileStrip(strip);
     html += renderJoinHints();
     html += renderDictionaryBox();
+    html += renderModelStatus(proposing);
     html += '<button type="button" class="dg-qs-propose-btn" id="dg-qs-propose-btn"' + (proposing ? ' disabled' : '') + '>' +
       (proposing ? 'Proposing...' : 'Propose keepers from this data') + '</button>';
 
@@ -146932,6 +147070,13 @@ function exportKeepersJson(keepers, profileStrip) {
   function wireBodyEvents(body) {
     var proposeBtn = body.querySelector('#dg-qs-propose-btn');
     if (proposeBtn) proposeBtn.addEventListener('click', propose);
+
+    /* A50 Jobs calm polish: "Use templates now" is just Propose -- the
+       fallback path already runs deterministically when the model is
+       cold, this button only gives that path an explicit, calm entry
+       point instead of making the user guess why Propose looks idle. */
+    var useTemplatesBtn = body.querySelector('#dg-qs-use-templates-btn');
+    if (useTemplatesBtn) useTemplatesBtn.addEventListener('click', propose);
 
     body.querySelectorAll('.dg-qs-keep').forEach(function (btn) {
       btn.addEventListener('click', function () { keepCandidate(btn.getAttribute('data-id')); });
@@ -147141,6 +147286,8 @@ function exportKeepersJson(keepers, profileStrip) {
   }
 })();
 /* ---- end js/question-scout/data-glow-question-scout-canvas.js ---- */
+
+
 
 
 
@@ -147573,31 +147720,32 @@ window.addEventListener('appinstalled', function() {
 </script>
 </body>
 </html>- UX: Post-load Action Spotlight -->
+<!-- A50 Jobs calm polish: post-load spotlight capped at 3 actions
+     (Clean/Validate, Ask (Scout), Prove (VERDICT)) per the SPEC's
+     customer-journey steps 3-5. Previously 4 generic view shortcuts
+     (Visualize/SQL/Findings/Statistics); those views remain reachable
+     from the sidebar, this overlay now only spotlights the calm
+     journey's three named steps. -->
 <div id="action-spotlight">
   <div class="spotlight-card">
     <div class="spotlight-headline" id="spotlight-headline">Ready.</div>
     <div class="spotlight-badge"><span>&#10003;</span><span id="spotlight-name">Dataset loaded</span></div>
-    <div class="spotlight-sub">What do you want to do with it?</div>
+    <div class="spotlight-sub">Three ways to start.</div>
     <div class="spotlight-grid">
-      <button class="spotlight-btn" data-goto="charts-view">
-        <span class="spotlight-btn-icon">&#x1F4CA;</span>
-        <div><div class="spotlight-btn-label">Visualize</div>
-        <div class="spotlight-btn-desc">Auto-generate charts. See patterns instantly.</div></div>
+      <button class="spotlight-btn" data-goto="review-view">
+        <span class="spotlight-btn-icon">&#x2705;</span>
+        <div><div class="spotlight-btn-label">Clean &amp; Validate</div>
+        <div class="spotlight-btn-desc">Check data health and fix issues first.</div></div>
       </button>
-      <button class="spotlight-btn" data-goto="sql-view">
-        <span class="spotlight-btn-icon">&#x1F9EE;</span>
-        <div><div class="spotlight-btn-label">Query with SQL</div>
-        <div class="spotlight-btn-desc">Write SQL in your browser. No server needed.</div></div>
+      <button class="spotlight-btn" id="spotlight-ask-scout-btn" data-action="open-scout">
+        <span class="spotlight-btn-icon">&#x1F4AC;</span>
+        <div><div class="spotlight-btn-label">Ask (Scout)</div>
+        <div class="spotlight-btn-desc">Get proposed questions worth asking.</div></div>
       </button>
-      <button class="spotlight-btn" data-goto="dashboard-view">
-        <span class="spotlight-btn-icon">&#x26A1;</span>
-        <div><div class="spotlight-btn-label">See Findings</div>
-        <div class="spotlight-btn-desc">Quality score, KPIs, and AI-detected issues.</div></div>
-      </button>
-      <button class="spotlight-btn" data-goto="stats-view">
-        <span class="spotlight-btn-icon">&#x1F9EA;</span>
-        <div><div class="spotlight-btn-label">Run Statistics</div>
-        <div class="spotlight-btn-desc">Correlation, regression, hypothesis testing.</div></div>
+      <button class="spotlight-btn" id="spotlight-prove-btn" data-action="open-verdict">
+        <span class="spotlight-btn-icon">&#x1F6E1;</span>
+        <div><div class="spotlight-btn-label">Prove (VERDICT)</div>
+        <div class="spotlight-btn-desc">Turn a claim into a signed, checkable answer.</div></div>
       </button>
     </div>
     <button class="spotlight-skip" id="spotlight-skip">I will explore on my own</button>
