@@ -267,3 +267,16 @@ jobs:
       - run: npm ci
       - run: npm run test:a49questionscout
       - run: npm run check:canvas-integrity
+
+  a49-2-scout-v2:
+    name: A49.2 Question Scout v2 (join hints, healthcare-idr pack, dictionary-aware prompts, quality meter, keepers export)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:a492scoutv2
+      - run: npm run check:canvas-integrity
