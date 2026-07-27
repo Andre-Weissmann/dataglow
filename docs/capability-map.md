@@ -903,3 +903,18 @@ Two of those are derived rather than authored. `relatedFlags` is the declared li
 Every module under `js/` has to clear the same four gates, and all four are easy to miss when starting a file from scratch: it must parse under `node --check`, it must use the outer-IIFE convention so the inlined canvas copy cannot leak names, its canvas copy must be delimited by `/* ---- from <path> ---- */` markers for `scripts/check-canvas-integrity.mjs` to pin, and it must be claimed by a capability or the drift detector fails with `UNDOCUMENTED_MODULE`. `npm run new-module -- js/<area>/<name>.js` writes a stub that already satisfies the first three and prints the remaining steps for the fourth. `--esm` emits a pure ES module instead (the shape a logic engine wants, since `inject_*.py` strips the export keywords when inlining), `--no-markers` drops the marker pair, and `--dry-run` prints without writing.
 
 The scaffold never touches `canvas/index.html`. Inlining stays a deliberate act performed by an `inject_*.py` script, so a scaffolded file cannot change the shipped bundle by accident and `npm run check:canvas-integrity` is unaffected until the module is inlined on purpose. `node scripts/new-module.mjs --help` documents that promote path end to end: write `inject_<feature>.py` modelled on `inject_shield_packs.py` or `inject_air_gap_mode.py`, insert before `window.addEventListener('appinstalled'`, run it once (the scripts refuse to run twice so a block cannot be duplicated), add the module to `canvas/integrity.manifest.json` under `tracked`, then `npm run check:canvas-integrity -- --update` to record the source and inlined hashes. `npm run test:newmodule` (`test/new-module.test.mjs`) runs the emitted text through `node --check` for both shapes, so the scaffold can never start a feature with a red parse.
+
+## Project Run (R1)
+
+In-app guided spine: Ingest → Purpose → Validate → Scout → Prove → Narrate → Export.
+Flag: `projectRun`. Engine: `window.DataGlowProjectRun`. UI: Projects tab + drawer.
+
+## Project Run (R1)
+
+In-app guided spine checklist: Ingest → Purpose → Validate → Scout → Prove → Narrate → Export.
+
+- Engine: `js/spine/project-run.js` (`window.DataGlowProjectRun`)
+- Canvas UI: `js/spine/data-glow-project-run-canvas.js` (`window.DataGlowProjectRunUI`)
+- Tests: `test/r1-project-run.test.mjs`
+- Flag: `projectRun`
+- Entry: Projects tab (`openProjects`) + floating reopen chip
