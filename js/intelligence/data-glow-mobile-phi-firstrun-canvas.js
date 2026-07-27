@@ -83,13 +83,15 @@
         'width:8px;height:8px;border-radius:50%;flex:0 0 auto;' +
         'background:var(--proof, #4AE38A);' +
       '}' +
+      /* A50.1: title/primary raised to the 16px floor (was 13px/12px);
+         body caption raised to the 14px caption floor (was 12px). */
       '#' + STRIP_ID + ' .dg-fr-text{flex:1 1 auto;min-width:0;}' +
-      '#' + STRIP_ID + ' .dg-fr-title{font-weight:800;font-size:13px;}' +
-      '#' + STRIP_ID + ' .dg-fr-body{color:var(--text-muted, #8A8F98);font-size:12px;margin-top:2px;}' +
+      '#' + STRIP_ID + ' .dg-fr-title{font-weight:800;font-size:16px;}' +
+      '#' + STRIP_ID + ' .dg-fr-body{color:var(--text-muted, #8A8F98);font-size:14px;margin-top:2px;}' +
       '#' + STRIP_ID + ' .dg-fr-primary{' +
         'min-height:44px;padding:0 14px;border-radius:10px;flex:0 0 auto;' +
         'background:var(--primary, #01696F);color:#fff;border:1px solid var(--primary, #01696F);' +
-        'font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;' +
+        'font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;' +
       '}' +
       '#' + STRIP_ID + ' .dg-fr-dismiss{' +
         'min-height:44px;min-width:44px;flex:0 0 auto;' +

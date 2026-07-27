@@ -208,28 +208,32 @@
   function styles() {
     if (document.getElementById(STYLE_ID)) return;
     var css = ''
+      /* A50.1: RECEIPT spine is a permanent bottom nav rail, so its base
+         text/step/button labels count as nav labels/buttons (raised to
+         the 16px floor, was 13px/12px); notes/details are captions
+         (raised to the 14px caption floor, was 12px). */
       + '#' + RAIL_ID + '{position:fixed;left:0;right:0;bottom:0;z-index:2147482900;display:none;'
       + 'background:var(--color-surface,#fff);border-top:1px solid var(--color-border,#ccc);'
-      + 'box-shadow:0 -4px 18px rgba(0,0,0,.10);padding:8px 14px;font-size:13px;line-height:1.45}'
+      + 'box-shadow:0 -4px 18px rgba(0,0,0,.10);padding:8px 14px;font-size:16px;line-height:1.45}'
       + '#' + RAIL_ID + ' .dg-sp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
       + '#' + RAIL_ID + ' .dg-sp-title{font-weight:600}'
       + '#' + RAIL_ID + ' .dg-sp-head{opacity:.8;flex:1 1 240px;min-width:0}'
       + '.dg-sp-steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
-      + '.dg-sp-step{font:inherit;font-size:12px;padding:5px 11px;border-radius:999px;cursor:pointer;'
+      + '.dg-sp-step{font:inherit;font-size:16px;padding:5px 11px;border-radius:999px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;text-align:left}'
       + '.dg-sp-step[data-state="current"]{font-weight:700;border-color:currentColor;border-width:2px}'
       + '.dg-sp-step[data-state="done"]{opacity:.62}'
       + '.dg-sp-step[data-state="skipped"]{border-style:dashed;font-weight:600}'
       + '.dg-sp-detail{margin-top:8px;padding:9px 11px;border:1px solid var(--color-border,#ddd);border-radius:8px}'
-      + '.dg-sp-detail b{display:block;font-size:12px;opacity:.7}'
-      + '.dg-sp-note{opacity:.75;font-size:12px;margin:5px 0 0}'
-      + '.dg-sp-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + '.dg-sp-detail b{display:block;font-size:14px;opacity:.7}'
+      + '.dg-sp-note{opacity:.75;font-size:14px;margin:5px 0 0}'
+      + '.dg-sp-btn{font:inherit;font-size:16px;padding:5px 10px;border-radius:7px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
       + '#' + CHIP_ID + '{position:fixed;bottom:18px;left:210px;z-index:2147482900;'
-      + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
+      + 'font:inherit;font-size:16px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
       + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}'
-      + '.dg-sp-ledger-btn{font:inherit;font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;'
+      + '.dg-sp-ledger-btn{font:inherit;font-size:16px;padding:5px 10px;border-radius:7px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
       + 'font-weight:600}';
     var tag = el('style', { id: STYLE_ID });
