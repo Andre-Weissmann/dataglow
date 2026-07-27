@@ -908,3 +908,13 @@ The scaffold never touches `canvas/index.html`. Inlining stays a deliberate act 
 
 In-app guided spine: Ingest → Purpose → Validate → Scout → Prove → Narrate → Export.
 Flag: `projectRun`. Engine: `window.DataGlowProjectRun`. UI: Projects tab + drawer.
+
+## Project Run (R1)
+
+In-app guided spine checklist: Ingest → Purpose → Validate → Scout → Prove → Narrate → Export.
+
+- Engine: `js/spine/project-run.js` (`window.DataGlowProjectRun`)
+- Canvas UI: `js/spine/data-glow-project-run-canvas.js` (`window.DataGlowProjectRunUI`)
+- Tests: `test/r1-project-run.test.mjs`
+- Flag: `projectRun`
+- Entry: Projects tab (`openProjects`) + floating reopen chip
