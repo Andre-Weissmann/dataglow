@@ -254,3 +254,16 @@ jobs:
       - run: npm ci
       - run: npm run test:higcrossplatform
       - run: npm run check:canvas-integrity
+
+  a49-question-scout:
+    name: A49 Question Scout (deterministic keeper filter, template fallback, existing local AI bridge wiring, Send to Prove prefill)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:a49questionscout
+      - run: npm run check:canvas-integrity
