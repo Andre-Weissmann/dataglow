@@ -415,6 +415,15 @@
       '#' + PANEL_ID + ' .dg-qs-join-row{font-size:12px;padding:3px 0}',
       '#' + PANEL_ID + ' .dg-qs-quality-meter{font-size:11.5px;color:var(--text-muted,#666);margin-bottom:6px;padding:4px 8px;border-radius:6px;background:var(--surface-2,#f4f4f5)}',
       '#' + PANEL_ID + ' .dg-qs-export-btn{width:100%;padding:8px;margin-bottom:14px;border-radius:6px;border:1px solid var(--primary,#2563eb);color:var(--primary,#2563eb);background:var(--surface,#fff);cursor:pointer;font-size:12px}',
+      /* A50 Jobs calm polish: cold-start status row. Calm (not alarming) --
+         a quiet dot + short sentence + one clear action, not a red banner
+         or a spinner that implies something is broken. 8pt-rhythm padding
+         (4px increments) consistent with the token ladder elsewhere. */
+      '#' + PANEL_ID + ' .dg-qs-model-status{display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:12px;border-radius:8px;background:var(--surface-2,#f4f4f5);color:var(--text-muted,#666);font-size:12px;line-height:1.4}',
+      '#' + PANEL_ID + ' .dg-qs-model-status-dot{width:8px;height:8px;border-radius:50%;background:var(--primary,#2563eb);flex-shrink:0;opacity:0.6}',
+      '#' + PANEL_ID + ' .dg-qs-model-status span{flex:1}',
+      '#' + PANEL_ID + ' .dg-qs-use-templates-btn{flex-shrink:0;padding:6px 10px;border-radius:6px;border:1px solid var(--primary,#2563eb);background:var(--primary,#2563eb);color:#fff;font-weight:600;font-size:11.5px;cursor:pointer;min-height:2.75rem}',
+      '@media (pointer: coarse){#' + PANEL_ID + ' .dg-qs-use-templates-btn{min-height:var(--dg-touch-min,2.75rem)}}',
       '#' + BTN_ID + '{cursor:pointer}',
     ].join('');
     document.head.appendChild(style);
@@ -543,6 +552,24 @@
     return '<button type="button" class="dg-qs-export-btn" id="dg-qs-export-keepers">Export keepers JSON</button>';
   }
 
+  /* A50 Jobs calm polish: cold-start status (SPEC "Scout cold-start").
+     propose()/proposeViaModel() already degrade to templates immediately
+     with no download and no blank hang -- this only makes that behavior
+     VISIBLE before the user clicks Propose, instead of only reporting it
+     after the fact in the post-propose toast. Calm progress copy, plus an
+     explicit "Use templates now" primary action so the panel never reads
+     as stuck waiting on a model. Self-silencing: renders nothing once the
+     model is warm or a proposal has already run. */
+  function renderModelStatus(proposing) {
+    if (proposing || _lastProposeMode) return '';
+    if (modelIsWarm()) return '';
+    return '<div class="dg-qs-model-status">' +
+      '<span class="dg-qs-model-status-dot" aria-hidden="true"></span>' +
+      '<span>On-device model is not loaded yet. You can start now with template questions, no waiting.</span>' +
+      '<button type="button" class="dg-qs-use-templates-btn" id="dg-qs-use-templates-btn">Use templates now</button>' +
+      '</div>';
+  }
+
   function renderBody(profileStripArg, proposing) {
     var body = document.getElementById(BODY_ID);
     if (!body) return;
@@ -555,6 +582,7 @@
     html += renderProfileStrip(strip);
     html += renderJoinHints();
     html += renderDictionaryBox();
+    html += renderModelStatus(proposing);
     html += '<button type="button" class="dg-qs-propose-btn" id="dg-qs-propose-btn"' + (proposing ? ' disabled' : '') + '>' +
       (proposing ? 'Proposing...' : 'Propose keepers from this data') + '</button>';
 
@@ -583,6 +611,13 @@
   function wireBodyEvents(body) {
     var proposeBtn = body.querySelector('#dg-qs-propose-btn');
     if (proposeBtn) proposeBtn.addEventListener('click', propose);
+
+    /* A50 Jobs calm polish: "Use templates now" is just Propose -- the
+       fallback path already runs deterministically when the model is
+       cold, this button only gives that path an explicit, calm entry
+       point instead of making the user guess why Propose looks idle. */
+    var useTemplatesBtn = body.querySelector('#dg-qs-use-templates-btn');
+    if (useTemplatesBtn) useTemplatesBtn.addEventListener('click', propose);
 
     body.querySelectorAll('.dg-qs-keep').forEach(function (btn) {
       btn.addEventListener('click', function () { keepCandidate(btn.getAttribute('data-id')); });
