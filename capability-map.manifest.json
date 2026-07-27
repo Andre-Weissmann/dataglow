@@ -7669,6 +7669,32 @@
         "questionScout"
       ],
       "status": "shipped"
+    },
+    {
+      "id": "project-run",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "App shell & workflow",
+      "name": "Project Run (R1): guided Ingest-Purpose-Validate-Scout-Prove-Narrate-Export checklist with local persistence",
+      "files": [
+        "js/spine/project-run.js",
+        "js/spine/data-glow-project-run-canvas.js",
+        "test/r1-project-run.test.mjs"
+      ],
+      "symbols": [
+        {
+          "file": "js/spine/project-run.js",
+          "name": "DataGlowProjectRun"
+        },
+        {
+          "file": "js/spine/data-glow-project-run-canvas.js",
+          "name": "DataGlowProjectRunUI"
+        }
+      ],
+      "flag": "projectRun",
+      "status": "shipped"
     }
   ]
 }

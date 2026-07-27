@@ -132,6 +132,7 @@
     "test:jobspolisha48": "node test/jobs-polish-a48.test.mjs",
     "test:higcrossplatform": "node test/a48-hig-cross-platform.test.mjs",
     "test:a49questionscout": "node test/a49-question-scout.test.mjs",
+    "test:r1projectrun": "node --test test/r1-project-run.test.mjs",
     "test:a492scoutv2": "node test/a49.2-scout-v2.test.mjs",
     "test:a50jobscalmpolish": "node test/a50-jobs-calm-polish.test.mjs",
     "test:drillfloor": "node test/drill-floor.test.mjs",
