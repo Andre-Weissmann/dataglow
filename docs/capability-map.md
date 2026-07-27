@@ -918,3 +918,15 @@ In-app guided spine checklist: Ingest → Purpose → Validate → Scout → Pro
 - Tests: `test/r1-project-run.test.mjs`
 - Flag: `projectRun`
 - Entry: Projects tab (`openProjects`) + floating reopen chip
+## R3 Capture + R4 Ship Pack
+
+Local, zero-upload step capture and honest ship-pack export for Project Run steps.
+
+- Engine (capture): `js/capture/capture.js`
+- Canvas UI (capture): `js/capture/data-glow-capture-canvas.js`
+- Engine (ship pack): `js/ship-pack/ship-pack.js`
+- Canvas UI (ship pack): `js/ship-pack/data-glow-ship-pack-canvas.js`
+- Tests: `test/r3-r4-capture-ship-pack.test.mjs`
+- Flag: `captureShipPack`
+- Surfaces: Capture step button, Export ship pack (`window.DataGlowShipPack.export()`)
+- Honesty: ship pack includes `honest_claims.md` and never overclaims pure-local / one-click findings
