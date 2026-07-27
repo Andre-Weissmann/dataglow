@@ -47,6 +47,19 @@
   var _browseHistory = []; // [{role:'user'|'assistant', text}]
   var _browseBusy = false;
 
+  /* ---- A49.2 SCOUT V2 state --------------------------------------------
+     dictionaryText: raw pasted/loaded column dictionary (JSON/CSV/text),
+       fed to engine.parseDictionary()/buildScoutPrompt(strip,{dictionary}).
+     idrPackOn: whether the healthcare-idr domain pack templates are mixed
+       into the candidate pool on the next Propose (off by default -- an
+       explicit opt-in per the SPEC's "starter pack" framing; the pack is
+       self-silencing on non-IDR data even when on).
+     joinHints: last computed multi-table join hints, shown in their own
+       strip above the candidate list when 2+ tables are loaded. */
+  var _dictionaryText = '';
+  var _idrPackOn = false;
+  var _joinHints = [];
+
   function engine() { return window.DataGlowQuestionScout || null; }
 
   /* Optional-provider flag read, same pattern as Proof Harness / Trust
@@ -144,7 +157,7 @@
     var bridge = localLlmBridge();
     if (!e || !bridge || !modelIsWarm()) return Promise.resolve(null);
     try {
-      var prompt = e.buildScoutPrompt(profileStrip);
+      var prompt = e.buildScoutPrompt(profileStrip, { dictionary: _dictionaryText });
       // loadModel() resolves immediately (no re-download) once modelIsWarm()
       // is true -- it returns the SAME cached engine promise ondevice-llm.js
       // already holds, per that module's `if (enginePromise) return
@@ -189,18 +202,31 @@
     var profileStrip = e.buildProfileStrip(tables);
     renderBody(profileStrip, true /* proposing */);
 
+    /* A49.2: multi-table join hints are always computed (deterministic,
+       cheap) so the join-hints strip can render even before/without a
+       Propose click producing join-template candidates. */
+    _joinHints = e.buildJoinHints ? e.buildJoinHints(profileStrip) : [];
+
     proposeViaModel(profileStrip).then(function (modelCandidates) {
       var templateCandidates = e.templateCandidatesFromProfile(profileStrip);
+      var joinCandidates = (e.joinCandidatesFromHints && _joinHints.length)
+        ? e.joinCandidatesFromHints(_joinHints, profileStrip) : [];
+      var idrCandidates = (_idrPackOn && e.idrPackCandidates) ? e.idrPackCandidates(profileStrip) : [];
       var usedModel = Array.isArray(modelCandidates) && modelCandidates.length > 0;
-      var pool = usedModel ? modelCandidates.concat(templateCandidates) : templateCandidates;
+      var pool = (usedModel ? modelCandidates.concat(templateCandidates) : templateCandidates)
+        .concat(joinCandidates).concat(idrCandidates);
       var ranked = e.rankCandidates(pool, profileStrip).slice(0, e.MAX_CANDIDATES);
       _candidates = ranked;
       _rejected = {};
       _lastProposeMode = usedModel ? 'model' : 'template';
       renderBody(profileStrip, false);
-      toast(usedModel
+      var extras = [];
+      if (joinCandidates.length) extras.push(joinCandidates.length + ' join-hint candidate(s)');
+      if (idrCandidates.length) extras.push(idrCandidates.length + ' healthcare-idr pack candidate(s)');
+      toast((usedModel
         ? 'Question Scout proposed candidates using the on-device model.'
-        : 'On-device model is cold/unavailable -- showing template candidates (no model).', 'info');
+        : 'On-device model is cold/unavailable -- showing template candidates (no model).')
+        + (extras.length ? ' Plus ' + extras.join(', ') + '.' : ''), 'info');
     });
   }
 
@@ -317,8 +343,13 @@
     var grounding = e.buildBrowseGrounding(strip);
 
     var respond = function (rawAnswer) {
-      var answer = e.annotateUnverifiedNumbers(rawAnswer || 'I do not have enough profile information to answer that yet.');
-      _browseHistory.push({ role: 'assistant', text: answer });
+      var base = rawAnswer || 'I do not have enough profile information to answer that yet.';
+      /* A49.2: tagAnswerForBrowse() is the hardened v2 path (structured
+         UNVERIFIED tag for a visible badge); fall back to v1's
+         annotateUnverifiedNumbers() if an older engine build lacks it, so
+         Browse mode never breaks against a mismatched engine version. */
+      var tagged = e.tagAnswerForBrowse ? e.tagAnswerForBrowse(base) : { displayText: e.annotateUnverifiedNumbers(base), isUnverified: /\d/.test(base), tag: null };
+      _browseHistory.push({ role: 'assistant', text: tagged.displayText, unverified: tagged.isUnverified });
       _browseBusy = false;
       renderBody(null, false);
     };
@@ -377,6 +408,13 @@
       '#' + PANEL_ID + ' .dg-qs-browse-input{display:flex;gap:6px;margin-top:8px}',
       '#' + PANEL_ID + ' .dg-qs-browse-input input{flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#ddd)}',
       '#' + PANEL_ID + ' .dg-qs-note{color:var(--text-muted,#666);font-size:11px;margin-top:4px}',
+      '#' + PANEL_ID + ' .dg-qs-dict{border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:12px}',
+      '#' + PANEL_ID + ' .dg-qs-dict textarea{width:100%;box-sizing:border-box;font-size:12px;margin:6px 0;border-radius:6px;border:1px solid var(--border,#ddd);padding:6px}',
+      '#' + PANEL_ID + ' .dg-qs-idr-toggle{display:flex;align-items:flex-start;gap:6px;font-size:11.5px;color:var(--text-muted,#666)}',
+      '#' + PANEL_ID + ' .dg-qs-join-hints{border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:12px}',
+      '#' + PANEL_ID + ' .dg-qs-join-row{font-size:12px;padding:3px 0}',
+      '#' + PANEL_ID + ' .dg-qs-quality-meter{font-size:11.5px;color:var(--text-muted,#666);margin-bottom:6px;padding:4px 8px;border-radius:6px;background:var(--surface-2,#f4f4f5)}',
+      '#' + PANEL_ID + ' .dg-qs-export-btn{width:100%;padding:8px;margin-bottom:14px;border-radius:6px;border:1px solid var(--primary,#2563eb);color:var(--primary,#2563eb);background:var(--surface,#fff);cursor:pointer;font-size:12px}',
       '#' + BTN_ID + '{cursor:pointer}',
     ].join('');
     document.head.appendChild(style);
@@ -443,7 +481,11 @@
 
   function renderBrowse() {
     var msgs = _browseHistory.map(function (m) {
-      return '<div class="dg-qs-browse-msg ' + m.role + '">' + (m.role === 'user' ? 'You: ' : 'Scout: ') + esc(m.text) + '</div>';
+      /* A49.2: any assistant message flagged unverified gets a visible
+         UNVERIFIED badge in addition to the inline parenthetical note
+         already baked into m.text by respond() above. */
+      var badge = (m.role === 'assistant' && m.unverified) ? '<span class="dg-qs-mode-tag">UNVERIFIED</span> ' : '';
+      return '<div class="dg-qs-browse-msg ' + m.role + '">' + badge + (m.role === 'user' ? 'You: ' : 'Scout: ') + esc(m.text) + '</div>';
     }).join('');
     return '<div class="dg-qs-browse">' +
       '<h4 style="margin:0 0 6px;font-size:12.5px">Browse mode (grounded on profile only)</h4>' +
@@ -453,6 +495,52 @@
       '<input type="text" id="dg-qs-browse-input" placeholder="Ask about this data (profile-grounded)">' +
       '<button type="button" id="dg-qs-browse-send">Ask</button>' +
       '</div></div>';
+  }
+
+  /* ---------------------------- A49.2 v2 render blocks --------------------- */
+
+  /* Dictionary-aware prompts (SPEC #1): a textarea the user can paste a
+     column dictionary (JSON/CSV/text) into; fed to buildScoutPrompt() on the
+     next Propose. Purely additive -- an empty box is a no-op, byte-identical
+     to v1 behavior. */
+  function renderDictionaryBox() {
+    return '<div class="dg-qs-dict">' +
+      '<h4 style="margin:0 0 4px;font-size:12.5px">Column dictionary (optional)</h4>' +
+      '<div class="dg-qs-note">Paste a JSON/CSV/text data dictionary to ground proposals in real field definitions.</div>' +
+      '<textarea id="dg-qs-dictionary-input" rows="2" placeholder="e.g. claim_id - Unique claim identifier">' + esc(_dictionaryText) + '</textarea>' +
+      '<label class="dg-qs-idr-toggle"><input type="checkbox" id="dg-qs-idr-toggle"' + (_idrPackOn ? ' checked' : '') + '> Include healthcare-idr starter pack (only emits questions when columns match)</label>' +
+      '</div>';
+  }
+
+  /* Join hints (SPEC #2): shown only when 2+ tables are loaded and at least
+     one join-key candidate was found by name similarity. */
+  function renderJoinHints() {
+    if (!_joinHints || _joinHints.length === 0) return '';
+    var rows = _joinHints.map(function (h) {
+      return '<div class="dg-qs-join-row">' + esc(h.tableA) + '.' + esc(h.columnA) + ' \u2194 ' + esc(h.tableB) + '.' + esc(h.columnB) +
+        ' <span class="dg-qs-mode-tag' + (h.confidence === 'high' ? ' model' : '') + '">' + esc(h.confidence) + '</span></div>';
+    }).join('');
+    return '<div class="dg-qs-join-hints"><h4 style="margin:0 0 4px;font-size:12.5px">Join hints (multi-table)</h4>' + rows + '</div>';
+  }
+
+  /* Keeper quality meter (SPEC #6): how many of the current keepers pass the
+     full four-part filter (business owner + answerable + checkable + not
+     vanity). Rendered above the keepers tray so it reads as "here is your
+     tray, here is how strong it actually is". */
+  function renderQualityMeter() {
+    var e = engine();
+    if (!e || !e.keeperQualityMeter || _keepers.length === 0) return '';
+    var strip = e.buildProfileStrip(discoverTables());
+    var meter = e.keeperQualityMeter(_keepers, strip);
+    return '<div class="dg-qs-quality-meter" data-passing="' + meter.passing + '" data-total="' + meter.total + '">' + esc(meter.label) + '</div>';
+  }
+
+  /* Export keepers JSON (SPEC #7): a button that downloads the portable
+     keepers list (with quality-meter context) as a .json file for a
+     portfolio method section. Never runs anything, only serializes. */
+  function renderExportButton() {
+    if (_keepers.length === 0) return '';
+    return '<button type="button" class="dg-qs-export-btn" id="dg-qs-export-keepers">Export keepers JSON</button>';
   }
 
   function renderBody(profileStripArg, proposing) {
@@ -465,6 +553,8 @@
     var html = '';
     html += '<div class="dg-qs-banner">' + esc(banner) + '</div>';
     html += renderProfileStrip(strip);
+    html += renderJoinHints();
+    html += renderDictionaryBox();
     html += '<button type="button" class="dg-qs-propose-btn" id="dg-qs-propose-btn"' + (proposing ? ' disabled' : '') + '>' +
       (proposing ? 'Proposing...' : 'Propose keepers from this data') + '</button>';
 
@@ -473,7 +563,9 @@
         (_lastProposeMode === 'model' ? 'on-device model' : 'deterministic templates (no model)') + '</div>';
     }
 
+    html += renderQualityMeter();
     html += renderKeepersTray();
+    html += renderExportButton();
 
     var visible = _candidates.filter(function (c) { return !_rejected[c.id]; });
     if (visible.length === 0 && !proposing) {
@@ -532,6 +624,49 @@
       browseInput.addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') submit();
       });
+    }
+
+    /* A49.2 v2 controls. None of these re-render immediately on every
+       keystroke (dictionary textarea) -- state is only read at Propose time,
+       so typing does not fight the panel's re-render cycle. The IDR toggle
+       and export button DO act right away since they are discrete clicks. */
+    var dictInput = body.querySelector('#dg-qs-dictionary-input');
+    if (dictInput) {
+      dictInput.addEventListener('change', function () { _dictionaryText = dictInput.value; });
+      dictInput.addEventListener('blur', function () { _dictionaryText = dictInput.value; });
+    }
+    var idrToggle = body.querySelector('#dg-qs-idr-toggle');
+    if (idrToggle) {
+      idrToggle.addEventListener('change', function () { _idrPackOn = !!idrToggle.checked; });
+    }
+    var exportBtn = body.querySelector('#dg-qs-export-keepers');
+    if (exportBtn) exportBtn.addEventListener('click', exportKeepersDownload);
+  }
+
+  /* Export keepers JSON (SPEC #7): serializes the current keepers tray via
+     engine.exportKeepersJson() and triggers a browser download. Uses a
+     Blob + temporary <a download> element, the standard client-side-only
+     download pattern already used elsewhere in DataGlow (no server round
+     trip, consistent with the app's local-first posture). */
+  function exportKeepersDownload() {
+    var e = engine();
+    if (!e || !e.exportKeepersJson) { toast('Export unavailable: engine missing exportKeepersJson.', 'error'); return; }
+    if (!_keepers.length) { toast('No keepers to export yet.', 'info'); return; }
+    try {
+      var strip = e.buildProfileStrip(discoverTables());
+      var json = e.exportKeepersJson(_keepers, strip);
+      var blob = new Blob([json], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'dataglow-question-scout-keepers.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+      toast('Exported ' + _keepers.length + ' keeper(s) to JSON.', 'info');
+    } catch (err) {
+      toast('Export failed: ' + (err && err.message ? err.message : String(err)), 'error');
     }
   }
 

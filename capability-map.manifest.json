@@ -7571,11 +7571,12 @@
         "desktop"
       ],
       "area": "Questions, framing & narrative",
-      "name": "Question Scout (A49): local keeper proposals, deterministic filter + template fallback, Send to Prove",
+      "name": "Question Scout (A49/A49.2): local keeper proposals, deterministic filter + template fallback, Send to Prove, v2 dictionary/join-hints/healthcare-idr pack/quality meter/export",
       "files": [
         "js/question-scout/question-scout.js",
         "js/question-scout/data-glow-question-scout-canvas.js",
-        "test/a49-question-scout.test.mjs"
+        "test/a49-question-scout.test.mjs",
+        "test/a49.2-scout-v2.test.mjs"
       ],
       "symbols": [
         {
@@ -7625,9 +7626,45 @@
         {
           "file": "js/question-scout/question-scout.js",
           "name": "DataGlowQuestionScout"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "buildJoinHints"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "joinCandidatesFromHints"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "idrPackCandidates"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "parseDictionary"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "tagAnswerForBrowse"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "keeperPassesFullFilter"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "keeperQualityMeter"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "buildKeepersExport"
+        },
+        {
+          "file": "js/question-scout/question-scout.js",
+          "name": "exportKeepersJson"
         }
       ],
-      "notes": "Implements A49_QUESTION_SCOUT_SPEC.md's doctrine (AI proposes, human chooses, engines prove, human confirms). js/question-scout/question-scout.js is the pure engine (window.DataGlowQuestionScout, no DOM/network/model call): buildProfileStrip() builds a deterministic schema+sample-stats profile (never raw rows); scoreCandidate()/rankCandidates() apply the SPEC's four-hit deterministic keeper filter (business actor/ops language, real column/table reference, a checkable metric type count/rate/share/delta/sum/avg, SELECT-only SQL), penalizing viz vanity and columns absent from the profile; templateCandidatesFromProfile() is the five-template model-free fallback (grain check, null rate on the highest-null column, top-N frequency on the top categorical column, min/max/avg on the first numeric column, distinct count on an id-like column), every candidate labeled 'template (no model)'; buildScoutPrompt()/parseModelCandidates() do prompt construction and tolerant JSON parsing for the on-device model path (pure string logic only, never calls a model itself); buildProvePrefill() maps a kept candidate to the Proof Harness's claimText/statement fields without executing anything; buildBrowseGrounding()/annotateUnverifiedNumbers() keep Browse-mode chat profile-only, flagging any numeric assertion 'unverified - run Prove'; addKeeper()/removeKeeper() enforce the max-5 keepers tray. js/question-scout/data-glow-question-scout-canvas.js is the canvas UI: a slide-in panel with the honest cheating-boundary banner, the profile strip, a Propose button that tries the already-inlined local AI bridge (window.OnDeviceLLM from js/narrative/ondevice-llm.js, reusing loadModel()/isModelLoaded(), no second model path, no forced download) and falls back to deterministic templates immediately when the model is cold/absent/unavailable, a ranked candidate list with Keep/Edit/Reject, the keepers tray, a Send to Prove action per keeper that prefills the Proof Harness's #dg-ph-claim/#dg-ph-statement fields (or dispatches a dataglow:proof-harness-prefill CustomEvent as a fallback) without ever running SQL itself, and a profile-grounded Browse mode chat. Never auto-mutates data; Keep/Edit/Reject only change in-memory panel state. Behind the questionScout flag (default on); with the flag off, the button/panel are never mounted in canvas/index.html, though the pure engine may still be evaluated and unit-tested since it makes no DOM change itself -- no other engine, flag, or panel is touched. Tests: npm run test:a49questionscout (test/a49-question-scout.test.mjs, 89 assertions) wired into CI as the a49-question-scout job in .github/workflows/job-ci-batch-03.yml.",
+      "notes": "Implements A49_QUESTION_SCOUT_SPEC.md's doctrine (AI proposes, human chooses, engines prove, human confirms). js/question-scout/question-scout.js is the pure engine (window.DataGlowQuestionScout, no DOM/network/model call): buildProfileStrip() builds a deterministic schema+sample-stats profile (never raw rows); scoreCandidate()/rankCandidates() apply the SPEC's four-hit deterministic keeper filter (business actor/ops language, real column/table reference, a checkable metric type count/rate/share/delta/sum/avg, SELECT-only SQL), penalizing viz vanity and columns absent from the profile; templateCandidatesFromProfile() is the five-template model-free fallback (grain check, null rate on the highest-null column, top-N frequency on the top categorical column, min/max/avg on the first numeric column, distinct count on an id-like column), every candidate labeled 'template (no model)'; buildScoutPrompt()/parseModelCandidates() do prompt construction and tolerant JSON parsing for the on-device model path (pure string logic only, never calls a model itself); buildProvePrefill() maps a kept candidate to the Proof Harness's claimText/statement fields without executing anything; buildBrowseGrounding()/annotateUnverifiedNumbers() keep Browse-mode chat profile-only, flagging any numeric assertion 'unverified - run Prove'; addKeeper()/removeKeeper() enforce the max-5 keepers tray. js/question-scout/data-glow-question-scout-canvas.js is the canvas UI: a slide-in panel with the honest cheating-boundary banner, the profile strip, a Propose button that tries the already-inlined local AI bridge (window.OnDeviceLLM from js/narrative/ondevice-llm.js, reusing loadModel()/isModelLoaded(), no second model path, no forced download) and falls back to deterministic templates immediately when the model is cold/absent/unavailable, a ranked candidate list with Keep/Edit/Reject, the keepers tray, a Send to Prove action per keeper that prefills the Proof Harness's #dg-ph-claim/#dg-ph-statement fields (or dispatches a dataglow:proof-harness-prefill CustomEvent as a fallback) without ever running SQL itself, and a profile-grounded Browse mode chat. Never auto-mutates data; Keep/Edit/Reject only change in-memory panel state. Behind the questionScout flag (default on); with the flag off, the button/panel are never mounted in canvas/index.html, though the pure engine may still be evaluated and unit-tested since it makes no DOM change itself -- no other engine, flag, or panel is touched. Tests: npm run test:a49questionscout (test/a49-question-scout.test.mjs, 89 assertions) wired into CI as the a49-question-scout job in .github/workflows/job-ci-batch-03.yml. A49.2 (v2, additive, same flag) extends the same engine/canvas files: buildJoinHints()/joinCandidatesFromHints() propose join keys across 2+ profiled tables by column-name similarity (id/*_id/code stems) and turn high-confidence hints into join-shaped candidate questions, emitting nothing on a single-table profile; scoreCandidate() gained a hardened anti-vanity pass (wider chart-only/vague-interest detection, a boosted checkable-language hit) so vanity candidates score strictly below checkable ones; idrPackCandidates() is the healthcare-idr domain pack, a fixed set of dispute-volume/closure-mix/specialty-concentration/win-rate/QoQ-delta templates that only fire when a table's columns fuzzy-match IDR shape and silently emit zero candidates otherwise; parseDictionary()/buildScoutPrompt(strip, {dictionary}) let a pasted or loaded column dictionary (JSON/CSV/text) ground the on-device prompt in real field definitions; tagAnswerForBrowse() hardens Browse mode so any numeric assertion carries a structured UNVERIFIED tag/badge, not just an inline note; keeperPassesFullFilter()/keeperQualityMeter() report how many of the current keepers pass the full four-part filter (business owner + answerable + checkable + not vanity), rendered above the keepers tray; buildKeepersExport()/exportKeepersJson() serialize the keepers tray plus the quality meter to a portable JSON file for a portfolio method section, downloaded client-side via a Blob (no server round trip). All v2 additions are opt-in or self-silencing on non-matching data, so v1 behavior with an empty dictionary/no second table/IDR pack off is unchanged. Tests: npm run test:a49questionscout (v1, unchanged, 89 assertions) plus npm run test:a492scoutv2 (test/a49.2-scout-v2.test.mjs, 91 assertions covering the v2 SPEC's 6 acceptance criteria), both wired into CI in .github/workflows/job-ci-batch-03.yml.",
       "relatedFlags": [
         "questionScout"
       ],
