@@ -1093,7 +1093,7 @@
       '#' + PANEL_ID + ' .dg-ph-receipt dt{color:var(--text-muted,#9AA1AE);display:inline}',
       '#' + PANEL_ID + ' .dg-ph-receipt dd{display:inline;margin:0 0 0 6px}',
       '#' + PANEL_ID + ' .dg-ph-receipt .dg-ph-kv{display:block}',
-      '#' + PANEL_ID + ' .dg-ph-hash{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;',
+      '#' + PANEL_ID + ' .dg-ph-hash{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--dg-text-xs);',
       'word-break:break-all;color:var(--text-faint,var(--text-muted,#9AA1AE))}',
       '#' + PANEL_ID + ' .dg-ph-note{font-size:11px;line-height:1.5;color:var(--text-faint,var(--text-muted,#9AA1AE));',
       'padding:12px 2px 4px}',

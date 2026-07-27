@@ -208,7 +208,7 @@
       '#' + PANEL_ID + ' .dg-ex-headline{font-size:14px;line-height:1.6;margin:0 0 4px;font-weight:700;',
       'color:var(--text,#E8EAED)}',
       '#' + PANEL_ID + ' .dg-ex-conf{display:inline-block;margin:0 0 12px;padding:2px 9px;border-radius:999px;',
-      'font-size:10.5px;font-weight:700;border:1px solid var(--border,#282D38);color:var(--text-muted,#9AA1AE)}',
+      'font-size:var(--dg-text-xs);font-weight:700;border:1px solid var(--border,#282D38);color:var(--text-muted,#9AA1AE)}',
       '#' + PANEL_ID + ' .dg-ex-sec{padding:11px 0;border-bottom:1px solid var(--border,#282D38)}',
       '#' + PANEL_ID + ' .dg-ex-sec:last-of-type{border-bottom:none}',
       '#' + PANEL_ID + ' .dg-ex-label{font-size:11px;letter-spacing:.04em;text-transform:uppercase;',

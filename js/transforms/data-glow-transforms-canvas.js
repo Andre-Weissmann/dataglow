@@ -826,11 +826,11 @@
     var bars = counted.counts.map(function (n, i) {
       var pct = Math.round((n / most) * 100);
       return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
-        + '<div style="flex:0 0 96px;font-size:10px;color:var(--text-muted,#8A8F98);'
+        + '<div style="flex:0 0 96px;font-size:var(--dg-text-xs);color:var(--text-muted,#8A8F98);'
         + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(counted.labels[i]) + '</div>'
         + '<div style="flex:1;height:12px;background:var(--surface,#141518);border-radius:3px;overflow:hidden">'
         + '<div style="height:100%;width:' + pct + '%;background:var(--primary,#20C5B5);opacity:.75"></div></div>'
-        + '<div style="flex:0 0 40px;text-align:right;font-size:10px;color:var(--text-secondary,#B4B8C0)">'
+        + '<div style="flex:0 0 40px;text-align:right;font-size:var(--dg-text-xs);color:var(--text-secondary,#B4B8C0)">'
         + n + '</div></div>';
     }).join('');
     var warn = (counted.warnings || []).map(warnLine).join('');
