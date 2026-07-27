@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6479502,
+  "canvasBytes": 6488843,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -26,9 +26,9 @@
     {
       "source": "js/intelligence/data-glow-mobile-phi-firstrun-canvas.js",
       "note": "Mobile PHI chip + first-run calm strip, the other half of the pack 0 surface. Inlined verbatim.",
-      "sourceSha256": "034ae37ec8bba698d8af56669824b81e04942e10958835876cbf4622f6428828",
-      "canvasSectionSha256": "576ebc7b3aea202eaa2e42559d196d1d49f4447a02dd8b00be0c248ee3b73219",
-      "canvasSectionBytes": 9305
+      "sourceSha256": "62f1a273547df0f2b315cfcf65b331ca1e6514566c0a9b54ecc0a80e9b8912ab",
+      "canvasSectionSha256": "6bd8d48b9f6f053a0ce1d14951fda8cdc2d0128033132883522c2e72c5bd631f",
+      "canvasSectionBytes": 9447
     },
     {
       "source": "js/privacy/air-gap-mode.js",
@@ -397,9 +397,9 @@
     {
       "source": "js/spine/data-glow-receipt-spine-canvas.js",
       "note": "The start-here rail. Already an IIFE, inlined verbatim, publishing window.DataGlowReceiptSpineUI.",
-      "sourceSha256": "69474fc7f54223dd9fa0066872c20e0b7874690da48bed1af2fdf83c9b3acb49",
-      "canvasSectionSha256": "bef5a2bf6bf0d3b7dba81324d2801adc1002e2bb5b1f2d1aa3d931ca1948e30e",
-      "canvasSectionBytes": 16966
+      "sourceSha256": "29d9b809f28bfe979624d9c5adfa55d3d77225d9524d9d7528900258264dc495",
+      "canvasSectionSha256": "dd7c8f6e6815b13aa6e66b4a198a7e6af0e2d550590a92dee036f816223255e4",
+      "canvasSectionBytes": 17238
     },
     {
       "source": "js/polyglot/data-glow-power-packs-canvas.js",
