@@ -244,3 +244,23 @@ jobs:
       # SHA-256, runs them as a plain browser script, parses and writes real
       # workbooks, and blocks all network access while it does so.
       - run: npm run test:excel
+
+  sql-importmap-absolute-paths:
+    name: SQL import map paths resolve to real self-hosted files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Fix 1. canvas/index.html declared its DuckDB-WASM import map with
+      # relative targets ("./assets/duckdb/..."). The canvas is served from
+      # /canvas/index.html, so every entry resolved to /canvas/assets/duckdb/,
+      # a directory that does not exist. All three self-host imports 404'd, the
+      # loader fell through to the CDN candidates, and the SQL engine had never
+      # started in a browser. This suite resolves each target the way a browser
+      # does and asserts the resulting file is really in the repo, so a literal
+      # string can no longer be green while the browser path is dead.
+      - run: npm run test:sqlimportmap
