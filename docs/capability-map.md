@@ -424,6 +424,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 
 | Capability | File(s) | Status | Priority | Purpose |
 |---|---|---|---|---|
+| Row-shape helper | `js/shared/row-shape.js` | LIVE | CORE | The one place a dataset cell is resolved by column name, and the one RFC 4180 CSV serialiser. DataGlow rows are positional arrays; anything that needs a value by name goes through here. |
 | Export engine | `js/export/export-engine.js` | LIVE | HIGH | Unified export orchestrator. |
 | Export delivery | `js/export/export-delivery.js` | LIVE | HIGH | Browser download, Tauri native save-as, future: cloud push. |
 | Export report | `js/export/export-report.js` | LIVE | HIGH | Formatted PDF/Excel report export with proof chain attached. |

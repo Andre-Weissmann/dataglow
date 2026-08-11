@@ -193,3 +193,20 @@ jobs:
       # covered separately by test:bundle14canvas in job-e2e-smoke.yml, since
       # that needs a real browser.
       - run: npm run test:bundle14ledger
+
+  row-shape-correctness:
+    name: Row-shape correctness (DuckDB CSV, CSV/PDF export, join key resolution)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Bundle A. DataGlow rows are positional arrays; three call sites indexed
+      # them by column name, so DuckDB loaded NULL tables, CSV/PDF exports came
+      # out empty behind an [object Object] header, and every join produced a
+      # cartesian product. This suite runs the shipped canvas functions verbatim
+      # and puts the serialised CSV through a REAL DuckDB GROUP BY, not SELECT 1.
+      - run: npm run test:rowshape

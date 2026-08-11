@@ -10,6 +10,8 @@
  *   JoinBuilder.suggestKey(colsA, colsB) → { keyA, keyB, confidence }
  */
 
+import { resolveColumnIndex, getCell } from '../shared/row-shape.js';
+
 export var JoinBuilder = (function () {
   'use strict';
 
@@ -53,8 +55,8 @@ export var JoinBuilder = (function () {
       var bestScore = 0, bestA = namesA[0], bestB = namesB[0];
       namesA.forEach(function (na) {
         namesB.forEach(function (nb) {
-          var valsA = new Set(sampleA.map(function (r) { return String(r[na] || ''); }));
-          var valsB = new Set(sampleB.map(function (r) { return String(r[nb] || ''); }));
+          var valsA = new Set(sampleA.map(function (r) { return String(getCell(r, colsA, na) || ''); }));
+          var valsB = new Set(sampleB.map(function (r) { return String(getCell(r, colsB, nb) || ''); }));
           var overlap = 0;
           valsA.forEach(function (v) { if (valsB.has(v)) overlap++; });
           var score = overlap / Math.max(valsA.size, valsB.size, 1);
@@ -71,14 +73,29 @@ export var JoinBuilder = (function () {
   }
 
   // ── Join execution ─────────────────────────────────────────────────────────
+  /*
+   * Row-shape fix: every key read here was row[columnName] on a POSITIONAL
+   * ARRAY row, so keyA and keyB both resolved to '' for every row. One bucket
+   * held all of B and matched all of A, so every join produced a cartesian
+   * product with empty cells. Keys and values now resolve by index through the
+   * shared row-shape helper, and result rows are emitted as positional arrays,
+   * the shape the rest of DataGlow expects.
+   */
   function executeJoin(dsA, dsB, keyA, keyB, joinType) {
-    var rowsA = dsA.rows;
-    var rowsB = dsB.rows;
+    var rowsA = dsA.rows || [];
+    var rowsB = dsB.rows || [];
+
+    var keyAIdx = resolveColumnIndex(dsA.columns, keyA);
+
+    function keyOf(row, columns, name) {
+      var v = getCell(row, columns, name);
+      return String(v == null ? '' : v);
+    }
 
     // Build lookup from B
     var indexB = {};
     rowsB.forEach(function (row) {
-      var k = String(row[keyB] == null ? '' : row[keyB]);
+      var k = keyOf(row, dsB.columns, keyB);
       if (!indexB[k]) indexB[k] = [];
       indexB[k].push(row);
     });
@@ -94,40 +111,53 @@ export var JoinBuilder = (function () {
       return colsA.indexOf(n) !== -1 ? n + '_' + dsB.name.replace(/\.[^.]+$/, '').slice(0, 6) : n;
     });
 
+    // Source indexes resolved once, not per row.
+    var idxA = colsA.map(function (n) { return resolveColumnIndex(dsA.columns, n); });
+    var idxB = colsB.map(function (n) { return resolveColumnIndex(dsB.columns, n); });
+
+    function leftCells(rowA) {
+      return idxA.map(function (i, n) {
+        return Array.isArray(rowA) ? rowA[i] : getCell(rowA, dsA.columns, colsA[n]);
+      });
+    }
+    function rightCells(rowB) {
+      return idxB.map(function (i, n) {
+        return Array.isArray(rowB) ? rowB[i] : getCell(rowB, dsB.columns, colsB[n]);
+      });
+    }
+    function nulls(len) {
+      var out = [];
+      for (var i = 0; i < len; i++) out.push(null);
+      return out;
+    }
+
     var resultRows = [];
     var matchedBKeys = new Set();
 
     // Left side iteration
     rowsA.forEach(function (rowA) {
-      var k = String(rowA[keyA] == null ? '' : rowA[keyA]);
+      var k = keyOf(rowA, dsA.columns, keyA);
       var bMatches = indexB[k] || [];
 
       if (bMatches.length) {
         matchedBKeys.add(k);
-        bMatches.forEach(function (rowB, bi) {
-          var merged = {};
-          colsA.forEach(function (c) { merged[c] = rowA[c]; });
-          colsB.forEach(function (c, i) { merged[finalColsB[i]] = rowB[c]; });
-          resultRows.push(merged);
+        bMatches.forEach(function (rowB) {
+          resultRows.push(leftCells(rowA).concat(rightCells(rowB)));
         });
       } else if (joinType === 'left' || joinType === 'full') {
         // Unmatched left row
-        var merged = {};
-        colsA.forEach(function (c) { merged[c] = rowA[c]; });
-        finalColsB.forEach(function (c) { merged[c] = null; });
-        resultRows.push(merged);
+        resultRows.push(leftCells(rowA).concat(nulls(finalColsB.length)));
       }
     });
 
     // Right side unmatched (for RIGHT and FULL)
     if (joinType === 'right' || joinType === 'full') {
       rowsB.forEach(function (rowB) {
-        var k = String(rowB[keyB] == null ? '' : rowB[keyB]);
+        var k = keyOf(rowB, dsB.columns, keyB);
         if (!matchedBKeys.has(k)) {
-          var merged = {};
-          colsA.forEach(function (c) { merged[c] = null; });
-          colsB.forEach(function (c, i) { merged[finalColsB[i]] = rowB[c]; });
-          merged[keyA] = rowB[keyB]; // copy key from B side
+          var merged = nulls(colsA.length).concat(rightCells(rowB));
+          // Carry the key value across from the B side.
+          if (keyAIdx >= 0) merged[keyAIdx] = getCell(rowB, dsB.columns, keyB);
           resultRows.push(merged);
         }
       });

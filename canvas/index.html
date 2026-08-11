@@ -12354,6 +12354,105 @@ body {
      logic here without porting the change back to js/.
      ============================================================ */
 
+  /* ---- from js/shared/row-shape.js ---- */
+  /*
+   * DataGlow dataset rows are POSITIONAL ARRAYS; columns are { name, type }.
+   * The correct access is row[columnIndex], never row[columnName]. Three call
+   * sites (the DuckDB CSV serialiser in SQLEngine.registerDataset, the CSV and
+   * PDF exporters in ExportEngine, and JoinBuilder.executeJoin) indexed rows by
+   * NAME, which on an array row is always undefined: empty cells, an
+   * [object Object] CSV header, and joins whose every key collapsed to '' so
+   * every join became a cartesian product. This is the ONE implementation of
+   * "value of column X in this row" those sites now share. It tolerates object
+   * rows too, because a few legacy paths still pass that shape.
+   */
+  var DGRowShape = (function () {
+    'use strict';
+
+    function resolveColumnIndex(columns, name) {
+      if (!columns || typeof columns.length !== 'number') return -1;
+      for (var i = 0; i < columns.length; i++) {
+        var c = columns[i];
+        var cn = c && typeof c === 'object' ? c.name : c;
+        if (cn === name) return i;
+      }
+      return -1;
+    }
+
+    function columnNames(columns) {
+      if (!columns || typeof columns.length !== 'number') return [];
+      var out = [];
+      for (var i = 0; i < columns.length; i++) {
+        var c = columns[i];
+        out.push(c && typeof c === 'object' ? c.name : c);
+      }
+      return out;
+    }
+
+    function getCell(row, columns, name) {
+      if (row == null) return undefined;
+      if (Array.isArray(row)) {
+        var idx = resolveColumnIndex(columns, name);
+        return idx >= 0 ? row[idx] : undefined;
+      }
+      if (typeof row === 'object') {
+        if (Object.prototype.hasOwnProperty.call(row, name)) return row[name];
+        var i2 = resolveColumnIndex(columns, name);
+        return i2 >= 0 ? row[i2] : undefined;
+      }
+      return undefined;
+    }
+
+    function rowToArray(row, columns) {
+      if (Array.isArray(row)) return row;
+      var names = columnNames(columns);
+      var out = [];
+      for (var i = 0; i < names.length; i++) out.push(getCell(row, columns, names[i]));
+      return out;
+    }
+
+    /*
+     * RFC 4180 field escaping. The previous serialisers used JSON.stringify,
+     * which escapes an embedded quote as a backslash-quote and is therefore not
+     * valid CSV: DuckDB and Excel both read that back wrong.
+     */
+    function escapeCsvValue(v) {
+      if (v === null || v === undefined) return '';
+      var s = String(v);
+      if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function datasetToCsv(dataset) {
+      if (!dataset || !dataset.columns) return '';
+      var names = columnNames(dataset.columns);
+      var lines = [names.map(escapeCsvValue).join(',')];
+      var rows = dataset.rows || [];
+      for (var r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        var cells = [];
+        for (var c = 0; c < names.length; c++) {
+          cells.push(escapeCsvValue(getCell(row, dataset.columns, names[c])));
+        }
+        lines.push(cells.join(','));
+      }
+      return lines.join('\n');
+    }
+
+    return {
+      resolveColumnIndex: resolveColumnIndex,
+      columnNames: columnNames,
+      getCell: getCell,
+      rowToArray: rowToArray,
+      escapeCsvValue: escapeCsvValue,
+      datasetToCsv: datasetToCsv
+    };
+  })();
+  if (typeof window !== 'undefined') window.DGRowShape = DGRowShape;
+  /* ---- end row-shape.js ---- */
+
   /* ---- from js/drop-zone/drop-zone-router.js ---- */
   var DropZoneRouter = (function () {
     var FORMAT_HANDLERS = {
@@ -15290,12 +15389,18 @@ var CardinalityDetector = window.CardinalityDetector = {
     var uniqueB = new Set();
     var freqB   = {};   // key → count of occurrences in B
 
+    /*
+     * Row-shape fix: these two reads were r[columnName] on POSITIONAL ARRAY
+     * rows, so every key came back undefined, both unique sets stayed empty and
+     * the cardinality warning shown above the join preview was meaningless.
+     * Same root cause as JoinBuilder.executeJoin, same shared helper.
+     */
     rowsA.forEach(function(r) {
-      var v = r[keyA];
+      var v = DGRowShape.getCell(r, dsA.columns, keyA);
       if (v !== null && v !== undefined) uniqueA.add(String(v));
     });
     rowsB.forEach(function(r) {
-      var v = r[keyB];
+      var v = DGRowShape.getCell(r, dsB.columns, keyB);
       if (v !== null && v !== undefined) {
         var k = String(v);
         uniqueB.add(k);
@@ -17619,23 +17724,19 @@ var ExportEngine = (function () {
   'use strict';
 
   // ── CSV ───────────────────────────────────────────────────────────────────
-  function escapeCSV(val) {
-    if (val === null || val === undefined) return '';
-    var s = String(val);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  }
-
+  /*
+   * Row-shape fix: exportCSV used to build its header from dataset.columns
+   * directly (an array of { name, type } objects, so every header cell
+   * stringified as [object Object]) and read each value as row[columnName] on a
+   * POSITIONAL ARRAY row, so every value came out empty. Both the escaping and
+   * the cell lookup now come from the shared DGRowShape helper, which is the
+   * same logic the correct dashboard exporter already used. One exporter, one
+   * definition of a CSV cell. The local escapeCSV() this replaced is gone
+   * rather than kept as an alias, so there is no second copy to drift.
+   */
   function exportCSV(dataset, filename) {
     if (!dataset || !dataset.rows || !dataset.rows.length) return;
-    var cols = dataset.columns;
-    var lines = [cols.map(escapeCSV).join(',')];
-    dataset.rows.forEach(function (row) {
-      lines.push(cols.map(function (c) { return escapeCSV(row[c]); }).join(','));
-    });
-    var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var blob = new Blob([DGRowShape.datasetToCsv(dataset)], { type: 'text/csv;charset=utf-8;' });
     triggerDownload(blob, (filename || 'dataglow-export') + '.csv');
   }
 
@@ -17729,14 +17830,20 @@ var ExportEngine = (function () {
   function exportPDF(dataset, filename) {
     if (!dataset || !dataset.rows || !dataset.rows.length) return;
 
-    var cols  = dataset.columns;
+    /*
+     * Row-shape fix: `cols` was the raw column-object list and each stat read
+     * r[columnObject], so every PDF column was reported as 100% missing with a
+     * blank name. Column names come from the shared helper now, and each value
+     * is fetched positionally through it.
+     */
+    var cols  = DGRowShape.columnNames(dataset.columns);
     var rows  = dataset.rows;
     var name  = (filename || 'dataglow-report').replace(/\.pdf$/, '');
     var date  = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // Build stats for each column
     var stats = cols.map(function (col) {
-      var vals = rows.map(function (r) { return r[col]; }).filter(function (v) {
+      var vals = rows.map(function (r) { return DGRowShape.getCell(r, dataset.columns, col); }).filter(function (v) {
         return v !== null && v !== undefined && v !== '';
       });
       var nums = vals.filter(function (v) { return !isNaN(parseFloat(v)) && isFinite(v); })
@@ -18393,14 +18500,19 @@ var JoinBuilder = (function () {
     }
 
     // 4. Overlap in values  -  sample first 30 rows
+    /*
+     * Row-shape fix: the value-overlap scorer read r[columnName] on positional
+     * array rows, so every sampled value was '' and every pair scored a perfect
+     * overlap of 1. Reads now go through the shared DGRowShape helper.
+     */
     if (rowsA && rowsB) {
       var sampleA = rowsA.slice(0, 30);
       var sampleB = rowsB.slice(0, 30);
       var bestScore = 0, bestA = namesA[0], bestB = namesB[0];
       namesA.forEach(function (na) {
         namesB.forEach(function (nb) {
-          var valsA = new Set(sampleA.map(function (r) { return String(r[na] || ''); }));
-          var valsB = new Set(sampleB.map(function (r) { return String(r[nb] || ''); }));
+          var valsA = new Set(sampleA.map(function (r) { return String(DGRowShape.getCell(r, colsA, na) || ''); }));
+          var valsB = new Set(sampleB.map(function (r) { return String(DGRowShape.getCell(r, colsB, nb) || ''); }));
           var overlap = 0;
           valsA.forEach(function (v) { if (valsB.has(v)) overlap++; });
           var score = overlap / Math.max(valsA.size, valsB.size, 1);
@@ -18417,14 +18529,31 @@ var JoinBuilder = (function () {
   }
 
   // ── Join execution ─────────────────────────────────────────────────────────
+  /*
+   * Row-shape fix (the worst of the three): every key read here was
+   * row[columnName] on a POSITIONAL ARRAY row, so keyA and keyB both resolved
+   * to the string '' for every single row. That meant one lookup bucket
+   * containing all of B, matched by all of A: every join silently produced a
+   * cartesian product of the two files, with empty cells. Key reads and value
+   * copies now go through the shared DGRowShape helper by index. The result
+   * rows are emitted as positional arrays, the shape the rest of DataGlow
+   * expects, instead of the objects this used to return.
+   */
   function executeJoin(dsA, dsB, keyA, keyB, joinType) {
-    var rowsA = dsA.rows;
-    var rowsB = dsB.rows;
+    var rowsA = dsA.rows || [];
+    var rowsB = dsB.rows || [];
+
+    var keyAIdx = DGRowShape.resolveColumnIndex(dsA.columns, keyA);
+
+    function keyOf(row, columns, name) {
+      var v = DGRowShape.getCell(row, columns, name);
+      return String(v == null ? '' : v);
+    }
 
     // Build lookup from B
     var indexB = {};
     rowsB.forEach(function (row) {
-      var k = String(row[keyB] == null ? '' : row[keyB]);
+      var k = keyOf(row, dsB.columns, keyB);
       if (!indexB[k]) indexB[k] = [];
       indexB[k].push(row);
     });
@@ -18440,40 +18569,54 @@ var JoinBuilder = (function () {
       return colsA.indexOf(n) !== -1 ? n + '_' + dsB.name.replace(/\.[^.]+$/, '').slice(0, 6) : n;
     });
 
+    // Source indexes resolved once, not per row.
+    var idxA = colsA.map(function (n) { return DGRowShape.resolveColumnIndex(dsA.columns, n); });
+    var idxB = colsB.map(function (n) { return DGRowShape.resolveColumnIndex(dsB.columns, n); });
+
+    function leftCells(rowA) {
+      return idxA.map(function (i, n) {
+        return Array.isArray(rowA) ? rowA[i] : DGRowShape.getCell(rowA, dsA.columns, colsA[n]);
+      });
+    }
+    function rightCells(rowB) {
+      return idxB.map(function (i, n) {
+        return Array.isArray(rowB) ? rowB[i] : DGRowShape.getCell(rowB, dsB.columns, colsB[n]);
+      });
+    }
+    function nulls(len) {
+      var out = [];
+      for (var i = 0; i < len; i++) out.push(null);
+      return out;
+    }
+
     var resultRows = [];
     var matchedBKeys = new Set();
 
     // Left side iteration
     rowsA.forEach(function (rowA) {
-      var k = String(rowA[keyA] == null ? '' : rowA[keyA]);
+      var k = keyOf(rowA, dsA.columns, keyA);
       var bMatches = indexB[k] || [];
 
       if (bMatches.length) {
         matchedBKeys.add(k);
-        bMatches.forEach(function (rowB, bi) {
-          var merged = {};
-          colsA.forEach(function (c) { merged[c] = rowA[c]; });
-          colsB.forEach(function (c, i) { merged[finalColsB[i]] = rowB[c]; });
-          resultRows.push(merged);
+        bMatches.forEach(function (rowB) {
+          resultRows.push(leftCells(rowA).concat(rightCells(rowB)));
         });
       } else if (joinType === 'left' || joinType === 'full') {
         // Unmatched left row
-        var merged = {};
-        colsA.forEach(function (c) { merged[c] = rowA[c]; });
-        finalColsB.forEach(function (c) { merged[c] = null; });
-        resultRows.push(merged);
+        resultRows.push(leftCells(rowA).concat(nulls(finalColsB.length)));
       }
     });
 
     // Right side unmatched (for RIGHT and FULL)
     if (joinType === 'right' || joinType === 'full') {
       rowsB.forEach(function (rowB) {
-        var k = String(rowB[keyB] == null ? '' : rowB[keyB]);
+        var k = keyOf(rowB, dsB.columns, keyB);
         if (!matchedBKeys.has(k)) {
-          var merged = {};
-          colsA.forEach(function (c) { merged[c] = null; });
-          colsB.forEach(function (c, i) { merged[finalColsB[i]] = rowB[c]; });
-          merged[keyA] = rowB[keyB]; // copy key from B side
+          var merged = nulls(colsA.length).concat(rightCells(rowB));
+          // Carry the key value across from the B side so the joined key column
+          // is populated on a right-only row.
+          if (keyAIdx >= 0) merged[keyAIdx] = DGRowShape.getCell(rowB, dsB.columns, keyB);
           resultRows.push(merged);
         }
       });
@@ -18642,9 +18785,11 @@ var JoinBuilder = (function () {
           return '<th>' + escHtml(c.name) + '</th>';
         }).join('') + (result.columns.length > 8 ? '<th class="join-more-cols">+' + (result.columns.length - 8) + ' more</th>' : '') + '</tr></thead>';
 
+        // Result rows are positional arrays, so read them through the shared
+        // row-shape helper rather than by column name.
         var tbody = '<tbody>' + preview.map(function (row) {
           return '<tr>' + cols.map(function (c) {
-            var v = row[c.name];
+            var v = DGRowShape.getCell(row, result.columns, c.name);
             return '<td>' + (v == null ? '<span class="join-null">null</span>' : escHtml(String(v))) + '</td>';
           }).join('') + (result.columns.length > 8 ? '<td></td>' : '') + '</tr>';
         }).join('') + '</tbody>';
@@ -20208,17 +20353,16 @@ var SQLEngine = (function () {
       var tbl = safeTableName(dataset.name);
       if (registeredTables[tbl]) return tbl; // already registered
 
-      // Build CSV string from dataset rows
-      var cols = dataset.columns.map(function (c) { return c.name; });
-      var lines = [cols.map(function (c) { return JSON.stringify(String(c)); }).join(',')];
-      dataset.rows.forEach(function (row) {
-        lines.push(cols.map(function (c) {
-          var v = row[c];
-          if (v === null || v === undefined) return '';
-          return JSON.stringify(String(v));
-        }).join(','));
-      });
-      var csv = lines.join('\n');
+      // Build CSV string from dataset rows.
+      /*
+       * Row-shape fix: this used to read row[columnName] on a POSITIONAL ARRAY
+       * row, so every data cell serialised as empty and DuckDB loaded a table
+       * of NULLs behind a correct header and a correct row count. It also
+       * quoted with JSON.stringify, which escapes an embedded quote with a
+       * backslash rather than doubling it, so a value containing a quote was
+       * read back wrong. Both are now handled once, in DGRowShape.
+       */
+      var csv = DGRowShape.datasetToCsv(dataset);
 
       // Register as in-memory CSV
       var encoder = new TextEncoder();
