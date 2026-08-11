@@ -21,6 +21,8 @@
  *   - Multi-dataset: each loaded file becomes its own table
  */
 
+import { datasetToCsv } from '../shared/row-shape.js';
+
 export var SQLEngine = (function () {
   'use strict';
 
@@ -281,17 +283,16 @@ export var SQLEngine = (function () {
       var tbl = safeTableName(dataset.name);
       if (registeredTables[tbl]) return tbl; // already registered
 
-      // Build CSV string from dataset rows
-      var cols = dataset.columns.map(function (c) { return c.name; });
-      var lines = [cols.map(function (c) { return JSON.stringify(String(c)); }).join(',')];
-      dataset.rows.forEach(function (row) {
-        lines.push(cols.map(function (c) {
-          var v = row[c];
-          if (v === null || v === undefined) return '';
-          return JSON.stringify(String(v));
-        }).join(','));
-      });
-      var csv = lines.join('\n');
+      // Build CSV string from dataset rows.
+      /*
+       * Row-shape fix: this read row[columnName] on a POSITIONAL ARRAY row, so
+       * every data cell serialised empty and DuckDB loaded a table of NULLs
+       * behind a correct header and row count. It also quoted with
+       * JSON.stringify, which backslash-escapes an embedded quote instead of
+       * doubling it, so quoted values were read back wrong. The shared
+       * row-shape helper handles both.
+       */
+      var csv = datasetToCsv(dataset);
 
       // Register as in-memory CSV
       var encoder = new TextEncoder();

@@ -4693,6 +4693,35 @@
       "status": "shipped"
     },
     {
+      "id": "row-shape",
+      "area": "App shell & data engine",
+      "name": "Row-shape helper (the one place a dataset cell is resolved by column name, plus the one RFC 4180 CSV serialiser)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/shared/row-shape.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/shared/row-shape.js",
+          "name": "resolveColumnIndex"
+        },
+        {
+          "file": "js/shared/row-shape.js",
+          "name": "getCell"
+        },
+        {
+          "file": "js/shared/row-shape.js",
+          "name": "datasetToCsv"
+        }
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
+    },
+    {
       "id": "export-engine",
       "area": "Sharing & collaboration",
       "name": "Export Everything (PR AJ \u2014 CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",

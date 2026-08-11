@@ -9,27 +9,22 @@
  *   ExportEngine.exportPDF(dataset, filename)         → downloads .pdf
  */
 
+import { columnNames, getCell, datasetToCsv } from '../shared/row-shape.js';
+
 export var ExportEngine = (function () {
   'use strict';
 
   // ── CSV ───────────────────────────────────────────────────────────────────
-  function escapeCSV(val) {
-    if (val === null || val === undefined) return '';
-    var s = String(val);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  }
-
+  /*
+   * Row-shape fix: the header was built from dataset.columns directly (an array
+   * of { name, type } objects, so every header cell stringified as
+   * [object Object]) and each value was read as row[columnName] on a POSITIONAL
+   * ARRAY row, so every value came out empty. Both now come from the shared
+   * row-shape helper.
+   */
   function exportCSV(dataset, filename) {
     if (!dataset || !dataset.rows || !dataset.rows.length) return;
-    var cols = dataset.columns;
-    var lines = [cols.map(escapeCSV).join(',')];
-    dataset.rows.forEach(function (row) {
-      lines.push(cols.map(function (c) { return escapeCSV(row[c]); }).join(','));
-    });
-    var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var blob = new Blob([datasetToCsv(dataset)], { type: 'text/csv;charset=utf-8;' });
     triggerDownload(blob, (filename || 'dataglow-export') + '.csv');
   }
 
@@ -123,14 +118,17 @@ export var ExportEngine = (function () {
   function exportPDF(dataset, filename) {
     if (!dataset || !dataset.rows || !dataset.rows.length) return;
 
-    var cols  = dataset.columns;
+    // Row-shape fix: `cols` was the raw column-object list and each stat read
+    // r[columnObject], so every PDF column was reported 100% missing with a
+    // blank name. Names and values now come from the shared row-shape helper.
+    var cols  = columnNames(dataset.columns);
     var rows  = dataset.rows;
     var name  = (filename || 'dataglow-report').replace(/\.pdf$/, '');
     var date  = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // Build stats for each column
     var stats = cols.map(function (col) {
-      var vals = rows.map(function (r) { return r[col]; }).filter(function (v) {
+      var vals = rows.map(function (r) { return getCell(r, dataset.columns, col); }).filter(function (v) {
         return v !== null && v !== undefined && v !== '';
       });
       var nums = vals.filter(function (v) { return !isNaN(parseFloat(v)) && isFinite(v); })
