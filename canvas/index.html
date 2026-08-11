@@ -11197,8 +11197,8 @@ body {
         <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
       <p id="drop-text">Drop your data here to begin</p>
-      <p id="drop-formats">CSV, TSV, JSON, Excel, Parquet, PDF, images, audio, video</p>
-      <input type="file" id="file-input" class="hidden" multiple accept=".csv,.tsv,.json,.ndjson,.xlsx,.parquet,.pdf,.mp3,.wav,.m4a,.flac,.mp4,.mov,.webm,.txt,.log,.arrow,.feather,.xml,.png,.jpg,.jpeg,.webp,.bmp,.gif">
+      <p id="drop-formats">CSV, TSV, JSON, NDJSON, TXT, LOG, X12 EDI. Images are read with on-device OCR.</p>
+      <input type="file" id="file-input" class="hidden" multiple accept=".csv,text/csv,.tsv,text/tab-separated-values,.json,application/json,.ndjson,.jsonl,application/x-ndjson,.txt,text/plain,.log,.x12,.edi,.png,image/png,.jpg,.jpeg,image/jpeg,.webp,image/webp,.bmp,image/bmp,.gif,image/gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
     <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
@@ -14460,8 +14460,14 @@ var LiveWireEngine = window.LiveWireEngine = (function () {
   var OBSERVER_OK  = (typeof window !== 'undefined') &&
                      (typeof window.FileSystemObserver === 'function');
 
-  /* Accepted extensions matching DataGlow's ingest pipeline */
-  var ACCEPTED = /\.(csv|tsv|json|ndjson|jsonl|xlsx|xls|parquet|x12|edi|txt)$/i;
+  /*
+   * Accepted extensions matching DataGlow's ingest pipeline. Keep this list in
+   * step with the #file-input accept attribute and the formats routeDroppedFile
+   * actually parses. xlsx, xls and parquet were listed here while nothing in
+   * the product could parse them, so a watched folder would pick them up and
+   * hand them to the branch that used to fabricate a dataset.
+   */
+  var ACCEPTED = /\.(csv|tsv|json|ndjson|jsonl|x12|edi|txt|log)$/i;
 
   function _snapshot(dirHandle, cb) {
     var iter = dirHandle.values ? dirHandle.values() : null;
@@ -26366,6 +26372,7 @@ var InstantInsight = (function () {
 
   function routeDroppedFile(file, name, format, fileHash, seenBefore, advance) {
     var fmt = (format && format.format) || 'unknown';
+    clearUnsupportedFormatNotice();
 
     if (fmt === 'csv' || fmt === 'tsv' || fmt === 'text' || fmt === 'txt' || fmt === 'log') {
       var reader = new FileReader();
@@ -26458,24 +26465,93 @@ var InstantInsight = (function () {
       };
       x12reader.readAsText(file);
     } else {
-      // Binary formats (XLSX / Parquet / PDF / Arrow / Feather / etc.)  -  routed
-      // & labeled via drop-zone-router.js's format detection, but not parsed in
-      // this shell pass. Real binary parsing (Univer/DuckDB-WASM) is out of
-      // scope for PR S / PR AC.
-      var dataset = {
-        columns: [
-          { name: 'file', type: 'STR' },
-          { name: 'status', type: 'STR' }
-        ],
-        rows: [
-          [name, (fmt || 'binary') + ' format detected \u2014 full parsing pending future integration.']
-        ],
-        fileHash: fileHash,
-        format: fmt
-      };
-      runSequencedReveal(dataset, name, seenBefore);
+      /*
+       * Formats with no parser: Parquet, PDF, Arrow, Feather, XML, audio,
+       * video, and anything unrecognised.
+       *
+       * This branch used to fabricate a 2-column, 1-row dataset saying the
+       * format was "detected" and push it through runSequencedReveal(), so the
+       * user was shown "1 rows. 2 columns. Ready." and a green toast reading
+       * "100/100. This data has been cleaned, sourced, and reviewed." about a
+       * file DataGlow had never opened. That is a fabricated result and it is
+       * the worst thing a data tool can do. It now refuses, out loud.
+       *
+       * No dataset object, no runSequencedReveal, no health or quality score.
+       */
+      showUnsupportedFormatNotice(name, fmt);
       advance();
     }
+  }
+
+  /*
+   * One concrete next step per unsupported format. Anything not listed falls
+   * back to the generic CSV suggestion.
+   */
+  var UNSUPPORTED_FORMAT_HELP = {
+    parquet: 'Parquet files are not supported yet. Export the table to CSV from DuckDB, pandas, or your warehouse, then drop the CSV here.',
+    pdf: 'PDF files are not supported yet. If the PDF holds a table, copy it into a spreadsheet, save that as CSV, then drop the CSV here.',
+    arrow: 'Arrow files are not supported yet. Write the table out as CSV from pyarrow or DuckDB, then drop the CSV here.',
+    feather: 'Feather files are not supported yet. Write the table out as CSV from pandas or pyarrow, then drop the CSV here.',
+    xml: 'XML files are not supported yet. Convert the records to CSV or JSON, then drop that file here.',
+    audio: 'Audio files are not supported yet. There is no transcription in DataGlow today. If you already have a transcript, save it as a .txt file and drop that here.',
+    video: 'Video files are not supported yet. There is no transcription in DataGlow today. If you already have a transcript, save it as a .txt file and drop that here.',
+    xlsx: 'Excel files are not supported yet. In Excel, use File then Save As and choose CSV UTF-8, then drop the CSV here.',
+    xls: 'Excel files are not supported yet. In Excel, use File then Save As and choose CSV UTF-8, then drop the CSV here.'
+  };
+
+  var FORMAT_DISPLAY_NAMES = {
+    parquet: 'Parquet', pdf: 'PDF', arrow: 'Arrow', feather: 'Feather',
+    xml: 'XML', audio: 'audio', video: 'video', xlsx: 'Excel', xls: 'Excel',
+    unknown: 'unrecognised'
+  };
+
+  /*
+   * The honest refusal. Names the format, says plainly that it is not
+   * supported, and gives the user one concrete thing to do next. Deliberately
+   * emits no score, no grade, and no "ready" language.
+   */
+  function showUnsupportedFormatNotice(name, fmt) {
+    var key = String(fmt || 'unknown').toLowerCase();
+    var label = FORMAT_DISPLAY_NAMES[key] || key;
+    var help = UNSUPPORTED_FORMAT_HELP[key] ||
+      'DataGlow could not tell what kind of file this is, so it will not guess. Save the data as CSV and drop it here.';
+    var headline = 'DataGlow cannot read ' + name + '. It was detected as ' + label + ' and nothing was loaded.';
+
+    setAgentStatus(headline);
+
+    var notice = document.getElementById('drop-unsupported-notice');
+    if (!notice) {
+      var formatsLine = document.getElementById('drop-formats');
+      if (!formatsLine || !formatsLine.parentNode) {
+        alert(headline + '\n\n' + help);
+        return;
+      }
+      notice = document.createElement('div');
+      notice.id = 'drop-unsupported-notice';
+      notice.setAttribute('role', 'status');
+      notice.setAttribute('aria-live', 'polite');
+      notice.style.cssText = 'margin:14px auto 0;max-width:460px;padding:12px 14px;border:1px solid #f0c36d;' +
+        'background:#fdf6e3;border-radius:10px;color:#6b4e16;font-size:12.5px;line-height:1.55;text-align:left;';
+      formatsLine.parentNode.insertBefore(notice, formatsLine.nextSibling);
+    }
+    notice.innerHTML = '';
+
+    var strong = document.createElement('div');
+    strong.style.cssText = 'font-weight:700;margin-bottom:4px;';
+    strong.textContent = headline;
+    notice.appendChild(strong);
+
+    var body = document.createElement('div');
+    body.textContent = help;
+    notice.appendChild(body);
+
+    notice.hidden = false;
+  }
+
+  // Drop a readable file after a refusal and the refusal goes away.
+  function clearUnsupportedFormatNotice() {
+    var notice = document.getElementById('drop-unsupported-notice');
+    if (notice) notice.hidden = true;
   }
 
   // A lightweight "transcribing" placeholder tab shown in the tab strip while
@@ -84449,9 +84525,12 @@ function deliverBlob(blob, { platform, win } = {}) {
 //                            bytes to the platform adapter. The single call the
 //                            UI makes.
 //
-// Dependencies: Excel export reuses the SheetJS (XLSX) library already vendored
-// and loaded on every page (assets/xlsx/, exposed as the global `XLSX`) — no
-// new dependency. The PDF is produced by a tiny, dependency-free, first-party
+// Dependencies: Excel export needs the SheetJS (XLSX) library exposed as the
+// global `XLSX`. The file IS vendored at assets/xlsx/xlsx-0.18.5.full.min.js,
+// but as of this comment only the root index.html loads it; canvas/index.html
+// has no script tag for it at all, so on the canvas surface `window.XLSX` is
+// undefined and every Excel export throws the error below. Do not read this
+// header as a guarantee that XLSX is present. Check for it. The PDF is produced by a tiny, dependency-free, first-party
 // text-PDF writer below (a plain summary page), so no heavy PDF library is
 // added. Everything is 100% local; nothing here performs a network request.
 //
