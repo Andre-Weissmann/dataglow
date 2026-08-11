@@ -256,11 +256,14 @@ const acceptedRe = /var ACCEPTED = \/\\\.\(([^)]*)\)\$\/i;/.exec(canvas);
 ok('the folder-watch ACCEPTED regex is present', acceptedRe !== null);
 if (acceptedRe) {
   const exts = acceptedRe[1].split('|');
-  ['xlsx', 'xls', 'parquet'].forEach((e) => {
+  ['parquet', 'pdf', 'arrow', 'feather', 'xml'].forEach((e) => {
     ok(`folder watch no longer accepts .${e}, which has no parser`, !exts.includes(e));
   });
-  ['csv', 'tsv', 'json', 'txt'].forEach((e) => {
-    ok(`folder watch still accepts .${e}`, exts.includes(e));
+  // xlsx and xls ARE accepted again as of Bundle C, because SheetJS is
+  // vendored, loaded on both surfaces, and genuinely parses them. See
+  // test/excel-roundtrip.test.mjs, which proves it against real workbooks.
+  ['csv', 'tsv', 'json', 'txt', 'xlsx', 'xls'].forEach((e) => {
+    ok(`folder watch accepts .${e}, which has a real parser`, exts.includes(e));
   });
 }
 
