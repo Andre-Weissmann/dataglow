@@ -117,6 +117,7 @@
     "test:csvrejects": "node test/csv-ignore-errors.test.mjs",
     "test:uploadformats": "node test/upload-formats.test.mjs",
     "test:offlineclaims": "node test/offline-claims.test.mjs",
+    "test:sqlimportmap": "node test/sql-importmap-absolute-paths.test.mjs",
     "test:metricstudio": "node --import ./test/duckdb-loader-hook.mjs test/metric-studio.test.mjs",
     "test:metriccontracts": "node test/metric-contracts.test.mjs",
     "test:metriccontractdiffview": "node test/metric-contract-diff-view.test.mjs",
