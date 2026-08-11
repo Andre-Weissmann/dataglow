@@ -152,10 +152,14 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | The Glow signal aggregator (Batch 1) | `js/glow/glow-signal.js` |
 |  | The Glow topbar orb UI (Batch 2) | `js/glow/glow-orb-ui.js` |
 | Validation layers | Orchestrator | `js/validation/validation.js` |
-|  | Standalone layer modules | `js/validation/categorical-consistency.js`, `js/validation/cross-column-consistency.js`, `js/validation/physiological-plausibility.js`, `js/validation/upper-bound-sanity.js`, `js/validation/missingness-detective.js`, `js/validation/missingness.js` |
+|  | Standalone layer modules | `js/validation/categorical-consistency.js`, `js/validation/cross-column-consistency.js`, `js/validation/physiological-plausibility.js`, `js/validation/upper-bound-sanity.js`, `js/validation/missingness-detective.js`, `js/validation/missingness.js`, `js/validation/ncci-ptp-validator.js` |
 |  | Source Convergence (Truth Network, Batch 1) | `js/validation/source-convergence.js` |
 |  | Source Convergence ingestion adapters (Truth Network, Batch 2) | `js/validation/source-convergence-ingestion.js` |
 |  | Source Convergence UI (Truth Network, Batch 3) | `js/validation/source-convergence-ui.js` |
+|  | The Crucible: adversarial validator (Batch 1) | `js/validation/crucible-contract.js`, `js/validation/crucible-adversarial-packs.js` |
+|  | The Crucible: read-only UI (Batch 2) | `js/validation/crucible-ui.js` |
+| Provenance, audit & trust | The Crucible: revert proposals (Batch 3, proposal-only) | `js/provenance/revert-eligibility.js` |
+| Validation layers | The Crucible: orchestration glue (additive-only) | `js/validation/crucible-orchestrator.js` |
 |  | Reinterpretation & context | `js/validation/domain-physics.js`, `js/validation/expected-range.js` |
 |  | Healthcare standards bridge | `js/validation/health-standards.js` |
 |  | Domain-pack plugin architecture | `js/packs/extension-points.js`, `js/packs/pack-network-guard.js`, `js/packs/pack-registry.js`, `js/packs/builtin/none.pack.js`, `js/packs/builtin/healthcare.pack.js`, `js/packs/builtin/retail.pack.js`, `js/packs/builtin/finance.pack.js`, `js/packs/builtin/omop.pack.js`, `js/packs/builtin/fhir.pack.js` |
@@ -167,7 +171,7 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 | Drift, trend & fingerprinting | Forecasting | `js/drift/drift-forecast.js` |
 |  | Trend narration | `js/validation/expected-range.js` |
 | Cleaning & fixes | Core cleaning | `js/cleaning/clean.js`, `js/cleaning/fix-confidence.js`, `js/cleaning/materiality.js` |
-|  | Targeted transforms | `js/cleaning/imputation.js`, `js/cleaning/format-fingerprint.js`, `js/cleaning/fuzzy-dedup.js` |
+|  | Targeted transforms | `js/cleaning/imputation.js`, `js/cleaning/format-fingerprint.js`, `js/cleaning/fuzzy-dedup.js`, `js/shared/identifier-columns.js` |
 | Grades & health scores | Grades | `js/grades/calibrated-grades.js`, `js/grades/cat-scorecard.js`, `js/grades/golden-signals.js` |
 | On-device learning & personalization | Learners | `js/learning/self-learning-rules.js`, `js/learning/adaptive-priority.js`, `js/learning/rule-suggestions.js` |
 |  | Shared state | `js/learning/signal-store.js`, `js/learning/memory-store.js` |
@@ -189,20 +193,30 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | Data Nutrition Label (Trust Passport, Batch 2) | `js/provenance/data-nutrition-label.js` |
 |  | Verifiable Check Seal (Trust Passport, Batch 3) | `js/provenance/verifiable-check-seal.js` |
 |  | Trust Beam (shareable seal link) | `js/provenance/trust-beam.js` |
+|  | Zero-Knowledge Threshold Proof (Batch 1, feature-flagged: zkThresholdProof) — first genuine zero-knowledge proof in DataGlow | `js/provenance/zk-threshold-proof.js` |
 |  | Proof Room (Trust Passport, composition batch 1 + AI Touch Ledger step, feature-flagged: aiTouchLedger) | `js/provenance/proof-room.js` |
 |  | Provenance Packet (Batch 2) — denial root-cause profiler + cost-of-bad-data quantifier | `js/provenance/denial-root-cause.js`, `js/provenance/cost-of-bad-data.js` |
 |  | Analysis fingerprint & nutrition label | `js/provenance/analysis-fingerprint.js`, `js/provenance/nutrition-badges.js` |
 |  | Blameless incident postmortem | `js/provenance/incident-postmortem.js` |
 |  | Ownership Ledger (DataGlow Passport, Batch D) | `js/provenance/ownership-ledger.js` |
+|  | Provenance Packet (Batch 3) — portable signed .dataglow packet format (export/import) | `js/provenance/provenance-packet.js` |
+|  | Institutional Memory Layer — decision log, timeline, provenance hash | `js/memory/institutional-memory.js` |
+| DataGlow Rooms | Async collaboration via signed findings JSON (Feature 11) | `js/rooms/rooms-builder.js` |
+| Provenance, audit & trust | Proof Export — .proof bundle, four-hash integrity chain (Feature 12) | `js/proof/proof-builder.js` |
 | Privacy & synthetic data | DP export & synthesis | `js/privacy/privacy-budget.js`, `js/privacy/synthetic-twin.js`, `js/privacy/synthetic-adversarial.js` |
 |  | Governed Synthetic Data Passport (Trust Passport, Batch 4) | `js/privacy/synthetic-data-passport.js` |
 | Simulation & time travel | What-if & history | `js/simulation/digital-twin.js`, `js/simulation/time-travel-diff.js`, `js/simulation/time-machine.js` |
 | Narrative & language models | Story & LLM | `js/narrative/story.js`, `js/narrative/ondevice-llm.js` |
+|  | Story View | `js/story/story-builder.js` |
 | Ambient & real-time | Live validation | `js/ambient/ambient-validation.worker.js`, `js/ambient/watch-folder.js` |
 | App shell & data engine | Grouped tab navigation | `js/app-shell/tab-groups.js` |
 |  | Validate tab focus mode | `js/app-shell/validate-focus.js` |
 | Ambient & real-time | Semantic drift watchdog | `js/ambient/drift-watchdog.js` |
 | Language runtimes & visualization | Runtimes & charts | `js/runtimes-viz/python-runtime.js`, `js/runtimes-viz/r-runtime.js`, `js/runtimes-viz/visualize.js` |
+|  | Glow Canvas (multi-chart dashboard, Batch 2: cross-filtering) | `js/runtimes-viz/glow-canvas.js` |
+|  | Pivot Table (Batch 1: tap-to-add Rows/Columns/Values wells over real DuckDB PIVOT/GROUP BY SQL) | `js/pivot/pivot-builder.js`, `js/runtimes-viz/pivot-ui.js` |
+|  | Drill Floor (SQL/Python/R practice drills; Batch 1: Spot the Sale, Batch 2: cross-language result diff) | `js/drill-floor/drill-floor.js`, `js/drill-floor/drill-floor-data.js`, `js/drill-floor/drill-diff.js` |
+|  | Cleaning Crew — Profiler station (PDF text extraction, Batch 1) | `js/cleaning-crew/pdf-profiler.js` |
 | Protocol & interoperability | Conformance | `js/protocol/protocol-conformance.js` |
 | Problem framing | Problem Framer & Context Card | `js/problem-framing/problem-framer.js` |
 | App shell & data engine | Capability registry | `js/app-shell/capability-registry.js` |
@@ -227,17 +241,181 @@ is regenerated automatically on every merge to `main`; do not edit it by hand.
 |  | Trust Strip | `js/trust/trust-strip.js` |
 |  | Proof Drawer | `js/trust/proof-drawer.js` |
 |  | Metric Contracts (Batch 1: versioned data model) | `js/metrics/metric-contracts.js` |
+|  | Metric Contract Status (the contract answer the readiness gate always wanted) | `js/metrics/metric-contract-status.js`, `test/metric-contract-status.test.mjs` |
 |  | Metric Contracts (Batch 2: diff view, read-only) | `js/metrics/metric-contract-diff-view.js` |
 |  | Metric Contracts (Batch 3: confirm gate) | `js/metrics/metric-contract-confirm-gate.js` |
+|  | Metric Contracts (Batch 4: agent-access rules, read gate) | `js/metrics/metric-access-rules.js` |
 |  | AI Readiness Gate (pure scoring + UI badge + agent hard-block, batches 1-3 of 4) | `js/gate/readiness-gate.js`, `js/gate/readiness-gate-ui.js`, `js/gate/agent-gate.js` |
 | App shell / navigation | Command Deck sidebar nav (Part 1) | `js/app-shell/command-deck-nav.js` |
 | Data Diplomacy | Data Diplomacy — two-key panel UI (Batch 2) | `js/diplomacy/diplomacy-ui.js` |
 | Provenance, audit & trust | Agent Action Firewall — human-confirmation gate for data mutations | `js/agents/agent-action-firewall.js` |
+|  | Guarded Copilot (Batch 2) — read-only, lineage-citing chat core + chat panel UI | `js/agents/guarded-copilot.js` |
 | Conversational pack builder | Debate transparency diagnostics | `js/agents/debate-diagnostics.js` |
 | App shell / navigation | Command Deck command palette (Part 2) | `js/app-shell/command-palette.js` |
 | Open Floor | Open Floor read-only room kernel + PHI prompt guard | `js/agents/open-floor-room.js`, `js/agents/phi-prompt-guard.js` |
+|  | Open Floor Sandbox Twin — forkable disposable dataset copy; every mutation & promote firewall-gated | `js/simulation/sandbox-twin.js` |
+| Validation layers | Query Sentinel (Batch 1) — deterministic per-query SQL correctness verifier | `js/validation/query-sentinel.js` |
+|  | Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest | `js/validation/query-sentinel-assist.js` |
+|  | Query Sentinel Bridge (Batch 3, final) — FROM py./r. cross-runtime table resolver | `js/validation/query-sentinel-bridge.js` |
+| Analysis robustness | Statistical Rigor Layer (Batch 1) — confidence intervals, effect size, Simpson's-paradox + multiple-comparison checks | `js/rigor/statistical-rigor.js` |
+|  | Narrative Overconfidence Guard — verifies generated Story text obeys its own per-claim confidence grades (closes the Stanford HAI sycophancy/overconfidence gap) | `js/rigor/narrative-overconfidence-guard.js` |
+| App shell & data engine | DuckDB WASM configuration | `js/app-shell/duckdb-config.js` |
+|  | DataGlow Grid bridge (Univer data contract, Tier 1 of DataGlow Canvas) | `js/grid/grid-bridge.js` |
+|  | DataGlow Grid pivot engine (Univer pivot tables, builds on the grid bridge) | `js/grid/pivot-engine.js` |
+|  | DataGlow Grid formula bridge (Excel formula ↔ DuckDB SQL, documentation/audit layer) | `js/grid/formula-bridge.js` |
+|  | DataGlow Grid validation coloring (cell/row-level styling, agent diff overlay) | `js/grid/validation-coloring.js` |
+| Enterprise & governance | Enterprise policy engine | `js/build/enterprise-policy.js` |
+| AI Council | Multi-model deliberation engine | `js/council/council-engine.js` |
+|  | Council tab UI | `js/council/council-ui.js` |
+| Data quality & drift | Dataset differ | `js/drift/dataset-differ.js` |
+|  | Freshness decay calculator | `js/drift/freshness-decay.js` |
+| Data Version Control | Snapshot diff engine | `js/dvc/dvc-diff.js` |
+|  | Snapshot store | `js/dvc/dvc-store.js` |
+|  | Versions tab UI | `js/dvc/dvc-ui.js` |
+| Equity & fairness | Disparity scorer | `js/equity/disparity-scorer.js` |
+|  | Equity attestation builder | `js/equity/equity-attestation.js` |
+|  | Protected-column detector | `js/equity/equity-detector.js` |
+|  | Outcome stratifier | `js/equity/equity-stratifier.js` |
+| Join Builder | Visual join canvas | `js/join-builder/join-canvas.js` |
+|  | Join model | `js/join-builder/join-model.js` |
+|  | Join SQL generator | `js/join-builder/join-sql.js` |
+| NL-to-SQL | Metric contract definitions | `js/nl-sql/metric-contracts.js` |
+|  | NL-to-SQL engine | `js/nl-sql/nl-sql-engine.js` |
+|  | API key store (in-memory) | `js/nl-sql/nl-sql-key-store.js` |
+|  | Zero-cost pattern engine | `js/nl-sql/nl-sql-pattern-engine.js` |
+|  | AI tab UI | `js/nl-sql/nl-sql-ui.js` |
+|  | Schema context serializer | `js/nl-sql/schema-context.js` |
+| Relational integrity | Flag consistency checker | `js/relational/flag-consistency-checker.js` |
+|  | Foreign key checker | `js/relational/foreign-key-checker.js` |
+|  | Join coverage checker | `js/relational/join-coverage-checker.js` |
+|  | Temporal order checker | `js/relational/temporal-order-checker.js` |
+| Rule packs | General rulepack | `js/rulepacks/packs/general.js` |
+|  | Healthcare rulepack | `js/rulepacks/packs/healthcare.js` |
+|  | Rulepack registry | `js/rulepacks/rulepack-registry.js` |
+| Trust & provenance | Trust certificate builder | `js/trust/trust-certificate.js` |
+| Validation layers | DRG/ICD coding validator | `js/validation/drg-icd-validator.js` |
+| Warehouse connectors | BigQuery connector | `js/warehouse/bigquery-connector.js` |
+|  | S3 connector | `js/warehouse/s3-connector.js` |
+| MCP (Model Context Protocol) interface | MCP server | `js/mcp/dataglow-mcp-server.mjs` |
+|  | Gate state exporter | `js/mcp/gate-state-exporter.js` |
+|  | Agent Passport Bridge (get_agent_passport tool) | `js/mcp/dataglow-mcp-server.mjs`, `js/mcp/gate-state-exporter.js` |
+| Polyglot Workbench | Cross-language schema-aware autocomplete (engine + Analyze SQL canvas wire) | `js/polyglot/polyglot-autocomplete.js`, `js/intelligence/data-glow-sql-autocomplete-canvas.js` |
+|  | Cross-language error advisor with suggested fix | `js/polyglot/polyglot-error-advisor.js` |
+| Data Diplomacy | Real dataset claim builder (Batch 3) | `js/diplomacy/diplomacy-loader.js` |
+|  | Sealed claim P2P exchange adapter (Batch 4) | `js/diplomacy/diplomacy-p2p-transport.js` |
+| Meeting Scribe | Live Rooms action-item broadcast (Batch 2) | `js/agents/live-rooms-broadcast.js` |
+|  | Chart-context timeline (Batch 3) | `js/agents/chart-context-timeline.js` |
+|  | Meeting synthesis (Batch 4) | `js/agents/meeting-synthesis.js` |
+| Ambient & real-time | Streaming validator (micro-batch drift core) | `js/streaming/streaming-validator.js` |
+|  | Validation Webhook Mode | `js/webhook/webhook-handler.js`, `js/webhook/service-worker-relay.js` |
+| Universal ingestion & RAG (wave 2) | Universal Drop Zone router | `js/drop-zone/drop-zone-router.js` |
+|  | RAG core (chunker, cosine similarity, retrieval) | `js/rag/rag-core.js` |
+|  | RAG validation bridge (citation injection) | `js/rag/rag-validation-bridge.js` |
+|  | User Knowledge Store (in-memory RAG index) | `js/rag/user-knowledge-store.js` |
+|  | Audio ingestion structurer (Whisper → structured transcript dataset) | `js/audio/audio-structurer.js`, `js/audio/whisper-worker.scaffold.js` |
+|  | Video ingestion bridge (audio-only, Batch 1) | `js/video/video-ingestion-bridge.js`, `js/video/webcodecs-audio-extractor.scaffold.js` |
+|  | PDF ingestion bridge (PDF.js → RAG pipeline) | `js/pdf/pdf-ingestion-bridge.js`, `js/pdf/pdfjs-extractor.scaffold.js` |
+|  | Text / Log line parser — .txt and .log to queryable rows | `js/ingestion/text-line-parser.js` |
+|  | Semi-structured JSON flattener — nested JSON, FHIR bundles, API envelopes | `js/ingestion/json-flattener.js` |
+|  | Live API / Webhook feed — REST endpoint fetch with polling, auto-normalization | `js/ingestion/api-feed.js` |
+| Ambient & real-time | NATS WebSocket Bridge | `js/nats/nats-message-parser.js`, `js/nats/nats-bridge.js` |
+|  | Tauri Live Connector Layer | `js/connectors/tauri-connector.js`, `js/connectors/connector-manager.js` |
+| Narrative & storytelling | Portfolio Narrative assembler (stitches Problem Framer + Story + Clean summary + recommendation into one exportable write-up) | `js/portfolio/narrative-assembler.js`, `js/portfolio/portfolio-ui.js` |
+|  | Question Prompter (Feature 13 — "Where to start" intelligence) | `js/questions/question-prompter.js` |
+| Universal ingestion & RAG (wave 2) | Image OCR — Tesseract.js client-side text extraction from PNG/JPG/WEBP/BMP/GIF | `js/ingestion/image-ocr.js` |
+| Insight & discovery | Instant Insight (PR AF — surfaces the single most interesting statistical finding on file load, zero LLM, pure heuristics) | `js/insight/insight-engine.js` |
+| Sharing & collaboration | Publish Button (PR AG — one-click shareable snapshot URL, client-side gzip + base64url encoding, zero server upload) | `js/publish/publish-engine.js` |
+| Visualization | Chart Layer (PR AI — auto bar/histogram/donut/line charts from any dataset, Canvas 2D, zero dependencies) | `js/chart/chart-engine.js` |
+| App shell & data engine | Row-shape helper (the one place a dataset cell is resolved by column name, plus the one RFC 4180 CSV serialiser) | `js/shared/row-shape.js` |
+|  | Excel workbook reader (xlsx and xls parsed on device with the vendored SheetJS build, messy sheets reported rather than silently repaired) | `js/shared/excel-import.js` |
+| Sharing & collaboration | Export Everything (PR AJ — CSV, chart PNG, PDF report, all client-side, zero server, zero uploads) | `js/export/export-engine.js` |
+| Data grid & editing | Smart Column Editor (PR AK — inline rename, type cycle, add column with formula, clean-name suggestions) | `js/columns/column-editor.js` |
+|  | Multi-file Join Builder (PR AL — auto key suggestion, INNER/LEFT/RIGHT/FULL joins, live preview) | `js/join/join-builder.js` |
+| Validation & data quality | Anomaly Timeline (PR AM — spike/drop/gap/duplicate/shift detection in the validation rail) | `js/anomaly/anomaly-timeline.js` |
+| Visualization | Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules) | `js/dashboard/dashboard-engine.js` |
+| Data grid & editing | High-Performance Canvas Grid (PR AO — pure Canvas renderer, virtual scrolling, 1M+ rows at 60fps, zero DOM nodes per cell) | `js/grid/canvas-grid.js` |
+| Validation & data quality | Findings Rail (PR AU — ranked, plain-English insight cards above the dashboard KPI row) | `js/dashboard/findings-rail.js` |
+| Query & analysis | Natural Language to Everything (PR AH — plain-English questions answered via deterministic keyword-pattern query logic, zero LLM) | `js/nl/nl-engine.js` |
+|  | Real SQL Engine (PR AO — SQL Mode overlay powered by real DuckDB-WASM execution, autocomplete, query history, schema sidebar) | `js/sql/sql-engine.js` |
+| Universal ingestion & RAG (wave 2) | X12 EDI Parser -- 835 ERA / 837 Claims ingestion | `js/ingestion/x12-parser.js` |
+| Enterprise & deployment | Enterprise No-Egress Mode | `js/build/enterprise-policy.js` |
+| Data grid & editing | Column profiler on hover (local stats tip on grid headers + DataLens deep link) | `js/intelligence/column-profiler-local.js`, `js/intelligence/data-glow-column-profiler-hover-canvas.js`, `js/grid/canvas-grid.js` |
+| Privacy & trust | PHI Shield | `js/agents/phi-prompt-guard.js`, `js/provenance/deidentification-verifier.js`, `js/intelligence/data-glow-phi-shield-canvas.js`, `test/phi-shield-scan.test.mjs` |
+| Data preparation | Excel Hell Repair | `js/intelligence/excel-hell-repair.js`, `js/intelligence/data-glow-excel-hell-canvas.js`, `test/excel-hell-repair.test.mjs` |
+| Multi-runtime | Python Notebooks-lite | `js/intelligence/python-notebook-lite.js`, `js/intelligence/data-glow-python-notebook-canvas.js`, `test/python-notebook-lite.test.mjs` |
+|  | R Notebooks-lite (any industry) | `js/intelligence/r-notebook-lite.js`, `js/intelligence/data-glow-r-notebook-canvas.js`, `test/r-notebook-lite.test.mjs` |
+|  | Notebook to App | `js/intelligence/notebook-app-export.js`, `js/intelligence/data-glow-notebook-app-canvas.js`, `test/notebook-app-export.test.mjs`, `test/notebook-app-canvas-ui.test.mjs` |
+| Data preparation | Guided Unpivot | `js/intelligence/guided-unpivot.js`, `js/intelligence/data-glow-guided-unpivot-canvas.js`, `test/guided-unpivot.test.mjs` |
+|  | Repair Recipe Library | `js/intelligence/repair-recipe-library.js`, `js/intelligence/repair-recipe-store.js`, `js/intelligence/data-glow-repair-recipe-library-canvas.js`, `test/repair-recipe-library.test.mjs` |
+| Privacy & trust | Mobile PHI chip + first-run calm | `js/intelligence/mobile-phi-firstrun-calm.js`, `js/intelligence/data-glow-mobile-phi-firstrun-canvas.js`, `test/mobile-phi-firstrun-calm.test.mjs` |
+|  | Shield Packs (domain privacy packs, PHI is pack 0) | `js/intelligence/shield-packs.js`, `js/intelligence/data-glow-shield-packs-canvas.js`, `test/shield-packs.test.mjs` |
+|  | Trust Ledger (session trust events, hash chained) | `js/provenance/trust-ledger.js`, `js/provenance/data-glow-trust-ledger-canvas.js`, `test/trust-ledger.test.mjs`, `test/trust-ledger-canvas-ui.test.mjs` |
+|  | Publish-Safe (one gate before anything is written or shared) | `js/gate/publish-safe.js`, `test/publish-safe.test.mjs` |
+|  | Air-Gap Mode | `js/privacy/air-gap-mode.js`, `js/privacy/data-glow-air-gap-canvas.js`, `test/air-gap-mode.test.mjs` |
+|  | Explain (plain language over evidence that already exists) | `js/explain/explain-engine.js`, `js/explain/data-glow-explain-canvas.js`, `test/explain-engine.test.mjs`, `test/explain-glassbox-canvas-ui.test.mjs` |
+|  | GlassBox (show the math under a finding) | `js/glassbox/glass-box.js`, `js/glassbox/data-glow-glass-box-canvas.js`, `test/glass-box.test.mjs`, `test/explain-glassbox-canvas-ui.test.mjs` |
+| Data preparation | Compare to prior period (month, week or day over the one before) | `js/transforms/prior-period.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/time-join-transforms.test.mjs` |
+| Join Builder | Join on date range (event date inside a span) | `js/transforms/date-range-join.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/time-join-transforms.test.mjs` |
+| Data preparation | First or last event per entity | `js/transforms/first-last-event.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/time-join-transforms.test.mjs` |
+| Join Builder | As-of lookup (the value that was in force on that date) | `js/transforms/as-of-lookup.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/time-join-transforms.test.mjs` |
+| Data preparation | Expand a hierarchy into node, parent, depth and path | `js/transforms/expand-hierarchy.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/shape-clean-transforms.test.mjs` |
+|  | Nested lists into rows, with the row count shown first | `js/transforms/nested-to-rows.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/shape-clean-transforms.test.mjs` |
+| Data cleaning | Fill blanks and always flag the cells that were filled | `js/transforms/fill-missing.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/shape-clean-transforms.test.mjs` |
+| Data preparation | A start and end date into one row per calendar day | `js/transforms/expand-date-range.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/shape-clean-transforms.test.mjs` |
+|  | Group a number column into bands, with the histogram from the same counts | `js/transforms/bin-editor.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/shape-clean-transforms.test.mjs` |
+| Data cleaning | Keep the most recent record per group, and name what was discarded | `js/transforms/keep-most-recent.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/shape-clean-transforms.test.mjs` |
+| Time analysis | Consecutive runs of active days, counted in days rather than in rows | `js/transforms/consecutive-run.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/advanced-transforms.test.mjs` |
+|  | Moving average with an honest warm-up, and crossovers that need two rows to exist | `js/transforms/moving-average.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/advanced-transforms.test.mjs` |
+| Data analysis | Counts for a multi-value column, with both percentage denominators shown and labelled | `js/transforms/multi-value-counts.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/advanced-transforms.test.mjs` |
+|  | Which values appear together, with lift so a big pair is not mistaken for a real association | `js/transforms/frequent-combinations.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/advanced-transforms.test.mjs` |
+| Time analysis | Return within a window, as pairs plus two rates that admit where the data ran out | `js/transforms/window-recurrence.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/advanced-transforms.test.mjs` |
+| Data cleaning | Standardise category values, where the proposal is not the map and nothing merges unconfirmed | `js/transforms/value-standardizer.js`, `js/transforms/transform-core.js`, `js/transforms/data-glow-transforms-canvas.js`, `test/advanced-transforms.test.mjs` |
+| Provenance and proof | Several numbers on one surface, each with the query that produced it in the same tile | `js/proofboard/proof-board.js`, `js/proofboard/session-tiles.js`, `js/proofboard/data-glow-proof-board-canvas.js`, `js/glassbox/glass-box.js`, `test/proof-board.test.mjs` |
+|  | Not checked is a first-class badge that nothing can promote to passed | `js/proofboard/proof-board.js`, `js/proofboard/data-glow-proof-board-canvas.js`, `test/proof-board.test.mjs` |
+|  | Glowbook: the board as one HTML file with no script, written only after a human says yes | `js/proofboard/glowbook.js`, `js/proofboard/data-glow-proof-board-canvas.js`, `test/proof-board.test.mjs` |
+|  | Five coach steps that point at real controls, dismissed once and gone for good | `js/proofboard/coach-moments.js`, `js/proofboard/data-glow-proof-board-canvas.js`, `test/proof-board.test.mjs` |
+|  | Stamping a tile composes the Trust Ledger rather than inventing a second chain | `js/proofboard/proof-board.js`, `js/proofboard/data-glow-proof-board-canvas.js`, `test/proof-board.test.mjs` |
+|  | Every number in a generated claim is bound to a tile or refused by name | `js/ai/prove-gate.js`, `js/proofboard/proof-board.js`, `test/proof-to-post.test.mjs` |
+|  | A proved number becomes a post draft without being retyped, and copy is the last thing the app does | `js/proofpost/proof-to-post.js`, `js/proofpost/data-glow-proof-to-post-canvas.js`, `js/ai/prove-gate.js`, `js/proofboard/coach-moments.js`, `test/proof-to-post.test.mjs` |
+|  | A Power BI or Tableau user gets the data, the dictionary, the queries and an honest validation summary | `js/export/bi-handoff.js`, `js/proofpost/data-glow-proof-to-post-canvas.js`, `test/proof-to-post.test.mjs` |
+|  | A readable receipt for the Safe Harbor screen that refuses to read as a clearance | `js/privacy/deid-receipt.js`, `js/provenance/deidentification-verifier.js`, `js/proofpost/data-glow-proof-to-post-canvas.js`, `test/proof-to-post.test.mjs` |
+|  | A number read off a generated query can be kept as a tile that carries the query with it | `js/nl-sql/nl-sql-ui.js`, `js/proofboard/data-glow-proof-board-canvas.js`, `js/proofboard/proof-board.js` |
+| AI and narrative | A persistent chip says whether the built-in model is running on this machine, and why it is not when it is not | `js/ai/local-ai-status.js`, `js/ai/data-glow-local-ai-canvas.js`, `js/narrative/ondevice-llm.js` |
+|  | The local model registry names the alternatives that were considered and what is actually in the way of each | `js/ai/local-ai-status.js`, `js/narrative/ondevice-llm.js` |
+|  | A model rephrase that introduces a number the engine did not produce is discarded, not shown | `js/ai/ai-claim-guard.js`, `js/agents/guarded-copilot.js`, `js/ai/prove-gate.js` |
+| Provenance and proof | A continuous strip reports the state of the proof and answers no question about the data | `js/ambient/ambient-proof-strip.js`, `js/ai/data-glow-local-ai-canvas.js` |
+| Trust and honesty | What this machine can do, with a does-not line for every does line | `js/ai/capability-ceiling.js`, `js/ai/data-glow-local-ai-canvas.js`, `js/runtimes-viz/python-runtime.js` |
+| Runtimes and polyglot | The Polars path reports whether Polars is reachable and never claims it is ready | `js/polyglot/polars-path.js`, `js/ai/data-glow-local-ai-canvas.js` |
+| Security and privacy | Every runtime this build downloads is pinned to an exact version at a named origin, and the CSP is derived from that list | `js/ai/model-supply-chain.js`, `js/security/csp-policy.js`, `js/ai/data-glow-local-ai-canvas.js` |
+| Built-in AI | The built-in AI chip can reach ready, because loaded now means an engine exists rather than a download having started | `js/narrative/ondevice-llm.js`, `js/ai/data-glow-local-ai-canvas.js` |
+| Workflow | A start-here rail showing Drop, Ask, Prove, Ship and Compound, read from what is on screen rather than from a stored step counter | `js/spine/receipt-spine.js`, `js/spine/data-glow-receipt-spine-canvas.js` |
+| Built-in AI | The desktop llama.cpp sidecar path is complete and honest about the binary not being in this build | `js/ai/desktop-local-llm.js`, `js/ai/data-glow-local-ai-canvas.js` |
+| Runtimes and polyglot | SQL starter material that leads with what DuckDB will not do and then hands over ten queries that run | `js/polyglot/sql-power-pack.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | Python starter cells that state the bridge row limit before the first recipe rather than after a wrong answer | `js/polyglot/python-power-pack.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | R starter cells that list what cannot run in this session with the reason, rather than hiding it | `js/polyglot/r-power-pack.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | SUMMARIZE promoted to Proof Board tiles, CSV rejects surfaced, and eleven more SQL recipes | `js/polyglot/sql-deepen.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+| Data quality | A CSV load quarantine that reads DuckDB's rejected rows before dropping them, with a keep-good-rows or abandon-load choice and a receipt either way | `js/dataquality/csv-quarantine.js`, `js/dataquality/data-glow-csv-quarantine-canvas.js` |
+| Excel Hell | Import-time scan for values at risk of silent type coercion, such as a gene symbol read as a date | `js/intelligence/excel-type-guard.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+| Runtimes and polyglot | A real polars, scikit-learn, statsmodels and pyarrow probe, with recipes gated on what it finds | `js/polyglot/python-deepen.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | dplyr, tidyr and base R recipes gated on real package state, with Air-Gap Mode blocking any install | `js/polyglot/r-deepen.js`, `js/runtimes-viz/r-runtime.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | Ready, partial or missing status for the DuckDB-to-Python bridge, with the 200,000-row JSON ceiling stated | `js/polyglot/arrow-bridge.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+| Excel Hell | A plain statement that Power Query M is not embedded, with the concrete DataGlow equivalent for each M step | `js/polyglot/power-query-note.js`, `js/ai/capability-ceiling.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+| Local AI | A packaging path and status for the desktop llama.cpp sidecar binary, present only when the binary is present | `js/ai/llama-sidecar-packaging.js`, `scripts/fetch-llama-sidecar.mjs` |
+| Runtimes and polyglot | An append-only Repair Ledger of every step this session, the Applied Steps list Power Query has and DataGlow did not | `js/spine/repair-ledger.js`, `js/spine/data-glow-repair-ledger-canvas.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | Fifteen DuckDB SQL templates matching the Power Query step shapes, never M | `js/polyglot/pq-parity-recipes.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+|  | Four-state Arrow bridge transfer status (arrow_ipc/batch_bridge/json_bridge/missing) plus a working typed-array batch path | `js/polyglot/arrow-bridge.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+| Local AI | Dry-run and three-state fetch status (missing/fetched_unwired/ready) for the desktop llama.cpp sidecar binary | `scripts/fetch-llama-sidecar.mjs`, `js/ai/llama-sidecar-packaging.js`, `docs/desktop-llama-sidecar.md` |
+| Runtimes and polyglot | Four project-fit lane cards (SQL, Python, Excel, R) naming when to stay and when to hand off, never any project | `js/polyglot/project-lanes.js`, `js/polyglot/data-glow-power-packs-canvas.js` |
+| Query & analysis | DuckDB-WASM multi-CDN load harden (shared CDN candidate list and version pin) | `js/sql/duckdb-load-harden.js` |
+| Runtimes and polyglot | R Air-Gap prebundle manifest: honest intent-vs-reality status for a target list of R packages, never a false offline claim | `js/polyglot/r-air-gap-prebundle.js` |
+| Provenance, audit & trust | Proof Harness v0 (VERDICT): typed proposal, GREEN/RED/GRAY verdict engine, hash-chained receipt ledger, claim bar canvas panel | `js/proof-harness/proposal.js`, `js/proof-harness/verdict.js`, `js/proof-harness/score-claim.js`, `js/proof-harness/receipt.js`, `js/proof-harness/index.js`, `js/proof-harness/data-glow-proof-harness-canvas.js`, `test/proof-harness-v0.test.mjs` |
+|  | Proof Harness v1: Second Engine Rule corroboration, Regression Vault, Proof Cartridge, review Inbox, AMBER staleness | `js/proof-harness/second-engine.js`, `js/proof-harness/vault.js`, `js/proof-harness/cartridge.js`, `js/proof-harness/inbox.js`, `js/proof-harness/verdict.js`, `js/proof-harness/index.js`, `js/proof-harness/data-glow-proof-harness-canvas.js`, `test/proof-harness-v1.test.mjs` |
+|  | Proof Harness v2.0 foundation: adversary pack, Excel claim path, Proof Mesh attestation | `js/proof-harness/adversary.js`, `js/proof-harness/excel-claim.js`, `js/proof-harness/mesh-attestation.js`, `js/proof-harness/data-glow-proof-harness-canvas.js`, `test/proof-harness-v2-adversary-excel-mesh.test.mjs` |
+| Questions, framing & narrative | Question Scout (A49/A49.2): local keeper proposals, deterministic filter + template fallback, Send to Prove, v2 dictionary/join-hints/healthcare-idr pack/quality meter/export | `js/question-scout/question-scout.js`, `js/question-scout/data-glow-question-scout-canvas.js`, `test/a49-question-scout.test.mjs`, `test/a49.2-scout-v2.test.mjs` |
+| App shell & workflow | Project Run (R1): guided Ingest-Purpose-Validate-Scout-Prove-Narrate-Export checklist with local persistence | `js/spine/project-run.js`, `js/spine/data-glow-project-run-canvas.js`, `test/r1-project-run.test.mjs` |
+| Export & proof packaging | R3 Capture + R4 Ship Pack (R3_R4_CAPTURE_SHIP_SPEC.md): local step screenshots and an honest, no-overclaim export bundle | `js/capture/capture.js`, `js/capture/data-glow-capture-canvas.js`, `js/ship-pack/ship-pack.js`, `js/ship-pack/data-glow-ship-pack-canvas.js`, `test/r3-r4-capture-ship-pack.test.mjs` |
 
-_96 capabilities across 27 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
+_274 capabilities across 69 areas, generated from `capability-map.manifest.json` — the same file the capability-map drift gate validates. Do not edit by hand; run `npm run docs:dashboard`._
 <!-- CAPABILITY_TABLE_END -->
 
 ## Known Simplifications
