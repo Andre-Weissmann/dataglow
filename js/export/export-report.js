@@ -16,11 +16,12 @@
 //                            UI makes.
 //
 // Dependencies: Excel export needs the SheetJS (XLSX) library exposed as the
-// global `XLSX`. The file IS vendored at assets/xlsx/xlsx-0.18.5.full.min.js,
-// but as of this comment only the root index.html loads it; canvas/index.html
-// has no script tag for it at all, so on the canvas surface `window.XLSX` is
-// undefined and every Excel export throws the error below. Do not read this
-// header as a guarantee that XLSX is present. Check for it. The PDF is produced by a tiny, dependency-free, first-party
+// global `XLSX`. It is vendored at assets/xlsx/xlsx-0.20.3.full.min.js and is
+// now loaded by BOTH the root index.html and canvas/index.html, so on every
+// shipped surface `window.XLSX` is defined. Provenance for that file, including
+// its SHA-256, lives in assets/xlsx/PROVENANCE.md. Still check for the global
+// before using it: an embedder could strip the tag, and a clear message beats a
+// TypeError. The PDF is produced by a tiny, dependency-free, first-party
 // text-PDF writer below (a plain summary page), so no heavy PDF library is
 // added. Everything is 100% local; nothing here performs a network request.
 //

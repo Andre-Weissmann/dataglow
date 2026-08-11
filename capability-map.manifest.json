@@ -4722,6 +4722,35 @@
       "status": "shipped"
     },
     {
+      "id": "excel-import",
+      "area": "App shell & data engine",
+      "name": "Excel workbook reader (xlsx and xls parsed on device with the vendored SheetJS build, messy sheets reported rather than silently repaired)",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "files": [
+        "js/shared/excel-import.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/shared/excel-import.js",
+          "name": "aoaToDataset"
+        },
+        {
+          "file": "js/shared/excel-import.js",
+          "name": "findHeaderRow"
+        },
+        {
+          "file": "js/shared/excel-import.js",
+          "name": "summarizeSheets"
+        }
+      ],
+      "relatedFlags": [],
+      "status": "shipped"
+    },
+    {
       "id": "export-engine",
       "area": "Sharing & collaboration",
       "name": "Export Everything (PR AJ \u2014 CSV, chart PNG, PDF report, all client-side, zero server, zero uploads)",

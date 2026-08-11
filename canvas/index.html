@@ -11197,8 +11197,8 @@ body {
         <path d="M16 14v-2a2 2 0 012-2h12a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
       <p id="drop-text">Drop your data here to begin</p>
-      <p id="drop-formats">CSV, TSV, JSON, NDJSON, TXT, LOG, X12 EDI. Images are read with on-device OCR.</p>
-      <input type="file" id="file-input" class="hidden" multiple accept=".csv,text/csv,.tsv,text/tab-separated-values,.json,application/json,.ndjson,.jsonl,application/x-ndjson,.txt,text/plain,.log,.x12,.edi,.png,image/png,.jpg,.jpeg,image/jpeg,.webp,image/webp,.bmp,image/bmp,.gif,image/gif">
+      <p id="drop-formats">CSV, TSV, JSON, NDJSON, TXT, LOG, X12 EDI, Excel (.xlsx, .xls). Images are read with on-device OCR.</p>
+      <input type="file" id="file-input" class="hidden" multiple accept=".csv,text/csv,.tsv,text/tab-separated-values,.json,application/json,.ndjson,.jsonl,application/x-ndjson,.txt,text/plain,.log,.x12,.edi,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,application/vnd.ms-excel,.png,image/png,.jpg,.jpeg,image/jpeg,.webp,image/webp,.bmp,image/bmp,.gif,image/gif">
     </div>
     <div id="reveal-file-name" class="hidden"></div>
     <div id="reveal-progress-bar" class="hidden"><div id="progress-fill"></div></div>
@@ -12336,6 +12336,18 @@ body {
   <div class="badges-list" id="badges-list"></div>
 </div>
 
+<!-- SheetJS (xlsx), Apache-2.0, vendored at assets/xlsx/ and served from
+     DataGlow's own origin. NOT a CDN reference: the zero-upload, works-offline
+     promise is the product, and a third-party fetch at page load would break it
+     on the first page view. Version, size, SHA-256 and the exact official
+     download URL are recorded in assets/xlsx/PROVENANCE.md.
+
+     The canvas is served from /canvas/, so the path is relative to the parent
+     directory. Before this tag existed the canvas had no script tag for SheetJS
+     at all, window.XLSX was undefined here, Excel import fell through to the
+     unsupported-format branch and Excel export was a dead button. -->
+<script src="../assets/xlsx/xlsx-0.20.3.full.min.js"></script>
+
 <script>
 (function () {
   'use strict';
@@ -12453,18 +12465,328 @@ body {
   if (typeof window !== 'undefined') window.DGRowShape = DGRowShape;
   /* ---- end row-shape.js ---- */
 
+  /* ---- from js/shared/excel-import.js ---- */
+  var DGExcel = (function () {
+    /**
+     * excel-import.js - turn a SheetJS worksheet into a DataGlow dataset.
+     *
+     * DataGlow rows are POSITIONAL ARRAYS and columns are { name, type } objects
+     * (see js/shared/row-shape.js). This module is the single place that converts
+     * a sheet's array-of-arrays into that shape.
+     *
+     * It is deliberately pure: it takes an array of arrays plus a small options
+     * object and returns a plain result. It never touches the DOM, never fetches,
+     * and does not require the XLSX global, so it is testable under plain Node.
+     *
+     * Real spreadsheets are messy. Rather than silently mangling them, this module
+     * DETECTS and REPORTS the common problems and says what it did about each one:
+     *
+     *   - blank leading rows before the real header
+     *   - a header row that is not row 1
+     *   - trailing all-empty columns (Excel pads the used range constantly)
+     *   - blank or duplicated header cells
+     *   - merged cells, which flatten to a value in the first cell and blanks after
+     *   - dates stored as Excel serial numbers
+     *   - numbers stored as text
+     *
+     * Public API:
+     *   sheetIsEmpty(aoa)                   -> boolean
+     *   findHeaderRow(aoa)                  -> index into aoa, or -1
+     *   normalizeHeaders(cells)             -> { names, notes }
+     *   excelSerialToISO(serial, is1904)    -> 'YYYY-MM-DD' or null
+     *   aoaToDataset(aoa, name, opts)       -> { columns, rows, notes, headerRowIndex }
+     */
+
+    // Excel's day 0 is 1899-12-30 in the 1900 date system (the off-by-one is
+    // Excel's, not ours: it thinks 1900 was a leap year). The 1904 system, used by
+    // some old Mac workbooks, starts at 1904-01-01.
+    var EPOCH_1900_MS = Date.UTC(1899, 11, 30);
+    var EPOCH_1904_MS = Date.UTC(1904, 0, 1);
+    var MS_PER_DAY = 86400000;
+
+    // A serial outside this window is almost certainly a plain number, not a date.
+    // 1 is 1899-12-31; 100000 is well past the year 2170.
+    var MIN_DATE_SERIAL = 1;
+    var MAX_DATE_SERIAL = 100000;
+
+    function isBlankCell(v) {
+      return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+    }
+
+    function rowIsBlank(row) {
+      return !row || !row.length || row.every(isBlankCell);
+    }
+
+    function sheetIsEmpty(aoa) {
+      return !aoa || !aoa.length || aoa.every(rowIsBlank);
+    }
+
+    /**
+     * Find the header row. Excel exports routinely start with a title, a blank
+     * line, and a merged banner before the real column names. The header is taken
+     * to be the first non-blank row whose cells are mostly short, non-numeric
+     * strings, and which is followed by at least one row of the same width.
+     */
+    function findHeaderRow(aoa) {
+      if (!aoa || !aoa.length) return -1;
+      var limit = Math.min(aoa.length, 20);
+      var best = -1;
+      var bestScore = -1;
+
+      for (var i = 0; i < limit; i++) {
+        var row = aoa[i];
+        if (rowIsBlank(row)) continue;
+
+        var filled = 0;
+        var stringy = 0;
+        for (var c = 0; c < row.length; c++) {
+          if (isBlankCell(row[c])) continue;
+          filled++;
+          var v = row[c];
+          if (typeof v === 'string' && v.trim().length > 0 && v.trim().length <= 120 && !/^-?[\d.,]+$/.test(v.trim())) {
+            stringy++;
+          }
+        }
+        if (!filled) continue;
+
+        // A header should be mostly text and should have more than one filled cell,
+        // otherwise it is a title line.
+        var score = (stringy / filled) * 100 + Math.min(filled, 20);
+        if (filled === 1) score -= 60;
+
+        if (score > bestScore) { bestScore = score; best = i; }
+        // A clean, fully textual, multi-column row is good enough. Stop looking.
+        if (filled > 1 && stringy === filled) return i;
+      }
+      return best;
+    }
+
+    /** Blank and duplicate header cells get stable, obvious names. */
+    function normalizeHeaders(cells) {
+      var notes = [];
+      var seen = {};
+      var names = [];
+      var blanks = 0;
+      var dupes = 0;
+
+      for (var i = 0; i < cells.length; i++) {
+        var raw = cells[i];
+        var name = isBlankCell(raw) ? '' : String(raw).trim();
+        if (!name) {
+          name = 'column_' + (i + 1);
+          blanks++;
+        }
+        if (Object.prototype.hasOwnProperty.call(seen, name)) {
+          seen[name] += 1;
+          name = name + '_' + seen[name];
+          dupes++;
+        } else {
+          seen[name] = 1;
+        }
+        names.push(name);
+      }
+
+      if (blanks) {
+        notes.push(blanks + ' header cell' + (blanks === 1 ? ' was' : 's were') +
+          ' blank and got a placeholder name such as column_3.');
+      }
+      if (dupes) {
+        notes.push(dupes + ' header name' + (dupes === 1 ? ' was' : 's were') +
+          ' duplicated and got a numeric suffix so each column stays addressable.');
+      }
+      return { names: names, notes: notes };
+    }
+
+    /** Excel serial number to an ISO date string. Returns null if out of range. */
+    function excelSerialToISO(serial, is1904) {
+      if (typeof serial !== 'number' || !isFinite(serial)) return null;
+      if (serial < MIN_DATE_SERIAL || serial > MAX_DATE_SERIAL) return null;
+      var base = is1904 ? EPOCH_1904_MS : EPOCH_1900_MS;
+      var ms = base + Math.round(serial * MS_PER_DAY);
+      var d = new Date(ms);
+      if (isNaN(d.getTime())) return null;
+      var iso = d.toISOString();
+      // A whole-day serial has no time component worth showing.
+      return serial % 1 === 0 ? iso.slice(0, 10) : iso.slice(0, 19).replace('T', ' ');
+    }
+
+    /** True when a string is really a number wearing a text costume. */
+    function looksNumericText(v) {
+      if (typeof v !== 'string') return false;
+      var s = v.trim();
+      if (!s) return false;
+      // Allow a leading currency symbol, thousands separators, and a trailing
+      // percent, since those are exactly how Excel stores "numbers as text".
+      return /^[-+]?[$£€]?\s?\d{1,3}(,\d{3})*(\.\d+)?%?$/.test(s) ||
+             /^[-+]?[$£€]?\s?\d+(\.\d+)?%?$/.test(s);
+    }
+
+    function inferType(values) {
+      var nonBlank = values.filter(function (v) { return !isBlankCell(v); });
+      if (!nonBlank.length) return 'STR';
+      var allNum = nonBlank.every(function (v) { return typeof v === 'number'; });
+      if (allNum) return nonBlank.every(function (v) { return v % 1 === 0; }) ? 'INT' : 'NUM';
+      var allBool = nonBlank.every(function (v) { return typeof v === 'boolean'; });
+      if (allBool) return 'BOOL';
+      return 'STR';
+    }
+
+    /**
+     * Convert an array of arrays into a DataGlow dataset.
+     *
+     * opts:
+     *   dateColumns  array of 0-based column indexes SheetJS says are date-formatted
+     *   merges       SheetJS `!merges` list, used only to report the count
+     *   is1904       workbook uses the 1904 date system
+     *   sheetName    for the notes
+     */
+    function aoaToDataset(aoa, name, opts) {
+      opts = opts || {};
+      var notes = [];
+
+      if (sheetIsEmpty(aoa)) {
+        return { columns: [], rows: [], notes: ['This sheet is empty. Nothing was loaded from it.'], headerRowIndex: -1 };
+      }
+
+      var headerRowIndex = findHeaderRow(aoa);
+      if (headerRowIndex === -1) headerRowIndex = 0;
+      if (headerRowIndex > 0) {
+        notes.push('The header was not on row 1. Row ' + (headerRowIndex + 1) +
+          ' was used as the header and the ' + headerRowIndex + ' row' +
+          (headerRowIndex === 1 ? '' : 's') + ' above it were skipped.');
+      }
+
+      var headerCells = aoa[headerRowIndex] || [];
+      var bodyRaw = aoa.slice(headerRowIndex + 1).filter(function (r) { return !rowIsBlank(r); });
+
+      // Widest row wins, so a short header does not truncate real data.
+      var width = headerCells.length;
+      bodyRaw.forEach(function (r) { if (r.length > width) width = r.length; });
+
+      // Trim trailing columns that are empty in the header AND in every data row.
+      // Excel pads the used range constantly and those phantom columns are noise.
+      var lastUsed = -1;
+      for (var c = 0; c < width; c++) {
+        var used = !isBlankCell(headerCells[c]);
+        if (!used) {
+          for (var r = 0; r < bodyRaw.length; r++) {
+            if (!isBlankCell(bodyRaw[r][c])) { used = true; break; }
+          }
+        }
+        if (used) lastUsed = c;
+      }
+      var trimmed = width - (lastUsed + 1);
+      if (trimmed > 0) {
+        notes.push(trimmed + ' trailing empty column' + (trimmed === 1 ? ' was' : 's were') +
+          ' dropped. Excel pads the used range with blanks.');
+      }
+      width = lastUsed + 1;
+      if (width <= 0) {
+        return { columns: [], rows: [], notes: ['This sheet has no usable columns. Nothing was loaded from it.'], headerRowIndex: headerRowIndex };
+      }
+
+      var header = normalizeHeaders(headerCells.slice(0, width));
+      notes = notes.concat(header.notes);
+
+      var dateCols = {};
+      (opts.dateColumns || []).forEach(function (i) { if (i < width) dateCols[i] = true; });
+
+      // Build positional-array rows, converting as we go and counting what we did.
+      var serialDatesConverted = 0;
+      var numericTextCells = 0;
+      var columnValues = [];
+      for (var i = 0; i < width; i++) columnValues.push([]);
+
+      var rows = bodyRaw.map(function (raw) {
+        var out = new Array(width);
+        for (var c2 = 0; c2 < width; c2++) {
+          var v = c2 < raw.length ? raw[c2] : null;
+          if (v === undefined) v = null;
+
+          if (dateCols[c2] && typeof v === 'number') {
+            var iso = excelSerialToISO(v, !!opts.is1904);
+            if (iso !== null) { v = iso; serialDatesConverted++; }
+          } else if (typeof v === 'string' && looksNumericText(v)) {
+            numericTextCells++;
+          }
+          out[c2] = v;
+          columnValues[c2].push(v);
+        }
+        return out;
+      });
+
+      if (serialDatesConverted) {
+        notes.push(serialDatesConverted + ' cell' + (serialDatesConverted === 1 ? '' : 's') +
+          ' held a date as an Excel serial number and ' + (serialDatesConverted === 1 ? 'was' : 'were') +
+          ' converted to a readable date.');
+      }
+      if (numericTextCells) {
+        notes.push(numericTextCells + ' cell' + (numericTextCells === 1 ? '' : 's') +
+          ' look like numbers but are stored as text, often because of a currency symbol or a thousands separator. ' +
+          'They were left exactly as they are so nothing is invented. Clean them before doing arithmetic on that column.');
+      }
+      var mergeCount = (opts.merges || []).length;
+      if (mergeCount) {
+        notes.push(mergeCount + ' merged cell range' + (mergeCount === 1 ? '' : 's') +
+          ' in this sheet. A merged range keeps its value in the first cell and the rest read as blank. ' +
+          'Check those columns before trusting them.');
+      }
+
+      var columns = header.names.map(function (n, i) {
+        return { name: n, type: inferType(columnValues[i]) };
+      });
+
+      return { columns: columns, rows: rows, notes: notes, headerRowIndex: headerRowIndex };
+    }
+
+    /**
+     * A small summary per sheet so the UI can offer a real choice instead of
+     * silently taking the first sheet.
+     */
+    function summarizeSheets(sheetNames, getAoa) {
+      return (sheetNames || []).map(function (sheetName) {
+        var aoa = getAoa(sheetName) || [];
+        var body = aoa.filter(function (r) { return !rowIsBlank(r); });
+        var headerIdx = findHeaderRow(aoa);
+        var headerCells = headerIdx >= 0 ? (aoa[headerIdx] || []) : [];
+        var cols = headerCells.filter(function (c) { return !isBlankCell(c); }).length;
+        return {
+          name: sheetName,
+          rowCount: Math.max(0, body.length - (headerIdx >= 0 ? 1 : 0)),
+          columnCount: cols,
+          empty: sheetIsEmpty(aoa),
+        };
+      });
+    }
+
+    return {
+      isBlankCell: isBlankCell,
+      rowIsBlank: rowIsBlank,
+      sheetIsEmpty: sheetIsEmpty,
+      findHeaderRow: findHeaderRow,
+      normalizeHeaders: normalizeHeaders,
+      excelSerialToISO: excelSerialToISO,
+      looksNumericText: looksNumericText,
+      inferType: inferType,
+      aoaToDataset: aoaToDataset,
+      summarizeSheets: summarizeSheets
+    };
+  })();
+  if (typeof window !== 'undefined') window.DGExcel = DGExcel;
+  /* ---- end excel-import.js ---- */
+
   /* ---- from js/drop-zone/drop-zone-router.js ---- */
   var DropZoneRouter = (function () {
     var FORMAT_HANDLERS = {
       csv: 'duckdb', tsv: 'duckdb', json: 'duckdb', ndjson: 'duckdb', parquet: 'duckdb',
-      xlsx: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs',
+      xlsx: 'univer', xls: 'univer', pdf: 'rag', audio: 'whisper', video: 'webcodecs',
       txt: 'duckdb', log: 'duckdb', arrow: 'duckdb', feather: 'duckdb', xml: 'rag',
       image: 'ocr', x12: 'x12parser',
       unknown: 'unknown'
     };
     var FORMAT_ICONS = {
       csv: 'table', tsv: 'table', json: 'table', ndjson: 'table', parquet: 'table',
-      xlsx: 'grid', pdf: 'document', audio: 'audio', video: 'video',
+      xlsx: 'grid', xls: 'grid', pdf: 'document', audio: 'audio', video: 'video',
       txt: 'table', log: 'table', arrow: 'table', feather: 'table', xml: 'document',
       image: 'document', x12: 'table',
       unknown: 'unknown'
@@ -12488,6 +12810,15 @@ body {
     function bytesStartWithPK(bytes) {
       return !!bytes && bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b;
     }
+    /* OLE2 / Compound File Binary header, the container legacy .xls uses. */
+    var CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+    function isCfbContainer(bytes) {
+      if (!bytes || bytes.length < CFB_MAGIC.length) return false;
+      for (var i = 0; i < CFB_MAGIC.length; i++) {
+        if (bytes[i] !== CFB_MAGIC[i]) return false;
+      }
+      return true;
+    }
     function handlerForFormat(format) { return FORMAT_HANDLERS[format] || 'unknown'; }
     function iconForFormat(format) { return FORMAT_ICONS[format] || 'unknown'; }
 
@@ -12507,6 +12838,15 @@ body {
       }
       if (bytesStartWithPK(firstBytes) && ext === '.xlsx') {
         return { format: 'xlsx', confidence: 'high', handler: handlerForFormat('xlsx') };
+      }
+      /* Legacy .xls is an OLE2 / CFB container, magic D0 CF 11 E0 A1 B1 1A E1.
+         The same container is used by old .doc and .ppt files, so the extension
+         still has to agree before we call it a spreadsheet. */
+      if (isCfbContainer(firstBytes) && (ext === '.xls' || ext === '.xlsb')) {
+        return { format: 'xls', confidence: 'high', handler: handlerForFormat('xls') };
+      }
+      if (!firstBytes && (ext === '.xlsx' || ext === '.xls' || ext === '.xlsb')) {
+        return { format: ext === '.xlsx' ? 'xlsx' : 'xls', confidence: 'medium', handler: handlerForFormat(ext === '.xlsx' ? 'xlsx' : 'xls') };
       }
       if (mime === 'text/csv') {
         return { format: 'csv', confidence: 'medium', handler: handlerForFormat('csv') };
@@ -12553,6 +12893,7 @@ body {
       if (ext === '.json') return { format: 'json', confidence: 'low', handler: handlerForFormat('json') };
       if (ext === '.ndjson') return { format: 'json', confidence: 'low', handler: handlerForFormat('json') };
       if (ext === '.xlsx') return { format: 'xlsx', confidence: 'low', handler: handlerForFormat('xlsx') };
+      if (ext === '.xls' || ext === '.xlsb') return { format: 'xls', confidence: 'low', handler: handlerForFormat('xls') };
       if (ext === '.pdf') return { format: 'pdf', confidence: 'low', handler: handlerForFormat('pdf') };
       if (ext === '.txt' || ext === '.log') return { format: 'txt', confidence: 'low', handler: handlerForFormat('txt') };
       if (ext === '.arrow') return { format: 'arrow', confidence: 'low', handler: handlerForFormat('arrow') };
@@ -14467,7 +14808,7 @@ var LiveWireEngine = window.LiveWireEngine = (function () {
    * the product could parse them, so a watched folder would pick them up and
    * hand them to the branch that used to fabricate a dataset.
    */
-  var ACCEPTED = /\.(csv|tsv|json|ndjson|jsonl|x12|edi|txt|log)$/i;
+  var ACCEPTED = /\.(csv|tsv|json|ndjson|jsonl|x12|edi|txt|log|xlsx|xls)$/i;
 
   function _snapshot(dirHandle, cb) {
     var iter = dirHandle.values ? dirHandle.values() : null;
@@ -25074,7 +25415,7 @@ var InstantInsight = (function () {
       var ds = typeof getActiveDataset === 'function' ? getActiveDataset() : null;
       if (ds && typeof ExportEngine !== 'undefined' && ExportEngine.exportCSV) {
         ExportEngine.exportCSV(ds, 'dataglow-export');
-        if (typeof window.showToast === 'function') window.showToast('XLSX module loading -- exported CSV instead', 'info');
+        if (typeof window.showToast === 'function') window.showToast('The Excel writer is not available on this page. A CSV was exported instead.', 'info');
       }
     }
     exportPanelOpen = false; exportPanel.classList.add('hidden');
@@ -26464,6 +26805,14 @@ var InstantInsight = (function () {
         advance();
       };
       x12reader.readAsText(file);
+    } else if (fmt === 'xlsx' || fmt === 'xls') {
+      /*
+       * Excel. SheetJS is vendored at assets/xlsx/ and loaded by a real script
+       * tag at the top of this file, so window.XLSX exists on this surface. It
+       * is still checked, because a missing global should produce a sentence a
+       * person can act on rather than a TypeError in the console.
+       */
+      ingestExcelFile(file, name, fmt, fileHash, seenBefore, advance);
     } else {
       /*
        * Formats with no parser: Parquet, PDF, Arrow, Feather, XML, audio,
@@ -26494,14 +26843,15 @@ var InstantInsight = (function () {
     feather: 'Feather files are not supported yet. Write the table out as CSV from pandas or pyarrow, then drop the CSV here.',
     xml: 'XML files are not supported yet. Convert the records to CSV or JSON, then drop that file here.',
     audio: 'Audio files are not supported yet. There is no transcription in DataGlow today. If you already have a transcript, save it as a .txt file and drop that here.',
-    video: 'Video files are not supported yet. There is no transcription in DataGlow today. If you already have a transcript, save it as a .txt file and drop that here.',
-    xlsx: 'Excel files are not supported yet. In Excel, use File then Save As and choose CSV UTF-8, then drop the CSV here.',
-    xls: 'Excel files are not supported yet. In Excel, use File then Save As and choose CSV UTF-8, then drop the CSV here.'
+    video: 'Video files are not supported yet. There is no transcription in DataGlow today. If you already have a transcript, save it as a .txt file and drop that here.'
+    /* No xlsx or xls entry on purpose. Excel is parsed for real now, by the
+       vendored SheetJS build, so it never reaches this refusal table. If you
+       are re-adding an entry here, something has regressed. */
   };
 
   var FORMAT_DISPLAY_NAMES = {
     parquet: 'Parquet', pdf: 'PDF', arrow: 'Arrow', feather: 'Feather',
-    xml: 'XML', audio: 'audio', video: 'video', xlsx: 'Excel', xls: 'Excel',
+    xml: 'XML', audio: 'audio', video: 'video',
     unknown: 'unrecognised'
   };
 
@@ -26548,10 +26898,287 @@ var InstantInsight = (function () {
     notice.hidden = false;
   }
 
+
+  /* ============================================================
+     EXCEL INGESTION (SheetJS, vendored, fully local)
+     ============================================================
+     Reads a real .xlsx or .xls workbook in the browser with no upload and no
+     network call. The bytes never leave the machine: FileReader gives us an
+     ArrayBuffer, SheetJS parses it in memory, and the result is turned into
+     DataGlow's positional-array row shape by DGExcel (js/shared/excel-import.js).
+
+     Three things this deliberately does NOT do:
+       1. Silently take sheet 1. A workbook with more than one non-empty sheet
+          asks the user which sheet to load.
+       2. Silently repair mess. Header not on row 1, blank leading rows, merged
+          ranges, Excel serial dates and numbers-stored-as-text are all reported
+          in plain language, with what was done about each.
+       3. Invent a value. Numbers stored as text stay text. DataGlow says so
+          rather than coercing and hoping.
+     ============================================================ */
+
+  function excelUnavailableMessage() {
+    return 'The Excel reader did not load, so this workbook was not opened. ' +
+      'Reload the page. If it keeps happening, save the sheet as CSV and drop that here.';
+  }
+
+  function ingestExcelFile(file, name, fmt, fileHash, seenBefore, advance) {
+    if (typeof window === 'undefined' || !window.XLSX || typeof window.XLSX.read !== 'function') {
+      setAgentStatus(excelUnavailableMessage());
+      showUnsupportedFormatNotice(name, fmt);
+      advance();
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function () {
+      setAgentStatus('DataGlow could not read ' + name + ' off disk. Nothing was loaded.');
+      advance();
+    };
+    reader.onload = function (e) {
+      var workbook;
+      try {
+        workbook = window.XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      } catch (err) {
+        setAgentStatus('DataGlow could not open ' + name + ' as a workbook: ' + (err && err.message ? err.message : 'unreadable file') +
+          '. Nothing was loaded.');
+        showUnsupportedFormatNotice(name, fmt);
+        advance();
+        return;
+      }
+      var sheetNames = workbook.SheetNames || [];
+      var summaries = DGExcel.summarizeSheets(sheetNames, function (sn) { return excelSheetToAoa(workbook, sn); });
+      var usable = summaries.filter(function (s2) { return !s2.empty; });
+
+      if (!usable.length) {
+        setAgentStatus('Every sheet in ' + name + ' is empty. Nothing was loaded.');
+        advance();
+        return;
+      }
+      if (usable.length === 1) {
+        loadExcelSheet(workbook, usable[0].name, name, fmt, fileHash, seenBefore, advance, summaries);
+        return;
+      }
+      showSheetPicker(summaries, name, function (chosen) {
+        loadExcelSheet(workbook, chosen, name, fmt, fileHash, seenBefore, advance, summaries);
+      }, advance);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function excelSheetToAoa(workbook, sheetName) {
+    var ws = workbook.Sheets[sheetName];
+    if (!ws) return [];
+    return window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: true });
+  }
+
+  /* SheetJS marks date-formatted cells with cell.t === 'd' when cellDates is on,
+     but with raw parsing a date is just a number. Walk the header-relative
+     columns once and note which ones carry a date number format, so DGExcel can
+     turn 45292 back into 2024-01-01 instead of showing a five-digit integer. */
+  function excelDateColumns(workbook, sheetName, headerRowIndex) {
+    var ws = workbook.Sheets[sheetName];
+    if (!ws || !ws['!ref']) return [];
+    var X = window.XLSX;
+    var range = X.utils.decode_range(ws['!ref']);
+    var found = {};
+    var firstDataRow = range.s.r + (headerRowIndex >= 0 ? headerRowIndex + 1 : 0);
+    var lastProbeRow = Math.min(range.e.r, firstDataRow + 50);
+    for (var c = range.s.c; c <= range.e.c; c++) {
+      for (var r = firstDataRow; r <= lastProbeRow; r++) {
+        var cell = ws[X.utils.encode_cell({ r: r, c: c })];
+        if (!cell) continue;
+        if (cell.t === 'd') { found[c - range.s.c] = true; break; }
+        if (cell.t === 'n' && typeof cell.z === 'string' && /[dmyh]/i.test(cell.z) && !/^[0#,.%]+$/.test(cell.z)) {
+          found[c - range.s.c] = true;
+          break;
+        }
+      }
+    }
+    return Object.keys(found).map(Number);
+  }
+
+  function loadExcelSheet(workbook, sheetName, fileName, fmt, fileHash, seenBefore, advance, summaries) {
+    var aoa = excelSheetToAoa(workbook, sheetName);
+    var headerRowIndex = DGExcel.findHeaderRow(aoa);
+    var ws = workbook.Sheets[sheetName] || {};
+    var result = DGExcel.aoaToDataset(aoa, fileName, {
+      dateColumns: excelDateColumns(workbook, sheetName, headerRowIndex),
+      merges: ws['!merges'] || [],
+      is1904: !!(workbook.Workbook && workbook.Workbook.WBProps && workbook.Workbook.WBProps.date1904),
+      sheetName: sheetName
+    });
+
+    if (!result.columns.length || !result.rows.length) {
+      setAgentStatus('Sheet "' + sheetName + '" in ' + fileName + ' has no rows under its header. Nothing was loaded.');
+      showExcelNotes(fileName, sheetName, result.notes.length ? result.notes : ['This sheet had a header but no data rows.'], summaries);
+      advance();
+      return;
+    }
+
+    /* Re-run DataGlow's own type detection on the string form of each column so
+       an Excel-sourced dataset types identically to the same data as CSV. The
+       row values themselves are left exactly as read. */
+    var columns = result.columns.map(function (col, idx) {
+      var asText = result.rows.map(function (row) {
+        var v = DGRowShape.getCell(row, result.columns, idx);
+        return v === null || v === undefined ? '' : String(v);
+      });
+      return { name: col.name, type: detectType(asText) };
+    });
+
+    var dataset = { columns: columns, rows: result.rows };
+    dataset.fileHash = fileHash;
+    dataset.format = fmt;
+    dataset.sheetName = sheetName;
+    dataset.sourceSheets = (summaries || []).map(function (s2) { return s2.name; });
+    dataset.importNotes = result.notes;
+
+    var label = (summaries && summaries.length > 1)
+      ? fileName + ' [' + sheetName + ']'
+      : fileName;
+
+    setAgentStatus('Read ' + result.rows.length.toLocaleString() + ' rows and ' + columns.length +
+      ' columns from sheet "' + sheetName + '" of ' + fileName + '. Nothing was uploaded.');
+    showExcelNotes(fileName, sheetName, result.notes, summaries);
+    runSequencedReveal(dataset, label, seenBefore);
+    advance();
+  }
+
+  /* What we found and what we did about it, in the drop area, next to the same
+     spot the honest refusal uses. Never a score, never "ready". */
+  function showExcelNotes(fileName, sheetName, notes, summaries) {
+    var host = document.getElementById('drop-formats');
+    if (!host || !host.parentNode) return;
+    var box = document.getElementById('excel-import-notes');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'excel-import-notes';
+      box.setAttribute('role', 'status');
+      box.setAttribute('aria-live', 'polite');
+      box.style.cssText = 'margin:14px auto 0;max-width:520px;padding:12px 14px;border:1px solid #cfe0f5;' +
+        'background:#f4f8fd;border-radius:10px;color:#26445f;font-size:12.5px;line-height:1.55;text-align:left;';
+      host.parentNode.insertBefore(box, host.nextSibling);
+    }
+    box.innerHTML = '';
+    box.hidden = false;
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-weight:700;margin-bottom:4px;';
+    title.textContent = 'Read sheet "' + sheetName + '" from ' + fileName + ' on this device.';
+    box.appendChild(title);
+
+    if (summaries && summaries.length > 1) {
+      var other = summaries.filter(function (s2) { return s2.name !== sheetName; })
+        .map(function (s2) { return s2.name + (s2.empty ? ' (empty)' : ' (' + s2.rowCount + ' rows)'); });
+      var line = document.createElement('div');
+      line.style.cssText = 'margin-bottom:6px;';
+      line.textContent = 'Other sheets in this workbook, not loaded: ' + other.join(', ') + '.';
+      box.appendChild(line);
+    }
+
+    if (!notes || !notes.length) {
+      var clean = document.createElement('div');
+      clean.textContent = 'Header on row 1, no merged cells, no serial dates, no numbers stored as text. Nothing needed adjusting.';
+      box.appendChild(clean);
+      return;
+    }
+    var intro = document.createElement('div');
+    intro.style.cssText = 'margin-bottom:4px;';
+    intro.textContent = 'What DataGlow found in this sheet and what it did:';
+    box.appendChild(intro);
+    var ul = document.createElement('ul');
+    ul.style.cssText = 'margin:0;padding-left:18px;';
+    notes.forEach(function (n) {
+      var li = document.createElement('li');
+      li.style.cssText = 'margin:2px 0;';
+      li.textContent = n;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+
+  /* A workbook with several sheets is a choice, not a guess. Modal, keyboard
+     reachable, Escape cancels and loads nothing. */
+  function showSheetPicker(summaries, fileName, onChoose, onCancel) {
+    var existing = document.getElementById('excel-sheet-picker');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    var overlay = document.createElement('div');
+    overlay.id = 'excel-sheet-picker';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Choose a sheet to load');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(12,18,28,0.55);' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    var panel = document.createElement('div');
+    panel.style.cssText = 'background:#fff;border-radius:14px;max-width:440px;width:100%;max-height:80vh;overflow:auto;' +
+      'padding:20px;box-shadow:0 18px 48px rgba(0,0,0,0.28);font-size:13.5px;color:#1d2733;';
+
+    var h = document.createElement('div');
+    h.style.cssText = 'font-weight:700;font-size:15px;margin-bottom:4px;';
+    h.textContent = fileName + ' has ' + summaries.length + ' sheets.';
+    panel.appendChild(h);
+
+    var sub = document.createElement('div');
+    sub.style.cssText = 'margin-bottom:12px;color:#55636f;';
+    sub.textContent = 'Pick the one to load. DataGlow will not guess for you. You can drop the file again to load another sheet.';
+    panel.appendChild(sub);
+
+    function close() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(ev) {
+      if (ev.key === 'Escape') { close(); if (onCancel) onCancel(); }
+    }
+
+    var firstBtn = null;
+    summaries.forEach(function (s2) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.disabled = !!s2.empty;
+      btn.style.cssText = 'display:block;width:100%;text-align:left;margin:0 0 8px;padding:10px 12px;border-radius:9px;' +
+        'border:1px solid ' + (s2.empty ? '#e2e6ea' : '#c9d8ea') + ';background:' + (s2.empty ? '#f6f7f8' : '#fff') + ';' +
+        'cursor:' + (s2.empty ? 'not-allowed' : 'pointer') + ';color:' + (s2.empty ? '#8d979f' : '#1d2733') + ';font:inherit;';
+      var nameLine = document.createElement('div');
+      nameLine.style.cssText = 'font-weight:650;';
+      nameLine.textContent = s2.name;
+      btn.appendChild(nameLine);
+      var meta = document.createElement('div');
+      meta.style.cssText = 'font-size:12px;color:#66727d;margin-top:2px;';
+      meta.textContent = s2.empty
+        ? 'Empty sheet, nothing to load.'
+        : s2.rowCount.toLocaleString() + ' rows, ' + s2.columnCount + ' columns.';
+      btn.appendChild(meta);
+      btn.addEventListener('click', function () { close(); onChoose(s2.name); });
+      if (!firstBtn && !s2.empty) firstBtn = btn;
+      panel.appendChild(btn);
+    });
+
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Cancel, load nothing';
+    cancel.style.cssText = 'margin-top:4px;padding:8px 12px;border-radius:8px;border:1px solid #d5dbe1;background:#fff;' +
+      'cursor:pointer;font:inherit;color:#55636f;';
+    cancel.addEventListener('click', function () { close(); if (onCancel) onCancel(); });
+    panel.appendChild(cancel);
+
+    overlay.appendChild(panel);
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) { close(); if (onCancel) onCancel(); }
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    if (firstBtn) firstBtn.focus();
+  }
+
   // Drop a readable file after a refusal and the refusal goes away.
   function clearUnsupportedFormatNotice() {
     var notice = document.getElementById('drop-unsupported-notice');
     if (notice) notice.hidden = true;
+    var excelNotes = document.getElementById('excel-import-notes');
+    if (excelNotes) excelNotes.hidden = true;
   }
 
   // A lightweight "transcribing" placeholder tab shown in the tab strip while
@@ -84526,11 +85153,12 @@ function deliverBlob(blob, { platform, win } = {}) {
 //                            UI makes.
 //
 // Dependencies: Excel export needs the SheetJS (XLSX) library exposed as the
-// global `XLSX`. The file IS vendored at assets/xlsx/xlsx-0.18.5.full.min.js,
-// but as of this comment only the root index.html loads it; canvas/index.html
-// has no script tag for it at all, so on the canvas surface `window.XLSX` is
-// undefined and every Excel export throws the error below. Do not read this
-// header as a guarantee that XLSX is present. Check for it. The PDF is produced by a tiny, dependency-free, first-party
+// global `XLSX`. It is vendored at assets/xlsx/xlsx-0.20.3.full.min.js and is
+// now loaded by BOTH the root index.html and canvas/index.html, so on every
+// shipped surface `window.XLSX` is defined. Provenance for that file, including
+// its SHA-256, lives in assets/xlsx/PROVENANCE.md. Still check for the global
+// before using it: an embedder could strip the tag, and a clear message beats a
+// TypeError. The PDF is produced by a tiny, dependency-free, first-party
 // text-PDF writer below (a plain summary page), so no heavy PDF library is
 // added. Everything is 100% local; nothing here performs a network request.
 //
@@ -99011,10 +99639,15 @@ var PortfolioExport = (function () {
   function _getDataRows() {
     var ds = window.DataGlowDataset;
     if (!ds || !ds.rows || !ds.columns) return { headers: [], rows: [] };
-    return {
-      headers: ds.columns.map(function (c) { return c.name || c; }),
-      rows: ds.rows
-    };
+    /* Go through DGRowShape so the exported grid is built the same way every
+       other consumer builds it. Rows are positional arrays; reading them by
+       column name, or trusting row.length, is how columns silently shift. */
+    var shape = (typeof window !== 'undefined' && window.DGRowShape) ? window.DGRowShape : null;
+    var headers = shape ? shape.columnNames(ds.columns) : ds.columns.map(function (c) { return c.name || c; });
+    var rows = shape
+      ? ds.rows.map(function (row) { return shape.rowToArray(row, ds.columns); })
+      : ds.rows;
+    return { headers: headers, rows: rows, sheetName: ds.sheetName || '' };
   }
 
   function _getProofChainRows() {
@@ -99043,7 +99676,12 @@ var PortfolioExport = (function () {
   function exportXLSX() {
     var SheetJS = window.XLSX;
     if (!SheetJS) {
-      if (typeof window.showToast === 'function') window.showToast('SheetJS not loaded -- XLSX export unavailable', 'error');
+      /* The library is vendored at assets/xlsx/ and loaded by a script tag on
+         every shipped surface, so this should not happen. If it does, say what
+         is wrong and what still works instead of failing silently. */
+      if (typeof window.showToast === 'function') {
+        window.showToast('The Excel writer did not load, so no .xlsx was produced. Reload the page, or use Export CSV.', 'error');
+      }
       return;
     }
 

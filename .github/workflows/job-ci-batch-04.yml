@@ -226,3 +226,21 @@ jobs:
       # a file DataGlow had never opened. This suite executes the shipped
       # refusal against a minimal DOM and asserts on what the user would see.
       - run: npm run test:formathonesty
+
+  excel-roundtrip:
+    name: Excel import and export work offline with the vendored SheetJS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Bundle C. canvas/index.html had no script tag for SheetJS at all, so
+      # window.XLSX was undefined on the canvas and every Excel drop fell into
+      # the unsupported branch. The library is now vendored at assets/xlsx/ and
+      # loaded by both surfaces. This suite verifies the vendored bytes by
+      # SHA-256, runs them as a plain browser script, parses and writes real
+      # workbooks, and blocks all network access while it does so.
+      - run: npm run test:excel
