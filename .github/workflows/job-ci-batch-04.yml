@@ -210,3 +210,19 @@ jobs:
       # cartesian product. This suite runs the shipped canvas functions verbatim
       # and puts the serialised CSV through a REAL DuckDB GROUP BY, not SELECT 1.
       - run: npm run test:rowshape
+
+  unsupported-format-honesty:
+    name: Unsupported formats refuse instead of fabricating a dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Bundle B. The binary-format branch used to invent a 1-row dataset and
+      # push it through the reveal ceremony, so the user saw a health score for
+      # a file DataGlow had never opened. This suite executes the shipped
+      # refusal against a minimal DOM and asserts on what the user would see.
+      - run: npm run test:formathonesty

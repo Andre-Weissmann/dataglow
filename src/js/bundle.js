@@ -69586,9 +69586,12 @@ function deliverBlob(blob, { platform, win } = {}) {
 //                            bytes to the platform adapter. The single call the
 //                            UI makes.
 //
-// Dependencies: Excel export reuses the SheetJS (XLSX) library already vendored
-// and loaded on every page (assets/xlsx/, exposed as the global `XLSX`) — no
-// new dependency. The PDF is produced by a tiny, dependency-free, first-party
+// Dependencies: Excel export needs the SheetJS (XLSX) library exposed as the
+// global `XLSX`. The file IS vendored at assets/xlsx/xlsx-0.18.5.full.min.js,
+// but as of this comment only the root index.html loads it; canvas/index.html
+// has no script tag for it at all, so on the canvas surface `window.XLSX` is
+// undefined and every Excel export throws the error below. Do not read this
+// header as a guarantee that XLSX is present. Check for it. The PDF is produced by a tiny, dependency-free, first-party
 // text-PDF writer below (a plain summary page), so no heavy PDF library is
 // added. Everything is 100% local; nothing here performs a network request.
 //
