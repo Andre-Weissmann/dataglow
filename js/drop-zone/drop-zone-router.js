@@ -84,6 +84,7 @@ const FORMAT_HANDLERS = /** @type {Record<FileFormat, Handler>} */ ({
   ndjson: 'duckdb',
   parquet: 'duckdb',
   xlsx: 'univer',
+  xls: 'univer',
   pdf: 'rag',
   audio: 'whisper',
   video: 'webcodecs',
@@ -104,6 +105,7 @@ const FORMAT_ICONS = /** @type {Record<FileFormat, TabIcon>} */ ({
   ndjson: 'table',
   parquet: 'table',
   xlsx: 'grid',
+  xls: 'grid',
   pdf: 'document',
   audio: 'audio',
   video: 'video',
@@ -144,6 +146,18 @@ function bytesStartWithPK(bytes) {
   return !!bytes && bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b; // 'P','K'
 }
 
+/** OLE2 / Compound File Binary header, the container legacy .xls uses. */
+const CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+/** True if `bytes` starts with the OLE2 / CFB signature. */
+function isCfbContainer(bytes) {
+  if (!bytes || bytes.length < CFB_MAGIC.length) return false;
+  for (let i = 0; i < CFB_MAGIC.length; i++) {
+    if (bytes[i] !== CFB_MAGIC[i]) return false;
+  }
+  return true;
+}
+
 function handlerForFormat(format) {
   return FORMAT_HANDLERS[format] || 'unknown';
 }
@@ -179,6 +193,16 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
   }
   if (bytesStartWithPK(firstBytes) && ext === '.xlsx') {
     return { format: 'xlsx', confidence: 'high', handler: handlerForFormat('xlsx') };
+  }
+  /* Legacy .xls is an OLE2 / CFB container. The same container holds old .doc
+     and .ppt files, so the extension still has to agree before we call it a
+     spreadsheet. */
+  if (isCfbContainer(firstBytes) && (ext === '.xls' || ext === '.xlsb')) {
+    return { format: 'xls', confidence: 'high', handler: handlerForFormat('xls') };
+  }
+  if (!firstBytes && (ext === '.xlsx' || ext === '.xls' || ext === '.xlsb')) {
+    const fmt = ext === '.xlsx' ? 'xlsx' : 'xls';
+    return { format: fmt, confidence: 'medium', handler: handlerForFormat(fmt) };
   }
   // Arrow IPC / Feather v2 — magic bytes "ARROW1\0\0" (first 6 bytes)
   if (firstBytes && firstBytes.length >= 6) {
@@ -241,6 +265,9 @@ export function detectFileFormat(fileName, mimeType, firstBytes) {
   }
   if (ext === '.xlsx') {
     return { format: 'xlsx', confidence: 'low', handler: handlerForFormat('xlsx') };
+  }
+  if (ext === '.xls' || ext === '.xlsb') {
+    return { format: 'xls', confidence: 'low', handler: handlerForFormat('xls') };
   }
   if (ext === '.pdf') {
     return { format: 'pdf', confidence: 'low', handler: handlerForFormat('pdf') };

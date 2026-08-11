@@ -69587,11 +69587,12 @@ function deliverBlob(blob, { platform, win } = {}) {
 //                            UI makes.
 //
 // Dependencies: Excel export needs the SheetJS (XLSX) library exposed as the
-// global `XLSX`. The file IS vendored at assets/xlsx/xlsx-0.18.5.full.min.js,
-// but as of this comment only the root index.html loads it; canvas/index.html
-// has no script tag for it at all, so on the canvas surface `window.XLSX` is
-// undefined and every Excel export throws the error below. Do not read this
-// header as a guarantee that XLSX is present. Check for it. The PDF is produced by a tiny, dependency-free, first-party
+// global `XLSX`. It is vendored at assets/xlsx/xlsx-0.20.3.full.min.js and is
+// now loaded by BOTH the root index.html and canvas/index.html, so on every
+// shipped surface `window.XLSX` is defined. Provenance for that file, including
+// its SHA-256, lives in assets/xlsx/PROVENANCE.md. Still check for the global
+// before using it: an embedder could strip the tag, and a clear message beats a
+// TypeError. The PDF is produced by a tiny, dependency-free, first-party
 // text-PDF writer below (a plain summary page), so no heavy PDF library is
 // added. Everything is 100% local; nothing here performs a network request.
 //
@@ -82716,10 +82717,15 @@ var PortfolioExport = (function () {
   function _getDataRows() {
     var ds = window.DataGlowDataset;
     if (!ds || !ds.rows || !ds.columns) return { headers: [], rows: [] };
-    return {
-      headers: ds.columns.map(function (c) { return c.name || c; }),
-      rows: ds.rows
-    };
+    /* Go through DGRowShape so the exported grid is built the same way every
+       other consumer builds it. Rows are positional arrays; reading them by
+       column name, or trusting row.length, is how columns silently shift. */
+    var shape = (typeof window !== 'undefined' && window.DGRowShape) ? window.DGRowShape : null;
+    var headers = shape ? shape.columnNames(ds.columns) : ds.columns.map(function (c) { return c.name || c; });
+    var rows = shape
+      ? ds.rows.map(function (row) { return shape.rowToArray(row, ds.columns); })
+      : ds.rows;
+    return { headers: headers, rows: rows, sheetName: ds.sheetName || '' };
   }
 
   function _getProofChainRows() {
@@ -82748,7 +82754,12 @@ var PortfolioExport = (function () {
   function exportXLSX() {
     var SheetJS = window.XLSX;
     if (!SheetJS) {
-      if (typeof window.showToast === 'function') window.showToast('SheetJS not loaded -- XLSX export unavailable', 'error');
+      /* The library is vendored at assets/xlsx/ and loaded by a script tag on
+         every shipped surface, so this should not happen. If it does, say what
+         is wrong and what still works instead of failing silently. */
+      if (typeof window.showToast === 'function') {
+        window.showToast('The Excel writer did not load, so no .xlsx was produced. Reload the page, or use Export CSV.', 'error');
+      }
       return;
     }
 
