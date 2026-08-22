@@ -1,7 +1,7 @@
 {
   "kind": "dataglow-federated-coordination",
   "version": 1,
-  "rotatedAt": 1787441112272,
+  "rotatedAt": 1787442062405,
   "ttlMs": 300000,
   "peers": [],
   "relay": []
