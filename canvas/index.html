@@ -3071,7 +3071,7 @@
     text-align: center;
     padding: 60px 24px;
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 16px;
   }
 
     /* ── NL Query input wrap (lives in agent-bar) ── */
@@ -11154,6 +11154,339 @@ body {
 }
 .dg-flow-num {
   font-size: var(--dg-text-sm, 0.875rem) !important;
+}
+
+/* ================================================================
+   MOBILE FIX 1: THE BOTTOM NAV OWNS THE BOTTOM BAND
+   ----------------------------------------------------------------
+   At 390x844 the five tabs in #dg-bottom-nav (Data, Analyze, Share,
+   Projects, More) are the only way to change view: #nav-views is
+   display:none under 700px, so the top-nav Analyze button does not
+   exist on a phone. Every one of those five tabs was untappable.
+   Not because of the nav, but because eight separate floating
+   controls park themselves at bottom:18px with a z-index in the two
+   billions and land exactly on the 56px nav band: the built-in AI
+   chip, the Project Run chip, Starter material, Repair Ledger, the
+   peer button, the health badge, the first-run strip and the
+   "Start here" rail. A hit test on the Analyze tab returned
+   #dg-lai-chip. Playwright timed out; a thumb hits the chip.
+
+   The fix is to give the band back rather than to escalate z-index
+   into a war. Everything that anchors itself to the bottom of the
+   screen now stops at the top of the nav, and the nav itself sits
+   above the ordinary bottom-chrome tier (spotlight 10000, pulse
+   sheet 9999, first-run strip 11000) while staying below the real
+   modal dialogs (99999) so a modal still covers it.
+   ================================================================ */
+:root {
+  /* Zero on desktop, so the calc()s below are no-ops outside mobile. */
+  --dg-bottom-nav-h: 0px;
+}
+@media (max-width: 700px) {
+  :root {
+    --dg-bottom-nav-h: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
+  #dg-bottom-nav {
+    z-index: 11500;
+  }
+
+  /* Floating chips and buttons: lifted clear of the nav band. */
+  #dg-lai-chip,
+  #dg-project-run-chip,
+  #dg-packs-btn,
+  #dg-ledger-btn,
+  #dg-p2p-btn,
+  #dg-spine-chip,
+  #dg-portfolio-export-btn,
+  #dg-csv-export-btn,
+  #dg-xlsx-export-btn {
+    bottom: calc(var(--dg-bottom-nav-h) + 18px) !important;
+  }
+  #dg-health-badge {
+    bottom: calc(var(--dg-bottom-nav-h) + 20px) !important;
+  }
+
+  /* Panels and strips that stretch to bottom:0. */
+  #dg-spine-rail {
+    bottom: var(--dg-bottom-nav-h) !important;
+    max-height: calc(100vh - var(--dg-bottom-nav-h) - 44px) !important;
+    overflow-y: auto !important;
+  }
+  #dg-firstrun-calm-strip {
+    bottom: calc(var(--dg-bottom-nav-h) + 8px) !important;
+  }
+  #dg-intent-strip {
+    bottom: var(--dg-bottom-nav-h) !important;
+  }
+  #dg-aj-nudge {
+    bottom: calc(var(--dg-bottom-nav-h) + 12px) !important;
+  }
+
+  /* Bottom sheets keep their full-width look and end above the nav. */
+  #dg-pulse-sheet,
+  .dg-pulse-sheet,
+  #dg-tools-sheet,
+  .tools-sheet {
+    padding-bottom: calc(var(--dg-bottom-nav-h) + 12px) !important;
+  }
+
+  /* The Excel sheet picker is a modal and paints above the nav, but its
+     panel must never sit under it either: a sheet row you can see and
+     cannot tap is the bug this is here to stop. */
+  #excel-sheet-picker {
+    padding-bottom: calc(20px + var(--dg-bottom-nav-h)) !important;
+  }
+}
+
+/* ================================================================
+   MOBILE FIX 2: 16px FLOOR FOR BODY, BUTTON AND NAV TEXT
+   ----------------------------------------------------------------
+   Product rule: UI body, button and nav text is at least 16px. A
+   390x844 sweep with Playwright computed styles found 129 rendered
+   elements below it, including every bottom-nav label at 12px, the
+   whole status bar at 12px, and the suggested-question chips at 11px.
+
+   Two moves. First the two rem tokens floor to 1rem on a phone, which
+   lifts every component already built on the type scale. Then the
+   components that hardcode a px size get an explicit floor. Only
+   elements measured under 16px are listed, so nothing that is already
+   larger is pulled down. Scoped to <=700px: desktop density is
+   unchanged.
+
+   Deliberate exemptions, all non-interactive and none of them body,
+   button or nav text: data-grid and result-table cells, code and SQL
+   editor gutters, and chart-internal tick labels drawn by Plotly.
+   Dense tabular data is read, not tapped, and the A48 typography pass
+   carved out the same surfaces.
+   ================================================================ */
+@media (max-width: 700px) {
+  :root {
+    --dg-text-xs: 1rem;
+    --dg-text-sm: 1rem;
+  }
+
+  /* Bottom nav labels: the five tabs a phone user actually navigates with. */
+  #dg-bottom-nav .dg-tab-label,
+  #dg-bottom-nav .dg-tab {
+    font-size: 1rem !important;
+  }
+
+  /* Status bar and formula bar. Both are one line of small facts about
+     the loaded table; at 16px they wrap instead of overflowing. */
+  #status-bar,
+  #status-bar span,
+  #formula-bar,
+  #formula-bar span {
+    font-size: 1rem !important;
+  }
+  #status-bar {
+    flex-wrap: wrap !important;
+    row-gap: 4px !important;
+  }
+
+  /* Landing and first-run copy. */
+  #ceremony-tagline,
+  #ceremony-privacy,
+  #drop-formats,
+  #touch-pick-btn,
+  #dg-mcp-status-btn,
+  .proof-badge,
+  .dg-flow-num,
+  .dg-flow-text,
+  .dg-fr-body,
+  .dg-fr-primary,
+  .dg-fr-dismiss,
+  .dg-fr-title {
+    font-size: 1rem !important;
+  }
+
+  /* Spotlight card. */
+  #action-spotlight .spotlight-badge,
+  #action-spotlight .spotlight-badge span,
+  #spotlight-name,
+  .spotlight-btn-desc,
+  .spotlight-btn-label {
+    font-size: 1rem !important;
+  }
+
+  /* Dataset tab strip. */
+  .tab-label,
+  .format-badge,
+  .tab-status-transcribing {
+    font-size: 1rem !important;
+  }
+
+  /* "Start here" rail. */
+  .dg-sp-head,
+  .dg-sp-step,
+  .dg-sp-note,
+  .dg-sp-loaded,
+  .dg-sp-loaded-name,
+  .dg-sp-ledger-btn,
+  .dg-sp-hide,
+  .dg-sp-detail {
+    font-size: 1rem !important;
+  }
+
+  /* Floating chips and export buttons. */
+  #dg-lai-chip,
+  #dg-project-run-chip,
+  #dg-packs-btn,
+  #dg-ledger-btn,
+  #dg-p2p-btn,
+  #dg-health-badge,
+  #dg-portfolio-export-btn,
+  #dg-csv-export-btn,
+  #dg-xlsx-export-btn,
+  .dg-export-btn {
+    font-size: 1rem !important;
+  }
+
+  /* Top-nav icon buttons that carry a glyph as their label. */
+  #dg-sentinel-btn,
+  #dg-onnx-btn,
+  #dg-pipeline-btn {
+    font-size: 1rem !important;
+  }
+
+  /* Purpose contract sheet. */
+  #dg-purpose-contract-panel,
+  #dg-purpose-contract-panel div,
+  #dg-purpose-contract-panel p,
+  #dg-purpose-contract-panel span,
+  #dg-purpose-contract-panel button,
+  #dg-pc-sign-btn,
+  #dg-pc-skip-btn,
+  #dg-pc-status,
+  #dg-pc-dataset-name {
+    font-size: 1rem !important;
+  }
+
+  /* Data pulse sheet. */
+  #dg-ps-title,
+  #dg-ps-subtitle,
+  .dg-ps-score-lbl,
+  .dg-ps-score-val,
+  .dg-ps-finding-title,
+  .dg-ps-finding-desc,
+  .dg-ps-finding-badge,
+  .dg-ps-cta {
+    font-size: 1rem !important;
+  }
+
+  /* Analyst-journey nudge. */
+  .dg-aj-nudge-title,
+  .dg-aj-nudge-body,
+  .dg-aj-nudge-btn {
+    font-size: 1rem !important;
+  }
+
+  /* Analyze surface: tools bar, SQL panel, suggestion chips. */
+  #analyze-tools-trigger,
+  .atb-tab-icon,
+  .atb-tab-label,
+  #sql-panel-title,
+  #sql-engine-badge,
+  #sql-history-btn,
+  #sql-schema-title,
+  #sql-run,
+  #sql-shortcut-hint,
+  #sql-suggestions-bar span,
+  .suggestion-chip,
+  .nl-suggestion-chip,
+  #nl-answer-clear,
+  .dg-st-chip,
+  .dg-st-label,
+  .dg-st-next {
+    font-size: 1rem !important;
+  }
+
+  /* Charts, empty states and the AI Director banner. */
+  .chart-empty,
+  .dg-empty,
+  .dg-empty-title,
+  .dg-empty-sub,
+  .dg-empty-btn,
+  .chart-card-title,
+  .chart-card-subtitle,
+  .ai-director-label,
+  .ai-director-pick,
+  .ai-director-reason,
+  .ai-director-type-btn,
+  .ai-director-why-btn {
+    font-size: 1rem !important;
+  }
+
+  /* Share panel. */
+  #publish-panel-title,
+  #publish-panel-close,
+  #publish-copy-btn,
+  #publish-privacy-note,
+  #publish-title-row label,
+  #vector-semantic-toggle {
+    font-size: 1rem !important;
+  }
+
+  /* Notes drawer. */
+  #notes-drawer,
+  #notes-drawer div,
+  #notes-drawer span,
+  #notes-drawer label,
+  #notes-copy-btn,
+  #notes-clear-btn,
+  #notes-project-label {
+    font-size: 1rem !important;
+  }
+
+  /* Project Run drawer. */
+  #dg-project-run-drawer,
+  #dg-project-run-drawer div,
+  #dg-project-run-drawer span,
+  #dg-project-run-drawer p,
+  #dg-project-run-drawer button {
+    font-size: 1rem !important;
+  }
+
+  /* Share view: portfolio export, narrative card, story toolbar, rooms. */
+  .peb-title,
+  .peb-sub,
+  #narrative-share-title,
+  #narrative-share-desc,
+  #narrative-share-open-btn,
+  #story-toolbar button,
+  #story-export-md,
+  #story-export-pdf,
+  #proof-export-btn,
+  #notary-export-btn,
+  .rooms-btn,
+  #story-share-section button {
+    font-size: 1rem !important;
+  }
+
+  /* Column-clean banner and the bias preflight trigger. */
+  #col-clean-banner,
+  #col-clean-banner span,
+  #col-clean-apply,
+  #col-clean-dismiss,
+  #dg-bias-preflight-trigger,
+  #dg-bias-preflight-trigger span {
+    font-size: 1rem !important;
+  }
+
+  /* Exempt surfaces: dense tabular data and code, read rather than
+     tapped, keep their own density. Listed after the floors above so
+     the intent is explicit rather than accidental. */
+  #grid-table-wrapper table td,
+  #grid-table-wrapper table th,
+  #sql-results-table td,
+  #sql-results-table th,
+  #py-result-table td,
+  #py-result-table th,
+  .CodeMirror,
+  .cm-editor {
+    font-size: var(--dg-table-text, 13px) !important;
+  }
 }
 
   </style>
@@ -27494,15 +27827,21 @@ var InstantInsight = (function () {
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Choose a sheet to load');
+    /* The bottom padding is the phone case: a persistent bottom bar owns the
+       last 56px of the screen, so the panel is centred inside what is left
+       rather than running underneath it. --dg-bottom-nav-h is 0px on desktop,
+       so this is the same 20px box there. */
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(12,18,28,0.55);' +
-      'display:flex;align-items:center;justify-content:center;padding:20px;';
+      'display:flex;align-items:center;justify-content:center;' +
+      'padding:20px 20px calc(20px + var(--dg-bottom-nav-h, 0px));';
 
     var panel = document.createElement('div');
+    /* 1rem, not 13.5px: every sheet row here is a button someone taps. */
     panel.style.cssText = 'background:#fff;border-radius:14px;max-width:440px;width:100%;max-height:80vh;overflow:auto;' +
-      'padding:20px;box-shadow:0 18px 48px rgba(0,0,0,0.28);font-size:13.5px;color:#1d2733;';
+      'padding:20px;box-shadow:0 18px 48px rgba(0,0,0,0.28);font-size:1rem;color:#1d2733;';
 
     var h = document.createElement('div');
-    h.style.cssText = 'font-weight:700;font-size:15px;margin-bottom:4px;';
+    h.style.cssText = 'font-weight:700;font-size:1.125rem;margin-bottom:4px;';
     h.textContent = fileName + ' has ' + summaries.length + ' sheets.';
     panel.appendChild(h);
 
@@ -27525,6 +27864,7 @@ var InstantInsight = (function () {
       btn.type = 'button';
       btn.disabled = !!s2.empty;
       btn.style.cssText = 'display:block;width:100%;text-align:left;margin:0 0 8px;padding:10px 12px;border-radius:9px;' +
+        'min-height:44px;' +
         'border:1px solid ' + (s2.empty ? '#e2e6ea' : '#c9d8ea') + ';background:' + (s2.empty ? '#f6f7f8' : '#fff') + ';' +
         'cursor:' + (s2.empty ? 'not-allowed' : 'pointer') + ';color:' + (s2.empty ? '#8d979f' : '#1d2733') + ';font:inherit;';
       var nameLine = document.createElement('div');
@@ -27532,7 +27872,7 @@ var InstantInsight = (function () {
       nameLine.textContent = s2.name;
       btn.appendChild(nameLine);
       var meta = document.createElement('div');
-      meta.style.cssText = 'font-size:12px;color:#66727d;margin-top:2px;';
+      meta.style.cssText = 'font-size:1rem;color:#66727d;margin-top:2px;';
       /* The count here is the count of data rows, so it matches what the table
          will hold once loaded. Anything set aside as a note or a label is said
          out loud rather than quietly dropped from the number. */
@@ -27552,7 +27892,7 @@ var InstantInsight = (function () {
     var cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.textContent = 'Cancel, load nothing';
-    cancel.style.cssText = 'margin-top:4px;padding:8px 12px;border-radius:8px;border:1px solid #d5dbe1;background:#fff;' +
+    cancel.style.cssText = 'margin-top:4px;padding:10px 14px;min-height:44px;border-radius:8px;border:1px solid #d5dbe1;background:#fff;' +
       'cursor:pointer;font:inherit;color:#55636f;';
     cancel.addEventListener('click', function () { close(); if (onCancel) onCancel(); });
     panel.appendChild(cancel);
