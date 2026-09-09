@@ -105,20 +105,44 @@ export function resolveSelfHostBaseUrl(href) {
  * hybrid_seen=false symptom from the live bug report. See
  * BUNDLE18_HOTFIX4_RESULT.md for the full trace.
  *
- * The fix moves the CDN pin from a retry-only fallback to the PRIMARY
- * mainModule URL for self-host: wasmCdnFirst carries the jsDelivr 1.29.0
- * wasm URLs that buildSelfHostBundle() below applies up front, before any
- * instantiate() call is ever attempted. mainWorker (and mainModule's own
- * ESM entry, duckdb-browser.mjs) stay same-origin -- only the ~35 to 40MB
- * wasm binary itself, the one file this host cannot always serve, is
- * requested from jsDelivr from the very first attempt. This guarantees a
- * CDN wasm network request fires unconditionally, instead of depending on
- * an instantiate() rejection that a hung/uncaught worker error can prevent
- * from ever happening. wasmFallback is kept (aliased to the same URLs) as
- * a second layer: if a future regression reintroduces a same-origin-wasm
- * attempt somewhere, the existing retry-on-catch path still recovers.
+ * Hotfix 4 answered that by making the jsDelivr pin the PRIMARY mainModule
+ * URL for self-host, so a CDN wasm request always fired. That bought a
+ * working demo at the cost of the product's own promise: with the network
+ * blocked to anything but this origin, SQL could not start at all, even
+ * though assets/duckdb/duckdb-eh.wasm (35MB) and duckdb-mvp.wasm (40MB)
+ * were sitting on disk and being served.
+ *
+ * LOCAL FIRST (this change). The order is inverted back to what the
+ * offline promise requires, WITHOUT reopening the silent-hang bug:
+ *
+ *   - wasmLocalFirst carries the same-origin /assets/duckdb/ wasm URLs and
+ *     is what buildSelfHostBundle() applies up front. The happy path now
+ *     touches no third party at all: mjs entry, worker, and wasm binary are
+ *     all same-origin.
+ *   - wasmFallback still carries the jsDelivr 1.29.0 pin, and the
+ *     retry-on-catch path (buildHybridWasmBundle + isWasmFetchFailure) still
+ *     exists in every caller. A host that cannot actually serve the local
+ *     wasm (the pplx.app 302-to-S3 case behind hotfix 3) now gets the CDN on
+ *     the second attempt instead of the first.
+ *   - The reason that retry is safe again is the piece hotfix 4 added
+ *     independently of the URL swap: every caller wraps instantiate() in a
+ *     45s instantiateWithTimeout() that also listens for the worker's own
+ *     `error` event. An uncaught worker error or a hang is turned into a
+ *     normal rejection, so the catch block (and therefore the CDN fallback)
+ *     always runs. The failure mode hotfix 4 diagnosed was a hang that never
+ *     rejected, not the fallback ordering itself, and the timeout guard is
+ *     what actually fixed it.
+ *
+ * Net effect: offline and air-gapped installs work from local bytes, and a
+ * host that mis-serves the local wasm still recovers over the CDN, one
+ * bounded attempt later.
  */
-const WASM_CDN_FIRST = Object.freeze({
+const WASM_LOCAL_FIRST = Object.freeze({
+  mvp: SELF_HOST_BASE_URL + 'duckdb-mvp.wasm',
+  eh: SELF_HOST_BASE_URL + 'duckdb-eh.wasm',
+});
+
+const WASM_CDN_FALLBACK = Object.freeze({
   mvp: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-mvp.wasm',
   eh: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-eh.wasm',
 });
@@ -128,32 +152,37 @@ export const SELF_HOST_CANDIDATE = Object.freeze({
   label: 'self-host',
   cdnUrl: SELF_HOST_BASE_URL + 'duckdb-browser.mjs',
   baseUrl: SELF_HOST_BASE_URL,
-  // Applied UP FRONT (see buildSelfHostBundle), not only on retry.
-  wasmCdnFirst: WASM_CDN_FIRST,
-  // Kept for the same-pass, same-candidate repair path (buildHybridWasmBundle)
-  // in case anything still calls it directly against an already-self-host
-  // mainModule bundle.
-  wasmFallback: WASM_CDN_FIRST,
+  // Applied UP FRONT (see buildSelfHostBundle): same-origin wasm is the
+  // primary, not a retry.
+  wasmLocalFirst: WASM_LOCAL_FIRST,
+  // Last resort only, reached through buildHybridWasmBundle() after a
+  // wasm-fetch-shaped failure on the local bytes.
+  wasmFallback: WASM_CDN_FALLBACK,
 });
 
 /**
  * Build the self-host candidate's actual load bundle: same-origin
- * duckdb-browser.mjs entry point and mainWorker, but mainModule (the wasm
- * binary) pinned to the CDN-first URL up front. This is what makes a CDN
- * wasm network request unconditional for self-host, rather than something
- * that only happens after an instantiate() rejection a hung worker can
- * prevent (Bundle 18 hotfix 4 -- see SELF_HOST_CANDIDATE doc above).
+ * duckdb-browser.mjs entry point, same-origin mainWorker, and same-origin
+ * mainModule (the wasm binary) under /assets/duckdb/. Applied up front so
+ * the first and normal attempt is fully local; the CDN is only reachable
+ * from the caller's catch path via buildHybridWasmBundle().
+ *
+ * The returned mainModule is the ROOT-ABSOLUTE path, not an origin-qualified
+ * URL, which keeps this pure and testable under plain Node. Callers that
+ * hand the URL to a Worker resolve it against location.href first (they
+ * already do this for every other bundle URL); see resolveSelfHostBaseUrl()
+ * for why a relative path would double the assets/duckdb/ segment.
  *
  * @param {{mainWorker:string, pthreadWorker?:string|null}} workerBundle - the
  *   same-origin mainWorker (and optional pthreadWorker) already resolved by
  *   the caller from SELF_HOST_CANDIDATE.baseUrl.
- * @param {'mvp'|'eh'} [variant='eh'] - which wasm variant to pin.
+ * @param {'mvp'|'eh'} [variant='eh'] - which wasm variant to use.
  * @returns {{mainModule:string, mainWorker:string, pthreadWorker:string|null}}
  */
 export function buildSelfHostBundle(workerBundle, variant) {
   const v = variant === 'mvp' ? 'mvp' : 'eh';
   return {
-    mainModule: WASM_CDN_FIRST[v],
+    mainModule: WASM_LOCAL_FIRST[v],
     mainWorker: (workerBundle && workerBundle.mainWorker) || null,
     pthreadWorker: (workerBundle && workerBundle.pthreadWorker) || null,
   };
@@ -183,7 +212,9 @@ export function isWasmFetchFailure(err) {
  * Given a bundle (mainModule/mainWorker pair) built from a candidate that
  * carries a wasmFallback, return the same bundle with mainModule swapped to
  * the CDN pin. Keeps mainWorker (and therefore the whole worker/mjs stack)
- * same-origin -- only the wasm binary URL changes. Returns null when the
+ * same-origin -- only the wasm binary URL changes. This is the LAST RESORT
+ * path: it runs after the same-origin /assets/duckdb/ wasm the local-first
+ * bundle asked for failed with a fetch-shaped error. Returns null when the
  * candidate has no wasmFallback or the bundle has no matching key, so a
  * caller can tell "no hybrid retry available" from "already the fallback".
  *
@@ -244,10 +275,10 @@ function isPlainObject(v) {
 /**
  * The ordered candidate list a load pass should walk. A copy every time, so a
  * caller mutating the array it received cannot corrupt the shared pin list.
- * wasmFallback (self-host only, Bundle 18 hotfix 3) and wasmCdnFirst
- * (self-host only, Bundle 18 hotfix 4 -- same URLs, applied up front instead
- * of only on retry) are both carried through so a caller gets the hybrid
- * data for free without losing the rest of the candidate shape.
+ * wasmLocalFirst (self-host only: the same-origin wasm applied up front) and
+ * wasmFallback (self-host only: the CDN pin reached only from the caller's
+ * catch path) are both carried through so a caller gets the local-first plus
+ * fallback data for free without losing the rest of the candidate shape.
  */
 export function buildCandidateList() {
   return CANDIDATE_HOSTS.map((h) => ({
@@ -256,7 +287,7 @@ export function buildCandidateList() {
     cdnUrl: h.cdnUrl,
     baseUrl: h.baseUrl,
     ...(h.wasmFallback ? { wasmFallback: { mvp: h.wasmFallback.mvp, eh: h.wasmFallback.eh } } : {}),
-    ...(h.wasmCdnFirst ? { wasmCdnFirst: { mvp: h.wasmCdnFirst.mvp, eh: h.wasmCdnFirst.eh } } : {}),
+    ...(h.wasmLocalFirst ? { wasmLocalFirst: { mvp: h.wasmLocalFirst.mvp, eh: h.wasmLocalFirst.eh } } : {}),
   }));
 }
 
