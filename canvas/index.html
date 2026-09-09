@@ -136392,7 +136392,7 @@ function buildRPowerPack(input) {
          full name stays in the title attribute and in the Drop step. Below
          700px the line takes its own row and wraps instead of truncating. */
       + '#' + RAIL_ID + ' .dg-sp-loaded{font-size:14px;opacity:.75;flex:0 1 auto;min-width:0;margin:0;'
-      + 'white-space:nowrap;overflow:hidden}'
+      + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
       + '#' + RAIL_ID + ' .dg-sp-loaded-name{display:inline-block;max-width:min(34vw,380px);'
       + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}'
       + '@media (max-width:700px){#' + RAIL_ID + ' .dg-sp-loaded{flex:0 1 100%;white-space:normal;'

@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6663730,
+  "canvasBytes": 6663753,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -397,9 +397,9 @@
     {
       "source": "js/spine/data-glow-receipt-spine-canvas.js",
       "note": "The start-here rail. Already an IIFE, inlined verbatim, publishing window.DataGlowReceiptSpineUI.",
-      "sourceSha256": "2634b325f761eaac0c6d54e11a457d91f3105e39024178d7d35b9df4572c882c",
-      "canvasSectionSha256": "53c427f966e423c3743e6ebad149f672f89f507a637c39afa5a15838f22857f5",
-      "canvasSectionBytes": 27785
+      "sourceSha256": "111792437136d7952686297054dddec0a1e4410629486fcf64cbd7530bf53c6c",
+      "canvasSectionSha256": "557d669397b48b35e06d56c4515c9846cb46351f42bbac813ef88ad56090ccf4",
+      "canvasSectionBytes": 27808
     },
     {
       "source": "js/polyglot/data-glow-power-packs-canvas.js",
