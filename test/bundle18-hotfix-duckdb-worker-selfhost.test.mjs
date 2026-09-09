@@ -209,16 +209,22 @@ describe('bundle18 hotfix C: canvas/index.html import map + SQL gating fix', () 
     assert.equal(matches.length, 1, 'expected exactly one importmap script tag');
   });
 
-  it('the import map resolves apache-arrow, tslib, and flatbuffers to vendored assets/duckdb/ paths', () => {
+  // Fix 1: these targets were pinned as relative ('./assets/duckdb/...') here,
+  // which is exactly why this suite stayed green while the browser path was
+  // dead. canvas/index.html is served from /canvas/index.html, so a relative
+  // target resolved to /canvas/assets/duckdb/... and 404'd on every entry.
+  // They are now root-absolute, matching DUCKDB_SELF_HOST_BASE ('/assets/duckdb/').
+  // test/sql-importmap-absolute-paths.test.mjs is the property-based guard.
+  it('the import map resolves apache-arrow, tslib, and flatbuffers to root-absolute vendored /assets/duckdb/ paths', () => {
     const i = canvas.indexOf('<script type="importmap">');
     assert.ok(i !== -1, 'importmap script tag not found');
     const j = canvas.indexOf('</script>', i);
     const block = canvas.slice(i, j);
     const jsonStart = block.indexOf('{');
     const data = JSON.parse(block.slice(jsonStart));
-    assert.equal(data.imports['apache-arrow'], './assets/duckdb/vendor/apache-arrow/Arrow.dom.mjs');
-    assert.equal(data.imports['tslib'], './assets/duckdb/vendor/tslib/tslib.es6.mjs');
-    assert.equal(data.imports['flatbuffers'], './assets/duckdb/vendor/flatbuffers/mjs/flatbuffers.js');
+    assert.equal(data.imports['apache-arrow'], '/assets/duckdb/vendor/apache-arrow/Arrow.dom.mjs');
+    assert.equal(data.imports['tslib'], '/assets/duckdb/vendor/tslib/tslib.es6.mjs');
+    assert.equal(data.imports['flatbuffers'], '/assets/duckdb/vendor/flatbuffers/mjs/flatbuffers.js');
   });
 
   it('the import map is registered before the first classic <script> block (so it is live before any dynamic import())', () => {
