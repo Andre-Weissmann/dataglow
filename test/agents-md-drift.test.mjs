@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  runCheck, renderReport, classifySpan, extractBacktickSpans,
+  runCheck, renderReport, classifySpan, extractBacktickSpans, foundationsSectionLineCount,
 } from '../.github/scripts/agents-md-drift.mjs';
 
 let passed = 0;
@@ -71,7 +71,7 @@ function main() {
       scripts: { 'test:sql': 'node x' },
       files: { 'js/engine.js': '//\n' },
     });
-    const r = runCheck({ root });
+    const r = runCheck({ root, enforceStructure: false });
     ok(r.totalDrift === 0, 'clean fixture: no drift');
     ok(r.fileRefCount === 1 && r.scriptRefCount === 1, 'clean fixture: counts reported');
     ok(r.findings.wildcardsIgnored.length === 1, 'clean fixture: test:* ignored as wildcard');
@@ -84,7 +84,7 @@ function main() {
       agents: 'Start at `js/gone.js` for the feature.\n',
       scripts: {},
     });
-    const r = runCheck({ root });
+    const r = runCheck({ root, enforceStructure: false });
     ok(r.findings.missingFiles.some((f) => f.path === 'js/gone.js'), 'stale file: missing path flagged');
     ok(r.totalDrift === 1, 'stale file: counted as drift');
     rmSync(root, { recursive: true, force: true });
@@ -96,7 +96,7 @@ function main() {
       agents: 'Run `npm run test:ghost` before opening a PR.\n',
       scripts: { 'test:real': 'node x' },
     });
-    const r = runCheck({ root });
+    const r = runCheck({ root, enforceStructure: false });
     ok(r.findings.missingScripts.some((s) => s.script === 'test:ghost'), 'stale script: missing script flagged');
     rmSync(root, { recursive: true, force: true });
   }
@@ -107,7 +107,7 @@ function main() {
       agents: 'Scripts named `test:*` live in package.json.\n',
       scripts: { 'test:real': 'node x' },
     });
-    const r = runCheck({ root });
+    const r = runCheck({ root, enforceStructure: false });
     ok(r.totalDrift === 0, 'wildcard: `test:*` does not fail the gate');
     rmSync(root, { recursive: true, force: true });
   }
@@ -118,7 +118,7 @@ function main() {
       agents: 'Run `npm run test:sql`.\n',
       noPkg: true,
     });
-    const r = runCheck({ root });
+    const r = runCheck({ root, enforceStructure: false });
     ok(r.findings.missingScripts.length === 0, 'no package.json: script refs not hard-failed');
     ok(typeof r.error === 'string' && /package\.json/.test(r.error), 'no package.json: warning recorded');
     rmSync(root, { recursive: true, force: true });
@@ -127,7 +127,7 @@ function main() {
   // --- Missing AGENTS.md → treated as drift with an error ---------------------
   {
     const root = makeFixture({ scripts: {} });
-    const r = runCheck({ root });
+    const r = runCheck({ root, enforceStructure: false });
     ok(r.agentsPresent === false && r.totalDrift > 0, 'missing AGENTS.md: reported as drift');
     rmSync(root, { recursive: true, force: true });
   }
@@ -138,10 +138,39 @@ function main() {
       agents: 'Bad file `js/nope.js` and bad script `npm run test:nope`.\n',
       scripts: {},
     });
-    const md = renderReport(runCheck({ root }));
+    const md = renderReport(runCheck({ root, enforceStructure: false }));
     ok(md.includes('Context-Rot Detector'), 'render: has a title');
     ok(/js\/nope\.js/.test(md) && /test:nope/.test(md), 'render: names both offending references');
     ok(/Context rot detected/.test(md), 'render: states the fix-in-PR guidance on drift');
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // --- Structure gate: missing foundations log --------------------------------
+  {
+    const root = makeFixture({
+      agents: '## Foundations & capabilities\n\nSee `docs/foundations.md`.\n\n## PRs\n\nOpen drafts.\n',
+      scripts: {},
+      files: {},
+    });
+    const r = runCheck({ root, enforceStructure: true });
+    ok(r.findings.structure.some((s) => s.code === 'FOUNDATIONS_MISSING'), 'structure: missing foundations.md flagged');
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // --- Structure gate: foundations section too long ---------------------------
+  {
+    const longSec = ['## Foundations & capabilities', '', 'See `docs/foundations.md`.']
+      .concat(Array.from({ length: 50 }, (_, i) => `### Old entry ${i}`))
+      .concat(['', '## PRs', '', 'Open drafts.'])
+      .join('\n') + '\n';
+    const root = makeFixture({
+      agents: longSec,
+      scripts: {},
+      files: { 'docs/foundations.md': '# Foundations\n' },
+    });
+    ok(foundationsSectionLineCount(longSec) > 40, 'helper: long foundations section measured');
+    const r = runCheck({ root, enforceStructure: true });
+    ok(r.findings.structure.some((s) => s.code === 'FOUNDATIONS_SECTION_TOO_LONG'), 'structure: long foundations pointer flagged');
     rmSync(root, { recursive: true, force: true });
   }
 
@@ -152,6 +181,7 @@ function main() {
     console.log(renderReport(r));
     ok(r.agentsPresent === true, 'real repo: AGENTS.md is present');
     ok(r.fileRefCount > 0, 'real repo: AGENTS.md names at least one file path');
+    ok(r.findings.structure.length === 0, 'real repo: AGENTS.md stays short with foundations split (GATE)');
     ok(r.totalDrift === 0, 'real repo: AGENTS.md references only things that exist (GATE)');
   }
 

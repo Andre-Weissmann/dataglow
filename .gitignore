@@ -9,3 +9,6 @@ node_modules/
 # Tens of megabytes per target triple and never committed. See the packaging
 # section in README.md.
 src-tauri/binaries/
+
+# Local session scratch (not durable foundations)
+NOTES.md
