@@ -20689,6 +20689,85 @@ var SQLEngine = (function () {
       }
     }
 
+    /* ---- column types for the registered table --------------------------
+
+       DataGlow decides a type per column at import time and shows it on the
+       grid: detectType returns INT, FLOAT, BOOL, DATE or STR. Registration
+       used to throw all of that away. It handed DuckDB a CSV and let
+       read_csv_auto guess, and on a real spreadsheet the guess is text,
+       because a single cell that is not an observation is enough to make the
+       whole column VARCHAR. The CMS federal IDR tables put a "2025 Q2"
+       period banner under the header, so all three integer measures arrived
+       as VARCHAR and a plain SELECT SUM("Total") failed with sum(VARCHAR)
+       while the grid was still showing INT for that column. Fixing the grid
+       badge alone does not help anybody: the type has to reach the engine the
+       user types SQL into.
+
+       So the CSV is now read as text on purpose and each column is cast once,
+       in the CREATE TABLE, to the type DataGlow already decided on. The table
+       then has the types the grid promised and a bare SUM needs no TRY_CAST.
+
+       TRY_CAST rather than CAST, so a banner or footnote cell becomes NULL in
+       that one cell instead of failing the whole load. Every row the grid
+       shows is still in the table, COUNT(*) still matches, and SUM skips the
+       NULLs, so the answer is the total of the real observations. */
+    var DUCKDB_TYPE_BY_DG_TYPE = {
+      INT: 'BIGINT', INTEGER: 'BIGINT', BIGINT: 'BIGINT',
+      NUM: 'DOUBLE', NUMBER: 'DOUBLE', FLOAT: 'DOUBLE', DOUBLE: 'DOUBLE', DECIMAL: 'DOUBLE',
+      BOOL: 'BOOLEAN', BOOLEAN: 'BOOLEAN',
+      DATE: 'DATE',
+      DATETIME: 'TIMESTAMP', TIMESTAMP: 'TIMESTAMP'
+    };
+
+    /* DuckDB parses a date out of text only in the formats it recognises, and
+       DataGlow's DATE detection is Date.parse, which accepts a great deal
+       more than that: a bare year, or "Jan 5 2025". Casting those would turn
+       readable text into NULL, which is the opposite of the point. So a date
+       column is cast only when every value in it is already ISO shaped, which
+       is what the Excel path writes. Anything looser stays text and keeps its
+       original characters. */
+    var ISO_DATEISH = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
+
+    function columnCastTarget(dataset, col, name) {
+      var dgType = (col && col.type) ? String(col.type).toUpperCase() : '';
+      var target = DUCKDB_TYPE_BY_DG_TYPE[dgType];
+      /* No entry means text, or a type this does not model. Either way, leave
+         the column exactly as DuckDB read it. */
+      if (!target) return null;
+      if (target !== 'DATE' && target !== 'TIMESTAMP') return target;
+      var rows = (dataset && dataset.rows) || [];
+      for (var i = 0; i < rows.length; i++) {
+        var v = DGRowShape.getCell(rows[i], dataset.columns, name);
+        if (v === null || v === undefined) continue;
+        var s = String(v).trim();
+        if (s === '') continue;
+        if (!ISO_DATEISH.test(s)) return null;
+      }
+      return target;
+    }
+
+    /* The SELECT list for the CREATE TABLE, or null when there is nothing
+       worth casting. Null keeps the old behaviour verbatim: read_csv_auto
+       infers and the projection stays SELECT *. */
+    function typedSelectList(dataset) {
+      var cols = (dataset && dataset.columns) || [];
+      if (!cols.length) return null;
+      var names = DGRowShape.columnNames(cols);
+      var parts = [];
+      var casts = 0;
+      for (var i = 0; i < names.length; i++) {
+        var quoted = '"' + String(names[i]).replace(/"/g, '""') + '"';
+        var target = columnCastTarget(dataset, cols[i], names[i]);
+        if (target) {
+          casts++;
+          parts.push('TRY_CAST(' + quoted + ' AS ' + target + ') AS ' + quoted);
+        } else {
+          parts.push(quoted);
+        }
+      }
+      return casts ? parts.join(', ') : null;
+    }
+
     async function registerDataset(dataset) {
       await ensureInit();
       // Guard: never reach a bare `db.registerFileBuffer` on a null db (a
@@ -20730,16 +20809,34 @@ var SQLEngine = (function () {
       // the whole load, and the line is not silently gone either: it lands in a
       // rejects table this reads before dropping it. Most loads never populate
       // that table, because parseCSV() upstream already normalised ragged rows;
-      // this is what runs on the rows DuckDB itself refuses, such as a value
-      // that cannot cast to the column type it inferred.
+      // this is what runs on the rows DuckDB itself refuses, such as a ragged
+      // line the CSV normaliser upstream did not already repair.
       var rejectsTbl = '_dg_csv_rejects_' + tbl;
       var rejectsScan = '_dg_csv_scans_' + tbl;
+      /* When DataGlow has its own types for these columns, read every field as
+         text and let the projection above do the typing. all_varchar keeps the
+         read deterministic: no second opinion from read_csv_auto to disagree
+         with the grid. With no types to apply, both of these stay exactly what
+         they were before. */
+      var selectList = typedSelectList(dataset);
+      var projection = selectList || '*';
+      var readAsText = selectList ? ', all_varchar=true' : '';
       try {
-        await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true, ignore_errors=true, store_rejects=true, rejects_table='" + rejectsTbl + "', rejects_scan='" + rejectsScan + "')");
+        await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT " + projection + " FROM read_csv_auto('" + fname + "', header=true" + readAsText + ", ignore_errors=true, store_rejects=true, rejects_table='" + rejectsTbl + "', rejects_scan='" + rejectsScan + "')");
       } catch (eRejectLoad) {
         // Older DuckDB-WASM builds do not support store_rejects. Falling back
         // keeps the load working; it just means nothing is quarantined this run.
-        await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true)");
+        // The typed projection is kept, because losing it is what made a column
+        // of integers unsummable.
+        try {
+          await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT " + projection + " FROM read_csv_auto('" + fname + "', header=true" + readAsText + ")");
+        } catch (eTypedLoad) {
+          // Last resort: something about this build rejects the typed read, so
+          // load the data untyped rather than leave the user with no table.
+          // SQL will need explicit casts on this path, which is the old
+          // behaviour, not a new failure.
+          await conn.query("CREATE OR REPLACE TABLE \"" + tbl + "\" AS SELECT * FROM read_csv_auto('" + fname + "', header=true)");
+        }
         registeredTables[tbl] = true;
         return tbl;
       }
@@ -27004,6 +27101,39 @@ var InstantInsight = (function () {
     return Object.keys(found).map(Number);
   }
 
+  /* Which rows to READ TYPES FROM. Not which rows to keep: every row the sheet
+     produced stays in the dataset, is shown in the grid, and is exported.
+
+     A real Excel sheet carries rows that are not observations. The CMS IDR
+     tables put a period banner under the header (blank state, "2025 Q2" in
+     each measure column) and a Source line plus a Notes line under the last
+     state. One text cell anywhere in a column is enough to make detectType
+     call the whole column STR, so those three rows alone were enough to type a
+     table of integers as text.
+
+     Two structural tests, no value sniffing:
+       - a row with fewer than two filled cells is a source or notes line;
+       - a row whose first column is blank is a banner, because the first
+         column of a table like this is the row label.
+     The filter is only trusted when it keeps the clear majority of the sheet,
+     so a genuinely sparse dataset still types off all of its rows. */
+  function typeSampleRows(rows, columns) {
+    if (!rows || rows.length < 5 || !columns || !columns.length) return rows || [];
+    var kept = rows.filter(function (row) {
+      var cells = DGRowShape.rowToArray(row, columns);
+      var filled = 0;
+      for (var i = 0; i < columns.length; i++) {
+        var v = cells[i];
+        if (v !== null && v !== undefined && String(v).trim() !== '') filled++;
+      }
+      if (filled < 2) return false;
+      var first = cells[0];
+      return !(first === null || first === undefined || String(first).trim() === '');
+    });
+    if (kept.length >= 5 && kept.length >= rows.length * 0.6) return kept;
+    return rows;
+  }
+
   function loadExcelSheet(workbook, sheetName, fileName, fmt, fileHash, seenBefore, advance, summaries) {
     var aoa = excelSheetToAoa(workbook, sheetName);
     var headerRowIndex = DGExcel.findHeaderRow(aoa);
@@ -27024,10 +27154,20 @@ var InstantInsight = (function () {
 
     /* Re-run DataGlow's own type detection on the string form of each column so
        an Excel-sourced dataset types identically to the same data as CSV. The
-       row values themselves are left exactly as read. */
-    var columns = result.columns.map(function (col, idx) {
-      var asText = result.rows.map(function (row) {
-        var v = DGRowShape.getCell(row, result.columns, idx);
+       row values themselves are left exactly as read.
+
+       DGRowShape.getCell(row, columns, name) takes a column NAME as its third
+       argument, never a numeric index. This passed the loop index, so every
+       lookup asked for a column literally called "0", "1", "2" and got back
+       undefined. detectType then saw a column of empty strings and returned
+       STR for all of them, which is why a numeric Excel sheet imported as all
+       text and SQL needed a TRY_CAST to add anything up. Column names out of
+       normalizeHeaders are unique (blanks and duplicates get suffixes), so a
+       name lookup resolves to exactly one column. */
+    var sampleRows = typeSampleRows(result.rows, result.columns);
+    var columns = result.columns.map(function (col) {
+      var asText = sampleRows.map(function (row) {
+        var v = DGRowShape.getCell(row, result.columns, col.name);
         return v === null || v === undefined ? '' : String(v);
       });
       return { name: col.name, type: detectType(asText) };
@@ -99643,9 +99783,32 @@ var PortfolioExport = (function () {
   var FLAG = 'exportXlsx';
   function isEnabled() { return !!(window.FEATURE_FLAGS && window.FEATURE_FLAGS[FLAG]); }
 
+  /* The live dataset, which is the same object the grid renders and the SQL
+     engine registers: the active entry in the canvas dataset store, read
+     through window.getActiveDataset().
+
+     This used to read window.DataGlowDataset. Nothing in the bundle assigns
+     that global, so every export saw undefined, wrote a file with no rows in
+     it, and still reported success. Two older globals are kept as read-only
+     fallbacks for surfaces that predate the store; no new dataset is created
+     or cached here, so there is still exactly one source of truth. */
+  function _liveDataset() {
+    var candidates = [];
+    if (typeof window.getActiveDataset === 'function') {
+      try { candidates.push(window.getActiveDataset()); } catch (e) { /* store not ready */ }
+    }
+    candidates.push(window.__dg_currentDataset);
+    candidates.push(window.DataGlowDataset);
+    for (var i = 0; i < candidates.length; i++) {
+      var ds = candidates[i];
+      if (ds && Array.isArray(ds.rows) && ds.columns && ds.columns.length) return ds;
+    }
+    return null;
+  }
+
   function _getDataRows() {
-    var ds = window.DataGlowDataset;
-    if (!ds || !ds.rows || !ds.columns) return { headers: [], rows: [] };
+    var ds = _liveDataset();
+    if (!ds) return { headers: [], rows: [], sheetName: '', name: '' };
     /* Go through DGRowShape so the exported grid is built the same way every
        other consumer builds it. Rows are positional arrays; reading them by
        column name, or trusting row.length, is how columns silently shift. */
@@ -99654,7 +99817,25 @@ var PortfolioExport = (function () {
     var rows = shape
       ? ds.rows.map(function (row) { return shape.rowToArray(row, ds.columns); })
       : ds.rows;
-    return { headers: headers, rows: rows, sheetName: ds.sheetName || '' };
+    return { headers: headers, rows: rows, sheetName: ds.sheetName || '', name: ds.name || '' };
+  }
+
+  /* One place to say "that did not work", so an empty or failed export can
+     never be reported as a success. */
+  function _exportFailed(format, reason, message) {
+    if (typeof window.showToast === 'function') window.showToast(message, 'error');
+    document.dispatchEvent(new CustomEvent('dataglow:export-failed', {
+      detail: { format: format, reason: reason, rows: 0 }
+    }));
+  }
+
+  function _hasRows(data) {
+    return !!(data && data.headers && data.headers.length && data.rows && data.rows.length);
+  }
+
+  function _describeBytes(n) {
+    if (n < 1024) return n + ' bytes';
+    return (n / 1024).toFixed(1) + ' KB';
   }
 
   function _getProofChainRows() {
@@ -99693,7 +99874,25 @@ var PortfolioExport = (function () {
     }
 
     var data = _getDataRows();
-    var dataSheet = SheetJS.utils.aoa_to_sheet([data.headers].concat(data.rows));
+    /* Refuse before writing. An .xlsx whose Data sheet is one empty cell is
+       worse than no file, because the success toast made it look real. */
+    if (!_hasRows(data)) {
+      _exportFailed('xlsx', 'no-rows',
+        'Nothing was exported. There are no data rows loaded, so the Data sheet would have been empty. Load a file, then export again.');
+      return;
+    }
+
+    var aoa = [data.headers].concat(data.rows);
+    var dataSheet = SheetJS.utils.aoa_to_sheet(aoa);
+
+    /* Second guard, on the artifact rather than the input: the Data sheet must
+       cover the header row plus at least one data row. */
+    var shape = _sheetShape(SheetJS, dataSheet);
+    if (shape.rows < 2 || shape.cols < 1) {
+      _exportFailed('xlsx', 'empty-sheet',
+        'Nothing was exported. The Data sheet came out empty, so no .xlsx was written.');
+      return;
+    }
 
     var proofRows = [['Step', 'Type', 'Timestamp', 'Detail']].concat(_getProofChainRows());
     var proofSheet = SheetJS.utils.aoa_to_sheet(proofRows);
@@ -99705,44 +99904,90 @@ var PortfolioExport = (function () {
     SheetJS.utils.book_append_sheet(wb, proofSheet, 'Proof Chain');
     SheetJS.utils.book_append_sheet(wb, fqsSheet, 'FQS Scorecard');
 
-    SheetJS.writeFile(wb, 'dataglow-export-' + Date.now() + '.xlsx');
+    try {
+      SheetJS.writeFile(wb, 'dataglow-export-' + Date.now() + '.xlsx');
+    } catch (err) {
+      _exportFailed('xlsx', 'write-failed',
+        'The .xlsx could not be written: ' + (err && err.message ? err.message : String(err)));
+      return;
+    }
 
     document.dispatchEvent(new CustomEvent('dataglow:export-triggered', {
-      detail: { format: 'xlsx', sheets: 3, rows: data.rows.length }
+      detail: { format: 'xlsx', sheets: 3, rows: data.rows.length, cols: data.headers.length, ok: true }
     }));
 
     if (typeof window.showToast === 'function') {
-      window.showToast('Exported as XLSX (Data + Proof Chain + FQS Scorecard)', 'success');
+      window.showToast('Exported ' + data.rows.length + ' rows and ' + data.headers.length +
+        ' columns as XLSX (Data, Proof Chain, FQS Scorecard).', 'success');
+    }
+  }
+
+  /* Rows and columns actually covered by a SheetJS worksheet, read off its
+     !ref range. A one-cell sheet reports 1 row, which is the empty-Data-sheet
+     symptom this release fixes. */
+  function _sheetShape(SheetJS, sheet) {
+    var ref = sheet && sheet['!ref'];
+    if (!ref) return { rows: 0, cols: 0 };
+    try {
+      var r = SheetJS.utils.decode_range(ref);
+      return { rows: (r.e.r - r.s.r) + 1, cols: (r.e.c - r.s.c) + 1 };
+    } catch (e) {
+      return { rows: 0, cols: 0 };
     }
   }
 
   function exportCSV() {
     var data = _getDataRows();
-    var lines = [data.headers.join(',')];
-    data.rows.forEach(function (row) {
-      lines.push(row.map(function (v) {
-        var s = v === null || v === undefined ? '' : String(v);
-        return s.includes(',') || s.includes('"') || s.includes('\n') ?
-          '"' + s.replace(/"/g, '""') + '"' : s;
-      }).join(','));
-    });
+    if (!_hasRows(data)) {
+      _exportFailed('csv', 'no-rows',
+        'Nothing was exported. There are no data rows loaded, so the CSV would have been empty. Load a file, then export again.');
+      return;
+    }
 
-    var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'dataglow-export-' + Date.now() + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    /* One CSV escaper for the whole app. DGRowShape follows RFC 4180, which
+       the local copy this replaced did not (it missed carriage returns). */
+    var shape = (typeof window !== 'undefined' && window.DGRowShape) ? window.DGRowShape : null;
+    function esc(v) {
+      if (shape && typeof shape.escapeCsvValue === 'function') return shape.escapeCsvValue(v);
+      var s = v === null || v === undefined ? '' : String(v);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    var lines = [data.headers.map(esc).join(',')];
+    data.rows.forEach(function (row) {
+      lines.push(row.map(esc).join(','));
+    });
+    var text = lines.join('\n');
+
+    var blob;
+    var url;
+    try {
+      blob = new Blob([text], { type: 'text/csv' });
+      /* A zero byte blob means nothing usable reached the file, so do not
+         claim a download happened. */
+      if (!blob.size) throw new Error('the generated CSV was empty');
+      url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'dataglow-export-' + Date.now() + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      if (url) URL.revokeObjectURL(url);
+      _exportFailed('csv', 'write-failed',
+        'The CSV could not be written: ' + (err && err.message ? err.message : String(err)));
+      return;
+    }
     URL.revokeObjectURL(url);
 
     document.dispatchEvent(new CustomEvent('dataglow:export-triggered', {
-      detail: { format: 'csv', rows: data.rows.length }
+      detail: { format: 'csv', rows: data.rows.length, cols: data.headers.length, bytes: blob.size, ok: true }
     }));
 
     if (typeof window.showToast === 'function') {
-      window.showToast('Exported as CSV (' + data.rows.length + ' rows)', 'success');
+      window.showToast('Exported ' + data.rows.length + ' rows and ' + data.headers.length +
+        ' columns as CSV (' + _describeBytes(blob.size) + ').', 'success');
     }
   }
 
@@ -99788,7 +100033,9 @@ var PortfolioExport = (function () {
     container.appendChild(csvBtn);
   }
 
-  window.ExportXlsxCsv = { exportXLSX: exportXLSX, exportCSV: exportCSV };
+  /* getDataRows is exposed so a test or a proof run can read exactly what the
+     exporters would write, without triggering a download. */
+  window.ExportXlsxCsv = { exportXLSX: exportXLSX, exportCSV: exportCSV, getDataRows: _getDataRows };
 
   function init() {
     if (!isEnabled()) return;
