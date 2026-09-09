@@ -264,3 +264,29 @@ jobs:
       # does and asserts the resulting file is really in the repo, so a literal
       # string can no longer be green while the browser path is dead.
       - run: npm run test:sqlimportmap
+
+  excel-types-and-export-data:
+    name: Excel column types and the export data path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Fix 3 + Fix 2. loadExcelSheet re-typed each imported column but read
+      # the cells with getCell(row, columns, idx), and getCell's third argument
+      # is a column NAME, so every lookup returned undefined and every Excel
+      # column typed STR. The types then had to reach the query engine as well:
+      # registerDataset handed DuckDB a CSV and let read_csv_auto guess, and one
+      # period banner cell is enough to make a column of integers VARCHAR, so a
+      # bare SUM failed with sum(VARCHAR) while the grid badge said INT.
+      # Separately, _getDataRows read window.DataGlowDataset, a global nothing
+      # in the bundle assigns, so CSV export wrote 0 bytes and the XLSX Data
+      # sheet was one empty cell while both still fired a success toast. This
+      # suite runs the shipped canvas functions verbatim, registers a dataset
+      # into a real DuckDB to prove the SQL types, proves the type fix in both
+      # directions, and proves an empty export can no longer be reported as a
+      # success.
+      - run: npm run test:typesexport
