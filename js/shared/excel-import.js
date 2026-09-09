@@ -162,6 +162,159 @@ function inferType(values) {
   return 'STR';
 }
 
+/*
+ * NON-DATA ROWS: sub-labels under the header and footnotes at the bottom.
+ *
+ * A government statistics sheet is laid out for a human reader, not for a
+ * parser. The CMS Federal IDR tables are typical: a merged title on row 1, the
+ * column names on row 2, a period sub-label ("2025 Q2") on row 5 sitting under
+ * each numeric column, 56 states and territories, then two paragraphs of
+ * Source and Notes at the bottom. Read naively that is 59 rows, and the app
+ * then reports 59 rows of data with no hint that three of them are not data at
+ * all. The count is the first number anyone reads and it was wrong.
+ *
+ * These two detectors are deliberately narrow. A row is only set aside when it
+ * is structurally impossible for it to be a data row in this table, never
+ * because its content looks unusual. Anything the detectors are unsure about
+ * stays in the table, because a missing row is a worse failure than an extra
+ * one, and every row that is set aside is named in the import notes with its
+ * sheet row number so the reader can check the call.
+ */
+
+var FOOTNOTE_PREFIX = /^\s*(sources?|notes?|footnotes?|definitions?|methodology|abbreviations?|caveats?|disclaimer)\b\s*[:.\-]/i;
+var FOOTNOTE_MARKER = /^\s*[*+\u2020\u2021\u00a7#]\s*\S/;
+var LONG_PROSE = 80;
+
+function cellText(v) {
+  return v === null || v === undefined ? '' : String(v).trim();
+}
+
+function filledIndexes(row, width) {
+  var out = [];
+  for (var c = 0; c < width; c++) {
+    if (!isBlankCell(row && row[c])) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * A footnote row: one filled cell, in the first column, in the trailing block
+ * of the sheet, holding either a labelled note ("Source:", "Notes:") or a
+ * marker line, or a paragraph far too long to be a key.
+ *
+ * The trailing-block requirement is what makes this safe. A row like this in
+ * the middle of a table is left alone, because there it could be a real record
+ * whose other columns happen to be empty.
+ */
+function looksLikeFootnoteRow(row, width) {
+  if (width < 2) return false;
+  var filled = filledIndexes(row, width);
+  if (filled.length !== 1 || filled[0] !== 0) return false;
+  var text = cellText(row[0]);
+  if (!text || looksNumericText(text) || typeof row[0] === 'number') return false;
+  return FOOTNOTE_PREFIX.test(text) || FOOTNOTE_MARKER.test(text) || text.length >= LONG_PROSE;
+}
+
+/**
+ * A sub-label row: the row directly under the header that carries a period or
+ * unit label over the numeric columns instead of a record. Its key cell is
+ * blank (usually because the header cell above it is merged down over it), and
+ * every value it does carry is short text standing over a column that is
+ * numeric everywhere else.
+ */
+function looksLikeSubLabelRow(row, width, laterRows) {
+  if (width < 2) return false;
+  if (!isBlankCell(row && row[0])) return false;
+  var filled = filledIndexes(row, width);
+  if (!filled.length) return false;
+
+  for (var i = 0; i < filled.length; i++) {
+    var c = filled[i];
+    var v = row[c];
+    if (typeof v !== 'string') return false;
+    var text = cellText(v);
+    if (!text || text.length > 40 || looksNumericText(text)) return false;
+
+    // The column underneath has to be genuinely numeric, otherwise this is
+    // just a record with a blank key.
+    var numeric = 0;
+    var seen = 0;
+    for (var r = 0; r < laterRows.length; r++) {
+      var below = laterRows[r][c];
+      if (isBlankCell(below)) continue;
+      seen++;
+      if (typeof below === 'number' || looksNumericText(below)) numeric++;
+    }
+    if (seen < 3 || numeric / seen < 0.8) return false;
+  }
+  return true;
+}
+
+/**
+ * Classify body rows into data and not-data.
+ *
+ * @param {Array<Array<*>>} bodyRows non-blank rows under the header, in order
+ * @param {number} width  columns in play
+ * @returns {{ flagged:boolean[], labels:number[], footnotes:number[], count:number }}
+ *          indexes are into `bodyRows`
+ */
+export function classifyNonDataRows(bodyRows, width) {
+  var rows = Array.isArray(bodyRows) ? bodyRows : [];
+  var flagged = rows.map(function () { return false; });
+  var labels = [];
+  var footnotes = [];
+
+  // Footnotes, walking up from the bottom. The moment a row is not a footnote
+  // the block has ended, so nothing above it is examined.
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (!looksLikeFootnoteRow(rows[i], width)) break;
+    flagged[i] = true;
+    footnotes.unshift(i);
+  }
+
+  // Sub-labels, only in the first two rows under the header, and only while
+  // every row so far has been a sub-label. A label three rows into a table is
+  // not a header artefact.
+  var remaining = rows.filter(function (_r, idx) { return !flagged[idx]; });
+  for (var j = 0; j < Math.min(2, rows.length); j++) {
+    if (flagged[j]) break;
+    var later = remaining.slice(j + 1);
+    if (!looksLikeSubLabelRow(rows[j], width, later)) break;
+    flagged[j] = true;
+    labels.push(j);
+  }
+
+  return { flagged: flagged, labels: labels, footnotes: footnotes, count: labels.length + footnotes.length };
+}
+
+/** Plain-language sentence for what was set aside. Never a score, never a grade. */
+export function describeNonDataRows(detail) {
+  if (!detail || !detail.count) return '';
+  var count = detail.count;
+  var parts = [];
+  if (detail.labels.length) {
+    parts.push(detail.labels.length === 1
+      ? 'One is a sub-label under the header (' + rowWord(detail.labels) + ').'
+      : detail.labels.length + ' are sub-labels under the header (' + rowWord(detail.labels) + ').');
+  }
+  if (detail.footnotes.length) {
+    parts.push(detail.footnotes.length === 1
+      ? 'One is a footnote at the bottom (' + rowWord(detail.footnotes) + ').'
+      : detail.footnotes.length + ' are footnotes at the bottom (' + rowWord(detail.footnotes) + ').');
+  }
+  return count + ' row' + (count === 1 ? '' : 's') + ' look like notes or labels, not data, so ' +
+    (count === 1 ? 'it was' : 'they were') + ' left out of the table. ' + parts.join(' ') +
+    ' The row count you see is the count of real data rows. Your file is unchanged.';
+}
+
+function rowWord(entries) {
+  var nums = entries.map(function (e) { return String(e.sheetRow); });
+  var lead = nums.length === 1 ? 'row ' : 'rows ';
+  if (nums.length === 1) return lead + nums[0];
+  if (nums.length === 2) return lead + nums[0] + ' and ' + nums[1];
+  return lead + nums.slice(0, -1).join(', ') + ' and ' + nums[nums.length - 1];
+}
+
 /**
  * Convert an array of arrays into a DataGlow dataset.
  *
@@ -176,7 +329,10 @@ export function aoaToDataset(aoa, name, opts) {
   var notes = [];
 
   if (sheetIsEmpty(aoa)) {
-    return { columns: [], rows: [], notes: ['This sheet is empty. Nothing was loaded from it.'], headerRowIndex: -1 };
+    return {
+      columns: [], rows: [], notes: ['This sheet is empty. Nothing was loaded from it.'],
+      headerRowIndex: -1, nonDataRows: { count: 0, labels: [], footnotes: [] },
+    };
   }
 
   var headerRowIndex = findHeaderRow(aoa);
@@ -188,7 +344,16 @@ export function aoaToDataset(aoa, name, opts) {
   }
 
   var headerCells = aoa[headerRowIndex] || [];
-  var bodyRaw = aoa.slice(headerRowIndex + 1).filter(function (r) { return !rowIsBlank(r); });
+  // Keep each surviving row's sheet row number (1-indexed, the number Excel
+  // shows) so anything set aside later can be named rather than just counted.
+  var bodyRows = [];
+  var bodySheetRows = [];
+  for (var bi = headerRowIndex + 1; bi < aoa.length; bi++) {
+    if (rowIsBlank(aoa[bi])) continue;
+    bodyRows.push(aoa[bi]);
+    bodySheetRows.push(bi + 1);
+  }
+  var bodyRaw = bodyRows;
 
   // Widest row wins, so a short header does not truncate real data.
   var width = headerCells.length;
@@ -213,7 +378,35 @@ export function aoaToDataset(aoa, name, opts) {
   }
   width = lastUsed + 1;
   if (width <= 0) {
-    return { columns: [], rows: [], notes: ['This sheet has no usable columns. Nothing was loaded from it.'], headerRowIndex: headerRowIndex };
+    return {
+      columns: [], rows: [], notes: ['This sheet has no usable columns. Nothing was loaded from it.'],
+      headerRowIndex: headerRowIndex, nonDataRows: { count: 0, labels: [], footnotes: [] },
+    };
+  }
+
+  // Sub-labels and footnotes are not records. Set them aside before anything
+  // counts rows or infers a type, and say so in the notes.
+  var nonData = classifyNonDataRows(bodyRaw, width);
+  var nonDataRows = { count: 0, labels: [], footnotes: [] };
+  if (nonData.count) {
+    nonData.labels.forEach(function (idx) {
+      nonDataRows.labels.push({ sheetRow: bodySheetRows[idx], text: rowPreview(bodyRaw[idx], width) });
+    });
+    nonData.footnotes.forEach(function (idx) {
+      nonDataRows.footnotes.push({ sheetRow: bodySheetRows[idx], text: rowPreview(bodyRaw[idx], width) });
+    });
+    nonDataRows.count = nonDataRows.labels.length + nonDataRows.footnotes.length;
+
+    var keptRows = [];
+    var keptSheetRows = [];
+    for (var kd = 0; kd < bodyRaw.length; kd++) {
+      if (nonData.flagged[kd]) continue;
+      keptRows.push(bodyRaw[kd]);
+      keptSheetRows.push(bodySheetRows[kd]);
+    }
+    bodyRaw = keptRows;
+    bodySheetRows = keptSheetRows;
+    notes.push(describeNonDataRows(nonDataRows));
   }
 
   var header = normalizeHeaders(headerCells.slice(0, width));
@@ -267,12 +460,33 @@ export function aoaToDataset(aoa, name, opts) {
     return { name: n, type: inferType(columnValues[i]) };
   });
 
-  return { columns: columns, rows: rows, notes: notes, headerRowIndex: headerRowIndex };
+  return {
+    columns: columns,
+    rows: rows,
+    notes: notes,
+    headerRowIndex: headerRowIndex,
+    nonDataRows: nonDataRows,
+  };
+}
+
+/** First 120 characters of a row, joined, for naming a row in a notice. */
+export function rowPreview(row, width) {
+  var parts = [];
+  for (var c = 0; c < (width || (row ? row.length : 0)); c++) {
+    var t = cellText(row ? row[c] : null);
+    if (t) parts.push(t);
+  }
+  var joined = parts.join(' | ');
+  return joined.length > 120 ? joined.slice(0, 117) + '...' : joined;
 }
 
 /**
  * A small summary per sheet so the UI can offer a real choice instead of
  * silently taking the first sheet.
+ *
+ * The row count here is the count of data rows, matching what the sheet will
+ * report once it is loaded. A picker that promises 59 rows and then loads 56 is
+ * its own small lie, so notes and labels are discounted the same way.
  */
 export function summarizeSheets(sheetNames, getAoa) {
   return (sheetNames || []).map(function (sheetName) {
@@ -281,9 +495,25 @@ export function summarizeSheets(sheetNames, getAoa) {
     var headerIdx = findHeaderRow(aoa);
     var headerCells = headerIdx >= 0 ? (aoa[headerIdx] || []) : [];
     var cols = headerCells.filter(function (c) { return !isBlankCell(c); }).length;
+
+    var dataRows = [];
+    var startAt = headerIdx >= 0 ? headerIdx + 1 : 0;
+    for (var i = startAt; i < aoa.length; i++) {
+      if (!rowIsBlank(aoa[i])) dataRows.push(aoa[i]);
+    }
+    var widest = headerCells.length;
+    dataRows.forEach(function (r) { if (r.length > widest) widest = r.length; });
+    var aside = classifyNonDataRows(dataRows, widest);
+
     return {
       name: sheetName,
-      rowCount: Math.max(0, body.length - (headerIdx >= 0 ? 1 : 0)),
+      // Count the rows the loader will actually load: everything under the
+      // header, minus the blanks it drops and the notes and labels it sets
+      // aside. The old arithmetic started from every non-blank row in the
+      // sheet and subtracted only the header, so a merged title sitting above
+      // the header was counted as a record here too.
+      rowCount: Math.max(0, dataRows.length - aside.count),
+      nonDataRowCount: aside.count,
       columnCount: cols,
       empty: sheetIsEmpty(aoa),
     };

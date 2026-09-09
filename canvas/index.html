@@ -12638,6 +12638,159 @@ body {
       return 'STR';
     }
 
+    /*
+     * NON-DATA ROWS: sub-labels under the header and footnotes at the bottom.
+     *
+     * A government statistics sheet is laid out for a human reader, not for a
+     * parser. The CMS Federal IDR tables are typical: a merged title on row 1, the
+     * column names on row 2, a period sub-label ("2025 Q2") on row 5 sitting under
+     * each numeric column, 56 states and territories, then two paragraphs of
+     * Source and Notes at the bottom. Read naively that is 59 rows, and the app
+     * then reports 59 rows of data with no hint that three of them are not data at
+     * all. The count is the first number anyone reads and it was wrong.
+     *
+     * These two detectors are deliberately narrow. A row is only set aside when it
+     * is structurally impossible for it to be a data row in this table, never
+     * because its content looks unusual. Anything the detectors are unsure about
+     * stays in the table, because a missing row is a worse failure than an extra
+     * one, and every row that is set aside is named in the import notes with its
+     * sheet row number so the reader can check the call.
+     */
+
+    var FOOTNOTE_PREFIX = /^\s*(sources?|notes?|footnotes?|definitions?|methodology|abbreviations?|caveats?|disclaimer)\b\s*[:.\-]/i;
+    var FOOTNOTE_MARKER = /^\s*[*+\u2020\u2021\u00a7#]\s*\S/;
+    var LONG_PROSE = 80;
+
+    function cellText(v) {
+      return v === null || v === undefined ? '' : String(v).trim();
+    }
+
+    function filledIndexes(row, width) {
+      var out = [];
+      for (var c = 0; c < width; c++) {
+        if (!isBlankCell(row && row[c])) out.push(c);
+      }
+      return out;
+    }
+
+    /**
+     * A footnote row: one filled cell, in the first column, in the trailing block
+     * of the sheet, holding either a labelled note ("Source:", "Notes:") or a
+     * marker line, or a paragraph far too long to be a key.
+     *
+     * The trailing-block requirement is what makes this safe. A row like this in
+     * the middle of a table is left alone, because there it could be a real record
+     * whose other columns happen to be empty.
+     */
+    function looksLikeFootnoteRow(row, width) {
+      if (width < 2) return false;
+      var filled = filledIndexes(row, width);
+      if (filled.length !== 1 || filled[0] !== 0) return false;
+      var text = cellText(row[0]);
+      if (!text || looksNumericText(text) || typeof row[0] === 'number') return false;
+      return FOOTNOTE_PREFIX.test(text) || FOOTNOTE_MARKER.test(text) || text.length >= LONG_PROSE;
+    }
+
+    /**
+     * A sub-label row: the row directly under the header that carries a period or
+     * unit label over the numeric columns instead of a record. Its key cell is
+     * blank (usually because the header cell above it is merged down over it), and
+     * every value it does carry is short text standing over a column that is
+     * numeric everywhere else.
+     */
+    function looksLikeSubLabelRow(row, width, laterRows) {
+      if (width < 2) return false;
+      if (!isBlankCell(row && row[0])) return false;
+      var filled = filledIndexes(row, width);
+      if (!filled.length) return false;
+
+      for (var i = 0; i < filled.length; i++) {
+        var c = filled[i];
+        var v = row[c];
+        if (typeof v !== 'string') return false;
+        var text = cellText(v);
+        if (!text || text.length > 40 || looksNumericText(text)) return false;
+
+        // The column underneath has to be genuinely numeric, otherwise this is
+        // just a record with a blank key.
+        var numeric = 0;
+        var seen = 0;
+        for (var r = 0; r < laterRows.length; r++) {
+          var below = laterRows[r][c];
+          if (isBlankCell(below)) continue;
+          seen++;
+          if (typeof below === 'number' || looksNumericText(below)) numeric++;
+        }
+        if (seen < 3 || numeric / seen < 0.8) return false;
+      }
+      return true;
+    }
+
+    /**
+     * Classify body rows into data and not-data.
+     *
+     * @param {Array<Array<*>>} bodyRows non-blank rows under the header, in order
+     * @param {number} width  columns in play
+     * @returns {{ flagged:boolean[], labels:number[], footnotes:number[], count:number }}
+     *          indexes are into `bodyRows`
+     */
+    function classifyNonDataRows(bodyRows, width) {
+      var rows = Array.isArray(bodyRows) ? bodyRows : [];
+      var flagged = rows.map(function () { return false; });
+      var labels = [];
+      var footnotes = [];
+
+      // Footnotes, walking up from the bottom. The moment a row is not a footnote
+      // the block has ended, so nothing above it is examined.
+      for (var i = rows.length - 1; i >= 0; i--) {
+        if (!looksLikeFootnoteRow(rows[i], width)) break;
+        flagged[i] = true;
+        footnotes.unshift(i);
+      }
+
+      // Sub-labels, only in the first two rows under the header, and only while
+      // every row so far has been a sub-label. A label three rows into a table is
+      // not a header artefact.
+      var remaining = rows.filter(function (_r, idx) { return !flagged[idx]; });
+      for (var j = 0; j < Math.min(2, rows.length); j++) {
+        if (flagged[j]) break;
+        var later = remaining.slice(j + 1);
+        if (!looksLikeSubLabelRow(rows[j], width, later)) break;
+        flagged[j] = true;
+        labels.push(j);
+      }
+
+      return { flagged: flagged, labels: labels, footnotes: footnotes, count: labels.length + footnotes.length };
+    }
+
+    /** Plain-language sentence for what was set aside. Never a score, never a grade. */
+    function describeNonDataRows(detail) {
+      if (!detail || !detail.count) return '';
+      var count = detail.count;
+      var parts = [];
+      if (detail.labels.length) {
+        parts.push(detail.labels.length === 1
+          ? 'One is a sub-label under the header (' + rowWord(detail.labels) + ').'
+          : detail.labels.length + ' are sub-labels under the header (' + rowWord(detail.labels) + ').');
+      }
+      if (detail.footnotes.length) {
+        parts.push(detail.footnotes.length === 1
+          ? 'One is a footnote at the bottom (' + rowWord(detail.footnotes) + ').'
+          : detail.footnotes.length + ' are footnotes at the bottom (' + rowWord(detail.footnotes) + ').');
+      }
+      return count + ' row' + (count === 1 ? '' : 's') + ' look like notes or labels, not data, so ' +
+        (count === 1 ? 'it was' : 'they were') + ' left out of the table. ' + parts.join(' ') +
+        ' The row count you see is the count of real data rows. Your file is unchanged.';
+    }
+
+    function rowWord(entries) {
+      var nums = entries.map(function (e) { return String(e.sheetRow); });
+      var lead = nums.length === 1 ? 'row ' : 'rows ';
+      if (nums.length === 1) return lead + nums[0];
+      if (nums.length === 2) return lead + nums[0] + ' and ' + nums[1];
+      return lead + nums.slice(0, -1).join(', ') + ' and ' + nums[nums.length - 1];
+    }
+
     /**
      * Convert an array of arrays into a DataGlow dataset.
      *
@@ -12652,7 +12805,10 @@ body {
       var notes = [];
 
       if (sheetIsEmpty(aoa)) {
-        return { columns: [], rows: [], notes: ['This sheet is empty. Nothing was loaded from it.'], headerRowIndex: -1 };
+        return {
+          columns: [], rows: [], notes: ['This sheet is empty. Nothing was loaded from it.'],
+          headerRowIndex: -1, nonDataRows: { count: 0, labels: [], footnotes: [] },
+        };
       }
 
       var headerRowIndex = findHeaderRow(aoa);
@@ -12664,7 +12820,16 @@ body {
       }
 
       var headerCells = aoa[headerRowIndex] || [];
-      var bodyRaw = aoa.slice(headerRowIndex + 1).filter(function (r) { return !rowIsBlank(r); });
+      // Keep each surviving row's sheet row number (1-indexed, the number Excel
+      // shows) so anything set aside later can be named rather than just counted.
+      var bodyRows = [];
+      var bodySheetRows = [];
+      for (var bi = headerRowIndex + 1; bi < aoa.length; bi++) {
+        if (rowIsBlank(aoa[bi])) continue;
+        bodyRows.push(aoa[bi]);
+        bodySheetRows.push(bi + 1);
+      }
+      var bodyRaw = bodyRows;
 
       // Widest row wins, so a short header does not truncate real data.
       var width = headerCells.length;
@@ -12689,7 +12854,35 @@ body {
       }
       width = lastUsed + 1;
       if (width <= 0) {
-        return { columns: [], rows: [], notes: ['This sheet has no usable columns. Nothing was loaded from it.'], headerRowIndex: headerRowIndex };
+        return {
+          columns: [], rows: [], notes: ['This sheet has no usable columns. Nothing was loaded from it.'],
+          headerRowIndex: headerRowIndex, nonDataRows: { count: 0, labels: [], footnotes: [] },
+        };
+      }
+
+      // Sub-labels and footnotes are not records. Set them aside before anything
+      // counts rows or infers a type, and say so in the notes.
+      var nonData = classifyNonDataRows(bodyRaw, width);
+      var nonDataRows = { count: 0, labels: [], footnotes: [] };
+      if (nonData.count) {
+        nonData.labels.forEach(function (idx) {
+          nonDataRows.labels.push({ sheetRow: bodySheetRows[idx], text: rowPreview(bodyRaw[idx], width) });
+        });
+        nonData.footnotes.forEach(function (idx) {
+          nonDataRows.footnotes.push({ sheetRow: bodySheetRows[idx], text: rowPreview(bodyRaw[idx], width) });
+        });
+        nonDataRows.count = nonDataRows.labels.length + nonDataRows.footnotes.length;
+
+        var keptRows = [];
+        var keptSheetRows = [];
+        for (var kd = 0; kd < bodyRaw.length; kd++) {
+          if (nonData.flagged[kd]) continue;
+          keptRows.push(bodyRaw[kd]);
+          keptSheetRows.push(bodySheetRows[kd]);
+        }
+        bodyRaw = keptRows;
+        bodySheetRows = keptSheetRows;
+        notes.push(describeNonDataRows(nonDataRows));
       }
 
       var header = normalizeHeaders(headerCells.slice(0, width));
@@ -12743,12 +12936,33 @@ body {
         return { name: n, type: inferType(columnValues[i]) };
       });
 
-      return { columns: columns, rows: rows, notes: notes, headerRowIndex: headerRowIndex };
+      return {
+        columns: columns,
+        rows: rows,
+        notes: notes,
+        headerRowIndex: headerRowIndex,
+        nonDataRows: nonDataRows,
+      };
+    }
+
+    /** First 120 characters of a row, joined, for naming a row in a notice. */
+    function rowPreview(row, width) {
+      var parts = [];
+      for (var c = 0; c < (width || (row ? row.length : 0)); c++) {
+        var t = cellText(row ? row[c] : null);
+        if (t) parts.push(t);
+      }
+      var joined = parts.join(' | ');
+      return joined.length > 120 ? joined.slice(0, 117) + '...' : joined;
     }
 
     /**
      * A small summary per sheet so the UI can offer a real choice instead of
      * silently taking the first sheet.
+     *
+     * The row count here is the count of data rows, matching what the sheet will
+     * report once it is loaded. A picker that promises 59 rows and then loads 56 is
+     * its own small lie, so notes and labels are discounted the same way.
      */
     function summarizeSheets(sheetNames, getAoa) {
       return (sheetNames || []).map(function (sheetName) {
@@ -12757,9 +12971,25 @@ body {
         var headerIdx = findHeaderRow(aoa);
         var headerCells = headerIdx >= 0 ? (aoa[headerIdx] || []) : [];
         var cols = headerCells.filter(function (c) { return !isBlankCell(c); }).length;
+
+        var dataRows = [];
+        var startAt = headerIdx >= 0 ? headerIdx + 1 : 0;
+        for (var i = startAt; i < aoa.length; i++) {
+          if (!rowIsBlank(aoa[i])) dataRows.push(aoa[i]);
+        }
+        var widest = headerCells.length;
+        dataRows.forEach(function (r) { if (r.length > widest) widest = r.length; });
+        var aside = classifyNonDataRows(dataRows, widest);
+
         return {
           name: sheetName,
-          rowCount: Math.max(0, body.length - (headerIdx >= 0 ? 1 : 0)),
+          // Count the rows the loader will actually load: everything under the
+          // header, minus the blanks it drops and the notes and labels it sets
+          // aside. The old arithmetic started from every non-blank row in the
+          // sheet and subtracted only the header, so a merged title sitting above
+          // the header was counted as a record here too.
+          rowCount: Math.max(0, dataRows.length - aside.count),
+          nonDataRowCount: aside.count,
           columnCount: cols,
           empty: sheetIsEmpty(aoa),
         };
@@ -12775,8 +13005,11 @@ body {
       excelSerialToISO: excelSerialToISO,
       looksNumericText: looksNumericText,
       inferType: inferType,
+      classifyNonDataRows: classifyNonDataRows,
+      describeNonDataRows: describeNonDataRows,
+      rowPreview: rowPreview,
       aoaToDataset: aoaToDataset,
-      summarizeSheets: summarizeSheets
+      summarizeSheets: summarizeSheets,
     };
   })();
   if (typeof window !== 'undefined') window.DGExcel = DGExcel;
@@ -27182,6 +27415,9 @@ var InstantInsight = (function () {
     dataset.sheetName = sheetName;
     dataset.sourceSheets = (summaries || []).map(function (s2) { return s2.name; });
     dataset.importNotes = result.notes;
+    /* Carried on the dataset so any surface that reports a row count can also
+       report what was set aside to reach it. The Pulse sheet reads this. */
+    dataset.nonDataRows = result.nonDataRows || { count: 0, labels: [], footnotes: [] };
 
     var label = (summaries && summaries.length > 1)
       ? fileName + ' [' + sheetName + ']'
@@ -27297,9 +27533,16 @@ var InstantInsight = (function () {
       btn.appendChild(nameLine);
       var meta = document.createElement('div');
       meta.style.cssText = 'font-size:12px;color:#66727d;margin-top:2px;';
+      /* The count here is the count of data rows, so it matches what the table
+         will hold once loaded. Anything set aside as a note or a label is said
+         out loud rather than quietly dropped from the number. */
+      var aside = (s2.nonDataRowCount || 0);
       meta.textContent = s2.empty
         ? 'Empty sheet, nothing to load.'
-        : s2.rowCount.toLocaleString() + ' rows, ' + s2.columnCount + ' columns.';
+        : s2.rowCount.toLocaleString() + ' rows, ' + s2.columnCount + ' columns.' +
+          (aside > 0
+            ? ' Plus ' + aside + (aside === 1 ? ' row that looks' : ' rows that look') + ' like notes or labels, not counted.'
+            : '');
       btn.appendChild(meta);
       btn.addEventListener('click', function () { close(); onChoose(s2.name); });
       if (!firstBtn && !s2.empty) firstBtn = btn;
@@ -78289,6 +78532,31 @@ function applyDomainPack(layerResults, packName, context = {}) {
         });
       }
 
+      /* ── Phase 6b: rows the import set aside ──
+         The row count on this sheet is the count of data rows. When the
+         importer left something out to get there, this card says what and
+         which sheet row it was on, so a reader can check the file rather than
+         wonder why 56 is not 59. Info level on purpose: it is disclosure of a
+         decision already made, not a problem to fix, so it does not move the
+         issue counter. */
+      var aside = dataset.nonDataRows;
+      if (aside && aside.count > 0) {
+        var asideBits = [];
+        (aside.labels || []).forEach(function(r) {
+          asideBits.push('row ' + r.sheetRow + ' (' + r.text + ')');
+        });
+        (aside.footnotes || []).forEach(function(r) {
+          asideBits.push('row ' + r.sheetRow + ' (' + r.text + ')');
+        });
+        findings.push({
+          level: 'info', icon: '&#x1F4D1;',
+          title: aside.count + ' row' + (aside.count === 1 ? '' : 's') +
+            ' looked like notes or labels, not data',
+          desc: 'Left out of the table so the count and the column types describe real records: ' +
+            asideBits.join('; ') + '. Your file is unchanged.'
+        });
+      }
+
       /* ── Phase 7: File-type specific insight ── */
       if (/\.(mp3|wav|m4a|ogg)$/i.test(name)) {
         findings.push({ level: 'info', icon: '&#x1F3A7;',
@@ -78308,6 +78576,17 @@ function applyDomainPack(layerResults, packName, context = {}) {
       var issueLabel = issueCount === 0 ? '&#x2714; Clean' : issueCount;
       var issueColorCls = issueCount === 0 ? 'pulse-green' : issueCount < 3 ? 'pulse-amber' : 'pulse-red';
       revealScore('dg-ps-issues-block', 'dg-ps-issues-val', issueCount === 0 ? '0' : issueCount, issueColorCls);
+
+      /* Publish the number this panel just rendered. Two surfaces counting
+         issues separately is how the app ended up showing "no issues found"
+         next to a panel reading 4. Anything else that wants to talk about
+         issues reads this instead of counting again. */
+      try { dataset.pulseIssueCount = issueCount; } catch (_e) {}
+      try {
+        document.dispatchEvent(new CustomEvent('dataglow:pulse-issues', {
+          detail: { issues: issueCount, rows: nRows, columns: nCols }
+        }));
+      } catch (_e2) {}
 
       /* Update subtitle */
       document.getElementById('dg-ps-subtitle').textContent = issueCount === 0
@@ -92132,18 +92411,31 @@ function filterCommands(commands, query, limit) {
     document.body.appendChild(el);
   }
 
-  function showNudge(dataset) {
-    if (_nudgeShown) return;
-    _nudgeShown = true;
+  /* The count of open issues, from every surface that counts them.
 
-    var el = $('dg-aj-nudge');
-    if (!el) return;
+     dataset.findings holds the column-level checks that ran at load.
+     dataset.pulseIssueCount is what the Pulse sheet rendered in its own Issues
+     tile. They are computed by different code and they disagree, which is how
+     this card came to read "no issues found" while the panel behind it read 4.
+     Whichever number is higher is the one a person can see, so that is the one
+     this card answers to. */
+  function nudgeIssueCount(dataset) {
+    var found = (dataset && dataset.findings && dataset.findings.length) || 0;
+    var pulse = (dataset && typeof dataset.pulseIssueCount === 'number') ? dataset.pulseIssueCount : 0;
+    return Math.max(found, pulse);
+  }
 
+  var _nudgeDataset = null;
+  var _nudgeIssuesRendered = -1;
+
+  function renderNudge(el, dataset) {
     var score   = typeof dataset.score === 'number' ? dataset.score : null;
-    var issues  = (dataset.findings && dataset.findings.length) || 0;
+    var issues  = nudgeIssueCount(dataset);
     var rows    = (dataset.rows && dataset.rows.length) || 0;
     var cols    = (dataset.columns && dataset.columns.length) || 0;
     var dsName  = dataset.name || 'your dataset';
+
+    _nudgeIssuesRendered = issues;
 
     /* Determine primary recommendation */
     var rec = getFirstRecommendation(score, issues, rows, cols, dataset.columns || []);
@@ -92162,10 +92454,8 @@ function filterCommands(commands, query, limit) {
       '</div>',
     ].join('');
 
-    /* Show */
-    el.classList.add('visible');
-
-    /* Wire buttons */
+    /* Wire buttons. innerHTML replaced the old ones, so this runs on every
+       render, not only the first. */
     el.querySelectorAll('.dg-aj-nudge-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         handleNudgeAction(btn.getAttribute('data-action'));
@@ -92174,8 +92464,37 @@ function filterCommands(commands, query, limit) {
     });
     var closeBtn = $('dg-aj-nudge-close');
     if (closeBtn) closeBtn.addEventListener('click', dismissNudge);
+  }
+
+  function showNudge(dataset) {
+    if (_nudgeShown) return;
+    _nudgeShown = true;
+
+    var el = $('dg-aj-nudge');
+    if (!el) return;
+
+    _nudgeDataset = dataset;
+    renderNudge(el, dataset);
+
+    /* Show */
+    el.classList.add('visible');
 
     /* No auto-dismiss -- stays until the analyst acts or closes it. */
+  }
+
+  /* The Pulse sheet finishes counting after this card is already on screen. If
+     it finds more than the card was told about, the card is wrong and gets
+     rewritten in place rather than left standing. */
+  function watchLateIssueCount() {
+    document.addEventListener('dataglow:pulse-issues', function (e) {
+      var issues = (e && e.detail && typeof e.detail.issues === 'number') ? e.detail.issues : 0;
+      if (!_nudgeDataset) return;
+      _nudgeDataset.pulseIssueCount = issues;
+      var el = $('dg-aj-nudge');
+      if (!el || !el.classList.contains('visible')) return;
+      if (nudgeIssueCount(_nudgeDataset) === _nudgeIssuesRendered) return;
+      renderNudge(el, _nudgeDataset);
+    });
   }
 
   function dismissNudge() {
@@ -92202,6 +92521,32 @@ function filterCommands(commands, query, limit) {
         actions: [
           { label: 'Open Witness', action: 'witness', cls: 'dg-aj-nudge-btn-primary' },
           { label: 'I understand the risk', action: 'explore', cls: 'dg-aj-nudge-btn-ghost' },
+        ],
+      };
+    }
+
+    /* HONESTY GATE. Read this before touching the bands below.
+
+       `score` is one thing only: the share of rows that carry no row-level
+       flag. It is not a measure of whether the data was cleaned, of where it
+       came from, or of whether a person reviewed it, and nothing in this build
+       computes any of those. Column-level checks can fail while every single
+       row still comes through unflagged, which is exactly what a real CMS
+       Federal IDR sheet does: 100 out of 100 on the row check, four open
+       issues in the panel next to it. This card used to answer that with
+       "100/100. This data has been cleaned, sourced, and reviewed", on the
+       same screen as the panel saying 4 ISSUES.
+
+       So: a perfect score is never printed while an issue is open, and the
+       words cleaned, sourced and reviewed do not appear at all. What the card
+       says now is what was actually measured. */
+    if (issues > 0 && score !== null && score >= 90) {
+      return {
+        icon: '\uD83D\uDD0D',
+        body: issues + ' issue' + (issues !== 1 ? 's' : '') + ' still open. Every row passed the row checks, which is why the score reads ' + score + ' out of 100, so what was flagged sits at the column level rather than in any one row. Read the ' + issues + ' before you build on this.',
+        actions: [
+          { label: 'Read the ' + issues + ' issue' + (issues !== 1 ? 's' : ''), action: 'review', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'Write SQL anyway', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
         ],
       };
     }
@@ -92254,11 +92599,14 @@ function filterCommands(commands, query, limit) {
       };
     }
 
-    /* Band 5: Excellent (90-100) -- earned the right to visualize */
+    /* Band 5: nothing flagged. Reached only when issues is 0, because the
+       honesty gate above returns first otherwise. The claim is limited to what
+       ran: the checks found nothing. Nobody has reviewed this yet and the card
+       does not pretend otherwise. */
     if (rows > 100000) {
       return {
         icon: '\u2705',
-        body: score + '/100 and ' + rows.toLocaleString() + ' rows. Data is trusted -- start with SQL to slice it into a focused view, then build the dashboard from what you find.',
+        body: 'No issues found across ' + rows.toLocaleString() + ' rows. That is what the checks found, not a review by a person. Start with SQL to cut this down to the slice you care about, then build the dashboard from what you find.',
         actions: [
           { label: 'Write the SQL first', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
           { label: 'Build the dashboard', action: 'dashboard', cls: 'dg-aj-nudge-btn-ghost' },
@@ -92267,7 +92615,7 @@ function filterCommands(commands, query, limit) {
     }
     return {
       icon: '\u2705',
-      body: score + '/100. This data has been cleaned, sourced, and reviewed -- it has earned the right to be visualized. A chart built on this will tell the truth instead of a convincing story.',
+      body: 'No issues found in ' + rows.toLocaleString() + ' row' + (rows === 1 ? '' : 's') + ' and no row was flagged. That is what the checks found, not a review by a person, so a chart is a reasonable next step and still your call.',
       actions: [
         { label: 'Build the dashboard', action: 'dashboard', cls: 'dg-aj-nudge-btn-primary' },
         { label: 'Write SQL', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
@@ -92321,21 +92669,28 @@ function filterCommands(commands, query, limit) {
       /* Already injected? */
       if (sheet.querySelector('.dg-aj-pulse-rec')) return;
 
-      /* Wait for real score to render (not skeleton) */
+      /* Wait for the real score AND the real issue count. The score lands in
+         phase 2 and the issue count only after every check has run, so
+         injecting on the score alone produced a recommendation written before
+         anyone knew whether anything had been flagged. */
       var healthEl = document.getElementById('dg-ps-health-val');
       if (!healthEl || healthEl.textContent === '--') return;
+      var issuesEl = document.getElementById('dg-ps-issues-val');
+      if (!issuesEl || issuesEl.textContent === '--') return;
 
-      injectPulseRec(sheet, healthEl.textContent);
+      injectPulseRec(sheet, healthEl.textContent, issuesEl.textContent);
     });
 
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   }
 
-  function injectPulseRec(sheet, scoreText) {
+  function injectPulseRec(sheet, scoreText, issuesText) {
     var score = parseInt(scoreText, 10);
     if (isNaN(score)) return;
+    var issues = parseInt(issuesText, 10);
+    if (isNaN(issues)) issues = 0;
 
-    var rec = getPulseRec(score);
+    var rec = getPulseRec(score, issues);
     var body = document.getElementById('dg-ps-body');
     if (!body) return;
 
@@ -92368,7 +92723,23 @@ function filterCommands(commands, query, limit) {
   // feature can make, because bad charts do not look bad -- they look exactly
   // like good ones. This ladder exists so trust is earned band by band, not
   // assumed at score zero.
-  function getPulseRec(score) {
+  function getPulseRec(score, issues) {
+    var open = typeof issues === 'number' && issues > 0 ? issues : 0;
+
+    /* Same honesty gate as the post-drop card. This block renders inside the
+       Pulse sheet, directly under the sheet's own issue counter, so a line
+       reading "cleaned, traced, and reviewed" sat a few pixels from a red 4.
+       Nothing here cleans, traces or reviews anything, and the score only
+       covers row-level checks, so when an issue is open the recommendation is
+       to read it. */
+    if (open > 0 && score >= 90) {
+      return {
+        text: open + ' issue' + (open !== 1 ? 's' : '') + ' on this sheet, even though the row checks came back at ' + score + ' out of 100. The score only covers row-level checks, so read what was flagged before you build anything on it.',
+        action: 'review',
+        label: 'Read the ' + open + ' issue' + (open !== 1 ? 's' : ''),
+      };
+    }
+
     /* Band 1: Critical (0-39) -- structural problems, SQL cleaning required */
     if (score < 40) {
       return {
@@ -92401,9 +92772,9 @@ function filterCommands(commands, query, limit) {
         label: 'Get a second set of eyes before you ship this',
       };
     }
-    /* Band 5: Excellent (90-100) -- earned the right to visualize */
+    /* Band 5: the checks found nothing. Reached only with no open issues. */
     return {
-      text: 'This data has been cleaned, traced, and reviewed -- it has earned the right to be visualized. Now a chart will tell the truth instead of a convincing story.',
+      text: 'The checks found nothing to flag on this sheet. That is what was measured, not a review by a person, so a chart is a reasonable next step.',
       action: 'dashboard',
       label: 'Build the dashboard',
     };
@@ -92500,6 +92871,8 @@ function filterCommands(commands, query, limit) {
      Event wiring
   ================================================================ */
   function wireEvents() {
+    watchLateIssueCount();
+
     /* Moment 2: post-drop nudge */
     document.addEventListener('dataglow:dataset-loaded', function (e) {
       var dataset = (e && e.detail && e.detail.dataset) || {};
@@ -134538,6 +134911,13 @@ const RECEIPT_STEPS = Object.freeze([
     ordinal: 1,
     title: 'Drop',
     oneLine: 'Put a file in. Nothing is uploaded.',
+    // WHY A SEPARATE LINE FOR THE DONE STATE.
+    // 'Nothing is uploaded' is true and it is also the sentence the rail was
+    // showing at the bottom of the screen while a workbook was open, a sheet
+    // was picked and 56 rows were on the table. Read there it stopped saying
+    // "your file stays on your machine" and started saying "no file is here",
+    // which was false. A step that is done says what is true now.
+    doneLine: 'A file is loaded and nothing was uploaded. It was read on this machine.',
     body: 'A CSV, an Excel workbook, a Parquet file. It is read by this page on your machine and it does not go anywhere. If the spreadsheet is a mess, the repair path is here too.',
     opens: 'open-file',
     also: 'fix-spreadsheet',
@@ -134549,6 +134929,7 @@ const RECEIPT_STEPS = Object.freeze([
     ordinal: 2,
     title: 'Ask',
     oneLine: 'Ask in SQL, in plain English, or in Python or R.',
+    doneLine: 'A query has returned a result.',
     body: 'Plain English is turned into SQL you can read before it runs. The generated query is the answer to how the number was produced, so it is shown rather than hidden.',
     opens: 'open-ask',
     doneWhen: 'A query has returned a result.',
@@ -134593,9 +134974,12 @@ function bool(v) {
 /**
  * Build the rail from observed facts.
  *
+ * `tableName` is optional and cosmetic: when the caller knows what is loaded,
+ * the rail names it instead of describing it.
+ *
  * @param {{
  *   hasTable?:boolean, hasQueryResult?:boolean, proveRan?:boolean,
- *   hasShipped?:boolean, hasSavedMethod?:boolean
+ *   hasShipped?:boolean, hasSavedMethod?:boolean, tableName?:string
  * }} [input]
  */
 function buildReceiptSpine(input) {
@@ -134612,6 +134996,8 @@ function buildReceiptSpine(input) {
   // the gate ever having run. That is the one ordering in this product that
   // actually matters, so it gets its own state rather than a softer word.
   const proveSkipped = !done.prove && done.ship;
+
+  const tableName = typeof inp.tableName === 'string' ? inp.tableName.trim() : '';
 
   let currentAssigned = false;
   const steps = RECEIPT_STEPS.map(step => {
@@ -134630,7 +135016,10 @@ function buildReceiptSpine(input) {
       id: step.id,
       ordinal: step.ordinal,
       title: step.title,
-      oneLine: step.oneLine,
+      // A done step reports the present tense. Only the not-yet steps read as
+      // an instruction, because only they are one.
+      oneLine: state === 'done' && step.doneLine ? step.doneLine : step.oneLine,
+      todoLine: step.oneLine,
       body: step.body,
       opens: step.opens,
       also: step.also || '',
@@ -134655,6 +135044,15 @@ function buildReceiptSpine(input) {
     total: steps.length,
     currentId: current ? current.id : '',
     proveSkipped,
+    tableName,
+    // One short line for a status rail, true in both directions. Anything
+    // reading this should print it rather than assembling its own claim about
+    // whether a file is present.
+    loadedLine: done.drop
+      ? (tableName
+        ? 'Loaded: ' + tableName + '. Read on this machine, not uploaded.'
+        : 'A table is loaded. Read on this machine, not uploaded.')
+      : 'No file is loaded yet.',
     headline: current
       ? 'Next: ' + current.title + '. ' + current.oneLine
       : proveSkipped
@@ -135795,13 +136193,39 @@ function buildRPowerPack(input) {
      clicked.
      --------------------------------------------------------------- */
 
+  /* WHY THIS FUNCTION IS LONGER THAN IT LOOKS LIKE IT SHOULD BE.
+     It used to ask only for window.loadedTables, window.currentTableName and
+     window.DATAGLOW_STATE.tableName. None of those three exist in this build.
+     So the answer was always false, Drop was never marked done, and the rail
+     sat at the bottom of the screen reading "Next: Drop. Put a file in.
+     Nothing is uploaded." with a workbook open and 56 rows on the table.
+     A wrong observation is worse than a missing one, because everything
+     downstream of it renders confidently.
+
+     The dataset registry is the engine that owns this answer, and
+     window.getActiveDataset() is how the rest of the canvas asks it. That is
+     first now. The three old globals stay last as fallbacks for builds that
+     do define them. */
   function hasTable() {
     try {
+      if (typeof window.getActiveDataset === 'function' && window.getActiveDataset()) return true;
+      if (window.state && Array.isArray(window.state.datasets) && window.state.datasets.length > 0) return true;
       if (Array.isArray(window.loadedTables) && window.loadedTables.length > 0) return true;
       if (window.currentTableName) return true;
       if (window.DATAGLOW_STATE && window.DATAGLOW_STATE.tableName) return true;
     } catch (_e) {}
     return false;
+  }
+
+  /** The name of what is loaded, so the rail can say it instead of guessing. */
+  function activeTableName() {
+    try {
+      var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+      if (ds && (ds.name || ds.sheetName || ds.fileName)) return String(ds.name || ds.sheetName || ds.fileName);
+      if (window.currentTableName) return String(window.currentTableName);
+      if (window.DATAGLOW_STATE && window.DATAGLOW_STATE.tableName) return String(window.DATAGLOW_STATE.tableName);
+    } catch (_e) {}
+    return '';
   }
 
   function hasQueryResult() {
@@ -135854,6 +136278,7 @@ function buildRPowerPack(input) {
         proveRan: proveRan(),
         hasShipped: hasShipped(),
         hasSavedMethod: hasSavedMethod(),
+        tableName: activeTableName(),
       });
     } catch (_e) { return null; }
   }
@@ -135920,6 +136345,7 @@ function buildRPowerPack(input) {
       + '#' + RAIL_ID + ' .dg-sp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
       + '#' + RAIL_ID + ' .dg-sp-title{font-weight:600}'
       + '#' + RAIL_ID + ' .dg-sp-head{opacity:.8;flex:1 1 240px;min-width:0}'
+      + '#' + RAIL_ID + ' .dg-sp-loaded{font-size:14px;opacity:.75;flex:0 1 100%;min-width:0;margin:2px 0 0}'
       + '.dg-sp-steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
       + '.dg-sp-step{font:inherit;font-size:16px;padding:5px 11px;border-radius:999px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;text-align:left}'
@@ -135991,6 +136417,12 @@ function buildRPowerPack(input) {
     var top = el('div', { class: 'dg-sp-top' });
     top.appendChild(el('span', { class: 'dg-sp-title' }, model.title));
     top.appendChild(el('span', { class: 'dg-sp-head' }, model.headline));
+    /* Said plainly and in one place: what is loaded, or that nothing is. The
+       model computes this line so the rail cannot drift out of step with the
+       state it just read. */
+    if (model.loadedLine) {
+      top.appendChild(el('p', { class: 'dg-sp-loaded' }, model.loadedLine));
+    }
     /* Bundle 15: Repair Ledger chip lives in the rail's Prove/Ship area, next
        to Hide, so the ledger is findable from the same strip that already
        names the path rather than a new top-nav item. Only rendered when both
@@ -136121,6 +136553,18 @@ function buildRPowerPack(input) {
         try { if (state.open) render(); refreshChip(); } catch (_e) {}
       }, 5000);
     } catch (_e2) {}
+
+    /* A five second poll means the rail can spend five seconds telling someone
+       no file is loaded immediately after they loaded one. Loading a table is
+       announced, so listen for it and re-read at once. */
+    try {
+      ['dataglow:dataset-loaded', 'dataglow:dataset-updated', 'dataglow:query-complete']
+        .forEach(function (evt) {
+          window.addEventListener(evt, function () {
+            try { if (state.open) render(); refreshChip(); } catch (_e3) {}
+          });
+        });
+    } catch (_e4) {}
   }
 
   function boot() {

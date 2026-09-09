@@ -59,6 +59,13 @@ export const RECEIPT_STEPS = Object.freeze([
     ordinal: 1,
     title: 'Drop',
     oneLine: 'Put a file in. Nothing is uploaded.',
+    // WHY A SEPARATE LINE FOR THE DONE STATE.
+    // 'Nothing is uploaded' is true and it is also the sentence the rail was
+    // showing at the bottom of the screen while a workbook was open, a sheet
+    // was picked and 56 rows were on the table. Read there it stopped saying
+    // "your file stays on your machine" and started saying "no file is here",
+    // which was false. A step that is done says what is true now.
+    doneLine: 'A file is loaded and nothing was uploaded. It was read on this machine.',
     body: 'A CSV, an Excel workbook, a Parquet file. It is read by this page on your machine and it does not go anywhere. If the spreadsheet is a mess, the repair path is here too.',
     opens: 'open-file',
     also: 'fix-spreadsheet',
@@ -70,6 +77,7 @@ export const RECEIPT_STEPS = Object.freeze([
     ordinal: 2,
     title: 'Ask',
     oneLine: 'Ask in SQL, in plain English, or in Python or R.',
+    doneLine: 'A query has returned a result.',
     body: 'Plain English is turned into SQL you can read before it runs. The generated query is the answer to how the number was produced, so it is shown rather than hidden.',
     opens: 'open-ask',
     doneWhen: 'A query has returned a result.',
@@ -114,9 +122,12 @@ function bool(v) {
 /**
  * Build the rail from observed facts.
  *
+ * `tableName` is optional and cosmetic: when the caller knows what is loaded,
+ * the rail names it instead of describing it.
+ *
  * @param {{
  *   hasTable?:boolean, hasQueryResult?:boolean, proveRan?:boolean,
- *   hasShipped?:boolean, hasSavedMethod?:boolean
+ *   hasShipped?:boolean, hasSavedMethod?:boolean, tableName?:string
  * }} [input]
  */
 export function buildReceiptSpine(input) {
@@ -133,6 +144,8 @@ export function buildReceiptSpine(input) {
   // the gate ever having run. That is the one ordering in this product that
   // actually matters, so it gets its own state rather than a softer word.
   const proveSkipped = !done.prove && done.ship;
+
+  const tableName = typeof inp.tableName === 'string' ? inp.tableName.trim() : '';
 
   let currentAssigned = false;
   const steps = RECEIPT_STEPS.map(step => {
@@ -151,7 +164,10 @@ export function buildReceiptSpine(input) {
       id: step.id,
       ordinal: step.ordinal,
       title: step.title,
-      oneLine: step.oneLine,
+      // A done step reports the present tense. Only the not-yet steps read as
+      // an instruction, because only they are one.
+      oneLine: state === 'done' && step.doneLine ? step.doneLine : step.oneLine,
+      todoLine: step.oneLine,
       body: step.body,
       opens: step.opens,
       also: step.also || '',
@@ -176,6 +192,15 @@ export function buildReceiptSpine(input) {
     total: steps.length,
     currentId: current ? current.id : '',
     proveSkipped,
+    tableName,
+    // One short line for a status rail, true in both directions. Anything
+    // reading this should print it rather than assembling its own claim about
+    // whether a file is present.
+    loadedLine: done.drop
+      ? (tableName
+        ? 'Loaded: ' + tableName + '. Read on this machine, not uploaded.'
+        : 'A table is loaded. Read on this machine, not uploaded.')
+      : 'No file is loaded yet.',
     headline: current
       ? 'Next: ' + current.title + '. ' + current.oneLine
       : proveSkipped

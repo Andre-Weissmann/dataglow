@@ -181,18 +181,31 @@
     document.body.appendChild(el);
   }
 
-  function showNudge(dataset) {
-    if (_nudgeShown) return;
-    _nudgeShown = true;
+  /* The count of open issues, from every surface that counts them.
 
-    var el = $('dg-aj-nudge');
-    if (!el) return;
+     dataset.findings holds the column-level checks that ran at load.
+     dataset.pulseIssueCount is what the Pulse sheet rendered in its own Issues
+     tile. They are computed by different code and they disagree, which is how
+     this card came to read "no issues found" while the panel behind it read 4.
+     Whichever number is higher is the one a person can see, so that is the one
+     this card answers to. */
+  function nudgeIssueCount(dataset) {
+    var found = (dataset && dataset.findings && dataset.findings.length) || 0;
+    var pulse = (dataset && typeof dataset.pulseIssueCount === 'number') ? dataset.pulseIssueCount : 0;
+    return Math.max(found, pulse);
+  }
 
+  var _nudgeDataset = null;
+  var _nudgeIssuesRendered = -1;
+
+  function renderNudge(el, dataset) {
     var score   = typeof dataset.score === 'number' ? dataset.score : null;
-    var issues  = (dataset.findings && dataset.findings.length) || 0;
+    var issues  = nudgeIssueCount(dataset);
     var rows    = (dataset.rows && dataset.rows.length) || 0;
     var cols    = (dataset.columns && dataset.columns.length) || 0;
     var dsName  = dataset.name || 'your dataset';
+
+    _nudgeIssuesRendered = issues;
 
     /* Determine primary recommendation */
     var rec = getFirstRecommendation(score, issues, rows, cols, dataset.columns || []);
@@ -211,10 +224,8 @@
       '</div>',
     ].join('');
 
-    /* Show */
-    el.classList.add('visible');
-
-    /* Wire buttons */
+    /* Wire buttons. innerHTML replaced the old ones, so this runs on every
+       render, not only the first. */
     el.querySelectorAll('.dg-aj-nudge-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         handleNudgeAction(btn.getAttribute('data-action'));
@@ -223,8 +234,37 @@
     });
     var closeBtn = $('dg-aj-nudge-close');
     if (closeBtn) closeBtn.addEventListener('click', dismissNudge);
+  }
+
+  function showNudge(dataset) {
+    if (_nudgeShown) return;
+    _nudgeShown = true;
+
+    var el = $('dg-aj-nudge');
+    if (!el) return;
+
+    _nudgeDataset = dataset;
+    renderNudge(el, dataset);
+
+    /* Show */
+    el.classList.add('visible');
 
     /* No auto-dismiss -- stays until the analyst acts or closes it. */
+  }
+
+  /* The Pulse sheet finishes counting after this card is already on screen. If
+     it finds more than the card was told about, the card is wrong and gets
+     rewritten in place rather than left standing. */
+  function watchLateIssueCount() {
+    document.addEventListener('dataglow:pulse-issues', function (e) {
+      var issues = (e && e.detail && typeof e.detail.issues === 'number') ? e.detail.issues : 0;
+      if (!_nudgeDataset) return;
+      _nudgeDataset.pulseIssueCount = issues;
+      var el = $('dg-aj-nudge');
+      if (!el || !el.classList.contains('visible')) return;
+      if (nudgeIssueCount(_nudgeDataset) === _nudgeIssuesRendered) return;
+      renderNudge(el, _nudgeDataset);
+    });
   }
 
   function dismissNudge() {
@@ -251,6 +291,32 @@
         actions: [
           { label: 'Open Witness', action: 'witness', cls: 'dg-aj-nudge-btn-primary' },
           { label: 'I understand the risk', action: 'explore', cls: 'dg-aj-nudge-btn-ghost' },
+        ],
+      };
+    }
+
+    /* HONESTY GATE. Read this before touching the bands below.
+
+       `score` is one thing only: the share of rows that carry no row-level
+       flag. It is not a measure of whether the data was cleaned, of where it
+       came from, or of whether a person reviewed it, and nothing in this build
+       computes any of those. Column-level checks can fail while every single
+       row still comes through unflagged, which is exactly what a real CMS
+       Federal IDR sheet does: 100 out of 100 on the row check, four open
+       issues in the panel next to it. This card used to answer that with
+       "100/100. This data has been cleaned, sourced, and reviewed", on the
+       same screen as the panel saying 4 ISSUES.
+
+       So: a perfect score is never printed while an issue is open, and the
+       words cleaned, sourced and reviewed do not appear at all. What the card
+       says now is what was actually measured. */
+    if (issues > 0 && score !== null && score >= 90) {
+      return {
+        icon: '\uD83D\uDD0D',
+        body: issues + ' issue' + (issues !== 1 ? 's' : '') + ' still open. Every row passed the row checks, which is why the score reads ' + score + ' out of 100, so what was flagged sits at the column level rather than in any one row. Read the ' + issues + ' before you build on this.',
+        actions: [
+          { label: 'Read the ' + issues + ' issue' + (issues !== 1 ? 's' : ''), action: 'review', cls: 'dg-aj-nudge-btn-primary' },
+          { label: 'Write SQL anyway', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
         ],
       };
     }
@@ -303,11 +369,14 @@
       };
     }
 
-    /* Band 5: Excellent (90-100) -- earned the right to visualize */
+    /* Band 5: nothing flagged. Reached only when issues is 0, because the
+       honesty gate above returns first otherwise. The claim is limited to what
+       ran: the checks found nothing. Nobody has reviewed this yet and the card
+       does not pretend otherwise. */
     if (rows > 100000) {
       return {
         icon: '\u2705',
-        body: score + '/100 and ' + rows.toLocaleString() + ' rows. Data is trusted -- start with SQL to slice it into a focused view, then build the dashboard from what you find.',
+        body: 'No issues found across ' + rows.toLocaleString() + ' rows. That is what the checks found, not a review by a person. Start with SQL to cut this down to the slice you care about, then build the dashboard from what you find.',
         actions: [
           { label: 'Write the SQL first', action: 'sql', cls: 'dg-aj-nudge-btn-primary' },
           { label: 'Build the dashboard', action: 'dashboard', cls: 'dg-aj-nudge-btn-ghost' },
@@ -316,7 +385,7 @@
     }
     return {
       icon: '\u2705',
-      body: score + '/100. This data has been cleaned, sourced, and reviewed -- it has earned the right to be visualized. A chart built on this will tell the truth instead of a convincing story.',
+      body: 'No issues found in ' + rows.toLocaleString() + ' row' + (rows === 1 ? '' : 's') + ' and no row was flagged. That is what the checks found, not a review by a person, so a chart is a reasonable next step and still your call.',
       actions: [
         { label: 'Build the dashboard', action: 'dashboard', cls: 'dg-aj-nudge-btn-primary' },
         { label: 'Write SQL', action: 'sql', cls: 'dg-aj-nudge-btn-ghost' },
@@ -370,21 +439,28 @@
       /* Already injected? */
       if (sheet.querySelector('.dg-aj-pulse-rec')) return;
 
-      /* Wait for real score to render (not skeleton) */
+      /* Wait for the real score AND the real issue count. The score lands in
+         phase 2 and the issue count only after every check has run, so
+         injecting on the score alone produced a recommendation written before
+         anyone knew whether anything had been flagged. */
       var healthEl = document.getElementById('dg-ps-health-val');
       if (!healthEl || healthEl.textContent === '--') return;
+      var issuesEl = document.getElementById('dg-ps-issues-val');
+      if (!issuesEl || issuesEl.textContent === '--') return;
 
-      injectPulseRec(sheet, healthEl.textContent);
+      injectPulseRec(sheet, healthEl.textContent, issuesEl.textContent);
     });
 
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   }
 
-  function injectPulseRec(sheet, scoreText) {
+  function injectPulseRec(sheet, scoreText, issuesText) {
     var score = parseInt(scoreText, 10);
     if (isNaN(score)) return;
+    var issues = parseInt(issuesText, 10);
+    if (isNaN(issues)) issues = 0;
 
-    var rec = getPulseRec(score);
+    var rec = getPulseRec(score, issues);
     var body = document.getElementById('dg-ps-body');
     if (!body) return;
 
@@ -417,7 +493,23 @@
   // feature can make, because bad charts do not look bad -- they look exactly
   // like good ones. This ladder exists so trust is earned band by band, not
   // assumed at score zero.
-  function getPulseRec(score) {
+  function getPulseRec(score, issues) {
+    var open = typeof issues === 'number' && issues > 0 ? issues : 0;
+
+    /* Same honesty gate as the post-drop card. This block renders inside the
+       Pulse sheet, directly under the sheet's own issue counter, so a line
+       reading "cleaned, traced, and reviewed" sat a few pixels from a red 4.
+       Nothing here cleans, traces or reviews anything, and the score only
+       covers row-level checks, so when an issue is open the recommendation is
+       to read it. */
+    if (open > 0 && score >= 90) {
+      return {
+        text: open + ' issue' + (open !== 1 ? 's' : '') + ' on this sheet, even though the row checks came back at ' + score + ' out of 100. The score only covers row-level checks, so read what was flagged before you build anything on it.',
+        action: 'review',
+        label: 'Read the ' + open + ' issue' + (open !== 1 ? 's' : ''),
+      };
+    }
+
     /* Band 1: Critical (0-39) -- structural problems, SQL cleaning required */
     if (score < 40) {
       return {
@@ -450,9 +542,9 @@
         label: 'Get a second set of eyes before you ship this',
       };
     }
-    /* Band 5: Excellent (90-100) -- earned the right to visualize */
+    /* Band 5: the checks found nothing. Reached only with no open issues. */
     return {
-      text: 'This data has been cleaned, traced, and reviewed -- it has earned the right to be visualized. Now a chart will tell the truth instead of a convincing story.',
+      text: 'The checks found nothing to flag on this sheet. That is what was measured, not a review by a person, so a chart is a reasonable next step.',
       action: 'dashboard',
       label: 'Build the dashboard',
     };
@@ -549,6 +641,8 @@
      Event wiring
   ================================================================ */
   function wireEvents() {
+    watchLateIssueCount();
+
     /* Moment 2: post-drop nudge */
     document.addEventListener('dataglow:dataset-loaded', function (e) {
       var dataset = (e && e.detail && e.detail.dataset) || {};

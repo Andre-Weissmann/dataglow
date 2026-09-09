@@ -93,13 +93,39 @@
      clicked.
      --------------------------------------------------------------- */
 
+  /* WHY THIS FUNCTION IS LONGER THAN IT LOOKS LIKE IT SHOULD BE.
+     It used to ask only for window.loadedTables, window.currentTableName and
+     window.DATAGLOW_STATE.tableName. None of those three exist in this build.
+     So the answer was always false, Drop was never marked done, and the rail
+     sat at the bottom of the screen reading "Next: Drop. Put a file in.
+     Nothing is uploaded." with a workbook open and 56 rows on the table.
+     A wrong observation is worse than a missing one, because everything
+     downstream of it renders confidently.
+
+     The dataset registry is the engine that owns this answer, and
+     window.getActiveDataset() is how the rest of the canvas asks it. That is
+     first now. The three old globals stay last as fallbacks for builds that
+     do define them. */
   function hasTable() {
     try {
+      if (typeof window.getActiveDataset === 'function' && window.getActiveDataset()) return true;
+      if (window.state && Array.isArray(window.state.datasets) && window.state.datasets.length > 0) return true;
       if (Array.isArray(window.loadedTables) && window.loadedTables.length > 0) return true;
       if (window.currentTableName) return true;
       if (window.DATAGLOW_STATE && window.DATAGLOW_STATE.tableName) return true;
     } catch (_e) {}
     return false;
+  }
+
+  /** The name of what is loaded, so the rail can say it instead of guessing. */
+  function activeTableName() {
+    try {
+      var ds = typeof window.getActiveDataset === 'function' ? window.getActiveDataset() : null;
+      if (ds && (ds.name || ds.sheetName || ds.fileName)) return String(ds.name || ds.sheetName || ds.fileName);
+      if (window.currentTableName) return String(window.currentTableName);
+      if (window.DATAGLOW_STATE && window.DATAGLOW_STATE.tableName) return String(window.DATAGLOW_STATE.tableName);
+    } catch (_e) {}
+    return '';
   }
 
   function hasQueryResult() {
@@ -152,6 +178,7 @@
         proveRan: proveRan(),
         hasShipped: hasShipped(),
         hasSavedMethod: hasSavedMethod(),
+        tableName: activeTableName(),
       });
     } catch (_e) { return null; }
   }
@@ -218,6 +245,7 @@
       + '#' + RAIL_ID + ' .dg-sp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
       + '#' + RAIL_ID + ' .dg-sp-title{font-weight:600}'
       + '#' + RAIL_ID + ' .dg-sp-head{opacity:.8;flex:1 1 240px;min-width:0}'
+      + '#' + RAIL_ID + ' .dg-sp-loaded{font-size:14px;opacity:.75;flex:0 1 100%;min-width:0;margin:2px 0 0}'
       + '.dg-sp-steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
       + '.dg-sp-step{font:inherit;font-size:16px;padding:5px 11px;border-radius:999px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;text-align:left}'
@@ -289,6 +317,12 @@
     var top = el('div', { class: 'dg-sp-top' });
     top.appendChild(el('span', { class: 'dg-sp-title' }, model.title));
     top.appendChild(el('span', { class: 'dg-sp-head' }, model.headline));
+    /* Said plainly and in one place: what is loaded, or that nothing is. The
+       model computes this line so the rail cannot drift out of step with the
+       state it just read. */
+    if (model.loadedLine) {
+      top.appendChild(el('p', { class: 'dg-sp-loaded' }, model.loadedLine));
+    }
     /* Bundle 15: Repair Ledger chip lives in the rail's Prove/Ship area, next
        to Hide, so the ledger is findable from the same strip that already
        names the path rather than a new top-nav item. Only rendered when both
@@ -419,6 +453,18 @@
         try { if (state.open) render(); refreshChip(); } catch (_e) {}
       }, 5000);
     } catch (_e2) {}
+
+    /* A five second poll means the rail can spend five seconds telling someone
+       no file is loaded immediately after they loaded one. Loading a table is
+       announced, so listen for it and re-read at once. */
+    try {
+      ['dataglow:dataset-loaded', 'dataglow:dataset-updated', 'dataglow:query-complete']
+        .forEach(function (evt) {
+          window.addEventListener(evt, function () {
+            try { if (state.open) render(); refreshChip(); } catch (_e3) {}
+          });
+        });
+    } catch (_e4) {}
   }
 
   function boot() {

@@ -206,27 +206,59 @@ eq('Initiations - Group Health Plan types numeric', fixedTypes[2], 'INT');
 eq('Total types numeric', fixedTypes[3], 'INT');
 ok('not every column is STR any more', fixedTypes.filter((t) => t === 'STR').length === 1);
 
-// The rows themselves must be untouched: same count, same values, banner and
-// footnote rows still present. Type detection is not allowed to drop data.
-eq('every row the sheet produced is still in the dataset (banner + 6 states + 2 footnotes)',
-   fixed.dataset.rows.length, 9);
-eq('the first state row is verbatim', fixed.dataset.rows[1], ['Texas+', 246807, 2270, 249077]);
-eq('the banner row is still there, unchanged', fixed.dataset.rows[0], [null, '2025 Q2', '2025 Q2', '2025 Q2']);
-ok('the Notes footnote row is still there',
-   String(fixed.dataset.rows[8][0]).startsWith('Notes:'));
-eq('numeric cells stayed numbers, not strings', typeof fixed.dataset.rows[1][3], 'number');
+// UPDATED. This block used to assert that the "2025 Q2" banner and the two
+// footnote lines stayed in the dataset as rows, on the principle that type
+// detection must not drop data. That principle still holds and is still tested
+// below: no state row may go missing and no cell may be rewritten.
+//
+// What changed is who counts. The banner and the footnotes are not
+// observations, and counting them made the app report 59 rows for a 56 row CMS
+// sheet and type every column as text. The importer now sets exactly those
+// rows aside, names them by their sheet row number, and says so in a note. The
+// file on disk is never touched. See test/honesty-toasts-footnotes.test.mjs for
+// the detector's own limits, including the cases where it deliberately leaves a
+// note-looking row alone.
+eq('the six real state rows are the dataset', fixed.dataset.rows.length, 6);
+eq('the first state row is verbatim and is now row one', fixed.dataset.rows[0], ['Texas+', 246807, 2270, 249077]);
+eq('the last state row is still there', fixed.dataset.rows[5], ['Northern Mariana Islands', 1, 0, 1]);
+eq('the banner row was set aside as a label, not counted as a record',
+   fixed.dataset.nonDataRows.labels.map((r) => r.sheetRow), [4]);
+eq('both footnote lines were set aside as footnotes',
+   fixed.dataset.nonDataRows.footnotes.map((r) => r.sheetRow), [11, 12]);
+ok('the import notes tell the reader what was set aside and why',
+   (fixed.dataset.importNotes || []).some((n) => /rows look like notes or labels/.test(n)));
+eq('numeric cells stayed numbers, not strings', typeof fixed.dataset.rows[0][3], 'number');
 
 // Direction 2: restore the old index lookup and watch every column go STR.
 const buggy = runImport(IDR_AOA, { getCellExpr: 'DGRowShape.getCell(row, result.columns, idx)' });
 ok('with the old index lookup restored, the same sheet types every column STR',
    buggy.dataset && buggy.dataset.columns.every((c) => c.type === 'STR'));
 
-// Direction 3: the name lookup alone is not enough on a real sheet. Without the
-// type sample, the "2025 Q2" banner row alone puts all three measures back to
-// STR. This is why the sample filter is part of the fix and not a nicety.
+// Direction 3: one text cell above a numeric column is enough to type that
+// column as text. There are now two independent defences against it and they
+// are tested separately.
+//
+// The real CMS banner has an empty first cell, so the importer sets it aside
+// before anything types anything, and the measures come out numeric even with
+// the sample filter switched off. Before this fix the sample filter was the
+// only thing standing between that banner and four STR columns.
 const noSample = runImport(IDR_AOA, { useSample: false });
-ok('name lookup without the type sample still types the measures STR (the banner row wins)',
-   noSample.dataset && noSample.dataset.columns.slice(1).every((c) => c.type === 'STR'));
+ok('with the banner row set aside, the measures type INT even with the sample filter off',
+   noSample.dataset && noSample.dataset.columns.slice(1).every((c) => c.type === 'INT'));
+
+// And the limit, written down rather than hidden. A period label with something
+// in its first cell cannot be told apart from a real record, so the detector
+// leaves it alone, and one text cell is still one text cell. The result is an
+// honest STR column that SQL can TRY_CAST, not a silently wrong number.
+const STUBBORN_BANNER_AOA = IDR_AOA.map((r) => r.slice());
+STUBBORN_BANNER_AOA[3] = ['All plan types', '2025 Q2', '2025 Q2', '2025 Q2'];
+const stubborn = runImport(STUBBORN_BANNER_AOA);
+eq('a banner the detector cannot safely identify is kept as a row',
+   stubborn.dataset.rows.length, 7);
+eq('only the two footnote lines were set aside on that sheet, not the banner',
+   stubborn.dataset.nonDataRows.count, 2);
+ok('the measures type STR in that case, which is the honest answer for a text cell',
+   stubborn.dataset.columns.slice(1).every((c) => c.type === 'STR'));
 
 // The sample filter must not fire on a sparse but legitimate dataset.
 const sparse = [
@@ -319,7 +351,8 @@ function makeExportHarness(dataset) {
 }
 
 // The dataset the Excel path actually produces: positional array rows,
-// { name, type } columns, banner and footnote rows included.
+// { name, type } columns, six state rows, with the banner and footnote lines
+// set aside at import and reported on dataset.nonDataRows.
 const liveDataset = {
   id: 'ds-1',
   name: 'federal-idr-supplemental-tables-2025-q2.xlsx',
@@ -331,25 +364,25 @@ const liveDataset = {
 const live = makeExportHarness(liveDataset);
 const data = live.api.getDataRows();
 eq('the export sees the live column names', data.headers, fixedNames);
-eq('the export sees every live row', data.rows.length, 9);
-eq('the export sees the real first state values', data.rows[1], ['Texas+', 246807, 2270, 249077]);
+eq('the export sees every live row', data.rows.length, 6);
+eq('the export sees the real first state values', data.rows[0], ['Texas+', 246807, 2270, 249077]);
 
 live.api.exportCSV();
 const csvBlob = live.blobOf();
 const csvLines = csvBlob.text.split('\n');
 ok('CSV export is not zero bytes', csvBlob.size > 0);
-eq('CSV has one header line plus one line per live row', csvLines.length, 10);
+eq('CSV has one header line plus one line per live row', csvLines.length, 7);
 eq('CSV header is the real column names',
    csvLines[0],
    'State or Territory,Initiations - Non-Group Health Plan,Initiations - Group Health Plan,Total');
-eq('CSV row 2 is the Texas+ row from the sheet', csvLines[2], 'Texas+,246807,2270,249077');
+eq('the first CSV data line is the Texas+ row from the sheet', csvLines[1], 'Texas+,246807,2270,249077');
 eq('a CSV download was actually clicked', live.downloads.length, 1);
 ok('the CSV filename ends in .csv', /\.csv$/.test(live.downloads[0].name));
 eq('exactly one toast fired', live.toasts.length, 1);
 eq('the CSV toast is a success', live.toasts[0].type, 'success');
-ok('the CSV toast states the row count it wrote', live.toasts[0].msg.includes('9 rows'));
+ok('the CSV toast states the row count it wrote', live.toasts[0].msg.includes('6 rows'));
 eq('the export event reports the real row count',
-   live.events.filter((e) => e.type === 'dataglow:export-triggered').map((e) => e.detail.rows), [9]);
+   live.events.filter((e) => e.type === 'dataglow:export-triggered').map((e) => e.detail.rows), [6]);
 
 live.api.exportXLSX();
 const wb = live.written.length ? live.written[0].wb : null;
@@ -359,14 +392,14 @@ const dataSheet = wb && wb.Sheets.Data;
 const dataRange = dataSheet && dataSheet['!ref'] ? XLSX.utils.decode_range(dataSheet['!ref']) : null;
 ok('the Data sheet is not the 1x1 empty cell the old path produced', dataSheet && dataSheet['!ref'] !== 'A1');
 eq('the Data sheet covers a header row plus every data row',
-   dataRange ? (dataRange.e.r - dataRange.s.r) + 1 : 0, 10);
+   dataRange ? (dataRange.e.r - dataRange.s.r) + 1 : 0, 7);
 eq('the Data sheet covers all four columns',
    dataRange ? (dataRange.e.c - dataRange.s.c) + 1 : 0, 4);
 const sheetRows = dataSheet ? XLSX.utils.sheet_to_json(dataSheet, { header: 1 }) : [];
 eq('the Data sheet header is the real column names', sheetRows[0], fixedNames);
-eq('the Data sheet Texas+ row kept its numbers', sheetRows[2], ['Texas+', 246807, 2270, 249077]);
+eq('the Data sheet Texas+ row kept its numbers', sheetRows[1], ['Texas+', 246807, 2270, 249077]);
 ok('the XLSX toast is a success that names the row count',
-   live.toasts.length === 2 && live.toasts[1].type === 'success' && live.toasts[1].msg.includes('9 rows'));
+   live.toasts.length === 2 && live.toasts[1].type === 'success' && live.toasts[1].msg.includes('6 rows'));
 
 // ============================================================
 console.log('\n3. Fix 3 in SQL: the detected types reach DuckDB, so a bare SUM works');
@@ -433,8 +466,9 @@ async function registerInDuckDB(dataset) {
   return { tbl, schema, statements: h.statements, typedSelectList: h.api.typedSelectList };
 }
 
-// The same CMS-shaped dataset the import section produced: a banner row, six
-// state rows, two footnote rows, columns typed STR then INT INT INT.
+// The same CMS-shaped dataset the import section produced: six state rows,
+// columns typed STR then INT INT INT, with the banner and footnote lines set
+// aside at import.
 const idrDataset = {
   name: 'federal-idr-supplemental-tables-2025-q2.xlsx',
   columns: fixed.dataset.columns,
@@ -449,8 +483,8 @@ eq('Total is an integer in DuckDB, not VARCHAR', idrSql.schema[3].data_type, 'BI
 eq('the DuckDB column names still match the grid',
    idrSql.schema.map((c) => c.column_name), fixedNames);
 
-eq('every row the grid shows is in the table, banner and footnotes included',
-   (await runQuery(`SELECT COUNT(*) AS n FROM "${idrSql.tbl}"`)).rows[0].n, 9);
+eq('every row the grid shows is in the table',
+   (await runQuery(`SELECT COUNT(*) AS n FROM "${idrSql.tbl}"`)).rows[0].n, 6);
 
 let bareSumErr = null;
 let bareSum = null;
@@ -461,18 +495,23 @@ try {
 ok('a bare SUM with no TRY_CAST runs at all' +
    (bareSumErr ? ` (${String(bareSumErr).split('\n')[0]})` : ''), bareSumErr === null);
 eq('the bare SUM is the total of the six real state rows', bareSum && bareSum.s, 329668);
-eq('the three non-observation cells in Total are NULL, so SUM skips them',
+eq('every one of the six rows counted, because they are all observations now',
    bareSum && bareSum.n, 6);
 eq('the two measure columns still add up to the Total column',
    (await runQuery(`SELECT SUM("${fixedNames[1]}") + SUM("${fixedNames[2]}") AS s FROM "${idrSql.tbl}"`)).rows[0].s,
    329668);
-eq('the banner and footnote cells became NULL rather than failing the load',
-   (await runQuery(`SELECT COUNT(*) AS n FROM "${idrSql.tbl}" WHERE "Total" IS NULL`)).rows[0].n, 3);
+eq('no NULL Total is left in the table, because the rows that had none are out of it',
+   (await runQuery(`SELECT COUNT(*) AS n FROM "${idrSql.tbl}" WHERE "Total" IS NULL`)).rows[0].n, 0);
 
-// Direction 2: the pre-fix statement, run on the same CSV, still fails the
-// same way the live bug report showed.
+// Direction 2: the pre-fix statement, run on a CSV that still contains a text
+// banner row, fails the same way the live bug report showed. The IDR export no
+// longer contains that row, so this direction uses the stubborn banner sheet
+// from section 1, which is a real case the detector deliberately leaves alone.
+// That keeps this a test of read_csv_auto guessing, which is what it was always
+// about, rather than a test of the row that is now gone.
+const preFixDataset = { name: 'stubborn.xlsx', columns: stubborn.dataset.columns, rows: stubborn.dataset.rows };
 const preFixCsv = join(sqlWorkDir, 'prefix.csv');
-writeFileSync(preFixCsv, DGRowShapeMod.datasetToCsv(idrDataset));
+writeFileSync(preFixCsv, DGRowShapeMod.datasetToCsv(preFixDataset));
 await runQuery(`CREATE OR REPLACE TABLE prefix_t AS SELECT * FROM read_csv_auto('${preFixCsv}', header=true, ignore_errors=true)`);
 eq('before the fix DuckDB typed the integer column VARCHAR',
    (await runQuery("SELECT data_type FROM information_schema.columns WHERE table_name='prefix_t' AND column_name='Total'")).rows[0].data_type,
