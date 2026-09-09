@@ -45,6 +45,8 @@ const FOUNDATIONS_NAME = 'docs/foundations.md';
 const MAX_AGENTS_LINES = 250;
 // The Foundations section in AGENTS.md is a pointer only (not a second log).
 const MAX_FOUNDATIONS_SECTION_LINES = 40;
+// Paths that are intentionally absent from the tracked tree (gitignored local files).
+const ALLOW_MISSING_PATHS = new Set(['NOTES.md']);
 
 // File-path-like tokens must end in one of these to count on extension alone
 // (a token containing "/" also counts, regardless of extension).
@@ -203,7 +205,7 @@ export function runCheck({ root = process.cwd(), enforceStructure = true } = {})
       if (seenFile.has(c.value)) continue;
       seenFile.add(c.value);
       fileRefCount++;
-      if (!existsSync(join(root, c.value))) {
+      if (!existsSync(join(root, c.value)) && !ALLOW_MISSING_PATHS.has(c.value)) {
         missingFiles.push({ raw: c.raw, path: c.value });
       }
     } else {

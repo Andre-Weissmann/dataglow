@@ -126,8 +126,8 @@ history of a CI gate, a reusable capability, or a past infra decision.
 
 When you ship a new foundation or reusable capability, add a one-paragraph entry
 there in the same PR. Keep this section of `AGENTS.md` as a pointer only — do not
-grow a second copy of the log here. Session scratch notes belong in `NOTES.md`
-(gitignored), not in either file.
+grow a second copy of the log here. Session scratch notes belong in a local NOTES file
+(gitignored as NOTES.md), not in either file.
 
 ## PRs
 
