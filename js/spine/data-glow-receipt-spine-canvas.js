@@ -23,6 +23,30 @@
  * stored, so the rail cannot get out of step with what has actually happened,
  * and closing the page does not leave it believing something that is no longer
  * true.
+ *
+ * WHY THE RAIL IS TRANSPARENT TO THE POINTER EXCEPT ON ITS OWN CONTROLS.
+ * A signpost that swallows clicks is not a signpost, it is a wall. The rail is
+ * fixed to the bottom of the viewport at a very high z-index, so every pixel of
+ * its padding, its headline, its loaded line and its doctrine note used to sit
+ * between the pointer and whatever is underneath. Playwright caught this first,
+ * on the Synthetic Twin modal: the click never reached the button because the
+ * loaded line and the Compound step were on top of it. A person hits the same
+ * wall with the mouse, they just have no log line to read afterwards. So the
+ * container carries pointer-events:none and only the things that are meant to
+ * be pressed, the step chips, the buttons and the ledger chip, take it back
+ * with pointer-events:auto. Nothing about the copy changes: the loaded line and
+ * the headline still say exactly what they said, they simply stop intercepting.
+ *
+ * WHY THE RAIL STEPS ASIDE FOR A DIALOG.
+ * pointer-events fixes the clicks that land on the rail's own text; it does not
+ * fix the rail visually covering the bottom of a dialog that opened above it,
+ * and it does not stop a step chip from sitting on a dialog's primary button.
+ * A modal is a question the product is asking right now, and the answer to
+ * "where do I begin" can wait. While any dialog is open, the rail and both
+ * chips hide themselves. Nothing is remembered by that, so closing the dialog
+ * brings the rail straight back in the state it was in. This is also what keeps
+ * the bottom bar off the Excel sheet picker on a phone, where the picker's
+ * lowest sheet button and the rail want the same 90 pixels.
  */
 ;(function () {
   'use strict';
@@ -33,7 +57,16 @@
   var SEEN_KEY = 'dataglow.receiptSpine.dismissed';
   var LEDGER_CHIP_ID = 'dg-spine-ledger-chip';
 
-  var state = { open: true, expandedId: '' };
+  var state = { open: true, expandedId: '', renderable: false };
+
+  /* Every overlay convention in this codebase that means "a dialog is open":
+     the app-shell modal (.modal-overlay.open), the command palette, the Excel
+     sheet picker, anything that declares itself a modal dialog to assistive
+     technology, and the native <dialog>. Matching on the open state rather than
+     the class alone matters, because .modal-overlay is in the DOM at all times
+     and only becomes visible when .open is added. */
+  var OVERLAY_SELECTOR = '.modal-overlay.open,.command-palette-overlay.open,'
+    + '#excel-sheet-picker,[role="dialog"][aria-modal="true"],dialog[open]';
 
   function flag(explicitKey, flagKey) {
     try { if (window[explicitKey] === false) return false; } catch (_e0) {}
@@ -239,13 +272,33 @@
          text/step/button labels count as nav labels/buttons (raised to
          the 16px floor, was 13px/12px); notes/details are captions
          (raised to the 14px caption floor, was 12px). */
+      /* pointer-events:none on the container is the whole point: the rail is
+         drawn on top of the page, so it must not be in the way of it. The
+         controls below take it back one at a time. */
       + '#' + RAIL_ID + '{position:fixed;left:0;right:0;bottom:0;z-index:2147482900;display:none;'
       + 'background:var(--color-surface,#fff);border-top:1px solid var(--color-border,#ccc);'
-      + 'box-shadow:0 -4px 18px rgba(0,0,0,.10);padding:8px 14px;font-size:16px;line-height:1.45}'
+      + 'box-shadow:0 -4px 18px rgba(0,0,0,.10);padding:8px 14px;font-size:16px;line-height:1.45;'
+      + 'pointer-events:none}'
+      + '#' + RAIL_ID + ' .dg-sp-step,#' + RAIL_ID + ' .dg-sp-btn,'
+      + '#' + RAIL_ID + ' .dg-sp-ledger-btn,#' + RAIL_ID + ' .dg-sp-detail{pointer-events:auto}'
       + '#' + RAIL_ID + ' .dg-sp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
       + '#' + RAIL_ID + ' .dg-sp-title{font-weight:600}'
       + '#' + RAIL_ID + ' .dg-sp-head{opacity:.8;flex:1 1 240px;min-width:0}'
-      + '#' + RAIL_ID + ' .dg-sp-loaded{font-size:14px;opacity:.75;flex:0 1 100%;min-width:0;margin:2px 0 0}'
+      /* The load line rides in the top row beside the headline rather than on a
+         row of its own. A rail that grows taller starts covering the page
+         behind it, which is how the first cut of this line broke a click on the
+         panel underneath. When space runs out it is the file name that gets an
+         ellipsis, never the sentence, so "not uploaded" is always readable; the
+         full name stays in the title attribute and in the Drop step. Below
+         700px the line takes its own row and wraps instead of truncating. */
+      + '#' + RAIL_ID + ' .dg-sp-loaded{font-size:14px;opacity:.75;flex:0 1 auto;min-width:0;margin:0;'
+      + 'white-space:nowrap;overflow:hidden}'
+      + '#' + RAIL_ID + ' .dg-sp-loaded-name{display:inline-block;max-width:min(34vw,380px);'
+      + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}'
+      + '@media (max-width:700px){#' + RAIL_ID + ' .dg-sp-loaded{flex:0 1 100%;white-space:normal;'
+      + 'overflow:visible;margin:2px 0 0}'
+      + '#' + RAIL_ID + ' .dg-sp-loaded-name{display:inline;max-width:none;white-space:normal;'
+      + 'overflow:visible;overflow-wrap:anywhere}}'
       + '.dg-sp-steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
       + '.dg-sp-step{font:inherit;font-size:16px;padding:5px 11px;border-radius:999px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;text-align:left}'
@@ -260,13 +313,91 @@
       + '#' + CHIP_ID + '{position:fixed;bottom:18px;left:210px;z-index:2147482900;'
       + 'font:inherit;font-size:16px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14);pointer-events:auto}'
       + '.dg-sp-ledger-btn{font:inherit;font-size:16px;padding:5px 10px;border-radius:7px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
       + 'font-weight:600}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
+  }
+
+  /* ---------------------------------------------------------------
+     Getting out of the way. Two separate jobs: never intercept a
+     pointer that was not aimed at a control of ours, and never sit on
+     top of a dialog.
+     --------------------------------------------------------------- */
+
+  /** True while any dialog is on screen. Cheap enough to ask on every frame. */
+  function dialogOpen() {
+    try {
+      var rail = document.getElementById(RAIL_ID);
+      var nodes = document.querySelectorAll(OVERLAY_SELECTOR);
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        if (rail && (node === rail || rail.contains(node))) continue;
+        if (!node.offsetWidth && !node.offsetHeight && !node.getClientRects().length) continue;
+        var cs = window.getComputedStyle ? window.getComputedStyle(node) : null;
+        if (cs && (cs.display === 'none' || cs.visibility === 'hidden')) continue;
+        return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  /* Write only on change. This module watches the DOM for dialogs opening, and
+     a write that changes nothing still counts as a mutation, which would put
+     the observer in a loop with itself. */
+  function setDisplay(node, value) {
+    if (!node) return;
+    try { if (node.style.display !== value) node.style.display = value; } catch (_e) {}
+  }
+
+  /** Rail and chips visible only when they are wanted and nothing is on top. */
+  function syncOverlay() {
+    var blocked = dialogOpen();
+    var rail = document.getElementById(RAIL_ID);
+    if (rail) setDisplay(rail, (state.open && state.renderable && !blocked) ? 'block' : 'none');
+    var chip = document.getElementById(CHIP_ID);
+    if (chip) setDisplay(chip, (state.open || blocked) ? 'none' : 'inline-block');
+    var ledgerChip = document.getElementById(LEDGER_CHIP_ID);
+    if (ledgerChip && ledgerChip.parentNode === document.body) {
+      setDisplay(ledgerChip, blocked ? 'none' : 'inline-block');
+    }
+  }
+
+  /* A dialog can open at any moment, and the five second re-observation poll is
+     far too slow to be the thing that moves a bottom bar off a sheet picker. So
+     watch the document instead and answer within a frame. The handler is
+     debounced to once per frame and does one querySelectorAll, so a page busy
+     rendering a table does not pay for this more than once per paint. */
+  function watchOverlays() {
+    var pending = false;
+    function run() {
+      pending = false;
+      try { syncOverlay(); } catch (_e) {}
+    }
+    function schedule() {
+      if (pending) return;
+      pending = true;
+      try {
+        if (typeof window.requestAnimationFrame === 'function') { window.requestAnimationFrame(run); return; }
+      } catch (_e) {}
+      setTimeout(run, 16);
+    }
+    try {
+      if (typeof window.MutationObserver === 'function' && document.body) {
+        new window.MutationObserver(schedule).observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'style', 'open', 'aria-modal', 'role'],
+        });
+      }
+    } catch (_e2) {}
+    /* Belt and braces for anything that opens a dialog without touching the
+       attributes above, and for builds with no MutationObserver. */
+    try { setInterval(schedule, 400); } catch (_e3) {}
   }
 
   function stateWord(s) {
@@ -309,9 +440,11 @@
     if (!rail) return;
     var model = spine();
     if (!model) {
+      state.renderable = false;
       rail.style.display = 'none';
       return;
     }
+    state.renderable = true;
     rail.innerHTML = '';
 
     var top = el('div', { class: 'dg-sp-top' });
@@ -321,7 +454,17 @@
        model computes this line so the rail cannot drift out of step with the
        state it just read. */
     if (model.loadedLine) {
-      top.appendChild(el('p', { class: 'dg-sp-loaded' }, model.loadedLine));
+      var loaded = el('p', { class: 'dg-sp-loaded', title: model.loadedLine });
+      if (model.tableName && model.loadedLine.indexOf(model.tableName) !== -1) {
+        // Same sentence the model computed, split only so the name can shrink.
+        var pieces = model.loadedLine.split(model.tableName);
+        loaded.appendChild(document.createTextNode(pieces[0]));
+        loaded.appendChild(el('span', { class: 'dg-sp-loaded-name' }, model.tableName));
+        loaded.appendChild(document.createTextNode(pieces.slice(1).join(model.tableName)));
+      } else {
+        loaded.textContent = model.loadedLine;
+      }
+      top.appendChild(loaded);
     }
     /* Bundle 15: Repair Ledger chip lives in the rail's Prove/Ship area, next
        to Hide, so the ledger is findable from the same strip that already
@@ -371,7 +514,10 @@
       rail.appendChild(el('p', { class: 'dg-sp-note' }, model.doctrine));
     }
 
-    rail.style.display = 'block';
+    /* Not an unconditional display:block any more: if a dialog is open the rail
+       has already given up its place on screen, and re-rendering must not take
+       it back. */
+    syncOverlay();
   }
 
   function refreshChip() {
@@ -384,7 +530,7 @@
         try { label = eng.spineChipLabel(model); } catch (_e) {}
       }
       chip.textContent = label;
-      chip.style.display = state.open ? 'none' : 'inline-block';
+      setDisplay(chip, (state.open || dialogOpen()) ? 'none' : 'inline-block');
     }
 
     /* The Repair Ledger chip stays findable even when the rail itself is
@@ -423,7 +569,7 @@
   function dismiss() {
     var rail = document.getElementById(RAIL_ID);
     state.open = false;
-    if (rail) rail.style.display = 'none';
+    if (rail) setDisplay(rail, 'none');
     remember(SEEN_KEY);
     refreshChip();
     toast('Start here hidden. The chip on the left reopens it.');
@@ -445,6 +591,8 @@
 
     if (state.open) render();
     refreshChip();
+    watchOverlays();
+    syncOverlay();
 
     /* The rail is a claim about what has happened so far, and things happen
        while it is on screen. Re-observe rather than freeze. */
