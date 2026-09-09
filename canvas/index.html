@@ -8524,8 +8524,8 @@ button.proof:active, button.dojo-run-btn:active { transform: scale(0.98); }
   border-color: rgba(32, 197, 181, 0.25);
   color: var(--primary);
 }
-.atb-tab-icon { font-size: 15px; line-height: 1; }
-.atb-tab-label { font-size: var(--dg-text-xs); font-weight: 700; letter-spacing: 0.03em; }
+.atb-tab-icon { font-size: var(--dg-text-md, 1rem); line-height: 1; }
+.atb-tab-label { font-size: var(--dg-text-sm, 0.875rem); font-weight: 700; letter-spacing: 0.03em; }
 
 /* Groups of sidebar items that map to each mode */
 /* Explore: Charts, Dashboard, Statistics, Arena, Excel */
@@ -9426,12 +9426,13 @@ a, button, [role="button"], input, select, textarea,
     display: none;
   }
 
-  /* Mode tabs in analyze tools bar: proper tap targets */
+  /* Mode tabs in analyze tools bar: proper tap targets.
+     font-size stays at 1rem (16px floor). The old 13px rule undid the floor. */
   .atb-mode-tab {
-    min-height: 36px;
-    padding: 6px 14px;
+    min-height: 44px;
+    padding: 8px 14px;
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 1rem;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -11305,8 +11306,34 @@ body {
   #action-spotlight .spotlight-badge,
   #action-spotlight .spotlight-badge span,
   #spotlight-name,
+  .spotlight-btn,
   .spotlight-btn-desc,
-  .spotlight-btn-label {
+  .spotlight-btn-label,
+  .spotlight-btn * {
+    font-size: 1rem !important;
+  }
+  .spotlight-btn-icon {
+    font-size: 1.375rem !important;
+  }
+
+  /* Capture pack + ship pack controls (still under the 16px floor). */
+  .dg-cap-head,
+  .dg-cap-head *,
+  .dg-cap-step-btn,
+  .dg-cap-go,
+  .dg-cap-close,
+  .dg-sp-go,
+  .dg-sp-close,
+  .dg-sp-head,
+  .dg-sp-head *,
+  .dg-sp-loaded,
+  .dg-sp-meta,
+  .dg-sp-label,
+  .dg-sp-btn,
+  .dg-capture-panel button,
+  .dg-ship-panel button,
+  #dg-capture-panel button,
+  #dg-ship-panel button {
     font-size: 1rem !important;
   }
 
@@ -11384,6 +11411,7 @@ body {
 
   /* Analyze surface: tools bar, SQL panel, suggestion chips. */
   #analyze-tools-trigger,
+  .atb-mode-tab,
   .atb-tab-icon,
   .atb-tab-label,
   #sql-panel-title,
