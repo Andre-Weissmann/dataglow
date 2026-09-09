@@ -1,5 +1,12 @@
 # DATAGLOW — Changelog
 
+## 2026-09-09 — AGENTS.md foundations split + structure drift gate
+
+- Moved the long **Foundations & capabilities** log from `AGENTS.md` into `docs/foundations.md` so agent instructions stay short (~134 lines).
+- `NOTES.md` is gitignored for local session scratch (not durable foundations).
+- Extended the AGENTS.md context-rot detector to gate structure: max 250 lines, foundations log present, foundations section is a short pointer only.
+
+
 A running, one-line-per-change log of what shipped and when. Adding an entry here
 is part of finishing a change, not a separate step — see the paper-trail section
 in [`AGENTS.md`](../AGENTS.md).

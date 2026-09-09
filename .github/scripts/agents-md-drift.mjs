@@ -40,6 +40,11 @@ import { fileURLToPath } from 'node:url';
 
 const AGENTS_NAME = 'AGENTS.md';
 const PKG_NAME = 'package.json';
+const FOUNDATIONS_NAME = 'docs/foundations.md';
+// Keep agent instructions short. The long foundations log lives in docs/foundations.md.
+const MAX_AGENTS_LINES = 250;
+// The Foundations section in AGENTS.md is a pointer only (not a second log).
+const MAX_FOUNDATIONS_SECTION_LINES = 40;
 
 // File-path-like tokens must end in one of these to count on extension alone
 // (a token containing "/" also counts, regardless of extension).
@@ -121,9 +126,33 @@ export function classifySpan(span) {
  *   findings:{missingFiles:any[], missingScripts:any[], wildcardsIgnored:any[]},
  *   totalDrift:number, error?:string}}
  */
-export function runCheck({ root = process.cwd() } = {}) {
+/** Count lines in the Foundations section of AGENTS.md (pointer only). */
+export function foundationsSectionLineCount(md) {
+  const lines = md.split(/\r?\n/);
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+Foundations\b/i.test(lines[i])) {
+      start = i;
+      continue;
+    }
+    if (start >= 0 && i > start && /^##\s+/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  if (start < 0) return 0;
+  return end - start;
+}
+
+export function runCheck({ root = process.cwd(), enforceStructure = true } = {}) {
   const generatedAt = new Date().toISOString();
-  const empty = { missingFiles: [], missingScripts: [], wildcardsIgnored: [] };
+  const empty = {
+    missingFiles: [],
+    missingScripts: [],
+    wildcardsIgnored: [],
+    structure: [],
+  };
 
   const agentsPath = join(root, AGENTS_NAME);
   if (!existsSync(agentsPath)) {
@@ -155,6 +184,7 @@ export function runCheck({ root = process.cwd() } = {}) {
   const missingFiles = [];
   const missingScripts = [];
   const wildcardsIgnored = [];
+  const structure = [];
   const seenFile = new Set();
   const seenScript = new Set();
   let fileRefCount = 0;
@@ -187,8 +217,37 @@ export function runCheck({ root = process.cwd() } = {}) {
     }
   }
 
-  const findings = { missingFiles, missingScripts, wildcardsIgnored };
-  const totalDrift = missingFiles.length + missingScripts.length;
+  if (enforceStructure) {
+    const lineCount = md.split(/\r?\n/).length;
+    if (lineCount > MAX_AGENTS_LINES) {
+      structure.push({
+        code: 'AGENTS_TOO_LONG',
+        detail: `${AGENTS_NAME} has ${lineCount} lines (max ${MAX_AGENTS_LINES}). Move durable logs to ${FOUNDATIONS_NAME}.`,
+      });
+    }
+    if (!existsSync(join(root, FOUNDATIONS_NAME))) {
+      structure.push({
+        code: 'FOUNDATIONS_MISSING',
+        detail: `${FOUNDATIONS_NAME} is missing. The foundations log must live there, not in ${AGENTS_NAME}.`,
+      });
+    }
+    if (!md.includes(FOUNDATIONS_NAME) && !md.includes('docs/foundations.md')) {
+      structure.push({
+        code: 'FOUNDATIONS_UNLINKED',
+        detail: `${AGENTS_NAME} must point agents at \`${FOUNDATIONS_NAME}\`.`,
+      });
+    }
+    const secLines = foundationsSectionLineCount(md);
+    if (secLines > MAX_FOUNDATIONS_SECTION_LINES) {
+      structure.push({
+        code: 'FOUNDATIONS_SECTION_TOO_LONG',
+        detail: `Foundations section in ${AGENTS_NAME} is ${secLines} lines (max ${MAX_FOUNDATIONS_SECTION_LINES}). Keep a short pointer; put the log in ${FOUNDATIONS_NAME}.`,
+      });
+    }
+  }
+
+  const findings = { missingFiles, missingScripts, wildcardsIgnored, structure };
+  const totalDrift = missingFiles.length + missingScripts.length + structure.length;
 
   return {
     root, generatedAt, agentsPresent: true,
@@ -211,10 +270,10 @@ export function renderReport(result) {
   lines.push(`- File-path references checked: **${result.fileRefCount}**`);
   lines.push(`- npm-script references checked: **${result.scriptRefCount}**`);
   lines.push(`- Wildcard/glob spans ignored: **${result.findings.wildcardsIgnored.length}**`);
-  lines.push(`- Total stale references: **${result.totalDrift}**`);
+  lines.push(`- Total drift findings: **${result.totalDrift}**`);
   lines.push('');
 
-  const { missingFiles, missingScripts } = result.findings;
+  const { missingFiles, missingScripts, structure = [] } = result.findings;
 
   lines.push('### Stale file references — path in AGENTS.md, missing on disk');
   if (missingFiles.length === 0) lines.push('_None._');
@@ -230,10 +289,17 @@ export function renderReport(result) {
   }
   lines.push('');
 
+  lines.push('### Structure — short AGENTS.md + foundations log split');
+  if (structure.length === 0) lines.push('_None._');
+  else for (const s of structure) {
+    lines.push(`- **${s.code}:** ${s.detail}`);
+  }
+  lines.push('');
+
   if (result.totalDrift === 0) {
-    lines.push('> No context rot: every file path and npm script named in `AGENTS.md` still exists.');
+    lines.push('> No context rot: every file path and npm script named in `AGENTS.md` still exists, and the foundations log stays in `docs/foundations.md`.');
   } else {
-    lines.push('> Context rot detected. Fix it in this PR: either correct the reference in `AGENTS.md` to point at what exists now, or restore/rename the code so the reference resolves — whichever is actually correct.');
+    lines.push('> Context rot detected. Fix it in this PR: correct the reference, restore the path, or move the foundations log out of `AGENTS.md` into `docs/foundations.md` — whichever is actually correct.');
   }
   lines.push('');
 
