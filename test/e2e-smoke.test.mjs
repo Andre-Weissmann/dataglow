@@ -327,14 +327,20 @@ async function main() {
 
     // A modal is a question being asked right now, so the bottom rail steps
     // aside for it rather than sitting on top of the dialog's own buttons.
+    // The rail answers on the next animation frame after the class change, so
+    // wait for that rather than reading the style in the same turn as the click.
     if (railHitTest) {
-      const railWhileModalOpen = await page.evaluate(() => {
-        const rail = document.getElementById('dg-spine-rail');
-        return rail ? getComputedStyle(rail).display : null;
-      });
-      if (railWhileModalOpen === 'none') {
+      try {
+        await page.waitForFunction(() => {
+          const rail = document.getElementById('dg-spine-rail');
+          return rail && getComputedStyle(rail).display === 'none';
+        }, { timeout: 3000 });
         console.log('✓ Start here rail hides itself while a modal dialog is open');
-      } else {
+      } catch (err) {
+        const railWhileModalOpen = await page.evaluate(() => {
+          const rail = document.getElementById('dg-spine-rail');
+          return rail ? getComputedStyle(rail).display : null;
+        });
         failed = true;
         console.log(`✗ FAILED: #dg-spine-rail is still displayed (${railWhileModalOpen}) over an open modal`);
       }
