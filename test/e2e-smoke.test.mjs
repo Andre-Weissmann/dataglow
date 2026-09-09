@@ -287,8 +287,59 @@ async function main() {
     );
     console.log('✓ Time Machine snapshot saved and listed');
 
+    // ---- The Start here rail must not stand between the pointer and the page.
+    // The rail is fixed across the bottom of the viewport at a z-index above
+    // everything. When it took pointer events on its own text, every control
+    // underneath it stopped being clickable, and this test is where that first
+    // showed up: the Synthetic Twin button below could not be reached because
+    // the rail's loaded line and its "5. Compound" chip were on top of it.
+    // Asserted here rather than left implicit in the next click, so a
+    // regression names itself instead of arriving as a 30s click timeout.
+    const railHitTest = await page.evaluate(() => {
+      const rail = document.getElementById('dg-spine-rail');
+      if (!rail) return null;
+      const box = rail.getBoundingClientRect();
+      const probe = document.elementFromPoint(
+        Math.round(box.left + box.width / 2),
+        Math.round(box.top + 4)
+      );
+      return {
+        pointerEvents: getComputedStyle(rail).pointerEvents,
+        hitIsRail: !!probe && (probe === rail || rail.contains(probe)),
+        stepPointerEvents: rail.querySelector('.dg-sp-step')
+          ? getComputedStyle(rail.querySelector('.dg-sp-step')).pointerEvents
+          : null,
+        loadedLine: (rail.querySelector('.dg-sp-loaded') || {}).textContent || '',
+      };
+    });
+    if (!railHitTest) {
+      console.log('· Start here rail not mounted in this build, nothing to hit-test');
+    } else if (railHitTest.pointerEvents === 'none' && !railHitTest.hitIsRail
+               && railHitTest.stepPointerEvents === 'auto') {
+      console.log(`✓ Start here rail lets clicks through (its own steps stay clickable; loaded line reads "${railHitTest.loadedLine}")`);
+    } else {
+      failed = true;
+      console.log('✗ FAILED: #dg-spine-rail intercepts pointer events over the page: ' + JSON.stringify(railHitTest));
+    }
+
     // Feature 6 — Synthetic Adversarial Twin: open Red Team modal, generate.
     await page.click('#btn-red-team');
+
+    // A modal is a question being asked right now, so the bottom rail steps
+    // aside for it rather than sitting on top of the dialog's own buttons.
+    if (railHitTest) {
+      const railWhileModalOpen = await page.evaluate(() => {
+        const rail = document.getElementById('dg-spine-rail');
+        return rail ? getComputedStyle(rail).display : null;
+      });
+      if (railWhileModalOpen === 'none') {
+        console.log('✓ Start here rail hides itself while a modal dialog is open');
+      } else {
+        failed = true;
+        console.log(`✗ FAILED: #dg-spine-rail is still displayed (${railWhileModalOpen}) over an open modal`);
+      }
+    }
+
     await page.click('[data-testid="button-twin-generate"]');
     await page.waitForFunction(
       () => document.querySelector('[data-testid="twin-summary"]') &&
