@@ -17,7 +17,6 @@ import {
   SELF_HOST_CANDIDATE,
   isWasmFetchFailure,
   buildHybridWasmBundle,
-  buildSelfHostBundle,
 } from '../sql/duckdb-load-harden.js';
 
 // Self-hosted DuckDB-WASM assets (vendored under assets/duckdb/). Resolved
@@ -78,20 +77,20 @@ export function initDuckDB() {
       },
     };
 
-    let bundle = await duckdb.selectBundle(bundles);
-    // Bundle 18 hotfix 4: point mainModule (the wasm binary) at the jsDelivr
-    // 1.29.0 pin UP FRONT instead of only on a caught instantiate() retry.
-    // mainWorker stays the self-hosted asset above, so no third-party JS
-    // ever runs -- only the wasm binary itself, the one file self-host
-    // cannot always serve (see BUNDLE18_HOTFIX3_RESULT.md and
-    // BUNDLE18_HOTFIX4_RESULT.md), is requested from a CDN from the very
-    // first attempt. This guarantees a CDN wasm network request fires
-    // unconditionally, instead of depending on an instantiate() rejection
-    // that a hung/uncaught worker error can prevent from ever happening.
-    if (SELF_HOST_CANDIDATE.wasmCdnFirst) {
-      const variant = /duckdb-mvp\.wasm/i.test(bundle.mainModule) ? 'mvp' : 'eh';
-      bundle = buildSelfHostBundle({ mainWorker: bundle.mainWorker, pthreadWorker: bundle.pthreadWorker }, variant);
-    }
+    const bundle = await duckdb.selectBundle(bundles);
+    // LOCAL FIRST. `bundle` is already the local-first bundle: both
+    // mainModule (the wasm binary) and mainWorker come from asset(), which
+    // resolves the vendored assets/duckdb/ copy against this module's own
+    // URL. Nothing is rewritten to a CDN here, so a normal load fetches the
+    // ~35MB wasm from this origin and works with the network blocked to
+    // every third party. Bundle 18 hotfix 4 used to overwrite mainModule
+    // with the jsDelivr pin at this point; that made offline SQL impossible
+    // (see js/sql/duckdb-load-harden.js for the full reasoning). The CDN pin
+    // now lives only in SELF_HOST_CANDIDATE.wasmFallback and is reached from
+    // the catch below, after the local bytes actually fail. buildSelfHostBundle
+    // is deliberately not used on this surface: it returns the root-absolute
+    // /assets/duckdb/ path, while asset() keeps working when the app is
+    // served from a subdirectory.
     const workerUrl = URL.createObjectURL(
       new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
     );
@@ -108,10 +107,11 @@ export function initDuckDB() {
       // the jsDelivr 1.29.0 pin when the self-host wasm request fails or
       // hangs (now caught by instantiateWithTimeout above) with a
       // fetch-shaped error. If the wasm itself is fine and this is a
-      // genuine compile/logic error, rethrow unchanged. This is now mostly
-      // a belt-and-suspenders path since wasmCdnFirst already made the
-      // first attempt CDN-first, but still recovers if bundle.mainModule
-      // above was somehow left same-origin.
+      // genuine compile/logic error, rethrow unchanged. With the local-first
+      // bundle above this is the genuine last resort again, and hotfix 4's
+      // instantiateWithTimeout is what keeps it reachable: a hung or
+      // uncaught worker error becomes a rejection instead of starving this
+      // catch forever.
       if (!isWasmFetchFailure(instantiateErr)) {
         URL.revokeObjectURL(workerUrl);
         throw instantiateErr;

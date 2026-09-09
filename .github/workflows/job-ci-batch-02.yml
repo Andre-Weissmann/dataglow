@@ -219,3 +219,21 @@ jobs:
       # are present with no em dash and no Maven references, the four new
       # Bundle 17 flags are enabled, and the strengthened honesty notes match.
       - run: npm run test:bundle17selfhostdrillnavshowdownpqparity
+
+  duckdb-wasm-local-first:
+    name: DuckDB wasm local first (same-origin /assets/duckdb/ primary, jsDelivr pin only as retry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Pure Node + static-source checks: the primary wasm URL handed to the
+      # DuckDB worker is same-origin /assets/duckdb/duckdb-{eh,mvp}.wasm on all
+      # three surfaces (module SQL engine, app shell, canvas), both binaries
+      # really are on disk with wasm magic bytes, _headers still serves them as
+      # application/wasm, and the pinned jsDelivr 1.29.0 fallback plus the
+      # timeout-guarded instantiate that makes it reachable are still intact.
+      - run: npm run test:duckdbwasmlocalfirst

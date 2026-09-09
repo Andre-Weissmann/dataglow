@@ -61,6 +61,18 @@
 // esm.sh) and hotfix 3's hybrid retry-on-catch are both preserved as
 // fallback layers underneath the new CDN-first behavior.
 //
+// SUPERSEDED IN PART (fix/duckdb-wasm-local-first). Item 1 above, the wasm
+// URL ORDERING, is inverted by the local-first change: the primary
+// mainModule for self-host is the same-origin /assets/duckdb/ wasm, and the
+// jsDelivr pin moved back to wasmFallback (retry-on-catch only), because
+// CDN-first made offline SQL impossible even with the 35MB/40MB binaries on
+// disk. Ordering assertions now live in test/duckdb-wasm-local-first.test.mjs.
+// Item 2, the no-silent-hang machinery (instantiateWithTimeout /
+// _dgInstantiateWithTimeout, the shared initPromise, the unconditional
+// null-conn guard in query()), is NOT superseded and is still asserted here.
+// It is also what makes the local-first ordering safe: the CDN fallback is
+// reached from a catch that a hung worker can no longer starve.
+//
 // This is a static/pure-module test file (no browser launch).
 //
 // RUN WITH:  node --test test/bundle18-hotfix4-wasm-cdn-first.test.mjs
@@ -83,44 +95,45 @@ function readRepoFile(relPath) {
 }
 
 // ------------------------------------------------------------
-// A. js/sql/duckdb-load-harden.js: WASM_CDN_FIRST pin, wasmCdnFirst field,
-//    and buildSelfHostBundle() shared by every surface.
+// A. js/sql/duckdb-load-harden.js: the shared wasm-URL helpers. The ORDERING
+//    asserted here is now local-first (see the superseded note above); what
+//    hotfix 4 still owns is that a single shared helper decides the primary
+//    mainModule for every surface, and that the CDN pin survives as the
+//    retry-on-catch fallback.
 // ------------------------------------------------------------
 
-describe('bundle18 hotfix4 A: shared CDN-first wasm helpers (js/sql/duckdb-load-harden.js)', () => {
-  it('SELF_HOST_CANDIDATE carries a wasmCdnFirst pinned to jsDelivr 1.29.0, alongside the existing wasmFallback', async () => {
+describe('bundle18 hotfix4 A: shared wasm bundle helpers (js/sql/duckdb-load-harden.js)', () => {
+  it('SELF_HOST_CANDIDATE keeps a wasmFallback pinned to jsDelivr 1.29.0, now reached only on retry', async () => {
     const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
-    const cf = mod.SELF_HOST_CANDIDATE.wasmCdnFirst;
-    assert.ok(cf, 'wasmCdnFirst missing from SELF_HOST_CANDIDATE');
-    assert.equal(cf.eh, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-eh.wasm');
-    assert.equal(cf.mvp, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-mvp.wasm');
-    assert.ok(mod.SELF_HOST_CANDIDATE.wasmFallback, 'wasmFallback must still be present (second-layer safety net)');
-    assert.equal(mod.SELF_HOST_CANDIDATE.wasmFallback.eh, cf.eh);
-    assert.equal(mod.SELF_HOST_CANDIDATE.wasmFallback.mvp, cf.mvp);
+    const wf = mod.SELF_HOST_CANDIDATE.wasmFallback;
+    assert.ok(wf, 'wasmFallback must still be present (last-resort layer)');
+    assert.equal(wf.eh, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-eh.wasm');
+    assert.equal(wf.mvp, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-mvp.wasm');
+    assert.equal(mod.SELF_HOST_CANDIDATE.wasmCdnFirst, undefined, 'wasmCdnFirst is superseded by wasmLocalFirst');
   });
 
-  it('buildCandidateList() carries wasmCdnFirst through for self-host only, alongside wasmFallback', async () => {
+  it('buildCandidateList() carries the up-front wasm field through for self-host only, alongside wasmFallback', async () => {
     const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
     const list = mod.buildCandidateList();
     const selfHost = list.find((c) => c.id === 'self-host');
-    assert.ok(selfHost.wasmCdnFirst, 'self-host candidate lost its wasmCdnFirst through buildCandidateList()');
+    assert.ok(selfHost.wasmLocalFirst, 'self-host candidate lost its wasmLocalFirst through buildCandidateList()');
     assert.ok(selfHost.wasmFallback, 'self-host candidate lost its wasmFallback through buildCandidateList()');
-    assert.match(selfHost.wasmCdnFirst.eh, /^https:\/\/cdn\.jsdelivr\.net/);
+    assert.match(selfHost.wasmFallback.eh, /^https:\/\/cdn\.jsdelivr\.net/);
     for (const cdn of list.filter((c) => c.id !== 'self-host')) {
-      assert.equal(cdn.wasmCdnFirst, undefined, cdn.id + ' should not carry a wasmCdnFirst (only self-host needs one)');
+      assert.equal(cdn.wasmLocalFirst, undefined, cdn.id + ' should not carry a wasmLocalFirst (only self-host needs one)');
     }
   });
 
-  it('buildSelfHostBundle() returns mainModule already pinned to the CDN URL, mainWorker unchanged and same-origin', async () => {
+  it('buildSelfHostBundle() returns a same-origin mainModule, mainWorker unchanged and same-origin', async () => {
     const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
     assert.equal(typeof mod.buildSelfHostBundle, 'function');
     const ehResult = mod.buildSelfHostBundle({ mainWorker: '/assets/duckdb/duckdb-browser-eh.worker.js', pthreadWorker: null }, 'eh');
-    assert.equal(ehResult.mainModule, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-eh.wasm');
+    assert.equal(ehResult.mainModule, '/assets/duckdb/duckdb-eh.wasm');
     assert.equal(ehResult.mainWorker, '/assets/duckdb/duckdb-browser-eh.worker.js');
     assert.equal(ehResult.pthreadWorker, null);
 
     const mvpResult = mod.buildSelfHostBundle({ mainWorker: '/assets/duckdb/duckdb-browser-mvp.worker.js' }, 'mvp');
-    assert.equal(mvpResult.mainModule, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-mvp.wasm');
+    assert.equal(mvpResult.mainModule, '/assets/duckdb/duckdb-mvp.wasm');
     assert.equal(mvpResult.mainWorker, '/assets/duckdb/duckdb-browser-mvp.worker.js');
 
     // Defaults to the 'eh' variant when variant is neither 'mvp' nor 'eh'.
@@ -128,12 +141,13 @@ describe('bundle18 hotfix4 A: shared CDN-first wasm helpers (js/sql/duckdb-load-
     assert.equal(defaulted.mainModule, ehResult.mainModule);
   });
 
-  it('buildSelfHostBundle() never doubles the assets/duckdb path and never regresses the CDN pin', async () => {
+  it('buildSelfHostBundle() never doubles the assets/duckdb path, and the retry pin stays 1.29.0', async () => {
     const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
     const result = mod.buildSelfHostBundle({ mainWorker: '/assets/duckdb/duckdb-browser-eh.worker.js' }, 'eh');
     assert.doesNotMatch(result.mainModule, DOUBLED_PATH_RE);
     assert.doesNotMatch(result.mainWorker, DOUBLED_PATH_RE);
-    assert.match(result.mainModule, new RegExp('@' + PIN.replace(/\./g, '\\.') + '/'));
+    const hybrid = mod.buildHybridWasmBundle(result, mod.SELF_HOST_CANDIDATE);
+    assert.match(hybrid.mainModule, new RegExp('@' + PIN.replace(/\./g, '\\.') + '/'));
     assert.equal(mod.DUCKDB_WASM_PIN, PIN);
   });
 
@@ -156,7 +170,7 @@ describe('bundle18 hotfix4 A: shared CDN-first wasm helpers (js/sql/duckdb-load-
     const src = readRepoFile(join('js', 'sql', 'duckdb-load-harden.js'));
     const idx = src.indexOf('Bundle 18 hotfix 4: hotfix 3');
     assert.notEqual(idx, -1);
-    const region = src.slice(idx - 50, idx + 2200);
+    const region = src.slice(idx - 50, idx + 4200);
     assert.doesNotMatch(region, new RegExp(EM_DASH));
   });
 });
@@ -169,10 +183,10 @@ describe('bundle18 hotfix4 A: shared CDN-first wasm helpers (js/sql/duckdb-load-
 describe('bundle18 hotfix4 B: js/sql/sql-engine.js CDN-first + no-silent-hang', () => {
   const src = readRepoFile(join('js', 'sql', 'sql-engine.js'));
 
-  it('applies buildSelfHostBundle() to point mainModuleHref at the CDN pin BEFORE the first instantiate() attempt', () => {
-    assert.match(src, /cand\.wasmCdnFirst && LOAD_HARDEN && typeof LOAD_HARDEN\.buildSelfHostBundle === 'function'/);
+  it('applies buildSelfHostBundle() to fix mainModuleHref BEFORE the first instantiate() attempt', () => {
+    assert.match(src, /cand\.wasmLocalFirst && LOAD_HARDEN && typeof LOAD_HARDEN\.buildSelfHostBundle === 'function'/);
     assert.match(src, /LOAD_HARDEN\.buildSelfHostBundle\(\{ mainWorker: workerHref, pthreadWorker: bundle\.pthreadWorker \}, variant\)/);
-    assert.match(src, /mainModuleHref = cdnFirstBundle\.mainModule;/);
+    assert.match(src, /mainModuleHref = isAbsoluteUrl\(localFirstBundle\.mainModule\)/);
   });
 
   it('every db.instantiate() call site (outside of comments) is wrapped in instantiateWithTimeout(), never called bare', () => {
@@ -233,13 +247,15 @@ describe('bundle18 hotfix4 B: js/sql/sql-engine.js CDN-first + no-silent-hang', 
 describe('bundle18 hotfix4 C: js/app-shell/duckdb-engine.js CDN-first + no-silent-hang (root index.html surface)', () => {
   const src = readRepoFile(join('js', 'app-shell', 'duckdb-engine.js'));
 
-  it('imports buildSelfHostBundle from the shared harden module', () => {
-    assert.match(src, /import\s*\{\s*[\s\S]*buildSelfHostBundle[\s\S]*\}\s*from\s*'\.\.\/sql\/duckdb-load-harden\.js';/);
+  it('imports the shared harden helpers it still uses', () => {
+    assert.match(src, /import\s*\{\s*[\s\S]*buildHybridWasmBundle[\s\S]*\}\s*from\s*'\.\.\/sql\/duckdb-load-harden\.js';/);
   });
 
-  it('applies buildSelfHostBundle() to point bundle.mainModule at the CDN pin BEFORE the first instantiate() attempt', () => {
-    assert.match(src, /if \(SELF_HOST_CANDIDATE\.wasmCdnFirst\) \{/);
-    assert.match(src, /bundle = buildSelfHostBundle\(\{ mainWorker: bundle\.mainWorker, pthreadWorker: bundle\.pthreadWorker \}, variant\);/);
+  it('leaves bundle.mainModule on the vendored asset() URL, with no CDN rewrite before the first instantiate()', () => {
+    assert.doesNotMatch(src, /wasmCdnFirst/);
+    assert.match(src, /const bundle = await duckdb\.selectBundle\(bundles\);/);
+    assert.match(src, /mainModule: asset\('duckdb-eh\.wasm'\)/);
+    assert.match(src, /mainModule: asset\('duckdb-mvp\.wasm'\)/);
   });
 
   it('both instantiate() call sites (primary and hybrid retry) are wrapped in instantiateWithTimeout()', () => {
@@ -286,7 +302,7 @@ describe('bundle18 hotfix4 C: js/app-shell/duckdb-engine.js CDN-first + no-silen
 describe('bundle18 hotfix4 D: canvas/index.html CDN-first + no-silent-hang (canvas authoritative)', () => {
   const canvas = readRepoFile(join('canvas', 'index.html'));
 
-  it('the tracked duckdb-load-harden.js splice carries wasmCdnFirst and buildSelfHostBundle', () => {
+  it('the tracked duckdb-load-harden.js splice carries wasmLocalFirst and buildSelfHostBundle', () => {
     const startMarker = '/* ---- from js/sql/duckdb-load-harden.js ---- */';
     const endMarker = '/* ---- end js/sql/duckdb-load-harden.js ---- */';
     const s = canvas.indexOf(startMarker);
@@ -294,28 +310,28 @@ describe('bundle18 hotfix4 D: canvas/index.html CDN-first + no-silent-hang (canv
     assert.notEqual(s, -1, 'from marker missing');
     assert.notEqual(e, -1, 'end marker missing');
     const span = canvas.slice(s, e);
-    assert.match(span, /wasmCdnFirst: WASM_CDN_FIRST,/);
+    assert.match(span, /wasmLocalFirst: WASM_LOCAL_FIRST,/);
     assert.match(span, /function buildSelfHostBundle\(/);
   });
 
-  it('the hardcoded fallback candidate list also carries a wasmCdnFirst for self-host, applied up front', () => {
+  it('the hardcoded fallback candidate list also carries a wasmLocalFirst for self-host, applied up front', () => {
     const idx = canvas.indexOf('function _dgDuckCandidates()');
     assert.notEqual(idx, -1);
-    const region = canvas.slice(idx, idx + 1200);
-    assert.match(region, /wasmCdnFirst: \{ mvp: DUCKDB_BASE_PRIMARY \+ 'duckdb-mvp\.wasm', eh: DUCKDB_BASE_PRIMARY \+ 'duckdb-eh\.wasm' \}/);
+    const region = canvas.slice(idx, idx + 1400);
+    assert.match(region, /wasmLocalFirst: \{ mvp: DUCKDB_SELF_HOST_BASE \+ 'duckdb-mvp\.wasm', eh: DUCKDB_SELF_HOST_BASE \+ 'duckdb-eh\.wasm' \}/);
   });
 
-  it('_loadDuckFrom applies buildSelfHostBundle() to override mainModuleUrl BEFORE the worker/instantiate call, when the candidate carries wasmCdnFirst', () => {
+  it('_loadDuckFrom applies buildSelfHostBundle() to override mainModuleUrl BEFORE the worker/instantiate call, when the candidate carries wasmLocalFirst', () => {
     const idx = canvas.indexOf('async function _loadDuckFrom(cdnUrl, baseUrl, candidate) {');
     assert.notEqual(idx, -1);
     const region = canvas.slice(idx, idx + 4600);
-    assert.match(region, /candidate\.wasmCdnFirst && lhFront && typeof lhFront\.buildSelfHostBundle === 'function'/);
+    assert.match(region, /candidate\.wasmLocalFirst && lhFront && typeof lhFront\.buildSelfHostBundle === 'function'/);
     assert.match(region, /lhFront\.buildSelfHostBundle\(\{ mainWorker: workerUrl, pthreadWorker: bundle\.pthreadWorker \}, _variant\)/);
-    // The CDN-first override must run BEFORE `new Worker(` is constructed
+    // The up-front override must run BEFORE `new Worker(` is constructed
     // and BEFORE the first instantiate() attempt for this candidate.
     const overrideIdx = region.indexOf('buildSelfHostBundle');
     const workerCtorIdx = region.indexOf('new Worker(');
-    assert.ok(overrideIdx !== -1 && workerCtorIdx !== -1 && overrideIdx < workerCtorIdx, 'CDN-first override must run before new Worker() / instantiate()');
+    assert.ok(overrideIdx !== -1 && workerCtorIdx !== -1 && overrideIdx < workerCtorIdx, 'the up-front override must run before new Worker() / instantiate()');
   });
 
   it('every adb.instantiate() call site in the canvas loader is wrapped in _dgInstantiateWithTimeout()', () => {
@@ -354,7 +370,7 @@ describe('bundle18 hotfix4 D: canvas/index.html CDN-first + no-silent-hang (canv
     assert.doesNotMatch(canvas, DOUBLED_PATH_RE);
   });
 
-  it('the pin stays 1.29.0 in every wasmCdnFirst/wasmFallback base URL in canvas', () => {
+  it('the pin stays 1.29.0 in every wasmFallback base URL in canvas', () => {
     const matches = canvas.match(/duckdb-wasm@[\d.]+\/dist\//g) || [];
     assert.ok(matches.length > 0, 'expected at least one pinned CDN base URL in canvas');
     for (const m of matches) {
@@ -363,7 +379,7 @@ describe('bundle18 hotfix4 D: canvas/index.html CDN-first + no-silent-hang (canv
   });
 
   it('does not introduce an em dash in the edited canvas regions', () => {
-    const idx = canvas.indexOf('Bundle 18 hotfix 4: applied UP FRONT by _loadDuckFrom');
+    const idx = canvas.indexOf('LOCAL FIRST: the same-origin wasm binaries under /assets/duckdb/');
     assert.notEqual(idx, -1);
     const region = canvas.slice(idx - 50, idx + 2600);
     assert.doesNotMatch(region, new RegExp(EM_DASH));
@@ -421,7 +437,7 @@ describe('bundle18 hotfix4 F: BUNDLE18_HOTFIX4_RESULT.md documents root cause an
     assert.match(doc, /worker/i);
     assert.match(doc, /error/i);
     assert.match(doc, /jsdelivr\.net/i);
-    assert.match(doc, /wasmCdnFirst|buildSelfHostBundle|CDN.first/i);
+    assert.match(doc, /buildSelfHostBundle|CDN.first/i);
     assert.doesNotMatch(doc, new RegExp(EM_DASH));
   });
 });

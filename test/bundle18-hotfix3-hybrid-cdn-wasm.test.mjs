@@ -239,7 +239,7 @@ describe('bundle18 hotfix3 C: js/app-shell/duckdb-engine.js hybrid retry (root i
 describe('bundle18 hotfix3 D: canvas/index.html hybrid retry (canvas authoritative)', () => {
   const canvas = readRepoFile(join('canvas', 'index.html'));
 
-  it('the tracked duckdb-load-harden.js splice carries the wasmFallback, wasmCdnFirst, and helpers', () => {
+  it('the tracked duckdb-load-harden.js splice carries the wasmFallback, wasmLocalFirst, and helpers', () => {
     const startMarker = '/* ---- from js/sql/duckdb-load-harden.js ---- */';
     const endMarker = '/* ---- end js/sql/duckdb-load-harden.js ---- */';
     const s = canvas.indexOf(startMarker);
@@ -247,19 +247,20 @@ describe('bundle18 hotfix3 D: canvas/index.html hybrid retry (canvas authoritati
     assert.notEqual(s, -1, 'from marker missing');
     assert.notEqual(e, -1, 'end marker missing');
     const span = canvas.slice(s, e);
-    assert.match(span, /wasmFallback: WASM_CDN_FIRST,/);
-    assert.match(span, /wasmCdnFirst: WASM_CDN_FIRST,/);
+    assert.match(span, /wasmFallback: WASM_CDN_FALLBACK,/);
+    assert.match(span, /wasmLocalFirst: WASM_LOCAL_FIRST,/);
     assert.match(span, /function isWasmFetchFailure\(/);
     assert.match(span, /function buildHybridWasmBundle\(/);
     assert.match(span, /function buildSelfHostBundle\(/);
   });
 
-  it('_loadDuckFrom applies the CDN-first wasm URL up front for self-host, and still retries via hybrid on fetch failure', () => {
-    // Bundle 18 hotfix 4: preferred fix. mainModuleUrl is pointed at the
-    // jsDelivr pin BEFORE the first instantiate() attempt for any candidate
-    // carrying wasmCdnFirst (self-host), not only after a caught rejection.
+  it('_loadDuckFrom applies the local-first wasm URL up front for self-host, and still retries via hybrid on fetch failure', () => {
+    // Local first (supersedes hotfix 4's CDN-first ordering): mainModuleUrl
+    // is pointed at the same-origin /assets/duckdb/ wasm BEFORE the first
+    // instantiate() attempt for any candidate carrying wasmLocalFirst
+    // (self-host). The jsDelivr pin below is the caught-rejection retry.
     assert.match(canvas, /async function _loadDuckFrom\(cdnUrl, baseUrl, candidate\) \{/);
-    assert.match(canvas, /candidate\.wasmCdnFirst && lhFront && typeof lhFront\.buildSelfHostBundle === 'function'/);
+    assert.match(canvas, /candidate\.wasmLocalFirst && lhFront && typeof lhFront\.buildSelfHostBundle === 'function'/);
     assert.match(canvas, /lh\.isWasmFetchFailure\(eInstantiate\)/);
     assert.match(canvas, /lh\.buildHybridWasmBundle\(/);
     assert.match(canvas, /await _dgInstantiateWithTimeout\(adb, worker, hybridBundle\.mainModule, hybridBundle\.pthreadWorker, \d+\);/);
@@ -279,11 +280,11 @@ describe('bundle18 hotfix3 D: canvas/index.html hybrid retry (canvas authoritati
     assert.match(canvas, /loaded = await _loadDuckFrom\(_cand\.cdnUrl, _cand\.baseUrl, _cand\);/);
   });
 
-  it('the hardcoded fallback candidate list also carries a wasmCdnFirst (and wasmFallback) for self-host', () => {
+  it('the hardcoded fallback candidate list also carries a wasmLocalFirst (and wasmFallback) for self-host', () => {
     const idx = canvas.indexOf('function _dgDuckCandidates()');
     assert.notEqual(idx, -1);
-    const region = canvas.slice(idx, idx + 1200);
-    assert.match(region, /wasmCdnFirst: \{ mvp: DUCKDB_BASE_PRIMARY \+ 'duckdb-mvp\.wasm', eh: DUCKDB_BASE_PRIMARY \+ 'duckdb-eh\.wasm' \}/);
+    const region = canvas.slice(idx, idx + 1400);
+    assert.match(region, /wasmLocalFirst: \{ mvp: DUCKDB_SELF_HOST_BASE \+ 'duckdb-mvp\.wasm', eh: DUCKDB_SELF_HOST_BASE \+ 'duckdb-eh\.wasm' \}/);
     assert.match(region, /wasmFallback: \{ mvp: DUCKDB_BASE_PRIMARY \+ 'duckdb-mvp\.wasm', eh: DUCKDB_BASE_PRIMARY \+ 'duckdb-eh\.wasm' \}/);
   });
 

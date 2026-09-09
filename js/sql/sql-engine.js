@@ -199,20 +199,22 @@ export var SQLEngine = (function () {
           // Resolving here, against the page, guarantees worker and page agree
           // on the same absolute wasm URL regardless of candidate baseUrl shape.
           var mainModuleHref = isAbsoluteUrl(bundle.mainModule) ? bundle.mainModule : new URL(bundle.mainModule, location.href).href;
-          // Bundle 18 hotfix 4: for the self-host candidate, point mainModule
-          // at the jsDelivr 1.29.0 wasm pin UP FRONT instead of only on a
-          // caught instantiate() retry. mainWorker (workerHref, already
-          // same-origin above) is untouched, so no third-party JS ever runs
-          // -- only the wasm binary itself, the one file self-host cannot
-          // always serve (see BUNDLE18_HOTFIX3_RESULT.md and
-          // BUNDLE18_HOTFIX4_RESULT.md), is requested from a CDN from the
-          // very first attempt. This guarantees a CDN wasm network request
-          // fires unconditionally, instead of depending on an instantiate()
-          // rejection that a hung/uncaught worker error can prevent.
-          if (cand.wasmCdnFirst && LOAD_HARDEN && typeof LOAD_HARDEN.buildSelfHostBundle === 'function') {
+          // Local first: for the self-host candidate, mainModule is the
+          // same-origin /assets/duckdb/ wasm binary, applied UP FRONT. The
+          // whole happy path (mjs entry, worker, wasm) is then same-origin,
+          // so SQL starts with the network blocked to every third party.
+          // The jsDelivr pin is still reachable, but only from the catch
+          // below, for a host that cannot actually serve the local bytes
+          // (see BUNDLE18_HOTFIX3_RESULT.md). The resolve-to-absolute step
+          // is repeated because buildSelfHostBundle returns a root-absolute
+          // path and the worker must be handed a URL it and the page agree
+          // on.
+          if (cand.wasmLocalFirst && LOAD_HARDEN && typeof LOAD_HARDEN.buildSelfHostBundle === 'function') {
             var variant = /duckdb-mvp\.wasm/i.test(mainModuleHref) ? 'mvp' : 'eh';
-            var cdnFirstBundle = LOAD_HARDEN.buildSelfHostBundle({ mainWorker: workerHref, pthreadWorker: bundle.pthreadWorker }, variant);
-            mainModuleHref = cdnFirstBundle.mainModule;
+            var localFirstBundle = LOAD_HARDEN.buildSelfHostBundle({ mainWorker: workerHref, pthreadWorker: bundle.pthreadWorker }, variant);
+            mainModuleHref = isAbsoluteUrl(localFirstBundle.mainModule)
+              ? localFirstBundle.mainModule
+              : new URL(localFirstBundle.mainModule, location.href).href;
           }
           var worker = new Worker(workerHref);
           var logger = new mod.ConsoleLogger ? new mod.ConsoleLogger() : { log: function(){} };
@@ -227,10 +229,10 @@ export var SQLEngine = (function () {
             // hang the worker outright (now caught by instantiateWithTimeout
             // above). Retry the SAME worker/mjs stack with mainModule swapped
             // to the CDN pin instead of abandoning the whole self-host
-            // candidate -- this is now mostly a belt-and-suspenders path
-            // since wasmCdnFirst already made the first attempt CDN-first,
-            // but still recovers a candidate whose bundle selection above
-            // did not have wasmCdnFirst (e.g. a stale LOAD_HARDEN cache).
+            // candidate. With the local-first bundle above this is the real
+            // last-resort path again, and the timeout guard is what makes it
+            // reachable: a hung or uncaught worker error is turned into a
+            // rejection instead of starving this catch forever.
             var isWasmFail = LOAD_HARDEN && typeof LOAD_HARDEN.isWasmFetchFailure === 'function'
               ? LOAD_HARDEN.isWasmFetchFailure(eInstantiate)
               : /failed to fetch|err_failed|networkerror|http status code is not ok/i.test((eInstantiate && eInstantiate.message) || '');
