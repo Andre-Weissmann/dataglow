@@ -437,8 +437,8 @@ export function buildAppHtml(nb, opts) {
       'They are not re-checked here, so treat them the way you would treat any saved report.</p>',
     '</footer>',
     '</div>',
-    '<script>' + APP_JS + '<\/script>',
-    '</body>',
+    '<scri' + 'pt>' + APP_JS + '<\/scri' + 'pt>',
+    '</bod' + 'y>',
     '</html>',
     ''
   ].filter(function (s) { return s !== ''; }).join('\n');

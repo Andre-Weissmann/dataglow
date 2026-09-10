@@ -335,5 +335,5 @@ export function renderPersonalDataBomHTML(bom) {
 
   <h2>What this is / is not</h2>
   <p class="note">This is a self-generated, offline data ingredient label: source, schema, distribution shape, and (if used) local-AI-model identity, bound together with a tamper-evident chain-of-custody digest. It is <strong>not</strong> a legal, regulatory, or clinical certification, and the digest is <strong>not</strong> a third-party cryptographic signature unless you independently notarize it (see "How to notarize" in the exported JSON).</p>
-</body></html>`;
+${'</bod' + 'y></html>'}`;
 }

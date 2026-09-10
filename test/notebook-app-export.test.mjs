@@ -382,4 +382,27 @@ describe('notebook app: the built file', () => {
   it('never uses an em dash in the file it writes', () => {
     assert.ok(!built.html.includes(EM_DASH));
   });
+
+  it('still embeds a real, intact <script> tag around the app bundle', () => {
+    // The source builds this line as '<scri' + 'pt>' + APP_JS + '<\/scri' + 'pt>'
+    // so that static-hosting layers which rewrite literal "<script" occurrences
+    // (including ones sitting inside a JS string, not just real HTML tags) cannot
+    // corrupt this export path. Concatenation always yields the exact same
+    // string at runtime, so the shipped file must still contain one clean,
+    // unmodified <script>...</script> pair wrapping the app bundle.
+    assert.ok(built.html.includes('<script>'), 'a real <script> tag must appear in the output');
+    assert.ok(built.html.includes('<\/script>'), 'a real closing <\/script> tag must appear in the output');
+    assert.ok(!built.html.includes('<script data-'), 'no attribute should ever get injected into this tag');
+  });
+
+  it('still embeds a real, intact </body> tag at the end of the exported page', () => {
+    // The source builds the tail as '</bod' + 'y>' for the same reason as the
+    // <script> split above: a static-hosting layer that scans raw text for
+    // "</body>" (even one sitting inside a JS string, not real markup) and
+    // reacts to it can misfire mid-string. Concatenation still yields the
+    // exact same string at runtime, so the shipped file must contain one
+    // clean, unmodified </body> tag right before the closing </html>.
+    assert.ok(built.html.includes('</body>'), 'a real </body> tag must appear in the output');
+    assert.ok(/<\/body>\s*<\/html>\s*$/.test(built.html.trim()), 'the file must end with </body></html>');
+  });
 });
