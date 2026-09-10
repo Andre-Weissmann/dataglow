@@ -413,7 +413,7 @@
       "description": "Phase 11 -- Multi-Model AI Council. Adds a Council tab where the user asks one analytical question and gets answers from three LLM providers (OpenAI, Anthropic Claude, Google Gemini) called in parallel. The Council then synthesizes the results: CONSENSUS where all three agree, MAJORITY where two of three agree, and CONTESTED where all three differ, plus an overall agreement rating. Primary use case is data questions (for example: which metric best explains readmission risk, or what SQL computes denial rate) -- not general chat. PRIVACY: schema (column names + types) only is sent to each provider, the same guarantee as NL->SQL -- never row data or patient records. Provider and API keys are configured per-session in the UI and held in page memory only, never stored. Users can run the Council with 1, 2, or 3 providers enabled; synthesis only runs when at least 2 providers respond successfully."
     },
     "serverOffload": {
-      "enabled": true,
+      "enabled": false,
       "addedInPR": "chore/duckdb-hardening",
       "description": "Server offload (opt-in, user-configured endpoint required). When enabled, heavy queries CAN be delegated to a remote DuckDB instance ONLY when the user explicitly sets an endpoint URL. No data is ever sent without user-configured endpoint. DataGlow is local-first -- this flag makes the capability visible, not active. See js/app-shell/duckdb-config.js #8."
     },
