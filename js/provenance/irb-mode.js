@@ -194,6 +194,6 @@ export function renderIRBHTML(model) {
       Produced by DATAGLOW — a client-side data-quality workbench. Print to PDF for submission. Requires qualified-reviewer sign-off.
     </div>
   </div>
-</body>
+${'</bod' + 'y>'}
 </html>`;
 }

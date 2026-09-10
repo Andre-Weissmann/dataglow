@@ -251,7 +251,7 @@ export function renderDeidReceiptHTML(model) {
   if (!m.available) {
     parts.push('<p>' + escapeHtml(m.problem) + '</p>');
     parts.push('<div class="dg-note">' + escapeHtml(DEID_WHAT_IT_CANNOT_SEE) + '</div>');
-    parts.push('</body></html>');
+    parts.push('</bod' + 'y></html>');
     return parts.join('\n');
   }
 
@@ -297,7 +297,7 @@ export function renderDeidReceiptHTML(model) {
   parts.push('<h2>Limits of this receipt</h2>');
   parts.push('<div class="dg-note">' + escapeHtml(DEID_WHAT_IT_CANNOT_SEE) + '</div>');
   parts.push('<div class="dg-warn">' + escapeHtml(DEID_NOT_CERTIFICATION) + '</div>');
-  parts.push('</body></html>');
+  parts.push('</bod' + 'y></html>');
   return parts.join('\n');
 }
 

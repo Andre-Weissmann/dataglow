@@ -438,7 +438,7 @@ export function buildAppHtml(nb, opts) {
     '</footer>',
     '</div>',
     '<scri' + 'pt>' + APP_JS + '<\/scri' + 'pt>',
-    '</body>',
+    '</bod' + 'y>',
     '</html>',
     ''
   ].filter(function (s) { return s !== ''; }).join('\n');

@@ -394,4 +394,15 @@ describe('notebook app: the built file', () => {
     assert.ok(built.html.includes('<\/script>'), 'a real closing <\/script> tag must appear in the output');
     assert.ok(!built.html.includes('<script data-'), 'no attribute should ever get injected into this tag');
   });
+
+  it('still embeds a real, intact </body> tag at the end of the exported page', () => {
+    // The source builds the tail as '</bod' + 'y>' for the same reason as the
+    // <script> split above: a static-hosting layer that scans raw text for
+    // "</body>" (even one sitting inside a JS string, not real markup) and
+    // reacts to it can misfire mid-string. Concatenation still yields the
+    // exact same string at runtime, so the shipped file must contain one
+    // clean, unmodified </body> tag right before the closing </html>.
+    assert.ok(built.html.includes('</body>'), 'a real </body> tag must appear in the output');
+    assert.ok(/<\/body>\s*<\/html>\s*$/.test(built.html.trim()), 'the file must end with </body></html>');
+  });
 });

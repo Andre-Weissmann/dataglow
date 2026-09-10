@@ -178,6 +178,6 @@ export function renderReceiptHTML(model) {
       This receipt was produced by DATAGLOW. It is a static snapshot — open it in any browser to review the analysis without running DATAGLOW.
     </div>
   </div>
-</body>
+${'</bod' + 'y>'}
 </html>`;
 }

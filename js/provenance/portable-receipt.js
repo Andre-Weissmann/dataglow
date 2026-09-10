@@ -282,7 +282,7 @@ export function renderReceiptVerifierHTML(model) {
     </div>
   </div>
 
-<script>
+${'<scri' + 'pt>'}
 (function () {
   var MODEL = ${embedded};
   var OK = ${JSON.stringify(CARD_STATUS_COLOR.ok)}, BAD = ${JSON.stringify(CARD_STATUS_COLOR.bad)};
@@ -363,7 +363,7 @@ export function renderReceiptVerifierHTML(model) {
     el.innerHTML = '<span style="font-size:20px;">⚠️</span><span>Could not verify: ' + (e && e.message ? e.message : e) + '</span>';
   });
 })();
-</script>
-</body>
+${'<\/scri' + 'pt>'}
+${'</bod' + 'y>'}
 </html>`;
 }
