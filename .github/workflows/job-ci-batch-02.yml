@@ -50,6 +50,18 @@ jobs:
       - run: npm ci
       - run: npm run test:trustpassport
 
+  trust-passport-export:
+    name: Trust Passport Export & Independent Verify (Batch 2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:trustpassportexport
+
   context-engine:
     name: Context Engine (micro-lessons + community packs)
     runs-on: ubuntu-latest

@@ -7866,6 +7866,37 @@
         "trustPassport"
       ],
       "status": "behind-flag"
+    },
+    {
+      "id": "provenance-trust-passport-export",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Trust Passport Export & Independent Verify (Batch 2)",
+      "files": [
+        "js/provenance/trust-passport-export.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/trust-passport-export.js",
+          "name": "sealTrustPassport"
+        },
+        {
+          "file": "js/provenance/trust-passport-export.js",
+          "name": "verifyTrustPassportExport"
+        },
+        {
+          "file": "js/provenance/trust-passport-export.js",
+          "name": "exportTrustPassport"
+        }
+      ],
+      "relatedFlags": [
+        "trustPassportExport"
+      ],
+      "status": "behind-flag"
     }
   ]
 }
