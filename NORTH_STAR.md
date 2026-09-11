@@ -1700,6 +1700,45 @@ re-verified), the honest-refusal path (a real critical flag present → `ok:fals
 and the artifact's actual JSON payload (no secret blinding factor value present, only the Schnorr
 transcript). 31/31 tests. No other pending flag-enable requests remain.
 
+## Shipped dark (flags off): Trust Passport (Batch 1 + Batch 2) — 2026-09-10/11
+
+**Concept.** DataGlow already tracks readiness (`js/gate/readiness-gate.js`), every AI touch
+(`js/provenance/ai-touch-ledger.js`), who acted on a dataset (`js/provenance/ownership-ledger.js`), and
+what an agent may or may not do (`js/agents/agent-action-firewall.js`) — but each lives on its own tab or
+panel. Nobody asking "can I trust this dataset, right now, in one look" gets a single answer; they have
+to visit four places and assemble the picture themselves. Trust Passport composes those four existing
+modules' outputs into one object (never a fifth ledger, never new cryptography for its own sake) and, in
+a second batch, makes that composed object portable and independently verifiable outside the app.
+
+**Batch 1 — composition engine.** `js/provenance/trust-passport.js`. `buildTrustPassport({gateResult,
+touchEntries, ownershipEvents, meta})` composes the readiness score, AI-touch summary, ownership summary,
+and a fixed five-capability agent-permission table (read-aggregate: allow, read-row-level: deny,
+propose-repair: gate, auto-apply-repair: deny — never allowed by any code path in this repo,
+export-outside-device: gate) into one passport object. `summarizeTrustPassport()` gives a one-line
+reading. Never throws — missing/malformed inputs degrade each section to an honest "unknown" rather than
+crashing. PR [#657](https://github.com/Andre-Weissmann/dataglow/pull/657), merged 2026-09-10/11, flag
+`trustPassport` (default `false`). 11/11 tests passing (`test/trust-passport.test.mjs`).
+
+**Batch 2 — portable export & independent verify.** `js/provenance/trust-passport-export.js`. Reuses the
+exact Merkle/SHA-256 primitives already shipped in `js/provenance/verifiable-check-seal.js`
+(`sealCheckResult`/`verifySeal`) rather than inventing new cryptography. `sealTrustPassport(passport)`
+seals every passport field into a Merkle-tree commitment; `verifyTrustPassportExport(sealedExport)` is a
+pure function that recomputes hashes and detects any edit to any field after export, with no DataGlow
+installation, no network call, and no shared secret required by the verifier; `exportTrustPassport(sealed,
+format)` renders json/markdown/text. Explicitly tamper-evidence, not a signature or certification — a
+disclaimer ships on every export. PR [#658](https://github.com/Andre-Weissmann/dataglow/pull/658), merged
+2026-09-11, flag `trustPassportExport` (default `false`). 12/12 tests passing
+(`test/trust-passport-export.test.mjs`).
+
+**State.** Both batches are engine + tests only — neither is wired into any UI panel in `canvas/index.html`
+or `js/app-shell/main.js` (152,671 / 9,891 lines respectively; judged too risky to wire in the same batch
+as the engine). Both flags default `false`; flipping either on today has zero visible effect until a
+follow-up batch mounts the actual panel(s). Enabling either flag requires its own separate, later,
+explicitly-confirmed action naming the flag — not part of this build.
+
+**Next (not started).** "Batch 1.5": mount a Trust Passport panel somewhere in the canvas UI, reading
+from `buildTrustPassport()` and (once ready) offering the sealed export/verify actions from Batch 2.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
