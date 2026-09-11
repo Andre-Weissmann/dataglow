@@ -7839,6 +7839,33 @@
       "relatedFlags": [
         "captureShipPack"
       ]
+    },
+    {
+      "id": "provenance-trust-passport",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Trust Passport (Batch 1: composition engine)",
+      "files": [
+        "js/provenance/trust-passport.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/trust-passport.js",
+          "name": "buildTrustPassport"
+        },
+        {
+          "file": "js/provenance/trust-passport.js",
+          "name": "summarizeTrustPassport"
+        }
+      ],
+      "relatedFlags": [
+        "trustPassport"
+      ],
+      "status": "shipped"
     }
   ]
 }
