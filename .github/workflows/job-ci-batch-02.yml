@@ -38,6 +38,18 @@ on:
   workflow_call:
 
 jobs:
+  trust-passport:
+    name: Trust Passport (Batch 1 engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:trustpassport
+
   context-engine:
     name: Context Engine (micro-lessons + community packs)
     runs-on: ubuntu-latest
