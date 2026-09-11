@@ -62,6 +62,18 @@ jobs:
       - run: npm ci
       - run: npm run test:trustpassportexport
 
+  trust-passport-panel:
+    name: Trust Passport Panel (Batch 1.5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:trustpassportpanel
+
   context-engine:
     name: Context Engine (micro-lessons + community packs)
     runs-on: ubuntu-latest

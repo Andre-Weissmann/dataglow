@@ -80,6 +80,9 @@ import { renderConfirmGate } from '../metrics/metric-contract-confirm-gate.js';
 import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
 import { openProofDrawer } from '../trust/proof-drawer.js';
 import { buildProofRoomPlan, renderProofRoom } from '../provenance/proof-room.js';
+import { buildTrustPassport } from '../provenance/trust-passport.js';
+import { sealTrustPassport, verifyTrustPassportExport, exportTrustPassport } from '../provenance/trust-passport-export.js';
+import { buildTrustPassportPanelPlan, renderTrustPassportPanel } from '../provenance/trust-passport-panel.js';
 import { computeReadinessGate } from '../gate/readiness-gate.js';
 import { renderReadinessBadge } from '../gate/readiness-gate-ui.js';
 import { createQueryMemoryLog, QUERY_KINDS } from '../provenance/query-memory.js';
@@ -186,6 +189,7 @@ const TAB_META = {
   meeting: { label: 'Meeting', icon: 'message-circle' },
   diplomacy: { label: 'Diplomacy', icon: 'handshake' },
   proofroom: { label: 'Proof Room', icon: 'shield' },
+  trustpassport: { label: 'Trust Passport', icon: 'shield' },
   convergence: { label: 'Convergence', icon: 'git-merge' },
   crucible: { label: 'Crucible', icon: 'shield' },
   copilot: { label: 'Copilot', icon: 'message-circle' },
@@ -264,6 +268,7 @@ function getVisibleTabIds() {
     (tabId !== 'meeting' || isEnabled('meetingScribe'))
     && (tabId !== 'diplomacy' || isEnabled('dataDiplomacy'))
     && (tabId !== 'proofroom' || isEnabled('proofRoom'))
+    && (tabId !== 'trustpassport' || isEnabled('trustPassport'))
     && (tabId !== 'convergence' || isEnabled('sourceConvergenceUI'))
     && (tabId !== 'crucible' || isEnabled('crucibleValidatorUI'))
     && (tabId !== 'copilot' || isEnabled('guardedCopilot'))
@@ -401,6 +406,7 @@ function switchTab(tabId) {
   if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'diplomacy') renderDiplomacyTab();
   if (tabId === 'proofroom') renderProofRoomTab();
+  if (tabId === 'trustpassport') renderTrustPassportTab();
   if (tabId === 'convergence') renderConvergenceTab();
   if (tabId === 'crucible') renderCrucibleTab();
   if (tabId === 'copilot') renderGuardedCopilotTab();
@@ -4551,6 +4557,51 @@ function renderProofRoomTab() {
         }, 'Download AI Touch Ledger (.json)'));
       },
     },
+  });
+}
+
+// Trust Passport (Batch 1.5: UI mount). Batch 1 (js/provenance/trust-passport.js)
+// built the pure composition engine; Batch 2 (js/provenance/trust-passport-export.js)
+// added portable seal/verify/export. Both shipped dark with zero UI. This function
+// is the mount: it gathers the FOUR real inputs the engine already documents
+// (readiness gate result, AI Touch Ledger entries, Ownership Ledger events, dataset
+// meta) from live app state -- exactly the same accessors renderProofRoomTab and
+// renderOwnershipLedger already use -- and hands them to buildTrustPassport()
+// verbatim. Gated by the SAME trustPassport flag as the engine (per the flag's own
+// documented Batch 1.5 follow-up note in flags.manifest.json); the export section
+// only appears when trustPassportExport is ALSO on, so Batch 2's own flag still
+// independently controls whether a passport can leave the app.
+function renderTrustPassportTab() {
+  const host = $('#trust-passport-body');
+  if (!host) return;
+  if (!isEnabled('trustPassport')) { host.innerHTML = ''; return; }
+  const ds = getActiveDataset();
+  const plan = buildTrustPassportPanelPlan({ datasetLoaded: !!ds });
+
+  renderTrustPassportPanel({
+    host,
+    plan,
+    onBuild: () => {
+      const gateResult = state.validationResults
+        ? computeReadinessGate(state.validationResults, state.metricContractStatus || null)
+        : null;
+      const touchEntries = aiTouchLedger.getEntries ? aiTouchLedger.getEntries() : [];
+      const chain = provenance.getProvenance(ds.table);
+      const ownershipEvents = ownership.deriveOwnershipEvents({
+        provenanceTrail: chain ? chain.getTrail() : [],
+        assumptionEntries: ledger.getLedgerEntries(),
+      });
+      return buildTrustPassport({
+        gateResult,
+        touchEntries,
+        ownershipEvents,
+        meta: { datasetId: ds.table, datasetLabel: ds.table },
+      });
+    },
+    onSeal: isEnabled('trustPassportExport') ? sealTrustPassport : undefined,
+    onVerify: isEnabled('trustPassportExport') ? verifyTrustPassportExport : undefined,
+    onExport: isEnabled('trustPassportExport') ? exportTrustPassport : undefined,
+    downloadText,
   });
 }
 

@@ -1213,6 +1213,21 @@
       <div id="proof-room-body" data-testid="proof-room-body"></div>
     </section>
 
+    <!-- Trust Passport (Batch 1.5: UI mount). Engine (js/provenance/trust-passport.js)
+         and portable export/verify (js/provenance/trust-passport-export.js) both shipped
+         dark with no UI in Batch 1 and Batch 2. Gated behind the same trustPassport flag
+         (off by default), so this panel stays empty and the tab is never in the bar on a
+         default build. See renderTrustPassportTab() in js/app-shell/main.js. -->
+    <section class="panel" id="panel-trustpassport" data-panel="trustpassport">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Trust Passport</div>
+          <div class="panel-subtitle">Readiness, AI touches, ownership, and agent permissions composed into one look. Not a certification, not blockchain, not a zero-knowledge proof.</div>
+        </div>
+      </div>
+      <div id="trust-passport-body" data-testid="trust-passport-body"></div>
+    </section>
+
     <!-- Source Convergence (Truth Network, Batch 3 of 3). Wires the Batch 1
          engine + Batch 2 adapters into a visible Convergence tab. Gated behind
          the sourceConvergenceUI flag (off by default), so the tab is never in
