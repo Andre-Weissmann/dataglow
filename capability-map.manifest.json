@@ -7897,6 +7897,34 @@
         "trustPassportExport"
       ],
       "status": "behind-flag"
+    },
+    {
+      "id": "provenance-trust-passport-panel",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "Provenance, audit & trust",
+      "name": "Trust Passport Panel (Batch 1.5: UI mount)",
+      "files": [
+        "js/provenance/trust-passport-panel.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/provenance/trust-passport-panel.js",
+          "name": "buildTrustPassportPanelPlan"
+        },
+        {
+          "file": "js/provenance/trust-passport-panel.js",
+          "name": "renderTrustPassportPanel"
+        }
+      ],
+      "relatedFlags": [
+        "trustPassport",
+        "trustPassportExport"
+      ],
+      "status": "behind-flag"
     }
   ]
 }
