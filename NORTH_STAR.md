@@ -1730,14 +1730,69 @@ disclaimer ships on every export. PR [#658](https://github.com/Andre-Weissmann/d
 2026-09-11, flag `trustPassportExport` (default `false`). 12/12 tests passing
 (`test/trust-passport-export.test.mjs`).
 
-**State.** Both batches are engine + tests only — neither is wired into any UI panel in `canvas/index.html`
-or `js/app-shell/main.js` (152,671 / 9,891 lines respectively; judged too risky to wire in the same batch
-as the engine). Both flags default `false`; flipping either on today has zero visible effect until a
-follow-up batch mounts the actual panel(s). Enabling either flag requires its own separate, later,
-explicitly-confirmed action naming the flag — not part of this build.
+**Batch 1.5 — real UI panel, shipped dark — 2026-09-10.** `js/provenance/trust-passport-panel.js`.
+`buildTrustPassportPanelPlan(ctx)` is a pure, dataset-scoped readiness check; `renderTrustPassportPanel(opts)`
+is the DOM presenter (summary card, five-capability permissions table, and an optional seal/export/verify
+card that only renders when `trustPassportExport` is also on). Wired into `js/app-shell/main.js`
+(`TAB_META`, `getVisibleTabIds()`, `switchTab` dispatch, `renderTrustPassportTab()`), `js/app-shell/state.js`
+(`tabOrder`), `js/app-shell/command-deck-nav.js` (Trust stage), and a static panel section in root
+`index.html`. Same `trustPassport` flag as Batch 1 (still default `false`) gates the whole tab; Batch 2's
+export controls inside the panel additionally require `trustPassportExport`. PR
+[#660](https://github.com/Andre-Weissmann/dataglow/pull/660), merged 2026-09-10, 11/11 new tests
+(`test/trust-passport-panel.test.mjs`), all 94 CI checks passed including `tauri-smoke`. Along the way, the
+capability-map drift detector correctly caught the new file shipping undocumented — fixed by adding matching
+entries to `docs/capability-map.md` and `capability-map.manifest.json` before merge.
 
-**Next (not started).** "Batch 1.5": mount a Trust Passport panel somewhere in the canvas UI, reading
-from `buildTrustPassport()` and (once ready) offering the sealed export/verify actions from Batch 2.
+**State.** All three batches (engine, export/verify, UI panel) are now merged and tested, but both flags
+(`trustPassport`, `trustPassportExport`) still default `false` — nothing has changed for real users yet.
+Enabling either flag requires its own separate, later, explicitly-confirmed action naming the flag.
+
+## Test findings (2026-09-10 run — targeted data-tooling verification, web only)
+
+Targeted rerun per the test-dataglow-platform skill, scoped to the user's explicit question: do SQL,
+Python, Excel, and R actually work end to end, and is DataGlow's own data tooling good enough that a user
+wouldn't just go straight to Claude/ChatGPT for the data work instead. Web build only; desktop/mobile not
+retested this round. Full evidence: dataglow_test_results_2026-09-10.md (workspace, not in-repo).
+
+**Fixed since the 2026-07-17 audit (confirmed, not assumed):**
+- The Visualize tab's SQL/GROUP BY derived-column bug (previously the #1 priority workflow-breaking gap)
+  is fixed. `maybeMaterializeSqlResultForVisualize()` plus a broadened `isNumericColType()` in
+  `js/app-shell/main.js` now correctly offer derived columns like `total_billed`/`claim_count` on the
+  Y-axis, and chart generation works. Live-verified against a real GROUP BY query.
+- Both known Excel export bugs are fixed: dates now export as native Excel date cells (`coerceForExcel` in
+  `js/export/export-report.js`, verified with `openpyxl` showing `data_type='d'`), and double file
+  extensions (`.csv.xlsx`) no longer occur (`safeStem` strips the source extension first).
+
+**Newly tested this run, both pass:**
+- SQL tab (DuckDB-WASM): 7 queries including a GROUP BY aggregation, all matched independent DuckDB/pandas
+  ground truth exactly.
+- Python tab (Pyodide) and R tab (WebR): both runtimes load, both bridge objects
+  (`dataglow.get_df()` / `dataglow_get_df()`) return correct data, both reproduced the same GROUP BY
+  aggregation as the SQL tab exactly.
+
+**New finding — Excel Hell Repair and Guided Unpivot are non-functional in the shipped main app (P0):**
+Both tools are real (not stubs), visible in the topbar, and genuinely loaded at runtime via the
+capability-registry loader — but both always see a no-file-loaded state regardless of what's actually
+loaded, because `js/intelligence/data-glow-excel-hell-canvas.js` and `-guided-unpivot-canvas.js` read
+`window.getActiveDataset()` / `window.state`, and neither global is ever attached to `window` anywhere in
+the app (`getActiveDataset` is a module export in `js/app-shell/state.js`, never assigned to `window`).
+Live-verified: loaded a real messy Excel sheet, visible in the sidebar, but both panels showed their empty
+state. A repo-wide grep shows the identical `window.getActiveDataset` pattern in at least 6 other canvas
+modules (Transforms, Proof-to-Post, Project Run, Receipt Spine, Proof Board) — flagged as likely affected
+by the same bug class but not individually retested this run.
+
+**New finding — cross-tool workflow has a real write-back dead end (P1):** SQL results only become visible
+to Python/R after the user visits the Visualize tab first (not obvious from the Python/R tabs themselves).
+More importantly, there is no write-back path at all: Python's bridge exposes only `get_df()` (no
+`register_df()`), same for R — so a Python- or R-computed result can never be queried from SQL, exported to
+Excel/PDF, or shared between Python and R. A workflow that ends in Python/R analysis hits a dead end for
+export; only a workflow that stays in SQL (or is re-expressed in SQL) can reach the export path.
+
+**Priority for next build session:** (1) attach getActiveDataset/state to window so Excel Hell Repair and
+Guided Unpivot, and likely the other ~6 canvas modules sharing this pattern, can see real loaded data —
+this is the single highest-leverage fix since it's one wiring gap blocking multiple already-built features.
+(2) a write-back bridge (register_df-equivalent) so Python/R output can flow back into SQL and the export
+path, closing the Python/R-as-last-analytical-step dead end the user specifically asked about.
 
 ## Backlog (ranked, queued — not abandoned)
 
