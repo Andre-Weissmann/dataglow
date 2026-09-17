@@ -1794,6 +1794,46 @@ this is the single highest-leverage fix since it's one wiring gap blocking multi
 (2) a write-back bridge (register_df-equivalent) so Python/R output can flow back into SQL and the export
 path, closing the Python/R-as-last-analytical-step dead end the user specifically asked about.
 
+## Fix landed (2026-09-17) — window.getActiveDataset/window.state wiring gap corrected
+
+Follow-up to the 2026-09-10 finding above. Direct inspection of both build surfaces (PR #662) found the
+root cause was more precise, and different, than the 2026-09-10 note stated — correcting that record here
+rather than leaving an inaccurate diagnosis in place.
+
+**What the 2026-09-10 note got right:** Excel Hell Repair and Guided Unpivot really were blind to the
+loaded dataset, and the fix really was a `window.getActiveDataset`/`window.state` wiring gap. The full
+list of affected modules was larger than estimated: 13 modules read this fallback pattern, not ~6
+(Transforms, Proof-to-Post, Portfolio, Project Run, Receipt Spine, Proof Board, SQL Autocomplete, PHI
+Shield, Repair Recipe Library, Mobile PHI first-run, R Notebook, Excel Hell, Shield Packs).
+
+**What it got imprecise:** the claim that `window.getActiveDataset` was "never assigned to window anywhere
+in the app" was true only for the root/desktop surface, not for `canvas/index.html` — the two are separate
+builds (root `index.html` loads `js/` as real ES modules and feeds the Tauri desktop shell; `canvas/index.html`
+is a single-file build with every module inlined into one shared script scope, and is authoritative for the
+web canvas surface — see `scripts/check-canvas-integrity.mjs`'s header comment). `canvas/index.html` already
+had `window.getActiveDataset` correctly defined and closing over the real `state` object. The actual canvas
+bug was narrower: `window.state` itself was never aliased to that real object — the only place it got
+assigned was a stray line inside `openProject()` (Project Run restore) that created a brand-new, disconnected
+`{}` the first time it ran, so anything restored through that path was invisible to `window.getActiveDataset()`
+even though it had loaded correctly.
+
+**Fix (PR #662, merged):** alias `window.state`/`window.getActiveDataset` to the real `state` object on both
+surfaces (root `js/app-shell/main.js` and `canvas/index.html`), and fix `openProject()` to reuse the real
+object instead of creating a disconnected one. Verified live with Playwright against the served canvas build:
+after loading a CSV, `window.getActiveDataset()` and `window.state.datasets` now reference the exact same
+object as the app's internal dataset list. Excel Hell Repair correctly detects real findings (header row,
+column type fixes); Guided Unpivot correctly detects real id/value columns and row estimates; Transforms and
+Proof Board also confirmed finding the active dataset. `test:excelhell` (31 tests), `test:unpivot` (59
+tests), and `test:r1projectrun` (45 tests, covers `openProject`) all pass with no regressions. All 94 CI
+checks passed, including `tauri-smoke`.
+
+**Still not verified this round:** the other ~11 modules on the fallback-pattern list beyond Excel Hell,
+Guided Unpivot, Transforms, and Proof Board were not individually retested — the underlying fix is the same
+global alias, so they are expected to be unblocked too, but that is an inference, not a confirmed retest per
+module. Desktop (Tauri) and mobile were not live-tested this round either, only fixed at the source level
+(root `js/app-shell/main.js` feeds the desktop build via byte-identical staging, so the same fix applies, but
+an actual desktop-shell run of Excel Hell Repair/Guided Unpivot has not been observed).
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
