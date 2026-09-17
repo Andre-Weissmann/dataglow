@@ -167,6 +167,29 @@ import { getSuggestions, topSuggestion } from '../polyglot/polyglot-autocomplete
 import { adviseError, renderAdvisedErrorHtml } from '../polyglot/polyglot-error-advisor.js';
 
 // ============================================================
+// Window-global bridge (read-only convenience for canvas/bolt-on modules)
+// ============================================================
+// A number of standalone "canvas" modules (Excel Hell Repair, Guided Unpivot,
+// Transforms, Proof-to-Post, Project Run, Receipt Spine, Proof Board, and
+// others) were written to look up the currently-loaded dataset via a plain
+// `window.getActiveDataset()` / `window.state` global rather than an ES module
+// import, so they can be shared verbatim between this module-based build and
+// the single-file `canvas/index.html` build. That global was never actually
+// published here, so every one of those modules silently believed no file was
+// ever loaded, regardless of what the user had open.
+//
+// This does not change how the app itself tracks state; `state` and
+// `getActiveDataset` remain the real, single source of truth imported above;
+// this just also exposes them under the name those modules already look for.
+// Read-only convenience only: nothing here lets an outside script mutate
+// `state` except through the same `addDataset`/`setActiveDataset` functions
+// the rest of the app already uses.
+if (typeof window !== 'undefined') {
+  window.state = state;
+  window.getActiveDataset = getActiveDataset;
+}
+
+// ============================================================
 // Tab Definitions
 // ============================================================
 const TAB_META = {

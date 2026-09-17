@@ -25735,6 +25735,14 @@ var InstantInsight = (function () {
   window.getActiveDataset = function getActiveDataset() {
     return state.datasets.find(function (d) { return d.id === state.activeDatasetId; });
   }
+  // Also publish the real state object itself under the same name several
+  // other canvas modules (Excel Hell Repair, Guided Unpivot, Transforms,
+  // Proof-to-Post, Project Run, Receipt Spine, Proof Board, and others) look
+  // for directly. Without this, any code path that checked `window.state`
+  // before `window.getActiveDataset` ran the risk of finding it undefined (or,
+  // as happened in the Project Run restore path, a stray disconnected object)
+  // even though the real dataset was loaded correctly.
+  window.state = state;
 
   // ── Canvas Grid instance (PR AO) ─────────────────────────────────────────
   var _canvasGridInstance = null;
@@ -37440,7 +37448,15 @@ var InstantInsight = (function () {
   async function openProject(projectId) {
     var proj = ProjectEngine.getAll().find(function(p){ return p.id === projectId; });
     if (!proj) return;
-    if (!window.state) window.state = {};
+    // `window.state` is the SAME state object the rest of the canvas app already
+    // reads/writes (declared once, above, as `var state = { datasets: [], ... }`
+    // and aliased onto `window` right after `window.getActiveDataset` is defined).
+    // Restoring a project used to instead create a brand-new, disconnected
+    // `window.state = {}` here the first time it ran -- any dataset restored into
+    // THAT object was invisible to `window.getActiveDataset()` (and therefore to
+    // Excel Hell Repair, Guided Unpivot, and every other module that reads the
+    // active dataset through that global), even though it appeared to load fine.
+    if (!window.state) window.state = state;
     if (!window.state.datasets) window.state.datasets = [];
     var restored = 0;
     for (var i = 0; i < (proj.datasetKeys || []).length; i++) {
