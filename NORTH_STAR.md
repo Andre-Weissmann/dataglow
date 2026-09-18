@@ -1868,6 +1868,53 @@ real mobile-viewport/PWA behavior for these 11 modules specifically were not exe
 remain fair targets for a future `test-dataglow-platform` desktop/mobile pass. The root-build isolation-
 reload timing gotcha found above should be documented for that future pass so it doesn't cost time again.
 
+## Test findings (2026-09-17 run — hard-dataset portfolio-readiness stress test, 10 real files, web only)
+
+Black-box usage test against the live app (no source code read or changed this round) using 10 real,
+deliberately hard public datasets across healthcare and non-healthcare domains, from under 100K to over
+1M rows, run end-to-end through Preflight -> Validate (20 layers) -> Clean scan -> SQL -> Story -> Visualize.
+Full findings record kept in the user's own test workspace (documents usage behavior, not code, so not
+committed to this repo).
+
+**6 of 10 files completed the full workflow cleanly**, including a 1,000,164-row file (Olist
+geolocation) finishing in about a minute -- confirming row count alone is not the ceiling. Validation and
+cleaning findings on successful files were qualitatively strong: correctly flagged an ID field (License #)
+as low-confidence for auto-fill rather than mean/mode-filling it, correctly reasoned that 88% missingness
+in a review-title column was plausibly MCAR rather than a generic quality failure, and caught a real
+cross-column date-logic inconsistency in 311 service-request data.
+
+**4 real problems found, two of them root-caused precisely, not just observed:**
+
+1. **Reproducible crash (3/3)** on a CMS inpatient claims file (66,774 rows) when Validate -> Clean -> SQL
+   are run back-to-back -- each step alone is fine; the full sequence crashes the tab near the SQL stage.
+   Not plain memory exhaustion (7.6GB free, 33MB/2.3GB JS heap in one check). Exact failing line moved
+   between attempts -- points to a race condition, not one deterministic query. Not fully isolated --
+   needs `Inspector.targetCrashed` capture or a non-headless run.
+2. **SQL catalog-introspection query fails at scale (2/2)** -- on CMS outpatient claims (790,791 rows),
+   the first natural SQL question ("what tables do I have," via `information_schema.tables` or
+   `PRAGMA show_tables;`) returns "SQL Error: null function" with no console error, while a direct
+   `SELECT * FROM <table> LIMIT 20` works fine once the table name is known. Same query worked on a
+   smaller file tested right before -- correlates with processing load, not universal.
+3. **Clean's scan never completes on FDA FAERS adverse-event data (3/3)** -- 406,185 rows, 25 mostly
+   short coded/ID columns (no long free text). Never finished across 60s/200s/200s attempts, while a
+   1,000,164-row file (5 simple columns) finished Clean in 1.2s and a 790,791-row file (76 columns)
+   finished in ~5-8s. Leading hypothesis: many high-cardinality coded/ID columns stress per-column
+   distinct-value analysis -- not confirmed via profiling.
+4. **Upload never completes on FEC campaign-expenditure data, root-caused via isolation.** The full
+   600K-row file, and even a 100K-row/19MB sample, never confirmed loaded within 90s. A 5K-row sample of
+   the same file loaded in 8s. Isolation test: took the identical 100K-row sample and removed only its
+   five free-text columns (NAME, CITY, PURPOSE, CATEGORY_DESC, MEMO_TEXT) -- same row count, loaded in 2s,
+   completed the full workflow. **Confirms free-text column content, not row count or file size, is the
+   actual upload/parse bottleneck.**
+
+**What this means for the roadmap:** the two root-caused findings both point at column *content shape*
+(free-text width; coded-column cardinality) rather than raw scale as DataGlow's real ceiling -- a sharper,
+more actionable target than "large files are slow." Both are strong candidates for a future engineering
+pass on the CSV/DuckDB-WASM ingestion path and on Clean's per-column scan cost.
+
+**Not covered this round:** desktop (Tauri) and mobile/PWA surfaces were not retested against these 10
+files -- web only, per this round's explicit scope. No source code was changed.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
