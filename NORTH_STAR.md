@@ -1834,6 +1834,40 @@ module. Desktop (Tauri) and mobile were not live-tested this round either, only 
 (root `js/app-shell/main.js` feeds the desktop build via byte-identical staging, so the same fix applies, but
 an actual desktop-shell run of Excel Hell Repair/Guided Unpivot has not been observed).
 
+## Test findings (2026-09-17 follow-up — remaining fallback-pattern modules + desktop-surface retest)
+
+Targeted retest closing the two gaps the PR #662 note above flagged as unverified. Documentation-only;
+no source code changed this round.
+
+**All 11 remaining canvas modules confirmed unblocked (web canvas surface):** for each of Proof-to-Post,
+Receipt Spine, Proof Board, SQL Autocomplete, PHI Shield, Repair Recipe Library, Mobile PHI first-run
+calm strip, R Notebook, Shield Packs, Portfolio, and Project Run, the exact in-page dataset-resolution
+call each module's own source uses (`window.getActiveDataset()` and/or `window.state.datasets`) was
+invoked directly against a live running copy after loading a real CSV, and every one correctly resolved
+the loaded dataset (`messy.csv`) — no module returned empty/undefined. Proof Board was additionally spot-
+checked with a real UI click (not just the direct function call): the rendered panel showed live, correct
+figures for the loaded 3-row fixture ("Rows loaded: 3 rows", correct blank-cell and distinct-value counts),
+confirming the fix holds through the actual click-to-render path, not only the underlying function call.
+
+**Desktop surface confirmed via byte-identical staging + direct root-build retest, not a native Tauri
+session:** this sandbox has no Rust/Cargo toolchain and no `tauri-driver` set up, so a real native
+WebDriver session against the compiled desktop shell was not possible here (CI's own `tauri-smoke` job
+is the environment built for that, and it already passed on PR #662). Two things were verified instead:
+(1) ran `scripts/stage-desktop-frontend.mjs` and diffed the staged `src-tauri/dist/js/app-shell/main.js`
+against the source — byte-for-byte identical, confirming the fix ships into the desktop bundle exactly as
+written; (2) live-tested the root/desktop build (`index.html` + ES modules, the same static assets Tauri
+stages) directly: after correctly waiting past the app's own one-time cross-origin-isolation self-reload
+(an existing, unrelated, documented behavior — a `File` object cannot survive that reload, so an upload
+attempted before it settles is silently dropped; this caused several false failures during this retest
+until the wait was corrected, and is worth flagging as a real testing-ergonomics gotcha, not a product bug),
+`window.getActiveDataset()` and `window.state.datasets` correctly resolved the loaded dataset with true
+object identity, matching the canvas surface exactly.
+
+**Still not verified:** an actual compiled Tauri desktop window (native webview via `tauri-driver`) and
+real mobile-viewport/PWA behavior for these 11 modules specifically were not exercised this round — both
+remain fair targets for a future `test-dataglow-platform` desktop/mobile pass. The root-build isolation-
+reload timing gotcha found above should be documented for that future pass so it doesn't cost time again.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
