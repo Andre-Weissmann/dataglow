@@ -87,7 +87,9 @@ import { dirname, join, normalize } from 'node:path';
 const REPO_ROOT = normalize(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const EM_DASH = '\u2014';
 const DOUBLED_PATH_RE = /assets\/duckdb\/assets\/duckdb/;
-const PIN = '1.29.0';
+// Derived from the shared module (not hardcoded) so this file never drifts
+// onto a stale version after a DUCKDB_WASM_PIN bump in duckdb-load-harden.js.
+const { DUCKDB_WASM_PIN: PIN } = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
 const TIMEOUT_MS = '45000';
 
 function readRepoFile(relPath) {

@@ -33,7 +33,7 @@ export var SQLEngine = (function () {
   var LOAD_HARDEN = (typeof window !== 'undefined' && window.DataGlowDuckDBLoadHarden) || null;
   var DUCKDB_CDN = (LOAD_HARDEN && LOAD_HARDEN.CANDIDATE_HOSTS && LOAD_HARDEN.CANDIDATE_HOSTS[0])
     ? LOAD_HARDEN.CANDIDATE_HOSTS[0].cdnUrl
-    : 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-esm.js';
+    : 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/dist/duckdb-browser.mjs';
 
   var SQL_KEYWORDS = [
     'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET',
@@ -160,7 +160,7 @@ export var SQLEngine = (function () {
       // correctly here.
       var candidates = (LOAD_HARDEN && typeof LOAD_HARDEN.buildCandidateList === 'function')
         ? LOAD_HARDEN.buildCandidateList()
-        : [{ id: 'jsdelivr', cdnUrl: DUCKDB_CDN, baseUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/' }];
+        : [{ id: 'jsdelivr', cdnUrl: DUCKDB_CDN, baseUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/dist/' }];
       var lastErr = null;
       for (var i = 0; i < candidates.length; i++) {
         var cand = candidates[i];

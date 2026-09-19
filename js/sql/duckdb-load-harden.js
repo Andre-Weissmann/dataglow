@@ -33,10 +33,10 @@ export const DUCKDB_LOAD_HARDEN_KIND = 'dataglow-duckdb-load-harden';
 export const DUCKDB_LOAD_HARDEN_VERSION = 1;
 
 /** Single source of truth for the pinned DuckDB-WASM version. Bump here only. */
-export const DUCKDB_WASM_PIN = '1.29.0';
+export const DUCKDB_WASM_PIN = '1.32.0';
 
 // Self-host root-absolute path: assets/duckdb/ is the real, already-vendored
-// DuckDB-WASM 1.29.0 runtime this repo ships (root index.html's own import
+// DuckDB-WASM 1.32.0 runtime this repo ships (root index.html's own import
 // map self-hosts apache-arrow/tslib/flatbuffers from the same directory --
 // see index.html). Pointing here instead of a second canvas/vendor/ copy
 // avoids duplicating ~74MB of wasm/worker files a second time just for the
@@ -82,6 +82,16 @@ export function resolveSelfHostBaseUrl(href) {
  * baseUrl + duckdb-eh.wasm / duckdb-browser-eh.worker.js when a module has no
  * getJsDelivrBundles export (see js/sql/sql-engine.js ensureInit).
  *
+ * As of the 1.32.0 upgrade (2026-09-18), the jsDelivr/unpkg CANDIDATE_HOSTS
+ * entries below also point cdnUrl at duckdb-browser.mjs rather than the old
+ * duckdb-esm.js -- confirmed by direct inspection of the published 1.32.0
+ * npm package that duckdb-esm.js (a jsDelivr-only rewritten filename that
+ * existed at 1.29.0) is no longer present in dist/ at all. duckdb-browser.mjs
+ * is the real ESM entry the package ships under every host, and it still
+ * exports getJsDelivrBundles/selectBundle, so the existing candidate-walk
+ * logic in js/sql/sql-engine.js (which never assumed the old filename beyond
+ * this one URL) needed no other change.
+ *
  * Bundle 18 hotfix 3: pplx.app live proof showed the same-origin
  * duckdb-browser.mjs, apache-arrow, and both worker scripts all load with a
  * clean 200 -- but /assets/duckdb/duckdb-eh.wasm (35MB) fails in the
@@ -90,7 +100,7 @@ export function resolveSelfHostBaseUrl(href) {
  * 302 redirect to S3; a browser fetch()/WebAssembly streaming request under
  * this host cannot follow that redirect the same way (see
  * BUNDLE18_HOTFIX3_RESULT.md). jsDelivr and unpkg serve the identical
- * 1.29.0 wasm bytes directly with CORS, with no redirect in front of them.
+ * pinned wasm bytes directly with CORS, with no redirect in front of them.
  *
  * Bundle 18 hotfix 4: hotfix 3's wasmFallback only fired on a caught
  * instantiate() rejection. Live proof after #611 shipped showed the wasm
@@ -119,7 +129,7 @@ export function resolveSelfHostBaseUrl(href) {
  *     is what buildSelfHostBundle() applies up front. The happy path now
  *     touches no third party at all: mjs entry, worker, and wasm binary are
  *     all same-origin.
- *   - wasmFallback still carries the jsDelivr 1.29.0 pin, and the
+ *   - wasmFallback still carries the jsDelivr pin, and the
  *     retry-on-catch path (buildHybridWasmBundle + isWasmFetchFailure) still
  *     exists in every caller. A host that cannot actually serve the local
  *     wasm (the pplx.app 302-to-S3 case behind hotfix 3) now gets the CDN on
@@ -249,13 +259,13 @@ export const CANDIDATE_HOSTS = Object.freeze([
   Object.freeze({
     id: 'jsdelivr',
     label: 'jsDelivr',
-    cdnUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-esm.js',
+    cdnUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-browser.mjs',
     baseUrl: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/',
   }),
   Object.freeze({
     id: 'unpkg',
     label: 'unpkg',
-    cdnUrl: 'https://unpkg.com/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-esm.js',
+    cdnUrl: 'https://unpkg.com/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/duckdb-browser.mjs',
     baseUrl: 'https://unpkg.com/@duckdb/duckdb-wasm@' + DUCKDB_WASM_PIN + '/dist/',
   }),
   Object.freeze({
