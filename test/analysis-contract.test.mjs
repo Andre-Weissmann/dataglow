@@ -199,6 +199,40 @@ function main() {
   ok(bareIdentFlags.some(f => f.identifier === 'round_trip_flag'),
     'schema_hallucination: a non-existent column that merely starts with a function-like word (no parens) is still flagged');
 
+  // ===== Regression: information_schema / catalog introspection queries
+  // must not be flagged as hallucinated (2026-09-18) =====
+  // Root cause: an analyst's first, completely reasonable SQL query after
+  // loading a dataset is often "what tables do I even have" — e.g.
+  // `SELECT table_name FROM information_schema.tables WHERE table_schema='main'`
+  // or `PRAGMA show_tables`. None of those identifiers (information_schema,
+  // tables, table_name, table_schema) exist in the user's own dataset schema,
+  // so every one of them was wrongly flagged as a "hallucinated reference" —
+  // turning the single most common first query into a wall of hard-fail flags.
+  // Found via a real reproduction against the CMS outpatient claims sample.
+
+  const infoSchemaSql = `SELECT table_name FROM information_schema.tables WHERE table_schema='main'`;
+  const infoSchemaFlags = checkSchemaHallucination(infoSchemaSql, schemaIndex);
+  ok(infoSchemaFlags.length === 0,
+    'schema_hallucination: an information_schema.tables introspection query produces zero flags');
+
+  const pragmaSql = `PRAGMA database_list`;
+  ok(checkSchemaHallucination(pragmaSql, schemaIndex).length === 0,
+    'schema_hallucination: a bare PRAGMA statement produces zero flags');
+
+  const duckdbCatalogSql = `SELECT table_name FROM duckdb_tables()`;
+  ok(checkSchemaHallucination(duckdbCatalogSql, schemaIndex).length === 0,
+    'schema_hallucination: a duckdb_tables() catalog function query produces zero flags');
+
+  // True positive preserved: a genuinely nonexistent column must still be
+  // flagged even in a query that also happens to contain the word "schema"
+  // or "tables" as part of an unrelated identifier, as long as it doesn't
+  // actually target information_schema/pragma_*/duckdb_* — the allowlist
+  // must not blanket-suppress real hallucinations in ordinary queries.
+  const plainQueryStillFlagsSql = `SELECT nonexistent_tables_column FROM orders`;
+  const plainQueryFlags = checkSchemaHallucination(plainQueryStillFlagsSql, schemaIndex);
+  ok(plainQueryFlags.some(f => f.identifier === 'nonexistent_tables_column'),
+    'schema_hallucination: an ordinary query with no system-catalog reference still flags a genuinely nonexistent column');
+
   // ===== Check 2: Aggregation mismatches =====
 
   const countJoinSql = `SELECT o.customer_id, COUNT(o.order_id) AS n
