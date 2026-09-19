@@ -1915,6 +1915,56 @@ pass on the CSV/DuckDB-WASM ingestion path and on Clean's per-column scan cost.
 **Not covered this round:** desktop (Tauri) and mobile/PWA surfaces were not retested against these 10
 files -- web only, per this round's explicit scope. No source code was changed.
 
+## Test findings (2026-09-18 follow-up — root-cause + fixes for the 4 findings above, PR #666 merged)
+
+Deep root-cause pass on all 4 findings from the 2026-09-17 run above. Outcome: **2 real bugs found and
+fixed, 1 finding retracted as a test-harness false positive, 1 finding precisely root-caused but left
+unfixed this pass (real fix needs its own dedicated engine-upgrade work).**
+
+1. **CMS inpatient crash -- precisely root-caused, not fixed.** Isolation testing found the exact
+   trigger: Validate (any/all 20 layers) followed by ANY subsequent SQL query -- even `SHOW TABLES` --
+   crashes the tab 100% of the time (6/6). Clean is not required to reproduce it; query text does not
+   matter. Ruled out: JS heap ceiling, DuckDB-WASM's own reported memory, sandbox memory, and (tested
+   explicitly with both flags forced off in an isolated copy) this repo's own Local Analysis Contract /
+   Query Sentinel fan-out queries -- crash still reproduced 2/2 with those disabled, so they are not the
+   cause. Likely mechanism: a WASM32 linear-memory issue inside the pinned DuckDB-WASM v1.29.0 engine
+   (aligned with DuckDB v1.1.1) -- confirmed via research that current DuckDB-WASM stable is now aligned
+   with DuckDB v1.5.5, several major releases ahead. Deliberately NOT code-fixed this pass -- a real fix
+   means a dedicated DuckDB-WASM upgrade-and-regression pass, not a blind patch bundled into an unrelated
+   bug-fix PR. **Backlog candidate: DuckDB-WASM engine upgrade (v1.29.0 -> current), scoped as its own
+   pass with full regression coverage before/after.**
+2. **CMS outpatient "SQL Error: null function" -- fixed, and the original description was wrong.** The
+   query itself always executed correctly in under 200ms. The real bug was in the Local Analysis
+   Contract: it had no concept of SQL's own system-catalog identifiers, so an `information_schema`/
+   `PRAGMA`-style query -- the single most common first query a new user runs -- was flagged as full of
+   "hallucinated" references, including the quoted string literal `'main'` itself. Fixed in
+   `js/validation/analysis-contract.js` with a gated system-catalog allowlist plus a general fix so
+   quoted string-literal contents are never tokenized as bare identifiers (prevents this false-positive
+   class for any query, not just catalog ones). 4 new regression tests added
+   (`test/analysis-contract.test.mjs`, 64/64 passing). Merged in PR #666.
+3. **FAERS "Clean scan never completes" -- retracted, not a real bug.** The apparent hang was an
+   artifact of the test harness's own polling logic, not a DataGlow failure. No source diff exists for
+   this item; nothing to fix.
+4. **FEC upload never completing -- fixed.** Root cause was narrower than "free text breaks upload":
+   combining `ignore_errors=true` with delimiter auto-detection on the same `read_csv_auto` call could
+   make DuckDB's sniffer lock onto the wrong delimiter specifically when free-text columns were present.
+   Fixed in `js/app-shell/duckdb-engine.js` with a two-pass strategy -- sniff cleanly first (no
+   `ignore_errors` on that call), then load using the sniffed dialect explicitly -- plus a fallback
+   delimiter guess for files whose real delimiter falls outside DuckDB's fixed sniffer candidate set
+   entirely (confirmed via FDA FAERS, which uses `$`). Merged in PR #666.
+
+**Revised bottom line:** of the 4 findings from the 2026-09-17 run, 2 were DataGlow's own code (now
+fixed and merged), 1 was not a real bug at all, and 1 is a real, precisely-scoped issue tied to engine
+version currency rather than a broad architectural problem. This is a materially better outcome than the
+original run's framing ("column content shape is DataGlow's real ceiling") suggested -- free text and
+high-cardinality columns are not inherent ceilings; both apparent ceilings turned out to be fixable bugs
+or non-bugs. Full corrected findings doc: `DATAGLOW_STRESS_TEST_FINDINGS_2026-09-17.md` (kept in the
+user's own workspace, not committed to this repo). No CI/regression change: full suite 936/973 passing,
+unchanged from `main` pre-PR (verified via `git stash` comparison).
+
+**Not covered this round:** the DuckDB-WASM upgrade itself (tracked as a backlog candidate, not
+attempted); desktop and mobile/PWA retesting of these same 10 files.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
