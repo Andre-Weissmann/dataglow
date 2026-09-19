@@ -73,12 +73,13 @@ describe('bundle17 A: self-host DuckDB-WASM vendoring', () => {
     assert.ok(!existsSync(dupDir), 'canvas/vendor/duckdb-wasm/ should not exist; self-host uses assets/duckdb/ only');
   });
 
-  it('assets/duckdb/duckdb-wasm.package.json exists and is pinned to 1.29.0', () => {
+  it('assets/duckdb/duckdb-wasm.package.json exists and is pinned to the shared DUCKDB_WASM_PIN', async () => {
     const pinPath = join(REPO_ROOT, 'assets', 'duckdb', 'duckdb-wasm.package.json');
     assert.ok(existsSync(pinPath), 'assets/duckdb/duckdb-wasm.package.json missing');
     const pin = JSON.parse(readFileSync(pinPath, 'utf-8'));
+    const mod = await import(join(REPO_ROOT, 'js', 'sql', 'duckdb-load-harden.js'));
     assert.equal(pin.name, '@duckdb/duckdb-wasm');
-    assert.equal(pin.version, '1.29.0');
+    assert.equal(pin.version, mod.DUCKDB_WASM_PIN, 'vendored package.json version must match the shared DUCKDB_WASM_PIN');
   });
 
   it('duckdb-load-harden.js puts self-host FIRST in candidate order', async () => {

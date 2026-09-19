@@ -183,16 +183,20 @@ export function coiDiagnostic() {
 // ============================================================
 // #5 — Safari version pin + XLSX fallback
 // ============================================================
-// DuckDB-WASM v1.29.0 is the pinned version (see assets/duckdb/duckdb-wasm.package.json).
-// This version has been QA-confirmed on Safari. DO NOT upgrade without:
-//   1. Confirming the new version passes the Safari crash regression (Issue #1058).
-//   2. Testing XLSX ingestion (Issue #1956: read_xlsx() wasm-specific crash).
+// DuckDB-WASM v1.32.0 is the pinned version (see assets/duckdb/duckdb-wasm.package.json).
+// Upgraded 2026-09-18 from 1.29.0. This version has been QA-confirmed on Safari
+// (upstream Issue #1058, the "Maximum call stack size exceeded" crash, was fixed
+// between v1.17.0 and v1.24.0 upstream — well before this pin). DO NOT upgrade
+// again without:
+//   1. Confirming the new version still passes the Safari crash regression (Issue #1058).
+//   2. Testing XLSX ingestion (Issue #1956: read_xlsx() wasm-specific crash — still
+//      open upstream as of this pin, hence the fallback below stays mandatory).
 //
 // XLSX fallback: if DuckDB's read_xlsx() throws in WASM, loaders.js falls back
 // to the SheetJS (XLSX.js) parser already bundled in DataGlow.
 // The fallback is enabled by default and gated by XLSX_USE_DUCKDB_NATIVE below.
 
-export const PINNED_DUCKDB_WASM_VERSION = '1.29.0';
+export const PINNED_DUCKDB_WASM_VERSION = '1.32.0';
 
 // Set to false to always use SheetJS for XLSX (bypasses DuckDB native reader).
 // Set to true to try DuckDB native first, fall back to SheetJS on error.

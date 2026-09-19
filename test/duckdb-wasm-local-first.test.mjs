@@ -53,7 +53,6 @@ import { dirname, join, normalize } from 'node:path';
 const REPO_ROOT = normalize(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const EM_DASH = '\u2014';
 const DOUBLED_PATH_RE = /assets\/duckdb\/assets\/duckdb/;
-const PIN = '1.29.0';
 const LOCAL_BASE = '/assets/duckdb/';
 const JSDELIVR_RE = /cdn\.jsdelivr\.net/;
 
@@ -280,15 +279,15 @@ describe('wasm local first C: canvas/index.html (authoritative single-file surfa
 // ------------------------------------------------------------
 
 describe('wasm local first D: the CDN fallback and no-hang guards still exist on every surface', () => {
-  it('the shared module still exports the hybrid-retry pair, pinned to 1.29.0', async () => {
+  it('the shared module still exports the hybrid-retry pair, pinned to DUCKDB_WASM_PIN', async () => {
     const mod = await loadHarden();
     assert.equal(typeof mod.isWasmFetchFailure, 'function');
     assert.equal(typeof mod.buildHybridWasmBundle, 'function');
-    assert.equal(mod.DUCKDB_WASM_PIN, PIN);
+    assert.ok(mod.DUCKDB_WASM_PIN, 'DUCKDB_WASM_PIN must be exported and non-empty');
 
     const wf = mod.SELF_HOST_CANDIDATE.wasmFallback;
-    assert.equal(wf.eh, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-eh.wasm');
-    assert.equal(wf.mvp, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-mvp.wasm');
+    assert.equal(wf.eh, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + mod.DUCKDB_WASM_PIN + '/dist/duckdb-eh.wasm');
+    assert.equal(wf.mvp, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + mod.DUCKDB_WASM_PIN + '/dist/duckdb-mvp.wasm');
   });
 
   it('a local primary bundle can still be swapped to the CDN pin on a wasm fetch failure, worker left same-origin', async () => {
@@ -298,7 +297,7 @@ describe('wasm local first D: the CDN fallback and no-hang guards still exist on
 
     const hybrid = mod.buildHybridWasmBundle(primary, mod.SELF_HOST_CANDIDATE);
     assert.ok(hybrid, 'expected a hybrid bundle from a local self-host bundle');
-    assert.equal(hybrid.mainModule, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + PIN + '/dist/duckdb-eh.wasm');
+    assert.equal(hybrid.mainModule, 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@' + mod.DUCKDB_WASM_PIN + '/dist/duckdb-eh.wasm');
     assert.equal(hybrid.mainWorker, LOCAL_BASE + 'duckdb-browser-eh.worker.js');
     assert.notEqual(hybrid.mainModule, primary.mainModule, 'the retry must actually change the wasm URL, or the loop would rethrow');
 

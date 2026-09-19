@@ -1,0 +1,29 @@
+{
+  "name": "@duckdb/duckdb-wasm",
+  "version": "1.32.0",
+  "vendoredFrom": "node_modules/@duckdb/duckdb-wasm/dist",
+  "files": [
+    {
+      "name": "duckdb-browser.mjs",
+      "bytes": 31977
+    },
+    {
+      "name": "duckdb-browser-eh.worker.js",
+      "bytes": 772759
+    },
+    {
+      "name": "duckdb-browser-mvp.worker.js",
+      "bytes": 844644
+    },
+    {
+      "name": "duckdb-eh.wasm",
+      "bytes": 34242586
+    },
+    {
+      "name": "duckdb-mvp.wasm",
+      "bytes": 39362651
+    }
+  ],
+  "totalBytes": 75254617,
+  "generatedBy": "scripts/vendor-duckdb-wasm.mjs"
+}
