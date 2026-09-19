@@ -60,6 +60,36 @@ import { checkQueryAgainstMetrics } from './semantic-layer.js';
 
 const IDENT_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
 
+// Bug fix 2026-09-18: a quoted string literal's CONTENTS were being tokenized
+// as if they were bare column/table identifiers — e.g. `WHERE table_schema =
+// 'main'` flagged "main" itself as a hallucinated reference, even though it's
+// a string value, never a schema reference at all. Blank out everything
+// inside single-quoted literals (SQL's own string-quote character) before
+// tokenizing, replacing each character with a space so every match index a
+// caller already relies on (e.g. `isFunctionCallIdentifier`) stays correct.
+// Handles the standard SQL '' escaped-quote convention (`'it''s'`) by treating
+// a doubled quote as "still inside the literal", not the closing quote.
+function blankStringLiterals(sql) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (!inString) {
+      out += ch;
+      if (ch === "'") inString = true;
+    } else {
+      if (ch === "'") {
+        if (sql[i + 1] === "'") { out += '  '; i++; continue; } // escaped '' — stays inside
+        out += ch;
+        inString = false;
+      } else {
+        out += ' ';
+      }
+    }
+  }
+  return out;
+}
+
 // Reserved words that must never be treated as a table/column reference even
 // though they appear as bare identifiers in a query.
 const SQL_KEYWORDS = new Set([
@@ -70,6 +100,7 @@ const SQL_KEYWORDS = new Set([
   'with', 'insert', 'update', 'delete', 'create', 'table', 'into', 'values',
   'set', 'exists', 'asc', 'desc', 'true', 'false', 'over', 'partition', 'cast',
   'coalesce', 'nullif', 'extract', 'interval', 'date', 'timestamp', 'using',
+  'pragma', 'show', 'describe', 'explain',
 ]);
 
 // Common DuckDB/SQL scalar, aggregate, and window function names. Bug fix
@@ -112,6 +143,38 @@ const SQL_FUNCTION_NAMES = new Set([
   'json_extract', 'json_extract_string', 'unnest', 'struct_pack', 'list_value',
 ]);
 
+// Bug fix 2026-09-18: an analyst's first, completely reasonable SQL query
+// after loading a dataset is often "what tables do I even have" — e.g.
+// `SELECT table_name FROM information_schema.tables WHERE table_schema='main'`
+// or `PRAGMA show_tables` / `SHOW TABLES`. Every identifier in a query like
+// that (`information_schema`, `tables`, `table_name`, `table_schema`,
+// `pragma_database_list`) is a real, standard SQL/DuckDB system-catalog name,
+// not a reference into the analyst's own dataset — so none of them can ever
+// appear in `schemaIndex`, and without this allowlist every one of them was
+// wrongly flagged as a "hallucinated reference," turning the single most
+// common first query into a wall of 4-5 hard-fail flags. This list only
+// covers catalog/introspection surface, never a real user-data column name,
+// so it cannot hide a genuine hallucination.
+const SQL_SYSTEM_CATALOG_IDENTIFIERS = new Set([
+  // information_schema and its standard views/columns
+  'information_schema', 'tables', 'columns', 'table_name', 'table_schema',
+  'table_catalog', 'table_type', 'column_name', 'column_default',
+  'is_nullable', 'data_type', 'ordinal_position', 'character_maximum_length',
+  'numeric_precision', 'numeric_scale', 'schemata', 'schema_name',
+  // DuckDB PRAGMA / catalog introspection surface
+  'pragma_database_list', 'pragma_table_info', 'sqlite_master',
+  'duckdb_tables', 'duckdb_columns', 'duckdb_schemas', 'duckdb_databases',
+  'duckdb_views', 'duckdb_constraints', 'duckdb_types', 'duckdb_functions',
+  'database_name', 'database_list', 'table_info', 'show_tables',
+]);
+
+// Deliberately NOT in the set above: generic words like "schema", "main", or
+// "temp" that a real dataset could plausibly use as an actual column name
+// (e.g. a healthcare table with a `main` or `temp` flag column). Suppressing
+// those unconditionally would hide a genuine hallucination just to cover a
+// catalog-introspection edge case — the deliberately-conservative-about-
+// false-positives contract this module documents up top applies both ways.
+
 // True when the identifier at index `idx` (its match position in `sql`) is
 // immediately followed by optional whitespace then `(` — i.e. it's being
 // called as a function, not referenced as a column/table. This is a
@@ -136,7 +199,7 @@ const GUARD_HINT_FRAGMENTS = [
 ];
 
 function tokenizeIdentifiers(sql) {
-  return (sql.match(IDENT_RE) || []).map(t => t);
+  return (blankStringLiterals(sql).match(IDENT_RE) || []).map(t => t);
 }
 
 // Same tokens as tokenizeIdentifiers, but keeps each match's index in `sql`
@@ -144,11 +207,18 @@ function tokenizeIdentifiers(sql) {
 // to detect a function call via `isFunctionCallIdentifier`). Kept as a
 // separate function rather than changing tokenizeIdentifiers's return shape,
 // so existing callers of the plain-strings version are unaffected.
+//
+// Tokenizes the string-literal-blanked SQL (see `blankStringLiterals`) so a
+// quoted value's contents (e.g. 'main' in `table_schema = 'main'`) are never
+// mistaken for a bare column/table identifier — blanking preserves length/
+// position, so `index` still refers to the correct offset in the original
+// `sql` string callers pass around (e.g. into `isFunctionCallIdentifier`).
 function tokenizeIdentifiersWithIndex(sql) {
+  const blanked = blankStringLiterals(sql);
   const out = [];
   let m;
   const re = new RegExp(IDENT_RE.source, 'g');
-  while ((m = re.exec(sql)) !== null) {
+  while ((m = re.exec(blanked)) !== null) {
     out.push({ text: m[0], index: m.index });
   }
   return out;
@@ -247,10 +317,18 @@ export function checkSchemaHallucination(sql, schemaIndex) {
     }];
   }
 
+  // Bug fix 2026-09-18: only treat catalog/introspection identifiers as safe
+  // when the query is actually targeting DuckDB's system catalog somewhere
+  // (references `information_schema`, or a `pragma_`/`duckdb_`-prefixed
+  // name) — otherwise a real dataset column that happens to be named e.g.
+  // "tables" or "columns" still goes through the normal schema check below.
+  const targetsSystemCatalog = /\binformation_schema\b|\bpragma_\w+|\bduckdb_\w+|\bpragma\b/i.test(sql);
+
   for (const { text: raw, index } of idents) {
     const ident = raw;
     const lower = ident.toLowerCase();
     if (SQL_KEYWORDS.has(lower)) continue;
+    if (targetsSystemCatalog && SQL_SYSTEM_CATALOG_IDENTIFIERS.has(lower)) continue;
     // Function call, e.g. `ROUND(...)`, `ROW_NUMBER()` — a call site is never
     // a column/table reference regardless of whether the function name is a
     // reserved word. Structural check first (works for any function name),

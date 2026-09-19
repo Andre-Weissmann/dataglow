@@ -272,6 +272,17 @@ export async function getRowCount(tableName) {
 // We still IGNORE_ERRORS so a few malformed rows don't abort the whole load, but
 // STORE_REJECTS captures every skipped row in a rejects table so the count can
 // be surfaced instead of silently swallowed.
+//
+// KEPT FOR BACKWARD COMPAT / regression-baseline testing only (see
+// test/csv-ignore-errors.test.mjs) — createTableFromCSV below no longer calls
+// this directly. Confirmed via native DuckDB testing (2026-09-18) that
+// combining ignore_errors=true with delimiter auto-detection on the SAME call
+// can cause DuckDB's sniffer to detect the WRONG delimiter on files whose
+// header and body rows use different delimiters (a real FEC bulk-data quirk)
+// — documented upstream as intended behavior, not a bug DuckDB will fix:
+// https://github.com/duckdb/duckdb/issues/10769
+// https://github.com/duckdb/duckdb/issues/15576
+// https://duckdb.org/2023/10/27/csv-sniffer.html
 export function buildCsvLoadSQL(tableName, fileName, rejectsTable, rejectsScan) {
   return `CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv_auto('${fileName}', `
     + `SAMPLE_SIZE=-1, ALL_VARCHAR=FALSE, ignore_errors=true, store_rejects=true, `
@@ -283,11 +294,94 @@ export function buildCsvRejectCountSQL(rejectsTable) {
   return `SELECT COUNT(DISTINCT line) AS dropped FROM ${rejectsTable}`;
 }
 
+// Characters tried, in order, when a clean sniff still resolves to exactly one
+// column — i.e. the file's real delimiter is outside DuckDB's own fixed
+// sniffer candidate set (documented as just `, | ; \t`, not configurable as a
+// list: https://duckdb.org/docs/stable/data/csv/auto_detection.html).
+// Confirmed via the FAERS FDA adverse-event export, which uses '$'.
+const FALLBACK_DELIM_CANDIDATES = ['$', '~', '^', ':', '#'];
+
+function escapeSqlLiteral(s) {
+  return String(s ?? '').replace(/'/g, "''");
+}
+
+function countOccurrences(line, ch) {
+  let n = 0;
+  for (const c of line) if (c === ch) n++;
+  return n;
+}
+
+// Guess a fallback delimiter from whichever fallback candidate appears at a
+// consistent, high-ish frequency (>= 3 times) on the file's first line. Only
+// used when DuckDB's own sniffer already gave up and returned a single column.
+function guessFallbackDelim(firstLine) {
+  let best = null;
+  let bestCount = 0;
+  for (const ch of FALLBACK_DELIM_CANDIDATES) {
+    const n = countOccurrences(firstLine, ch);
+    if (n > bestCount) { best = ch; bestCount = n; }
+  }
+  return bestCount >= 3 ? best : null;
+}
+
+/**
+ * Build the load SQL for a CSV/TSV file from an already-sniffed dialect row,
+ * as the second pass of a two-pass, dialect-first strategy — see
+ * createTableFromCSV below for the full rationale and the first pass.
+ *
+ * @param {object} sniffRow - one row from `SELECT * FROM sniff_csv(...)`, as
+ *   returned by DuckDB (`{Delimiter, SkipRows, HasHeader, Columns, ...}`).
+ */
+export function buildCsvLoadSQLFromSniff(tableName, fileName, rejectsTable, rejectsScan, sniffRow) {
+  const delim = escapeSqlLiteral(sniffRow.Delimiter);
+  const skip = Number(sniffRow.SkipRows ?? 0);
+  const header = sniffRow.HasHeader ? 'true' : 'false';
+  return `CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_csv('${fileName}', `
+    + `delim='${delim}', skip=${skip}, header=${header}, `
+    + `auto_detect=true, sample_size=-1, `
+    + `ignore_errors=true, store_rejects=true, `
+    + `rejects_table='${rejectsTable}', rejects_scan='${rejectsScan}')`;
+}
+
 export async function createTableFromCSV(tableName, fileName) {
   const suffix = Math.random().toString(36).slice(2, 10);
   const rejectsTable = `_dg_csv_rejects_${suffix}`;
   const rejectsScan = `_dg_csv_scans_${suffix}`;
-  await runQuery(buildCsvLoadSQL(tableName, fileName, rejectsTable, rejectsScan));
+
+  // Pass 1: clean sniff (no ignore_errors set on THIS call) for a
+  // correctness-scored dialect read, rather than the "most columns with
+  // fewest inconsistent rows" scoring DuckDB's sniffer switches to once
+  // ignore_errors is present — see the links above buildCsvLoadSQL.
+  const { rows: sniffRows } = await runQuery(`SELECT * FROM sniff_csv('${fileName}')`);
+  let sniffRow = sniffRows[0];
+
+  // If the clean sniff still landed on exactly one column, the real delimiter
+  // is outside DuckDB's fixed candidate set entirely (e.g. FAERS's '$') — read
+  // the file's first line back out of DuckDB itself (no separate file-system
+  // access needed in the browser) and retry the sniff with an explicit hint.
+  const columnCount = (sniffRow?.Columns?.length ?? sniffRow?.Columns?.size ?? null);
+  if (columnCount === 1) {
+    const { rows: lineRows } = await runQuery(
+      `SELECT split_part(content, chr(10), 1) AS first_line FROM read_text('${fileName}')`
+    ).catch(() => ({ rows: [] }));
+    const firstLine = lineRows[0]?.first_line ?? '';
+    const fallbackDelim = guessFallbackDelim(firstLine);
+    if (fallbackDelim) {
+      const { rows: retryRows } = await runQuery(
+        `SELECT * FROM sniff_csv('${fileName}', delim='${escapeSqlLiteral(fallbackDelim)}')`
+      ).catch(() => ({ rows: [] }));
+      const retryRow = retryRows[0];
+      const retryColumnCount = (retryRow?.Columns?.length ?? retryRow?.Columns?.size ?? 0);
+      if (retryColumnCount > 1) sniffRow = retryRow;
+    }
+  }
+
+  // Pass 2: the real load, forcing only delim/skip/header from the clean
+  // sniff, auto-detecting everything else (quote/escape/types) with full-file
+  // sampling — see buildCsvLoadSQLFromSniff's docstring for why types are left
+  // to auto-detect rather than forced from the sniff's own column typing.
+  await runQuery(buildCsvLoadSQLFromSniff(tableName, fileName, rejectsTable, rejectsScan, sniffRow));
+
   let droppedRows = 0;
   try {
     const { rows } = await runQuery(buildCsvRejectCountSQL(rejectsTable));
