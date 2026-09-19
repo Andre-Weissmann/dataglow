@@ -1965,6 +1965,49 @@ unchanged from `main` pre-PR (verified via `git stash` comparison).
 **Not covered this round:** the DuckDB-WASM upgrade itself (tracked as a backlog candidate, not
 attempted); desktop and mobile/PWA retesting of these same 10 files.
 
+## Test findings (2026-09-19 follow-up — DuckDB-WASM engine upgrade, the CMS inpatient crash is fixed, PR #668 merged)
+
+Dedicated pass on the one remaining item from the 2026-09-18 follow-up above: the CMS inpatient claims
+crash, root-caused there to the pinned DuckDB-WASM v1.29.0 engine itself. **Fixed.**
+
+1. **Engine bumped 1.29.0 -> 1.32.0** (the last genuinely stable release; `latest` on npm resolves to a
+   `1.33.1-dev` prerelease with a confirmed OPFS-write regression per DuckDB's own
+   [2026-09-18 blog post](https://duckdb.org/2026/09/18/opfs-wasm.html), so deliberately not used).
+   Re-vendored `assets/duckdb/*`, fixed stale CDN fallback filenames (1.32.0 ships
+   `duckdb-browser.mjs`, not the old `duckdb-esm.js`) in `js/sql/duckdb-load-harden.js` and
+   `js/sql/sql-engine.js`, re-synced both the tracked and a second, previously-undocumented untracked
+   inlined copy of the SQL engine constants inside `canvas/index.html`, and re-synced
+   `src-tauri/dist/assets/duckdb/`.
+2. **Crash confirmed fixed, live, not just theoretically.** Same repro as the original 6/6 finding
+   (Playwright, `page.on('crash')` signal, real UI clicks only, no `page.evaluate` diagnostics in the
+   decisive run): upload CMS inpatient claims (66,774 rows) -> Validate (20 layers) -> SQL query.
+   **Zero crashes across 4 runs.** A real `SELECT COUNT(*)` query against the uploaded table returned
+   66,773 rows, confirming the engine is genuinely functional after the sequence, not merely
+   non-crashing. Also re-run at a mobile viewport (Playwright iPhone 14 emulation): zero crashes, no
+   horizontal overflow.
+3. **Regression coverage:** full suite 936/973 passing, identical file-level failure count to the
+   pre-upgrade baseline (37 unique failing files before, 36 after -- zero new regressions; the one
+   apparent "fix" is a pre-existing flaky subtest, confirmed flaky on unmodified `main` too via
+   `git stash`). 5 test files had hardcoded the literal `'1.29.0'` instead of deriving the pin from the
+   module's own `DUCKDB_WASM_PIN` export -- fixed so they track future bumps automatically instead of
+   silently failing on the next version change.
+4. **Desktop compile-gate:** local `npm run tauri:build:debug` failed in this sandbox on a pre-existing
+   environment mismatch (sandbox ships webkit2gtk 4.1 dev headers; Tauri v1's `javascriptcore-rs-sys`
+   crate needs the 4.0 pkg-config name) -- confirmed via `git stash` this identical failure occurs on
+   unmodified `main`, so not a regression. CI's real `tauri-smoke` job (correct dependency versions)
+   passed in 7m28s, alongside all 93 other CI checks (94/94 total). Merged: PR #668, commit `7467819`.
+5. **Out of scope this pass:** `@duckdb/node-api` stays at `^1.5.4-r.1` -- confirmed via grep it's
+   test-only infrastructure (used only in test files), not shipped product code.
+
+**Bottom line:** the last open item from the 2026-09-17/18 hard-dataset stress test is now closed. Of
+the original 4 findings, 2 were DataGlow's own code (fixed in PR #666), 1 was a test-harness false
+positive (retracted), and 1 was an engine-version issue (fixed here in PR #668). Zero open findings
+remain from that test pass.
+
+**Not covered this round:** desktop and mobile/PWA retesting of the other 9 files from the 2026-09-17
+hard-dataset pass (only the CMS inpatient repro itself was re-run this pass, since that was the specific
+failure this upgrade targets) -- still a backlog item for a future `test-dataglow-platform` run.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
