@@ -502,6 +502,42 @@
 }
 .chip.active { background: var(--color-primary-highlight); color: var(--color-primary); border-color: var(--color-primary); }
 
+/* ---- The Bench: dataset story strip (theBench flag, Batch 2) ----
+   A horizontally-scrollable timeline of lineage steps (upload, clean, sql,
+   python, r, formula) shown identically above the SQL, Python, and R panels
+   so the SAME dataset's history is visible no matter which instrument is
+   active. Reuses .chip's shape/tokens rather than inventing a new visual
+   language. */
+.bench-story-strip {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  overflow-x: auto; white-space: nowrap;
+}
+.bench-story-label {
+  font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em;
+  color: var(--color-text-faint); flex-shrink: 0;
+}
+.bench-story-empty {
+  font-size: var(--text-xs); color: var(--color-text-faint); flex-shrink: 0;
+}
+.bench-story-step {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 4px var(--space-2); border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 500;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.bench-story-step.current {
+  background: var(--color-primary-highlight); color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.bench-story-arrow { color: var(--color-text-faint); font-size: var(--text-xs); flex-shrink: 0; }
+@media (max-width: 640px) {
+  .bench-story-strip { padding: var(--space-2); }
+}
+
 /* ---- SQL dialect picker (Polyglot Workbench, Batch A; multiDialectSql flag) ---- */
 .sql-dialect-picker {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
