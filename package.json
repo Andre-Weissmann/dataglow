@@ -221,6 +221,7 @@
     "test:supplychain": "node test/supply-chain-spine-packs.test.mjs",
     "test:metriccontractstatus": "node test/metric-contract-status.test.mjs",
     "test:metricaccessrules": "node test/metric-access-rules.test.mjs",
+    "test:rulepackregistry": "node test/rulepack-registry-isolation.test.mjs",
     "test:pfmirror": "node --test test/provenance-fabric-proofchain-mirror.test.mjs",
     "test:capmap": "node --test test/capability-map.test.mjs",
     "test:newmodule": "node --test test/new-module.test.mjs",

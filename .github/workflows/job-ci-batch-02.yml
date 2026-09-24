@@ -273,3 +273,15 @@ jobs:
       # application/wasm, and the pinned jsDelivr 1.29.0 fallback plus the
       # timeout-guarded instantiate that makes it reachable are still intact.
       - run: npm run test:duckdbwasmlocalfirst
+
+  rulepack-registry-isolation:
+    name: Rulepack registry isolation (session-scoped factory, enterprise-readiness retrofit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:rulepackregistry
