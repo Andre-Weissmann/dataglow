@@ -7865,7 +7865,7 @@
       "relatedFlags": [
         "trustPassport"
       ],
-      "status": "behind-flag"
+      "status": "shipped"
     },
     {
       "id": "provenance-trust-passport-export",
@@ -7896,7 +7896,7 @@
       "relatedFlags": [
         "trustPassportExport"
       ],
-      "status": "behind-flag"
+      "status": "shipped"
     },
     {
       "id": "provenance-trust-passport-panel",
@@ -7924,7 +7924,7 @@
         "trustPassport",
         "trustPassportExport"
       ],
-      "status": "behind-flag"
+      "status": "shipped"
     },
     {
       "id": "bench-shell-lineage",
