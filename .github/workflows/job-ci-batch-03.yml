@@ -294,3 +294,16 @@ jobs:
       - run: npm run test:a50jobscalmpolish
       - run: npm run check:canvas-integrity
       - run: npm run check:capability-map
+
+  the-bench-shell:
+    name: The Bench shell (Batch 1: pure lineage algebra + story-strip renderer, dark behind theBench flag)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:benchshell
+      - run: npm run check:canvas-integrity

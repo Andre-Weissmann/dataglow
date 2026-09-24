@@ -233,6 +233,7 @@
     "test:bundle17selfhostdrillnavshowdownpqparity": "node --test test/bundle17-selfhost-drillnav-showdown-pqparity.test.mjs",
     "test:duckdbwasmlocalfirst": "node --test test/duckdb-wasm-local-first.test.mjs",
     "test:a50-1overflow16px": "node test/a50-1-overflow-16px.test.mjs",
+    "test:benchshell": "node test/bench-shell.test.mjs",
     "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs",
     "check:capability-map": "node scripts/check-capability-map.mjs",
     "new-module": "node scripts/new-module.mjs"
