@@ -131,12 +131,25 @@ async function main() {
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--use-gl=swiftshader'],
   });
 
-  // ---- Page 1: flag OFF (the shipped default) — no story strip anywhere ----
+  // ---- Page 1: flag OFF (forced via route intercept -- theBench was PROMOTED
+  // to true as its real shipped default once The Bench's 3-batch build was
+  // confirmed safe, so this page can no longer rely on the manifest's default
+  // value the way it could pre-promotion; it now forces the flag off the same
+  // way Page 2 forces it on, to keep proving the isEnabled('theBench') guard
+  // itself still works, not just today's manifest default) ----
   {
     const page = await browser.newPage();
     const consoleLines = [];
     page.on('console', msg => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
     page.on('pageerror', err => consoleLines.push(`[pageerror] ${err.message}`));
+
+    await disableServiceWorker(page);
+    await page.route('**/flags.manifest.json', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      if (body.flags && body.flags.theBench) body.flags.theBench.enabled = false;
+      await route.fulfill({ response: res, json: body });
+    });
 
     try {
       await gotoAndInitEngine(page, baseUrl);
@@ -151,7 +164,7 @@ async function main() {
           return el && el.style.display === 'none' && el.innerHTML.trim() === '';
         });
       });
-      ok(mountsHidden, 'flag OFF (default): all three story-strip mounts stay hidden and empty after a real dataset load + SQL run');
+      ok(mountsHidden, 'flag OFF (forced): all three story-strip mounts stay hidden and empty after a real dataset load + SQL run');
 
       const pageErrors = consoleLines.filter(l => l.startsWith('[pageerror]'));
       ok(pageErrors.length === 0, `flag OFF: no page errors thrown (${pageErrors.length} found)`);

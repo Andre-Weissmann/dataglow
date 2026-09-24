@@ -127,10 +127,11 @@ async function main() {
   page.on('console', msg => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
   page.on('pageerror', err => consoleLines.push(`[pageerror] ${err.message}`));
 
-  // theBench is dark by default -- force it on for this test (byte-identical
-  // code path, same route-intercept pattern as the rigor-engine-badges and
-  // Batch 2 story-strip e2e tests). trustStripProofDrawer already ships ON,
-  // so it needs no override.
+  // theBench now ships enabled by default (promoted once the 3-batch build
+  // was confirmed safe) -- this route-intercept forcibly re-affirms "on"
+  // regardless of the manifest's current default, so this test keeps proving
+  // the isEnabled('theBench') code path itself, not today's flag value.
+  // trustStripProofDrawer already ships ON, so it needs no override.
   await disableServiceWorker(page);
   await page.route('**/flags.manifest.json', async (route) => {
     const res = await route.fetch();
