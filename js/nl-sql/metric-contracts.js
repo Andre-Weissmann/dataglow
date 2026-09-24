@@ -47,6 +47,15 @@
 // Registry
 // ---------------------------------------------------------------
 
+// SESSION-ISOLATION FACTORY (added 2026-09-24, enterprise-readiness retrofit):
+// createContractRegistry() below returns a brand-new, independent registry
+// (its own private Map, pre-seeded with the same built-in contracts) so a
+// caller running multiple concurrent sessions can keep one session's custom
+// contracts from leaking into another's. The module-level exports further
+// down (registerContract/unregisterContract/getAllContracts/getContract/
+// matchContracts/bestMatch) keep their exact original signatures and
+// behavior by delegating to ONE default registry created at module load, so
+// none of this file's existing call sites need to change. Purely additive.
 const contractRegistry = new Map(); // id -> MetricContract
 
 // ---------------------------------------------------------------
@@ -164,20 +173,94 @@ const BUILT_IN_CONTRACTS = [
 // Registry API
 // ---------------------------------------------------------------
 
+// ---------------------------------------------------------------
+// Registry factory (session-isolation)
+// ---------------------------------------------------------------
+
+/**
+ * Build the registry API bound to a specific Map instance. Internal helper
+ * shared by createContractRegistry() and the module-level default below.
+ */
+function bindRegistryApi(registryMap) {
+  function registerContract(contract) {
+    if (!contract.id || !contract.name || !contract.expression) {
+      throw new Error('registerContract: id, name, and expression are required');
+    }
+    registryMap.set(contract.id, {
+      keywords: [],
+      requiredCols: [],
+      domain: 'general',
+      ...contract,
+    });
+  }
+
+  function unregisterContract(id) {
+    registryMap.delete(id);
+  }
+
+  function getAllContracts() {
+    return [...registryMap.values()];
+  }
+
+  function getContract(id) {
+    return registryMap.get(id) || null;
+  }
+
+  function matchContracts(question, availableCols) {
+    const q = question.toLowerCase();
+    const colSet = availableCols
+      ? new Set(availableCols.map(c => c.toLowerCase()))
+      : null;
+
+    const scored = [];
+    for (const contract of registryMap.values()) {
+      if (colSet && contract.requiredCols.length) {
+        const hasAll = contract.requiredCols.every(rc => colSet.has(rc.toLowerCase()));
+        if (!hasAll) continue;
+      }
+      let score = 0;
+      for (const kw of contract.keywords) {
+        if (q.includes(kw.toLowerCase())) score++;
+      }
+      if (score > 0) scored.push({ contract, score });
+    }
+
+    return scored.sort((a, b) => b.score - a.score).map(s => s.contract);
+  }
+
+  function bestMatch(question, availableCols) {
+    const matches = matchContracts(question, availableCols);
+    return matches.length ? matches[0] : null;
+  }
+
+  return { registerContract, unregisterContract, getAllContracts, getContract, matchContracts, bestMatch };
+}
+
+/**
+ * Create a brand-new, independent metric-contract registry, pre-seeded with
+ * the same built-in contracts as the default module-level registry. Use this
+ * when a caller needs contracts isolated per session/user rather than shared
+ * app-wide (the default single-registry behavior below is unchanged for
+ * today's single-user app).
+ * @returns {{registerContract: Function, unregisterContract: Function, getAllContracts: Function, getContract: Function, matchContracts: Function, bestMatch: Function}}
+ */
+export function createContractRegistry() {
+  const registryMap = new Map();
+  const api = bindRegistryApi(registryMap);
+  for (const contract of BUILT_IN_CONTRACTS) {
+    api.registerContract(contract);
+  }
+  return api;
+}
+
+const defaultApi = bindRegistryApi(contractRegistry);
+
 /**
  * Register a metric contract. Overwrites any existing contract with the same id.
  * @param {MetricContract} contract
  */
 export function registerContract(contract) {
-  if (!contract.id || !contract.name || !contract.expression) {
-    throw new Error('registerContract: id, name, and expression are required');
-  }
-  contractRegistry.set(contract.id, {
-    keywords: [],
-    requiredCols: [],
-    domain: 'general',
-    ...contract,
-  });
+  return defaultApi.registerContract(contract);
 }
 
 /**
@@ -185,7 +268,7 @@ export function registerContract(contract) {
  * @param {string} id
  */
 export function unregisterContract(id) {
-  contractRegistry.delete(id);
+  return defaultApi.unregisterContract(id);
 }
 
 /**
@@ -193,7 +276,7 @@ export function unregisterContract(id) {
  * @returns {MetricContract[]}
  */
 export function getAllContracts() {
-  return [...contractRegistry.values()];
+  return defaultApi.getAllContracts();
 }
 
 /**
@@ -202,7 +285,7 @@ export function getAllContracts() {
  * @returns {MetricContract|null}
  */
 export function getContract(id) {
-  return contractRegistry.get(id) || null;
+  return defaultApi.getContract(id);
 }
 
 // ---------------------------------------------------------------
@@ -221,27 +304,7 @@ export function getContract(id) {
  * @returns {MetricContract[]}
  */
 export function matchContracts(question, availableCols) {
-  const q = question.toLowerCase();
-  const colSet = availableCols
-    ? new Set(availableCols.map(c => c.toLowerCase()))
-    : null;
-
-  const scored = [];
-  for (const contract of contractRegistry.values()) {
-    // Filter by requiredCols if we have schema info
-    if (colSet && contract.requiredCols.length) {
-      const hasAll = contract.requiredCols.every(rc => colSet.has(rc.toLowerCase()));
-      if (!hasAll) continue;
-    }
-    // Score by keyword hits
-    let score = 0;
-    for (const kw of contract.keywords) {
-      if (q.includes(kw.toLowerCase())) score++;
-    }
-    if (score > 0) scored.push({ contract, score });
-  }
-
-  return scored.sort((a, b) => b.score - a.score).map(s => s.contract);
+  return defaultApi.matchContracts(question, availableCols);
 }
 
 /**
@@ -251,8 +314,7 @@ export function matchContracts(question, availableCols) {
  * @returns {MetricContract|null}
  */
 export function bestMatch(question, availableCols) {
-  const matches = matchContracts(question, availableCols);
-  return matches.length ? matches[0] : null;
+  return defaultApi.bestMatch(question, availableCols);
 }
 
 // ---------------------------------------------------------------

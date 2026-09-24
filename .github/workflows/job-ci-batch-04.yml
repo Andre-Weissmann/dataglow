@@ -290,3 +290,15 @@ jobs:
       # directions, and proves an empty export can no longer be reported as a
       # success.
       - run: npm run test:typesexport
+
+  metric-contracts-registry-isolation:
+    name: Metric contracts registry isolation (session-scoped factory, enterprise-readiness retrofit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metriccontractregistry
