@@ -2008,6 +2008,16 @@ remain from that test pass.
 hard-dataset pass (only the CMS inpatient repro itself was re-run this pass, since that was the specific
 failure this upgrade targets) -- still a backlog item for a future `test-dataglow-platform` run.
 
+## Shipped: The Bench (2026-09-23)
+
+3-batch build, all merged, flag now LIVE (`theBench: true`, promoted in PR #673):
+- Batch 1 ([#670](https://github.com/Andre-Weissmann/dataglow/pull/670)): pure lineage algebra + story-strip renderer (`js/app-shell/bench-shell.js`).
+- Batch 2 ([#671](https://github.com/Andre-Weissmann/dataglow/pull/671)): wired live into the SQL/Python/R tabs -- a step logs on every real dataset load, successful run, and applied cleaning fix; the same lineage renders identically across all three tabs.
+- Batch 3 ([#672](https://github.com/Andre-Weissmann/dataglow/pull/672)): connected the same session lineage into the ALREADY-LIVE Trust Strip's Lineage field and Proof Drawer (OneCanvas Phase 1) instead of building a second, competing trust surface -- deliberate scope correction from the original plan, found via direct repo inspection before building.
+- Flag enabled ([#673](https://github.com/Andre-Weissmann/dataglow/pull/673)) as its own separate, explicitly confirmed action after the full build was merged and CI-green.
+
+Open follow-on, not yet scoped: a real shared-grid rendering engine (one continuous grid instead of three separate SQL/Python/R result panes) -- a larger lift beyond this 3-batch build.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
