@@ -48,6 +48,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Column editor | `js/columns/column-editor.js` | LIVE | CORE | Rename, retype, drop columns inline. |
 | SQL highlight | `js/app-shell/sql-highlight.js` | LIVE | MED | Syntax coloring in the SQL editor. |
 | Format fingerprint | `js/cleaning/format-fingerprint.js` | LIVE | MED | Detects date formats, currency, phone, postal codes automatically. |
+| The Bench: dataset lineage tracking (Batch 1 of 3) | `js/app-shell/bench-shell.js` | BEHIND FLAG (`theBench`) | MED | Pure lineage algebra (`createLineage`/`addStep`) + a thin story-strip renderer (`renderStoryStrip`), tracking a dataset's upload/clean/query/transform history as one readable timeline. Not yet wired into any panel — Batch 2 wires it (plus a shared grid) into the SQL/Python/R tabs; Batch 3 adds the Validate & Trust slide-over. |
 
 ---
 
