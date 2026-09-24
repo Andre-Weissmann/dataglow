@@ -2027,6 +2027,42 @@ in the repo root for the full pass). No source code changed -- scoping and one d
   `js/memory/institutional-memory.js` already uses (`createMemoryStore(options)`) -- mechanical,
   ~3-5 days total, can be scheduled independently of anything else.
 
+## Singleton-registry retrofit complete (2026-09-24)
+
+Closes out the "open, not urgent" item from the 2026-09-23 scoping refresh above. All four
+runtime-mutated singleton registries identified that pass now have a session-isolation factory,
+built and merged as four small, independently-reviewable PRs rather than one large change:
+
+- [`js/provenance/provenance.js`](https://github.com/Andre-Weissmann/dataglow/pull/677) --
+  `createProvenanceRegistry()`, ~26 existing call sites unchanged, 8 new tests.
+- [`js/nl-sql/metric-contracts.js`](https://github.com/Andre-Weissmann/dataglow/pull/678) --
+  `createContractRegistry()` (pre-seeded with the built-in metric contracts), 12 existing call
+  sites unchanged, 8 new tests.
+- [`js/rulepacks/rulepack-registry.js`](https://github.com/Andre-Weissmann/dataglow/pull/679) --
+  `createRulepackRegistry()` (pre-seeded with the healthcare/general built-in packs), 3 existing
+  call sites unchanged, 7 new tests.
+- [`js/learning/rule-suggestions.js`](https://github.com/Andre-Weissmann/dataglow/pull/680) --
+  `createCorrectionTracker()`, 1 existing call site unchanged, 7 new tests (this file's first
+  dedicated test coverage -- none existed before this retrofit).
+
+**Pattern used (same shape in all four files):** each factory returns a brand-new instance bound
+to its own private `Map`, seeded with the same built-ins as the default registry where built-ins
+exist. The pre-existing module-level bare functions (the ones the rest of the app actually calls
+today) keep their exact original names and signatures, now delegating to ONE default instance
+created at module load -- so this was a purely additive change with zero behavior change and zero
+call-site edits anywhere in the app. 30 new tests total, all passing; every existing dependent test
+file re-verified clean after each file's change.
+
+**What this unlocks, and what it does not (yet):** nothing in the shipped app calls these new
+factories today -- this closes the architectural gap so a future multi-session/multi-user server
+tier (if DataGlow ever grows one) could give each session its own registries instead of one shared
+global state leaking between sessions. It is not itself a feature, has no flag (no user-facing
+behavior changed), and does not by itself make DataGlow multi-user -- that would still require
+building and wiring an actual session layer on top of this.
+
+All four merged into `main`, CI fully green on each (96, 96, 96, and 99 of 99 jobs respectively --
+the last count is higher because it was rebased on top of the other three's newly-added CI jobs).
+
 ## Shipped: The Bench (2026-09-23)
 
 3-batch build, all merged, flag now LIVE (`theBench: true`, promoted in PR #673):
