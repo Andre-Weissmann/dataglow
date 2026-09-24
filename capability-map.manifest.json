@@ -7925,6 +7925,37 @@
         "trustPassportExport"
       ],
       "status": "behind-flag"
+    },
+    {
+      "id": "bench-shell-lineage",
+      "platforms": [
+        "browser",
+        "desktop",
+        "mobile"
+      ],
+      "area": "App shell & data engine",
+      "name": "The Bench: dataset lineage tracking (Batch 1 of 3)",
+      "files": [
+        "js/app-shell/bench-shell.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/app-shell/bench-shell.js",
+          "name": "createLineage"
+        },
+        {
+          "file": "js/app-shell/bench-shell.js",
+          "name": "addStep"
+        },
+        {
+          "file": "js/app-shell/bench-shell.js",
+          "name": "renderStoryStrip"
+        }
+      ],
+      "relatedFlags": [
+        "theBench"
+      ],
+      "status": "behind-flag"
     }
   ]
 }
