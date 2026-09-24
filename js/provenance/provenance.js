@@ -308,25 +308,57 @@ export function renderAttestationHTML(att) {
 </body></html>`;
 }
 
-// ---- App-level singleton registry, keyed by dataset table name ----
-// Each loaded dataset gets its own chain of custody. Kept module-local so the
-// browser app shares one registry; tests create their own chains directly.
-const chains = new Map();
+// ---- Provenance registry, keyed by dataset table name ----
+// Each loaded dataset gets its own chain of custody.
+//
+// SESSION-ISOLATION FACTORY (added 2026-09-24, enterprise-readiness retrofit):
+// createProvenanceRegistry() returns a brand-new, independent registry with
+// its own private Map -- a caller running multiple concurrent sessions (e.g.
+// a future multi-user server tier) can create one registry per session so
+// dataset chains never leak between sessions. Today's single-user browser/
+// desktop app doesn't need that: the module-level exports below (
+// startProvenance/getProvenance/recordStep) keep their exact original
+// signatures and behavior by delegating to ONE default registry created at
+// module load, so none of this file's ~26 existing call sites (js/app-shell/
+// main.js and others) need to change. This is purely additive -- the default
+// single-registry behavior is unchanged.
+export function createProvenanceRegistry() {
+  const chains = new Map();
+
+  function startProvenance(tableName) {
+    const chain = createProvenanceChain();
+    chains.set(tableName, chain);
+    return chain;
+  }
+
+  function getProvenance(tableName) {
+    return chains.get(tableName) || null;
+  }
+
+  // Convenience: record a step against a dataset's chain if one exists.
+  // Silently no-ops if the dataset was never registered (e.g. transformations
+  // before load).
+  async function recordStep(tableName, op, description, detail = null) {
+    const chain = chains.get(tableName);
+    if (!chain) return null;
+    return chain.append(op, description, detail);
+  }
+
+  return { startProvenance, getProvenance, recordStep };
+}
+
+// Default, module-shared registry -- preserves the original singleton
+// behavior for every existing caller.
+const defaultRegistry = createProvenanceRegistry();
 
 export function startProvenance(tableName) {
-  const chain = createProvenanceChain();
-  chains.set(tableName, chain);
-  return chain;
+  return defaultRegistry.startProvenance(tableName);
 }
 
 export function getProvenance(tableName) {
-  return chains.get(tableName) || null;
+  return defaultRegistry.getProvenance(tableName);
 }
 
-// Convenience: record a step against a dataset's chain if one exists. Silently
-// no-ops if the dataset was never registered (e.g. transformations before load).
 export async function recordStep(tableName, op, description, detail = null) {
-  const chain = chains.get(tableName);
-  if (!chain) return null;
-  return chain.append(op, description, detail);
+  return defaultRegistry.recordStep(tableName, op, description, detail);
 }
