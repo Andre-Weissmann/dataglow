@@ -143,6 +143,16 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-benchstorystrip
+      # The Bench Batch 3: wires the session lineage into the ALREADY-LIVE
+      # Trust Strip + Proof Drawer (trustStripProofDrawer, shipped ON) on the
+      # Validate tab, rather than a second competing trust surface. Proves a
+      # real SQL run's lineage shows up in the Trust Strip's Lineage field
+      # after switching tabs (no manual re-render needed) and that clicking it
+      # opens the Proof Drawer with the real Bench steps as their own block.
+      - name: Run Bench x Trust Strip wiring e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-benchtruststrip
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4

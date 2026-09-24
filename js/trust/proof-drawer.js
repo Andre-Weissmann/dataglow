@@ -100,12 +100,26 @@ export function buildProofContent(trigger = {}) {
           return certificationContent(trigger.metrics);
         case 'lineage': {
           const html = provenanceHtml(trigger);
+          const blocks = [html
+            ? { kind: 'html', label: 'Attestation', html }
+            : { kind: 'text', label: field.label || 'Lineage', text: field.detail || 'No provenance chain recorded for this table yet.' }];
+          // The Bench (Batch 3): when a session lineage (js/app-shell/bench-shell.js)
+          // is handed to this trigger, add it as its OWN list block alongside the
+          // attestation above -- a different signal (what happened this session
+          // across SQL/Python/R) from the dataset's own load-time provenance chain,
+          // never merged into one so a reader can't mistake one for the other.
+          const steps = trigger.benchLineage && Array.isArray(trigger.benchLineage.steps) ? trigger.benchLineage.steps : [];
+          if (steps.length > 0) {
+            blocks.push({
+              kind: 'list',
+              label: "This session's Bench story",
+              items: steps.map((s) => `${s.kind}: ${s.label}`),
+            });
+          }
           return {
             title: 'Lineage',
             subtitle: 'Trust Strip · provenance',
-            blocks: [html
-              ? { kind: 'html', label: 'Attestation', html }
-              : { kind: 'text', label: field.label || 'Lineage', text: field.detail || 'No provenance chain recorded for this table yet.' }],
+            blocks,
           };
         }
         default:
