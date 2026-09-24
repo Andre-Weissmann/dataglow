@@ -2008,6 +2008,25 @@ remain from that test pass.
 hard-dataset pass (only the CMS inpatient repro itself was re-run this pass, since that was the specific
 failure this upgrade targets) -- still a backlog item for a future `test-dataglow-platform` run.
 
+## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
+
+Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
+in the repo root for the full pass). No source code changed -- scoping and one decision only.
+
+- **Licensing: RESOLVED.** After reviewing MIT / BSL / AGPL in plain terms, the user decided to keep
+  DataGlow's license as plain MIT, unchanged. This was the one open item the July audit flagged as
+  time-sensitive; it is now closed. Revisit only if the calculus changes later (e.g. a real hospital/
+  enterprise customer appears and commercial protection becomes worth trading against MIT's reach).
+- **Corrected two gaps in the July audit's coverage:** a real, already-shipped IT-admin enterprise
+  policy engine (`js/build/enterprise-policy.js`, PR #307) was missed by that pass; and four more
+  runtime-mutated singleton registries (`js/provenance/provenance.js`, `js/nl-sql/metric-contracts.js`,
+  `js/rulepacks/rulepack-registry.js`, `js/learning/rule-suggestions.js`) that already existed on
+  2026-07-19 were missed by that pass's search, alongside the one (`semantic-layer.js`) it did catch.
+- **Reconfirmed:** core logic modules remain server-portable, no new architectural lock-in since July.
+- **Open, not urgent:** retrofit the five singleton registries into the same factory pattern
+  `js/memory/institutional-memory.js` already uses (`createMemoryStore(options)`) -- mechanical,
+  ~3-5 days total, can be scheduled independently of anything else.
+
 ## Shipped: The Bench (2026-09-23)
 
 3-batch build, all merged, flag now LIVE (`theBench: true`, promoted in PR #673):
