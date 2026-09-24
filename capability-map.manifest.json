@@ -7934,7 +7934,7 @@
         "mobile"
       ],
       "area": "App shell & data engine",
-      "name": "The Bench: dataset lineage tracking (Batch 1 of 3)",
+      "name": "The Bench: dataset lineage tracking + SQL/Python/R tab wiring (Batch 2 of 3)",
       "files": [
         "js/app-shell/bench-shell.js"
       ],

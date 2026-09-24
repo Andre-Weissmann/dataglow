@@ -132,6 +132,17 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:bundle15canvas
+      # The Bench Batch 2: wires the Batch 1 lineage algebra into the live
+      # SQL/Python/R tabs. Proves flag OFF (default) keeps all three mounts
+      # hidden/empty, and flag ON logs an upload step on dataset load, a sql
+      # step on query run, and renders the IDENTICAL lineage across all three
+      # tab mounts -- the cross-tab-parity check that a per-tab unit test
+      # could not make. Forces theBench on via the same route-intercept +
+      # disabled-service-worker pattern as the rigor engine badges test above.
+      - name: Run Bench story strip e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-benchstorystrip
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4

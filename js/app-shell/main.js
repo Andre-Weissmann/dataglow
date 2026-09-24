@@ -28,6 +28,7 @@ import { checkNarrativeOverconfidence, describeOverconfidenceFinding } from '../
 import { renderPortfolioTab } from '../portfolio/portfolio-ui.js';
 import * as viz from '../runtimes-viz/visualize.js';
 import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
+import * as benchShell from './bench-shell.js';
 import { renderPivotTab } from '../runtimes-viz/pivot-ui.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
 import * as drillFloorData from '../drill-floor/drill-floor-data.js';
@@ -421,6 +422,7 @@ function switchTab(tabId) {
   // lingers in the background (recreated lazily on the next keystroke).
   if (previousTab === 'sql' && tabId !== 'sql') teardownAmbientWorker();
   if (tabId === 'sql') renderSavedMetrics();
+  if (['sql', 'python', 'r'].includes(tabId)) renderBenchStoryStrip();
   if (tabId === 'python') ensurePythonRuntime();
   if (tabId === 'r') ensureRRuntime();
   if (tabId === 'validate') renderOneCanvasPhase1();
@@ -1036,6 +1038,7 @@ function resetPanelStates() {
   if (hasData) {
     $('#sql-input').value = $('#sql-input').value || `SELECT * FROM ${getActiveDataset().table} LIMIT 100;`;
     populateVisualizeBuilder();
+    resetBenchLineage(getActiveDataset()?.rowCount);
   }
 }
 
@@ -1659,6 +1662,47 @@ let sqlDialect = 'duckdb';
 // token is stale and must no-op once a newer query has begun.
 let sqlQueryGeneration = 0;
 
+// ============================================================
+// The Bench (theBench flag, Batch 2): dataset lineage wiring
+// ============================================================
+// Pushes a step onto state.benchLineage (created lazily) and re-renders the
+// SAME lineage into all three mount points (SQL/Python/R) so the story strip
+// reads identically no matter which instrument is active -- this is the
+// literal proof that these are one continuous surface, not three separate
+// destinations with their own history. No-op (never called) when theBench
+// is off; the mount divs stay display:none, set once in resetBenchLineage's
+// initial hide and never toggled otherwise. See js/app-shell/bench-shell.js
+// for the pure lineage algebra this only calls, never reimplements.
+function logBenchStep(kind, label) {
+  if (!isEnabled('theBench')) return;
+  if (!state.benchLineage) state.benchLineage = benchShell.createLineage();
+  state.benchLineage = benchShell.addStep(state.benchLineage, { kind, label });
+  renderBenchStoryStrip();
+}
+
+function renderBenchStoryStrip() {
+  if (!isEnabled('theBench')) return;
+  const lineage = state.benchLineage || benchShell.createLineage();
+  for (const mountId of ['#bench-story-sql', '#bench-story-python', '#bench-story-r']) {
+    const mount = $(mountId);
+    if (!mount) continue;
+    mount.style.display = '';
+    benchShell.renderStoryStrip(mount, lineage);
+  }
+}
+
+// A fresh dataset load starts a fresh story -- carrying over a PRIOR
+// dataset's lineage into a newly uploaded file would misrepresent what
+// actually happened to the data now on screen. Called from resetPanelStates()
+// so it fires on every real load, not just the first.
+function resetBenchLineage(rowCount) {
+  if (!isEnabled('theBench')) return;
+  state.benchLineage = benchShell.createLineage();
+  const label = typeof rowCount === 'number' ? `Uploaded (${rowCount.toLocaleString()} rows)` : 'Uploaded';
+  state.benchLineage = benchShell.addStep(state.benchLineage, { kind: 'upload', label });
+  renderBenchStoryStrip();
+}
+
 async function runSqlQuery() {
   const rawSql = $('#sql-input').value.trim();
   if (!rawSql) return;
@@ -1700,6 +1744,7 @@ async function runSqlQuery() {
     state.lastQueryResult = result;
     statusEl.textContent = `${result.rowCount.toLocaleString()} row(s) in ${result.elapsedMs.toFixed(0)}ms`;
     renderResultTable(resultWrap, result);
+    logBenchStep('sql', sql.replace(/\s+/g, ' ').trim().slice(0, 48) || 'Ran a SQL query');
     $('#story-empty').style.display = 'none';
     // Live Rooms Batch 3: record that this SQL result was the chart/query the
     // analyst was viewing right now, so a concurrent Meeting Scribe capture can
@@ -2833,6 +2878,7 @@ function initPythonTab() {
         { kind: QUERY_KINDS.PYTHON, text: code, context: { tables: loadedTableNames() } },
         code.slice(0, 80),
       );
+      if (!error) logBenchStep('python', code.replace(/\s+/g, ' ').trim().slice(0, 48) || 'Ran Python');
     } catch (err) {
       // Polyglot Error Advisor (Batch E): enrich Python errors with cross-registry fix.
       let pyErrHtml;
@@ -2900,6 +2946,7 @@ function initRTab() {
         { kind: QUERY_KINDS.R, text: code, context: { tables: loadedTableNames() } },
         code.slice(0, 80),
       );
+      if (!error) logBenchStep('r', code.replace(/\s+/g, ' ').trim().slice(0, 48) || 'Ran R');
     } catch (err) {
       // Polyglot Error Advisor (Batch E): enrich R errors with cross-registry fix.
       let rErrHtml;
@@ -2996,6 +3043,7 @@ async function scanClean() {
           ledger.logAssumption('Data Cleaning', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`);
           const recordedStep = await provenance.recordStep(ds.table, 'clean', `${clean.FIX_LABELS[fixType]} — ${issue.label}.${who}`,
             dataBlame.buildBlameDetail({ rule: fixType, column: issue.column, affectedCount: issue.count }));
+          logBenchStep('clean', clean.FIX_LABELS[fixType]);
           // ADDITIVE-ONLY Crucible orchestration (flag crucibleOrchestration,
           // default off). Runs the standing adversarial suite against this fix and
           // stashes the result for the Crucible tab. Wrapped so ANY failure here is

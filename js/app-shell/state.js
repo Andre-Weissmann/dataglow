@@ -20,6 +20,11 @@ export const state = {
   // Crucible tab to show live adversarial-pack results. See
   // js/validation/crucible-orchestrator.js.
   latestCrucibleRun: null,
+  // The Bench (theBench flag, Batch 2): this dataset's lineage timeline --
+  // upload/clean/sql/python/r/formula steps, RAM only, wiped on reload, same
+  // convention as latestCrucibleRun above. See js/app-shell/bench-shell.js
+  // for the pure createLineage/addStep algebra this holds.
+  benchLineage: null,
   settings: {
     // Default to the private, in-browser small model (no API key, no upload).
     // If the browser lacks WebGPU, the Story tab transparently uses the offline
