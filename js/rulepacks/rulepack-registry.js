@@ -41,16 +41,71 @@ const REQUIRED_CONTINUOUS = ['smdWarn', 'smdFail'];
 const registry = new Map();
 
 // ---- Built-in pack registration ----------------------------------------
-function registerBuiltIn(pack) {
+function registerBuiltIn(registryMap, pack) {
   const errs = validatePack(pack);
   if (errs.length > 0) {
     throw new Error('Built-in rulepack "' + pack.id + '" failed validation:\n' + errs.join('\n'));
   }
-  registry.set(pack.id, pack);
+  registryMap.set(pack.id, pack);
 }
 
-registerBuiltIn(healthcarePack);
-registerBuiltIn(generalPack);
+registerBuiltIn(registry, healthcarePack);
+registerBuiltIn(registry, generalPack);
+
+// ---- Registry factory (session-isolation) -------------------------------
+// SESSION-ISOLATION FACTORY (added 2026-09-24, enterprise-readiness
+// retrofit): createRulepackRegistry() returns a brand-new, independent
+// registry (its own private Map, pre-seeded with the same built-in packs)
+// so a caller running multiple concurrent sessions can register custom
+// rulepacks per session without one session's custom pack leaking into
+// another's. The module-level exports below (getRulepack/listRulepacks/
+// registerPack) keep their exact original signatures and behavior by
+// delegating to ONE default registry created at module load, so none of
+// this file's existing call sites need to change. Purely additive.
+function bindRulepackApi(registryMap) {
+  function getRulepack(id) {
+    if (!id || !registryMap.has(id)) {
+      return registryMap.get('general');
+    }
+    return registryMap.get(id);
+  }
+
+  function listRulepacks() {
+    return Array.from(registryMap.values()).map(p => ({
+      id: p.id,
+      version: p.version,
+      label: p.label,
+      domain: p.domain,
+      description: p.description,
+      publishedAt: p.publishedAt || null,
+    }));
+  }
+
+  function registerPack(pack) {
+    const errs = validatePack(pack);
+    if (errs.length > 0) return { ok: false, errors: errs };
+    registryMap.set(pack.id, pack);
+    return { ok: true, errors: [] };
+  }
+
+  return { getRulepack, listRulepacks, registerPack };
+}
+
+/**
+ * Create a brand-new, independent rulepack registry, pre-seeded with the
+ * same built-in packs (healthcare, general) as the default module-level
+ * registry. Use this when a caller needs custom rulepacks isolated per
+ * session/user rather than shared app-wide (the default single-registry
+ * behavior below is unchanged for today's single-user app).
+ */
+export function createRulepackRegistry() {
+  const registryMap = new Map();
+  registerBuiltIn(registryMap, healthcarePack);
+  registerBuiltIn(registryMap, generalPack);
+  return bindRulepackApi(registryMap);
+}
+
+const defaultApi = bindRulepackApi(registry);
 
 // ---- Public API --------------------------------------------------------
 
@@ -61,10 +116,7 @@ registerBuiltIn(generalPack);
  * @returns {object} rulepack
  */
 export function getRulepack(id) {
-  if (!id || !registry.has(id)) {
-    return registry.get('general');
-  }
-  return registry.get(id);
+  return defaultApi.getRulepack(id);
 }
 
 /**
@@ -73,14 +125,7 @@ export function getRulepack(id) {
  * @returns {Array<{id, version, label, domain, description}>}
  */
 export function listRulepacks() {
-  return Array.from(registry.values()).map(p => ({
-    id: p.id,
-    version: p.version,
-    label: p.label,
-    domain: p.domain,
-    description: p.description,
-    publishedAt: p.publishedAt || null,
-  }));
+  return defaultApi.listRulepacks();
 }
 
 /**
@@ -91,10 +136,7 @@ export function listRulepacks() {
  * @returns {{ ok: boolean, errors: string[] }}
  */
 export function registerPack(pack) {
-  const errs = validatePack(pack);
-  if (errs.length > 0) return { ok: false, errors: errs };
-  registry.set(pack.id, pack);
-  return { ok: true, errors: [] };
+  return defaultApi.registerPack(pack);
 }
 
 /**
