@@ -18,6 +18,7 @@
 
 import { collectTrustSignals } from '../js/trust/trust-strip.js';
 import { buildProofContent } from '../js/trust/proof-drawer.js';
+import { createLineage, addStep } from '../js/app-shell/bench-shell.js';
 import { configureFlags, isEnabled } from '../js/build/build-flags.js';
 import { createProvenanceChain } from '../js/provenance/provenance.js';
 import { readFileSync } from 'node:fs';
@@ -104,6 +105,62 @@ async function main() {
   // Lineage with no chain → honest text, not a broken frame.
   const noChain = buildProofContent({ type: 'trust-field', field: { key: 'lineage', label: 'Lineage', detail: 'No chain.' } });
   ok(noChain.blocks[0].kind === 'text', 'proof/lineage: no chain → honest text block');
+
+  // ---------- 3b. The Bench (Batch 3): session lineage folded into the SAME field ----------
+  // benchLineage omitted entirely → byte-for-byte identical to before this param
+  // existed (regression guard: the earlier assertion on `signals` above already
+  // ran with no benchLineage passed, and passed).
+  ok(field(signals, 'lineage').value === 'available' && !/Bench story/.test(field(signals, 'lineage').detail),
+    'lineage (benchLineage omitted): unchanged detail text, no Bench story mention');
+
+  // benchLineage WITH real steps, alongside an existing provenance chain — both
+  // signals appear, neither silently drops the other.
+  let bench = createLineage();
+  bench = addStep(bench, { kind: 'upload', label: 'Uploaded (3 rows)' });
+  bench = addStep(bench, { kind: 'sql', label: 'SELECT * FROM encounters' });
+  const signalsWithBench = collectTrustSignals({
+    dataset, validationResults,
+    metricCounts: { certified: 1, reviewed: 0, exploratory: 2, total: 3 },
+    provenanceChain: chain,
+    anomalyResult: { anomalies: [1, 2] },
+    benchLineage: bench,
+  });
+  const lf = field(signalsWithBench, 'lineage');
+  ok(lf.value === 'available' && /2 provenance step/.test(lf.detail) && /2 step\(s\) in this session's Bench story/.test(lf.detail),
+    'lineage (benchLineage present + chain present): both counts named in the detail text, neither dropped');
+
+  // benchLineage WITH steps but NO provenance chain — still reports "available"
+  // from the Bench story alone, not falsely "none recorded".
+  const signalsBenchOnly = collectTrustSignals({ dataset, benchLineage: bench });
+  const lf2 = field(signalsBenchOnly, 'lineage');
+  ok(lf2.value === 'available' && lf2.state === 'ok' && /Bench story/.test(lf2.detail),
+    'lineage (benchLineage present, no chain): reports available from the Bench story alone');
+
+  // benchLineage with zero steps (freshly created, never appended to) behaves
+  // exactly like benchLineage being absent — an empty story is not "available".
+  const signalsEmptyBench = collectTrustSignals({ dataset, provenanceChain: chain, benchLineage: createLineage() });
+  ok(field(signalsEmptyBench, 'lineage').detail === field(signals, 'lineage').detail,
+    'lineage (benchLineage present but empty): identical detail text to no benchLineage at all');
+
+  // buildProofContent's lineage case: the Bench story renders as its OWN list
+  // block alongside the attestation, distinctly labelled.
+  const lineageProofWithBench = buildProofContent({
+    type: 'trust-field',
+    field: lf,
+    attestation: att,
+    benchLineage: bench,
+  });
+  const benchBlock = lineageProofWithBench.blocks.find(b => b.kind === 'list' && b.label === "This session's Bench story");
+  ok(!!benchBlock, 'proof/lineage: a Bench-story list block appears alongside the attestation when benchLineage has steps');
+  ok(!!benchBlock && benchBlock.items.length === 2 && /upload: Uploaded/.test(benchBlock.items[0]) && /sql: SELECT/.test(benchBlock.items[1]),
+    'proof/lineage: Bench-story items are kind-prefixed and in step order');
+
+  // No benchLineage on the trigger → no Bench-story block appended (regression
+  // guard matching the very first proof/lineage assertion above, which never
+  // passed benchLineage and still only got the honest-text block).
+  const lineageProofNoBench = buildProofContent({ type: 'trust-field', field: lf, attestation: att });
+  ok(!lineageProofNoBench.blocks.some(b => b.kind === 'list' && b.label === "This session's Bench story"),
+    'proof/lineage: no Bench-story block when the trigger carries no benchLineage');
 
   // ---------- 4. Flag promotion + kill-switch guard ----------
   // Both flags were PROMOTED to ON (shipped default). The gate still reads the

@@ -1689,6 +1689,13 @@ function renderBenchStoryStrip() {
     mount.style.display = '';
     benchShell.renderStoryStrip(mount, lineage);
   }
+  // Batch 3: keep the Validate tab's Trust Strip Lineage field live too, even
+  // while that tab isn't the active one -- so switching to Validate after a
+  // few SQL/Python/R runs shows an up-to-date step count, not a stale one from
+  // whenever the tab last rendered. renderTrustStripPanel no-ops safely if
+  // #trust-strip-host isn't mounted (trustStripProofDrawer off) or if
+  // isEnabled('theBench') fails elsewhere -- both already guarded there.
+  renderTrustStripPanel();
 }
 
 // A fresh dataset load starts a fresh story -- carrying over a PRIOR
@@ -3551,6 +3558,12 @@ function openTrustFieldProof(field) {
     field,
     validationResults: state.validationResults,
     metrics: metricRegistry.list(),
+    // The Bench (theBench flag, Batch 3): hand the session lineage through so
+    // the Lineage field's Proof Drawer can show it alongside the provenance
+    // attestation. isEnabled-gated here (not just relying on state.benchLineage
+    // being null when off) so a stale lineage from a flag toggled off mid-session
+    // never leaks into the drawer.
+    benchLineage: isEnabled('theBench') ? state.benchLineage : null,
   };
   // Lineage fields render the existing attestation view; build it from the chain.
   if (field.key === 'lineage' && chain && chain.length > 0) {
@@ -3578,6 +3591,11 @@ function renderTrustStripPanel() {
     metricCounts: metricRegistry.statusCounts(),
     provenanceChain: chain,
     anomalyResult: null, // honest "not checked" until anomaly detection runs
+    // The Bench (theBench flag, Batch 3): same off-when-off guard as
+    // openTrustFieldProof above -- collectTrustSignals treats null exactly
+    // like it never existed, so this is fully byte-for-byte unchanged with
+    // theBench off.
+    benchLineage: isEnabled('theBench') ? state.benchLineage : null,
   });
   renderTrustStrip({ host, signals, onFieldClick: openTrustFieldProof });
 }

@@ -235,6 +235,7 @@
     "test:a50-1overflow16px": "node test/a50-1-overflow-16px.test.mjs",
     "test:benchshell": "node test/bench-shell.test.mjs",
     "test:e2e-benchstorystrip": "node test/e2e-bench-story-strip.test.mjs",
+    "test:e2e-benchtruststrip": "node test/e2e-bench-trust-strip.test.mjs",
     "check:canvas-integrity": "node scripts/check-canvas-integrity.mjs",
     "check:capability-map": "node scripts/check-capability-map.mjs",
     "new-module": "node scripts/new-module.mjs"

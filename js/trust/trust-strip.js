@@ -72,6 +72,12 @@ export function collectTrustSignals(arg = {}) {
   const {
     dataset = null, validationResults = null, metricCounts = null,
     provenanceChain = null, anomalyResult = null, now = Date.now(),
+    // The Bench (theBench flag, Batch 3): an optional session lineage object
+    // ({ steps: [...] }, see js/app-shell/bench-shell.js) from the SQL/Python/
+    // R tabs. Omitted or null leaves the Lineage field byte-for-byte
+    // identical to before this param existed -- callers that never pass it
+    // (or run with theBench off) get the exact prior behavior.
+    benchLineage = null,
   } = arg;
 
   const loaded = !!(dataset && dataset.loadedAt);
@@ -105,11 +111,36 @@ export function collectTrustSignals(arg = {}) {
 
   // Lineage available
   const hasChain = !!(provenanceChain && (provenanceChain.length || 0) > 0);
+  // The Bench (Batch 3): the session lineage (upload/clean/sql/python/r steps
+  // logged live from the SQL/Python/R tabs, see js/app-shell/bench-shell.js)
+  // is a DIFFERENT signal than the provenance chain above -- the chain is the
+  // dataset's own load-time audit trail, while this is what the analyst has
+  // actually DONE with it this session. Folding the count into the same field
+  // rather than adding a new one keeps the Trust Strip's fixed six-field
+  // layout unchanged; the two counts are named separately in the detail text
+  // so neither is silently double-counted as the other.
+  const benchStepCount = (benchLineage && Array.isArray(benchLineage.steps)) ? benchLineage.steps.length : 0;
+  const hasBenchSteps = benchStepCount > 0;
+  let lineageValue;
+  let lineageDetail;
+  if (hasChain && hasBenchSteps) {
+    lineageValue = 'available';
+    lineageDetail = `${provenanceChain.length} provenance step(s) recorded; ${benchStepCount} step(s) in this session's Bench story.`;
+  } else if (hasChain) {
+    lineageValue = 'available';
+    lineageDetail = `${provenanceChain.length} provenance step(s) recorded.`;
+  } else if (hasBenchSteps) {
+    lineageValue = 'available';
+    lineageDetail = `${benchStepCount} step(s) in this session's Bench story (no provenance chain for this table yet).`;
+  } else {
+    lineageValue = loaded ? 'none recorded' : 'not available';
+    lineageDetail = 'No provenance chain for this table yet.';
+  }
   fields.push({
     key: 'lineage', label: 'Lineage',
-    value: hasChain ? 'available' : (loaded ? 'none recorded' : 'not available'),
-    state: hasChain ? 'ok' : 'idle',
-    detail: hasChain ? `${provenanceChain.length} provenance step(s) recorded.` : 'No provenance chain for this table yet.',
+    value: lineageValue,
+    state: (hasChain || hasBenchSteps) ? 'ok' : 'idle',
+    detail: lineageDetail,
   });
 
   // Last project update (same source as freshness)
