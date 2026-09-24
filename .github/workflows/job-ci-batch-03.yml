@@ -296,7 +296,7 @@ jobs:
       - run: npm run check:capability-map
 
   the-bench-shell:
-    name: The Bench shell (Batch 1: pure lineage algebra + story-strip renderer, dark behind theBench flag)
+    name: "The Bench shell (Batch 1: pure lineage algebra + story-strip renderer, dark behind theBench flag)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
