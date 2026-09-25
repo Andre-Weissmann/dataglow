@@ -17,6 +17,7 @@
     "test:dialectadapter": "node test/sql-dialect-adapter.test.mjs",
     "test:provpacket": "node test/provenance-packet.test.mjs",
     "test:provregistry": "node test/provenance-registry-isolation.test.mjs",
+    "test:streamingingestion": "node test/streaming-ingestion.test.mjs",
     "test:layers": "node --import ./test/duckdb-loader-hook.mjs test/validation-layers.test.mjs",
     "test:crosscol": "node --import ./test/duckdb-loader-hook.mjs test/cross-column-consistency.test.mjs",
     "test:aitouchledger": "node test/ai-touch-ledger.test.mjs",

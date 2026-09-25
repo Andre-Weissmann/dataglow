@@ -129,6 +129,13 @@ export function initDuckDB() {
     state.duckdb.db = db;
     state.duckdb.conn = conn;
     state.duckdb.ready = true;
+    // Stashed so registerFileHandleStreaming (below) can pass the real enum
+    // value without a second, separate static import of duckdb-browser.mjs --
+    // this module is loaded dynamically above precisely so the app works when
+    // served from any path, and a second static `import` of the same asset
+    // would either duplicate that resolution logic or silently rely on the
+    // module cache lining up with the exact URL already used here.
+    state.duckdb.DuckDBDataProtocol = duckdb.DuckDBDataProtocol;
 
     // #3 — OPFS-backed temp_directory for spilling large join/sort intermediates.
     // Errors are caught and ignored: a failed SET does not break DuckDB, it just
@@ -250,6 +257,47 @@ export function duckdbBytes(source) {
 export async function registerFileBuffer(fileName, arrayBuffer) {
   const db = state.duckdb.db;
   await db.registerFileBuffer(fileName, duckdbBytes(arrayBuffer));
+}
+
+// ============================================================
+// Streaming ingestion (Structural Readiness Phase item 2, first half)
+// ============================================================
+// registerFileBuffer (above) requires the ENTIRE file to already be an
+// in-memory ArrayBuffer -- loaders.js gets that via file.arrayBuffer(), which
+// reads the whole file into the JS heap before a single byte reaches DuckDB.
+// For a file that is itself a large fraction of (or larger than) the wasm32
+// 4GB linear-memory ceiling, that whole-file read is the actual bottleneck --
+// it happens BEFORE registerFileBuffer's own worker-side copy, so a big file
+// is briefly resident in memory twice over just to get it registered.
+//
+// registerFileHandle with DuckDBDataProtocol.BROWSER_FILEREADER avoids this:
+// DuckDB's own browser runtime (assets/duckdb/duckdb-browser-eh.worker.js)
+// answers each read by calling `file.slice(location, location + bytes)` and a
+// synchronous FileReaderSync on just that slice -- confirmed by reading the
+// upstream runtime_browser.ts implementation (duckdb/duckdb-wasm) -- so a CSV
+// scan or Parquet read pulls bytes on demand as it goes, never the whole file
+// into the JS heap up front. This is NOT OPFS: DuckDBDataProtocol.BROWSER_FSACCESS
+// (a separate enum value) requires the handle to represent an OPFS file via
+// createSyncAccessHandle(), which throws for an arbitrary local file the user
+// picked or dropped -- confirmed by reading DuckDB's own worker source
+// (prepareFileHandleAsync in duckdb-browser-eh.worker.js) and the official
+// DuckDB docs (duckdb.org/docs/current/clients/wasm/data_ingestion), which use
+// BROWSER_FILEREADER specifically for "a local file picked by the user".
+// OPFS is the SEPARATE, second half of this Structural Readiness Phase item
+// (persistence across sessions), not required for streaming ingestion itself.
+//
+// The `file` argument is the real browser File object (from an <input> change
+// event or a drop event) -- NOT an ArrayBuffer, and never read via
+// file.arrayBuffer() anywhere in this path.
+export async function registerFileHandleStreaming(fileName, file) {
+  const db = state.duckdb.db;
+  const protocol = state.duckdb.DuckDBDataProtocol;
+  if (!protocol) {
+    throw new Error('registerFileHandleStreaming called before DuckDB finished initializing (DuckDBDataProtocol unavailable).');
+  }
+  // directIO=true: DuckDB reads this file's bytes lazily, on demand, rather
+  // than eagerly buffering it -- the entire point of this registration path.
+  await db.registerFileHandle(fileName, file, protocol.BROWSER_FILEREADER, true);
 }
 
 export async function listTables() {

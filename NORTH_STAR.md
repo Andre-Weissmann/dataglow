@@ -2227,6 +2227,93 @@ fixed at least one real bug (three data-corruption/logic bugs and one adversaria
 none of which were caught by the modules' existing test suites, because those suites only used clean,
 well-behaved fixtures. Item 2 (resolve scale ceiling) is next.
 
+## Test findings (2026-09-25 -- Streaming ingestion, Structural Readiness Phase item 2, first half)
+
+First half of item 2 ("resolve the scale ceiling"): chunked/streaming file ingestion, landed ahead of the
+second half (OPFS persistence, not started).
+
+**Real bug found in existing dead code, before any new code was written.** `js/app-shell/loaders.js`
+already had `loadLargeFileViaFSAA` / `pickLargeFileViaFSAA` and `js/app-shell/duckdb-config.js` already had
+`shouldUseFSAA` / `FSAA_THRESHOLD_BYTES` (100MB) -- scaffolding for exactly this feature that was never
+wired into `loadFile()` (`shouldUseFSAA` was imported but never called; `loadFile` always did
+`file.arrayBuffer()` unconditionally). Worse, the scaffolding targeted the WRONG DuckDB-WASM protocol:
+`DuckDBDataProtocol.BROWSER_FSACCESS`, confirmed by reading DuckDB's own worker source
+(`prepareFileHandleAsync` in `assets/duckdb/duckdb-browser-eh.worker.js`) to require
+`FileSystemFileHandle.createSyncAccessHandle()`, which only works for a file already inside OPFS -- it
+throws for an arbitrary local file a user picks or drops. Because neither function was ever called from
+anywhere, this wrong-protocol bug shipped invisibly and would have failed the first time anyone wired it up
+and tested it against a real local file. The correct protocol for a user-picked `File` is
+`BROWSER_FILEREADER` (value 2), confirmed against DuckDB's official docs
+([duckdb.org/docs/current/clients/wasm/data_ingestion](https://duckdb.org/docs/current/clients/wasm/data_ingestion))
+and DuckDB-WASM's own runtime source
+([runtime_browser.ts](https://github.com/duckdb/duckdb-wasm/blob/main/packages/duckdb-wasm/src/bindings/runtime_browser.ts)),
+which reads `file.slice(location, location + bytes)` on demand via a synchronous `FileReaderSync` inside
+the worker thread -- never buffering the whole file into the JS heap up front.
+
+**Implementation:** `engine.registerFileHandleStreaming(fileName, file)` (new, `duckdb-engine.js`) calls
+`db.registerFileHandle(fileName, file, DuckDBDataProtocol.BROWSER_FILEREADER, true)`. `loadFile()`
+(`loaders.js`) now branches on a new pure, unit-tested `shouldStreamIngest(ext, sizeBytes, flagEnabled)`
+helper: when the `streamingIngestion` flag is on, the format is one DuckDB can read directly off a file
+handle (CSV/TSV, JSON/NDJSON, Parquet, Arrow/Feather -- NOT xlsx/xls, which still need a full buffer for
+SheetJS/`read_xlsx`), and the file is at/above `FSAA_THRESHOLD_BYTES`, `loadFile` skips `file.arrayBuffer()`
+entirely and registers the `File` object directly. The old, wrong-protocol `loadLargeFileViaFSAA` /
+`pickLargeFileViaFSAA` functions were corrected in place with an explicit comment explaining what was wrong
+and why, rather than silently deleted or silently left as a landmine for a future session.
+
+**Provenance tradeoff, stated plainly rather than hidden:** the Chain of Custody's whole-file SHA-256
+content hash (`hashBytes` in `js/provenance/provenance.js`) is skipped for a streamed file. The Web Crypto
+API's `crypto.subtle.digest` has no incremental/streaming mode -- computing a real whole-file hash would
+require reading the entire file into memory anyway, exactly the cost streaming exists to avoid (confirmed
+via multiple independent sources, e.g.
+[MDN's non-cryptographic SubtleCrypto uses](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API/Non-cryptographic_uses_of_subtle_crypto)
+and [Transloadit's browser hashing writeup](https://transloadit.com/devtips/hash-files-in-the-browser-with-web-crypto/),
+both explicit that `digest()` requires the complete input up front). Rather than silently omitting the hash
+or fabricating an equivalent guarantee, the provenance chain's `load` step description and detail
+explicitly record that content hashing was skipped and why, for every streamed file, permanently, so an
+audit trail reader is never misled into thinking an unhashed file was hashed.
+
+**Live-proof evidence (real browser, real DuckDB-WASM, not mocked):** generated a deterministic 120MB CSV
+(`test/fixtures/generate_large_streaming_test_csv.mjs`, 3,195,999 rows, 7 categories) -- comfortably above
+the 100MB threshold. Served the app locally with `streamingIngestion` forced on in a scratch copy (never
+the committed manifest, which keeps the flag `false`) and drove it with Playwright:
+- Intercepted the actual `postMessage` calls sent to the DuckDB worker and confirmed the real RPC:
+  `{"type":"REGISTER_FILE_HANDLE","data":["large_streaming_test.csv",{},2,true]}` -- protocol value `2` is
+  `BROWSER_FILEREADER`, `true` is `directIO`, exactly the intended call, not a fallback path.
+- App UI reported 3,195,999 rows loaded in ~5.2s.
+- Cross-verified directly against DuckDB via the app's own SQL tab (never trusting the UI count alone, per
+  this project's standing test discipline): `SELECT COUNT(*), SUM(amount), COUNT(DISTINCT category)`
+  returned `3,195,999 | 2,180,342,032.95 | 7` -- COUNT and category count matched the generator exactly, and
+  SUM matched an independent Python recomputation of the generator's own formula
+  (`2180342032.95`) to the cent, confirming every row was read correctly with no truncation or corruption
+  through the new path.
+- A first attempt at this same proof failed with a DuckDB CSV-dialect-sniffing error, traced to the test
+  fixture itself (a stray `\r` on the header line only, from an earlier generator draft's `csv.writer`
+  defaults) rather than a product bug -- documented in the generator script's own comments so a future run
+  doesn't waste time re-diagnosing the same red herring.
+
+**Testing:** `test/streaming-ingestion.test.mjs` (15 assertions, Node, no browser/DuckDB dependency) covers
+the pure `shouldStreamIngest` decision: flag-off default safety, the FSAA size threshold (including the
+exact boundary), every streamable format, and the xlsx/unknown-format exclusions. Wired into CI as a new
+job inside the existing `job-ci-batch-05.yml` (18 -> 19 jobs in that file), per the CI Architect convention
+of using headroom inside an existing batch file rather than a new top-level `uses:` workflow. The real
+DuckDB-WASM read path itself is proven by the live Playwright run above, not by a Node-level mock -- that
+part genuinely needs a browser and is intentionally not claimed as CI-covered.
+
+**Platform:** all shared-codebase surfaces (web, desktop/Tauri, PWA/mobile) get this change identically --
+`loaders.js`/`duckdb-engine.js` carry no platform fork, and `BROWSER_FILEREADER` is a standard DuckDB-WASM
+Worker API available wherever the existing WASM bundle already runs. Not yet independently proven on the
+Tauri desktop shell or a real mobile browser this pass (only the plain web build was live-tested) --
+listed here as an explicit platform-parity gap, not silently assumed identical.
+
+**Explicitly NOT done this pass, next up:** the OPFS persistence half of item 2 (cross-session
+persistence via `opfs://` paths / `registerOPFSFileName`) -- a separate, independent batched PR. Also not
+in scope: true incremental hashing for streamed files (would need a vetted third-party incremental SHA-256
+implementation, a real added-dependency decision, not made silently here) and desktop/mobile live-proof of
+this specific change.
+
+Shipped flag-gated and OFF by default: `streamingIngestion` (`flags.manifest.json`, `enabled: false`).
+Zero behavior change for any user until explicitly enabled.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2347,14 +2434,17 @@ closes:
 
    All four modules under this item are now done. Structural Readiness Phase item 2 (resolve the scale
    ceiling) is next.
-2. **⬜ Resolve the scale ceiling instead of leaving it open.** Six scale-architecture options were laid
-   out 2026-07-12 (see the architecture brainstorm above) and none has been chosen as of 2026-09-24 — the
-   practical ceiling today is still whatever fits in one browser tab's DuckDB-WASM memory (~4GB). Chosen
-   direction: **OPFS persistence + chunked/streaming ingestion first** — it's client-side, preserves
+2. **🟨 Resolve the scale ceiling instead of leaving it open (IN PROGRESS — ingestion streaming half DONE
+   2026-09-25, OPFS persistence half not started).** Six scale-architecture options were laid out
+   2026-07-12 (see the architecture brainstorm above) and none had been chosen as of 2026-09-24 — the
+   practical ceiling was whatever fit in one browser tab's DuckDB-WASM memory (~4GB). Chosen direction:
+   **OPFS persistence + chunked/streaming ingestion first** — it's client-side, preserves
    zero-upload-by-default for every user (not just opted-in ones), and doesn't require the desktop-only
-   native-DuckDB path or the identity-blurring bring-your-own-warehouse path. Scope when picked up: land
-   this as its own batched PR sequence (ingestion streaming first, OPFS persistence layer second), proven
-   against a file larger than fits comfortably in-memory today.
+   native-DuckDB path or the identity-blurring bring-your-own-warehouse path. Landing as its own batched PR
+   sequence (ingestion streaming first, OPFS persistence layer second), proven against a file larger than
+   fits comfortably in-memory today. See the dated "Test findings" entry below for the streaming half's
+   real bug found, implementation, and live-proof evidence. OPFS persistence (the second half) remains
+   ⬜ not started — do not read this item as fully done until that half also lands.
 3. **⬜ Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring currently lands in one
    10,050-line file. This is the single largest unaddressed structural risk in the codebase and will only
    get harder to safely touch as more capability lands. Scope when picked up: extract tab-rendering logic

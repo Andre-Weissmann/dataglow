@@ -12,3 +12,8 @@ src-tauri/binaries/
 
 # Local session scratch (not durable foundations)
 NOTES.md
+
+# Generated large-file test fixtures (streaming-ingestion proof, Structural
+# Readiness Phase item 2) -- regenerate with:
+#   node test/fixtures/generate_large_streaming_test_csv.mjs
+test/fixtures/large_streaming_test.csv
