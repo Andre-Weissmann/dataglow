@@ -13,8 +13,18 @@ import {
   XLSX_TRY_DUCKDB_NATIVE,
   FSAA_THRESHOLD_BYTES,
 } from './duckdb-config.js';
+import { isEnabled } from '../build/build-flags.js';
 import { buildOmopSample, buildFhirSample, flattenFhirBundle } from '../validation/health-standards.js';
 import { profilePdf, pdfProfileToRows, PDF_DATASET_COLUMNS } from '../cleaning-crew/pdf-profiler.js';
+
+// Pure decision function, exported so it can be unit-tested directly (Node,
+// no DuckDB/browser needed) rather than only indirectly through loadFile's
+// full I/O path. Kept in perfect sync with the inline call inside loadFile
+// below -- loadFile calls this exact function, not a duplicated inline check.
+const STREAMABLE_EXTENSIONS = ['csv', 'tsv', 'json', 'ndjson', 'parquet', 'arrow', 'feather'];
+export function shouldStreamIngest(ext, sizeBytes, flagEnabled) {
+  return !!flagEnabled && STREAMABLE_EXTENSIONS.includes(ext) && shouldUseFSAA(sizeBytes);
+}
 
 function uniqueTableName(baseName) {
   const existingTables = new Set(state.datasets.map(d => d.table));
@@ -39,26 +49,55 @@ export async function loadFile(file) {
   // and sales.json) would otherwise collide on the same DuckDB table name and silently
   // overwrite each other's data via CREATE OR REPLACE TABLE. Disambiguate up front.
   const tableName = uniqueTableName(sanitizeTableName(file.name));
-  const arrayBuffer = await file.arrayBuffer();
-  // Anchor the provenance chain of custody to the raw file bytes. We hash BEFORE
-  // registering (belt) and engine.registerFileBuffer now hands DuckDB-WASM an
-  // independent copy so it can no longer detach this buffer (suspenders): a
-  // detached buffer here would make hashBytes throw and the audit trail would
-  // silently record nothing — worse than having no audit trail at all.
-  const rawHash = await hashBytes(arrayBuffer);
+
+  // Streaming ingestion (Structural Readiness Phase item 2, first half, flag
+  // 'streamingIngestion'): for a file big enough that shouldUseFSAA() says so,
+  // and only for the formats DuckDB can read directly off a registered file
+  // handle (CSV/TSV, JSON/NDJSON, Parquet, Arrow/Feather -- NOT xlsx, which
+  // always needs a full in-memory buffer for SheetJS/DuckDB's read_xlsx), skip
+  // file.arrayBuffer() entirely and register the File itself via
+  // engine.registerFileHandleStreaming, so DuckDB reads bytes on demand
+  // instead of the whole file landing in the JS heap up front. Off by default:
+  // with the flag off, or for a file under the threshold, or for a
+  // non-streamable format, behavior is byte-for-byte the pre-existing path.
+  const useStreaming = shouldStreamIngest(ext, file.size, isEnabled('streamingIngestion'));
+
+  let arrayBuffer = null;
+  let rawHash = null;
+  if (!useStreaming) {
+    arrayBuffer = await file.arrayBuffer();
+    // Anchor the provenance chain of custody to the raw file bytes. We hash BEFORE
+    // registering (belt) and engine.registerFileBuffer now hands DuckDB-WASM an
+    // independent copy so it can no longer detach this buffer (suspenders): a
+    // detached buffer here would make hashBytes throw and the audit trail would
+    // silently record nothing — worse than having no audit trail at all.
+    rawHash = await hashBytes(arrayBuffer);
+  }
+  // When streaming, rawHash stays null rather than a fabricated or partial
+  // value: the Web Crypto API has no incremental digest, so a real whole-file
+  // SHA-256 would require reading the entire file into memory anyway --
+  // exactly the cost this path exists to avoid. The provenance step recorded
+  // below says plainly that content hashing was skipped for this reason,
+  // rather than silently omitting it or claiming an equivalent guarantee that
+  // doesn't hold. See NORTH_STAR.md's Structural Readiness Phase item 2 notes.
 
   let droppedRows = 0;
   try {
     if (['csv', 'tsv'].includes(ext)) {
-      await engine.registerFileBuffer(file.name, arrayBuffer);
+      if (useStreaming) await engine.registerFileHandleStreaming(file.name, file);
+      else await engine.registerFileBuffer(file.name, arrayBuffer);
       ({ droppedRows = 0 } = await engine.createTableFromCSV(tableName, file.name) || {});
     } else if (['json', 'ndjson'].includes(ext)) {
-      await engine.registerFileBuffer(file.name, arrayBuffer);
+      if (useStreaming) await engine.registerFileHandleStreaming(file.name, file);
+      else await engine.registerFileBuffer(file.name, arrayBuffer);
       await engine.createTableFromJSON(tableName, file.name);
     } else if (['parquet'].includes(ext)) {
-      await engine.registerFileBuffer(file.name, arrayBuffer);
+      if (useStreaming) await engine.registerFileHandleStreaming(file.name, file);
+      else await engine.registerFileBuffer(file.name, arrayBuffer);
       await engine.createTableFromParquet(tableName, file.name);
     } else if (['xlsx', 'xls'].includes(ext)) {
+      arrayBuffer = arrayBuffer ?? await file.arrayBuffer();
+      rawHash = rawHash ?? await hashBytes(arrayBuffer);
       await loadExcel(arrayBuffer, tableName);
     } else if (['sqlite', 'db'].includes(ext)) {
       // SQLite is intentionally NOT in the advertised upload formats (it needs
@@ -66,7 +105,8 @@ export async function loadFile(file) {
       // the roadmap. Keep a clear message in case a user drags one in anyway.
       throw new Error('SQLite files are not supported yet (on the roadmap) — export to CSV or Parquet for now.');
     } else if (['arrow', 'feather'].includes(ext)) {
-      await engine.registerFileBuffer(file.name, arrayBuffer);
+      if (useStreaming) await engine.registerFileHandleStreaming(file.name, file);
+      else await engine.registerFileBuffer(file.name, arrayBuffer);
       await engine.runQuery(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_parquet('${file.name}')`).catch(async () => {
         throw new Error('Arrow/Feather loading needs the arrow extension in this build.');
       });
@@ -84,12 +124,20 @@ export async function loadFile(file) {
       loadedAt: Date.now(),
       sizeBytes: file.size,
       droppedRows,
+      streamed: useStreaming,
     };
     addDataset(ds);
     // Anchor the Chain of Custody to the raw bytes the analyst started from
-    // (hashed above, before the engine detached the buffer).
+    // (hashed above, before the engine detached the buffer) -- UNLESS this
+    // file went through the streaming path, in which case rawHash is null and
+    // the load description says so explicitly (see the comment above where
+    // useStreaming is computed for why: no whole-file hash was computed, on
+    // purpose, rather than reading the whole file again just to hash it).
     const chain = startProvenance(tableName);
-    await chain.append('load', `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`, { file: file.name, rows: rowCount, sizeBytes: file.size, droppedRows }, rawHash);
+    const loadDescription = useStreaming
+      ? `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()}, streamed via File System Access API -- content hash not computed for this file, since hashing it would require reading the whole file into memory, the exact cost streaming avoids)`
+      : `Loaded raw file "${file.name}" (${rowCount.toLocaleString()} rows, ${ext.toUpperCase()})`;
+    await chain.append('load', loadDescription, { file: file.name, rows: rowCount, sizeBytes: file.size, droppedRows, streamed: useStreaming, contentHashSkipped: useStreaming }, rawHash);
     if (droppedRows > 0) {
       const total = rowCount + droppedRows;
       // A silent IGNORE_ERRORS drop would leave the analyst none the wiser that
@@ -221,22 +269,39 @@ export async function loadFhirSampleDataset() {
 }
 
 // #2 — File System Access API streaming path for files > FSAA_THRESHOLD_BYTES.
-// Returns a FileSystemFileHandle or null (null = fall back to arrayBuffer load).
-// Only called when the user has already interacted with a file picker and the
-// browser supports the FSAA API. Never called silently; it is the caller's job
-// to decide whether to use it based on shouldUseFSAA(file.size).
+// CORRECTED 2026-09-25 (Structural Readiness Phase item 2): this function
+// previously returned a File derived from a FileSystemFileHandle, under the
+// assumption that DuckDB's BROWSER_FSACCESS protocol (DuckDBDataProtocol
+// value 3) could register that handle directly. That assumption was wrong and
+// was NEVER exercised end-to-end -- neither this function nor
+// pickLargeFileViaFSAA below was ever called from loadFile or any UI handler,
+// so the bug shipped invisibly. Reading DuckDB-WASM's own worker source
+// (prepareFileHandleAsync in assets/duckdb/duckdb-browser-eh.worker.js) shows
+// BROWSER_FSACCESS calls FileSystemFileHandle.createSyncAccessHandle(), which
+// throws "does not represent a file in the origin private file system" for an
+// arbitrary local file the user picked or dropped -- that API only works for
+// files already inside OPFS. The correct protocol for a user-picked local
+// File is BROWSER_FILEREADER (value 2), confirmed against DuckDB's official
+// docs (duckdb.org/docs/current/clients/wasm/data_ingestion) and now
+// implemented as engine.registerFileHandleStreaming() in duckdb-engine.js,
+// which loadFile calls directly on the File object -- no FileSystemFileHandle
+// or file picker needed at all, since a normal <input type=file> / drop event
+// already hands the caller a File. This function and pickLargeFileViaFSAA are
+// kept only as thin, now-accurately-documented helpers for the SEPARATE case
+// of a user explicitly picking a file via a native OS picker (e.g. a future
+// "open large file" button distinct from drag-and-drop) rather than the
+// standard upload path, which no longer needs either of them.
 export async function loadLargeFileViaFSAA(fileHandle) {
-  // DuckDB-WASM can register a File object from a FileSystemFileHandle via
-  // db.registerFileHandle(). This lets DuckDB read bytes on-demand from disk
-  // without loading the entire file into WASM linear memory.
   if (!fileHandle || typeof fileHandle.getFile !== 'function') return null;
   const file = await fileHandle.getFile();
   return file;
 }
 
 // #2 — Show a native FSAA file picker and return the File.
-// Used by the drag-and-drop / click-to-upload handler when the file is too
-// large for in-memory load. Returns null if user cancels or FSAA unavailable.
+// Returns null if user cancels or FSAA unavailable. The returned File is a
+// normal File object -- pass it to engine.registerFileHandleStreaming() the
+// same way loadFile does for a dropped/selected file, NOT to a
+// BROWSER_FSACCESS registration (see the corrected comment above).
 export async function pickLargeFileViaFSAA() {
   if (!isFSAASupported()) return null;
   try {
