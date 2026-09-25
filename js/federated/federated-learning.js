@@ -327,6 +327,32 @@ export function sumMaskedUpdates(maskedUpdates) {
 // Cohort gating + federated averaging (FedAvg, McMahan et al. 2017)
 // ------------------------------------------------------------
 
+// Cap on any single peer's sampleCount, as a multiple of the cohort's MEDIAN
+// sampleCount. Added 2026-09-24 after a real-world stress test (Structural
+// Readiness Phase item 1, Federated Learning module) found that sampleCount
+// is entirely self-reported by each peer with no upper bound anywhere in the
+// pipeline (federated-transport.js relays it straight from peer data into
+// aggregateRound). One peer claiming a fabricated, enormous sampleCount could
+// dominate the weighted average and overwrite the honest cohort's
+// contribution outright -- a textbook FedAvg data-poisoning vector.
+// Deliberately uses the MEDIAN, not the mean, as the cap's basis: the mean is
+// itself dragged upward by the same outlier it's supposed to constrain (a
+// first version of this fix used the mean and the cap barely moved, since one
+// huge value inflates its own ceiling almost as much as it inflates the raw
+// total) -- the median stays anchored to the honest majority regardless of
+// how extreme a single outlier is. A cap of 3x the median is a standard
+// robust-aggregation guardrail (in the spirit of clipped/trimmed-mean
+// defenses): generous enough that a genuinely more-active peer still gets
+// real extra weight, but no single self-reported number can silently
+// overwhelm the rest of an honest cohort.
+export const MAX_PEER_WEIGHT_SHARE_MULTIPLE = 3;
+
+function median(sortedAscending) {
+  const n = sortedAscending.length;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 0 ? (sortedAscending[mid - 1] + sortedAscending[mid]) / 2 : sortedAscending[mid];
+}
+
 // Aggregate a round's contributions into a new global weight vector, ENFORCING
 // the minimum-cohort threshold. `contributions` = [{ update, sampleCount }].
 // Returns { applied, reason, weights?, cohortSize, totalSamples }.
@@ -345,13 +371,22 @@ export function aggregateRound(contributions, baseWeights, { minCohort = MIN_COH
   }
   const base = (baseWeights || new Array(MODEL_DIM).fill(0.5)).slice();
   const dim = base.length;
-  const totalSamples = valid.reduce((a, c) => a + Math.max(1, c.sampleCount || 1), 0);
-  // FedAvg: sample-weighted mean of the per-peer deltas.
+  // Cap each contributor's raw sampleCount at MAX_PEER_WEIGHT_SHARE_MULTIPLE
+  // times the cohort's MEDIAN sampleCount, BEFORE computing weights -- this is
+  // what actually bounds any single peer's influence, since totalSamples is
+  // derived from these same (now-capped) values. The median (not mean) keeps
+  // the cap anchored to the honest majority even when one value is extreme.
+  const rawSamples = valid.map(c => Math.max(1, c.sampleCount || 1));
+  const medianSample = median(rawSamples.slice().sort((x, y) => x - y));
+  const cappedSamples = rawSamples.map(s => Math.min(s, medianSample * MAX_PEER_WEIGHT_SHARE_MULTIPLE));
+  const anyCapped = cappedSamples.some((s, i) => s < rawSamples[i]);
+  const totalSamples = cappedSamples.reduce((a, s) => a + s, 0);
+  // FedAvg: sample-weighted mean of the per-peer deltas, using capped weights.
   const avgDelta = new Array(dim).fill(0);
-  for (const c of valid) {
-    const w = Math.max(1, c.sampleCount || 1) / totalSamples;
+  valid.forEach((c, idx) => {
+    const w = cappedSamples[idx] / totalSamples;
     for (let i = 0; i < dim; i++) avgDelta[i] += w * (c.update[i] || 0);
-  }
+  });
   const weights = base.map((b, i) => {
     const v = b + avgDelta[i];
     return v < 0 ? 0 : v > 1 ? 1 : v; // keep weights valid probabilities
@@ -360,8 +395,11 @@ export function aggregateRound(contributions, baseWeights, { minCohort = MIN_COH
     applied: true,
     cohortSize,
     totalSamples,
+    weightCapped: anyCapped,
     weights,
-    reason: `Aggregated ${cohortSize} contributor(s) via FedAvg (sample-weighted).`,
+    reason: anyCapped
+      ? `Aggregated ${cohortSize} contributor(s) via FedAvg (sample-weighted, one or more outlier sample counts capped at ${MAX_PEER_WEIGHT_SHARE_MULTIPLE}x the cohort median to limit any single peer's influence).`
+      : `Aggregated ${cohortSize} contributor(s) via FedAvg (sample-weighted).`,
   };
 }
 
