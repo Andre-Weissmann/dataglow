@@ -82,6 +82,7 @@
     "test:packindex": "node test/local-pack-index.test.mjs",
     "test:packbuilder": "node test/pack-builder-agent.test.mjs",
     "test:meetingscribe": "node test/meeting-scribe.test.mjs",
+    "test:meetingscribe-realworld": "node test/meeting-scribe-realworld-stress.test.mjs",
     "test:livecapture": "node test/live-transcript-capture.test.mjs",
     "test:sourceconvergence": "node test/source-convergence.test.mjs",
     "test:sourceconvergenceingestion": "node test/source-convergence-ingestion.test.mjs",

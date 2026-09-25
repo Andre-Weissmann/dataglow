@@ -85,6 +85,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:meetingsynthesis
+      # 2026-09-24: test:meetingscribe (js/agents/meeting-scribe-agent.js's own
+      # unit suite) was found to have never been wired into any CI workflow --
+      # a real gap, fixed here alongside the realworld-stress regression test
+      # added for the same module (Structural Readiness Phase item 1).
+      - run: npm run test:meetingscribe
+      - run: npm run test:meetingscribe-realworld
 
   living-manifest:
     name: Living-manifest automation

@@ -51,6 +51,19 @@
 
 // Phrases that signal a stakeholder is challenging a number rather than just
 // asking about it — the Skeptic-style re-run trigger, not a prose answer.
+// Grown 2026-09-24 (Structural Readiness Phase item 1, real-world stress test
+// against a hand-annotated 14-line realistic meeting transcript --
+// test-harness/meeting-scribe-realworld/): the original 16 entries only matched
+// 6 of 14 realistic lines. Every miss was a real pushback expressed in
+// natural phrasing that didn't contain an original entry as an exact
+// substring -- e.g. an inserted word ("is that number even right"), a missing
+// word ("where's that number even coming from" vs. the exact "where does that
+// number come from"), or different wording entirely ("feels off", "doesn't sit
+// right"). The added entries below are the CONCRETE variants that test
+// surfaced, not a speculative expansion -- this stays a plain substring list
+// by design (the finding explicitly separated "widen the catalog" as a cheap,
+// low-risk fix from "add fuzzy/NLU matching" as a bigger, separate decision
+// not made here).
 export const PUSHBACK_PHRASES = Object.freeze([
   'why did this drop', 'why did that drop', 'why is this down', 'why is that down',
   'are you sure', 'is that right', 'is that correct', 'that doesn\u2019t look right',
@@ -58,16 +71,30 @@ export const PUSHBACK_PHRASES = Object.freeze([
   'double-check', 'can you verify', 'can we verify', 'i don\u2019t believe that',
   "i don't believe that", 'that can\u2019t be right', "that can't be right",
   'where does that number come from', 'how did you get that number',
+  // Added 2026-09-24: real natural-phrasing variants found via stress test.
+  'is that number even right', 'feels off', 'doesn\u2019t sit right with me',
+  "doesn't sit right with me", 'that number even coming from',
+  'kind of surprising', 'kinda surprising',
 ]);
 
 // Phrases that signal a NEW data request rather than a question about what is
 // already on screen.
+//
+// Grown 2026-09-24 (same stress-test pass as PUSHBACK_PHRASES above): the
+// original 15 entries required a trailing "me" ("could you send me"), the
+// specific phrase "break this down by" (missing the equally common "also
+// break down" construction), and the full word "you" (missing texting-style
+// "u") -- all three concrete gaps this stress test surfaced.
 export const DATA_REQUEST_PHRASES = Object.freeze([
   'can you also pull', 'can you pull', 'could you pull', 'can we get',
   'could we get', 'can you also get', 'can you add', 'could you add',
   'can you break this down by', 'could you break this down by',
   'can you send me', 'could you send me', 'can you also look at',
   'is it possible to see', 'one more thing, can you',
+  // Added 2026-09-24: real natural-phrasing variants found via stress test.
+  'could you send that over', 'can you send that over', 'can u add', 'could u add',
+  'can you also break down', 'could you also break down',
+  "let's also look at this by", 'lets also look at this by',
 ]);
 
 function normalize(text) {
