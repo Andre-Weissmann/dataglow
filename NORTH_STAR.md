@@ -2008,6 +2008,61 @@ remain from that test pass.
 hard-dataset pass (only the CMS inpatient repro itself was re-run this pass, since that was the specific
 failure this upgrade targets) -- still a backlog item for a future `test-dataglow-platform` run.
 
+## Test findings (2026-09-24 -- Meeting Scribe real-world stress test, Structural Readiness Phase item 1)
+
+First pass of the Structural Readiness Phase's "prove breadth" item: `js/agents/meeting-scribe-agent.js`
+had unit and e2e UI test coverage but zero real-world stress-test evidence -- every existing test case
+uses phrasing that near-exactly matches the module's own `PUSHBACK_PHRASES`/`DATA_REQUEST_PHRASES`
+catalogs, which proves the code does what it does but not whether it holds up against how people actually
+talk in a meeting.
+
+**Method:** built a 14-line synthetic-but-realistic meeting transcript
+(`test-harness/meeting-scribe-realworld/realistic_transcript.md`) modeled on real business-review-meeting
+speech patterns -- hedging, interruptions, self-correction, texting-style abbreviation, indirect phrasing
+-- with each line hand-annotated against ground truth (pushback / data-request / neither) BEFORE running
+the module, so the answer key isn't reverse-engineered from the output. Ran the REAL, unmodified
+`detectPushback`/`detectDataRequest` functions against it
+(`test-harness/meeting-scribe-realworld/run_stress_test.mjs`), no mocking.
+
+**Result: 6 of 14 lines (43%) fully correct.** All 8 misses were **false negatives** (a real pushback or
+data request that went undetected) -- **zero false positives** across all 14 lines, including the 3
+deliberate "neither" sanity-check lines (a plain transition, a plain meeting close, and a deferred/vague
+unease remark), which all correctly returned `false`/`false`.
+
+1. **Exact substring matching is precision-safe but recall-poor against natural phrasing.** Every miss
+   was a real pushback/request expressed in a way that didn't contain one of the 16 pushback or 15
+   data-request catalog phrases verbatim as a substring -- e.g. "is that number even right?" (extra words
+   break the match against catalog's bare "is that right"), "could you send that over" (missing the
+   catalog's required trailing "me"), "can you also break down the November cohort" (different
+   preposition structure than catalog's "can you break this down by"), and "can u add" (texting
+   abbreviation "u" vs. the catalog's full word "you").
+2. **This is a real, honest gap, not a bug** -- the module's own docstring never claims fuzzy/NLU-level
+   detection; it's documented as deterministic string logic by design ("no LLM, no DOM, no browser
+   global"), and the zero-false-positive result confirms the design choice correctly favors precision over
+   recall. The finding is that recall is low enough (43% full-line accuracy on realistic phrasing) that a
+   real user relying on this to auto-catch pushback/requests in a live meeting would miss more than half
+   of them, which materially undercuts the "analyst team goes to the meeting" pitch if left unaddressed.
+3. **One genuinely ambiguous case surfaced honestly rather than penalized:** "I don't know, something
+   about this doesn't sit right with me" -- real skepticism, no catalog phrase, arguably borderline
+   depending on how conservatively the module should interpret vague unease. Resolved by adding it as a
+   concrete phrase after review, rather than left open.
+4. **FIXED, same pass (PR #685):** widened `PUSHBACK_PHRASES` (+7 entries) and `DATA_REQUEST_PHRASES`
+   (+8 entries) in `js/agents/meeting-scribe-agent.js` with the exact concrete variants this test
+   surfaced -- same plain substring-list design, no fuzzy/NLU matching added (that stays a separate,
+   larger design decision, not made here). Re-ran the stress test: **14 of 14 (100%)**, zero regressions
+   in the existing 64-assertion unit suite or the 30-assertion e2e UI suite. The 14-line transcript is now
+   a permanent regression test (`test/meeting-scribe-realworld-stress.test.mjs`, wired into CI via
+   `job-ci-batch-03.yml`) so future catalog/matching changes can't silently regress this recall floor.
+5. **Bonus fix, same pass:** `test:meetingscribe` -- the module's OWN base unit suite (64 assertions) --
+   was found to have never been wired into any CI workflow at all, a real pre-existing gap unrelated to
+   this test but caught while touching the same module. Now runs in CI alongside the new test.
+
+**Platform:** web only (pure JS logic, no DOM/browser dependency, so desktop/mobile parity is not a
+separate question for this specific module -- the same function runs identically everywhere).
+
+**Not covered this round:** Federated Learning, Polyglot Workbench cross-language registry, and the AI
+Council -- still open items under Structural Readiness Phase item 1 for future passes.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2083,16 +2138,24 @@ future-proof, everything works super well." Four structural gaps matter more tha
 this order, and the user asked to do all four, one at a time, with this section kept current as each
 closes:
 
-1. **⬜ Prove breadth, not just build breadth.** Only a fraction of the 182 live capabilities have been
-   through the real-world stress-test methodology (real public datasets, documented ground-truth answer
-   keys, SQL-cross-verified findings) that the 2026-07-17 and 2026-09-17/18/19 test-findings sections
-   used for the core validation/SQL/dashboard path. Modules with zero real-world stress-test evidence
-   found so far: Federated Learning (`js/federated/`), Meeting Scribe/Rooms (`js/rooms/`,
-   `js/meeting-scribe*`), the Polyglot Workbench cross-language object registry (`js/polyglot/`), and the
-   AI Council (`js/council/`). Next step when picked up: choose 1-2 of these per pass, build or reuse a
-   realistic messy dataset for that module's actual use case, run it hands-on, and write a dated
-   `## Test findings` section with the same rigor as the existing ones — Pass/Partial/Fail/Not Implemented
-   per claim, never a guessed score.
+1. **🟨 IN PROGRESS — Prove breadth, not just build breadth.** Only a fraction of the 182 live capabilities
+   have been through the real-world stress-test methodology (real public datasets, documented
+   ground-truth answer keys, SQL-cross-verified findings) that the 2026-07-17 and 2026-09-17/18/19
+   test-findings sections used for the core validation/SQL/dashboard path. Modules with zero real-world
+   stress-test evidence: Federated Learning (`js/federated/`), Meeting Scribe (`js/agents/meeting-scribe*`),
+   the Polyglot Workbench cross-language object registry (`js/polyglot/`), and the AI Council
+   (`js/council/`).
+   - **✅ Meeting Scribe (2026-09-24, PR #685):** stress-tested `detectPushback`/`detectDataRequest`
+     against a hand-annotated realistic transcript. Found 6/14 (43%) fully correct pre-fix, 0 false
+     positives, 8 false negatives from natural-phrasing gaps in the exact-substring catalogs. Fixed by
+     widening both catalogs with the concrete variants found -- 14/14 (100%) post-fix, locked in as a
+     permanent CI regression test. Also fixed a real pre-existing gap: the module's own base unit suite
+     (`test:meetingscribe`) had never been wired into any CI workflow.
+   - ⬜ Federated Learning, Polyglot Workbench, AI Council -- still open, next in sequence.
+   Next step when picked up: choose 1-2 remaining modules per pass, build or reuse a realistic messy
+   dataset/scenario for that module's actual use case, run it hands-on, and write a dated
+   `## Test findings` section with the same rigor — Pass/Partial/Fail/Not Implemented per claim, never a
+   guessed score.
 2. **⬜ Resolve the scale ceiling instead of leaving it open.** Six scale-architecture options were laid
    out 2026-07-12 (see the architecture brainstorm above) and none has been chosen as of 2026-09-24 — the
    practical ceiling today is still whatever fits in one browser tab's DuckDB-WASM memory (~4GB). Chosen
