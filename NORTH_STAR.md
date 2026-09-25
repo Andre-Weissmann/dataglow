@@ -2073,6 +2073,53 @@ the last count is higher because it was rebased on top of the other three's newl
 
 Open follow-on, not yet scoped: a real shared-grid rendering engine (one continuous grid instead of three separate SQL/Python/R result panes) -- a larger lift beyond this 3-batch build.
 
+## Structural Readiness Phase (started 2026-09-24 — do one at a time, update this section as each closes)
+
+On 2026-09-24 the user asked for an honest assessment of whether the ranked feature backlog below was
+actually the right next work, given DataGlow's real scale (182 feature flags, 181 live; ~124,000 lines
+across 373 JS files; `js/app-shell/main.js` alone at 10,050 lines). The honest answer: the backlog is a
+queue of individually-reasonable feature PRs, not a roadmap toward "industry-ready for anything,
+future-proof, everything works super well." Four structural gaps matter more than the next feature, in
+this order, and the user asked to do all four, one at a time, with this section kept current as each
+closes:
+
+1. **⬜ Prove breadth, not just build breadth.** Only a fraction of the 182 live capabilities have been
+   through the real-world stress-test methodology (real public datasets, documented ground-truth answer
+   keys, SQL-cross-verified findings) that the 2026-07-17 and 2026-09-17/18/19 test-findings sections
+   used for the core validation/SQL/dashboard path. Modules with zero real-world stress-test evidence
+   found so far: Federated Learning (`js/federated/`), Meeting Scribe/Rooms (`js/rooms/`,
+   `js/meeting-scribe*`), the Polyglot Workbench cross-language object registry (`js/polyglot/`), and the
+   AI Council (`js/council/`). Next step when picked up: choose 1-2 of these per pass, build or reuse a
+   realistic messy dataset for that module's actual use case, run it hands-on, and write a dated
+   `## Test findings` section with the same rigor as the existing ones — Pass/Partial/Fail/Not Implemented
+   per claim, never a guessed score.
+2. **⬜ Resolve the scale ceiling instead of leaving it open.** Six scale-architecture options were laid
+   out 2026-07-12 (see the architecture brainstorm above) and none has been chosen as of 2026-09-24 — the
+   practical ceiling today is still whatever fits in one browser tab's DuckDB-WASM memory (~4GB). Chosen
+   direction: **OPFS persistence + chunked/streaming ingestion first** — it's client-side, preserves
+   zero-upload-by-default for every user (not just opted-in ones), and doesn't require the desktop-only
+   native-DuckDB path or the identity-blurring bring-your-own-warehouse path. Scope when picked up: land
+   this as its own batched PR sequence (ingestion streaming first, OPFS persistence layer second), proven
+   against a file larger than fits comfortably in-memory today.
+3. **⬜ Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring currently lands in one
+   10,050-line file. This is the single largest unaddressed structural risk in the codebase and will only
+   get harder to safely touch as more capability lands. Scope when picked up: extract tab-rendering logic
+   into per-tab modules, following the same pure-core/thin-UI split already used for newer modules (e.g.
+   `query-memory.js` vs `query-memory-ui.js`) — a structured extraction, not a rewrite, with the full test
+   suite proving zero behavior change at each step.
+4. **⬜ Turn test-findings history into structured, queryable evidence.** `NORTH_STAR.md` is 2,454+ lines
+   with 15 dated `## Test findings` sections as of 2026-09-24 — real, valuable evidence, but as prose in
+   one ever-growing file it's not queryable ("which capabilities have real-world evidence, and how
+   recent is it?" currently requires a human to read the whole file). Scope when picked up: surface a
+   per-capability evidence/confidence view on the existing live Mission Center dashboard
+   (https://dataglow-development.pplx.app), reading the same repo state Mission Center's Step 1 already
+   parses, rather than adding more prose to this file.
+
+**Sequencing note:** these are being worked one at a time, in the order above, each as its own scoped
+PR/pass with its own before/after evidence — not a single giant change. This section's checkboxes
+(⬜ → ✅) are updated as each closes, so "what's actually done vs. still open" stays visible without
+re-deriving it from scratch each session.
+
 ## Backlog (ranked, queued — not abandoned)
 
 **From 2026-09-23 (Trust Passport live verification) — mobile layout bug, not yet scoped/fixed:**
