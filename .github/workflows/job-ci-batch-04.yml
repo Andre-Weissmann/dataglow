@@ -193,6 +193,11 @@ jobs:
       # covered separately by test:bundle14canvas in job-e2e-smoke.yml, since
       # that needs a real browser.
       - run: npm run test:bundle14ledger
+      # 2026-09-24: Structural Readiness Phase item 1 (prove breadth). Locks in
+      # the fix for a real silent-data-corruption bug found by stress-testing
+      # encodeColumnBatch against messy real-world numeric data (non-numeric
+      # strings, int32 overflow/truncation) -- see js/polyglot/arrow-bridge.js.
+      - run: npm run test:arrowbridge-realworld
 
   row-shape-correctness:
     name: Row-shape correctness (DuckDB CSV, CSV/PDF export, join key resolution)

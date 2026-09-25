@@ -249,12 +249,29 @@ export function buildArrowBridgeStatusV2(input) {
   });
 }
 
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
 /**
  * Encode one numeric column into a typed array plus the metadata a decoder
  * needs. This is the whole "batch" in batch_bridge: no JSON string exists at
  * any point in this path, only a typed array and a small header object.
  *
- * @param {Array<number|null>} values
+ * SAFETY (added 2026-09-24 after a real-world stress test found silent data
+ * corruption): a value only gets written into the buffer as data if it
+ * COERCES to a finite number AND actually fits the chosen dtype. Anything
+ * else -- a non-numeric string (`"N/A"`, `"unknown"` -- exactly the kind of
+ * value a real healthcare/claims export uses for missing data), a non-integer
+ * routed to `int32` (e.g. `3.7`), or an integer outside the int32 range (e.g.
+ * a billing ID like `5000000000`) -- is now null-masked and counted in
+ * `droppedCount`/`droppedReasons`, never silently written as `NaN` or a
+ * wrapped/truncated int32 value. Before this fix, `encodeColumnBatch(['N/A', 5],
+ * 'float64')` wrote a literal `NaN` into the buffer with `nullMask[0] === 0`
+ * (as if it were valid, non-null data), and `encodeColumnBatch([5000000000],
+ * 'int32')` silently wrapped to `705032704` -- both are worse than a crash,
+ * since nothing downstream had any signal the value was ever bad.
+ *
+ * @param {Array<number|null|string>} values
  * @param {string} [dtype] one of BATCH_DTYPES, default float64
  */
 export function encodeColumnBatch(values, dtype) {
@@ -263,14 +280,37 @@ export function encodeColumnBatch(values, dtype) {
   const Ctor = kind === 'int32' ? Int32Array : Float64Array;
   const nullMask = new Uint8Array(rows.length);
   const buf = new Ctor(rows.length);
+  let droppedCount = 0;
+  const droppedReasons = {};
+  const markDropped = (i, reason) => {
+    nullMask[i] = 1;
+    buf[i] = 0;
+    droppedCount++;
+    droppedReasons[reason] = (droppedReasons[reason] || 0) + 1;
+  };
   for (let i = 0; i < rows.length; i++) {
     const v = rows[i];
-    if (v === null || v === undefined || (typeof v === 'number' && !isFinite(v))) {
-      nullMask[i] = 1;
-      buf[i] = 0;
-    } else {
-      buf[i] = Number(v);
+    if (v === null || v === undefined) {
+      markDropped(i, 'null_or_undefined');
+      continue;
     }
+    const n = Number(v);
+    if (!isFinite(n)) {
+      // Covers real Infinity/-Infinity numbers AND any value (including a
+      // non-numeric string like "N/A") that fails to coerce to a finite
+      // number -- Number("N/A") is NaN, and NaN is correctly caught here.
+      markDropped(i, typeof v === 'string' ? 'non_numeric_string' : 'non_finite_number');
+      continue;
+    }
+    if (kind === 'int32' && !Number.isInteger(n)) {
+      markDropped(i, 'non_integer_for_int32');
+      continue;
+    }
+    if (kind === 'int32' && (n < INT32_MIN || n > INT32_MAX)) {
+      markDropped(i, 'out_of_int32_range');
+      continue;
+    }
+    buf[i] = n;
   }
   return {
     kind: ARROW_BRIDGE_KIND,
@@ -279,6 +319,8 @@ export function encodeColumnBatch(values, dtype) {
     values: buf,
     nullMask,
     bytes: buf.byteLength + nullMask.byteLength,
+    droppedCount,
+    droppedReasons,
   };
 }
 

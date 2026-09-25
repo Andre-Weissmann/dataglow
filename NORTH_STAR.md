@@ -2063,6 +2063,55 @@ separate question for this specific module -- the same function runs identically
 **Not covered this round:** Federated Learning, Polyglot Workbench cross-language registry, and the AI
 Council -- still open items under Structural Readiness Phase item 1 for future passes.
 
+## Test findings (2026-09-24 -- Arrow bridge (Polyglot Workbench) real-world stress test, Structural Readiness Phase item 1)
+
+Second module pass under "prove breadth." `js/polyglot/arrow-bridge.js` (the DuckDB<->Python/R
+cross-language transfer layer) had real existing test coverage
+(`test/bundle14-ledger-pq-arrow-llama-lanes.test.mjs`), including its own round-trip fixture -- but that
+fixture only used clean, well-behaved numbers (`[1, 2, null, 4.5, -3, null, 0]`). This pass asked: what
+happens when `encodeColumnBatch`/`decodeColumnBatch` receive the kind of messy numeric data a real
+DuckDB-to-Python handoff actually produces.
+
+**Method:** wrote out ground truth for five realistic edge cases BEFORE running the code (huge float64
+values, non-integer floats routed to `int32`, `int32` overflow, numeric-looking strings, and non-numeric
+strings like `"N/A"`/`"unknown"` -- exactly the kind of missing-data marker a real healthcare/claims
+export uses), then ran the real, unmodified functions against them.
+
+**Result: found a real, silent data-corruption bug, not a crash.**
+
+1. **`encodeColumnBatch(['N/A', 5], 'float64')` wrote a literal `NaN` into the raw typed-array buffer
+   with `nullMask[0] === 0`** -- i.e. the null mask said this value was NOT null, while the actual data
+   was garbage. Root cause: the original null-check only ran on the raw input value (`v === null`, or
+   `typeof v === 'number' && !isFinite(v)`), never on `Number(v)` -- so a non-numeric string fell through
+   to the `else` branch, `Number("N/A")` produced `NaN`, and that `NaN` was written straight into the
+   buffer as if it were valid data. This is a real risk for DataGlow's own healthcare domain, where
+   `"N/A"`/`"unknown"`-style missing-data markers are common.
+2. **`encodeColumnBatch([5000000000], 'int32')` silently wrapped to `705032704`** via JavaScript's 32-bit
+   `ToInt32` overflow behavior -- a plausible real value (a large billing/claim ID) became a different,
+   nonsensical number with zero signal anything went wrong.
+3. **`encodeColumnBatch([3.7], 'int32')` silently truncated to `3`** -- a non-integer routed to an
+   integer dtype loses precision with no warning.
+4. **Confirmed NOT broken:** huge-but-finite float64 values, numeric-looking strings (`"42"` correctly
+   coerces to `42`), negative zero, and real `Infinity`/`-Infinity` (correctly null-masked) all worked
+   exactly as intended both before and after the fix.
+
+**FIXED, same pass (PR #686):** `encodeColumnBatch` now checks `Number(v)` for finiteness (catching both
+real non-finite numbers and any value, including a bad string, that fails to coerce), and for `int32`
+additionally validates the value is both an integer and within the true int32 range -- any value that
+fails either check is null-masked and counted in new `droppedCount`/`droppedReasons` fields, never
+silently written as corrupted data. Zero other modules called `encodeColumnBatch` in production code
+(confirmed via repo-wide search), so this fix has no callers to migrate. All 56 existing bundle-14
+assertions plus a new 8-assertion permanent regression test
+(`test/arrow-bridge-realworld-stress.test.mjs`) pass; the module's own `roundTripFixture()` self-check
+still reports `ok: true`. Capability map unaffected (278 shipped, 0 behind-flag).
+
+**Platform:** web (the bridge's actual host environment is DuckDB-WASM + Pyodide in-browser); the encode/
+decode functions themselves are pure JS with no DOM/browser API dependency, so this fix applies
+identically wherever the module runs.
+
+**Not covered this round:** Federated Learning and the AI Council -- still open items under Structural
+Readiness Phase item 1.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2151,7 +2200,14 @@ closes:
      widening both catalogs with the concrete variants found -- 14/14 (100%) post-fix, locked in as a
      permanent CI regression test. Also fixed a real pre-existing gap: the module's own base unit suite
      (`test:meetingscribe`) had never been wired into any CI workflow.
-   - ⬜ Federated Learning, Polyglot Workbench, AI Council -- still open, next in sequence.
+   - **✅ Arrow bridge / Polyglot Workbench (2026-09-24, PR #686):** stress-tested `encodeColumnBatch`/
+     `decodeColumnBatch` against messy real-world numeric data. Found a real silent data-corruption bug
+     -- non-numeric strings (e.g. `"N/A"`) wrote a `NaN` into the buffer while the null mask claimed it
+     wasn't null, and `int32` overflow/non-integer values silently wrapped/truncated with no signal.
+     Fixed by validating finiteness and dtype-fit before writing, null-masking anything that fails
+     instead of corrupting data. Zero production callers existed yet, so zero migration risk. Locked in
+     as an 8-assertion permanent CI regression test.
+   - ⬜ Federated Learning, AI Council -- still open, next in sequence.
    Next step when picked up: choose 1-2 remaining modules per pass, build or reuse a realistic messy
    dataset/scenario for that module's actual use case, run it hands-on, and write a dated
    `## Test findings` section with the same rigor — Pass/Partial/Fail/Not Implemented per claim, never a
