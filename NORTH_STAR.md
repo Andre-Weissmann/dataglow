@@ -2112,6 +2112,63 @@ identically wherever the module runs.
 **Not covered this round:** Federated Learning and the AI Council -- still open items under Structural
 Readiness Phase item 1.
 
+## Test findings (2026-09-24 -- AI Council real-world stress test, Structural Readiness Phase item 1)
+
+Third module pass under "prove breadth." `js/council/council-engine.js` (multi-provider AI panel --
+GPT/Claude/Gemini run in parallel, then synthesized) had real existing test coverage
+(`test/phase11-ai-council.test.mjs`, 144 assertions) but that suite only used clean, textbook-worded
+findings (e.g. "Revenue increased significantly" vs "Strong positive growth observed"). This pass asked:
+what happens with the verbose, hedged, negated findings a real LLM actually writes in a structured
+FINDING section, not a clean one-line sentence. Also found and fixed a separate, pre-existing gap: this
+144-assertion suite had never been wired into any CI workflow, despite AI Council being a shipped, LIVE,
+HIGH-value capability per `docs/capability-map.md`.
+
+**Method:** wrote out ground truth for four realistic FINDING pairs BEFORE running the code (a directly
+negated claim, a hedged-but-positive vs. confident-positive pair, a weak-hedged-positive vs. clear-negative
+pair, and a pair using no catalog signal words at all), then ran the real `scoreAlignment` function against
+them.
+
+**Result: found a real bug with direct user-facing impact, not a crash.**
+
+1. **`scoreAlignment` had no negation handling at all.** `scoreAlignment('Revenue increased significantly
+   this quarter.', 'Revenue did not increase significantly; the apparent growth was seasonal noise.')`
+   returned `1` (AGREE) -- pre-fix, both strings matched "increase"/"significant" as positive signal words
+   with no awareness that the second sentence explicitly denies the first. Since `synthesizeCouncil`'s
+   `overallAgreement === 'high'` directly drives a user-facing "the three models reach directional
+   agreement" narrative, this was a real risk of telling a user that models agree when two of them are
+   actually saying opposite things.
+2. **Confirmed NOT broken:** a hedged-but-positive finding correctly agreed with a confident-positive one
+   (both are genuinely positive-leaning), and a weak-hedged-positive finding correctly contradicted a
+   clear-negative one -- the underlying net-sign approach isn't universally broken, just missing negation
+   awareness.
+3. **Documented, not fixed, recall gap:** two findings describing the same real phenomenon in different
+   words ("increased" vs "shifted upward") both score neutral, since neither uses a catalog signal word.
+   Fixing this needs a larger vocabulary or semantic-similarity change, out of scope for this pass --
+   logged as a known limitation rather than silently left unverified.
+
+**FIXED, same pass:** added local negation detection (a `not`/`no`/`never`/etc. word within 4 words before
+a signal word flips that word's contribution), but scoped to DIRECTIONAL signal words only (increase/
+decrease, higher/lower, better/worse, positive/negative, decline, recommend, effective, improve) --
+deliberately excluding magnitude/confidence words (significant, strong, weak, insignificant). An initial,
+broader version of this fix (negating every signal word) over-corrected: "not strong enough to be
+significant" is a hedge about magnitude, not a direction reversal, and negating it there turned a
+correctly-scored contradiction into a false agreement -- caught by re-running the same stress cases after
+the first fix attempt, not assumed safe. The final, narrower fix resolves the dangerous false-AGREE
+(now scores NEUTRAL, not a perfect CONTRADICT -- true clause-level negation is out of scope for a
+word-window heuristic, documented honestly rather than overclaimed) while leaving the already-correct
+cases untouched. All 144 existing assertions plus a new 7-assertion permanent regression test
+(`test/ai-council-realworld-stress.test.mjs`) pass. Capability map unaffected (278 shipped, 0 behind-flag).
+Also wired both the pre-existing 144-assertion base suite and the new stress test into CI for the first
+time (`ai-council` job, `job-ci-batch-04.yml`).
+
+**Platform:** the tested functions (`scoreAlignment`, `synthesizeCouncil`) are pure JS string/logic
+processing with no DOM or browser API dependency, so this fix applies identically on web, desktop, and
+PWA/mobile -- wherever the Council tab runs.
+
+**Not covered this round:** Federated Learning -- the last open item under Structural Readiness Phase
+item 1, deliberately saved for last since it needs multi-peer network coordination testing, a different
+test shape than the messy-data stress tests used for Meeting Scribe, Arrow bridge, and AI Council.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2207,7 +2264,17 @@ closes:
      Fixed by validating finiteness and dtype-fit before writing, null-masking anything that fails
      instead of corrupting data. Zero production callers existed yet, so zero migration risk. Locked in
      as an 8-assertion permanent CI regression test.
-   - ⬜ Federated Learning, AI Council -- still open, next in sequence.
+   - **✅ AI Council (2026-09-24, PR #687):** stress-tested `scoreAlignment`/`synthesizeCouncil` against
+     realistic, hedged, negated LLM-style findings. Found a real bug with direct user-facing impact:
+     `scoreAlignment` had no negation handling, so a directly negated finding ("Revenue did NOT increase
+     significantly") scored as AGREE with the genuinely positive original -- risking a false "all models
+     agree" narrative to the user. Fixed with negation detection scoped to directional signal words only
+     (excluding magnitude words like "significant"/"strong", where negation doesn't reverse direction --
+     an over-broad first attempt at the fix was caught regressing a different case and narrowed before
+     landing). Also found and fixed a separate gap: the module's own 144-assertion base suite had never
+     been wired into CI.
+   - ⬜ Federated Learning -- still open, last item, needs multi-peer network coordination testing (a
+     different test shape than the messy-data stress tests used for the other three modules).
    Next step when picked up: choose 1-2 remaining modules per pass, build or reuse a realistic messy
    dataset/scenario for that module's actual use case, run it hands-on, and write a dated
    `## Test findings` section with the same rigor — Pass/Partial/Fail/Not Implemented per claim, never a
