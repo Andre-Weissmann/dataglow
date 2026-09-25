@@ -2264,7 +2264,7 @@ closes:
      Fixed by validating finiteness and dtype-fit before writing, null-masking anything that fails
      instead of corrupting data. Zero production callers existed yet, so zero migration risk. Locked in
      as an 8-assertion permanent CI regression test.
-   - **✅ AI Council (2026-09-24, this PR):** stress-tested `scoreAlignment`/`synthesizeCouncil` against
+   - **✅ AI Council (2026-09-24, PR #687):** stress-tested `scoreAlignment`/`synthesizeCouncil` against
      realistic, hedged, negated LLM-style findings. Found a real bug with direct user-facing impact:
      `scoreAlignment` had no negation handling, so a directly negated finding ("Revenue did NOT increase
      significantly") scored as AGREE with the genuinely positive original -- risking a false "all models
