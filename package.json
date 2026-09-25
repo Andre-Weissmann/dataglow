@@ -47,6 +47,7 @@
     "test:entropy": "node test/entropy-scan.test.mjs",
     "test:adaptivepriority": "node test/adaptive-priority.test.mjs",
     "test:federated": "node test/federated-learning.test.mjs",
+    "test:federated-realworld": "node --test test/federated-realworld-stress.test.mjs",
     "test:attestation": "node test/verify-attestation.mjs",
     "test:databom": "node test/data-bom.test.mjs",
     "test:gen9b": "node --import ./test/duckdb-loader-hook.mjs test/synthetic-twin-time-machine-suite.test.mjs",

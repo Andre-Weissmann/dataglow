@@ -2169,6 +2169,64 @@ PWA/mobile -- wherever the Council tab runs.
 item 1, deliberately saved for last since it needs multi-peer network coordination testing, a different
 test shape than the messy-data stress tests used for Meeting Scribe, Arrow bridge, and AI Council.
 
+## Test findings (2026-09-24 -- Federated Learning real-world stress test, Structural Readiness Phase item 1, final module)
+
+Fourth and final module pass under "prove breadth." Unlike the other three modules (all messy-input
+stress tests), Federated Learning needed a genuinely different test shape per this phase's own scoping:
+multi-peer coordination, not just messy data. `js/federated/federated-learning.js` +
+`federated-transport.js` already had strong existing coverage (`test/federated-learning.test.mjs`, 70
+assertions): pairwise mask cancellation, cohort gating, DP clip/noise, gossip/relay transport fallback,
+graceful degradation, and privacy checks confirming relay payloads carry only masked/noised data, never
+raw. This pass targeted the one angle that coverage didn't reach: what happens when a peer's
+SELF-REPORTED data is implausible or adversarial -- a federated system's contributors are, by design,
+other people's devices you don't control.
+
+**Method:** read `aggregateRound`'s FedAvg implementation to find that it weights each contributor by
+`Math.max(1, c.sampleCount || 1)` -- `sampleCount` is entirely self-reported by each peer, relayed straight
+from peer data with zero validation, and `Math.max(1, ...)` only enforces a floor, never a ceiling. Wrote
+ground truth predicting a single peer with a fabricated, enormous `sampleCount` could dominate the
+weighted average, then ran the real function to confirm.
+
+**Result: found a real FedAvg data-poisoning vector, not a crash.**
+
+Three honest peers (sample counts 8/10/12) reporting the same small positive update aggregated to a
+modest positive weight when alone. Adding a fourth peer reporting `sampleCount = 999999999` and a large
+negative update flipped the aggregate to exactly the base weight (`0.5`) -- full domination, the entire
+honest cohort's signal erased. Confirmed exactly as predicted before any fix was written.
+
+**FIXED, same pass, with an honest account of a fix attempt that didn't work:** capped each contributor's
+effective `sampleCount` at 3x the cohort's MEDIAN `sampleCount` before computing FedAvg weights
+(`MAX_PEER_WEIGHT_SHARE_MULTIPLE`, `js/federated/federated-learning.js`). The FIRST version of this fix
+used the cohort's MEAN, not median, as the cap's basis -- caught not actually working before landing: an
+extreme outlier drags the mean up almost as much as it drags the raw total up, so a "3x mean" cap barely
+constrained a value of 999,999,999 at all (re-running the same stress case after the first fix attempt
+still showed full domination). Switched to the median, which stays anchored to the honest majority
+regardless of how extreme a single outlier is -- re-verified the malicious case now yields a bounded,
+non-zero, non-dominating outcome instead of full erasure. Also confirmed the cap does NOT flatten a
+genuinely more-active honest peer (a plausible 5x-larger sample count still earns roughly half the total
+weighted influence, not zero) and does NOT regress the existing test suite's own FedAvg case (0.875
+uncapped vs 0.74 capped, both within that test's original assertion bounds). All 70 existing assertions
+plus a new 5-assertion permanent regression test (`test/federated-realworld-stress.test.mjs`) pass.
+Capability map unaffected (278 shipped, 0 behind-flag).
+
+**Explicitly NOT fixed, documented as a follow-up rather than silently assumed covered:** this is a
+bounded mitigation, not full Byzantine-robust aggregation -- a coordinated group of colluding peers could
+still shift the median itself and partly evade the cap; true Byzantine-robust aggregation (Krum,
+coordinate-wise median of updates) is a substantially larger design change. The secure-aggregation/gossip
+path (`aggregateSecureSum`) was not modified this pass -- it aggregates an already-summed masked vector
+where individual peer sample counts aren't separately visible, so this fix doesn't directly apply there;
+worth a dedicated look in a future pass.
+
+**Platform:** the tested function (`aggregateRound`) is pure JS with no DOM/browser API dependency, so
+this fix applies identically on web, desktop, and PWA/mobile -- wherever the federated feature runs (it is
+opt-in and off by default everywhere).
+
+**Structural Readiness Phase item 1 ("prove breadth") is now complete.** All four modules stress-tested:
+Meeting Scribe, Arrow bridge / Polyglot Workbench, AI Council, and Federated Learning -- each found and
+fixed at least one real bug (three data-corruption/logic bugs and one adversarial-input vulnerability),
+none of which were caught by the modules' existing test suites, because those suites only used clean,
+well-behaved fixtures. Item 2 (resolve scale ceiling) is next.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2244,13 +2302,15 @@ future-proof, everything works super well." Four structural gaps matter more tha
 this order, and the user asked to do all four, one at a time, with this section kept current as each
 closes:
 
-1. **🟨 IN PROGRESS — Prove breadth, not just build breadth.** Only a fraction of the 182 live capabilities
-   have been through the real-world stress-test methodology (real public datasets, documented
+1. **✅ DONE (2026-09-24) — Prove breadth, not just build breadth.** Only a fraction of the 182 live
+   capabilities have been through the real-world stress-test methodology (real public datasets, documented
    ground-truth answer keys, SQL-cross-verified findings) that the 2026-07-17 and 2026-09-17/18/19
-   test-findings sections used for the core validation/SQL/dashboard path. Modules with zero real-world
-   stress-test evidence: Federated Learning (`js/federated/`), Meeting Scribe (`js/agents/meeting-scribe*`),
-   the Polyglot Workbench cross-language object registry (`js/polyglot/`), and the AI Council
-   (`js/council/`).
+   test-findings sections used for the core validation/SQL/dashboard path. Four modules had zero
+   real-world stress-test evidence: Federated Learning (`js/federated/`), Meeting Scribe
+   (`js/agents/meeting-scribe*`), the Polyglot Workbench cross-language object registry (`js/polyglot/`),
+   and the AI Council (`js/council/`). All four are now done -- every one turned up at least one real,
+   previously-uncaught bug, none of which the modules' existing test suites caught, because those suites
+   only used clean, well-behaved fixtures.
    - **✅ Meeting Scribe (2026-09-24, PR #685):** stress-tested `detectPushback`/`detectDataRequest`
      against a hand-annotated realistic transcript. Found 6/14 (43%) fully correct pre-fix, 0 false
      positives, 8 false negatives from natural-phrasing gaps in the exact-substring catalogs. Fixed by
@@ -2273,12 +2333,20 @@ closes:
      an over-broad first attempt at the fix was caught regressing a different case and narrowed before
      landing). Also found and fixed a separate gap: the module's own 144-assertion base suite had never
      been wired into CI.
-   - ⬜ Federated Learning -- still open, last item, needs multi-peer network coordination testing (a
-     different test shape than the messy-data stress tests used for the other three modules).
-   Next step when picked up: choose 1-2 remaining modules per pass, build or reuse a realistic messy
-   dataset/scenario for that module's actual use case, run it hands-on, and write a dated
-   `## Test findings` section with the same rigor — Pass/Partial/Fail/Not Implemented per claim, never a
-   guessed score.
+   - **✅ Federated Learning (2026-09-24, PR #688):** needed a genuinely different test shape (multi-peer
+     coordination, not messy data) -- targeted the one angle the existing 70-assertion suite didn't reach:
+     adversarial/implausible peer-reported data. Found a real FedAvg data-poisoning vector: a peer's
+     self-reported `sampleCount` had no upper bound anywhere in the pipeline, so one peer claiming a
+     fabricated, enormous value could fully dominate the weighted average and erase an honest cohort's
+     signal entirely (verified: aggregate collapsed to exactly the base weight, 0 net effect from 3 honest
+     peers). Fixed by capping each contributor's effective sample count at 3x the cohort's MEDIAN (not
+     mean -- a first attempt using the mean was caught not working, since the outlier skews its own cap)
+     before weighting. Confirmed the cap doesn't flatten a genuinely more-active honest peer and doesn't
+     regress the existing suite. Explicitly NOT full Byzantine-robust aggregation -- documented as a
+     follow-up, not silently assumed covered.
+
+   All four modules under this item are now done. Structural Readiness Phase item 2 (resolve the scale
+   ceiling) is next.
 2. **⬜ Resolve the scale ceiling instead of leaving it open.** Six scale-architecture options were laid
    out 2026-07-12 (see the architecture brainstorm above) and none has been chosen as of 2026-09-24 — the
    practical ceiling today is still whatever fits in one browser tab's DuckDB-WASM memory (~4GB). Chosen

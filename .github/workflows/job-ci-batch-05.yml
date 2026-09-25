@@ -114,6 +114,13 @@ jobs:
       - run: npm run test:deps-freshness-unit
       - run: npm run test:adaptivepriority
       - run: npm run test:federated
+      # 2026-09-24: Structural Readiness Phase item 1 (prove breadth), fourth
+      # and final module. Locks in the fix for a real FedAvg data-poisoning
+      # vector: aggregateRound had no upper bound on a peer's self-reported
+      # sampleCount, so one fabricated, enormous value could fully dominate
+      # the weighted average and erase an honest cohort's signal. See
+      # js/federated/federated-learning.js (MAX_PEER_WEIGHT_SHARE_MULTIPLE).
+      - run: npm run test:federated-realworld
       - run: npm run test:ambient
       - run: npm run test:slm
       - run: npm run test:storymodel
