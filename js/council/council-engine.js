@@ -454,10 +454,35 @@ export function extractConfidenceLevel(confidenceText) {
   return 'UNKNOWN';
 }
 
+// Negation words that flip the polarity of a DIRECTIONAL signal word that
+// follows them within a short window. Added 2026-09-24 after a real-world
+// stress test (Structural Readiness Phase item 1) found that scoreAlignment
+// had no negation handling at all: "Revenue did NOT increase significantly"
+// counted "increase"/"significant" as POSITIVE hits, same as a genuinely
+// positive finding -- so two directly contradicting findings scored as
+// AGREE. Given synthesizeCouncil's overallAgreement === 'high' directly
+// drives a user-facing "all models agree" claim, this was a real risk of
+// telling a user models agree when they actually contradict each other.
+var NEGATION_WORDS = ['not', 'no', 'never', 'without', "doesn't", "don't", "didn't", "isn't", "wasn't", "aren't", "weren't", 'lack of', 'fails to', 'failed to'];
+// How many words back to look for a negation before the signal word it
+// might flip. Deliberately short (a real sentence's negation almost always
+// sits immediately before the word/phrase it negates) so this doesn't
+// accidentally flip an unrelated signal word elsewhere in a long finding.
+var NEGATION_WINDOW = 4;
+// Signal words that describe DIRECTION (increase/decrease, better/worse) --
+// negating these genuinely reverses the finding ("not increase" ~ decrease).
+// Deliberately excludes magnitude/confidence words like "significant",
+// "strong", "weak", "insignificant": "not significant" means the effect is
+// SMALL or UNCERTAIN, not that its direction reversed -- a second real gap
+// the same stress test found. Negating those words was over-correcting and
+// flipped genuinely-positive-but-hedged findings ('a modest positive signal
+// ... not strong enough to be significant') into false contradictions.
+var DIRECTIONAL_SIGNALS = ['increase', 'higher', 'better', 'positive', 'recommend', 'should', 'effective', 'improve', 'decrease', 'lower', 'worse', 'negative', 'decline'];
+
 /**
  * Score directional alignment between two FINDING strings.
  * Returns 1 if they appear to agree, 0 if neutral, -1 if they contradict.
- * Uses simple positive/negative signal word matching.
+ * Uses positive/negative signal word matching with local negation detection.
  * @param {string} a
  * @param {string} b
  * @returns {number}
@@ -467,11 +492,35 @@ export function scoreAlignment(a, b) {
   var posSignals = ['increase', 'higher', 'better', 'positive', 'recommend', 'should', 'significant', 'strong', 'effective', 'improve'];
   var negSignals = ['decrease', 'lower', 'worse', 'negative', 'not recommend', 'should not', 'insignificant', 'weak', 'ineffective', 'decline'];
 
+  // Is `signalWord` (found at character index `idx` in lowercase `t`)
+  // negated by a negation word within NEGATION_WINDOW words immediately
+  // before it? A crude but effective local check -- not full NLP, just
+  // enough to stop "did not increase" from scoring the same as "increased".
+  function isNegatedAt(t, idx) {
+    var before = t.slice(0, idx);
+    var words = before.trim().split(/\s+/);
+    var windowWords = words.slice(Math.max(0, words.length - NEGATION_WINDOW)).join(' ');
+    for (var n = 0; n < NEGATION_WORDS.length; n++) {
+      if (windowWords.indexOf(NEGATION_WORDS[n]) !== -1) return true;
+    }
+    return false;
+  }
+
   function score(text) {
     var t = text.toLowerCase();
     var s = 0;
-    for (var i = 0; i < posSignals.length; i++) { if (t.indexOf(posSignals[i]) !== -1) s++; }
-    for (var i = 0; i < negSignals.length; i++) { if (t.indexOf(negSignals[i]) !== -1) s--; }
+    for (var i = 0; i < posSignals.length; i++) {
+      var idx = t.indexOf(posSignals[i]);
+      if (idx === -1) continue;
+      var canNegate = DIRECTIONAL_SIGNALS.indexOf(posSignals[i]) !== -1;
+      s += (canNegate && isNegatedAt(t, idx)) ? -1 : 1;
+    }
+    for (var j = 0; j < negSignals.length; j++) {
+      var idx2 = t.indexOf(negSignals[j]);
+      if (idx2 === -1) continue;
+      var canNegate2 = DIRECTIONAL_SIGNALS.indexOf(negSignals[j]) !== -1;
+      s += (canNegate2 && isNegatedAt(t, idx2)) ? 1 : -1;
+    }
     return s;
   }
 

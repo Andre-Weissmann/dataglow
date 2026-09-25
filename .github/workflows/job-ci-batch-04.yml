@@ -199,6 +199,30 @@ jobs:
       # strings, int32 overflow/truncation) -- see js/polyglot/arrow-bridge.js.
       - run: npm run test:arrowbridge-realworld
 
+  ai-council:
+    name: AI Council (multi-provider synthesis, mode/domain detection, alignment scoring)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # 2026-09-24: found unwired during Structural Readiness Phase item 1 (prove
+      # breadth) -- js/council/council-engine.js is a shipped, LIVE, HIGH-value
+      # capability (per docs/capability-map.md) whose own 144-assertion test
+      # suite had never run in any CI workflow. Wiring it in now.
+      - run: npm run test:aicouncil
+      # Structural Readiness Phase item 1 stress test: found and fixed a real
+      # bug in scoreAlignment -- no negation handling meant "Revenue did NOT
+      # increase significantly" scored as AGREE with a genuinely positive
+      # finding, since synthesizeCouncil's overallAgreement === 'high' directly
+      # drives a user-facing "all models agree" claim. See
+      # test-harness/council-realworld/stress_cases.md for full method and an
+      # honest account of what the fix did and did not resolve.
+      - run: npm run test:aicouncil-realworld
+
   row-shape-correctness:
     name: Row-shape correctness (DuckDB CSV, CSV/PDF export, join key resolution)
     runs-on: ubuntu-latest
