@@ -2075,6 +2075,23 @@ Open follow-on, not yet scoped: a real shared-grid rendering engine (one continu
 
 ## Backlog (ranked, queued — not abandoned)
 
+**From 2026-09-23 (Trust Passport live verification) — mobile layout bug, not yet scoped/fixed:**
+
+0y. **"Start here" rail overlaps tab content on mobile viewports, on every tab, not just Trust
+    Passport.** The rail (`#dg-spine-rail` / `#dg-spine-chip`, built in
+    `js/spine/data-glow-receipt-spine-canvas.js`, titled "Start here") is a `position:fixed` bar
+    pinned to `left:0; right:0; bottom:0` of the viewport. On a desktop-height viewport there's
+    enough room below the tab content for it not to matter; on a real mobile viewport (confirmed
+    during the 2026-09-23 Trust Passport verification pass, using Playwright directly via `bash`
+    against the locally served app -- not the cloud browser, which cannot reach `localhost` in this
+    sandbox) it visibly covers roughly the bottom third of whatever tab is open, on every tab, since
+    the rail is injected globally rather than being tab-specific. Not yet reproduced/fixed on every
+    individual tab one-by-one, and no responsive rule (e.g. shrink/collapse/reposition below some
+    breakpoint) exists for it yet. Not scoped to a fix approach yet -- options to consider when
+    picked up: collapse to the existing chip-only state automatically below a width/height
+    breakpoint, add safe-area bottom padding to tab content so nothing sits underneath it, or make
+    the rail itself scroll-aware (hide on scroll-down, reappear on scroll-up) on small viewports.
+
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
 the user ("more stuff can be added later on"):**
 
