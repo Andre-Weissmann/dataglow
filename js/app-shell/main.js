@@ -3618,7 +3618,26 @@ function renderMetricStudioPanel() {
     onToast: toast,
     onChange: renderTrustStripPanel, // certification counts feed the Trust Strip
     onDefinitionSaved: recordMetricDefinitionVersion, // Metric Contracts version trail
+    onMetricComputed: recordMetricComputeInQueryMemory, // Query Memory: fingerprint/log this run
   });
+}
+
+// Query Memory (batch 2 — Metric Studio wiring, the last of the SQL/Python/R/
+// Metric Studio quartet the flag's own description names): a saved metric's
+// compute (SELECT (<expression>) AS value FROM <table>, built by
+// computeMetricValue in js/metrics/metric-studio.js) is fingerprinted and
+// logged exactly like a SQL/Python/R run, and the "seen before?" badge renders
+// into the same dedicated #metric-query-memory-host div the form always
+// includes (matching the Python/R convention of a small dedicated host rather
+// than reusing a container something else re-renders into). No-op when the
+// queryMemory flag is off, mirroring recordAndRenderQueryMemory's own guard.
+async function recordMetricComputeInQueryMemory(run, computed) {
+  const host = $('#metric-query-memory-host');
+  await recordAndRenderQueryMemory(
+    host,
+    { kind: QUERY_KINDS.METRIC, text: run.expression, context: { tables: [run.table] } },
+    (computed && computed.sql ? computed.sql : run.expression).slice(0, 80),
+  );
 }
 
 // Render the read-only Metric Contract history: per metric, an oldest-first

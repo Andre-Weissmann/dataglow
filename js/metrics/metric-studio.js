@@ -403,12 +403,13 @@ function metricValueText(m) {
  * @param {(msg:string,type?:string)=>void} [opts.onToast]
  * @param {()=>void} [opts.onChange] called after the registry mutates
  * @param {(metric:object, meta:{source:string, reason:string, changedBy:string})=>void} [opts.onDefinitionSaved] called after a human saves (creates or merges) a metric definition, so a caller can record a Metric Contract version. Defaults to a no-op — with it unset, save behaviour is byte-for-byte unchanged.
+ * @param {(run:{table:string, expression:string}, computed:{ok:boolean, sql?:string})=>void} [opts.onMetricComputed] called after a save actually runs computeMetricValue() against the loaded table (Query Memory wiring — the caller fingerprints/logs the run). Defaults to a no-op; fires even when the compute failed (computed.ok === false) so a failed formula still gets recorded honestly. Never fires when there was no table/engine to compute against — matches the existing `if (table && engine)` guard below, so nothing is invented for an unset dataset.
  */
 export function renderMetricStudio(opts = {}) {
   const {
     host, registry, schemaCols = [], table = null, engine = null,
     onOpenProof = () => {}, onToast = () => {}, onChange = () => {},
-    onDefinitionSaved = () => {},
+    onDefinitionSaved = () => {}, onMetricComputed = () => {},
   } = opts;
   if (!host || !registry) return;
   host.innerHTML = '';
@@ -458,7 +459,16 @@ export function renderMetricStudio(opts = {}) {
 
     // Actually compute the value against the loaded table (never a placeholder).
     let computed = { ok: false, value: null, computedAt: null, error: 'not computed' };
-    if (table && engine) computed = await computeMetricValue({ table, expression: candidate.expression, engine });
+    if (table && engine) {
+      computed = await computeMetricValue({ table, expression: candidate.expression, engine });
+      // Query Memory wiring: a saved metric's compute is a real "run" of its
+      // expression against the loaded table, exactly the kind of moment SQL/
+      // Python/R runs already fingerprint and log. Fires whether or not the
+      // compute succeeded (an honest record of what was actually run), but
+      // only when there was a real table+engine to run it against, matching
+      // the guard above so nothing is fabricated for an unset dataset.
+      onMetricComputed({ table, expression: candidate.expression }, computed);
+    }
     const stored = registry.add({
       ...candidate,
       computedValue: computed.ok ? computed.value : null,
@@ -525,6 +535,7 @@ export function renderMetricStudio(opts = {}) {
     hasData ? null : el('div', { style: 'margin-top:var(--space-2); font-size:var(--text-sm); color:var(--color-text-muted);' },
       'Load a dataset to tie metrics to real columns.'),
     promptHost,
+    el('div', { id: 'metric-query-memory-host', 'data-testid': 'metric-query-memory-host' }),
   ]);
 
   // ---- Saved list ----

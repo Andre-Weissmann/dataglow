@@ -2136,10 +2136,20 @@ above the feature backlog below since they're cheaper and higher-trust-impact:**
 All three items from this ranked batch are now resolved as of 2026-07-16. Pull the next backlog item
 below when Readiness Gate ships.
 
-1. **Query Memory** (round 1 pick) — fingerprint every SQL/Python/R/Metric Studio run, log author +
+1. ~~**Query Memory** (round 1 pick) — fingerprint every SQL/Python/R/Metric Studio run, log author +
    timestamp, surface a "seen before" badge grounding trust in validated usage history instead of static
    docs (DataHub's finding). Complementary to the Gate — could become the audit trail *behind* the
-   Gate's decisions in a later phase.
+   Gate's decisions in a later phase.~~ **RESOLVED (2026-09-24).** SQL/Python/R were already wired
+   (js/provenance/query-memory.js Batch 1 + query-memory-ui.js Batch 2, both live behind the `queryMemory`
+   flag, `enabled: true`). Metric Studio was the one unwired leg named in the flag's own description —
+   closed via `feat/query-memory-metric-studio-wiring`: a new `onMetricComputed` hook on
+   `renderMetricStudio` fires after every real "Create metric" compute against a loaded table
+   (`computeMetricValue`'s `SELECT (<expression>) AS value FROM <table>`), wired in `main.js` to the same
+   `recordAndRenderQueryMemory` fingerprint+log+badge path SQL/Python/R already use. Covered by a new
+   real-browser e2e test (`test:e2e-querymemory-metricstudio`, 9/9 passing) proving a second save of the
+   same formula (via the existing duplicate-prompt "Keep both" path) renders "Seen before · once". All
+   four run paths named in the original concept are now genuinely wired — nothing further scoped this
+   round beyond the flag description's own honest update to match.
 2. Machine-readable Metric Contracts extended with agent-access rules (who/what is authorized to query
    a given metric) — partially exists, could be deepened.
 3. Git-for-data version control (branch/commit/diff/rollback for datasets) — not present in DataGlow.
