@@ -2333,7 +2333,7 @@ closes:
      an over-broad first attempt at the fix was caught regressing a different case and narrowed before
      landing). Also found and fixed a separate gap: the module's own 144-assertion base suite had never
      been wired into CI.
-   - **✅ Federated Learning (2026-09-24, this PR):** needed a genuinely different test shape (multi-peer
+   - **✅ Federated Learning (2026-09-24, PR #688):** needed a genuinely different test shape (multi-peer
      coordination, not messy data) -- targeted the one angle the existing 70-assertion suite didn't reach:
      adversarial/implausible peer-reported data. Found a real FedAvg data-poisoning vector: a peer's
      self-reported `sampleCount` had no upper bound anywhere in the pipeline, so one peer claiming a
