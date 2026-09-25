@@ -153,6 +153,19 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-benchtruststrip
+      # Query Memory (batch 2, final leg): wires the last unwired run path named
+      # in the queryMemory flag's own description -- Metric Studio -- into the
+      # same fingerprint+log+badge machinery already live for SQL/Python/R.
+      # Proves a real "Create metric" save that computes against a loaded table
+      # fires the new onMetricComputed hook, and that a second save of the same
+      # formula (via the existing duplicate-prompt "Keep both" path) is
+      # recognized as seen-before. Engine-independent (a duck-typed fake
+      # engine + in-memory store stand in for DuckDB/IndexedDB), so robust in
+      # headless CI, same pattern as the Metric Contracts UI test above.
+      - name: Run Query Memory Metric Studio wiring e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-querymemory-metricstudio
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
