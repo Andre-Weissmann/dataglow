@@ -2407,6 +2407,52 @@ Shipped flag-gated and OFF by default: `opfsPersistence` (`flags.manifest.json`,
 behavior change for any user until explicitly enabled, and even then, only after the user separately opts
 in via the Settings consent toggle -- the flag alone never turns this on for anyone.
 
+## Test findings (2026-09-26 -- main.js monolith paydown, Structural Readiness Phase item 3, batch 2a)
+
+Second batch of the `main.js` paydown (PR #693, merged), picking up where batch 1 left off. Extracted 3
+of the 7 remaining, larger `render*Tab` functions into their own files under `js/app-shell/tabs/`:
+
+- `renderJoinBuilderTab` -> `tabs/join-builder-tab.js` (87 lines, incl. `joinGraph`/`joinBuilderLoaded`
+  module state -- confirmed via grep that nothing outside the function reads or writes either variable,
+  so both moved with the function as local module state)
+- `renderNLSQLTab` -> `tabs/nlsql-tab.js` (71 lines, incl. the Query/Council mode-switcher wiring)
+- `renderCleaningCrewTab` -> `tabs/cleaning-crew-tab.js` (81 lines, incl. the tightly-coupled
+  `renderCleaningCrewProfile` helper, which only that tab calls)
+
+**Dependency-injection pattern for functions that must stay in main.js:** unlike batch 1's 5 tabs, these
+three genuinely call back into shared app-shell functions that cannot move without creating a circular
+import -- `switchTab` (the central tab dispatcher, called by both Join Builder's and NL-SQL's "push SQL
+and run it" flow) and, for Cleaning Crew, `ensureDuckDB`/`renderSidebar`/`iconSvg`. Rather than duplicate
+or stub these, both extracted functions now take them as parameters (`renderJoinBuilderTab(switchTab)`,
+`renderCleaningCrewTab({ ensureDuckDB, renderSidebar, iconSvg })`), following the same pattern batch 1
+already used for NL-SQL's `onRunSQL` callback. `main.js`'s single call site for each (inside `switchTab`
+itself) was updated accordingly; no other call sites existed.
+
+**Zero visual or behavioral change**, proven the same way as batch 1: each function is a byte-for-byte
+copy of what used to live inline in `main.js`. `main.js`: 9,976 -> 9,773 lines (203 lines net removed,
+including several now-dead imports cleaned up: `createJoinGraph`, `renderJoinCanvas`, `buildJoinToolbar`,
+`mountNLSQLUI`, `pdfProfiler`, `datasetsToSchemaContext`, `serializeSchemaForPrompt`, and the unused half
+of a shared import, `getNlsqlProviderKey`). `test:capdrift` (24/24), `test:cleaningcrew` (46/46), and
+`test:sql` (14/14) all passed. Live Playwright A/B proof: served the pre-extraction baseline and the
+extracted working copy side by side (using `git stash` to flip between commits on the same clone rather
+than a second worktree, since the sandbox was at 82%/3.7GB free disk this session), clicked into all 3
+tabs, and confirmed byte-identical rendered HTML for each (including the Join Builder empty state, since
+a live dataset-upload flow through the Playwright harness hit an unrelated pre-existing drag-and-drop
+selector quirk not worth chasing for a static-render proof). All 102 CI checks passed, including
+`tauri-smoke`.
+
+One real, pre-existing doc-drift bug found and fixed along the way (not introduced by this batch): the
+capability map's "Visual join canvas" row in `docs/capability-map.md` was marked ABSENT/UNBUILT, even
+though `js/join-builder/join-canvas.js` is live and shipped (`capability-map.manifest.json`'s own
+`join-builder-canvas` entry already said `status: shipped`) -- corrected while touching that row for the
+new tab-file reference.
+
+**Item 3 is still not complete** -- 4 tabs remain: Guarded Copilot (132 lines), Proof Room (150 lines,
+plus a cross-file-used export function, `getProofRoomSealForExport`, called from the MCP/export gate-state
+handler elsewhere in `main.js`), Diplomacy (196 lines, the most stateful of the seven with 6 module-level
+variables including P2P transport wiring), and Drill Floor (223 lines). Planned as batch 2b, their own
+separate pass given the larger size and higher state/dependency complexity relative to this batch.
+
 ## Test findings (2026-09-26 -- main.js monolith paydown, Structural Readiness Phase item 3, batch 1)
 
 First batch of the `main.js` paydown (PR #691, merged). Extracted the 5 smallest, simplest `render*Tab`
@@ -2582,10 +2628,13 @@ closes:
    - **✅ Batch 1 (2026-09-26, PR #691):** extracted the 5 smallest tabs (Convergence, Crucible, DVC, AI
      Council, Glow Canvas — all under 35 original lines each) into `js/app-shell/tabs/`. `main.js`:
      10,135 -> 9,976 lines. See the dated Test findings entry above for full verification evidence.
-   - **⬜ Future batches:** the remaining, larger tabs — NL->SQL (50 lines), Cleaning Crew (42 lines),
-     Join Builder (79 lines), Guarded Copilot (131 lines), Proof Room (149 lines), Diplomacy (195 lines),
-     Drill Floor (222 lines) — each deferred as bigger/riskier, to be picked up in future, separately
-     proven batches rather than one large change.
+   - **✅ Batch 2a (2026-09-26, PR #693):** extracted 3 of the remaining 7 tabs — Join Builder (87 lines),
+     NL->SQL (71 lines), Cleaning Crew (81 lines) — into `js/app-shell/tabs/`. `main.js`: 9,976 -> 9,773
+     lines. See the dated Test findings entry below for full verification evidence.
+   - **⬜ Batch 2b (planned):** the remaining 4, larger and more stateful tabs — Guarded Copilot
+     (132 lines), Proof Room (150 lines, plus a cross-file export function), Diplomacy (196 lines, plus
+     6 module-level state variables incl. P2P transport wiring), Drill Floor (223 lines) — deferred to
+     their own separate, more carefully tested batch(es) rather than bundled into batch 2a.
 4. **⬜ Turn test-findings history into structured, queryable evidence.** `NORTH_STAR.md` is 2,454+ lines
    with 15 dated `## Test findings` sections as of 2026-09-24 — real, valuable evidence, but as prose in
    one ever-growing file it's not queryable ("which capabilities have real-world evidence, and how
