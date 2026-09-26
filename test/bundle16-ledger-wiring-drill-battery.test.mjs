@@ -255,12 +255,13 @@ describe('repair-ledger: appendFromSurface call sites in the canvas are wired to
     assert.ok(foundAtLeastOneLiteral, 'expected at least one literal-kind appendFromSurface call site across the wired surfaces');
   });
 
-  it('main.js wires load (ledgerAppendLoad) and the drill battery (python_recipe/r_recipe/sql_recipe_run) kinds', () => {
-    const src = read('js/app-shell/main.js');
-    assert.match(src, /appendFromSurface\('load'/);
-    assert.match(src, /python_recipe/);
-    assert.match(src, /r_recipe/);
-    assert.match(src, /sql_recipe_run/);
+  it('main.js wires load (ledgerAppendLoad); the drill battery (python_recipe/r_recipe/sql_recipe_run) kinds now live in js/app-shell/tabs/drill-floor-tab.js (extracted 2026-09-26, Structural Readiness Phase item 3, batch 2b part 2)', () => {
+    const mainSrc = read('js/app-shell/main.js');
+    assert.match(mainSrc, /appendFromSurface\('load'/);
+    const drillFloorSrc = read('js/app-shell/tabs/drill-floor-tab.js');
+    assert.match(drillFloorSrc, /python_recipe/);
+    assert.match(drillFloorSrc, /r_recipe/);
+    assert.match(drillFloorSrc, /sql_recipe_run/);
   });
 
   it('csv quarantine canvas wires quarantine_decision; Excel Hell canvas wires excel_hell_apply', () => {

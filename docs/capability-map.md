@@ -360,7 +360,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Institutional memory | `js/memory/institutional-memory.js` | LIVE | HIGH | Cross-session memory of decisions made about a specific dataset. |
 | Micro-lessons | `js/teaching/micro-lessons.js` | LIVE | MED | In-context teaching moments triggered by analyst actions. |
 | Community pack sharing | `js/teaching/community-pack.js` | LIVE | LOW | Peer-sourced validation rule packs. |
-| Drill Floor | `js/drill-floor/drill-floor.js` + `drill-floor-data.js` + `drill-diff.js` | LIVE | MED | SQL/Python/R practice drills with real feedback. |
+| Drill Floor | `js/drill-floor/drill-floor.js` + `drill-floor-data.js` + `drill-diff.js`<br>`js/app-shell/tabs/drill-floor-tab.js` | LIVE | MED | SQL/Python/R practice drills with real feedback. |
 | Nutrition badges | `js/provenance/nutrition-badges.js` | LIVE | MED | Visual data quality badges shown on every column header. |
 
 ---
@@ -399,7 +399,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Diplomacy claim builder | `js/diplomacy/diplomacy-claim.js` | LIVE | HIGH | Each party seals a claim about their dataset. |
 | Reconciliation engine | `js/diplomacy/reconciliation-engine.js` | LIVE | HIGH | Finds the common ground between two conflicting datasets without exposing raw data. |
 | Diplomacy loader | `js/diplomacy/diplomacy-loader.js` | LIVE | HIGH | Ingests both datasets for comparison. |
-| Diplomacy UI | `js/diplomacy/diplomacy-ui.js` | LIVE | HIGH | Two-key panel UI. Both parties see results simultaneously. |
+| Diplomacy UI | `js/diplomacy/diplomacy-ui.js`<br>`js/app-shell/tabs/diplomacy-tab.js` | LIVE | HIGH | Two-key panel UI. Both parties see results simultaneously. |
 | Diplomacy approval gate | `js/diplomacy/diplomacy-approval-gate.js` | LIVE | HIGH | Neither party can proceed until both approve the reconciliation. |
 | Diplomacy P2P transport | `js/diplomacy/diplomacy-p2p-transport.js` | LIVE | MED | Sealed claim exchange over P2P channel. |
 | **Dataset Handshake (PSI -- Private Set Intersection)** | NOT YET BUILT | UNBUILT | MOAT | Two DataGlow instances find dataset overlap via OpenMined `@openmined/psi.js` WASM. 156ms for 100K rows. Zero raw data exchanged. Unlock for M&A due diligence, healthcare cohort matching, fraud detection. Highest-moat feature DataGlow does not yet have. |

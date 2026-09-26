@@ -1818,7 +1818,8 @@
       "files": [
         "js/drill-floor/drill-floor.js",
         "js/drill-floor/drill-floor-data.js",
-        "js/drill-floor/drill-diff.js"
+        "js/drill-floor/drill-diff.js",
+        "js/app-shell/tabs/drill-floor-tab.js"
       ],
       "symbols": [
         {
@@ -2775,7 +2776,8 @@
         "desktop"
       ],
       "files": [
-        "js/diplomacy/diplomacy-ui.js"
+        "js/diplomacy/diplomacy-ui.js",
+        "js/app-shell/tabs/diplomacy-tab.js"
       ],
       "symbols": [
         {
