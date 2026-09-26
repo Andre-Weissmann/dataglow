@@ -2788,20 +2788,58 @@ re-deriving it from scratch each session.
     three references accordingly; all 22 assertions still pass. No new feature flag: both are
     correctness fixes to already-live functionality, not new behavior.
 
-0z2. **Found while fixing 0z, not yet fixed — third floating chip collides with the new chip row.**
+0z2. ✅ **DONE (2026-09-26).** Third floating chip collided with the shared chip row created in 0z.
     `#dg-lai-chip` ("Built-in AI: on-device..." status indicator, `js/ai/data-glow-local-ai-canvas.js`)
-    also uses an independent hardcoded fixed position (`bottom:18px;left:18px`) and mounts whenever the
-    on-device-AI status feature is on -- not a rare state. Measured on a real 375px phone with the
-    RECEIPT spine, Repair Ledger, and built-in-AI status all enabled together: this chip's `left:18px`
-    sits almost exactly on top of the new `#dg-spine-chip-row`'s `left:14px`, and its `z-index:
-    2147483000` is higher than the row's `2147482900`, so it visually covers the "Start here" chip
-    entirely. Same root cause family as 0z (an independently-guessed fixed corner with no awareness of
-    sibling chips), but a third, separate module -- deliberately not folded into the 0z fix to keep that
-    PR's blast radius to the one file it was already touching. Likely fix direction: either add this
-    chip as a third member of the same shared `#dg-spine-chip-row` container (would require exporting
-    that container/id from the spine module for reuse, or promoting it to a small shared helper), or
-    give it its own reserved row above/beside the spine row. Whichever direction, the fix should assume
-    more floating chips may be added later and pick an approach that scales past exactly two or three.
+    used an independent hardcoded fixed position (`bottom:18px;left:18px;z-index:2147483000`) and mounts
+    whenever the on-device-AI status feature is on -- not a rare state. Measured on a real 375px phone
+    with the RECEIPT spine, Repair Ledger, and built-in-AI status all enabled together: this chip's
+    `left:18px` sat almost exactly on top of `#dg-spine-chip-row`'s `left:14px`, and its higher z-index
+    fully covered the "Start here" chip. Same root-cause family as 0z (an independently-guessed fixed
+    corner with no awareness of sibling chips), a third, genuinely separate module. Fix: the chip now
+    joins `#dg-spine-chip-row` as a third flex child when that row exists, dropping its own
+    `position/bottom/left/z-index` inline styles (an inline style otherwise outranks a CSS override of
+    equal specificity, so simply adding a CSS rule alone was not enough -- the four properties are
+    cleared via `chip.style.<prop> = ''` at the moment it is appended into the row). **Startup-order race
+    handled explicitly, not assumed away:** the two modules boot on independently-owned timers
+    (`js/ai/data-glow-local-ai-canvas.js` at `setTimeout(boot,1000)`, the spine module at
+    `setTimeout(boot,1200)`) -- a 200ms gap today that either module is free to change later, so `mount()`
+    does not simply check once and give up. If the row does not exist yet at mount time, it retries every
+    150ms for ~900ms (comfortably covering the current gap with margin) before falling back to the
+    original independent `document.body` placement; the existing 5-second `refreshChip()` poll (already
+    present for on-device-AI status changes) doubles as a backstop that re-parents the chip if the row
+    appears even later than that. When the spine module is entirely absent, the chip keeps its original
+    standalone `position:fixed` placement unchanged -- purely additive, no hard dependency introduced.
+    Verified overlap-free (2D rect check, not just horizontal) and fully on-screen with all three chips
+    at 320px, 375px, and 390px widths, and that the chip's click-to-open-panel behavior survives being
+    re-parented into the row. Regression coverage: extended `test/bundle15-canvas-ui.test.mjs` from 28 to
+    39 assertions (11 new: all-three-chips-in-row + no-overlap-with-either-sibling + position:static once
+    joined + click-still-opens-panel + fallback-to-document.body preserved when the spine module is
+    absent). `npm run check:canvas-integrity -- --update` re-synced `js/ai/data-glow-local-ai-canvas.js`
+    into `canvas/index.html` (via `inject_bundle12.py`, the file's canonical/most-recent injector); that
+    same run also incidentally corrected pre-existing, unrelated drift in the already-inlined
+    `js/polyglot/python-power-pack.js` and `js/polyglot/r-power-pack.js` sections (a Bundle 17 addition,
+    `pythonShowdownPatterns`, that had never been re-injected into the canvas copy -- their `js/` source
+    files were not touched by this PR, only their stale inlined canvas copies were brought back in sync).
+    No new feature flag: this is a correctness fix to already-`enabled:true` live functionality
+    (`localAiStatus`), not new behavior.
+
+0z3. **Found while verifying 0z2, not yet fixed — Project Run chip and Polyglot Packs button collide
+    with the shared row at 320px.** `#dg-project-run-chip` (`js/spine/data-glow-project-run-canvas.js`,
+    independent `position:fixed;bottom:18px;right:18px`) and `#dg-packs-btn` (the Polyglot Packs panel
+    trigger) were not part of the 0z/0z2 investigation because at 375px+ they sit clear of
+    `#dg-spine-chip-row`. Measured directly (not assumed) on a real 320px-wide phone with RECEIPT spine,
+    Repair Ledger, built-in-AI status, Project Run, and Polyglot Packs all enabled together: at this
+    narrower width the row wraps to a second line that extends down to `y:550`, and
+    `#dg-project-run-chip` (`x:174-302, y:518-550`) and `#dg-packs-btn` (`x:190-304, y:518-550`) both land
+    directly on top of that second row line and each other. Same root-cause family as 0z/0z2 (independent
+    hardcoded fixed corners chosen without awareness of how many other floating chips may already be on
+    screen) but two more, separate modules/trigger points, and only reproduces at the narrower end of the
+    phone range (not seen at 375px/390px) -- deliberately not folded into 0z2 to keep that PR scoped to
+    the one collision it actually set out to fix. Likely fix direction: same shared-row pattern extended
+    to a fourth and fifth member, or a documented, permanent rule that any new floating mobile chip must
+    register with `#dg-spine-chip-row` (or a renamed, more general shared-chips concept) rather than
+    picking its own fixed corner -- the recurrence across three separate fixes (0z, 0z2, this one) is
+    itself a signal that the ad hoc pattern should stop, not just get patched again per-module.
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
 the user ("more stuff can be added later on"):**
