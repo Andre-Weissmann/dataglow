@@ -1883,7 +1883,8 @@
       "area": "Language runtimes & visualization",
       "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1)",
       "files": [
-        "js/cleaning-crew/pdf-profiler.js"
+        "js/cleaning-crew/pdf-profiler.js",
+        "js/app-shell/tabs/cleaning-crew-tab.js"
       ],
       "symbols": [
         {
@@ -3493,7 +3494,8 @@
       "area": "Join Builder",
       "name": "Visual join canvas",
       "files": [
-        "js/join-builder/join-canvas.js"
+        "js/join-builder/join-canvas.js",
+        "js/app-shell/tabs/join-builder-tab.js"
       ],
       "relatedFlags": [],
       "status": "shipped"
@@ -3591,7 +3593,8 @@
       "area": "NL-to-SQL",
       "name": "AI tab UI",
       "files": [
-        "js/nl-sql/nl-sql-ui.js"
+        "js/nl-sql/nl-sql-ui.js",
+        "js/app-shell/tabs/nlsql-tab.js"
       ],
       "relatedFlags": [],
       "status": "shipped"

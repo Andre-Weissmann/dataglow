@@ -224,7 +224,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 |---|---|---|---|---|
 | NL-SQL engine | `js/nl-sql/nl-sql-engine.js` | LIVE | HIGH | Natural language to DuckDB SQL. Works offline. |
 | NL-SQL pattern engine | `js/nl-sql/nl-sql-pattern-engine.js` | LIVE | HIGH | Rule-based pattern matching for common query intents. |
-| NL-SQL UI | `js/nl-sql/nl-sql-ui.js` | LIVE | HIGH | Chat-style query interface. |
+| NL-SQL UI | `js/nl-sql/nl-sql-ui.js`<br>`js/app-shell/tabs/nlsql-tab.js` | LIVE | HIGH | Chat-style query interface. Tab wiring (incl. the Query/Council mode switcher) extracted to its own module during the main.js paydown (2026-09-26). |
 | Schema context | `js/nl-sql/schema-context.js` | LIVE | HIGH | Feeds live column names/types into NL-SQL prompts. |
 | NL-SQL key store | `js/nl-sql/nl-sql-key-store.js` | LIVE | MED | Stores BYO API keys for cloud NL-SQL providers. |
 | Metric Contracts (Batch 1 -- versioned model) | `js/nl-sql/metric-contracts.js` | LIVE | HIGH | "Revenue always means this." Versioned, diffable metric definitions. |
@@ -272,7 +272,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Join coverage checker | `js/relational/join-coverage-checker.js` | LIVE | HIGH | Measures what percentage of rows will survive a join. |
 | Temporal order checker | `js/relational/temporal-order-checker.js` | LIVE | HIGH | Validates time-based joins are in the right order. |
 | Flag consistency checker | `js/relational/flag-consistency-checker.js` | LIVE | MED | Checks that boolean/flag columns are logically consistent across a join. |
-| Visual join canvas | `js/join-builder/join-canvas.js` -- ABSENT | UNBUILT | MED | Visual drag-and-drop join UI. Logic is live, UI layer missing. |
+| Visual join canvas | `js/join-builder/join-canvas.js`<br>`js/app-shell/tabs/join-builder-tab.js` | LIVE | MED | Visual drag-and-drop join UI, gated by the `joinBuilder` flag. Tab wiring extracted to its own module during the main.js paydown (2026-09-26). |
 
 ---
 
@@ -539,6 +539,7 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/build/build-flags.js` — Build feature flags (present)
 - `js/build/enterprise-policy.js` — Enterprise policy engine (present)
 - `js/cleaning-crew/pdf-profiler.js` — Cleaning Crew — Profiler station (PDF text extraction, Batch 1) (present)
+- `js/app-shell/tabs/cleaning-crew-tab.js` — Cleaning Crew — Profiler station tab wiring, extracted from main.js (2026-09-26) (present)
 - `js/cleaning/clean.js` — Core cleaning (present)
 - `js/connectors/tauri-connector.js` — Tauri Live Connector Layer (present)
 - `js/council/council-ui.js` — Council tab UI (present)
@@ -558,9 +559,11 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/grid/validation-coloring.js` — DataGlow Grid validation coloring (cell/row-level styling, agent diff overlay) (present)
 - `js/join-builder/join-model.js` — Join model (present)
 - `js/join-builder/join-sql.js` — Join SQL generator (present)
+- `js/app-shell/tabs/join-builder-tab.js` — Visual join canvas tab wiring, extracted from main.js (2026-09-26) (present)
 - `js/mcp/dataglow-mcp-server.mjs` — MCP server (present)
 - `js/metrics/metric-contracts.js` — Metric Contracts (Batch 1: versioned data model) (present)
 - `js/nats/nats-message-parser.js` — NATS WebSocket Bridge (present)
+- `js/app-shell/tabs/nlsql-tab.js` — NL-SQL AI tab UI wiring, extracted from main.js (2026-09-26) (present)
 - `js/packs/builtin/fhir.pack.js` — Domain-pack plugin architecture (present)
 - `js/packs/builtin/finance.pack.js` — Domain-pack plugin architecture (present)
 - `js/packs/builtin/healthcare.pack.js` — Domain-pack plugin architecture (present)
