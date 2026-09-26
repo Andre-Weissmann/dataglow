@@ -70,8 +70,8 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Physiological plausibility | `js/validation/physiological-plausibility.js` | LIVE | HIGH | Vital sign ranges, lab value plausibility. |
 | Analysis contract | `js/validation/analysis-contract.js` | LIVE | HIGH | Analyst declares assumptions; system verifies them. |
 | Semantic layer | `js/validation/semantic-layer.js` + `semantic-layer-ui.js` | LIVE | HIGH | Column meaning registry. "Revenue" always means the same thing. |
-| Source convergence (all 3 batches) | `js/validation/source-convergence.js` + `source-convergence-ingestion.js` + `source-convergence-ui.js` | LIVE | HIGH | Multi-source truth reconciliation. Three batches all shipped. |
-| The Crucible (all 3 batches) | `js/validation/crucible-contract.js` + `crucible-orchestrator.js` + `crucible-ui.js` + `crucible-adversarial-packs.js` | LIVE | HIGH | Adversarial validation -- tries to break your dataset. UI + revert proposals all live. |
+| Source convergence (all 3 batches) | `js/validation/source-convergence.js` + `source-convergence-ingestion.js` + `source-convergence-ui.js` + `js/app-shell/tabs/convergence-tab.js` | LIVE | HIGH | Multi-source truth reconciliation. Three batches all shipped. |
+| The Crucible (all 3 batches) | `js/validation/crucible-contract.js` + `crucible-orchestrator.js` + `crucible-ui.js` + `crucible-adversarial-packs.js` + `js/app-shell/tabs/crucible-tab.js` | LIVE | HIGH | Adversarial validation -- tries to break your dataset. UI + revert proposals all live. |
 | Query Sentinel (all 3 batches) | `js/validation/query-sentinel.js` + `query-sentinel-assist.js` + `query-sentinel-bridge.js` | LIVE | HIGH | Intercepts SQL/Python/R queries and warns before bad data reaches AI. |
 | Rule packs | `js/rulepacks/rulepack-registry.js` + `packs/general.js` + `packs/healthcare.js` | LIVE | HIGH | Domain-specific validation rule packs. Healthcare + general shipped. |
 | Extension points | `js/packs/extension-points.js` | LIVE | MED | Third-party rule pack plugin API. |
@@ -155,7 +155,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 |---|---|---|---|---|
 | Browser LLM engine (WebLLM) | + `browser-llm-wiring.js` | LIVE (unlisted) | MOAT | Qwen2.5-Coder-3B-Instruct running via WebGPU. The engine behind every AI feature. |
 | On-device LLM (narrative tier) | `js/narrative/ondevice-llm.js` | LIVE | MOAT | Wires the LLM into Story tab and Guarded Copilot. |
-| AI Council | `js/council/council-engine.js` + `council-ui.js` | LIVE | HIGH | Multi-provider AI panel (GPT, Claude, Gemini, local). BYO-key for cloud; Qwen for local. |
+| AI Council | `js/council/council-engine.js` + `council-ui.js` + `js/app-shell/tabs/council-tab.js` | LIVE | HIGH | Multi-provider AI panel (GPT, Claude, Gemini, local). BYO-key for cloud; Qwen for local. |
 | RAG knowledge engine | | LIVE (unlisted) | HIGH | 32-entry local knowledge base (15 healthcare, 12 finance, 5 retail). Wired into every council prompt. |
 | MCP Server | | LIVE (unlisted) | HIGH | 8 governed MCP tools exposing DataGlow's proof chain to external AI agents (Claude Code, Cursor). Zero raw data leaves. |
 | Guarded Copilot | `js/agents/guarded-copilot.js` | LIVE | HIGH | Read-only chat assistant. Cites proof chain. Cannot modify data by construction. |
@@ -251,7 +251,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Explain (plain language over real evidence) | `js/explain/explain-engine.js`<br>`js/explain/data-glow-explain-canvas.js` | LIVE | HIGH | An Explain button beside Trust and Air-Gap that answers the question people actually ask of a result: not what the numbers are, but whether they hold. Composes, never computes: each sentence traces to one of seven sources that already ran (Query Sentinel, the readiness gate, result shape, PHI Shield, Air-Gap Mode, Publish-Safe, the Trust Ledger). Carries its own confidence, derived from how many of those answered, so a summary built on two checks cannot present itself as well-evidenced. A source that could not run is named as an unknown, never dropped and never counted as a pass. Fully on-device, so it reads the same with Air-Gap Mode on. Copyable as plain text. Flag `explain`. An account of what the checks saw, not a verdict on what they were not shown. |
 | GlassBox (show the math under a finding) | `js/glassbox/glass-box.js`<br>`js/glassbox/data-glow-glass-box-canvas.js` | LIVE | HIGH | Finding on top, proof underneath, identical in shape on the three surfaces that have a result: the SQL view result, the SQL tab result and the Python result. The proof is the literal code that ran plus the engine that ran it, read from the paired editor at open time rather than reconstructed, because a reconstructed query looks checkable and can be wrong. Badge chips come only from gates that genuinely reported; an absent gate produces no chip and the panel says that an absence of evidence is not a clean result. Long source truncates with the real line count kept. Flag `glassBox`. It shows the work, it does not re-run it or grade it. |
 | Visualization engine | `js/runtimes-viz/visualize.js` | LIVE | CORE | Chart rendering layer across all runtimes. |
-| Glow Canvas (multi-chart dashboard) | `js/runtimes-viz/glow-canvas.js` | LIVE | HIGH | Drag-and-arrange multi-chart dashboard. |
+| Glow Canvas (multi-chart dashboard) | `js/runtimes-viz/glow-canvas.js` + `js/app-shell/tabs/glow-canvas-tab.js` | LIVE | HIGH | Drag-and-arrange multi-chart dashboard. |
 | Chart engine | `js/chart/chart-engine.js` | LIVE | HIGH | Underlying chart primitives. |
 | SQL dialect adapter | `js/app-shell/sql-dialect-adapter.js` | LIVE | HIGH | Translates PostgreSQL, MySQL, BigQuery, Snowflake, T-SQL into DuckDB SQL. |
 | Polyglot autocomplete | `js/polyglot/polyglot-autocomplete.js` | LIVE | MED | Column/table name completion across all runtimes. |
@@ -282,7 +282,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 |---|---|---|---|---|
 | DVC store | `js/dvc/dvc-store.js` | LIVE | HIGH | Git-style dataset versioning. Branch, commit, diff. |
 | DVC diff | `js/dvc/dvc-diff.js` | LIVE | HIGH | Row-level diff between dataset versions. |
-| DVC UI | `js/dvc/dvc-ui.js` | LIVE | HIGH | Commit history panel, branch switcher. |
+| DVC UI | `js/dvc/dvc-ui.js` + `js/app-shell/tabs/dvc-tab.js` | LIVE | HIGH | Commit history panel, branch switcher. |
 
 ---
 
@@ -542,6 +542,7 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/cleaning/clean.js` — Core cleaning (present)
 - `js/connectors/tauri-connector.js` — Tauri Live Connector Layer (present)
 - `js/council/council-ui.js` — Council tab UI (present)
+- `js/app-shell/tabs/council-tab.js` — Council tab render/mount wiring, extracted from main.js (present)
 - `js/dashboard/dashboard-engine.js` — Dashboard View (PR AN — readiness-gated KPI cards + bar/line charts, RAG-colored, research-grounded layout rules) (present)
 - `js/drill-floor/drill-diff.js` — Drill Floor (SQL/Python/R practice drills; Batch 1: Spot the Sale, Batch 2: cross-language result diff) (present)
 - `js/drill-floor/drill-floor-data.js` — Drill Floor (SQL/Python/R practice drills; Batch 1: Spot the Sale, Batch 2: cross-language result diff) (present)
@@ -592,6 +593,7 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/validation/crucible-adversarial-packs.js` — The Crucible: adversarial validator (Batch 1) (present)
 - `js/validation/crucible-orchestrator.js` — The Crucible: orchestration glue (additive-only) (present)
 - `js/validation/crucible-ui.js` — The Crucible: read-only UI (Batch 2) (present)
+- `js/app-shell/tabs/crucible-tab.js` — Crucible tab render wiring, extracted from main.js (present)
 - `js/validation/expected-range.js` — Reinterpretation & context (present)
 - `js/validation/missingness.js` — Standalone layer modules (present)
 - `js/validation/query-sentinel-assist.js` — Query Sentinel Assist (Batch 2) — bounded on-device explain & fix-suggest (present)
@@ -599,6 +601,9 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/validation/semantic-layer-ui.js` — Semantic / Metrics Layer (present)
 - `js/validation/source-convergence-ingestion.js` — Source Convergence ingestion adapters (Truth Network, Batch 2) (present)
 - `js/validation/source-convergence-ui.js` — Source Convergence UI (Truth Network, Batch 3) (present)
+- `js/app-shell/tabs/convergence-tab.js` — Convergence tab render wiring, extracted from main.js (present)
+- `js/app-shell/tabs/dvc-tab.js` — DVC tab render wiring, extracted from main.js (present)
+- `js/app-shell/tabs/glow-canvas-tab.js` — Glow Canvas tab render wiring, extracted from main.js (present)
 - `js/validation/validation.js` — Orchestrator (present)
 - `js/video/webcodecs-audio-extractor.scaffold.js` — Video ingestion bridge (audio-only, Batch 1) (present)
 - `js/webhook/service-worker-relay.js` — Validation Webhook Mode (present)
