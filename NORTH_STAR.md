@@ -2407,6 +2407,75 @@ Shipped flag-gated and OFF by default: `opfsPersistence` (`flags.manifest.json`,
 behavior change for any user until explicitly enabled, and even then, only after the user separately opts
 in via the Settings consent toggle -- the flag alone never turns this on for anyone.
 
+## Test findings (2026-09-26 -- main.js monolith paydown, Structural Readiness Phase item 3, batch 2b -- FINAL BATCH)
+
+Final batch of the `main.js` paydown, closing out Structural Readiness Phase item 3 entirely. Split into
+two separate PRs for isolation, since these were the 4 largest/most stateful of the original 7 remaining
+tabs:
+
+**Part 1 (PR #695, merged):** extracted Guarded Copilot and Proof Room.
+- `renderGuardedCopilotTab` -> `tabs/guarded-copilot-tab.js` (166 lines, incl. `guardedCopilotMounted`
+  module state -- confirmed self-contained via grep).
+- `renderProofRoomTab` -> `tabs/proof-room-tab.js` (240 lines, incl. `proofRoomSeal` module state, plus
+  `getProofRoomSealForExport` re-exported for its one external call site in main.js's MCP/export
+  gate-state handler).
+- Both functions take a single `deps` object bundling everything that must stay defined in main.js
+  because it's read/written from other call sites too (`state`, `aiTouchLedger`, `gradeFromResults`,
+  `renderAiTouchLedgerPanel`, `metricRegistry`, `engine`, `openMetricProof`,
+  `recordMetricDefinitionVersion`, `openTrustFieldProof`, `collectValidationSummary`, `downloadText`,
+  `ledger`) -- the same dependency-injection pattern batch 2a established.
+- `main.js`: 9,772 -> 9,442 lines. Dead imports removed: `askGuardedCopilot`, `refineWithOnDeviceModel`,
+  `buildProofRoomPlan`, `renderProofRoom`.
+
+**Part 2 (PR #696, merged):** extracted Diplomacy and Drill Floor.
+- `renderDiplomacyTab` -> `tabs/diplomacy-tab.js` (196 original lines). Needed NO dependency-injection
+  object at all -- every identifier it calls (`state`, `engine`, `isEnabled`, `el`, `toast`, `$`, and all
+  6 `diplomacy/*` module functions) is already independently importable from its own source module. All
+  6 of its module-level state variables (`diplomacyMounted`, `diplomacyFormState`,
+  `diplomacyReconcileState`, `diplomacyStatusText`, `diplomacyP2PTransport`,
+  `diplomacyP2PShareStatusA`/`B`) were confirmed self-contained via whole-file grep and moved as local
+  module state.
+- `renderDrillFloorTab` -> `tabs/drill-floor-tab.js` (223 original lines). Takes a small
+  `{ ensurePythonRuntime, ensureRRuntime }` deps object, since those two functions are also called
+  directly from main.js's own tab dispatch for the Python/R tabs themselves and so remain defined there.
+  `drillReceiptLine`/`recordDrillReceipt` (used only within this tab, confirmed via grep) moved in full
+  rather than being injected.
+- `main.js`: 9,442 -> 8,936 lines. Dead imports removed: `sealClaim`, `reconcileClaims`,
+  `createApprovalRequest`/`approveDiplomacy`/`rejectDiplomacy`, `renderDiplomacyPanel`,
+  `buildDiplomacyFormModel`/`renderDiplomacyLoader`, `createDiplomacyP2PTransport`/
+  `NULL_DIPLOMACY_TRANSPORT`, `drillFloor`, `drillFloorData`, `drillDiff`.
+- `test/bundle16-ledger-wiring-drill-battery.test.mjs` updated: its main.js regex check for the
+  drill-battery ledger kinds (`python_recipe`/`r_recipe`/`sql_recipe_run`) now correctly checks
+  `js/app-shell/tabs/drill-floor-tab.js`, where that code now lives; the separate `load` kind check
+  stays against main.js since `ledgerAppendLoad` wiring was not part of this extraction.
+
+**Verification (both parts):** each function is a byte-for-byte copy of what used to live inline in
+main.js. Targeted test suites all passed: `guardedcopilot` (40/40), `proofroom` (38/38), `checkseal`
+(54/54), `trustbeam` (40/40), `nutritionlabel` (41/41), `metricstudio` (20/20), `truststrip` (32/32),
+`diplomacyclaim`, `diplomacyapproval`, `diplomacyui`, `diplomacytab`, `drillfloor` (60/60), `drilldiff`
+(53/53), `bundle16ledgerwiringdrillbattery` (50/50), `bundle17selfhostdrillnavshowdownpqparity`, and
+`capdrift` (24/24) after both capability-map fixes. Live Playwright A/B proof for each part: served a
+`git archive`-extracted pre-extraction baseline snapshot (a lighter-weight alternative to `git stash`/
+worktree, ~97MB vs. the 1.7GB full repo, avoiding the disk-budget risk stash/pop A/B testing ran into
+when two servers share one working directory) alongside the live working copy on separate ports, and
+confirmed byte-identical rendered HTML for all 4 tabs' initial/empty states. Also ran a functional smoke
+pass beyond static rendering: asked Guarded Copilot a real question (identical chat response both sides),
+ran a real SQL query against Drill Floor's DuckDB-loaded table (133 rows, identical both sides), and
+inspected the Diplomacy form + P2P section (identical both sides) -- zero new console errors on either
+side beyond one pre-existing, unrelated `service-worker-relay.js` import error present on both baseline
+and working copy. All 102 CI checks passed on both PRs, including `tauri-smoke`.
+
+**Structural Readiness Phase item 3 ("pay down the main.js monolith") is now fully complete.** Across
+batches 1, 2a, and 2b: `main.js` went from 10,135 lines to 8,936 lines (1,199 lines removed, an ~11.8%
+reduction), with all 12 originally-identified inline `render*Tab` functions extracted into
+`js/app-shell/tabs/` as their own modules, each proven byte-for-byte behavior-identical via live A/B
+testing at every step. Not claimed: this does not mean `main.js` is now small (8,936 lines is still a
+large file) or that every extraction opportunity is exhausted -- other large blocks (tab-bar wiring,
+switchTab's dispatch table itself, shared singleton state) still live in main.js by design, since they
+genuinely are shared across many tabs and don't have a clean single-owner module the way each tab's own
+render function did. A future pass could look at those remaining shared blocks if main.js's size becomes
+a problem again, but that is new scope, not unfinished business from this item.
+
 ## Test findings (2026-09-26 -- main.js monolith paydown, Structural Readiness Phase item 3, batch 2a)
 
 Second batch of the `main.js` paydown (PR #693, merged), picking up where batch 1 left off. Extracted 3
@@ -2619,22 +2688,25 @@ closes:
    user to separately opt in via its own Settings consent toggle even once the flag is on. Not yet
    independently proven on the Tauri desktop shell or a real mobile browser — an explicit platform-parity
    gap for a future pass, not silently assumed identical.
-3. **🔶 IN PROGRESS -- Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring currently
-   lands in one giant file. This is the single largest unaddressed structural risk in the codebase and
-   will only get harder to safely touch as more capability lands. Scope: extract tab-rendering logic into
-   per-tab modules, following the same pure-core/thin-UI split already used for newer modules (e.g.
-   `query-memory.js` vs `query-memory-ui.js`) — a structured extraction, not a rewrite, with the full test
-   suite proving zero behavior change at each step.
+3. **✅ DONE (2026-09-26) -- Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring used
+   to land in one giant file — the single largest structural risk in the codebase. Scope: extract
+   tab-rendering logic into per-tab modules, following the same pure-core/thin-UI split already used for
+   newer modules (e.g. `query-memory.js` vs `query-memory-ui.js`) — a structured extraction, not a
+   rewrite, with the full test suite proving zero behavior change at each step.
    - **✅ Batch 1 (2026-09-26, PR #691):** extracted the 5 smallest tabs (Convergence, Crucible, DVC, AI
      Council, Glow Canvas — all under 35 original lines each) into `js/app-shell/tabs/`. `main.js`:
-     10,135 -> 9,976 lines. See the dated Test findings entry above for full verification evidence.
+     10,135 -> 9,976 lines.
    - **✅ Batch 2a (2026-09-26, PR #693):** extracted 3 of the remaining 7 tabs — Join Builder (87 lines),
      NL->SQL (71 lines), Cleaning Crew (81 lines) — into `js/app-shell/tabs/`. `main.js`: 9,976 -> 9,773
-     lines. See the dated Test findings entry below for full verification evidence.
-   - **⬜ Batch 2b (planned):** the remaining 4, larger and more stateful tabs — Guarded Copilot
-     (132 lines), Proof Room (150 lines, plus a cross-file export function), Diplomacy (196 lines, plus
-     6 module-level state variables incl. P2P transport wiring), Drill Floor (223 lines) — deferred to
-     their own separate, more carefully tested batch(es) rather than bundled into batch 2a.
+     lines.
+   - **✅ Batch 2b part 1 (2026-09-26, PR #695):** extracted Guarded Copilot (132 lines) and Proof Room
+     (150 lines, plus a cross-file export function). `main.js`: 9,772 -> 9,442 lines.
+   - **✅ Batch 2b part 2 (2026-09-26, PR #696, FINAL):** extracted Diplomacy (196 lines, plus 6
+     module-level state variables incl. P2P transport wiring) and Drill Floor (223 lines). `main.js`:
+     9,442 -> 8,936 lines.
+   - **Total: `main.js` 10,135 -> 8,936 lines (1,199 lines / ~11.8% removed), all 12 originally-identified
+     inline `render*Tab` functions extracted.** See the dated Test findings entries above for full
+     verification evidence on every batch.
 4. **⬜ Turn test-findings history into structured, queryable evidence.** `NORTH_STAR.md` is 2,454+ lines
    with 15 dated `## Test findings` sections as of 2026-09-24 — real, valuable evidence, but as prose in
    one ever-growing file it's not queryable ("which capabilities have real-world evidence, and how
