@@ -353,3 +353,101 @@ export const SERVER_OFFLOAD_DEFAULT = false;
 export function isServerOffloadActive(flagEnabled, endpointUrl) {
   return flagEnabled === true && typeof endpointUrl === 'string' && endpointUrl.length > 0;
 }
+
+// ============================================================
+// #9 — OPFS-backed database persistence (Structural Readiness Phase
+// item 2, second half)
+// ============================================================
+// The #3 section above is spill-to-disk for query INTERMEDIATES only --
+// the actual database (every loaded table) has always lived in WASM linear
+// memory and vanished on reload. This section is a genuinely different
+// capability: persisting the whole active database to OPFS so a user's
+// tables are still there after closing the tab, reloading, or restarting
+// the browser -- opt-in, off by default, exactly like the existing
+// persistFingerprints/persistLearnedCorrections/persistLayerPriority
+// settings in js/app-shell/main.js (see FP_CONSENT_KEY and siblings).
+//
+// Confirmed against the real vendored @duckdb/duckdb-wasm 1.32.0 worker
+// source (assets/duckdb/duckdb-browser.mjs): AsyncDuckDB.open({ path }) with
+// a path starting 'opfs://' makes the worker call
+// this._bindings.prepareDBFileHandle(path, DuckDBAccessMode.READ_WRITE) and
+// set useDirectIO=true automatically. See duckdb.org/2026/09/18/opfs-wasm and
+// duckdb.org/docs/current/clients/wasm/instantiation.
+//
+// CORRECTION (found via live browser proof, not assumed from reading the
+// worker source alone): passing ONLY { path } without an explicit
+// `accessMode` field reliably fails on the very first open of a brand-new
+// OPFS path with "exists, but it is not a valid DuckDB database file" --
+// reproduced with a minimal repro outside DataGlow's own code, so this is
+// a real duckdb-wasm 1.32.0 API-usage requirement, not a DataGlow bug.
+// `accessMode: DuckDBAccessMode.READ_WRITE` (numeric 3, per the enum this
+// file already cites above) must be passed explicitly on every open call,
+// matching the official docs' own example, which was more prescriptive
+// than the worker source's auto-detection made it look. Proven fixed via
+// a real create -> checkpoint -> close -> terminate -> fresh-worker-reopen
+// cycle. This is exactly the discipline this project holds itself to:
+// verify against the running app, not just against source code or docs.
+//
+// Unlike #3's spill directory (a throwaway scratch path, fine to share
+// across all users of a shared machine), a persistent database is real
+// user data sitting in OPFS indefinitely -- this section deliberately makes
+// the naming and consent boundary explicit rather than leaving it implicit.
+
+export const OPFS_CONSENT_KEY = 'dataglow_persist_opfs_database';
+
+/**
+ * The fixed OPFS-relative database filename DataGlow persists to when
+ * opted in. Single, well-known name (not per-dataset) -- OPFS persistence
+ * covers the whole active DuckDB database (every table currently loaded),
+ * not one table or file at a time.
+ */
+export const OPFS_DATABASE_FILENAME = 'dataglow_session.duckdb';
+
+/**
+ * DuckDBAccessMode.READ_WRITE (numeric enum value, avoiding a duckdb-wasm
+ * import here since this module is deliberately Node-safe/dependency-free
+ * for pure-logic testing -- see DuckDBAccessMode in duckdb-browser.mjs:
+ * UNDEFINED=0, AUTOMATIC=1, READ_ONLY=2, READ_WRITE=3).
+ */
+const DUCKDB_ACCESS_MODE_READ_WRITE = 3;
+
+/**
+ * Returns the duckdb-wasm `db.open()` config for OPFS-backed persistence.
+ * `accessMode` MUST be explicit -- omitting it fails opening a brand-new
+ * OPFS path on the very first open (see CORRECTION note above).
+ * @param {string} [filename]
+ * @returns {{ path: string, accessMode: number }}
+ */
+export function opfsDatabaseOpenConfig(filename) {
+  return {
+    path: 'opfs://' + (filename || OPFS_DATABASE_FILENAME),
+    accessMode: DUCKDB_ACCESS_MODE_READ_WRITE,
+  };
+}
+
+/**
+ * Returns true only when the OPFS persistence flag is on, the user has
+ * given explicit consent (localStorage toggle, mirroring the fingerprint/
+ * learning consent pattern), and OPFS itself is available in this browser.
+ * All three must hold -- this is a strictly-opt-in capability with no
+ * silent default-on path.
+ * @param {boolean} flagEnabled - from isEnabled('opfsPersistence')
+ * @param {boolean} userConsented - from localStorage.getItem(OPFS_CONSENT_KEY) === '1'
+ * @returns {boolean}
+ */
+export function shouldPersistToOPFS(flagEnabled, userConsented) {
+  return flagEnabled === true && userConsented === true && isOPFSAvailable();
+}
+
+// CORRECTION (found via live browser proof): a live DuckDB-WASM OPFS
+// connection holds an exclusive FileSystemSyncAccessHandle lock on its
+// database file for as long as the connection is open (confirmed via the
+// File System Standard's own locking rules and reproduced live -- calling
+// `directoryHandle.removeEntry()` on a still-open OPFS database file throws
+// `NoModificationAllowedError`, silently doing nothing, not a soft failure).
+// "Clear the locally stored database" therefore CANNOT delete the file
+// live, mid-session, the same way a normal opt-out settings toggle would --
+// it must instead flag the deletion as pending, and the deletion itself has
+// to run at the START of the NEXT initDuckDB() (before db.open() takes the
+// lock again), when no connection holds the file. This key is that flag.
+export const OPFS_PENDING_CLEAR_KEY = 'dataglow_persist_opfs_pending_clear';

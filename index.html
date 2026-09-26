@@ -1403,6 +1403,27 @@
     </div>
     <button class="btn btn-secondary" id="btn-memory-clear" style="margin-bottom:var(--space-5);" data-testid="button-memory-clear">Clear local memory</button>
 
+    <!-- opfsPersistence flag (dark until enabled, see flags.manifest.json). Hidden via
+         inline display:none by default; shown by JS only when the flag is on -- same
+         convention as #object-space-section and similar dark-shipped panels. -->
+    <div id="opfs-persistence-section" style="display:none;">
+      <div class="sidebar-heading">Keep My Data Between Sessions</div>
+      <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
+        By default, everything you load into DATAGLOW disappears the moment you close or reload the tab —
+        nothing sticks around. Turning this on saves your <strong>actual loaded tables</strong> (not just
+        summaries) to a private storage area inside this browser, so they're still here next time you open
+        DATAGLOW on this device. <strong>Nothing is ever uploaded anywhere</strong> — this only ever writes to
+        your own browser's storage. Off by default; turning it off again stops future saving but does not
+        delete what's already stored (use "Clear locally stored database" below for that).
+      </p>
+      <label style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm); margin-bottom:var(--space-2); cursor:pointer;">
+        <input type="checkbox" id="toggle-persist-opfs-database" data-testid="toggle-persist-opfs-database" />
+        Remember my loaded tables across sessions on this device (opt-in)
+      </label>
+      <div id="opfs-persistence-stats" data-testid="opfs-persistence-stats" style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);"></div>
+      <button class="btn btn-secondary" id="btn-clear-opfs-database" style="margin-bottom:var(--space-5);" data-testid="button-clear-opfs-database">Clear locally stored database</button>
+    </div>
+
     <div class="sidebar-heading">Distribution Fingerprint Drift</div>
     <p style="font-size:var(--text-sm); color:var(--color-text-muted); margin-bottom:var(--space-2);">
       When enabled, DATAGLOW saves a tiny <strong>statistical summary</strong> of each column

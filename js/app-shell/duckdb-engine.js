@@ -12,12 +12,18 @@ import {
   coiDiagnostic,
   isCrossOriginIsolated,
   queryBatch,
+  OPFS_CONSENT_KEY,
+  OPFS_DATABASE_FILENAME,
+  OPFS_PENDING_CLEAR_KEY,
+  opfsDatabaseOpenConfig,
+  shouldPersistToOPFS,
 } from './duckdb-config.js';
 import {
   SELF_HOST_CANDIDATE,
   isWasmFetchFailure,
   buildHybridWasmBundle,
 } from '../sql/duckdb-load-harden.js';
+import { isEnabled } from '../build/build-flags.js';
 
 // Self-hosted DuckDB-WASM assets (vendored under assets/duckdb/). Resolved
 // relative to this module so it works no matter what path the app is served
@@ -125,10 +131,61 @@ export function initDuckDB() {
     }
     URL.revokeObjectURL(workerUrl);
 
+    // #9 — OPFS-backed database persistence (Structural Readiness Phase item
+    // 2, second half). db.open({ path: 'opfs://...' }) MUST happen before
+    // db.connect() -- it selects which on-disk (well, on-OPFS) database file
+    // the very first connection attaches to. Strictly opt-in: only runs when
+    // the flag is on AND the user has separately given consent via the
+    // Settings toggle (mirrors persistFingerprints/persistLearnedCorrections),
+    // never silently on just because the flag shipped. A failure here (OPFS
+    // quota, a corrupted prior file, a browser that lied about supporting
+    // createSyncAccessHandle) falls back to the normal in-memory database
+    // rather than blocking app startup -- persistence is a nice-to-have on
+    // top of a working app, never a hard requirement to load at all.
+    // CORRECTION (found via live browser proof): a live OPFS connection
+    // holds an exclusive lock on its database file for as long as it's
+    // open, so clearOPFSDatabase() cannot always delete the file live --
+    // it may instead have set OPFS_PENDING_CLEAR_KEY as a deferred request.
+    // This is the one safe moment to actually consume it: nothing has
+    // opened the file yet this session, so no lock is held on it.
+    await consumePendingOPFSClear();
+
+    const opfsConsented = typeof localStorage !== 'undefined' &&
+      localStorage.getItem(OPFS_CONSENT_KEY) === '1';
+    let opfsPersistenceActive = false;
+    if (shouldPersistToOPFS(isEnabled('opfsPersistence'), opfsConsented)) {
+      try {
+        await db.open(opfsDatabaseOpenConfig());
+        opfsPersistenceActive = true;
+      } catch (opfsOpenErr) {
+        console.warn('[DataGlow DuckDB] OPFS database open failed, falling back to in-memory: ' + (opfsOpenErr && opfsOpenErr.message || opfsOpenErr));
+      }
+    }
+
     const conn = await db.connect();
     state.duckdb.db = db;
     state.duckdb.conn = conn;
     state.duckdb.ready = true;
+    state.duckdb.opfsPersistenceActive = opfsPersistenceActive;
+
+    // #9 (continued) -- durability without relying on a clean shutdown.
+    // Users close tabs and browsers crash; DuckDB's WAL only survives an
+    // unclean exit up to the last checkpoint. checkpoint_threshold='0KB'
+    // makes DuckDB checkpoint (write the WAL into the main OPFS file) after
+    // every write instead of waiting for the WAL to grow past its normal
+    // default threshold -- proven via a live create -> write -> terminate
+    // (no explicit close/checkpoint) -> fresh-instance-reopen cycle that
+    // the data survives even an abrupt, non-graceful shutdown. A failed SET
+    // here is non-fatal: it only means durability falls back to DuckDB's
+    // normal default threshold rather than every-write, so it is wrapped
+    // defensively rather than allowed to break the rest of app startup.
+    if (opfsPersistenceActive) {
+      try {
+        await conn.query("SET checkpoint_threshold = '0KB'");
+      } catch (checkpointSetErr) {
+        console.warn('[DataGlow DuckDB] Could not set checkpoint_threshold for OPFS durability: ' + (checkpointSetErr && checkpointSetErr.message || checkpointSetErr));
+      }
+    }
     // Stashed so registerFileHandleStreaming (below) can pass the real enum
     // value without a second, separate static import of duckdb-browser.mjs --
     // this module is loaded dynamically above precisely so the app works when
@@ -488,5 +545,112 @@ export async function createTableFromRows(tableName, columns, rows) {
       }
       // else: leave as VARCHAR (text column)
     } catch (e) { /* leave as varchar */ }
+  }
+}
+
+// ============================================================
+// #9 — OPFS-backed database persistence: status + clear (Structural
+// Readiness Phase item 2, second half)
+// ============================================================
+
+/**
+ * Returns whether the CURRENTLY RUNNING engine instance opened its database
+ * from OPFS (persistence active this session), independent of the flag/
+ * consent state, which could change without a reload taking effect yet.
+ * @returns {boolean}
+ */
+export function isOPFSPersistenceActive() {
+  return state.duckdb.opfsPersistenceActive === true;
+}
+
+/**
+ * Returns { exists, sizeBytes } for the persisted OPFS database file, without
+ * requiring the engine to be running or the flag to be on — used by the
+ * Settings panel to show "N MB stored locally" even before/after a reload.
+ * Never throws: OPFS unavailable or the file not existing both resolve to
+ * { exists: false, sizeBytes: 0 } rather than raising past the Settings UI.
+ * @param {string} [filename]
+ * @returns {Promise<{exists: boolean, sizeBytes: number}>}
+ */
+export async function getOPFSDatabaseStats(filename) {
+  const name = filename || OPFS_DATABASE_FILENAME;
+  if (!isOPFSAvailable()) return { exists: false, sizeBytes: 0 };
+  try {
+    const root = await navigator.storage.getDirectory();
+    const handle = await root.getFileHandle(name, { create: false });
+    const file = await handle.getFile();
+    return { exists: true, sizeBytes: file.size };
+  } catch (_notFoundErr) {
+    return { exists: false, sizeBytes: 0 };
+  }
+}
+
+/**
+ * Deletes the persisted OPFS database file (the user's "Clear locally
+ * stored database" action). Does NOT touch the live in-memory tables of
+ * the CURRENT session — those are unaffected until the next reload.
+ *
+ * CORRECTION (found via live browser proof, not assumed): while OPFS
+ * persistence is ACTIVE this session, DuckDB-WASM holds an exclusive
+ * FileSystemSyncAccessHandle lock on the database file for as long as the
+ * connection is open (confirmed via the File System Standard's own locking
+ * rules), so `removeEntry()` throws `NoModificationAllowedError` and
+ * silently fails to delete anything -- not a soft no-op, a real failure
+ * that was originally going undetected. When that happens, this function
+ * falls back to setting a deferred "clear on next load" flag instead
+ * (consumed by `consumePendingOPFSClear()` at the start of the NEXT
+ * `initDuckDB()`, before any connection re-takes the lock), and the caller
+ * is told which path was taken so the UI can say "cleared" vs. "will clear
+ * next time you reload" honestly rather than claiming an immediate delete
+ * that didn't actually happen.
+ * Never throws on a missing file (already-clear is a success, not an error).
+ * @param {string} [filename]
+ * @returns {Promise<{deleted: boolean, deferred: boolean}>}
+ */
+export async function clearOPFSDatabase(filename) {
+  const name = filename || OPFS_DATABASE_FILENAME;
+  if (!isOPFSAvailable()) return { deleted: false, deferred: false };
+  const root = await navigator.storage.getDirectory();
+  try {
+    await root.removeEntry(name);
+    return { deleted: true, deferred: false };
+  } catch (removeErr) {
+    if (removeErr && removeErr.name === 'NotFoundError') {
+      return { deleted: false, deferred: false };
+    }
+    if (removeErr && removeErr.name === 'NoModificationAllowedError') {
+      // File is locked by this session's own live OPFS connection --
+      // defer the actual deletion to the start of the next page load.
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(OPFS_PENDING_CLEAR_KEY, name);
+      }
+      return { deleted: false, deferred: true };
+    }
+    throw removeErr;
+  }
+}
+
+/**
+ * Consumes a pending "clear on next load" request set by `clearOPFSDatabase()`
+ * when it couldn't delete the file live because this session's own
+ * connection was holding it locked. Must run BEFORE `db.open()` re-takes
+ * the OPFS lock for the new session. Safe to call every load even when
+ * nothing is pending (reads a localStorage flag, no-ops if absent).
+ * Never throws: OPFS unavailable, the file already gone, or a read/parse
+ * failure all resolve quietly rather than blocking startup.
+ * @returns {Promise<void>}
+ */
+export async function consumePendingOPFSClear() {
+  if (typeof localStorage === 'undefined') return;
+  const pendingName = localStorage.getItem(OPFS_PENDING_CLEAR_KEY);
+  if (!pendingName) return;
+  localStorage.removeItem(OPFS_PENDING_CLEAR_KEY);
+  if (!isOPFSAvailable()) return;
+  try {
+    const root = await navigator.storage.getDirectory();
+    await root.removeEntry(pendingName);
+  } catch (removeErr) {
+    if (removeErr && removeErr.name === 'NotFoundError') return;
+    console.warn('[DataGlow DuckDB] Deferred OPFS clear failed: ' + (removeErr && removeErr.message || removeErr));
   }
 }

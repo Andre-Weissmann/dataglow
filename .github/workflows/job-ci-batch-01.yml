@@ -292,3 +292,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:rulesuggestionsregistry
+
+  opfs-persistence:
+    name: OPFS-backed database persistence decision logic (Structural Readiness Phase item 2, second half)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:opfspersistence

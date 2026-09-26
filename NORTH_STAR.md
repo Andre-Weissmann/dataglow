@@ -2314,6 +2314,99 @@ this specific change.
 Shipped flag-gated and OFF by default: `streamingIngestion` (`flags.manifest.json`, `enabled: false`).
 Zero behavior change for any user until explicitly enabled.
 
+## Test findings (2026-09-25 -- OPFS persistence, Structural Readiness Phase item 2, second half)
+
+Second and final half of item 2 ("resolve the scale ceiling"): cross-session database persistence via
+`opfs://` paths, closing out Structural Readiness Phase item 2 entirely (first half, chunked/streaming
+ingestion, shipped 2026-09-25 -- see the entry above). Unlike the streaming half, this pass found TWO real,
+live-verified functional bugs during proof, not zero -- both are documented here in full rather than only
+reporting the successful end state, per this project's standing discipline of never claiming something
+works without live-verified proof.
+
+**Bug 1 -- brand-new OPFS database files failed to open at all, not just to reopen.** The initial
+implementation called `db.open({ path: 'opfs://...' })` with only a `path` field, following what the
+vendored DuckDB-WASM 1.32.0 worker source (`assets/duckdb/duckdb-browser.mjs`) appeared to auto-detect from
+an `opfs://` prefix alone. A minimal, DataGlow-independent reproduction (open a fresh path, write a table,
+close, reopen with a fresh worker) failed every time with
+`Opening the database failed with error: {"exception_type":"IO","exception_message":"...exists, but it is
+not a valid DuckDB database file!"}` -- and, more surprising, this happened on the very FIRST open of a
+path that had never existed before, not only on a reopen. Passing an explicit
+`accessMode: DuckDBAccessMode.READ_WRITE` (numeric `3`) on every `db.open()` call, matching the official
+docs' own example more literally than the worker source's auto-detection suggested was necessary
+([duckdb.org/2026/09/18/opfs-wasm](https://duckdb.org/2026/09/18/opfs-wasm),
+[duckdb.org/docs/current/clients/wasm/instantiation](https://duckdb.org/docs/current/clients/wasm/instantiation)),
+fixed it -- confirmed via a real create -> checkpoint -> close -> terminate -> fresh-worker-reopen cycle
+succeeding cleanly. `opfsDatabaseOpenConfig()` (`duckdb-config.js`) now always includes this field; the
+original comment claiming "no extra config needed beyond the path itself" was corrected in place with an
+explanation of what was wrong and why, rather than silently changed.
+
+**Durability without a clean shutdown.** DuckDB's WAL only survives an unclean exit (tab close, browser
+crash) up to the last checkpoint. `SET checkpoint_threshold = '0KB'` is now run once, right after connecting,
+when OPFS persistence is active -- proven via a live create -> write -> terminate (no explicit close or
+checkpoint call at all, simulating an abrupt shutdown) -> fresh-instance-reopen cycle that the data survives.
+
+**Bug 2 -- the "Clear locally stored database" action silently failed to delete anything while the app was
+running.** Live proof surfaced `NoModificationAllowedError: Failed to execute 'removeEntry' on
+'FileSystemDirectoryHandle': An attempt was made to modify an object where modifications are not allowed.`
+-- confirmed against the File System Standard's own locking rules: a live DuckDB-WASM OPFS connection holds
+an exclusive `FileSystemSyncAccessHandle` lock on its database file for as long as the connection is open,
+and `removeEntry()` on a locked file fails outright rather than queuing or waiting. The original
+`clearOPFSDatabase()` swallowed no error (it would have surfaced a thrown exception), but the calling UI
+code still reported success even though the ground-truth OPFS directory listing proved the file was still
+there -- an honesty gap that would have shipped a button that lies about what it did. Fixed with a
+deferred-clear mechanism: `clearOPFSDatabase()` now tries an immediate delete first (succeeds whenever no
+live connection holds the file, e.g. flag/consent off), and on `NoModificationAllowedError` specifically,
+falls back to writing a `dataglow_persist_opfs_pending_clear` localStorage flag instead of claiming success.
+A new `consumePendingOPFSClear()` runs at the very start of `initDuckDB()`, before `db.open()` re-takes the
+lock, and performs the real deletion then. The Settings UI's toast now distinguishes "cleared" from "will
+clear on your next reload" honestly rather than collapsing both into one claim.
+
+**Live-proof evidence (real browser, real DuckDB-WASM, full 8-step Playwright flow, run twice for
+stability):** enabled the consent toggle, reloaded once (required -- enabling consent does not retroactively
+make an already-open in-memory session's database OPFS-backed; this is correct, documented behavior, not a
+bug, and an earlier proof-script version that skipped this reload produced a false persistence-failure
+reading that is not a real product bug), uploaded a deterministic 5,000-row CSV
+(`opfs_proof/gen_test_csv.py`, seed=7), verified `COUNT(*)=5,000` and `SUM(amount)=1,237,152.84` before
+reload, reloaded the page, and confirmed BOTH values still matched -- via the app's own SQL tab, cross-
+verified against DuckDB directly, never trusting the UI display alone -- WITHOUT re-uploading anything.
+Settings stats correctly reported the stored file size (524.0 KB) with an accurate status note. Clicked
+"Clear locally stored database," reloaded again, and confirmed the table was genuinely gone. Ran the full
+sequence twice consecutively with identical pass results on every check, ruling out a one-off flaky pass.
+
+**Testing:** `test/opfs-persistence.test.mjs` (21 assertions, Node, no browser/DuckDB dependency) covers the
+pure decision/config logic: the three-way `shouldPersistToOPFS` AND gate, `opfsDatabaseOpenConfig()`'s exact
+shape including the now-required `accessMode` field, and the Node-safe fallback halves of
+`clearOPFSDatabase()` / `consumePendingOPFSClear()` (the actual browser-only lock-contention branch is
+proven separately by the live Playwright run above, not claimed as CI-covered). Wired into CI as a new job
+inside the existing `job-ci-batch-01.yml`, per the CI Architect convention of using headroom inside an
+existing batch file rather than a new top-level `uses:` workflow.
+
+**Platform:** all shared-codebase surfaces (web, desktop/Tauri, PWA/mobile) get this change identically --
+`duckdb-config.js`/`duckdb-engine.js` carry no platform fork, and OPFS is a standard browser API available
+wherever the existing WASM bundle already runs. Not yet independently proven on the Tauri desktop shell or
+a real mobile browser this pass (only the plain web build was live-tested) -- listed here as an explicit
+platform-parity gap, not silently assumed identical. Cross-browser OPFS support itself also varies (per
+independent research during this pass, e.g. [Perun Engineering's DuckDB-Wasm production writeup](https://perun.au/insights/duckdb-wasm-production)),
+so a browser that reports `isOPFSAvailable() === false` correctly falls back to the pre-existing
+in-memory-only behavior rather than erroring.
+
+**Explicitly NOT done this pass:** the `.wal` companion file is left in place by `clearOPFSDatabase()` when
+removing the main `.duckdb` file live-succeeds (only the main file is targeted) -- confirmed via a minimal
+repro that this does not resurrect any table data on the next open (DuckDB correctly treats a missing main
+file as "no database" regardless of a stray WAL), so this is not a functional bug, but a future cleanup
+could also remove the `.wal` file for tidiness. Also not in scope: true multi-tab/multi-window coordination
+(two tabs of DataGlow open simultaneously, both attempting OPFS persistence, would contend for the same
+lock -- not tested this pass, and not a scenario the current UX guides users toward, but not independently
+verified either way).
+
+**Structural Readiness Phase item 2 ("resolve the scale ceiling") is now fully complete** -- both halves
+(streaming ingestion + OPFS persistence) shipped, flag-gated, OFF by default, and live-proof-verified with
+honest documentation of every bug found along the way. Item 3 (paying down the `main.js` monolith) is next.
+
+Shipped flag-gated and OFF by default: `opfsPersistence` (`flags.manifest.json`, `enabled: false`). Zero
+behavior change for any user until explicitly enabled, and even then, only after the user separately opts
+in via the Settings consent toggle -- the flag alone never turns this on for anyone.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2434,17 +2527,20 @@ closes:
 
    All four modules under this item are now done. Structural Readiness Phase item 2 (resolve the scale
    ceiling) is next.
-2. **🟨 Resolve the scale ceiling instead of leaving it open (IN PROGRESS — ingestion streaming half DONE
-   2026-09-25, OPFS persistence half not started).** Six scale-architecture options were laid out
-   2026-07-12 (see the architecture brainstorm above) and none had been chosen as of 2026-09-24 — the
-   practical ceiling was whatever fit in one browser tab's DuckDB-WASM memory (~4GB). Chosen direction:
-   **OPFS persistence + chunked/streaming ingestion first** — it's client-side, preserves
+2. **✅ DONE (2026-09-25) — Resolve the scale ceiling instead of leaving it open.** Six scale-architecture
+   options were laid out 2026-07-12 (see the architecture brainstorm above) and none had been chosen as of
+   2026-09-24 — the practical ceiling was whatever fit in one browser tab's DuckDB-WASM memory (~4GB).
+   Chosen direction: **OPFS persistence + chunked/streaming ingestion** — it's client-side, preserves
    zero-upload-by-default for every user (not just opted-in ones), and doesn't require the desktop-only
-   native-DuckDB path or the identity-blurring bring-your-own-warehouse path. Landing as its own batched PR
-   sequence (ingestion streaming first, OPFS persistence layer second), proven against a file larger than
-   fits comfortably in-memory today. See the dated "Test findings" entry below for the streaming half's
-   real bug found, implementation, and live-proof evidence. OPFS persistence (the second half) remains
-   ⬜ not started — do not read this item as fully done until that half also lands.
+   native-DuckDB path or the identity-blurring bring-your-own-warehouse path. Landed as two batched PRs
+   (ingestion streaming first, OPFS persistence layer second), both proven against a real load larger than
+   fits comfortably in-memory/in-session today. See the two dated "Test findings" entries below for each
+   half's real bugs found (one in the streaming half, two in the OPFS half), implementation, and live-proof
+   evidence — both halves are flag-gated OFF by default (`streamingIngestion`, `opfsPersistence`), zero
+   behavior change for any user until explicitly enabled, and OPFS persistence additionally requires the
+   user to separately opt in via its own Settings consent toggle even once the flag is on. Not yet
+   independently proven on the Tauri desktop shell or a real mobile browser — an explicit platform-parity
+   gap for a future pass, not silently assumed identical.
 3. **⬜ Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring currently lands in one
    10,050-line file. This is the single largest unaddressed structural risk in the codebase and will only
    get harder to safely touch as more capability lands. Scope when picked up: extract tab-rendering logic
