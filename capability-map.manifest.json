@@ -1193,7 +1193,8 @@
       "area": "Provenance, audit & trust",
       "name": "Proof Room (Trust Passport, composition batch 1 + AI Touch Ledger step, feature-flagged: aiTouchLedger)",
       "files": [
-        "js/provenance/proof-room.js"
+        "js/provenance/proof-room.js",
+        "js/app-shell/tabs/proof-room-tab.js"
       ],
       "symbols": [
         {
@@ -2836,7 +2837,8 @@
         "desktop"
       ],
       "files": [
-        "js/agents/guarded-copilot.js"
+        "js/agents/guarded-copilot.js",
+        "js/app-shell/tabs/guarded-copilot-tab.js"
       ],
       "symbols": [
         {
