@@ -8,6 +8,14 @@ import { $, $$, el, toast, formatNumber, escapeHtml, timeAgo, debounce } from '.
 import { loadRegistry } from './capability-registry.js';
 import { buildSidebarContent } from './command-deck-nav.js';
 import { buildCommandList, filterCommands } from './command-palette.js';
+// Extracted tab modules (Structural Readiness Phase item 3, main.js monolith
+// paydown, 2026-09-25). Each file is a byte-for-byte extraction of what used
+// to live inline here -- see the comment left at each tab's old location.
+import { renderConvergenceTab } from './tabs/convergence-tab.js';
+import { renderCrucibleTab } from './tabs/crucible-tab.js';
+import { renderDVCTab } from './tabs/dvc-tab.js';
+import { renderCouncilTab } from './tabs/council-tab.js';
+import { renderGlowCanvasTab } from './tabs/glow-canvas-tab.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
@@ -28,7 +36,6 @@ import { classifyGroupedConfidence, summarizeGroupedConfidence, cohensD } from '
 import { checkNarrativeOverconfidence, describeOverconfidenceFinding } from '../rigor/narrative-overconfidence-guard.js';
 import { renderPortfolioTab } from '../portfolio/portfolio-ui.js';
 import * as viz from '../runtimes-viz/visualize.js';
-import * as glowCanvas from '../runtimes-viz/glow-canvas.js';
 import * as benchShell from './bench-shell.js';
 import { renderPivotTab } from '../runtimes-viz/pivot-ui.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
@@ -111,8 +118,6 @@ import { createLiveRoomsBroadcast, NULL_LIVE_ROOMS_BROADCAST } from '../agents/l
 import { createChartContextTimeline, buildChartContextEntry } from '../agents/chart-context-timeline.js';
 import { buildSynthesisPrompt, summarizeMeetingSynthesis } from '../agents/meeting-synthesis.js';
 import { buildMeetingNote as buildMeetingNoteForSynthesis } from '../agents/meeting-scribe-agent.js';
-import { shouldOfferConvergence, mountConvergence } from '../validation/source-convergence-ui.js';
-import { shouldOfferCrucible, mountCrucible } from '../validation/crucible-ui.js';
 import { runCrucibleForFix } from '../validation/crucible-orchestrator.js';
 import { shouldOfferDecisionLedger, mountDecisionLedger } from '../agents/meeting-decision-ledger-ui.js';
 import * as firewall from '../agents/agent-action-firewall.js';
@@ -161,8 +166,6 @@ import { createJoinGraph } from '../join-builder/join-model.js';
 import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
 import { mountNLSQLUI } from '../nl-sql/nl-sql-ui.js';
 import { setProviderKey as setNlsqlProviderKey, getProviderKey as getNlsqlProviderKey } from '../nl-sql/nl-sql-key-store.js';
-import { mountDVCUI } from '../dvc/dvc-ui.js';
-import { mountCouncilUI } from '../council/council-ui.js';
 import { datasetsToSchemaContext, serializeSchemaForPrompt } from '../nl-sql/schema-context.js';
 import { buildTrustCertificate, serializeCertificate, certificateFilename } from '../trust/trust-certificate.js';
 import { getSuggestions, topSuggestion } from '../polyglot/polyglot-autocomplete.js';
@@ -4243,76 +4246,13 @@ async function renderDiplomacyTab() {
 }
 
 // ============================================================
-// Source Convergence (Truth Network, Batch 3 of 3) — Convergence tab wiring
+// Source Convergence + The Crucible tab wiring
 // ============================================================
-// Mounts the Convergence surface (js/validation/source-convergence-ui.js) which
-// wires the already-merged Batch 1 engine + Batch 2 adapters into a real tab.
-// Gated by ONE flag, sourceConvergenceUI (off by default): with it off the tab
-// is never in the bar (see renderTabBar) and this function clears/resets the
-// panel — the engine/adapter flags it builds on are never touched here. Mounts
-// once per session; the module owns its own load controls and empty state.
-let convergenceMounted = false;
-let convergenceHandle = null;
-function renderConvergenceTab() {
-  const host = $('#convergence-body');
-  if (!host) return;
-  if (!isEnabled('sourceConvergenceUI') || !shouldOfferConvergence({ enabled: true })) {
-    host.innerHTML = '';
-    if (convergenceHandle) { convergenceHandle.destroy(); }
-    convergenceMounted = false;
-    convergenceHandle = null;
-    return;
-  }
-  if (!convergenceMounted) {
-    convergenceHandle = mountConvergence({ host, onToast: toast });
-    convergenceMounted = true;
-  }
-}
-
-// ============================================================
-// The Crucible (Batch 2 of 3) — Crucible tab wiring
-// ============================================================
-// Mounts the read-only Crucible surface (js/validation/crucible-ui.js) which
-// presents Batch 1's already-merged typed handoff contract + adversarial-pack
-// output. Gated by ONE flag, crucibleValidatorUI (off by default): with it off
-// the tab is never in the bar (see renderTabBar) and this function clears/resets
-// the panel. It adds NO data-mutation path — no live proposal is fed through it
-// yet (that + apply/revert are future batches), so it renders an honest empty
-// state. Batch 1's separate crucibleValidator logic flag is never touched here.
-let crucibleMounted = false;
-let crucibleHandle = null;
-function renderCrucibleTab() {
-  const host = $('#crucible-body');
-  if (!host) return;
-  if (!isEnabled('crucibleValidatorUI') || !shouldOfferCrucible({ enabled: true })) {
-    host.innerHTML = '';
-    if (crucibleHandle) { crucibleHandle.destroy(); }
-    crucibleMounted = false;
-    crucibleHandle = null;
-    return;
-  }
-  // ADDITIVE-ONLY: when the crucibleOrchestration flag is on AND a fix has been
-  // run through the standing suite this session, feed that live result into the
-  // panel; re-mount so the newest run is shown. In every other case (flag off,
-  // or no run yet) fall back to the original one-time empty-state mount, so the
-  // tab renders exactly as before when the flag is dark.
-  const run = isEnabled('crucibleOrchestration') ? state.latestCrucibleRun : null;
-  if (run) {
-    if (crucibleHandle) { crucibleHandle.destroy(); }
-    crucibleHandle = mountCrucible({
-      host, onToast: toast,
-      cleaningResult: run.cleaningResult,
-      validationVerdict: run.validationVerdict,
-      suiteResult: run.suiteResult,
-    });
-    crucibleMounted = true;
-    return;
-  }
-  if (!crucibleMounted) {
-    crucibleHandle = mountCrucible({ host, onToast: toast });
-    crucibleMounted = true;
-  }
-}
+// Extracted to js/app-shell/tabs/convergence-tab.js and
+// js/app-shell/tabs/crucible-tab.js during the Structural Readiness Phase
+// item 3 (main.js monolith paydown, 2026-09-25). See those files for the
+// full history/comments; renderConvergenceTab and renderCrucibleTab are
+// imported at the top of this file and behave byte-for-byte identically.
 
 // ============================================================
 // Guarded Copilot (Batch 2 of 2) — Copilot tab wiring
@@ -8396,49 +8336,12 @@ function initVisualizeTab() {
 }
 
 // ============================================================
-// Glow Canvas Tab (Batch 1 — ships dark behind the glowCanvas flag)
+// Glow Canvas Tab wiring
 // ============================================================
-// The multi-chart dashboard surface. main.js owns the live layout state and
-// its persistence (the IndexedDB canvasLayouts store); js/runtimes-viz/
-// glow-canvas.js only holds the PURE layout algebra and the thin renderer,
-// which delegates every actual chart draw to the existing viz.renderChart. The
-// glowCanvas flag is checked HERE (the caller), never inside that module.
-const GLOW_CANVAS_LAYOUT_NAME = 'default';
-let glowCanvasLayout = glowCanvas.createCanvasLayout();
-let glowCanvasLoaded = false;
-
-async function persistGlowCanvasLayout() {
-  try {
-    await memoryStore.saveCanvasLayout(GLOW_CANVAS_LAYOUT_NAME, glowCanvas.serializeLayout(glowCanvasLayout));
-  } catch (_e) { /* persistence is best-effort — a save failure must never break the canvas */ }
-}
-
-function drawGlowCanvas() {
-  glowCanvas.renderCanvas('glow-canvas-body', glowCanvasLayout, {
-    datasets: state.datasets || [],
-    onChange: (next) => {
-      glowCanvasLayout = next;
-      persistGlowCanvasLayout();
-      drawGlowCanvas();
-    },
-  });
-}
-
-async function renderGlowCanvasTab() {
-  const host = document.getElementById('glow-canvas-body');
-  if (!host) return;
-  if (!isEnabled('glowCanvas')) { host.innerHTML = ''; glowCanvasLoaded = false; return; }
-  // Load the saved layout once per session, then draw. Subsequent activations
-  // just redraw the in-memory layout (kept in sync by onChange above).
-  if (!glowCanvasLoaded) {
-    glowCanvasLoaded = true;
-    try {
-      const saved = await memoryStore.getCanvasLayout(GLOW_CANVAS_LAYOUT_NAME);
-      if (saved && saved.layoutJson) glowCanvasLayout = glowCanvas.deserializeLayout(saved.layoutJson);
-    } catch (_e) { /* no saved layout / store unavailable — start from the empty layout */ }
-  }
-  drawGlowCanvas();
-}
+// Extracted to js/app-shell/tabs/glow-canvas-tab.js during the Structural
+// Readiness Phase item 3 (main.js monolith paydown, 2026-09-25). See that
+// file for the full history/comments; renderGlowCanvasTab is imported at
+// the top of this file and behaves byte-for-byte identically.
 
 // ============================================================
 // Join Builder Tab (Phase 8 -- ships dark behind the joinBuilder flag)
@@ -8597,75 +8500,13 @@ function renderNLSQLTab() {
 
 
 // ============================================================
-// DVC Tab (Phase 10 -- ships dark behind the dataVersionControl flag)
+// DVC Tab + AI Council Tab wiring
 // ============================================================
-// Data Version Control: snapshot datasets before transforms, diff snapshots,
-// rollback (advisory -- shows what data looked like, not the raw rows).
-// PRIVACY: only schema + stats stored in snapshots, never row data.
-
-function renderDVCTab() {
-  const host = document.getElementById('dvc-body');
-  if (!host) return;
-  if (!isEnabled('dataVersionControl')) { host.innerHTML = ''; return; }
-
-  mountDVCUI({
-    host,
-    datasets: state.datasets || [],
-    getActiveDataset: () => {
-      const name = state.activeDataset;
-      if (!name) return null;
-      return (state.datasets || []).find(d => (d.name || d.tableName) === name) || null;
-    },
-    onSnapshot: (id) => {
-      toast('Snapshot ' + id.slice(0, 12) + ' created', 'success');
-    },
-    onRollback: (meta) => {
-      // Advisory rollback: show the user what the snapshot looked like.
-      // DataGlow doesn't store row data, so actual data restore requires
-      // the user to reload from the original file.
-      const msg = 'Rollback info: "' + meta.label + '" had ' +
-        meta.rowCount.toLocaleString() + ' rows, ' +
-        meta.cols.length + ' cols. Reload the original file to restore.';
-      toast(msg, 'info');
-    },
-    onToast: toast,
-  });
-}
-
-// ============================================================
-// AI Council Tab (Phase 11 -- ships dark behind the aiCouncil flag)
-// ============================================================
-// Multi-Model AI Council: ask one analytical question, get parallel answers
-// from OpenAI, Anthropic Claude, and Google Gemini, then see where they agree
-// (consensus), where two of three agree (majority), and where they differ
-// (contested). Primary use case is data questions, not general chat.
-// PRIVACY: schema (column names + types) only, same guarantee as NL->SQL --
-// no row data is ever sent to any of the three providers.
-
-var _councilMounted = false;
-function renderCouncilTab() {
-  // council-body now lives inside the AI tab panel, not a standalone panel
-  const host = document.getElementById('council-body');
-  if (!host) return;
-  if (!isEnabled('aiCouncil')) { host.innerHTML = ''; return; }
-  if (_councilMounted) return; // mount once; switching modes re-shows the existing UI
-  _councilMounted = true;
-
-  mountCouncilUI({
-    host,
-    getSchemaContext: function() {
-      const datasets = state.datasets || [];
-      if (!datasets.length) return null;
-      try {
-        const ctx = datasetsToSchemaContext(datasets, 'healthcare');
-        return serializeSchemaForPrompt(ctx);
-      } catch (err) {
-        return null;
-      }
-    },
-    onToast: toast,
-  });
-}
+// Extracted to js/app-shell/tabs/dvc-tab.js and js/app-shell/tabs/council-tab.js
+// during the Structural Readiness Phase item 3 (main.js monolith paydown,
+// 2026-09-25). See those files for the full history/comments; renderDVCTab
+// and renderCouncilTab are imported at the top of this file and behave
+// byte-for-byte identically.
 
 // ============================================================
 // Drill Floor Tab (Batch 1 + Batch 2 -- ships dark behind the drillFloor flag)
