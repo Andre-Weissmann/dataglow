@@ -8,7 +8,7 @@ export const state = {
   theme: 'light',
   datasets: [],           // [{ name, table, rowCount, cols, loadedAt }]
   activeDataset: null,
-  duckdb: { db: null, conn: null, ready: false },
+  duckdb: { db: null, conn: null, ready: false, opfsPersistenceActive: false },
   pyodide: null,
   webR: null,
   lastQuery: null,

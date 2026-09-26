@@ -11,6 +11,7 @@ import { buildCommandList, filterCommands } from './command-palette.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
+import { OPFS_CONSENT_KEY } from './duckdb-config.js';
 import * as loaders from './loaders.js';
 import { highlightSql, renderSqlErrorHtml } from './sql-highlight.js';
 import { translateDialectSql, SUPPORTED_DIALECTS } from './sql-dialect-adapter.js';
@@ -6780,6 +6781,90 @@ function initMemory() {
     });
   }
   refreshFingerprintStats();
+  initOPFSPersistenceSettings();
+}
+
+// ============================================================
+// OPFS-backed database persistence (Structural Readiness Phase item 2,
+// second half). Whole-database cross-session persistence -- a different,
+// bigger claim than the fingerprint/rule persistence above (real loaded
+// tables, not summary statistics), so the section stays hidden entirely
+// (index.html #opfs-persistence-section, display:none) until the
+// opfsPersistence flag is on, and even then requires its OWN separate
+// consent toggle before anything is written to OPFS. See
+// js/app-shell/duckdb-config.js #9 and duckdb-engine.js #9 for the engine
+// side; this is Settings-panel wiring only.
+// ============================================================
+function formatBytesShort(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function refreshOPFSPersistenceStats() {
+  const el = $('#opfs-persistence-stats');
+  if (!el) return;
+  const consented = localStorage.getItem(OPFS_CONSENT_KEY) === '1';
+  if (!consented) {
+    el.textContent = 'Persistence off — your tables stay only for this session, as before.';
+    return;
+  }
+  try {
+    const { exists, sizeBytes } = await engine.getOPFSDatabaseStats();
+    if (!exists) {
+      el.textContent = 'Enabled — nothing saved yet. Load data, then reload the page to confirm it stuck around.';
+    } else {
+      const liveNote = engine.isOPFSPersistenceActive()
+        ? ' (this session is reading from it)'
+        : ' (will load on your next reload)';
+      el.textContent = `${formatBytesShort(sizeBytes)} stored locally on this device${liveNote}.`;
+    }
+  } catch (e) {
+    el.textContent = 'Local storage unavailable in this browser.';
+  }
+}
+
+function initOPFSPersistenceSettings() {
+  const section = $('#opfs-persistence-section');
+  if (!section) return;
+  if (!isEnabled('opfsPersistence')) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  const toggle = $('#toggle-persist-opfs-database');
+  if (toggle) {
+    toggle.checked = localStorage.getItem(OPFS_CONSENT_KEY) === '1';
+    toggle.addEventListener('change', () => {
+      localStorage.setItem(OPFS_CONSENT_KEY, toggle.checked ? '1' : '0');
+      toast(toggle.checked
+        ? 'Table persistence enabled — your loaded tables will be saved locally starting next reload.'
+        : 'Table persistence disabled for future sessions. Already-stored data is untouched — use "Clear locally stored database" to remove it.', 'success');
+      refreshOPFSPersistenceStats();
+    });
+  }
+
+  const clearBtn = $('#btn-clear-opfs-database');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('Delete the locally stored database from this browser? This cannot be undone. Tables currently open in this session are not affected until you reload.')) return;
+      try {
+        const result = await engine.clearOPFSDatabase();
+        // CORRECTION: while persistence is active THIS session, the file is
+        // locked and can't be deleted live -- clearOPFSDatabase() defers it
+        // to the next reload instead. Say so honestly rather than claiming
+        // an immediate delete that didn't actually happen.
+        if (result && result.deferred) {
+          toast('Will clear on your next reload (the database is in use by this session right now)', 'success');
+        } else {
+          toast('Locally stored database cleared', 'success');
+        }
+      } catch (e) {
+        toast('Clear failed: ' + e.message, 'error');
+      }
+      refreshOPFSPersistenceStats();
+    });
+  }
+
+  refreshOPFSPersistenceStats();
 }
 
 // ============================================================
