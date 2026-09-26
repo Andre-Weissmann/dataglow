@@ -1,6 +1,6 @@
 {
   "_about": "Bundle integrity manifest for canvas/index.html, verified by scripts/check-canvas-integrity.mjs (npm run check:canvas-integrity). canvas/index.html is AUTHORITATIVE for the single-file web surface: features land by inlining a js/ module into its one <script> block behind /* ---- from <path> ---- */ markers, not by rebuilding from src/. Each entry below pins BOTH the js/ source file's SHA-256 and the SHA-256 of its inlined canvas section, so editing one without re-injecting the other fails CI instead of silently diverging desktop (which loads js/ directly) from web (which runs the inlined copy). Add a path to \"tracked\" to opt that module into strict drift detection; after a deliberate re-injection run `npm run check:canvas-integrity -- --update` and review the hash diff like code. \"canvasBytes\" pins the size of the WHOLE file and is verified, not just recorded: the tracked hashes only cover their own spans, so a canvas truncated by a failed write or a bad merge would otherwise pass every other check. A canvasBytes mismatch you did not expect means do not publish that canvas.",
-  "canvasBytes": 6688595,
+  "canvasBytes": 6696148,
   "tracked": [
     {
       "source": "js/intelligence/shield-packs.js",
@@ -341,9 +341,9 @@
     {
       "source": "js/ai/data-glow-local-ai-canvas.js",
       "note": "Built-in AI canvas surface: the persistent status chip and the three-tab panel behind it. Already an IIFE, inlined verbatim, publishing window.DataGlowLocalAiUI.",
-      "sourceSha256": "8b5a697be77d54fb6b50c73016b0361d785967398a475bfbe3eaad7988a2c786",
-      "canvasSectionSha256": "43085455f9504008e5ada1303f4a715593e0423aaf43da70e5cef6b8d9626dd6",
-      "canvasSectionBytes": 21835
+      "sourceSha256": "9a4ee6aa5e329705b96c3e78064077c66a152219e0a77237aa6d4462f0e7e46e",
+      "canvasSectionSha256": "6bbc407f397c6a38cba5b864a66d4b978e19519f9e6ecd9dbbe97b1beb3cf632",
+      "canvasSectionBytes": 26537
     },
     {
       "source": "js/ai/model-supply-chain.js",
@@ -384,15 +384,15 @@
       "source": "js/polyglot/python-power-pack.js",
       "note": "Python starter cells and the bridge truncation notice. Pure ES module, inlined as an IIFE publishing window.DataGlowPythonPowerPack.",
       "sourceSha256": "40ea01fb9f506ffec1d0b4aee1039b35b80e9a66906331cb3c7ac5ea9e7d3f62",
-      "canvasSectionSha256": "db946c48008845159dd3ceca7ed2127ccfc7a4e5960def58bf099314a6247c87",
-      "canvasSectionBytes": 10237
+      "canvasSectionSha256": "aa8504c51791b45ed012e18dae6efd7b089384aa646aee90252813eba48fddbd",
+      "canvasSectionBytes": 11621
     },
     {
       "source": "js/polyglot/r-power-pack.js",
       "note": "R starter cells that degrade honestly when jsonlite or ggplot2 did not install. Pure ES module, inlined as an IIFE publishing window.DataGlowRPowerPack.",
       "sourceSha256": "66c7302c9b1a7ace2c61a5a836f74e97aaaa9e143d9ec4d1c23cad1b10e28e28",
-      "canvasSectionSha256": "56d30220bc6dcded15be6b8f03ec0a54697a16e149165e45d47899ea4c88fc43",
-      "canvasSectionBytes": 8658
+      "canvasSectionSha256": "be31edd6349f21991f27e50ae892b8da007e7bad5849099cf38695eca546bd69",
+      "canvasSectionBytes": 10125
     },
     {
       "source": "js/spine/data-glow-receipt-spine-canvas.js",

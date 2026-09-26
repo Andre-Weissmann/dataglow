@@ -32,6 +32,18 @@
   var CHIP_ID = 'dg-lai-chip';
   var PANEL_ID = 'dg-lai-panel';
   var STYLE_ID = 'dg-lai-styles';
+  /* 2026-09-26 fix (backlog 0z2): this chip used to always self-position at
+     a hardcoded bottom:18px;left:18px, independent of any other floating
+     chip on the page. On a narrow phone with the RECEIPT spine's own chips
+     also on, this sat almost exactly on top of that module's chip row and,
+     being a higher z-index, visually covered it. This module has no
+     dependency on the spine module and should not gain one -- so at mount
+     time it looks for a shared row the spine module may have already
+     created (#dg-spine-chip-row) and joins it if present, falling back to
+     its own independent fixed position when that row does not exist (e.g.
+     the spine module is not loaded in this build at all). Purely additive:
+     if the row is absent, behavior is byte-for-byte the same as before. */
+  var SHARED_CHIP_ROW_ID = 'dg-spine-chip-row';
 
   var state = { open: false, tab: 'ai', copiedOnce: false };
 
@@ -283,7 +295,14 @@
       + '.dg-lai-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}'
       + '.dg-lai-fact{border:1px solid var(--color-border,#ddd);border-radius:8px;padding:8px 10px;margin:6px 0}'
       + '.dg-lai-fact b{display:block;font-size:12px;opacity:.7;font-weight:600}'
-      + '.dg-lai-not{margin:4px 0 0;padding-left:10px;border-left:2px solid currentColor;opacity:.9}';
+      + '.dg-lai-not{margin:4px 0 0;padding-left:10px;border-left:2px solid currentColor;opacity:.9}'
+      /* Backlog 0z2: when this chip is a child of the spine module's shared
+         row, its own bottom/left/z-index are dropped -- the row (a flex
+         container) positions and spaces it instead, alongside any spine
+         chips already there. min-width:0 lets its label ellipsis rather
+         than force the row to overflow on a very narrow phone. */
+      + '#' + SHARED_CHIP_ROW_ID + ' #' + CHIP_ID + '{position:static;bottom:auto;left:auto;z-index:auto;'
+      + 'min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
@@ -490,6 +509,38 @@
     chip.textContent = chipText();
     var st = aiStatus();
     chip.setAttribute('title', st ? st.detail : 'Built-in AI status');
+    reparentIntoSharedRowIfNeeded(chip);
+  }
+
+  /* The chip's own style attribute hardcodes position:fixed;bottom:...;
+     left:...;z-index:... (see mount() below) -- an inline style always
+     outranks a stylesheet rule of equal or lower specificity, so the CSS
+     override above (which only fires with the row's id as an ancestor
+     selector) cannot win against it on its own. Clearing exactly these four
+     inline properties, and only these, is what actually lets the CSS
+     override apply once the chip is inside the row; nothing else in the
+     inline style (font/padding/border/etc.) needs to change. */
+  function clearFixedPositionInlineStyle(chip) {
+    if (!chip) return;
+    chip.style.position = '';
+    chip.style.bottom = '';
+    chip.style.left = '';
+    chip.style.zIndex = '';
+  }
+
+  /* Backlog 0z2: this module boots on its own setTimeout (currently 1000ms)
+     and the spine module boots on a separate, later one (currently 1200ms)
+     -- a race, not a guarantee, and one this module must not assume a fixed
+     order for since either module's own timing is free to change later. If
+     this chip mounted to document.body before the shared row existed yet,
+     move it into the row the first time refreshChip() notices the row has
+     since appeared. Piggybacks on the existing 5-second re-observe interval
+     rather than adding a new timer or observer. */
+  function reparentIntoSharedRowIfNeeded(chip) {
+    if (!chip || chip.parentNode === null) return;
+    if (chip.parentNode.id === SHARED_CHIP_ROW_ID) return;
+    var row = document.getElementById(SHARED_CHIP_ROW_ID);
+    if (row) { row.appendChild(chip); clearFixedPositionInlineStyle(chip); }
   }
 
   function open() {
@@ -522,7 +573,38 @@
         + 'box-shadow:0 2px 8px rgba(0,0,0,.14)',
     }, chipText());
     chip.addEventListener('click', function () { if (state.open) close(); else open(); });
-    document.body.appendChild(chip);
+    // Backlog 0z2: join the spine module's shared chip row if it already
+    // exists in this build's DOM (see SHARED_CHIP_ROW_ID comment above).
+    // The two modules boot on separate, independently-owned setTimeout
+    // delays (currently 1000ms here, 1200ms in the spine module) -- a race,
+    // not a guarantee. Placing straight into document.body here and relying
+    // solely on the 5-second refreshChip() poll to fix it up later would
+    // leave the chip briefly in the wrong place on every normal load, not
+    // just a rare slow one. So mount() itself retries a few times over the
+    // gap the two boot delays actually differ by before falling back.
+    var sharedRow = document.getElementById(SHARED_CHIP_ROW_ID);
+    if (sharedRow) {
+      sharedRow.appendChild(chip);
+      clearFixedPositionInlineStyle(chip);
+    } else {
+      document.body.appendChild(chip);
+      var mountRetries = 0;
+      var mountRetryTimer = setInterval(function () {
+        mountRetries += 1;
+        var row = document.getElementById(SHARED_CHIP_ROW_ID);
+        if (row) {
+          row.appendChild(chip);
+          clearFixedPositionInlineStyle(chip);
+          clearInterval(mountRetryTimer);
+        } else if (mountRetries >= 6) {
+          // ~900ms of retrying (6 x 150ms) comfortably covers the current
+          // 200ms gap between the two modules' boot delays with margin; give
+          // up cleanly after that and let the 5-second refreshChip() poll
+          // keep checking indefinitely in case the row appears much later.
+          clearInterval(mountRetryTimer);
+        }
+      }, 150);
+    }
     document.body.appendChild(el('div', { id: PANEL_ID, role: 'dialog', 'aria-label': 'Built-in AI status' }));
     refreshChip();
 

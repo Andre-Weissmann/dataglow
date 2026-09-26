@@ -90,7 +90,8 @@ function page(mode) {
   const scripts = '<script type="module" src="/js/spine/receipt-spine.js"><\/script>'
     + '<script src="/js/spine/data-glow-receipt-spine-canvas.js"><\/script>'
     + '<script type="module" src="/js/spine/repair-ledger.js"><\/script>'
-    + '<script src="/js/spine/data-glow-repair-ledger-canvas.js"><\/script>';
+    + '<script src="/js/spine/data-glow-repair-ledger-canvas.js"><\/script>'
+    + '<script src="/js/ai/data-glow-local-ai-canvas.js"><\/script>';
 
   // Minimal DOM the Dojo module and its sidebar wiring guard against being
   // missing: sql-view pill, editor input/run button, dojo tab markup.
@@ -158,10 +159,11 @@ function startServer() {
 
 async function waitForSpineModules(p) {
   await p.waitForFunction(
-    () => !!window.DataGlowReceiptSpineUI && !!window.DataGlowRepairLedgerUI,
+    () => !!window.DataGlowReceiptSpineUI && !!window.DataGlowRepairLedgerUI && !!window.DataGlowLocalAiUI,
     null, { timeout: 20000 },
   );
-  // Spine boots on setTimeout(boot,1200); ledger boots on setTimeout(fn,1400).
+  // Spine boots on setTimeout(boot,1200); ledger boots on setTimeout(fn,1400);
+  // local-ai boots on setTimeout(boot,1000) -- all three settle by 1800ms.
   await p.waitForTimeout(1800);
 }
 
@@ -367,10 +369,100 @@ async function run() {
     ok(idState.floatingIsDistinctFromRailBtn, 'the floating ledger chip and the in-rail ledger button have distinct ids, not a duplicate id');
     await chipPage.close();
 
+    // ---- BACKLOG 0z2: Built-in AI chip must not collide with the shared ----
+    // chip row either. #dg-lai-chip (js/ai/data-glow-local-ai-canvas.js) is a
+    // genuinely separate module from the spine file that created the row in
+    // 0z, with its own independent position:fixed;bottom:18px;left:18px --
+    // almost exactly on top of the row, and a higher z-index that fully
+    // covered it. It now joins #dg-spine-chip-row when that row exists. The
+    // two modules boot on different setTimeout delays (ai:1000ms,
+    // spine:1200ms), a real race, not a fixed order -- mount() retries for
+    // ~900ms if the row is not there yet, and refreshChip()'s existing
+    // 5-second poll re-parents it later still if needed as a backstop.
+    const threeChipPage = await ctx.newPage();
+    threeChipPage.on('pageerror', (err) => consoleErrors.push(String(err)));
+    await threeChipPage.setViewportSize({ width: 375, height: 667 });
+    await threeChipPage.goto(base + '/__b15__default.html');
+    await waitForSpineModules(threeChipPage);
+    const threeChipLayout = await threeChipPage.evaluate(() => {
+      const row = document.getElementById('dg-spine-chip-row');
+      const a = document.getElementById('dg-spine-chip');
+      const b = document.getElementById('dg-spine-ledger-chip');
+      const c = document.getElementById('dg-lai-chip');
+      if (!row || !a || !b || !c) {
+        return { missing: true, hasRow: !!row, hasA: !!a, hasB: !!b, hasC: !!c };
+      }
+      function rectsOverlap(r1, r2) {
+        return r1.left < r2.right && r1.right > r2.left && r1.top < r2.bottom && r1.bottom > r2.top;
+      }
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      const cr = c.getBoundingClientRect();
+      const onscreen = (r) => r.left >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight;
+      return {
+        missing: false,
+        allInRow: a.parentNode.id === 'dg-spine-chip-row'
+          && b.parentNode.id === 'dg-spine-chip-row'
+          && c.parentNode.id === 'dg-spine-chip-row',
+        aiChipPositionStatic: getComputedStyle(c).position === 'static',
+        overlapAC: rectsOverlap(ar, cr),
+        overlapBC: rectsOverlap(br, cr),
+        cOnscreen: onscreen(cr),
+      };
+    });
+    ok(!threeChipLayout.missing, 'the shared row and all three chips (Start here, Repair Ledger, Built-in AI) exist together');
+    ok(threeChipLayout.allInRow, 'all three chips are children of the shared #dg-spine-chip-row');
+    ok(threeChipLayout.aiChipPositionStatic, 'the Built-in AI chip drops its standalone position:fixed once inside the shared row, letting the row lay it out');
+    eq(threeChipLayout.overlapAC, false, 'the Start here chip and the Built-in AI chip do not overlap on a 375px phone');
+    eq(threeChipLayout.overlapBC, false, 'the Repair Ledger chip and the Built-in AI chip do not overlap on a 375px phone');
+    ok(threeChipLayout.cOnscreen, 'the Built-in AI chip stays fully within the viewport');
+
+    // The click-to-open panel behavior must survive being re-parented into
+    // the row (it used to be a document.body child with no ancestor of note).
+    await threeChipPage.click('#dg-lai-chip', { force: true });
+    await threeChipPage.waitForTimeout(150);
+    const panelOpen = await threeChipPage.evaluate(() => {
+      const panel = document.getElementById('dg-lai-panel');
+      return !!panel && panel.style.display !== 'none';
+    });
+    ok(panelOpen, 'clicking the Built-in AI chip still opens its panel after being re-parented into the shared row');
+    await threeChipPage.close();
+
+    // ---- BACKLOG 0z2: independent fallback preserved when the row is absent ----
+    // If the spine module never mounts its row (e.g. repairLedgerSpine off
+    // and no other module creates #dg-spine-chip-row), the AI chip must keep
+    // its original standalone document.body placement -- this fix is purely
+    // additive, never a hard dependency on the spine module being present.
+    await ctx.route('**/js/spine/*.js', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+    const noRowPage = await ctx.newPage();
+    noRowPage.on('pageerror', (err) => consoleErrors.push(String(err)));
+    await noRowPage.setViewportSize({ width: 375, height: 667 });
+    await noRowPage.goto(base + '/__b15__default.html');
+    await noRowPage.waitForFunction(() => !!window.DataGlowLocalAiUI, null, { timeout: 20000 });
+    await noRowPage.waitForTimeout(1500);
+    const fallbackLayout = await noRowPage.evaluate(() => {
+      const row = document.getElementById('dg-spine-chip-row');
+      const c = document.getElementById('dg-lai-chip');
+      if (!c) return { missing: true };
+      return {
+        missing: false,
+        rowAbsent: !row,
+        parentIsBody: c.parentNode === document.body,
+        position: getComputedStyle(c).position,
+      };
+    });
+    ok(!fallbackLayout.missing, 'the Built-in AI chip still mounts when the spine module is entirely absent');
+    ok(fallbackLayout.rowAbsent, 'sanity check: the shared row genuinely does not exist in this scenario');
+    ok(fallbackLayout.parentIsBody, 'without the shared row, the Built-in AI chip falls back to its original document.body parent');
+    eq(fallbackLayout.position, 'fixed', 'without the shared row, the Built-in AI chip keeps its original position:fixed placement');
+    await noRowPage.close();
+    await ctx.unroute('**/js/spine/*.js');
+
     eq(offOrigin.length, 0, `nothing may leave this device, saw: ${offOrigin.join(', ')}`);
 
     console.log(`bundle 15 canvas UI: ${checks} assertion(s) passed `
-      + '(spine ledger chip mount/flag-off, replay confirm gate, dojo safe open, dojo run-disabled, backlog 0z chip-overlap fix).');
+      + '(spine ledger chip mount/flag-off, replay confirm gate, dojo safe open, dojo run-disabled, '
+      + 'backlog 0z chip-overlap fix, backlog 0z2 AI chip collision fix).');
   } finally {
     await browser.close();
     server.close();
