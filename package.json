@@ -241,6 +241,7 @@
     "test:bundle14canvas": "node test/bundle14-canvas-ui.test.mjs",
     "test:bundle15loadhardenledgerspine": "node --test test/bundle15-duckdb-harden-ledger-spine-replay-dojo.test.mjs",
     "test:bundle15canvas": "node test/bundle15-canvas-ui.test.mjs",
+    "test:spinemobile": "node test/spine-mobile-viewport.test.mjs",
     "test:bundle16ledgerwiringdrillbattery": "node --test test/bundle16-ledger-wiring-drill-battery.test.mjs",
     "test:bundle17selfhostdrillnavshowdownpqparity": "node --test test/bundle17-selfhost-drillnav-showdown-pqparity.test.mjs",
     "test:duckdbwasmlocalfirst": "node --test test/duckdb-wasm-local-first.test.mjs",

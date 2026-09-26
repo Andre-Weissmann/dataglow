@@ -2734,22 +2734,49 @@ re-deriving it from scratch each session.
 
 ## Backlog (ranked, queued — not abandoned)
 
-**From 2026-09-23 (Trust Passport live verification) — mobile layout bug, not yet scoped/fixed:**
+**From 2026-09-23 (Trust Passport live verification) — mobile layout bug:**
 
-0y. **"Start here" rail overlaps tab content on mobile viewports, on every tab, not just Trust
-    Passport.** The rail (`#dg-spine-rail` / `#dg-spine-chip`, built in
+0y. **✅ DONE (2026-09-26) -- "Start here" rail overlapping tab content on mobile viewports, on every
+    tab, not just Trust Passport.** The rail (`#dg-spine-rail` / `#dg-spine-chip`, built in
     `js/spine/data-glow-receipt-spine-canvas.js`, titled "Start here") is a `position:fixed` bar
-    pinned to `left:0; right:0; bottom:0` of the viewport. On a desktop-height viewport there's
-    enough room below the tab content for it not to matter; on a real mobile viewport (confirmed
-    during the 2026-09-23 Trust Passport verification pass, using Playwright directly via `bash`
-    against the locally served app -- not the cloud browser, which cannot reach `localhost` in this
-    sandbox) it visibly covers roughly the bottom third of whatever tab is open, on every tab, since
-    the rail is injected globally rather than being tab-specific. Not yet reproduced/fixed on every
-    individual tab one-by-one, and no responsive rule (e.g. shrink/collapse/reposition below some
-    breakpoint) exists for it yet. Not scoped to a fix approach yet -- options to consider when
-    picked up: collapse to the existing chip-only state automatically below a width/height
-    breakpoint, add safe-area bottom padding to tab content so nothing sits underneath it, or make
-    the rail itself scroll-aware (hide on scroll-down, reappear on scroll-up) on small viewports.
+    pinned to `left:0; right:0; bottom:0` of the viewport, and it defaults open until a visitor has
+    dismissed it once -- most first-time mobile visitors never had. Measured against real device
+    sizes (390x844, 375x667, 414x896, and a 740x400 short/landscape case) before picking a fix rather
+    than guessing: the rail's real rendered content covers ~37-42% of the screen at every phone-class
+    size, from wrapping to its own mobile layout under the existing 700px width breakpoint the file
+    already used elsewhere (`.dg-sp-loaded`). Root cause was width (and, separately, a short-height
+    landscape case width alone doesn't catch), not a missing height cap alone -- an earlier attempt at
+    a pure height-based breakpoint was measured, found insufficient (didn't fire on an 667px-tall
+    device where the overlap was clearly visible), and reverted in favor of this fix. Fix: the rail
+    now defaults collapsed to its existing chip state on any viewport that is narrow (`<=700px` wide)
+    or short (`<=500px` tall) -- `tightViewport()` via `matchMedia`, re-evaluating on
+    resize/rotation -- while a desktop/tablet visitor still sees it open exactly as before. Also added
+    a `max-height:42vh` + scroll cap on the rail's own CSS as defense in depth, so it stays bounded
+    even when a mobile visitor deliberately taps the chip to reopen it. No new feature flag: this is a
+    correctness fix to an already-`enabled:true` live feature (`receiptSpine`), not new functionality.
+    Regression coverage: `test/spine-mobile-viewport.test.mjs` (17 assertions -- collapsed-by-default on
+    3 phone-portrait sizes + 1 short-landscape size, unaffected on desktop + both iPad orientations,
+    reachable and height-bounded when manually reopened on mobile), wired into CI as a new step inside
+    the existing `e2e-smoke` job (zero new job-cap cost, per the CI Architect convention). Existing
+    `test:bundle15canvas` (22/22), `test:capdrift` (24/24, zero drift, no new file so no capability-map
+    change needed), and `test:e2e` all still pass unchanged. **Separate finding, not fixed here (kept
+    out of scope to avoid widening this PR's blast radius): `#dg-spine-chip` (`left:210px`) and the
+    Repair Ledger's collapsed fallback button `#dg-spine-ledger-chip` (`left:340px`) are both
+    hardcoded fixed-pixel left-offsets, not responsive -- on a narrow phone these can crowd or overlap
+    each other. Queued below as its own backlog item.**
+
+**From 2026-09-26 (mobile rail overlap fix, item 0y above) — found while fixing, not yet scoped/fixed:**
+
+0z. **Two floating mobile chips use hardcoded fixed-pixel left-offsets, not responsive.**
+    `#dg-spine-chip` (`left:210px`, in `js/spine/data-glow-receipt-spine-canvas.js`) and the Repair
+    Ledger's collapsed fallback button `#dg-spine-ledger-chip` (`left:340px`, same file) are both
+    positioned with a fixed pixel offset from the left edge regardless of viewport width. On a narrow
+    phone (e.g. 375px wide) a chip whose own width plus a 210px or 340px offset can run close to or
+    off the right edge, and the two chips can crowd or overlap each other, since there's only ~130px
+    between their anchor points and neither reserves space for the other's actual rendered width. Not
+    yet reproduced pixel-by-pixel or fixed -- likely fix direction: replace the hardcoded `left:`
+    values with a flex/gap-based row anchored to a single fixed container, or compute spacing from the
+    other chip's actual width at render time, so both stay validly positioned at any viewport width.
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
 the user ("more stuff can be added later on"):**

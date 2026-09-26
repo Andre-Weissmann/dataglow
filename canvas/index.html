@@ -136762,7 +136762,11 @@ function buildRPowerPack(input) {
       + '#' + RAIL_ID + '{position:fixed;left:0;right:0;bottom:0;z-index:2147482900;display:none;'
       + 'background:var(--color-surface,#fff);border-top:1px solid var(--color-border,#ccc);'
       + 'box-shadow:0 -4px 18px rgba(0,0,0,.10);padding:8px 14px;font-size:16px;line-height:1.45;'
-      + 'pointer-events:none}'
+      /* Defense in depth alongside the width-based default-collapsed fix in
+         mount() below: a phone-width visitor can still tap the chip to open
+         the rail on purpose, and it should never grow past a bounded slice
+         of the screen even then, on any viewport, short or tall. */
+      + 'pointer-events:none;max-height:42vh;overflow-y:auto}'
       + '#' + RAIL_ID + ' .dg-sp-step,#' + RAIL_ID + ' .dg-sp-btn,'
       + '#' + RAIL_ID + ' .dg-sp-ledger-btn,#' + RAIL_ID + ' .dg-sp-detail{pointer-events:auto}'
       + '#' + RAIL_ID + ' .dg-sp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
@@ -137059,6 +137063,30 @@ function buildRPowerPack(input) {
     toast('Start here hidden. The chip on the left reopens it.');
   }
 
+  /* True on a viewport too small in either dimension to give the open rail
+     its own uncontested slice of the screen. 2026-09-26 fix, measured
+     against real device sizes rather than guessed: at typical phone
+     portrait widths/heights (390x844 down to 375x667) the rail's real
+     rendered content already covers ~37-38% of the screen, from wrapping to
+     its mobile layout under the existing 700px width breakpoint (the same
+     one .dg-sp-loaded already uses) -- so width alone catches every phone
+     portrait case. But a wide-and-short viewport (740x400, a small tablet
+     or phone in landscape) is >700px wide and still measured at ~42% cover
+     with the rail open, so height needs its own threshold too: 500px was
+     chosen because every phone-portrait height tested (568 and up) already
+     clears it comfortably via the width check, so this only fires for the
+     landscape/short case width doesn't catch, not tightening anything
+     that already worked. matchMedia over a fixed window.innerWidth/Height
+     read so it keeps re-evaluating if the viewport is resized/rotated. */
+  function tightViewport() {
+    try {
+      if (typeof window.matchMedia === 'function') {
+        return window.matchMedia('(max-width:700px), (max-height:500px)').matches;
+      }
+    } catch (_e) {}
+    try { return window.innerWidth <= 700 || window.innerHeight <= 500; } catch (_e2) { return false; }
+  }
+
   function mount() {
     if (!spineOn()) return;
     if (document.getElementById(RAIL_ID)) return;
@@ -137066,7 +137094,13 @@ function buildRPowerPack(input) {
     if (!engine('DataGlowReceiptSpine')) return;
     styles();
 
-    state.open = !remembered(SEEN_KEY);
+    /* On a phone-width viewport the rail was covering roughly the bottom
+       third of every tab on first load, since it otherwise defaults open
+       until the user has dismissed it once (see SEEN_KEY above) -- most
+       first-time mobile visitors never had. Default collapsed to the chip
+       there instead; nothing about Hide/reopen/dismissed-memory changes, and
+       a desktop-width visitor still sees the rail open exactly as before. */
+    state.open = !remembered(SEEN_KEY) && !tightViewport();
 
     document.body.appendChild(el('div', { id: RAIL_ID, role: 'region', 'aria-label': 'Start here' }));
     var chip = el('button', { id: CHIP_ID, type: 'button' }, 'Start here');
