@@ -166,6 +166,16 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:e2e-querymemory-metricstudio
+      # 2026-09-26: proves the Start here rail's mobile-viewport overlap fix
+      # (js/spine/data-glow-receipt-spine-canvas.js) -- defaults collapsed to
+      # its chip on narrow-width/short-height viewports instead of covering
+      # roughly a third of every tab, stays open as before on desktop/tablet,
+      # and is still reachable + height-bounded when opened on mobile on
+      # purpose. Same real-Chrome pattern as the bundle15canvas step above.
+      - name: Run Start here rail mobile-viewport overlap fix test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:spinemobile
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
