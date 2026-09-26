@@ -190,8 +190,8 @@ async function run() {
     await waitForSpineModules(p);
     const onState = await p.evaluate(() => ({
       railPresent: !!document.getElementById('dg-spine-rail'),
-      ledgerChipOnRail: !!document.getElementById('dg-spine-ledger-chip'),
-      ledgerChipLabel: (document.getElementById('dg-spine-ledger-chip') || {}).textContent || '',
+      ledgerChipOnRail: !!document.getElementById('dg-spine-ledger-rail-btn'),
+      ledgerChipLabel: (document.getElementById('dg-spine-ledger-rail-btn') || {}).textContent || '',
     }));
     ok(onState.railPresent, 'default load mounts the RECEIPT spine rail');
     eq(onState.ledgerChipOnRail, true, 'repairLedgerSpine on: the Repair Ledger chip mounts on the spine rail');
@@ -202,7 +202,7 @@ async function run() {
     await waitForSpineModules(p);
     const spineOffState = await p.evaluate(() => ({
       railPresent: !!document.getElementById('dg-spine-rail'),
-      ledgerChipOnRail: !!document.getElementById('dg-spine-ledger-chip'),
+      ledgerChipOnRail: !!document.getElementById('dg-spine-ledger-rail-btn'),
       apiPublished: !!window.DataGlowReceiptSpineUI,
     }));
     eq(spineOffState.railPresent, true, 'repairLedgerSpine off must not remove the spine rail itself');
@@ -221,7 +221,7 @@ async function run() {
       const arr = window.DataGlowRepairLedgerUI.ledgerArray();
       arr.push(step);
     });
-    await p.click('#dg-spine-ledger-chip', { force: true });
+    await p.click('#dg-spine-ledger-rail-btn', { force: true });
     await p.waitForFunction(() => window.DataGlowRepairLedgerUI.isOpen(), null, { timeout: 5000 });
     const replayState = await p.evaluate(() => {
       const buttons = Array.from(document.querySelectorAll('#dg-ledger-panel button')).map((b) => b.textContent);
@@ -323,10 +323,54 @@ async function run() {
     const editorAfterNoEngineRun = await p.evaluate(() => (document.getElementById('sql-view-input') || {}).value || '');
     eq(editorAfterNoEngineRun, '', 'Run does nothing when the SQL engine is missing, even if re-enabled by hand');
 
+    // ---- BACKLOG 0z: floating chips on a narrow phone must not overlap ----
+    // Both #dg-spine-chip and the collapsed #dg-spine-ledger-chip fallback
+    // used to be independent position:fixed elements with hand-picked left
+    // offsets (210px / 340px). On a real 375px-wide phone they measurably
+    // overlapped and the ledger chip ran off the right edge entirely. Both
+    // now mount into one shared #dg-spine-chip-row flex container instead.
+    const chipPage = await ctx.newPage();
+    chipPage.on('pageerror', (err) => consoleErrors.push(String(err)));
+    await chipPage.setViewportSize({ width: 375, height: 667 });
+    await chipPage.goto(base + '/__b15__default.html');
+    await waitForSpineModules(chipPage);
+    // Rail defaults collapsed on this viewport (tightViewport()); both
+    // floating chips should now be siblings inside #dg-spine-chip-row.
+    const chipLayout = await chipPage.evaluate(() => {
+      const row = document.getElementById('dg-spine-chip-row');
+      const a = document.getElementById('dg-spine-chip');
+      const b = document.getElementById('dg-spine-ledger-chip');
+      if (!row || !a || !b) return { missing: true, hasRow: !!row, hasA: !!a, hasB: !!b };
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return {
+        missing: false,
+        bothInRow: a.parentNode.id === 'dg-spine-chip-row' && b.parentNode.id === 'dg-spine-chip-row',
+        overlap: ar.right > br.left && ar.left < br.right,
+        aOnscreen: ar.left >= 0 && ar.right <= window.innerWidth,
+        bOnscreen: br.left >= 0 && br.right <= window.innerWidth,
+      };
+    });
+    ok(!chipLayout.missing, 'both floating chips and the shared row exist when both features are on, on a narrow phone');
+    ok(chipLayout.bothInRow, 'both chips are children of the shared #dg-spine-chip-row, not independent position:fixed elements');
+    eq(chipLayout.overlap, false, 'the Start here chip and the Repair Ledger chip do not overlap on a 375px phone');
+    ok(chipLayout.aOnscreen, 'the Start here chip stays fully within the viewport width');
+    ok(chipLayout.bOnscreen, 'the Repair Ledger chip stays fully within the viewport width (used to run 90px off-screen)');
+    // Distinct ids: the in-rail copy and the floating collapsed copy used to
+    // share id="dg-spine-ledger-chip" (invalid duplicate id), making
+    // getElementById ambiguous. Confirm they are now distinct.
+    const idState = await chipPage.evaluate(() => ({
+      railBtnExists: !!document.getElementById('dg-spine-ledger-rail-btn'),
+      floatingIsDistinctFromRailBtn:
+        document.getElementById('dg-spine-ledger-chip') !== document.getElementById('dg-spine-ledger-rail-btn'),
+    }));
+    ok(idState.floatingIsDistinctFromRailBtn, 'the floating ledger chip and the in-rail ledger button have distinct ids, not a duplicate id');
+    await chipPage.close();
+
     eq(offOrigin.length, 0, `nothing may leave this device, saw: ${offOrigin.join(', ')}`);
 
     console.log(`bundle 15 canvas UI: ${checks} assertion(s) passed `
-      + '(spine ledger chip mount/flag-off, replay confirm gate, dojo safe open, dojo run-disabled).');
+      + '(spine ledger chip mount/flag-off, replay confirm gate, dojo safe open, dojo run-disabled, backlog 0z chip-overlap fix).');
   } finally {
     await browser.close();
     server.close();
