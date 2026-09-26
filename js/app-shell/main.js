@@ -16,6 +16,9 @@ import { renderCrucibleTab } from './tabs/crucible-tab.js';
 import { renderDVCTab } from './tabs/dvc-tab.js';
 import { renderCouncilTab } from './tabs/council-tab.js';
 import { renderGlowCanvasTab } from './tabs/glow-canvas-tab.js';
+import { renderJoinBuilderTab } from './tabs/join-builder-tab.js';
+import { renderNLSQLTab } from './tabs/nlsql-tab.js';
+import { renderCleaningCrewTab } from './tabs/cleaning-crew-tab.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
@@ -41,7 +44,6 @@ import { renderPivotTab } from '../runtimes-viz/pivot-ui.js';
 import * as drillFloor from '../drill-floor/drill-floor.js';
 import * as drillFloorData from '../drill-floor/drill-floor-data.js';
 import * as drillDiff from '../drill-floor/drill-diff.js';
-import * as pdfProfiler from '../cleaning-crew/pdf-profiler.js';
 import * as story from '../narrative/story.js';
 import * as clean from '../cleaning/clean.js';
 import * as formatFingerprint from '../cleaning/format-fingerprint.js';
@@ -162,11 +164,8 @@ import { LocalFingerprintModel, MIN_COHORT, DEFAULT_EPSILON } from '../federated
 import { FederatedCoordinator, createGithubSignaling, createWebRTCMesh } from '../federated/federated-transport.js';
 import { buildTabGroups, groupForTab } from './tab-groups.js';
 import { createValidateFocusStore } from './validate-focus.js';
-import { createJoinGraph } from '../join-builder/join-model.js';
-import { renderJoinCanvas, buildJoinToolbar } from '../join-builder/join-canvas.js';
-import { mountNLSQLUI } from '../nl-sql/nl-sql-ui.js';
-import { setProviderKey as setNlsqlProviderKey, getProviderKey as getNlsqlProviderKey } from '../nl-sql/nl-sql-key-store.js';
-import { datasetsToSchemaContext, serializeSchemaForPrompt } from '../nl-sql/schema-context.js';
+
+import { setProviderKey as setNlsqlProviderKey } from '../nl-sql/nl-sql-key-store.js';
 import { buildTrustCertificate, serializeCertificate, certificateFilename } from '../trust/trust-certificate.js';
 import { getSuggestions, topSuggestion } from '../polyglot/polyglot-autocomplete.js';
 import { adviseError, renderAdvisedErrorHtml } from '../polyglot/polyglot-error-advisor.js';
@@ -442,12 +441,12 @@ function switchTab(tabId) {
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
   if (tabId === 'pivot') renderPivotTab('pivot-body', state.datasets || []);
   if (tabId === 'portfolio') renderPortfolioTab('portfolio-body', { problemFramer, getActiveDataset, clean, describeOverconfidenceFinding });
-  if (tabId === 'joinbuilder') renderJoinBuilderTab();
-  if (tabId === 'nlsql') renderNLSQLTab();
+  if (tabId === 'joinbuilder') renderJoinBuilderTab(switchTab);
+  if (tabId === 'nlsql') renderNLSQLTab(switchTab);
   if (tabId === 'dvc') renderDVCTab();
   // council is mounted lazily inside the AI tab -- no standalone trigger
   if (tabId === 'drillfloor') renderDrillFloorTab();
-  if (tabId === 'cleaningcrew') renderCleaningCrewTab();
+  if (tabId === 'cleaningcrew') renderCleaningCrewTab({ ensureDuckDB, renderSidebar, iconSvg });
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.
@@ -8344,160 +8343,22 @@ function initVisualizeTab() {
 // the top of this file and behaves byte-for-byte identically.
 
 // ============================================================
-// Join Builder Tab (Phase 8 -- ships dark behind the joinBuilder flag)
+// Join Builder Tab wiring
 // ============================================================
-// Visual multi-table join builder. Gated by ONE flag (joinBuilder, off by
-// default). The join-model and join-sql modules are pure and have no DOM
-// dependency; join-canvas.js is the browser-side renderer. All graph state
-// lives HERE (in joinGraph) so the graph survives tab switches and re-renders.
-// The canvas is destroyed and rebuilt on every tab activation so it always
-// reflects the latest graph.
-
-let joinGraph = createJoinGraph();
-let joinBuilderLoaded = false;
-
-function renderJoinBuilderTab() {
-  const host = document.getElementById('join-builder-body');
-  if (!host) return;
-  if (!isEnabled('joinBuilder')) { host.innerHTML = ''; joinBuilderLoaded = false; return; }
-
-  // Build a map of loaded tables -> ColDef[] from the global dataset state.
-  // DataGlow stores loaded schemas in the global `state.datasets` array.
-  const datasets = (window.__dataglow_datasets || state.datasets || []);
-  const availableTables = datasets.map(d => d.name || d.tableName).filter(Boolean);
-  const tableColsMap = {};
-  for (const d of datasets) {
-    const name = d.name || d.tableName;
-    if (name) tableColsMap[name] = (d.columns || d.cols || []).map(c =>
-      typeof c === 'string' ? { name: c, type: '' } : { name: c.name || c.col || '', type: c.type || '' }
-    );
-  }
-
-  // Stable onGraphChange callback — updates joinGraph and re-renders.
-  function onGraphChange(newGraph) {
-    joinGraph = newGraph;
-    renderJoinBuilderTab();
-  }
-
-  // When the user clicks Run, push the SQL into the SQL tab and switch to it.
-  function onRunSQL(sql) {
-    const sqlEditor = document.getElementById('sql-editor');
-    if (sqlEditor) sqlEditor.value = sql;
-    switchTab('sql');
-    // Trigger a run if the run-sql button is present.
-    const runBtn = document.getElementById('btn-run-sql') || document.querySelector('[data-testid="btn-run-sql"]');
-    if (runBtn) runBtn.click();
-  }
-
-  host.innerHTML = '';
-
-  // Toolbar (add-table selector, run/clear buttons)
-  const toolbar = buildJoinToolbar({
-    graph: joinGraph,
-    availableTables,
-    tableColsMap,
-    onGraphChange,
-    onRunSQL,
-  });
-  host.appendChild(toolbar);
-
-  // Instruction hint when canvas is empty
-  if (joinGraph.cards.length === 0) {
-    const hint = document.createElement('div');
-    hint.style.cssText = 'padding:32px; color:var(--color-text-muted); font-size:14px; text-align:center;';
-    hint.innerHTML = 'Select a table from the dropdown above to add it to the canvas.<br><br>' +
-      'Click a column connector dot, then click a column on another table to draw a join line.<br>' +
-      'Click any join line to change the join type (INNER / LEFT / RIGHT / FULL).';
-    host.appendChild(hint);
-    joinBuilderLoaded = true;
-    return;
-  }
-
-  // Canvas container
-  const canvasHost = document.createElement('div');
-  canvasHost.style.cssText = 'height:560px; overflow:auto; border:1px solid var(--color-border); border-radius:8px; background:var(--color-surface-alt);';
-  host.appendChild(canvasHost);
-
-  // SQL preview panel
-  const sqlPre = document.createElement('pre');
-  sqlPre.setAttribute('data-testid', 'join-builder-sql-preview');
-  sqlPre.style.cssText = 'margin-top:12px; padding:12px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:6px; font-size:12px; overflow-x:auto; white-space:pre-wrap; color:var(--color-text);';
-  host.appendChild(sqlPre);
-
-  renderJoinCanvas({
-    host: canvasHost,
-    graph: joinGraph,
-    onGraphChange,
-    onSQLChange: ({ sql, warnings }) => {
-      sqlPre.textContent = sql || (warnings.length ? warnings.join('\n') : '');
-    },
-    onRunSQL,
-  });
-
-  joinBuilderLoaded = true;
-}
+// Extracted to js/app-shell/tabs/join-builder-tab.js during the Structural
+// Readiness Phase item 3 (main.js monolith paydown, 2026-09-26). See that
+// file for the full history/comments; renderJoinBuilderTab is imported at
+// the top of this file and behaves byte-for-byte identically (called as
+// renderJoinBuilderTab(switchTab) since the tab-switch dispatcher stays here).
 
 // ============================================================
-// NL→SQL Tab (Phase 9 -- ships dark behind the nlSql flag)
+// NL→SQL Tab wiring
 // ============================================================
-// Natural language to SQL: type a question, get deterministic DuckDB SQL.
-// PRIVACY: schema (column names + types) only — no row data is sent to the LLM.
-// Metric Contracts ensure named metrics (readmission rate, denial rate, LOS)
-// use pinned SQL expressions regardless of which LLM is called.
-// The LLM provider and API key are configured per-session in the tab UI.
-
-function renderNLSQLTab() {
-  const host = document.getElementById('nl-sql-body');
-  if (!host) return;
-  if (!isEnabled('nlSql')) { host.innerHTML = ''; return; }
-
-  const datasets = state.datasets || [];
-
-  function onRunSQL(sql) {
-    const sqlEditor = document.getElementById('sql-editor');
-    if (sqlEditor) sqlEditor.value = sql;
-    switchTab('sql');
-    const runBtn = document.getElementById('btn-run-sql') || document.querySelector('[data-testid="btn-run-sql"]');
-    if (runBtn) runBtn.click();
-  }
-
-  mountNLSQLUI({
-    host,
-    datasets,
-    onRunSQL,
-    onToast: toast,
-  });
-
-  // Wire AI mode switcher (Query <-> Council)
-  var queryBtn = document.getElementById('ai-mode-query');
-  var councilBtn = document.getElementById('ai-mode-council');
-  var queryBody = document.getElementById('ai-mode-query-body');
-  var councilBody = document.getElementById('ai-mode-council-body');
-
-  function activateMode(mode) {
-    var isQuery = mode === 'query';
-    if (queryBody) queryBody.style.display = isQuery ? '' : 'none';
-    if (councilBody) councilBody.style.display = isQuery ? 'none' : '';
-    if (queryBtn) {
-      queryBtn.style.background = isQuery ? 'var(--color-primary)' : 'transparent';
-      queryBtn.style.color = isQuery ? '#fff' : 'var(--color-text-muted)';
-      queryBtn.style.border = isQuery ? '1px solid var(--color-primary)' : '1px solid var(--color-border)';
-    }
-    if (councilBtn) {
-      councilBtn.style.background = isQuery ? 'transparent' : 'var(--color-primary)';
-      councilBtn.style.color = isQuery ? 'var(--color-text-muted)' : '#fff';
-      councilBtn.style.border = isQuery ? '1px solid var(--color-border)' : '1px solid var(--color-primary)';
-    }
-    // Mount council lazily on first switch
-    if (!isQuery && isEnabled('aiCouncil')) {
-      renderCouncilTab();
-    }
-  }
-
-  if (queryBtn) queryBtn.addEventListener('click', function() { activateMode('query'); });
-  if (councilBtn) councilBtn.addEventListener('click', function() { activateMode('council'); });
-}
-
+// Extracted to js/app-shell/tabs/nlsql-tab.js during the Structural Readiness
+// Phase item 3 (main.js monolith paydown, 2026-09-26). See that file for the
+// full history/comments; renderNLSQLTab is imported at the top of this file
+// and behaves byte-for-byte identically (called as renderNLSQLTab(switchTab)
+// since the tab-switch dispatcher stays here).
 
 // ============================================================
 // DVC Tab + AI Council Tab wiring
@@ -8806,79 +8667,14 @@ async function renderDrillFloorTab() {
 
 
 // ============================================================
-// Cleaning Crew Tab (Batch 1 -- ships dark behind the cleaningCrew flag)
+// Cleaning Crew Tab wiring
 // ============================================================
-// First station of the Cleaning Crew: the PROFILER, for exactly one new format --
-// PDF text extraction via PDF.js. Uploading a PDF here runs the SAME code path a
-// PDF dropped on the main upload zone takes (loaders.loadPdfAsDataset ->
-// profilePdf -> loadRowsAsDataset), so the extracted text becomes an ordinary
-// queryable dataset; this panel additionally shows the profile summary and the
-// AI Readiness Gate verdict. The flag is checked HERE (the caller), never inside
-// js/cleaning-crew/*. PDF.js is heavy and loads lazily on the first upload only --
-// never on tab open. Batch 1 is Profiler-only and PDF-only; the other four
-// stations, OCR, audio and run persistence are future batches.
-
-async function renderCleaningCrewTab() {
-  const host = document.getElementById('cleaning-crew-body');
-  if (!host) return;
-  if (!isEnabled('cleaningCrew')) { host.innerHTML = ''; return; }
-
-  host.innerHTML = `
-    <div class="cleaning-crew" data-testid="cleaning-crew" style="display:flex; flex-direction:column; gap:var(--space-4);">
-      <div class="crew-station" data-testid="crew-station-profiler" style="display:flex; align-items:center; gap:var(--space-2);">
-        ${iconSvg('sparkles', 20)}
-        <div>
-          <strong>Profiler</strong>
-          <div style="color:var(--color-text-muted); font-size:var(--text-sm);">Station 1 of 5 — profiles an uploaded PDF: how many pages have extractable text vs. are scanned images. Runs fully on your device.</div>
-        </div>
-      </div>
-      <div style="display:flex; align-items:center; gap:var(--space-2);">
-        <button type="button" class="btn btn-primary" id="btn-crew-pdf" data-testid="btn-crew-pdf">Upload a PDF</button>
-        <input type="file" id="crew-pdf-input" data-testid="crew-pdf-input" accept="application/pdf,.pdf" style="display:none;" />
-        <span id="crew-pdf-status" data-testid="crew-pdf-status" style="color:var(--color-text-faint); font-size:var(--text-sm);"></span>
-      </div>
-      <div id="crew-profile" data-testid="crew-profile"></div>
-    </div>`;
-
-  const statusEl = $('#crew-pdf-status');
-  const input = $('#crew-pdf-input');
-  $('#btn-crew-pdf').addEventListener('click', () => input.click());
-  input.addEventListener('change', async (e) => {
-    const file = e.target.files && e.target.files[0];
-    input.value = '';
-    if (!file) return;
-    statusEl.textContent = 'Loading PDF runtime & extracting text…';
-    $('#crew-profile').innerHTML = '';
-    try {
-      await ensureDuckDB();
-      const { ds, profile } = await loaders.loadPdfAsDataset(file);
-      statusEl.textContent = ds ? `Loaded "${escapeHtml(ds.name)}" — ${ds.rowCount} page-row(s).` : '';
-      renderCleaningCrewProfile(profile);
-      renderSidebar();
-    } catch (err) {
-      statusEl.textContent = '';
-      $('#crew-profile').innerHTML = `<div class="err" data-testid="crew-profile-error">Failed to profile PDF: ${escapeHtml(err.message)}</div>`;
-    }
-  });
-}
-
-function renderCleaningCrewProfile(profile) {
-  const el = document.getElementById('crew-profile');
-  if (!el) return;
-  const { gate, explanation } = pdfProfiler.evaluatePdfReadiness(profile);
-  const verdictClass = gate.agentConsumable ? 'ok' : 'err';
-  const warningsHtml = (profile.warnings || [])
-    .map((w) => `<li>${escapeHtml(w)}</li>`).join('');
-  el.innerHTML = `
-    <div class="crew-profile-card" data-testid="crew-profile-card" style="display:flex; flex-direction:column; gap:var(--space-2);">
-      <div><strong>Profile</strong></div>
-      <div data-testid="crew-page-count">Pages: <strong>${profile.pageCount}</strong></div>
-      <div data-testid="crew-pages-with-text">Pages with extractable text: <strong>${profile.pagesWithText}</strong></div>
-      <div data-testid="crew-pages-without-text">Pages without extractable text: <strong>${profile.pagesWithoutText}</strong></div>
-      ${warningsHtml ? `<ul data-testid="crew-warnings" style="margin:0; color:var(--color-warn, #b7791f);">${warningsHtml}</ul>` : ''}
-      <div class="${verdictClass}" data-testid="crew-gate-verdict" style="white-space:pre-wrap; font-family:var(--font-mono); font-size:var(--text-sm);">${escapeHtml(explanation)}</div>
-    </div>`;
-}
+// Extracted to js/app-shell/tabs/cleaning-crew-tab.js during the Structural
+// Readiness Phase item 3 (main.js monolith paydown, 2026-09-26). See that
+// file for the full history/comments; renderCleaningCrewTab is imported at
+// the top of this file and behaves byte-for-byte identically (called as
+// renderCleaningCrewTab({ ensureDuckDB, renderSidebar, iconSvg }) since those
+// three stay defined in main.js).
 
 // ============================================================
 // Story Tab
