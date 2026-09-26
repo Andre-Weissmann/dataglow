@@ -2407,6 +2407,38 @@ Shipped flag-gated and OFF by default: `opfsPersistence` (`flags.manifest.json`,
 behavior change for any user until explicitly enabled, and even then, only after the user separately opts
 in via the Settings consent toggle -- the flag alone never turns this on for anyone.
 
+## Test findings (2026-09-26 -- main.js monolith paydown, Structural Readiness Phase item 3, batch 1)
+
+First batch of the `main.js` paydown (PR #691, merged). Extracted the 5 smallest, simplest `render*Tab`
+functions into their own files under `js/app-shell/tabs/`, following the existing pure-core/thin-UI split
+pattern already used elsewhere (e.g. `query-memory.js` vs `query-memory-ui.js`):
+
+- `renderConvergenceTab` -> `tabs/convergence-tab.js`
+- `renderCrucibleTab` -> `tabs/crucible-tab.js`
+- `renderDVCTab` -> `tabs/dvc-tab.js`
+- `renderCouncilTab` -> `tabs/council-tab.js`
+- `renderGlowCanvasTab` -> `tabs/glow-canvas-tab.js`
+
+**Zero visual or behavioral change**, proven rather than assumed: each function is a byte-for-byte copy of
+what used to live inline in `main.js`, moved with its own explicit imports; `main.js` calls all 5 exactly
+as before at the same `switchTab()` dispatch sites. `main.js`: 10,135 -> 9,976 lines (159 lines removed).
+New `tabs/` directory: 236 lines across 5 files. Full relevant regression suite passed with 0 failures
+(`sourceconvergence`, `sourceconvergenceingestion`, `sourceconvergenceui`, `cruciblecontract`,
+`cruciblepacks`, `crucibleui`, `crucibleorchestration`, `glowcanvas`, `aicouncil`, `aicouncil-realworld`,
+plus the broader app-shell regression suite). Live Playwright A/B proof: served the pre-extraction baseline
+and the extracted working copy side by side, clicked into all 5 tabs, and confirmed byte-identical rendered
+HTML for each. All 102 CI checks passed, including `tauri-smoke`.
+
+One real process gap found and fixed along the way: the repo's capability-map drift gate (`test:capdrift`)
+correctly flagged the 5 new files as undocumented shipped modules. Fixed by adding each new file to its
+existing corresponding capability entry (`source-convergence-ui`, `crucible-ui`, `dvc-ui`, `council-ui`,
+`glow-canvas`) in both `capability-map.manifest.json` and `docs/capability-map.md` -- these are relocated
+wiring for already-documented capabilities, not new capabilities, so no new capability entries were added.
+
+**Item 3 is not yet complete** -- this is batch 1 of several planned. Bigger, riskier tabs are deferred to
+future batches: Diplomacy (195 lines), Drill Floor (222 lines), Proof Room (149 lines), Guarded Copilot
+(131 lines), Join Builder (79 lines), NL->SQL (50 lines), Cleaning Crew (42 lines).
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2541,12 +2573,19 @@ closes:
    user to separately opt in via its own Settings consent toggle even once the flag is on. Not yet
    independently proven on the Tauri desktop shell or a real mobile browser — an explicit platform-parity
    gap for a future pass, not silently assumed identical.
-3. **⬜ Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring currently lands in one
-   10,050-line file. This is the single largest unaddressed structural risk in the codebase and will only
-   get harder to safely touch as more capability lands. Scope when picked up: extract tab-rendering logic
-   into per-tab modules, following the same pure-core/thin-UI split already used for newer modules (e.g.
+3. **🔶 IN PROGRESS -- Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring currently
+   lands in one giant file. This is the single largest unaddressed structural risk in the codebase and
+   will only get harder to safely touch as more capability lands. Scope: extract tab-rendering logic into
+   per-tab modules, following the same pure-core/thin-UI split already used for newer modules (e.g.
    `query-memory.js` vs `query-memory-ui.js`) — a structured extraction, not a rewrite, with the full test
    suite proving zero behavior change at each step.
+   - **✅ Batch 1 (2026-09-26, PR #691):** extracted the 5 smallest tabs (Convergence, Crucible, DVC, AI
+     Council, Glow Canvas — all under 35 original lines each) into `js/app-shell/tabs/`. `main.js`:
+     10,135 -> 9,976 lines. See the dated Test findings entry above for full verification evidence.
+   - **⬜ Future batches:** the remaining, larger tabs — NL->SQL (50 lines), Cleaning Crew (42 lines),
+     Join Builder (79 lines), Guarded Copilot (131 lines), Proof Room (149 lines), Diplomacy (195 lines),
+     Drill Floor (222 lines) — each deferred as bigger/riskier, to be picked up in future, separately
+     proven batches rather than one large change.
 4. **⬜ Turn test-findings history into structured, queryable evidence.** `NORTH_STAR.md` is 2,454+ lines
    with 15 dated `## Test findings` sections as of 2026-09-24 — real, valuable evidence, but as prose in
    one ever-growing file it's not queryable ("which capabilities have real-world evidence, and how
