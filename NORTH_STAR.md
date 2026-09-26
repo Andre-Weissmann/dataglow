@@ -2707,13 +2707,25 @@ closes:
    - **Total: `main.js` 10,135 -> 8,936 lines (1,199 lines / ~11.8% removed), all 12 originally-identified
      inline `render*Tab` functions extracted.** See the dated Test findings entries above for full
      verification evidence on every batch.
-4. **⬜ Turn test-findings history into structured, queryable evidence.** `NORTH_STAR.md` is 2,454+ lines
-   with 15 dated `## Test findings` sections as of 2026-09-24 — real, valuable evidence, but as prose in
-   one ever-growing file it's not queryable ("which capabilities have real-world evidence, and how
-   recent is it?" currently requires a human to read the whole file). Scope when picked up: surface a
-   per-capability evidence/confidence view on the existing live Mission Center dashboard
-   (https://dataglow-development.pplx.app), reading the same repo state Mission Center's Step 1 already
-   parses, rather than adding more prose to this file.
+4. **✅ DONE (2026-09-26) -- Turn test-findings history into structured, queryable evidence.**
+   `NORTH_STAR.md` had grown to 2,454+ lines with 24 dated `## Test findings` sections, all real,
+   valuable evidence, but as prose in one ever-growing file it wasn't queryable ("which capabilities
+   have real-world evidence, and how recent is it?" required a human to read the whole file). Shipped a
+   rule-based parser (no AI call) that reads `NORTH_STAR.md`'s dated Test findings sections live from
+   GitHub, cross-references every mentioned `js/` file against `capability-map.manifest.json`'s `files`
+   arrays, and classifies each match's verdict (pass / fixed / partial / unclassified) from the finding's
+   own wording. Real result from the current repo: **53 of 278 capabilities (19%) have real-world test
+   evidence; 225 have none** — a genuine, previously-invisible coverage gap, now a filterable card
+   instead of a fact buried in prose.
+   - Landed as a new **Capability Evidence** card on the Mission Center dashboard, alongside a rebuild of
+     the dashboard itself: the prior deployment
+     (`dataglow-development.pplx.app`, asset id `360634e0-1328-46ea-b05a-9d1b1251076a`) was found gone
+     (confirmed 404, not transient) during this pass and was rebuilt from scratch at a new URL, same
+     read-only/no-backend/no-AI-key design as before.
+   - This is personal dev tooling (a standalone static site, not a DataGlow product feature/module), so
+     it ships as its own preview/publish rather than a flag-gated change to the DataGlow app itself — no
+     `js/`, `flags.manifest.json`, or `capability-map.manifest.json` change in the DataGlow repo beyond
+     this checklist line.
 
 **Sequencing note:** these are being worked one at a time, in the order above, each as its own scoped
 PR/pass with its own before/after evidence — not a single giant change. This section's checkboxes
