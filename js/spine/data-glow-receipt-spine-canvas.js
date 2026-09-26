@@ -56,6 +56,16 @@
   var STYLE_ID = 'dg-spine-styles';
   var SEEN_KEY = 'dataglow.receiptSpine.dismissed';
   var LEDGER_CHIP_ID = 'dg-spine-ledger-chip';
+  /* 2026-09-26 fix (backlog 0z): both collapsed-state chips used to be
+     independent position:fixed elements on document.body, each with its own
+     guessed left offset (210px / 340px). Measured on a real 375px phone:
+     "Start here: 0 of 5" (210-355px) and "Repair Ledger" (340-465px)
+     genuinely overlapped, and the ledger chip ran 90px off the right edge
+     of the screen entirely. Both chips now live inside this one flex-row
+     container instead, so the browser lays them out from actual rendered
+     width with a fixed gap rather than two hand-picked numbers that only
+     happened to work at some past viewport width. */
+  var CHIP_ROW_ID = 'dg-spine-chip-row';
 
   var state = { open: true, expandedId: '', renderable: false };
 
@@ -314,13 +324,23 @@
       + '.dg-sp-note{opacity:.75;font-size:14px;margin:5px 0 0}'
       + '.dg-sp-btn{font:inherit;font-size:16px;padding:5px 10px;border-radius:7px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit}'
-      + '#' + CHIP_ID + '{position:fixed;bottom:18px;left:210px;z-index:2147482900;'
-      + 'font:inherit;font-size:16px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
-      + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.14);pointer-events:auto}'
+      /* Shared row: both collapsed-state chips are children of this one
+         fixed container instead of each guessing its own left offset (see
+         CHIP_ROW_ID comment above). left/right instead of a fixed width
+         mirrors the rail's own full-bleed pattern above, so the row itself
+         never causes an overflow on a narrow phone; flex-wrap is the
+         backstop if both chips' real content still cannot fit one line. */
+      + '#' + CHIP_ROW_ID + '{position:fixed;left:14px;right:14px;bottom:18px;z-index:2147482900;'
+      + 'display:flex;gap:8px;flex-wrap:wrap;pointer-events:none}'
+      + '#' + CHIP_ROW_ID + ' > *{pointer-events:auto;flex:0 1 auto;min-width:0}'
+      + '#' + CHIP_ID + '{font:inherit;font-size:16px;padding:6px 11px;border-radius:999px;cursor:pointer;'
+      + 'display:none;border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);'
+      + 'color:inherit;box-shadow:0 2px 8px rgba(0,0,0,.14);overflow:hidden;text-overflow:ellipsis;'
+      + 'white-space:nowrap}'
       + '.dg-sp-ledger-btn{font:inherit;font-size:16px;padding:5px 10px;border-radius:7px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'font-weight:600}';
+      + 'font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+      + '#' + CHIP_ROW_ID + ' .dg-sp-ledger-btn{box-shadow:0 2px 8px rgba(0,0,0,.14)}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
@@ -357,6 +377,16 @@
     try { if (node.style.display !== value) node.style.display = value; } catch (_e) {}
   }
 
+  /* Shared flex-row container both collapsed-state chips mount into (backlog
+     0z fix) -- created once, reused by whichever chip asks for it first. */
+  function chipRow() {
+    var row = document.getElementById(CHIP_ROW_ID);
+    if (row || !document.body) return row;
+    row = el('div', { id: CHIP_ROW_ID });
+    document.body.appendChild(row);
+    return row;
+  }
+
   /** Rail and chips visible only when they are wanted and nothing is on top. */
   function syncOverlay() {
     var blocked = dialogOpen();
@@ -365,7 +395,10 @@
     var chip = document.getElementById(CHIP_ID);
     if (chip) setDisplay(chip, (state.open || blocked) ? 'none' : 'inline-block');
     var ledgerChip = document.getElementById(LEDGER_CHIP_ID);
-    if (ledgerChip && ledgerChip.parentNode === document.body) {
+    // Distinguishes the floating collapsed instance (parented to the shared
+    // chip row, backlog 0z fix) from the in-rail copy (parented inside the
+    // rail's own top row) -- only the floating one is toggled here.
+    if (ledgerChip && ledgerChip.parentNode && ledgerChip.parentNode.id === CHIP_ROW_ID) {
       setDisplay(ledgerChip, blocked ? 'none' : 'inline-block');
     }
   }
@@ -478,7 +511,15 @@
       var ledgerGo = resolveTarget('open-ledger');
       if (ledgerGo) {
         var ledgerBtn = el('button', {
-          id: LEDGER_CHIP_ID,
+          // 2026-09-26 fix (found while fixing backlog 0z): this in-rail
+          // copy used to share LEDGER_CHIP_ID with the separate floating
+          // collapsed-state button below, an invalid duplicate id that made
+          // getElementById(LEDGER_CHIP_ID) ambiguous (it silently returns
+          // whichever one is first in document order). Distinct id here;
+          // the floating one below keeps LEDGER_CHIP_ID, since that is the
+          // instance syncOverlay()/dismiss() logic elsewhere in this file
+          // actually needs to look up by id.
+          id: 'dg-spine-ledger-rail-btn',
           class: 'dg-sp-ledger-btn',
           type: 'button',
           title: 'Applied steps: every repair step logged this session',
@@ -544,21 +585,26 @@
     var ledgerChip = document.getElementById(LEDGER_CHIP_ID);
     if (!ledgerChip && ledgerSpineOn() && !state.open) {
       var ledgerGo2 = resolveTarget('open-ledger');
-      if (ledgerGo2 && document.body) {
+      var row2 = chipRow();
+      if (ledgerGo2 && row2) {
         var collapsedLedgerBtn = el('button', {
           id: LEDGER_CHIP_ID,
           class: 'dg-sp-ledger-btn',
           type: 'button',
-          style: 'position:fixed;bottom:18px;left:340px;z-index:2147482900;box-shadow:0 2px 8px rgba(0,0,0,.14)',
           title: 'Applied steps: every repair step logged this session',
         }, 'Repair Ledger');
+        // 2026-09-26 fix (backlog 0z): no more inline position:fixed;left:340px
+        // -- it lives in the shared chip row now (#dg-spine-chip-row above),
+        // which lays both chips out from their real widths instead of one
+        // more hand-picked offset that only happened to clear the other chip
+        // at some past viewport width.
         collapsedLedgerBtn.addEventListener('click', function () { ledgerGo2(); });
-        document.body.appendChild(collapsedLedgerBtn);
+        row2.appendChild(collapsedLedgerBtn);
       }
     } else if (ledgerChip && state.open) {
       /* Rail is open and renders its own copy inside the top row; drop the
          floating collapsed one so there are never two at once. */
-      if (ledgerChip.parentNode === document.body) {
+      if (ledgerChip.parentNode && ledgerChip.parentNode.id === CHIP_ROW_ID) {
         ledgerChip.parentNode.removeChild(ledgerChip);
       }
     }
@@ -621,7 +667,9 @@
     document.body.appendChild(el('div', { id: RAIL_ID, role: 'region', 'aria-label': 'Start here' }));
     var chip = el('button', { id: CHIP_ID, type: 'button' }, 'Start here');
     chip.addEventListener('click', open);
-    document.body.appendChild(chip);
+    var row = chipRow();
+    if (row) row.appendChild(chip);
+    else document.body.appendChild(chip); // no document.body yet: fall back, chipRow() retries next call
 
     if (state.open) render();
     refreshChip();

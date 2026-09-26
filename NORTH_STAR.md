@@ -2765,18 +2765,43 @@ re-deriving it from scratch each session.
     hardcoded fixed-pixel left-offsets, not responsive -- on a narrow phone these can crowd or overlap
     each other. Queued below as its own backlog item.**
 
-**From 2026-09-26 (mobile rail overlap fix, item 0y above) — found while fixing, not yet scoped/fixed:**
+**From 2026-09-26 (mobile rail overlap fix, item 0y above) — found while fixing, now fixed:**
 
-0z. **Two floating mobile chips use hardcoded fixed-pixel left-offsets, not responsive.**
-    `#dg-spine-chip` (`left:210px`, in `js/spine/data-glow-receipt-spine-canvas.js`) and the Repair
-    Ledger's collapsed fallback button `#dg-spine-ledger-chip` (`left:340px`, same file) are both
-    positioned with a fixed pixel offset from the left edge regardless of viewport width. On a narrow
-    phone (e.g. 375px wide) a chip whose own width plus a 210px or 340px offset can run close to or
-    off the right edge, and the two chips can crowd or overlap each other, since there's only ~130px
-    between their anchor points and neither reserves space for the other's actual rendered width. Not
-    yet reproduced pixel-by-pixel or fixed -- likely fix direction: replace the hardcoded `left:`
-    values with a flex/gap-based row anchored to a single fixed container, or compute spacing from the
-    other chip's actual width at render time, so both stay validly positioned at any viewport width.
+0z. ✅ **DONE (2026-09-26).** Two floating mobile chips used hardcoded fixed-pixel left-offsets, not
+    responsive. `#dg-spine-chip` (`left:210px`) and the Repair Ledger's collapsed fallback button
+    `#dg-spine-ledger-chip` (`left:340px`), both in `js/spine/data-glow-receipt-spine-canvas.js`, were
+    each positioned with a fixed pixel offset from the left edge regardless of viewport width or the
+    other chip's actual rendered size. Measured on a real 375px-wide phone before fixing (not guessed):
+    "Start here: 0 of 5" rendered at 210-355px and "Repair Ledger" at 340-465px -- genuinely
+    overlapping, and the ledger chip ran 90px off the right edge of the screen entirely. Fix: both
+    chips now mount into one shared `#dg-spine-chip-row` flex container (`left:14px;right:14px;
+    bottom:18px;display:flex;gap:8px;flex-wrap:wrap`) instead of each guessing an independent `left:`
+    value, so the browser lays them out from their real widths with a fixed gap; verified overlap-free
+    and fully on-screen at 320px, 375px, and 390px widths. **Second, related bug found and fixed in the
+    same pass:** the in-rail copy of the Repair Ledger button and the floating collapsed-state copy
+    shared the identical `id="dg-spine-ledger-chip"` (invalid duplicate id, present since Bundle 15,
+    unrelated to the chip-position bug) -- `getElementById` on that id silently returned whichever one
+    was first in document order, which made this module's own `syncOverlay()`/mount visibility logic
+    ambiguous about which instance it was toggling. Gave the in-rail copy its own distinct id
+    (`dg-spine-ledger-rail-btn`); the floating one keeps `dg-spine-ledger-chip`, since that is the id
+    the rest of the module's logic actually depends on. Updated `test/bundle15-canvas-ui.test.mjs`'s
+    three references accordingly; all 22 assertions still pass. No new feature flag: both are
+    correctness fixes to already-live functionality, not new behavior.
+
+0z2. **Found while fixing 0z, not yet fixed — third floating chip collides with the new chip row.**
+    `#dg-lai-chip` ("Built-in AI: on-device..." status indicator, `js/ai/data-glow-local-ai-canvas.js`)
+    also uses an independent hardcoded fixed position (`bottom:18px;left:18px`) and mounts whenever the
+    on-device-AI status feature is on -- not a rare state. Measured on a real 375px phone with the
+    RECEIPT spine, Repair Ledger, and built-in-AI status all enabled together: this chip's `left:18px`
+    sits almost exactly on top of the new `#dg-spine-chip-row`'s `left:14px`, and its `z-index:
+    2147483000` is higher than the row's `2147482900`, so it visually covers the "Start here" chip
+    entirely. Same root cause family as 0z (an independently-guessed fixed corner with no awareness of
+    sibling chips), but a third, separate module -- deliberately not folded into the 0z fix to keep that
+    PR's blast radius to the one file it was already touching. Likely fix direction: either add this
+    chip as a third member of the same shared `#dg-spine-chip-row` container (would require exporting
+    that container/id from the spine module for reuse, or promoting it to a small shared helper), or
+    give it its own reserved row above/beside the spine row. Whichever direction, the fix should assume
+    more floating chips may be added later and pick an approach that scales past exactly two or three.
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
 the user ("more stuff can be added later on"):**
