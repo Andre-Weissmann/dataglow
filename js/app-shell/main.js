@@ -19,6 +19,8 @@ import { renderGlowCanvasTab } from './tabs/glow-canvas-tab.js';
 import { renderJoinBuilderTab } from './tabs/join-builder-tab.js';
 import { renderNLSQLTab } from './tabs/nlsql-tab.js';
 import { renderCleaningCrewTab } from './tabs/cleaning-crew-tab.js';
+import { renderGuardedCopilotTab } from './tabs/guarded-copilot-tab.js';
+import { renderProofRoomTab, getProofRoomSealForExport } from './tabs/proof-room-tab.js';
 import { configureFlags, isEnabled } from '../build/build-flags.js';
 import { loadBuiltInPacks } from '../packs/pack-registry.js';
 import * as engine from './duckdb-engine.js';
@@ -90,7 +92,6 @@ import { buildHistoryListContent, renderDiffView } from '../metrics/metric-contr
 import { renderConfirmGate } from '../metrics/metric-contract-confirm-gate.js';
 import { collectTrustSignals, renderTrustStrip } from '../trust/trust-strip.js';
 import { openProofDrawer } from '../trust/proof-drawer.js';
-import { buildProofRoomPlan, renderProofRoom } from '../provenance/proof-room.js';
 import { buildTrustPassport } from '../provenance/trust-passport.js';
 import { sealTrustPassport, verifyTrustPassportExport, exportTrustPassport } from '../provenance/trust-passport-export.js';
 import { buildTrustPassportPanelPlan, renderTrustPassportPanel } from '../provenance/trust-passport-panel.js';
@@ -109,7 +110,6 @@ import { createGithubRoomSignaling, createRoomWebRTCTransport } from '../rooms/r
 import { buildRoomPillModel, buildPresenceModel, renderRoomUi, notifyRemoteEntry } from '../rooms/room-ui.js';
 import { createProficiencyTracker } from '../learning/proficiency-signal.js';
 import { shouldOfferMeetingScribe, mountMeetingScribe } from '../agents/meeting-scribe-ui.js';
-import { askGuardedCopilot, refineWithOnDeviceModel } from '../agents/guarded-copilot.js';
 import { sealClaim } from '../diplomacy/diplomacy-claim.js';
 import { reconcileClaims } from '../diplomacy/reconciliation-engine.js';
 import { createApprovalRequest, approve as approveDiplomacy, reject as rejectDiplomacy } from '../diplomacy/diplomacy-approval-gate.js';
@@ -433,11 +433,15 @@ function switchTab(tabId) {
   if (tabId === 'visualize') maybeMaterializeSqlResultForVisualize();
   if (tabId === 'meeting') renderMeetingScribeTab();
   if (tabId === 'diplomacy') renderDiplomacyTab();
-  if (tabId === 'proofroom') renderProofRoomTab();
+  if (tabId === 'proofroom') renderProofRoomTab({
+    state, getActiveDataset, metricRegistry, engine, openMetricProof, toast,
+    recordMetricDefinitionVersion, openTrustFieldProof, collectValidationSummary,
+    downloadText, ledger, aiTouchLedger,
+  });
   if (tabId === 'trustpassport') renderTrustPassportTab();
   if (tabId === 'convergence') renderConvergenceTab();
   if (tabId === 'crucible') renderCrucibleTab();
-  if (tabId === 'copilot') renderGuardedCopilotTab();
+  if (tabId === 'copilot') renderGuardedCopilotTab({ state, aiTouchLedger, gradeFromResults, renderAiTouchLedgerPanel });
   if (tabId === 'glowcanvas') renderGlowCanvasTab();
   if (tabId === 'pivot') renderPivotTab('pivot-body', state.datasets || []);
   if (tabId === 'portfolio') renderPortfolioTab('portfolio-body', { problemFramer, getActiveDataset, clean, describeOverconfidenceFinding });
@@ -4254,359 +4258,25 @@ async function renderDiplomacyTab() {
 // imported at the top of this file and behave byte-for-byte identically.
 
 // ============================================================
-// Guarded Copilot (Batch 2 of 2) — Copilot tab wiring
+// Guarded Copilot Tab wiring
 // ============================================================
-// Mounts a read-only chat panel over the already-merged, dark Guarded Copilot
-// core (js/agents/guarded-copilot.js). Gated by ONE flag, guardedCopilot (off
-// by default): with it off the tab is never in the bar (see renderTabBar) and
-// this function clears the panel. The core is architecturally incapable of
-// writing data — it holds no firewall executor (no proposeAction/confirmAndApply)
-// and has no DuckDB mutation path — so this UI only ever ASKS and DISPLAYS; it
-// never proposes or applies a change. Answers are composed from the same real
-// readiness-gate / grade / touch-ledger data the rest of the app already uses,
-// and each query is logged to the shared AI Touch Ledger by askGuardedCopilot()
-// itself — so this function must NOT double-log.
-let guardedCopilotMounted = false;
-function renderGuardedCopilotTab() {
-  const host = $('#guarded-copilot-body');
-  if (!host) return;
-  if (!isEnabled('guardedCopilot')) { host.innerHTML = ''; guardedCopilotMounted = false; return; }
-  if (guardedCopilotMounted) return; // mount once per session
-  guardedCopilotMounted = true;
-  host.innerHTML = '';
-
-  // Persistent safety note — NOT optional. The engine is read-only; say so up front.
-  host.appendChild(el('div', {
-    style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-3); padding:var(--space-3); border-left:3px solid var(--color-grade-a); background:var(--color-surface-2, transparent);',
-    'data-testid': 'guarded-copilot-safety-note',
-  }, 'Read-only — never modifies your data. Guarded Copilot only explains readiness, grades, recent changes, and who/what touched this dataset, citing the real modules its answers come from.'));
-
-  const messages = el('div', {
-    'data-testid': 'guarded-copilot-messages',
-    style: 'display:flex; flex-direction:column; gap:var(--space-3); margin-bottom:var(--space-4); max-height:420px; overflow-y:auto;',
-  });
-  host.appendChild(messages);
-
-  // Optional Tier 2 refine toggle — OFF by default. When on, the answer is
-  // rephrased by the SAME on-device model the Story tab uses (private, WebGPU).
-  const refineToggle = el('input', { type: 'checkbox', id: 'guarded-copilot-refine', 'data-testid': 'guarded-copilot-refine' });
-  host.appendChild(el('label', {
-    for: 'guarded-copilot-refine',
-    style: 'display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:var(--space-2); cursor:pointer;',
-  }, [refineToggle, el('span', {}, 'Refine with the on-device model (private; needs WebGPU — falls back to the exact answer if unavailable).')]));
-
-  // Model-download progress + cancel, mirrored from the Story tab's pattern.
-  const cpProgressBar = el('div', { 'data-testid': 'guarded-copilot-progress-bar', style: 'height:6px; width:0%; background:var(--color-grade-a); border-radius:3px; transition:width 150ms;' });
-  const cpProgressText = el('div', { style: 'font-size:var(--text-xs); color:var(--color-text-faint); margin-top:2px;' }, 'Preparing…');
-  const cpCancelBtn = el('button', { class: 'btn btn-sm', style: 'margin-top:var(--space-2);' }, 'Cancel');
-  const cpProgressWrap = el('div', { 'data-testid': 'guarded-copilot-progress', style: 'display:none; margin-bottom:var(--space-2);' }, [
-    el('div', { style: 'background:var(--color-surface-2, #eee); border-radius:3px; overflow:hidden;' }, [cpProgressBar]),
-    cpProgressText, cpCancelBtn,
-  ]);
-  host.appendChild(cpProgressWrap);
-  let cpModelCancelled = false;
-  cpCancelBtn.addEventListener('click', () => { cpModelCancelled = true; toast('Cancelling model download…', 'info'); });
-
-  const input = el('input', {
-    type: 'text', id: 'guarded-copilot-input', 'data-testid': 'guarded-copilot-input',
-    placeholder: 'Ask why this data looks the way it does…',
-    style: 'flex:1; padding:var(--space-2) var(--space-3); border:1px solid var(--color-divider); border-radius:var(--radius-md, 6px); background:var(--color-surface, transparent); color:inherit;',
-  });
-  const askBtn = el('button', { class: 'btn', 'data-testid': 'guarded-copilot-ask' }, 'Ask');
-  host.appendChild(el('div', { style: 'display:flex; gap:var(--space-2);' }, [input, askBtn]));
-
-  function addMessage(role, text, sources) {
-    const isUser = role === 'user';
-    const bubble = el('div', {
-      'data-testid': `guarded-copilot-msg-${role}`,
-      style: `align-self:${isUser ? 'flex-end' : 'flex-start'}; max-width:85%; padding:var(--space-3); border-radius:var(--radius-md, 8px); background:${isUser ? 'var(--color-surface-2, #f0f0f0)' : 'var(--color-surface, transparent)'}; border:1px solid var(--color-divider); white-space:pre-wrap; font-size:var(--text-sm);`,
-    }, text);
-    if (!isUser && Array.isArray(sources) && sources.length) {
-      bubble.appendChild(el('div', {
-        class: 'mono',
-        style: 'margin-top:var(--space-2); font-size:var(--text-xs); color:var(--color-text-faint);',
-      }, [
-        el('div', { style: 'font-weight:600;' }, 'Sources:'),
-        ...sources.map((s) => el('div', {}, s)),
-      ]));
-    }
-    messages.appendChild(bubble);
-    messages.scrollTop = messages.scrollHeight;
-  }
-
-  async function refineCopilotAnswer(question, answer) {
-    if (!ondeviceLLM.isWebGPUAvailable()) {
-      toast('On-device model needs WebGPU — showing the exact answer instead.', 'info');
-      return { text: answer.text, usedOnDeviceModel: false };
-    }
-    if (!ondeviceLLM.isModelLoaded()) {
-      cpModelCancelled = false;
-      cpProgressWrap.style.display = '';
-      cpProgressBar.style.width = '0%';
-      cpProgressText.textContent = 'Preparing download…';
-      try {
-        await ondeviceLLM.loadModel(({ progress, text }) => {
-          if (cpModelCancelled) { const e = new Error('Model download cancelled.'); e.code = 'CANCELLED'; throw e; }
-          cpProgressBar.style.width = `${Math.round((progress || 0) * 100)}%`;
-          cpProgressText.textContent = text || `Downloading model… ${Math.round((progress || 0) * 100)}%`;
-        });
-      } catch (err) {
-        if (err.code === 'CANCELLED') return { text: answer.text, usedOnDeviceModel: false };
-        throw err;
-      } finally {
-        cpProgressWrap.style.display = 'none';
-      }
-    }
-    // The model is loaded now; the read-only engine does the actual rephrase,
-    // reusing the exact same loader/generation machinery the Story engine uses.
-    return refineWithOnDeviceModel(question, answer);
-  }
-
-  async function submit() {
-    const question = input.value.trim();
-    if (!question) return;
-    addMessage('user', question);
-    input.value = '';
-    askBtn.disabled = true;
-    try {
-      // Build context from REAL app state — never invented. answerDeterministic
-      // is null-safe, so undefined/empty values degrade gracefully to honest
-      // "I don't have that yet" answers rather than guesses.
-      const results = state.validationResults || window.__dataglowLastValidation || null;
-      const g = results ? gradeFromResults(results) : null;
-      const answer = await askGuardedCopilot(question, {
-        layerResults: results || undefined,
-        grade: (g && g !== '?') ? g : undefined,
-        touchLedger: isEnabled('aiTouchLedger') ? aiTouchLedger : undefined,
-        journalEntries: [],
-        touchLedgerEntries: aiTouchLedger.getEntries ? aiTouchLedger.getEntries() : [],
-      });
-      let text = answer.text;
-      if (refineToggle.checked) {
-        const refined = await refineCopilotAnswer(question, answer);
-        text = refined.text;
-      }
-      addMessage('assistant', text, answer.citedFrom);
-      // The query was already logged to the ledger inside askGuardedCopilot();
-      // just refresh the ledger panel if it's visible. NEVER log again here.
-      if (isEnabled('aiTouchLedger')) renderAiTouchLedgerPanel();
-    } catch (err) {
-      toast('Copilot failed: ' + (err.message || err), 'error');
-    } finally {
-      askBtn.disabled = false;
-    }
-  }
-  askBtn.addEventListener('click', submit);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-}
+// Extracted to js/app-shell/tabs/guarded-copilot-tab.js during the Structural
+// Readiness Phase item 3 (main.js monolith paydown, 2026-09-26). See that
+// file for the full history/comments; renderGuardedCopilotTab is imported at
+// the top of this file and behaves byte-for-byte identically (called as
+// renderGuardedCopilotTab({ state, aiTouchLedger, gradeFromResults,
+// renderAiTouchLedgerPanel }) since those four stay defined in main.js).
 
 // ============================================================
-// Proof Room (Trust Passport, composition batch 1) — Proof Room tab wiring
+// Proof Room Tab wiring
 // ============================================================
-// A single "assembled proof" screen that COMPOSES five already-shipped,
-// already-tested trust surfaces top-to-bottom in a fixed product order:
-// Metric Studio → Trust Strip → Data Nutrition Label → Verifiable Check Seal
-// → Trust Beam. The composer/plan builder + presenter live in
-// js/provenance/proof-room.js; this function is only the thin caller that
-// supplies each step's REAL render function as a closure (mirroring how the
-// SQL/Validate tabs already wire the same surfaces), so nothing here
-// re-implements or forks a module.
-//
-// FLAG HANDLING: this tab is gated by ONE umbrella flag, proofRoom (off by
-// default). The five underlying surfaces have NO internal flag check of their
-// own, so the Proof Room calls each render function DIRECTLY regardless of its
-// own trustStripProofDrawer/metricStudio/dataNutritionLabel/verifiableCheckSeal/
-// trustBeam flag — this composed view is where they become visible together.
-// The tab only exists in the bar when proofRoom is on (see renderTabBar); this
-// function is the second, inner gate matching the meeting/diplomacy precedent,
-// and it renders nothing until a dataset is loaded.
-let proofRoomSeal = null;
-// Read-only accessor so other sections of this file (the MCP gate-state export
-// handler, Agent Passport Bridge batch) can read whatever seal has already been
-// minted this session without duplicating the module-scoped variable or forcing
-// a fresh seal to be created just for export. Returns null if the Proof Room
-// tab has never been opened / no seal minted yet — an honest "not available",
-// never a fabricated placeholder.
-function getProofRoomSealForExport() {
-  return proofRoomSeal || null;
-}
-// Build (or reuse) a seal over the latest validation summary for the composed
-// seal + beam steps. Reuses the EXISTING sealCheckResult() verbatim — no new
-// crypto. The "result" is a display roll-up of the real per-layer statuses
-// (worst-wins), and the data bound to the seal is that same summary.
-async function buildProofRoomSeal(ds) {
-  if (proofRoomSeal) return proofRoomSeal;
-  const { validation: valSummary } = collectValidationSummary();
-  const rank = { fail: 3, warn: 2, pass: 1, idle: 0 };
-  let status = 'pass';
-  let flagCount = 0;
-  for (const row of valSummary) {
-    if (row.status !== 'pass' && row.status !== 'idle') flagCount += 1;
-    if ((rank[row.status] || 0) > (rank[status] || 0)) status = row.status;
-  }
-  proofRoomSeal = await sealCheckResult({ status, flagCount }, {
-    check: { name: 'DATAGLOW validation summary', kind: 'validation-summary' },
-    params: JSON.stringify(valSummary.map((r) => r.layer)),
-    dataset: {
-      name: ds ? ds.name : 'active dataset',
-      rowCount: ds ? (ds.rowCount ?? null) : null,
-      columnNames: ds ? (ds.cols || []) : [],
-    },
-    data: valSummary,
-    dataglow: { version: (window.__dataglowVersion || null), build: null },
-  });
-  return proofRoomSeal;
-}
-function renderProofRoomTab() {
-  const host = $('#proof-room-body');
-  if (!host) return;
-  // Double-gate: the flag and (like every data-driven surface) a loaded dataset.
-  if (!isEnabled('proofRoom')) { host.innerHTML = ''; return; }
-  const ds = getActiveDataset();
-  if (!ds) {
-    host.innerHTML = '';
-    host.appendChild(el('div', {
-      class: 'card',
-      style: 'padding:var(--space-4); font-size:var(--text-sm); color:var(--color-text-muted);',
-    }, 'Load a dataset to assemble its Proof Room — the five trust surfaces compose here in order once there is data to describe.'));
-    return;
-  }
-  // A fresh seal per (re)render of this tab — the composed steps reflect the
-  // current dataset + validation state, not a stale artifact.
-  proofRoomSeal = null;
+// Extracted to js/app-shell/tabs/proof-room-tab.js during the Structural
+// Readiness Phase item 3 (main.js monolith paydown, 2026-09-26). See that
+// file for the full history/comments; renderProofRoomTab and
+// getProofRoomSealForExport are imported at the top of this file and behave
+// byte-for-byte identically (renderProofRoomTab is called with a deps object
+// bundling everything that stays defined in main.js).
 
-  const chain = provenance.getProvenance(ds.table);
-  const plan = buildProofRoomPlan({
-    datasetLoaded: true,
-    hasValidationResults: !!state.validationResults,
-    aiTouchLedgerEnabled: isEnabled('aiTouchLedger'),
-  });
-
-  renderProofRoom({
-    host,
-    plan,
-    renderers: {
-      metricStudio: (body) => renderMetricStudio({
-        host: body,
-        registry: metricRegistry,
-        schemaCols: ds.cols || [],
-        table: ds.table,
-        engine,
-        onOpenProof: openMetricProof,
-        onToast: toast,
-        onChange: () => renderProofRoomTab(),
-        onDefinitionSaved: recordMetricDefinitionVersion, // Metric Contracts version trail
-      }),
-      trustStrip: (body) => renderTrustStrip({
-        host: body,
-        signals: collectTrustSignals({
-          dataset: ds,
-          validationResults: state.validationResults,
-          metricCounts: metricRegistry.statusCounts(),
-          provenanceChain: chain,
-          anomalyResult: null,
-        }),
-        onFieldClick: openTrustFieldProof,
-      }),
-      dataNutritionLabel: (body) => {
-        const { validation: valSummary } = collectValidationSummary();
-        const label = buildDataNutritionLabel({
-          dataset: ds,
-          custody: chain,
-          assumptions: ledger.getLedgerEntries(),
-          checks: valSummary,
-        });
-        for (const line of renderLabelSummaryLines(label)) {
-          body.appendChild(el('div', {
-            style: 'font-size:var(--text-xs); color:var(--color-text-muted); white-space:pre;',
-          }, line));
-        }
-      },
-      verifiableCheckSeal: (body) => {
-        const note = el('div', {
-          style: 'font-size:var(--text-xs); color:var(--color-text-faint);',
-        }, 'Sealing the latest validation summary…');
-        body.appendChild(note);
-        (async () => {
-          try {
-            const seal = await buildProofRoomSeal(ds);
-            const check = await verifySeal(seal, undefined);
-            note.remove();
-            for (const line of renderSealSummaryLines(seal)) {
-              body.appendChild(el('div', {
-                style: 'font-size:var(--text-xs); color:var(--color-text-muted); white-space:pre;',
-              }, line));
-            }
-            body.appendChild(el('div', {
-              style: `font-size:var(--text-xs); margin-top:6px; color:var(--color-${check.commitmentValid ? 'success' : 'error'});`,
-            }, check.commitmentValid ? '✓ Commitment re-verified locally' : '✗ Commitment failed to verify'));
-            body.appendChild(el('button', {
-              class: 'btn btn-secondary',
-              style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
-              'data-testid': 'proof-room-seal-download',
-              onclick: () => downloadText('dataglow-check-seal.json', exportSealAsJSON(seal), 'application/json'),
-            }, 'Download seal (.json)'));
-          } catch (e) {
-            note.textContent = 'Could not seal this result: ' + (e && e.message ? e.message : String(e));
-          }
-        })();
-      },
-      trustBeam: (body) => {
-        const detail = el('div', {
-          style: 'font-size:var(--text-xs); color:var(--color-text-muted);',
-        }, 'Turn the seal above into a self-contained link whose whole payload lives in the URL fragment — nothing is uploaded. A recipient re-verifies it in verify-beam.html with zero install.');
-        body.appendChild(detail);
-        body.appendChild(el('button', {
-          class: 'btn btn-primary',
-          style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start; margin-top:6px;',
-          'data-testid': 'proof-room-beam-create',
-          onclick: async () => {
-            try {
-              const seal = await buildProofRoomSeal(ds);
-              const baseUrl = new URL('verify-beam.html', window.location.href).href;
-              const url = buildBeamUrl(seal, baseUrl);
-              let field = body.querySelector('[data-testid="proof-room-beam-link"]');
-              if (!field) {
-                field = el('input', {
-                  type: 'text', readonly: 'readonly',
-                  'data-testid': 'proof-room-beam-link',
-                  style: 'width:100%; margin-top:6px; font-family:var(--font-mono); font-size:var(--text-xs); '
-                    + 'padding:4px 6px; border:1px solid var(--color-border); border-radius:var(--radius-sm); '
-                    + 'background:var(--color-surface-2); color:var(--color-text);',
-                  onclick: (e) => e.target.select(),
-                });
-                body.appendChild(field);
-              }
-              field.value = url;
-              field.select && field.select();
-              toast('Beam link ready — copy it to share', 'success');
-            } catch (e) {
-              toast('Could not build a beam link: ' + (e && e.message ? e.message : String(e)), 'error');
-            }
-          },
-        }, 'Beam it'));
-      },
-      aiTouchLedger: (body) => {
-        const entries = aiTouchLedger.getEntries();
-        if (!entries.length) {
-          body.appendChild(el('div', {
-            style: 'font-size:var(--text-xs); color:var(--color-text-faint); font-style:italic;',
-          }, 'No AI touches recorded yet this session — generate a story with an on-device or external model in the Story tab to see entries here.'));
-          return;
-        }
-        body.appendChild(el('div', {
-          style: 'font-size:var(--text-xs); color:var(--color-text-muted); margin-bottom:6px;',
-        }, summarizeTouchLedger(entries)));
-        body.appendChild(el('button', {
-          class: 'btn btn-secondary',
-          style: 'font-size:var(--text-xs); padding:2px 8px; align-self:flex-start;',
-          'data-testid': 'proof-room-ai-touch-ledger-export',
-          onclick: () => downloadText('dataglow-ai-touch-ledger.json', exportTouchLedger(entries, 'json'), 'application/json'),
-        }, 'Download AI Touch Ledger (.json)'));
-      },
-    },
-  });
-}
 
 // Trust Passport (Batch 1.5: UI mount). Batch 1 (js/provenance/trust-passport.js)
 // built the pure composition engine; Batch 2 (js/provenance/trust-passport-export.js)
