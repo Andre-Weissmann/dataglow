@@ -2874,9 +2874,20 @@ re-deriving it from scratch each session.
       caught by `check:canvas-integrity`'s aggregate byte-count guard before it was committed, and avoided
       entirely by re-syncing only the one file this fix actually changed. No other file's canvas span was
       touched. `npm run check:canvas-integrity -- --update` confirms 70 tracked modules verified, canvas
-      recorded at 6,701,320 bytes.
+      recorded at 6,701,322 bytes.
     - No new feature flag: this is a correctness/layout fix to already-shipped, already-enabled chips, not
       new behavior.
+    - **A second, unrelated incidental fix surfaced by the same re-injection:** re-syncing
+      `js/spine/data-glow-project-run-canvas.js` into the canvas for the first time since an older, stale
+      copy from PR #638 exposed a pre-existing `.dg-pr-badge{font-size:10px}` rule in the source file that
+      had never actually been present in the live canvas before (the canvas copy predated that rule).
+      CI's `test:jobspolisha48` and `test:typographyreadability` both gate on no font-size in the
+      9px-10.5px range anywhere in `canvas/index.html`, so this surfaced as two CI failures on this PR.
+      Fixed by bumping that one rule to `font-size:12px`, matching the 12px floor every sibling rule in
+      the same `styles()` block already uses (`.dg-pr-dataset`, `.dg-pr-progress`, `.dg-pr-detail`,
+      `.dg-pr-btn`, `.dg-pr-doctrine`). This was a pre-existing, dormant defect in the source file, not
+      something this PR introduced -- it simply had never been inlined into the canvas (and therefore
+      never actually rendered) until this fix's re-injection made it live for the first time.
     - **Process note for future chip work:** this is the third separate fix in the same root-cause family
       (0z, 0z2, this one) -- each new floating mobile control picked its own fixed corner without checking
       for others already there. If a sixth chip/button is ever added, it should default to joining
