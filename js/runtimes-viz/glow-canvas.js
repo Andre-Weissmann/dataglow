@@ -8,18 +8,26 @@
 // "cards", each laid out on a simple CSS grid, and draws each one by REUSING
 // that same viz.renderChart — it invents no new chart engine and moves no data.
 //
-// BATCH 2 adds cross-filtering: clicking a categorical point/bar/slice in one
+// BATCH 2 added cross-filtering: clicking a categorical point/bar/slice in one
 // card sets a single canvas-wide activeFilter {table, column, value}; every card
 // on the SAME table redraws filtered (via viz.renderChart's new whereClause arg)
 // and is badged, while different-table cards render unfiltered (there is no
 // join-key model yet). Clicking the same point again toggles the filter off.
 //
-// WHAT THIS BATCH DELIBERATELY STILL DOES NOT DO: no drag-and-drop reordering,
-// no cross-table (join-key) filtering, and no wiring into / replacement of the
-// existing Visualize tab — those are later batches. It ships fully dark behind the
-// `glowCanvas` flag (enabled:false); with the flag off nothing here mounts and
-// the app shell is byte-for-byte unchanged. The flag is checked by the CALLER
-// in main.js, never inside this module.
+// BATCH 3 adds drag-and-drop card reordering: dragging a card over another swaps
+// their gridPos (a straight swap, not a full re-flow — the simplest reorder model
+// that cannot corrupt the grid), reusing the SAME updateCardPosition pure mutator
+// Batch 1 shipped rather than inventing a second position-setting path. The pure
+// swapCards() computes the new layout; the browser-only drag handlers in
+// renderCanvas call it on drop and are otherwise decorative (dragover/dragstart
+// classes for visual feedback only, no state of their own).
+//
+// WHAT THIS BATCH DELIBERATELY STILL DOES NOT DO: no cross-table (join-key)
+// filtering, no multi-cell (span > 1x1) resize-drag, and no wiring into /
+// replacement of the existing Visualize tab — those are later batches. It ships
+// fully dark behind the `glowCanvas` flag; with the flag off nothing here mounts
+// and the app shell is byte-for-byte unchanged. The flag is checked by the
+// CALLER in main.js, never inside this module.
 //
 // Identity split (same convention as js/rooms/room-ui.js): the layout algebra
 // (createCanvasLayout / addCard / removeCard / updateCardPosition /
@@ -181,6 +189,34 @@ export function updateCardPosition(layout, cardId, gridPos = {}) {
         h: Number.isFinite(gp.h) && gp.h > 0 ? gp.h : (Number.isFinite(cur.h) && cur.h > 0 ? cur.h : DEFAULT_CARD_H),
       },
     };
+  });
+  return { cards, nextId: l.nextId, activeFilter: l.activeFilter };
+}
+
+/**
+ * PURE. Return a NEW layout with the gridPos of the two cards identified by
+ * `cardId` and `otherCardId` swapped — the reorder model for drag-and-drop
+ * (Batch 3). A straight swap keeps the grid always fully packed and never
+ * needs a re-flow pass, unlike an insert-and-shift model. Unknown id(s), the
+ * same id twice, or dragging a card onto itself all leave the layout
+ * unchanged (but still a fresh copy) — never throws.
+ * @param {object} layout
+ * @param {number} cardId the card being dragged
+ * @param {number} otherCardId the card being dropped onto
+ * @returns {{cards: Array<object>, nextId: number, activeFilter: object|null}}
+ */
+export function swapCards(layout, cardId, otherCardId) {
+  const l = normalizeLayout(layout);
+  if (cardId === otherCardId) return l;
+  const a = l.cards.find((c) => c.id === cardId);
+  const b = l.cards.find((c) => c.id === otherCardId);
+  if (!a || !b) return l;
+  const aPos = { ...a.gridPos };
+  const bPos = { ...b.gridPos };
+  const cards = l.cards.map((c) => {
+    if (c.id === cardId) return { ...c, gridPos: bPos };
+    if (c.id === otherCardId) return { ...c, gridPos: aPos };
+    return c;
   });
   return { cards, nextId: l.nextId, activeFilter: l.activeFilter };
 }
@@ -461,7 +497,30 @@ export function renderCanvas(containerId, layout, opts = {}) {
       'data-testid': 'glow-canvas-card',
       'data-card-id': String(card.id),
       'data-filtered': isFiltered ? 'true' : 'false',
-      style: `grid-column:${col} / span ${w}; grid-row:${row} / span ${h}; padding:var(--space-4,16px);${isFiltered ? ' outline:2px solid var(--color-accent,#0A7E8C); outline-offset:-2px;' : ''}`,
+      draggable: 'true',
+      style: `grid-column:${col} / span ${w}; grid-row:${row} / span ${h}; padding:var(--space-4,16px); cursor:grab;${isFiltered ? ' outline:2px solid var(--color-accent,#0A7E8C); outline-offset:-2px;' : ''}`,
+      // Drag-and-drop reorder (Batch 3): decorative dragover/dragleave classes give
+      // visual feedback only and hold no state of their own; the actual reorder is
+      // the single swapCards() call on drop, which emits a brand-new layout exactly
+      // like every other mutation here (remove/add/toggle-filter).
+      ondragstart: (e) => {
+        e.dataTransfer.setData('text/plain', String(card.id));
+        e.dataTransfer.effectAllowed = 'move';
+      },
+      ondragover: (e) => {
+        e.preventDefault();
+        cardEl.classList && cardEl.classList.add && cardEl.classList.add('glow-canvas-card--drag-over');
+      },
+      ondragleave: () => {
+        cardEl.classList && cardEl.classList.remove && cardEl.classList.remove('glow-canvas-card--drag-over');
+      },
+      ondrop: (e) => {
+        e.preventDefault();
+        cardEl.classList && cardEl.classList.remove && cardEl.classList.remove('glow-canvas-card--drag-over');
+        const draggedId = Number(e.dataTransfer.getData('text/plain'));
+        if (!Number.isFinite(draggedId) || draggedId === card.id) return;
+        emit(swapCards(current, draggedId, card.id));
+      },
     }, [header, chartBox]);
     grid.appendChild(cardEl);
 

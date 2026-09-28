@@ -20,6 +20,7 @@ import {
   addCard,
   removeCard,
   updateCardPosition,
+  swapCards,
   serializeLayout,
   deserializeLayout,
   setActiveFilter,
@@ -125,6 +126,40 @@ ok(JSON.stringify(CANVAS_CHART_TYPES) === JSON.stringify(['bar', 'line', 'scatte
 
   const l4 = updateCardPosition(l2, 12345, { row: 1 });
   ok(JSON.stringify(l4.cards) === JSON.stringify(l2.cards), 'updateCardPosition of an unknown id changes nothing');
+}
+
+// ---------- swapCards (Batch 3: drag-and-drop reorder) ----------
+{
+  let l = createCanvasLayout();
+  l = addCard(l, { table: 'a' }); // id 1, row 0 col 0
+  l = addCard(l, { table: 'b' }); // id 2, row 0 col 1
+  l = addCard(l, { table: 'c' }); // id 3, row 1 col 0
+
+  const swapped = swapCards(l, 1, 2);
+  const c1 = swapped.cards.find((c) => c.id === 1);
+  const c2 = swapped.cards.find((c) => c.id === 2);
+  const c3 = swapped.cards.find((c) => c.id === 3);
+  ok(c1.gridPos.row === 0 && c1.gridPos.col === 1, 'swapCards moves the dragged card into the target gridPos');
+  ok(c2.gridPos.row === 0 && c2.gridPos.col === 0, 'swapCards moves the target card into the dragged gridPos');
+  ok(c3.gridPos.row === 1 && c3.gridPos.col === 0, 'swapCards leaves an uninvolved card untouched');
+
+  ok(l.cards.find((c) => c.id === 1).gridPos.col === 0, 'swapCards is pure — original layout not mutated');
+
+  const same = swapCards(l, 1, 1);
+  ok(JSON.stringify(same.cards) === JSON.stringify(l.cards), 'swapCards with the same id twice (drop on self) changes nothing');
+
+  const unknownFirst = swapCards(l, 999, 2);
+  ok(JSON.stringify(unknownFirst.cards) === JSON.stringify(l.cards), 'swapCards with an unknown dragged id changes nothing, never throws');
+
+  const unknownSecond = swapCards(l, 1, 999);
+  ok(JSON.stringify(unknownSecond.cards) === JSON.stringify(l.cards), 'swapCards with an unknown target id changes nothing, never throws');
+
+  ok(swapped.activeFilter === l.activeFilter, 'swapCards preserves activeFilter unchanged');
+  ok(swapped.nextId === l.nextId, 'swapCards preserves nextId unchanged');
+
+  // swapping twice restores the original arrangement (swap is its own inverse)
+  const backAgain = swapCards(swapped, 1, 2);
+  ok(JSON.stringify(backAgain.cards) === JSON.stringify(l.cards), 'swapping the same pair twice restores the original layout');
 }
 
 // ---------- serialize / deserialize round-trip ----------
@@ -330,6 +365,90 @@ ok(JSON.stringify(CANVAS_CHART_TYPES) === JSON.stringify(['bar', 'line', 'scatte
   // clicking the SAME active point toggles the filter OFF.
   salesCall2[6].onPointClick('sales', 'region', 'West');
   ok(emitted && emitted.activeFilter === null, 'clicking the already-active point via onPointClick toggles the filter off');
+
+  delete global.document;
+}
+
+// ---------- renderCanvas drag-and-drop reorder (Batch 3) ----------
+// A second minimal document shim, extended with the bits Batch 1/2's shim did
+// not need: classList (add/remove, tracked in a Set so the drag-over visual
+// feedback is assertable) and a fake DataTransfer (setData/getData backed by a
+// plain object, exactly the subset the real browser API the drag handlers use).
+{
+  const registry = {};
+  function makeEl(tag) {
+    const classes = new Set();
+    return {
+      tagName: tag, children: [], attributes: {}, style: {}, _listeners: {},
+      className: '', innerHTML: '', textContent: '', value: '',
+      classList: {
+        add: (c) => classes.add(c),
+        remove: (c) => classes.delete(c),
+        has: (c) => classes.has(c),
+      },
+      setAttribute(k, v) { this.attributes[k] = v; if (k === 'id') registry[v] = this; },
+      getAttribute(k) { return this.attributes[k]; },
+      addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); },
+      appendChild(c) { this.children.push(c); return c; },
+    };
+  }
+  const host = makeEl('div');
+  registry.host = host;
+  global.document = {
+    createElement: makeEl,
+    createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
+    getElementById: (id) => registry[id] || null,
+  };
+
+  function fakeDataTransfer() {
+    const store = {};
+    return {
+      setData: (type, val) => { store[type] = val; },
+      getData: (type) => store[type] || '',
+      effectAllowed: null,
+    };
+  }
+  function fireListeners(node, type, event) {
+    for (const fn of (node._listeners[type] || [])) fn(event);
+  }
+
+  let l = createCanvasLayout();
+  l = addCard(l, { table: 'sales', chartType: 'bar' }); // id 1, row 0 col 0
+  l = addCard(l, { table: 'ops', chartType: 'pie' });    // id 2, row 0 col 1
+
+  let latest = null;
+  const fakeRenderChart = () => Promise.resolve();
+  renderCanvas('host', l, { renderChart: fakeRenderChart, datasets: [], onChange: (next) => { latest = next; } });
+
+  const card1El = registry[`glow-canvas-chart-1`] ? null : null; // chart nodes are separate; find cards via attributes
+  const cardEls = host.children
+    .flatMap((c) => (c.attributes && c.attributes['data-testid'] === 'glow-canvas-grid' ? c.children : []));
+  const dragged = cardEls.find((c) => c.attributes['data-card-id'] === '1');
+  const target = cardEls.find((c) => c.attributes['data-card-id'] === '2');
+  ok(dragged && target, 'both cards render with draggable card elements for the drag-and-drop test');
+  ok(dragged.attributes.draggable === 'true', 'each card element is draggable');
+
+  const dt = fakeDataTransfer();
+  fireListeners(dragged, 'dragstart', { dataTransfer: dt });
+  ok(dt.getData('text/plain') === '1', 'dragstart stores the dragged card id in the DataTransfer');
+
+  fireListeners(target, 'dragover', { preventDefault: () => {} });
+  ok(target.classList.has('glow-canvas-card--drag-over'), 'dragover adds the visual drag-over class to the drop target');
+
+  fireListeners(target, 'drop', { preventDefault: () => {}, dataTransfer: dt });
+  ok(!target.classList.has('glow-canvas-card--drag-over'), 'drop clears the drag-over class');
+  ok(latest !== null, 'dropping onto a different card emits a new layout via onChange');
+  const droppedC1 = latest.cards.find((c) => c.id === 1);
+  const droppedC2 = latest.cards.find((c) => c.id === 2);
+  ok(droppedC1.gridPos.col === 1, 'after drop, the dragged card (id 1) took the drop target\'s gridPos');
+  ok(droppedC2.gridPos.col === 0, 'after drop, the drop target (id 2) took the dragged card\'s original gridPos');
+
+  // dropping a card onto itself is a no-op (no onChange call).
+  latest = null;
+  const dt2 = fakeDataTransfer();
+  fireListeners(dragged, 'dragstart', { dataTransfer: dt2 });
+  fireListeners(dragged, 'drop', { preventDefault: () => {}, dataTransfer: dt2 });
+  ok(latest === null, 'dropping a card onto itself does not emit a new layout');
 
   delete global.document;
 }

@@ -3275,3 +3275,50 @@ is a scoping note, not a decision):
 3. When a real server tier is eventually scoped, treat `serverOffload`'s existing flag/stub
    (`js/app-shell/duckdb-config.js` #8) as the literal starting point — it is already named, already
    documented as opt-in-only/never-default, and already the intended seed of this exact feature.
+
+## 2026-09-27 — The Glow Compiler concept (brainstorm) + Batch 1 build (drag-and-drop reorder)
+
+**Brainstorm outcome:** ran the standing `dataglow-brainstorm` process against the ask "handle any
+dataset, any data engineering, any AI task, revolutionary dashboards." Combined concept: "The Glow
+Compiler" — any raw source (CSV, PDF, image, audio, video, API feed, live stream) gets referenced (never
+uploaded), extracted on-device, run through the existing AI Readiness Gate, and landed in Glow Canvas.
+User approved building it, batched, dark behind a flag.
+
+**Repo-reality correction before building anything:** research for this round found the real gap was
+much smaller than it first looked. `js/drop-zone/drop-zone-router.js` (CSV/JSON/NDJSON/Parquet/X12/
+image/audio) and `js/ingestion/image-ocr.js` (on-device OCR) were already LIVE. `js/pdf/
+pdfjs-extractor.scaffold.js`, `js/audio/whisper-worker.scaffold.js`, `js/video/
+webcodecs-audio-extractor.scaffold.js` are real, working reference patterns, never wired in — confirmed
+by reading all three directly rather than trusting the capability-map table alone. Most importantly: PDF
+extraction, its readiness-gate wiring, and its conversion into an ordinary queryable dataset (`js/
+cleaning-crew/pdf-profiler.js`, flag `cleaningCrew`, already `enabled: true`) turned out to be fully
+LIVE already — meaning a profiled PDF already reaches Glow Canvas today with zero new code, once both
+`cleaningCrew` and `glowCanvas` are on. Reading `js/runtimes-viz/glow-canvas.js` directly also found that
+cross-filtering (click-to-filter same-table cards) was ALREADY SHIPPED (Batch 2, `setActiveFilter` /
+`toggleFilter` / `filterWhereClause`) — the capability-map's one-line description ("Drag-and-arrange
+multi-chart dashboard") was stale and inaccurate; corrected this round.
+
+**What was actually still missing, confirmed by reading the code, not assumed:** drag-and-drop card
+reordering. That became the honest scope of Batch 1 of this build.
+
+**Batch 1 (PR pending, this session):** `swapCards(layout, cardId, otherCardId)` — a new PURE mutator in
+`js/runtimes-viz/glow-canvas.js` that swaps two cards' `gridPos` (a straight swap, not a re-flow — keeps
+the grid always fully packed, cannot corrupt state, mirrors the never-mutate/return-a-new-layout
+discipline of every existing mutator in the file). Card elements are now `draggable="true"`; `dragover`/
+`dragleave` toggle a purely decorative `.glow-canvas-card--drag-over` CSS class (`css/app.css`) for visual
+feedback; `drop` calls `swapCards` once and emits the new layout via the existing `onChange` path — no
+new state model, no new persistence path. 19 new tests added to `test/glow-canvas.test.mjs` (10 pure
+`swapCards` cases + 9 DOM drag/drop cases using an extended minimal document shim with `classList` and a
+fake `DataTransfer`) — 88/88 passing (up from 69/69). `docs/capability-map.md` and
+`capability-map.manifest.json` corrected to describe cross-filter + drag-to-reorder accurately;
+`flags.manifest.json`'s `glowCanvas` description appended (not rewritten) to cover the previously
+undocumented Batch 2 and this Batch 3. No new flag needed — ships under the existing `glowCanvas` flag,
+already `enabled: true`, so this is additive behavior on an already-live surface, not a new dark feature.
+
+**Remaining batches for The Glow Compiler (not yet built):** Batch 2 — wire the PDF Cleaning Crew tab's
+existing gate verdict visibly into a Glow Canvas card add-flow (today they are two separate tabs a user
+must bridge manually). Batch 3 — Whisper audio transcription (opt-in, desktop-first per prior WebGPU/
+mobile-fragility research), clearly labeled "assistive, verify before trusting," blocked from agent
+consumption until a human confirms. Batch 4 — video audio-track extraction (WebCodecs) feeding the same
+Whisper path. Batch 5 — live/API feed refresh polish on Canvas cards. Each remains its own PR/CI/merge-
+consent cycle per this repo's standing rule.
