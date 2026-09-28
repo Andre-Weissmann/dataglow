@@ -91,7 +91,10 @@ function page(mode) {
     + '<script src="/js/spine/data-glow-receipt-spine-canvas.js"><\/script>'
     + '<script type="module" src="/js/spine/repair-ledger.js"><\/script>'
     + '<script src="/js/spine/data-glow-repair-ledger-canvas.js"><\/script>'
-    + '<script src="/js/ai/data-glow-local-ai-canvas.js"><\/script>';
+    + '<script src="/js/ai/data-glow-local-ai-canvas.js"><\/script>'
+    + '<script type="module" src="/js/spine/project-run.js"><\/script>'
+    + '<script src="/js/spine/data-glow-project-run-canvas.js"><\/script>'
+    + '<script src="/js/polyglot/data-glow-power-packs-canvas.js"><\/script>';
 
   // Minimal DOM the Dojo module and its sidebar wiring guard against being
   // missing: sql-view pill, editor input/run button, dojo tab markup.
@@ -165,6 +168,18 @@ async function waitForSpineModules(p) {
   // Spine boots on setTimeout(boot,1200); ledger boots on setTimeout(fn,1400);
   // local-ai boots on setTimeout(boot,1000) -- all three settle by 1800ms.
   await p.waitForTimeout(1800);
+}
+
+async function waitForAllChipModules(p) {
+  await p.waitForFunction(
+    () => !!window.DataGlowReceiptSpineUI && !!window.DataGlowRepairLedgerUI && !!window.DataGlowLocalAiUI
+      && !!document.getElementById('dg-project-run-chip') && !!document.getElementById('dg-packs-btn'),
+    null, { timeout: 20000 },
+  );
+  // Project Run boots on setTimeout(boot,1000); packs button boots on
+  // setTimeout(boot,1400) -- both plus the ~900ms mount-time retry window
+  // settle comfortably by 2800ms.
+  await p.waitForTimeout(2800);
 }
 
 async function run() {
@@ -458,11 +473,71 @@ async function run() {
     await noRowPage.close();
     await ctx.unroute('**/js/spine/*.js');
 
+    // ---- BACKLOG 0z3: Project Run chip and Polyglot Packs button must not ----
+    // collide with the shared row or each other either. Both
+    // #dg-project-run-chip (js/spine/data-glow-project-run-canvas.js) and
+    // #dg-packs-btn (js/polyglot/data-glow-power-packs-canvas.js) used
+    // independent bottom-right corners (right:18px and right:16px
+    // respectively, functionally the same corner), which on a 320px phone
+    // collided with each other AND with the shared row's second wrapped
+    // line once a third chip (0z2's Built-in AI chip) made the row tall
+    // enough to wrap. Both now join #dg-spine-chip-row as fourth and fifth
+    // flex children, same pattern as 0z/0z2.
+    const fiveChipPage = await ctx.newPage();
+    fiveChipPage.on('pageerror', (err) => consoleErrors.push(String(err)));
+    await fiveChipPage.setViewportSize({ width: 320, height: 568 });
+    await fiveChipPage.goto(base + '/__b15__default.html');
+    await waitForAllChipModules(fiveChipPage);
+    const fiveChipLayout = await fiveChipPage.evaluate(() => {
+      const ids = ['dg-spine-chip', 'dg-spine-ledger-chip', 'dg-lai-chip', 'dg-project-run-chip', 'dg-packs-btn'];
+      const row = document.getElementById('dg-spine-chip-row');
+      const els = ids.map((id) => document.getElementById(id));
+      if (!row || els.some((e) => !e)) {
+        return { missing: true, hasRow: !!row, present: Object.fromEntries(ids.map((id, i) => [id, !!els[i]])) };
+      }
+      function rectsOverlap(r1, r2) {
+        return r1.left < r2.right && r1.right > r2.left && r1.top < r2.bottom && r1.bottom > r2.top;
+      }
+      const rects = els.map((e) => e.getBoundingClientRect());
+      const overlaps = [];
+      for (let i = 0; i < rects.length; i += 1) {
+        for (let j = i + 1; j < rects.length; j += 1) {
+          if (rectsOverlap(rects[i], rects[j])) overlaps.push(ids[i] + '<->' + ids[j]);
+        }
+      }
+      const onscreen = rects.every((r) => r.left >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight);
+      const allInRow = els.every((e) => e.parentNode.id === 'dg-spine-chip-row');
+      return { missing: false, overlaps, onscreen, allInRow };
+    });
+    ok(!fiveChipLayout.missing, 'the shared row and all five chips/buttons exist together on a 320px phone');
+    ok(fiveChipLayout.allInRow, 'all five chips/buttons are children of the shared #dg-spine-chip-row');
+    eq(fiveChipLayout.overlaps.length, 0, `no pair of the five chips/buttons overlaps at 320px, saw: ${(fiveChipLayout.overlaps || []).join(', ')}`);
+    ok(fiveChipLayout.onscreen, 'all five chips/buttons stay fully within the 320px viewport');
+
+    // Click-through still works for both newly-joined controls after being
+    // re-parented into the row.
+    await fiveChipPage.click('#dg-project-run-chip', { force: true });
+    await fiveChipPage.waitForTimeout(300);
+    const projectRunDrawerOpen = await fiveChipPage.evaluate(
+      () => !!document.getElementById('dg-project-run-drawer') && document.getElementById('dg-project-run-drawer').classList.contains('open'),
+    );
+    ok(projectRunDrawerOpen, 'the Project Run chip still opens its drawer after being re-parented into the shared row');
+    await fiveChipPage.evaluate(() => { const o = document.getElementById('dg-project-run-overlay'); if (o) o.click(); });
+    await fiveChipPage.waitForTimeout(300);
+
+    await fiveChipPage.click('#dg-packs-btn', { force: true });
+    await fiveChipPage.waitForTimeout(300);
+    const packsPanelOpen = await fiveChipPage.evaluate(
+      () => getComputedStyle(document.getElementById('dg-packs-panel')).display !== 'none',
+    );
+    ok(packsPanelOpen, 'the Polyglot Packs button still opens its panel after being re-parented into the shared row');
+    await fiveChipPage.close();
+
     eq(offOrigin.length, 0, `nothing may leave this device, saw: ${offOrigin.join(', ')}`);
 
     console.log(`bundle 15 canvas UI: ${checks} assertion(s) passed `
       + '(spine ledger chip mount/flag-off, replay confirm gate, dojo safe open, dojo run-disabled, '
-      + 'backlog 0z chip-overlap fix, backlog 0z2 AI chip collision fix).');
+      + 'backlog 0z chip-overlap fix, backlog 0z2 AI chip collision fix, backlog 0z3 five-chip-row fix).');
   } finally {
     await browser.close();
     server.close();
