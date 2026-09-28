@@ -31,6 +31,14 @@
   var PANEL_ID = 'dg-packs-panel';
   var BTN_ID = 'dg-packs-btn';
   var STYLE_ID = 'dg-packs-styles';
+  /* Backlog 0z3: the shared mobile chip row, first created by
+     js/spine/data-glow-receipt-spine-canvas.js (backlog 0z) and already
+     joined by the Built-in AI status chip (0z2) and the Project Run chip
+     (this same 0z3 fix). This button used its own independent bottom-right
+     corner (right:16px), which collided with the Project Run chip's
+     identical corner and with the shared row's second wrapped line on a
+     320px phone. */
+  var SHARED_CHIP_ROW_ID = 'dg-spine-chip-row';
 
   var state = { open: false, tab: 'sql', topic: '' };
 
@@ -236,7 +244,15 @@
       + '#' + BTN_ID + '{position:fixed;bottom:18px;right:16px;z-index:2147482790;'
       + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}';
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}'
+      /* Backlog 0z3: once this button is a child of the shared row, the
+         row's own flex layout positions and spaces it -- its standalone
+         corner placement must not fight that. min-width:0 lets its label
+         ellipsis on the narrowest phones rather than forcing the row to
+         overflow. The panel (PANEL_ID) stays independently positioned;
+         only the trigger button joins the row. */
+      + '#' + SHARED_CHIP_ROW_ID + ' #' + BTN_ID + '{position:static;bottom:auto;right:auto;left:auto;z-index:auto;'
+      + 'min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
@@ -1016,7 +1032,31 @@
     }));
     var btn = el('button', { id: BTN_ID, type: 'button' }, 'Starter material');
     btn.addEventListener('click', toggle);
-    document.body.appendChild(btn);
+    // Backlog 0z3: join the shared mobile chip row if it already exists
+    // (this module boots last of the row-joining modules at 1400ms, after
+    // the spine module's 1200ms, so the row is expected to exist by now in
+    // the common case) -- otherwise mount to document.body and retry
+    // briefly in case boot order ever changes. No periodic backstop exists
+    // in this file today (unlike the AI/Project-Run modules' interval-driven
+    // refresh), so the bounded retry below is this module's only recovery
+    // path if the row appears later than the retry window covers.
+    var sharedRow = document.getElementById(SHARED_CHIP_ROW_ID);
+    if (sharedRow) {
+      sharedRow.appendChild(btn);
+    } else {
+      document.body.appendChild(btn);
+      var packsBtnRetries = 0;
+      var packsBtnRetryTimer = setInterval(function () {
+        packsBtnRetries += 1;
+        var row = document.getElementById(SHARED_CHIP_ROW_ID);
+        if (row) {
+          row.appendChild(btn);
+          clearInterval(packsBtnRetryTimer);
+        } else if (packsBtnRetries >= 6) {
+          clearInterval(packsBtnRetryTimer);
+        }
+      }, 150);
+    }
   }
 
   function boot() {

@@ -2823,23 +2823,97 @@ re-deriving it from scratch each session.
     No new feature flag: this is a correctness fix to already-`enabled:true` live functionality
     (`localAiStatus`), not new behavior.
 
-0z3. **Found while verifying 0z2, not yet fixed — Project Run chip and Polyglot Packs button collide
-    with the shared row at 320px.** `#dg-project-run-chip` (`js/spine/data-glow-project-run-canvas.js`,
-    independent `position:fixed;bottom:18px;right:18px`) and `#dg-packs-btn` (the Polyglot Packs panel
-    trigger) were not part of the 0z/0z2 investigation because at 375px+ they sit clear of
-    `#dg-spine-chip-row`. Measured directly (not assumed) on a real 320px-wide phone with RECEIPT spine,
-    Repair Ledger, built-in-AI status, Project Run, and Polyglot Packs all enabled together: at this
-    narrower width the row wraps to a second line that extends down to `y:550`, and
-    `#dg-project-run-chip` (`x:174-302, y:518-550`) and `#dg-packs-btn` (`x:190-304, y:518-550`) both land
-    directly on top of that second row line and each other. Same root-cause family as 0z/0z2 (independent
-    hardcoded fixed corners chosen without awareness of how many other floating chips may already be on
-    screen) but two more, separate modules/trigger points, and only reproduces at the narrower end of the
-    phone range (not seen at 375px/390px) -- deliberately not folded into 0z2 to keep that PR scoped to
-    the one collision it actually set out to fix. Likely fix direction: same shared-row pattern extended
-    to a fourth and fifth member, or a documented, permanent rule that any new floating mobile chip must
-    register with `#dg-spine-chip-row` (or a renamed, more general shared-chips concept) rather than
-    picking its own fixed corner -- the recurrence across three separate fixes (0z, 0z2, this one) is
-    itself a signal that the ad hoc pattern should stop, not just get patched again per-module.
+0z3. ✅ **DONE (2026-09-27).** Project Run chip and Polyglot Packs button collided with the shared row
+    at 320px, found while verifying 0z2. `#dg-project-run-chip` (`js/spine/data-glow-project-run-canvas.js`,
+    independent `position:fixed;bottom:18px;right:18px`) and `#dg-packs-btn`
+    (`js/polyglot/data-glow-power-packs-canvas.js`, independent `position:fixed;bottom:18px;right:16px`)
+    were not part of the 0z/0z2 investigation because at 375px+ they sit clear of `#dg-spine-chip-row`.
+    Measured directly on a real 320px-wide phone with RECEIPT spine, Repair Ledger, built-in-AI status,
+    Project Run, and Polyglot Packs all enabled together: at that narrower width the row wraps to a
+    second line extending down to `y:550`, and `#dg-project-run-chip` (`x:174-302, y:518-550`) and
+    `#dg-packs-btn` (`x:190-304, y:518-550`) both landed directly on top of that second row line and
+    each other. Same root-cause family as 0z/0z2 (independent hardcoded fixed corners chosen without
+    awareness of how many other floating chips may already be on screen).
+
+    **Fix (same shared-row pattern extended to a fourth and fifth member):**
+    - `js/spine/data-glow-project-run-canvas.js`: added `SHARED_CHIP_ROW_ID = 'dg-spine-chip-row'`; a CSS
+      override rule (`#dg-spine-chip-row #dg-project-run-chip{position:static;bottom:auto;right:auto;
+      left:auto;z-index:auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+      white-space:nowrap}`) appended after the chip's original fixed-position rule in the same `styles()`
+      string, so source order gives the override higher priority at equal specificity; `mount()` now
+      checks for the row first and appends into it, falling back to `document.body` plus a bounded
+      150ms/6-try (~900ms) retry `setInterval` if the row's owning module (spine, boots at 1200ms vs. this
+      module's own 1000ms) hasn't mounted yet; a `reparentIntoSharedRowIfNeeded()` helper piggybacks on
+      the module's existing 4-second `refreshChip()` poll as a permanent backstop. This chip's position was
+      always CSS-rule-driven, never inline, so (unlike 0z2's AI chip) no inline-style-clearing helper was
+      needed.
+    - `js/polyglot/data-glow-power-packs-canvas.js`: same `SHARED_CHIP_ROW_ID` constant, CSS override rule
+      for `#dg-packs-btn` (the panel itself, `#dg-packs-panel`, stays independently positioned -- only the
+      trigger button joins the row), and the same row-join-with-bounded-retry logic in `mount()`. This
+      module has no periodic refresh loop of its own (unlike the AI/Project-Run modules), so the mount-time
+      retry is its only recovery path if boot order ever changes; boots last of the four row-joining
+      modules at 1400ms, after the spine module's 1200ms, so the row is expected to already exist in the
+      common case.
+    - Verified with real Playwright runs at 320/375/390px: all five chips/buttons (`#dg-spine-chip`,
+      `#dg-spine-ledger-chip`, `#dg-lai-chip`, `#dg-project-run-chip`, `#dg-packs-btn`) join
+      `#dg-spine-chip-row` as flex children with zero pairwise overlaps and stay fully on-screen; click-through
+      still opens the Project Run drawer and the Polyglot Packs panel correctly after re-parenting; the
+      documented 0z2 no-row fallback (independent `position:fixed` placement when the shared row genuinely
+      doesn't exist) continues to work unmodified for both new chips.
+    - `test/bundle15-canvas-ui.test.mjs` extended from 39 to 45 assertions: added both modules (plus
+      `js/spine/project-run.js`) to the scripts fixture, added a `waitForAllChipModules()` helper, and a new
+      five-chip-row test block (existence, row membership, zero overlaps, on-screen, both click-throughs) at
+      a 320px viewport.
+    - Canvas re-sync: `js/spine/data-glow-project-run-canvas.js` was re-synced via its existing, narrow
+      `inject_r1_project_run.py` (already scoped to only that file plus `js/spine/project-run.js`).
+      `js/polyglot/data-glow-power-packs-canvas.js` was re-synced via a new, deliberately narrow
+      `inject_0z3_packs_resync.py` rather than the more general `inject_bundle16.py` that also owns this
+      file: running `inject_bundle16.py` verbatim was tested first and found to regenerate a stale,
+      ~10KB-smaller version of `js/drill-floor/drill-floor.js`'s canvas span (that script hand-writes a
+      custom `window.DrillFloor` mount body that had drifted from what the canvas currently carries) --
+      caught by `check:canvas-integrity`'s aggregate byte-count guard before it was committed, and avoided
+      entirely by re-syncing only the one file this fix actually changed. No other file's canvas span was
+      touched. `npm run check:canvas-integrity -- --update` confirms 70 tracked modules verified, canvas
+      recorded at 6,701,322 bytes.
+    - No new feature flag: this is a correctness/layout fix to already-shipped, already-enabled chips, not
+      new behavior.
+    - **A second, unrelated incidental fix surfaced by the same re-injection:** re-syncing
+      `js/spine/data-glow-project-run-canvas.js` into the canvas for the first time since an older, stale
+      copy from PR #638 exposed a pre-existing `.dg-pr-badge{font-size:10px}` rule in the source file that
+      had never actually been present in the live canvas before (the canvas copy predated that rule).
+      CI's `test:jobspolisha48` and `test:typographyreadability` both gate on no font-size in the
+      9px-10.5px range anywhere in `canvas/index.html`, so this surfaced as two CI failures on this PR.
+      Fixed by bumping that one rule to `font-size:12px`, matching the 12px floor every sibling rule in
+      the same `styles()` block already uses (`.dg-pr-dataset`, `.dg-pr-progress`, `.dg-pr-detail`,
+      `.dg-pr-btn`, `.dg-pr-doctrine`). This was a pre-existing, dormant defect in the source file, not
+      something this PR introduced -- it simply had never been inlined into the canvas (and therefore
+      never actually rendered) until this fix's re-injection made it live for the first time.
+    - **Process note for future chip work:** this is the third separate fix in the same root-cause family
+      (0z, 0z2, this one) -- each new floating mobile control picked its own fixed corner without checking
+      for others already there. If a sixth chip/button is ever added, it should default to joining
+      `#dg-spine-chip-row` from the start rather than repeating this discover-then-patch cycle.
+
+0z4. **Found while fixing 0z3, not yet fixed — `inject_bundle16.py` would silently revert real shipped
+    behavior in `js/drill-floor/drill-floor.js` if re-run verbatim today.** That script's docstring says it
+    hand-regenerates the canvas copy's `window.DrillFloor` mount body (a "REAL mountDrillFloor function
+    body" plus Check-answer/golden-answer/RECEIPT UI parity) rather than doing a plain verbatim splice of
+    the checked-in `js/drill-floor/drill-floor.js` source. Running it during the 0z3 fix (before that fix's
+    scope was narrowed to skip this file) regenerated a version of that span roughly 10KB smaller than what
+    is currently live in `canvas/index.html`, and `drill-floor-data.js`'s span shrank too (~800 bytes) --
+    caught only because `check:canvas-integrity`'s aggregate byte-count guard flagged the drop before
+    anything was committed; neither file is in the strict per-file tracked manifest, so a smaller,
+    unintentional re-sync of just these two files alone would NOT have been caught by the per-file hash
+    check, only by the whole-canvas byte-count comparison. This means the canvas's current `drill-floor.js`
+    span has drifted ahead of what `inject_bundle16.py`'s generation logic would produce from today's
+    checked-in source, and whoever next has a legitimate reason to touch any of the OTHER five files that
+    script also owns (`repair-ledger.js`, `data-glow-repair-ledger-canvas.js`, `csv-quarantine-canvas.js`,
+    `excel-hell-canvas.js`, `drill-floor-data.js`) needs to know running it will also silently regress
+    `drill-floor.js` unless this is fixed first. Likely fix direction: either (a) update
+    `inject_bundle16.py`'s hand-written `drill-floor.js` mount-body template to match what is actually live
+    in the canvas today, then re-verify byte parity, or (b) split `drill-floor.js`/`drill-floor-data.js`
+    out of `inject_bundle16.py` into their own narrow, verbatim-splice script (same pattern used for this
+    session's `inject_0z3_packs_resync.py`) so the two very different re-sync strategies (verbatim splice
+    vs. hand-regenerated template) stop sharing one script and one run.
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
 the user ("more stuff can be added later on"):**

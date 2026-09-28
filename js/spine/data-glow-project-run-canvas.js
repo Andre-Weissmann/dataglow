@@ -41,6 +41,14 @@
   var DRAWER_ID = 'dg-project-run-drawer';
   var OVERLAY_ID = 'dg-project-run-overlay';
   var CHIP_ID = 'dg-project-run-chip';
+  /* Backlog 0z3: the shared mobile chip row, first created by
+     js/spine/data-glow-receipt-spine-canvas.js (backlog 0z) and already
+     joined by the Built-in AI status chip (backlog 0z2). This chip used its
+     own independent bottom-right corner (right:18px), which collided with
+     that row's second wrapped line on a 320px phone. Joining the same row
+     keeps every mobile floating chip laid out by one flex container instead
+     of each module guessing a corner with no awareness of the others. */
+  var SHARED_CHIP_ROW_ID = 'dg-spine-chip-row';
   var STYLE_ID = 'dg-project-run-styles';
 
   var state = { open: false, expandedId: '' };
@@ -355,7 +363,7 @@
       + '.dg-pr-step[data-status="doing"]{border-color:currentColor;border-width:2px;font-weight:700}'
       + '.dg-pr-step[data-status="blocked"]{border-style:dashed}'
       + '.dg-pr-row{display:flex;align-items:center;justify-content:space-between;gap:8px}'
-      + '.dg-pr-badge{font-size:10px;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;'
+      + '.dg-pr-badge{font-size:12px;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;'
       + 'border:1px solid var(--color-border,#ccc)}'
       + '.dg-pr-detail{margin-top:6px;font-size:12px;opacity:.85}'
       + '.dg-pr-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}'
@@ -365,7 +373,15 @@
       + '#' + CHIP_ID + '{position:fixed;bottom:18px;right:18px;z-index:2147482950;'
       + 'font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;display:none;'
       + 'border:1px solid var(--color-border,#ccc);background:var(--color-surface,#fff);color:inherit;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}';
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.14)}'
+      /* Backlog 0z3: once this chip is a child of the shared row, the row's
+         own flex layout positions and spaces it -- its standalone corner
+         placement must not fight that. min-width:0 lets its label ellipsis
+         on the narrowest phones rather than forcing the row to overflow.
+         display stays governed by the inline chip.style.display toggle
+         above, untouched by this rule. */
+      + '#' + SHARED_CHIP_ROW_ID + ' #' + CHIP_ID + '{position:static;bottom:auto;right:auto;left:auto;z-index:auto;'
+      + 'min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
     var tag = el('style', { id: STYLE_ID });
     tag.textContent = css;
     (document.head || document.body).appendChild(tag);
@@ -452,6 +468,20 @@
     }
     chip.textContent = label;
     chip.style.display = state.open ? 'none' : 'inline-block';
+    reparentIntoSharedRowIfNeeded(chip);
+  }
+
+  /* Backlog 0z3: this module boots on its own setTimeout (currently 1000ms),
+     independently of whichever other module owns the shared row -- a race,
+     not a guarantee. If this chip mounted to document.body before the row
+     existed yet, move it in the first time refreshChip() notices the row has
+     since appeared. Piggybacks on the existing 4-second re-observe interval
+     rather than adding a new timer. */
+  function reparentIntoSharedRowIfNeeded(chip) {
+    if (!chip || chip.parentNode === null) return;
+    if (chip.parentNode.id === SHARED_CHIP_ROW_ID) return;
+    var row = document.getElementById(SHARED_CHIP_ROW_ID);
+    if (row) row.appendChild(chip);
   }
 
   function open() {
@@ -493,7 +523,30 @@
 
     var chip = el('button', { id: CHIP_ID, type: 'button' }, 'Project Run');
     chip.addEventListener('click', open);
-    document.body.appendChild(chip);
+    // Backlog 0z3: join the shared mobile chip row if it already exists;
+    // otherwise mount to document.body as before, and retry briefly in case
+    // the row's owning module simply hasn't booted yet (see the
+    // reparentIntoSharedRowIfNeeded comment below for why this can't assume
+    // a fixed boot order between independent modules).
+    var sharedRow = document.getElementById(SHARED_CHIP_ROW_ID);
+    if (sharedRow) {
+      sharedRow.appendChild(chip);
+    } else {
+      document.body.appendChild(chip);
+      var chipRowRetries = 0;
+      var chipRowRetryTimer = setInterval(function () {
+        chipRowRetries += 1;
+        var row = document.getElementById(SHARED_CHIP_ROW_ID);
+        if (row) {
+          row.appendChild(chip);
+          clearInterval(chipRowRetryTimer);
+        } else if (chipRowRetries >= 6) {
+          // ~900ms of retrying; the 4-second refreshChip() poll keeps
+          // checking indefinitely afterward as a backstop.
+          clearInterval(chipRowRetryTimer);
+        }
+      }, 150);
+    }
 
     wireObservers();
     refreshChip();
