@@ -443,7 +443,7 @@ function switchTab(tabId) {
   if (tabId === 'dvc') renderDVCTab();
   // council is mounted lazily inside the AI tab -- no standalone trigger
   if (tabId === 'drillfloor') renderDrillFloorTab({ ensurePythonRuntime, ensureRRuntime });
-  if (tabId === 'cleaningcrew') renderCleaningCrewTab({ ensureDuckDB, renderSidebar, iconSvg });
+  if (tabId === 'cleaningcrew') renderCleaningCrewTab({ ensureDuckDB, renderSidebar, iconSvg, switchTab });
   renderCommandDeckSidebar();
   // Glow Path (Batch A): keep the next-action rail in sync as the user moves
   // between tools. No-op when the glowPathRail flag is off.

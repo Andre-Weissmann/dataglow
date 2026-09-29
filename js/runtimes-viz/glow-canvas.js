@@ -22,6 +22,15 @@
 // renderCanvas call it on drop and are otherwise decorative (dragover/dragstart
 // classes for visual feedback only, no state of their own).
 //
+// BATCH 4 adds the Cleaning Crew → Glow Canvas bridge: renderCanvas() accepts an
+// optional opts.prefillTable so a caller handing off a just-loaded, just-gated
+// table (e.g. a profiled PDF) can land the user directly on an already-open,
+// already-populated "Add chart" form instead of a closed toolbar the user would
+// have to discover and re-navigate to their table inside on their own. This
+// module still invents no bridge-specific state — prefillTable is consumed once
+// per render call and it is the CALLER's job (glow-canvas-tab.js) to clear it
+// after use, exactly like this module has never owned layout persistence either.
+//
 // WHAT THIS BATCH DELIBERATELY STILL DOES NOT DO: no cross-table (join-key)
 // filtering, no multi-cell (span > 1x1) resize-drag, and no wiring into /
 // replacement of the existing Visualize tab — those are later batches. It ships
@@ -340,13 +349,20 @@ export function deserializeLayout(json) {
  * @param {Array<{table:string, cols?:Array<{name:string}>}>} [opts.datasets]  optional
  *   dataset list to drive the "Add chart" form; a text-input fallback is used otherwise
  * @param {typeof viz.renderChart} [opts.renderChart]  injectable chart renderer (defaults to viz.renderChart)
+ * @param {string} [opts.prefillTable]  Batch 4: when a caller (e.g. the Cleaning Crew
+ *   "Add to Glow Canvas" bridge) hands off a specific table, the add-chart form opens
+ *   already expanded with that table pre-selected, so the very next thing the user
+ *   sees is "add a chart from this data" instead of a closed toolbar they'd have to
+ *   discover on their own. Consumed once per render call — it is the CALLER's job to
+ *   clear it after the first render (glow-canvas-tab.js does this), not this module's,
+ *   since renderCanvas holds no state of its own between calls.
  * @returns {{layout:object}|undefined}
  */
 export function renderCanvas(containerId, layout, opts = {}) {
   const host = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
   if (!host) return;
   const current = normalizeLayout(layout);
-  const { onChange, datasets = [], renderChart = viz.renderChart } = opts;
+  const { onChange, datasets = [], renderChart = viz.renderChart, prefillTable = '' } = opts;
   host.innerHTML = '';
 
   const emit = (next) => { if (typeof onChange === 'function') onChange(next); };
@@ -391,9 +407,12 @@ export function renderCanvas(containerId, layout, opts = {}) {
   host.appendChild(toolbar);
 
   // ---- inline add form (minimal; text-input fallback acceptable for Batch 1) ----
+  // Batch 4: a non-empty prefillTable starts the form already open (display:flex)
+  // instead of the default closed state — a handoff from another tab (e.g. Cleaning
+  // Crew) should land the user directly on "add a chart," not a collapsed toolbar.
   const form = el('form', {
     'data-testid': 'glow-canvas-add-form',
-    style: 'display:none; gap:var(--space-2,8px); flex-wrap:wrap; align-items:flex-end; margin-bottom:var(--space-3,12px); padding:var(--space-3,12px); border:1px solid var(--color-border,#e2e2e2); border-radius:var(--radius,8px);',
+    style: `display:${prefillTable ? 'flex' : 'none'}; gap:var(--space-2,8px); flex-wrap:wrap; align-items:flex-end; margin-bottom:var(--space-3,12px); padding:var(--space-3,12px); border:1px solid var(--color-border,#e2e2e2); border-radius:var(--radius,8px);`,
   });
   function field(label, input) {
     return el('label', { style: 'display:flex; flex-direction:column; gap:2px; font-size:var(--text-xs,12px); color:var(--color-text-muted,#666);' }, [label, input]);
@@ -402,6 +421,16 @@ export function renderCanvas(containerId, layout, opts = {}) {
     ? el('select', { 'data-testid': 'glow-canvas-field-table', class: 'btn btn-secondary' },
         datasets.filter(d => d && d.table).map(d => el('option', { value: d.table }, d.table)))
     : el('input', { 'data-testid': 'glow-canvas-field-table', type: 'text', placeholder: 'table', class: 'btn btn-secondary' });
+  // Batch 4: pre-select the handed-off table so the user doesn't have to find it
+  // again in the dropdown. Only applied when that table is actually present in
+  // datasets (a select whose value doesn't match any <option> silently falls back
+  // to the first option, which would be misleadingly wrong) — a stale/unknown
+  // prefillTable is a silent no-op, never an error.
+  if (prefillTable && datasets.some(d => d && d.table === prefillTable)) {
+    tableInput.value = prefillTable;
+  } else if (prefillTable && !datasets.length) {
+    tableInput.value = prefillTable;
+  }
   const typeInput = el('select', { 'data-testid': 'glow-canvas-field-type', class: 'btn btn-secondary' },
     CANVAS_CHART_TYPES.map(t => el('option', { value: t }, t)));
   const xInput = el('input', { 'data-testid': 'glow-canvas-field-x', type: 'text', placeholder: 'x column', class: 'btn btn-secondary' });

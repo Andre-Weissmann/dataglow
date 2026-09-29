@@ -453,5 +453,109 @@ ok(JSON.stringify(CANVAS_CHART_TYPES) === JSON.stringify(['bar', 'line', 'scatte
   delete global.document;
 }
 
+// ---------- renderCanvas prefillTable (Batch 4: Cleaning Crew bridge) ----------
+// Reuses the drag-and-drop shim's makeEl (a select's <option> children carry
+// their `value` attribute, so "was this table pre-selected" is assertable via
+// tableInput.value, exactly like the real DOM would report it after render).
+{
+  const registry = {};
+  function makeEl(tag) {
+    const classes = new Set();
+    return {
+      tagName: tag, children: [], attributes: {}, style: {}, _listeners: {},
+      className: '', innerHTML: '', textContent: '', value: '',
+      classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), has: (c) => classes.has(c) },
+      setAttribute(k, v) { this.attributes[k] = v; if (k === 'id') registry[v] = this; },
+      getAttribute(k) { return this.attributes[k]; },
+      addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); },
+      appendChild(c) { this.children.push(c); return c; },
+    };
+  }
+  function freshHost() {
+    const host = makeEl('div');
+    registry.host = host;
+    global.document = {
+      createElement: makeEl,
+      createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
+      getElementById: (id) => registry[id] || null,
+    };
+    return host;
+  }
+  function findForm(host) {
+    return host.children.find((c) => c.attributes && c.attributes['data-testid'] === 'glow-canvas-add-form');
+  }
+  function findField(form, testid) {
+    // fields are <label> wrappers; the input/select is their one child.
+    for (const label of form.children) {
+      const input = label.children && label.children[1];
+      if (input && input.attributes && input.attributes['data-testid'] === testid) return input;
+    }
+    return null;
+  }
+
+  // Case 1: no prefillTable -> form stays closed (existing Batch 1 behavior unchanged).
+  {
+    const host = freshHost();
+    const l = createCanvasLayout();
+    renderCanvas('host', l, { renderChart: () => Promise.resolve(), datasets: [{ table: 'sales' }] });
+    const form = findForm(host);
+    ok(form.attributes.style.includes('display:none'), 'with no prefillTable, the add-chart form stays closed by default');
+    delete global.document;
+  }
+
+  // Case 2: prefillTable matching a real dataset -> form opens, select pre-set to it.
+  {
+    const host = freshHost();
+    const l = createCanvasLayout();
+    renderCanvas('host', l, {
+      renderChart: () => Promise.resolve(),
+      datasets: [{ table: 'sales' }, { table: 'crew_report_pdf' }],
+      prefillTable: 'crew_report_pdf',
+    });
+    const form = findForm(host);
+    ok(form.attributes.style.includes('display:flex'), 'a matching prefillTable opens the add-chart form immediately');
+    const tableField = findField(form, 'glow-canvas-field-table');
+    ok(tableField.value === 'crew_report_pdf', 'the table field is pre-set to the handed-off table');
+    delete global.document;
+  }
+
+  // Case 3: prefillTable that does not match any known dataset -> safe no-op, never throws.
+  {
+    const host = freshHost();
+    const l = createCanvasLayout();
+    let threw = false;
+    try {
+      renderCanvas('host', l, {
+        renderChart: () => Promise.resolve(),
+        datasets: [{ table: 'sales' }],
+        prefillTable: 'table_that_does_not_exist',
+      });
+    } catch (_e) { threw = true; }
+    ok(!threw, 'an unknown prefillTable never throws');
+    const form = findForm(host);
+    ok(form.attributes.style.includes('display:flex'), 'the form still opens for an unknown prefillTable (better to show it open than silently ignore the handoff)');
+    const tableField = findField(form, 'glow-canvas-field-table');
+    ok(tableField.value !== 'table_that_does_not_exist', 'an unknown prefillTable is not force-set onto the select (would silently mismatch every real <option>)');
+    delete global.document;
+  }
+
+  // Case 4: no datasets at all -> the table field is a plain text input, and
+  // prefillTable IS applied directly (there's no <option> list to mismatch).
+  {
+    const host = freshHost();
+    const l = createCanvasLayout();
+    renderCanvas('host', l, {
+      renderChart: () => Promise.resolve(),
+      datasets: [],
+      prefillTable: 'crew_report_pdf',
+    });
+    const form = findForm(host);
+    const tableField = findField(form, 'glow-canvas-field-table');
+    ok(tableField.tagName === 'input', 'with zero datasets, the table field falls back to a plain text input');
+    ok(tableField.value === 'crew_report_pdf', 'the text-input fallback is pre-filled with prefillTable directly');
+    delete global.document;
+  }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

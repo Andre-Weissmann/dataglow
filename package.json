@@ -141,7 +141,7 @@
     "test:agentgate": "node test/agent-gate.test.mjs",
     "test:truststrip": "node test/trust-strip-proof-drawer.test.mjs",
     "test:objectspace": "node test/object-space.test.mjs",
-    "test:glowcanvas": "node test/glow-canvas.test.mjs",
+    "test:glowcanvas": "node test/glow-canvas.test.mjs && node test/glow-canvas-cleaning-crew-bridge.test.mjs && node test/cleaning-crew-glow-canvas-bridge.test.mjs",
     "test:typographyreadability": "node test/typography-readability.test.mjs",
     "test:jobspolisha48": "node test/jobs-polish-a48.test.mjs",
     "test:higcrossplatform": "node test/a48-hig-cross-platform.test.mjs",
