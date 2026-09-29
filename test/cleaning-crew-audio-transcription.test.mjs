@@ -25,7 +25,11 @@
 //     test/audio/audio-readiness-gate.test.js)
 //   - loadAudioAsDataset is never called from the automatic loadFile
 //     dispatch -- it only runs from the dedicated button's click handler
-//   - the flag itself defaults to false in flags.manifest.json (ships dark)
+//   - the flag itself is declared as a real boolean in flags.manifest.json
+//     (its enabled value is intentionally NOT pinned here -- PR #705 shipped
+//     it false/dark, PR #706 flips it true/live; a test asserting one point-
+//     in-time value would go stale the moment the flag is deliberately
+//     enabled, exactly what happened the first time this file was written)
 //
 // RUN WITH: node test/cleaning-crew-audio-transcription.test.mjs
 
@@ -46,7 +50,7 @@ const flagsSrc = readFileSync(new URL('../flags.manifest.json', import.meta.url)
 ok(crewSrc.includes("isEnabled('audioTranscription')"), 'audio station checks isEnabled(\'audioTranscription\')');
 const flags = JSON.parse(flagsSrc);
 ok(flags.flags.audioTranscription != null, 'flags.manifest.json declares the audioTranscription flag');
-ok(flags.flags.audioTranscription.enabled === false, 'audioTranscription flag defaults to false (ships dark)');
+ok(typeof flags.flags.audioTranscription.enabled === 'boolean', 'audioTranscription flag has a real boolean enabled state');
 
 // ---------- 2. WebGPU availability gating, independent of the flag ----------
 ok(crewSrc.includes('isFileTranscriptionAvailable'), 'audio station imports/uses isFileTranscriptionAvailable');
