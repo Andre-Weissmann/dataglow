@@ -3373,3 +3373,88 @@ into `canvas/index.html`).
 transcription (opt-in, desktop-first), video audio-track extraction (WebCodecs) feeding
 the same Whisper path, and live/API feed refresh polish on Canvas cards. Each still gets
 its own flag/PR per the standing batching convention.
+
+## 2026-09-29 — Glow Compiler Batch 5: Whisper audio transcription (opt-in, desktop-first)
+
+Closes one of the two genuinely UNBUILT areas repeatedly confirmed across this whole
+Glow Compiler arc (the other being video/WebCodecs). The scaffold (`js/audio/
+whisper-worker.scaffold.js`) posted mock data only -- every real transformers.js call was
+commented out. This batch replaces the mock with a real, working, on-device transcription
+path, following the exact scoping the user locked in: "opt-in, desktop-first; labeled
+'assistive, verify,' blocked from agent use until a human confirms."
+
+**What shipped:**
+- `js/audio/whisper-file-transcriber.js` (new) -- real Whisper file transcription. Does
+  NOT follow the scaffold's dedicated-Worker design; instead reuses the EXACT
+  transformers.js CDN pipeline (`onnx-community/whisper-base`, WebGPU, pinned `esm.run`
+  build) `js/agents/live-transcript-capture.js` already ships for live mic capture
+  (DataGlow Live Rooms Batch 1) -- one model, one CDN reference, no second divergent
+  integration. `isFileTranscriptionAvailable()` gates on WebGPU only (no microphone
+  needed for a file upload, unlike live capture).
+- `js/audio/audio-readiness-gate.js` (new) -- mirrors `js/cleaning-crew/pdf-profiler.js`'s
+  `buildPdfGateLayers`/`evaluatePdfReadiness` exactly. Composes the SAME shared
+  `js/gate/readiness-gate.js` every other source uses, so `gate.agentConsumable` is the
+  real, single mechanism that blocks agent use -- the exact field
+  `js/agents/guarded-copilot.js` already checks before answering "is this ready for an
+  agent." No parallel/invented "agent block" flag. **No fabricated confidence score**:
+  researched transformers.js' default ASR pipeline output (`{text, chunks: [{timestamp,
+  text}]}`) and confirmed it carries no per-segment confidence value -- Whisper's
+  underlying log-probabilities exist but require deeper `output_scores` plumbing this
+  repo's integration doesn't do. Rather than invent a number DataGlow couldn't back with
+  evidence, the gate uses the same honest structural signal the PDF gate uses: zero
+  transcribed text across every segment is a hard FAIL; partial silence/non-speech
+  coverage (normal and expected) is a PASS with a warning.
+- `js/app-shell/loaders.js` gained `loadAudioAsDataset()`, mirroring `loadPdfAsDataset()`
+  in shape (transcribe -> structure via the already-real, already-tested
+  `js/audio/audio-structurer.js` -> evaluate readiness -> ingest via the same
+  `loadRowsAsDataset()` every format uses). Deliberately **NOT** wired into `loadFile`'s
+  automatic drop-zone dispatch -- unlike PDF, transcription must stay an explicit,
+  opt-in action a human starts on purpose (it downloads a model and spends real GPU
+  time), never something that fires the moment an audio file touches the drop zone.
+- `js/app-shell/tabs/cleaning-crew-tab.js` gained a second station, "Audio transcription,"
+  labeled "assistive, verify" in the UI copy verbatim. The upload button starts disabled
+  and only enables once an explicit opt-in checkbox is checked -- the real consent
+  gesture the user's scoping required, not just a dark flag check. A coarse-pointer
+  (`pointer: coarse`) heuristic shows a "works best on desktop" tip -- a soft steer, not a
+  hard block, since WebGPU absence already hard-blocks devices that truly cannot run it.
+  The result card states plainly that the transcript is not used by any AI agent until a
+  human confirms it.
+- New flag `audioTranscription`, default `false` (ships dark). With it off, the Cleaning
+  Crew tab shows only the existing PDF Profiler station, byte-for-byte unchanged.
+
+**Corrected a stale doc claim** (the same "never trust a stale doc claim" lesson from
+Batch 3/4): `docs/capability-map.md` had a row claiming `js/audio/audio-structurer.js`
+was "ABSENT"/"UNBUILT," when it was actually a complete, real, already-tested module --
+just not wired to anything live. Corrected to LIVE (behind flag), with the real files and
+an honest description of what it does and doesn't guarantee.
+
+**Tests:** 45 new tests across two new files (`test/audio/audio-readiness-gate.test.js`,
+24 tests -- all-text pass, all-empty hard fail, mixed partial-silence warn-not-fail,
+malformed/empty input never throws, composes through the shared gate shape;
+`test/cleaning-crew-audio-transcription.test.mjs`, 21 tests -- flag gating, WebGPU gating
+independent of the flag, opt-in consent gates the button, "assistive, verify" literal
+copy, desktop-first soft-steer (not a hard block), agent-blocking stated to the human,
+never auto-wired into `loadFile`'s dispatch, correct module imports with no duplicated
+logic). `npm run test:capdrift` and `npm run check:canvas-integrity` both stay clean
+(none of the touched files are inlined into `canvas/index.html`); `npm run
+check:capability-map` confirms the `ingestion-audio-structurer` capability correctly
+derives to `behind-flag` status (not a false "shipped" claim) since `audioTranscription`
+ships off. New CI steps added as steps inside the EXISTING `cleaning-crew` job in
+`test.yml` (per the CI Architect convention -- no new `job-<name>.yml` file), also
+covering `audio-structurer`'s tests which had no CI job wired to them at all before this
+batch despite being real and tested pre-Batch-5.
+
+**Remaining Glow Compiler batches:** video audio-track extraction (WebCodecs) feeding this
+same Whisper path, and live/API feed refresh polish on Canvas cards.
+
+**Is DataGlow more capable now? Answered honestly, based on verified repo state:**
+Batches 1, 3, and 4 this session (Glow Canvas reorder, the Glow Canvas <-> Cleaning Crew
+bridge) added navigation/UX convenience on top of PDF ingestion capability that was
+already live before this session -- they did NOT expand what dataset types DataGlow could
+actually handle. Batch 5 is different: before this batch, audio files had NO working
+ingestion path at all (the scaffold posted mock data, not a real transcript) -- confirmed
+by reading the scaffold's source directly, not by assumption. After this batch (once the
+`audioTranscription` flag is enabled), DataGlow can turn an uploaded audio file into a
+real, queryable local dataset it genuinely could not handle before. This is a real new
+capability, not a UX polish pass -- but it ships dark behind its flag until a separate,
+explicit enable step, so it does not change what a live user can do today.

@@ -417,7 +417,7 @@ This file is the single authoritative answer to "does DataGlow already do X?" an
 | Text line parser | `js/ingestion/text-line-parser.js` | LIVE | MED | Ingests fixed-width, pipe-delimited, and non-standard text formats. |
 | API feed | `js/ingestion/api-feed.js` | LIVE | MED | Pulls data from a user-supplied API endpoint into DuckDB. |
 | RAG engine | | LIVE (unlisted) | HIGH | 32-entry local knowledge base. Healthcare, finance, retail. Wired into every council prompt. |
-| Audio ingestion (Whisper structured output) | `js/audio/audio-structurer.js` -- ABSENT | UNBUILT | MED | Whisper transcription piped into structured dataset (different from voice query). |
+| Audio ingestion (Whisper structured output) | `js/audio/audio-structurer.js`<br>`js/audio/whisper-file-transcriber.js`<br>`js/audio/audio-readiness-gate.js` | LIVE (behind flag `audioTranscription`, default off) | MED | Uploaded audio file (mp3/wav/m4a/flac) is transcribed on-device via WebGPU Whisper (opt-in, desktop-first) and piped into a structured transcript dataset (different from voice query). AI Readiness Gate blocks agent use until a human confirms; uses the honest structural signal of transcribed-text-present rather than a fabricated confidence score. |
 | PDF ingestion (PDF.js) | `js/pdf/pdf-ingestion-bridge.js` -- ABSENT | UNBUILT | MED | Extracts tables from PDFs directly into DuckDB. |
 | Video ingestion (audio track) | `js/video/video-ingestion-bridge.js` -- ABSENT | UNBUILT | LOW | Extracts audio track from video, feeds into Whisper. |
 | Connector manager | `js/connectors/connector-manager.js` | LIVE | MED | Manages all external connector plugins. |
@@ -535,7 +535,9 @@ The following paths are declared in `capability-map.manifest.json` and are liste
 - `js/app-shell/tab-groups.js` — Grouped tab navigation (present)
 - `js/app-shell/utils.js` — State & helpers (present)
 - `js/app-shell/validate-focus.js` — Validate tab focus mode (present)
-- `js/audio/whisper-worker.scaffold.js` — Audio ingestion structurer (Whisper → structured transcript dataset) (present)
+- `js/audio/whisper-worker.scaffold.js` -- Dedicated-Worker Whisper reference sketch, superseded by whisper-file-transcriber.js's main-thread WebGPU pipeline (kept as historical reference, present)
+- `js/audio/whisper-file-transcriber.js` -- Audio ingestion: Whisper file transcription, opt-in/desktop-first, flag audioTranscription (present)
+- `js/audio/audio-readiness-gate.js` -- Audio ingestion: AI Readiness Gate wiring for transcripts (present)
 - `js/build/build-flags.js` — Build feature flags (present)
 - `js/build/enterprise-policy.js` — Enterprise policy engine (present)
 - `js/cleaning-crew/pdf-profiler.js` — Cleaning Crew — Profiler station (PDF text extraction, Batch 1) (present)

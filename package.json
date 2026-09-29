@@ -14,6 +14,8 @@
     "test:rowshape": "node --import ./test/duckdb-loader-hook.mjs test/row-shape-correctness.test.mjs",
     "test:sql": "node --import ./test/duckdb-loader-hook.mjs test/sql-logic.test.mjs",
     "test:audiostructurer": "node test/audio/audio-structurer.test.js",
+    "test:audioreadinessgate": "node test/audio/audio-readiness-gate.test.js",
+    "test:audiotranscription": "node test/cleaning-crew-audio-transcription.test.mjs",
     "test:dialectadapter": "node test/sql-dialect-adapter.test.mjs",
     "test:provpacket": "node test/provenance-packet.test.mjs",
     "test:provregistry": "node test/provenance-registry-isolation.test.mjs",
