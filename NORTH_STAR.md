@@ -3322,3 +3322,54 @@ mobile-fragility research), clearly labeled "assistive, verify before trusting,"
 consumption until a human confirms. Batch 4 — video audio-track extraction (WebCodecs) feeding the same
 Whisper path. Batch 5 — live/API feed refresh polish on Canvas cards. Each remains its own PR/CI/merge-
 consent cycle per this repo's standing rule.
+
+## 2026-09-29 — Glow Compiler Batch 4: Cleaning Crew -> Glow Canvas bridge
+
+Follows directly from Batch 1 (drag-and-drop reorder, PR #703, merged 2026-09-27). Closes
+the specific gap the user asked for: "today a user must move between two separate tabs
+manually" to get from a profiled PDF to a chart of its data.
+
+**What shipped:** `js/runtimes-viz/glow-canvas.js`'s `renderCanvas()` gained an optional
+`prefillTable` option -- when set, the add-chart form opens immediately with that table
+already selected, instead of the default closed toolbar a user would have to discover and
+then hunt through a dropdown for the right table. `js/app-shell/tabs/glow-canvas-tab.js`
+exports a new `requestGlowCanvasPrefill(table)` -- a one-shot, in-memory handoff (not
+persisted state) consumed by the very next render and cleared immediately after, so a
+later unrelated tab activation never reopens the form with a stale table. The Cleaning
+Crew tab's PDF profile card now shows an "Add to Glow Canvas" button whenever the load
+produced a real table AND the `glowCanvas` flag is on; clicking it calls
+`requestGlowCanvasPrefill(ds.table)` then the real `switchTab('glowcanvas')` dispatcher
+(the same callback pattern already used by `join-builder-tab.js` and `nl-sql-tab.js` --
+no new navigation mechanism invented).
+
+**A deliberate judgment call, stated plainly:** the bridge button is NOT gated on the PDF
+readiness-gate verdict (`gate.agentConsumable`). That gate answers a narrower question --
+whether an AI AGENT may treat the extracted text as trustworthy enough to reason over --
+which is a different question from whether a HUMAN may look at a chart of page-count or
+page-length metadata, which stays safe regardless of the gate's verdict. The verdict text
+itself is still rendered right above the button, so the user sees the trust caveat before
+deciding whether to proceed; hiding navigation entirely on a failed gate would have been
+overcautious given what the button actually does downstream.
+
+**No new flag.** Ships under the existing `glowCanvas` flag (already `enabled: true`),
+exactly like Batch 1 -- this is additive behavior on an already-live surface, not a new
+dark feature, so no separate enable step follows this merge.
+
+**Tests:** 17 new tests across two new files (`test/glow-canvas-cleaning-crew-bridge.test.mjs`,
+6 tests, exercises the real `requestGlowCanvasPrefill`/`renderGlowCanvasTab` one-shot
+contract with a minimal DOM shim; `test/cleaning-crew-glow-canvas-bridge.test.mjs`, 11
+tests, source-level assertions on the button's wiring since `cleaning-crew-tab.js` renders
+via raw innerHTML template strings rather than the `el()` helper, and this repo's own
+convention explicitly avoids pulling in jsdom just to parse that). Plus 8 new tests inside
+the existing `test/glow-canvas.test.mjs` covering `prefillTable`'s four cases (closed by
+default, opens pre-selected for a known table, opens but does not force-set an unknown
+table onto a `<select>`, and the plain-text-input fallback when there are zero datasets).
+104 total tests across the three files, 0 failures. `npm run test:capdrift` and
+`npm run check:canvas-integrity` both stay clean (none of the four edited files --
+`glow-canvas.js`, `glow-canvas-tab.js`, `cleaning-crew-tab.js`, `main.js` -- are inlined
+into `canvas/index.html`).
+
+**Remaining Glow Compiler batches (unchanged from the 2026-09-27 entry):** Whisper audio
+transcription (opt-in, desktop-first), video audio-track extraction (WebCodecs) feeding
+the same Whisper path, and live/API feed refresh polish on Canvas cards. Each still gets
+its own flag/PR per the standing batching convention.

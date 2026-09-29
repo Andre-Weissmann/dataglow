@@ -20,6 +20,25 @@ const GLOW_CANVAS_LAYOUT_NAME = 'default';
 let glowCanvasLayout = glowCanvas.createCanvasLayout();
 let glowCanvasLoaded = false;
 
+// Batch 4 (Cleaning Crew bridge): a one-shot handoff, not persisted state. A
+// caller (cleaning-crew-tab.js) sets this immediately before calling
+// switchTab('glowcanvas'); renderGlowCanvasTab() reads it into the very next
+// renderCanvas() call, then clears it so a later, unrelated activation of this
+// tab never re-opens the add-form with a stale table.
+let pendingPrefillTable = '';
+
+/**
+ * Request that the NEXT render of the Glow Canvas tab open with the "Add chart"
+ * form pre-populated for `tableName`. Exported so other tabs (Cleaning Crew) can
+ * hand off a just-loaded, just-gated table without importing any Glow-Canvas-
+ * internal state directly — the same arm's-length pattern this app already uses
+ * for cross-tab handoffs (e.g. join-builder-tab.js's switchTab callback).
+ * @param {string} tableName
+ */
+export function requestGlowCanvasPrefill(tableName) {
+  pendingPrefillTable = typeof tableName === 'string' ? tableName : '';
+}
+
 async function persistGlowCanvasLayout() {
   try {
     await memoryStore.saveCanvasLayout(GLOW_CANVAS_LAYOUT_NAME, glowCanvas.serializeLayout(glowCanvasLayout));
@@ -27,8 +46,11 @@ async function persistGlowCanvasLayout() {
 }
 
 function drawGlowCanvas() {
+  const prefillTable = pendingPrefillTable;
+  pendingPrefillTable = ''; // one-shot: consumed by this render, cleared for the next
   glowCanvas.renderCanvas('glow-canvas-body', glowCanvasLayout, {
     datasets: state.datasets || [],
+    prefillTable,
     onChange: (next) => {
       glowCanvasLayout = next;
       persistGlowCanvasLayout();

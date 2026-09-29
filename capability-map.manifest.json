@@ -1739,7 +1739,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Glow Canvas (multi-chart dashboard, Batch 3: drag-to-reorder)",
+      "name": "Glow Canvas (multi-chart dashboard, Batch 4: Cleaning Crew bridge)",
       "files": [
         "js/runtimes-viz/glow-canvas.js",
         "js/app-shell/tabs/glow-canvas-tab.js"
@@ -1768,6 +1768,10 @@
         {
           "file": "js/runtimes-viz/glow-canvas.js",
           "name": "swapCards"
+        },
+        {
+          "file": "js/app-shell/tabs/glow-canvas-tab.js",
+          "name": "requestGlowCanvasPrefill"
         }
       ],
       "relatedFlags": [
@@ -1887,7 +1891,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1)",
+      "name": "Cleaning Crew \u2014 Profiler station (PDF text extraction, Batch 1; Batch 4 adds an Add to Glow Canvas bridge)",
       "files": [
         "js/cleaning-crew/pdf-profiler.js",
         "js/app-shell/tabs/cleaning-crew-tab.js"
